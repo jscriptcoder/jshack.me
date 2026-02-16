@@ -19,7 +19,7 @@ and cat() to read files.
 FLAG{welcome_hacker}
 
 Hint: Real hackers know that not all files are visible...
-Try ls(".", "-a") to see hidden files.
+Try ls("-a") to see hidden files.
 `,
   },
   '.mission': {
