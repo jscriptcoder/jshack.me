@@ -183,7 +183,17 @@ test('Full CTF playthrough — all 16 flags', async ({ page }) => {
     const scanDone = page.locator(RESULT, { hasText: 'Scan complete' });
     await countThenWait(scanDone, () => typeCommand(page, 'airdump()'), 60_000);
     const keyFound = page.locator(RESULT, { hasText: 'KEY FOUND!' });
-    await countThenWait(keyFound, () => typeCommand(page, 'aircrack("A4:CF:12:D3:8B:7A")'), 60_000);
+    await countThenWait(
+      keyFound,
+      () => typeCommand(page, 'aircrack("A4:CF:12:D3:8B:7A")'),
+      60_000,
+    );
+    await runAndExpect(
+      page,
+      'nmcli("connect", "JSHACK-CORP", "cr4ck3d_w1f1")',
+      'Connected to JSHACK-CORP',
+      30_000,
+    );
   });
 
   // -----------------------------------------------------------------------

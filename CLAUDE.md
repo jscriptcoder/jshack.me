@@ -64,7 +64,7 @@ User input flows through `Terminal.tsx`:
 Commands are tiered by user type (`src/commands/permissions.ts`):
 
 - **guest**: help, man, echo, whoami, pwd, ls, cd, cat, su, clear, author
-- **user**: All guest + ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, strings, output, resolve, exit, nano, node, airmon, airdump, aircrack
+- **user**: All guest + ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, strings, output, resolve, exit, nano, node, airmon, airdump, aircrack, nmcli
 - **root**: All user + decrypt
 
 ### Content Encoding (Anti-Cheat)
@@ -102,9 +102,9 @@ Network access from localhost requires cracking a WiFi network first. This is a 
   - `ifconfig()` shows `wlan0` as DOWN (no IP) + loopback `lo`
   - Network commands (ping, nmap, ssh, ftp, nc, curl, nslookup) throw `"Network is unreachable"`
   - `NetworkContext` returns empty machines/DNS lists
-- Player flow: `airmon("start", "wlan0")` → `airdump()` → `aircrack("A4:CF:12:D3:8B:7A")` → WiFi connected
+- Player flow: `airmon("start", "wlan0")` → `airdump()` → `aircrack("A4:CF:12:D3:8B:7A")` → `nmcli("connect", "JSHACK-CORP", "cr4ck3d_w1f1")` → WiFi connected
 - WiFi networks defined in `src/network/wifiNetworks.ts` (4 networks, 1 crackable)
-- Commands in `src/commands/airmon.ts`, `airdump.ts`, `aircrack.ts`
+- Commands in `src/commands/airmon.ts`, `airdump.ts`, `aircrack.ts`, `nmcli.ts`
 - Hook: `src/hooks/useWifiCommands.ts` (manages monitor mode state via `useRef`)
 - WiFi gating only applies on localhost; remote machines are unaffected
 

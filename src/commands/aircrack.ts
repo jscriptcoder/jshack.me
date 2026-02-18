@@ -5,7 +5,6 @@ import { createCancellationToken } from '../utils/asyncCommand';
 type AircrackContext = {
   readonly isOnLocalhost: () => boolean;
   readonly isMonitorMode: () => boolean;
-  readonly setWifiConnected: (connected: boolean) => void;
 };
 
 const TOTAL_KEYS = 14344;
@@ -31,7 +30,7 @@ export const createAircrackCommand = (context: AircrackContext): Command => ({
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {
-    const { isOnLocalhost, isMonitorMode, setWifiConnected } = context;
+    const { isOnLocalhost, isMonitorMode } = context;
 
     if (!isOnLocalhost()) {
       throw new Error('aircrack: command not available on this machine');
@@ -111,10 +110,9 @@ export const createAircrackCommand = (context: AircrackContext): Command => ({
                         onLine('');
                         onLine(`                 KEY FOUND! [ ${network.password} ]`);
                         onLine('');
-                        onLine(`Connecting to ${network.essid}...`);
-                        onLine(`Successfully connected to ${network.essid}`);
-                        onLine('wlan0: DHCP assigned 192.168.1.100/24 via 192.168.1.1');
-                        setWifiConnected(true);
+                        onLine(
+                          `Use nmcli("connect", "${network.essid}", "${network.password}") to connect`,
+                        );
                       }
                       onComplete();
                     },

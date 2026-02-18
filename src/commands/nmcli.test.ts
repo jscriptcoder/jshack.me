@@ -1,0 +1,164 @@
+import { describe, it, expect, vi } from 'vitest';
+import { createNmcliCommand } from './nmcli';
+
+type MockContextConfig = {
+  readonly isOnLocalhost?: boolean;
+  readonly isWifiConnected?: boolean;
+};
+
+const createMockContext = (config: MockContextConfig = {}) => {
+  const { isOnLocalhost = true, isWifiConnected = false } = config;
+
+  return {
+    isOnLocalhost: () => isOnLocalhost,
+    isWifiConnected: () => isWifiConnected,
+    setWifiConnected: vi.fn(),
+    disconnectWifi: vi.fn(),
+  };
+};
+
+describe('nmcli command', () => {
+  describe('no args', () => {
+    it('should show usage when called with no arguments', () => {
+      const context = createMockContext();
+      const nmcli = createNmcliCommand(context);
+
+      const result = nmcli.fn();
+
+      expect(result).toContain('Usage:');
+      expect(result).toContain('connect');
+      expect(result).toContain('disconnect');
+      expect(result).toContain('status');
+    });
+  });
+
+  describe('unknown subcommand', () => {
+    it('should throw for unknown subcommand', () => {
+      const context = createMockContext();
+      const nmcli = createNmcliCommand(context);
+
+      expect(() => nmcli.fn('bogus')).toThrow('unknown subcommand');
+    });
+  });
+
+  describe('connect', () => {
+    it('should throw when not on localhost', () => {
+      const context = createMockContext({ isOnLocalhost: false });
+      const nmcli = createNmcliCommand(context);
+
+      expect(() => nmcli.fn('connect', 'JSHACK-CORP', 'cr4ck3d_w1f1')).toThrow(
+        'only available on localhost',
+      );
+    });
+
+    it('should throw when already connected', () => {
+      const context = createMockContext({ isWifiConnected: true });
+      const nmcli = createNmcliCommand(context);
+
+      expect(() => nmcli.fn('connect', 'JSHACK-CORP', 'cr4ck3d_w1f1')).toThrow(
+        'already connected',
+      );
+    });
+
+    it('should throw when ESSID is missing', () => {
+      const context = createMockContext();
+      const nmcli = createNmcliCommand(context);
+
+      expect(() => nmcli.fn('connect')).toThrow('usage:');
+    });
+
+    it('should throw when password is missing', () => {
+      const context = createMockContext();
+      const nmcli = createNmcliCommand(context);
+
+      expect(() => nmcli.fn('connect', 'JSHACK-CORP')).toThrow('usage:');
+    });
+
+    it('should throw for unknown ESSID', () => {
+      const context = createMockContext();
+      const nmcli = createNmcliCommand(context);
+
+      expect(() => nmcli.fn('connect', 'UnknownNetwork', 'pass')).toThrow('not found');
+    });
+
+    it('should throw for wrong password', () => {
+      const context = createMockContext();
+      const nmcli = createNmcliCommand(context);
+
+      expect(() => nmcli.fn('connect', 'JSHACK-CORP', 'wrong_password')).toThrow(
+        'authentication failed',
+      );
+    });
+
+    it('should connect with correct credentials', () => {
+      const context = createMockContext();
+      const nmcli = createNmcliCommand(context);
+
+      const result = nmcli.fn('connect', 'JSHACK-CORP', 'cr4ck3d_w1f1') as string;
+
+      expect(result).toContain('Connected to JSHACK-CORP');
+      expect(result).toContain('192.168.1.100');
+      expect(context.setWifiConnected).toHaveBeenCalledWith(true);
+    });
+  });
+
+  describe('disconnect', () => {
+    it('should throw when not connected', () => {
+      const context = createMockContext({ isWifiConnected: false });
+      const nmcli = createNmcliCommand(context);
+
+      expect(() => nmcli.fn('disconnect')).toThrow('not connected');
+    });
+
+    it('should disconnect when on localhost', () => {
+      const context = createMockContext({ isWifiConnected: true });
+      const nmcli = createNmcliCommand(context);
+
+      const result = nmcli.fn('disconnect') as string;
+
+      expect(result).toContain('Disconnected from JSHACK-CORP');
+      expect(context.setWifiConnected).toHaveBeenCalledWith(false);
+      expect(context.disconnectWifi).not.toHaveBeenCalled();
+    });
+
+    it('should call disconnectWifi when on remote machine', () => {
+      const context = createMockContext({ isOnLocalhost: false, isWifiConnected: true });
+      const nmcli = createNmcliCommand(context);
+
+      const result = nmcli.fn('disconnect') as string;
+
+      expect(result).toContain('network connection lost');
+      expect(result).toContain('Returned to localhost');
+      expect(context.disconnectWifi).toHaveBeenCalled();
+    });
+  });
+
+  describe('status', () => {
+    it('should show connected status', () => {
+      const context = createMockContext({ isWifiConnected: true });
+      const nmcli = createNmcliCommand(context);
+
+      const result = nmcli.fn('status') as string;
+
+      expect(result).toContain('connected to JSHACK-CORP');
+    });
+
+    it('should show disconnected status', () => {
+      const context = createMockContext({ isWifiConnected: false });
+      const nmcli = createNmcliCommand(context);
+
+      const result = nmcli.fn('status') as string;
+
+      expect(result).toContain('disconnected');
+    });
+
+    it('should show not available on remote machine', () => {
+      const context = createMockContext({ isOnLocalhost: false });
+      const nmcli = createNmcliCommand(context);
+
+      const result = nmcli.fn('status') as string;
+
+      expect(result).toContain('not available on this machine');
+    });
+  });
+});

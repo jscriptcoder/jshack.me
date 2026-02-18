@@ -33,6 +33,7 @@ export const COMMAND_TIERS: Readonly<Record<string, UserType>> = {
   airmon: 'user',
   airdump: 'user',
   aircrack: 'user',
+  nmcli: 'user',
   // root-level commands
   decrypt: 'root',
 };

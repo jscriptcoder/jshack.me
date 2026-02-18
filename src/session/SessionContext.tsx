@@ -130,6 +130,7 @@ type SessionContextValue = {
   readonly isInNcMode: () => boolean;
   readonly updateNcCwd: (cwd: string) => void;
   readonly setWifiConnected: (connected: boolean) => void;
+  readonly disconnectWifi: () => void;
 };
 
 const defaultSession: Session = {
@@ -272,6 +273,27 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
     setSession((prev) => ({ ...prev, wifiConnected: connected }));
   }, []);
 
+  const disconnectWifi = useCallback(() => {
+    setSession((prev) => {
+      const localhostPath =
+        sessionStack.length > 0
+          ? (sessionStack[0]?.currentPath ?? defaultSession.currentPath)
+          : prev.machine === 'localhost'
+            ? prev.currentPath
+            : defaultSession.currentPath;
+      return {
+        username: 'jshacker',
+        userType: 'user' as const,
+        machine: 'localhost',
+        currentPath: localhostPath,
+        wifiConnected: false,
+      };
+    });
+    setSessionStack([]);
+    setFtpSession(null);
+    setNcSession(null);
+  }, [sessionStack]);
+
   return (
     <SessionContext.Provider
       value={{
@@ -296,6 +318,7 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
         isInNcMode,
         updateNcCwd,
         setWifiConnected,
+        disconnectWifi,
       }}
     >
       {children}

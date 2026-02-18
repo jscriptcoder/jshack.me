@@ -125,6 +125,9 @@ Tips:
 1. Enable monitor mode:  airmon("start", "wlan0")
 2. Scan for networks:    airdump()
 3. Crack target network: aircrack("<BSSID>")
+4. Connect to network:   nmcli("connect", "<ESSID>", "<password>")
+5. Check status:         nmcli("status")
+6. Disconnect:           nmcli("disconnect")
 `,
       },
     },

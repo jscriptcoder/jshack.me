@@ -46,3 +46,6 @@ export const WIFI_NETWORKS: readonly WifiNetwork[] = [
 
 export const findWifiNetwork = (bssid: string): WifiNetwork | undefined =>
   WIFI_NETWORKS.find((n) => n.bssid === bssid);
+
+export const findWifiNetworkByEssid = (essid: string): WifiNetwork | undefined =>
+  WIFI_NETWORKS.find((n) => n.essid === essid);

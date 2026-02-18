@@ -9,15 +9,10 @@ type AircrackContextConfig = {
 
 const createMockContext = (config: AircrackContextConfig = {}) => {
   const { isOnLocalhost = true, isMonitorMode = true } = config;
-  let wifiConnected = false;
 
   return {
     isOnLocalhost: () => isOnLocalhost,
     isMonitorMode: () => isMonitorMode,
-    setWifiConnected: (connected: boolean) => {
-      wifiConnected = connected;
-    },
-    getWifiConnected: () => wifiConnected,
   };
 };
 
@@ -76,7 +71,7 @@ describe('aircrack command', () => {
       expect(isAsyncOutput(result)).toBe(true);
     });
 
-    it('should find key and set WiFi connected', () => {
+    it('should find key and show nmcli hint', () => {
       const context = createMockContext();
       const aircrack = createAircrackCommand(context);
       const result = aircrack.fn('A4:CF:12:D3:8B:7A');
@@ -97,7 +92,7 @@ describe('aircrack command', () => {
       expect(completed).toBe(true);
       expect(lines.some((l) => l.includes('KEY FOUND!'))).toBe(true);
       expect(lines.some((l) => l.includes('cr4ck3d_w1f1'))).toBe(true);
-      expect(context.getWifiConnected()).toBe(true);
+      expect(lines.some((l) => l.includes('nmcli'))).toBe(true);
     });
   });
 
@@ -122,7 +117,6 @@ describe('aircrack command', () => {
 
       expect(completed).toBe(true);
       expect(lines.some((l) => l.includes('WPA3'))).toBe(true);
-      expect(context.getWifiConnected()).toBe(false);
     });
 
     it('should fail for weak signal network', () => {
@@ -145,7 +139,6 @@ describe('aircrack command', () => {
 
       expect(completed).toBe(true);
       expect(lines.some((l) => l.includes('Signal too weak'))).toBe(true);
-      expect(context.getWifiConnected()).toBe(false);
     });
   });
 });

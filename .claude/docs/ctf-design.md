@@ -23,8 +23,10 @@ Before the player can access the network from localhost, they must crack a WiFi 
 4. Player discovers aircrack commands via `help()` or `~/downloads/wifi_tools.txt`
 5. `airmon("start", "wlan0")` — enables monitor mode
 6. `airdump()` — scans and displays nearby WiFi networks (async output)
-7. `aircrack("A4:CF:12:D3:8B:7A")` — cracks JSHACK-CORP (async output with progress)
-8. On success: WiFi connected, `ifconfig()` shows wlan0 UP with IP 192.168.1.100, all network commands work
+7. `aircrack("A4:CF:12:D3:8B:7A")` — cracks JSHACK-CORP, shows `KEY FOUND!` + nmcli hint
+8. `nmcli("connect", "JSHACK-CORP", "cr4ck3d_w1f1")` — connects to WiFi
+9. On success: `ifconfig()` shows wlan0 UP with IP 192.168.1.100, all network commands work
+10. Later: `nmcli("disconnect")` drops WiFi (even from remote machines — returns to localhost)
 
 ### Implementation
 
@@ -33,7 +35,9 @@ Before the player can access the network from localhost, they must crack a WiFi 
 - Localhost uses `wlan0` interface (not `eth0`) + `lo` loopback
 - `NetworkContext` gates interfaces/machines/DNS when WiFi disconnected on localhost
 - `useNetworkCommands` wraps network commands with WiFi connectivity check
-- Hint file at `/home/jshacker/downloads/wifi_tools.txt` provides the aircrack cheatsheet
+- `nmcli` command (`src/commands/nmcli.ts`): connect/disconnect/status — `aircrack` only recovers the password, `nmcli` connects
+- `nmcli("disconnect")` while SSH'd calls `SessionContext.disconnectWifi()` to atomically reset to localhost
+- Hint file at `/home/jshacker/downloads/wifi_tools.txt` provides the aircrack + nmcli cheatsheet
 
 ## Per-Machine Filesystems
 
@@ -99,4 +103,4 @@ Hidden DNS (available to darknet, shadow, void, abyss):
 
 Network is per-machine — `NetworkContext` uses `session.machine` to resolve the active config. Each machine has its own interfaces, reachable machines, and DNS records defined in `src/network/initialNetwork.ts`. Types are in `src/network/types.ts`.
 
-Localhost has a special WiFi gating layer: when `session.wifiConnected === false`, `NetworkContext` overrides localhost's config to return disconnected interfaces (wlan0 DOWN), empty machines, and empty DNS. WiFi commands (`airmon`, `airdump`, `aircrack`) in `src/hooks/useWifiCommands.ts` manage the connection flow. WiFi network definitions live in `src/network/wifiNetworks.ts`.
+Localhost has a special WiFi gating layer: when `session.wifiConnected === false`, `NetworkContext` overrides localhost's config to return disconnected interfaces (wlan0 DOWN), empty machines, and empty DNS. WiFi commands (`airmon`, `airdump`, `aircrack`, `nmcli`) in `src/hooks/useWifiCommands.ts` manage the connection flow. WiFi network definitions live in `src/network/wifiNetworks.ts`.
