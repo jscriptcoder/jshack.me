@@ -42,7 +42,7 @@ Implemented:
   - `index.css` — replaced Tailwind color `@apply` with CSS variable references, `:root` amber fallbacks
   - All components migrated from Tailwind color classes to inline `style` with `var(--theme-*)`:
     - `Terminal.tsx` — bg-black → var(--theme-bg)
-    - `TerminalOutput.tsx` — all text-amber-*, text-red-* → CSS vars, AuthorCard links with hover handlers
+    - `TerminalOutput.tsx` — all text-amber-_, text-red-_ → CSS vars, AuthorCard links with hover handlers
     - `TerminalInput.tsx` — border, prompt, input, caret → CSS vars
     - `NanoEditor.tsx` — title bar, editor, status bar, help bar, key badges → CSS vars
   - Theme registered in `useCommands.ts`, guest-accessible (unrestricted)
