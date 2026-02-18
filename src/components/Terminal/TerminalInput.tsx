@@ -91,6 +91,7 @@ export const TerminalInput = ({
         spellCheck={false}
         autoComplete="off"
         autoCapitalize="off"
+        data-testid="terminal-input"
       />
     </div>
   );

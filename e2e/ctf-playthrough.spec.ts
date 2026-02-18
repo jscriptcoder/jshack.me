@@ -11,7 +11,7 @@ const TYPE_DELAY = parseInt(process.env.TYPE_DELAY || '0', 10);
 // Selectors
 // ---------------------------------------------------------------------------
 
-const INPUT = '.border-t input';
+const INPUT = 'input[data-testid="terminal-input"]';
 const RESULT = 'div.text-amber-500.pl-4';
 const NANO_TEXTAREA = 'textarea[data-testid="nano-editor-textarea"]';
 
