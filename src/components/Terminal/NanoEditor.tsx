@@ -135,9 +135,15 @@ export const NanoEditor = ({
   );
 
   return (
-    <div className="fixed inset-0 z-50 bg-black flex flex-col font-mono text-sm">
+    <div
+      className="fixed inset-0 z-50 flex flex-col font-mono text-sm"
+      style={{ backgroundColor: 'var(--theme-bg)' }}
+    >
       {/* Title bar */}
-      <div className="bg-amber-400/90 text-black px-4 py-0.5 flex justify-center items-center gap-4 text-xs">
+      <div
+        className="px-4 py-0.5 flex justify-center items-center gap-4 text-xs"
+        style={{ backgroundColor: 'var(--theme-accent)', color: 'var(--theme-accent-text)' }}
+      >
         <span>GNU nano 7.2</span>
         <span className="font-bold">{filePath}</span>
         {modified && <span>Modified</span>}
@@ -151,7 +157,12 @@ export const NanoEditor = ({
         onKeyDown={handleKeyDown}
         onSelect={updateCursorPosition}
         onClick={updateCursorPosition}
-        className="flex-1 bg-black text-amber-400 p-2 resize-none outline-none caret-amber-400 leading-5"
+        className="flex-1 p-2 resize-none outline-none leading-5"
+        style={{
+          backgroundColor: 'var(--theme-bg)',
+          color: 'var(--theme-text-bright)',
+          caretColor: 'var(--theme-caret)',
+        }}
         spellCheck={false}
         autoCapitalize="off"
         autoComplete="off"
@@ -160,39 +171,92 @@ export const NanoEditor = ({
 
       {/* Status bar */}
       <div className="px-4 py-0.5 text-xs flex justify-between">
-        <span className={exitPrompt ? 'text-amber-400 font-bold' : 'text-amber-300'}>
+        <span
+          style={{
+            color: exitPrompt ? 'var(--theme-text-bright)' : 'var(--theme-text-dim)',
+            fontWeight: exitPrompt ? 'bold' : 'normal',
+          }}
+        >
           {exitPrompt
             ? 'Save modified buffer?'
             : statusMessage || (!fileCreated ? '[ New File ]' : '')}
         </span>
         {!exitPrompt && (
-          <span className="text-amber-300">
+          <span style={{ color: 'var(--theme-text-dim)' }}>
             Ln {cursorLine}, Col {cursorCol}
           </span>
         )}
       </div>
 
       {/* Help bar */}
-      <div className="bg-amber-900/30 px-4 py-0.5 text-xs text-amber-300 flex gap-6">
+      <div
+        className="px-4 py-0.5 text-xs flex gap-6"
+        style={{ backgroundColor: 'var(--theme-border)', color: 'var(--theme-text-dim)' }}
+      >
         {exitPrompt ? (
           <>
             <span>
-              <span className="bg-amber-400/90 text-black px-0.5">Y</span> Yes
+              <span
+                className="px-0.5"
+                style={{
+                  backgroundColor: 'var(--theme-accent)',
+                  color: 'var(--theme-accent-text)',
+                }}
+              >
+                Y
+              </span>{' '}
+              Yes
             </span>
             <span>
-              <span className="bg-amber-400/90 text-black px-0.5">N</span> No
+              <span
+                className="px-0.5"
+                style={{
+                  backgroundColor: 'var(--theme-accent)',
+                  color: 'var(--theme-accent-text)',
+                }}
+              >
+                N
+              </span>{' '}
+              No
             </span>
             <span>
-              <span className="bg-amber-400/90 text-black px-0.5">C</span> Cancel
+              <span
+                className="px-0.5"
+                style={{
+                  backgroundColor: 'var(--theme-accent)',
+                  color: 'var(--theme-accent-text)',
+                }}
+              >
+                C
+              </span>{' '}
+              Cancel
             </span>
           </>
         ) : (
           <>
             <span>
-              <span className="bg-amber-400/90 text-black px-0.5">^S</span> Save
+              <span
+                className="px-0.5"
+                style={{
+                  backgroundColor: 'var(--theme-accent)',
+                  color: 'var(--theme-accent-text)',
+                }}
+              >
+                ^S
+              </span>{' '}
+              Save
             </span>
             <span>
-              <span className="bg-amber-400/90 text-black px-0.5">^X</span> Exit
+              <span
+                className="px-0.5"
+                style={{
+                  backgroundColor: 'var(--theme-accent)',
+                  color: 'var(--theme-accent-text)',
+                }}
+              >
+                ^X
+              </span>{' '}
+              Exit
             </span>
           </>
         )}

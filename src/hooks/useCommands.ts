@@ -10,6 +10,7 @@ import { createManCommand } from '../commands/man';
 import { createResolveCommand } from '../commands/resolve';
 import { createNodeCommand } from '../commands/node';
 import { createResetCommand } from '../commands/reset';
+import { createThemeCommand } from '../commands/theme';
 import { applyCommandRestrictions, getAccessibleCommandNames } from '../commands/permissions';
 import { useFileSystemCommands } from './useFileSystemCommands';
 import { useNetworkCommands } from './useNetworkCommands';
@@ -32,7 +33,7 @@ export const useCommands = (): UseCommandsResult => {
   const fileSystemCommands = useFileSystemCommands();
   const networkCommands = useNetworkCommands();
   const wifiCommands = useWifiCommands();
-  const { session } = useSession();
+  const { session, setTheme } = useSession();
   const { config } = useNetwork();
   const { resolvePath, getNode } = useFileSystem();
 
@@ -61,6 +62,13 @@ export const useCommands = (): UseCommandsResult => {
     commands.set('exit', exitCommand);
     commands.set('resolve', createResolveCommand());
     commands.set('reset', createResetCommand({ getDatabase }));
+    commands.set(
+      'theme',
+      createThemeCommand({
+        setTheme,
+        getCurrentTheme: () => session.theme,
+      }),
+    );
 
     const suCommand = createSuCommand({ getUsers });
     commands.set('su', suCommand);
@@ -105,5 +113,15 @@ export const useCommands = (): UseCommandsResult => {
     const commandNames = getAccessibleCommandNames(Array.from(commands.keys()), session.userType);
 
     return { executionContext, commandNames };
-  }, [fileSystemCommands, networkCommands, wifiCommands, getUsers, session.userType, resolvePath, getNode]);
+  }, [
+    fileSystemCommands,
+    networkCommands,
+    wifiCommands,
+    getUsers,
+    session.userType,
+    session.theme,
+    setTheme,
+    resolvePath,
+    getNode,
+  ]);
 };

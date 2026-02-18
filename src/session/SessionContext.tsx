@@ -1,6 +1,9 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
 import { getCachedSessionState, getDatabase } from '../utils/storageCache';
 import { saveSessionState } from '../utils/storage';
+import type { ThemeId } from '../theme/themes';
+import { DEFAULT_THEME_ID, THEMES, isValidThemeId } from '../theme/themes';
+import { applyTheme } from '../theme/applyTheme';
 
 export type UserType = 'root' | 'user' | 'guest';
 
@@ -10,6 +13,7 @@ export type Session = {
   readonly machine: string;
   readonly currentPath: string;
   readonly wifiConnected: boolean;
+  readonly theme: ThemeId;
 };
 
 export type SessionSnapshot = {
@@ -18,6 +22,7 @@ export type SessionSnapshot = {
   readonly machine: string;
   readonly currentPath: string;
   readonly wifiConnected: boolean;
+  readonly theme: ThemeId;
 };
 
 export type FtpSession = {
@@ -61,7 +66,8 @@ const isValidSession = (value: unknown): value is Session => {
     typeof obj.machine === 'string' &&
     typeof obj.currentPath === 'string' &&
     isValidUserType(obj.userType) &&
-    (obj.wifiConnected === undefined || typeof obj.wifiConnected === 'boolean')
+    (obj.wifiConnected === undefined || typeof obj.wifiConnected === 'boolean') &&
+    (obj.theme === undefined || isValidThemeId(obj.theme))
   );
 };
 
@@ -131,6 +137,7 @@ type SessionContextValue = {
   readonly updateNcCwd: (cwd: string) => void;
   readonly setWifiConnected: (connected: boolean) => void;
   readonly disconnectWifi: () => void;
+  readonly setTheme: (theme: ThemeId) => void;
 };
 
 const defaultSession: Session = {
@@ -139,6 +146,7 @@ const defaultSession: Session = {
   machine: 'localhost',
   currentPath: '/home/jshacker',
   wifiConnected: false,
+  theme: DEFAULT_THEME_ID,
 };
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -146,6 +154,7 @@ const SessionContext = createContext<SessionContextValue | null>(null);
 const normalizeSession = (session: Session): Session => ({
   ...session,
   wifiConnected: session.wifiConnected ?? false,
+  theme: isValidThemeId(session.theme) ? session.theme : DEFAULT_THEME_ID,
 });
 
 const getInitialState = (): PersistedState => {
@@ -169,6 +178,7 @@ const getInitialState = (): PersistedState => {
 const normalizeSnapshot = (snapshot: SessionSnapshot): SessionSnapshot => ({
   ...snapshot,
   wifiConnected: snapshot.wifiConnected ?? false,
+  theme: isValidThemeId(snapshot.theme) ? snapshot.theme : DEFAULT_THEME_ID,
 });
 
 export const SessionProvider = ({ children }: { children: ReactNode }) => {
@@ -212,9 +222,17 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
       machine: session.machine,
       currentPath: session.currentPath,
       wifiConnected: session.wifiConnected,
+      theme: session.theme,
     };
     setSessionStack((prev) => [...prev, snapshot]);
-  }, [session.username, session.userType, session.machine, session.currentPath, session.wifiConnected]);
+  }, [
+    session.username,
+    session.userType,
+    session.machine,
+    session.currentPath,
+    session.wifiConnected,
+    session.theme,
+  ]);
 
   const popSession = useCallback((): SessionSnapshot | null => {
     if (sessionStack.length === 0) return null;
@@ -227,6 +245,7 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
       machine: snapshot.machine,
       currentPath: snapshot.currentPath,
       wifiConnected: snapshot.wifiConnected,
+      theme: snapshot.theme,
     });
     return snapshot;
   }, [sessionStack]);
@@ -273,6 +292,14 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
     setSession((prev) => ({ ...prev, wifiConnected: connected }));
   }, []);
 
+  const setTheme = useCallback((theme: ThemeId) => {
+    setSession((prev) => ({ ...prev, theme }));
+  }, []);
+
+  useEffect(() => {
+    applyTheme(THEMES[session.theme]);
+  }, [session.theme]);
+
   const disconnectWifi = useCallback(() => {
     setSession((prev) => {
       const localhostPath =
@@ -287,6 +314,7 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
         machine: 'localhost',
         currentPath: localhostPath,
         wifiConnected: false,
+        theme: prev.theme,
       };
     });
     setSessionStack([]);
@@ -319,6 +347,7 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
         updateNcCwd,
         setWifiConnected,
         disconnectWifi,
+        setTheme,
       }}
     >
       {children}

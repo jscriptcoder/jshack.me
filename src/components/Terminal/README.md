@@ -1,6 +1,6 @@
 # Terminal
 
-The main UI component — a retro amber-on-black CRT terminal that orchestrates command execution, output rendering, input handling, and connection mode switching.
+The main UI component — a retro CRT terminal that orchestrates command execution, output rendering, input handling, and connection mode switching. Colors are driven by CSS custom properties (`--theme-*`) set by the active theme (amber, green, cyan, or light).
 
 ## Files
 
@@ -77,17 +77,18 @@ Terminal.tsx handleSubmit()
 ### TerminalOutput
 
 - Renders each `OutputLine` by type:
-  - `banner` — amber text, preserves whitespace
-  - `command` — amber text with prompt prefix
-  - `result` — amber text, indented
-  - `error` — red text, indented
+  - `banner` — theme bright text, preserves whitespace
+  - `command` — theme bright text with dim prompt prefix
+  - `result` — theme text, indented
+  - `error` — theme error color, indented
   - `author` — `AuthorCard` component with avatar, paragraphs, links
+- All colors use CSS custom properties (`var(--theme-*)`) for theme support
 - Auto-scrolls to bottom on new output
 
 ### NanoEditor
 
-- Full-screen fixed overlay (`z-50`) covering entire viewport with amber CRT styling
-- Layout: title bar (inverted amber), textarea editor, status bar, help bar
+- Full-screen fixed overlay (`z-50`) covering entire viewport, styled with theme CSS variables
+- Layout: title bar (inverted accent), textarea editor, status bar, help bar
 - Title bar shows `GNU nano 7.2`, file path, and "Modified" indicator
 - **Ctrl+S** — saves via `onSave` (existing file) or `onCreate` (new file), tracks `fileCreated` state
 - **Ctrl+X / Escape** — exits immediately if unmodified; shows "Save modified buffer?" prompt if modified

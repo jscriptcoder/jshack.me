@@ -77,17 +77,23 @@ export const TerminalInput = ({
 
   return (
     <div
-      className="flex items-center p-4 border-t border-amber-900/30"
+      className="flex items-center p-4 border-t"
+      style={{ borderColor: 'var(--theme-border)' }}
       onClick={handleContainerClick}
     >
-      {prompt && <span className="text-amber-300 mr-2">{prompt}</span>}
+      {prompt && (
+        <span className="mr-2" style={{ color: 'var(--theme-text-dim)' }}>
+          {prompt}
+        </span>
+      )}
       <input
         ref={inputRef}
         type={shouldMaskInput ? 'password' : 'text'}
         value={value}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
-        className="flex-1 bg-transparent text-amber-400 caret-amber-400 outline-none font-mono"
+        className="flex-1 bg-transparent outline-none font-mono"
+        style={{ color: 'var(--theme-text-bright)', caretColor: 'var(--theme-caret)' }}
         spellCheck={false}
         autoComplete="off"
         autoCapitalize="off"

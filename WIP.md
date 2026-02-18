@@ -2,11 +2,11 @@
 
 ## Current Step
 
-WiFi hacking gate — complete, E2E test passing with WiFi step
+Theme system — complete, all tests passing
 
 ## Status
 
-✅ COMPLETE — WiFi hacking gate implemented and passing (all 16 flags + WiFi gate in E2E)
+✅ COMPLETE — Theme system with persistent color themes (all 806 tests pass)
 
 ## Completed
 
@@ -29,6 +29,30 @@ WiFi hacking gate — complete, E2E test passing with WiFi step
 - [ ] Step 14: Challenge variety
 
 ## Recent Session (2026-02-18)
+
+Implemented:
+
+- **Theme system**: `theme()` command with 4 persistent color themes (amber, green, cyan, light)
+  - `src/theme/themes.ts` — Theme definitions, types (`ThemeId`, `ThemeColors`, `ThemeDefinition`), 14 semantic color tokens per theme
+  - `src/theme/applyTheme.ts` — Sets CSS custom properties (`--theme-*`) on `:root` from a `ThemeDefinition`
+  - `src/commands/theme.ts` — `theme()` lists themes (marks active with `*`), `theme("green")` switches theme
+  - `session.theme` added to Session type (persisted to IndexedDB, backward compatible)
+  - `SessionContext` — `setTheme` callback + `useEffect` applies theme on change
+  - `storageCache.ts` — applies theme before React mounts (prevents flash of wrong colors)
+  - `index.css` — replaced Tailwind color `@apply` with CSS variable references, `:root` amber fallbacks
+  - All components migrated from Tailwind color classes to inline `style` with `var(--theme-*)`:
+    - `Terminal.tsx` — bg-black → var(--theme-bg)
+    - `TerminalOutput.tsx` — all text-amber-*, text-red-* → CSS vars, AuthorCard links with hover handlers
+    - `TerminalInput.tsx` — border, prompt, input, caret → CSS vars
+    - `NanoEditor.tsx` — title bar, editor, status bar, help bar, key badges → CSS vars
+  - Theme registered in `useCommands.ts`, guest-accessible (unrestricted)
+  - `disconnectWifi` fixed to preserve `prev.theme` instead of losing it
+  - Theme preserved through `pushSession`/`popSession` (SSH nesting)
+  - 12 new unit tests: theme command (7), applyTheme (5)
+  - Updated test fixtures in storage.test.ts, storageCache.test.ts, TerminalOutput.test.tsx, TerminalInput.test.tsx
+- **Test count**: 806 tests across 54 files
+
+## Previous Session (2026-02-18)
 
 Implemented:
 
@@ -891,7 +915,7 @@ Flag detection, progress display, `flags()` command, victory celebration. Deferr
 
 ### Test Coverage
 
-- 794 unit tests across 52 colocated test files
+- 806 unit tests across 54 colocated test files
 - 1 Playwright E2E test (full 16-flag CTF playthrough + WiFi gate, ~42s in Chromium)
 - All commands with logic are tested
 - WiFi commands tested: airmon (9), airdump (6), aircrack (8)

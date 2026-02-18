@@ -17,6 +17,7 @@ const validSession: PersistedState = {
     machine: '192.168.1.50',
     currentPath: '/root',
     wifiConnected: false,
+    theme: 'amber',
   },
   sessionStack: [
     {
@@ -25,6 +26,7 @@ const validSession: PersistedState = {
       machine: 'localhost',
       currentPath: '/home/jshacker',
       wifiConnected: false,
+      theme: 'amber',
     },
   ],
   ftpSession: null,

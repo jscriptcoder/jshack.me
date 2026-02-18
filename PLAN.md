@@ -19,7 +19,8 @@ Build a web-based CTF (Capture The Flag) hacking game where players use a JavaSc
 - [x] Session and filesystem persistence (IndexedDB)
 - [x] Realistic filesystem noise (configs, logs, dotfiles, red herrings)
 - [x] WiFi hacking gate — aircrack-ng suite (airmon, airdump, aircrack) as network access prerequisite
-- [x] Unit tests (794 tests across 52 files)
+- [x] Terminal color theming — `theme()` command with 4 persistent themes (amber, green, cyan, light) via CSS custom properties
+- [x] Unit tests (806 tests across 54 files)
 - [ ] Victory tracking — flag detection, progress display, completion celebration
 - [ ] Challenge variety — additional commands (grep, base64, mysql, etc.)
 
@@ -104,7 +105,7 @@ Additional commands and multi-step puzzle types: grep, base64, env, mysql, check
 
 ## Test Coverage
 
-794 tests across 52 colocated test files:
+806 tests across 54 colocated test files:
 
 - All commands with logic are tested (factory pattern with mock context injection)
 - FTP subcommands tested (cd, lcd, ls, lls, get, put)
@@ -115,8 +116,9 @@ Additional commands and multi-step puzzle types: grep, base64, env, mysql, check
 - Permissions module tested (21 tests)
 - Async commands tested with fake timers
 - React hooks tested (useCommandHistory, useVariables, useAutoComplete, usePathAutoComplete)
-- React components tested (TerminalOutput, TerminalInput)
+- React components tested (TerminalOutput, TerminalInput, NanoEditor)
 - IndexedDB persistence tested (storage wrapper: 14, cache/migration: 14)
+- Theme system tested (theme command: 7, applyTheme: 5)
 
 ## Future Ideas
 

@@ -16,10 +16,12 @@ type Session = {
   readonly userType: UserType; // 'root' | 'user' | 'guest'
   readonly machine: string; // Current machine (e.g., "localhost", "192.168.1.75")
   readonly currentPath: string; // Working directory (e.g., "/home/jshacker")
+  readonly wifiConnected: boolean; // WiFi connection state (localhost only)
+  readonly theme: ThemeId; // Terminal color theme ('amber' | 'green' | 'cyan' | 'light')
 };
 ```
 
-Default session: `jshacker@localhost:/home/jshacker` (user type: `user`).
+Default session: `jshacker@localhost:/home/jshacker` (user type: `user`, theme: `amber`).
 
 ## Connection Modes
 
@@ -74,9 +76,9 @@ type NcSession = {
 
 ## Persistence
 
-All session state is persisted to localStorage (`jshack-session` key):
+All session state is persisted to IndexedDB (`jshack-db` database, `session` store):
 
-- Session (machine, username, userType, currentPath)
+- Session (machine, username, userType, currentPath, wifiConnected, theme)
 - Session stack (SSH history)
 - FTP session (if active)
 - NC session (if active)
@@ -101,3 +103,6 @@ Validated with type guards on restore. Falls back to defaults if invalid or corr
 | `exitFtpMode()`           | Exit FTP mode                                             |
 | `enterNcMode(session)`    | Enter NC mode                                             |
 | `exitNcMode()`            | Exit NC mode                                              |
+| `setWifiConnected(bool)`  | Set WiFi connection state                                 |
+| `disconnectWifi()`        | Disconnect WiFi and reset to localhost (preserves theme)  |
+| `setTheme(themeId)`       | Switch terminal color theme (persists across sessions)    |

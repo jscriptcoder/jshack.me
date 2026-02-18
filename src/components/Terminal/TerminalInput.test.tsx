@@ -50,13 +50,13 @@ describe('TerminalInput', () => {
       expect(screen.queryByText('jshacker@localhost>')).not.toBeInTheDocument();
     });
 
-    it('should style prompt with amber-300 color', () => {
+    it('should style prompt with theme dim color', () => {
       const props = createProps();
 
       renderWithSession(<TerminalInput {...props} />);
 
       const prompt = screen.getByText('jshacker@localhost>');
-      expect(prompt).toHaveClass('text-amber-300');
+      expect(prompt).toHaveStyle({ color: 'var(--theme-text-dim)' });
     });
   });
 
@@ -114,8 +114,7 @@ describe('TerminalInput', () => {
 
       expect(onChange).toHaveBeenCalledWith('a');
     });
-
-});
+  });
 
   describe('keyboard handlers', () => {
     it('should call onSubmit on Enter', async () => {
@@ -169,8 +168,7 @@ describe('TerminalInput', () => {
 
       expect(onTab).toHaveBeenCalledTimes(1);
     });
-
-});
+  });
 
   describe('prompt mode behavior', () => {
     it('should not call onHistoryUp in username prompt mode', async () => {
@@ -227,13 +225,13 @@ describe('TerminalInput', () => {
   });
 
   describe('cursor display', () => {
-    it('should use amber caret color', () => {
+    it('should use theme caret color', () => {
       const props = createProps();
 
       const { container } = renderWithSession(<TerminalInput {...props} />);
 
       const input = container.querySelector('input');
-      expect(input).toHaveClass('caret-amber-400');
+      expect(input).toHaveStyle({ caretColor: 'var(--theme-caret)' });
     });
   });
 

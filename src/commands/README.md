@@ -8,11 +8,11 @@ Commands use a factory pattern with context injection: `createXCommand(context) 
 
 Commands are tiered by user type. Restricted commands show `permission denied: 'name' requires TYPE privileges` and are hidden from `help()` and tab autocomplete. `man()` can still look up any command.
 
-| Tier     | User Type | Available Commands                                                                                         |
-| -------- | --------- | ---------------------------------------------------------------------------------------------------------- |
-| Basic    | `guest`   | help, man, echo, whoami, pwd, ls, cd, cat, su, clear, author                                               |
+| Tier     | User Type | Available Commands                                                                                                                           |
+| -------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Basic    | `guest`   | help, man, echo, whoami, pwd, ls, cd, cat, su, clear, author, theme                                                                          |
 | Standard | `user`    | All basic + ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, strings, output, resolve, exit, nano, node, airmon, airdump, aircrack, nmcli |
-| Full     | `root`    | All standard + decrypt                                                                                     |
+| Full     | `root`    | All standard + decrypt                                                                                                                       |
 
 FTP and NC modes have their own separate command sets and are not restricted.
 
@@ -28,6 +28,7 @@ FTP and NC modes have their own separate command sets and are not restricted.
 | exit    | `exit.ts`    | `exit()`             | Close SSH/nc connection and return to previous machine     |
 | resolve | `resolve.ts` | `resolve(promise)`   | Unwrap a Promise and display its resolved value            |
 | reset   | `reset.ts`   | `reset(["confirm"])` | Reset game to factory defaults (clears all saved progress) |
+| theme   | `theme.ts`   | `theme([name])`      | List or switch terminal color themes (persists)            |
 
 ## File System
 
@@ -67,12 +68,12 @@ FTP and NC modes have their own separate command sets and are not restricted.
 
 WiFi commands manage the wireless connection gate on localhost. Registered in `src/hooks/useWifiCommands.ts`.
 
-| Command  | File           | Signature                            | Description                                                    |
-| -------- | -------------- | ------------------------------------ | -------------------------------------------------------------- |
-| airmon   | `airmon.ts`    | `airmon(action, iface)`              | Enable/disable monitor mode on wireless interface              |
-| airdump  | `airdump.ts`   | `airdump()`                          | Scan and display nearby WiFi networks (async)                  |
-| aircrack | `aircrack.ts`  | `aircrack(bssid)`                    | Crack WiFi password by BSSID (async)                           |
-| nmcli    | `nmcli.ts`     | `nmcli(action, [essid], [password])` | Manage WiFi connections (connect, disconnect, status)          |
+| Command  | File          | Signature                            | Description                                           |
+| -------- | ------------- | ------------------------------------ | ----------------------------------------------------- |
+| airmon   | `airmon.ts`   | `airmon(action, iface)`              | Enable/disable monitor mode on wireless interface     |
+| airdump  | `airdump.ts`  | `airdump()`                          | Scan and display nearby WiFi networks (async)         |
+| aircrack | `aircrack.ts` | `aircrack(bssid)`                    | Crack WiFi password by BSSID (async)                  |
+| nmcli    | `nmcli.ts`    | `nmcli(action, [essid], [password])` | Manage WiFi connections (connect, disconnect, status) |
 
 ## FTP Mode (`ftp/`)
 

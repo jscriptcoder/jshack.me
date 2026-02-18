@@ -85,8 +85,15 @@ export const Terminal = () => {
   const { executionContext, commandNames } = useCommands();
   const ftpCommands = useFtpCommands();
   const ncCommands = useNcCommands();
-  const { readFile, getNode, writeFile, createFile, getDefaultHomePath, listDirectory, resolvePath } =
-    useFileSystem();
+  const {
+    readFile,
+    getNode,
+    writeFile,
+    createFile,
+    getDefaultHomePath,
+    listDirectory,
+    resolvePath,
+  } = useFileSystem();
   const { getMachine, config: networkConfig } = useNetwork();
 
   const activeCommandNames =
@@ -520,7 +527,8 @@ export const Terminal = () => {
 
   return (
     <div
-      className="flex flex-col h-screen bg-black font-mono text-sm"
+      className="flex flex-col h-screen font-mono text-sm"
+      style={{ backgroundColor: 'var(--theme-bg)' }}
       onClick={handleTerminalClick}
     >
       <div ref={outputRef} className="flex-1 overflow-y-auto">

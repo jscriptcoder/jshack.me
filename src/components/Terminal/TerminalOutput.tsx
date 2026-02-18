@@ -9,11 +9,18 @@ const AuthorCard = ({ data }: { data: AuthorData }) => (
     <img
       src={data.avatar}
       alt={data.name}
-      className="w-[152px] h-[152px] rounded-full border-2 border-amber-500 shrink-0"
+      className="w-[152px] h-[152px] rounded-full shrink-0"
+      style={{
+        borderWidth: '2px',
+        borderStyle: 'solid',
+        borderColor: 'var(--theme-avatar-border)',
+      }}
     />
     <div className="flex flex-col gap-2">
-      <h2 className="text-amber-300 text-xl font-bold">{data.name}</h2>
-      <div className="flex flex-col gap-3 text-amber-500">
+      <h2 className="text-xl font-bold" style={{ color: 'var(--theme-text-bright)' }}>
+        {data.name}
+      </h2>
+      <div className="flex flex-col gap-3" style={{ color: 'var(--theme-text)' }}>
         {data.description.map((paragraph, index) => (
           <p key={index}>{paragraph}</p>
         ))}
@@ -25,7 +32,14 @@ const AuthorCard = ({ data }: { data: AuthorData }) => (
             href={link.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-amber-400 hover:text-amber-200 underline"
+            className="underline"
+            style={{ color: 'var(--theme-link)' }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = 'var(--theme-link-hover)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = 'var(--theme-link)';
+            }}
           >
             {link.label}
           </a>
@@ -38,18 +52,26 @@ const AuthorCard = ({ data }: { data: AuthorData }) => (
 const renderLine = (line: OutputLine) => {
   switch (line.type) {
     case 'banner':
-      return <div className="text-amber-400">{line.content}</div>;
+      return <div style={{ color: 'var(--theme-text-bright)' }}>{line.content}</div>;
     case 'command':
       return (
-        <div className="text-amber-400">
-          <span className="text-amber-300">{line.prompt} </span>
+        <div style={{ color: 'var(--theme-text-bright)' }}>
+          <span style={{ color: 'var(--theme-text-dim)' }}>{line.prompt} </span>
           {line.content}
         </div>
       );
     case 'result':
-      return <div className="text-amber-500 pl-4">{line.content || '\u00A0'}</div>;
+      return (
+        <div className="pl-4" style={{ color: 'var(--theme-text)' }}>
+          {line.content || '\u00A0'}
+        </div>
+      );
     case 'error':
-      return <div className="text-red-500 pl-4">{line.content}</div>;
+      return (
+        <div className="pl-4" style={{ color: 'var(--theme-error)' }}>
+          {line.content}
+        </div>
+      );
     case 'author':
       return <AuthorCard data={line.content} />;
   }

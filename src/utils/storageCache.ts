@@ -9,6 +9,8 @@ import {
   loadFilesystemPatches,
   saveFilesystemPatches,
 } from './storage';
+import { THEMES, DEFAULT_THEME_ID, isValidThemeId } from '../theme/themes';
+import { applyTheme } from '../theme/applyTheme';
 
 const LS_SESSION_KEY = 'jshack-session';
 const LS_FILESYSTEM_KEY = 'jshack-filesystem';
@@ -86,13 +88,20 @@ export const initializeStorage = async (): Promise<void> => {
       filesystemPatches: filesystemPatches ?? [],
       db,
     };
+
+    const themeId = sessionState?.session?.theme;
+    applyTheme(THEMES[isValidThemeId(themeId) ? themeId : DEFAULT_THEME_ID]);
   } catch {
     // IndexedDB unavailable — fall back to localStorage for initial load
+    const fallbackSession = loadSessionFromLocalStorage();
     cache = {
-      sessionState: loadSessionFromLocalStorage(),
+      sessionState: fallbackSession,
       filesystemPatches: loadPatchesFromLocalStorage(),
       db: null,
     };
+
+    const themeId = fallbackSession?.session?.theme;
+    applyTheme(THEMES[isValidThemeId(themeId) ? themeId : DEFAULT_THEME_ID]);
   }
 };
 

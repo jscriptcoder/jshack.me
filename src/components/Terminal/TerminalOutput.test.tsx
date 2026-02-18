@@ -6,7 +6,12 @@ import type { OutputLine, AuthorData } from './types';
 // --- Factory Functions ---
 
 const createTextLine = (
-  overrides?: Partial<{ id: number; type: 'command' | 'result' | 'error' | 'banner'; content: string; prompt: string }>,
+  overrides?: Partial<{
+    id: number;
+    type: 'command' | 'result' | 'error' | 'banner';
+    content: string;
+    prompt: string;
+  }>,
 ): OutputLine => ({
   id: 1,
   type: 'result',
@@ -83,7 +88,7 @@ describe('TerminalOutput', () => {
       render(<TerminalOutput lines={lines} />);
 
       const promptElement = screen.getByText('root@localhost>');
-      expect(promptElement).toHaveClass('text-amber-300');
+      expect(promptElement).toHaveStyle({ color: 'var(--theme-text-dim)' });
     });
   });
 
@@ -110,19 +115,18 @@ describe('TerminalOutput', () => {
 
       const { container } = render(<TerminalOutput lines={lines} />);
 
-      // Check that the result div contains a non-breaking space
-      const resultDiv = container.querySelector('.text-amber-500.pl-4');
+      const resultDiv = container.querySelector('.pl-4');
       expect(resultDiv).toBeInTheDocument();
       expect(resultDiv?.textContent).toBe('\u00A0');
     });
 
-    it('should apply amber-500 color to results', () => {
+    it('should apply theme text color to results', () => {
       const lines = [createTextLine({ type: 'result', content: 'some output' })];
 
       render(<TerminalOutput lines={lines} />);
 
       const element = screen.getByText('some output');
-      expect(element).toHaveClass('text-amber-500');
+      expect(element).toHaveStyle({ color: 'var(--theme-text)' });
     });
   });
 
@@ -135,13 +139,13 @@ describe('TerminalOutput', () => {
       expect(screen.getByText('Permission denied')).toBeInTheDocument();
     });
 
-    it('should render error in red', () => {
+    it('should render error in error color', () => {
       const lines = [createTextLine({ type: 'error', content: 'File not found' })];
 
       render(<TerminalOutput lines={lines} />);
 
       const element = screen.getByText('File not found');
-      expect(element).toHaveClass('text-red-500');
+      expect(element).toHaveStyle({ color: 'var(--theme-error)' });
     });
 
     it('should render error with indentation', () => {

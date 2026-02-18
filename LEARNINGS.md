@@ -346,6 +346,17 @@
 - **Trade-off**: Construction sites need separate paths — `Terminal.tsx` split `addLine` into `addLine` (text) and `addAuthorLine` (author) since a generic function can't produce a narrowed union variant
 - **Key insight**: If you find yourself casting after checking a discriminant field, the union type definition is wrong — fix the type, not the usage
 
+### CSS custom properties for dynamic theming
+
+- **What**: Replace Tailwind color classes with inline `style` using `var(--theme-*)` CSS custom properties, set on `document.documentElement.style`
+- **Why it works**: CSS variables propagate to pseudo-elements (scrollbars, selection), body styles, and any context where React can't inject props. `:root` fallback values in `index.css` ensure correct rendering before JavaScript runs.
+- **Key design decisions**:
+  - Apply theme in `storageCache.ts` (before React mounts) to prevent flash of wrong colors
+  - `useEffect` in `SessionContext` reapplies on `session.theme` change for runtime switching
+  - camelCase token names in TypeScript → kebab-case CSS variable names via helper function
+  - Link hover states handled via `onMouseEnter`/`onMouseLeave` since CSS `:hover` can't reference JS variables in inline styles
+- **Gotcha**: When migrating from Tailwind classes to inline styles, all test assertions checking for class names (e.g., `text-amber-300`, `caret-amber-400`) must be updated to use `toHaveStyle({ color: 'var(--theme-text-dim)' })` etc.
+
 ### Readonly types throughout
 
 - **What**: All type properties marked `readonly`, arrays as `readonly T[]`
