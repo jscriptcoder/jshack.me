@@ -7,7 +7,11 @@ const makeDir = (name: string, children: Record<string, FileNode> = {}): FileNod
   name,
   type: 'directory',
   owner: 'root',
-  permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root', 'user', 'guest'] },
+  permissions: {
+    read: ['root', 'user', 'guest'],
+    write: ['root'],
+    execute: ['root', 'user', 'guest'],
+  },
   children,
 });
 
@@ -65,7 +69,9 @@ const mockResolvePath = (path: string): string => {
 const setup = () =>
   renderHook(() =>
     usePathAutoComplete({
-      listDirectory: mockListDirectory as Parameters<typeof usePathAutoComplete>[0]['listDirectory'],
+      listDirectory: mockListDirectory as Parameters<
+        typeof usePathAutoComplete
+      >[0]['listDirectory'],
       getNode: mockGetNode,
       resolvePath: mockResolvePath,
       userType: 'user',

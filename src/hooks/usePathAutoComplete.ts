@@ -100,9 +100,7 @@ export const usePathAutoComplete = ({
 
       const commonPrefix = getLongestCommonPrefix(filtered);
       const completedName =
-        filtered.length === 1
-          ? decoratedMatches[0] ?? commonPrefix
-          : commonPrefix;
+        filtered.length === 1 ? (decoratedMatches[0] ?? commonPrefix) : commonPrefix;
 
       const pathPrefix = directory === '.' ? '' : partial.slice(0, partial.lastIndexOf('/') + 1);
       const completed = `${pathPrefix}${completedName}`;

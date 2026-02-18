@@ -6,12 +6,12 @@ Before the player can access the network from localhost, they must crack a WiFi 
 
 ### WiFi Networks
 
-| BSSID              | ESSID           | PWR (dBm) | CH | ENC  | Crackable? | Reason            |
-|--------------------|-----------------|-----------|-----|------|------------|-------------------|
-| A4:CF:12:D3:8B:7A  | JSHACK-CORP     | -42       | 6   | WPA2 | Yes        | Strong signal     |
-| 8E:1F:64:A7:22:9C  | NetGear-5G-Home | -71       | 11  | WPA3 | No         | WPA3 unsupported  |
-| D2:F0:B8:4E:91:C5  | FBI_Van_7       | -85       | 1   | WPA2 | No         | Signal too weak   |
-| 00:11:22:33:44:55  | \<hidden\>      | -93       | 3   | WPA2 | No         | Signal too weak   |
+| BSSID             | ESSID           | PWR (dBm) | CH  | ENC  | Crackable? | Reason           |
+| ----------------- | --------------- | --------- | --- | ---- | ---------- | ---------------- |
+| A4:CF:12:D3:8B:7A | JSHACK-CORP     | -42       | 6   | WPA2 | Yes        | Strong signal    |
+| 8E:1F:64:A7:22:9C | NetGear-5G-Home | -71       | 11  | WPA3 | No         | WPA3 unsupported |
+| D2:F0:B8:4E:91:C5 | FBI_Van_7       | -85       | 1   | WPA2 | No         | Signal too weak  |
+| 00:11:22:33:44:55 | \<hidden\>      | -93       | 3   | WPA2 | No         | Signal too weak  |
 
 **Password for JSHACK-CORP:** `cr4ck3d_w1f1`
 

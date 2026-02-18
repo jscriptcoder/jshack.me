@@ -102,18 +102,15 @@ export const createAircrackCommand = (context: AircrackContext): Command => ({
                 );
 
                 if (stepIndex === steps) {
-                  token.schedule(
-                    () => {
-                      if (token.isCancelled()) return;
+                  token.schedule(() => {
+                    if (token.isCancelled()) return;
 
-                      if (network.crackable && network.password) {
-                        onLine('');
-                        onLine(`                 KEY FOUND! [ ${network.password} ]`);
-                      }
-                      onComplete();
-                    },
-                    STEP_DELAY_MS,
-                  );
+                    if (network.crackable && network.password) {
+                      onLine('');
+                      onLine(`                 KEY FOUND! [ ${network.password} ]`);
+                    }
+                    onComplete();
+                  }, STEP_DELAY_MS);
                 }
               },
               (i + 1) * STEP_DELAY_MS,

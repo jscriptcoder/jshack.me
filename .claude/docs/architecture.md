@@ -82,17 +82,20 @@ Two layers of tab completion, tried in order:
 Network access from localhost requires cracking a WiFi network first. This is a progression gate between flags 3 and 4 — not a flag itself.
 
 **State**: `session.wifiConnected` (boolean, persisted to IndexedDB). When `false` on localhost:
+
 - `ifconfig()` shows `wlan0` DOWN (no IP) + loopback `lo`
 - Network commands (ping, nmap, ssh, ftp, nc, curl, nslookup) throw `"Network is unreachable"`
 - `NetworkContext` returns empty machines/DNS
 
 **Player flow**:
+
 1. `airmon("start", "wlan0")` — enables monitor mode (transient `useRef`, not persisted)
 2. `airdump()` — async scan revealing 4 nearby WiFi networks
 3. `aircrack("A4:CF:12:D3:8B:7A")` — cracks JSHACK-CORP, reveals password + nmcli hint
 4. `nmcli("connect", "JSHACK-CORP", "cr4ck3d_w1f1")` — connects to WiFi, sets `wifiConnected: true`
 
 **Implementation**:
+
 - WiFi networks: `src/network/wifiNetworks.ts` (4 networks with signal/encryption/crackability)
 - Commands: `src/commands/airmon.ts`, `airdump.ts`, `aircrack.ts`, `nmcli.ts`
 - Hook: `src/hooks/useWifiCommands.ts` (wires commands with session + monitor mode ref)

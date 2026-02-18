@@ -12,10 +12,7 @@ import { createNcCommand } from '../commands/nc';
 import { createCurlCommand } from '../commands/curl';
 import type { Command } from '../components/Terminal/types';
 
-const wrapWithWifiCheck = (
-  cmd: Command,
-  isWifiRequired: () => boolean,
-): Command => ({
+const wrapWithWifiCheck = (cmd: Command, isWifiRequired: () => boolean): Command => ({
   ...cmd,
   fn: (...args: unknown[]) => {
     if (isWifiRequired()) {
@@ -53,34 +50,22 @@ export const useNetworkCommands = (): Map<string, Command> => {
 
     commands.set(
       'ping',
-      wrapWithWifiCheck(
-        createPingCommand({ getMachine, getMachines, getLocalIP }),
-        isWifiRequired,
-      ),
+      wrapWithWifiCheck(createPingCommand({ getMachine, getMachines, getLocalIP }), isWifiRequired),
     );
 
     commands.set(
       'nmap',
-      wrapWithWifiCheck(
-        createNmapCommand({ getMachine, getMachines, getLocalIP }),
-        isWifiRequired,
-      ),
+      wrapWithWifiCheck(createNmapCommand({ getMachine, getMachines, getLocalIP }), isWifiRequired),
     );
 
     commands.set(
       'nslookup',
-      wrapWithWifiCheck(
-        createNslookupCommand({ resolveDomain, getGateway }),
-        isWifiRequired,
-      ),
+      wrapWithWifiCheck(createNslookupCommand({ resolveDomain, getGateway }), isWifiRequired),
     );
 
     commands.set(
       'ssh',
-      wrapWithWifiCheck(
-        createSshCommand({ getMachine, getLocalIP }),
-        isWifiRequired,
-      ),
+      wrapWithWifiCheck(createSshCommand({ getMachine, getLocalIP }), isWifiRequired),
     );
 
     commands.set(
@@ -93,10 +78,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
 
     commands.set(
       'nc',
-      wrapWithWifiCheck(
-        createNcCommand({ getMachine, getLocalIP, resolveDomain }),
-        isWifiRequired,
-      ),
+      wrapWithWifiCheck(createNcCommand({ getMachine, getLocalIP, resolveDomain }), isWifiRequired),
     );
 
     commands.set(

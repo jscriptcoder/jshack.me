@@ -72,15 +72,12 @@ export const createAirdumpCommand = (context: AirdumpContext): Command => ({
               onLine(formatNetworkRow(network));
 
               if (index === WIFI_NETWORKS.length - 1) {
-                token.schedule(
-                  () => {
-                    if (token.isCancelled()) return;
-                    onLine('');
-                    onLine(`Scan complete — ${WIFI_NETWORKS.length} networks found`);
-                    onComplete();
-                  },
-                  SCAN_DELAY_MS,
-                );
+                token.schedule(() => {
+                  if (token.isCancelled()) return;
+                  onLine('');
+                  onLine(`Scan complete — ${WIFI_NETWORKS.length} networks found`);
+                  onComplete();
+                }, SCAN_DELAY_MS);
               }
             },
             (index + 1) * SCAN_DELAY_MS,
