@@ -125,6 +125,24 @@ Network access from localhost requires cracking a WiFi network first. This is a 
 - **Colors**: `text-amber-400`/`text-amber-500` text, `bg-black` background, `text-red-500` errors
 - **Font**: Monospace (`font-mono`), full viewport height
 
+## Documentation Maintenance
+
+When making any changes (adding/changing/deleting commands, hooks, machines, utils, features, refactors, bug fixes, etc.), always:
+
+1. **Update `README.md`** if the change affects user-facing documentation (commands, features, setup, etc.)
+2. **Update project docs** — check if any of these files need updates:
+   - `WIP.md` — current work in progress
+   - `PLAN.md` — planned features and roadmap
+   - `LEARNINGS.md` — lessons learned, gotchas, decisions
+   - `CLAUDE.md` — project instructions (this file)
+   - `.claude/docs/architecture.md` — architecture documentation
+   - `.claude/docs/ctf-design.md` — CTF design documentation
+
+## Verification After Changes
+
+- **After code changes**: Run `npm run build`, `npm run lint`, `npm run format`, and `npm run test:run` to verify everything passes.
+- **After documentation changes (\*.md)**: Run `npm run format` to ensure consistent formatting.
+
 ## Deployment
 
 Vercel deployment. Push to `main` triggers automatic deploy.
