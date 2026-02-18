@@ -357,6 +357,13 @@
   - Link hover states handled via `onMouseEnter`/`onMouseLeave` since CSS `:hover` can't reference JS variables in inline styles
 - **Gotcha**: When migrating from Tailwind classes to inline styles, all test assertions checking for class names (e.g., `text-amber-300`, `caret-amber-400`) must be updated to use `toHaveStyle({ color: 'var(--theme-text-dim)' })` etc.
 
+### E2E selectors broke when Tailwind classes became CSS variables
+
+- **Context**: E2E test used selectors like `div.text-amber-400`, `div.text-amber-500.pl-4`, `span.text-amber-300` to find terminal output elements
+- **Issue**: The `theme()` feature replaced Tailwind color classes with inline `style` using CSS variables (`var(--theme-text-bright)` etc.), so all E2E selectors silently stopped matching — test hung waiting for elements that would never appear
+- **Solution**: Added `data-testid` attributes to output elements (`terminal-banner`, `terminal-result`, `terminal-command`, `terminal-error`, `nano-status`) and updated E2E selectors to use them
+- **Key insight**: E2E selectors should never depend on styling classes. Use `data-testid` attributes for test targeting — they survive CSS refactors, theme changes, and class renames. This is the same lesson as the custom cursor removal (line 163) but for E2E instead of unit tests.
+
 ### Readonly types throughout
 
 - **What**: All type properties marked `readonly`, arrays as `readonly T[]`
