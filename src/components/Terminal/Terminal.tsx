@@ -499,17 +499,18 @@ export const Terminal = () => {
       <div ref={outputRef} className="flex-1 overflow-y-auto">
         <TerminalOutput lines={lines} />
       </div>
-      <TerminalInput
-        value={input}
-        onChange={handleInputChange}
-        onSubmit={handleSubmit}
-        onHistoryUp={handleHistoryUp}
-        onHistoryDown={handleHistoryDown}
-        onTab={handleTab}
-        promptMode={passwordMode ? 'password' : ftpUsernameMode ? 'username' : undefined}
-        disabled={asyncRunning}
-        externalInputRef={terminalInputRef}
-      />
+      {!asyncRunning && (
+        <TerminalInput
+          value={input}
+          onChange={handleInputChange}
+          onSubmit={handleSubmit}
+          onHistoryUp={handleHistoryUp}
+          onHistoryDown={handleHistoryDown}
+          onTab={handleTab}
+          promptMode={passwordMode ? 'password' : ftpUsernameMode ? 'username' : undefined}
+          externalInputRef={terminalInputRef}
+        />
+      )}
       {editorState && (
         <NanoEditor
           filePath={editorState.filePath}

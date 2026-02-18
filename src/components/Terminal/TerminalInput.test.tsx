@@ -115,19 +115,7 @@ describe('TerminalInput', () => {
       expect(onChange).toHaveBeenCalledWith('a');
     });
 
-    it('should not call onChange when disabled', async () => {
-      const onChange = vi.fn();
-      const props = createProps({ onChange, disabled: true });
-      const user = userEvent.setup();
-
-      renderWithSession(<TerminalInput {...props} />);
-
-      const input = screen.getByRole('textbox');
-      await user.type(input, 'test');
-
-      expect(onChange).not.toHaveBeenCalled();
-    });
-  });
+});
 
   describe('keyboard handlers', () => {
     it('should call onSubmit on Enter', async () => {
@@ -182,19 +170,7 @@ describe('TerminalInput', () => {
       expect(onTab).toHaveBeenCalledTimes(1);
     });
 
-    it('should not call onSubmit when disabled', async () => {
-      const onSubmit = vi.fn();
-      const props = createProps({ onSubmit, disabled: true });
-      const user = userEvent.setup();
-
-      renderWithSession(<TerminalInput {...props} />);
-
-      const input = screen.getByRole('textbox');
-      await user.type(input, '{Enter}');
-
-      expect(onSubmit).not.toHaveBeenCalled();
-    });
-  });
+});
 
   describe('prompt mode behavior', () => {
     it('should not call onHistoryUp in username prompt mode', async () => {

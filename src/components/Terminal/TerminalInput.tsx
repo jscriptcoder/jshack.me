@@ -11,7 +11,6 @@ type TerminalInputProps = {
   readonly onHistoryDown: () => void;
   readonly onTab: () => void;
   readonly promptMode?: PromptMode;
-  readonly disabled?: boolean;
   readonly externalInputRef?: React.RefObject<HTMLInputElement>;
 };
 
@@ -23,7 +22,6 @@ export const TerminalInput = ({
   onHistoryDown,
   onTab,
   promptMode,
-  disabled = false,
   externalInputRef,
 }: TerminalInputProps) => {
   const isPromptMode = promptMode !== undefined;
@@ -34,8 +32,8 @@ export const TerminalInput = ({
   const { getPrompt } = useSession();
 
   useEffect(() => {
-    if (!disabled) inputRef.current?.focus();
-  }, [disabled]);
+    inputRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     if (!isUserInput.current && inputRef.current) {
@@ -46,10 +44,6 @@ export const TerminalInput = ({
   }, [value]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (disabled) {
-      e.preventDefault();
-      return;
-    }
     switch (e.key) {
       case 'Enter':
         e.preventDefault();
@@ -71,7 +65,6 @@ export const TerminalInput = ({
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (disabled) return;
     isUserInput.current = true;
     onChange(e.target.value);
   };
@@ -98,7 +91,6 @@ export const TerminalInput = ({
         spellCheck={false}
         autoComplete="off"
         autoCapitalize="off"
-        disabled={disabled}
       />
     </div>
   );
