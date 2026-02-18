@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useNetwork } from '../network';
 import { useFileSystem } from '../filesystem';
+import { useSession } from '../session/SessionContext';
 import { createIfconfigCommand } from '../commands/ifconfig';
 import { createPingCommand } from '../commands/ping';
 import { createNmapCommand } from '../commands/nmap';
@@ -10,6 +11,19 @@ import { createFtpCommand } from '../commands/ftp';
 import { createNcCommand } from '../commands/nc';
 import { createCurlCommand } from '../commands/curl';
 import type { Command } from '../components/Terminal/types';
+
+const wrapWithWifiCheck = (
+  cmd: Command,
+  isWifiRequired: () => boolean,
+): Command => ({
+  ...cmd,
+  fn: (...args: unknown[]) => {
+    if (isWifiRequired()) {
+      throw new Error('Network is unreachable — wlan0 is not connected');
+    }
+    return cmd.fn(...args);
+  },
+});
 
 export const useNetworkCommands = (): Map<string, Command> => {
   const {
@@ -22,11 +36,13 @@ export const useNetworkCommands = (): Map<string, Command> => {
     getGateway,
   } = useNetwork();
   const { readFileFromMachine } = useFileSystem();
+  const { session } = useSession();
 
   return useMemo(() => {
+    const isWifiRequired = () => session.machine === 'localhost' && !session.wifiConnected;
+
     const commands = new Map<string, Command>();
 
-    // ifconfig command
     commands.set(
       'ifconfig',
       createIfconfigCommand({
@@ -35,72 +51,60 @@ export const useNetworkCommands = (): Map<string, Command> => {
       }),
     );
 
-    // ping command
     commands.set(
       'ping',
-      createPingCommand({
-        getMachine,
-        getMachines,
-        getLocalIP,
-      }),
+      wrapWithWifiCheck(
+        createPingCommand({ getMachine, getMachines, getLocalIP }),
+        isWifiRequired,
+      ),
     );
 
-    // nmap command
     commands.set(
       'nmap',
-      createNmapCommand({
-        getMachine,
-        getMachines,
-        getLocalIP,
-      }),
+      wrapWithWifiCheck(
+        createNmapCommand({ getMachine, getMachines, getLocalIP }),
+        isWifiRequired,
+      ),
     );
 
-    // nslookup command
     commands.set(
       'nslookup',
-      createNslookupCommand({
-        resolveDomain,
-        getGateway,
-      }),
+      wrapWithWifiCheck(
+        createNslookupCommand({ resolveDomain, getGateway }),
+        isWifiRequired,
+      ),
     );
 
-    // ssh command
     commands.set(
       'ssh',
-      createSshCommand({
-        getMachine,
-        getLocalIP,
-      }),
+      wrapWithWifiCheck(
+        createSshCommand({ getMachine, getLocalIP }),
+        isWifiRequired,
+      ),
     );
 
-    // ftp command
     commands.set(
       'ftp',
-      createFtpCommand({
-        getMachine,
-        getLocalIP,
-        resolveDomain,
-      }),
+      wrapWithWifiCheck(
+        createFtpCommand({ getMachine, getLocalIP, resolveDomain }),
+        isWifiRequired,
+      ),
     );
 
-    // nc (netcat) command
     commands.set(
       'nc',
-      createNcCommand({
-        getMachine,
-        getLocalIP,
-        resolveDomain,
-      }),
+      wrapWithWifiCheck(
+        createNcCommand({ getMachine, getLocalIP, resolveDomain }),
+        isWifiRequired,
+      ),
     );
 
-    // curl command
     commands.set(
       'curl',
-      createCurlCommand({
-        getMachine,
-        resolveDomain,
-        readFileFromMachine,
-      }),
+      wrapWithWifiCheck(
+        createCurlCommand({ getMachine, resolveDomain, readFileFromMachine }),
+        isWifiRequired,
+      ),
     );
 
     return commands;
@@ -113,5 +117,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
     resolveDomain,
     getGateway,
     readFileFromMachine,
+    session.machine,
+    session.wifiConnected,
   ]);
 };

@@ -64,7 +64,7 @@ User input flows through `Terminal.tsx`:
 Commands are tiered by user type (`src/commands/permissions.ts`):
 
 - **guest**: help, man, echo, whoami, pwd, ls, cd, cat, su, clear, author
-- **user**: All guest + ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, strings, output, resolve, exit, nano, node
+- **user**: All guest + ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, strings, output, resolve, exit, nano, node, airmon, airdump, aircrack
 - **root**: All user + decrypt
 
 ### Content Encoding (Anti-Cheat)
@@ -92,6 +92,21 @@ Session and filesystem state persist to IndexedDB (`jshack-db` database):
 - `SessionContext` and `FileSystemContext` write updates via `useEffect` (async, fire-and-forget)
 - Filesystem uses a patches approach — only diffs from base filesystem are stored
 - `reset("confirm")` clears IndexedDB and reloads to factory state
+
+### WiFi Hacking Gate
+
+Network access from localhost requires cracking a WiFi network first. This is a progression gate (not a flag) between flags 3 and 4.
+
+- `session.wifiConnected` (boolean, persisted) tracks WiFi state
+- When `wifiConnected === false` on localhost:
+  - `ifconfig()` shows `wlan0` as DOWN (no IP) + loopback `lo`
+  - Network commands (ping, nmap, ssh, ftp, nc, curl, nslookup) throw `"Network is unreachable"`
+  - `NetworkContext` returns empty machines/DNS lists
+- Player flow: `airmon("start", "wlan0")` → `airdump()` → `aircrack("A4:CF:12:D3:8B:7A")` → WiFi connected
+- WiFi networks defined in `src/network/wifiNetworks.ts` (4 networks, 1 crackable)
+- Commands in `src/commands/airmon.ts`, `airdump.ts`, `aircrack.ts`
+- Hook: `src/hooks/useWifiCommands.ts` (manages monitor mode state via `useRef`)
+- WiFi gating only applies on localhost; remote machines are unaffected
 
 ### Node Execution Circular Dependency
 

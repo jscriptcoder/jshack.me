@@ -9,6 +9,7 @@ export type Session = {
   readonly userType: UserType;
   readonly machine: string;
   readonly currentPath: string;
+  readonly wifiConnected: boolean;
 };
 
 export type SessionSnapshot = {
@@ -16,6 +17,7 @@ export type SessionSnapshot = {
   readonly userType: UserType;
   readonly machine: string;
   readonly currentPath: string;
+  readonly wifiConnected: boolean;
 };
 
 export type FtpSession = {
@@ -58,7 +60,8 @@ const isValidSession = (value: unknown): value is Session => {
     typeof obj.username === 'string' &&
     typeof obj.machine === 'string' &&
     typeof obj.currentPath === 'string' &&
-    isValidUserType(obj.userType)
+    isValidUserType(obj.userType) &&
+    (obj.wifiConnected === undefined || typeof obj.wifiConnected === 'boolean')
   );
 };
 
@@ -126,6 +129,7 @@ type SessionContextValue = {
   readonly exitNcMode: () => NcSession | null;
   readonly isInNcMode: () => boolean;
   readonly updateNcCwd: (cwd: string) => void;
+  readonly setWifiConnected: (connected: boolean) => void;
 };
 
 const defaultSession: Session = {
@@ -133,14 +137,26 @@ const defaultSession: Session = {
   userType: 'user',
   machine: 'localhost',
   currentPath: '/home/jshacker',
+  wifiConnected: false,
 };
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
+const normalizeSession = (session: Session): Session => ({
+  ...session,
+  wifiConnected: session.wifiConnected ?? false,
+});
+
 const getInitialState = (): PersistedState => {
   const persisted = getCachedSessionState();
-  // Normalize undefined → null for ncSession (old persisted data may lack this field)
-  if (persisted) return { ...persisted, ncSession: persisted.ncSession ?? null };
+  if (persisted) {
+    return {
+      ...persisted,
+      session: normalizeSession(persisted.session),
+      sessionStack: persisted.sessionStack.map(normalizeSnapshot),
+      ncSession: persisted.ncSession ?? null,
+    };
+  }
   return {
     session: defaultSession,
     sessionStack: [],
@@ -148,6 +164,11 @@ const getInitialState = (): PersistedState => {
     ncSession: null,
   };
 };
+
+const normalizeSnapshot = (snapshot: SessionSnapshot): SessionSnapshot => ({
+  ...snapshot,
+  wifiConnected: snapshot.wifiConnected ?? false,
+});
 
 export const SessionProvider = ({ children }: { children: ReactNode }) => {
   const [initialState] = useState(getInitialState);
@@ -189,9 +210,10 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
       userType: session.userType,
       machine: session.machine,
       currentPath: session.currentPath,
+      wifiConnected: session.wifiConnected,
     };
     setSessionStack((prev) => [...prev, snapshot]);
-  }, [session.username, session.userType, session.machine, session.currentPath]);
+  }, [session.username, session.userType, session.machine, session.currentPath, session.wifiConnected]);
 
   const popSession = useCallback((): SessionSnapshot | null => {
     if (sessionStack.length === 0) return null;
@@ -203,6 +225,7 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
       userType: snapshot.userType,
       machine: snapshot.machine,
       currentPath: snapshot.currentPath,
+      wifiConnected: snapshot.wifiConnected,
     });
     return snapshot;
   }, [sessionStack]);
@@ -245,6 +268,10 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
     setNcSession((prev) => (prev ? { ...prev, currentPath: cwd } : null));
   }, []);
 
+  const setWifiConnected = useCallback((connected: boolean) => {
+    setSession((prev) => ({ ...prev, wifiConnected: connected }));
+  }, []);
+
   return (
     <SessionContext.Provider
       value={{
@@ -268,6 +295,7 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
         exitNcMode,
         isInNcMode,
         updateNcCwd,
+        setWifiConnected,
       }}
     >
       {children}

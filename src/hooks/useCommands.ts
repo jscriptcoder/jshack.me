@@ -13,6 +13,7 @@ import { createResetCommand } from '../commands/reset';
 import { applyCommandRestrictions, getAccessibleCommandNames } from '../commands/permissions';
 import { useFileSystemCommands } from './useFileSystemCommands';
 import { useNetworkCommands } from './useNetworkCommands';
+import { useWifiCommands } from './useWifiCommands';
 import { useSession } from '../session/SessionContext';
 import { useNetwork } from '../network';
 import { useFileSystem } from '../filesystem';
@@ -30,6 +31,7 @@ type UseCommandsResult = {
 export const useCommands = (): UseCommandsResult => {
   const fileSystemCommands = useFileSystemCommands();
   const networkCommands = useNetworkCommands();
+  const wifiCommands = useWifiCommands();
   const { session } = useSession();
   const { config } = useNetwork();
   const { resolvePath, getNode } = useFileSystem();
@@ -75,6 +77,7 @@ export const useCommands = (): UseCommandsResult => {
 
     fileSystemCommands.forEach((cmd, name) => commands.set(name, cmd));
     networkCommands.forEach((cmd, name) => commands.set(name, cmd));
+    wifiCommands.forEach((cmd, name) => commands.set(name, cmd));
 
     const getAccessibleCommands = () => {
       const accessible = getAccessibleCommandNames(Array.from(commands.keys()), session.userType);
@@ -102,5 +105,5 @@ export const useCommands = (): UseCommandsResult => {
     const commandNames = getAccessibleCommandNames(Array.from(commands.keys()), session.userType);
 
     return { executionContext, commandNames };
-  }, [fileSystemCommands, networkCommands, getUsers, session.userType, resolvePath, getNode]);
+  }, [fileSystemCommands, networkCommands, wifiCommands, getUsers, session.userType, resolvePath, getNode]);
 };

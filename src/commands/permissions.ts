@@ -30,6 +30,9 @@ export const COMMAND_TIERS: Readonly<Record<string, UserType>> = {
   exit: 'user',
   nano: 'user',
   node: 'user',
+  airmon: 'user',
+  airdump: 'user',
+  aircrack: 'user',
   // root-level commands
   decrypt: 'root',
 };

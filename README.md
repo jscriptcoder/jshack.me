@@ -32,6 +32,7 @@ Start with `help()` to see available commands. Good luck, hacker.
 - **Variable Support** - Create variables with `const` and `let` declarations
 - **Virtual Environment** - Explore a simulated system with secrets to uncover
 - **Command Restrictions** - Commands are tiered by privilege level; escalate from guest to root to unlock tools
+- **WiFi Hacking Gate** - Crack a WiFi network using aircrack-ng-style commands before accessing the network
 - **Network Simulation** - Discover and hack into remote machines
 - **Session Persistence** - Your location and files are saved; return where you left off after refresh
 - **SEO & Social Sharing** - Open Graph and Twitter Card meta tags for rich link previews
@@ -85,6 +86,9 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 | `cat(path)`            | Display file contents                                          |
 | `su(user)`             | Switch user (prompts for password)                             |
 | `whoami()`             | Display current username                                       |
+| `airmon(action, iface)` | Enable/disable wireless monitor mode                          |
+| `airdump()`            | Scan for nearby wireless networks                              |
+| `aircrack(bssid)`      | Crack WPA/WPA2 wireless network key                            |
 | `ifconfig([iface])`    | Display network interface configuration                        |
 | `ping(host, [count])`  | Test connectivity to a network host                            |
 | `nmap(target)`         | Scan for open ports or discover hosts in a range               |
@@ -140,6 +144,11 @@ man('ls'); // Show manual for ls command
 // Switch user (will prompt for password)
 su('root'); // Attempt to switch to root
 
+// WiFi hacking (required before network access)
+airmon('start', 'wlan0'); // Enable monitor mode
+airdump(); // Scan for WiFi networks
+aircrack('A4:CF:12:D3:8B:7A'); // Crack target network
+
 // Network
 ifconfig(); // Show network interfaces
 whoami(); // Display current user
@@ -170,10 +179,13 @@ quit(); // Exit FTP
 
 ## Network Simulation
 
-Your machine is connected to a local network. You're not alone - there are other machines out there, each running different services and hiding their own secrets.
+Your machine has a wireless interface but it starts disconnected. Before you can reach the network, you'll need to crack a WiFi access point using the aircrack-ng-inspired command suite (`airmon`, `airdump`, `aircrack`).
+
+Once connected, you're on a local network with other machines running different services and hiding their own secrets.
 
 Use network reconnaissance commands to:
 
+- Crack WiFi to gain network access
 - Discover your network configuration
 - Find other machines on the network
 - Identify running services and open ports
@@ -200,7 +212,7 @@ npm run test:e2e      # Run Playwright E2E test (full CTF playthrough)
 
 ### Test Coverage
 
-738 unit tests across 47 colocated test files covering terminal commands, hooks, components, utilities, filesystem, and persistence.
+766 unit tests across 50 colocated test files covering terminal commands, hooks, components, utilities, filesystem, and persistence.
 
 1 Playwright E2E test that plays through the entire CTF game (all 16 flags) in a real browser — serves as both a comprehensive regression test and a visual demo. Run with `--headed` to watch it play:
 

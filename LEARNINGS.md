@@ -126,6 +126,40 @@
 - **Issue**: `page.locator(RESULT, { hasText: 'Password:' }).first().waitFor()` immediately matches stale output from earlier commands (e.g., a previous `su` prompt)
 - **Solution**: `countThenWait` pattern — count matching elements BEFORE the action, then wait for `locator.nth(beforeCount)` (the new match). Also use specific text patterns (regex `/^Password:$/` for su vs `${user}@${host}'s password:` for SSH) to avoid cross-matching.
 
+### WiFi gating needs to NOT gate ifconfig
+
+- **Context**: WiFi hacking gate blocks network commands until player cracks WiFi
+- **Issue**: If `ifconfig()` is also gated, the player has no way to discover that `wlan0` is DOWN
+- **Solution**: Wrap only network commands (ping, nmap, ssh, ftp, nc, curl, nslookup) with the WiFi check; `ifconfig()` is explicitly excluded so the player can see the disconnected interface
+
+### NetworkContext getLocalIP/getGateway assumed eth0
+
+- **Context**: Changing localhost's interface from `eth0` to `wlan0`
+- **Issue**: `getLocalIP()` and `getGateway()` had hardcoded `find(iface => iface.name === 'eth0')`, so they returned `'0.0.0.0'` after renaming to `wlan0`
+- **Solution**: Changed to find the first non-loopback UP interface instead of searching by name: `interfaces.find(iface => iface.name !== 'lo' && iface.flags.includes('UP'))`
+- **Key insight**: When interface names are dynamic or vary by machine, search by role (non-loopback, UP) rather than by hardcoded name
+
+### Command gating via wrapper function
+
+- **Context**: Network commands need to check WiFi connectivity before executing
+- **Issue**: Could either modify each command factory to accept WiFi state, or wrap at the hook level
+- **Solution**: Created `wrapWithWifiCheck(cmd, isWifiRequired)` that returns a new Command with the same metadata but a wrapped `fn` that checks WiFi first. Applied in `useNetworkCommands` — zero changes to individual command files
+- **Key insight**: The wrapper pattern preserves command metadata (name, description, manual) while adding cross-cutting behavior. Same pattern as `applyCommandRestrictions` for permission gating.
+
+### Transient vs persisted state for WiFi flow
+
+- **Context**: WiFi cracking has two pieces of state: monitor mode and WiFi connected
+- **Issue**: Monitor mode is a temporary tool state (like having a program running), while WiFi connected is a persistent achievement
+- **Solution**: Monitor mode uses `useRef` (transient, resets on page refresh — player must re-enable before scanning), WiFi connected uses `session.wifiConnected` (persisted to IndexedDB — stays connected across refreshes)
+- **Key insight**: Match state persistence to its nature — tool state is transient, progress state is persisted
+
+### Backwards compatibility for new session fields
+
+- **Context**: Adding `wifiConnected` to Session type breaks persisted data from existing users
+- **Issue**: Old IndexedDB data lacks `wifiConnected` field, causing validation to fail or TypeScript errors
+- **Solution**: `isValidSession` accepts missing `wifiConnected` (undefined), `normalizeSession` defaults it to `false`. Same pattern already used for `ncSession`.
+- **Key insight**: Every new persisted field needs: (1) validation that accepts undefined, (2) normalization to default value in `getInitialState`
+
 ## Patterns That Worked
 
 ### Command factory pattern with context injection
@@ -284,6 +318,12 @@
 - **What**: Shared `createCancellationToken()` in `src/utils/asyncCommand.ts` replaces duplicated `let cancelled = false; const timeoutIds = []` pattern
 - **Why it works**: 9 async commands (ping, ssh, ftp, nc, nslookup, nmap, curl, decrypt, resolve) all had identical mutable cancellation boilerplate. The utility encapsulates the mutation in one place: `token.schedule(fn, delay)` and `cancel: token.cancel`
 - **Key insight**: When the same mutable pattern appears across many files, extract it into a single utility that owns the mutation — callers become purely declarative
+
+### Progression gates via session state + context gating
+
+- **What**: WiFi hacking gate uses `session.wifiConnected` boolean + `NetworkContext` override + command wrapper to block network access until WiFi is cracked
+- **Why it works**: Three-layer approach (session state → context data → command wrapper) ensures the gate works at every level: UI sees correct interfaces, commands get correct machine lists, and even bypassing context still hits the command wrapper. State persists across refresh.
+- **Example**: `wifiConnected: false` → NetworkContext returns empty machines → ping wrapper throws "Network is unreachable" → ifconfig shows wlan0 DOWN
 
 ### Discriminated unions eliminate type assertions
 
@@ -461,3 +501,11 @@
 - node() on script/binary as user: succeeds (execute permission matches read)
 - curl GET to path without `/var/www/html/` content: returns 404 Not Found
 - curl POST to non-existent `/var/www/api/` endpoint: returns 400 Bad Request
+- airmon on non-localhost: "command not available on this machine"
+- airmon when WiFi already connected: "wlan0 is already connected to a network"
+- airdump without monitor mode: "monitor mode not enabled"
+- aircrack on WPA3 network: "WPA3 — handshake capture not supported"
+- aircrack on weak signal: "Signal too weak — no handshake captured"
+- aircrack on unknown BSSID: "BSSID not found — run airdump() to scan"
+- Network commands on localhost before WiFi: "Network is unreachable — wlan0 is not connected"
+- ifconfig on localhost before WiFi: shows wlan0 DOWN (NOT gated — player needs this)

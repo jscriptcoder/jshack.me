@@ -5,7 +5,7 @@
 ```
 src/
 ├── components/Terminal/   # Terminal UI (Terminal.tsx orchestrator, Input, Output, NanoEditor)
-├── session/               # SessionContext — global session state (user, machine, path)
+├── session/               # SessionContext — global session state (user, machine, path, wifiConnected)
 ├── filesystem/            # Virtual filesystem with IndexedDB persistence
 │   ├── FileSystemContext.tsx   # Filesystem operations + patch persistence
 │   ├── fileSystemFactory.ts    # Factory for generating machine filesystems
@@ -39,11 +39,11 @@ e2e/
 
 ## Session Context
 
-`SessionContext` (`src/session/SessionContext.tsx`) is the single source of truth for session state: username, userType, machine, currentPath.
+`SessionContext` (`src/session/SessionContext.tsx`) is the single source of truth for session state: username, userType, machine, currentPath, wifiConnected.
 
-Key methods: `setUsername()`, `setMachine()`, `setCurrentPath()`, `pushSession()` (before SSH), `popSession()` (exit), `canReturn()`.
+Key methods: `setUsername()`, `setMachine()`, `setCurrentPath()`, `setWifiConnected()`, `pushSession()` (before SSH), `popSession()` (exit), `canReturn()`.
 
-Session stack enables SSH nesting — `pushSession()` saves state before connecting, `popSession()` restores it on `exit()`.
+Session stack enables SSH nesting — `pushSession()` saves state before connecting, `popSession()` restores it on `exit()`. WiFi state is included in snapshots.
 
 ## Persistence Architecture
 
@@ -61,13 +61,35 @@ Filesystem persistence uses patches (diffs from base filesystem). Each write/cre
 
 ## Async Output Pattern
 
-Network commands (ping, nmap, ssh, nslookup) return `AsyncOutput` with `start(onLine, onComplete)` and optional `cancel()`. Terminal disables input during execution. The `onComplete` callback can trigger a password prompt (used by SSH).
+Network commands (ping, nmap, ssh, nslookup) and WiFi commands (airdump, aircrack) return `AsyncOutput` with `start(onLine, onComplete)` and optional `cancel()`. Terminal disables input during execution. The `onComplete` callback can trigger a password prompt (used by SSH).
+
+## WiFi Hacking Gate
+
+Network access from localhost requires cracking a WiFi network first. This is a progression gate between flags 3 and 4 — not a flag itself.
+
+**State**: `session.wifiConnected` (boolean, persisted to IndexedDB). When `false` on localhost:
+- `ifconfig()` shows `wlan0` DOWN (no IP) + loopback `lo`
+- Network commands (ping, nmap, ssh, ftp, nc, curl, nslookup) throw `"Network is unreachable"`
+- `NetworkContext` returns empty machines/DNS
+
+**Player flow**:
+1. `airmon("start", "wlan0")` — enables monitor mode (transient `useRef`, not persisted)
+2. `airdump()` — async scan revealing 4 nearby WiFi networks
+3. `aircrack("A4:CF:12:D3:8B:7A")` — cracks JSHACK-CORP (the only crackable network), sets `wifiConnected: true`
+
+**Implementation**:
+- WiFi networks: `src/network/wifiNetworks.ts` (4 networks with signal/encryption/crackability)
+- Commands: `src/commands/airmon.ts`, `airdump.ts`, `aircrack.ts`
+- Hook: `src/hooks/useWifiCommands.ts` (wires commands with session + monitor mode ref)
+- Gating: `useNetworkCommands.ts` wraps network commands with `wrapWithWifiCheck`
+- `NetworkContext` switches localhost interfaces between `localhostDisconnectedInterfaces` and `localhostConnectedInterfaces` based on WiFi state
+- localhost uses `wlan0` (not `eth0`) + `lo` loopback
 
 ## Available Commands
 
 See `src/commands/` for implementations and `src/hooks/useCommands.ts` for the registry.
 
-Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, su, whoami, ifconfig, ping, nmap, nslookup, ssh, exit, ftp, nc, curl, decrypt, output, resolve, strings, nano, node, reset.
+Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, su, whoami, airmon, airdump, aircrack, ifconfig, ping, nmap, nslookup, ssh, exit, ftp, nc, curl, decrypt, output, resolve, strings, nano, node, reset.
 
 FTP mode (when connected via ftp): pwd, lpwd, cd, lcd, ls, lls, get, put, quit/bye.
 

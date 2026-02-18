@@ -1,5 +1,40 @@
 # CTF Design — Network & Filesystem
 
+## WiFi Hacking Gate
+
+Before the player can access the network from localhost, they must crack a WiFi network. This is a progression gate between flags 3 (root escalation) and flag 4 (network exploration) — it does not award a flag.
+
+### WiFi Networks
+
+| BSSID              | ESSID           | PWR (dBm) | CH | ENC  | Crackable? | Reason            |
+|--------------------|-----------------|-----------|-----|------|------------|-------------------|
+| A4:CF:12:D3:8B:7A  | JSHACK-CORP     | -42       | 6   | WPA2 | Yes        | Strong signal     |
+| 8E:1F:64:A7:22:9C  | NetGear-5G-Home | -71       | 11  | WPA3 | No         | WPA3 unsupported  |
+| D2:F0:B8:4E:91:C5  | FBI_Van_7       | -85       | 1   | WPA2 | No         | Signal too weak   |
+| 00:11:22:33:44:55  | \<hidden\>      | -93       | 3   | WPA2 | No         | Signal too weak   |
+
+**Password for JSHACK-CORP:** `cr4ck3d_w1f1`
+
+### Player Flow
+
+1. After finding flag 3, the hint says to check `ifconfig()` and `help()`
+2. `ifconfig()` shows `wlan0` is DOWN (no IP assigned)
+3. Network commands (ping, nmap, ssh, etc.) fail with `"Network is unreachable"`
+4. Player discovers aircrack commands via `help()` or `~/downloads/wifi_tools.txt`
+5. `airmon("start", "wlan0")` — enables monitor mode
+6. `airdump()` — scans and displays nearby WiFi networks (async output)
+7. `aircrack("A4:CF:12:D3:8B:7A")` — cracks JSHACK-CORP (async output with progress)
+8. On success: WiFi connected, `ifconfig()` shows wlan0 UP with IP 192.168.1.100, all network commands work
+
+### Implementation
+
+- WiFi state: `session.wifiConnected` (persisted to IndexedDB)
+- Monitor mode: transient `useRef` in `useWifiCommands` hook (resets on page refresh)
+- Localhost uses `wlan0` interface (not `eth0`) + `lo` loopback
+- `NetworkContext` gates interfaces/machines/DNS when WiFi disconnected on localhost
+- `useNetworkCommands` wraps network commands with WiFi connectivity check
+- Hint file at `/home/jshacker/downloads/wifi_tools.txt` provides the aircrack cheatsheet
+
 ## Per-Machine Filesystems
 
 Each machine has its own filesystem defined in `src/filesystem/machines/`. Built via `fileSystemFactory.ts` with users, directories, and content.
@@ -26,9 +61,9 @@ Common structure per machine: `/root/`, `/home/[users]/`, `/etc/` (passwd with M
 │                     gateway eth1 (LAN) ─── 192.168.1.1
 │                                             │
 │                                        192.168.1.0/24 (Local LAN)
-│                                             ├── 192.168.1.50  fileserver
-│                                             ├── 192.168.1.75  webserver
-│                                             └── 192.168.1.100 localhost
+│                                             ├── 192.168.1.50  fileserver (eth0)
+│                                             ├── 192.168.1.75  webserver (eth0)
+│                                             └── 192.168.1.100 localhost (wlan0, requires WiFi crack)
 │
 └── 203.0.113.42 ─── darknet eth0 (Public)
                       darknet eth1 ─── 10.66.66.100
@@ -63,3 +98,5 @@ Hidden DNS (available to darknet, shadow, void, abyss):
 ## Network Implementation
 
 Network is per-machine — `NetworkContext` uses `session.machine` to resolve the active config. Each machine has its own interfaces, reachable machines, and DNS records defined in `src/network/initialNetwork.ts`. Types are in `src/network/types.ts`.
+
+Localhost has a special WiFi gating layer: when `session.wifiConnected === false`, `NetworkContext` overrides localhost's config to return disconnected interfaces (wlan0 DOWN), empty machines, and empty DNS. WiFi commands (`airmon`, `airdump`, `aircrack`) in `src/hooks/useWifiCommands.ts` manage the connection flow. WiFi network definitions live in `src/network/wifiNetworks.ts`.

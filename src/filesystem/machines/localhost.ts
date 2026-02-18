@@ -115,6 +115,18 @@ Tips:
 [ ] Update passwords (they're too weak!)
 `,
       },
+      'wifi_tools.txt': {
+        name: 'wifi_tools.txt',
+        type: 'file',
+        owner: 'user',
+        permissions: { read: ['root', 'user'], write: ['root', 'user'], execute: ['root'] },
+        content: `WIRELESS PENETRATION TESTING CHEATSHEET
+========================================
+1. Enable monitor mode:  airmon("start", "wlan0")
+2. Scan for networks:    airdump()
+3. Crack target network: aircrack("<BSSID>")
+`,
+      },
     },
   },
 };
@@ -189,9 +201,8 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 
 Now you have full control of this machine.
 Try exploring the network:
-  ifconfig() — see your network interface
-  ping("192.168.1.1") — test connectivity
-  nmap("192.168.1.1-254") — scan for machines
+  ifconfig() — check your network interfaces
+  help() — discover available tools
 `,
     },
   },

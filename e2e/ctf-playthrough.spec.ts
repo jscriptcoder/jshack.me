@@ -176,6 +176,17 @@ test('Full CTF playthrough — all 16 flags', async ({ page }) => {
   });
 
   // -----------------------------------------------------------------------
+  // WiFi Gate — crack WiFi to enable network access
+  // -----------------------------------------------------------------------
+  await test.step('WiFi Gate — crack WiFi', async () => {
+    await runAndExpect(page, 'airmon("start", "wlan0")', 'monitor mode enabled', 30_000);
+    const scanDone = page.locator(RESULT, { hasText: 'Scan complete' });
+    await countThenWait(scanDone, () => typeCommand(page, 'airdump()'), 60_000);
+    const keyFound = page.locator(RESULT, { hasText: 'KEY FOUND!' });
+    await countThenWait(keyFound, () => typeCommand(page, 'aircrack("A4:CF:12:D3:8B:7A")'), 60_000);
+  });
+
+  // -----------------------------------------------------------------------
   // Flag 4: FLAG{network_explorer} — curl gateway
   // -----------------------------------------------------------------------
   await test.step('Flag 4 — network_explorer', async () => {

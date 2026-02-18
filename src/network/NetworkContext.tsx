@@ -6,7 +6,7 @@ import type {
   RemoteMachine,
   DnsRecord,
 } from './types';
-import { createInitialNetwork } from './initialNetwork';
+import { createInitialNetwork, localhostDisconnectedInterfaces } from './initialNetwork';
 import { useSession } from '../session/SessionContext';
 
 type NetworkContextType = {
@@ -33,10 +33,17 @@ export const NetworkProvider = ({ children }: { children: ReactNode }) => {
   const [config] = useState<NetworkConfig>(createInitialNetwork);
   const { session } = useSession();
 
-  const currentConfig = useMemo(
-    (): MachineNetworkConfig => config.machineConfigs[session.machine] ?? defaultMachineConfig,
-    [config.machineConfigs, session.machine],
-  );
+  const isLocalhostDisconnected = session.machine === 'localhost' && !session.wifiConnected;
+
+  const currentConfig = useMemo((): MachineNetworkConfig => {
+    const base = config.machineConfigs[session.machine] ?? defaultMachineConfig;
+    if (!isLocalhostDisconnected) return base;
+    return {
+      interfaces: localhostDisconnectedInterfaces,
+      machines: [],
+      dnsRecords: [],
+    };
+  }, [config.machineConfigs, session.machine, isLocalhostDisconnected]);
 
   const getInterface = useCallback(
     (name: string): NetworkInterface | undefined => {
@@ -61,13 +68,17 @@ export const NetworkProvider = ({ children }: { children: ReactNode }) => {
   }, [currentConfig.machines]);
 
   const getGateway = useCallback((): string => {
-    const eth0 = currentConfig.interfaces.find((iface) => iface.name === 'eth0');
-    return eth0?.gateway ?? '0.0.0.0';
+    const primary = currentConfig.interfaces.find(
+      (iface) => iface.name !== 'lo' && iface.flags.includes('UP'),
+    );
+    return primary?.gateway ?? '0.0.0.0';
   }, [currentConfig.interfaces]);
 
   const getLocalIP = useCallback((): string => {
-    const eth0 = currentConfig.interfaces.find((iface) => iface.name === 'eth0');
-    return eth0?.inet ?? '0.0.0.0';
+    const primary = currentConfig.interfaces.find(
+      (iface) => iface.name !== 'lo' && iface.flags.includes('UP'),
+    );
+    return primary?.inet ?? '0.0.0.0';
   }, [currentConfig.interfaces]);
 
   const resolveDomain = useCallback(

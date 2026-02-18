@@ -18,7 +18,8 @@ Build a web-based CTF (Capture The Flag) hacking game where players use a JavaSc
 - [x] Additional exploitation commands (curl, strings, decrypt, output, resolve, exit)
 - [x] Session and filesystem persistence (IndexedDB)
 - [x] Realistic filesystem noise (configs, logs, dotfiles, red herrings)
-- [x] Unit tests (738 tests across 47 files)
+- [x] WiFi hacking gate — aircrack-ng suite (airmon, airdump, aircrack) as network access prerequisite
+- [x] Unit tests (766 tests across 50 files)
 - [ ] Victory tracking — flag detection, progress display, completion celebration
 - [ ] Challenge variety — additional commands (grep, base64, mysql, etc.)
 
@@ -79,6 +80,16 @@ Per-machine filesystems via `machineFileSystems.ts`. FileSystemContext stores AL
 
 IndexedDB (`jshack-db` database) with pre-load cache pattern. Session state, session stack, FTP/NC sessions persisted. Filesystem patches (user-created/modified files) persisted separately. One-time auto-migration from localStorage.
 
+### Step 12b: WiFi hacking gate (Done)
+
+Network access from localhost gated behind WiFi cracking — a progression gate between flags 3 and 4 (no flag awarded). Player must use aircrack-ng-inspired commands:
+
+- **airmon** — Enable/disable monitor mode on wlan0
+- **airdump** — Scan for nearby WiFi networks (async output, 4 networks displayed)
+- **aircrack** — Crack WPA2 key (async output with progress; only JSHACK-CORP is crackable)
+
+Implementation: `session.wifiConnected` boolean (persisted), localhost uses `wlan0` (not `eth0`) + `lo` loopback, `NetworkContext` gates interfaces/machines/DNS when disconnected, network commands throw "Network is unreachable" until WiFi connected. Monitor mode is transient (`useRef`). WiFi networks defined in `src/network/wifiNetworks.ts`. Hint file at `~/downloads/wifi_tools.txt`.
+
 ### Step 13: Victory tracking (Next)
 
 - **Flag detection**: Scan command output for `FLAG{...}` pattern (cat, curl, strings, decrypt, etc.)
@@ -93,11 +104,12 @@ Additional commands and multi-step puzzle types: grep, base64, env, mysql, check
 
 ## Test Coverage
 
-738 tests across 47 colocated test files:
+766 tests across 50 colocated test files:
 
 - All commands with logic are tested (factory pattern with mock context injection)
 - FTP subcommands tested (cd, lcd, ls, lls, get, put)
 - NC command and subcommands tested (nc, cat, cd, ls)
+- WiFi commands tested: airmon (9), airdump (6), aircrack (8)
 - curl tested (27 tests: errors, GET, POST, headers, DNS, async)
 - decrypt tested (17 tests), output (16), resolve (14), strings (12)
 - Permissions module tested (21 tests)

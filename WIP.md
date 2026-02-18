@@ -2,11 +2,11 @@
 
 ## Current Step
 
-Playwright E2E test — complete, all 16 flags passing
+WiFi hacking gate — complete, E2E test passing with WiFi step
 
 ## Status
 
-✅ COMPLETE — Full CTF playthrough E2E test implemented and passing
+✅ COMPLETE — WiFi hacking gate implemented and passing (all 16 flags + WiFi gate in E2E)
 
 ## Completed
 
@@ -24,10 +24,33 @@ Playwright E2E test — complete, all 16 flags passing
 - [x] Step 12: Session persistence (IndexedDB, migrated from localStorage)
 - [x] Hidden Network Flags (14-16)
 - [x] Playwright E2E test (full 16-flag CTF playthrough)
+- [x] WiFi hacking gate (airmon, airdump, aircrack)
 - [ ] Step 13: Victory tracking
 - [ ] Step 14: Challenge variety
 
-## Recent Session (2026-02-13)
+## Recent Session (2026-02-18)
+
+Implemented:
+
+- **WiFi hacking gate**: Network access from localhost now requires cracking a WiFi network — a progression gate between flags 3 and 4 (no flag awarded). Inspired by the aircrack-ng suite.
+  - `src/network/wifiNetworks.ts` — 4 WiFi networks (1 crackable WPA2, 1 WPA3, 2 weak signal)
+  - `src/commands/airmon.ts` — Enable/disable monitor mode on wlan0
+  - `src/commands/airdump.ts` — Async WiFi network scanner (progressive table output)
+  - `src/commands/aircrack.ts` — Async WPA2 key cracker with progress (auto-connects on success)
+  - `src/hooks/useWifiCommands.ts` — Hook wiring commands with session state + monitor mode ref
+  - `session.wifiConnected` boolean added to Session type (persisted to IndexedDB)
+  - Localhost changed from `eth0` to `wlan0` + `lo` loopback in `initialNetwork.ts`
+  - `NetworkContext` gates interfaces/machines/DNS when WiFi disconnected on localhost
+  - `useNetworkCommands` wraps network commands with WiFi check (throw "Network is unreachable")
+  - `ifconfig()` NOT gated — player needs it to see wlan0 is DOWN
+  - Hint file at `/home/jshacker/downloads/wifi_tools.txt` (aircrack cheatsheet)
+  - Flag 3 hint updated to point toward `ifconfig()` and `help()`
+  - E2E test updated with WiFi cracking step between flag 3 and flag 4
+  - 23 new unit tests: airmon (9), airdump (6), aircrack (8)
+  - WiFi state persists across page refresh; monitor mode is transient (resets on refresh)
+- **Test count**: 766 tests across 50 files
+
+## Previous Session (2026-02-13)
 
 Implemented:
 
@@ -862,9 +885,10 @@ Flag detection, progress display, `flags()` command, victory celebration. Deferr
 
 ### Test Coverage
 
-- 738 unit tests across 47 colocated test files
-- 1 Playwright E2E test (full 16-flag CTF playthrough, ~23s in Chromium)
+- 766 unit tests across 50 colocated test files
+- 1 Playwright E2E test (full 16-flag CTF playthrough + WiFi gate, ~42s in Chromium)
 - All commands with logic are tested
+- WiFi commands tested: airmon (9), airdump (6), aircrack (8)
 - FTP subcommands tested (cd, lcd, ls, lls, get, put)
 - NC command and subcommands tested (nc, cat, cd, ls)
 - Curl command tested (27 tests: errors, GET, POST, headers, DNS, async)
