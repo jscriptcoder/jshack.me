@@ -54,11 +54,12 @@ Implemented:
 
 Implemented:
 
-- **Content encoding (anti-cheat)**: All filesystem content (flags, hints, passwords, logs) is encoded at build time to prevent finding flags by searching the JS bundle
+- **Content encoding (anti-cheat)**: All filesystem content and sensitive strings are encoded at build time to prevent finding flags or passwords by searching the JS bundle
   - `src/utils/contentCodec.ts` — XOR+Base64 encode/decode for strings, plus recursive FileNode tree transformers (`encodeFileSystem`/`decodeFileSystem`)
-  - `scripts/encode-filesystems.ts` — Pre-build script: imports all 8 machine filesystems, encodes content, writes `src/filesystem/machines/__encoded.ts`
-  - `__encoded.ts` (generated, gitignored) — JSON-serialized encoded FileNode trees that decode at import time via `decodeFileSystem(JSON.parse(json))`
-  - `machineFileSystems.ts` imports from `./machines/__encoded` instead of `./machines`
+  - `scripts/encode.ts` — Pre-build script: imports all 8 machine filesystems + secrets, encodes content, writes `src/filesystem/machines/__encoded.ts` and `src/secrets/__encoded.ts`
+  - `__encoded.ts` files (generated, gitignored) — encoded data that decodes at import time
+  - `machineFileSystems.ts` imports from `./machines/__encoded`, `wifiNetworks.ts` imports from `../secrets/__encoded`
+  - `src/secrets/secrets.ts` — plaintext secrets registry (WiFi password, etc.), only used by encode script + tests
   - `predev` and `prebuild` npm hooks auto-run `npm run encode` before `dev` and `build`
   - Added `tsx` dev dependency for running the encode script
   - 8 unit tests for codec round-trips (strings, empty strings, special characters, full FileNode trees, structure preservation)

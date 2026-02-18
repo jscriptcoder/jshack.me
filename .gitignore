@@ -30,3 +30,6 @@ playwright-report/
 
 # Generated encoded filesystems
 src/filesystem/machines/__encoded.ts
+
+# Generated encoded secrets
+src/secrets/__encoded.ts

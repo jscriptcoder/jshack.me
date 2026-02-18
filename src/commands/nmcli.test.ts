@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { secrets } from '../secrets/secrets';
 import { createNmcliCommand } from './nmcli';
 
 type MockContextConfig = {
@@ -46,7 +47,7 @@ describe('nmcli command', () => {
       const context = createMockContext({ isOnLocalhost: false });
       const nmcli = createNmcliCommand(context);
 
-      expect(() => nmcli.fn('connect', 'JSHACK-CORP', 'cr4ck3d_w1f1')).toThrow(
+      expect(() => nmcli.fn('connect', 'JSHACK-CORP', secrets.WIFI_PASSWORD)).toThrow(
         'only available on localhost',
       );
     });
@@ -55,7 +56,7 @@ describe('nmcli command', () => {
       const context = createMockContext({ isWifiConnected: true });
       const nmcli = createNmcliCommand(context);
 
-      expect(() => nmcli.fn('connect', 'JSHACK-CORP', 'cr4ck3d_w1f1')).toThrow(
+      expect(() => nmcli.fn('connect', 'JSHACK-CORP', secrets.WIFI_PASSWORD)).toThrow(
         'already connected',
       );
     });
@@ -94,7 +95,7 @@ describe('nmcli command', () => {
       const context = createMockContext();
       const nmcli = createNmcliCommand(context);
 
-      const result = nmcli.fn('connect', 'JSHACK-CORP', 'cr4ck3d_w1f1') as string;
+      const result = nmcli.fn('connect', 'JSHACK-CORP', secrets.WIFI_PASSWORD) as string;
 
       expect(result).toContain('Connected to JSHACK-CORP');
       expect(result).toContain('192.168.1.100');

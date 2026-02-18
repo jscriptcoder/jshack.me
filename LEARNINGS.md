@@ -287,7 +287,7 @@
 - **What**: Pre-build script encodes all filesystem `content` strings (XOR+Base64), writes a generated module that decodes at import time
 - **Why it works**: Source machine files stay readable for development and tests. Only the generated encoded module is imported by the app, so original files are tree-shaken away. Bundle contains only encoded content — `grep "FLAG{" dist/` returns zero matches.
 - **Key design**: Generated file calls `decodeFileSystem(JSON.parse(json))` at import time, so downstream code (contexts, commands) receives fully decoded FileNode trees with zero changes needed.
-- **Example**: `npm run encode` → `scripts/encode-filesystems.ts` imports all 8 machines → encodes → writes `__encoded.ts` → `machineFileSystems.ts` imports from `__encoded`
+- **Example**: `npm run encode` → `scripts/encode.ts` imports all 8 machines + secrets → encodes → writes `__encoded.ts` files → app code imports from `__encoded`
 - **Gotcha**: The generated file is gitignored and must be regenerated before dev/build — `predev`/`prebuild` npm hooks handle this automatically
 
 ### Consistent flag argument parsing across ls variants

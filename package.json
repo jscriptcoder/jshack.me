@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "encode": "tsx scripts/encode-filesystems.ts",
+    "encode": "tsx scripts/encode.ts",
     "predev": "npm run encode",
     "dev": "vite",
     "prebuild": "npm run encode",

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { AsyncOutput } from '../components/Terminal/types';
+import { secrets } from '../secrets/secrets';
 import { createAircrackCommand } from './aircrack';
 
 type AircrackContextConfig = {
@@ -91,7 +92,7 @@ describe('aircrack command', () => {
 
       expect(completed).toBe(true);
       expect(lines.some((l) => l.includes('KEY FOUND!'))).toBe(true);
-      expect(lines.some((l) => l.includes('cr4ck3d_w1f1'))).toBe(true);
+      expect(lines.some((l) => l.includes(secrets.WIFI_PASSWORD))).toBe(true);
     });
   });
 

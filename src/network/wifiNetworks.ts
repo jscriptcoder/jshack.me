@@ -1,3 +1,5 @@
+import { secrets } from '../secrets/__encoded';
+
 export type WifiNetwork = {
   readonly bssid: string;
   readonly essid: string;
@@ -16,7 +18,7 @@ export const WIFI_NETWORKS: readonly WifiNetwork[] = [
     channel: 6,
     encryption: 'WPA2',
     crackable: true,
-    password: 'cr4ck3d_w1f1',
+    password: secrets.WIFI_PASSWORD,
   },
   {
     bssid: '8E:1F:64:A7:22:9C',

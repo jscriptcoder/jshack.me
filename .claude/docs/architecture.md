@@ -13,6 +13,9 @@ src/
 │   ├── machines/               # Per-machine filesystem definitions (8 machines)
 │   │   └── __encoded.ts        # GENERATED (gitignored) — encoded trees for production
 │   └── types.ts                # FileNode, FilePermissions, FileSystemPatch types
+├── secrets/               # Sensitive non-filesystem strings (WiFi password, etc.)
+│   ├── secrets.ts              # Plaintext source (used by encode script + tests)
+│   └── __encoded.ts            # GENERATED (gitignored) — encoded secrets for production
 ├── hooks/                 # React hooks (commands, history, autocomplete, variables)
 ├── network/               # Per-machine network simulation (interfaces, DNS, machines)
 ├── commands/              # Command implementations (colocated with .test.ts files)
@@ -23,7 +26,7 @@ src/
 └── App.tsx                # Root component (wraps Terminal with providers)
 
 scripts/
-└── encode-filesystems.ts  # Pre-build: encodes machine filesystems into __encoded.ts
+└── encode.ts              # Pre-build: encodes filesystems + secrets into __encoded.ts files
 
 e2e/
 └── ctf-playthrough.spec.ts  # Playwright E2E (full 16-flag CTF playthrough)

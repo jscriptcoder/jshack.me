@@ -22,7 +22,7 @@ Key rules (see skills for full details):
 ```bash
 npm run dev           # Start Vite dev server (auto-runs encode first)
 npm run build         # TypeScript compile + Vite production build (auto-runs encode first)
-npm run encode        # Generate encoded filesystem (src/filesystem/machines/__encoded.ts)
+npm run encode        # Generate encoded filesystems + secrets (__encoded.ts files)
 npm run lint          # Run ESLint
 npm run format        # Format all files with Prettier
 npm run format:check  # Check formatting without modifying (CI-friendly)
@@ -69,13 +69,20 @@ Commands are tiered by user type (`src/commands/permissions.ts`):
 
 ### Content Encoding (Anti-Cheat)
 
-Filesystem content is XOR+Base64 encoded at build time to prevent finding `FLAG{` in the JS bundle.
+Sensitive content is XOR+Base64 encoded at build time to prevent finding `FLAG{` strings or passwords in the JS bundle.
 
-- `npm run encode` generates `src/filesystem/machines/__encoded.ts` (gitignored)
+- `npm run encode` generates `src/filesystem/machines/__encoded.ts` and `src/secrets/__encoded.ts` (both gitignored)
 - `predev`/`prebuild` hooks auto-run encode
-- `machineFileSystems.ts` imports from `__encoded.ts`, not source machine files
-- Unit tests import machine files directly (unaffected by encoding)
-- Verify: `grep -r "FLAG{" dist/` after build should return zero matches
+- `machineFileSystems.ts` imports from filesystem `__encoded.ts`, not source machine files
+- `wifiNetworks.ts` imports from secrets `__encoded.ts`, not the plaintext `src/secrets/secrets.ts`
+- Unit tests import source files directly (unaffected by encoding)
+- Verify: `grep -r "FLAG{" dist/` and `grep -r "cr4ck3d_w1f1" dist/` after build should return zero matches
+
+### Secrets Registry
+
+`src/secrets/secrets.ts` defines sensitive non-filesystem strings (e.g., WiFi password) as key-value pairs. The `encode` script encodes them into `src/secrets/__encoded.ts`. App code imports from `__encoded`, tests import from the source file directly.
+
+To add a new secret: add the key-value pair to `src/secrets/secrets.ts`, then run `npm run encode`.
 
 ### Special Output Types
 
