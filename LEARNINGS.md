@@ -160,6 +160,14 @@
 - **Solution**: `isValidSession` accepts missing `wifiConnected` (undefined), `normalizeSession` defaults it to `false`. Same pattern already used for `ncSession`.
 - **Key insight**: Every new persisted field needs: (1) validation that accepts undefined, (2) normalization to default value in `getInitialState`
 
+### Custom cursor removal breaks E2E readiness detection
+
+- **Context**: Replaced custom animated block cursor (`span.animate-pulse`) with native browser caret (`caret-amber-400`)
+- **Issue**: E2E `waitForReady` relied on `span.animate-pulse` to detect terminal readiness after async operations. The custom cursor was only rendered when `isFocused && !disabled`, so it naturally disappeared during async output and reappeared when done. The native input is always in the DOM, so `waitForReady` returned immediately before async operations completed.
+- **Solution**: Added `disabled` HTML attribute to the input (previously only checked in JS handlers). Updated `waitForReady` to use `:not([disabled])` selector. Also needed to refocus the input when `disabled` transitions to `false`, since browsers blur disabled inputs.
+- **Additional breakage**: Unit tests queried for rendered text content (`getByText`) and `.animate-pulse` elements. Updated to query input values (`toHaveValue`) and `type="password"` attribute. Password prompt tests switched from `getByRole('textbox')` (doesn't match `type="password"`) to `container.querySelector('input')`.
+- **Key insight**: When a custom UI element doubles as a state indicator for tests, check all test selectors that depend on its conditional rendering — especially E2E readiness checks that use presence/absence as a proxy for "the app is ready for input"
+
 ## Patterns That Worked
 
 ### Command factory pattern with context injection

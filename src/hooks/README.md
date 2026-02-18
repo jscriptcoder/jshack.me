@@ -11,6 +11,7 @@ Custom React hooks that wire together commands, context, and terminal features. 
 | `useNetworkCommands.ts`    | Creates network commands (ifconfig, ping, nmap, nslookup, ssh, curl, ftp, nc) with context from `useNetwork` and `useFileSystem`          |
 | `useFtpCommands.ts`        | Creates FTP-mode commands (pwd, lpwd, cd, lcd, ls, lls, get, put, quit/bye) — returns `null` when not in FTP mode                         |
 | `useNcCommands.ts`         | Creates NC-mode commands (pwd, cd, ls, cat, whoami, help, exit) — returns `null` when not in NC mode                                      |
+| `useWifiCommands.ts`       | Creates WiFi commands (airmon, airdump, aircrack, nmcli) — manages monitor mode state via `useRef`                                        |
 | `useCommandHistory.ts`     | Up/down arrow navigation through previous commands                                                                                        |
 | `useAutoComplete.ts`       | Tab completion for command names and variable names                                                                                       |
 | `useVariables.ts`          | `const`/`let` variable declarations, reassignment, and immutability enforcement                                                           |
@@ -25,6 +26,7 @@ useCommands()
 ├── node (lazy getter for execution context — needs access to all commands including itself)
 ├── useFileSystemCommands() → pwd, ls, cd, cat, whoami, decrypt, output, strings, nano
 ├── useNetworkCommands()    → ifconfig, ping, nmap, nslookup, ssh, curl, ftp, nc
+├── useWifiCommands()       → airmon, airdump, aircrack, nmcli
 ├── su (depends on current machine's user list)
 └── help, man (created last, with access to all commands above)
 ```

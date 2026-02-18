@@ -11,7 +11,7 @@ Commands are tiered by user type. Restricted commands show `permission denied: '
 | Tier     | User Type | Available Commands                                                                                         |
 | -------- | --------- | ---------------------------------------------------------------------------------------------------------- |
 | Basic    | `guest`   | help, man, echo, whoami, pwd, ls, cd, cat, su, clear, author                                               |
-| Standard | `user`    | All basic + ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, strings, output, resolve, exit, nano, node |
+| Standard | `user`    | All basic + ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, strings, output, resolve, exit, nano, node, airmon, airdump, aircrack, nmcli |
 | Full     | `root`    | All standard + decrypt                                                                                     |
 
 FTP and NC modes have their own separate command sets and are not restricted.
@@ -62,6 +62,17 @@ FTP and NC modes have their own separate command sets and are not restricted.
 | curl     | `curl.ts`     | `curl(url, [flags])`  | HTTP client for GET/POST requests (async, `-i` for headers, `-X POST`)       |
 | ftp      | `ftp.ts`      | `ftp(host)`           | Connect to remote machine via FTP (async)                                    |
 | nc       | `nc.ts`       | `nc(host, port)`      | Netcat - connect to arbitrary port (async, interactive for special services) |
+
+## WiFi
+
+WiFi commands manage the wireless connection gate on localhost. Registered in `src/hooks/useWifiCommands.ts`.
+
+| Command  | File           | Signature                            | Description                                                    |
+| -------- | -------------- | ------------------------------------ | -------------------------------------------------------------- |
+| airmon   | `airmon.ts`    | `airmon(action, iface)`              | Enable/disable monitor mode on wireless interface              |
+| airdump  | `airdump.ts`   | `airdump()`                          | Scan and display nearby WiFi networks (async)                  |
+| aircrack | `aircrack.ts`  | `aircrack(bssid)`                    | Crack WiFi password by BSSID (async)                           |
+| nmcli    | `nmcli.ts`     | `nmcli(action, [essid], [password])` | Manage WiFi connections (connect, disconnect, status)          |
 
 ## FTP Mode (`ftp/`)
 
