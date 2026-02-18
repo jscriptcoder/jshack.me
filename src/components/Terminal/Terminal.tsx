@@ -4,6 +4,7 @@ import { TerminalInput } from './TerminalInput';
 import { NanoEditor } from './NanoEditor';
 import { useCommandHistory } from '../../hooks/useCommandHistory';
 import { useAutoComplete } from '../../hooks/useAutoComplete';
+import { usePathAutoComplete } from '../../hooks/usePathAutoComplete';
 import { useVariables } from '../../hooks/useVariables';
 import { useCommands } from '../../hooks/useCommands';
 import { useFtpCommands } from '../../hooks/useFtpCommands';
@@ -84,7 +85,8 @@ export const Terminal = () => {
   const { executionContext, commandNames } = useCommands();
   const ftpCommands = useFtpCommands();
   const ncCommands = useNcCommands();
-  const { readFile, getNode, writeFile, createFile, getDefaultHomePath } = useFileSystem();
+  const { readFile, getNode, writeFile, createFile, getDefaultHomePath, listDirectory, resolvePath } =
+    useFileSystem();
   const { getMachine, config: networkConfig } = useNetwork();
 
   const activeCommandNames =
@@ -94,6 +96,12 @@ export const Terminal = () => {
         ? Array.from(ncCommands.keys())
         : commandNames;
   const { getCompletions } = useAutoComplete(activeCommandNames, getVariableNames());
+  const { getPathCompletions } = usePathAutoComplete({
+    listDirectory,
+    getNode,
+    resolvePath,
+    userType: session.userType,
+  });
 
   useEffect(() => {
     if (outputRef.current) {
@@ -472,18 +480,37 @@ export const Terminal = () => {
     setInput(cmd);
   }, [navigateDown]);
 
-  const handleTab = useCallback(() => {
-    const { matches, displayText, commonPrefix } = getCompletions(input);
-    if (matches.length === 1) {
-      setInput(matches[0].display);
-    } else if (matches.length > 1) {
-      if (commonPrefix.length > input.trim().length) {
-        setInput(commonPrefix);
+  const handleTab = useCallback(
+    (cursorPosition: number) => {
+      const pathResult = getPathCompletions(input, cursorPosition);
+      if (pathResult) {
+        if (pathResult.replacement !== input) {
+          setInput(pathResult.replacement);
+          requestAnimationFrame(() => {
+            terminalInputRef.current?.setSelectionRange(
+              pathResult.newCursorPosition,
+              pathResult.newCursorPosition,
+            );
+          });
+        }
+        if (pathResult.matches.length > 1) {
+          addLine('result', pathResult.displayText);
+        }
+        return;
       }
-      // Multiple matches - show list
-      addLine('result', displayText);
-    }
-  }, [input, getCompletions, addLine]);
+
+      const { matches, displayText, commonPrefix } = getCompletions(input);
+      if (matches.length === 1) {
+        setInput(matches[0].display);
+      } else if (matches.length > 1) {
+        if (commonPrefix.length > input.trim().length) {
+          setInput(commonPrefix);
+        }
+        addLine('result', displayText);
+      }
+    },
+    [input, getPathCompletions, getCompletions, addLine],
+  );
 
   const handleInputChange = useCallback((value: string) => {
     setInput(value);

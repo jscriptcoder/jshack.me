@@ -290,6 +290,12 @@
 - **Example**: `npm run encode` → `scripts/encode.ts` imports all 8 machines + secrets → encodes → writes `__encoded.ts` files → app code imports from `__encoded`
 - **Gotcha**: The generated file is gitignored and must be regenerated before dev/build — `predev`/`prebuild` npm hooks handle this automatically
 
+### Two-layer tab completion with cursor-aware dispatch
+
+- **What**: `handleTab(cursorPosition)` tries path completion first (when cursor is inside a string literal), then falls through to command/variable completion
+- **Why it works**: Path completion is contextual (needs filesystem access, cursor position, quote detection), while command completion is global (matches against all names). Trying the specific layer first means no ambiguity — if you're in a string, you get paths; otherwise, commands.
+- **Key insight**: Passing `cursorPosition` from `TerminalInput` is essential — without it, completion can't know whether the cursor is inside `cat('rea|d')` vs after the closing quote. `requestAnimationFrame` is needed to set cursor position after React re-renders with the new input value.
+
 ### Consistent flag argument parsing across ls variants
 
 - **What**: All `ls` commands (regular, FTP ls/lls, NC ls) share the same arg parsing pattern: filter string args, check for `-a`, find first non-flag arg as path

@@ -9,7 +9,7 @@ type TerminalInputProps = {
   readonly onSubmit: () => void;
   readonly onHistoryUp: () => void;
   readonly onHistoryDown: () => void;
-  readonly onTab: () => void;
+  readonly onTab: (cursorPosition: number) => void;
   readonly promptMode?: PromptMode;
   readonly externalInputRef?: React.RefObject<HTMLInputElement>;
 };
@@ -59,7 +59,7 @@ export const TerminalInput = ({
         break;
       case 'Tab':
         e.preventDefault();
-        if (!isPromptMode) onTab();
+        if (!isPromptMode) onTab(inputRef.current?.selectionStart ?? value.length);
         break;
     }
   };

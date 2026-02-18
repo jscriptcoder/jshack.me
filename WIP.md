@@ -48,7 +48,12 @@ Implemented:
   - E2E test updated with WiFi cracking step between flag 3 and flag 4
   - 23 new unit tests: airmon (9), airdump (6), aircrack (8)
   - WiFi state persists across page refresh; monitor mode is transient (resets on refresh)
-- **Test count**: 766 tests across 50 files
+- **Path autocomplete**: Tab completion inside string arguments for file/directory paths
+  - `src/hooks/usePathAutoComplete.ts` — detects cursor inside quotes, resolves directory, filters entries by prefix
+  - `TerminalInput` passes `cursorPosition` to `onTab`; `Terminal.tsx` tries path completion first, falls through to command/variable completion
+  - Directories append `/` in completions; single match auto-completes, multiple matches show list + advance to common prefix
+  - 16 unit tests covering string detection, absolute/relative paths, single/multiple matches, edge cases
+- **Test count**: 794 tests across 52 files
 
 ## Previous Session (2026-02-13)
 
@@ -886,7 +891,7 @@ Flag detection, progress display, `flags()` command, victory celebration. Deferr
 
 ### Test Coverage
 
-- 766 unit tests across 50 colocated test files
+- 794 unit tests across 52 colocated test files
 - 1 Playwright E2E test (full 16-flag CTF playthrough + WiFi gate, ~42s in Chromium)
 - All commands with logic are tested
 - WiFi commands tested: airmon (9), airdump (6), aircrack (8)
@@ -900,5 +905,5 @@ Flag detection, progress display, `flags()` command, victory celebration. Deferr
 - Node command tested (16 tests: execution, context access, execute permission, errors)
 - NanoEditor component tested (17 tests: rendering, save, exit flow, modified indicator)
 - Async commands tested with fake timers
-- React hooks tested with React Testing Library (useCommandHistory, useVariables, useAutoComplete)
+- React hooks tested with React Testing Library (useCommandHistory, useVariables, useAutoComplete, usePathAutoComplete)
 - React components tested with React Testing Library (TerminalOutput, TerminalInput, NanoEditor)

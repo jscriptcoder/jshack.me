@@ -14,6 +14,7 @@ Custom React hooks that wire together commands, context, and terminal features. 
 | `useWifiCommands.ts`       | Creates WiFi commands (airmon, airdump, aircrack, nmcli) — manages monitor mode state via `useRef`                                        |
 | `useCommandHistory.ts`     | Up/down arrow navigation through previous commands                                                                                        |
 | `useAutoComplete.ts`       | Tab completion for command names and variable names                                                                                       |
+| `usePathAutoComplete.ts`   | Tab completion for file/directory paths inside string arguments — resolves paths via filesystem context                                    |
 | `useVariables.ts`          | `const`/`let` variable declarations, reassignment, and immutability enforcement                                                           |
 
 ## How Commands Are Assembled
@@ -51,5 +52,6 @@ Returns `{ executionContext, commandNames }` where:
 | Hook                | Used By        | Description                                                                                                     |
 | ------------------- | -------------- | --------------------------------------------------------------------------------------------------------------- |
 | `useCommandHistory` | `Terminal.tsx` | Tracks command history array and current index; `navigateUp()`/`navigateDown()` return the command string       |
-| `useAutoComplete`   | `Terminal.tsx` | Takes command names + variable names; `getCompletions(input)` returns matches with display text                 |
+| `useAutoComplete`       | `Terminal.tsx` | Takes command names + variable names; `getCompletions(input)` returns matches with display text                     |
+| `usePathAutoComplete`   | `Terminal.tsx` | Takes filesystem helpers; `getPathCompletions(input, cursorPosition)` returns path matches when cursor is in a string |
 | `useVariables`      | `Terminal.tsx` | Intercepts `const`/`let`/reassignment before command execution; manages variable store with immutability checks |

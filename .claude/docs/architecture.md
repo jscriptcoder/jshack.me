@@ -38,6 +38,7 @@ e2e/
 - Dynamic prompt: `username@machine>` (managed via SessionContext)
 - Command history (up/down arrows)
 - Tab autocompletion for commands and variables
+- Tab path autocompletion inside string arguments (files and directories)
 - `const`/`let` variable declarations with immutability enforcement
 
 ## Session Context
@@ -65,6 +66,16 @@ Filesystem persistence uses patches (diffs from base filesystem). Each write/cre
 ## Async Output Pattern
 
 Network commands (ping, nmap, ssh, nslookup) and WiFi commands (airdump, aircrack) return `AsyncOutput` with `start(onLine, onComplete)` and optional `cancel()`. Terminal disables input during execution. The `onComplete` callback can trigger a password prompt (used by SSH).
+
+## Tab Autocompletion
+
+Two layers of tab completion, tried in order:
+
+1. **Path completion** (`usePathAutoComplete`) — activated when the cursor is inside a string literal (single or double quotes). Scans the input to detect quote state, extracts the partial path, resolves the directory via `FileSystemContext`, and filters entries by prefix. Directories append `/`. Single match auto-completes; multiple matches advance to the longest common prefix and display the match list. Cursor is repositioned after completion via `requestAnimationFrame`.
+
+2. **Command/variable completion** (`useAutoComplete`) — fallback when not inside a string. Matches command names (appends `()`) and variable names against the full input. Case-insensitive prefix matching.
+
+`TerminalInput` passes `cursorPosition` to `onTab`, enabling mid-input completion. `Terminal.tsx` orchestrates both hooks in `handleTab`.
 
 ## WiFi Hacking Gate
 
