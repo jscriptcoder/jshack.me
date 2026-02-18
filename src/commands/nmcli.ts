@@ -96,7 +96,7 @@ export const createNmcliCommand = (context: NmcliContext): Command => ({
     ],
     examples: [
       {
-        command: 'nmcli("connect", "JSHACK-CORP", "cr4ck3d_w1f1")',
+        command: 'nmcli("connect", "<ESSID>", "<password>")',
         description: 'Connect to a WiFi network',
       },
       { command: 'nmcli("disconnect")', description: 'Disconnect from WiFi' },
