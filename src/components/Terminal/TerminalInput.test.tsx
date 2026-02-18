@@ -64,26 +64,30 @@ describe('TerminalInput', () => {
     it('should display the input value', () => {
       const props = createProps({ value: 'echo("hello")' });
 
-      renderWithSession(<TerminalInput {...props} />);
+      const { container } = renderWithSession(<TerminalInput {...props} />);
 
-      expect(screen.getByText('echo("hello")')).toBeInTheDocument();
+      const input = container.querySelector('input');
+      expect(input).toHaveValue('echo("hello")');
     });
 
-    it('should mask value with asterisks in password mode', () => {
+    it('should use password type in password mode', () => {
       const props = createProps({ value: 'secret', promptMode: 'password' });
 
-      renderWithSession(<TerminalInput {...props} />);
+      const { container } = renderWithSession(<TerminalInput {...props} />);
 
-      expect(screen.getByText('******')).toBeInTheDocument();
-      expect(screen.queryByText('secret')).not.toBeInTheDocument();
+      const input = container.querySelector('input');
+      expect(input).toHaveAttribute('type', 'password');
+      expect(input).toHaveValue('secret');
     });
 
     it('should not mask value in username mode', () => {
       const props = createProps({ value: 'admin', promptMode: 'username' });
 
-      renderWithSession(<TerminalInput {...props} />);
+      const { container } = renderWithSession(<TerminalInput {...props} />);
 
-      expect(screen.getByText('admin')).toBeInTheDocument();
+      const input = container.querySelector('input');
+      expect(input).toHaveAttribute('type', 'text');
+      expect(input).toHaveValue('admin');
     });
 
     it('should display empty input without errors', () => {
@@ -211,9 +215,9 @@ describe('TerminalInput', () => {
       const props = createProps({ onHistoryDown, promptMode: 'password' });
       const user = userEvent.setup();
 
-      renderWithSession(<TerminalInput {...props} />);
+      const { container } = renderWithSession(<TerminalInput {...props} />);
 
-      const input = screen.getByRole('textbox');
+      const input = container.querySelector('input')!;
       await user.type(input, '{ArrowDown}');
 
       expect(onHistoryDown).not.toHaveBeenCalled();
@@ -237,9 +241,9 @@ describe('TerminalInput', () => {
       const props = createProps({ onSubmit, promptMode: 'password' });
       const user = userEvent.setup();
 
-      renderWithSession(<TerminalInput {...props} />);
+      const { container } = renderWithSession(<TerminalInput {...props} />);
 
-      const input = screen.getByRole('textbox');
+      const input = container.querySelector('input')!;
       await user.type(input, '{Enter}');
 
       expect(onSubmit).toHaveBeenCalledTimes(1);
@@ -247,23 +251,13 @@ describe('TerminalInput', () => {
   });
 
   describe('cursor display', () => {
-    it('should show cursor element when focused', () => {
+    it('should use amber caret color', () => {
       const props = createProps();
 
       const { container } = renderWithSession(<TerminalInput {...props} />);
 
-      // The cursor is a span with animate-pulse class
-      const cursor = container.querySelector('.animate-pulse');
-      expect(cursor).toBeInTheDocument();
-    });
-
-    it('should hide cursor when disabled', () => {
-      const props = createProps({ disabled: true });
-
-      const { container } = renderWithSession(<TerminalInput {...props} />);
-
-      const cursor = container.querySelector('.animate-pulse');
-      expect(cursor).not.toBeInTheDocument();
+      const input = container.querySelector('input');
+      expect(input).toHaveClass('caret-amber-400');
     });
   });
 
