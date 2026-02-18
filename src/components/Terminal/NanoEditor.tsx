@@ -172,6 +172,7 @@ export const NanoEditor = ({
       {/* Status bar */}
       <div className="px-4 py-0.5 text-xs flex justify-between">
         <span
+          data-testid="nano-status"
           style={{
             color: exitPrompt ? 'var(--theme-text-bright)' : 'var(--theme-text-dim)',
             fontWeight: exitPrompt ? 'bold' : 'normal',

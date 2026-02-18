@@ -52,23 +52,27 @@ const AuthorCard = ({ data }: { data: AuthorData }) => (
 const renderLine = (line: OutputLine) => {
   switch (line.type) {
     case 'banner':
-      return <div style={{ color: 'var(--theme-text-bright)' }}>{line.content}</div>;
+      return (
+        <div data-testid="terminal-banner" style={{ color: 'var(--theme-text-bright)' }}>
+          {line.content}
+        </div>
+      );
     case 'command':
       return (
-        <div style={{ color: 'var(--theme-text-bright)' }}>
+        <div data-testid="terminal-command" style={{ color: 'var(--theme-text-bright)' }}>
           <span style={{ color: 'var(--theme-text-dim)' }}>{line.prompt} </span>
           {line.content}
         </div>
       );
     case 'result':
       return (
-        <div className="pl-4" style={{ color: 'var(--theme-text)' }}>
+        <div data-testid="terminal-result" className="pl-4" style={{ color: 'var(--theme-text)' }}>
           {line.content || '\u00A0'}
         </div>
       );
     case 'error':
       return (
-        <div className="pl-4" style={{ color: 'var(--theme-error)' }}>
+        <div data-testid="terminal-error" className="pl-4" style={{ color: 'var(--theme-error)' }}>
           {line.content}
         </div>
       );

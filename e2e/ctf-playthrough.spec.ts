@@ -12,7 +12,8 @@ const TYPE_DELAY = parseInt(process.env.TYPE_DELAY || '0', 10);
 // ---------------------------------------------------------------------------
 
 const INPUT = 'input[data-testid="terminal-input"]';
-const RESULT = 'div.text-amber-500.pl-4';
+const BANNER = 'div[data-testid="terminal-banner"]';
+const RESULT = 'div[data-testid="terminal-result"]';
 const NANO_TEXTAREA = 'textarea[data-testid="nano-editor-textarea"]';
 
 // ---------------------------------------------------------------------------
@@ -126,7 +127,7 @@ const writeInNano = async (page: Page, filePath: string, content: string): Promi
 const saveAndExitNano = async (page: Page): Promise<void> => {
   const textarea = page.locator(NANO_TEXTAREA);
   await textarea.press('Control+s');
-  await page.locator('span.text-amber-300', { hasText: /Wrote/ }).waitFor();
+  await page.locator('span[data-testid="nano-status"]', { hasText: /Wrote/ }).waitFor();
   await textarea.press('Escape');
   await textarea.waitFor({ state: 'hidden' });
 };
@@ -146,7 +147,7 @@ if (TYPE_DELAY > 0) {
 
 test('Full CTF playthrough — all 16 flags', async ({ page }) => {
   await page.goto('/');
-  await page.locator('div.text-amber-400', { hasText: 'Type help()' }).waitFor();
+  await page.locator(BANNER, { hasText: 'Type help()' }).waitFor();
   await waitForReady(page);
 
   // -----------------------------------------------------------------------
