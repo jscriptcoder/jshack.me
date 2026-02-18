@@ -71,7 +71,7 @@ describe('aircrack command', () => {
       expect(isAsyncOutput(result)).toBe(true);
     });
 
-    it('should find key and show nmcli hint', () => {
+    it('should find key for crackable network', () => {
       const context = createMockContext();
       const aircrack = createAircrackCommand(context);
       const result = aircrack.fn('A4:CF:12:D3:8B:7A');
@@ -92,7 +92,6 @@ describe('aircrack command', () => {
       expect(completed).toBe(true);
       expect(lines.some((l) => l.includes('KEY FOUND!'))).toBe(true);
       expect(lines.some((l) => l.includes('cr4ck3d_w1f1'))).toBe(true);
-      expect(lines.some((l) => l.includes('nmcli'))).toBe(true);
     });
   });
 

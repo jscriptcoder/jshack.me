@@ -109,10 +109,6 @@ export const createAircrackCommand = (context: AircrackContext): Command => ({
                       if (network.crackable && network.password) {
                         onLine('');
                         onLine(`                 KEY FOUND! [ ${network.password} ]`);
-                        onLine('');
-                        onLine(
-                          `Use nmcli("connect", "${network.essid}", "${network.password}") to connect`,
-                        );
                       }
                       onComplete();
                     },
