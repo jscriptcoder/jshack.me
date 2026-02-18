@@ -11,7 +11,7 @@ const TYPE_DELAY = parseInt(process.env.TYPE_DELAY || '0', 10);
 // Selectors
 // ---------------------------------------------------------------------------
 
-const INPUT = 'input[type="text"]';
+const INPUT = '.border-t input';
 const RESULT = 'div.text-amber-500.pl-4';
 const NANO_TEXTAREA = 'textarea[data-testid="nano-editor-textarea"]';
 
@@ -55,7 +55,7 @@ const enterInput = async (page: Page, value: string): Promise<void> => {
 };
 
 const waitForReady = async (page: Page, timeout = 30_000): Promise<void> => {
-  await page.locator('span.animate-pulse').waitFor({ timeout });
+  await page.locator(`${INPUT}:not([disabled])`).waitFor({ timeout });
 };
 
 // ---------------------------------------------------------------------------

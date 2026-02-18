@@ -34,8 +34,8 @@ export const TerminalInput = ({
   const { getPrompt } = useSession();
 
   useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+    if (!disabled) inputRef.current?.focus();
+  }, [disabled]);
 
   useEffect(() => {
     if (!isUserInput.current && inputRef.current) {
@@ -98,6 +98,7 @@ export const TerminalInput = ({
         spellCheck={false}
         autoComplete="off"
         autoCapitalize="off"
+        disabled={disabled}
       />
     </div>
   );
