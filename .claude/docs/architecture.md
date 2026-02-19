@@ -42,7 +42,8 @@ scripts/
 └── encode.ts              # Pre-build: encodes filesystems + secrets into __encoded.ts files
 
 e2e/
-└── ctf-playthrough.spec.ts  # Playwright E2E (full 16-flag CTF playthrough)
+├── ctf-playthrough.spec.ts     # Playwright E2E (full 16-flag CTF playthrough)
+└── mission-playthrough.spec.ts # Playwright E2E (mission system — SSH/FTP/NC variants + lifecycle)
 ```
 
 ## Terminal Features
@@ -182,6 +183,7 @@ SessionProvider → MissionProvider → FileSystemProvider → NetworkProvider �
 - Accepts optional `missionNetworkConfig` prop and `missionMachines` prop (array of `GeneratedMachine`)
 - When resolving config for current machine: checks mission config first, then static config
 - When on localhost with active mission: uses `missionMachines` to get full `RemoteMachine` records (with ports and users) for localhost's reachable machine list, plus merges mission DNS
+- `findMachineUsers(ip)` — searches both static config and `missionNetworkConfig` for user lists. Used by `useCommands.ts` for `su` user validation on any machine (static or mission-generated).
 
 **Mission commands:**
 

@@ -20,6 +20,7 @@ type NetworkContextType = {
   readonly getLocalIP: () => string;
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
   readonly getDnsRecords: () => readonly DnsRecord[];
+  readonly findMachineUsers: (ip: string) => readonly string[];
 };
 
 const NetworkContext = createContext<NetworkContextType | null>(null);
@@ -140,6 +141,27 @@ export const NetworkProvider = ({
     return currentConfig.dnsRecords;
   }, [currentConfig.dnsRecords]);
 
+  const findMachineUsers = useCallback(
+    (ip: string): readonly string[] => {
+      const searchConfigs = (networkConfig: NetworkConfig): readonly string[] => {
+        const found = Object.values(networkConfig.machineConfigs)
+          .flatMap((mc) => mc.machines)
+          .find((m) => m.ip === ip);
+        return found ? found.users.map((u) => u.username) : [];
+      };
+
+      const staticUsers = searchConfigs(config);
+      if (staticUsers.length > 0) return staticUsers;
+
+      if (missionNetworkConfig) {
+        return searchConfigs(missionNetworkConfig);
+      }
+
+      return [];
+    },
+    [config, missionNetworkConfig],
+  );
+
   return (
     <NetworkContext.Provider
       value={{
@@ -152,6 +174,7 @@ export const NetworkProvider = ({
         getLocalIP,
         resolveDomain,
         getDnsRecords,
+        findMachineUsers,
       }}
     >
       {children}

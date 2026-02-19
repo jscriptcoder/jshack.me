@@ -106,6 +106,20 @@
 - **Issue**: GET and POST have completely different path resolution — easy to add content in the wrong place
 - **Solution**: GET reads `/var/www/html${urlPath}`, POST reads `/var/www/api/${endpoint}.json` — content must exist at the right path for the HTTP method
 
+### `getUsers()` only searched static config, not mission network config
+
+- **Context**: `su("root")` on a mission-generated machine (e.g., `10.100.103.11`)
+- **Issue**: `getUsers()` in `useCommands.ts` searched `config.machineConfigs` (static) to find the RemoteMachine entry matching `session.machine`. Mission machine IPs don't exist in static config → empty user array → "user does not exist" error
+- **Solution**: Added `findMachineUsers(ip)` to `NetworkContext` that searches both static `config` and `missionNetworkConfig`. `useCommands.ts` calls this instead of manually searching configs.
+- **Key insight**: Any code that looks up machine metadata by IP must search both static and mission configs. Centralize these lookups in `NetworkContext` rather than having each consumer search independently.
+
+### Mission complete banner uses 'banner' type, not 'result'
+
+- **Context**: E2E test waiting for "MISSION COMPLETE" text after capturing a flag
+- **Issue**: `page.locator(RESULT, { hasText: 'MISSION COMPLETE' })` never matched because `Terminal.tsx` renders mission complete via `addLine('banner', ...)`, which uses the `terminal-banner` data-testid, not `terminal-result`
+- **Solution**: Use `page.locator(BANNER, { hasText: 'MISSION COMPLETE' })` in E2E tests
+- **Key insight**: Different output types (`banner` vs `result` vs `error`) have different `data-testid` selectors. Check Terminal.tsx's `addLine` calls to know which selector to use in E2E tests.
+
 ### `getMachine()` returns undefined for current machine in `handlePasswordSubmit`
 
 - **Context**: `su("admin")` on gateway sets admin as 'user' instead of 'root'
@@ -288,6 +302,13 @@
 - **What**: Single sequential test that plays through all 16 CTF flags, acting as both regression test and visual demo
 - **Why it works**: Catches real bugs that unit tests miss (found the su user-type bug on gateway), validates the full user experience end-to-end, `--headed` mode lets you watch the entire game play itself
 - **Key patterns**: `countThenWait` for robust DOM matching in accumulating output, composite helpers (`suTo`, `sshTo`, `ftpConnect`) that encapsulate multi-step flows, `test.step` blocks for per-flag organization
+
+### Deterministic seeds for mission E2E tests
+
+- **What**: Use known seeds (e.g., `TEST-1-easy`, `MEDTECH-4A7F-easy`, `NOVA-7E2A-easy`) with pre-verified attack chains, credentials, and flags for E2E mission tests
+- **Why it works**: Seeded generation is deterministic — same seed always produces identical network topology, users, passwords, and flag. Tests can hardcode expected values (IPs, credentials, flag strings) without runtime introspection.
+- **Key patterns**: One test per entry variant (SSH, FTP, NC) covers all initial access methods. WiFi gate helper (`completeWifiGate`) shared across all mission tests since it's always a prerequisite. Mission lifecycle test (abort/re-accept) verifies state cleanup.
+- **Gotcha**: To discover test data for a new seed, run `generateMissionNetwork(seed)` in a temporary vitest file and inspect the output — can't easily run standalone TypeScript on Windows due to ESM/CJS module resolution issues with tsx.
 
 ### Build-time content encoding for anti-cheat
 
@@ -554,3 +575,8 @@
 - aircrack on unknown BSSID: "BSSID not found — run airdump() to scan"
 - Network commands on localhost before WiFi: "Network is unreachable — wlan0 is not connected"
 - ifconfig on localhost before WiFi: shows wlan0 DOWN (NOT gated — player needs this)
+- Mission `su` on generated machines: `getUsers()` must search mission network config, not just static config
+- Mission complete banner: uses `addLine('banner', ...)` — match with `BANNER` selector, not `RESULT`
+- Mission credential placements in `/var/log/auth.log`: root-only by default (regular users can't read)
+- FTP entry variant credential hints: placed in `/home/{user}/` dirs which are `read: ['root', 'user']` — guest can't access
+- Guest users on mission entry machines: can't call `exit()`, `ssh()`, or `abort()` (all require 'user' privilege)

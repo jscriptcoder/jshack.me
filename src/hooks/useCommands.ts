@@ -38,7 +38,7 @@ export const useCommands = (): UseCommandsResult => {
   const networkCommands = useNetworkCommands();
   const wifiCommands = useWifiCommands();
   const { session, setTheme, popAllSessions } = useSession();
-  const { config } = useNetwork();
+  const { findMachineUsers } = useNetwork();
   const { resolvePath, getNode } = useFileSystem();
   const { isMissionActive, startMission, abortMission } = useMission();
 
@@ -46,11 +46,8 @@ export const useCommands = (): UseCommandsResult => {
     if (session.machine === 'localhost') {
       return LOCAL_USERS;
     }
-    const found = Object.values(config.machineConfigs)
-      .flatMap((mc) => mc.machines)
-      .find((m) => m.ip === session.machine);
-    return found ? found.users.map((u) => u.username) : [];
-  }, [session.machine, config.machineConfigs]);
+    return findMachineUsers(session.machine);
+  }, [session.machine, findMachineUsers]);
 
   return useMemo(() => {
     // Circular dependency workaround: node(path) needs the full execution context

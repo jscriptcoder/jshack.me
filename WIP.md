@@ -2,11 +2,11 @@
 
 ## Current Step
 
-Mission system Phase 3 — First Mission Template (E2E Proof of Concept) complete
+Mission E2E tests complete — all entry variants tested end-to-end
 
 ## Status
 
-✅ COMPLETE — Fixed 3 critical bugs making missions fully playable end-to-end (all 906 tests pass)
+✅ COMPLETE — Mission E2E Playwright tests (SSH/FTP/NC variants + lifecycle) passing (906 unit tests + 5 E2E tests)
 
 ## Completed
 
@@ -27,7 +27,22 @@ Mission system Phase 3 — First Mission Template (E2E Proof of Concept) complet
 - [x] WiFi hacking gate (airmon, airdump, aircrack)
 - [ ] Step 13: Mission system (procedurally generated contracts)
 
-## Recent Session (2026-02-19, Session 4)
+## Recent Session (2026-02-19, Session 5)
+
+Implemented:
+
+- **Mission E2E Playwright tests** (`e2e/mission-playthrough.spec.ts`):
+  - 4 tests covering all 3 entry variants (SSH, FTP, NC) + mission lifecycle (abort/re-accept)
+  - SSH variant (TEST-1-easy): SSH to target, su to root, capture flag
+  - NC variant (MEDTECH-4A7F-easy): NC backdoor to entry, find creds, SSH to target, capture flag
+  - FTP variant (NOVA-7E2A-easy): FTP to entry, download creds file, SSH to target, capture flag
+  - Lifecycle test: accept mission → SSH in → abort → verify back on localhost → accept new mission
+  - Shared `completeWifiGate` helper (WiFi gate is prerequisite for all mission tests)
+  - Uses deterministic seeds with pre-verified attack chains, credentials, and flags
+- **Bug fix: `su` on mission machines** — `getUsers()` in `useCommands.ts` only searched static `config.machineConfigs`. Mission machine IPs aren't in static config → "user does not exist" error. Added `findMachineUsers(ip)` to `NetworkContext` that searches both static and mission configs. `useCommands.ts` now delegates to this centralized lookup.
+- **Test count**: 906 unit tests across 64 files + 5 Playwright E2E tests (1 CTF + 4 mission)
+
+## Previous Session (2026-02-19, Session 4)
 
 Implemented:
 
@@ -484,7 +499,7 @@ Flag detection, progress display, `flags()` command, victory celebration. See PL
 ### Test Coverage
 
 - 906 unit tests across 64 colocated test files
-- 1 Playwright E2E test (full 16-flag CTF playthrough + WiFi gate, ~42s in Chromium)
+- 5 Playwright E2E tests: 1 CTF playthrough (16 flags + WiFi gate) + 4 mission playthroughs (SSH/FTP/NC variants + lifecycle)
 - All commands with logic are tested
 - WiFi commands tested: airmon (9), airdump (6), aircrack (8)
 - FTP subcommands tested (cd, lcd, ls, lls, get, put)
