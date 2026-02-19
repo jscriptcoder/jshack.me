@@ -9,6 +9,7 @@ const SESSION_STORE = 'session';
 const FILESYSTEM_STORE = 'filesystem';
 const SESSION_KEY = 'state';
 const FILESYSTEM_KEY = 'patches';
+const MISSION_KEY = 'activeMissionSeed';
 
 export const openDatabase = (): Promise<IDBDatabase> =>
   new Promise((resolve, reject) => {
@@ -101,6 +102,30 @@ const clearStore = (db: IDBDatabase, storeName: string): Promise<void> =>
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
+
+export const loadMissionSeed = async (db: IDBDatabase): Promise<string | null> => {
+  try {
+    const data = await getValue<unknown>(db, SESSION_STORE, MISSION_KEY);
+    if (typeof data === 'string') return data;
+    return null;
+  } catch {
+    return null;
+  }
+};
+
+export const saveMissionSeed = async (db: IDBDatabase, seed: string | null): Promise<void> => {
+  try {
+    if (seed === null) {
+      const transaction = db.transaction(SESSION_STORE, 'readwrite');
+      const store = transaction.objectStore(SESSION_STORE);
+      store.delete(MISSION_KEY);
+    } else {
+      await setValue(db, SESSION_STORE, MISSION_KEY, seed);
+    }
+  } catch {
+    // Non-critical — see saveSessionState comment above
+  }
+};
 
 export const clearAllData = async (db: IDBDatabase): Promise<void> => {
   await clearStore(db, SESSION_STORE);

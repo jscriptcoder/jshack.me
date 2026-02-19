@@ -65,7 +65,7 @@ User input flows through `Terminal.tsx`:
 Commands are tiered by user type (`src/commands/permissions.ts`):
 
 - **guest**: help, man, echo, whoami, pwd, ls, cd, cat, su, clear, author
-- **user**: All guest + ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, strings, output, resolve, exit, nano, node, airmon, airdump, aircrack, nmcli
+- **user**: All guest + ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, strings, output, resolve, exit, nano, node, airmon, airdump, aircrack, nmcli, missions, accept, abort
 - **root**: All user + decrypt
 
 ### Content Encoding (Anti-Cheat)
@@ -99,6 +99,8 @@ Session and filesystem state persist to IndexedDB (`jshack-db` database):
 - `storageCache.ts` pre-loads data before React mounts (sync cache for `useState` initializers)
 - `SessionContext` and `FileSystemContext` write updates via `useEffect` (async, fire-and-forget)
 - Filesystem uses a patches approach — only diffs from base filesystem are stored
+- Mission seed persisted to IndexedDB session store (`activeMissionSeed` key); full network regenerated from seed on reload
+- Mission filesystem patches are NOT persisted — only static machine patches are saved
 - `reset("confirm")` clears IndexedDB and reloads to factory state
 
 ### WiFi Hacking Gate
@@ -115,6 +117,19 @@ Network access from localhost requires cracking a WiFi network first. This is a 
 - Commands in `src/commands/airmon.ts`, `airdump.ts`, `aircrack.ts`, `nmcli.ts`
 - Hook: `src/hooks/useWifiCommands.ts` (manages monitor mode state via `useRef`)
 - WiFi gating only applies on localhost; remote machines are unaffected
+
+### Mission System
+
+After completing the 16-flag tutorial, players can take on procedurally generated hacker-for-hire contracts from a darknet marketplace.
+
+- **MissionContext** (`src/mission/MissionContext.tsx`) — React context providing `activeMission`, `startMission`, `abortMission`, `completeMission`, `isMissionActive` via `useMission()` hook
+- **App.tsx orchestration** — Mission state lives in `App.tsx`, passed as props to `FileSystemProvider` (`missionFileSystems`) and `NetworkProvider` (`missionNetworkConfig`). `MissionProvider` wraps both for command access.
+- **Generator** — `generateMissionNetwork(seed)` in `src/generation/generateMission.ts` deterministically produces a full network from a seed string
+- **Entry variants** — Entry machine initial access varies: ssh (classic), ftp (find SSH creds via FTP), nc (find SSH creds via backdoor). Selected by PRNG per seed.
+- **Commands** — `missions()` browses contracts, `accept(seed)` starts a mission, `abort()` cancels and returns to localhost
+- **Completion** — Terminal.tsx scans command output for the mission flag; auto-completes on detection
+- **Isolation** — Mission machines are only reachable from localhost (injected into localhost's config). Mission filesystem patches are excluded from IndexedDB persistence.
+- **Persistence** — Only the seed string is persisted; full network regenerated on reload
 
 ### Node Execution Circular Dependency
 

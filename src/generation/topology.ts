@@ -8,12 +8,14 @@ import type {
   Port,
   RemoteMachine,
 } from '../network/types';
-import { hostnamesByRole, portTemplatesByRole } from './pools';
+import type { EntryVariant } from './types';
+import { hostnamesByRole, portTemplatesByRole, entryPortTemplates } from './pools';
 
 type TopologyResult = {
   readonly machines: readonly GeneratedMachine[];
   readonly networkConfig: NetworkConfig;
   readonly entryPoint: string;
+  readonly entryVariant: EntryVariant;
 };
 
 const machineCountByDifficulty: Readonly<Record<Difficulty, readonly [number, number]>> = {
@@ -52,6 +54,15 @@ const buildPorts = (role: MachineRole): readonly Port[] =>
     open: t.open,
   }));
 
+const buildPortsFromTemplate = (
+  template: readonly { readonly port: number; readonly service: string; readonly open: boolean }[],
+): readonly Port[] =>
+  template.map((t) => ({
+    port: t.port,
+    service: t.service,
+    open: t.open,
+  }));
+
 export const generateTopology = (prng: Prng, difficulty: Difficulty): TopologyResult => {
   const [minMachines, maxMachines] = machineCountByDifficulty[difficulty];
   const machineCount = prng.nextInt(minMachines, maxMachines);
@@ -65,10 +76,14 @@ export const generateTopology = (prng: Prng, difficulty: Difficulty): TopologyRe
   const remainingRoles = Array.from({ length: machineCount - 1 }, () => prng.pick(allRoles));
   const roles: readonly MachineRole[] = [entryRole, ...remainingRoles];
 
+  const entryTemplate = prng.pick(entryPortTemplates);
+  const entryVariant = entryTemplate.variant;
+
   const machines: readonly GeneratedMachine[] = roles.map((role, i) => {
     const ip = `${subnet}.${10 + i}`;
     const hostname = prng.pick(hostnamesByRole[role]);
-    const ports = buildPorts(role);
+    const isEntry = i === 0;
+    const ports = isEntry ? buildPortsFromTemplate(entryTemplate.ports) : buildPorts(role);
 
     return {
       ip,
@@ -107,5 +122,6 @@ export const generateTopology = (prng: Prng, difficulty: Difficulty): TopologyRe
     machines,
     networkConfig: { machineConfigs },
     entryPoint: machines[0]?.ip ?? gateway,
+    entryVariant,
   };
 };

@@ -109,6 +109,16 @@ type RemoteMachine = {
 };
 ```
 
+## Mission Network Integration
+
+`NetworkProvider` accepts an optional `missionNetworkConfig` prop. When a mission is active, the provider merges mission machines into the network view:
+
+1. **Mission machines** — if the player is SSH'd into a mission machine, its config is returned directly from `missionNetworkConfig`
+2. **Localhost merge** — when on localhost with an active mission, mission machines are appended to localhost's reachable machines and their DNS records are merged in. This lets `nmap`, `ping`, `ssh`, etc. discover and reach the mission entry point.
+3. **No mission** — when `missionNetworkConfig` is undefined, behavior is unchanged (static tutorial network only)
+
+Mission machines live on dynamically generated subnets (e.g., `10.x.x.0/24`) and only see each other. The entry point is the bridge — reachable from localhost, with the rest of the mission network accessible from there.
+
 ## Context API
 
 `useNetwork()` provides read-only queries. All results are **session-aware** — they return data for the current machine (`session.machine`):

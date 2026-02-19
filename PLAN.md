@@ -97,14 +97,14 @@ Procedurally generated hacker-for-hire contracts with seed-based network generat
 **Phases:**
 
 1. ~~Seeded network generator (PRNG, topology, users, filesystems, vulnerabilities)~~ ✅ Done
-2. Mission board UI (darknet marketplace, accept/complete flow)
-3. First mission template (end-to-end proof of concept)
+2. ~~Mission board UI + integration (accept/abort/complete, context providers, persistence)~~ ✅ Done
+3. First mission template (end-to-end proof of concept — manual playtesting)
 4. Expand mission types (tamper, plant, chain missions)
 5. Polish and social (reputation, seed sharing, history)
 
 ## Test Coverage
 
-872 tests across 60 colocated test files:
+905 tests across 64 colocated test files:
 
 - All commands with logic are tested (factory pattern with mock context injection)
 - FTP subcommands tested (cd, lcd, ls, lls, get, put)

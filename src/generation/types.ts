@@ -44,10 +44,13 @@ export type CredentialMap = Readonly<
   Record<string, readonly { readonly username: string; readonly password: string }[]>
 >;
 
+export type EntryVariant = 'ssh' | 'ftp' | 'nc';
+
 export type MissionNetwork = {
   readonly seed: string;
   readonly difficulty: Difficulty;
   readonly entryPoint: string;
+  readonly entryVariant: EntryVariant;
   readonly machines: readonly GeneratedMachine[];
   readonly fileSystems: Readonly<Record<string, FileNode>>;
   readonly networkConfig: NetworkConfig;

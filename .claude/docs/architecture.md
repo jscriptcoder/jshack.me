@@ -21,18 +21,22 @@ src/
 ├── commands/              # Command implementations (colocated with .test.ts files)
 │   ├── ftp/               # FTP mode commands (pwd, ls, cd, get, put, quit)
 │   └── permissions.ts     # Command restrictions by user type
-├── generation/            # Seeded mission network generator (Phase 1)
+├── generation/            # Seeded mission network generator
 │   ├── prng.ts                # Mulberry32 PRNG seeded via FNV-1a hash
-│   ├── types.ts               # MissionNetwork, GeneratedMachine, AttackStep, etc.
-│   ├── pools.ts               # Data pools (usernames, passwords, hostnames, templates)
-│   ├── topology.ts            # Network topology generator (machines, IPs, DNS)
+│   ├── types.ts               # MissionNetwork, GeneratedMachine, AttackStep, EntryVariant, etc.
+│   ├── pools.ts               # Data pools (usernames, passwords, hostnames, entry/port templates)
+│   ├── topology.ts            # Network topology generator (machines, IPs, DNS, entry variant)
 │   ├── users.ts               # User generator (per-machine users + credential map)
 │   ├── attackChain.ts         # Attack chain generator (path, methods, credential placements)
-│   ├── filesystem.ts          # Filesystem generator (role templates, breadcrumbs, noise)
+│   ├── filesystem.ts          # Filesystem generator (role templates, breadcrumbs, noise, entry creds)
 │   └── generateMission.ts     # Orchestrator: seed → MissionNetwork
+├── mission/               # Mission system integration (Phase 2)
+│   ├── MissionContext.tsx     # React context for active mission state + start/abort/complete
+│   ├── missionBoard.ts       # Hardcoded mission contracts + ASCII board formatter
+│   └── index.ts               # Barrel export
 ├── utils/                 # Utilities (md5, crypto, contentCodec, storage, stringify)
 ├── test/setup.ts          # Test setup (jest-dom, fake-indexeddb)
-└── App.tsx                # Root component (wraps Terminal with providers)
+└── App.tsx                # Root component (mission state + wraps Terminal with providers)
 
 scripts/
 └── encode.ts              # Pre-build: encodes filesystems + secrets into __encoded.ts files
@@ -43,7 +47,7 @@ e2e/
 
 ## Terminal Features
 
-- ASCII banner on startup ("JSHACK.ME v0.1.0")
+- ASCII banner on startup ("JSHACK.ME v0.2.0")
 - Dynamic prompt: `username@machine>` (managed via SessionContext)
 - Command history (up/down arrows)
 - Tab autocompletion for commands and variables
@@ -54,7 +58,7 @@ e2e/
 
 `SessionContext` (`src/session/SessionContext.tsx`) is the single source of truth for session state: username, userType, machine, currentPath, wifiConnected.
 
-Key methods: `setUsername()`, `setMachine()`, `setCurrentPath()`, `setWifiConnected()`, `disconnectWifi()`, `pushSession()` (before SSH), `popSession()` (exit), `canReturn()`.
+Key methods: `setUsername()`, `setMachine()`, `setCurrentPath()`, `setWifiConnected()`, `disconnectWifi()`, `pushSession()` (before SSH), `popSession()` (exit), `popAllSessions()` (mission abort — resets to bottom of stack), `canReturn()`.
 
 Session stack enables SSH nesting — `pushSession()` saves state before connecting, `popSession()` restores it on `exit()`. WiFi state is included in snapshots.
 
@@ -66,7 +70,9 @@ Three-layer system:
 2. **`storageCache.ts`** — Pre-load cache, called in `main.tsx` before React mounts. Bridges async IndexedDB with sync `useState` initializers. Handles one-time localStorage migration.
 3. **Contexts** — Read from cache (sync), write to IndexedDB via `useEffect` (async)
 
-Filesystem persistence uses patches (diffs from base filesystem). Each write/create operation records a `FileSystemPatch` with machineId, path, content, and owner. Patches are replayed on initialization via `applyPatches()`.
+Filesystem persistence uses patches (diffs from base filesystem). Each write/create operation records a `FileSystemPatch` with machineId, path, content, and owner. Patches are replayed on initialization via `applyPatches()`. Mission filesystem patches are excluded from persistence — only static machine patches are saved to IndexedDB.
+
+Mission seed persistence: only the active mission seed string is stored in IndexedDB (session store, key `activeMissionSeed`). On reload, the full `MissionNetwork` is regenerated from the seed (deterministic). Session state (machine, path, stack) and static filesystem patches already persist via existing mechanisms.
 
 ## Nano Editor
 
@@ -117,7 +123,7 @@ Network access from localhost requires cracking a WiFi network first. This is a 
 
 See `src/commands/` for implementations and `src/hooks/useCommands.ts` for the registry.
 
-Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, su, whoami, airmon, airdump, aircrack, nmcli, ifconfig, ping, nmap, nslookup, ssh, exit, ftp, nc, curl, decrypt, output, resolve, strings, nano, node, reset.
+Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, su, whoami, airmon, airdump, aircrack, nmcli, ifconfig, ping, nmap, nslookup, ssh, exit, ftp, nc, curl, decrypt, output, resolve, strings, nano, node, missions, accept, abort, theme, reset.
 
 FTP mode (when connected via ftp): pwd, lpwd, cd, lcd, ls, lls, get, put, quit/bye.
 
@@ -125,26 +131,74 @@ NC mode (when connected via nc): pwd, cd, ls, cat, whoami, help, exit — read-o
 
 ## Seeded Mission Network Generator
 
-`src/generation/` contains the Phase 1 engine for procedurally generating mission networks from a seed string. No UI or React integration yet — pure generation pipeline.
+`src/generation/` contains the engine for procedurally generating mission networks from a seed string.
 
 **Pipeline**: `generateMissionNetwork(seed)` composes these steps:
 
 1. **PRNG** (`prng.ts`) — Mulberry32 PRNG seeded via FNV-1a hash of the seed string. Provides `next()`, `nextInt()`, `pick()`, `pickN()`, `shuffle()`.
-2. **Topology** (`topology.ts`) — Generates machines on a flat subnet (`10.x.x.0/24`), assigns roles (webserver/database/fileserver/workstation), builds `NetworkConfig` with interfaces, DNS, and per-machine reachability.
+2. **Topology** (`topology.ts`) — Generates machines on a flat subnet (`10.x.x.0/24`), assigns roles (webserver/database/fileserver/workstation), selects an entry variant (ssh/ftp/nc) for the entry machine, builds `NetworkConfig` with interfaces, DNS, and per-machine reachability.
 3. **Users** (`users.ts`) — Generates root + 1-2 role-appropriate users per machine, hashes passwords with `md5()`. Returns both `RemoteUser[]` per machine and a plaintext credential map.
-4. **Attack Chain** (`attackChain.ts`) — Picks a target machine, builds an attack path (entry → intermediates → target), assigns access methods (ssh/ftp), and plans credential placements (where on machine A the password for machine B is leaked).
-5. **Filesystems** (`filesystem.ts`) — Builds `FileNode` trees per machine using the existing `createFileSystem()` factory. Injects role-based configs, credential breadcrumbs, noise files, red herrings, and the flag on the target machine.
+4. **Attack Chain** (`attackChain.ts`) — Picks a target machine, builds an attack path (entry → intermediates → target), assigns access methods based on entry variant for the first hop (ssh/ftp/nc) and ssh for subsequent hops, plans credential placements.
+5. **Filesystems** (`filesystem.ts`) — Builds `FileNode` trees per machine using the existing `createFileSystem()` factory. Injects role-based configs, credential breadcrumbs, noise files, red herrings, entry credential hints (for FTP/NC entry variants), and the flag on the target machine.
 
-**Output**: `MissionNetwork` containing seed, difficulty, machines, filesystems, network config, attack chain, and objective. Same seed always produces identical output.
+**Output**: `MissionNetwork` containing seed, difficulty, machines, filesystems, network config, attack chain, objective, and entry variant. Same seed always produces identical output.
 
-**Data Pools** (`pools.ts`) — Static arrays for usernames, passwords, hostnames, port templates, log templates, config templates, and noise/red-herring files.
+**Data Pools** (`pools.ts`) — Static arrays for usernames, passwords, hostnames, port templates, entry port templates (ssh/ftp/nc variants), entry credential hint templates, log templates, config templates, and noise/red-herring files.
 
 **Key properties**:
 
 - Deterministic: same seed → identical network (deep equality)
 - 4 machine roles, 3 difficulty tiers (easy=2, medium=3-4, hard=4-6 machines)
-- Output types match existing `NetworkConfig`, `RemoteMachine`, `FileNode` — ready for future integration
-- 66 unit tests covering determinism, variation, and structural correctness
+- 3 entry variants (ssh, ftp, nc) — entry machine's initial access method varies per seed
+- Output types match existing `NetworkConfig`, `RemoteMachine`, `FileNode`
+
+## Mission System Integration
+
+`src/mission/` integrates the generator with React contexts so players can discover, accept, and play missions.
+
+**Architecture — App.tsx orchestration:**
+
+- `App.tsx` holds `activeMission` state + `startMission`/`abortMission`/`completeMission` callbacks
+- Passes `activeMission.fileSystems` to `FileSystemProvider` as `missionFileSystems` prop
+- Passes `activeMission.networkConfig` to `NetworkProvider` as `missionNetworkConfig` prop
+- `MissionProvider` wraps everything, providing mission state + methods to commands via `useMission()` hook
+- On init: checks `storageCache` for persisted seed, regenerates mission if present
+
+**Provider hierarchy:**
+
+```
+SessionProvider → MissionProvider → FileSystemProvider → NetworkProvider → Terminal
+```
+
+**FileSystemContext integration:**
+
+- Accepts optional `missionFileSystems` prop
+- Merges mission filesystems into state when mission starts, removes when mission ends
+- `STATIC_MACHINE_KEYS` set filters patches — only static machine patches persist to IndexedDB
+
+**NetworkContext integration:**
+
+- Accepts optional `missionNetworkConfig` prop
+- When resolving config for current machine: checks mission config first, then static config
+- When on localhost with active mission: merges mission entry point into localhost's reachable machines and DNS
+
+**Mission commands:**
+
+- `missions()` — displays hardcoded darknet contract board (5 contracts across difficulties)
+- `accept(seed)` — generates network from seed, displays briefing with entry point and access hint
+- `abort()` — pops all sessions back to localhost, clears mission state
+
+**Mission completion:**
+
+- `Terminal.tsx` scans command output (both sync results and async output lines) for the active mission's flag string
+- When flag is detected, displays ASCII "MISSION COMPLETE" banner and calls `completeMission()`
+
+**Entry variant system:**
+
+- Entry machine is NOT always SSH-accessible initially
+- PRNG selects an entry variant: `ssh` (classic), `ftp` (explore via FTP, find SSH creds), or `nc` (explore via backdoor, find SSH creds)
+- SSH is always available on the entry machine, but FTP/NC entry variants require finding credentials first
+- Mission briefing shows the initial access command based on variant
 
 ## SEO & Open Graph
 

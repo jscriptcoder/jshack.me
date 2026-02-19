@@ -13,6 +13,7 @@ const buildTestData = (seed: string, difficulty: 'easy' | 'medium' | 'hard' = 'm
     machines: topology.machines,
     credentials,
     entryPoint: topology.entryPoint,
+    entryVariant: topology.entryVariant,
     difficulty,
   });
   return { topology, result };

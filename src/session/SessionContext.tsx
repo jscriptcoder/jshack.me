@@ -137,6 +137,7 @@ type SessionContextValue = {
   readonly updateNcCwd: (cwd: string) => void;
   readonly setWifiConnected: (connected: boolean) => void;
   readonly disconnectWifi: () => void;
+  readonly popAllSessions: () => void;
   readonly setTheme: (theme: ThemeId) => void;
 };
 
@@ -300,6 +301,24 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
     applyTheme(THEMES[session.theme]);
   }, [session.theme]);
 
+  const popAllSessions = useCallback(() => {
+    if (sessionStack.length === 0) return;
+    const bottom = sessionStack[0];
+    setSessionStack([]);
+    setFtpSession(null);
+    setNcSession(null);
+    if (bottom) {
+      setSession({
+        username: bottom.username,
+        userType: bottom.userType,
+        machine: bottom.machine,
+        currentPath: bottom.currentPath,
+        wifiConnected: bottom.wifiConnected,
+        theme: bottom.theme,
+      });
+    }
+  }, [sessionStack]);
+
   const disconnectWifi = useCallback(() => {
     setSession((prev) => {
       const localhostPath =
@@ -347,6 +366,7 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
         updateNcCwd,
         setWifiConnected,
         disconnectWifi,
+        popAllSessions,
         setTheme,
       }}
     >

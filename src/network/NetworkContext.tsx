@@ -29,21 +29,72 @@ const defaultMachineConfig: MachineNetworkConfig = {
   dnsRecords: [],
 };
 
-export const NetworkProvider = ({ children }: { children: ReactNode }) => {
+type NetworkProviderProps = {
+  readonly children: ReactNode;
+  readonly missionNetworkConfig?: NetworkConfig;
+};
+
+export const NetworkProvider = ({ children, missionNetworkConfig }: NetworkProviderProps) => {
   const [config] = useState<NetworkConfig>(createInitialNetwork);
   const { session } = useSession();
 
   const isLocalhostDisconnected = session.machine === 'localhost' && !session.wifiConnected;
 
   const currentConfig = useMemo((): MachineNetworkConfig => {
+    const missionConfig = missionNetworkConfig?.machineConfigs[session.machine];
+    if (missionConfig) return missionConfig;
+
     const base = config.machineConfigs[session.machine] ?? defaultMachineConfig;
-    if (!isLocalhostDisconnected) return base;
-    return {
-      interfaces: localhostDisconnectedInterfaces,
-      machines: [],
-      dnsRecords: [],
-    };
-  }, [config.machineConfigs, session.machine, isLocalhostDisconnected]);
+
+    if (isLocalhostDisconnected) {
+      return {
+        interfaces: localhostDisconnectedInterfaces,
+        machines: [],
+        dnsRecords: [],
+      };
+    }
+
+    if (session.machine === 'localhost' && missionNetworkConfig) {
+      const missionIps = Object.keys(missionNetworkConfig.machineConfigs);
+      const allMissionMachines = Object.values(missionNetworkConfig.machineConfigs).flatMap(
+        (c) => c.machines,
+      );
+
+      const missionRemoteMachines: readonly RemoteMachine[] = missionIps
+        .map((ip) => {
+          const mc = missionNetworkConfig.machineConfigs[ip];
+          if (!mc) return null;
+          const peerEntry = allMissionMachines.find((m) => m.ip === ip);
+          if (peerEntry) return peerEntry;
+          const hostname =
+            mc.dnsRecords.find((d) => d.ip === ip)?.domain?.replace('.mission', '') ?? ip;
+          const iface = mc.interfaces[0];
+          return {
+            ip,
+            hostname,
+            ports: iface ? [] : [],
+            users: [],
+          };
+        })
+        .filter((m): m is RemoteMachine => m !== null);
+
+      const missionDns = missionIps.flatMap((ip) => {
+        const mc = missionNetworkConfig.machineConfigs[ip];
+        return mc ? mc.dnsRecords : [];
+      });
+      const uniqueDns = missionDns.filter(
+        (d, i, arr) => arr.findIndex((x) => x.domain === d.domain) === i,
+      );
+
+      return {
+        ...base,
+        machines: [...base.machines, ...missionRemoteMachines],
+        dnsRecords: [...base.dnsRecords, ...uniqueDns],
+      };
+    }
+
+    return base;
+  }, [config.machineConfigs, session.machine, isLocalhostDisconnected, missionNetworkConfig]);
 
   const getInterface = useCallback(
     (name: string): NetworkInterface | undefined => {

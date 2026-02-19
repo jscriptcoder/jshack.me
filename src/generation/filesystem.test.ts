@@ -19,6 +19,7 @@ const buildTestData = (seed: string) => {
     machines: topology.machines,
     credentials,
     entryPoint: topology.entryPoint,
+    entryVariant: topology.entryVariant,
     difficulty: 'medium',
   });
   const fileSystems = generateFileSystems({
@@ -26,7 +27,10 @@ const buildTestData = (seed: string) => {
     machines: topology.machines,
     usersByMachine,
     credentialPlacements,
+    credentials,
     objective,
+    entryPoint: topology.entryPoint,
+    entryVariant: topology.entryVariant,
   });
   return { topology, fileSystems, objective, credentialPlacements };
 };

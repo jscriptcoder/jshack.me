@@ -105,6 +105,9 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 | `strings(file, [min])`  | Extract printable strings from binary files                    |
 | `nano(path)`            | Open file in nano-style text editor (Ctrl+S save, Ctrl+X exit) |
 | `node(path)`            | Execute a JavaScript file (requires execute permission)        |
+| `missions()`            | Browse available hacker-for-hire contracts on the darknet      |
+| `accept(seed)`          | Accept a mission contract and generate the target network      |
+| `abort()`               | Abort the current mission and return to localhost              |
 | `theme([name])`         | List themes or switch terminal color theme                     |
 | `reset(["confirm"])`    | Reset game to factory defaults (clears all saved progress)     |
 
@@ -214,7 +217,7 @@ npm run test:e2e      # Run Playwright E2E test (full CTF playthrough)
 
 ### Test Coverage
 
-872 unit tests across 60 colocated test files covering terminal commands, hooks, components, utilities, filesystem, persistence, and procedural generation.
+905 unit tests across 64 colocated test files covering terminal commands, hooks, components, utilities, filesystem, persistence, procedural generation, and mission system.
 
 1 Playwright E2E test that plays through the entire CTF game (all 16 flags) in a real browser — serves as both a comprehensive regression test and a visual demo. Run with `--headed` to watch it play:
 

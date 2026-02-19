@@ -5,6 +5,8 @@ import {
   saveSessionState,
   loadFilesystemPatches,
   saveFilesystemPatches,
+  loadMissionSeed,
+  saveMissionSeed,
 } from './storage';
 import type { PersistedState } from '../session/SessionContext';
 import type { FileSystemPatch } from '../filesystem/types';
@@ -204,6 +206,54 @@ describe('storage', () => {
       await saveFilesystemPatches(db, updated);
       const result = await loadFilesystemPatches(db);
       expect(result).toHaveLength(1);
+      db.close();
+    });
+  });
+
+  describe('mission seed', () => {
+    it('should return null when no seed exists', async () => {
+      const db = await openDatabase();
+      const result = await loadMissionSeed(db);
+      expect(result).toBeNull();
+      db.close();
+    });
+
+    it('should save and load a seed', async () => {
+      const db = await openDatabase();
+      await saveMissionSeed(db, 'MEDTECH-4A7F-easy');
+      const result = await loadMissionSeed(db);
+      expect(result).toBe('MEDTECH-4A7F-easy');
+      db.close();
+    });
+
+    it('should clear seed when saving null', async () => {
+      const db = await openDatabase();
+      await saveMissionSeed(db, 'MEDTECH-4A7F-easy');
+      await saveMissionSeed(db, null);
+      const result = await loadMissionSeed(db);
+      expect(result).toBeNull();
+      db.close();
+    });
+
+    it('should return null for non-string stored data', async () => {
+      const db = await openDatabase();
+      const transaction = db.transaction('session', 'readwrite');
+      const store = transaction.objectStore('session');
+      store.put(12345, 'activeMissionSeed');
+      await new Promise<void>((resolve) => {
+        transaction.oncomplete = () => resolve();
+      });
+      const result = await loadMissionSeed(db);
+      expect(result).toBeNull();
+      db.close();
+    });
+
+    it('should overwrite previous seed on save', async () => {
+      const db = await openDatabase();
+      await saveMissionSeed(db, 'SEED-A');
+      await saveMissionSeed(db, 'SEED-B');
+      const result = await loadMissionSeed(db);
+      expect(result).toBe('SEED-B');
       db.close();
     });
   });

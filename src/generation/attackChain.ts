@@ -5,6 +5,7 @@ import type {
   CredentialMap,
   CredentialPlacement,
   Difficulty,
+  EntryVariant,
   GeneratedMachine,
   MissionObjective,
 } from './types';
@@ -14,6 +15,7 @@ type AttackChainInput = {
   readonly machines: readonly GeneratedMachine[];
   readonly credentials: CredentialMap;
   readonly entryPoint: string;
+  readonly entryVariant: EntryVariant;
   readonly difficulty: Difficulty;
 };
 
@@ -91,8 +93,11 @@ const buildPath = (
   return [entry, ...shuffled];
 };
 
+const entryVariantToMethod = (variant: EntryVariant): AttackMethod =>
+  variant === 'nc' ? 'nc' : variant === 'ftp' ? 'ftp' : 'ssh';
+
 export const generateAttackChain = (input: AttackChainInput): AttackChainResult => {
-  const { prng, machines, credentials, entryPoint, difficulty } = input;
+  const { prng, machines, credentials, entryPoint, entryVariant, difficulty } = input;
 
   const path = buildPath(prng, machines, entryPoint, difficulty);
   if (path.length < 2) {
@@ -135,7 +140,7 @@ export const generateAttackChain = (input: AttackChainInput): AttackChainResult 
   for (let i = 0; i < path.length - 1; i++) {
     const fromMachine = path[i] as GeneratedMachine;
     const toMachine = path[i + 1] as GeneratedMachine;
-    const method = getMethodForMachine(toMachine);
+    const method = i === 0 ? entryVariantToMethod(entryVariant) : getMethodForMachine(toMachine);
 
     const targetMachineCreds = credentials[toMachine.ip] ?? [];
     const nonRootCreds = targetMachineCreds.filter(

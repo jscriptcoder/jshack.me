@@ -98,6 +98,7 @@ Validated with type guards on restore. Falls back to defaults if invalid or corr
 | `getPrompt()`             | Formatted prompt string (`user@machine>`, `ftp>`, or `$`) |
 | `pushSession()`           | Save session to stack (before SSH)                        |
 | `popSession()`            | Restore previous session (on exit)                        |
+| `popAllSessions()`        | Reset to bottom of stack (mission abort)                  |
 | `canReturn()`             | Check if session stack has entries                        |
 | `enterFtpMode(session)`   | Enter FTP mode                                            |
 | `exitFtpMode()`           | Exit FTP mode                                             |

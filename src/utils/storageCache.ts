@@ -8,6 +8,7 @@ import {
   saveSessionState,
   loadFilesystemPatches,
   saveFilesystemPatches,
+  loadMissionSeed,
 } from './storage';
 import { THEMES, DEFAULT_THEME_ID, isValidThemeId } from '../theme/themes';
 import { applyTheme } from '../theme/applyTheme';
@@ -18,6 +19,7 @@ const LS_FILESYSTEM_KEY = 'jshack-filesystem';
 type StorageCache = {
   readonly sessionState: PersistedState | null;
   readonly filesystemPatches: readonly FileSystemPatch[];
+  readonly missionSeed: string | null;
   readonly db: IDBDatabase | null;
 };
 
@@ -28,6 +30,7 @@ type StorageCache = {
 let cache: StorageCache = {
   sessionState: null,
   filesystemPatches: [],
+  missionSeed: null,
   db: null,
 };
 
@@ -83,9 +86,12 @@ export const initializeStorage = async (): Promise<void> => {
       }
     }
 
+    const missionSeed = await loadMissionSeed(db);
+
     cache = {
       sessionState,
       filesystemPatches: filesystemPatches ?? [],
+      missionSeed,
       db,
     };
 
@@ -97,6 +103,7 @@ export const initializeStorage = async (): Promise<void> => {
     cache = {
       sessionState: fallbackSession,
       filesystemPatches: loadPatchesFromLocalStorage(),
+      missionSeed: null,
       db: null,
     };
 
@@ -109,6 +116,8 @@ export const getCachedSessionState = (): PersistedState | null => cache.sessionS
 
 export const getCachedFilesystemPatches = (): readonly FileSystemPatch[] => cache.filesystemPatches;
 
+export const getCachedMissionSeed = (): string | null => cache.missionSeed;
+
 export const getDatabase = (): IDBDatabase | null => cache.db;
 
 // Exposed for testing only
@@ -116,5 +125,5 @@ export const resetCache = (): void => {
   if (cache.db) {
     cache.db.close();
   }
-  cache = { sessionState: null, filesystemPatches: [], db: null };
+  cache = { sessionState: null, filesystemPatches: [], missionSeed: null, db: null };
 };

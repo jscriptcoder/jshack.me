@@ -108,7 +108,7 @@ const addChildAtPath = (
   };
 };
 
-type FileSystemsState = Readonly<Record<MachineId, FileNode>>;
+type FileSystemsState = Readonly<Record<string, FileNode>>;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
@@ -183,10 +183,17 @@ const upsertPatch = (
   return patches.map((p, i) => (i === existingIndex ? patch : p));
 };
 
+const STATIC_MACHINE_KEYS = new Set(Object.keys(machineFileSystems));
+
 const initializeFileSystems = (): FileSystemsState =>
   applyPatches({ ...machineFileSystems }, getCachedFilesystemPatches());
 
-export const FileSystemProvider = ({ children }: { children: ReactNode }) => {
+type FileSystemProviderProps = {
+  readonly children: ReactNode;
+  readonly missionFileSystems?: Readonly<Record<string, FileNode>>;
+};
+
+export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemProviderProps) => {
   const { session } = useSession();
   const [fileSystems, setFileSystems] = useState<FileSystemsState>(initializeFileSystems);
   const [patches, setPatches] = useState<readonly FileSystemPatch[]>(getCachedFilesystemPatches);
@@ -194,9 +201,20 @@ export const FileSystemProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     const db = getDatabase();
     if (db) {
-      saveFilesystemPatches(db, patches);
+      const staticPatches = patches.filter((p) => STATIC_MACHINE_KEYS.has(p.machineId));
+      saveFilesystemPatches(db, staticPatches);
     }
   }, [patches]);
+
+  useEffect(() => {
+    setFileSystems((prev) => {
+      const staticOnly = Object.fromEntries(
+        Object.entries(prev).filter(([key]) => STATIC_MACHINE_KEYS.has(key)),
+      );
+      if (!missionFileSystems) return staticOnly;
+      return { ...staticOnly, ...missionFileSystems };
+    });
+  }, [missionFileSystems]);
 
   // session.machine is typed as string but always holds a valid MachineId at runtime
   // (set by SSH/session logic). The assertion avoids threading MachineId through SessionContext.

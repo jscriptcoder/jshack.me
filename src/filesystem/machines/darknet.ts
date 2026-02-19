@@ -108,6 +108,24 @@ Collection of recon and exploitation scripts.
       },
     },
   },
+  '.contracts': {
+    name: '.contracts',
+    type: 'file',
+    owner: 'user',
+    permissions: { read: ['root', 'user'], write: ['root', 'user'], execute: ['root'] },
+    content: `=== DARKNET MARKETPLACE ===
+
+New contracts are available on the mission board.
+
+After completing the tutorial flags, type:
+
+  missions()
+
+to browse available hacker-for-hire jobs.
+
+Use accept("SEED") to start a contract.
+`,
+  },
   projects: {
     name: 'projects',
     type: 'directory',

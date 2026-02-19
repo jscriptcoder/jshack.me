@@ -1,4 +1,4 @@
-import type { MachineRole } from './types';
+import type { EntryVariant, MachineRole } from './types';
 
 export type PortTemplate = {
   readonly port: number;
@@ -65,6 +65,35 @@ export const portTemplatesByRole: Readonly<Record<MachineRole, readonly PortTemp
   ],
 };
 
+export type EntryPortTemplate = {
+  readonly variant: EntryVariant;
+  readonly ports: readonly PortTemplate[];
+};
+
+export const entryPortTemplates: readonly EntryPortTemplate[] = [
+  {
+    variant: 'ssh',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 80, service: 'http', open: true },
+    ],
+  },
+  {
+    variant: 'ftp',
+    ports: [
+      { port: 21, service: 'ftp', open: true },
+      { port: 22, service: 'ssh', open: true },
+    ],
+  },
+  {
+    variant: 'nc',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 4444, service: 'elite', open: true },
+    ],
+  },
+];
+
 export const logTemplates: readonly string[] = [
   '{{date}} sshd[{{pid}}]: Accepted password for {{user}} from {{ip}} port {{srcport}}',
   '{{date}} sshd[{{pid}}]: Failed password for {{user}} from {{ip}} port {{srcport}}',
@@ -100,6 +129,30 @@ export const noiseFiles: readonly { readonly name: string; readonly content: str
   { name: '.vimrc', content: 'set number\nset tabstop=2\nset shiftwidth=2\nsyntax on' },
   { name: '.profile', content: '# ~/.profile\nif [ -n "$BASH_VERSION" ]; then\n  . ~/.bashrc\nfi' },
   { name: '.ssh_known_hosts', content: '# known hosts\n192.168.1.1 ssh-rsa AAAAB3NzaC1yc2E...' },
+];
+
+export const entryCredentialHintTemplates: readonly {
+  readonly ftpPath: string;
+  readonly ncPath: string;
+  readonly template: string;
+}[] = [
+  {
+    ftpPath: '/srv/ftp/.ssh_backup',
+    ncPath: '/home/{{owner}}/ssh_backup.txt',
+    template:
+      'SSH Credentials Backup\n======================\nHost: {{hostname}}\nUser: {{user}}\nPass: {{password}}\nLast updated: Jan 10',
+  },
+  {
+    ftpPath: '/srv/ftp/notes.txt',
+    ncPath: '/home/{{owner}}/notes.txt',
+    template: 'Server notes:\n- SSH access: {{user}} / {{password}}\n- Remember to rotate!',
+  },
+  {
+    ftpPath: '/home/{{localUser}}/credentials.bak',
+    ncPath: '/home/{{owner}}/.credentials',
+    template:
+      '# auto-generated credentials\nssh_user={{user}}\nssh_pass={{password}}\nhost={{hostname}}',
+  },
 ];
 
 export const redHerringFiles: readonly { readonly name: string; readonly content: string }[] = [

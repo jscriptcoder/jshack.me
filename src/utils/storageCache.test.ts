@@ -3,12 +3,13 @@ import {
   initializeStorage,
   getCachedSessionState,
   getCachedFilesystemPatches,
+  getCachedMissionSeed,
   getDatabase,
   resetCache,
 } from './storageCache';
 import type { PersistedState } from '../session/SessionContext';
 import type { FileSystemPatch } from '../filesystem/types';
-import { openDatabase, saveSessionState, saveFilesystemPatches } from './storage';
+import { openDatabase, saveSessionState, saveFilesystemPatches, saveMissionSeed } from './storage';
 
 const validSession: PersistedState = {
   session: {
@@ -89,6 +90,20 @@ describe('storageCache', () => {
 
       await initializeStorage();
       expect(getCachedFilesystemPatches()).toEqual(validPatches);
+    });
+
+    it('should return null mission seed when no seed exists', async () => {
+      await initializeStorage();
+      expect(getCachedMissionSeed()).toBeNull();
+    });
+
+    it('should load mission seed from IndexedDB', async () => {
+      const db = await openDatabase();
+      await saveMissionSeed(db, 'MEDTECH-4A7F-easy');
+      db.close();
+
+      await initializeStorage();
+      expect(getCachedMissionSeed()).toBe('MEDTECH-4A7F-easy');
     });
   });
 
@@ -188,6 +203,7 @@ describe('storageCache', () => {
       resetCache();
       expect(getCachedSessionState()).toBeNull();
       expect(getCachedFilesystemPatches()).toEqual([]);
+      expect(getCachedMissionSeed()).toBeNull();
       expect(getDatabase()).toBeNull();
     });
   });

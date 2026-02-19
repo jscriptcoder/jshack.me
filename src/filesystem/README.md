@@ -54,9 +54,13 @@ type FileNode = {
 | void       | 10.66.66.2    | Hidden network skeleton — dbadmin, root, guest                                 |
 | abyss      | 10.66.66.3    | Hidden network skeleton — phantom, root, guest                                 |
 
+### Mission Filesystem Integration
+
+`FileSystemProvider` accepts an optional `missionFileSystems` prop. When a mission is active, mission machine filesystems are merged into state alongside the static tutorial machines. When the mission ends, they're removed. `MachineId` is typed as `string` to accommodate both static IPs and dynamically generated mission IPs.
+
 ### Persistence
 
-User-created/modified files are persisted as patches in IndexedDB (`jshack-db` database, `filesystem` store). On init, patches are replayed on top of the base filesystem. Only the diff is stored — clearing the database resets to factory state.
+User-created/modified files are persisted as patches in IndexedDB (`jshack-db` database, `filesystem` store). On init, patches are replayed on top of the base filesystem. Only the diff is stored — clearing the database resets to factory state. Mission filesystem patches are excluded from persistence — only patches for the 8 static tutorial machines are saved to IndexedDB.
 
 ### Permission System
 

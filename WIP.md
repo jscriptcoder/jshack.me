@@ -2,11 +2,11 @@
 
 ## Current Step
 
-Mission system Phase 1 — Seeded network generator engine complete
+Mission system Phase 2 — Integration & Mission Board complete
 
 ## Status
 
-✅ COMPLETE — Seeded network generator (Phase 1) with 66 new tests (all 872 tests pass)
+✅ COMPLETE — Mission board, accept/abort commands, context integration (all 895 tests pass)
 
 ## Completed
 
@@ -27,7 +27,29 @@ Mission system Phase 1 — Seeded network generator engine complete
 - [x] WiFi hacking gate (airmon, airdump, aircrack)
 - [ ] Step 13: Mission system (procedurally generated contracts)
 
-## Recent Session (2026-02-19)
+## Recent Session (2026-02-19, Session 2)
+
+Implemented:
+
+- **Mission system Phase 2 — Integration & Mission Board**:
+  - `src/mission/MissionContext.tsx` — React context for active mission state (start/abort/complete)
+  - `src/mission/missionBoard.ts` — 5 hardcoded sample contracts with formatted ASCII board
+  - `src/commands/missions.ts` — Browse darknet contracts, shows formatted mission board
+  - `src/commands/accept.ts` — Accept a mission by seed, generates network, shows briefing with entry hint
+  - `src/commands/abort.ts` — Abort active mission, pops all SSH sessions back to localhost
+  - `src/App.tsx` — Orchestrates mission state, passes to FileSystem/Network providers
+  - `src/filesystem/FileSystemContext.tsx` — Accepts `missionFileSystems` prop, merges/removes dynamically
+  - `src/network/NetworkContext.tsx` — Accepts `missionNetworkConfig` prop, injects mission machines into localhost
+  - `src/session/SessionContext.tsx` — Added `popAllSessions()` for mission abort
+  - `src/utils/storage.ts` + `storageCache.ts` — Mission seed persistence (IndexedDB)
+  - `src/filesystem/machineFileSystems.ts` — Widened `MachineId` from literal union to `string`
+  - Generator tweaks: varied entry access methods (SSH/FTP/NC), entry credential hints, NC backdoor owner
+  - `src/filesystem/machines/darknet.ts` — Added `.contracts` breadcrumb file for mission discovery
+  - Mission completion detection in Terminal.tsx — scans command output for mission flag
+  - 23 new tests (missions, accept, abort, missionBoard)
+- **Test count**: 895 tests across 64 files
+
+## Previous Session (2026-02-19)
 
 Implemented:
 

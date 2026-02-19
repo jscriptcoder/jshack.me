@@ -4,7 +4,7 @@ import { generateUsers } from './users';
 import { generateAttackChain } from './attackChain';
 import { generateFileSystems } from './filesystem';
 import type { Difficulty, GeneratedMachine, MissionNetwork } from './types';
-import type { RemoteMachine } from '../network/types';
+import type { Port, RemoteMachine, RemoteUser } from '../network/types';
 
 const deriveDifficulty = (seed: string): Difficulty => {
   const lower = seed.toLowerCase();
@@ -18,13 +18,38 @@ const deriveDifficulty = (seed: string): Difficulty => {
   return mod === 0 ? 'easy' : mod === 1 ? 'medium' : 'hard';
 };
 
+const addNcBackdoorOwner = (
+  ports: readonly Port[],
+  users: readonly RemoteUser[],
+): readonly Port[] => {
+  const guestUser = users.find((u) => u.userType === 'guest');
+  if (!guestUser) return ports;
+
+  return ports.map((p) =>
+    p.service === 'elite' && p.open
+      ? {
+          ...p,
+          owner: {
+            username: guestUser.username,
+            userType: guestUser.userType,
+            homePath: `/home/${guestUser.username}`,
+          },
+        }
+      : p,
+  );
+};
+
 const enrichMachineWithUsers = (
   machine: GeneratedMachine,
   users: RemoteMachine['users'],
+  isNcEntry: boolean,
 ): GeneratedMachine => ({
   ...machine,
   remoteMachine: {
     ...machine.remoteMachine,
+    ports: isNcEntry
+      ? addNcBackdoorOwner(machine.remoteMachine.ports, users)
+      : machine.remoteMachine.ports,
     users,
   },
 });
@@ -41,7 +66,11 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
   );
 
   const machinesWithUsers: readonly GeneratedMachine[] = topology.machines.map((m) =>
-    enrichMachineWithUsers(m, usersByMachine[m.ip] ?? []),
+    enrichMachineWithUsers(
+      m,
+      usersByMachine[m.ip] ?? [],
+      m.ip === topology.entryPoint && topology.entryVariant === 'nc',
+    ),
   );
 
   const updatedMachineConfigs = Object.fromEntries(
@@ -62,6 +91,7 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
     machines: machinesWithUsers,
     credentials,
     entryPoint: topology.entryPoint,
+    entryVariant: topology.entryVariant,
     difficulty,
   });
 
@@ -70,13 +100,17 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
     machines: machinesWithUsers,
     usersByMachine,
     credentialPlacements,
+    credentials,
     objective,
+    entryPoint: topology.entryPoint,
+    entryVariant: topology.entryVariant,
   });
 
   return {
     seed,
     difficulty,
     entryPoint: topology.entryPoint,
+    entryVariant: topology.entryVariant,
     machines: machinesWithUsers,
     fileSystems,
     networkConfig: { machineConfigs: updatedMachineConfigs },

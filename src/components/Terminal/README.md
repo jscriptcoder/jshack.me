@@ -65,6 +65,7 @@ Terminal.tsx handleSubmit()
 - Handles password validation (local `su` via `/etc/passwd`, remote SSH via machine users)
 - Manages NanoEditor overlay lifecycle (open on `nano_open`, close on editor exit)
 - Shows ASCII banner on startup
+- Scans command output for mission flag — triggers completion banner when detected
 
 ### TerminalInput
 

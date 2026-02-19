@@ -26,6 +26,7 @@ useCommands()
 ├── Static commands (echo, author, clear, exit, resolve)
 ├── theme (uses setTheme from session context — unrestricted, guest-accessible)
 ├── node (lazy getter for execution context — needs access to all commands including itself)
+├── Mission commands (missions, accept, abort — uses useMission() context)
 ├── useFileSystemCommands() → pwd, ls, cd, cat, whoami, decrypt, output, strings, nano
 ├── useNetworkCommands()    → ifconfig, ping, nmap, nslookup, ssh, curl, ftp, nc
 ├── useWifiCommands()       → airmon, airdump, aircrack, nmcli

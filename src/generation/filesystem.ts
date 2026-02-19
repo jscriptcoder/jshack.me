@@ -1,5 +1,10 @@
 import type { Prng } from './prng';
-import type { CredentialPlacement, GeneratedMachine, MissionObjective } from './types';
+import type {
+  CredentialPlacement,
+  EntryVariant,
+  GeneratedMachine,
+  MissionObjective,
+} from './types';
 import type { FileNode } from '../filesystem/types';
 import type { RemoteUser } from '../network/types';
 import {
@@ -7,14 +12,25 @@ import {
   type MachineFileSystemConfig,
   type UserConfig,
 } from '../filesystem/fileSystemFactory';
-import { configTemplatesByRole, logTemplates, noiseFiles, redHerringFiles } from './pools';
+import {
+  configTemplatesByRole,
+  entryCredentialHintTemplates,
+  logTemplates,
+  noiseFiles,
+  redHerringFiles,
+} from './pools';
 
 type FilesystemInput = {
   readonly prng: Prng;
   readonly machines: readonly GeneratedMachine[];
   readonly usersByMachine: Readonly<Record<string, readonly RemoteUser[]>>;
   readonly credentialPlacements: readonly CredentialPlacement[];
+  readonly credentials: Readonly<
+    Record<string, readonly { readonly username: string; readonly password: string }[]>
+  >;
   readonly objective: MissionObjective;
+  readonly entryPoint: string;
+  readonly entryVariant: EntryVariant;
 };
 
 const mkFile = (
@@ -192,12 +208,72 @@ const buildMachineConfig = (
   };
 };
 
+const buildEntryCredentialPlacement = (
+  prng: Prng,
+  machine: GeneratedMachine,
+  users: readonly RemoteUser[],
+  entryVariant: EntryVariant,
+  machineCredentials: readonly { readonly username: string; readonly password: string }[],
+): CredentialPlacement | null => {
+  if (entryVariant === 'ssh') return null;
+
+  const sshUser = users.find((u) => u.userType === 'user');
+  if (!sshUser) return null;
+
+  const sshCred = machineCredentials.find((c) => c.username === sshUser.username);
+  if (!sshCred) return null;
+
+  const hintTemplate = prng.pick(entryCredentialHintTemplates);
+  const localUser = sshUser.username;
+  const ownerUser =
+    entryVariant === 'nc'
+      ? (users.find((u) => u.userType === 'guest')?.username ?? 'guest')
+      : localUser;
+
+  const filePath =
+    entryVariant === 'ftp'
+      ? hintTemplate.ftpPath.replace('{{localUser}}', localUser)
+      : hintTemplate.ncPath.replace('{{owner}}', ownerUser);
+
+  const fileContent = fillTemplate(hintTemplate.template, {
+    hostname: machine.hostname,
+    user: sshCred.username,
+    password: sshCred.password,
+    owner: ownerUser,
+  });
+
+  return {
+    machineIp: machine.ip,
+    filePath,
+    fileContent,
+    username: sshCred.username,
+    password: sshCred.password,
+  };
+};
+
 export const generateFileSystems = (input: FilesystemInput): Readonly<Record<string, FileNode>> => {
-  const { prng, machines, usersByMachine, credentialPlacements, objective } = input;
+  const {
+    prng,
+    machines,
+    usersByMachine,
+    credentialPlacements,
+    credentials,
+    objective,
+    entryPoint,
+    entryVariant,
+  } = input;
 
   const entries = machines.map((machine) => {
     const users = usersByMachine[machine.ip] ?? [];
-    const placements = credentialPlacements.filter((p) => p.machineIp === machine.ip);
+    const isEntry = machine.ip === entryPoint;
+    const basePlacements = credentialPlacements.filter((p) => p.machineIp === machine.ip);
+    const machineCreds = credentials[machine.ip] ?? [];
+
+    const entryHint = isEntry
+      ? buildEntryCredentialPlacement(prng, machine, users, entryVariant, machineCreds)
+      : null;
+    const placements = entryHint ? [...basePlacements, entryHint] : basePlacements;
+
     const isTarget = machine.ip === objective.targetMachine;
 
     const config = buildMachineConfig(prng, machine, users, placements, isTarget, objective);

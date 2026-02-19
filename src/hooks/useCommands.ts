@@ -11,6 +11,10 @@ import { createResolveCommand } from '../commands/resolve';
 import { createNodeCommand } from '../commands/node';
 import { createResetCommand } from '../commands/reset';
 import { createThemeCommand } from '../commands/theme';
+import { createMissionsCommand } from '../commands/missions';
+import { createAcceptCommand } from '../commands/accept';
+import { createAbortCommand } from '../commands/abort';
+import { useMission } from '../mission';
 import { applyCommandRestrictions, getAccessibleCommandNames } from '../commands/permissions';
 import { useFileSystemCommands } from './useFileSystemCommands';
 import { useNetworkCommands } from './useNetworkCommands';
@@ -33,9 +37,10 @@ export const useCommands = (): UseCommandsResult => {
   const fileSystemCommands = useFileSystemCommands();
   const networkCommands = useNetworkCommands();
   const wifiCommands = useWifiCommands();
-  const { session, setTheme } = useSession();
+  const { session, setTheme, popAllSessions } = useSession();
   const { config } = useNetwork();
   const { resolvePath, getNode } = useFileSystem();
+  const { isMissionActive, startMission, abortMission } = useMission();
 
   const getUsers = useCallback((): readonly string[] => {
     if (session.machine === 'localhost') {
@@ -83,6 +88,10 @@ export const useCommands = (): UseCommandsResult => {
       }),
     );
 
+    commands.set('missions', createMissionsCommand({ isMissionActive }));
+    commands.set('accept', createAcceptCommand({ startMission, isMissionActive }));
+    commands.set('abort', createAbortCommand({ abortMission, isMissionActive, popAllSessions }));
+
     fileSystemCommands.forEach((cmd, name) => commands.set(name, cmd));
     networkCommands.forEach((cmd, name) => commands.set(name, cmd));
     wifiCommands.forEach((cmd, name) => commands.set(name, cmd));
@@ -123,5 +132,9 @@ export const useCommands = (): UseCommandsResult => {
     setTheme,
     resolvePath,
     getNode,
+    isMissionActive,
+    startMission,
+    abortMission,
+    popAllSessions,
   ]);
 };
