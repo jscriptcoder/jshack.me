@@ -168,6 +168,13 @@
 - **Additional breakage**: Unit tests queried for rendered text content (`getByText`) and `.animate-pulse` elements. Updated to query input values (`toHaveValue`) and `type="password"` attribute. Password prompt tests switched from `getByRole('textbox')` (doesn't match `type="password"`) to `container.querySelector('input')`.
 - **Key insight**: When a custom UI element doubles as a state indicator for tests, check all test selectors that depend on its conditional rendering — especially E2E readiness checks that use presence/absence as a proxy for "the app is ready for input"
 
+### Tests break when production code imports encoded files
+
+- **Context**: Moved mission passwords from hardcoded array in `pools.ts` to `secrets/__encoded.ts`
+- **Issue**: Tests importing `pools.ts` (directly or transitively via `users.ts`) now fail if `__encoded.ts` doesn't exist, because `pools.ts` imports from it at module level
+- **Solution**: Add `pretest`, `pretest:run`, `pretest:coverage` npm hooks that run `npm run encode` — same pattern as existing `predev`/`prebuild` hooks
+- **Key insight**: Any time production code imports from a generated file, ALL entry points that load that code need a pre-hook to ensure the file exists. The encode script is fast (~100ms) so the overhead is negligible.
+
 ## Patterns That Worked
 
 ### Command factory pattern with context injection
@@ -289,6 +296,12 @@
 - **Key design**: Generated file calls `decodeFileSystem(JSON.parse(json))` at import time, so downstream code (contexts, commands) receives fully decoded FileNode trees with zero changes needed.
 - **Example**: `npm run encode` → `scripts/encode.ts` imports all 8 machines + secrets → encodes → writes `__encoded.ts` files → app code imports from `__encoded`
 - **Gotcha**: The generated file is gitignored and must be regenerated before dev/build — `predev`/`prebuild` npm hooks handle this automatically
+
+### JSON-stringified arrays in the secrets registry
+
+- **What**: Store an array of mission passwords as a single `MISSION_PASSWORDS` key with `JSON.stringify([...])`, decode at runtime with `JSON.parse(secrets.MISSION_PASSWORDS)`
+- **Why it works**: Reuses the existing secrets encoding pipeline with zero changes to the encode script. One key vs 20 separate keys keeps the registry clean. Tests import from the plaintext source file directly (same pattern as WiFi password).
+- **Key insight**: The secrets registry handles arbitrary string values — JSON-stringified structures (arrays, objects) work just as well as plain strings, extending the anti-cheat system without additional infrastructure.
 
 ### Two-layer tab completion with cursor-aware dispatch
 

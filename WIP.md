@@ -27,7 +27,19 @@ Mission system Phase 3 — First Mission Template (E2E Proof of Concept) complet
 - [x] WiFi hacking gate (airmon, airdump, aircrack)
 - [ ] Step 13: Mission system (procedurally generated contracts)
 
-## Recent Session (2026-02-19, Session 3)
+## Recent Session (2026-02-19, Session 4)
+
+Implemented:
+
+- **Encode mission passwords at build time (anti-cheat)**:
+  - Moved 20 hardcoded passwords from `pools.ts` into `src/secrets/secrets.ts` as `MISSION_PASSWORDS` (JSON-stringified array)
+  - `pools.ts` now imports decoded passwords from `secrets/__encoded.ts` at runtime
+  - Added `pretest`, `pretest:run`, `pretest:coverage` npm hooks to ensure `__encoded.ts` exists before tests
+  - Updated `users.test.ts` to import passwords from plaintext source (matching existing test pattern)
+  - Verified: `s3cur3!`, `p4ssw0rd` etc. return zero matches in `dist/` after build
+- **Test count**: 906 tests across 64 files (unchanged)
+
+## Previous Session (2026-02-19, Session 3)
 
 Implemented:
 
