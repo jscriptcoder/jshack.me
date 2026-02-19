@@ -40,6 +40,14 @@ const formatEntryHint = (mission: MissionNetwork): string => {
 export const createAcceptCommand = (context: AcceptCommandContext): Command => ({
   name: 'accept',
   description: 'Accept a mission contract',
+  manual: {
+    synopsis: 'accept(seed: string)',
+    description:
+      'Accept a mission contract from the darknet marketplace. The seed determines the target network — same seed always generates the same mission. Use missions() to browse available contracts and find seeds.',
+    examples: [
+      { command: 'accept("MEDTECH-4A7F-easy")', description: 'Accept the MedTech mission' },
+    ],
+  },
   fn: (seed: unknown): string => {
     if (typeof seed !== 'string' || !seed.trim()) {
       throw new Error('Usage: accept("SEED-CODE")');
