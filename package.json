@@ -13,8 +13,11 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "preview": "vite preview",
+    "pretest": "npm run encode",
     "test": "vitest",
+    "pretest:run": "npm run encode",
     "test:run": "vitest run",
+    "pretest:coverage": "npm run encode",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test"
   },

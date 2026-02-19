@@ -24,7 +24,7 @@ src/
 ├── generation/            # Seeded mission network generator
 │   ├── prng.ts                # Mulberry32 PRNG seeded via FNV-1a hash
 │   ├── types.ts               # MissionNetwork, GeneratedMachine, AttackStep, EntryVariant, etc.
-│   ├── pools.ts               # Data pools (usernames, passwords, hostnames, entry/port templates)
+│   ├── pools.ts               # Data pools (usernames, hostnames, entry/port templates); passwords from encoded secrets
 │   ├── topology.ts            # Network topology generator (machines, IPs, DNS, entry variant)
 │   ├── users.ts               # User generator (per-machine users + credential map)
 │   ├── attackChain.ts         # Attack chain generator (path, methods, credential placements)
@@ -143,7 +143,7 @@ NC mode (when connected via nc): pwd, cd, ls, cat, whoami, help, exit — read-o
 
 **Output**: `MissionNetwork` containing seed, difficulty, machines, filesystems, network config, attack chain, objective, and entry variant. Same seed always produces identical output.
 
-**Data Pools** (`pools.ts`) — Static arrays for usernames, passwords, hostnames, port templates, entry port templates (ssh/ftp/nc variants), entry credential hint templates, log templates, config templates, and noise/red-herring files.
+**Data Pools** (`pools.ts`) — Static arrays for usernames, hostnames, port templates, entry port templates (ssh/ftp/nc variants), entry credential hint templates, log templates, config templates, and noise/red-herring files. Mission passwords are imported from `src/secrets/__encoded.ts` (encoded at build time via the secrets registry) to prevent bundle inspection.
 
 **Key properties**:
 

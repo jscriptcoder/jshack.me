@@ -26,9 +26,9 @@ npm run encode        # Generate encoded filesystems + secrets (__encoded.ts fil
 npm run lint          # Run ESLint
 npm run format        # Format all files with Prettier
 npm run format:check  # Check formatting without modifying (CI-friendly)
-npm test              # Run tests in watch mode
-npm run test:run      # Run tests once
-npm run test:coverage # Run tests with coverage
+npm test              # Run tests in watch mode (auto-runs encode first)
+npm run test:run      # Run tests once (auto-runs encode first)
+npm run test:coverage # Run tests with coverage (auto-runs encode first)
 npm run test:e2e      # Run Playwright E2E test (full CTF playthrough)
 ```
 
@@ -73,15 +73,18 @@ Commands are tiered by user type (`src/commands/permissions.ts`):
 Sensitive content is XOR+Base64 encoded at build time to prevent finding `FLAG{` strings or passwords in the JS bundle.
 
 - `npm run encode` generates `src/filesystem/machines/__encoded.ts` and `src/secrets/__encoded.ts` (both gitignored)
-- `predev`/`prebuild` hooks auto-run encode
+- `predev`/`prebuild`/`pretest`/`pretest:run`/`pretest:coverage` hooks auto-run encode
 - `machineFileSystems.ts` imports from filesystem `__encoded.ts`, not source machine files
 - `wifiNetworks.ts` imports from secrets `__encoded.ts`, not the plaintext `src/secrets/secrets.ts`
+- `pools.ts` imports mission passwords from secrets `__encoded.ts` (not hardcoded in source)
 - Unit tests import source files directly (unaffected by encoding)
 - Verify: `grep -r "FLAG{" dist/` and `grep -r "cr4ck3d_w1f1" dist/` after build should return zero matches
 
 ### Secrets Registry
 
-`src/secrets/secrets.ts` defines sensitive non-filesystem strings (e.g., WiFi password) as key-value pairs. The `encode` script encodes them into `src/secrets/__encoded.ts`. App code imports from `__encoded`, tests import from the source file directly.
+`src/secrets/secrets.ts` defines sensitive non-filesystem strings (e.g., WiFi password, mission passwords) as key-value pairs. The `encode` script encodes them into `src/secrets/__encoded.ts`. App code imports from `__encoded`, tests import from the source file directly.
+
+Current secrets: `WIFI_PASSWORD` (WiFi cracking gate), `MISSION_PASSWORDS` (JSON-stringified array of 20 passwords used by mission generator).
 
 To add a new secret: add the key-value pair to `src/secrets/secrets.ts`, then run `npm run encode`.
 

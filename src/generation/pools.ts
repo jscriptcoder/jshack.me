@@ -1,4 +1,5 @@
 import type { EntryVariant, MachineRole } from './types';
+import { secrets } from '../secrets/__encoded';
 
 export type PortTemplate = {
   readonly port: number;
@@ -13,28 +14,9 @@ export const usernamesByRole: Readonly<Record<MachineRole, readonly string[]>> =
   workstation: ['jsmith', 'admin', 'developer', 'analyst', 'operator'],
 };
 
-export const passwords: readonly string[] = [
-  's3cur3!',
-  'p4ssw0rd',
-  'l3tm3in',
-  'ch4ng3m3',
-  'adm1n123',
-  'r00tpass',
-  'b4ckd00r',
-  'h4ck3r',
-  'n3tw0rk',
-  'syst3m!',
-  'tr4nsf3r',
-  'd4t4b4s3',
-  'w3bs3rv3r',
-  'f1l3s3rv',
-  'w0rkst4t',
-  'qu3ry!',
-  'd3ploy',
-  'st4ging',
-  'pr0duct1on',
-  'd3v3l0p',
-];
+export const passwords: readonly string[] = JSON.parse(
+  secrets.MISSION_PASSWORDS,
+) as readonly string[];
 
 export const hostnamesByRole: Readonly<Record<MachineRole, readonly string[]>> = {
   webserver: ['web01', 'web-prod', 'www', 'frontend', 'apache01'],
