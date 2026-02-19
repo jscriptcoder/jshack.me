@@ -21,9 +21,11 @@ main.tsx: await initializeStorage()  →  IndexedDB → module cache
                                                        ↓
 SessionContext:    useState(getCachedSessionState)      (sync read)
 FileSystemContext: useState(getCachedFilesystemPatches) (sync read)
+useMissionState:  getCachedMissionSeed()               (sync read, regenerates network from seed)
                                                        ↓
 useEffect:         saveSessionState(db, state)          (async write)
 useEffect:         saveFilesystemPatches(db, patches)   (async write)
+useMissionState:   saveMissionSeed(db, seed)            (async write, on start/abort/complete)
 ```
 
 - **`storage.ts`** — Low-level IndexedDB operations (`openDatabase`, `loadSessionState`, `saveSessionState`, `loadFilesystemPatches`, `saveFilesystemPatches`, `loadMissionSeed`, `saveMissionSeed`, `clearAllData`)
