@@ -1,144 +1,22 @@
-import { test, type Page, type Locator } from '@playwright/test';
-
-// ---------------------------------------------------------------------------
-// Configuration
-// ---------------------------------------------------------------------------
-
-/** Per-character typing delay in ms. 0 = instant fill (CI), e.g. 50 = visible typing. */
-const TYPE_DELAY = parseInt(process.env.TYPE_DELAY || '0', 10);
-
-// ---------------------------------------------------------------------------
-// Selectors
-// ---------------------------------------------------------------------------
-
-const INPUT = 'input[data-testid="terminal-input"]';
-const BANNER = 'div[data-testid="terminal-banner"]';
-const RESULT = 'div[data-testid="terminal-result"]';
-const NANO_TEXTAREA = 'textarea[data-testid="nano-editor-textarea"]';
-
-// ---------------------------------------------------------------------------
-// Core helpers
-// ---------------------------------------------------------------------------
-
-/** Fill instantly or type character-by-character depending on TYPE_DELAY. */
-const fillOrType = async (locator: Locator, text: string): Promise<void> => {
-  if (TYPE_DELAY > 0) {
-    await locator.pressSequentially(text, { delay: TYPE_DELAY });
-  } else {
-    await locator.fill(text);
-  }
-};
-
-/**
- * Count matching result elements, perform an action, then wait for a NEW match.
- * This avoids matching stale output from earlier commands.
- */
-const countThenWait = async (
-  locator: Locator,
-  action: () => Promise<void>,
-  timeout = 30_000,
-): Promise<void> => {
-  const before = await locator.count();
-  await action();
-  await locator.nth(before).waitFor({ timeout });
-};
-
-const typeCommand = async (page: Page, cmd: string): Promise<void> => {
-  const input = page.locator(INPUT);
-  await fillOrType(input, cmd);
-  await input.press('Enter');
-};
-
-const enterInput = async (page: Page, value: string): Promise<void> => {
-  const input = page.locator(INPUT);
-  await fillOrType(input, value);
-  await input.press('Enter');
-};
-
-const waitForReady = async (page: Page, timeout = 30_000): Promise<void> => {
-  await page.locator(`${INPUT}:not([disabled])`).waitFor({ timeout });
-};
-
-// ---------------------------------------------------------------------------
-// Composite helpers — each uses countThenWait for robustness
-// ---------------------------------------------------------------------------
-
-const suTo = async (page: Page, user: string, password: string): Promise<void> => {
-  const pwLocator = page.locator(RESULT, { hasText: /^Password:$/ });
-  const successLocator = page.locator(RESULT, { hasText: `Switched to user: ${user}` });
-
-  await countThenWait(pwLocator, () => typeCommand(page, `su("${user}")`));
-  await countThenWait(successLocator, () => enterInput(page, password));
-};
-
-const sshTo = async (page: Page, user: string, host: string, password: string): Promise<void> => {
-  const pwLocator = page.locator(RESULT, { hasText: `${user}@${host}'s password:` });
-  const connLocator = page.locator(RESULT, { hasText: `Connected to ${host}` });
-
-  await countThenWait(pwLocator, () => typeCommand(page, `ssh("${user}", "${host}")`), 60_000);
-  await countThenWait(connLocator, () => enterInput(page, password));
-};
-
-const ftpConnect = async (
-  page: Page,
-  host: string,
-  user: string,
-  password: string,
-): Promise<void> => {
-  const nameLocator = page.locator(RESULT, { hasText: `Name (${host}:anonymous):` });
-  const pw331Locator = page.locator(RESULT, { hasText: '331 Please specify the password.' });
-  const successLocator = page.locator(RESULT, { hasText: '230 Login successful.' });
-
-  await countThenWait(nameLocator, () => typeCommand(page, `ftp("${host}")`), 60_000);
-  await countThenWait(pw331Locator, () => enterInput(page, user));
-  await countThenWait(successLocator, () => enterInput(page, password));
-};
-
-const ncConnect = async (page: Page, host: string, port: number): Promise<void> => {
-  await typeCommand(page, `nc("${host}", ${port})`);
-  await waitForReady(page, 60_000);
-};
-
-const runAndExpect = async (
-  page: Page,
-  cmd: string,
-  expectedText: string,
-  timeout = 30_000,
-): Promise<void> => {
-  const locator = page.locator(RESULT, { hasText: expectedText });
-  await countThenWait(locator, () => typeCommand(page, cmd), timeout);
-};
-
-const exitSession = async (page: Page): Promise<void> => {
-  await runAndExpect(page, 'exit()', 'Connection closed.');
-};
-
-const ftpQuit = async (page: Page): Promise<void> => {
-  await runAndExpect(page, 'quit()', '221 Goodbye.');
-};
-
-const writeInNano = async (page: Page, filePath: string, content: string): Promise<void> => {
-  await typeCommand(page, `nano("${filePath}")`);
-  const textarea = page.locator(NANO_TEXTAREA);
-  await textarea.waitFor();
-  await fillOrType(textarea, content);
-};
-
-const saveAndExitNano = async (page: Page): Promise<void> => {
-  const textarea = page.locator(NANO_TEXTAREA);
-  await textarea.press('Control+s');
-  await page.locator('span[data-testid="nano-status"]', { hasText: /Wrote/ }).waitFor();
-  await textarea.press('Escape');
-  await textarea.waitFor({ state: 'hidden' });
-};
-
-const expectFlag = async (page: Page, flag: string): Promise<void> => {
-  await page.locator(RESULT, { hasText: flag }).first().waitFor({ timeout: 30_000 });
-};
-
-// ---------------------------------------------------------------------------
-// Full CTF Playthrough
-// ---------------------------------------------------------------------------
+import { test } from '@playwright/test';
+import {
+  TYPE_DELAY,
+  BANNER,
+  RESULT,
+  typeCommand,
+  waitForReady,
+  countThenWait,
+  suTo,
+  sshTo,
+  ftpConnect,
+  ncConnect,
+  runAndExpect,
+  exitSession,
+  ftpQuit,
+  writeInNano,
+  saveAndExitNano,
+  expectFlag,
+} from './helpers';
 
 // Increase timeout when typing character-by-character
 if (TYPE_DELAY > 0) {
