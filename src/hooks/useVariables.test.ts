@@ -279,8 +279,8 @@ describe('useVariables', () => {
         varResult = result.current.handleVariableOperation('const x = undefined_var', {});
       });
 
-      expect(varResult!?.success).toBe(false);
-      expect(varResult!?.error).toBeDefined();
+      expect(varResult!.success).toBe(false);
+      expect(varResult!.error).toBeDefined();
     });
 
     it('should return error for invalid expression in let', () => {
@@ -291,8 +291,8 @@ describe('useVariables', () => {
         varResult = result.current.handleVariableOperation('let x = syntax error here', {});
       });
 
-      expect(varResult!?.success).toBe(false);
-      expect(varResult!?.error).toBeDefined();
+      expect(varResult!.success).toBe(false);
+      expect(varResult!.error).toBeDefined();
     });
 
     it('should return error for invalid expression in reassignment', () => {
@@ -307,8 +307,8 @@ describe('useVariables', () => {
         varResult = result.current.handleVariableOperation('x = undefined_var', {});
       });
 
-      expect(varResult!?.success).toBe(false);
-      expect(varResult!?.error).toBeDefined();
+      expect(varResult!.success).toBe(false);
+      expect(varResult!.error).toBeDefined();
     });
   });
 

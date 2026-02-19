@@ -48,7 +48,6 @@ const resolveNode = (path: string): FileNode | null => {
   }, testFs);
 };
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const mockListDirectory = (path: string, _userType: string): string[] | null => {
   const resolved = path === '/' ? testFs : resolveNode(path);
   if (!resolved || resolved.type !== 'directory' || !resolved.children) return null;
