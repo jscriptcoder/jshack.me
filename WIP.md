@@ -25,8 +25,7 @@ Theme system — complete, all tests passing
 - [x] Hidden Network Flags (14-16)
 - [x] Playwright E2E test (full 16-flag CTF playthrough)
 - [x] WiFi hacking gate (airmon, airdump, aircrack)
-- [ ] Step 13: Victory tracking
-- [ ] Step 14: Challenge variety
+- [ ] Step 13: Mission system (procedurally generated contracts)
 
 ## Recent Session (2026-02-18)
 

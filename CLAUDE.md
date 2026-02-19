@@ -45,6 +45,7 @@ npm run test:e2e      # Run Playwright E2E test (full CTF playthrough)
 
 Detailed architecture: @.claude/docs/architecture.md
 CTF design (network, machines, filesystems): @.claude/docs/ctf-design.md
+Mission system design (procedural generation, contracts): @.claude/docs/missions-design.md
 
 ### Command Execution Flow
 

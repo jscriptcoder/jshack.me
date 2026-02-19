@@ -21,8 +21,7 @@ Build a web-based CTF (Capture The Flag) hacking game where players use a JavaSc
 - [x] WiFi hacking gate — aircrack-ng suite (airmon, airdump, aircrack) as network access prerequisite
 - [x] Terminal color theming — `theme()` command with 4 persistent themes (amber, green, cyan, light) via CSS custom properties
 - [x] Unit tests (806 tests across 54 files)
-- [ ] Victory tracking — flag detection, progress display, completion celebration
-- [ ] Challenge variety — additional commands (grep, base64, mysql, etc.)
+- [ ] Mission system — procedurally generated hacker-for-hire contracts (see `.claude/docs/missions-design.md`)
 
 ## Steps
 
@@ -91,17 +90,17 @@ Network access from localhost gated behind WiFi cracking — a progression gate 
 
 Implementation: `session.wifiConnected` boolean (persisted), localhost uses `wlan0` (not `eth0`) + `lo` loopback, `NetworkContext` gates interfaces/machines/DNS when disconnected, network commands throw "Network is unreachable" until WiFi connected. Monitor mode is transient (`useRef`). WiFi networks defined in `src/network/wifiNetworks.ts`. Hint file at `~/downloads/wifi_tools.txt`.
 
-### Step 13: Victory tracking (Next)
+### Step 13: Mission System (Next)
 
-- **Flag detection**: Scan command output for `FLAG{...}` pattern (cat, curl, strings, decrypt, etc.)
-- **Storage**: Persist found flags to IndexedDB (flag name, timestamp)
-- **Notification**: Box-drawing banner on new flag capture with progress (e.g., "3/12 flags found")
-- **flags() command**: Check progress anytime — list found flags and total progress
-- **Victory screen**: ASCII art celebration when all 12 flags found
+Procedurally generated hacker-for-hire contracts with seed-based network generation. The 16 existing flags serve as the introduction/tutorial. Full design: `.claude/docs/missions-design.md`.
 
-### Step 14: Challenge variety (Future)
+**Phases:**
 
-Additional commands and multi-step puzzle types: grep, base64, env, mysql, checksum, hmac.
+1. Seeded network generator (PRNG, topology, users, filesystems, vulnerabilities)
+2. Mission board UI (darknet marketplace, accept/complete flow)
+3. First mission template (end-to-end proof of concept)
+4. Expand mission types (tamper, plant, chain missions)
+5. Polish and social (reputation, seed sharing, history)
 
 ## Test Coverage
 
@@ -121,10 +120,6 @@ Additional commands and multi-step puzzle types: grep, base64, env, mysql, check
 - Theme system tested (theme command: 7, applyTheme: 5)
 
 ## Future Ideas
-
-### Procedurally Generated Missions
-
-Seeded random network generation for replayable missions. Mission types: hidden flag hunt, lateral movement, data exfiltration, privilege escalation chain, time-limited breach. See CTF_DESIGN.md for full design.
 
 ### User-Generated Content
 
