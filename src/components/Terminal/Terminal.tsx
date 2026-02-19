@@ -299,6 +299,7 @@ export const Terminal = () => {
     [
       addCommand,
       addLine,
+      addAuthorLine,
       clearLines,
       handleVariableOperation,
       getVariables,

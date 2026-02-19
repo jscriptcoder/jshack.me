@@ -33,7 +33,7 @@ export const TerminalInput = ({
 
   useEffect(() => {
     inputRef.current?.focus();
-  }, []);
+  }, [inputRef]);
 
   useEffect(() => {
     if (!isUserInput.current && inputRef.current) {
@@ -41,7 +41,7 @@ export const TerminalInput = ({
       inputRef.current.selectionEnd = value.length;
     }
     isUserInput.current = false;
-  }, [value]);
+  }, [value, inputRef]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     switch (e.key) {
