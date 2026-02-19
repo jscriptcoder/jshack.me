@@ -2,11 +2,11 @@
 
 ## Current Step
 
-Theme system — complete, all tests passing
+Mission system Phase 1 — Seeded network generator engine complete
 
 ## Status
 
-✅ COMPLETE — Theme system with persistent color themes (all 806 tests pass)
+✅ COMPLETE — Seeded network generator (Phase 1) with 66 new tests (all 872 tests pass)
 
 ## Completed
 
@@ -27,7 +27,26 @@ Theme system — complete, all tests passing
 - [x] WiFi hacking gate (airmon, airdump, aircrack)
 - [ ] Step 13: Mission system (procedurally generated contracts)
 
-## Recent Session (2026-02-18)
+## Recent Session (2026-02-19)
+
+Implemented:
+
+- **Seeded network generator (Phase 1)**: Pure generation engine for procedurally generated mission networks
+  - `src/generation/prng.ts` — Mulberry32 PRNG seeded via FNV-1a hash, methods: next(), nextInt(), pick(), pickN(), shuffle()
+  - `src/generation/types.ts` — MissionNetwork, GeneratedMachine, AttackStep, MissionObjective, CredentialPlacement types
+  - `src/generation/pools.ts` — Data pools: usernames/passwords/hostnames per role, port templates, log/config templates, noise/red-herring files
+  - `src/generation/topology.ts` — Generates flat subnet, assigns machine roles, builds NetworkConfig with interfaces/DNS/reachability
+  - `src/generation/users.ts` — Generates root + 1-2 role users per machine, md5 hashing, plaintext credential map
+  - `src/generation/attackChain.ts` — Builds attack path from entry to target, assigns methods (ssh/ftp), plans credential placements in files
+  - `src/generation/filesystem.ts` — Builds FileNode trees per machine using existing createFileSystem(), injects breadcrumbs/noise/flag
+  - `src/generation/generateMission.ts` — Orchestrator: seed string → complete MissionNetwork
+  - Deterministic: same seed always produces identical output
+  - 4 machine roles (webserver, database, fileserver, workstation), 3 difficulty tiers
+  - Output types match existing NetworkConfig, RemoteMachine, FileNode for future integration
+  - 66 new unit tests (determinism, variation, structure, credential embedding)
+- **Test count**: 872 tests across 60 files
+
+## Previous Session (2026-02-18)
 
 Implemented:
 
@@ -914,7 +933,7 @@ Flag detection, progress display, `flags()` command, victory celebration. Deferr
 
 ### Test Coverage
 
-- 806 unit tests across 54 colocated test files
+- 872 unit tests across 60 colocated test files
 - 1 Playwright E2E test (full 16-flag CTF playthrough + WiFi gate, ~42s in Chromium)
 - All commands with logic are tested
 - WiFi commands tested: airmon (9), airdump (6), aircrack (8)

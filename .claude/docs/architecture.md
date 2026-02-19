@@ -21,6 +21,15 @@ src/
 ├── commands/              # Command implementations (colocated with .test.ts files)
 │   ├── ftp/               # FTP mode commands (pwd, ls, cd, get, put, quit)
 │   └── permissions.ts     # Command restrictions by user type
+├── generation/            # Seeded mission network generator (Phase 1)
+│   ├── prng.ts                # Mulberry32 PRNG seeded via FNV-1a hash
+│   ├── types.ts               # MissionNetwork, GeneratedMachine, AttackStep, etc.
+│   ├── pools.ts               # Data pools (usernames, passwords, hostnames, templates)
+│   ├── topology.ts            # Network topology generator (machines, IPs, DNS)
+│   ├── users.ts               # User generator (per-machine users + credential map)
+│   ├── attackChain.ts         # Attack chain generator (path, methods, credential placements)
+│   ├── filesystem.ts          # Filesystem generator (role templates, breadcrumbs, noise)
+│   └── generateMission.ts     # Orchestrator: seed → MissionNetwork
 ├── utils/                 # Utilities (md5, crypto, contentCodec, storage, stringify)
 ├── test/setup.ts          # Test setup (jest-dom, fake-indexeddb)
 └── App.tsx                # Root component (wraps Terminal with providers)
@@ -113,6 +122,29 @@ Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, su, whoami, air
 FTP mode (when connected via ftp): pwd, lpwd, cd, lcd, ls, lls, get, put, quit/bye.
 
 NC mode (when connected via nc): pwd, cd, ls, cat, whoami, help, exit — read-only shell access.
+
+## Seeded Mission Network Generator
+
+`src/generation/` contains the Phase 1 engine for procedurally generating mission networks from a seed string. No UI or React integration yet — pure generation pipeline.
+
+**Pipeline**: `generateMissionNetwork(seed)` composes these steps:
+
+1. **PRNG** (`prng.ts`) — Mulberry32 PRNG seeded via FNV-1a hash of the seed string. Provides `next()`, `nextInt()`, `pick()`, `pickN()`, `shuffle()`.
+2. **Topology** (`topology.ts`) — Generates machines on a flat subnet (`10.x.x.0/24`), assigns roles (webserver/database/fileserver/workstation), builds `NetworkConfig` with interfaces, DNS, and per-machine reachability.
+3. **Users** (`users.ts`) — Generates root + 1-2 role-appropriate users per machine, hashes passwords with `md5()`. Returns both `RemoteUser[]` per machine and a plaintext credential map.
+4. **Attack Chain** (`attackChain.ts`) — Picks a target machine, builds an attack path (entry → intermediates → target), assigns access methods (ssh/ftp), and plans credential placements (where on machine A the password for machine B is leaked).
+5. **Filesystems** (`filesystem.ts`) — Builds `FileNode` trees per machine using the existing `createFileSystem()` factory. Injects role-based configs, credential breadcrumbs, noise files, red herrings, and the flag on the target machine.
+
+**Output**: `MissionNetwork` containing seed, difficulty, machines, filesystems, network config, attack chain, and objective. Same seed always produces identical output.
+
+**Data Pools** (`pools.ts`) — Static arrays for usernames, passwords, hostnames, port templates, log templates, config templates, and noise/red-herring files.
+
+**Key properties**:
+
+- Deterministic: same seed → identical network (deep equality)
+- 4 machine roles, 3 difficulty tiers (easy=2, medium=3-4, hard=4-6 machines)
+- Output types match existing `NetworkConfig`, `RemoteMachine`, `FileNode` — ready for future integration
+- 66 unit tests covering determinism, variation, and structural correctness
 
 ## SEO & Open Graph
 
