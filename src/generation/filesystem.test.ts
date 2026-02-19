@@ -4,6 +4,7 @@ import { generateTopology } from './topology';
 import { generateUsers } from './users';
 import { generateAttackChain } from './attackChain';
 import { generateFileSystems } from './filesystem';
+import { entryCredentialHintTemplates } from './pools';
 import type { FileNode } from '../filesystem/types';
 
 const buildTestData = (seed: string) => {
@@ -125,6 +126,12 @@ describe('generateFileSystems', () => {
       const authLog = resolveNode(root as FileNode, '/var/log/auth.log');
       expect(authLog).toBeDefined();
       expect(authLog?.content).toBeTruthy();
+    });
+  });
+
+  it('all FTP entry credential hint paths use /home/ prefix', () => {
+    entryCredentialHintTemplates.forEach((t) => {
+      expect(t.ftpPath).toMatch(/^\/home\//);
     });
   });
 

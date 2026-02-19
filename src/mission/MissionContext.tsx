@@ -4,7 +4,7 @@ import type { MissionState } from './useMissionState';
 
 type MissionContextValue = {
   readonly activeMission: MissionNetwork | null;
-  readonly startMission: (seed: string) => void;
+  readonly startMission: (mission: MissionNetwork) => void;
   readonly abortMission: () => void;
   readonly completeMission: () => void;
   readonly isMissionActive: () => boolean;

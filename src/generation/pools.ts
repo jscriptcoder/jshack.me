@@ -137,13 +137,13 @@ export const entryCredentialHintTemplates: readonly {
   readonly template: string;
 }[] = [
   {
-    ftpPath: '/srv/ftp/.ssh_backup',
+    ftpPath: '/home/{{localUser}}/.ssh_backup',
     ncPath: '/home/{{owner}}/ssh_backup.txt',
     template:
       'SSH Credentials Backup\n======================\nHost: {{hostname}}\nUser: {{user}}\nPass: {{password}}\nLast updated: Jan 10',
   },
   {
-    ftpPath: '/srv/ftp/notes.txt',
+    ftpPath: '/home/{{localUser}}/notes.txt',
     ncPath: '/home/{{owner}}/notes.txt',
     template: 'Server notes:\n- SSH access: {{user}} / {{password}}\n- Remember to rotate!',
   },

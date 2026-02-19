@@ -2,11 +2,11 @@
 
 ## Current Step
 
-Mission system Phase 2 — Integration & Mission Board complete
+Mission system Phase 3 — First Mission Template (E2E Proof of Concept) complete
 
 ## Status
 
-✅ COMPLETE — Mission board, accept/abort commands, context integration (all 895 tests pass)
+✅ COMPLETE — Fixed 3 critical bugs making missions fully playable end-to-end (all 906 tests pass)
 
 ## Completed
 
@@ -27,7 +27,18 @@ Mission system Phase 2 — Integration & Mission Board complete
 - [x] WiFi hacking gate (airmon, airdump, aircrack)
 - [ ] Step 13: Mission system (procedurally generated contracts)
 
-## Recent Session (2026-02-19, Session 2)
+## Recent Session (2026-02-19, Session 3)
+
+Implemented:
+
+- **Mission system Phase 3 — First Mission Template (E2E Proof of Concept)**:
+  - **Bug fix: Entry machine unreachable from localhost** — `NetworkContext.tsx` searched peer lists for mission machine records, but machines never appear in their own peer list. Replaced with direct lookup into `GeneratedMachine.remoteMachine`, passed via new `missionMachines` prop from `App.tsx`.
+  - **Bug fix: FTP entry credential hints placed in nonexistent `/srv/ftp/`** — Two of three FTP hint templates used `/srv/ftp/` paths, but entry machines have no `/srv/ftp/` directory. Changed all `ftpPath` values to `/home/{{localUser}}/` which the filesystem factory always creates.
+  - **Bug fix: Double network generation in `accept`** — `accept` generated the network for the briefing, then `startMission` generated it again internally. Changed `startMission` to accept `MissionNetwork` directly instead of a seed string. Only the seed is persisted.
+  - Updated tests: `useMissionState.test.ts`, `accept.test.ts`, `filesystem.test.ts` (new FTP path validation test)
+- **Test count**: 906 tests across 64 files
+
+## Previous Session (2026-02-19, Session 2)
 
 Implemented:
 
@@ -403,9 +414,9 @@ Implemented:
 
 None currently.
 
-## Next Action — Mission System Phase 2
+## Next Action — Mission System Phase 4
 
-Mission board UI: darknet marketplace where players accept/complete procedural contracts. See `.claude/docs/missions-design.md` and `PLAN.md` Step 13.
+Expand mission types, difficulty tiers, more machine role templates, more vulnerability patterns. See `.claude/docs/missions-design.md` and `PLAN.md` Step 13.
 
 _Hidden network flag specs (14-16) archived to `docs/archive/`. See `.claude/docs/ctf-design.md` for the current CTF reference._
 
@@ -460,7 +471,7 @@ Flag detection, progress display, `flags()` command, victory celebration. See PL
 
 ### Test Coverage
 
-- 872 unit tests across 60 colocated test files
+- 906 unit tests across 64 colocated test files
 - 1 Playwright E2E test (full 16-flag CTF playthrough + WiFi gate, ~42s in Chromium)
 - All commands with logic are tested
 - WiFi commands tested: airmon (9), airdump (6), aircrack (8)

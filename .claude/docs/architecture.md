@@ -161,6 +161,7 @@ NC mode (when connected via nc): pwd, cd, ls, cat, whoami, help, exit — read-o
 - `App.tsx` holds `activeMission` state + `startMission`/`abortMission`/`completeMission` callbacks
 - Passes `activeMission.fileSystems` to `FileSystemProvider` as `missionFileSystems` prop
 - Passes `activeMission.networkConfig` to `NetworkProvider` as `missionNetworkConfig` prop
+- Passes `activeMission.machines` to `NetworkProvider` as `missionMachines` prop (for correct localhost injection)
 - `MissionProvider` wraps everything, providing mission state + methods to commands via `useMission()` hook
 - On init: checks `storageCache` for persisted seed, regenerates mission if present
 
@@ -178,14 +179,14 @@ SessionProvider → MissionProvider → FileSystemProvider → NetworkProvider �
 
 **NetworkContext integration:**
 
-- Accepts optional `missionNetworkConfig` prop
+- Accepts optional `missionNetworkConfig` prop and `missionMachines` prop (array of `GeneratedMachine`)
 - When resolving config for current machine: checks mission config first, then static config
-- When on localhost with active mission: merges mission entry point into localhost's reachable machines and DNS
+- When on localhost with active mission: uses `missionMachines` to get full `RemoteMachine` records (with ports and users) for localhost's reachable machine list, plus merges mission DNS
 
 **Mission commands:**
 
 - `missions()` — displays hardcoded darknet contract board (5 contracts across difficulties)
-- `accept(seed)` — generates network from seed, displays briefing with entry point and access hint
+- `accept(seed)` — generates network from seed, passes `MissionNetwork` to `startMission`, displays briefing with entry point and access hint
 - `abort()` — pops all sessions back to localhost, clears mission state
 
 **Mission completion:**

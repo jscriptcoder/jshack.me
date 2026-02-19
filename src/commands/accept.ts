@@ -3,7 +3,7 @@ import { generateMissionNetwork } from '../generation/generateMission';
 import type { MissionNetwork, EntryVariant } from '../generation/types';
 
 type AcceptCommandContext = {
-  readonly startMission: (seed: string) => void;
+  readonly startMission: (mission: MissionNetwork) => void;
   readonly isMissionActive: () => boolean;
 };
 
@@ -49,7 +49,7 @@ export const createAcceptCommand = (context: AcceptCommandContext): Command => (
     }
     const trimmed = seed.trim();
     const mission = generateMissionNetwork(trimmed);
-    context.startMission(trimmed);
+    context.startMission(mission);
     return formatEntryHint(mission);
   },
 });

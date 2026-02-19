@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useMissionState } from './useMissionState';
+import { generateMissionNetwork } from '../generation/generateMission';
 
 vi.mock('../utils/storageCache', () => ({
   getCachedMissionSeed: vi.fn(() => null),
@@ -41,12 +42,13 @@ describe('useMissionState', () => {
     expect(result.current.activeMission?.seed).toBe('MEDTECH-4A7F-easy');
   });
 
-  it('startMission generates network and persists seed', () => {
+  it('startMission sets network and persists seed', () => {
     mockGetDatabase.mockReturnValue(fakeDb);
     const { result } = renderHook(() => useMissionState());
+    const mission = generateMissionNetwork('TEST-SEED');
 
     act(() => {
-      result.current.startMission('TEST-SEED');
+      result.current.startMission(mission);
     });
 
     expect(result.current.activeMission).not.toBeNull();
@@ -57,9 +59,10 @@ describe('useMissionState', () => {
   it('abortMission clears state and persists null', () => {
     mockGetDatabase.mockReturnValue(fakeDb);
     const { result } = renderHook(() => useMissionState());
+    const mission = generateMissionNetwork('TEST-SEED');
 
     act(() => {
-      result.current.startMission('TEST-SEED');
+      result.current.startMission(mission);
     });
     expect(result.current.activeMission).not.toBeNull();
 
@@ -74,9 +77,10 @@ describe('useMissionState', () => {
   it('completeMission clears state and persists null', () => {
     mockGetDatabase.mockReturnValue(fakeDb);
     const { result } = renderHook(() => useMissionState());
+    const mission = generateMissionNetwork('TEST-SEED');
 
     act(() => {
-      result.current.startMission('TEST-SEED');
+      result.current.startMission(mission);
     });
 
     act(() => {
@@ -90,34 +94,26 @@ describe('useMissionState', () => {
   it('skips persistence when database is unavailable', () => {
     mockGetDatabase.mockReturnValue(null);
     const { result } = renderHook(() => useMissionState());
+    const mission = generateMissionNetwork('TEST-SEED');
 
     act(() => {
-      result.current.startMission('TEST-SEED');
+      result.current.startMission(mission);
     });
 
     expect(result.current.activeMission).not.toBeNull();
     expect(mockSaveMissionSeed).not.toHaveBeenCalled();
   });
 
-  it('generates deterministic network from same seed', () => {
+  it('preserves the exact network passed to startMission', () => {
     const { result } = renderHook(() => useMissionState());
+    const mission = generateMissionNetwork('DETERMINISM-TEST');
 
     act(() => {
-      result.current.startMission('DETERMINISM-TEST');
-    });
-    const first = result.current.activeMission;
-
-    act(() => {
-      result.current.abortMission();
+      result.current.startMission(mission);
     });
 
-    act(() => {
-      result.current.startMission('DETERMINISM-TEST');
-    });
-    const second = result.current.activeMission;
-
-    expect(first?.machines).toEqual(second?.machines);
-    expect(first?.attackChain).toEqual(second?.attackChain);
-    expect(first?.objective).toEqual(second?.objective);
+    expect(result.current.activeMission?.machines).toEqual(mission.machines);
+    expect(result.current.activeMission?.attackChain).toEqual(mission.attackChain);
+    expect(result.current.activeMission?.objective).toEqual(mission.objective);
   });
 });

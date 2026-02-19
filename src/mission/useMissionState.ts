@@ -12,7 +12,7 @@ const initializeMission = (): MissionNetwork | null => {
 
 export type MissionState = {
   readonly activeMission: MissionNetwork | null;
-  readonly startMission: (seed: string) => void;
+  readonly startMission: (mission: MissionNetwork) => void;
   readonly abortMission: () => void;
   readonly completeMission: () => void;
 };
@@ -28,10 +28,9 @@ export const useMissionState = (): MissionState => {
   }, []);
 
   const startMission = useCallback(
-    (seed: string) => {
-      const mission = generateMissionNetwork(seed);
+    (mission: MissionNetwork) => {
       setActiveMission(mission);
-      persistSeed(seed);
+      persistSeed(mission.seed);
     },
     [persistSeed],
   );

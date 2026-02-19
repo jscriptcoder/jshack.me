@@ -20,7 +20,7 @@ Build a web-based CTF (Capture The Flag) hacking game where players use a JavaSc
 - [x] Realistic filesystem noise (configs, logs, dotfiles, red herrings)
 - [x] WiFi hacking gate — aircrack-ng suite (airmon, airdump, aircrack) as network access prerequisite
 - [x] Terminal color theming — `theme()` command with 4 persistent themes (amber, green, cyan, light) via CSS custom properties
-- [x] Unit tests (872 tests across 60 files)
+- [x] Unit tests (906 tests across 64 files)
 - [ ] Mission system — procedurally generated hacker-for-hire contracts (see `.claude/docs/missions-design.md`)
 
 ## Steps
@@ -98,13 +98,13 @@ Procedurally generated hacker-for-hire contracts with seed-based network generat
 
 1. ~~Seeded network generator (PRNG, topology, users, filesystems, vulnerabilities)~~ ✅ Done
 2. ~~Mission board UI + integration (accept/abort/complete, context providers, persistence)~~ ✅ Done
-3. First mission template (end-to-end proof of concept — manual playtesting)
+3. ~~First mission template (E2E proof of concept — 3 bug fixes making missions playable)~~ ✅ Done
 4. Expand mission types (tamper, plant, chain missions)
 5. Polish and social (reputation, seed sharing, history)
 
 ## Test Coverage
 
-905 tests across 64 colocated test files:
+906 tests across 64 colocated test files:
 
 - All commands with logic are tested (factory pattern with mock context injection)
 - FTP subcommands tested (cd, lcd, ls, lls, get, put)

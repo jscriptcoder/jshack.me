@@ -11,7 +11,10 @@ function App() {
     <SessionProvider>
       <MissionProvider state={missionState}>
         <FileSystemProvider missionFileSystems={missionState.activeMission?.fileSystems}>
-          <NetworkProvider missionNetworkConfig={missionState.activeMission?.networkConfig}>
+          <NetworkProvider
+            missionNetworkConfig={missionState.activeMission?.networkConfig}
+            missionMachines={missionState.activeMission?.machines}
+          >
             <Terminal />
           </NetworkProvider>
         </FileSystemProvider>

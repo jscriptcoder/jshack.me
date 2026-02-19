@@ -217,7 +217,7 @@ npm run test:e2e      # Run Playwright E2E test (full CTF playthrough)
 
 ### Test Coverage
 
-905 unit tests across 64 colocated test files covering terminal commands, hooks, components, utilities, filesystem, persistence, procedural generation, and mission system.
+906 unit tests across 64 colocated test files covering terminal commands, hooks, components, utilities, filesystem, persistence, procedural generation, and mission system.
 
 1 Playwright E2E test that plays through the entire CTF game (all 16 flags) in a real browser — serves as both a comprehensive regression test and a visual demo. Run with `--headed` to watch it play:
 

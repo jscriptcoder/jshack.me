@@ -7,7 +7,9 @@ describe('accept command', () => {
     const accept = createAcceptCommand({ startMission, isMissionActive: () => false });
     const result = accept.fn('MEDTECH-4A7F-easy');
 
-    expect(startMission).toHaveBeenCalledWith('MEDTECH-4A7F-easy');
+    expect(startMission).toHaveBeenCalledWith(
+      expect.objectContaining({ seed: 'MEDTECH-4A7F-easy' }),
+    );
     expect(typeof result).toBe('string');
     expect(result).toContain('MISSION BRIEFING');
     expect(result).toContain('MEDTECH-4A7F-easy');
@@ -28,7 +30,7 @@ describe('accept command', () => {
     const accept = createAcceptCommand({ startMission, isMissionActive: () => false });
     accept.fn('  SEED-TEST  ');
 
-    expect(startMission).toHaveBeenCalledWith('SEED-TEST');
+    expect(startMission).toHaveBeenCalledWith(expect.objectContaining({ seed: 'SEED-TEST' }));
   });
 
   it('throws for empty seed', () => {

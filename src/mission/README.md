@@ -6,7 +6,7 @@ Integrates the seeded network generator (`src/generation/`) with React contexts 
 
 | File                 | Purpose                                                            |
 | -------------------- | ------------------------------------------------------------------ |
-| `useMissionState.ts` | Hook owning mission state, generation, and IndexedDB persistence   |
+| `useMissionState.ts` | Hook owning mission state and IndexedDB persistence                |
 | `MissionContext.tsx` | React context providing mission state + methods to child consumers |
 | `missionBoard.ts`    | Hardcoded contract listings and ASCII board formatter              |
 | `index.ts`           | Barrel exports                                                     |
@@ -16,7 +16,7 @@ Integrates the seeded network generator (`src/generation/`) with React contexts 
 ### Lifecycle
 
 1. Player types `missions()` — displays the darknet contract board (hardcoded listings in `missionBoard.ts`)
-2. Player types `accept("SEED")` — `useMissionState.startMission(seed)` generates a `MissionNetwork` via `generateMissionNetwork(seed)` and persists the seed to IndexedDB
+2. Player types `accept("SEED")` — the `accept` command generates a `MissionNetwork` via `generateMissionNetwork(seed)` and passes the full network to `useMissionState.startMission(mission)`, which stores it in state and persists only the seed to IndexedDB
 3. Generated filesystems and network config flow as props from `App.tsx` into `FileSystemProvider` and `NetworkProvider`, making mission machines explorable with existing commands
 4. Player hacks through the mission network using ssh, ftp, nc, curl, nmap, cat, etc.
 5. When any command output contains the mission flag, `Terminal.tsx` detects it and calls `completeMission()`
@@ -30,7 +30,7 @@ Integrates the seeded network generator (`src/generation/`) with React contexts 
 App (useMissionState)
   → MissionProvider (exposes state + methods via useMission() hook)
     → FileSystemProvider (receives missionFileSystems prop)
-      → NetworkProvider (receives missionNetworkConfig prop)
+      → NetworkProvider (receives missionNetworkConfig + missionMachines props)
         → Terminal
 ```
 
