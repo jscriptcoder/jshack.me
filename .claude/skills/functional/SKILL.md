@@ -10,7 +10,7 @@ description: Functional programming patterns with immutable data. Use when writi
 - **No data mutation** - immutable structures only
 - **Pure functions** wherever possible
 - **Composition** over inheritance
-- **No comments** - code should be self-documenting
+- **Prefer self-documenting code** - but use comments for complex logic
 - **Array methods** over loops
 - **Options objects** over positional parameters
 
@@ -85,15 +85,27 @@ const openPorts = compose(
 
 ---
 
-## No Comments / Self-Documenting Code
+## Comments — Prefer Self-Documenting Code
 
-Code should be clear through naming and structure. Comments indicate unclear code.
+Code should be clear through naming and structure first. But comments are welcome when they add value — especially for complex logic, non-obvious decisions, or tricky patterns.
 
-**Exception**: JSDoc for public APIs when generating documentation.
+### When Comments Are Valuable
+
+- **Complex algorithms or logic** that can't be made obvious through naming alone
+- **Non-obvious "why"** — explaining _why_ something is done a certain way (not _what_ it does)
+- **Workarounds or edge cases** — documenting gotchas, browser quirks, or known limitations
+- **Architectural patterns** — explaining circular dependency resolution, lazy initialization, etc.
+- **JSDoc for public APIs**
+
+### When Comments Are NOT Needed
+
+- Restating what the code already says (`// increment counter` before `counter + 1`)
+- Compensating for bad naming — rename instead
+- Commenting every line or every function
 
 ### Examples
 
-❌ **WRONG - Comments explaining unclear code**
+❌ **WRONG - Comments compensating for bad code**
 
 ```typescript
 // Check if user can read the file
@@ -112,42 +124,41 @@ function check(f: any, u: any) {
 }
 ```
 
-✅ **CORRECT - Self-documenting code**
+✅ **CORRECT - Self-documenting code (no comments needed)**
 
 ```typescript
-function canUserReadFile(file: FileNode | undefined, userType: UserType): boolean {
-  if (!file) return false;
-  if (!file.permissions.read.includes(userType)) return false;
-  return true;
-}
-
-// Even better - compose predicates
 function canUserReadFile(file: FileNode | undefined, userType: UserType): boolean {
   return file?.permissions.read.includes(userType) ?? false;
 }
 ```
 
-### When Code Needs Explaining
-
-If code requires comments to understand, refactor instead:
-
-- Extract functions with descriptive names
-- Use meaningful variable names
-- Break complex logic into steps
-- Use type aliases for domain concepts
-
-✅ **Acceptable JSDoc for public APIs**
+✅ **CORRECT - Comment explaining non-obvious logic**
 
 ```typescript
-/**
- * Registers a scenario for runtime switching.
- * @param definition - The scenario configuration including mocks and metadata
- * @throws {ValidationError} if scenario ID is duplicate
- */
-export function registerScenario(definition: ScenaristScenario): void {
-  // Implementation
-}
+// Mutable ref set after building the full command map — node's factory
+// captures a getter that's only called at execution time, breaking
+// the circular dependency between node() and the execution context.
+let resolvedExecutionContext: ExecutionContext | undefined;
 ```
+
+✅ **CORRECT - Comment explaining "why"**
+
+```typescript
+// Mission filesystem patches are excluded from persistence — only static
+// machine patches are saved, since missions regenerate from seed on reload.
+const patchesToSave = patches.filter((p) => STATIC_MACHINE_KEYS.has(p.machineId));
+```
+
+### First Resort: Refactor
+
+Before adding a comment, consider whether you can make the code clearer by:
+
+- Extracting functions with descriptive names
+- Using meaningful variable names
+- Breaking complex logic into steps
+- Using type aliases for domain concepts
+
+If those don't fully clarify the intent, add a comment — that's what they're for.
 
 ---
 
@@ -764,7 +775,7 @@ When writing functional code, verify:
 
 - [ ] No data mutation - using spread operators
 - [ ] Pure functions wherever possible (no side effects)
-- [ ] Code is self-documenting (no comments needed)
+- [ ] Code is self-documenting first; comments used for complex/non-obvious logic
 - [ ] Array methods (`map`, `filter`, `reduce`) over loops
 - [ ] Options objects for 3+ parameters
 - [ ] Composed small functions, not complex monoliths

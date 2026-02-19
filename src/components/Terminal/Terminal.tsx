@@ -180,6 +180,8 @@ export const Terminal = () => {
           return;
         }
 
+        // When in FTP or NC mode, swap the execution context so only that mode's
+        // commands are available (e.g., ftp> pwd, ls, get instead of normal commands)
         const activeContext =
           isInFtpMode() && ftpCommands
             ? Object.fromEntries(Array.from(ftpCommands.entries()).map(([k, v]) => [k, v.fn]))
@@ -193,6 +195,7 @@ export const Terminal = () => {
         const contextKeys = Object.keys(context);
         const contextValues = Object.values(context);
 
+        // Commands are injected as local variables so users type e.g. help() not commands.help()
         const fn = new Function(...contextKeys, `return ${trimmedCommand}`);
         const result = fn(...contextValues);
 
@@ -321,6 +324,9 @@ export const Terminal = () => {
     ],
   );
 
+  // Three-mode password validation: SSH (remote machine lookup), FTP (remote machine lookup),
+  // or su (local /etc/passwd hash comparison). The mode is determined by which target IP
+  // state is set when the password prompt was triggered.
   const validatePassword = useCallback(
     (password: string): boolean => {
       if (!targetUser) return false;
@@ -424,6 +430,7 @@ export const Terminal = () => {
         enterFtpMode(newFtpSession);
         addLine('result', '230 Login successful.');
       } else if (sshTargetIP) {
+        // Save current session state before switching to remote machine
         pushSession();
 
         const machine = getMachine(sshTargetIP);
@@ -437,6 +444,9 @@ export const Terminal = () => {
         addLine('result', `Connected to ${sshTargetIP}`);
         addLine('result', `Welcome to ${machine?.hostname ?? sshTargetIP}!`);
       } else {
+        // su (local user switch) — look up user type from the machine's user list.
+        // Searches both the direct machine config and the network-wide machine list
+        // because mission-generated machines may not appear in the direct config.
         const machine = getMachine(session.machine);
         const machineUser =
           machine?.users.find((u) => u.username === targetUser) ??
@@ -516,12 +526,15 @@ export const Terminal = () => {
     setInput(cmd);
   }, [navigateDown]);
 
+  // Two-layer tab completion: path completion (inside string literals) takes priority,
+  // then falls back to command/variable name completion
   const handleTab = useCallback(
     (cursorPosition: number) => {
       const pathResult = getPathCompletions(input, cursorPosition);
       if (pathResult) {
         if (pathResult.replacement !== input) {
           setInput(pathResult.replacement);
+          // Defer cursor repositioning until after React re-renders with new value
           requestAnimationFrame(() => {
             terminalInputRef.current?.setSelectionRange(
               pathResult.newCursorPosition,

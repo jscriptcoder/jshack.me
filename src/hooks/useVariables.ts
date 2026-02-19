@@ -44,6 +44,9 @@ export const useVariables = () => {
     [],
   );
 
+  // Intercepts const/let declarations and reassignments before normal command execution.
+  // Returns null if the input doesn't match any variable pattern, signaling the caller
+  // to fall through to normal command execution via new Function().
   const handleVariableOperation = useCallback(
     (input: string, executionContext: Record<string, unknown>): VariableResult | null => {
       const trimmed = input.trim();

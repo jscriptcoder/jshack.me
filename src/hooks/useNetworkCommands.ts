@@ -12,6 +12,9 @@ import { createNcCommand } from '../commands/nc';
 import { createCurlCommand } from '../commands/curl';
 import type { Command } from '../components/Terminal/types';
 
+// Higher-order function that wraps a network command with WiFi connectivity gating.
+// The isWifiRequired closure is evaluated at execution time (not wrap time), so it
+// always reflects the current WiFi state.
 const wrapWithWifiCheck = (cmd: Command, isWifiRequired: () => boolean): Command => ({
   ...cmd,
   fn: (...args: unknown[]) => {

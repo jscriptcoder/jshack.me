@@ -4,6 +4,9 @@ import { generateMissionNetwork } from '../generation/generateMission';
 import { getCachedMissionSeed, getDatabase } from '../utils/storageCache';
 import { saveMissionSeed } from '../utils/storage';
 
+// On reload, regenerate the full mission network from the persisted seed string.
+// Only the seed is stored in IndexedDB — the deterministic PRNG ensures the same
+// seed always produces an identical network, so we don't need to store the full state.
 const initializeMission = (): MissionNetwork | null => {
   const cachedSeed = getCachedMissionSeed();
   if (!cachedSeed) return null;

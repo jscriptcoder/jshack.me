@@ -8,6 +8,8 @@ import type { Command } from '../components/Terminal/types';
 
 export const useWifiCommands = (): Map<string, Command> => {
   const { session, setWifiConnected, disconnectWifi } = useSession();
+  // Monitor mode is transient (not persisted) — resets on page refresh. Using useRef
+  // instead of useState because it shouldn't trigger re-renders or persist to IndexedDB.
   const monitorModeRef = useRef(false);
 
   return useMemo(() => {

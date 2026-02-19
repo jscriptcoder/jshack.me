@@ -28,6 +28,9 @@ export const TerminalInput = ({
   const shouldMaskInput = promptMode === 'password';
   const internalRef = useRef<HTMLInputElement>(null);
   const inputRef = externalInputRef ?? internalRef;
+  // Tracks whether the current value change was user-initiated (typing) vs programmatic
+  // (autocomplete, history navigation). When programmatic, we reposition the cursor to
+  // the end so the user doesn't see it jump to an unexpected position.
   const isUserInput = useRef(false);
   const { getPrompt } = useSession();
 

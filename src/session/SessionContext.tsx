@@ -301,6 +301,8 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
     applyTheme(THEMES[session.theme]);
   }, [session.theme]);
 
+  // Resets to the bottom of the session stack (the original state before any SSH).
+  // Used by mission abort to return to localhost regardless of SSH nesting depth.
   const popAllSessions = useCallback(() => {
     if (sessionStack.length === 0) return;
     const bottom = sessionStack[0];
@@ -319,6 +321,9 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [sessionStack]);
 
+  // Atomically resets to localhost with WiFi off. Can be called while SSH'd into a remote
+  // machine — finds the original localhost path from the bottom of the session stack
+  // (the state before the first SSH), or uses the current path if already on localhost.
   const disconnectWifi = useCallback(() => {
     setSession((prev) => {
       const localhostPath =

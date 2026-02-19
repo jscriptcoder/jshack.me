@@ -47,6 +47,12 @@ export const NetworkProvider = ({
 
   const isLocalhostDisconnected = session.machine === 'localhost' && !session.wifiConnected;
 
+  // Multi-tier network config resolution for the current machine:
+  // 1. Mission config (if on a mission-generated machine)
+  // 2. Static config (tutorial machines)
+  // 3. WiFi gating (localhost with WiFi off → disconnected interfaces, no machines)
+  // 4. Localhost with active mission → merge mission machines/DNS into static config
+  //    so mission machines are reachable from localhost
   const currentConfig = useMemo((): MachineNetworkConfig => {
     const missionConfig = missionNetworkConfig?.machineConfigs[session.machine];
     if (missionConfig) return missionConfig;
@@ -141,6 +147,8 @@ export const NetworkProvider = ({
     return currentConfig.dnsRecords;
   }, [currentConfig.dnsRecords]);
 
+  // Searches for users by IP across both static and mission networks.
+  // Needed by `su` to validate user names on any machine (tutorial or mission-generated).
   const findMachineUsers = useCallback(
     (ip: string): readonly string[] => {
       const searchConfigs = (networkConfig: NetworkConfig): readonly string[] => {

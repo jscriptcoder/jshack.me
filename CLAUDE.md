@@ -15,7 +15,7 @@ Key rules (see skills for full details):
 
 - `type` over `interface`, `readonly` everywhere, no `any`, no `as Type`
 - Immutable data: spread operators, `slice()`, `map()`, `filter()` — never mutate
-- Pure functions, early returns, max 2 levels nesting, no comments explaining code
+- Pure functions, early returns, max 2 levels nesting, comments for complex/non-obvious logic
 
 ## Build & Development Commands
 

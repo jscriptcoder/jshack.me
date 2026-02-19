@@ -15,6 +15,10 @@ type StringContext = {
   readonly contentStart: number;
 };
 
+// Scans input character-by-character up to the cursor to detect if the cursor is
+// inside a string literal. Tracks quote open/close state while respecting escaped
+// quotes (backslash before quote char). Returns whether we're in a string, which
+// quote char opened it, and where the string content starts (after the opening quote).
 const detectStringContext = (input: string, cursorPosition: number): StringContext => {
   let inString = false;
   let quoteChar = '';
@@ -46,6 +50,9 @@ const splitPathAndPrefix = (
   };
 };
 
+// Finds the longest common prefix across all names by shrinking from the first
+// name until all others match. Used to advance completion as far as possible
+// when multiple matches exist (e.g., "fi" → "file" when "file1" and "file2" match).
 const getLongestCommonPrefix = (names: readonly string[]): string => {
   if (names.length === 0) return '';
   if (names.length === 1) return names[0] ?? '';

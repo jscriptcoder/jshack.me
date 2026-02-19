@@ -6,6 +6,9 @@ import { generateFileSystems } from './filesystem';
 import type { Difficulty, GeneratedMachine, MissionNetwork } from './types';
 import type { Port, RemoteMachine, RemoteUser } from '../network/types';
 
+// Derives difficulty from seed string: explicit keywords ('easy'/'hard') take priority,
+// otherwise falls back to a simple character-sum hash mod 3. The double-mod `((hash % 3) + 3) % 3`
+// handles negative values from the bitwise `|0` coercion.
 const deriveDifficulty = (seed: string): Difficulty => {
   const lower = seed.toLowerCase();
   if (lower.includes('easy')) return 'easy';
@@ -18,6 +21,8 @@ const deriveDifficulty = (seed: string): Difficulty => {
   return mod === 0 ? 'easy' : mod === 1 ? 'medium' : 'hard';
 };
 
+// For NC entry variant: assigns the guest user as owner of the backdoor port ('elite' service).
+// This controls who can access the netcat backdoor on the entry machine.
 const addNcBackdoorOwner = (
   ports: readonly Port[],
   users: readonly RemoteUser[],

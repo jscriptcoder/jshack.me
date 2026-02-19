@@ -60,6 +60,8 @@ type FileSystemContextValue = {
 
 const FileSystemContext = createContext<FileSystemContextValue | null>(null);
 
+// Recursively navigates an immutable filesystem tree and applies `updater` to the
+// node at `pathParts`. Returns a new tree with only the affected path rebuilt.
 const updateNodeAtPath = (
   root: FileNode,
   pathParts: readonly string[],
@@ -129,6 +131,9 @@ const getNodeFromFileSystemStatic = (fs: FileNode, resolvedPath: string): FileNo
   }, fs);
 };
 
+// Replays filesystem patches onto a base filesystem state. Each patch either updates
+// an existing file's content or creates a new file at the specified path with inferred
+// permissions. This is how changes persist across page reloads via IndexedDB.
 const applyPatches = (
   base: FileSystemsState,
   patches: readonly FileSystemPatch[],
@@ -198,6 +203,8 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
   const [fileSystems, setFileSystems] = useState<FileSystemsState>(initializeFileSystems);
   const [patches, setPatches] = useState<readonly FileSystemPatch[]>(getCachedFilesystemPatches);
 
+  // Only persist patches for static (tutorial) machines — mission filesystem patches are
+  // excluded because missions regenerate entirely from their seed on reload.
   useEffect(() => {
     const db = getDatabase();
     if (db) {
@@ -206,6 +213,8 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
     }
   }, [patches]);
 
+  // When a mission starts/ends, merge or remove mission filesystems.
+  // Static machine filesystems are always preserved; mission ones are overlaid on top.
   useEffect(() => {
     setFileSystems((prev) => {
       const staticOnly = Object.fromEntries(
