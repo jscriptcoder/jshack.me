@@ -116,7 +116,7 @@ export const Terminal = () => {
     if (outputRef.current) {
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }
-  }, [lines]);
+  }, [lines, asyncRunning]);
 
   const addLine = useCallback(
     (type: 'command' | 'result' | 'error' | 'banner', content: string, prompt?: string) => {

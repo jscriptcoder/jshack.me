@@ -167,6 +167,13 @@
 - **Solution**: Monitor mode uses `useRef` (transient, resets on page refresh — player must re-enable before scanning), WiFi connected uses `session.wifiConnected` (persisted to IndexedDB — stays connected across refreshes)
 - **Key insight**: Match state persistence to its nature — tool state is transient, progress state is persisted
 
+### Auto-scroll misses layout changes when async command completes
+
+- **Context**: Terminal hides the input prompt during async commands (`asyncRunning` state), showing it again on completion
+- **Issue**: Auto-scroll `useEffect` only depended on `lines`. When async finishes, `setAsyncRunning(false)` re-renders the input — which takes up space at the bottom — but no new lines are added, so the scroll effect doesn't fire. The last few output lines get pushed above the viewport.
+- **Solution**: Add `asyncRunning` to the scroll effect's dependency array: `useEffect(() => { ... }, [lines, asyncRunning])`. Now scroll-to-bottom also triggers when the input reappears.
+- **Key insight**: Any layout change that affects the scroll container's visible area (adding/removing fixed-size elements like the input prompt) should be a dependency of the auto-scroll effect, not just content changes.
+
 ### Backwards compatibility for new session fields
 
 - **Context**: Adding `wifiConnected` to Session type breaks persisted data from existing users
