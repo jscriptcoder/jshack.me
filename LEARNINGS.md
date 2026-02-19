@@ -196,6 +196,20 @@
 - **Solution**: Add `pretest`, `pretest:run`, `pretest:coverage` npm hooks that run `npm run encode` — same pattern as existing `predev`/`prebuild` hooks
 - **Key insight**: Any time production code imports from a generated file, ALL entry points that load that code need a pre-hook to ensure the file exists. The encode script is fast (~100ms) so the overhead is negligible.
 
+### ESLint underscore-prefixed unused params flagged as errors
+
+- **Context**: Test mocks need positional parameters to match function signatures, but don't use all of them (e.g., `_cwd`, `_userType` in `readFileFromMachine` mocks)
+- **Issue**: Default `@typescript-eslint/no-unused-vars` rule doesn't allow `_prefixed` params — only bare `_` is ignored, but `_name` variants are still flagged
+- **Solution**: Configure the rule with `argsIgnorePattern: '^_'` and `varsIgnorePattern: '^_'` in `eslint.config.js`. This is the standard convention across the TypeScript ecosystem.
+- **Key insight**: Always configure this rule upfront in new projects to avoid accumulating suppression comments or `eslint-disable` directives
+
+### react-refresh warns when context files export hooks alongside providers
+
+- **Context**: Context files (e.g., `SessionContext.tsx`) export both a Provider component and a `useX` hook
+- **Issue**: `react-refresh/only-export-components` warns that non-component exports break Fast Refresh
+- **Solution**: Use `allowExportNames` option to whitelist specific hook and validator exports (e.g., `useSession`, `isValidPatch`). Note: only exact string matches are supported — no regex/glob patterns.
+- **Alternative**: Move hooks to separate files, but co-locating Provider + hook is a well-established React pattern
+
 ## Patterns That Worked
 
 ### Command factory pattern with context injection
