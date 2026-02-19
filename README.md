@@ -37,7 +37,8 @@ Start with `help()` to see available commands. Good luck, hacker.
 - **Session Persistence** - Your location and files are saved; return where you left off after refresh
 - **SEO & Social Sharing** - Open Graph and Twitter Card meta tags for rich link previews
 - **Anti-Cheat** - Filesystem content and secrets encoded at build time; flags and passwords can't be found by searching the JS bundle
-- **Retro CRT Theme** - Classic amber-on-black terminal aesthetic
+- **Color Themes** - 4 persistent terminal themes (amber, green, cyan, light) via `theme()` command
+- **Retro CRT Theme** - Classic amber-on-black terminal aesthetic (default)
 
 ## Tech Stack
 
@@ -104,6 +105,7 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 | `strings(file, [min])`  | Extract printable strings from binary files                    |
 | `nano(path)`            | Open file in nano-style text editor (Ctrl+S save, Ctrl+X exit) |
 | `node(path)`            | Execute a JavaScript file (requires execute permission)        |
+| `theme([name])`         | List themes or switch terminal color theme                     |
 | `reset(["confirm"])`    | Reset game to factory defaults (clears all saved progress)     |
 
 ### FTP Mode Commands
@@ -212,7 +214,7 @@ npm run test:e2e      # Run Playwright E2E test (full CTF playthrough)
 
 ### Test Coverage
 
-766 unit tests across 50 colocated test files covering terminal commands, hooks, components, utilities, filesystem, and persistence.
+872 unit tests across 60 colocated test files covering terminal commands, hooks, components, utilities, filesystem, persistence, and procedural generation.
 
 1 Playwright E2E test that plays through the entire CTF game (all 16 flags) in a real browser — serves as both a comprehensive regression test and a visual demo. Run with `--headed` to watch it play:
 
@@ -225,11 +227,13 @@ npx playwright test --headed
 ```
 src/
 ├── components/Terminal/    # Terminal UI components
-├── context/                # React contexts (Session)
-├── filesystem/             # Virtual file system
-├── network/                # Network simulation
+├── session/                # SessionContext — global session state
+├── filesystem/             # Virtual file system with IndexedDB persistence
+├── network/                # Per-machine network simulation
 ├── hooks/                  # Custom React hooks
-├── commands/               # Terminal commands
+├── commands/               # Terminal commands (colocated with tests)
+├── generation/             # Seeded mission network generator
+├── theme/                  # Terminal color themes
 ├── utils/                  # Utilities (crypto, storage, network, content codec)
 └── App.tsx                 # Root component
 scripts/
@@ -250,10 +254,10 @@ npx playwright screenshot --viewport-size="1200,630" --full-page public/og-image
 
 ## Documentation
 
-- **[CTF_DESIGN.md](CTF_DESIGN.md)** — Full CTF game design: all 16 flags, credential chains, machine layouts, and puzzle specifications
-- **[CTF_NANO_NODE_IDEAS.md](CTF_NANO_NODE_IDEAS.md)** — Design ideas for the nano+node scripting challenges (Flags 14-16)
 - **[WIP.md](WIP.md)** — Work-in-progress log: session-by-session implementation history and current status
+- **[PLAN.md](PLAN.md)** — Feature roadmap and acceptance criteria
 - **[LEARNINGS.md](LEARNINGS.md)** — Gotchas, patterns that worked, architectural decisions, and testing insights
+- **[docs/archive/](docs/archive/)** — Archived CTF design docs (16-flag tutorial is finalized)
 
 ## Deployment
 
