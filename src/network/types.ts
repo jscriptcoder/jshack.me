@@ -13,11 +13,18 @@ export type ServiceOwner = {
   readonly homePath: string;
 };
 
+export type Vulnerability = {
+  readonly cve: string;
+  readonly description: string;
+  readonly serviceVersion: string;
+};
+
 export type Port = {
   readonly port: number;
   readonly service: string;
   readonly open: boolean;
   readonly owner?: ServiceOwner; // For interactive services (backdoors)
+  readonly vulnerability?: Vulnerability;
 };
 
 export type RemoteUser = {

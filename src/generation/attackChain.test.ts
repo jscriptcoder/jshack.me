@@ -54,10 +54,36 @@ describe('generateAttackChain', () => {
 
   it('each step uses a valid method', () => {
     const { result } = buildTestData('method-test');
-    const validMethods = ['ssh', 'ftp', 'nc', 'su'];
+    const validMethods = ['ssh', 'ftp', 'nc', 'su', 'exploit'];
     result.attackChain.forEach((step) => {
       expect(validMethods).toContain(step.method);
     });
+  });
+
+  it('exploit entry variant maps to exploit method on first step', () => {
+    // Try many seeds until we find one with exploit variant
+    let found = false;
+    for (let i = 0; i < 100; i++) {
+      const seed = `exploit-entry-${i}`;
+      const prng = createPrng(seed);
+      const topology = generateTopology(prng, 'medium');
+      if (topology.entryVariant !== 'exploit') continue;
+
+      const { credentials } = generateUsers(prng, topology.machines, topology.entryPoint);
+      const result = generateAttackChain({
+        prng,
+        machines: topology.machines,
+        credentials,
+        entryPoint: topology.entryPoint,
+        entryVariant: 'exploit',
+        difficulty: 'medium',
+      });
+
+      expect(result.attackChain[0]?.method).toBe('exploit');
+      found = true;
+      break;
+    }
+    expect(found).toBe(true);
   });
 
   it('generates credential placements for each hop', () => {

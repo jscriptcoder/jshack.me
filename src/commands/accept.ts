@@ -12,11 +12,13 @@ const formatEntryHint = (mission: MissionNetwork): string => {
   const variant: EntryVariant = mission.entryVariant;
   const entryMachine = mission.machines.find((m) => m.ip === entryIp);
   const hostname = entryMachine?.hostname ?? entryIp;
+  const guestPassword = mission.entryCredential?.password ?? 'guest';
 
   const entryHints: Readonly<Record<EntryVariant, string>> = {
-    ssh: `> ssh("guest", "${entryIp}")`,
+    ssh: `> ssh("guest", "${entryIp}")  // password: ${guestPassword}`,
     ftp: `> ftp("${entryIp}")`,
     nc: `> nc("${entryIp}", 4444)`,
+    exploit: `> nmap("-sV", "${entryIp}")  // scan for vulnerabilities, then exploit`,
   };
 
   return [

@@ -93,8 +93,15 @@ const buildPath = (
   return [entry, ...shuffled];
 };
 
-const entryVariantToMethod = (variant: EntryVariant): AttackMethod =>
-  variant === 'nc' ? 'nc' : variant === 'ftp' ? 'ftp' : 'ssh';
+const entryVariantToMethod = (variant: EntryVariant): AttackMethod => {
+  const methodMap: Readonly<Record<EntryVariant, AttackMethod>> = {
+    ssh: 'ssh',
+    ftp: 'ftp',
+    nc: 'nc',
+    exploit: 'exploit',
+  };
+  return methodMap[variant];
+};
 
 export const generateAttackChain = (input: AttackChainInput): AttackChainResult => {
   const { prng, machines, credentials, entryPoint, entryVariant, difficulty } = input;

@@ -244,6 +244,192 @@ describe('nmap command', () => {
     });
   });
 
+  describe('-sV version detection', () => {
+    it('should parse -sV as first arg and use second arg as target', () => {
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.50',
+            hostname: 'server',
+            ports: [{ port: 22, service: 'ssh', open: true }],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+
+      const result = nmap.fn('-sV', '192.168.1.50');
+
+      expect(isAsyncOutput(result)).toBe(true);
+    });
+
+    it('should show VERSION column header when -sV is used', () => {
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.50',
+            hostname: 'server',
+            ports: [{ port: 22, service: 'ssh', open: true }],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('-sV', '192.168.1.50');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(2000);
+
+      expect(lines.some((l) => l.includes('VERSION'))).toBe(true);
+    });
+
+    it('should show vulnerability service version in port line', () => {
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.50',
+            hostname: 'server',
+            ports: [
+              {
+                port: 80,
+                service: 'http',
+                open: true,
+                vulnerability: {
+                  cve: 'CVE-2021-41773',
+                  description: 'Apache path traversal',
+                  serviceVersion: 'Apache/2.4.49',
+                },
+              },
+            ],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('-sV', '192.168.1.50');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(2000);
+
+      expect(lines.some((l) => l.includes('Apache/2.4.49'))).toBe(true);
+    });
+
+    it('should show VULNERABILITIES section for ports with vulnerabilities', () => {
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.50',
+            hostname: 'server',
+            ports: [
+              {
+                port: 80,
+                service: 'http',
+                open: true,
+                vulnerability: {
+                  cve: 'CVE-2021-41773',
+                  description: 'Apache 2.4.49 path traversal / RCE',
+                  serviceVersion: 'Apache/2.4.49',
+                },
+              },
+            ],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('-sV', '192.168.1.50');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(2000);
+
+      expect(lines.some((l) => l.includes('VULNERABILITIES:'))).toBe(true);
+      expect(lines.some((l) => l.includes('CVE-2021-41773'))).toBe(true);
+      expect(lines.some((l) => l.includes('CRITICAL'))).toBe(true);
+    });
+
+    it('should not show VULNERABILITIES section for ports without vulnerabilities', () => {
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.50',
+            hostname: 'server',
+            ports: [{ port: 22, service: 'ssh', open: true }],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('-sV', '192.168.1.50');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(2000);
+
+      expect(lines.some((l) => l.includes('VULNERABILITIES:'))).toBe(false);
+    });
+
+    it('should not show VERSION column without -sV flag', () => {
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.50',
+            hostname: 'server',
+            ports: [
+              {
+                port: 80,
+                service: 'http',
+                open: true,
+                vulnerability: {
+                  cve: 'CVE-2021-41773',
+                  description: 'test',
+                  serviceVersion: 'Apache/2.4.49',
+                },
+              },
+            ],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('192.168.1.50');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(2000);
+
+      expect(lines.some((l) => l === 'PORT      STATE  SERVICE')).toBe(true);
+      expect(lines.some((l) => l.includes('VERSION'))).toBe(false);
+      expect(lines.some((l) => l.includes('VULNERABILITIES:'))).toBe(false);
+    });
+  });
+
   describe('single IP port scan', () => {
     it('should show localhost ports as closed', () => {
       const context = createMockNmapContext({ localIP: '192.168.1.100' });

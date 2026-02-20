@@ -5,7 +5,7 @@ export type MachineRole = 'webserver' | 'database' | 'fileserver' | 'workstation
 
 export type Difficulty = 'easy' | 'medium' | 'hard';
 
-export type AttackMethod = 'ssh' | 'ftp' | 'nc' | 'su';
+export type AttackMethod = 'ssh' | 'ftp' | 'nc' | 'su' | 'exploit';
 
 export type AttackStep = {
   readonly fromMachine: string;
@@ -44,13 +44,14 @@ export type CredentialMap = Readonly<
   Record<string, readonly { readonly username: string; readonly password: string }[]>
 >;
 
-export type EntryVariant = 'ssh' | 'ftp' | 'nc';
+export type EntryVariant = 'ssh' | 'ftp' | 'nc' | 'exploit';
 
 export type MissionNetwork = {
   readonly seed: string;
   readonly difficulty: Difficulty;
   readonly entryPoint: string;
   readonly entryVariant: EntryVariant;
+  readonly entryCredential?: { readonly username: string; readonly password: string };
   readonly machines: readonly GeneratedMachine[];
   readonly fileSystems: Readonly<Record<string, FileNode>>;
   readonly networkConfig: NetworkConfig;

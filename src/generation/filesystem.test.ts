@@ -135,6 +135,12 @@ describe('generateFileSystems', () => {
     });
   });
 
+  it('all exploit entry credential hint paths use /home/ prefix', () => {
+    entryCredentialHintTemplates.forEach((t) => {
+      expect(t.exploitPath).toMatch(/^\/home\//);
+    });
+  });
+
   it('credential placements are embedded in filesystems', () => {
     const { fileSystems, credentialPlacements } = buildTestData('embed-test');
     credentialPlacements.forEach((placement) => {

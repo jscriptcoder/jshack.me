@@ -10,6 +10,7 @@ import { createSshCommand } from '../commands/ssh';
 import { createFtpCommand } from '../commands/ftp';
 import { createNcCommand } from '../commands/nc';
 import { createCurlCommand } from '../commands/curl';
+import { createExploitCommand } from '../commands/exploit';
 import type { Command } from '../components/Terminal/types';
 
 // Higher-order function that wraps a network command with WiFi connectivity gating.
@@ -88,6 +89,14 @@ export const useNetworkCommands = (): Map<string, Command> => {
       'curl',
       wrapWithWifiCheck(
         createCurlCommand({ getMachine, resolveDomain, readFileFromMachine }),
+        isWifiRequired,
+      ),
+    );
+
+    commands.set(
+      'exploit',
+      wrapWithWifiCheck(
+        createExploitCommand({ getMachine, getLocalIP, resolveDomain }),
         isWifiRequired,
       ),
     );

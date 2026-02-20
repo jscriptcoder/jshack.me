@@ -65,7 +65,7 @@ User input flows through `Terminal.tsx`:
 Commands are tiered by user type (`src/commands/permissions.ts`):
 
 - **guest**: help, man, echo, whoami, pwd, ls, cd, cat, su, clear, author
-- **user**: All guest + ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, strings, output, resolve, exit, nano, node, airmon, airdump, aircrack, nmcli, missions, accept, abort
+- **user**: All guest + ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, exploit, strings, output, resolve, exit, nano, node, airmon, airdump, aircrack, nmcli, missions, accept, abort
 - **root**: All user + decrypt
 
 ### Content Encoding (Anti-Cheat)
@@ -128,7 +128,7 @@ After completing the 16-flag tutorial, players can take on procedurally generate
 - **MissionContext** (`src/mission/MissionContext.tsx`) — React context providing `activeMission`, `startMission`, `abortMission`, `completeMission`, `isMissionActive` via `useMission()` hook
 - **App.tsx orchestration** — Mission state lives in `App.tsx`, passed as props to `FileSystemProvider` (`missionFileSystems`) and `NetworkProvider` (`missionNetworkConfig`). `MissionProvider` wraps both for command access.
 - **Generator** — `generateMissionNetwork(seed)` in `src/generation/generateMission.ts` deterministically produces a full network from a seed string
-- **Entry variants** — Entry machine initial access varies: ssh (classic), ftp (find SSH creds via FTP), nc (find SSH creds via backdoor). Selected by PRNG per seed.
+- **Entry variants** — Entry machine initial access varies: ssh (classic), ftp (find SSH creds via FTP), nc (find SSH creds via backdoor), exploit (scan with `nmap -sV`, exploit vulnerable port). Selected by PRNG per seed.
 - **Commands** — `missions()` browses contracts, `accept(seed)` starts a mission, `abort()` cancels and returns to localhost
 - **Completion** — Terminal.tsx scans command output for the mission flag; auto-completes on detection
 - **Isolation** — Mission machines are only reachable from localhost (injected into localhost's config). Mission filesystem patches are excluded from IndexedDB persistence.
@@ -156,6 +156,7 @@ When making any changes (adding/changing/deleting commands, hooks, machines, uti
    - `CLAUDE.md` — project instructions (this file)
    - `.claude/docs/architecture.md` — architecture documentation
    - `.claude/docs/ctf-design.md` — CTF design documentation
+   - `src/*/README.md` — per-module READMEs (commands, network, generation, hooks, etc.)
 
 ## Verification After Changes
 

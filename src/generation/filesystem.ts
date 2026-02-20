@@ -225,15 +225,18 @@ const buildEntryCredentialPlacement = (
 
   const hintTemplate = prng.pick(entryCredentialHintTemplates);
   const localUser = sshUser.username;
+  // NC and exploit variants both use restricted shells as a guest user
   const ownerUser =
-    entryVariant === 'nc'
+    entryVariant === 'nc' || entryVariant === 'exploit'
       ? (users.find((u) => u.userType === 'guest')?.username ?? 'guest')
       : localUser;
 
   const filePath =
     entryVariant === 'ftp'
       ? hintTemplate.ftpPath.replace('{{localUser}}', localUser)
-      : hintTemplate.ncPath.replace('{{owner}}', ownerUser);
+      : entryVariant === 'exploit'
+        ? hintTemplate.exploitPath.replace('{{owner}}', ownerUser)
+        : hintTemplate.ncPath.replace('{{owner}}', ownerUser);
 
   const fileContent = fillTemplate(hintTemplate.template, {
     hostname: machine.hostname,

@@ -2,7 +2,7 @@
 
 ## Goal
 
-Build a web-based CTF (Capture The Flag) hacking game where players use a JavaScript terminal to explore a virtual file system, escalate privileges, and hack into remote machines to find 12 hidden flags.
+Build a web-based CTF (Capture The Flag) hacking game where players use a JavaScript terminal to explore a virtual file system, escalate privileges, and hack into remote machines to find 16 hidden flags.
 
 ## Acceptance Criteria
 
@@ -13,14 +13,14 @@ Build a web-based CTF (Capture The Flag) hacking game where players use a JavaSc
 - [x] Network reconnaissance commands (ifconfig, ping, nmap, nslookup)
 - [x] Remote machine access (ssh, ftp, nc)
 - [x] Per-machine file systems with unique content
-- [x] 12 hidden flags with guided progression across 5 machines
+- [x] 16 hidden flags with guided progression across 8 machines
 - [x] Command restrictions by user type (guest/user/root tiers)
 - [x] Additional exploitation commands (curl, strings, decrypt, output, resolve, exit)
 - [x] Session and filesystem persistence (IndexedDB)
 - [x] Realistic filesystem noise (configs, logs, dotfiles, red herrings)
 - [x] WiFi hacking gate — aircrack-ng suite (airmon, airdump, aircrack) as network access prerequisite
 - [x] Terminal color theming — `theme()` command with 4 persistent themes (amber, green, cyan, light) via CSS custom properties
-- [x] Unit tests (906 tests across 64 files)
+- [x] Unit tests (938 tests across 65 files)
 - [ ] Mission system — procedurally generated hacker-for-hire contracts (see `.claude/docs/missions-design.md`)
 
 ## Steps
@@ -55,7 +55,7 @@ ssh command with async connection, password authentication, session stack (pushS
 
 ### Step 8: Place flags in file system (Done)
 
-12 flags across 5 machines with guided progression. Flag files, encrypted files (AES-256-GCM), binary files for strings.
+16 flags across 8 machines with guided progression. Flag files, encrypted files (AES-256-GCM), binary files for strings.
 
 ### Step 9: Add hints and breadcrumbs (Done)
 
@@ -99,12 +99,13 @@ Procedurally generated hacker-for-hire contracts with seed-based network generat
 1. ~~Seeded network generator (PRNG, topology, users, filesystems, vulnerabilities)~~ ✅ Done
 2. ~~Mission board UI + integration (accept/abort/complete, context providers, persistence)~~ ✅ Done
 3. ~~First mission template (E2E proof of concept — 3 bug fixes making missions playable)~~ ✅ Done
-4. Expand mission types (tamper, plant, chain missions)
-5. Polish and social (reputation, seed sharing, history)
+4. ~~Vulnerability scanning & exploit system (nmap -sV, exploit command, exploit entry variant, guest password variation)~~ ✅ Done
+5. Expand mission types (tamper, plant, chain missions)
+6. Polish and social (reputation, seed sharing, history)
 
 ## Test Coverage
 
-906 tests across 64 colocated test files:
+938 tests across 65 colocated test files:
 
 - All commands with logic are tested (factory pattern with mock context injection)
 - FTP subcommands tested (cd, lcd, ls, lls, get, put)
@@ -112,6 +113,7 @@ Procedurally generated hacker-for-hire contracts with seed-based network generat
 - WiFi commands tested: airmon (9), airdump (6), aircrack (8)
 - curl tested (27 tests: errors, GET, POST, headers, DNS, async)
 - decrypt tested (17 tests), output (16), resolve (14), strings (12)
+- exploit tested (18 tests: validation, DNS, connection errors, async output, cancellation)
 - Permissions module tested (21 tests)
 - Async commands tested with fake timers
 - React hooks tested (useCommandHistory, useVariables, useAutoComplete, usePathAutoComplete)

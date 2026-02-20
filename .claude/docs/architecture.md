@@ -124,7 +124,7 @@ Network access from localhost requires cracking a WiFi network first. This is a 
 
 See `src/commands/` for implementations and `src/hooks/useCommands.ts` for the registry.
 
-Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, su, whoami, airmon, airdump, aircrack, nmcli, ifconfig, ping, nmap, nslookup, ssh, exit, ftp, nc, curl, decrypt, output, resolve, strings, nano, node, missions, accept, abort, theme, reset.
+Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, su, whoami, airmon, airdump, aircrack, nmcli, ifconfig, ping, nmap, nslookup, ssh, exit, ftp, nc, curl, exploit, decrypt, output, resolve, strings, nano, node, missions, accept, abort, theme, reset.
 
 FTP mode (when connected via ftp): pwd, lpwd, cd, lcd, ls, lls, get, put, quit/bye.
 
@@ -137,20 +137,20 @@ NC mode (when connected via nc): pwd, cd, ls, cat, whoami, help, exit — read-o
 **Pipeline**: `generateMissionNetwork(seed)` composes these steps:
 
 1. **PRNG** (`prng.ts`) — Mulberry32 PRNG seeded via FNV-1a hash of the seed string. Provides `next()`, `nextInt()`, `pick()`, `pickN()`, `shuffle()`.
-2. **Topology** (`topology.ts`) — Generates machines on a flat subnet (`10.x.x.0/24`), assigns roles (webserver/database/fileserver/workstation), selects an entry variant (ssh/ftp/nc) for the entry machine, builds `NetworkConfig` with interfaces, DNS, and per-machine reachability.
-3. **Users** (`users.ts`) — Generates root + 1-2 role-appropriate users per machine, hashes passwords with `md5()`. Returns both `RemoteUser[]` per machine and a plaintext credential map.
-4. **Attack Chain** (`attackChain.ts`) — Picks a target machine, builds an attack path (entry → intermediates → target), assigns access methods based on entry variant for the first hop (ssh/ftp/nc) and ssh for subsequent hops, plans credential placements.
-5. **Filesystems** (`filesystem.ts`) — Builds `FileNode` trees per machine using the existing `createFileSystem()` factory. Injects role-based configs, credential breadcrumbs, noise files, red herrings, entry credential hints (for FTP/NC entry variants), and the flag on the target machine.
+2. **Topology** (`topology.ts`) — Generates machines on a flat subnet (`10.x.x.0/24`), assigns roles (webserver/database/fileserver/workstation), selects an entry variant (ssh/ftp/nc/exploit) for the entry machine, builds `NetworkConfig` with interfaces, DNS, and per-machine reachability.
+3. **Users** (`users.ts`) — Generates root + 1-2 role-appropriate users per machine, hashes passwords with `md5()`. Guest passwords are picked from a `guestPasswords` pool (not hardcoded). Returns both `RemoteUser[]` per machine and a plaintext credential map.
+4. **Attack Chain** (`attackChain.ts`) — Picks a target machine, builds an attack path (entry → intermediates → target), assigns access methods based on entry variant for the first hop (ssh/ftp/nc/exploit) and ssh for subsequent hops, plans credential placements.
+5. **Filesystems** (`filesystem.ts`) — Builds `FileNode` trees per machine using the existing `createFileSystem()` factory. Injects role-based configs, credential breadcrumbs, noise files, red herrings, entry credential hints (for FTP/NC/exploit entry variants), and the flag on the target machine.
 
 **Output**: `MissionNetwork` containing seed, difficulty, machines, filesystems, network config, attack chain, objective, and entry variant. Same seed always produces identical output.
 
-**Data Pools** (`pools.ts`) — Static arrays for usernames, hostnames, port templates, entry port templates (ssh/ftp/nc variants), entry credential hint templates, log templates, config templates, and noise/red-herring files. Mission passwords are imported from `src/secrets/__encoded.ts` (encoded at build time via the secrets registry) to prevent bundle inspection.
+**Data Pools** (`pools.ts`) — Static arrays for usernames, hostnames, guest passwords, port templates, entry port templates (ssh/ftp/nc/exploit variants), vulnerability templates (real CVEs with service versions), entry credential hint templates, log templates, config templates, and noise/red-herring files. Mission passwords are imported from `src/secrets/__encoded.ts` (encoded at build time via the secrets registry) to prevent bundle inspection.
 
 **Key properties**:
 
 - Deterministic: same seed → identical network (deep equality)
 - 4 machine roles, 3 difficulty tiers (easy=2, medium=3-4, hard=4-6 machines)
-- 3 entry variants (ssh, ftp, nc) — entry machine's initial access method varies per seed
+- 4 entry variants (ssh, ftp, nc, exploit) — entry machine's initial access method varies per seed
 - Output types match existing `NetworkConfig`, `RemoteMachine`, `FileNode`
 
 ## Mission System Integration
@@ -199,8 +199,10 @@ SessionProvider → MissionProvider → FileSystemProvider → NetworkProvider �
 **Entry variant system:**
 
 - Entry machine is NOT always SSH-accessible initially
-- PRNG selects an entry variant: `ssh` (classic), `ftp` (explore via FTP, find SSH creds), or `nc` (explore via backdoor, find SSH creds)
-- SSH is always available on the entry machine, but FTP/NC entry variants require finding credentials first
+- PRNG selects an entry variant: `ssh` (classic), `ftp` (explore via FTP, find SSH creds), `nc` (explore via backdoor, find SSH creds), or `exploit` (scan with `nmap -sV`, exploit vulnerable port for restricted shell, find SSH creds)
+- SSH is always available on the entry machine, but FTP/NC/exploit entry variants require finding credentials first
+- Exploit variant attaches a `Vulnerability` (CVE, description, service version) and `ServiceOwner` to a non-SSH port on the entry machine
+- `nmap("-sV", target)` reveals service versions and CVE details; `exploit(host, port)` exploits the vulnerability and drops into a restricted NC-like shell
 - Mission briefing shows the initial access command based on variant
 
 ## SEO & Open Graph

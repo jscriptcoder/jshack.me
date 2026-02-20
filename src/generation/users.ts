@@ -2,7 +2,7 @@ import type { Prng } from './prng';
 import type { CredentialMap, GeneratedMachine } from './types';
 import type { RemoteUser } from '../network/types';
 import { md5 } from '../utils/md5';
-import { passwords, usernamesByRole } from './pools';
+import { guestPasswords, passwords, usernamesByRole } from './pools';
 
 type UsersResult = {
   readonly usersByMachine: Readonly<Record<string, readonly RemoteUser[]>>;
@@ -50,20 +50,21 @@ export const generateUsers = (
     ];
 
     const hasGuest = isEntry || prng.next() < 0.5;
+    const guestPassword = prng.pick(guestPasswords);
     const allUsers = hasGuest
       ? [
           rootUser,
           ...regularUsers,
           {
             username: 'guest',
-            passwordHash: md5('guest'),
+            passwordHash: md5(guestPassword),
             userType: 'guest' as const,
           },
         ]
       : [rootUser, ...regularUsers];
 
     if (hasGuest) {
-      machineCredentials.push({ username: 'guest', password: 'guest' });
+      machineCredentials.push({ username: 'guest', password: guestPassword });
     }
 
     usersByMachine[machine.ip] = allUsers;

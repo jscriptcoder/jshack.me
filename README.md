@@ -74,42 +74,43 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 
 ## Available Commands
 
-| Command                 | Description                                                    |
-| ----------------------- | -------------------------------------------------------------- |
-| `help()`                | List all available commands                                    |
-| `man(cmd)`              | Display detailed manual for a command                          |
-| `echo(value)`           | Output a stringified value                                     |
-| `author()`              | Display author profile card                                    |
-| `clear()`               | Clear the terminal screen                                      |
-| `pwd()`                 | Print current working directory                                |
-| `ls([path], [flags])`   | List directory contents (-a for hidden files)                  |
-| `cd([path])`            | Change current directory                                       |
-| `cat(path)`             | Display file contents                                          |
-| `su(user)`              | Switch user (prompts for password)                             |
-| `whoami()`              | Display current username                                       |
-| `airmon(action, iface)` | Enable/disable wireless monitor mode                           |
-| `airdump()`             | Scan for nearby wireless networks                              |
-| `aircrack(bssid)`       | Crack WPA/WPA2 wireless network key                            |
-| `ifconfig([iface])`     | Display network interface configuration                        |
-| `ping(host, [count])`   | Test connectivity to a network host                            |
-| `nmap(target)`          | Scan for open ports or discover hosts in a range               |
-| `nslookup(domain)`      | Query DNS to resolve domain to IP address                      |
-| `ssh(user, host)`       | Connect to remote machine via SSH                              |
-| `exit()`                | Close SSH connection and return to previous machine            |
-| `ftp(host)`             | Connect to remote machine via FTP                              |
-| `curl(url, [flags])`    | Fetch web content via HTTP (supports -i for headers, -X POST)  |
-| `nc(host, port)`        | Connect to arbitrary port (interactive for special services)   |
-| `decrypt(file, key)`    | Decrypt file using AES-256-GCM                                 |
-| `output(cmd, [file])`   | Capture command output to variable or file                     |
-| `resolve(promise)`      | Unwrap a Promise and display its value                         |
-| `strings(file, [min])`  | Extract printable strings from binary files                    |
-| `nano(path)`            | Open file in nano-style text editor (Ctrl+S save, Ctrl+X exit) |
-| `node(path)`            | Execute a JavaScript file (requires execute permission)        |
-| `missions()`            | Browse available hacker-for-hire contracts on the darknet      |
-| `accept(seed)`          | Accept a mission contract and generate the target network      |
-| `abort()`               | Abort the current mission and return to localhost              |
-| `theme([name])`         | List themes or switch terminal color theme                     |
-| `reset(["confirm"])`    | Reset game to factory defaults (clears all saved progress)     |
+| Command                 | Description                                                          |
+| ----------------------- | -------------------------------------------------------------------- |
+| `help()`                | List all available commands                                          |
+| `man(cmd)`              | Display detailed manual for a command                                |
+| `echo(value)`           | Output a stringified value                                           |
+| `author()`              | Display author profile card                                          |
+| `clear()`               | Clear the terminal screen                                            |
+| `pwd()`                 | Print current working directory                                      |
+| `ls([path], [flags])`   | List directory contents (-a for hidden files)                        |
+| `cd([path])`            | Change current directory                                             |
+| `cat(path)`             | Display file contents                                                |
+| `su(user)`              | Switch user (prompts for password)                                   |
+| `whoami()`              | Display current username                                             |
+| `airmon(action, iface)` | Enable/disable wireless monitor mode                                 |
+| `airdump()`             | Scan for nearby wireless networks                                    |
+| `aircrack(bssid)`       | Crack WPA/WPA2 wireless network key                                  |
+| `ifconfig([iface])`     | Display network interface configuration                              |
+| `ping(host, [count])`   | Test connectivity to a network host                                  |
+| `nmap(["-sV",] target)` | Scan ports; -sV enables version detection and vulnerability scanning |
+| `nslookup(domain)`      | Query DNS to resolve domain to IP address                            |
+| `ssh(user, host)`       | Connect to remote machine via SSH                                    |
+| `exit()`                | Close SSH connection and return to previous machine                  |
+| `ftp(host)`             | Connect to remote machine via FTP                                    |
+| `curl(url, [flags])`    | Fetch web content via HTTP (supports -i for headers, -X POST)        |
+| `nc(host, port)`        | Connect to arbitrary port (interactive for special services)         |
+| `exploit(host, port)`   | Exploit a vulnerable service for remote code execution               |
+| `decrypt(file, key)`    | Decrypt file using AES-256-GCM                                       |
+| `output(cmd, [file])`   | Capture command output to variable or file                           |
+| `resolve(promise)`      | Unwrap a Promise and display its value                               |
+| `strings(file, [min])`  | Extract printable strings from binary files                          |
+| `nano(path)`            | Open file in nano-style text editor (Ctrl+S save, Ctrl+X exit)       |
+| `node(path)`            | Execute a JavaScript file (requires execute permission)              |
+| `missions()`            | Browse available hacker-for-hire contracts on the darknet            |
+| `accept(seed)`          | Accept a mission contract and generate the target network            |
+| `abort()`               | Abort the current mission and return to localhost                    |
+| `theme([name])`         | List themes or switch terminal color theme                           |
+| `reset(["confirm"])`    | Reset game to factory defaults (clears all saved progress)           |
 
 ### FTP Mode Commands
 
@@ -217,7 +218,7 @@ npm run test:e2e      # Run Playwright E2E test (full CTF playthrough)
 
 ### Test Coverage
 
-906 unit tests across 64 colocated test files covering terminal commands, hooks, components, utilities, filesystem, persistence, procedural generation, and mission system.
+938 unit tests across 65 colocated test files covering terminal commands, hooks, components, utilities, filesystem, persistence, procedural generation, and mission system.
 
 5 Playwright E2E tests: 1 full CTF playthrough (all 16 flags) + 4 mission playthroughs (SSH, FTP, NC entry variants + mission lifecycle). Run with `--headed` to watch them play:
 

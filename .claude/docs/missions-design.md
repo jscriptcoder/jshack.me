@@ -296,6 +296,16 @@ Expand the existing `fileSystemFactory.ts` pattern:
 - Noise generation (realistic log entries, config files, dotfiles)
 - Target data placement (the objective file/record)
 
+### Vulnerability Scanning & Exploit System
+
+Adds a realistic pentesting gameplay loop for the `exploit` entry variant:
+
+1. **Vulnerability data model** — `Port` type has optional `vulnerability` field (`Vulnerability` type: CVE, description, serviceVersion). Vulnerability templates in `pools.ts` use real CVEs for realism.
+2. **`nmap -sV` flag** — Version detection mode shows service versions and a `VULNERABILITIES:` section with CVE details for ports that have vulnerabilities.
+3. **`exploit(host, port)` command** — Exploits a vulnerable port (must have both `vulnerability` and `owner`). Async output shows targeting, CVE, payload delivery, then drops into NC-like restricted shell via `NcPromptData`.
+4. **Exploit entry variant** — PRNG can select `exploit` as the entry variant. The generator attaches a matching vulnerability template + guest owner to the non-SSH open port on the entry machine. Player flow: `nmap -sV` → `exploit` → find SSH creds in restricted shell → SSH to continue.
+5. **Guest password variation** — Guest passwords are picked from a `guestPasswords` pool instead of hardcoded `"guest"`, making SSH entry variant less predictable. The actual password is shown in the mission briefing.
+
 ### Anti-Cheat
 
 - Generated content should use the same XOR+Base64 encoding as static content

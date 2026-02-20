@@ -112,4 +112,33 @@ describe('generateMissionNetwork', () => {
     expect(uniqueFlags.size).toBe(20);
     expect(uniqueEntries.size).toBeGreaterThan(1);
   });
+
+  it('exploit entry variant adds vulnerability and owner to entry machine port', () => {
+    // Search for a seed that produces exploit variant
+    let found = false;
+    for (let i = 0; i < 200; i++) {
+      const result = generateMissionNetwork(`exploit-gen-${i}`);
+      if (result.entryVariant !== 'exploit') continue;
+
+      const entryMachine = result.machines.find((m) => m.ip === result.entryPoint);
+      expect(entryMachine).toBeDefined();
+
+      // The non-SSH open port should have a vulnerability and owner
+      const vulnPort = entryMachine?.remoteMachine.ports.find((p) => p.service !== 'ssh' && p.open);
+      expect(vulnPort?.vulnerability).toBeDefined();
+      expect(vulnPort?.vulnerability?.cve).toBeTruthy();
+      expect(vulnPort?.owner).toBeDefined();
+      expect(vulnPort?.owner?.userType).toBe('guest');
+      found = true;
+      break;
+    }
+    expect(found).toBe(true);
+  });
+
+  it('entryCredential is set for entry machine', () => {
+    const result = generateMissionNetwork('ENTRY-CRED-TEST');
+    expect(result.entryCredential).toBeDefined();
+    expect(result.entryCredential?.username).toBe('guest');
+    expect(result.entryCredential?.password).toBeTruthy();
+  });
 });

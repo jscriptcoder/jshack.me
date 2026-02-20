@@ -1,4 +1,5 @@
 import type { EntryVariant, MachineRole } from './types';
+import type { Vulnerability } from '../network/types';
 import { secrets } from '../secrets/__encoded';
 
 export type PortTemplate = {
@@ -13,6 +14,15 @@ export const usernamesByRole: Readonly<Record<MachineRole, readonly string[]>> =
   fileserver: ['ftpuser', 'backup', 'storage', 'sysadmin', 'fileadm'],
   workstation: ['jsmith', 'admin', 'developer', 'analyst', 'operator'],
 };
+
+export const guestPasswords: readonly string[] = [
+  'guest',
+  'guest123',
+  'password',
+  'letmein',
+  'welcome',
+  'changeme',
+];
 
 export const passwords: readonly string[] = JSON.parse(
   secrets.MISSION_PASSWORDS,
@@ -74,6 +84,81 @@ export const entryPortTemplates: readonly EntryPortTemplate[] = [
       { port: 4444, service: 'elite', open: true },
     ],
   },
+  {
+    variant: 'exploit',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 80, service: 'http', open: true },
+    ],
+  },
+  {
+    variant: 'exploit',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 3306, service: 'mysql', open: true },
+    ],
+  },
+  {
+    variant: 'exploit',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 6379, service: 'redis', open: true },
+    ],
+  },
+];
+
+export type VulnerabilityTemplate = {
+  readonly port: number;
+  readonly service: string;
+  readonly vulnerability: Vulnerability;
+};
+
+export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
+  {
+    port: 80,
+    service: 'http',
+    vulnerability: {
+      cve: 'CVE-2021-41773',
+      description: 'Apache 2.4.49 path traversal / RCE',
+      serviceVersion: 'Apache/2.4.49',
+    },
+  },
+  {
+    port: 3306,
+    service: 'mysql',
+    vulnerability: {
+      cve: 'CVE-2012-2122',
+      description: 'MySQL auth bypass (memcmp timing)',
+      serviceVersion: 'MySQL 5.5.23',
+    },
+  },
+  {
+    port: 6379,
+    service: 'redis',
+    vulnerability: {
+      cve: 'CVE-2022-0543',
+      description: 'Redis Lua sandbox escape / RCE',
+      serviceVersion: 'Redis 5.0.7',
+    },
+  },
+  {
+    port: 8080,
+    service: 'http-alt',
+    vulnerability: {
+      cve: 'CVE-2017-5638',
+      description: 'Apache Struts 2 RCE via Content-Type',
+      serviceVersion: 'Struts/2.3.31',
+    },
+  },
+  {
+    port: 9200,
+    service: 'elasticsearch',
+    vulnerability: {
+      cve: 'CVE-2015-1427',
+      description: 'Elasticsearch Groovy sandbox bypass',
+      serviceVersion: 'Elasticsearch 1.4.2',
+    },
+  },
 ];
 
 export const logTemplates: readonly string[] = [
@@ -116,22 +201,26 @@ export const noiseFiles: readonly { readonly name: string; readonly content: str
 export const entryCredentialHintTemplates: readonly {
   readonly ftpPath: string;
   readonly ncPath: string;
+  readonly exploitPath: string;
   readonly template: string;
 }[] = [
   {
     ftpPath: '/home/{{localUser}}/.ssh_backup',
     ncPath: '/home/{{owner}}/ssh_backup.txt',
+    exploitPath: '/home/{{owner}}/ssh_backup.txt',
     template:
       'SSH Credentials Backup\n======================\nHost: {{hostname}}\nUser: {{user}}\nPass: {{password}}\nLast updated: Jan 10',
   },
   {
     ftpPath: '/home/{{localUser}}/notes.txt',
     ncPath: '/home/{{owner}}/notes.txt',
+    exploitPath: '/home/{{owner}}/notes.txt',
     template: 'Server notes:\n- SSH access: {{user}} / {{password}}\n- Remember to rotate!',
   },
   {
     ftpPath: '/home/{{localUser}}/credentials.bak',
     ncPath: '/home/{{owner}}/.credentials',
+    exploitPath: '/home/{{owner}}/.credentials',
     template:
       '# auto-generated credentials\nssh_user={{user}}\nssh_pass={{password}}\nhost={{hostname}}',
   },

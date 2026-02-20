@@ -4,12 +4,12 @@ Simulated network environment for CTF puzzles. Defines the topology, machines, p
 
 ## Files
 
-| File                 | Description                                                                                                             |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `types.ts`           | Core types: `NetworkInterface`, `RemoteMachine`, `Port`, `DnsRecord`, `MachineNetworkConfig`, `NetworkConfig`           |
-| `initialNetwork.ts`  | `createInitialNetwork()` — defines per-machine network configs (interfaces, reachable machines, DNS) for all 8 machines |
-| `NetworkContext.tsx` | React context — imports `useSession`, resolves config per `session.machine`, provides `getMachine`, `getLocalIP`, etc.  |
-| `index.ts`           | Module exports                                                                                                          |
+| File                 | Description                                                                                                                    |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `types.ts`           | Core types: `NetworkInterface`, `RemoteMachine`, `Port`, `Vulnerability`, `DnsRecord`, `MachineNetworkConfig`, `NetworkConfig` |
+| `initialNetwork.ts`  | `createInitialNetwork()` — defines per-machine network configs (interfaces, reachable machines, DNS) for all 8 machines        |
+| `NetworkContext.tsx` | React context — imports `useSession`, resolves config per `session.machine`, provides `getMachine`, `getLocalIP`, etc.         |
+| `index.ts`           | Module exports                                                                                                                 |
 
 ## Network Topology
 
@@ -87,14 +87,21 @@ type NetworkConfig = {
 };
 ```
 
-**Port** — includes optional `owner` for interactive services (backdoors via `nc`):
+**Port** — includes optional `owner` for interactive services (backdoors via `nc`, exploits) and optional `vulnerability` for version scanning:
 
 ```typescript
+type Vulnerability = {
+  readonly cve: string;
+  readonly description: string;
+  readonly serviceVersion: string;
+};
+
 type Port = {
   readonly port: number;
   readonly service: string;
   readonly open: boolean;
   readonly owner?: ServiceOwner; // username, userType, homePath
+  readonly vulnerability?: Vulnerability; // CVE info for nmap -sV / exploit
 };
 ```
 

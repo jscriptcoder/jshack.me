@@ -227,16 +227,17 @@ describe('permissions', () => {
       expect(rootCommands).toEqual(['decrypt']);
     });
 
-    it('should have 21 user-tier commands', () => {
+    it('should have 22 user-tier commands', () => {
       const userCommands = Object.entries(COMMAND_TIERS)
         .filter(([, tier]) => tier === 'user')
         .map(([name]) => name);
-      expect(userCommands).toHaveLength(21);
+      expect(userCommands).toHaveLength(22);
       expect(userCommands).toContain('nmap');
       expect(userCommands).toContain('ssh');
       expect(userCommands).toContain('curl');
       expect(userCommands).toContain('strings');
       expect(userCommands).toContain('nano');
+      expect(userCommands).toContain('exploit');
       expect(userCommands).toContain('node');
       expect(userCommands).toContain('missions');
       expect(userCommands).toContain('accept');

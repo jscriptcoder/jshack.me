@@ -3,7 +3,7 @@ import { createPrng } from './prng';
 import { generateTopology } from './topology';
 import { generateUsers } from './users';
 import { md5 } from '../utils/md5';
-import { usernamesByRole } from './pools';
+import { guestPasswords, usernamesByRole } from './pools';
 import { secrets } from '../secrets/secrets';
 
 const passwords: readonly string[] = JSON.parse(secrets.MISSION_PASSWORDS) as readonly string[];
@@ -98,5 +98,30 @@ describe('generateUsers', () => {
           expect(passwords).toContain(cred.password);
         });
     });
+  });
+
+  it('guest passwords come from guestPasswords pool', () => {
+    const { topology, users } = buildTestData('guest-pool-test');
+    topology.machines.forEach((m) => {
+      const creds = users.credentials[m.ip] ?? [];
+      const guestCred = creds.find((c) => c.username === 'guest');
+      if (guestCred) {
+        expect(guestPasswords).toContain(guestCred.password);
+      }
+    });
+  });
+
+  it('guest passwords vary across seeds', () => {
+    const guestPassFromSeeds = new Set<string>();
+    for (let i = 0; i < 50; i++) {
+      const { topology, users } = buildTestData(`guest-vary-${i}`);
+      const entryCreds = users.credentials[topology.entryPoint] ?? [];
+      const guestCred = entryCreds.find((c) => c.username === 'guest');
+      if (guestCred) {
+        guestPassFromSeeds.add(guestCred.password);
+      }
+    }
+    // Should see more than one distinct guest password
+    expect(guestPassFromSeeds.size).toBeGreaterThan(1);
   });
 });

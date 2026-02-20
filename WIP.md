@@ -2,11 +2,11 @@
 
 ## Current Step
 
-Mission E2E tests complete — all entry variants tested end-to-end
+Vulnerability scanning & exploit system — new `exploit` command and `nmap -sV` flag
 
 ## Status
 
-✅ COMPLETE — Mission E2E Playwright tests (SSH/FTP/NC variants + lifecycle) passing (906 unit tests + 5 E2E tests)
+✅ COMPLETE — Vulnerability scanning & exploit system (938 unit tests + 5 E2E tests)
 
 ## Completed
 
@@ -27,7 +27,25 @@ Mission E2E tests complete — all entry variants tested end-to-end
 - [x] WiFi hacking gate (airmon, airdump, aircrack)
 - [ ] Step 13: Mission system (procedurally generated contracts)
 
-## Recent Session (2026-02-19, Session 5)
+## Recent Session (2026-02-20, Session 6)
+
+Implemented:
+
+- **Vulnerability scanning & exploit system**:
+  - `Vulnerability` type on `Port` (CVE, description, serviceVersion) in `src/network/types.ts`
+  - `exploit` entry variant + `exploit` attack method in `src/generation/types.ts`
+  - `entryCredential` field on `MissionNetwork` (shows varied guest password in SSH briefing)
+  - Guest password pool (`guestPasswords`) — no longer hardcoded `"guest"`
+  - Vulnerability templates (5 real CVEs) and exploit entry port templates in `pools.ts`
+  - `nmap("-sV", target)` — version detection with `VERSION` column + `VULNERABILITIES:` section
+  - `exploit(host, port)` command — exploits vulnerable port, drops into NC-like restricted shell
+  - Exploit entry variant in generator pipeline (topology, users, attack chain, filesystem, orchestrator)
+  - Registered `exploit` in `useNetworkCommands.ts` + `permissions.ts` (user tier, WiFi gated)
+  - `accept()` shows exploit hint and SSH password for respective variants
+  - 32 new tests (exploit.test.ts + nmap -sV tests + generation tests)
+  - **Test count**: 938 unit tests across 65 files + 5 Playwright E2E tests
+
+## Session 5 (2026-02-19)
 
 Implemented:
 
@@ -441,9 +459,10 @@ Implemented:
 
 None currently.
 
-## Next Action — Mission System Phase 4
+## Next Action — Mission System Phase 5
 
-Expand mission types, difficulty tiers, more machine role templates, more vulnerability patterns. See `.claude/docs/missions-design.md` and `PLAN.md` Step 13.
+- [ ] Add E2E test for exploit entry variant in `e2e/mission-playthrough.spec.ts` (deferred — needs seed discovery + full playthrough: nmap -sV → exploit → find creds → SSH → escalate → capture flag)
+- [ ] Expand mission types, difficulty tiers, more machine role templates, more vulnerability patterns. See `.claude/docs/missions-design.md` and `PLAN.md` Step 13.
 
 _Hidden network flag specs (14-16) archived to `docs/archive/`. See `.claude/docs/ctf-design.md` for the current CTF reference._
 
@@ -498,13 +517,14 @@ Flag detection, progress display, `flags()` command, victory celebration. See PL
 
 ### Test Coverage
 
-- 906 unit tests across 64 colocated test files
+- 938 unit tests across 65 colocated test files
 - 5 Playwright E2E tests: 1 CTF playthrough (16 flags + WiFi gate) + 4 mission playthroughs (SSH/FTP/NC variants + lifecycle)
 - All commands with logic are tested
 - WiFi commands tested: airmon (9), airdump (6), aircrack (8)
 - FTP subcommands tested (cd, lcd, ls, lls, get, put)
 - NC command and subcommands tested (nc, cat, cd, ls)
 - Curl command tested (27 tests: errors, GET, POST, headers, DNS, async)
+- Exploit command tested (18 tests: validation, DNS, connection errors, async output, cancellation)
 - Decrypt command tested (17 tests)
 - Output command tested (16 tests)
 - Resolve command tested (14 tests)
