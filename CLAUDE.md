@@ -46,6 +46,7 @@ npm run test:e2e      # Run Playwright E2E test (full CTF playthrough)
 Detailed architecture: @.claude/docs/architecture.md
 CTF design (network, machines, filesystems): @.claude/docs/ctf-design.md
 Mission system design (procedural generation, contracts): @.claude/docs/missions-design.md
+Mission variations catalog (all generation axes): @.claude/docs/mission-variations.md
 
 ### Command Execution Flow
 
@@ -156,6 +157,7 @@ When making any changes (adding/changing/deleting commands, hooks, machines, uti
    - `CLAUDE.md` — project instructions (this file)
    - `.claude/docs/architecture.md` — architecture documentation
    - `.claude/docs/ctf-design.md` — CTF design documentation
+   - `.claude/docs/mission-variations.md` — mission generation variations catalog
    - `src/*/README.md` — per-module READMEs (commands, network, generation, hooks, etc.)
 
 ## Verification After Changes
