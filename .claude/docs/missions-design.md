@@ -49,21 +49,9 @@ Example mission listing:
 
 [001] CLIENT: xR0gu3x
       TARGET: MedTech Solutions — hospital records system
-      OBJECTIVE: Modify patient discharge record for "John Doe"
-      DIFFICULTY: ** (Medium)
-      SEED: MEDTECH-4A7F
-
-[002] CLIENT: null_entity
-      TARGET: Westfield University — student portal
-      OBJECTIVE: Change grade for student ID #2847 from F to A
-      DIFFICULTY: *** (Hard)
-      SEED: WFIELD-9C2E
-
-[003] CLIENT: d4rk_m4tter
-      TARGET: Harbor City PD — criminal records database
-      OBJECTIVE: Delete arrest record file for case #HC-2024-1847
-      DIFFICULTY: **** (Expert)
-      SEED: HCPD-3B1D
+      OBJECTIVE: Exfiltrate patient discharge records
+      DIFFICULTY: * (Easy)
+      SEED: MEDTECH-4A7F-easy
 
 Type: accept(seed) to start a mission
 ```

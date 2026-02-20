@@ -175,15 +175,11 @@ Used in attack chain step hints:
 - Backup file contains plaintext passwords
 - Check user's home directory for notes
 
-## Board Missions (5 hardcoded)
+## Board Missions (1 hardcoded, more to be added with e2e tests)
 
-| Seed              | Client         | Difficulty |
-| ----------------- | -------------- | ---------- |
-| MEDTECH-4A7F-easy | xR0gu3x        | Easy       |
-| WFIELD-9C2E       | null_entity    | Medium     |
-| HCPD-3B1D-hard    | d4rk_m4tter    | Hard       |
-| NOVA-7E2A-easy    | z3r0_c00l      | Easy       |
-| BKRDG-5F9D-hard   | gh0st_pr0t0c0l | Hard       |
+| Seed              | Client  | Difficulty |
+| ----------------- | ------- | ---------- |
+| MEDTECH-4A7F-easy | xR0gu3x | Easy       |
 
 Players can also use any arbitrary seed string via `accept("any-string")`.
 

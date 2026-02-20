@@ -116,7 +116,7 @@ Implemented:
 
 - **Mission system Phase 2 — Integration & Mission Board**:
   - `src/mission/MissionContext.tsx` — React context for active mission state (start/abort/complete)
-  - `src/mission/missionBoard.ts` — 5 hardcoded sample contracts with formatted ASCII board
+  - `src/mission/missionBoard.ts` — 1 hardcoded sample contract with formatted ASCII board (more to be added with e2e tests)
   - `src/commands/missions.ts` — Browse darknet contracts, shows formatted mission board
   - `src/commands/accept.ts` — Accept a mission by seed, generates network, shows briefing with entry hint
   - `src/commands/abort.ts` — Abort active mission, pops all SSH sessions back to localhost

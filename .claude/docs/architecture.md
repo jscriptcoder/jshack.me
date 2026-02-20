@@ -191,7 +191,7 @@ SessionProvider → MissionProvider → FileSystemProvider → NetworkProvider �
 
 **Mission commands:**
 
-- `missions()` — displays hardcoded darknet contract board (5 contracts across difficulties)
+- `missions()` — displays hardcoded darknet contract board (missions added incrementally with e2e tests)
 - `accept(seed)` — generates network from seed, passes `MissionNetwork` to `startMission`, displays briefing with entry point and access hint
 - `abort()` — pops all sessions back to localhost, clears mission state
 

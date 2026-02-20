@@ -2,10 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { MISSION_BOARD, formatMissionBoard } from './missionBoard';
 
 describe('missionBoard', () => {
-  it('has at least 3 mission listings', () => {
-    expect(MISSION_BOARD.length).toBeGreaterThanOrEqual(3);
-  });
-
   it('each listing has required fields', () => {
     MISSION_BOARD.forEach((listing) => {
       expect(listing.id).toBeTruthy();
