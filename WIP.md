@@ -2,11 +2,11 @@
 
 ## Current Step
 
-Vulnerability scanning & exploit system — new `exploit` command and `nmap -sV` flag
+Thematic target paths for missions — role-appropriate target files with flags embedded in realistic content
 
 ## Status
 
-✅ COMPLETE — Vulnerability scanning & exploit system (938 unit tests + 5 E2E tests)
+✅ COMPLETE — Thematic target paths (938 unit tests + 5 E2E tests)
 
 ## Completed
 
@@ -27,7 +27,22 @@ Vulnerability scanning & exploit system — new `exploit` command and `nmap -sV`
 - [x] WiFi hacking gate (airmon, airdump, aircrack)
 - [ ] Step 13: Mission system (procedurally generated contracts)
 
-## Recent Session (2026-02-20, Session 6)
+## Recent Session (2026-02-20, Session 7)
+
+Implemented:
+
+- **Thematic target paths for missions**:
+  - Target files are now role-appropriate instead of always `/root/flag.txt`
+  - `targetFileTemplatesByRole` in `pools.ts` — 3 templates per role (fileserver, database, webserver, workstation) with `{{flag}}` and `{{user}}` placeholders
+  - `targetContent` field added to `MissionObjective` type — carries full file content with embedded flag
+  - `selectTargetFile()` in `attackChain.ts` — PRNG-selects a template based on target machine's role
+  - `placeTargetFile()` + `buildNestedDirs()` in `filesystem.ts` — places file at dynamic path using `extraDirectories`
+  - Target paths use `/srv/` and `/opt/` prefixes to avoid conflicting with factory-managed directories (`/var/`, `/home/`, `/etc/`)
+  - Examples: `/srv/records/patient_discharge_2024.csv` (fileserver), `/opt/mysql/dumps/users_backup.sql` (database), `/srv/www/data/users.json` (webserver), `/opt/projects/classified_memo.txt` (workstation)
+  - Updated E2E test for new target path and PRNG-shifted attack chain
+  - **Test count**: 938 unit tests across 65 files + 5 Playwright E2E tests
+
+## Previous Session (2026-02-20, Session 6)
 
 Implemented:
 
@@ -459,9 +474,8 @@ Implemented:
 
 None currently.
 
-## Next Action — Mission System Phase 5
+## Next Action — Mission System Phase 6
 
-- [ ] Add E2E test for exploit entry variant in `e2e/mission-playthrough.spec.ts` (deferred — needs seed discovery + full playthrough: nmap -sV → exploit → find creds → SSH → escalate → capture flag)
 - [ ] Expand mission types, difficulty tiers, more machine role templates, more vulnerability patterns. See `.claude/docs/missions-design.md` and `PLAN.md` Step 13.
 
 _Hidden network flag specs (14-16) archived to `docs/archive/`. See `.claude/docs/ctf-design.md` for the current CTF reference._

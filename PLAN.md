@@ -100,8 +100,9 @@ Procedurally generated hacker-for-hire contracts with seed-based network generat
 2. ~~Mission board UI + integration (accept/abort/complete, context providers, persistence)~~ ✅ Done
 3. ~~First mission template (E2E proof of concept — 3 bug fixes making missions playable)~~ ✅ Done
 4. ~~Vulnerability scanning & exploit system (nmap -sV, exploit command, exploit entry variant, guest password variation)~~ ✅ Done
-5. Expand mission types (tamper, plant, chain missions)
-6. Polish and social (reputation, seed sharing, history)
+5. ~~Thematic target paths (role-based target file templates with flags embedded in realistic content)~~ ✅ Done
+6. Expand mission types (tamper, plant, chain missions)
+7. Polish and social (reputation, seed sharing, history)
 
 ## Test Coverage
 

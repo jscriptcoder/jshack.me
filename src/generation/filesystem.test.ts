@@ -90,12 +90,14 @@ describe('generateFileSystems', () => {
     });
   });
 
-  it('target machine has the flag file', () => {
+  it('target machine has the flag file at a thematic path', () => {
     const { fileSystems, objective } = buildTestData('flag-test');
     const targetFs = fileSystems[objective.targetMachine];
     const flagFile = resolveNode(targetFs as FileNode, objective.targetPath);
     expect(flagFile).toBeDefined();
-    expect(flagFile?.content).toBe(objective.flag);
+    expect(flagFile?.content).toBe(objective.targetContent);
+    expect(flagFile?.content).toContain(objective.flag);
+    expect(objective.targetPath).not.toBe('/root/flag.txt');
   });
 
   it('non-target machines do not have a flag file in /root', () => {

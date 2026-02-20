@@ -120,6 +120,40 @@ const generateHomeContent = (
   return children;
 };
 
+// Places the target file at the dynamic path from objective.targetPath.
+// Target paths use /srv/ or /opt/ prefixes (via extraDirectories) to avoid
+// conflicting with factory-managed directories (/var/, /home/, /etc/).
+const placeTargetFile = (
+  objective: MissionObjective,
+  rootContent: Record<string, FileNode>,
+  extraDirectories: Record<string, FileNode>,
+): void => {
+  const segments = objective.targetPath.split('/').filter(Boolean);
+  const fileName = segments[segments.length - 1] ?? 'flag.txt';
+  const file = mkFile(fileName, objective.targetContent);
+  const topDir = segments[0] ?? 'root';
+
+  if (topDir === 'root') {
+    rootContent[fileName] = file;
+    return;
+  }
+
+  // /srv/, /opt/, etc. — build nested directory tree in extraDirectories
+  extraDirectories[topDir] = buildNestedDirs(segments, file);
+};
+
+// Builds a nested directory tree from path segments, placing the file at the leaf.
+// e.g., ['srv', 'records', 'file.csv'] → mkDir('srv', { records: mkDir('records', { 'file.csv': file }) })
+const buildNestedDirs = (segments: readonly string[], file: FileNode): FileNode => {
+  if (segments.length <= 1) return file;
+
+  const dirName = segments[0] as string;
+  const child = buildNestedDirs(segments.slice(1), file);
+  const childName = segments[1] as string;
+
+  return mkDir(dirName, { [childName]: child });
+};
+
 const buildMachineConfig = (
   prng: Prng,
   machine: GeneratedMachine,
@@ -181,13 +215,13 @@ const buildMachineConfig = (
     varLogContent[fileName] = mkFile(fileName, p.fileContent);
   });
 
-  const rootContent: Record<string, FileNode> = {};
-  if (isTarget) {
-    rootContent['flag.txt'] = mkFile('flag.txt', objective.flag);
-  }
-
   const tmpPlacements = placements.filter((p) => p.filePath.startsWith('/tmp/'));
   const extraDirectories: Record<string, FileNode> = {};
+
+  const rootContent: Record<string, FileNode> = {};
+  if (isTarget) {
+    placeTargetFile(objective, rootContent, extraDirectories);
+  }
 
   if (tmpPlacements.length > 0) {
     const tmpChildren: Record<string, FileNode> = {};

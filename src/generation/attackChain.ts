@@ -9,6 +9,7 @@ import type {
   GeneratedMachine,
   MissionObjective,
 } from './types';
+import { targetFileTemplatesByRole } from './pools';
 
 type AttackChainInput = {
   readonly prng: Prng;
@@ -93,6 +94,27 @@ const buildPath = (
   return [entry, ...shuffled];
 };
 
+// Selects a role-appropriate target file template and fills {{flag}} and {{user}} placeholders.
+// Returns { targetPath, targetContent } for embedding in the objective.
+const selectTargetFile = (
+  prng: Prng,
+  targetMachine: GeneratedMachine,
+  credentials: CredentialMap,
+  flag: string,
+): { readonly targetPath: string; readonly targetContent: string } => {
+  const templates = targetFileTemplatesByRole[targetMachine.role];
+  const template = prng.pick(templates);
+
+  const machineCreds = credentials[targetMachine.ip] ?? [];
+  const regularUser =
+    machineCreds.find((c) => c.username !== 'root' && c.username !== 'guest')?.username ?? 'admin';
+
+  const targetPath = template.path.replace(/\{\{user\}\}/g, regularUser);
+  const targetContent = template.contentTemplate.replace(/\{\{flag\}\}/g, flag);
+
+  return { targetPath, targetContent };
+};
+
 const entryVariantToMethod = (variant: EntryVariant): AttackMethod => {
   const methodMap: Readonly<Record<EntryVariant, AttackMethod>> = {
     ssh: 'ssh',
@@ -116,6 +138,7 @@ export const generateAttackChain = (input: AttackChainInput): AttackChainResult 
       password: 'r00tpass',
     };
     const flag = `FLAG{mission_${prng.nextInt(10000, 99999)}}`;
+    const { targetPath, targetContent } = selectTargetFile(prng, target, credentials, flag);
 
     return {
       attackChain: [
@@ -132,7 +155,8 @@ export const generateAttackChain = (input: AttackChainInput): AttackChainResult 
         type: 'find_flag',
         description: `Find the hidden flag on ${target?.hostname ?? 'target'}`,
         targetMachine: targetIp,
-        targetPath: '/root/flag.txt',
+        targetPath,
+        targetContent,
         flag,
       },
     };
@@ -140,6 +164,7 @@ export const generateAttackChain = (input: AttackChainInput): AttackChainResult 
 
   const flag = `FLAG{mission_${prng.nextInt(10000, 99999)}}`;
   const targetMachine = path[path.length - 1] as GeneratedMachine;
+  const { targetPath, targetContent } = selectTargetFile(prng, targetMachine, credentials, flag);
 
   const attackChain: AttackStep[] = [];
   const credentialPlacements: CredentialPlacement[] = [];
@@ -209,7 +234,8 @@ export const generateAttackChain = (input: AttackChainInput): AttackChainResult 
       type: objectiveType,
       description: descriptions[objectiveType],
       targetMachine: targetMachine.ip,
-      targetPath: '/root/flag.txt',
+      targetPath,
+      targetContent,
       flag,
     },
   };

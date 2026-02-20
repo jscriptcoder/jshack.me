@@ -99,6 +99,7 @@
 - **Context**: `createFileSystem(config)` uses `extraDirectories` keys as top-level directory names
 - **Issue**: Setting `var: { ... }` in `extraDirectories` replaces ALL of `/var`, not just what you specify — factory defaults for `/var/log` etc. are lost
 - **Solution**: When using `extraDirectories`, include everything you want under that branch (e.g., both `/var/www` and `/var/log` content)
+- **Applied**: Target file templates use `/srv/` and `/opt/` prefixes instead of `/var/www/`, `/var/lib/`, or `/home/` to avoid conflicting with factory-managed directories
 
 ### curl GET vs POST resolve to different filesystem paths
 
@@ -112,6 +113,13 @@
 - **Issue**: `getUsers()` in `useCommands.ts` searched `config.machineConfigs` (static) to find the RemoteMachine entry matching `session.machine`. Mission machine IPs don't exist in static config → empty user array → "user does not exist" error
 - **Solution**: Added `findMachineUsers(ip)` to `NetworkContext` that searches both static `config` and `missionNetworkConfig`. `useCommands.ts` calls this instead of manually searching configs.
 - **Key insight**: Any code that looks up machine metadata by IP must search both static and mission configs. Centralize these lookups in `NetworkContext` rather than having each consumer search independently.
+
+### Adding PRNG consumers shifts downstream deterministic output
+
+- **Context**: Added `selectTargetFile()` (calls `prng.pick()`) inside `generateAttackChain()` before the attack chain loop
+- **Issue**: The shared PRNG stream is consumed sequentially. Adding new picks before existing ones shifts all downstream outputs — attack chain credential selections, placement templates, etc. produce different results for the same seed.
+- **Solution**: Accept that E2E test data must be rediscovered when the generation pipeline changes. Use a temporary discovery script to trace the new attack chain, credential placements, and target paths for known seeds.
+- **Key insight**: In a deterministic PRNG pipeline, any new `prng.pick()`/`prng.nextInt()` call changes ALL subsequent values. This is by design — seeds are stable within a code version, not across versions.
 
 ### Mission complete banner uses 'banner' type, not 'result'
 

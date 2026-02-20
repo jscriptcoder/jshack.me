@@ -22,6 +22,7 @@ export type MissionObjective = {
   readonly description: string;
   readonly targetMachine: string;
   readonly targetPath: string;
+  readonly targetContent: string;
   readonly flag: string;
 };
 

@@ -82,7 +82,8 @@ describe('generateMissionNetwork', () => {
     };
 
     const flag = resolveNode(targetFs, result.objective.targetPath);
-    expect(flag?.content).toBe(result.objective.flag);
+    expect(flag?.content).toBe(result.objective.targetContent);
+    expect(flag?.content).toContain(result.objective.flag);
   });
 
   it('attack chain forms a valid path from entry to target', () => {

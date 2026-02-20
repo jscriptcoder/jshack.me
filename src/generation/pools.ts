@@ -226,6 +226,84 @@ export const entryCredentialHintTemplates: readonly {
   },
 ];
 
+export type TargetFileTemplate = {
+  readonly path: string;
+  readonly contentTemplate: string;
+};
+
+export const targetFileTemplatesByRole: Readonly<
+  Record<MachineRole, readonly TargetFileTemplate[]>
+> = {
+  fileserver: [
+    {
+      path: '/srv/records/patient_discharge_2024.csv',
+      contentTemplate:
+        'ID,Patient,Date,Status,Notes\n2041,Martinez,2024-01-15,discharged,routine\n2042,Chen,2024-01-16,discharged,follow-up scheduled\n2043,Williams,2024-01-17,transferred,{{flag}}\n2044,Johnson,2024-01-18,discharged,routine',
+    },
+    {
+      path: '/srv/ftp/exports/financial_report.csv',
+      contentTemplate:
+        'Account,Type,Balance,Flag\nACCT-001,checking,12500.00,normal\nACCT-002,savings,48200.00,normal\nACCT-003,offshore,999999.99,{{flag}}\nACCT-004,checking,3200.00,normal',
+    },
+    {
+      path: '/srv/backup/confidential_memo.txt',
+      contentTemplate:
+        'INTERNAL MEMO — CONFIDENTIAL\nDate: 2024-01-20\nFrom: Director of Operations\n\nAll staff must update credentials by end of quarter.\nAuthorization code: {{flag}}\n\nDo not distribute.',
+    },
+  ],
+  database: [
+    {
+      path: '/opt/mysql/dumps/users_backup.sql',
+      contentTemplate:
+        "-- MySQL dump 10.13\n-- Server version: 5.7.42\n\nINSERT INTO `users` VALUES (1,'admin','pbkdf2:sha256:admin_hash','admin@corp.local',1);\nINSERT INTO `users` VALUES (2,'service','pbkdf2:sha256:svc_hash','svc@corp.local',0);\nINSERT INTO `secrets` VALUES (1,'master_key','{{flag}}');\nINSERT INTO `users` VALUES (3,'backup','pbkdf2:sha256:bak_hash','backup@corp.local',0);",
+    },
+    {
+      path: '/opt/db/exports/accounts.csv',
+      contentTemplate:
+        'user_id,username,email,access_token\n1001,admin,admin@corp.local,tok_a8f3e2\n1002,service,svc@corp.local,{{flag}}\n1003,readonly,ro@corp.local,tok_c4d1b7',
+    },
+    {
+      path: '/opt/postgresql/audit_log.txt',
+      contentTemplate:
+        '[2024-01-15 03:14:22] AUTH admin: SELECT * FROM credentials\n[2024-01-15 03:14:23] RESULT 3 rows returned\n[2024-01-15 03:15:01] AUTH admin: INSERT INTO audit VALUES ({{flag}})\n[2024-01-15 03:15:44] AUTH service: VACUUM ANALYZE',
+    },
+  ],
+  webserver: [
+    {
+      path: '/srv/www/data/users.json',
+      contentTemplate:
+        '{\n  "users": [\n    {"id": 1, "name": "admin", "role": "superadmin", "api_key": "{{flag}}"},\n    {"id": 2, "name": "editor", "role": "content", "api_key": "ak_29f84c"},\n    {"id": 3, "name": "viewer", "role": "readonly", "api_key": "ak_d1e037"}\n  ]\n}',
+    },
+    {
+      path: '/srv/www/private/admin_credentials.conf',
+      contentTemplate:
+        '# Admin Panel Configuration\nADMIN_USER=superadmin\nADMIN_PASS=Pr0d_S3cur3!\nSECRET_KEY={{flag}}\nDEBUG=false',
+    },
+    {
+      path: '/srv/www/html/.htaccess_backup',
+      contentTemplate:
+        '# Apache .htaccess backup\nAuthType Basic\nAuthName "Restricted"\nAuthUserFile /etc/apache2/.htpasswd\n# Recovery token: {{flag}}\nRequire valid-user',
+    },
+  ],
+  workstation: [
+    {
+      path: '/opt/projects/classified_memo.txt',
+      contentTemplate:
+        'CLASSIFIED — INTERNAL USE ONLY\n\nProject Oversight Committee Meeting Notes\nDate: 2024-01-18\n\nAction items:\n- Rotate all service account credentials\n- Authorization override: {{flag}}\n- Schedule penetration test for Q2',
+    },
+    {
+      path: '/opt/projects/internal_report.txt',
+      contentTemplate:
+        'Quarterly Security Audit Report\n==============================\nPrepared by: Security Operations\n\nFindings:\n1. SSH key rotation overdue on 3 servers\n2. Unencrypted backup found: {{flag}}\n3. Firewall rule 47 permits excessive inbound traffic',
+    },
+    {
+      path: '/opt/local/secret_notes.txt',
+      contentTemplate:
+        'Personal notes — DO NOT SHARE\n\nVPN config: vpn.corp.local:1194\nEmergency access code: {{flag}}\nBackup server: 10.0.0.50 (ask Dave for creds)',
+    },
+  ],
+};
+
 export const redHerringFiles: readonly { readonly name: string; readonly content: string }[] = [
   { name: 'notes.txt', content: 'TODO: update server configs\nRemember to rotate credentials' },
   {
