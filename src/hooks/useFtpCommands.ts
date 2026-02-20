@@ -12,6 +12,7 @@ import {
   createFtpPutCommand,
   ftpQuitCommand,
   ftpByeCommand,
+  ftpHelpCommand,
 } from '../commands/ftp/index';
 import type { Command } from '../components/Terminal/types';
 import type { MachineId } from '../filesystem/machineFileSystems';
@@ -134,6 +135,9 @@ export const useFtpCommands = (): Map<string, Command> | null => {
         createFileOnMachine,
       }),
     );
+
+    // help - show available commands
+    commands.set('help', ftpHelpCommand);
 
     // quit and bye - exit FTP mode
     commands.set('quit', ftpQuitCommand);

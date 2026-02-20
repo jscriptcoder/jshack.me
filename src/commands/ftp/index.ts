@@ -7,3 +7,4 @@ export { createFtpLlsCommand } from './lls';
 export { createFtpGetCommand } from './get';
 export { createFtpPutCommand } from './put';
 export { ftpQuitCommand, ftpByeCommand, type FtpQuitOutput } from './quit';
+export { ftpHelpCommand } from './help';
