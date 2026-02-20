@@ -114,6 +114,14 @@
 - **Solution**: Added `findMachineUsers(ip)` to `NetworkContext` that searches both static `config` and `missionNetworkConfig`. `useCommands.ts` calls this instead of manually searching configs.
 - **Key insight**: Any code that looks up machine metadata by IP must search both static and mission configs. Centralize these lookups in `NetworkContext` rather than having each consumer search independently.
 
+### Path autocomplete resolves against the wrong machine in modal modes
+
+- **Context**: NC mode runs commands on a remote machine, but `usePathAutoComplete` was initialized with the main session's `listDirectory`/`getNode`/`resolvePath` (which use `currentMachine` from the main session)
+- **Issue**: Typing `cat('ind` + Tab in NC mode autocompleted against localhost's filesystem, not the NC target machine. Same issue exists for FTP remote commands.
+- **Solution (NC)**: Create `useCallback` wrappers in `Terminal.tsx` that bind the NC session's `targetIP` and `currentPath` into the machine-specific APIs (`listDirectoryFromMachine`, `getNodeFromMachine`, `resolvePathForMachine`), matching the simpler signatures `usePathAutoComplete` expects. Swap these in when NC mode is active.
+- **FTP limitation**: FTP is harder because it has two machines simultaneously. Dual-argument commands like `get(remote, local)` need per-argument context based on cursor position. Remote commands (`cd`, `ls`) autocomplete against the origin machine (wrong), while local commands (`lcd`, `lls`) happen to work.
+- **Key insight**: Any hook initialized with session-derived context (machine, cwd, userType) needs to be re-initialized or adapted when a modal mode changes the effective context. The main session state doesn't change when entering NC/FTP mode — only the modal session state does.
+
 ### Adding PRNG consumers shifts downstream deterministic output
 
 - **Context**: Added `selectTargetFile()` (calls `prng.pick()`) inside `generateAttackChain()` before the attack chain loop
@@ -609,3 +617,5 @@
 - Mission credential placements in `/var/log/auth.log`: root-only by default (regular users can't read)
 - FTP entry variant credential hints: placed in `/home/{user}/` dirs which are `read: ['root', 'user']` — guest can't access
 - Guest users on mission entry machines: can't call `exit()`, `ssh()`, or `abort()` (all require 'user' privilege)
+- NC mode path autocomplete: resolves on the NC target machine (via adapted wrappers), not localhost
+- FTP mode path autocomplete: resolves on origin machine only — remote commands (`cd`, `ls`) autocomplete wrong (known limitation)

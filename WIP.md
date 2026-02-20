@@ -2,11 +2,11 @@
 
 ## Current Step
 
-Thematic target paths for missions — role-appropriate target files with flags embedded in realistic content
+NC mode path autocomplete — tab completion now resolves on the correct remote machine in NC mode
 
 ## Status
 
-✅ COMPLETE — Thematic target paths (938 unit tests + 5 E2E tests)
+✅ COMPLETE — NC path autocomplete fix (938 unit tests + 5 E2E tests)
 
 ## Completed
 
@@ -27,7 +27,19 @@ Thematic target paths for missions — role-appropriate target files with flags 
 - [x] WiFi hacking gate (airmon, airdump, aircrack)
 - [ ] Step 13: Mission system (procedurally generated contracts)
 
-## Recent Session (2026-02-20, Session 7)
+## Recent Session (2026-02-20, Session 8)
+
+Implemented:
+
+- **NC mode path autocomplete fix**:
+  - Path tab completion in NC mode was resolving against the main session's machine (localhost) instead of the NC target machine
+  - Created `useCallback` wrappers in `Terminal.tsx` that adapt `listDirectoryFromMachine`, `getNodeFromMachine`, and `resolvePathForMachine` to the simpler `usePathAutoComplete` interface, binding the NC session's `targetIP`, `currentPath`, and `userType`
+  - When NC mode is active, `usePathAutoComplete` receives the NC-specific wrappers; otherwise uses the default session-based functions
+  - Example: `cat('ind` + Tab now correctly autocompletes to `cat('index.html')` on the NC machine
+  - **Known limitation**: FTP path completion has a similar issue — resolves against the origin machine, so remote commands (`cd`, `ls`) autocomplete wrong. FTP is harder to fix because dual-argument commands (`get(remote, local)`, `put(local, remote)`) need per-argument context based on cursor position. Deferred for now.
+  - **Test count**: 938 unit tests across 65 files + 5 Playwright E2E tests
+
+## Previous Session (2026-02-20, Session 7)
 
 Implemented:
 

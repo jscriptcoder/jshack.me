@@ -93,6 +93,10 @@ Two layers of tab completion, tried in order:
 
 `TerminalInput` passes `cursorPosition` to `onTab`, enabling mid-input completion. `Terminal.tsx` orchestrates both hooks in `handleTab`.
 
+**NC mode context switching**: When NC mode is active, `Terminal.tsx` wraps the machine-specific filesystem APIs (`listDirectoryFromMachine`, `getNodeFromMachine`, `resolvePathForMachine`) with the NC session's `targetIP` and `currentPath` to provide path completion on the correct remote machine. Without this, path completion would resolve against the main session's machine (localhost).
+
+**Known limitation — FTP path completion**: FTP mode operates on two machines simultaneously (origin and remote). Path completion currently resolves against the main session's machine (origin), so remote FTP commands (`cd`, `ls`, `get`'s first arg) autocomplete against the wrong filesystem. Fixing this is non-trivial because dual-argument commands like `get(remote, local)` and `put(local, remote)` would need per-argument context based on cursor position.
+
 ## WiFi Hacking Gate
 
 Network access from localhost requires cracking a WiFi network first. This is a progression gate between flags 3 and 4 — not a flag itself.

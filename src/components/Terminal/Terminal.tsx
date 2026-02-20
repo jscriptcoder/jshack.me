@@ -12,6 +12,7 @@ import { useNcCommands } from '../../hooks/useNcCommands';
 import { useSession } from '../../session/SessionContext';
 import type { FtpSession, NcSession } from '../../session/SessionContext';
 import { useFileSystem } from '../../filesystem/FileSystemContext';
+import type { FileNode } from '../../filesystem/types';
 import { useNetwork } from '../../network';
 import { useMission } from '../../mission';
 import { md5 } from '../../utils/md5';
@@ -76,6 +77,7 @@ export const Terminal = () => {
     popSession,
     canReturn,
     session,
+    ncSession,
     enterFtpMode,
     exitFtpMode,
     isInFtpMode,
@@ -94,6 +96,9 @@ export const Terminal = () => {
     getDefaultHomePath,
     listDirectory,
     resolvePath,
+    resolvePathForMachine,
+    getNodeFromMachine,
+    listDirectoryFromMachine,
   } = useFileSystem();
   const { getMachine, config: networkConfig } = useNetwork();
   const { activeMission, completeMission } = useMission();
@@ -105,11 +110,33 @@ export const Terminal = () => {
         ? Array.from(ncCommands.keys())
         : commandNames;
   const { getCompletions } = useAutoComplete(activeCommandNames, getVariableNames());
+
+  // NC mode operates on a different machine — adapt machine-specific filesystem APIs
+  // to match the usePathAutoComplete interface so path completion resolves correctly
+  const ncListDirectory = useCallback(
+    (path: string, userType: UserType): string[] | null =>
+      ncSession
+        ? listDirectoryFromMachine(ncSession.targetIP, path, ncSession.currentPath, userType)
+        : null,
+    [ncSession, listDirectoryFromMachine],
+  );
+  const ncGetNode = useCallback(
+    (path: string): FileNode | null =>
+      ncSession ? getNodeFromMachine(ncSession.targetIP, path, ncSession.currentPath) : null,
+    [ncSession, getNodeFromMachine],
+  );
+  const ncResolvePath = useCallback(
+    (path: string): string =>
+      ncSession ? resolvePathForMachine(path, ncSession.currentPath) : path,
+    [ncSession, resolvePathForMachine],
+  );
+
+  const isNcActive = isInNcMode() && ncSession !== null;
   const { getPathCompletions } = usePathAutoComplete({
-    listDirectory,
-    getNode,
-    resolvePath,
-    userType: session.userType,
+    listDirectory: isNcActive ? ncListDirectory : listDirectory,
+    getNode: isNcActive ? ncGetNode : getNode,
+    resolvePath: isNcActive ? ncResolvePath : resolvePath,
+    userType: isNcActive ? ncSession.userType : session.userType,
   });
 
   useEffect(() => {
