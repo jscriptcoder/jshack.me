@@ -185,19 +185,22 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
     routerMachine: routerWithUsers,
   });
 
-  // Extract guest credential for the entry machine (used in mission briefing)
-  // In forwarded mode, use the entry machine's guest cred.
-  // In router-first mode, use the router's guest cred.
+  // Extract entry credential for the mission briefing.
+  // SSH variant uses a regular user account (so the player has user-tier commands).
+  // Other variants use the guest account (player finds user SSH creds on the machine).
   const credSourceIp = isForwarded ? topology.entryPoint : topology.routerPublicIp;
   const entryCredentials = allCredentials[credSourceIp] ?? [];
-  const guestCred = entryCredentials.find((c) => c.username === 'guest');
+  const entryCred =
+    topology.entryVariant === 'ssh'
+      ? entryCredentials.find((c) => c.username !== 'root' && c.username !== 'guest')
+      : entryCredentials.find((c) => c.username === 'guest');
 
   return {
     seed,
     difficulty,
     entryPoint: topology.entryPoint,
     entryVariant: topology.entryVariant,
-    entryCredential: guestCred,
+    entryCredential: entryCred,
     machines: machinesWithUsers,
     fileSystems,
     networkConfig: { machineConfigs: updatedMachineConfigs },

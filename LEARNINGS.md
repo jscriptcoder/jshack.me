@@ -623,6 +623,6 @@
 - Mission complete banner: uses `addLine('banner', ...)` — match with `BANNER` selector, not `RESULT`
 - Mission credential placements in `/var/log/auth.log`: root-only by default (regular users can't read)
 - FTP entry variant credential hints: placed in `/home/{user}/` dirs which are `read: ['root', 'user']` — guest can't access
-- Guest users on mission entry machines: can't call `exit()`, `ssh()`, or `abort()` (all require 'user' privilege)
+- Guest users on mission entry machines: can't call `ssh()` or `abort()` (require 'user' privilege). SSH entry variant now uses a regular user account instead of guest. `exit()` was moved to unrestricted (guest-accessible).
 - NC mode path autocomplete: resolves on the NC target machine (via adapted wrappers), not localhost
 - FTP mode path autocomplete: resolves on origin machine only — remote commands (`cd`, `ls`) autocomplete wrong (known limitation)

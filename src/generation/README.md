@@ -66,13 +66,13 @@ All output types are compatible with the existing codebase:
 - `MissionNetwork.fileSystems` values are `FileNode` trees from `src/filesystem/types.ts`
 - `GeneratedMachine.remoteMachine` matches `RemoteMachine` from `src/network/types.ts`
 - `MissionNetwork.entryVariant` indicates the initial access method (ssh/ftp/nc/exploit)
-- `MissionNetwork.entryCredential` provides the guest credential for the entry machine (varies per seed)
+- `MissionNetwork.entryCredential` provides the entry credential (SSH variant uses a regular user; other variants use guest)
 
 ## Entry Variants
 
 The entry machine's initial access method varies per seed:
 
-- **ssh** — classic SSH with guest credentials (password varies from `guestPasswords` pool); ports: 22, 80
+- **ssh** — classic SSH with user credentials shown in briefing; ports: 22, 80
 - **ftp** — player FTPs in, finds SSH credentials in accessible files, then SSHes; ports: 21, 22
 - **nc** — player connects via netcat backdoor, finds SSH credentials, then SSHes; ports: 22, 4444
 - **exploit** — player scans with `nmap("-sV")` to find vulnerable service, runs `exploit(host, port)` for restricted shell, finds SSH credentials, then SSHes; ports: 22, (80|3306|6379)

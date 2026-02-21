@@ -16,7 +16,7 @@ How the player gains initial access to the entry machine.
 
 | Variant | Flow                                                                                |
 | ------- | ----------------------------------------------------------------------------------- |
-| SSH     | Direct SSH login (credentials shown in briefing)                                    |
+| SSH     | Direct SSH login as regular user (credentials shown in briefing)                    |
 | FTP     | Explore via FTP, find SSH credentials in a file                                     |
 | NC      | Connect via netcat backdoor (port 4444), find SSH credentials                       |
 | Exploit | `nmap -sV` → find vulnerable service → `exploit(host, port)` → find SSH credentials |

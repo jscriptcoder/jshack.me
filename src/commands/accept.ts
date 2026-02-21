@@ -37,11 +37,12 @@ export const formatMissionBriefing = (mission: MissionNetwork): string => {
   const publicIp = mission.routerPublicIp;
   const routerHostname = mission.routerMachine.hostname;
   const variant: EntryVariant = mission.entryVariant;
-  const guestPassword = mission.entryCredential?.password ?? 'guest';
+  const entryUser = mission.entryCredential?.username ?? 'guest';
+  const entryPassword = mission.entryCredential?.password ?? 'guest';
   const isForwarded = mission.natForwarding !== undefined;
 
   const entryHints: Readonly<Record<EntryVariant, string>> = {
-    ssh: `> ssh("guest", "${publicIp}")  // password: ${guestPassword}`,
+    ssh: `> ssh("${entryUser}", "${publicIp}")  // password: ${entryPassword}`,
     ftp: `> ftp("${publicIp}")`,
     nc: `> nc("${publicIp}", 4444)`,
     exploit: `> nmap("-sV", "${publicIp}")  // scan for vulnerabilities, then exploit`,

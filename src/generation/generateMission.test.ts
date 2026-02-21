@@ -157,8 +157,14 @@ describe('generateMissionNetwork', () => {
   it('entryCredential is set for missions', () => {
     const result = generateMissionNetwork('ENTRY-CRED-TEST');
     expect(result.entryCredential).toBeDefined();
-    expect(result.entryCredential?.username).toBe('guest');
     expect(result.entryCredential?.password).toBeTruthy();
+    // SSH variant uses a regular user; other variants use guest
+    if (result.entryVariant === 'ssh') {
+      expect(result.entryCredential?.username).not.toBe('guest');
+      expect(result.entryCredential?.username).not.toBe('root');
+    } else {
+      expect(result.entryCredential?.username).toBe('guest');
+    }
   });
 
   it('routerMachine is a valid machine with router role', () => {

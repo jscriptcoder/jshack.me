@@ -60,7 +60,7 @@ Mission machines live on their own subnet (e.g., `10.x.x.0/24`) behind a router 
 
 The entry machine's initial access method varies per seed:
 
-- **ssh** — classic SSH with guest credentials shown in the briefing
+- **ssh** — classic SSH with user credentials shown in the briefing
 - **ftp** — player FTPs in, finds SSH credentials in accessible files, then SSHes for full access
 - **nc** — player connects via netcat backdoor, finds SSH credentials, then SSHes
 - **exploit** — player scans with `nmap("-sV")`, exploits a vulnerable service, finds SSH credentials, then SSHes
