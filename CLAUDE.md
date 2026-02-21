@@ -29,7 +29,7 @@ npm run format:check  # Check formatting without modifying (CI-friendly)
 npm test              # Run tests in watch mode (auto-runs encode first)
 npm run test:run      # Run tests once (auto-runs encode first)
 npm run test:coverage # Run tests with coverage (auto-runs encode first)
-npm run test:e2e      # Run Playwright E2E test (full CTF playthrough)
+npm run test:e2e      # Run Playwright E2E test (mission playthrough)
 ```
 
 ## Tech Stack
@@ -39,12 +39,12 @@ npm run test:e2e      # Run Playwright E2E test (full CTF playthrough)
 - **Tailwind CSS v4** — Styling (via `@tailwindcss/vite` plugin)
 - **Prettier** — Code formatting (single quotes, semicolons, trailing commas, 100 char width)
 - **Vitest** + **React Testing Library** — Unit testing
-- **Playwright** — E2E testing (Chromium, full CTF playthrough)
+- **Playwright** — E2E testing (Chromium, mission playthrough)
 
 ## Key Architecture
 
 Detailed architecture: @.claude/docs/architecture.md
-CTF design (network, machines, filesystems): @.claude/docs/ctf-design.md
+Infrastructure design (network, machines, filesystems): @.claude/docs/infrastructure-design.md
 Mission system design (procedural generation, contracts): @.claude/docs/missions-design.md
 Mission variations catalog (all generation axes): @.claude/docs/mission-variations.md
 
@@ -158,7 +158,7 @@ When making any changes (adding/changing/deleting commands, hooks, machines, uti
    - `LEARNINGS.md` — lessons learned, gotchas, decisions
    - `CLAUDE.md` — project instructions (this file)
    - `.claude/docs/architecture.md` — architecture documentation
-   - `.claude/docs/ctf-design.md` — CTF design documentation
+   - `.claude/docs/infrastructure-design.md` — Infrastructure design documentation
    - `.claude/docs/mission-variations.md` — mission generation variations catalog
    - `src/*/README.md` — per-module READMEs (commands, network, generation, hooks, etc.)
 

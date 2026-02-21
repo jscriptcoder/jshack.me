@@ -1,4 +1,4 @@
-# Learnings: JSHACK.ME CTF Terminal Game
+# Learnings: JSHACK.ME Hacking Terminal Game
 
 ## Gotchas
 
@@ -226,7 +226,7 @@
 - **Solution**: Use `allowExportNames` option to whitelist specific hook and validator exports (e.g., `useSession`, `isValidPatch`). Note: only exact string matches are supported — no regex/glob patterns.
 - **Alternative**: Move hooks to separate files, but co-locating Provider + hook is a well-established React pattern
 
-### Static CTF removal requires broad reference cleanup
+### Static content removal requires broad reference cleanup
 
 - **Context**: Removing 7 static machines (gateway through abyss) and their 16 flags to make the game mission-only
 - **Issue**: Static machine references were embedded everywhere — command help examples, curl server configs, localhost filesystem hints, auth.log credential leaks, network configs, DNS records, encode script imports, test mocks
@@ -288,6 +288,7 @@
 - **What**: Use `crypto.subtle.encrypt/decrypt` with AES-256-GCM for CTF encryption challenges
 - **Why it works**: Browser-native, secure algorithm, async API fits AsyncOutput pattern
 - **Example**: `decrypt("secret.enc", "64-char-hex-key")` decrypts base64-encoded ciphertext
+- **Note**: Originally used for CTF flag puzzles; now used for mission encryption challenges
 
 ### IndexedDB persistence with pre-load cache
 
@@ -333,7 +334,7 @@
 - **What**: `FilePermissions` has `execute` field alongside `read` and `write`. Only `node()` checks it; `cat`, `ls`, `cd` etc. only check read/write.
 - **Why it works**: Creates realistic Unix rwx semantics; data files (.txt, .log, .conf) are readable but not executable. Scripts/binaries explicitly grant execute permission.
 - **Rule**: Directories: `execute` matches `read`. Scripts/binaries: `execute` matches `read`. Data files: `execute: ['root']`. User-created files: `execute: ['root', owner]`.
-- **Key insight**: Separating read from execute means `cat("script.js")` works but `node("script.js")` fails unless the file has explicit execute permission — CTF puzzle opportunity.
+- **Key insight**: Separating read from execute means `cat("script.js")` works but `node("script.js")` fails unless the file has explicit execute permission — puzzle opportunity.
 
 ### Lazy getter for circular execution context
 
@@ -343,7 +344,7 @@
 
 ### Playwright E2E as living documentation
 
-- **What**: Single sequential test that plays through all 16 CTF flags, acting as both regression test and visual demo
+- **What**: Single sequential test that plays through all 16 tutorial flags, acting as both regression test and visual demo
 - **Why it works**: Catches real bugs that unit tests miss (found the su user-type bug on gateway), validates the full user experience end-to-end, `--headed` mode lets you watch the entire game play itself
 - **Key patterns**: `countThenWait` for robust DOM matching in accumulating output, composite helpers (`suTo`, `sshTo`, `ftpConnect`) that encapsulate multi-step flows, `test.step` blocks for per-flag organization
 
@@ -380,7 +381,7 @@
 - **Why it works**: Consistent UX — `-a` works everywhere, dotfiles behave the same across all contexts
 - **Example**: `const showAll = stringArgs.some(arg => arg.startsWith('-') && arg.includes('a'))`
 
-### CTF flag progression through credential chains
+### Flag progression through credential chains
 
 - **What**: Flags are gated behind multi-step chains: hint file → credential → access → flag
 - **Why it works**: Creates natural puzzle flow; each discovery unlocks the next step. Players can't skip ahead without finding credentials.
@@ -473,7 +474,7 @@
 
 - **Options considered**: bcrypt, SHA-256, MD5, plaintext
 - **Decision**: MD5
-- **Rationale**: CTF game context, realistic for vulnerable systems, simple implementation
+- **Rationale**: Hacking game context, realistic for vulnerable systems, simple implementation
 - **Trade-offs**: Not secure for real apps, but fits the "hackable system" theme
 
 ### Per-machine network configs with session awareness

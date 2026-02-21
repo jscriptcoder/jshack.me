@@ -2,11 +2,11 @@
 
 ## Current Step
 
-Remove static CTF content — mission-only game
+Remove static tutorial content — mission-only game
 
 ## Status
 
-✅ COMPLETE — Static CTF removal (904 unit tests across 61 files)
+✅ COMPLETE — Static tutorial removal (904 unit tests across 61 files)
 
 ## Completed
 

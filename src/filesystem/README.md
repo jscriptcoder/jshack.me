@@ -1,6 +1,6 @@
 # Filesystem
 
-Virtual Unix-like filesystem for the CTF terminal. Each machine (localhost and remotes) has its own independent filesystem with unique content, users, and permissions.
+Virtual Unix-like filesystem for the hacking terminal. Each machine (localhost and remotes) has its own independent filesystem with unique content, users, and permissions.
 
 ## Files
 

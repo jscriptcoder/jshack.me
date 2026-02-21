@@ -2,7 +2,7 @@
 
 ## Overview
 
-After completing the 16-flag introduction (CTF tutorial), players transition into a **mission-based** progression system. Missions are hacker-for-hire contracts discovered on a darknet marketplace. Each mission generates a **procedurally generated network** using a seed, creating unique target infrastructure the player must hack into.
+After completing the introduction (tutorial), players transition into a **mission-based** progression system. Missions are hacker-for-hire contracts discovered on a darknet marketplace. Each mission generates a **procedurally generated network** using a seed, creating unique target infrastructure the player must hack into.
 
 ## Key Decisions
 

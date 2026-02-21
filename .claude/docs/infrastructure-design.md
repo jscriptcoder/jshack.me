@@ -1,4 +1,4 @@
-# CTF Design — Network & Filesystem
+# Infrastructure Design — Network & Filesystem
 
 ## WiFi Hacking Gate
 

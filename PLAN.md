@@ -21,7 +21,7 @@ Build a web-based hacking game where players use a JavaScript terminal to explor
 - [x] Terminal color theming — `theme()` command with 4 persistent themes (amber, green, cyan, light) via CSS custom properties
 - [x] Unit tests (904 tests across 61 files)
 - [x] Mission system — procedurally generated hacker-for-hire contracts
-- [x] Remove static CTF content — mission-only game
+- [x] Remove static tutorial content — mission-only game
 
 ## Steps
 
