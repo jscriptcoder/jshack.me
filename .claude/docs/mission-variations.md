@@ -220,13 +220,13 @@ Role-appropriate server configs (Apache/nginx, MySQL/Postgres, Samba/vsftpd, SSH
 
 ## Hint Templates (5)
 
-Used in attack chain step hints:
+Each hint is paired with its credential placement template so the hint always describes the actual file where credentials were placed.
 
-- Check auth.log for login attempts
-- Look in service config for hardcoded credentials
-- User left credentials in bash_history
-- Backup file contains plaintext passwords
-- Check user's home directory for notes
+- Check auth.log on {{machine}} for login attempts → `/var/log/auth.log`
+- User left credentials in their .bash_history on {{machine}} → `/home/{{localUser}}/.bash_history`
+- A backup file in /tmp on {{machine}} contains plaintext passwords → `/tmp/backup_credentials.txt`
+- Check {{localUser}}'s home directory on {{machine}} for notes → `/home/{{localUser}}/notes.txt`
+- Look in /etc/maintenance.conf on {{machine}} for hardcoded credentials → `/etc/maintenance.conf`
 
 ## Board Missions (1 hardcoded, more to be added with e2e tests)
 

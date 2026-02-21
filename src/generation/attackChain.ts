@@ -28,42 +28,40 @@ type AttackChainResult = {
   readonly clientEmail: string;
 };
 
-const hintTemplates: readonly string[] = [
-  'Check auth.log on {{machine}} for login attempts',
-  'Look in /etc/{{service}}.conf on {{machine}} for hardcoded credentials',
-  'The user {{user}} left credentials in their .bash_history on {{machine}}',
-  'A backup file on {{machine}} contains plaintext passwords',
-  "Check {{user}}'s home directory on {{machine}} for notes",
-];
-
 const placementTemplates: readonly {
   readonly path: string;
   readonly template: string;
+  readonly hint: string;
 }[] = [
   {
     path: '/var/log/auth.log',
     template:
       'Jan 15 03:22:14 {{hostname}} sshd[1842]: Accepted password for {{user}} from {{ip}} port 52413\nJan 15 03:22:14 {{hostname}} sshd[1842]: pam_unix(sshd:session): session opened for user {{user}}\n# Password hint: {{password}}',
+    hint: 'Check auth.log on {{machine}} for login attempts',
   },
   {
     path: '/home/{{localUser}}/.bash_history',
     template:
       'ssh {{user}}@{{ip}}\ncat /etc/passwd\nsudo -l\n# tried: {{password}}\nssh -o StrictHostKeyChecking=no {{user}}@{{ip}}',
+    hint: 'The user {{localUser}} left credentials in their .bash_history on {{machine}}',
   },
   {
     path: '/tmp/backup_credentials.txt',
     template:
       'Backup Credentials (DO NOT SHARE)\n================================\nServer: {{ip}}\nUser: {{user}}\nPass: {{password}}\nLast rotated: never',
+    hint: 'A backup file in /tmp on {{machine}} contains plaintext passwords',
   },
   {
     path: '/home/{{localUser}}/notes.txt',
     template:
       'Server access notes:\n- {{hostname}} ({{ip}}): {{user}} / {{password}}\n- Remember to rotate these!',
+    hint: "Check {{localUser}}'s home directory on {{machine}} for notes",
   },
   {
     path: '/etc/maintenance.conf',
     template:
       '[remote_backup]\nhost={{ip}}\nuser={{user}}\npassword={{password}}\nschedule=daily\npath=/var/backups',
+    hint: 'Look in /etc/maintenance.conf on {{machine}} for hardcoded credentials',
   },
 ];
 
@@ -281,11 +279,14 @@ export const generateAttackChain = (input: AttackChainInput): AttackChainResult 
 
     if (!credential) continue;
 
-    const hintTemplate = prng.pick(hintTemplates);
-    const hint = hintTemplate
+    const placement = prng.pick(placementTemplates);
+    const fromCreds = credentials[fromMachine.ip] ?? [];
+    const localUsers = fromCreds.filter((c) => c.username !== 'root' && c.username !== 'guest');
+    const localUser = localUsers.length > 0 ? prng.pick(localUsers).username : 'admin';
+
+    const hint = placement.hint
       .replace('{{machine}}', fromMachine.hostname)
-      .replace('{{service}}', method)
-      .replace('{{user}}', credential.username);
+      .replace('{{localUser}}', localUser);
 
     attackChain.push({
       fromMachine: i === 0 ? 'entry' : fromMachine.ip,
@@ -294,11 +295,6 @@ export const generateAttackChain = (input: AttackChainInput): AttackChainResult 
       credential,
       hint,
     });
-
-    const placement = prng.pick(placementTemplates);
-    const fromCreds = credentials[fromMachine.ip] ?? [];
-    const localUsers = fromCreds.filter((c) => c.username !== 'root' && c.username !== 'guest');
-    const localUser = localUsers.length > 0 ? prng.pick(localUsers).username : 'admin';
 
     const filePath = placement.path.replace('{{localUser}}', localUser);
     const fileContent = placement.template
