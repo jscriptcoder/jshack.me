@@ -164,7 +164,7 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
     ]),
   );
 
-  const { attackChain, credentialPlacements, objective } = generateAttackChain({
+  const { attackChain, credentialPlacements, objective, clientEmail } = generateAttackChain({
     prng,
     machines: machinesWithUsers,
     credentials: allCredentials,
@@ -203,6 +203,7 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
     networkConfig: { machineConfigs: updatedMachineConfigs },
     attackChain,
     objective,
+    clientEmail,
     routerPublicIp: topology.routerPublicIp,
     routerMachine: routerWithUsers,
     natForwarding: topology.natForwarding,

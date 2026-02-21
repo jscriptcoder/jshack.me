@@ -1,6 +1,7 @@
 export type MissionListing = {
   readonly id: string;
   readonly client: string;
+  readonly clientEmail: string;
   readonly target: string;
   readonly objective: string;
   readonly difficulty: string;
@@ -11,6 +12,7 @@ export const MISSION_BOARD: readonly MissionListing[] = [
   {
     id: '001',
     client: 'xR0gu3x',
+    clientEmail: 'xR0gu3x@darkmail.onion',
     target: 'MedTech Solutions — hospital records system',
     objective: 'Exfiltrate patient discharge records',
     difficulty: '* (Easy)',
@@ -30,6 +32,7 @@ export const formatMissionBoard = (listings: readonly MissionListing[]): string 
     `[${listing.id}] CLIENT: ${listing.client}`,
     `      TARGET: ${listing.target}`,
     `      OBJECTIVE: ${listing.objective}`,
+    `      REPLY TO: ${listing.clientEmail}`,
     `      DIFFICULTY: ${listing.difficulty}`,
     `      SEED: ${listing.seed}`,
     '',

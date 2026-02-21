@@ -14,7 +14,6 @@ import type { FtpSession, NcSession } from '../../session/SessionContext';
 import { useFileSystem } from '../../filesystem/FileSystemContext';
 import type { FileNode } from '../../filesystem/types';
 import { useNetwork } from '../../network';
-import { useMission } from '../../mission';
 import { md5 } from '../../utils/md5';
 import type { OutputLine, AuthorData } from './types';
 import {
@@ -40,7 +39,7 @@ const BANNER = `
 ██   ██║╚════██║██╔══██║██╔══██║██║     ██╔═██╗    ██║╚██╔╝██║██╔══╝
 ╚█████╔╝███████║██║  ██║██║  ██║╚██████╗██║  ██╗██╗██║ ╚═╝ ██║███████╗
  ╚════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝╚═╝     ╚═╝╚══════╝
-                                                              v0.4.0
+                                                              v0.5.0
 
   Type help() for available commands
 `;
@@ -101,7 +100,6 @@ export const Terminal = () => {
     listDirectoryFromMachine,
   } = useFileSystem();
   const { getMachine, config: networkConfig, resolveNat } = useNetwork();
-  const { activeMission, completeMission } = useMission();
 
   const activeCommandNames =
     isInFtpMode() && ftpCommands
@@ -159,29 +157,6 @@ export const Terminal = () => {
   const clearLines = useCallback(() => {
     setLines([]);
   }, []);
-
-  const checkMissionFlag = useCallback(
-    (output: string) => {
-      if (!activeMission) return;
-      if (output.includes(activeMission.objective.flag)) {
-        const message = [
-          '',
-          '============================================',
-          '  MISSION COMPLETE',
-          '============================================',
-          `  Seed: ${activeMission.seed}`,
-          `  Difficulty: ${activeMission.difficulty}`,
-          `  Flag: ${activeMission.objective.flag}`,
-          '',
-          '  Contract fulfilled. Type missions() for more jobs.',
-          '============================================',
-        ].join('\n');
-        addLine('banner', message);
-        completeMission();
-      }
-    },
-    [activeMission, addLine, completeMission],
-  );
 
   const executeCommand = useCallback(
     (command: string) => {
@@ -273,7 +248,6 @@ export const Terminal = () => {
             result.start(
               (line: string) => {
                 addLine('result', line);
-                checkMissionFlag(line);
               },
               (followUp?: AsyncFollowUp) => {
                 setAsyncRunning(false);
@@ -319,7 +293,6 @@ export const Terminal = () => {
           }
           const resultStr = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
           addLine('result', resultStr);
-          checkMissionFlag(resultStr);
         }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -347,7 +320,6 @@ export const Terminal = () => {
       getNode,
       readFile,
       session.userType,
-      checkMissionFlag,
       resolveNat,
     ],
   );

@@ -14,6 +14,7 @@ import { createThemeCommand } from '../commands/theme';
 import { createMissionsCommand } from '../commands/missions';
 import { createAcceptCommand } from '../commands/accept';
 import { createAbortCommand } from '../commands/abort';
+import { createMailCommand } from '../commands/mail';
 import { useMission } from '../mission';
 import { applyCommandRestrictions, getAccessibleCommandNames } from '../commands/permissions';
 import { useFileSystemCommands } from './useFileSystemCommands';
@@ -39,8 +40,9 @@ export const useCommands = (): UseCommandsResult => {
   const wifiCommands = useWifiCommands();
   const { session, setTheme, popAllSessions } = useSession();
   const { findMachineUsers } = useNetwork();
-  const { resolvePath, getNode } = useFileSystem();
-  const { isMissionActive, startMission, abortMission } = useMission();
+  const { resolvePath, getNode, readFileFromMachine } = useFileSystem();
+  const { isMissionActive, startMission, abortMission, completeMission, activeMission } =
+    useMission();
 
   const getUsers = useCallback((): readonly string[] => {
     if (session.machine === 'localhost') {
@@ -88,6 +90,14 @@ export const useCommands = (): UseCommandsResult => {
     commands.set('missions', createMissionsCommand({ isMissionActive }));
     commands.set('accept', createAcceptCommand({ startMission, isMissionActive }));
     commands.set('abort', createAbortCommand({ abortMission, isMissionActive, popAllSessions }));
+    commands.set(
+      'mail',
+      createMailCommand({
+        getActiveMission: () => activeMission,
+        completeMission,
+        readFileFromMachine,
+      }),
+    );
 
     fileSystemCommands.forEach((cmd, name) => commands.set(name, cmd));
     networkCommands.forEach((cmd, name) => commands.set(name, cmd));
@@ -132,6 +142,9 @@ export const useCommands = (): UseCommandsResult => {
     isMissionActive,
     startMission,
     abortMission,
+    completeMission,
+    activeMission,
+    readFileFromMachine,
     popAllSessions,
   ]);
 };

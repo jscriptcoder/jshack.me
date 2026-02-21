@@ -8,8 +8,9 @@ import type {
   EntryVariant,
   GeneratedMachine,
   MissionObjective,
+  MissionObjectiveType,
 } from './types';
-import { targetFileTemplatesByRole } from './pools';
+import { clientHandles, targetFileTemplatesByRole, tamperFileTemplatesByRole } from './pools';
 
 type AttackChainInput = {
   readonly prng: Prng;
@@ -24,6 +25,7 @@ type AttackChainResult = {
   readonly attackChain: readonly AttackStep[];
   readonly credentialPlacements: readonly CredentialPlacement[];
   readonly objective: MissionObjective;
+  readonly clientEmail: string;
 };
 
 const hintTemplates: readonly string[] = [
@@ -94,13 +96,18 @@ const buildPath = (
   return [entry, ...shuffled];
 };
 
-// Selects a role-appropriate target file template and fills {{flag}} and {{user}} placeholders.
-// Returns { targetPath, targetContent } for embedding in the objective.
-const selectTargetFile = (
+// Generates a hex access key like ACCESS-A1B2-C3D4-E5F6
+const generateAccessKey = (prng: Prng): string => {
+  const hex = () => prng.nextInt(0, 0xffff).toString(16).toUpperCase().padStart(4, '0');
+  return `ACCESS-${hex()}-${hex()}-${hex()}`;
+};
+
+// Selects a role-appropriate target file template and fills {{access_key}} placeholder.
+const selectExfiltrateFile = (
   prng: Prng,
   targetMachine: GeneratedMachine,
   credentials: CredentialMap,
-  flag: string,
+  accessKey: string,
 ): { readonly targetPath: string; readonly targetContent: string } => {
   const templates = targetFileTemplatesByRole[targetMachine.role];
   const template = prng.pick(templates);
@@ -110,9 +117,40 @@ const selectTargetFile = (
     machineCreds.find((c) => c.username !== 'root' && c.username !== 'guest')?.username ?? 'admin';
 
   const targetPath = template.path.replace(/\{\{user\}\}/g, regularUser);
-  const targetContent = template.contentTemplate.replace(/\{\{flag\}\}/g, flag);
+  const targetContent = template.contentTemplate.replace(/\{\{access_key\}\}/g, accessKey);
 
   return { targetPath, targetContent };
+};
+
+// Selects a role-appropriate tamper file template and fills {{tamperOldValue}} placeholder.
+const selectTamperFile = (
+  prng: Prng,
+  targetMachine: GeneratedMachine,
+): {
+  readonly targetPath: string;
+  readonly targetContent: string;
+  readonly tamperOldValue: string;
+  readonly tamperNewValue: string;
+} => {
+  const templates = tamperFileTemplatesByRole[targetMachine.role];
+  const template = prng.pick(templates);
+
+  const targetContent = template.contentTemplate.replace(
+    /\{\{tamperOldValue\}\}/g,
+    template.tamperOldValue,
+  );
+
+  return {
+    targetPath: template.path,
+    targetContent,
+    tamperOldValue: template.tamperOldValue,
+    tamperNewValue: template.tamperNewValue,
+  };
+};
+
+const generateClientEmail = (prng: Prng): string => {
+  const handle = prng.pick(clientHandles);
+  return `${handle}@darkmail.onion`;
 };
 
 const entryVariantToMethod = (variant: EntryVariant): AttackMethod => {
@@ -125,8 +163,76 @@ const entryVariantToMethod = (variant: EntryVariant): AttackMethod => {
   return methodMap[variant];
 };
 
+// Builds the objective for a given type, target machine, and credentials.
+const buildObjective = (
+  prng: Prng,
+  objectiveType: MissionObjectiveType,
+  targetMachine: GeneratedMachine,
+  credentials: CredentialMap,
+  clientEmail: string,
+): MissionObjective => {
+  if (objectiveType === 'exfiltrate') {
+    const accessKey = generateAccessKey(prng);
+    const { targetPath, targetContent } = selectExfiltrateFile(
+      prng,
+      targetMachine,
+      credentials,
+      accessKey,
+    );
+    return {
+      type: 'exfiltrate',
+      description: `Exfiltrate the secret data from ${targetMachine.hostname}`,
+      targetMachine: targetMachine.ip,
+      targetPath,
+      targetContent,
+      clientEmail,
+      expectedProof: accessKey,
+    };
+  }
+
+  if (objectiveType === 'tamper') {
+    const { targetPath, targetContent, tamperOldValue, tamperNewValue } = selectTamperFile(
+      prng,
+      targetMachine,
+    );
+    return {
+      type: 'tamper',
+      description: `Modify the target record on ${targetMachine.hostname}`,
+      targetMachine: targetMachine.ip,
+      targetPath,
+      targetContent,
+      clientEmail,
+      expectedProof: '',
+      tamperOldValue,
+      tamperNewValue,
+    };
+  }
+
+  // credential_theft — target is the root password on the target machine
+  const targetCreds = credentials[targetMachine.ip] ?? [];
+  const rootCred = targetCreds.find((c) => c.username === 'root');
+  const rootPassword = rootCred?.password ?? 'unknown';
+
+  return {
+    type: 'credential_theft',
+    description: `Discover the root password for ${targetMachine.hostname}`,
+    targetMachine: targetMachine.ip,
+    targetPath: '',
+    targetContent: '',
+    clientEmail,
+    expectedProof: rootPassword,
+  };
+};
+
 export const generateAttackChain = (input: AttackChainInput): AttackChainResult => {
   const { prng, machines, credentials, entryPoint, entryVariant, difficulty } = input;
+
+  const clientEmail = generateClientEmail(prng);
+  const objectiveTypes: readonly MissionObjectiveType[] = [
+    'exfiltrate',
+    'tamper',
+    'credential_theft',
+  ];
 
   const path = buildPath(prng, machines, entryPoint, difficulty);
   if (path.length < 2) {
@@ -137,8 +243,9 @@ export const generateAttackChain = (input: AttackChainInput): AttackChainResult 
       username: 'root',
       password: 'r00tpass',
     };
-    const flag = `FLAG{mission_${prng.nextInt(10000, 99999)}}`;
-    const { targetPath, targetContent } = selectTargetFile(prng, target, credentials, flag);
+
+    const objectiveType = prng.pick(objectiveTypes);
+    const objective = buildObjective(prng, objectiveType, target, credentials, clientEmail);
 
     return {
       attackChain: [
@@ -151,20 +258,12 @@ export const generateAttackChain = (input: AttackChainInput): AttackChainResult 
         },
       ],
       credentialPlacements: [],
-      objective: {
-        type: 'find_flag',
-        description: `Find the hidden flag on ${target?.hostname ?? 'target'}`,
-        targetMachine: targetIp,
-        targetPath,
-        targetContent,
-        flag,
-      },
+      objective,
+      clientEmail,
     };
   }
 
-  const flag = `FLAG{mission_${prng.nextInt(10000, 99999)}}`;
   const targetMachine = path[path.length - 1] as GeneratedMachine;
-  const { targetPath, targetContent } = selectTargetFile(prng, targetMachine, credentials, flag);
 
   const attackChain: AttackStep[] = [];
   const credentialPlacements: CredentialPlacement[] = [];
@@ -218,25 +317,13 @@ export const generateAttackChain = (input: AttackChainInput): AttackChainResult 
     });
   }
 
-  const objectiveTypes = ['exfiltrate', 'tamper', 'find_flag'] as const;
   const objectiveType = prng.pick(objectiveTypes);
-
-  const descriptions: Readonly<Record<typeof objectiveType, string>> = {
-    exfiltrate: `Exfiltrate the secret data from ${targetMachine.hostname}`,
-    tamper: `Modify the target file on ${targetMachine.hostname}`,
-    find_flag: `Find the hidden flag on ${targetMachine.hostname}`,
-  };
+  const objective = buildObjective(prng, objectiveType, targetMachine, credentials, clientEmail);
 
   return {
     attackChain,
     credentialPlacements,
-    objective: {
-      type: objectiveType,
-      description: descriptions[objectiveType],
-      targetMachine: targetMachine.ip,
-      targetPath,
-      targetContent,
-      flag,
-    },
+    objective,
+    clientEmail,
   };
 };

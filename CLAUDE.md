@@ -66,7 +66,7 @@ User input flows through `Terminal.tsx`:
 Commands are tiered by user type (`src/commands/permissions.ts`):
 
 - **guest**: help, man, echo, whoami, pwd, ls, cd, cat, su, clear, author
-- **user**: All guest + ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, exploit, strings, output, resolve, exit, nano, node, airmon, airdump, aircrack, nmcli, missions, accept, abort
+- **user**: All guest + ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, exploit, strings, output, resolve, exit, nano, node, airmon, airdump, aircrack, nmcli, missions, accept, abort, mail
 - **root**: All user + decrypt
 
 ### Content Encoding (Anti-Cheat)
@@ -132,8 +132,8 @@ After completing the 16-flag tutorial, players can take on procedurally generate
 - **Router topology** — Every mission has a real, hackable router (role `'router'`) between localhost and internal machines. Router has a public IP (45.x.x.x), dual interfaces (public + internal), filesystem with firewall rules and internal machine hints. Two modes: **forwarded** (easier — NAT ports to DMZ, transparent to player) and **router-first** (harder — must hack router first to reach internal network).
 - **Entry variants** — Entry machine initial access varies: ssh (classic), ftp (find SSH creds via FTP), nc (find SSH creds via backdoor), exploit (scan with `nmap -sV`, exploit vulnerable port). Selected by PRNG per seed. In forwarded mode, variant applies to the internal entry machine; in router-first mode, variant applies to the router.
 - **NAT resolution** — `NetworkContext.resolveNat(ip)` translates router public IP to internal entry IP when forwarding is active. Applied at SSH/FTP/NC connection boundaries in `Terminal.tsx`.
-- **Commands** — `missions()` browses contracts, `accept(seed)` starts a mission, `abort()` cancels and returns to localhost
-- **Completion** — Terminal.tsx scans command output for the mission flag; auto-completes on detection
+- **Commands** — `missions()` browses contracts, `accept(seed)` starts a mission, `abort()` cancels and returns to localhost, `mail(recipient, content)` submits proof to complete
+- **Completion** — Player sends proof via `mail("client@darkmail.onion", "proof")`. Three objective types: exfiltrate (find ACCESS-KEY), tamper (modify a file), credential_theft (steal root password). The `mail` command verifies proof and calls `completeMission()`.
 - **Isolation** — From localhost, only the router's public IP is reachable. Internal machines are discovered after connecting to the router or through forwarded ports. Mission filesystem patches are excluded from IndexedDB persistence.
 - **Persistence** — Only the seed string is persisted; full network regenerated on reload
 

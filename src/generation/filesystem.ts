@@ -124,11 +124,14 @@ const generateHomeContent = (
 // Places the target file at the dynamic path from objective.targetPath.
 // Target paths use /srv/ or /opt/ prefixes (via extraDirectories) to avoid
 // conflicting with factory-managed directories (/var/, /home/, /etc/).
+// Skipped for credential_theft objectives (no target file to place).
 const placeTargetFile = (
   objective: MissionObjective,
   rootContent: Record<string, FileNode>,
   extraDirectories: Record<string, FileNode>,
 ): void => {
+  if (objective.type === 'credential_theft') return;
+
   const segments = objective.targetPath.split('/').filter(Boolean);
   const fileName = segments[segments.length - 1] ?? 'flag.txt';
   const file = mkFile(fileName, objective.targetContent);

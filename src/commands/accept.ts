@@ -7,9 +7,33 @@ type AcceptCommandContext = {
   readonly isMissionActive: () => boolean;
 };
 
+const formatObjectiveHint = (mission: MissionNetwork): string => {
+  const { objective } = mission;
+  const email = mission.clientEmail;
+
+  if (objective.type === 'exfiltrate') {
+    return [
+      '  Find the ACCESS-KEY in the target file and mail it to the client.',
+      `  Example: mail("${email}", "ACCESS-XXXX-XXXX-XXXX")`,
+    ].join('\n');
+  }
+
+  if (objective.type === 'tamper') {
+    return [
+      `  Modify the target file: change "${objective.tamperOldValue}" to "${objective.tamperNewValue}".`,
+      `  Then confirm by mailing the client.`,
+      `  Example: mail("${email}", "done")`,
+    ].join('\n');
+  }
+
+  // credential_theft
+  return [
+    '  Discover the root password on the target machine and mail it to the client.',
+    `  Example: mail("${email}", "<password>")`,
+  ].join('\n');
+};
+
 const formatEntryHint = (mission: MissionNetwork): string => {
-  // Always show the router's public IP as the entry point — the player
-  // connects to the public IP regardless of forwarding mode
   const publicIp = mission.routerPublicIp;
   const routerHostname = mission.routerMachine.hostname;
   const variant: EntryVariant = mission.entryVariant;
@@ -35,6 +59,9 @@ const formatEntryHint = (mission: MissionNetwork): string => {
     `  Seed: ${mission.seed}`,
     `  Difficulty: ${mission.difficulty}`,
     `  Objective: ${mission.objective.description}`,
+    `  Reply to: ${mission.clientEmail}`,
+    '',
+    formatObjectiveHint(mission),
     '',
     `  Gateway: ${routerHostname} (${publicIp})`,
     modeHint,

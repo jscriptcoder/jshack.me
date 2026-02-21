@@ -285,14 +285,13 @@ Expand the existing `fileSystemFactory.ts` pattern:
 - Noise generation (realistic log entries, config files, dotfiles)
 - Target data placement (the objective file/record)
 
-**Thematic target file templates** (`targetFileTemplatesByRole` in `pools.ts`): Instead of a generic `/root/flag.txt`, the target file is role-appropriate with the flag embedded in realistic content. The attack chain generator selects a template based on the target machine's role, fills `{{flag}}` and `{{user}}` placeholders, and the filesystem generator places the file at a dynamic path using `extraDirectories`. Target paths use `/srv/` and `/opt/` prefixes to avoid conflicting with factory-managed directories (`/var/`, `/home/`, `/etc/`).
+**Exfiltrate target file templates** (`targetFileTemplatesByRole` in `pools.ts`): For exfiltrate objectives, the target file is role-appropriate with an ACCESS-KEY embedded in realistic content. The attack chain generator selects a template based on the target machine's role, fills `{{access_key}}` placeholder, and the filesystem generator places the file at a dynamic path using `extraDirectories`. Target paths use `/srv/` and `/opt/` prefixes to avoid conflicting with factory-managed directories (`/var/`, `/home/`, `/etc/`).
 
-Examples by role:
+**Tamper file templates** (`tamperFileTemplatesByRole` in `pools.ts`): For tamper objectives, each template specifies a target file with `tamperOldValue` and `tamperNewValue`. The player must modify the file (e.g., change a grade from "F" to "A") and confirm via `mail()`.
 
-- **fileserver**: `/srv/records/patient_discharge_2024.csv` (flag in CSV row), `/srv/ftp/exports/financial_report.csv`
-- **database**: `/opt/mysql/dumps/users_backup.sql` (flag in SQL INSERT), `/opt/db/exports/accounts.csv`
-- **webserver**: `/srv/www/data/users.json` (flag as API key), `/srv/www/private/admin_credentials.conf`
-- **workstation**: `/opt/projects/classified_memo.txt` (flag as authorization code), `/opt/local/secret_notes.txt`
+**Credential theft**: No target file needed — the objective is to discover the root password on the target machine.
+
+**Completion mechanism**: Player sends proof to the client via `mail("client@darkmail.onion", "proof")`. Each mission has a `clientEmail` (generated from `clientHandles` pool) shown in the briefing. The `mail` command verifies proof based on objective type.
 
 ### Vulnerability Scanning & Exploit System
 

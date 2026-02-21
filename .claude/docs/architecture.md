@@ -47,7 +47,7 @@ e2e/
 
 ## Terminal Features
 
-- ASCII banner on startup ("JSHACK.ME v0.4.0")
+- ASCII banner on startup ("JSHACK.ME v0.5.0")
 - Dynamic prompt: `username@machine>` (managed via SessionContext)
 - Command history (up/down arrows)
 - Tab autocompletion for commands and variables
@@ -127,7 +127,7 @@ Network access from localhost requires cracking a WiFi network first. This is a 
 
 See `src/commands/` for implementations and `src/hooks/useCommands.ts` for the registry.
 
-Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, su, whoami, airmon, airdump, aircrack, nmcli, ifconfig, ping, nmap, nslookup, ssh, exit, ftp, nc, curl, exploit, decrypt, output, resolve, strings, nano, node, missions, accept, abort, theme, reset.
+Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, su, whoami, airmon, airdump, aircrack, nmcli, ifconfig, ping, nmap, nslookup, ssh, exit, ftp, nc, curl, exploit, decrypt, output, resolve, strings, nano, node, missions, accept, abort, mail, theme, reset.
 
 FTP mode (when connected via ftp): pwd, lpwd, cd, lcd, ls, lls, get, put, quit/bye.
 
@@ -142,12 +142,12 @@ NC mode (when connected via nc): pwd, cd, ls, cat, whoami, help, exit — read-o
 1. **PRNG** (`prng.ts`) — Mulberry32 PRNG seeded via FNV-1a hash of the seed string. Provides `next()`, `nextInt()`, `pick()`, `pickN()`, `shuffle()`.
 2. **Topology** (`topology.ts`) — Generates a router with a public IP (45.x.x.x) and internal machines on a private subnet (`10.x.x.0/24`). The router is a real `GeneratedMachine` with role `'router'`, dual interfaces (public eth0 + internal eth1), its own filesystem, and users. Internal machines have roles (webserver/database/fileserver/workstation). Two network modes are supported: **forwarded** (easier — router NATs ports to the entry/DMZ machine, player connects transparently) and **router-first** (harder — no forwarding, player must hack the router to reach internal machines). Selects an entry variant (ssh/ftp/nc/exploit) and builds `NetworkConfig` with interfaces, DNS, and per-machine reachability. Internal machines see each other + router's internal gateway IP but NOT the router's public IP.
 3. **Users** (`users.ts`) — Generates root + 1-2 role-appropriate users per machine, hashes passwords with `md5()`. Guest passwords are picked from a `guestPasswords` pool (not hardcoded). Returns both `RemoteUser[]` per machine and a plaintext credential map.
-4. **Attack Chain** (`attackChain.ts`) — Picks a target machine, builds an attack path (entry → intermediates → target), assigns access methods based on entry variant for the first hop (ssh/ftp/nc/exploit) and ssh for subsequent hops, plans credential placements. Selects a role-appropriate target file template (from `targetFileTemplatesByRole` in `pools.ts`) and fills the `{{flag}}` placeholder into thematic content.
-5. **Filesystems** (`filesystem.ts`) — Builds `FileNode` trees per machine using the existing `createFileSystem()` factory. Injects role-based configs, credential breadcrumbs, noise files, red herrings, entry credential hints (for FTP/NC/exploit entry variants), and the target file at a dynamic path (from `objective.targetPath`) with thematic content embedding the flag.
+4. **Attack Chain** (`attackChain.ts`) — Picks a target machine, builds an attack path (entry → intermediates → target), assigns access methods based on entry variant for the first hop (ssh/ftp/nc/exploit) and ssh for subsequent hops, plans credential placements. Generates objective per type: exfiltrate (ACCESS-KEY in target file), tamper (file with old/new values from `tamperFileTemplatesByRole`), or credential_theft (root password). Generates client email from `clientHandles` pool.
+5. **Filesystems** (`filesystem.ts`) — Builds `FileNode` trees per machine using the existing `createFileSystem()` factory. Injects role-based configs, credential breadcrumbs, noise files, red herrings, entry credential hints (for FTP/NC/exploit entry variants), and the target file at a dynamic path (for exfiltrate/tamper objectives; skipped for credential_theft).
 
-**Output**: `MissionNetwork` containing seed, difficulty, machines, filesystems, network config, attack chain, objective, and entry variant. Same seed always produces identical output.
+**Output**: `MissionNetwork` containing seed, difficulty, machines, filesystems, network config, attack chain, objective, clientEmail, and entry variant. Same seed always produces identical output.
 
-**Data Pools** (`pools.ts`) — Static arrays for usernames, hostnames, guest passwords, port templates, entry port templates (ssh/ftp/nc/exploit variants), vulnerability templates (real CVEs with service versions), entry credential hint templates, log templates, config templates, noise/red-herring files, and target file templates by role (thematic paths and content with `{{flag}}` placeholder). Mission passwords are imported from `src/secrets/__encoded.ts` (encoded at build time via the secrets registry) to prevent bundle inspection.
+**Data Pools** (`pools.ts`) — Static arrays for usernames, hostnames, guest passwords, client handles, port templates, entry port templates (ssh/ftp/nc/exploit variants), vulnerability templates (real CVEs with service versions), entry credential hint templates, log templates, config templates, noise/red-herring files, target file templates by role (with `{{access_key}}` placeholder for exfiltrate), and tamper file templates by role (with `{{tamperOldValue}}` placeholder). Mission passwords are imported from `src/secrets/__encoded.ts` (encoded at build time via the secrets registry) to prevent bundle inspection.
 
 **Key properties**:
 
@@ -195,13 +195,19 @@ SessionProvider → MissionProvider → FileSystemProvider → NetworkProvider �
 **Mission commands:**
 
 - `missions()` — displays hardcoded darknet contract board (missions added incrementally with e2e tests)
-- `accept(seed)` — generates network from seed, passes `MissionNetwork` to `startMission`, displays briefing with entry point and access hint
+- `accept(seed)` — generates network from seed, passes `MissionNetwork` to `startMission`, displays briefing with entry point, client email, and objective-specific instructions
 - `abort()` — pops all sessions back to localhost, clears mission state
+- `mail(recipient, content)` — submits proof to the client to complete a mission. Verifies proof based on objective type.
+
+**Objective types:**
+
+- **exfiltrate** — Player finds an ACCESS-KEY in a target file and mails it to the client. Verification: content matches `objective.expectedProof`.
+- **tamper** — Player modifies a target file (e.g., changes a grade from "F" to "A") and mails the client. Verification: `mail` reads the target file from the target machine via `readFileFromMachine`, checks `tamperOldValue` is gone and `tamperNewValue` is present.
+- **credential_theft** — Player discovers the root password on the target machine and mails it to the client. Verification: content matches `objective.expectedProof` (the root password).
 
 **Mission completion:**
 
-- `Terminal.tsx` scans command output (both sync results and async output lines) for the active mission's flag string
-- When flag is detected, displays ASCII "MISSION COMPLETE" banner and calls `completeMission()`
+- Player sends proof via `mail("client@darkmail.onion", "proof")` — the mail command in `src/commands/mail.ts` validates the proof and calls `completeMission()`, displaying an ASCII "MISSION COMPLETE" banner.
 
 **Entry variant system:**
 

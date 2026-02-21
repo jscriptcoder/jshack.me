@@ -101,6 +101,7 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 | `missions()`            | Browse available hacker-for-hire contracts on the darknet            |
 | `accept(seed)`          | Accept a mission contract and generate the target network            |
 | `abort()`               | Abort the current mission and return to localhost                    |
+| `mail(to, content)`     | Send proof to a darknet client to complete a mission                 |
 | `theme([name])`         | List themes or switch terminal color theme                           |
 | `reset(["confirm"])`    | Reset game to factory defaults (clears all saved progress)           |
 

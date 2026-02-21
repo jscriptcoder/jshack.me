@@ -15,7 +15,7 @@ export type AttackStep = {
   readonly hint: string;
 };
 
-export type MissionObjectiveType = 'exfiltrate' | 'tamper' | 'find_flag';
+export type MissionObjectiveType = 'exfiltrate' | 'tamper' | 'credential_theft';
 
 export type MissionObjective = {
   readonly type: MissionObjectiveType;
@@ -23,7 +23,10 @@ export type MissionObjective = {
   readonly targetMachine: string;
   readonly targetPath: string;
   readonly targetContent: string;
-  readonly flag: string;
+  readonly clientEmail: string;
+  readonly expectedProof: string;
+  readonly tamperOldValue?: string;
+  readonly tamperNewValue?: string;
 };
 
 export type GeneratedMachine = {
@@ -58,6 +61,7 @@ export type MissionNetwork = {
   readonly networkConfig: NetworkConfig;
   readonly attackChain: readonly AttackStep[];
   readonly objective: MissionObjective;
+  readonly clientEmail: string;
   readonly routerPublicIp: string;
   readonly routerMachine: GeneratedMachine;
   readonly natForwarding?: NatForwarding;

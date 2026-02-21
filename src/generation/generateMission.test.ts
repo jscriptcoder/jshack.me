@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { generateMissionNetwork } from './generateMission';
+import type { FileNode } from '../filesystem/types';
 
 describe('generateMissionNetwork', () => {
   it('same seed produces identical output (determinism)', () => {
@@ -12,7 +13,6 @@ describe('generateMissionNetwork', () => {
     const a = generateMissionNetwork('MISSION-ALPHA');
     const b = generateMissionNetwork('MISSION-BETA');
     expect(a.entryPoint).not.toBe(b.entryPoint);
-    expect(a.objective.flag).not.toBe(b.objective.flag);
   });
 
   it('seed containing "easy" produces easy difficulty', () => {
@@ -68,24 +68,30 @@ describe('generateMissionNetwork', () => {
     expect(result.fileSystems[result.routerPublicIp]).toBeDefined();
   });
 
-  it('target machine filesystem contains the flag', () => {
-    const result = generateMissionNetwork('FLAG-TEST');
-    const targetFs = result.fileSystems[result.objective.targetMachine];
-    expect(targetFs).toBeDefined();
+  it('target machine filesystem contains the target file for exfiltrate/tamper', () => {
+    // Find a seed with exfiltrate or tamper (they have target files)
+    for (let i = 0; i < 50; i++) {
+      const result = generateMissionNetwork(`TARGET-FILE-${i}`);
+      if (result.objective.type === 'credential_theft') continue;
 
-    const resolveNode = (root: typeof targetFs, path: string) => {
-      const parts = path.split('/').filter(Boolean);
-      let current = root;
-      for (const part of parts) {
-        if (current?.type !== 'directory' || !current.children) return undefined;
-        current = current.children[part];
-      }
-      return current;
-    };
+      const targetFs = result.fileSystems[result.objective.targetMachine];
+      expect(targetFs).toBeDefined();
 
-    const flag = resolveNode(targetFs, result.objective.targetPath);
-    expect(flag?.content).toBe(result.objective.targetContent);
-    expect(flag?.content).toContain(result.objective.flag);
+      const resolveNode = (root: FileNode | undefined, path: string) => {
+        const parts = path.split('/').filter(Boolean);
+        let current = root;
+        for (const part of parts) {
+          if (current?.type !== 'directory' || !current.children) return undefined;
+          current = current.children[part];
+        }
+        return current;
+      };
+
+      const targetFile = resolveNode(targetFs, result.objective.targetPath);
+      expect(targetFile?.content).toBe(result.objective.targetContent);
+      return;
+    }
+    throw new Error('No exfiltrate/tamper objective found in 50 seeds');
   });
 
   it('attack chain forms a valid path from entry to target', () => {
@@ -97,9 +103,15 @@ describe('generateMissionNetwork', () => {
     expect(lastStep?.toMachine).toBe(result.objective.targetMachine);
   });
 
-  it('objective flag matches FLAG{mission_XXXXX} format', () => {
+  it('objective has a valid type', () => {
     const result = generateMissionNetwork('FORMAT-TEST');
-    expect(result.objective.flag).toMatch(/^FLAG\{mission_\d{5}\}$/);
+    expect(['exfiltrate', 'tamper', 'credential_theft']).toContain(result.objective.type);
+  });
+
+  it('clientEmail is set with darkmail.onion domain', () => {
+    const result = generateMissionNetwork('EMAIL-TEST');
+    expect(result.clientEmail).toMatch(/@darkmail\.onion$/);
+    expect(result.objective.clientEmail).toBe(result.clientEmail);
   });
 
   it('preserves seed in output', () => {
@@ -110,21 +122,18 @@ describe('generateMissionNetwork', () => {
 
   it('generates diverse results across many seeds', () => {
     const results = Array.from({ length: 20 }, (_, i) => generateMissionNetwork(`DIVERSE-${i}`));
-    const uniqueFlags = new Set(results.map((r) => r.objective.flag));
+    const uniqueEmails = new Set(results.map((r) => r.clientEmail));
     const uniqueEntries = new Set(results.map((r) => r.entryPoint));
-    expect(uniqueFlags.size).toBe(20);
+    expect(uniqueEmails.size).toBeGreaterThan(1);
     expect(uniqueEntries.size).toBeGreaterThan(1);
   });
 
   it('exploit entry variant adds vulnerability and owner to entry machine port', () => {
-    // Search for a seed that produces exploit variant
     let found = false;
     for (let i = 0; i < 200; i++) {
       const result = generateMissionNetwork(`exploit-gen-${i}`);
       if (result.entryVariant !== 'exploit') continue;
 
-      // In forwarded mode, the entry machine gets the variant enrichment
-      // In router-first mode, the router gets it
       const targetIp = result.natForwarding ? result.entryPoint : result.routerPublicIp;
       const targetMachine = result.natForwarding
         ? result.machines.find((m) => m.ip === targetIp)
@@ -152,7 +161,6 @@ describe('generateMissionNetwork', () => {
     expect(result.entryCredential?.password).toBeTruthy();
   });
 
-  // Router-specific tests
   it('routerMachine is a valid machine with router role', () => {
     const result = generateMissionNetwork('ROUTER-TEST');
     expect(result.routerMachine).toBeDefined();
@@ -193,11 +201,9 @@ describe('generateMissionNetwork', () => {
     const routerFs = result.fileSystems[result.routerPublicIp];
     expect(routerFs).toBeDefined();
 
-    // Router should have /etc/hosts with internal machine IPs
     const etc = routerFs?.type === 'directory' ? routerFs.children?.['etc'] : undefined;
     const hosts = etc?.type === 'directory' ? etc.children?.['hosts'] : undefined;
     if (hosts?.type === 'file' && hosts.content) {
-      // Check that at least one internal machine IP appears
       const hasInternalIp = result.machines.some((m) => hosts.content?.includes(m.ip));
       expect(hasInternalIp).toBe(true);
     }

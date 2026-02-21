@@ -15,7 +15,7 @@ describe('accept command', () => {
     expect(result).toContain('MEDTECH-4A7F-easy');
   });
 
-  it('shows entry point and difficulty in briefing', () => {
+  it('shows entry point, difficulty, and client email in briefing', () => {
     const startMission = vi.fn();
     const accept = createAcceptCommand({ startMission, isMissionActive: () => false });
     const result = accept.fn('MEDTECH-4A7F-easy') as string;
@@ -23,6 +23,16 @@ describe('accept command', () => {
     expect(result).toContain('Difficulty: easy');
     expect(result).toContain('Gateway:');
     expect(result).toContain('45.');
+    expect(result).toContain('Reply to:');
+    expect(result).toContain('@darkmail.onion');
+  });
+
+  it('shows mail example in briefing', () => {
+    const startMission = vi.fn();
+    const accept = createAcceptCommand({ startMission, isMissionActive: () => false });
+    const result = accept.fn('MEDTECH-4A7F-easy') as string;
+
+    expect(result).toContain('mail(');
   });
 
   it('trims whitespace from seed', () => {

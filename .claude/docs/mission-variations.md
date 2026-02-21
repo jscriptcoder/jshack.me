@@ -76,53 +76,71 @@ Used when entry variant is `exploit`. Matched by port/service.
 
 ## Objective Types (3)
 
-| Type       | Description                    |
-| ---------- | ------------------------------ |
-| exfiltrate | Steal data from target machine |
-| tamper     | Modify a target file           |
-| find_flag  | Locate a hidden flag           |
+| Type             | Description                                    | Completion                             |
+| ---------------- | ---------------------------------------------- | -------------------------------------- |
+| exfiltrate       | Find ACCESS-KEY in target file, mail to client | `mail(email, "ACCESS-XXXX-XXXX-XXXX")` |
+| tamper           | Modify a target file, mail client to confirm   | `mail(email, "done")`                  |
+| credential_theft | Discover root password, mail to client         | `mail(email, "<password>")`            |
 
-## Target File Templates (15 — 3 per role)
+## Exfiltrate Target File Templates (15 — 3 per role)
+
+Used for `exfiltrate` objectives. Contain `{{access_key}}` placeholder filled with `ACCESS-XXXX-XXXX-XXXX`.
 
 ### fileserver
 
-| Path                                      | Content Style              |
-| ----------------------------------------- | -------------------------- |
-| `/srv/records/patient_discharge_2024.csv` | Flag hidden in CSV row     |
-| `/srv/ftp/exports/financial_report.csv`   | Flag in financial CSV      |
-| `/srv/backup/confidential_memo.txt`       | Flag as authorization code |
+| Path                                      | Content Style                |
+| ----------------------------------------- | ---------------------------- |
+| `/srv/records/patient_discharge_2024.csv` | ACCESS-KEY hidden in CSV row |
+| `/srv/ftp/exports/financial_report.csv`   | ACCESS-KEY in financial CSV  |
+| `/srv/backup/confidential_memo.txt`       | ACCESS-KEY as auth code      |
 
 ### database
 
-| Path                                | Content Style                |
-| ----------------------------------- | ---------------------------- |
-| `/opt/mysql/dumps/users_backup.sql` | Flag in SQL INSERT statement |
-| `/opt/db/exports/accounts.csv`      | Flag as access token         |
-| `/opt/postgresql/audit_log.txt`     | Flag in audit log entry      |
+| Path                                | Content Style                      |
+| ----------------------------------- | ---------------------------------- |
+| `/opt/mysql/dumps/users_backup.sql` | ACCESS-KEY in SQL INSERT statement |
+| `/opt/db/exports/accounts.csv`      | ACCESS-KEY as access token         |
+| `/opt/postgresql/audit_log.txt`     | ACCESS-KEY in audit log entry      |
 
 ### webserver
 
-| Path                                      | Content Style          |
-| ----------------------------------------- | ---------------------- |
-| `/srv/www/data/users.json`                | Flag as admin API key  |
-| `/srv/www/private/admin_credentials.conf` | Flag as secret key     |
-| `/srv/www/html/.htaccess_backup`          | Flag as recovery token |
+| Path                                      | Content Style                |
+| ----------------------------------------- | ---------------------------- |
+| `/srv/www/data/users.json`                | ACCESS-KEY as admin API key  |
+| `/srv/www/private/admin_credentials.conf` | ACCESS-KEY as secret key     |
+| `/srv/www/html/.htaccess_backup`          | ACCESS-KEY as recovery token |
 
 ### workstation
 
-| Path                                | Content Style                  |
-| ----------------------------------- | ------------------------------ |
-| `/opt/projects/classified_memo.txt` | Flag as authorization override |
-| `/opt/projects/internal_report.txt` | Flag in audit finding          |
-| `/opt/local/secret_notes.txt`       | Flag as emergency access code  |
+| Path                                | Content Style                        |
+| ----------------------------------- | ------------------------------------ |
+| `/opt/projects/classified_memo.txt` | ACCESS-KEY as authorization override |
+| `/opt/projects/internal_report.txt` | ACCESS-KEY in audit finding          |
+| `/opt/local/secret_notes.txt`       | ACCESS-KEY as emergency access code  |
 
 ### router (infrastructure-only — unused in practice)
 
-| Path                            | Content Style                |
-| ------------------------------- | ---------------------------- |
-| `/opt/router/access_log.txt`    | Flag as override code        |
-| `/opt/router/vpn_keys.txt`      | Flag as VPN pre-shared key   |
-| `/opt/router/backup_config.txt` | Flag in router backup config |
+| Path                            | Content Style                      |
+| ------------------------------- | ---------------------------------- |
+| `/opt/router/access_log.txt`    | ACCESS-KEY as override code        |
+| `/opt/router/vpn_keys.txt`      | ACCESS-KEY as VPN pre-shared key   |
+| `/opt/router/backup_config.txt` | ACCESS-KEY in router backup config |
+
+## Tamper File Templates (9 — 2 per main role + 1 for router)
+
+Used for `tamper` objectives. Player must change `tamperOldValue` to `tamperNewValue` in the file.
+
+| Role        | Path                                   | Change                                       |
+| ----------- | -------------------------------------- | -------------------------------------------- |
+| fileserver  | `/srv/records/patient_records.csv`     | "active" → "discharged"                      |
+| fileserver  | `/srv/ftp/exports/employee_roster.csv` | "standard" → "executive"                     |
+| database    | `/opt/mysql/dumps/students.sql`        | "F" → "A" (grade)                            |
+| database    | `/opt/db/exports/accounts.csv`         | "frozen" → "active"                          |
+| webserver   | `/srv/www/data/users.json`             | "readonly" → "admin" (role)                  |
+| webserver   | `/srv/www/private/access_control.conf` | "restricted" → "privileged"                  |
+| workstation | `/opt/projects/payroll.csv`            | "$45,000" → "$145,000" (salary)              |
+| workstation | `/opt/local/performance_review.txt`    | "needs_improvement" → "exceeds_expectations" |
+| router      | `/opt/router/firewall_policy.conf`     | "DENY" → "ALLOW"                             |
 
 ## Credential Placement Templates (5)
 
@@ -171,6 +189,12 @@ Used by FTP/NC/exploit variants to place SSH credentials on the entry machine.
 ### Guest Passwords (6)
 
 `guest`, `guest123`, `password`, `letmein`, `welcome`, `changeme`
+
+### Client Handles (10)
+
+Used for `clientEmail` generation: `${handle}@darkmail.onion`
+
+`xR0gu3x`, `gh0st_`, `cyph3rpunk`, `n3twr4ith`, `zer0day_`, `bl4ckh4t`, `silkr0ad`, `darkfl0w`, `v0id_agent`, `ph4nt0m`
 
 ### Mission Passwords (20)
 

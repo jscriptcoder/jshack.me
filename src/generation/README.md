@@ -12,7 +12,8 @@ const mission = generateMissionNetwork('HEIST-7734');
 // mission.fileSystems  — FileNode tree per machine (keyed by IP)
 // mission.networkConfig — NetworkConfig compatible with existing NetworkContext
 // mission.attackChain  — step-by-step path from entry to target
-// mission.objective    — what the player needs to find (flag, path, description)
+// mission.objective    — mission goal (type, target, expectedProof, clientEmail)
+// mission.clientEmail  — client email for mail() completion
 ```
 
 ## Pipeline
@@ -22,21 +23,21 @@ const mission = generateMissionNetwork('HEIST-7734');
 1. **PRNG** (`prng.ts`) — Mulberry32 seeded via FNV-1a hash of the seed string
 2. **Topology** (`topology.ts`) — Flat subnet, machine count by difficulty, roles, IPs, interfaces, DNS, entry variant selection (ssh/ftp/nc/exploit)
 3. **Users** (`users.ts`) — Root + 1-2 role-appropriate users per machine, md5-hashed passwords. Guest passwords picked from `guestPasswords` pool (not hardcoded).
-4. **Attack Chain** (`attackChain.ts`) — Path from entry to target, access methods based on entry variant, credential placements, role-based target file selection (thematic paths with embedded flag)
+4. **Attack Chain** (`attackChain.ts`) — Path from entry to target, access methods based on entry variant, credential placements, objective generation (exfiltrate with ACCESS-KEY, tamper with old/new values, credential_theft with root password), client email generation
 5. **Filesystems** (`filesystem.ts`) — FileNode trees with role configs, credential breadcrumbs, entry credential hints (for FTP/NC/exploit variants), noise, target file at dynamic path with thematic content
 
 ## Files
 
-| File                 | Purpose                                                                                                                                            |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `prng.ts`            | Mulberry32 PRNG: next, nextInt, pick, pickN, shuffle                                                                                               |
-| `types.ts`           | MissionNetwork, GeneratedMachine, AttackStep, EntryVariant, MissionObjective                                                                       |
-| `pools.ts`           | Static data: usernames, passwords, guest passwords, hostnames, vulnerability/port/entry templates, credential hints, target file templates by role |
-| `topology.ts`        | Subnet generation, machine roles, entry variant selection, NetworkConfig                                                                           |
-| `users.ts`           | Per-machine users + plaintext credential map                                                                                                       |
-| `attackChain.ts`     | Attack path, credential placements, flag generation, role-based target file selection                                                              |
-| `filesystem.ts`      | FileNode trees via createFileSystem(), breadcrumbs, noise, dynamic target file placement                                                           |
-| `generateMission.ts` | Orchestrator composing all steps                                                                                                                   |
+| File                 | Purpose                                                                                                                                                                   |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prng.ts`            | Mulberry32 PRNG: next, nextInt, pick, pickN, shuffle                                                                                                                      |
+| `types.ts`           | MissionNetwork, GeneratedMachine, AttackStep, EntryVariant, MissionObjective                                                                                              |
+| `pools.ts`           | Static data: usernames, passwords, guest passwords, hostnames, client handles, vulnerability/port/entry templates, credential hints, target/tamper file templates by role |
+| `topology.ts`        | Subnet generation, machine roles, entry variant selection, NetworkConfig                                                                                                  |
+| `users.ts`           | Per-machine users + plaintext credential map                                                                                                                              |
+| `attackChain.ts`     | Attack path, credential placements, objective generation (exfiltrate/tamper/credential_theft), client email                                                               |
+| `filesystem.ts`      | FileNode trees via createFileSystem(), breadcrumbs, noise, dynamic target file placement                                                                                  |
+| `generateMission.ts` | Orchestrator composing all steps                                                                                                                                          |
 
 ## Difficulty
 
