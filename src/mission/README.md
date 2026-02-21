@@ -66,3 +66,7 @@ The entry machine's initial access method varies per seed:
 - **exploit** — player scans with `nmap("-sV")`, exploits a vulnerable service, finds SSH credentials, then SSHes
 
 SSH is always available on the entry machine; FTP/NC/exploit variants just change the _initial foothold_.
+
+### Briefing Variant Override
+
+Board missions can set `briefingVariantOverride` on their `MissionListing` to show a different entry hint in the briefing than the actual entry variant. This enables missions where the real entry path is discovered through gameplay — e.g., the briefing shows `ssh("guest", ip)` but the actual path requires exploiting a vulnerability. The `accept` command looks up the seed in `MISSION_BOARD` and passes the override to `formatMissionBriefing`.

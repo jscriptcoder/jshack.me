@@ -147,7 +147,7 @@ describe('generateMissionNetwork', () => {
 
       expect(vulnPort.vulnerability.cve).toBeTruthy();
       expect(vulnPort.owner).toBeDefined();
-      expect(vulnPort.owner?.userType).toBe('guest');
+      expect(['guest', 'user', 'root']).toContain(vulnPort.owner?.userType);
       found = true;
       break;
     }
@@ -158,13 +158,34 @@ describe('generateMissionNetwork', () => {
     const result = generateMissionNetwork('ENTRY-CRED-TEST');
     expect(result.entryCredential).toBeDefined();
     expect(result.entryCredential?.password).toBeTruthy();
-    // SSH variant uses a regular user; other variants use guest
+    // SSH variant uses a regular user; other variants use the port owner (guest/user/root)
     if (result.entryVariant === 'ssh') {
       expect(result.entryCredential?.username).not.toBe('guest');
       expect(result.entryCredential?.username).not.toBe('root');
     } else {
-      expect(result.entryCredential?.username).toBe('guest');
+      // Port owner determines the entry credential — could be guest, user, or root
+      expect(result.entryCredential?.username).toBeTruthy();
     }
+  });
+
+  it('NC/exploit owner type varies across seeds', () => {
+    const ownerTypes = new Set<string>();
+    for (let i = 0; i < 300; i++) {
+      const result = generateMissionNetwork(`owner-variety-${i}`);
+      if (result.entryVariant !== 'nc' && result.entryVariant !== 'exploit') continue;
+
+      const targetIp = result.natForwarding ? result.entryPoint : result.routerPublicIp;
+      const targetMachine = result.natForwarding
+        ? result.machines.find((m) => m.ip === targetIp)
+        : result.routerMachine;
+
+      const ownerPort = targetMachine?.remoteMachine.ports.find((p) => p.owner);
+      if (ownerPort?.owner) {
+        ownerTypes.add(ownerPort.owner.userType);
+      }
+      if (ownerTypes.size >= 2) break;
+    }
+    expect(ownerTypes.size).toBeGreaterThanOrEqual(2);
   });
 
   it('routerMachine is a valid machine with router role', () => {

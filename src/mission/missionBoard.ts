@@ -6,6 +6,10 @@ export type MissionListing = {
   readonly objective: string;
   readonly difficulty: string;
   readonly seed: string;
+  // When set, the mission briefing shows this variant's hint instead of the actual entry variant.
+  // Used for missions where the real entry path is discovered through gameplay (e.g., SSH as guest
+  // is a recon dead-end, but the briefing shows it to set up the misdirection).
+  readonly briefingVariantOverride?: import('../generation/types').EntryVariant;
 };
 
 export const MISSION_BOARD: readonly MissionListing[] = [
@@ -17,6 +21,16 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     objective: 'Exfiltrate patient discharge records',
     difficulty: '* (Easy)',
     seed: 'MEDTECH-4A7F-easy',
+  },
+  {
+    id: '002',
+    client: 'gh0st_',
+    clientEmail: 'gh0st_@darkmail.onion',
+    target: 'Greenfield University — student records system',
+    objective: 'Tamper with student grade records',
+    difficulty: '** (Medium)',
+    seed: 'GRADE-TAMPER-74',
+    briefingVariantOverride: 'ssh',
   },
 ];
 

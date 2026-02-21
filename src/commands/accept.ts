@@ -1,6 +1,7 @@
 import type { Command } from '../components/Terminal/types';
 import { generateMissionNetwork } from '../generation/generateMission';
 import type { MissionNetwork, EntryVariant } from '../generation/types';
+import { MISSION_BOARD } from '../mission/missionBoard';
 
 type AcceptCommandContext = {
   readonly startMission: (mission: MissionNetwork) => void;
@@ -33,10 +34,13 @@ export const formatObjectiveHint = (mission: MissionNetwork): string => {
   ].join('\n');
 };
 
-export const formatMissionBriefing = (mission: MissionNetwork): string => {
+export const formatMissionBriefing = (
+  mission: MissionNetwork,
+  variantOverride?: EntryVariant,
+): string => {
   const publicIp = mission.routerPublicIp;
   const routerHostname = mission.routerMachine.hostname;
-  const variant: EntryVariant = mission.entryVariant;
+  const variant: EntryVariant = variantOverride ?? mission.entryVariant;
   const entryUser = mission.entryCredential?.username ?? 'guest';
   const entryPassword = mission.entryCredential?.password ?? 'guest';
   const isForwarded = mission.natForwarding !== undefined;
@@ -95,6 +99,7 @@ export const createAcceptCommand = (context: AcceptCommandContext): Command => (
     const trimmed = seed.trim();
     const mission = generateMissionNetwork(trimmed);
     context.startMission(mission);
-    return formatMissionBriefing(mission);
+    const boardListing = MISSION_BOARD.find((l) => l.seed === trimmed);
+    return formatMissionBriefing(mission, boardListing?.briefingVariantOverride);
   },
 });

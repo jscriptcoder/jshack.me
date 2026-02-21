@@ -73,4 +73,15 @@ describe('accept command', () => {
     expect(accept.name).toBe('accept');
     expect(accept.description).toBeTruthy();
   });
+
+  it('uses briefingVariantOverride for board missions', () => {
+    const startMission = vi.fn();
+    const accept = createAcceptCommand({ startMission, isMissionActive: () => false });
+    // GRADE-TAMPER-74 has briefingVariantOverride: 'ssh' but actual entry is exploit
+    const result = accept.fn('GRADE-TAMPER-74') as string;
+
+    // Should show SSH hint (from override) instead of nmap -sV hint (from actual variant)
+    expect(result).toContain('ssh(');
+    expect(result).not.toContain('nmap("-sV"');
+  });
 });

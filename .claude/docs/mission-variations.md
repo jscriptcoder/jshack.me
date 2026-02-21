@@ -21,6 +21,18 @@ How the player gains initial access to the entry machine.
 | NC      | Connect via netcat backdoor (port 4444), find SSH credentials                       |
 | Exploit | `nmap -sV` → find vulnerable service → `exploit(host, port)` → find SSH credentials |
 
+## NC/Exploit Owner Types (3)
+
+Owner type for NC backdoor and exploit port owners varies per seed, adding difficulty variety to restricted shells.
+
+| Type  | Weight | Effect                                                           |
+| ----- | ------ | ---------------------------------------------------------------- |
+| guest | 60%    | Limited file visibility in NC/exploit shell, must find SSH creds |
+| user  | 30%    | Same visibility (permission model), different identity           |
+| root  | 10%    | Can read root-owned files, easiest to find what's needed         |
+
+Root owners have hints placed in `/tmp/` instead of `/home/root/` (since root's home is `/root/`, not managed by `generateHomeContent`).
+
 ## Network Modes (2)
 
 | Mode         | Description                                                                       |
@@ -228,11 +240,12 @@ Each hint is paired with its credential placement template so the hint always de
 - Check {{localUser}}'s home directory on {{machine}} for notes → `/home/{{localUser}}/notes.txt`
 - Look in /etc/maintenance.conf on {{machine}} for hardcoded credentials → `/etc/maintenance.conf`
 
-## Board Missions (1 hardcoded, more to be added with e2e tests)
+## Board Missions (2 hardcoded, more to be added with e2e tests)
 
-| Seed              | Client  | Difficulty |
-| ----------------- | ------- | ---------- |
-| MEDTECH-4A7F-easy | xR0gu3x | Easy       |
+| Seed              | Client  | Difficulty | Notes                                        |
+| ----------------- | ------- | ---------- | -------------------------------------------- |
+| MEDTECH-4A7F-easy | xR0gu3x | Easy       |                                              |
+| GRADE-TAMPER-74   | gh0st\_ | Medium     | briefingVariantOverride: ssh (hides exploit) |
 
 Players can also use any arbitrary seed string via `accept("any-string")`.
 

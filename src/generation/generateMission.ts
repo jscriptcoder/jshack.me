@@ -1,4 +1,5 @@
 import { createPrng } from './prng';
+import type { Prng } from './prng';
 import { generateTopology } from './topology';
 import { generateUsers } from './users';
 import { generateAttackChain } from './attackChain';
@@ -22,38 +23,72 @@ const deriveDifficulty = (seed: string): Difficulty => {
   return mod === 0 ? 'easy' : mod === 1 ? 'medium' : 'hard';
 };
 
-// For NC entry variant: assigns the guest user as owner of the backdoor port ('elite' service).
-// This controls who can access the netcat backdoor on the entry machine.
+// Picks an owner type for NC/exploit port owners with weighted distribution:
+// guest (60%), user (30%), root (10%). Adds difficulty variety to restricted shells.
+const pickOwnerType = (prng: Prng): 'root' | 'user' | 'guest' => {
+  const roll = prng.next();
+  if (roll < 0.6) return 'guest';
+  if (roll < 0.9) return 'user';
+  return 'root';
+};
+
+// Finds a user matching the preferred type, falling back to other types if needed.
+// All machines have root + at least one user, so this always returns a match.
+const findUserByType = (
+  users: readonly RemoteUser[],
+  preferredType: 'root' | 'user' | 'guest',
+): RemoteUser | undefined => {
+  const found = users.find((u) => u.userType === preferredType);
+  if (found) return found;
+  const fallbacks: readonly ('root' | 'user' | 'guest')[] =
+    preferredType === 'guest'
+      ? ['user', 'root']
+      : preferredType === 'user'
+        ? ['guest', 'root']
+        : ['user', 'guest'];
+  for (const fb of fallbacks) {
+    const fallback = users.find((u) => u.userType === fb);
+    if (fallback) return fallback;
+  }
+  return undefined;
+};
+
+// For NC entry variant: assigns a user as owner of the backdoor port ('elite' service).
+// Owner type is picked by PRNG (guest/user/root) for difficulty variety.
 const addNcBackdoorOwner = (
   ports: readonly Port[],
   users: readonly RemoteUser[],
+  prng: Prng,
 ): readonly Port[] => {
-  const guestUser = users.find((u) => u.userType === 'guest');
-  if (!guestUser) return ports;
+  const ownerType = pickOwnerType(prng);
+  const owner = findUserByType(users, ownerType);
+  if (!owner) return ports;
 
   return ports.map((p) =>
     p.service === 'elite' && p.open
       ? {
           ...p,
           owner: {
-            username: guestUser.username,
-            userType: guestUser.userType,
-            homePath: `/home/${guestUser.username}`,
+            username: owner.username,
+            userType: owner.userType,
+            homePath: owner.userType === 'root' ? '/root' : `/home/${owner.username}`,
           },
         }
       : p,
   );
 };
 
-// For exploit entry variant: attaches a vulnerability and guest owner to the
-// non-SSH open port on the entry machine. The vulnerability is matched by service
-// name from the vulnerability templates pool.
+// For exploit entry variant: attaches a vulnerability and owner to the
+// non-SSH open port on the entry machine. Owner type is picked by PRNG
+// (guest/user/root) for difficulty variety.
 const addExploitVulnerability = (
   ports: readonly Port[],
   users: readonly RemoteUser[],
+  prng: Prng,
 ): readonly Port[] => {
-  const guestUser = users.find((u) => u.userType === 'guest');
-  if (!guestUser) return ports;
+  const ownerType = pickOwnerType(prng);
+  const owner = findUserByType(users, ownerType);
+  if (!owner) return ports;
 
   return ports.map((p) => {
     if (p.service === 'ssh' || !p.open) return p;
@@ -65,9 +100,9 @@ const addExploitVulnerability = (
       ...p,
       vulnerability: vuln.vulnerability,
       owner: {
-        username: guestUser.username,
-        userType: guestUser.userType,
-        homePath: `/home/${guestUser.username}`,
+        username: owner.username,
+        userType: owner.userType,
+        homePath: owner.userType === 'root' ? '/root' : `/home/${owner.username}`,
       },
     };
   });
@@ -77,15 +112,16 @@ const enrichMachineWithUsers = (
   machine: GeneratedMachine,
   users: RemoteMachine['users'],
   entryVariantFlag: 'nc' | 'exploit' | null,
+  prng: Prng,
 ): GeneratedMachine => ({
   ...machine,
   remoteMachine: {
     ...machine.remoteMachine,
     ports:
       entryVariantFlag === 'nc'
-        ? addNcBackdoorOwner(machine.remoteMachine.ports, users)
+        ? addNcBackdoorOwner(machine.remoteMachine.ports, users, prng)
         : entryVariantFlag === 'exploit'
-          ? addExploitVulnerability(machine.remoteMachine.ports, users)
+          ? addExploitVulnerability(machine.remoteMachine.ports, users, prng)
           : machine.remoteMachine.ports,
     users,
   },
@@ -141,13 +177,14 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
       : null;
 
   const machinesWithUsers: readonly GeneratedMachine[] = topology.machines.map((m) =>
-    enrichMachineWithUsers(m, allUsersByMachine[m.ip] ?? [], isEntryVariant(m.ip)),
+    enrichMachineWithUsers(m, allUsersByMachine[m.ip] ?? [], isEntryVariant(m.ip), prng),
   );
 
   const routerWithUsers = enrichMachineWithUsers(
     topology.routerMachine,
     allUsersByMachine[topology.routerPublicIp] ?? [],
     isEntryVariant(topology.routerPublicIp),
+    prng,
   );
 
   // Update network configs with populated users
@@ -187,13 +224,19 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
 
   // Extract entry credential for the mission briefing.
   // SSH variant uses a regular user account (so the player has user-tier commands).
-  // Other variants use the guest account (player finds user SSH creds on the machine).
+  // Other variants use the port owner's account (guest/user/root, determined by PRNG).
   const credSourceIp = isForwarded ? topology.entryPoint : topology.routerPublicIp;
   const entryCredentials = allCredentials[credSourceIp] ?? [];
+  const entryMachineForCred = isForwarded
+    ? machinesWithUsers.find((m) => m.ip === credSourceIp)
+    : routerWithUsers;
+  const portOwner = entryMachineForCred?.remoteMachine.ports.find((p) => p.owner)?.owner;
   const entryCred =
     topology.entryVariant === 'ssh'
       ? entryCredentials.find((c) => c.username !== 'root' && c.username !== 'guest')
-      : entryCredentials.find((c) => c.username === 'guest');
+      : portOwner
+        ? entryCredentials.find((c) => c.username === portOwner.username)
+        : entryCredentials.find((c) => c.username === 'guest');
 
   return {
     seed,

@@ -2,6 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { MISSION_BOARD, formatMissionBoard } from './missionBoard';
 
 describe('missionBoard', () => {
+  it('has 2 listings', () => {
+    expect(MISSION_BOARD).toHaveLength(2);
+  });
+
   it('each listing has required fields', () => {
     MISSION_BOARD.forEach((listing) => {
       expect(listing.id).toBeTruthy();
@@ -21,6 +25,13 @@ describe('missionBoard', () => {
   it('each listing has a unique seed', () => {
     const seeds = MISSION_BOARD.map((l) => l.seed);
     expect(new Set(seeds).size).toBe(seeds.length);
+  });
+
+  it('grade tamper listing has briefingVariantOverride', () => {
+    const gradeMission = MISSION_BOARD.find((l) => l.seed === 'GRADE-TAMPER-74');
+    expect(gradeMission).toBeDefined();
+    expect(gradeMission?.briefingVariantOverride).toBe('ssh');
+    expect(gradeMission?.difficulty).toBe('** (Medium)');
   });
 });
 

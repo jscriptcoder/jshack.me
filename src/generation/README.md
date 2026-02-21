@@ -66,7 +66,7 @@ All output types are compatible with the existing codebase:
 - `MissionNetwork.fileSystems` values are `FileNode` trees from `src/filesystem/types.ts`
 - `GeneratedMachine.remoteMachine` matches `RemoteMachine` from `src/network/types.ts`
 - `MissionNetwork.entryVariant` indicates the initial access method (ssh/ftp/nc/exploit)
-- `MissionNetwork.entryCredential` provides the entry credential (SSH variant uses a regular user; other variants use guest)
+- `MissionNetwork.entryCredential` provides the entry credential (SSH variant uses a regular user; NC/exploit variants use the port owner — guest/user/root per PRNG)
 
 ## Entry Variants
 
@@ -77,4 +77,6 @@ The entry machine's initial access method varies per seed:
 - **nc** — player connects via netcat backdoor, finds SSH credentials, then SSHes; ports: 22, 4444
 - **exploit** — player scans with `nmap("-sV")` to find vulnerable service, runs `exploit(host, port)` for restricted shell, finds SSH credentials, then SSHes; ports: 22, (80|3306|6379)
 
-SSH is always available on the entry machine. FTP/NC/exploit variants place credential hint files (from `entryCredentialHintTemplates` in `pools.ts`) that leak SSH credentials for the same machine. The exploit variant additionally attaches a `Vulnerability` (from `vulnerabilityTemplates`) and a guest `ServiceOwner` to the vulnerable port.
+SSH is always available on the entry machine. FTP/NC/exploit variants place credential hint files (from `entryCredentialHintTemplates` in `pools.ts`) that leak SSH credentials for the same machine. The exploit variant additionally attaches a `Vulnerability` (from `vulnerabilityTemplates`) and a `ServiceOwner` to the vulnerable port.
+
+NC and exploit variants select a variable owner type via PRNG: guest (60%), user (30%), or root (10%). This adds difficulty variety — guest owners have limited file visibility, while root owners can read root-only files. Root owners have hints placed in `/tmp/` instead of their home directory.
