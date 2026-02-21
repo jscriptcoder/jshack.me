@@ -262,6 +262,45 @@ describe('nmap command', () => {
       expect(isAsyncOutput(result)).toBe(true);
     });
 
+    it('should parse -sV as second arg and use first arg as target', () => {
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.50',
+            hostname: 'server',
+            ports: [
+              {
+                port: 80,
+                service: 'http',
+                open: true,
+                vulnerability: {
+                  cve: 'CVE-2021-41773',
+                  description: 'Apache path traversal',
+                  serviceVersion: 'Apache/2.4.49',
+                },
+              },
+            ],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('192.168.1.50', '-sV');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(2000);
+
+      expect(lines.some((l) => l.includes('VERSION'))).toBe(true);
+      expect(lines.some((l) => l.includes('Apache/2.4.49'))).toBe(true);
+      expect(lines.some((l) => l.includes('VULNERABILITIES:'))).toBe(true);
+    });
+
     it('should show VERSION column header when -sV is used', () => {
       const context = createMockNmapContext({
         machines: [
