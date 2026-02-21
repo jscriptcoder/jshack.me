@@ -249,6 +249,27 @@ export const noiseFiles: readonly { readonly name: string; readonly content: str
   { name: '.ssh_known_hosts', content: '# known hosts\n192.168.1.1 ssh-rsa AAAAB3NzaC1yc2E...' },
 ];
 
+export const binaryEntryCredentialHintTemplates: readonly {
+  readonly ftpPath: string;
+  readonly ncPath: string;
+  readonly exploitPath: string;
+  readonly template: string;
+}[] = [
+  {
+    ftpPath: '/home/{{localUser}}/.auth_cache',
+    ncPath: '/home/{{owner}}/.auth_cache',
+    exploitPath: '/home/{{owner}}/.auth_cache',
+    template:
+      'SSH Credentials Backup\n======================\nHost: {{hostname}}\nUser: {{user}}\nPass: {{password}}\nLast updated: Jan 10',
+  },
+  {
+    ftpPath: '/home/{{localUser}}/service_check',
+    ncPath: '/home/{{owner}}/service_check',
+    exploitPath: '/home/{{owner}}/service_check',
+    template: 'Server notes:\n- SSH access: {{user}} / {{password}}\n- Remember to rotate!',
+  },
+];
+
 export const entryCredentialHintTemplates: readonly {
   readonly ftpPath: string;
   readonly ncPath: string;

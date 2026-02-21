@@ -27,6 +27,7 @@ export type MissionObjective = {
   readonly expectedProof: string;
   readonly tamperOldValue?: string;
   readonly tamperNewValue?: string;
+  readonly binary?: boolean;
 };
 
 export type GeneratedMachine = {
@@ -42,6 +43,7 @@ export type CredentialPlacement = {
   readonly fileContent: string;
   readonly username: string;
   readonly password: string;
+  readonly binary?: boolean;
 };
 
 export type CredentialMap = Readonly<

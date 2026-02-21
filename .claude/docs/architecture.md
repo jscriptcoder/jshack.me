@@ -28,6 +28,7 @@ src/
 │   ├── topology.ts            # Network topology generator (machines, IPs, DNS, entry variant)
 │   ├── users.ts               # User generator (per-machine users + credential map)
 │   ├── attackChain.ts         # Attack chain generator (path, methods, credential placements)
+│   ├── binary.ts              # Binary noise wrapping for credential/target files; binary path pools
 │   ├── filesystem.ts          # Filesystem generator (role templates, breadcrumbs, noise, entry creds)
 │   └── generateMission.ts     # Orchestrator: seed → MissionNetwork
 ├── mission/               # Mission system integration (Phase 2)
@@ -144,6 +145,7 @@ NC mode (when connected via nc): pwd, cd, ls, cat, whoami, help, exit — read-o
 3. **Users** (`users.ts`) — Generates root + 1-2 role-appropriate users per machine, hashes passwords with `md5()`. Guest passwords are picked from a `guestPasswords` pool (not hardcoded). Returns both `RemoteUser[]` per machine and a plaintext credential map.
 4. **Attack Chain** (`attackChain.ts`) — Picks a target machine, builds an attack path (entry → intermediates → target), assigns access methods based on entry variant for the first hop (ssh/ftp/nc/exploit) and ssh for subsequent hops, plans credential placements. Generates objective per type: exfiltrate (ACCESS-KEY in target file), tamper (file with old/new values from `tamperFileTemplatesByRole`), or credential_theft (root password). Generates client email from `clientHandles` pool.
 5. **Filesystems** (`filesystem.ts`) — Builds `FileNode` trees per machine using the existing `createFileSystem()` factory. Injects role-based configs, credential breadcrumbs, noise files, red herrings, entry credential hints (for FTP/NC/exploit entry variants), and the target file at a dynamic path (for exfiltrate/tamper objectives; skipped for credential_theft).
+6. **Binary Wrapping** (`binary.ts`) — Probabilistically wraps credential breadcrumbs (~30%), exfiltrate targets (~25%), and entry credential hints (~20%) in non-printable "binary noise". `cat` shows garbled output; `strings` extracts readable data. Binary files use deep paths like `/usr/local/bin/monitor_agent`.
 
 **Output**: `MissionNetwork` containing seed, difficulty, machines, filesystems, network config, attack chain, objective, clientEmail, entry variant, routerDomain, and domainEntry flag. Same seed always produces identical output.
 

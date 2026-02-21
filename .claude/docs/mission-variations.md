@@ -59,6 +59,40 @@ When domain entry is active, the mission briefing shows the router's `.mission` 
 
 With the `domain` seed keyword, domain entry is always active. Without it, PRNG decides based on difficulty. The entry variant hint (ssh/ftp/nc/exploit) is NOT shown in domain mode — the player must discover the IP via nslookup, then figure out the rest using nmap.
 
+## Binary File Wrapping
+
+Some credential breadcrumbs and exfiltrate target files are wrapped in "binary noise" — non-printable characters interspersed with readable content. `cat` shows garbled output; `strings` extracts the readable data. This adds a discovery mechanic requiring the `strings` command.
+
+### Probabilities
+
+| Context                | Binary Chance | Notes                                        |
+| ---------------------- | ------------- | -------------------------------------------- |
+| Credential breadcrumb  | 30%           | Next-hop passwords hidden in binary files    |
+| Exfiltrate target file | 25%           | ACCESS-KEY in binary file                    |
+| Entry credential hint  | 20%           | SSH creds for FTP/NC/exploit entry in binary |
+
+### Binary File Paths
+
+Binary credential placements use deep paths that look like compiled binaries or data files:
+
+| Role        | Example paths                                                                        |
+| ----------- | ------------------------------------------------------------------------------------ |
+| webserver   | `/usr/local/bin/httpd_monitor`, `/opt/lib/libmod_auth.so`, `/var/cache/sessions.db`  |
+| database    | `/usr/local/bin/db_healthcheck`, `/opt/lib/libmysqlclient.so`, `/var/cache/query.db` |
+| fileserver  | `/usr/local/bin/sync_agent`, `/opt/lib/libstorage.so`, `/var/cache/ftp_sessions.db`  |
+| workstation | `/usr/local/bin/monitor_agent`, `/opt/lib/libauth.so`, `/var/cache/user_sessions.db` |
+| router      | `/usr/local/bin/fw_monitor`, `/opt/lib/libnetfilter.so`, `/var/cache/routing.db`     |
+
+Binary exfiltrate targets use paths like `/opt/app/data.bin`, `/var/lib/export.dat`, `/srv/cache/records.db`.
+
+### Implementation
+
+- `src/generation/binary.ts` — `wrapInBinaryNoise(prng, content)` utility + path pools
+- Binary wrapping adds an ELF header, non-printable noise between lines, and a noise footer
+- Non-printable chars: Latin-1 supplement (128-255), control chars (1-8, 14-31), null bytes
+- `strings` command's `isPrintable()` (ASCII 32-126 + tab + newline) filters these out
+- Hints for binary placements mention `strings` (e.g., "try extracting strings from it")
+
 ## Network Modes (2)
 
 | Mode         | Description                                                                       |

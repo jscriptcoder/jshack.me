@@ -13,12 +13,14 @@ import {
   type UserConfig,
 } from '../filesystem/fileSystemFactory';
 import {
+  binaryEntryCredentialHintTemplates,
   configTemplatesByRole,
   entryCredentialHintTemplates,
   logTemplates,
   noiseFiles,
   redHerringFiles,
 } from './pools';
+import { binaryCredentialPaths, wrapInBinaryNoise } from './binary';
 
 type FilesystemInput = {
   readonly prng: Prng;
@@ -114,7 +116,8 @@ const generateHomeContent = (
     const parts = p.filePath.split('/');
     const fileName = parts[parts.length - 1] ?? 'credentials.txt';
     if (p.filePath.startsWith('/home/')) {
-      children[fileName] = mkFile(fileName, p.fileContent, 'user');
+      const content = p.binary ? wrapInBinaryNoise(prng, p.fileContent) : p.fileContent;
+      children[fileName] = mkFile(fileName, content, 'user');
     }
   });
 
@@ -126,6 +129,7 @@ const generateHomeContent = (
 // conflicting with factory-managed directories (/var/, /home/, /etc/).
 // Skipped for credential_theft objectives (no target file to place).
 const placeTargetFile = (
+  prng: Prng,
   objective: MissionObjective,
   rootContent: Record<string, FileNode>,
   extraDirectories: Record<string, FileNode>,
@@ -134,7 +138,10 @@ const placeTargetFile = (
 
   const segments = objective.targetPath.split('/').filter(Boolean);
   const fileName = segments[segments.length - 1] ?? 'flag.txt';
-  const file = mkFile(fileName, objective.targetContent);
+  const content = objective.binary
+    ? wrapInBinaryNoise(prng, objective.targetContent)
+    : objective.targetContent;
+  const file = mkFile(fileName, content);
   const topDir = segments[0] ?? 'root';
 
   if (topDir === 'root') {
@@ -251,25 +258,46 @@ const buildMachineConfig = (
   const logPlacements = placements.filter((p) => p.filePath.startsWith('/var/log/'));
   logPlacements.forEach((p) => {
     const fileName = p.filePath.split('/').pop() ?? 'log';
-    varLogContent[fileName] = mkFile(fileName, p.fileContent);
+    const content = p.binary ? wrapInBinaryNoise(prng, p.fileContent) : p.fileContent;
+    varLogContent[fileName] = mkFile(fileName, content);
   });
 
   const tmpPlacements = placements.filter((p) => p.filePath.startsWith('/tmp/'));
+  // Binary credential placements use deep paths like /usr/local/bin/, /opt/lib/, /var/cache/
+  const binaryDeepPlacements = placements.filter(
+    (p) =>
+      p.binary &&
+      !p.filePath.startsWith('/home/') &&
+      !p.filePath.startsWith('/var/log/') &&
+      !p.filePath.startsWith('/tmp/') &&
+      !p.filePath.startsWith('/etc/'),
+  );
   const extraDirectories: Record<string, FileNode> = {};
 
   const rootContent: Record<string, FileNode> = {};
   if (isTarget) {
-    placeTargetFile(objective, rootContent, extraDirectories);
+    placeTargetFile(prng, objective, rootContent, extraDirectories);
   }
 
   if (tmpPlacements.length > 0) {
     const tmpChildren: Record<string, FileNode> = {};
     tmpPlacements.forEach((p) => {
       const fileName = p.filePath.split('/').pop() ?? 'file';
-      tmpChildren[fileName] = mkFile(fileName, p.fileContent, 'user');
+      const content = p.binary ? wrapInBinaryNoise(prng, p.fileContent) : p.fileContent;
+      tmpChildren[fileName] = mkFile(fileName, content, 'user');
     });
     extraDirectories['tmp'] = mkDir('tmp', tmpChildren);
   }
+
+  // Place binary credential files at deep paths (e.g., /usr/local/bin/monitor_agent)
+  binaryDeepPlacements.forEach((p) => {
+    const segments = p.filePath.split('/').filter(Boolean);
+    const fileName = segments[segments.length - 1] ?? 'data.bin';
+    const content = wrapInBinaryNoise(prng, p.fileContent);
+    const file = mkFile(fileName, content);
+    const topDir = segments[0] ?? 'usr';
+    extraDirectories[topDir] = buildNestedDirs(segments, file);
+  });
 
   return {
     users: userConfigs,
@@ -296,7 +324,11 @@ const buildEntryCredentialPlacement = (
   const sshCred = machineCredentials.find((c) => c.username === sshUser.username);
   if (!sshCred) return null;
 
-  const hintTemplate = prng.pick(entryCredentialHintTemplates);
+  // ~20% chance to wrap entry credential hint in a binary file
+  const isBinary = prng.next() < 0.2;
+  const hintTemplate = isBinary
+    ? prng.pick(binaryEntryCredentialHintTemplates)
+    : prng.pick(entryCredentialHintTemplates);
   const localUser = sshUser.username;
   // NC and exploit variants derive owner from the machine's port owner (guest/user/root)
   const portOwner = machine.remoteMachine.ports.find((p) => p.owner)?.owner;
@@ -304,6 +336,26 @@ const buildEntryCredentialPlacement = (
     entryVariant === 'nc' || entryVariant === 'exploit'
       ? (portOwner?.username ?? users.find((u) => u.userType === 'guest')?.username ?? 'guest')
       : localUser;
+
+  // Binary entry credentials use a role-appropriate deep path
+  if (isBinary) {
+    const binaryPath = prng.pick(binaryCredentialPaths[machine.role]);
+    const fileContent = fillTemplate(hintTemplate.template, {
+      hostname: machine.hostname,
+      user: sshCred.username,
+      password: sshCred.password,
+      owner: ownerUser,
+    });
+
+    return {
+      machineIp: machine.ip,
+      filePath: binaryPath,
+      fileContent,
+      username: sshCred.username,
+      password: sshCred.password,
+      binary: true,
+    };
+  }
 
   // Root's home is /root/, not /home/root/ — place hints in /tmp/ instead
   const ownerIsRoot = portOwner?.userType === 'root';

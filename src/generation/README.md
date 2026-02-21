@@ -36,6 +36,7 @@ const mission = generateMissionNetwork('HEIST-7734');
 | `topology.ts`        | Subnet generation, machine roles, entry variant selection, NetworkConfig                                                                                                  |
 | `users.ts`           | Per-machine users + plaintext credential map                                                                                                                              |
 | `attackChain.ts`     | Attack path, credential placements, objective generation (exfiltrate/tamper/credential_theft), client email                                                               |
+| `binary.ts`          | Binary noise wrapping for credential/target files, binary file path pools, binary hint templates                                                                          |
 | `filesystem.ts`      | FileNode trees via createFileSystem(), breadcrumbs, noise, dynamic target file placement                                                                                  |
 | `generateMission.ts` | Orchestrator composing all steps                                                                                                                                          |
 
@@ -95,3 +96,7 @@ Players and developers can embed keywords in the seed string to control generati
 Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`
 
 PRNG sequence is preserved when overrides are active — the PRNG call is always consumed, but its result is discarded in favor of the override. Seeds without keywords produce identical networks as before.
+
+## Binary File Wrapping
+
+Some credential breadcrumbs (~30%), exfiltrate targets (~25%), and entry credential hints (~20%) are wrapped in binary noise. `cat` shows garbled output; `strings` extracts the readable data. Binary files use deep paths that look like compiled binaries (e.g., `/usr/local/bin/monitor_agent`, `/opt/lib/libauth.so`). Hints for binary placements mention the `strings` command. See `binary.ts` for the wrapping utility and path pools.

@@ -11,6 +11,7 @@ import type {
   MissionObjectiveType,
 } from './types';
 import { clientHandles, targetFileTemplatesByRole, tamperFileTemplatesByRole } from './pools';
+import { binaryCredentialPaths, binaryHintTemplates, binaryTargetPaths } from './binary';
 
 type AttackChainInput = {
   readonly prng: Prng;
@@ -178,14 +179,20 @@ const buildObjective = (
       credentials,
       accessKey,
     );
+
+    // ~25% chance to wrap exfiltrate target in a binary file
+    const isBinary = prng.next() < 0.25;
+    const finalPath = isBinary ? prng.pick(binaryTargetPaths[targetMachine.role]) : targetPath;
+
     return {
       type: 'exfiltrate',
       description: `Exfiltrate the secret data from ${targetMachine.hostname}`,
       targetMachine: targetMachine.ip,
-      targetPath,
+      targetPath: finalPath,
       targetContent,
       clientEmail,
       expectedProof: accessKey,
+      binary: isBinary || undefined,
     };
   }
 
@@ -295,9 +302,17 @@ export const generateAttackChain = (input: AttackChainInput): AttackChainResult 
     const localUsers = fromCreds.filter((c) => c.username !== 'root' && c.username !== 'guest');
     const localUser = localUsers.length > 0 ? prng.pick(localUsers).username : 'admin';
 
-    const hint = placement.hint
-      .replace('{{machine}}', fromMachine.hostname)
-      .replace('{{localUser}}', localUser);
+    // ~30% chance to wrap credential in a binary file
+    const isBinary = prng.next() < 0.3;
+
+    const hint = isBinary
+      ? prng
+          .pick(binaryHintTemplates)
+          .replace('{{machine}}', fromMachine.hostname)
+          .replace('{{path}}', prng.pick(binaryCredentialPaths[fromMachine.role]))
+      : placement.hint
+          .replace('{{machine}}', fromMachine.hostname)
+          .replace('{{localUser}}', localUser);
 
     attackChain.push({
       fromMachine: i === 0 ? 'entry' : fromMachine.ip,
@@ -307,7 +322,9 @@ export const generateAttackChain = (input: AttackChainInput): AttackChainResult 
       hint,
     });
 
-    const filePath = placement.path.replace('{{localUser}}', localUser);
+    const filePath = isBinary
+      ? prng.pick(binaryCredentialPaths[fromMachine.role])
+      : placement.path.replace('{{localUser}}', localUser);
     const fileContent = placement.template
       .replace(/\{\{hostname\}\}/g, toMachine.hostname)
       .replace(/\{\{ip\}\}/g, toMachine.ip)
@@ -321,6 +338,7 @@ export const generateAttackChain = (input: AttackChainInput): AttackChainResult 
       fileContent,
       username: credential.username,
       password: credential.password,
+      binary: isBinary || undefined,
     });
   }
 
