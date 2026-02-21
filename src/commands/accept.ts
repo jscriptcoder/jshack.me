@@ -7,7 +7,7 @@ type AcceptCommandContext = {
   readonly isMissionActive: () => boolean;
 };
 
-const formatObjectiveHint = (mission: MissionNetwork): string => {
+export const formatObjectiveHint = (mission: MissionNetwork): string => {
   const { objective } = mission;
   const email = mission.clientEmail;
 
@@ -33,7 +33,7 @@ const formatObjectiveHint = (mission: MissionNetwork): string => {
   ].join('\n');
 };
 
-const formatEntryHint = (mission: MissionNetwork): string => {
+export const formatMissionBriefing = (mission: MissionNetwork): string => {
   const publicIp = mission.routerPublicIp;
   const routerHostname = mission.routerMachine.hostname;
   const variant: EntryVariant = mission.entryVariant;
@@ -94,6 +94,6 @@ export const createAcceptCommand = (context: AcceptCommandContext): Command => (
     const trimmed = seed.trim();
     const mission = generateMissionNetwork(trimmed);
     context.startMission(mission);
-    return formatEntryHint(mission);
+    return formatMissionBriefing(mission);
   },
 });

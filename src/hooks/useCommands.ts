@@ -87,7 +87,10 @@ export const useCommands = (): UseCommandsResult => {
       }),
     );
 
-    commands.set('missions', createMissionsCommand({ isMissionActive }));
+    commands.set(
+      'missions',
+      createMissionsCommand({ isMissionActive, getActiveMission: () => activeMission }),
+    );
     commands.set('accept', createAcceptCommand({ startMission, isMissionActive }));
     commands.set('abort', createAbortCommand({ abortMission, isMissionActive, popAllSessions }));
     commands.set(
