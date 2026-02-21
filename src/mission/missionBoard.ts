@@ -41,6 +41,15 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     difficulty: '** (Medium)',
     seed: 'NEXUS-domain-credential-theft',
   },
+  {
+    id: '004',
+    client: 'n3twr4ith',
+    clientEmail: 'n3twr4ith@darkmail.onion',
+    target: 'Darkstone Industries — defense contractor R&D lab',
+    objective: 'Exfiltrate classified research data',
+    difficulty: '** (Medium)',
+    seed: 'DARKSTONE-ssh-exfiltrate-16',
+  },
 ];
 
 export const formatMissionBoard = (listings: readonly MissionListing[]): string => {

@@ -300,13 +300,14 @@ Each hint is paired with its credential placement template so the hint always de
 - Check {{localUser}}'s home directory on {{machine}} for notes → `/home/{{localUser}}/notes.txt`
 - Look in /etc/maintenance.conf on {{machine}} for hardcoded credentials → `/etc/maintenance.conf`
 
-## Board Missions (3 hardcoded, more to be added with e2e tests)
+## Board Missions (4 hardcoded, more to be added with e2e tests)
 
 | Seed                          | Client     | Difficulty | Notes                                        |
 | ----------------------------- | ---------- | ---------- | -------------------------------------------- |
 | MEDTECH-4A7F-easy             | xR0gu3x    | Easy       |                                              |
 | GRADE-TAMPER-74               | gh0st\_    | Medium     | briefingVariantOverride: ssh (hides exploit) |
 | NEXUS-domain-credential-theft | cyph3rpunk | Medium     | Domain entry (nslookup required)             |
+| DARKSTONE-ssh-exfiltrate-16   | n3twr4ith  | Medium     | Binary files require `strings` command       |
 
 Players can also use any arbitrary seed string via `accept("any-string")`.
 
