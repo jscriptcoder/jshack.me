@@ -226,6 +226,13 @@
 - **Solution**: Use `allowExportNames` option to whitelist specific hook and validator exports (e.g., `useSession`, `isValidPatch`). Note: only exact string matches are supported — no regex/glob patterns.
 - **Alternative**: Move hooks to separate files, but co-locating Provider + hook is a well-established React pattern
 
+### Static CTF removal requires broad reference cleanup
+
+- **Context**: Removing 7 static machines (gateway through abyss) and their 16 flags to make the game mission-only
+- **Issue**: Static machine references were embedded everywhere — command help examples, curl server configs, localhost filesystem hints, auth.log credential leaks, network configs, DNS records, encode script imports, test mocks
+- **Solution**: Systematic search for machine names, IPs, and hostnames across the codebase. Most test mocks using static IPs as arbitrary test data didn't need changing (they're self-contained). Real issues were: (1) curl `SERVER_CONFIGS` with hardcoded per-machine headers, (2) command `examples` arrays, (3) localhost filesystem content pointing to deleted machines, (4) initialNetwork.ts machine/DNS configs.
+- **Key insight**: When removing game content, the blast radius extends beyond the content files themselves. Command examples, tests, and filesystem hints all reference specific machines/IPs. A thorough grep for IPs and hostnames is essential.
+
 ## Patterns That Worked
 
 ### Command factory pattern with context injection
@@ -352,7 +359,7 @@
 - **What**: Pre-build script encodes all filesystem `content` strings (XOR+Base64), writes a generated module that decodes at import time
 - **Why it works**: Source machine files stay readable for development and tests. Only the generated encoded module is imported by the app, so original files are tree-shaken away. Bundle contains only encoded content — `grep "FLAG{" dist/` returns zero matches.
 - **Key design**: Generated file calls `decodeFileSystem(JSON.parse(json))` at import time, so downstream code (contexts, commands) receives fully decoded FileNode trees with zero changes needed.
-- **Example**: `npm run encode` → `scripts/encode.ts` imports all 8 machines + secrets → encodes → writes `__encoded.ts` files → app code imports from `__encoded`
+- **Example**: `npm run encode` → `scripts/encode.ts` imports machine filesystems + secrets → encodes → writes `__encoded.ts` files → app code imports from `__encoded`
 - **Gotcha**: The generated file is gitignored and must be regenerated before dev/build — `predev`/`prebuild` npm hooks handle this automatically
 
 ### JSON-stringified arrays in the secrets registry

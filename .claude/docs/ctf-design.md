@@ -2,7 +2,7 @@
 
 ## WiFi Hacking Gate
 
-Before the player can access the network from localhost, they must crack a WiFi network. This is a progression gate between flags 3 (root escalation) and flag 4 (network exploration) — it does not award a flag.
+Before the player can access the network from localhost, they must crack a WiFi network. This is a progression gate before network access — it does not award a flag.
 
 ### WiFi Networks
 
@@ -17,7 +17,7 @@ Before the player can access the network from localhost, they must crack a WiFi 
 
 ### Player Flow
 
-1. After finding flag 3, the hint says to check `ifconfig()` and `help()`
+1. After gaining root access, the player can explore — `ifconfig()` and `help()` reveal next steps
 2. `ifconfig()` shows `wlan0` is DOWN (no IP assigned)
 3. Network commands (ping, nmap, ssh, etc.) fail with `"Network is unreachable"`
 4. Player discovers aircrack commands via `help()` or `~/downloads/wifi_tools.txt`
@@ -39,68 +39,68 @@ Before the player can access the network from localhost, they must crack a WiFi 
 - `nmcli("disconnect")` while SSH'd calls `SessionContext.disconnectWifi()` to atomically reset to localhost
 - Hint file at `/home/jshacker/downloads/wifi_tools.txt` provides the aircrack + nmcli cheatsheet
 
-## Per-Machine Filesystems
+## Static Machines
 
-Each machine has its own filesystem defined in `src/filesystem/machines/`. Built via `fileSystemFactory.ts` with users, directories, and content.
+Only two static machines exist. All other machines are procedurally generated per mission.
 
-| Machine    | IP            | Users                 | Purpose                                                        |
-| ---------- | ------------- | --------------------- | -------------------------------------------------------------- |
-| localhost  | 192.168.1.100 | jshacker, guest, root | Starting machine                                               |
-| gateway    | 192.168.1.1   | admin                 | Router, config backups, dual-interface (WAN+LAN)               |
-| fileserver | 192.168.1.50  | ftpuser, root         | FTP server with /srv/ftp                                       |
-| webserver  | 192.168.1.75  | www-data, root        | Web server with /var/www                                       |
-| darknet    | 203.0.113.42  | ghost, root           | Final flag + ROT13 challenge, dual-interface (public + hidden) |
-| shadow     | 10.66.66.1    | operator, root        | Flag 14 debug challenge, FTP exports + diagnostics             |
-| void       | 10.66.66.2    | dbadmin, root         | Flag 15 CSV extraction, maintenance port 9999                  |
-| abyss      | 10.66.66.3    | phantom, root         | Flag 16 XOR cipher challenge, SSH only                         |
+- **localhost** (192.168.1.100) — the player's starting machine (users: jshacker, guest, root)
+- **gateway** (192.168.1.1) — local network router, config backups, dual-interface WAN+LAN (users: admin)
 
-Common structure per machine: `/root/`, `/home/[users]/`, `/etc/` (passwd with MD5 hashes, hostname, hosts, configs), `/var/log/`, `/tmp/`. Noise files (dotfiles, configs, logs, red herrings) create realistic Linux environments. Noise files never contain `FLAG{` patterns.
+Machine filesystems are defined in `src/filesystem/machines/` and built via `fileSystemFactory.ts` with users, directories, and content. Common structure per machine: `/root/`, `/home/[users]/`, `/etc/` (passwd with MD5 hashes, hostname, hosts, configs), `/var/log/`, `/tmp/`.
 
 ## Network Topology
 
 ```
-198.51.100.0/24 (Internet)
-│
-├── 198.51.100.10 ─── gateway eth0 (WAN)
-│                     gateway eth1 (LAN) ─── 192.168.1.1
-│                                             │
-│                                        192.168.1.0/24 (Local LAN)
-│                                             ├── 192.168.1.50  fileserver (eth0)
-│                                             ├── 192.168.1.75  webserver (eth0)
-│                                             └── 192.168.1.100 localhost (wlan0, requires WiFi crack)
-│
-└── 203.0.113.42 ─── darknet eth0 (Public)
-                      darknet eth1 ─── 10.66.66.100
-                                        │
-                                   10.66.66.0/24 (Hidden Network)
-                                        ├── 10.66.66.1  shadow
-                                        ├── 10.66.66.2  void
-                                        └── 10.66.66.3  abyss
+192.168.1.0/24 (Local LAN)
+├── 192.168.1.1   gateway (eth0 LAN / eth1 WAN)
+└── 192.168.1.100 localhost (wlan0, requires WiFi crack)
 ```
 
-## Reachability Rules
-
-- LAN machines reach each other + darknet (via gateway NAT)
-- Darknet sees ONLY gateway's WAN IP (198.51.100.10) + hidden network — cannot route to 192.168.1.x
-- Hidden machines only reach each other + darknet's eth1 (10.66.66.100)
+Mission networks extend beyond the gateway — see "Mission Network Topology" below.
 
 ## DNS Records
 
-LAN + Darknet DNS (available to localhost, gateway, fileserver, webserver):
-
 - gateway.local → 192.168.1.1
-- fileserver.local → 192.168.1.50
-- webserver.local → 192.168.1.75
-- darknet.ctf / www.darknet.ctf → 203.0.113.42
-
-Hidden DNS (available to darknet, shadow, void, abyss):
-
-- shadow.hidden → 10.66.66.1
-- void.hidden → 10.66.66.2
-- abyss.hidden → 10.66.66.3
 
 ## Network Implementation
 
-Network is per-machine — `NetworkContext` uses `session.machine` to resolve the active config. Each machine has its own interfaces, reachable machines, and DNS records defined in `src/network/initialNetwork.ts`. Types are in `src/network/types.ts`.
+Network is per-machine — `NetworkContext` uses `session.machine` to resolve the active config. Each machine has its own interfaces, reachable machines, and DNS records defined in `src/network/initialNetwork.ts`. Types are in `src/network/types.ts`. Static machines are localhost and gateway; all other machines are generated per mission.
 
 Localhost has a special WiFi gating layer: when `session.wifiConnected === false`, `NetworkContext` overrides localhost's config to return disconnected interfaces (wlan0 DOWN), empty machines, and empty DNS. WiFi commands (`airmon`, `airdump`, `aircrack`, `nmcli`) in `src/hooks/useWifiCommands.ts` manage the connection flow. WiFi network definitions live in `src/network/wifiNetworks.ts`.
+
+## Mission Network Topology
+
+Mission networks use a realistic router topology. Every mission generates a border router between localhost and the internal mission network.
+
+```
+localhost (192.168.1.100)
+  can see --> 45.x.x.x (router public IP only)
+
+Router (45.x.x.x public / 10.x.x.1 internal) — real machine with filesystem
+  [forwarded mode]: NAT forwards entry ports --> 10.x.x.10 (entry/DMZ)
+  [router-first mode]: no forwarding, player hacks router first
+
+Entry/DMZ (10.x.x.10)
+  can see --> 10.x.x.11, 10.x.x.12 (internal machines)
+
+Internal (10.x.x.11, 10.x.x.12)
+  can see --> each other + entry + router internal IP (10.x.x.1)
+  CANNOT see --> router public IP or localhost
+```
+
+### Router Details
+
+- Role: `'router'` — has its own users, filesystem, firewall rules, routing tables
+- Infrastructure-only: never the mission target, but contains hints about internal machines
+- Dual interfaces: `eth0` (public IP) + `eth1` (internal gateway)
+- `/etc/hosts` lists internal machine hostnames and IPs
+- `/var/log/firewall.log` shows iptables traffic logs
+
+### Network Modes
+
+- **Forwarded** (easier): Router NATs entry machine ports to its public IP. Player connects to public IP and transparently lands on internal machine. Easy difficulty has 70% chance, medium 50%.
+- **Router-first** (harder): No forwarding. Player must hack the router to reach internal machines. Hard difficulty always uses this mode.
+
+### NAT Resolution
+
+`NetworkContext.resolveNat(ip)` handles the translation from public to internal IPs. Applied at three connection boundaries in `Terminal.tsx`: SSH login, FTP session, NC session.

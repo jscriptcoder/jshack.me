@@ -1,5 +1,5 @@
 import type { Prng } from './prng';
-import type { Difficulty, GeneratedMachine, MachineRole } from './types';
+import type { Difficulty, GeneratedMachine, MachineRole, NatForwarding } from './types';
 import type {
   DnsRecord,
   MachineNetworkConfig,
@@ -9,13 +9,22 @@ import type {
   RemoteMachine,
 } from '../network/types';
 import type { EntryVariant } from './types';
-import { hostnamesByRole, portTemplatesByRole, entryPortTemplates } from './pools';
+import {
+  hostnamesByRole,
+  portTemplatesByRole,
+  entryPortTemplates,
+  routerEntryPortTemplates,
+} from './pools';
 
-type TopologyResult = {
+export type TopologyResult = {
   readonly machines: readonly GeneratedMachine[];
+  readonly routerMachine: GeneratedMachine;
+  readonly routerPublicIp: string;
+  readonly natForwarding?: NatForwarding;
   readonly networkConfig: NetworkConfig;
   readonly entryPoint: string;
   readonly entryVariant: EntryVariant;
+  readonly externalDnsRecords: readonly DnsRecord[];
 };
 
 const machineCountByDifficulty: Readonly<Record<Difficulty, readonly [number, number]>> = {
@@ -28,13 +37,14 @@ const allRoles: readonly MachineRole[] = ['webserver', 'database', 'fileserver',
 
 const entryRoles: readonly MachineRole[] = ['webserver', 'workstation'];
 
-const createEth0 = (
+const createInterface = (
+  name: string,
   inet: string,
   netmask: string,
   gateway: string,
   mac: string,
 ): NetworkInterface => ({
-  name: 'eth0',
+  name,
   flags: ['UP', 'BROADCAST', 'RUNNING', 'MULTICAST'],
   inet,
   netmask,
@@ -63,21 +73,50 @@ const buildPortsFromTemplate = (
     open: t.open,
   }));
 
+// Generates a public IP in the 45.x.x.x range for the router
+const generatePublicIp = (prng: Prng): string => {
+  const o2 = prng.nextInt(1, 254);
+  const o3 = prng.nextInt(1, 254);
+  const o4 = prng.nextInt(2, 254);
+  return `45.${o2}.${o3}.${o4}`;
+};
+
+// Determines whether the mission uses port forwarding (easier) or router-first (harder).
+// Easy: 70% chance of forwarding. Medium: 50%. Hard: always router-first.
+const isForwardedMode = (prng: Prng, difficulty: Difficulty): boolean => {
+  if (difficulty === 'hard') return false;
+  const threshold = difficulty === 'easy' ? 0.7 : 0.5;
+  return prng.next() < threshold;
+};
+
 export const generateTopology = (prng: Prng, difficulty: Difficulty): TopologyResult => {
   const [minMachines, maxMachines] = machineCountByDifficulty[difficulty];
   const machineCount = prng.nextInt(minMachines, maxMachines);
 
+  // Internal subnet for mission machines
   const octet2 = prng.nextInt(1, 254);
   const octet3 = prng.nextInt(1, 254);
   const subnet = `10.${octet2}.${octet3}`;
-  const gateway = `${subnet}.1`;
+  const internalGateway = `${subnet}.1`;
 
+  // Router public IP
+  const routerPublicIp = generatePublicIp(prng);
+
+  // Forwarding mode decision
+  const forwarded = isForwardedMode(prng, difficulty);
+
+  // Select entry variant for the entry/DMZ machine
+  const entryTemplate = prng.pick(entryPortTemplates);
+  const internalEntryVariant = entryTemplate.variant;
+
+  // In router-first mode, the player-facing entry variant applies to the router
+  const routerTemplate = forwarded ? null : prng.pick(routerEntryPortTemplates);
+  const entryVariant = forwarded ? internalEntryVariant : (routerTemplate?.variant ?? 'ssh');
+
+  // Build internal machines (entry + others)
   const entryRole = prng.pick(entryRoles);
   const remainingRoles = Array.from({ length: machineCount - 1 }, () => prng.pick(allRoles));
   const roles: readonly MachineRole[] = [entryRole, ...remainingRoles];
-
-  const entryTemplate = prng.pick(entryPortTemplates);
-  const entryVariant = entryTemplate.variant;
 
   const machines: readonly GeneratedMachine[] = roles.map((role, i) => {
     const ip = `${subnet}.${10 + i}`;
@@ -98,30 +137,97 @@ export const generateTopology = (prng: Prng, difficulty: Difficulty): TopologyRe
     };
   });
 
-  const dnsRecords: readonly DnsRecord[] = machines.map((m) => ({
-    domain: `${m.hostname}.mission`,
-    ip: m.ip,
-    type: 'A' as const,
-  }));
+  const entryIp = machines[0]?.ip ?? internalGateway;
+
+  // Build router machine
+  const routerHostname = prng.pick(hostnamesByRole.router);
+  const routerPorts = routerTemplate
+    ? buildPortsFromTemplate(routerTemplate.ports)
+    : buildPorts('router');
+
+  const routerMachine: GeneratedMachine = {
+    ip: routerPublicIp,
+    hostname: routerHostname,
+    role: 'router',
+    remoteMachine: {
+      ip: routerPublicIp,
+      hostname: routerHostname,
+      ports: routerPorts,
+      users: [],
+    },
+  };
+
+  // NAT forwarding config (forwarded mode only)
+  const natForwarding: NatForwarding | undefined = forwarded
+    ? { publicIp: routerPublicIp, internalIp: entryIp }
+    : undefined;
+
+  // DNS: internal records for all mission machines + router internal IP
+  const internalDnsRecords: readonly DnsRecord[] = [
+    ...machines.map((m) => ({
+      domain: `${m.hostname}.mission`,
+      ip: m.ip,
+      type: 'A' as const,
+    })),
+    {
+      domain: `${routerHostname}.mission`,
+      ip: internalGateway,
+      type: 'A' as const,
+    },
+  ];
+
+  // External DNS: only the router's public IP
+  const externalDnsRecords: readonly DnsRecord[] = [
+    {
+      domain: `${routerHostname}.mission`,
+      ip: routerPublicIp,
+      type: 'A' as const,
+    },
+  ];
 
   const machineConfigs: Record<string, MachineNetworkConfig> = {};
 
+  // Internal machines see each other + router's internal IP (not public)
+  const routerInternalRemote: RemoteMachine = {
+    ip: internalGateway,
+    hostname: routerHostname,
+    ports: routerPorts,
+    users: [],
+  };
+
   machines.forEach((machine) => {
-    const otherMachines: readonly RemoteMachine[] = machines
-      .filter((m) => m.ip !== machine.ip)
-      .map((m) => m.remoteMachine);
+    const otherMachines: readonly RemoteMachine[] = [
+      ...machines.filter((m) => m.ip !== machine.ip).map((m) => m.remoteMachine),
+      routerInternalRemote,
+    ];
 
     machineConfigs[machine.ip] = {
-      interfaces: [createEth0(machine.ip, '255.255.255.0', gateway, generateMac(prng))],
+      interfaces: [
+        createInterface('eth0', machine.ip, '255.255.255.0', internalGateway, generateMac(prng)),
+      ],
       machines: otherMachines,
-      dnsRecords,
+      dnsRecords: internalDnsRecords,
     };
   });
 
+  // Router config: dual interfaces (public eth0 + internal eth1), sees all internal machines
+  machineConfigs[routerPublicIp] = {
+    interfaces: [
+      createInterface('eth0', routerPublicIp, '255.255.255.0', '0.0.0.0', generateMac(prng)),
+      createInterface('eth1', internalGateway, '255.255.255.0', '0.0.0.0', generateMac(prng)),
+    ],
+    machines: machines.map((m) => m.remoteMachine),
+    dnsRecords: internalDnsRecords,
+  };
+
   return {
     machines,
+    routerMachine,
+    routerPublicIp,
+    natForwarding,
     networkConfig: { machineConfigs },
-    entryPoint: machines[0]?.ip ?? gateway,
+    entryPoint: entryIp,
     entryVariant,
+    externalDnsRecords,
   };
 };

@@ -1,7 +1,6 @@
 import type { FileNode } from '../types';
 import { createFileSystem, type MachineFileSystemConfig } from '../fileSystemFactory';
 
-// FLAG 1 & 2: Welcome flags in jshacker's home
 const jshackerHome: Readonly<Record<string, FileNode>> = {
   'README.txt': {
     name: 'README.txt',
@@ -10,16 +9,17 @@ const jshackerHome: Readonly<Record<string, FileNode>> = {
     permissions: { read: ['root', 'user'], write: ['root', 'user'], execute: ['root'] },
     content: `=== WELCOME TO JSHACK.ME ===
 
-You are jshacker, a security researcher.
-Your mission: investigate this network and uncover its secrets.
+You are jshacker, a freelance hacker-for-hire.
+Your terminal is your weapon. Contracts are your income.
 
-Start by exploring. Use ls() to list files, cd() to move around,
-and cat() to read files.
+GETTING STARTED:
+1. Explore this machine: ls(), cd(), cat()
+2. Gain root access: su("root") — check /var/log for clues
+3. Connect to the network: crack the WiFi (see downloads/wifi_tools.txt)
+4. Browse contracts: missions()
+5. Accept a job: accept("<seed>")
 
-FLAG{welcome_hacker}
-
-Hint: Real hackers know that not all files are visible...
-Try ls("-a") to see hidden files.
+Type help() for available commands.
 `,
   },
   '.mission': {
@@ -27,17 +27,15 @@ Try ls("-a") to see hidden files.
     type: 'file',
     owner: 'user',
     permissions: { read: ['root', 'user'], write: ['root', 'user'], execute: ['root'] },
-    content: `MISSION BRIEFING
-================
-This network has been compromised. Multiple machines are running
-suspicious services. Your job is to investigate.
+    content: `HACKER NOTES
+============
+Got this rig set up. WiFi card installed but not connected yet.
+Need to crack into the local network before I can take on jobs.
 
-FLAG{hidden_in_plain_sight}
-
-NEXT STEPS:
-1. Check /etc/passwd to see who else is on this machine
-2. The root account holds secrets. Can you crack the password?
-   Hint: Use su("root") after figuring out the password.
+TODO:
+1. Get root on this box (password is around here somewhere...)
+2. Crack the WiFi — tools are in ~/downloads/wifi_tools.txt
+3. Once online, check the darknet marketplace: missions()
 `,
   },
   '.bash_history': {
@@ -50,10 +48,9 @@ cd /etc
 cat passwd
 cd ~
 ifconfig
-ping 192.168.1.1
-nmap 192.168.1.0/24
 cat /var/log/auth.log
-ssh admin 192.168.1.1
+cat downloads/wifi_tools.txt
+missions
 `,
   },
   '.bashrc': {
@@ -109,10 +106,9 @@ Tips:
 ====
 [x] Set up dev environment
 [x] Configure network interfaces
-[ ] Check gateway for misconfigurations
-[ ] Scan full network range
-[ ] Investigate that weird darknet traffic in the logs
-[ ] Update passwords (they're too weak!)
+[ ] Crack WiFi and get online
+[ ] Check darknet marketplace for contracts
+[ ] Start taking on missions
 `,
       },
       'wifi_tools.txt': {
@@ -172,8 +168,6 @@ const localhostConfig: MachineFileSystemConfig = {
       permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] },
       content: `127.0.0.1       localhost
 192.168.1.1     gateway.local
-192.168.1.50    fileserver.local
-192.168.1.75    webserver.local
 192.168.1.100   jshack-dev
 `,
     },
@@ -193,23 +187,18 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 `,
     },
   },
-  // FLAG 3: Root-only flag
   rootContent: {
-    'flag.txt': {
-      name: 'flag.txt',
+    '.note': {
+      name: '.note',
       type: 'file',
       owner: 'root',
       permissions: { read: ['root'], write: ['root'], execute: ['root'] },
-      content: `FLAG{root_access_granted}
-
-Now you have full control of this machine.
-Try exploring the network:
-  ifconfig() — check your network interfaces
-  help() — discover available tools
+      content: `You have root access. Next step: get online.
+Crack the WiFi to connect to the network.
+Once connected, run missions() to browse available contracts.
 `,
     },
   },
-  // HINT: Gateway guest credentials
   varLogContent: {
     'auth.log': {
       name: 'auth.log',
@@ -220,10 +209,8 @@ Try exploring the network:
 Mar 15 09:15:22 localhost sshd[2345]: Connection from 192.168.1.1 port 22
 Mar 15 09:15:25 localhost sshd[2345]: Accepted password for jshacker
 Mar 15 10:00:00 localhost sudo[2400]: jshacker : command not found
-Mar 15 14:30:00 localhost network[2401]: Auto-configured gateway access: guest/guest2024
 Mar 16 02:00:00 localhost cron[2500]: Running scheduled backup
-Mar 16 03:15:00 localhost sshd[2510]: Failed password for root from 203.0.113.42
-Mar 16 03:15:05 localhost sshd[2510]: Failed password for root from 203.0.113.42
+Mar 16 08:30:00 localhost sshd[2510]: Connection from 192.168.1.1 port 22
 `,
     },
     syslog: {

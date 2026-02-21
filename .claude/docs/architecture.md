@@ -10,7 +10,7 @@ src/
 │   ├── FileSystemContext.tsx   # Filesystem operations + patch persistence
 │   ├── fileSystemFactory.ts    # Factory for generating machine filesystems
 │   ├── machineFileSystems.ts   # Imports from __encoded.ts, exports Record + MachineId
-│   ├── machines/               # Per-machine filesystem definitions (8 machines)
+│   ├── machines/               # Per-machine filesystem definitions (localhost + gateway)
 │   │   └── __encoded.ts        # GENERATED (gitignored) — encoded trees for production
 │   └── types.ts                # FileNode, FilePermissions, FileSystemPatch types
 ├── secrets/               # Sensitive non-filesystem strings (WiFi password, etc.)
@@ -42,13 +42,12 @@ scripts/
 └── encode.ts              # Pre-build: encodes filesystems + secrets into __encoded.ts files
 
 e2e/
-├── ctf-playthrough.spec.ts     # Playwright E2E (full 16-flag CTF playthrough)
 └── mission-playthrough.spec.ts # Playwright E2E (mission system — SSH/FTP/NC variants + lifecycle)
 ```
 
 ## Terminal Features
 
-- ASCII banner on startup ("JSHACK.ME v0.3.0")
+- ASCII banner on startup ("JSHACK.ME v0.4.0")
 - Dynamic prompt: `username@machine>` (managed via SessionContext)
 - Command history (up/down arrows)
 - Tab autocompletion for commands and variables
@@ -99,7 +98,7 @@ Two layers of tab completion, tried in order:
 
 ## WiFi Hacking Gate
 
-Network access from localhost requires cracking a WiFi network first. This is a progression gate between flags 3 and 4 — not a flag itself.
+Network access from localhost requires cracking a WiFi network first. This is a progression gate before network access — not a flag itself.
 
 **State**: `session.wifiConnected` (boolean, persisted to IndexedDB). When `false` on localhost:
 
@@ -141,7 +140,7 @@ NC mode (when connected via nc): pwd, cd, ls, cat, whoami, help, exit — read-o
 **Pipeline**: `generateMissionNetwork(seed)` composes these steps:
 
 1. **PRNG** (`prng.ts`) — Mulberry32 PRNG seeded via FNV-1a hash of the seed string. Provides `next()`, `nextInt()`, `pick()`, `pickN()`, `shuffle()`.
-2. **Topology** (`topology.ts`) — Generates machines on a flat subnet (`10.x.x.0/24`), assigns roles (webserver/database/fileserver/workstation), selects an entry variant (ssh/ftp/nc/exploit) for the entry machine, builds `NetworkConfig` with interfaces, DNS, and per-machine reachability.
+2. **Topology** (`topology.ts`) — Generates a router with a public IP (45.x.x.x) and internal machines on a private subnet (`10.x.x.0/24`). The router is a real `GeneratedMachine` with role `'router'`, dual interfaces (public eth0 + internal eth1), its own filesystem, and users. Internal machines have roles (webserver/database/fileserver/workstation). Two network modes are supported: **forwarded** (easier — router NATs ports to the entry/DMZ machine, player connects transparently) and **router-first** (harder — no forwarding, player must hack the router to reach internal machines). Selects an entry variant (ssh/ftp/nc/exploit) and builds `NetworkConfig` with interfaces, DNS, and per-machine reachability. Internal machines see each other + router's internal gateway IP but NOT the router's public IP.
 3. **Users** (`users.ts`) — Generates root + 1-2 role-appropriate users per machine, hashes passwords with `md5()`. Guest passwords are picked from a `guestPasswords` pool (not hardcoded). Returns both `RemoteUser[]` per machine and a plaintext credential map.
 4. **Attack Chain** (`attackChain.ts`) — Picks a target machine, builds an attack path (entry → intermediates → target), assigns access methods based on entry variant for the first hop (ssh/ftp/nc/exploit) and ssh for subsequent hops, plans credential placements. Selects a role-appropriate target file template (from `targetFileTemplatesByRole` in `pools.ts`) and fills the `{{flag}}` placeholder into thematic content.
 5. **Filesystems** (`filesystem.ts`) — Builds `FileNode` trees per machine using the existing `createFileSystem()` factory. Injects role-based configs, credential breadcrumbs, noise files, red herrings, entry credential hints (for FTP/NC/exploit entry variants), and the target file at a dynamic path (from `objective.targetPath`) with thematic content embedding the flag.
@@ -153,8 +152,10 @@ NC mode (when connected via nc): pwd, cd, ls, cat, whoami, help, exit — read-o
 **Key properties**:
 
 - Deterministic: same seed → identical network (deep equality)
-- 4 machine roles, 3 difficulty tiers (easy=2, medium=3-4, hard=4-6 machines)
-- 4 entry variants (ssh, ftp, nc, exploit) — entry machine's initial access method varies per seed
+- 5 machine roles (webserver, database, fileserver, workstation, router), 3 difficulty tiers (easy=2, medium=3-4, hard=4-6 internal machines + 1 router)
+- 4 entry variants (ssh, ftp, nc, exploit) — initial access method varies per seed
+- 2 network modes: forwarded (transparent NAT to DMZ) vs router-first (hack the router)
+- Router is infrastructure-only (never the mission target) but has realistic content (firewall rules, routing tables, internal machine hints)
 - Output types match existing `NetworkConfig`, `RemoteMachine`, `FileNode`
 
 ## Mission System Integration
@@ -167,6 +168,7 @@ NC mode (when connected via nc): pwd, cd, ls, cat, whoami, help, exit — read-o
 - Passes `activeMission.fileSystems` to `FileSystemProvider` as `missionFileSystems` prop
 - Passes `activeMission.networkConfig` to `NetworkProvider` as `missionNetworkConfig` prop
 - Passes `activeMission.machines` to `NetworkProvider` as `missionMachines` prop (for correct localhost injection)
+- Passes `activeMission.natForwarding` and `activeMission.routerMachine` to `NetworkProvider` for NAT resolution
 - `MissionProvider` wraps everything, providing mission state + methods to commands via `useMission()` hook
 - On init: checks `storageCache` for persisted seed, regenerates mission if present
 
@@ -184,9 +186,10 @@ SessionProvider → MissionProvider → FileSystemProvider → NetworkProvider �
 
 **NetworkContext integration:**
 
-- Accepts optional `missionNetworkConfig` prop and `missionMachines` prop (array of `GeneratedMachine`)
+- Accepts optional `missionNetworkConfig`, `missionMachines`, `missionNatForwarding`, and `missionRouterMachine` props
 - When resolving config for current machine: checks mission config first, then static config
-- When on localhost with active mission: uses `missionMachines` to get full `RemoteMachine` records (with ports and users) for localhost's reachable machine list, plus merges mission DNS
+- When on localhost with active mission: only the router's public IP is visible (not internal machines). In forwarded mode, the router appears with the entry machine's ports/users so connections are transparent.
+- `resolveNat(ip)` — translates the router's public IP to the internal entry machine IP when port forwarding is active (identity function otherwise). Applied at SSH/FTP/NC connection boundaries in `Terminal.tsx`.
 - `findMachineUsers(ip)` — searches both static config and `missionNetworkConfig` for user lists. Used by `useCommands.ts` for `su` user validation on any machine (static or mission-generated).
 
 **Mission commands:**

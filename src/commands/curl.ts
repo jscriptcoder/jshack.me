@@ -42,14 +42,6 @@ const SERVER_CONFIGS: Readonly<Record<string, ServerConfig>> = {
     serverName: 'nginx/1.18.0 (Ubuntu)',
     extraHeaders: { 'X-Powered-By': 'PHP/7.4.3' },
   },
-  '192.168.1.75': {
-    serverName: 'Apache/2.4.41 (Ubuntu)',
-    extraHeaders: { 'X-Powered-By': 'PHP/7.4.3', 'X-Frame-Options': 'SAMEORIGIN' },
-  },
-  '203.0.113.42': {
-    serverName: 'nginx/1.19.0',
-    extraHeaders: { 'X-Hidden-Service': 'true' },
-  },
 };
 
 const CONTENT_TYPES: Readonly<Record<string, string>> = {
@@ -181,7 +173,7 @@ export const createCurlCommand = (context: CurlContext): Command => ({
     arguments: [
       {
         name: 'url',
-        description: 'URL to fetch (e.g., "http://webserver.local/index.html")',
+        description: 'URL to fetch (e.g., "http://192.168.1.1/")',
         required: true,
       },
       {
@@ -191,22 +183,18 @@ export const createCurlCommand = (context: CurlContext): Command => ({
       },
     ],
     examples: [
-      { command: 'curl("http://webserver.local/")', description: 'Fetch a web page' },
+      { command: 'curl("http://192.168.1.1/")', description: 'Fetch a web page' },
       {
-        command: 'curl("webserver.local/config.php")',
+        command: 'curl("192.168.1.1/index.html")',
         description: 'Fetch without protocol (defaults to http)',
       },
       {
-        command: 'curl("http://webserver.local/", "-i")',
+        command: 'curl("http://192.168.1.1/", "-i")',
         description: 'Include HTTP response headers',
       },
       {
-        command: 'curl("http://webserver.local/api/users", "-X POST")',
+        command: 'curl("http://192.168.1.1/api/users", "-X POST")',
         description: 'POST request to API',
-      },
-      {
-        command: 'curl("http://darknet.ctf:8080/", "-i")',
-        description: 'Fetch from non-standard port',
       },
     ],
   },

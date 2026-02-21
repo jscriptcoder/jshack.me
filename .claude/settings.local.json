@@ -4,7 +4,7 @@
       "Bash(npm run lint)",
       "Bash(npm run format:*)",
       "Bash(npm run test:run:*)",
-      "Bash(npx prettier:*)",
+      "Bash(npm run build:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git push:*)"

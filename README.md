@@ -1,26 +1,18 @@
 # JSHACK.ME
 
-A web-based JavaScript terminal emulator with a retro amber-on-black CRT aesthetic. Execute JavaScript expressions and custom commands in a terminal-like interface, featuring a virtual Unix-like file system and network simulation for CTF-style hacking puzzles.
+A web-based JavaScript terminal emulator with a retro amber-on-black CRT aesthetic. Execute JavaScript expressions and custom commands in a terminal-like interface, featuring a virtual Unix-like file system and network simulation for a mission-based hacking game with procedurally generated contracts.
 
 **Live Demo:** [jshack.me](https://jshack.me)
 
 <p align="center">
-  <img src="assets/demo.gif" alt="CTF playthrough demo" width="600">
+  <img src="assets/demo.gif" alt="Terminal demo" width="600">
 </p>
 
 ## The Challenge
 
-You start as a regular user on a machine connected to a network. Hidden throughout the system are **flags** - secret strings in the format `FLAG{...}` that prove you've successfully completed a challenge.
+You start as a hacker on a local machine. Crack the WiFi, get online, browse the darknet marketplace for contracts, and hack into procedurally generated networks to complete missions.
 
-Your mission:
-
-- **Explore** the local file system for clues
-- **Escalate privileges** to access restricted areas
-- **Discover** other machines on the network
-- **Hack** your way into remote systems
-- **Find all the flags**
-
-Some flags are hidden in plain sight. Others require cracking passwords, exploiting misconfigurations, or pivoting through multiple machines. Use your knowledge of Linux commands, networking, and creative thinking to uncover them all.
+Each mission drops you into a unique network topology with routers, servers, and hidden flags. Use your knowledge of Linux commands, networking, and creative thinking to infiltrate targets and complete contracts.
 
 Start with `help()` to see available commands. Good luck, hacker.
 
@@ -161,13 +153,12 @@ whoami(); // Display current user
 ping('localhost'); // Test connectivity
 
 // SSH to remote machine
-ssh('admin', '192.168.1.1'); // Connect to gateway
+ssh('admin', '45.33.32.100'); // Connect to remote host
 exit(); // Return to previous machine
 
 // HTTP requests
-curl('http://webserver.local/'); // Fetch web page
-curl('webserver.local/config.php', '-i'); // Include headers
-curl('webserver.local/api/users', '-X POST'); // POST to API
+curl('http://45.33.32.100/'); // Fetch web page
+curl('45.33.32.100/status', '-i'); // Include headers
 
 // Edit and execute files
 nano('exploit.js'); // Opens nano-style editor
@@ -175,7 +166,7 @@ nano('exploit.js'); // Opens nano-style editor
 node('exploit.js'); // Execute the file
 
 // FTP file transfer
-ftp('192.168.1.50'); // Connect to fileserver
+ftp('45.33.32.100'); // Connect to remote FTP server
 // In FTP mode:
 ls(); // List remote files
 get('secret.txt'); // Download to local
@@ -187,7 +178,7 @@ quit(); // Exit FTP
 
 Your machine has a wireless interface but it starts disconnected. Before you can reach the network, you'll need to crack a WiFi access point using the aircrack-ng-inspired command suite (`airmon`, `airdump`, `aircrack`).
 
-Once connected, you're on a local network with other machines running different services and hiding their own secrets.
+Once connected, you can browse the darknet marketplace for contracts and accept missions. Each mission generates a unique network with routers, servers, and targets to infiltrate.
 
 Use network reconnaissance commands to:
 
@@ -196,9 +187,8 @@ Use network reconnaissance commands to:
 - Find other machines on the network
 - Identify running services and open ports
 - Connect to remote systems
-- Pivot through machines to reach hidden networks
 
-Each machine has its own network view - interfaces, reachable hosts, and DNS change based on where you are. The deeper you go, the more you discover.
+Each machine has its own network view - interfaces, reachable hosts, and DNS change based on where you are.
 
 ## Development
 
@@ -213,14 +203,14 @@ npm run preview       # Preview production build
 npm test              # Run tests in watch mode
 npm run test:run      # Run tests once
 npm run test:coverage # Run tests with coverage
-npm run test:e2e      # Run Playwright E2E test (full CTF playthrough)
+npm run test:e2e      # Run Playwright E2E tests (mission playthroughs)
 ```
 
 ### Test Coverage
 
-938 unit tests across 65 colocated test files covering terminal commands, hooks, components, utilities, filesystem, persistence, procedural generation, and mission system.
+904 unit tests across 61 colocated test files covering terminal commands, hooks, components, utilities, filesystem, persistence, procedural generation, and mission system.
 
-5 Playwright E2E tests: 1 full CTF playthrough (all 16 flags) + 4 mission playthroughs (SSH, FTP, NC entry variants + mission lifecycle). Run with `--headed` to watch them play:
+4 Playwright E2E tests: mission playthroughs covering SSH, FTP, NC entry variants + mission lifecycle. Run with `--headed` to watch them play:
 
 ```bash
 npx playwright test --headed
@@ -243,8 +233,7 @@ src/
 scripts/
 └── encode.ts               # Pre-build: encodes filesystems + secrets (anti-cheat)
 e2e/
-├── ctf-playthrough.spec.ts     # Playwright E2E (full 16-flag CTF playthrough)
-└── mission-playthrough.spec.ts # Playwright E2E (mission system — all entry variants)
+└── mission-playthrough.spec.ts # Playwright E2E (mission playthroughs — all entry variants)
 ```
 
 ## SEO & Social Sharing
@@ -262,7 +251,6 @@ npx playwright screenshot --viewport-size="1200,630" --full-page public/og-image
 - **[WIP.md](WIP.md)** — Work-in-progress log: session-by-session implementation history and current status
 - **[PLAN.md](PLAN.md)** — Feature roadmap and acceptance criteria
 - **[LEARNINGS.md](LEARNINGS.md)** — Gotchas, patterns that worked, architectural decisions, and testing insights
-- **[docs/archive/](docs/archive/)** — Archived CTF design docs (16-flag tutorial is finalized)
 
 ## Deployment
 

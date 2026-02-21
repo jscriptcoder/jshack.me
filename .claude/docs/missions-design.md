@@ -64,9 +64,10 @@ Inspired by Minecraft's world generation — a seed deterministically generates 
 
 ### What a Seed Determines
 
-1. **Network topology** — Number of machines (2-6), subnet, IP addresses
-2. **Machine roles** — Each machine gets a role that defines its services and filesystem template:
-   - Web server, database server, mail server, file server, workstation, router/firewall, backup server
+1. **Network topology** — A border router with a public IP (45.x.x.x) + 2-6 internal machines on a private subnet (10.x.x.0/24). Two modes: forwarded (router NATs to DMZ) or router-first (hack router to pivot).
+2. **Machine roles** — Each internal machine gets a role that defines its services and filesystem template:
+   - Web server, database server, file server, workstation
+   - The router is always present as infrastructure (role: `'router'`)
 3. **Users** — Realistic usernames per role, password hashes from a wordlist-style pool
 4. **Ports and services** — Which ports are open, what services run (SSH, FTP, HTTP, MySQL, etc.)
 5. **Filesystem content** — Role-based templates with randomized content:
@@ -86,10 +87,10 @@ Inspired by Minecraft's world generation — a seed deterministically generates 
 Seed
  |
  +-- Network Layer
- |   - Subnet (e.g., 172.16.X.0/24)
- |   - Machine count (2-6)
- |   - Machine IPs
- |   - Machine roles (web, db, file, mail, workstation, router, backup)
+ |   - Router with public IP (45.x.x.x) + internal subnet (10.x.x.0/24)
+ |   - Machine count (2-6 internal + 1 router)
+ |   - Network mode (forwarded vs router-first)
+ |   - Machine roles (web, db, file, workstation + router)
  |
  +-- User Layer
  |   - Usernames per machine (role-appropriate: www-data, dbadmin, jsmith, etc.)

@@ -40,7 +40,7 @@ const BANNER = `
 ██   ██║╚════██║██╔══██║██╔══██║██║     ██╔═██╗    ██║╚██╔╝██║██╔══╝
 ╚█████╔╝███████║██║  ██║██║  ██║╚██████╗██║  ██╗██╗██║ ╚═╝ ██║███████╗
  ╚════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝╚═╝     ╚═╝╚══════╝
-                                                              v0.3.0
+                                                              v0.4.0
 
   Type help() for available commands
 `;
@@ -100,7 +100,7 @@ export const Terminal = () => {
     getNodeFromMachine,
     listDirectoryFromMachine,
   } = useFileSystem();
-  const { getMachine, config: networkConfig } = useNetwork();
+  const { getMachine, config: networkConfig, resolveNat } = useNetwork();
   const { activeMission, completeMission } = useMission();
 
   const activeCommandNames =
@@ -294,7 +294,7 @@ export const Terminal = () => {
 
                 if (isNcPrompt(followUp)) {
                   const newNcSession: NcSession = {
-                    targetIP: followUp.targetIP,
+                    targetIP: resolveNat(followUp.targetIP),
                     targetPort: followUp.targetPort,
                     service: followUp.service,
                     username: followUp.username,
@@ -348,6 +348,7 @@ export const Terminal = () => {
       readFile,
       session.userType,
       checkMissionFlag,
+      resolveNat,
     ],
   );
 
@@ -444,7 +445,7 @@ export const Terminal = () => {
         const remoteHomePath = targetUser === 'root' ? '/root' : `/home/${targetUser}`;
 
         const newFtpSession: FtpSession = {
-          remoteMachine: ftpTargetIP,
+          remoteMachine: resolveNat(ftpTargetIP),
           remoteUsername: targetUser,
           remoteUserType: userType,
           remoteCwd: remoteHomePath,
@@ -460,13 +461,16 @@ export const Terminal = () => {
         // Save current session state before switching to remote machine
         pushSession();
 
+        // NAT resolution: if connecting to a router's public IP with port forwarding,
+        // resolve to the internal entry machine IP
+        const resolvedIp = resolveNat(sshTargetIP);
         const machine = getMachine(sshTargetIP);
         const remoteUser = machine?.users.find((u) => u.username === targetUser);
         const userType: UserType = remoteUser?.userType ?? 'user';
-        const homePath = getDefaultHomePath(sshTargetIP, targetUser);
+        const homePath = getDefaultHomePath(resolvedIp, targetUser);
 
         setUsername(targetUser, userType);
-        setMachine(sshTargetIP);
+        setMachine(resolvedIp);
         setCurrentPath(homePath);
         addLine('result', `Connected to ${sshTargetIP}`);
         addLine('result', `Welcome to ${machine?.hostname ?? sshTargetIP}!`);
@@ -521,6 +525,7 @@ export const Terminal = () => {
     enterFtpMode,
     addLine,
     getDefaultHomePath,
+    resolveNat,
   ]);
 
   const handleSubmit = useCallback(() => {

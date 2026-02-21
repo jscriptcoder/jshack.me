@@ -13,6 +13,7 @@ export const usernamesByRole: Readonly<Record<MachineRole, readonly string[]>> =
   database: ['dbadmin', 'postgres', 'mysql', 'dba', 'dataops'],
   fileserver: ['ftpuser', 'backup', 'storage', 'sysadmin', 'fileadm'],
   workstation: ['jsmith', 'admin', 'developer', 'analyst', 'operator'],
+  router: ['netops', 'routeadm', 'admin', 'fwadmin', 'operator'],
 };
 
 export const guestPasswords: readonly string[] = [
@@ -33,6 +34,7 @@ export const hostnamesByRole: Readonly<Record<MachineRole, readonly string[]>> =
   database: ['db-primary', 'db01', 'mysql-prod', 'postgres01', 'datastore'],
   fileserver: ['files01', 'nas', 'backup-srv', 'storage01', 'ftp-main'],
   workstation: ['ws-admin', 'dev-box', 'ops-station', 'analyst-pc', 'jump-box'],
+  router: ['router01', 'gw-main', 'border-gw', 'core-rtr', 'firewall01'],
 };
 
 export const portTemplatesByRole: Readonly<Record<MachineRole, readonly PortTemplate[]>> = {
@@ -54,6 +56,11 @@ export const portTemplatesByRole: Readonly<Record<MachineRole, readonly PortTemp
   workstation: [
     { port: 22, service: 'ssh', open: true },
     { port: 8080, service: 'http-alt', open: false },
+  ],
+  router: [
+    { port: 22, service: 'ssh', open: true },
+    { port: 80, service: 'http', open: true },
+    { port: 8443, service: 'https', open: false },
   ],
 };
 
@@ -103,6 +110,24 @@ export const entryPortTemplates: readonly EntryPortTemplate[] = [
     ports: [
       { port: 22, service: 'ssh', open: true },
       { port: 6379, service: 'redis', open: true },
+    ],
+  },
+];
+
+// Entry port templates when the router itself is the entry point (router-first mode)
+export const routerEntryPortTemplates: readonly EntryPortTemplate[] = [
+  {
+    variant: 'ssh',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 80, service: 'http', open: true },
+    ],
+  },
+  {
+    variant: 'exploit',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 8443, service: 'https', open: true },
     ],
   },
 ];
@@ -159,6 +184,15 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'Elasticsearch 1.4.2',
     },
   },
+  {
+    port: 8443,
+    service: 'https',
+    vulnerability: {
+      cve: 'CVE-2019-11510',
+      description: 'Pulse Secure VPN arbitrary file read',
+      serviceVersion: 'PulseSecure/9.0R1',
+    },
+  },
 ];
 
 export const logTemplates: readonly string[] = [
@@ -187,6 +221,10 @@ export const configTemplatesByRole: Readonly<Record<MachineRole, readonly string
   workstation: [
     'Host *\n  ServerAliveInterval 60\n  ServerAliveCountMax 3',
     'export PS1="\\u@\\h:\\w\\$ "\nexport EDITOR=nano\nexport PATH=$PATH:/usr/local/bin',
+  ],
+  router: [
+    '*filter\n:INPUT DROP [0:0]\n:FORWARD ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n-A INPUT -i lo -j ACCEPT\n-A INPUT -p tcp --dport 22 -j ACCEPT\n-A INPUT -p tcp --dport {{port}} -j ACCEPT\n-A FORWARD -i eth1 -o eth0 -j ACCEPT\n-A FORWARD -i eth0 -o eth1 -m state --state RELATED,ESTABLISHED -j ACCEPT\nCOMMIT',
+    'auto eth0\niface eth0 inet static\n  address {{hostname}}\n  netmask 255.255.255.0\n  gateway 0.0.0.0\n\nauto eth1\niface eth1 inet static\n  address 10.0.0.1\n  netmask 255.255.255.0',
   ],
 };
 
@@ -300,6 +338,25 @@ export const targetFileTemplatesByRole: Readonly<
       path: '/opt/local/secret_notes.txt',
       contentTemplate:
         'Personal notes — DO NOT SHARE\n\nVPN config: vpn.corp.local:1194\nEmergency access code: {{flag}}\nBackup server: 10.0.0.50 (ask Dave for creds)',
+    },
+  ],
+  // Router is infrastructure-only (never the mission target), but the type system
+  // requires target file templates for every role. These are unused in practice.
+  router: [
+    {
+      path: '/opt/router/access_log.txt',
+      contentTemplate:
+        'Router Access Log\n=================\nEmergency override code: {{flag}}\nLast maintenance: 2024-01-15',
+    },
+    {
+      path: '/opt/router/vpn_keys.txt',
+      contentTemplate:
+        'VPN Pre-shared Keys\n===================\nSite-A: {{flag}}\nSite-B: psk_f8a2e7c1',
+    },
+    {
+      path: '/opt/router/backup_config.txt',
+      contentTemplate:
+        '! Router backup configuration\n! Secret: {{flag}}\nhostname border-gw\nno ip domain-lookup',
     },
   ],
 };

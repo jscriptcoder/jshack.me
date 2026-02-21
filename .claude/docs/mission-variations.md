@@ -4,11 +4,11 @@ Comprehensive catalog of all procedural generation variation axes. Use this to t
 
 ## Difficulty Tiers (3)
 
-| Tier   | Machines | Hop Count     |
-| ------ | -------- | ------------- |
-| Easy   | 2        | 1             |
-| Medium | 3–4      | up to 2       |
-| Hard   | 4–6      | all non-entry |
+| Tier   | Internal Machines | Router | Hop Count     | Network Mode                        |
+| ------ | ----------------- | ------ | ------------- | ----------------------------------- |
+| Easy   | 2                 | 1      | 1             | 70% forwarded, 30% router-first     |
+| Medium | 3–4               | 1      | up to 2       | 50% forwarded, 50% router-first     |
+| Hard   | 4–6               | 1      | all non-entry | Always router-first (no forwarding) |
 
 ## Entry Variants (4)
 
@@ -21,16 +21,25 @@ How the player gains initial access to the entry machine.
 | NC      | Connect via netcat backdoor (port 4444), find SSH credentials                       |
 | Exploit | `nmap -sV` → find vulnerable service → `exploit(host, port)` → find SSH credentials |
 
-## Machine Roles (4)
+## Network Modes (2)
 
-| Role        | Default Ports          | Entry-eligible? |
-| ----------- | ---------------------- | --------------- |
-| webserver   | 22, 80, 443            | Yes             |
-| database    | 22, 3306 (5432 closed) | No              |
-| fileserver  | 21, 22 (445 closed)    | No              |
-| workstation | 22 (8080 closed)       | Yes             |
+| Mode         | Description                                                                       |
+| ------------ | --------------------------------------------------------------------------------- |
+| Forwarded    | Router NATs entry ports to the DMZ/entry machine. Player connects transparently.  |
+| Router-first | No forwarding. Player must hack the router first, then pivot to internal network. |
+
+## Machine Roles (5)
+
+| Role        | Default Ports          | Entry-eligible? | Notes                             |
+| ----------- | ---------------------- | --------------- | --------------------------------- |
+| webserver   | 22, 80, 443            | Yes             |                                   |
+| database    | 22, 3306 (5432 closed) | No              |                                   |
+| fileserver  | 21, 22 (445 closed)    | No              |                                   |
+| workstation | 22 (8080 closed)       | Yes             |                                   |
+| router      | 22, 80 (8443 closed)   | No              | Infrastructure only, never target |
 
 Entry machines always use the entry port template instead of the role's default ports.
+Router is always the border device between localhost and the mission network.
 
 ## Entry Port Templates (6)
 
@@ -43,17 +52,27 @@ Entry machines always use the entry port template instead of the role's default 
 | Exploit | 22/ssh, 3306/mysql |
 | Exploit | 22/ssh, 6379/redis |
 
-## Exploit Vulnerabilities (5)
+## Router Entry Port Templates (2)
+
+Used when the router itself is the entry point (router-first mode).
+
+| Variant | Ports              |
+| ------- | ------------------ |
+| SSH     | 22/ssh, 80/http    |
+| Exploit | 22/ssh, 8443/https |
+
+## Exploit Vulnerabilities (6)
 
 Used when entry variant is `exploit`. Matched by port/service.
 
-| CVE            | Service             | Port | Description                 |
-| -------------- | ------------------- | ---- | --------------------------- |
-| CVE-2021-41773 | Apache/2.4.49       | 80   | Path traversal / RCE        |
-| CVE-2012-2122  | MySQL 5.5.23        | 3306 | Auth bypass (memcmp timing) |
-| CVE-2022-0543  | Redis 5.0.7         | 6379 | Lua sandbox escape / RCE    |
-| CVE-2017-5638  | Struts/2.3.31       | 8080 | RCE via Content-Type        |
-| CVE-2015-1427  | Elasticsearch 1.4.2 | 9200 | Groovy sandbox bypass       |
+| CVE            | Service             | Port | Description                      |
+| -------------- | ------------------- | ---- | -------------------------------- |
+| CVE-2021-41773 | Apache/2.4.49       | 80   | Path traversal / RCE             |
+| CVE-2012-2122  | MySQL 5.5.23        | 3306 | Auth bypass (memcmp timing)      |
+| CVE-2022-0543  | Redis 5.0.7         | 6379 | Lua sandbox escape / RCE         |
+| CVE-2017-5638  | Struts/2.3.31       | 8080 | RCE via Content-Type             |
+| CVE-2015-1427  | Elasticsearch 1.4.2 | 9200 | Groovy sandbox bypass            |
+| CVE-2019-11510 | PulseSecure/9.0R1   | 8443 | Arbitrary file read (router VPN) |
 
 ## Objective Types (3)
 
@@ -63,7 +82,7 @@ Used when entry variant is `exploit`. Matched by port/service.
 | tamper     | Modify a target file           |
 | find_flag  | Locate a hidden flag           |
 
-## Target File Templates (12 — 3 per role)
+## Target File Templates (15 — 3 per role)
 
 ### fileserver
 
@@ -97,6 +116,14 @@ Used when entry variant is `exploit`. Matched by port/service.
 | `/opt/projects/internal_report.txt` | Flag in audit finding          |
 | `/opt/local/secret_notes.txt`       | Flag as emergency access code  |
 
+### router (infrastructure-only — unused in practice)
+
+| Path                            | Content Style                |
+| ------------------------------- | ---------------------------- |
+| `/opt/router/access_log.txt`    | Flag as override code        |
+| `/opt/router/vpn_keys.txt`      | Flag as VPN pre-shared key   |
+| `/opt/router/backup_config.txt` | Flag in router backup config |
+
 ## Credential Placement Templates (5)
 
 Where next-hop credentials are hidden on the current machine.
@@ -121,7 +148,7 @@ Used by FTP/NC/exploit variants to place SSH credentials on the entry machine.
 
 ## Name Pools
 
-### Usernames (5 per role, 20 total)
+### Usernames (5 per role, 25 total)
 
 | Role        | Names                                       |
 | ----------- | ------------------------------------------- |
@@ -129,8 +156,9 @@ Used by FTP/NC/exploit variants to place SSH credentials on the entry machine.
 | database    | dbadmin, postgres, mysql, dba, dataops      |
 | fileserver  | ftpuser, backup, storage, sysadmin, fileadm |
 | workstation | jsmith, admin, developer, analyst, operator |
+| router      | netops, routeadm, admin, fwadmin, operator  |
 
-### Hostnames (5 per role, 20 total)
+### Hostnames (5 per role, 25 total)
 
 | Role        | Names                                                |
 | ----------- | ---------------------------------------------------- |
@@ -138,6 +166,7 @@ Used by FTP/NC/exploit variants to place SSH credentials on the entry machine.
 | database    | db-primary, db01, mysql-prod, postgres01, datastore  |
 | fileserver  | files01, nas, backup-srv, storage01, ftp-main        |
 | workstation | ws-admin, dev-box, ops-station, analyst-pc, jump-box |
+| router      | router01, gw-main, border-gw, core-rtr, firewall01   |
 
 ### Guest Passwords (6)
 
@@ -161,9 +190,9 @@ Encoded in `src/secrets/__encoded.ts` — used for machine user passwords.
 
 sshd accepted, sshd failed, sshd closed, CRON, systemd started, kernel link up, sudo
 
-### Config Templates (2 per role, 8 total)
+### Config Templates (2 per role, 10 total)
 
-Role-appropriate server configs (Apache/nginx, MySQL/Postgres, Samba/vsftpd, SSH/bashrc).
+Role-appropriate server configs (Apache/nginx, MySQL/Postgres, Samba/vsftpd, SSH/bashrc, iptables/interfaces).
 
 ## Hint Templates (5)
 
@@ -191,7 +220,6 @@ _Uncomment and implement as needed._
 
 <!-- ### New Machine Roles
 - mail — ports 22/25/143/993, users: postmaster, mailadm
-- router — ports 22/80/8443, users: netops, routeadm
 - ci-server — ports 22/8080/443, users: jenkins, deploy
 - monitoring — ports 22/9090/3000, users: grafana, alertops
 -->

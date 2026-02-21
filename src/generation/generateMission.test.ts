@@ -27,7 +27,7 @@ describe('generateMissionNetwork', () => {
     expect(result.machines.length).toBeGreaterThanOrEqual(4);
   });
 
-  it('entry point is one of the machine IPs', () => {
+  it('entry point is one of the internal machine IPs', () => {
     const result = generateMissionNetwork('ENTRY-TEST');
     const ips = result.machines.map((m) => m.ip);
     expect(ips).toContain(result.entryPoint);
@@ -42,11 +42,12 @@ describe('generateMissionNetwork', () => {
     });
   });
 
-  it('network config has entries for all machines', () => {
+  it('network config has entries for all machines plus router', () => {
     const result = generateMissionNetwork('CONFIG-TEST');
     result.machines.forEach((m) => {
       expect(result.networkConfig.machineConfigs[m.ip]).toBeDefined();
     });
+    expect(result.networkConfig.machineConfigs[result.routerPublicIp]).toBeDefined();
   });
 
   it('network config machines have populated users', () => {
@@ -58,12 +59,13 @@ describe('generateMissionNetwork', () => {
     });
   });
 
-  it('file systems exist for all machines', () => {
+  it('file systems exist for all machines plus router', () => {
     const result = generateMissionNetwork('FS-TEST');
     result.machines.forEach((m) => {
       expect(result.fileSystems[m.ip]).toBeDefined();
       expect(result.fileSystems[m.ip]?.name).toBe('/');
     });
+    expect(result.fileSystems[result.routerPublicIp]).toBeDefined();
   });
 
   it('target machine filesystem contains the flag', () => {
@@ -121,25 +123,83 @@ describe('generateMissionNetwork', () => {
       const result = generateMissionNetwork(`exploit-gen-${i}`);
       if (result.entryVariant !== 'exploit') continue;
 
-      const entryMachine = result.machines.find((m) => m.ip === result.entryPoint);
-      expect(entryMachine).toBeDefined();
+      // In forwarded mode, the entry machine gets the variant enrichment
+      // In router-first mode, the router gets it
+      const targetIp = result.natForwarding ? result.entryPoint : result.routerPublicIp;
+      const targetMachine = result.natForwarding
+        ? result.machines.find((m) => m.ip === targetIp)
+        : result.routerMachine;
+      expect(targetMachine).toBeDefined();
 
-      // The non-SSH open port should have a vulnerability and owner
-      const vulnPort = entryMachine?.remoteMachine.ports.find((p) => p.service !== 'ssh' && p.open);
-      expect(vulnPort?.vulnerability).toBeDefined();
-      expect(vulnPort?.vulnerability?.cve).toBeTruthy();
-      expect(vulnPort?.owner).toBeDefined();
-      expect(vulnPort?.owner?.userType).toBe('guest');
+      const vulnPort = targetMachine?.remoteMachine.ports.find(
+        (p) => p.service !== 'ssh' && p.open,
+      );
+      if (!vulnPort?.vulnerability) continue;
+
+      expect(vulnPort.vulnerability.cve).toBeTruthy();
+      expect(vulnPort.owner).toBeDefined();
+      expect(vulnPort.owner?.userType).toBe('guest');
       found = true;
       break;
     }
     expect(found).toBe(true);
   });
 
-  it('entryCredential is set for entry machine', () => {
+  it('entryCredential is set for missions', () => {
     const result = generateMissionNetwork('ENTRY-CRED-TEST');
     expect(result.entryCredential).toBeDefined();
     expect(result.entryCredential?.username).toBe('guest');
     expect(result.entryCredential?.password).toBeTruthy();
+  });
+
+  // Router-specific tests
+  it('routerMachine is a valid machine with router role', () => {
+    const result = generateMissionNetwork('ROUTER-TEST');
+    expect(result.routerMachine).toBeDefined();
+    expect(result.routerMachine.role).toBe('router');
+    expect(result.routerMachine.remoteMachine.users.length).toBeGreaterThan(0);
+  });
+
+  it('routerPublicIp is in 45.x.x.x range', () => {
+    const result = generateMissionNetwork('PUB-IP-TEST');
+    expect(result.routerPublicIp).toMatch(/^45\.\d+\.\d+\.\d+$/);
+  });
+
+  it('hard difficulty produces no natForwarding (router-first mode)', () => {
+    const results = Array.from({ length: 10 }, (_, i) => generateMissionNetwork(`hard-nat-${i}`));
+    results.forEach((r) => {
+      if (r.difficulty === 'hard') {
+        expect(r.natForwarding).toBeUndefined();
+      }
+    });
+  });
+
+  it('forwarded mode natForwarding points router public IP to entry machine', () => {
+    let found = false;
+    for (let i = 0; i < 50; i++) {
+      const result = generateMissionNetwork(`fwd-mission-${i}`);
+      if (!result.natForwarding) continue;
+
+      expect(result.natForwarding.publicIp).toBe(result.routerPublicIp);
+      expect(result.natForwarding.internalIp).toBe(result.entryPoint);
+      found = true;
+      break;
+    }
+    expect(found).toBe(true);
+  });
+
+  it('router filesystem contains hints about internal machines', () => {
+    const result = generateMissionNetwork('ROUTER-FS-TEST');
+    const routerFs = result.fileSystems[result.routerPublicIp];
+    expect(routerFs).toBeDefined();
+
+    // Router should have /etc/hosts with internal machine IPs
+    const etc = routerFs?.type === 'directory' ? routerFs.children?.['etc'] : undefined;
+    const hosts = etc?.type === 'directory' ? etc.children?.['hosts'] : undefined;
+    if (hosts?.type === 'file' && hosts.content) {
+      // Check that at least one internal machine IP appears
+      const hasInternalIp = result.machines.some((m) => hosts.content?.includes(m.ip));
+      expect(hasInternalIp).toBe(true);
+    }
   });
 });

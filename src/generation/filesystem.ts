@@ -31,6 +31,7 @@ type FilesystemInput = {
   readonly objective: MissionObjective;
   readonly entryPoint: string;
   readonly entryVariant: EntryVariant;
+  readonly routerMachine?: GeneratedMachine;
 };
 
 const mkFile = (
@@ -161,6 +162,7 @@ const buildMachineConfig = (
   placements: readonly CredentialPlacement[],
   isTarget: boolean,
   objective: MissionObjective,
+  internalMachines?: readonly GeneratedMachine[],
 ): MachineFileSystemConfig => {
   const userConfigs: readonly UserConfig[] = users.map((u, i) => ({
     username: u.username,
@@ -194,7 +196,9 @@ const buildMachineConfig = (
         ? 'mysql.cnf'
         : machine.role === 'fileserver'
           ? 'vsftpd.conf'
-          : 'ssh_config';
+          : machine.role === 'router'
+            ? 'iptables.conf'
+            : 'ssh_config';
 
   etcExtraContent[serviceConfigName] = mkFile(serviceConfigName, configContent);
 
@@ -208,6 +212,38 @@ const buildMachineConfig = (
   const varLogContent: Record<string, FileNode> = {
     'auth.log': mkFile('auth.log', logContent),
   };
+
+  // Router machines get a firewall log with hints about internal network traffic
+  if (machine.role === 'router') {
+    const fwLines = Array.from({ length: prng.nextInt(6, 12) }, () => {
+      const srcIp = `10.${prng.nextInt(1, 254)}.${prng.nextInt(1, 254)}.${prng.nextInt(10, 20)}`;
+      const dstPort = prng.pick([22, 80, 443, 3306, 8080]);
+      const action = prng.pick(['ACCEPT', 'ACCEPT', 'DROP']);
+      return `Jan ${prng.nextInt(1, 28)} ${prng.nextInt(0, 23).toString().padStart(2, '0')}:${prng.nextInt(0, 59).toString().padStart(2, '0')}:${prng.nextInt(0, 59).toString().padStart(2, '0')} kernel: [iptables] ${action} IN=eth0 OUT=eth1 SRC=${srcIp} DST=${machine.ip} PROTO=TCP DPT=${dstPort}`;
+    });
+    varLogContent['firewall.log'] = mkFile('firewall.log', fwLines.join('\n'));
+  }
+
+  // Router /etc/hosts contains hints about internal machines
+  if (machine.role === 'router' && internalMachines && internalMachines.length > 0) {
+    const hostsLines = [
+      '127.0.0.1\tlocalhost',
+      `${machine.ip}\t${machine.hostname}`,
+      '',
+      '# Internal network hosts',
+      ...internalMachines.map((m) => `${m.ip}\t${m.hostname}`),
+    ];
+    etcExtraContent['hosts'] = mkFile('hosts', hostsLines.join('\n'));
+
+    // Routing table hint
+    const routeTable = [
+      'Kernel IP routing table',
+      'Destination     Gateway         Genmask         Iface',
+      `0.0.0.0         0.0.0.0         0.0.0.0         eth0`,
+      ...internalMachines.map((m) => `${m.ip}        0.0.0.0         255.255.255.255 eth1`),
+    ];
+    etcExtraContent['route.conf'] = mkFile('route.conf', routeTable.join('\n'));
+  }
 
   const logPlacements = placements.filter((p) => p.filePath.startsWith('/var/log/'));
   logPlacements.forEach((p) => {
@@ -298,6 +334,7 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
     objective,
     entryPoint,
     entryVariant,
+    routerMachine,
   } = input;
 
   const entries = machines.map((machine) => {
@@ -318,6 +355,23 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
 
     return [machine.ip, fileSystem] as const;
   });
+
+  // Generate router filesystem with hints about internal machines
+  if (routerMachine) {
+    const routerUsers = usersByMachine[routerMachine.ip] ?? [];
+    const routerPlacements = credentialPlacements.filter((p) => p.machineIp === routerMachine.ip);
+    const routerConfig = buildMachineConfig(
+      prng,
+      routerMachine,
+      routerUsers,
+      routerPlacements,
+      false,
+      objective,
+      machines,
+    );
+    const routerFs = createFileSystem(routerConfig);
+    return Object.fromEntries([...entries, [routerMachine.ip, routerFs]]);
+  }
 
   return Object.fromEntries(entries);
 };

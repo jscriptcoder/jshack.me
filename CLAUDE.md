@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**JSHACK.ME** is a web-based JavaScript terminal emulator with a retro amber-on-black CRT aesthetic. Features a virtual filesystem with Unix-like permissions for CTF-style hacking puzzles (16 flags). Deployed on Vercel at jshack.me.
+**JSHACK.ME** is a web-based JavaScript terminal emulator with a retro amber-on-black CRT aesthetic. Features a virtual filesystem with Unix-like permissions for mission-based hacking challenges with procedurally generated contracts. Deployed on Vercel at jshack.me.
 
 ## Code Style
 
@@ -71,15 +71,15 @@ Commands are tiered by user type (`src/commands/permissions.ts`):
 
 ### Content Encoding (Anti-Cheat)
 
-Sensitive content is XOR+Base64 encoded at build time to prevent finding `FLAG{` strings or passwords in the JS bundle.
+Sensitive content is XOR+Base64 encoded at build time to prevent finding flag strings or passwords in the JS bundle.
 
-- `npm run encode` generates `src/filesystem/machines/__encoded.ts` and `src/secrets/__encoded.ts` (both gitignored)
+- `npm run encode` generates `src/filesystem/machines/__encoded.ts` (localhost only) and `src/secrets/__encoded.ts` (both gitignored)
 - `predev`/`prebuild`/`pretest`/`pretest:run`/`pretest:coverage` hooks auto-run encode
 - `machineFileSystems.ts` imports from filesystem `__encoded.ts`, not source machine files
 - `wifiNetworks.ts` imports from secrets `__encoded.ts`, not the plaintext `src/secrets/secrets.ts`
 - `pools.ts` imports mission passwords from secrets `__encoded.ts` (not hardcoded in source)
 - Unit tests import source files directly (unaffected by encoding)
-- Verify: `grep -r "FLAG{" dist/` and `grep -r "cr4ck3d_w1f1" dist/` after build should return zero matches
+- Verify: `grep -r "FLAG{" dist/` and `grep -r "cr4ck3d_w1f1" dist/` after build should return zero matches (mission flags are generated at runtime, not embedded in the bundle)
 
 ### Secrets Registry
 
@@ -109,7 +109,7 @@ Session and filesystem state persist to IndexedDB (`jshack-db` database):
 
 ### WiFi Hacking Gate
 
-Network access from localhost requires cracking a WiFi network first. This is a progression gate (not a flag) between flags 3 and 4.
+Network access from localhost requires cracking a WiFi network first. This is a progression gate before network access.
 
 - `session.wifiConnected` (boolean, persisted) tracks WiFi state
 - When `wifiConnected === false` on localhost:
@@ -127,12 +127,14 @@ Network access from localhost requires cracking a WiFi network first. This is a 
 After completing the 16-flag tutorial, players can take on procedurally generated hacker-for-hire contracts from a darknet marketplace.
 
 - **MissionContext** (`src/mission/MissionContext.tsx`) — React context providing `activeMission`, `startMission`, `abortMission`, `completeMission`, `isMissionActive` via `useMission()` hook
-- **App.tsx orchestration** — Mission state lives in `App.tsx`, passed as props to `FileSystemProvider` (`missionFileSystems`) and `NetworkProvider` (`missionNetworkConfig`). `MissionProvider` wraps both for command access.
+- **App.tsx orchestration** — Mission state lives in `App.tsx`, passed as props to `FileSystemProvider` (`missionFileSystems`) and `NetworkProvider` (`missionNetworkConfig`, `missionNatForwarding`, `missionRouterMachine`). `MissionProvider` wraps both for command access.
 - **Generator** — `generateMissionNetwork(seed)` in `src/generation/generateMission.ts` deterministically produces a full network from a seed string
-- **Entry variants** — Entry machine initial access varies: ssh (classic), ftp (find SSH creds via FTP), nc (find SSH creds via backdoor), exploit (scan with `nmap -sV`, exploit vulnerable port). Selected by PRNG per seed.
+- **Router topology** — Every mission has a real, hackable router (role `'router'`) between localhost and internal machines. Router has a public IP (45.x.x.x), dual interfaces (public + internal), filesystem with firewall rules and internal machine hints. Two modes: **forwarded** (easier — NAT ports to DMZ, transparent to player) and **router-first** (harder — must hack router first to reach internal network).
+- **Entry variants** — Entry machine initial access varies: ssh (classic), ftp (find SSH creds via FTP), nc (find SSH creds via backdoor), exploit (scan with `nmap -sV`, exploit vulnerable port). Selected by PRNG per seed. In forwarded mode, variant applies to the internal entry machine; in router-first mode, variant applies to the router.
+- **NAT resolution** — `NetworkContext.resolveNat(ip)` translates router public IP to internal entry IP when forwarding is active. Applied at SSH/FTP/NC connection boundaries in `Terminal.tsx`.
 - **Commands** — `missions()` browses contracts, `accept(seed)` starts a mission, `abort()` cancels and returns to localhost
 - **Completion** — Terminal.tsx scans command output for the mission flag; auto-completes on detection
-- **Isolation** — Mission machines are only reachable from localhost (injected into localhost's config). Mission filesystem patches are excluded from IndexedDB persistence.
+- **Isolation** — From localhost, only the router's public IP is reachable. Internal machines are discovered after connecting to the router or through forwarded ports. Mission filesystem patches are excluded from IndexedDB persistence.
 - **Persistence** — Only the seed string is persisted; full network regenerated on reload
 
 ### Node Execution Circular Dependency

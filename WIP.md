@@ -1,33 +1,65 @@
-# WIP: JSHACK.ME CTF Terminal Game
+# WIP: JSHACK.ME Hacker Terminal Game
 
 ## Current Step
 
-NC mode path autocomplete — tab completion now resolves on the correct remote machine in NC mode
+Remove static CTF content — mission-only game
 
 ## Status
 
-✅ COMPLETE — NC path autocomplete fix (938 unit tests + 5 E2E tests)
+✅ COMPLETE — Static CTF removal (904 unit tests across 61 files)
 
 ## Completed
 
-- [x] Step 1: Core terminal with JavaScript execution
-- [x] Step 2: Virtual file system with permissions
-- [x] Step 3: File system commands (pwd, ls, cd, cat)
-- [x] Step 4: User authentication (su with MD5 hashing)
-- [x] Step 5: Network infrastructure (interfaces, machines, DNS)
-- [x] Step 6: Network commands (ifconfig, ping, nmap, nslookup)
-- [x] Step 7: Remote access (ssh command)
-- [x] Step 8: Place flags in file system
-- [x] Step 9: Add hints and breadcrumbs
-- [x] Step 10: Remote machine file systems
-- [x] Step 11: Additional exploitation commands (exit, ftp, nc)
-- [x] Step 12: Session persistence (IndexedDB, migrated from localStorage)
-- [x] Hidden Network Flags (14-16)
-- [x] Playwright E2E test (full 16-flag CTF playthrough)
-- [x] WiFi hacking gate (airmon, airdump, aircrack)
-- [ ] Step 13: Mission system (procedurally generated contracts)
+- [x] Core terminal with JavaScript execution
+- [x] Virtual file system with permissions
+- [x] File system commands (pwd, ls, cd, cat)
+- [x] User authentication (su with MD5 hashing)
+- [x] Network infrastructure (interfaces, machines, DNS)
+- [x] Network commands (ifconfig, ping, nmap, nslookup)
+- [x] Remote access (ssh command)
+- [x] Additional exploitation commands (exit, ftp, nc, curl, exploit, decrypt, strings, output, resolve)
+- [x] Session persistence (IndexedDB)
+- [x] WiFi hacking gate (airmon, airdump, aircrack, nmcli)
+- [x] Mission system — procedurally generated contracts (seeded generator, router topology, NAT forwarding, entry variants)
+- [x] Remove static CTF content (7 machines, 16 flags, E2E CTF test) — mission-only game
 
-## Recent Session (2026-02-20, Session 8)
+## Recent Session (2026-02-21, Session 10)
+
+Implemented:
+
+- **Remove static CTF content — mission-only game**:
+  - Deleted 7 static machine files (gateway, fileserver, webserver, darknet, shadow, void, abyss) and their tests (11 files total)
+  - Deleted E2E CTF playthrough test (`e2e/ctf-playthrough.spec.ts`)
+  - Simplified `machineFileSystems.ts` to only register localhost + minimal gateway filesystem
+  - Simplified `encode.ts` to only encode localhost
+  - Simplified `initialNetwork.ts` to only localhost + gateway (removed 6 machine configs, 3 DNS zones)
+  - Updated localhost filesystem: removed 3 flags, updated content to point to missions
+  - Updated command examples (curl, ftp, nc, ssh, ping, nslookup) to use generic IPs instead of static machine references
+  - Removed webserver/darknet server configs from curl command
+  - Fixed curl test for per-machine custom headers (now uses gateway IP)
+  - Updated all documentation: README, CLAUDE.md, architecture.md, ctf-design.md, WIP.md, PLAN.md, LEARNINGS.md
+  - **Test count**: 904 unit tests across 61 files + 4 Playwright E2E tests
+
+## Previous Session (2026-02-21, Session 9)
+
+Implemented:
+
+- **Realistic mission network topology (router + DMZ)**:
+  - Every mission now generates a border router between localhost and the internal mission network
+  - Router has a public IP (45.x.x.x), dual interfaces (eth0 public + eth1 internal), its own filesystem with firewall rules, routing tables, and internal machine hints
+  - Two network modes: **forwarded** (easier — router NATs entry ports to DMZ, transparent to player) and **router-first** (harder — must hack router first to reach internal network)
+  - Difficulty-based mode selection: easy 70% forwarded, medium 50%, hard always router-first
+  - Added `'router'` to `MachineRole` union type + `routerPublicIp`, `routerMachine`, `natForwarding` to `MissionNetwork`
+  - Router data pools: usernames, hostnames, port templates, config templates, target file templates, entry port templates, vulnerability template (CVE-2019-11510 Pulse Secure VPN)
+  - `NetworkContext.resolveNat(ip)` translates router public IP to internal entry machine IP when forwarding is active
+  - NAT resolution applied at 3 connection boundaries in `Terminal.tsx`: SSH login, FTP session, NC session
+  - From localhost, only the router's public IP is visible. In forwarded mode, `getMachine(publicIP)` returns a synthetic machine with the entry machine's ports/users
+  - Mission briefing (`accept.ts`) shows router public IP as gateway, with mode-aware hints
+  - Router filesystem contains `/etc/hosts` (internal machine list), `/etc/route.conf` (routing table), `/var/log/firewall.log` (iptables traffic)
+  - Updated all documentation: CLAUDE.md, architecture.md, ctf-design.md, missions-design.md, mission-variations.md
+  - **Test count**: 950 unit tests across 65 files
+
+## Previous Session (2026-02-20, Session 8)
 
 Implemented:
 
@@ -486,34 +518,22 @@ Implemented:
 
 None currently.
 
-## Next Action — Mission System Phase 6
+## Next Action — Mission System Expansion
 
-- [ ] Expand mission types, difficulty tiers, more machine role templates, more vulnerability patterns. See `.claude/docs/missions-design.md` and `PLAN.md` Step 13.
-
-_Hidden network flag specs (14-16) archived to `docs/archive/`. See `.claude/docs/ctf-design.md` for the current CTF reference._
-
----
-
-## Deferred: Victory Tracking
-
-Flag detection, progress display, `flags()` command, victory celebration. See PLAN.md Step 13 for full spec.
+- [ ] Expand mission types, difficulty tiers, more machine role templates, more vulnerability patterns. See `.claude/docs/missions-design.md` and `PLAN.md`.
 
 ---
 
 ## Infrastructure Ready
 
-### Machines with Per-Machine Filesystems
+### Static Machines
 
-| Machine    | IP            | Users                 | Flags                                              |
-| ---------- | ------------- | --------------------- | -------------------------------------------------- |
-| localhost  | 192.168.1.100 | jshacker, root, guest | FLAG 1, 2, 3                                       |
-| gateway    | 192.168.1.1   | admin, guest          | FLAG 4, 5, 6                                       |
-| fileserver | 192.168.1.50  | root, ftpuser, guest  | FLAG 7                                             |
-| webserver  | 192.168.1.75  | root, www-data, guest | FLAG 8, 9, 10                                      |
-| darknet    | 203.0.113.42  | root, ghost, guest    | FLAG 11, 12, 13                                    |
-| shadow     | 10.66.66.1    | root, operator, guest | FLAG 14 — Fix the Script (nano+node debug)         |
-| void       | 10.66.66.2    | root, dbadmin, guest  | FLAG 15 — Script Discovery (nano+node data mining) |
-| abyss      | 10.66.66.3    | root, phantom, guest  | FLAG 16 — Exploit Script (nano+node XOR cipher)    |
+| Machine   | IP            | Users                 | Purpose              |
+| --------- | ------------- | --------------------- | -------------------- |
+| localhost | 192.168.1.100 | jshacker, root, guest | Starting machine     |
+| gateway   | 192.168.1.1   | admin, guest          | Static border router |
+
+All other machines are procedurally generated per mission.
 
 ### Known Passwords (MD5 hashed)
 
@@ -522,41 +542,12 @@ Flag detection, progress display, `flags()` command, victory celebration. See PL
 - guest@localhost: guestpass
 - admin@gateway: n3tgu4rd!
 - guest@gateway: guest2024
-- root@fileserver: b4ckup2024
-- ftpuser@fileserver: tr4nsf3r
-- guest@fileserver: anonymous
-- root@webserver: r00tW3b!
-- www-data@webserver: d3v0ps2024
-- guest@webserver: w3lcome
-- root@darknet: d4rkn3tR00t
-- ghost@darknet: sp3ctr3
-- guest@darknet: sh4d0w
-- root@shadow: sh4d0w_r00t
-- operator@shadow: c0ntr0l_pl4n3
-- guest@shadow: demo
-- root@void: v01d_null
-- dbadmin@void: dr0p_t4bl3s
-- guest@void: demo
-- root@abyss: d33p_d4rk
-- phantom@abyss: sp3ctr4l
-- guest@abyss: demo
 
 ### Test Coverage
 
-- 938 unit tests across 65 colocated test files
-- 5 Playwright E2E tests: 1 CTF playthrough (16 flags + WiFi gate) + 4 mission playthroughs (SSH/FTP/NC variants + lifecycle)
+- 904 unit tests across 61 colocated test files
+- 4 Playwright E2E tests: mission playthroughs (SSH/FTP/NC variants + lifecycle)
 - All commands with logic are tested
-- WiFi commands tested: airmon (9), airdump (6), aircrack (8)
-- FTP subcommands tested (cd, lcd, ls, lls, get, put)
-- NC command and subcommands tested (nc, cat, cd, ls)
-- Curl command tested (27 tests: errors, GET, POST, headers, DNS, async)
-- Exploit command tested (18 tests: validation, DNS, connection errors, async output, cancellation)
-- Decrypt command tested (17 tests)
-- Output command tested (16 tests)
-- Resolve command tested (14 tests)
-- Nano command tested (9 tests: existing/new files, permissions, errors)
-- Node command tested (16 tests: execution, context access, execute permission, errors)
-- NanoEditor component tested (17 tests: rendering, save, exit flow, modified indicator)
 - Async commands tested with fake timers
-- React hooks tested with React Testing Library (useCommandHistory, useVariables, useAutoComplete, usePathAutoComplete)
-- React components tested with React Testing Library (TerminalOutput, TerminalInput, NanoEditor)
+- React hooks and components tested with React Testing Library
+- IndexedDB persistence tested

@@ -21,8 +21,8 @@ describe('accept command', () => {
     const result = accept.fn('MEDTECH-4A7F-easy') as string;
 
     expect(result).toContain('Difficulty: easy');
-    expect(result).toContain('Entry point:');
-    expect(result).toContain('10.');
+    expect(result).toContain('Gateway:');
+    expect(result).toContain('45.');
   });
 
   it('trims whitespace from seed', () => {

@@ -24,8 +24,8 @@ export const createFtpCommand = (context: FtpContext): Command => ({
       { name: 'host', description: 'IP address or hostname of the remote machine', required: true },
     ],
     examples: [
-      { command: 'ftp("192.168.1.50")', description: 'Connect to fileserver via FTP' },
-      { command: 'ftp("fileserver.local")', description: 'Connect using hostname' },
+      { command: 'ftp("10.0.0.5")', description: 'Connect to a remote host via FTP' },
+      { command: 'ftp("target.local")', description: 'Connect using hostname' },
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {

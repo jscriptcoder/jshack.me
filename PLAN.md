@@ -1,8 +1,8 @@
-# Plan: JSHACK.ME CTF Terminal Game
+# Plan: JSHACK.ME Hacker Terminal Game
 
 ## Goal
 
-Build a web-based CTF (Capture The Flag) hacking game where players use a JavaScript terminal to explore a virtual file system, escalate privileges, and hack into remote machines to find 16 hidden flags.
+Build a web-based hacking game where players use a JavaScript terminal to explore a virtual file system, escalate privileges, crack WiFi, and take on procedurally generated hacker-for-hire contracts from a darknet marketplace.
 
 ## Acceptance Criteria
 
@@ -13,15 +13,15 @@ Build a web-based CTF (Capture The Flag) hacking game where players use a JavaSc
 - [x] Network reconnaissance commands (ifconfig, ping, nmap, nslookup)
 - [x] Remote machine access (ssh, ftp, nc)
 - [x] Per-machine file systems with unique content
-- [x] 16 hidden flags with guided progression across 8 machines
 - [x] Command restrictions by user type (guest/user/root tiers)
 - [x] Additional exploitation commands (curl, strings, decrypt, output, resolve, exit)
 - [x] Session and filesystem persistence (IndexedDB)
 - [x] Realistic filesystem noise (configs, logs, dotfiles, red herrings)
 - [x] WiFi hacking gate — aircrack-ng suite (airmon, airdump, aircrack) as network access prerequisite
 - [x] Terminal color theming — `theme()` command with 4 persistent themes (amber, green, cyan, light) via CSS custom properties
-- [x] Unit tests (938 tests across 65 files)
-- [ ] Mission system — procedurally generated hacker-for-hire contracts (see `.claude/docs/missions-design.md`)
+- [x] Unit tests (904 tests across 61 files)
+- [x] Mission system — procedurally generated hacker-for-hire contracts
+- [x] Remove static CTF content — mission-only game
 
 ## Steps
 
@@ -43,7 +43,7 @@ su command with MD5 password hashing, /etc/passwd file per machine.
 
 ### Step 5: Network infrastructure (Done)
 
-NetworkContext with interfaces, remote machines (gateway, fileserver, webserver, darknet), DNS records.
+NetworkContext with interfaces, remote machines, DNS records.
 
 ### Step 6: Network commands (Done)
 
@@ -53,15 +53,7 @@ ifconfig, ping (async), nmap (async), nslookup (async) — all use AsyncOutput s
 
 ssh command with async connection, password authentication, session stack (pushSession/popSession). exit command to return.
 
-### Step 8: Place flags in file system (Done)
-
-16 flags across 8 machines with guided progression. Flag files, encrypted files (AES-256-GCM), binary files for strings.
-
-### Step 9: Add hints and breadcrumbs (Done)
-
-Credential chain: log files, config files, web pages leak passwords for next machine. Each flag hints at the next.
-
-### Step 10: Remote machine file systems (Done)
+### Step 8: Remote machine file systems (Done)
 
 Per-machine filesystems via `machineFileSystems.ts`. FileSystemContext stores ALL machine filesystems in state. Cross-machine methods for FTP/curl.
 
@@ -82,7 +74,7 @@ IndexedDB (`jshack-db` database) with pre-load cache pattern. Session state, ses
 
 ### Step 12b: WiFi hacking gate (Done)
 
-Network access from localhost gated behind WiFi cracking — a progression gate between flags 3 and 4 (no flag awarded). Player must use aircrack-ng-inspired commands:
+Network access from localhost gated behind WiFi cracking — a progression gate before network access. Player must use aircrack-ng-inspired commands:
 
 - **airmon** — Enable/disable monitor mode on wlan0
 - **airdump** — Scan for nearby WiFi networks (async output, 4 networks displayed)
@@ -90,9 +82,9 @@ Network access from localhost gated behind WiFi cracking — a progression gate 
 
 Implementation: `session.wifiConnected` boolean (persisted), localhost uses `wlan0` (not `eth0`) + `lo` loopback, `NetworkContext` gates interfaces/machines/DNS when disconnected, network commands throw "Network is unreachable" until WiFi connected. Monitor mode is transient (`useRef`). WiFi networks defined in `src/network/wifiNetworks.ts`. Hint file at `~/downloads/wifi_tools.txt`.
 
-### Step 13: Mission System (Next)
+### Step 13: Mission System (Done)
 
-Procedurally generated hacker-for-hire contracts with seed-based network generation. The 16 existing flags serve as the introduction/tutorial. Full design: `.claude/docs/missions-design.md`.
+Procedurally generated hacker-for-hire contracts with seed-based network generation. Full design: `.claude/docs/missions-design.md`.
 
 **Phases:**
 
@@ -101,12 +93,13 @@ Procedurally generated hacker-for-hire contracts with seed-based network generat
 3. ~~First mission template (E2E proof of concept — 3 bug fixes making missions playable)~~ ✅ Done
 4. ~~Vulnerability scanning & exploit system (nmap -sV, exploit command, exploit entry variant, guest password variation)~~ ✅ Done
 5. ~~Thematic target paths (role-based target file templates with flags embedded in realistic content)~~ ✅ Done
-6. Expand mission types (tamper, plant, chain missions)
-7. Polish and social (reputation, seed sharing, history)
+6. ~~Realistic network topology (router + DMZ, NAT forwarding, forwarded vs router-first modes)~~ ✅ Done
+7. Expand mission types (tamper, plant, chain missions)
+8. Polish and social (reputation, seed sharing, history)
 
 ## Test Coverage
 
-938 tests across 65 colocated test files:
+904 tests across 61 colocated test files:
 
 - All commands with logic are tested (factory pattern with mock context injection)
 - FTP subcommands tested (cd, lcd, ls, lls, get, put)

@@ -231,11 +231,15 @@ describe('curl command', () => {
     });
 
     it('should include per-machine custom headers with -i flag', () => {
-      const curl = createCurlCommand(createMockCurlContext());
-      const lines = collectAsyncLines(curl.fn('http://webserver.local/', '-i'));
+      const curl = createCurlCommand(
+        createMockCurlContext({
+          machines: [getMockMachine({ ip: '192.168.1.1', hostname: 'gateway' })],
+          dnsRecords: [getMockDnsRecord({ domain: 'gateway.local', ip: '192.168.1.1' })],
+        }),
+      );
+      const lines = collectAsyncLines(curl.fn('http://gateway.local/', '-i'));
       const output = lines.join('\n');
       expect(output).toContain('X-Powered-By: PHP/7.4.3');
-      expect(output).toContain('X-Frame-Options: SAMEORIGIN');
     });
 
     it('should show 404 headers with -i flag', () => {

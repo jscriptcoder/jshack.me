@@ -19,7 +19,7 @@ export const createNslookupCommand = (context: NslookupContext): Command => ({
     arguments: [{ name: 'domain', description: 'The domain name to look up', required: true }],
     examples: [
       { command: 'nslookup("gateway.local")', description: 'Resolve a local domain' },
-      { command: 'nslookup("darknet.ctf")', description: 'Resolve an external domain' },
+      { command: 'nslookup("target.local")', description: 'Resolve a mission domain' },
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {

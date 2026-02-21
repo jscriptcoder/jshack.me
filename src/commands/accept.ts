@@ -8,18 +8,24 @@ type AcceptCommandContext = {
 };
 
 const formatEntryHint = (mission: MissionNetwork): string => {
-  const entryIp = mission.entryPoint;
+  // Always show the router's public IP as the entry point — the player
+  // connects to the public IP regardless of forwarding mode
+  const publicIp = mission.routerPublicIp;
+  const routerHostname = mission.routerMachine.hostname;
   const variant: EntryVariant = mission.entryVariant;
-  const entryMachine = mission.machines.find((m) => m.ip === entryIp);
-  const hostname = entryMachine?.hostname ?? entryIp;
   const guestPassword = mission.entryCredential?.password ?? 'guest';
+  const isForwarded = mission.natForwarding !== undefined;
 
   const entryHints: Readonly<Record<EntryVariant, string>> = {
-    ssh: `> ssh("guest", "${entryIp}")  // password: ${guestPassword}`,
-    ftp: `> ftp("${entryIp}")`,
-    nc: `> nc("${entryIp}", 4444)`,
-    exploit: `> nmap("-sV", "${entryIp}")  // scan for vulnerabilities, then exploit`,
+    ssh: `> ssh("guest", "${publicIp}")  // password: ${guestPassword}`,
+    ftp: `> ftp("${publicIp}")`,
+    nc: `> nc("${publicIp}", 4444)`,
+    exploit: `> nmap("-sV", "${publicIp}")  // scan for vulnerabilities, then exploit`,
   };
+
+  const modeHint = isForwarded
+    ? '  Port forwarding detected — connections route to internal DMZ.'
+    : '  No forwarding — hack the router to reach the internal network.';
 
   return [
     '============================================',
@@ -30,7 +36,8 @@ const formatEntryHint = (mission: MissionNetwork): string => {
     `  Difficulty: ${mission.difficulty}`,
     `  Objective: ${mission.objective.description}`,
     '',
-    `  Entry point: ${hostname} (${entryIp})`,
+    `  Gateway: ${routerHostname} (${publicIp})`,
+    modeHint,
     `  Access: ${entryHints[variant]}`,
     '',
     '  Use nmap() to scan the target network.',
