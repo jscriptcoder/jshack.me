@@ -83,13 +83,28 @@ const generatePublicIp = (prng: Prng): string => {
 
 // Determines whether the mission uses port forwarding (easier) or router-first (harder).
 // Easy: 70% chance of forwarding. Medium: 50%. Hard: always router-first.
-const isForwardedMode = (prng: Prng, difficulty: Difficulty): boolean => {
-  if (difficulty === 'hard') return false;
-  const threshold = difficulty === 'easy' ? 0.7 : 0.5;
-  return prng.next() < threshold;
+// Always consumes one PRNG call to preserve sequence regardless of override.
+const isForwardedMode = (
+  prng: Prng,
+  difficulty: Difficulty,
+  forwardedOverride?: boolean,
+): boolean => {
+  const threshold = difficulty === 'easy' ? 0.7 : difficulty === 'hard' ? 0 : 0.5;
+  const prngResult = prng.next() < threshold;
+  if (forwardedOverride !== undefined) return forwardedOverride;
+  return prngResult;
 };
 
-export const generateTopology = (prng: Prng, difficulty: Difficulty): TopologyResult => {
+export type TopologyOverrides = {
+  readonly entryVariantOverride?: import('./types').EntryVariant;
+  readonly forwardedOverride?: boolean;
+};
+
+export const generateTopology = (
+  prng: Prng,
+  difficulty: Difficulty,
+  overrides: TopologyOverrides = {},
+): TopologyResult => {
   const [minMachines, maxMachines] = machineCountByDifficulty[difficulty];
   const machineCount = prng.nextInt(minMachines, maxMachines);
 
@@ -103,14 +118,26 @@ export const generateTopology = (prng: Prng, difficulty: Difficulty): TopologyRe
   const routerPublicIp = generatePublicIp(prng);
 
   // Forwarding mode decision
-  const forwarded = isForwardedMode(prng, difficulty);
+  const forwarded = isForwardedMode(prng, difficulty, overrides.forwardedOverride);
 
-  // Select entry variant for the entry/DMZ machine
-  const entryTemplate = prng.pick(entryPortTemplates);
+  // Select entry variant for the entry/DMZ machine.
+  // Always consume PRNG picks to preserve sequence, then apply override if set.
+  const prngEntryTemplate = prng.pick(entryPortTemplates);
+  const entryTemplate = overrides.entryVariantOverride
+    ? (entryPortTemplates.find((t) => t.variant === overrides.entryVariantOverride) ??
+      prngEntryTemplate)
+    : prngEntryTemplate;
   const internalEntryVariant = entryTemplate.variant;
 
-  // In router-first mode, the player-facing entry variant applies to the router
-  const routerTemplate = forwarded ? null : prng.pick(routerEntryPortTemplates);
+  // In router-first mode, the player-facing entry variant applies to the router.
+  // Always consume PRNG pick for router template to preserve sequence.
+  const prngRouterTemplate = forwarded ? null : prng.pick(routerEntryPortTemplates);
+  const routerTemplate = forwarded
+    ? null
+    : overrides.entryVariantOverride
+      ? (routerEntryPortTemplates.find((t) => t.variant === overrides.entryVariantOverride) ??
+        prngRouterTemplate)
+      : prngRouterTemplate;
   const entryVariant = forwarded ? internalEntryVariant : (routerTemplate?.variant ?? 'ssh');
 
   // Build internal machines (entry + others)

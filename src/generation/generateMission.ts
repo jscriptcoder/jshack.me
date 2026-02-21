@@ -4,17 +4,56 @@ import { generateTopology } from './topology';
 import { generateUsers } from './users';
 import { generateAttackChain } from './attackChain';
 import { generateFileSystems } from './filesystem';
-import type { Difficulty, GeneratedMachine, MissionNetwork } from './types';
+import type { Difficulty, GeneratedMachine, MissionNetwork, SeedOverrides } from './types';
 import type { Port, RemoteMachine, RemoteUser } from '../network/types';
 import { vulnerabilityTemplates } from './pools';
 
-// Derives difficulty from seed string: explicit keywords ('easy'/'hard') take priority,
-// otherwise falls back to a simple character-sum hash mod 3. The double-mod `((hash % 3) + 3) % 3`
-// handles negative values from the bitwise `|0` coercion.
-const deriveDifficulty = (seed: string): Difficulty => {
+// Parses keyword overrides from the seed string. Keywords are case-insensitive
+// and matched via `includes()`. This lets players and devs control generation
+// axes by embedding keywords in the seed (e.g. "HEIST-ssh-forwarded-tamper-hard").
+export const parseSeedOverrides = (seed: string): SeedOverrides => {
   const lower = seed.toLowerCase();
-  if (lower.includes('easy')) return 'easy';
-  if (lower.includes('hard')) return 'hard';
+
+  const difficulty = lower.includes('easy')
+    ? 'easy'
+    : lower.includes('medium')
+      ? 'medium'
+      : lower.includes('hard')
+        ? 'hard'
+        : undefined;
+
+  const entryVariant = lower.includes('exploit')
+    ? 'exploit'
+    : lower.includes('ftp')
+      ? 'ftp'
+      : lower.includes('nc')
+        ? 'nc'
+        : lower.includes('ssh')
+          ? 'ssh'
+          : undefined;
+
+  const forwarded = lower.includes('forwarded')
+    ? true
+    : lower.includes('router-first')
+      ? false
+      : undefined;
+
+  const objectiveType = lower.includes('exfiltrate')
+    ? 'exfiltrate'
+    : lower.includes('tamper')
+      ? 'tamper'
+      : lower.includes('credential-theft')
+        ? 'credential_theft'
+        : undefined;
+
+  return { difficulty, entryVariant, forwarded, objectiveType };
+};
+
+// Derives difficulty from seed overrides or falls back to a simple character-sum
+// hash mod 3. The double-mod `((hash % 3) + 3) % 3` handles negative values
+// from the bitwise `|0` coercion.
+const deriveDifficulty = (seed: string, overrides: SeedOverrides): Difficulty => {
+  if (overrides.difficulty) return overrides.difficulty;
   let hash = 0;
   for (let i = 0; i < seed.length; i++) {
     hash = (hash + seed.charCodeAt(i)) | 0;
@@ -129,9 +168,13 @@ const enrichMachineWithUsers = (
 
 export const generateMissionNetwork = (seed: string): MissionNetwork => {
   const prng = createPrng(seed);
-  const difficulty = deriveDifficulty(seed);
+  const overrides = parseSeedOverrides(seed);
+  const difficulty = deriveDifficulty(seed, overrides);
 
-  const topology = generateTopology(prng, difficulty);
+  const topology = generateTopology(prng, difficulty, {
+    entryVariantOverride: overrides.entryVariant,
+    forwardedOverride: overrides.forwarded,
+  });
 
   // Generate users for internal machines
   const { usersByMachine, credentials } = generateUsers(
@@ -208,6 +251,7 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
     entryPoint: topology.entryPoint,
     entryVariant: topology.entryVariant,
     difficulty,
+    objectiveTypeOverride: overrides.objectiveType,
   });
 
   const fileSystems = generateFileSystems({

@@ -2,6 +2,19 @@
 
 Comprehensive catalog of all procedural generation variation axes. Use this to track what exists and plan additions.
 
+## Seed Keywords
+
+All four major generation axes can be controlled by embedding keywords in the seed string (case-insensitive, matched via `includes()`). `parseSeedOverrides(seed)` in `generateMission.ts` extracts overrides. PRNG sequence is preserved — calls are consumed but results discarded in favor of overrides.
+
+| Axis          | Keywords                                   | Notes                                                     |
+| ------------- | ------------------------------------------ | --------------------------------------------------------- |
+| Difficulty    | `easy`, `medium`, `hard`                   | Falls back to hash-based derivation without keyword       |
+| Entry variant | `ssh`, `ftp`, `nc`, `exploit`              | Falls back if template unavailable (e.g. nc+router-first) |
+| Network mode  | `forwarded`, `router-first`                | Hyphenated to avoid false matches                         |
+| Objective     | `exfiltrate`, `tamper`, `credential-theft` | Hyphen variant for credential_theft                       |
+
+Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`
+
 ## Difficulty Tiers (3)
 
 | Tier   | Internal Machines | Router | Hop Count     | Network Mode                        |

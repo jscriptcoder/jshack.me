@@ -137,7 +137,7 @@ NC mode (when connected via nc): pwd, cd, ls, cat, whoami, help, exit — read-o
 
 `src/generation/` contains the engine for procedurally generating mission networks from a seed string.
 
-**Pipeline**: `generateMissionNetwork(seed)` composes these steps:
+**Pipeline**: `generateMissionNetwork(seed)` composes these steps. Seeds can embed keywords to override generation axes (difficulty, entry variant, network mode, objective type) — see `parseSeedOverrides()` in `generateMission.ts`.
 
 1. **PRNG** (`prng.ts`) — Mulberry32 PRNG seeded via FNV-1a hash of the seed string. Provides `next()`, `nextInt()`, `pick()`, `pickN()`, `shuffle()`.
 2. **Topology** (`topology.ts`) — Generates a router with a public IP (45.x.x.x) and internal machines on a private subnet (`10.x.x.0/24`). The router is a real `GeneratedMachine` with role `'router'`, dual interfaces (public eth0 + internal eth1), its own filesystem, and users. Internal machines have roles (webserver/database/fileserver/workstation). Two network modes are supported: **forwarded** (easier — router NATs ports to the entry/DMZ machine, player connects transparently) and **router-first** (harder — no forwarding, player must hack the router to reach internal machines). Selects an entry variant (ssh/ftp/nc/exploit) and builds `NetworkConfig` with interfaces, DNS, and per-machine reachability. Internal machines see each other + router's internal gateway IP but NOT the router's public IP.

@@ -19,6 +19,7 @@ type AttackChainInput = {
   readonly entryPoint: string;
   readonly entryVariant: EntryVariant;
   readonly difficulty: Difficulty;
+  readonly objectiveTypeOverride?: MissionObjectiveType;
 };
 
 type AttackChainResult = {
@@ -223,7 +224,15 @@ const buildObjective = (
 };
 
 export const generateAttackChain = (input: AttackChainInput): AttackChainResult => {
-  const { prng, machines, credentials, entryPoint, entryVariant, difficulty } = input;
+  const {
+    prng,
+    machines,
+    credentials,
+    entryPoint,
+    entryVariant,
+    difficulty,
+    objectiveTypeOverride,
+  } = input;
 
   const clientEmail = generateClientEmail(prng);
   const objectiveTypes: readonly MissionObjectiveType[] = [
@@ -242,7 +251,9 @@ export const generateAttackChain = (input: AttackChainInput): AttackChainResult 
       password: 'r00tpass',
     };
 
-    const objectiveType = prng.pick(objectiveTypes);
+    // Always consume PRNG pick to preserve sequence, then apply override
+    const prngObjectiveType = prng.pick(objectiveTypes);
+    const objectiveType = objectiveTypeOverride ?? prngObjectiveType;
     const objective = buildObjective(prng, objectiveType, target, credentials, clientEmail);
 
     return {
@@ -313,7 +324,9 @@ export const generateAttackChain = (input: AttackChainInput): AttackChainResult 
     });
   }
 
-  const objectiveType = prng.pick(objectiveTypes);
+  // Always consume PRNG pick to preserve sequence, then apply override
+  const prngObjectiveType = prng.pick(objectiveTypes);
+  const objectiveType = objectiveTypeOverride ?? prngObjectiveType;
   const objective = buildObjective(prng, objectiveType, targetMachine, credentials, clientEmail);
 
   return {

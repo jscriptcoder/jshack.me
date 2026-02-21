@@ -442,6 +442,13 @@
 - **Solution**: Added `data-testid` attributes to output elements (`terminal-banner`, `terminal-result`, `terminal-command`, `terminal-error`, `nano-status`) and updated E2E selectors to use them
 - **Key insight**: E2E selectors should never depend on styling classes. Use `data-testid` attributes for test targeting — they survive CSS refactors, theme changes, and class renames. This is the same lesson as the custom cursor removal (line 163) but for E2E instead of unit tests.
 
+### PRNG sequence preservation for seed keyword overrides
+
+- **What**: When a seed keyword overrides a PRNG decision (e.g., `easy` forcing difficulty, `ssh` forcing entry variant), the PRNG call is still consumed but its result is discarded in favor of the override
+- **Why it works**: Seeds without keywords produce identical networks as before (no regression). Seeds with keywords only change the overridden axis; everything downstream stays deterministic from the same PRNG sequence position.
+- **Pattern**: `const prngResult = prng.pick(options); const actual = override ?? prngResult;`
+- **Key insight**: In a deterministic PRNG pipeline, skipping a call shifts ALL downstream values. By always consuming the call, you keep the sequence stable for non-overridden decisions. This only matters for seeds without keywords (backward compatibility); seeds with keywords are new and don't need to match any prior output.
+
 ### Readonly types throughout
 
 - **What**: All type properties marked `readonly`, arrays as `readonly T[]`

@@ -23,7 +23,24 @@ Remove static CTF content — mission-only game
 - [x] Mission system — procedurally generated contracts (seeded generator, router topology, NAT forwarding, entry variants)
 - [x] Remove static CTF content (7 machines, 16 flags, E2E CTF test) — mission-only game
 
-## Recent Session (2026-02-21, Session 10)
+## Recent Session (2026-02-21, Session 11)
+
+Implemented:
+
+- **Seed keywords for mission generation control**:
+  - Players and devs can embed keywords in seed strings to override all four major generation axes
+  - Difficulty: `easy`, `medium`, `hard` (refactored existing parser into unified `parseSeedOverrides`)
+  - Entry variant: `ssh`, `ftp`, `nc`, `exploit` (falls back if template unavailable, e.g. `nc` in router-first mode)
+  - Network mode: `forwarded`, `router-first` (hyphenated to avoid false matches)
+  - Objective type: `exfiltrate`, `tamper`, `credential-theft` (hyphen variant for credential_theft)
+  - `SeedOverrides` type in `types.ts`, `parseSeedOverrides()` exported from `generateMission.ts`
+  - PRNG sequence preserved: override calls consume the PRNG roll but discard the result, so existing seeds produce identical networks
+  - Overrides passed through `generateTopology` (via `TopologyOverrides`) and `generateAttackChain` (via `objectiveTypeOverride` field)
+  - Debug script (`dumpMission.ts`) shows active overrides in overview section
+  - Example: `accept("HEIST-ssh-forwarded-tamper-hard")` forces SSH entry, forwarded mode, tamper objective, hard difficulty
+  - **Test count**: 941 unit tests across 63 files (all passing, no regressions)
+
+## Previous Session (2026-02-21, Session 10)
 
 Implemented:
 

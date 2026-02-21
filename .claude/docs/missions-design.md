@@ -123,6 +123,21 @@ Seed
      - Noise files and logs
 ```
 
+### Seed Keywords
+
+Seeds can embed keywords (case-insensitive) to control generation axes:
+
+| Axis          | Keywords                                   | Notes                                               |
+| ------------- | ------------------------------------------ | --------------------------------------------------- |
+| Difficulty    | `easy`, `medium`, `hard`                   | Unified in `parseSeedOverrides`                     |
+| Entry variant | `ssh`, `ftp`, `nc`, `exploit`              | Falls back if template unavailable for network mode |
+| Network mode  | `forwarded`, `router-first`                | Hyphenated to avoid false matches                   |
+| Objective     | `exfiltrate`, `tamper`, `credential-theft` | Hyphen variant for credential_theft                 |
+
+Example: `accept("HEIST-ssh-forwarded-tamper-hard")` forces SSH entry, forwarded mode, tamper objective, hard difficulty.
+
+PRNG sequence is preserved — override calls still consume the PRNG roll but discard the result, so seeds without keywords produce identical networks as before.
+
 ### Seed Sharing
 
 Seeds are visible to the player — they can share seeds with friends for the same challenge. This adds:

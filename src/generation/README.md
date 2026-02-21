@@ -47,7 +47,7 @@ Derived from the seed string (or explicit keywords):
 - **medium** — 3-4 machines, up to 2 hops
 - **hard** — 4-6 machines, full chain
 
-Seeds containing "easy" or "hard" force that difficulty; otherwise derived from a hash of the seed.
+Seeds containing "easy", "medium", or "hard" force that difficulty; otherwise derived from a hash of the seed. See "Seed Keywords" below for controlling other axes.
 
 ## Machine Roles
 
@@ -80,3 +80,18 @@ The entry machine's initial access method varies per seed:
 SSH is always available on the entry machine. FTP/NC/exploit variants place credential hint files (from `entryCredentialHintTemplates` in `pools.ts`) that leak SSH credentials for the same machine. The exploit variant additionally attaches a `Vulnerability` (from `vulnerabilityTemplates`) and a `ServiceOwner` to the vulnerable port.
 
 NC and exploit variants select a variable owner type via PRNG: guest (60%), user (30%), or root (10%). This adds difficulty variety — guest owners have limited file visibility, while root owners can read root-only files. Root owners have hints placed in `/tmp/` instead of their home directory.
+
+## Seed Keywords
+
+Players and developers can embed keywords in the seed string to control generation axes. Keywords are case-insensitive and matched via `includes()`. `parseSeedOverrides(seed)` extracts all overrides in one pass.
+
+| Axis          | Keywords                                   | Notes                                                     |
+| ------------- | ------------------------------------------ | --------------------------------------------------------- |
+| Difficulty    | `easy`, `medium`, `hard`                   | Same as before, now unified in parser                     |
+| Entry variant | `ssh`, `ftp`, `nc`, `exploit`              | Falls back if template unavailable (e.g. nc+router-first) |
+| Network mode  | `forwarded`, `router-first`                | Hyphenated to avoid false matches                         |
+| Objective     | `exfiltrate`, `tamper`, `credential-theft` | Hyphen variant for credential_theft                       |
+
+Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`
+
+PRNG sequence is preserved when overrides are active — the PRNG call is always consumed, but its result is discarded in favor of the override. Seeds without keywords produce identical networks as before.

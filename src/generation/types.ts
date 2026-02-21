@@ -71,3 +71,10 @@ export type NatForwarding = {
   readonly publicIp: string;
   readonly internalIp: string;
 };
+
+export type SeedOverrides = {
+  readonly difficulty?: Difficulty;
+  readonly entryVariant?: EntryVariant;
+  readonly forwarded?: boolean;
+  readonly objectiveType?: MissionObjectiveType;
+};

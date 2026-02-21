@@ -7,7 +7,7 @@
  * and full filesystem trees with ANSI colors.
  */
 
-import { generateMissionNetwork } from '../src/generation/generateMission';
+import { generateMissionNetwork, parseSeedOverrides } from '../src/generation/generateMission';
 import type { FileNode } from '../src/filesystem/types';
 import type {
   AttackStep,
@@ -112,7 +112,14 @@ const heading = (title: string): void => {
 
 const printOverview = (net: MissionNetwork): void => {
   heading('OVERVIEW');
+  const overrides = parseSeedOverrides(net.seed);
+  const activeOverrides = Object.entries(overrides)
+    .filter(([, v]) => v !== undefined)
+    .map(([k, v]) => `${k}=${String(v)}`);
   console.log(`  Seed:            ${yellow(net.seed)}`);
+  if (activeOverrides.length > 0) {
+    console.log(`  Overrides:       ${magenta(activeOverrides.join(', '))}`);
+  }
   console.log(`  Difficulty:      ${net.difficulty}`);
   console.log(`  Entry variant:   ${cyan(net.entryVariant)}`);
   console.log(`  Entry point:     ${net.entryPoint}`);
