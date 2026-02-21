@@ -65,8 +65,8 @@ User input flows through `Terminal.tsx`:
 
 Commands are tiered by user type (`src/commands/permissions.ts`):
 
-- **guest**: help, man, echo, whoami, pwd, ls, cd, cat, su, clear, author
-- **user**: All guest + ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, exploit, strings, output, resolve, exit, nano, node, airmon, airdump, aircrack, nmcli, missions, accept, abort, mail
+- **guest**: help, man, echo, whoami, pwd, ls, cd, cat, su, clear, author, exit
+- **user**: All guest + ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, exploit, strings, output, resolve, nano, node, airmon, airdump, aircrack, nmcli, missions, accept, abort, mail
 - **root**: All user + decrypt
 
 ### Content Encoding (Anti-Cheat)
