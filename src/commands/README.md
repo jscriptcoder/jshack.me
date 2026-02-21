@@ -8,11 +8,11 @@ Commands use a factory pattern with context injection: `createXCommand(context) 
 
 Commands are tiered by user type. Restricted commands show `permission denied: 'name' requires TYPE privileges` and are hidden from `help()` and tab autocomplete. `man()` can still look up any command.
 
-| Tier     | User Type | Available Commands                                                                                                                                                             |
-| -------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Basic    | `guest`   | help, man, echo, whoami, pwd, ls, cd, cat, su, clear, author, theme, exit                                                                                                      |
-| Standard | `user`    | All basic + ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, exploit, strings, output, resolve, nano, node, airmon, airdump, aircrack, nmcli, missions, accept, abort, mail |
-| Full     | `root`    | All standard + decrypt                                                                                                                                                         |
+| Tier     | User Type | Available Commands                                                                                                                                                                   |
+| -------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Basic    | `guest`   | help, man, echo, whoami, pwd, ls, cd, cat, su, clear, author, theme, exit                                                                                                            |
+| Standard | `user`    | All basic + ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, exploit, strings, output, resolve, nano, node, john, airmon, airdump, aircrack, nmcli, missions, accept, abort, mail |
+| Full     | `root`    | All standard + decrypt                                                                                                                                                               |
 
 FTP and NC modes have their own separate command sets and are not restricted.
 
@@ -53,6 +53,7 @@ FTP and NC modes have their own separate command sets and are not restricted.
 | strings | `strings.ts` | `strings(file, [min])` | Extract printable strings from binary files             |
 | nano    | `nano.ts`    | `nano(path)`           | Open file in nano-style text editor overlay             |
 | node    | `node.ts`    | `node(path)`           | Execute a JavaScript file (requires execute permission) |
+| john    | `john.ts`    | `john(file)`           | Crack password hashes using dictionary attack (async)   |
 
 ## User Management
 

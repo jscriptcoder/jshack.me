@@ -34,6 +34,7 @@ export const COMMAND_TIERS: Readonly<Record<string, UserType>> = {
   aircrack: 'user',
   nmcli: 'user',
   exploit: 'user',
+  john: 'user',
   missions: 'user',
   accept: 'user',
   abort: 'user',
