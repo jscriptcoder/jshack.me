@@ -137,7 +137,7 @@ NC mode (when connected via nc): pwd, cd, ls, cat, whoami, help, exit — read-o
 
 `src/generation/` contains the engine for procedurally generating mission networks from a seed string.
 
-**Pipeline**: `generateMissionNetwork(seed)` composes these steps. Seeds can embed keywords to override generation axes (difficulty, entry variant, network mode, objective type) — see `parseSeedOverrides()` in `generateMission.ts`.
+**Pipeline**: `generateMissionNetwork(seed)` composes these steps. Seeds can embed keywords to override generation axes (difficulty, entry variant, network mode, objective type, domain entry) — see `parseSeedOverrides()` in `generateMission.ts`.
 
 1. **PRNG** (`prng.ts`) — Mulberry32 PRNG seeded via FNV-1a hash of the seed string. Provides `next()`, `nextInt()`, `pick()`, `pickN()`, `shuffle()`.
 2. **Topology** (`topology.ts`) — Generates a router with a public IP (45.x.x.x) and internal machines on a private subnet (`10.x.x.0/24`). The router is a real `GeneratedMachine` with role `'router'`, dual interfaces (public eth0 + internal eth1), its own filesystem, and users. Internal machines have roles (webserver/database/fileserver/workstation). Two network modes are supported: **forwarded** (easier — router NATs ports to the entry/DMZ machine, player connects transparently) and **router-first** (harder — no forwarding, player must hack the router to reach internal machines). Selects an entry variant (ssh/ftp/nc/exploit) and builds `NetworkConfig` with interfaces, DNS, and per-machine reachability. Internal machines see each other + router's internal gateway IP but NOT the router's public IP.
@@ -145,7 +145,7 @@ NC mode (when connected via nc): pwd, cd, ls, cat, whoami, help, exit — read-o
 4. **Attack Chain** (`attackChain.ts`) — Picks a target machine, builds an attack path (entry → intermediates → target), assigns access methods based on entry variant for the first hop (ssh/ftp/nc/exploit) and ssh for subsequent hops, plans credential placements. Generates objective per type: exfiltrate (ACCESS-KEY in target file), tamper (file with old/new values from `tamperFileTemplatesByRole`), or credential_theft (root password). Generates client email from `clientHandles` pool.
 5. **Filesystems** (`filesystem.ts`) — Builds `FileNode` trees per machine using the existing `createFileSystem()` factory. Injects role-based configs, credential breadcrumbs, noise files, red herrings, entry credential hints (for FTP/NC/exploit entry variants), and the target file at a dynamic path (for exfiltrate/tamper objectives; skipped for credential_theft).
 
-**Output**: `MissionNetwork` containing seed, difficulty, machines, filesystems, network config, attack chain, objective, clientEmail, and entry variant. Same seed always produces identical output.
+**Output**: `MissionNetwork` containing seed, difficulty, machines, filesystems, network config, attack chain, objective, clientEmail, entry variant, routerDomain, and domainEntry flag. Same seed always produces identical output.
 
 **Data Pools** (`pools.ts`) — Static arrays for usernames, hostnames, guest passwords, client handles, port templates, entry port templates (ssh/ftp/nc/exploit variants), vulnerability templates (real CVEs with service versions), entry credential hint templates, log templates, config templates, noise/red-herring files, target file templates by role (with `{{access_key}}` placeholder for exfiltrate), and tamper file templates by role (with `{{tamperOldValue}}` placeholder). Mission passwords are imported from `src/secrets/__encoded.ts` (encoded at build time via the secrets registry) to prevent bundle inspection.
 
@@ -195,7 +195,7 @@ SessionProvider → MissionProvider → FileSystemProvider → NetworkProvider �
 **Mission commands:**
 
 - `missions()` — displays hardcoded darknet contract board (missions added incrementally with e2e tests)
-- `accept(seed)` — generates network from seed, passes `MissionNetwork` to `startMission`, displays briefing with entry point, client email, and objective-specific instructions
+- `accept(seed)` — generates network from seed, passes `MissionNetwork` to `startMission`, displays briefing with entry point, client email, and objective-specific instructions. Domain entry mode shows router domain + nslookup hint instead of IP + entry variant command.
 - `abort()` — pops all sessions back to localhost, clears mission state
 - `mail(recipient, content)` — submits proof to the client to complete a mission. Verifies proof based on objective type.
 

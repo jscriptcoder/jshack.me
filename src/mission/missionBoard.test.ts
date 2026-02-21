@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { MISSION_BOARD, formatMissionBoard } from './missionBoard';
 
 describe('missionBoard', () => {
-  it('has 2 listings', () => {
-    expect(MISSION_BOARD).toHaveLength(2);
+  it('has 3 listings', () => {
+    expect(MISSION_BOARD).toHaveLength(3);
   });
 
   it('each listing has required fields', () => {

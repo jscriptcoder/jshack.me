@@ -32,6 +32,15 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'GRADE-TAMPER-74',
     briefingVariantOverride: 'ssh',
   },
+  {
+    id: '003',
+    client: 'cyph3rpunk',
+    clientEmail: 'cyph3rpunk@darkmail.onion',
+    target: 'Nexus Financial — trading platform',
+    objective: 'Steal credentials from the trading server',
+    difficulty: '** (Medium)',
+    seed: 'NEXUS-domain-credential-theft',
+  },
 ];
 
 export const formatMissionBoard = (listings: readonly MissionListing[]): string => {

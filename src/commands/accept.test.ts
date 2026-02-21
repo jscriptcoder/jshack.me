@@ -22,7 +22,8 @@ describe('accept command', () => {
 
     expect(result).toContain('Difficulty: easy');
     expect(result).toContain('Gateway:');
-    expect(result).toContain('45.');
+    // Gateway shows either IP or domain depending on domain entry mode
+    expect(result).toMatch(/45\.|\.mission/);
     expect(result).toContain('Reply to:');
     expect(result).toContain('@darkmail.onion');
   });
@@ -72,6 +73,18 @@ describe('accept command', () => {
 
     expect(accept.name).toBe('accept');
     expect(accept.description).toBeTruthy();
+  });
+
+  it('shows nslookup hint for domain entry missions', () => {
+    const startMission = vi.fn();
+    const accept = createAcceptCommand({ startMission, isMissionActive: () => false });
+    // "domain" keyword forces domain entry mode
+    const result = accept.fn('test-domain-easy') as string;
+
+    expect(result).toContain('nslookup(');
+    expect(result).toContain('.mission');
+    // Should NOT show the IP in the gateway line
+    expect(result).not.toMatch(/Gateway:.*45\./);
   });
 
   it('uses briefingVariantOverride for board missions', () => {

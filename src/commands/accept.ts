@@ -39,11 +39,15 @@ export const formatMissionBriefing = (
   variantOverride?: EntryVariant,
 ): string => {
   const publicIp = mission.routerPublicIp;
-  const routerHostname = mission.routerMachine.hostname;
   const variant: EntryVariant = variantOverride ?? mission.entryVariant;
   const entryUser = mission.entryCredential?.username ?? 'guest';
   const entryPassword = mission.entryCredential?.password ?? 'guest';
   const isForwarded = mission.natForwarding !== undefined;
+
+  // Domain mode: show domain + nslookup hint; IP mode: show IP + entry variant command
+  const gatewayLine = mission.domainEntry
+    ? `  Gateway: ${mission.routerDomain}`
+    : `  Gateway: ${mission.routerMachine.hostname} (${publicIp})`;
 
   const entryHints: Readonly<Record<EntryVariant, string>> = {
     ssh: `> ssh("${entryUser}", "${publicIp}")  // password: ${entryPassword}`,
@@ -51,6 +55,10 @@ export const formatMissionBriefing = (
     nc: `> nc("${publicIp}", 4444)`,
     exploit: `> nmap("-sV", "${publicIp}")  // scan for vulnerabilities, then exploit`,
   };
+
+  const accessLine = mission.domainEntry
+    ? `  Access: > nslookup("${mission.routerDomain}")  // resolve the target first`
+    : `  Access: ${entryHints[variant]}`;
 
   const modeHint = isForwarded
     ? '  Port forwarding detected — connections route to internal DMZ.'
@@ -68,9 +76,9 @@ export const formatMissionBriefing = (
     '',
     formatObjectiveHint(mission),
     '',
-    `  Gateway: ${routerHostname} (${publicIp})`,
+    gatewayLine,
     modeHint,
-    `  Access: ${entryHints[variant]}`,
+    accessLine,
     '',
     '  Use nmap() to scan the target network.',
     '  Use abort() to cancel the mission.',

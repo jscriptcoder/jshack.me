@@ -133,6 +133,7 @@ Seeds can embed keywords (case-insensitive) to control generation axes:
 | Entry variant | `ssh`, `ftp`, `nc`, `exploit`              | Falls back if template unavailable for network mode |
 | Network mode  | `forwarded`, `router-first`                | Hyphenated to avoid false matches                   |
 | Objective     | `exfiltrate`, `tamper`, `credential-theft` | Hyphen variant for credential_theft                 |
+| Domain entry  | `domain`                                   | Briefing shows domain + nslookup hint instead of IP |
 
 Example: `accept("HEIST-ssh-forwarded-tamper-hard")` forces SSH entry, forwarded mode, tamper objective, hard difficulty.
 

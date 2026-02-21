@@ -65,6 +65,8 @@ export type MissionNetwork = {
   readonly routerPublicIp: string;
   readonly routerMachine: GeneratedMachine;
   readonly natForwarding?: NatForwarding;
+  readonly routerDomain: string;
+  readonly domainEntry: boolean;
 };
 
 export type NatForwarding = {
@@ -77,4 +79,5 @@ export type SeedOverrides = {
   readonly entryVariant?: EntryVariant;
   readonly forwarded?: boolean;
   readonly objectiveType?: MissionObjectiveType;
+  readonly domainEntry?: boolean;
 };

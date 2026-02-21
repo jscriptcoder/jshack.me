@@ -4,7 +4,7 @@ Comprehensive catalog of all procedural generation variation axes. Use this to t
 
 ## Seed Keywords
 
-All four major generation axes can be controlled by embedding keywords in the seed string (case-insensitive, matched via `includes()`). `parseSeedOverrides(seed)` in `generateMission.ts` extracts overrides. PRNG sequence is preserved — calls are consumed but results discarded in favor of overrides.
+All five major generation axes can be controlled by embedding keywords in the seed string (case-insensitive, matched via `includes()`). `parseSeedOverrides(seed)` in `generateMission.ts` extracts overrides. PRNG sequence is preserved — calls are consumed but results discarded in favor of overrides.
 
 | Axis          | Keywords                                   | Notes                                                     |
 | ------------- | ------------------------------------------ | --------------------------------------------------------- |
@@ -12,8 +12,9 @@ All four major generation axes can be controlled by embedding keywords in the se
 | Entry variant | `ssh`, `ftp`, `nc`, `exploit`              | Falls back if template unavailable (e.g. nc+router-first) |
 | Network mode  | `forwarded`, `router-first`                | Hyphenated to avoid false matches                         |
 | Objective     | `exfiltrate`, `tamper`, `credential-theft` | Hyphen variant for credential_theft                       |
+| Domain entry  | `domain`                                   | Forces domain-based briefing (nslookup required)          |
 
-Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`
+Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`, `NEXUS-domain-credential-theft`
 
 ## Difficulty Tiers (3)
 
@@ -45,6 +46,18 @@ Owner type for NC backdoor and exploit port owners varies per seed, adding diffi
 | root  | 10%    | Can read root-owned files, easiest to find what's needed         |
 
 Root owners have hints placed in `/tmp/` instead of `/home/root/` (since root's home is `/root/`, not managed by `generateHomeContent`).
+
+## Domain Entry Mode
+
+When domain entry is active, the mission briefing shows the router's `.mission` domain instead of its public IP, forcing the player to use `nslookup()` to discover the target IP before connecting.
+
+| Difficulty | PRNG Chance (no keyword) |
+| ---------- | ------------------------ |
+| Easy       | 30%                      |
+| Medium     | 50%                      |
+| Hard       | 70%                      |
+
+With the `domain` seed keyword, domain entry is always active. Without it, PRNG decides based on difficulty. The entry variant hint (ssh/ftp/nc/exploit) is NOT shown in domain mode — the player must discover the IP via nslookup, then figure out the rest using nmap.
 
 ## Network Modes (2)
 
@@ -253,12 +266,13 @@ Each hint is paired with its credential placement template so the hint always de
 - Check {{localUser}}'s home directory on {{machine}} for notes → `/home/{{localUser}}/notes.txt`
 - Look in /etc/maintenance.conf on {{machine}} for hardcoded credentials → `/etc/maintenance.conf`
 
-## Board Missions (2 hardcoded, more to be added with e2e tests)
+## Board Missions (3 hardcoded, more to be added with e2e tests)
 
-| Seed              | Client  | Difficulty | Notes                                        |
-| ----------------- | ------- | ---------- | -------------------------------------------- |
-| MEDTECH-4A7F-easy | xR0gu3x | Easy       |                                              |
-| GRADE-TAMPER-74   | gh0st\_ | Medium     | briefingVariantOverride: ssh (hides exploit) |
+| Seed                          | Client     | Difficulty | Notes                                        |
+| ----------------------------- | ---------- | ---------- | -------------------------------------------- |
+| MEDTECH-4A7F-easy             | xR0gu3x    | Easy       |                                              |
+| GRADE-TAMPER-74               | gh0st\_    | Medium     | briefingVariantOverride: ssh (hides exploit) |
+| NEXUS-domain-credential-theft | cyph3rpunk | Medium     | Domain entry (nslookup required)             |
 
 Players can also use any arbitrary seed string via `accept("any-string")`.
 

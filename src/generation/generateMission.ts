@@ -46,7 +46,9 @@ export const parseSeedOverrides = (seed: string): SeedOverrides => {
         ? 'credential_theft'
         : undefined;
 
-  return { difficulty, entryVariant, forwarded, objectiveType };
+  const domainEntry = lower.includes('domain') ? true : undefined;
+
+  return { difficulty, entryVariant, forwarded, objectiveType, domainEntry };
 };
 
 // Derives difficulty from seed overrides or falls back to a simple character-sum
@@ -282,6 +284,13 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
         ? entryCredentials.find((c) => c.username === portOwner.username)
         : entryCredentials.find((c) => c.username === 'guest');
 
+  // Domain entry: when active, briefing shows router domain instead of IP.
+  // Always consume a PRNG call to preserve sequence regardless of override.
+  const domainRoll = prng.next();
+  const domainThreshold = difficulty === 'easy' ? 0.3 : difficulty === 'medium' ? 0.5 : 0.7;
+  const domainEntry = overrides.domainEntry ?? domainRoll < domainThreshold;
+  const routerDomain = `${topology.routerMachine.hostname}.mission`;
+
   return {
     seed,
     difficulty,
@@ -297,5 +306,7 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
     routerPublicIp: topology.routerPublicIp,
     routerMachine: routerWithUsers,
     natForwarding: topology.natForwarding,
+    routerDomain,
+    domainEntry,
   };
 };

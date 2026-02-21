@@ -1,6 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { generateMissionNetwork } from './generateMission';
+import { generateMissionNetwork, parseSeedOverrides } from './generateMission';
 import type { FileNode } from '../filesystem/types';
+
+describe('parseSeedOverrides', () => {
+  it('parses domain keyword', () => {
+    expect(parseSeedOverrides('test-domain').domainEntry).toBe(true);
+    expect(parseSeedOverrides('DOMAIN-MISSION').domainEntry).toBe(true);
+  });
+
+  it('returns undefined domainEntry without keyword', () => {
+    expect(parseSeedOverrides('test-mission').domainEntry).toBeUndefined();
+  });
+});
 
 describe('generateMissionNetwork', () => {
   it('same seed produces identical output (determinism)', () => {
@@ -198,6 +209,27 @@ describe('generateMissionNetwork', () => {
   it('routerPublicIp is in 45.x.x.x range', () => {
     const result = generateMissionNetwork('PUB-IP-TEST');
     expect(result.routerPublicIp).toMatch(/^45\.\d+\.\d+\.\d+$/);
+  });
+
+  it('routerDomain is hostname.mission format', () => {
+    const result = generateMissionNetwork('DOMAIN-FORMAT-TEST');
+    expect(result.routerDomain).toMatch(/^.+\.mission$/);
+    expect(result.routerDomain).toBe(`${result.routerMachine.hostname}.mission`);
+  });
+
+  it('seed containing "domain" forces domainEntry true', () => {
+    const result = generateMissionNetwork('test-domain-mission');
+    expect(result.domainEntry).toBe(true);
+  });
+
+  it('domainEntry varies across seeds without keyword', () => {
+    const results = Array.from({ length: 200 }, (_, i) =>
+      generateMissionNetwork(`VARY-ENTRY-${i}`),
+    );
+    const trueCount = results.filter((r) => r.domainEntry).length;
+    const falseCount = results.filter((r) => !r.domainEntry).length;
+    expect(trueCount).toBeGreaterThan(0);
+    expect(falseCount).toBeGreaterThan(0);
   });
 
   it('hard difficulty produces no natForwarding (router-first mode)', () => {
