@@ -16,6 +16,7 @@ const PRIVILEGE_LABEL: Readonly<Record<UserType, string>> = {
 // Commands not listed here are unrestricted (available to all user types)
 export const COMMAND_TIERS: Readonly<Record<string, UserType>> = {
   // user-level commands
+  apt: 'user',
   ifconfig: 'user',
   ping: 'user',
   nmap: 'user',

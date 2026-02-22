@@ -15,6 +15,8 @@ export type MachineFileSystemConfig = {
   readonly varLogContent?: Readonly<Record<string, FileNode>>;
   readonly etcExtraContent?: Readonly<Record<string, FileNode>>;
   readonly extraDirectories?: Readonly<Record<string, FileNode>>;
+  readonly binContent?: Readonly<Record<string, FileNode>>;
+  readonly usrBinContent?: Readonly<Record<string, FileNode>>;
   readonly passwdReadableBy?: readonly UserType[];
 };
 
@@ -45,16 +47,41 @@ const createHomeDirectories = (
   return Object.fromEntries(regularUsers.map((user) => [user.username, createHomeDirectory(user)]));
 };
 
-export const createFileSystem = (config: MachineFileSystemConfig): FileNode => ({
-  name: '/',
-  type: 'directory',
-  owner: 'root',
-  permissions: {
-    read: ['root', 'user', 'guest'],
-    write: ['root'],
-    execute: ['root', 'user', 'guest'],
-  },
-  children: {
+const BIN_DIR_PERMISSIONS = {
+  read: ['root', 'user', 'guest'] as readonly UserType[],
+  write: ['root'] as readonly UserType[],
+  execute: ['root', 'user', 'guest'] as readonly UserType[],
+};
+
+// For overlapping directory keys (e.g., both factory and extraDirectories define 'usr'),
+// merge their children one level deep instead of overwriting. Non-overlapping keys are
+// added as-is. This prevents mission generation's extraDirectories (which use /usr/local/bin/)
+// from overwriting the factory-created /usr/ directory.
+const mergeExtraDirectories = (
+  factoryChildren: Readonly<Record<string, FileNode>>,
+  extras: Readonly<Record<string, FileNode>> | undefined,
+): Readonly<Record<string, FileNode>> => {
+  if (!extras) return factoryChildren;
+
+  const result = { ...factoryChildren };
+
+  Object.entries(extras).forEach(([key, extraNode]) => {
+    const existing = result[key];
+    if (existing && existing.type === 'directory' && extraNode.type === 'directory') {
+      result[key] = {
+        ...existing,
+        children: { ...existing.children, ...extraNode.children },
+      };
+    } else {
+      result[key] = extraNode;
+    }
+  });
+
+  return result;
+};
+
+export const createFileSystem = (config: MachineFileSystemConfig): FileNode => {
+  const factoryChildren: Record<string, FileNode> = {
     root: {
       name: 'root',
       type: 'directory',
@@ -135,6 +162,39 @@ export const createFileSystem = (config: MachineFileSystemConfig): FileNode => (
       },
       children: {},
     },
-    ...config.extraDirectories,
-  },
-});
+    bin: {
+      name: 'bin',
+      type: 'directory',
+      owner: 'root',
+      permissions: BIN_DIR_PERMISSIONS,
+      children: config.binContent ?? {},
+    },
+    usr: {
+      name: 'usr',
+      type: 'directory',
+      owner: 'root',
+      permissions: BIN_DIR_PERMISSIONS,
+      children: {
+        bin: {
+          name: 'bin',
+          type: 'directory',
+          owner: 'root',
+          permissions: BIN_DIR_PERMISSIONS,
+          children: config.usrBinContent ?? {},
+        },
+      },
+    },
+  };
+
+  return {
+    name: '/',
+    type: 'directory',
+    owner: 'root',
+    permissions: {
+      read: ['root', 'user', 'guest'],
+      write: ['root'],
+      execute: ['root', 'user', 'guest'],
+    },
+    children: mergeExtraDirectories(factoryChildren, config.extraDirectories),
+  };
+};

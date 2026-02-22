@@ -21,6 +21,7 @@ import {
   redHerringFiles,
 } from './pools';
 import { binaryCredentialPaths, wrapInBinaryNoise } from './binary';
+import { createBinaryEntries, SYSTEM_UTILITY_NAMES } from '../commands/availability';
 
 type FilesystemInput = {
   readonly prng: Prng;
@@ -305,6 +306,7 @@ const buildMachineConfig = (
     varLogContent,
     etcExtraContent,
     extraDirectories: Object.keys(extraDirectories).length > 0 ? extraDirectories : undefined,
+    binContent: createBinaryEntries(SYSTEM_UTILITY_NAMES),
     passwdReadableBy: ['root', 'user'],
   };
 };

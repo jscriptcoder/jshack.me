@@ -1,5 +1,12 @@
 import type { FileNode } from './types';
 import { localhost } from './machines/__encoded';
+import { createBinaryEntries, SYSTEM_UTILITY_NAMES } from '../commands/availability';
+
+const BIN_DIR_PERMISSIONS = {
+  read: ['root', 'user', 'guest'] as const,
+  write: ['root'] as const,
+  execute: ['root', 'user', 'guest'] as const,
+};
 
 // Minimal gateway filesystem — gateway is a static border router for localhost
 const gatewayFs: FileNode = {
@@ -58,6 +65,28 @@ Mar 15 09:00:03 gateway sshd[1002]: Accepted password for admin
 `,
             },
           },
+        },
+      },
+    },
+    bin: {
+      name: 'bin',
+      type: 'directory',
+      owner: 'root',
+      permissions: BIN_DIR_PERMISSIONS,
+      children: createBinaryEntries(SYSTEM_UTILITY_NAMES),
+    },
+    usr: {
+      name: 'usr',
+      type: 'directory',
+      owner: 'root',
+      permissions: BIN_DIR_PERMISSIONS,
+      children: {
+        bin: {
+          name: 'bin',
+          type: 'directory',
+          owner: 'root',
+          permissions: BIN_DIR_PERMISSIONS,
+          children: {},
         },
       },
     },

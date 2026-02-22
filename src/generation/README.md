@@ -24,7 +24,7 @@ const mission = generateMissionNetwork('HEIST-7734');
 2. **Topology** (`topology.ts`) — Flat subnet, machine count by difficulty, roles, IPs, interfaces, DNS, entry variant selection (ssh/ftp/nc/exploit)
 3. **Users** (`users.ts`) — Root + 1-2 role-appropriate users per machine, md5-hashed passwords. Guest passwords picked from `guestPasswords` pool (not hardcoded).
 4. **Attack Chain** (`attackChain.ts`) — Path from entry to target, access methods based on entry variant, credential placements, objective generation (exfiltrate with ACCESS-KEY, tamper with old/new values, credential_theft with root password), client email generation
-5. **Filesystems** (`filesystem.ts`) — FileNode trees with role configs, credential breadcrumbs, entry credential hints (for FTP/NC/exploit variants), noise, target file at dynamic path with thematic content
+5. **Filesystems** (`filesystem.ts`) — FileNode trees with role configs, credential breadcrumbs, entry credential hints (for FTP/NC/exploit variants), noise, target file at dynamic path with thematic content. `/bin/` is populated with system utility binaries; `/usr/bin/` is left empty (players must `apt install` tools).
 
 ## Files
 

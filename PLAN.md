@@ -19,9 +19,10 @@ Build a web-based hacking game where players use a JavaScript terminal to explor
 - [x] Realistic filesystem noise (configs, logs, dotfiles, red herrings)
 - [x] WiFi hacking gate — aircrack-ng suite (airmon, airdump, aircrack) as network access prerequisite
 - [x] Terminal color theming — `theme()` command with 4 persistent themes (amber, green, cyan, light) via CSS custom properties
-- [x] Unit tests (904 tests across 61 files)
+- [x] Unit tests (984 tests across 66 files)
 - [x] Mission system — procedurally generated hacker-for-hire contracts
 - [x] Remove static tutorial content — mission-only game
+- [x] Tool availability — `apt install` for hacking tools on remote machines
 
 ## Steps
 
@@ -99,7 +100,7 @@ Procedurally generated hacker-for-hire contracts with seed-based network generat
 
 ## Test Coverage
 
-904 tests across 61 colocated test files:
+984 tests across 66 colocated test files:
 
 - All commands with logic are tested (factory pattern with mock context injection)
 - FTP subcommands tested (cd, lcd, ls, lls, get, put)

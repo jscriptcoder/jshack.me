@@ -15,8 +15,14 @@ import { createMissionsCommand } from '../commands/missions';
 import { createAcceptCommand } from '../commands/accept';
 import { createAbortCommand } from '../commands/abort';
 import { createMailCommand } from '../commands/mail';
+import { createAptCommand } from '../commands/apt';
 import { useMission } from '../mission';
 import { applyCommandRestrictions, getAccessibleCommandNames } from '../commands/permissions';
+import {
+  APT_INSTALLABLE,
+  isCommandInstalled,
+  wrapWithInstallCheck,
+} from '../commands/availability';
 import { useFileSystemCommands } from './useFileSystemCommands';
 import { useNetworkCommands } from './useNetworkCommands';
 import { useWifiCommands } from './useWifiCommands';
@@ -40,7 +46,8 @@ export const useCommands = (): UseCommandsResult => {
   const wifiCommands = useWifiCommands();
   const { session, setTheme, popAllSessions } = useSession();
   const { findMachineUsers } = useNetwork();
-  const { resolvePath, getNode, readFileFromMachine } = useFileSystem();
+  const { resolvePath, getNode, readFileFromMachine, createFile, getNodeFromMachine } =
+    useFileSystem();
   const { isMissionActive, startMission, abortMission, completeMission, activeMission } =
     useMission();
 
@@ -102,6 +109,16 @@ export const useCommands = (): UseCommandsResult => {
       }),
     );
 
+    commands.set(
+      'apt',
+      createAptCommand({
+        getMachine: () => session.machine,
+        getNode,
+        createFile,
+        getUserType: () => session.userType,
+      }),
+    );
+
     fileSystemCommands.forEach((cmd, name) => commands.set(name, cmd));
     networkCommands.forEach((cmd, name) => commands.set(name, cmd));
     wifiCommands.forEach((cmd, name) => commands.set(name, cmd));
@@ -121,6 +138,22 @@ export const useCommands = (): UseCommandsResult => {
     commands.set('help', helpCommand);
     commands.set('man', manCommand);
 
+    // Wrap apt-installable commands with install check — must run before permission
+    // restrictions so wrapping order is: permission (outermost) → install check → command
+    APT_INSTALLABLE.forEach((name) => {
+      const cmd = commands.get(name);
+      if (cmd) {
+        commands.set(
+          name,
+          wrapWithInstallCheck(
+            cmd,
+            name,
+            () => !isCommandInstalled(name, session.machine, getNodeFromMachine),
+          ),
+        );
+      }
+    });
+
     const restrictedCommands = applyCommandRestrictions(commands, session.userType);
 
     const executionContext: Record<string, (...args: unknown[]) => unknown> = Object.fromEntries(
@@ -138,10 +171,13 @@ export const useCommands = (): UseCommandsResult => {
     wifiCommands,
     getUsers,
     session.userType,
+    session.machine,
     session.theme,
     setTheme,
     resolvePath,
     getNode,
+    getNodeFromMachine,
+    createFile,
     isMissionActive,
     startMission,
     abortMission,

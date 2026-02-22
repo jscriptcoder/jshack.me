@@ -1,5 +1,10 @@
 import type { FileNode } from '../types';
 import { createFileSystem, type MachineFileSystemConfig } from '../fileSystemFactory';
+import {
+  createBinaryEntries,
+  SYSTEM_UTILITY_NAMES,
+  APT_TOOL_NAMES,
+} from '../../commands/availability';
 
 const jshackerHome: Readonly<Record<string, FileNode>> = {
   'README.txt': {
@@ -152,6 +157,8 @@ const localhostConfig: MachineFileSystemConfig = {
       uid: 1001,
     }, // guestpass
   ],
+  binContent: createBinaryEntries(SYSTEM_UTILITY_NAMES),
+  usrBinContent: createBinaryEntries(APT_TOOL_NAMES),
   passwdReadableBy: ['root', 'user'],
   etcExtraContent: {
     hostname: {

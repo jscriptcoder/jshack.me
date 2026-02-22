@@ -2,11 +2,11 @@
 
 ## Current Step
 
-Remove static tutorial content — mission-only game
+Tool availability system — `apt install` on remote machines
 
 ## Status
 
-✅ COMPLETE — Static tutorial removal (904 unit tests across 61 files)
+✅ COMPLETE — apt command + tool availability system (984 unit tests across 66 files)
 
 ## Completed
 
@@ -23,7 +23,25 @@ Remove static tutorial content — mission-only game
 - [x] Mission system — procedurally generated contracts (seeded generator, router topology, NAT forwarding, entry variants)
 - [x] Remove static CTF content (7 machines, 16 flags, E2E CTF test) — mission-only game
 
-## Recent Session (2026-02-21, Session 11)
+## Recent Session (2026-02-22, Session 12)
+
+Implemented:
+
+- **Tool availability system — `apt install` on remote machines**:
+  - On remote/mission machines, hacking tools (nmap, john, nc, ftp, exploit, etc.) are not pre-installed — players must `apt('install', '<tool>')` as root
+  - `src/commands/availability.ts` — Command categorization (shell builtins, system utilities, apt-installable, game-specific), `isCommandInstalled()` filesystem check, `wrapWithInstallCheck()` HOF, binary stub constants, `createBinaryEntries()` helper
+  - `src/commands/apt.ts` — `apt('install', pkg)` with async install animation, `apt('list')` / `apt('list', '--installed')`, root-only install enforcement
+  - `src/filesystem/fileSystemFactory.ts` — Added `/bin/` and `/usr/bin/` directories to all machine filesystems. `mergeExtraDirectories()` helper for one-level-deep directory merging (prevents mission `extraDirectories` from overwriting factory `/usr/`)
+  - Localhost: `/bin/` has system utilities, `/usr/bin/` has all apt-installable tools (pre-installed)
+  - Gateway: `/bin/` has system utilities, `/usr/bin/` empty
+  - Mission machines: `/bin/` has system utilities, `/usr/bin/` empty (must `apt install`)
+  - Install check wrapping in `useCommands.ts` follows existing `wrapWithWifiCheck` pattern
+  - Wrapping order: permission (outermost) → install check → command execution
+  - 22 new tests (apt: 12, availability: 10)
+  - **Version bump**: 0.5.0 → 0.6.0
+  - **Test count**: 984 unit tests across 66 files
+
+## Previous Session (2026-02-21, Session 11)
 
 Implemented:
 
@@ -562,7 +580,7 @@ All other machines are procedurally generated per mission.
 
 ### Test Coverage
 
-- 904 unit tests across 61 colocated test files
+- 984 unit tests across 66 colocated test files
 - 4 Playwright E2E tests: mission playthroughs (SSH/FTP/NC variants + lifecycle)
 - All commands with logic are tested
 - Async commands tested with fake timers
