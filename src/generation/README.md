@@ -92,11 +92,16 @@ Players and developers can embed keywords in the seed string to control generati
 | Entry variant | `ssh`, `ftp`, `nc`, `exploit`              | Falls back if template unavailable (e.g. nc+router-first) |
 | Network mode  | `forwarded`, `router-first`                | Hyphenated to avoid false matches                         |
 | Objective     | `exfiltrate`, `tamper`, `credential-theft` | Hyphen variant for credential_theft                       |
+| Encryption    | `decrypt`                                  | Forces exfiltrate + encrypted target file                 |
 
-Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`
+Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`, `IRONGATE-nc-decrypt-22`
 
 PRNG sequence is preserved when overrides are active — the PRNG call is always consumed, but its result is discarded in favor of the override. Seeds without keywords produce identical networks as before.
 
+## Encrypted Exfiltrate
+
+Exfiltrate objectives have a ~25% chance (or 100% with `decrypt` keyword) of encrypting the target file. The decryption key is placed on a different machine in the attack path (~25% chance of binary wrapping). Players must find the key, escalate to root, and use `decrypt(file, key)` to reveal the ACCESS-KEY. The encryption uses a deterministic XOR+FNV-1a checksum scheme (`src/utils/crypto.ts`) — same key always produces identical ciphertext.
+
 ## Binary File Wrapping
 
-Some credential breadcrumbs (~30%), exfiltrate targets (~25%), and entry credential hints (~20%) are wrapped in binary noise. `cat` shows garbled output; `strings` extracts the readable data. Binary files use deep paths that look like compiled binaries (e.g., `/usr/local/bin/monitor_agent`, `/opt/lib/libauth.so`). Hints for binary placements mention the `strings` command. See `binary.ts` for the wrapping utility and path pools.
+Some credential breadcrumbs (~30%), exfiltrate targets (~25%), entry credential hints (~20%), and encryption keys (~25%) are wrapped in binary noise. `cat` shows garbled output; `strings` extracts the readable data. Binary files use deep paths that look like compiled binaries (e.g., `/usr/local/bin/monitor_agent`, `/opt/lib/libauth.so`). Hints for binary placements mention the `strings` command. See `binary.ts` for the wrapping utility and path pools.

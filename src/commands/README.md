@@ -48,7 +48,7 @@ FTP and NC modes have their own separate command sets and are not restricted.
 | cd      | `cd.ts`      | `cd([path])`           | Change current directory                                |
 | cat     | `cat.ts`     | `cat(path)`            | Display file contents                                   |
 | whoami  | `whoami.ts`  | `whoami()`             | Display current username                                |
-| decrypt | `decrypt.ts` | `decrypt(file, key)`   | Decrypt file using AES-256-GCM (async)                  |
+| decrypt | `decrypt.ts` | `decrypt(file, key)`   | Decrypt file using AES-256 (async)                      |
 | output  | `output.ts`  | `output(cmd, [file])`  | Capture command output to variable or file              |
 | strings | `strings.ts` | `strings(file, [min])` | Extract printable strings from binary files             |
 | nano    | `nano.ts`    | `nano(path)`           | Open file in nano-style text editor overlay             |

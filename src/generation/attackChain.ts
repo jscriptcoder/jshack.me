@@ -7,11 +7,23 @@ import type {
   Difficulty,
   EntryVariant,
   GeneratedMachine,
+  KeyPlacement,
   MissionObjective,
   MissionObjectiveType,
 } from './types';
-import { clientHandles, targetFileTemplatesByRole, tamperFileTemplatesByRole } from './pools';
-import { binaryCredentialPaths, binaryHintTemplates, binaryTargetPaths } from './binary';
+import {
+  clientHandles,
+  keyPlacementTemplates,
+  targetFileTemplatesByRole,
+  tamperFileTemplatesByRole,
+} from './pools';
+import {
+  binaryCredentialPaths,
+  binaryHintTemplates,
+  binaryKeyPaths,
+  binaryTargetPaths,
+} from './binary';
+import { encryptContent, bytesToHex } from '../utils/crypto';
 
 type AttackChainInput = {
   readonly prng: Prng;
@@ -21,6 +33,7 @@ type AttackChainInput = {
   readonly entryVariant: EntryVariant;
   readonly difficulty: Difficulty;
   readonly objectiveTypeOverride?: MissionObjectiveType;
+  readonly encryptedOverride?: boolean;
 };
 
 type AttackChainResult = {
@@ -153,6 +166,42 @@ const generateClientEmail = (prng: Prng): string => {
   return `${handle}@darkmail.onion`;
 };
 
+// Generates a deterministic 64-char hex key (32 bytes) from PRNG.
+const generateEncryptionKey = (prng: Prng): string => {
+  const bytes = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) {
+    bytes[i] = prng.nextInt(0, 255);
+  }
+  return bytesToHex(bytes);
+};
+
+// Builds a key placement on a machine different from the target.
+const buildKeyPlacement = (
+  prng: Prng,
+  keyHex: string,
+  keyMachine: GeneratedMachine,
+  credentials: CredentialMap,
+): KeyPlacement => {
+  const template = prng.pick(keyPlacementTemplates);
+  const machineCreds = credentials[keyMachine.ip] ?? [];
+  const regularUser =
+    machineCreds.find((c) => c.username !== 'root' && c.username !== 'guest')?.username ?? 'admin';
+
+  const filePath = template.path.replace(/\{\{user\}\}/g, regularUser);
+  const fileContent = template.template.replace(/\{\{key\}\}/g, keyHex);
+
+  // ~25% chance to wrap key file in binary noise
+  const isBinary = prng.next() < 0.25;
+  const finalPath = isBinary ? prng.pick(binaryKeyPaths[keyMachine.role]) : filePath;
+
+  return {
+    machineIp: keyMachine.ip,
+    filePath: finalPath,
+    fileContent,
+    binary: isBinary || undefined,
+  };
+};
+
 const entryVariantToMethod = (variant: EntryVariant): AttackMethod => {
   const methodMap: Readonly<Record<EntryVariant, AttackMethod>> = {
     ssh: 'ssh',
@@ -164,12 +213,19 @@ const entryVariantToMethod = (variant: EntryVariant): AttackMethod => {
 };
 
 // Builds the objective for a given type, target machine, and credentials.
+// When encrypted is true for exfiltrate, the target content is encrypted and
+// the decryption key is placed on a different machine in the attack path.
 const buildObjective = (
   prng: Prng,
   objectiveType: MissionObjectiveType,
   targetMachine: GeneratedMachine,
   credentials: CredentialMap,
   clientEmail: string,
+  encryptionConfig?: {
+    readonly encrypted: boolean;
+    readonly machines: readonly GeneratedMachine[];
+    readonly entryPoint: string;
+  },
 ): MissionObjective => {
   if (objectiveType === 'exfiltrate') {
     const accessKey = generateAccessKey(prng);
@@ -183,6 +239,36 @@ const buildObjective = (
     // ~25% chance to wrap exfiltrate target in a binary file
     const isBinary = prng.next() < 0.25;
     const finalPath = isBinary ? prng.pick(binaryTargetPaths[targetMachine.role]) : targetPath;
+
+    // Always consume a PRNG roll for encryption chance to preserve sequence
+    const encryptRoll = prng.next();
+    const isEncrypted = encryptionConfig?.encrypted ?? encryptRoll < 0.25;
+
+    if (isEncrypted && encryptionConfig) {
+      const keyHex = generateEncryptionKey(prng);
+
+      // Pick a key machine: prefer a non-target machine from the path
+      const nonTarget = encryptionConfig.machines.filter((m) => m.ip !== targetMachine.ip);
+      const keyMachine = nonTarget.length > 0 ? prng.pick(nonTarget) : targetMachine;
+      const keyPlacement = buildKeyPlacement(prng, keyHex, keyMachine, credentials);
+
+      // Encrypt the target content
+      const encryptedContent = encryptContent(targetContent, keyHex);
+
+      return {
+        type: 'exfiltrate',
+        description: `Decrypt and exfiltrate the secret data from ${targetMachine.hostname}`,
+        targetMachine: targetMachine.ip,
+        targetPath: `${finalPath}.enc`,
+        targetContent: encryptedContent,
+        clientEmail,
+        expectedProof: accessKey,
+        binary: isBinary || undefined,
+        encrypted: true,
+        encryptionKey: keyHex,
+        keyPlacement,
+      };
+    }
 
     return {
       type: 'exfiltrate',
@@ -239,6 +325,7 @@ export const generateAttackChain = (input: AttackChainInput): AttackChainResult 
     entryVariant,
     difficulty,
     objectiveTypeOverride,
+    encryptedOverride,
   } = input;
 
   const clientEmail = generateClientEmail(prng);
@@ -261,7 +348,11 @@ export const generateAttackChain = (input: AttackChainInput): AttackChainResult 
     // Always consume PRNG pick to preserve sequence, then apply override
     const prngObjectiveType = prng.pick(objectiveTypes);
     const objectiveType = objectiveTypeOverride ?? prngObjectiveType;
-    const objective = buildObjective(prng, objectiveType, target, credentials, clientEmail);
+    const objective = buildObjective(prng, objectiveType, target, credentials, clientEmail, {
+      encrypted: encryptedOverride ?? false,
+      machines: path,
+      entryPoint,
+    });
 
     return {
       attackChain: [
@@ -345,7 +436,11 @@ export const generateAttackChain = (input: AttackChainInput): AttackChainResult 
   // Always consume PRNG pick to preserve sequence, then apply override
   const prngObjectiveType = prng.pick(objectiveTypes);
   const objectiveType = objectiveTypeOverride ?? prngObjectiveType;
-  const objective = buildObjective(prng, objectiveType, targetMachine, credentials, clientEmail);
+  const objective = buildObjective(prng, objectiveType, targetMachine, credentials, clientEmail, {
+    encrypted: encryptedOverride ?? false,
+    machines: path,
+    entryPoint,
+  });
 
   return {
     attackChain,

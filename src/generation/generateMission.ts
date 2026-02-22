@@ -48,7 +48,10 @@ export const parseSeedOverrides = (seed: string): SeedOverrides => {
 
   const domainEntry = lower.includes('domain') ? true : undefined;
 
-  return { difficulty, entryVariant, forwarded, objectiveType, domainEntry };
+  // 'decrypt' keyword forces encrypted exfiltrate mode
+  const encrypted = lower.includes('decrypt') ? true : undefined;
+
+  return { difficulty, entryVariant, forwarded, objectiveType, domainEntry, encrypted };
 };
 
 // Derives difficulty from seed overrides or falls back to a simple character-sum
@@ -246,6 +249,9 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
     ]),
   );
 
+  // When encrypted override is set, force exfiltrate (decrypt only makes sense for exfiltrate)
+  const effectiveObjectiveOverride = overrides.encrypted ? 'exfiltrate' : overrides.objectiveType;
+
   const { attackChain, credentialPlacements, objective, clientEmail } = generateAttackChain({
     prng,
     machines: machinesWithUsers,
@@ -253,7 +259,8 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
     entryPoint: topology.entryPoint,
     entryVariant: topology.entryVariant,
     difficulty,
-    objectiveTypeOverride: overrides.objectiveType,
+    objectiveTypeOverride: effectiveObjectiveOverride,
+    encryptedOverride: overrides.encrypted,
   });
 
   const fileSystems = generateFileSystems({

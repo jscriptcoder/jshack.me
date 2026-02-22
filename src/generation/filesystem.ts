@@ -384,6 +384,37 @@ const buildEntryCredentialPlacement = (
   };
 };
 
+// Builds the key file directory tree for encrypted objectives.
+// Returns the top-level directory name and FileNode, or null if no key placement.
+const buildKeyFileTree = (
+  prng: Prng,
+  objective: MissionObjective,
+): { readonly topDir: string; readonly node: FileNode } | null => {
+  if (!objective.keyPlacement) return null;
+
+  const { filePath, fileContent, binary } = objective.keyPlacement;
+  const segments = filePath.split('/').filter(Boolean);
+  const fileName = segments[segments.length - 1] ?? 'key.txt';
+  const content = binary ? wrapInBinaryNoise(prng, fileContent) : fileContent;
+  const file = mkFile(fileName, content);
+  const topDir = segments[0] ?? 'root';
+
+  return { topDir, node: buildNestedDirs(segments, file) };
+};
+
+// Merges key file directories into an existing config's extraDirectories.
+const mergeKeyPlacement = (
+  config: MachineFileSystemConfig,
+  keyTree: { readonly topDir: string; readonly node: FileNode } | null,
+): MachineFileSystemConfig => {
+  if (!keyTree) return config;
+  const existing = config.extraDirectories ?? {};
+  return {
+    ...config,
+    extraDirectories: { ...existing, [keyTree.topDir]: keyTree.node },
+  };
+};
+
 export const generateFileSystems = (input: FilesystemInput): Readonly<Record<string, FileNode>> => {
   const {
     prng,
@@ -410,7 +441,13 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
 
     const isTarget = machine.ip === objective.targetMachine;
 
-    const config = buildMachineConfig(prng, machine, users, placements, isTarget, objective);
+    const baseConfig = buildMachineConfig(prng, machine, users, placements, isTarget, objective);
+
+    // Place encryption key file on the key machine (if this is that machine)
+    const keyTree =
+      objective.keyPlacement?.machineIp === machine.ip ? buildKeyFileTree(prng, objective) : null;
+    const config = mergeKeyPlacement(baseConfig, keyTree);
+
     const fileSystem = createFileSystem(config);
 
     return [machine.ip, fileSystem] as const;
@@ -420,7 +457,7 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
   if (routerMachine) {
     const routerUsers = usersByMachine[routerMachine.ip] ?? [];
     const routerPlacements = credentialPlacements.filter((p) => p.machineIp === routerMachine.ip);
-    const routerConfig = buildMachineConfig(
+    const baseRouterConfig = buildMachineConfig(
       prng,
       routerMachine,
       routerUsers,
@@ -429,6 +466,14 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
       objective,
       machines,
     );
+
+    // Place encryption key on router if it's the key machine
+    const routerKeyTree =
+      objective.keyPlacement?.machineIp === routerMachine.ip
+        ? buildKeyFileTree(prng, objective)
+        : null;
+    const routerConfig = mergeKeyPlacement(baseRouterConfig, routerKeyTree);
+
     const routerFs = createFileSystem(routerConfig);
     return Object.fromEntries([...entries, [routerMachine.ip, routerFs]]);
   }

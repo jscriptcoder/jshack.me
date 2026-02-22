@@ -490,6 +490,44 @@ export const tamperFileTemplatesByRole: Readonly<
   ],
 };
 
+export type KeyPlacementTemplate = {
+  readonly path: string;
+  readonly template: string;
+  readonly hint: string;
+};
+
+export const keyPlacementTemplates: readonly KeyPlacementTemplate[] = [
+  {
+    path: '/root/.keys/backup.key',
+    template: '# AES key backup — do not distribute\nkey={{key}}',
+    hint: 'An encryption key backup exists in /root/.keys/ on {{machine}}',
+  },
+  {
+    path: '/etc/ssl/private/archive.key',
+    template:
+      '# SSL archive encryption key\n[encryption]\nalgorithm=AES-256\nkey={{key}}\nrotate=never',
+    hint: 'Check /etc/ssl/private/ on {{machine}} for encryption keys',
+  },
+  {
+    path: '/home/{{user}}/.gnupg/export.key',
+    template:
+      '-----BEGIN PGP PRIVATE KEY BLOCK-----\nComment: archive encryption key\n\n{{key}}\n-----END PGP PRIVATE KEY BLOCK-----',
+    hint: "Look in {{user}}'s .gnupg directory on {{machine}} for an exported key",
+  },
+  {
+    path: '/var/backups/.master.key',
+    template:
+      'MASTER ENCRYPTION KEY\n====================\n{{key}}\n\nUsed for archive encryption.',
+    hint: 'A master encryption key is stored in /var/backups/ on {{machine}}',
+  },
+  {
+    path: '/opt/security/vault.key',
+    template:
+      '{\n  "vault_key": "{{key}}",\n  "algorithm": "AES-256",\n  "created": "2024-01-15"\n}',
+    hint: 'The security vault on {{machine}} stores an encryption key at /opt/security/',
+  },
+];
+
 export const redHerringFiles: readonly { readonly name: string; readonly content: string }[] = [
   { name: 'notes.txt', content: 'TODO: update server configs\nRemember to rotate credentials' },
   {

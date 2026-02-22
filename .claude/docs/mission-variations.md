@@ -4,7 +4,7 @@ Comprehensive catalog of all procedural generation variation axes. Use this to t
 
 ## Seed Keywords
 
-All five major generation axes can be controlled by embedding keywords in the seed string (case-insensitive, matched via `includes()`). `parseSeedOverrides(seed)` in `generateMission.ts` extracts overrides. PRNG sequence is preserved — calls are consumed but results discarded in favor of overrides.
+All six major generation axes can be controlled by embedding keywords in the seed string (case-insensitive, matched via `includes()`). `parseSeedOverrides(seed)` in `generateMission.ts` extracts overrides. PRNG sequence is preserved — calls are consumed but results discarded in favor of overrides.
 
 | Axis          | Keywords                                   | Notes                                                     |
 | ------------- | ------------------------------------------ | --------------------------------------------------------- |
@@ -13,8 +13,9 @@ All five major generation axes can be controlled by embedding keywords in the se
 | Network mode  | `forwarded`, `router-first`                | Hyphenated to avoid false matches                         |
 | Objective     | `exfiltrate`, `tamper`, `credential-theft` | Hyphen variant for credential_theft                       |
 | Domain entry  | `domain`                                   | Forces domain-based briefing (nslookup required)          |
+| Encryption    | `decrypt`                                  | Forces exfiltrate + encrypted target file                 |
 
-Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`, `NEXUS-domain-credential-theft`
+Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`, `NEXUS-domain-credential-theft`, `IRONGATE-nc-decrypt-22`
 
 ## Difficulty Tiers (3)
 
@@ -59,9 +60,25 @@ When domain entry is active, the mission briefing shows the router's `.mission` 
 
 With the `domain` seed keyword, domain entry is always active. Without it, PRNG decides based on difficulty. The entry variant hint (ssh/ftp/nc/exploit) is NOT shown in domain mode — the player must discover the IP via nslookup, then figure out the rest using nmap.
 
+## Encrypted Exfiltrate
+
+Exfiltrate objectives have a ~25% chance (or 100% with `decrypt` keyword) of encrypting the target file. The decryption key (64-char hex) is placed on a different machine in the attack path. Players must find the key, escalate to root (via `john` + `su`), and use `decrypt(file, key)` to reveal the ACCESS-KEY. Encryption uses deterministic XOR+FNV-1a checksum (`src/utils/crypto.ts`).
+
+### Key Placement Templates (5)
+
+| Path                               | Content Style                          |
+| ---------------------------------- | -------------------------------------- |
+| `/root/.keys/backup.key`           | AES key backup with `key=<hex>`        |
+| `/etc/ssl/private/archive.key`     | Config-style with algorithm and key    |
+| `/home/{{user}}/.gnupg/export.key` | PGP-looking key export block           |
+| `/var/backups/.master.key`         | Master encryption key file             |
+| `/opt/security/vault.key`          | JSON vault key with algorithm and date |
+
+Key files have ~25% chance of binary wrapping (using `binaryKeyPaths` per role).
+
 ## Binary File Wrapping
 
-Some credential breadcrumbs and exfiltrate target files are wrapped in "binary noise" — non-printable characters interspersed with readable content. `cat` shows garbled output; `strings` extracts the readable data. This adds a discovery mechanic requiring the `strings` command.
+Some credential breadcrumbs, exfiltrate target files, entry credential hints, and encryption keys are wrapped in "binary noise" — non-printable characters interspersed with readable content. `cat` shows garbled output; `strings` extracts the readable data. This adds a discovery mechanic requiring the `strings` command.
 
 ### Probabilities
 
@@ -70,6 +87,7 @@ Some credential breadcrumbs and exfiltrate target files are wrapped in "binary n
 | Credential breadcrumb  | 30%           | Next-hop passwords hidden in binary files    |
 | Exfiltrate target file | 25%           | ACCESS-KEY in binary file                    |
 | Entry credential hint  | 20%           | SSH creds for FTP/NC/exploit entry in binary |
+| Encryption key file    | 25%           | Decryption key in binary file                |
 
 ### Binary File Paths
 
@@ -300,14 +318,15 @@ Each hint is paired with its credential placement template so the hint always de
 - Check {{localUser}}'s home directory on {{machine}} for notes → `/home/{{localUser}}/notes.txt`
 - Look in /etc/maintenance.conf on {{machine}} for hardcoded credentials → `/etc/maintenance.conf`
 
-## Board Missions (4 hardcoded, more to be added with e2e tests)
+## Board Missions (5 hardcoded, more to be added with e2e tests)
 
-| Seed                          | Client     | Difficulty | Notes                                        |
-| ----------------------------- | ---------- | ---------- | -------------------------------------------- |
-| MEDTECH-4A7F-easy             | xR0gu3x    | Easy       |                                              |
-| GRADE-TAMPER-74               | gh0st\_    | Medium     | briefingVariantOverride: ssh (hides exploit) |
-| NEXUS-domain-credential-theft | cyph3rpunk | Medium     | Domain entry (nslookup required)             |
-| DARKSTONE-ssh-exfiltrate-16   | n3twr4ith  | Medium     | Binary files require `strings` command       |
+| Seed                          | Client     | Difficulty | Notes                                         |
+| ----------------------------- | ---------- | ---------- | --------------------------------------------- |
+| MEDTECH-4A7F-easy             | xR0gu3x    | Easy       |                                               |
+| GRADE-TAMPER-74               | gh0st\_    | Medium     | briefingVariantOverride: ssh (hides exploit)  |
+| NEXUS-domain-credential-theft | cyph3rpunk | Medium     | Domain entry (nslookup required)              |
+| DARKSTONE-ssh-exfiltrate-16   | n3twr4ith  | Medium     | Binary files require `strings` command        |
+| IRONGATE-nc-decrypt-22        | zer0day\_  | Medium     | Encrypted exfiltrate requires `decrypt` + key |
 
 Players can also use any arbitrary seed string via `accept("any-string")`.
 

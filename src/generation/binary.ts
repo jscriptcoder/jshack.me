@@ -69,6 +69,15 @@ export const binaryTargetPaths: Readonly<Record<MachineRole, readonly string[]>>
   router: ['/opt/app/config.bin', '/var/lib/routes.dat', '/srv/cache/firewall.db'],
 };
 
+// Binary-looking file paths for encryption key files.
+export const binaryKeyPaths: Readonly<Record<MachineRole, readonly string[]>> = {
+  webserver: ['/usr/local/lib/ssl_keystore.db', '/opt/lib/libcrypto_keys.so'],
+  database: ['/usr/local/lib/db_keyring.db', '/opt/lib/libencrypt.so'],
+  fileserver: ['/usr/local/lib/backup_keystore.db', '/opt/lib/libcrypt_store.so'],
+  workstation: ['/usr/local/lib/user_keyring.db', '/opt/lib/libvault.so'],
+  router: ['/usr/local/lib/vpn_keystore.db', '/opt/lib/libipsec_keys.so'],
+};
+
 // Hint templates for binary credential placements that mention `strings`.
 export const binaryHintTemplates: readonly string[] = [
   "There's a suspicious binary at {{path}} on {{machine}} — try extracting strings from it",

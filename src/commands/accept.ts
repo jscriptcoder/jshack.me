@@ -12,6 +12,14 @@ export const formatObjectiveHint = (mission: MissionNetwork): string => {
   const { objective } = mission;
   const email = mission.clientEmail;
 
+  if (objective.type === 'exfiltrate' && objective.encrypted) {
+    return [
+      '  Find the encrypted target file and the decryption key.',
+      "  You'll need root access to use decrypt(). The key is on another machine.",
+      `  Example: mail("${email}", "ACCESS-XXXX-XXXX-XXXX")`,
+    ].join('\n');
+  }
+
   if (objective.type === 'exfiltrate') {
     return [
       '  Find the ACCESS-KEY in the target file and mail it to the client.',

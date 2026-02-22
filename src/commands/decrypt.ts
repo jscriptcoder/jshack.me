@@ -2,6 +2,7 @@ import type { Command, AsyncOutput } from '../components/Terminal/types';
 import type { UserType } from '../session/SessionContext';
 import type { FileNode } from '../filesystem/types';
 import { createCancellationToken } from '../utils/asyncCommand';
+import { decryptContent } from '../utils/crypto';
 
 type DecryptContext = {
   readonly resolvePath: (path: string) => string;
@@ -11,45 +12,14 @@ type DecryptContext = {
 
 const DECRYPT_DELAY_MS = 500;
 
-const hexToBytes = (hex: string): Uint8Array => {
-  const cleanHex = hex.replace(/\s/g, '');
-  const bytes = new Uint8Array(cleanHex.length / 2);
-  for (let i = 0; i < bytes.length; i++) {
-    bytes[i] = parseInt(cleanHex.slice(i * 2, i * 2 + 2), 16);
-  }
-  return bytes;
-};
-
-const decryptContent = async (encryptedBase64: string, keyHex: string): Promise<string> => {
-  const encryptedData = Uint8Array.from(atob(encryptedBase64), (c) => c.charCodeAt(0));
-
-  // First 12 bytes are the IV (AES-GCM standard: 96-bit IV per NIST SP 800-38D)
-  const iv = encryptedData.slice(0, 12);
-  const ciphertext = encryptedData.slice(12);
-
-  const keyBytes = hexToBytes(keyHex);
-  const cryptoKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'AES-GCM' }, false, [
-    'decrypt',
-  ]);
-
-  const decryptedBuffer = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv },
-    cryptoKey,
-    ciphertext,
-  );
-
-  const decoder = new TextDecoder();
-  return decoder.decode(decryptedBuffer);
-};
-
 export const createDecryptCommand = (context: DecryptContext): Command => ({
   name: 'decrypt',
-  description: 'Decrypt a file using AES-256-GCM',
+  description: 'Decrypt a file using AES-256',
   manual: {
     synopsis: 'decrypt(file: string, key: string)',
     description:
-      'Decrypt an encrypted file using AES-256-GCM. ' +
-      'The file should contain base64-encoded encrypted data (IV + ciphertext). ' +
+      'Decrypt an encrypted file using a 256-bit key. ' +
+      'The file should contain base64-encoded encrypted data. ' +
       'The key should be a 64-character hex string (256 bits).',
     arguments: [
       {
@@ -59,7 +29,7 @@ export const createDecryptCommand = (context: DecryptContext): Command => ({
       },
       {
         name: 'key',
-        description: 'Decryption key as hex string (64 characters for AES-256)',
+        description: 'Decryption key as hex string (64 characters)',
         required: true,
       },
     ],
@@ -89,7 +59,7 @@ export const createDecryptCommand = (context: DecryptContext): Command => ({
     }
 
     const cleanKey = key.replace(/\s/g, '');
-    // 64 hex chars = 256 bits = AES-256 key length
+    // 64 hex chars = 256 bits key length
     if (!/^[0-9a-fA-F]{64}$/.test(cleanKey)) {
       throw new Error(
         'decrypt: invalid key format\nKey must be 64 hexadecimal characters (256 bits)',
@@ -127,19 +97,16 @@ export const createDecryptCommand = (context: DecryptContext): Command => ({
         token.schedule(() => {
           if (token.isCancelled()) return;
 
-          decryptContent(encryptedContent, cleanKey)
-            .then((decrypted) => {
-              if (token.isCancelled()) return;
-              onLine('');
-              onLine(decrypted);
-              onComplete();
-            })
-            .catch(() => {
-              if (token.isCancelled()) return;
-              onLine('');
-              onLine('Error: Decryption failed - invalid key or corrupted data');
-              onComplete();
-            });
+          try {
+            const decrypted = decryptContent(encryptedContent, cleanKey);
+            onLine('');
+            onLine(decrypted);
+            onComplete();
+          } catch {
+            onLine('');
+            onLine('Error: Decryption failed - invalid key or corrupted data');
+            onComplete();
+          }
         }, DECRYPT_DELAY_MS);
       },
       cancel: token.cancel,

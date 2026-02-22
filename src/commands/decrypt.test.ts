@@ -273,7 +273,7 @@ describe('decrypt command', () => {
       const context = createMockDecryptContext();
       const decrypt = createDecryptCommand(context);
 
-      expect(decrypt.description).toBe('Decrypt a file using AES-256-GCM');
+      expect(decrypt.description).toBe('Decrypt a file using AES-256');
     });
 
     it('should have manual', () => {

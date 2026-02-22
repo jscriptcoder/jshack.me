@@ -92,7 +92,7 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 | `curl(url, [flags])`    | Fetch web content via HTTP (supports -i for headers, -X POST)        |
 | `nc(host, port)`        | Connect to arbitrary port (interactive for special services)         |
 | `exploit(host, port)`   | Exploit a vulnerable service for remote code execution               |
-| `decrypt(file, key)`    | Decrypt file using AES-256-GCM                                       |
+| `decrypt(file, key)`    | Decrypt file using AES-256                                           |
 | `output(cmd, [file])`   | Capture command output to variable or file                           |
 | `resolve(promise)`      | Unwrap a Promise and display its value                               |
 | `strings(file, [min])`  | Extract printable strings from binary files                          |
@@ -210,7 +210,7 @@ npm run test:e2e      # Run Playwright E2E tests (mission playthroughs)
 
 ### Test Coverage
 
-904 unit tests across 61 colocated test files covering terminal commands, hooks, components, utilities, filesystem, persistence, procedural generation, and mission system.
+961 unit tests across 64 colocated test files covering terminal commands, hooks, components, utilities, filesystem, persistence, procedural generation, and mission system.
 
 4 Playwright E2E tests: mission playthroughs covering SSH, FTP, NC entry variants + mission lifecycle. Run with `--headed` to watch them play:
 

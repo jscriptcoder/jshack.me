@@ -50,6 +50,15 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     difficulty: '** (Medium)',
     seed: 'DARKSTONE-ssh-exfiltrate-16',
   },
+  {
+    id: '005',
+    client: 'zer0day_',
+    clientEmail: 'zer0day_@darkmail.onion',
+    target: 'Irongate Biotech — encrypted research archives',
+    objective: 'Decrypt and exfiltrate classified research data',
+    difficulty: '** (Medium)',
+    seed: 'IRONGATE-nc-decrypt-22',
+  },
 ];
 
 export const formatMissionBoard = (listings: readonly MissionListing[]): string => {

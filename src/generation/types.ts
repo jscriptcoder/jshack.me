@@ -17,6 +17,13 @@ export type AttackStep = {
 
 export type MissionObjectiveType = 'exfiltrate' | 'tamper' | 'credential_theft';
 
+export type KeyPlacement = {
+  readonly machineIp: string;
+  readonly filePath: string;
+  readonly fileContent: string;
+  readonly binary?: boolean;
+};
+
 export type MissionObjective = {
   readonly type: MissionObjectiveType;
   readonly description: string;
@@ -28,6 +35,9 @@ export type MissionObjective = {
   readonly tamperOldValue?: string;
   readonly tamperNewValue?: string;
   readonly binary?: boolean;
+  readonly encrypted?: boolean;
+  readonly encryptionKey?: string;
+  readonly keyPlacement?: KeyPlacement;
 };
 
 export type GeneratedMachine = {
@@ -82,4 +92,5 @@ export type SeedOverrides = {
   readonly forwarded?: boolean;
   readonly objectiveType?: MissionObjectiveType;
   readonly domainEntry?: boolean;
+  readonly encrypted?: boolean;
 };

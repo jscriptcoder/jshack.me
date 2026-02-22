@@ -6,7 +6,7 @@ Shared utility modules used across the application. Each module is self-containe
 
 | Module            | Description                                                                                                          |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `crypto.ts`       | AES-256-GCM encrypt/decrypt, hex-to-bytes conversion, key generation                                                 |
+| `crypto.ts`       | Deterministic XOR+FNV-1a encrypt/decrypt, hex-to-bytes conversion, key generation                                    |
 | `md5.ts`          | MD5 hashing for password validation (used by `/etc/passwd` checks)                                                   |
 | `network.ts`      | IP address validation (`isValidIP`) and IP range parsing (`parseIPRange`)                                            |
 | `stringify.ts`    | Value-to-string conversion (used by `echo`, `output`, `resolve`)                                                     |
