@@ -131,16 +131,19 @@ Binary exfiltrate targets use paths like `/opt/app/data.bin`, `/var/lib/export.d
 Entry machines always use the entry port template instead of the role's default ports.
 Router is always the border device between localhost and the mission network.
 
-## Entry Port Templates (6)
+## Entry Port Templates (9)
 
-| Variant | Ports              |
-| ------- | ------------------ |
-| SSH     | 22/ssh, 80/http    |
-| FTP     | 21/ftp, 22/ssh     |
-| NC      | 22/ssh, 4444/elite |
-| Exploit | 22/ssh, 80/http    |
-| Exploit | 22/ssh, 3306/mysql |
-| Exploit | 22/ssh, 6379/redis |
+| Variant | Ports               |
+| ------- | ------------------- |
+| SSH     | 22/ssh, 80/http     |
+| FTP     | 21/ftp, 22/ssh      |
+| NC      | 22/ssh, 4444/elite  |
+| NC      | 22/ssh, 31337/elite |
+| NC      | 22/ssh, 8888/elite  |
+| NC      | 22/ssh, 1337/elite  |
+| Exploit | 22/ssh, 80/http     |
+| Exploit | 22/ssh, 3306/mysql  |
+| Exploit | 22/ssh, 6379/redis  |
 
 ## Router Entry Port Templates (2)
 

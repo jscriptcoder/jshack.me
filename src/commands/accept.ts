@@ -57,10 +57,18 @@ export const formatMissionBriefing = (
     ? `  Gateway: ${mission.routerDomain}`
     : `  Gateway: ${mission.routerMachine.hostname} (${publicIp})`;
 
+  // Find the actual backdoor port from the entry machine (could be 4444, 31337, 8888, 1337)
+  const isForwardedMode = mission.natForwarding !== undefined;
+  const entryMachine = isForwardedMode
+    ? mission.machines.find((m) => m.ip === mission.entryPoint)
+    : mission.routerMachine;
+  const ncPort =
+    entryMachine?.remoteMachine.ports.find((p) => p.service === 'elite' && p.open)?.port ?? 4444;
+
   const entryHints: Readonly<Record<EntryVariant, string>> = {
     ssh: `> ssh("${entryUser}", "${publicIp}")  // password: ${entryPassword}`,
     ftp: `> ftp("${publicIp}")`,
-    nc: `> nc("${publicIp}", 4444)`,
+    nc: `> nc("${publicIp}", ${ncPort})`,
     exploit: `> nmap("-sV", "${publicIp}")  // scan for vulnerabilities, then exploit`,
   };
 

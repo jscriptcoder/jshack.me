@@ -75,7 +75,7 @@ The entry machine's initial access method varies per seed:
 
 - **ssh** — classic SSH with user credentials shown in briefing; ports: 22, 80
 - **ftp** — player FTPs in, finds SSH credentials in accessible files, then SSHes; ports: 21, 22
-- **nc** — player connects via netcat backdoor, finds SSH credentials, then SSHes; ports: 22, 4444
+- **nc** — player connects via netcat backdoor, finds SSH credentials, then SSHes; ports: 22, (4444|31337|8888|1337)
 - **exploit** — player scans with `nmap("-sV")` to find vulnerable service, runs `exploit(host, port)` for restricted shell, finds SSH credentials, then SSHes; ports: 22, (80|3306|6379)
 
 SSH is always available on the entry machine. FTP/NC/exploit variants place credential hint files (from `entryCredentialHintTemplates` in `pools.ts`) that leak SSH credentials for the same machine. The exploit variant additionally attaches a `Vulnerability` (from `vulnerabilityTemplates`) and a `ServiceOwner` to the vulnerable port.
