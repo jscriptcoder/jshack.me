@@ -114,7 +114,6 @@ export const generateTopology = (
   const subnet = `10.${octet2}.${octet3}`;
   const internalGateway = `${subnet}.1`;
 
-  // Router public IP
   const routerPublicIp = generatePublicIp(prng);
 
   // Forwarding mode decision
