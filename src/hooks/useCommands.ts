@@ -126,6 +126,7 @@ export const useCommands = (): UseCommandsResult => {
     const getAccessibleCommands = () => {
       const accessible = getAccessibleCommandNames(Array.from(commands.keys()), session.userType);
       return accessible
+        .filter((name) => isCommandInstalled(name, session.machine, getNodeFromMachine))
         .map((name) => commands.get(name))
         .filter((cmd): cmd is Command => cmd !== undefined);
     };
@@ -162,7 +163,12 @@ export const useCommands = (): UseCommandsResult => {
 
     resolvedExecutionContext = executionContext;
 
-    const commandNames = getAccessibleCommandNames(Array.from(commands.keys()), session.userType);
+    // Filter by privilege level, then by installation status so tab-complete
+    // only suggests commands the player can actually run on this machine
+    const commandNames = getAccessibleCommandNames(
+      Array.from(commands.keys()),
+      session.userType,
+    ).filter((name) => isCommandInstalled(name, session.machine, getNodeFromMachine));
 
     return { executionContext, commandNames };
   }, [
