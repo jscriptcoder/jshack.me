@@ -206,9 +206,11 @@ describe('generateMissionNetwork', () => {
     expect(result.routerMachine.remoteMachine.users.length).toBeGreaterThan(0);
   });
 
-  it('routerPublicIp is in 45.x.x.x range', () => {
+  it('routerPublicIp is a valid public IP from the known prefix pool', () => {
+    const validFirstOctets = [45, 51, 62, 78, 91, 103, 138, 162, 185, 198, 203, 212];
     const result = generateMissionNetwork('PUB-IP-TEST');
-    expect(result.routerPublicIp).toMatch(/^45\.\d+\.\d+\.\d+$/);
+    const firstOctet = Number(result.routerPublicIp.split('.')[0]);
+    expect(validFirstOctets).toContain(firstOctet);
   });
 
   it('routerDomain is hostname.mission format', () => {

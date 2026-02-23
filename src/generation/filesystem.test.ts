@@ -99,7 +99,13 @@ describe('generateFileSystems', () => {
       const targetFs = fileSystems[objective.targetMachine];
       const targetFile = resolveNode(targetFs as FileNode, objective.targetPath);
       expect(targetFile).toBeDefined();
-      expect(targetFile?.content).toBe(objective.targetContent);
+      if (objective.binary) {
+        // Binary-wrapped files embed each line in noise — verify first non-empty line is present
+        const firstLine = objective.targetContent.split('\n').find((l) => l.trim().length > 0);
+        expect(targetFile?.content).toContain(firstLine);
+      } else {
+        expect(targetFile?.content).toBe(objective.targetContent);
+      }
       expect(objective.targetPath).not.toBe('/root/flag.txt');
       return;
     }

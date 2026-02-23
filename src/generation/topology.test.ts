@@ -3,6 +3,15 @@ import { createPrng } from './prng';
 import { generateTopology } from './topology';
 import type { Difficulty } from './types';
 
+// Checks if an IP falls within RFC 1918 private ranges
+const isPrivateIp = (ip: string): boolean => {
+  const octets = ip.split('.').map(Number);
+  if (octets[0] === 10) return true;
+  if (octets[0] === 172 && (octets[1] ?? 0) >= 16 && (octets[1] ?? 0) <= 31) return true;
+  if (octets[0] === 192 && octets[1] === 168) return true;
+  return false;
+};
+
 describe('generateTopology', () => {
   it('produces deterministic output for the same seed', () => {
     const a = generateTopology(createPrng('topo-seed'), 'medium');
@@ -121,9 +130,14 @@ describe('generateTopology', () => {
     expect(result.routerMachine.role).toBe('router');
   });
 
-  it('router has a public IP in 45.x.x.x range', () => {
+  it('router has a valid public IP from the known prefix pool', () => {
+    const validFirstOctets = [45, 51, 62, 78, 91, 103, 138, 162, 185, 198, 203, 212];
     const result = generateTopology(createPrng('pub-ip-test'), 'medium');
-    expect(result.routerPublicIp).toMatch(/^45\.\d+\.\d+\.\d+$/);
+    const octets = result.routerPublicIp.split('.').map(Number);
+    expect(validFirstOctets).toContain(octets[0]);
+    expect(octets[1]).toBeGreaterThanOrEqual(1);
+    expect(octets[2]).toBeGreaterThanOrEqual(1);
+    expect(octets[3]).toBeGreaterThanOrEqual(2);
     expect(result.routerMachine.ip).toBe(result.routerPublicIp);
   });
 
@@ -135,8 +149,10 @@ describe('generateTopology', () => {
     expect(routerConfig?.interfaces[0]?.name).toBe('eth0');
     expect(routerConfig?.interfaces[1]?.name).toBe('eth1');
     expect(routerConfig?.interfaces[0]?.inet).toBe(result.routerPublicIp);
-    // eth1 is the internal gateway (x.x.x.1)
-    expect(routerConfig?.interfaces[1]?.inet).toMatch(/^10\.\d+\.\d+\.1$/);
+    // eth1 is the internal gateway (private subnet .1)
+    const eth1Ip = routerConfig?.interfaces[1]?.inet ?? '';
+    expect(eth1Ip).toMatch(/\.1$/);
+    expect(isPrivateIp(eth1Ip)).toBe(true);
   });
 
   it('router can see all internal machines', () => {
@@ -189,5 +205,36 @@ describe('generateTopology', () => {
     const result = generateTopology(createPrng('ext-dns'), 'medium');
     expect(result.externalDnsRecords).toHaveLength(1);
     expect(result.externalDnsRecords[0]?.ip).toBe(result.routerPublicIp);
+  });
+
+  it('generates varied public IP first octets across seeds', () => {
+    const firstOctets = new Set(
+      Array.from({ length: 30 }, (_, i) => {
+        const result = generateTopology(createPrng(`variety-pub-${i}`), 'medium');
+        return Number(result.routerPublicIp.split('.')[0]);
+      }),
+    );
+    // With 12 possible prefixes and 30 seeds, expect at least 3 distinct first octets
+    expect(firstOctets.size).toBeGreaterThanOrEqual(3);
+  });
+
+  it('generates varied internal subnet prefixes across seeds', () => {
+    const prefixes = new Set(
+      Array.from({ length: 30 }, (_, i) => {
+        const result = generateTopology(createPrng(`variety-priv-${i}`), 'medium');
+        return result.machines[0]?.ip.split('.')[0];
+      }),
+    );
+    // With 3 range types (10.x, 172.x, 192.168.x), expect at least 2 distinct first octets
+    expect(prefixes.size).toBeGreaterThanOrEqual(2);
+  });
+
+  it('internal subnets never collide with static 192.168.1.x network', () => {
+    Array.from({ length: 50 }, (_, i) => {
+      const result = generateTopology(createPrng(`collision-${i}`), 'medium');
+      result.machines.forEach((m) => {
+        expect(m.ip).not.toMatch(/^192\.168\.1\./);
+      });
+    });
   });
 });

@@ -74,17 +74,19 @@ Mission networks use a realistic router topology. Every mission generates a bord
 
 ```
 localhost (192.168.1.100)
-  can see --> 45.x.x.x (router public IP only)
+  can see --> <public>.x.x.x (router public IP only)
 
-Router (45.x.x.x public / 10.x.x.1 internal) — real machine with filesystem
-  [forwarded mode]: NAT forwards entry ports --> 10.x.x.10 (entry/DMZ)
+Router (<public>.x.x.x public / <private>.x.x.1 internal) — real machine with filesystem
+  Public IP first octet picked from: [45, 51, 62, 78, 91, 103, 138, 162, 185, 198, 203, 212]
+  Internal subnet picked from RFC 1918: 10.x.x.0/24, 172.{16-31}.x.0/24, 192.168.{2-254}.0/24
+  [forwarded mode]: NAT forwards entry ports --> <private>.x.x.10 (entry/DMZ)
   [router-first mode]: no forwarding, player hacks router first
 
-Entry/DMZ (10.x.x.10)
-  can see --> 10.x.x.11, 10.x.x.12 (internal machines)
+Entry/DMZ (<private>.x.x.10)
+  can see --> <private>.x.x.11, <private>.x.x.12 (internal machines)
 
-Internal (10.x.x.11, 10.x.x.12)
-  can see --> each other + entry + router internal IP (10.x.x.1)
+Internal (<private>.x.x.11, <private>.x.x.12)
+  can see --> each other + entry + router internal IP (<private>.x.x.1)
   CANNOT see --> router public IP or localhost
 ```
 

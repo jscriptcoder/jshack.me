@@ -64,7 +64,7 @@ Inspired by Minecraft's world generation — a seed deterministically generates 
 
 ### What a Seed Determines
 
-1. **Network topology** — A border router with a public IP (45.x.x.x) + 2-6 internal machines on a private subnet (10.x.x.0/24). Two modes: forwarded (router NATs to DMZ) or router-first (hack router to pivot).
+1. **Network topology** — A border router with a PRNG-varied public IP (from realistic hosting prefixes) + 2-6 internal machines on a PRNG-varied private subnet (10.x.x/24, 172.{16-31}.x/24, or 192.168.{2-254}/24). Two modes: forwarded (router NATs to DMZ) or router-first (hack router to pivot).
 2. **Machine roles** — Each internal machine gets a role that defines its services and filesystem template:
    - Web server, database server, file server, workstation
    - The router is always present as infrastructure (role: `'router'`)
@@ -87,7 +87,7 @@ Inspired by Minecraft's world generation — a seed deterministically generates 
 Seed
  |
  +-- Network Layer
- |   - Router with public IP (45.x.x.x) + internal subnet (10.x.x.0/24)
+ |   - Router with varied public IP (realistic prefixes) + varied private subnet (RFC 1918)
  |   - Machine count (2-6 internal + 1 router)
  |   - Network mode (forwarded vs router-first)
  |   - Machine roles (web, db, file, workstation + router)
