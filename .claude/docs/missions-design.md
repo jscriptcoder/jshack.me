@@ -130,7 +130,7 @@ Seeds can embed keywords (case-insensitive) to control generation axes:
 | Axis          | Keywords                                   | Notes                                               |
 | ------------- | ------------------------------------------ | --------------------------------------------------- |
 | Difficulty    | `easy`, `medium`, `hard`                   | Unified in `parseSeedOverrides`                     |
-| Entry variant | `ssh`, `ftp`, `nc`, `exploit`              | Falls back if template unavailable for network mode |
+| Entry variant | `ssh`, `ftp`, `nc`, `exploit`, `http`      | Falls back if template unavailable for network mode |
 | Network mode  | `forwarded`, `router-first`                | Hyphenated to avoid false matches                   |
 | Objective     | `exfiltrate`, `tamper`, `credential-theft` | Hyphen variant for credential_theft                 |
 | Domain entry  | `domain`                                   | Briefing shows domain + nslookup hint instead of IP |
@@ -319,6 +319,16 @@ Adds a realistic pentesting gameplay loop for the `exploit` entry variant:
 3. **`exploit(host, port)` command** — Exploits a vulnerable port (must have both `vulnerability` and `owner`). Async output shows targeting, CVE, payload delivery, then drops into NC-like restricted shell via `NcPromptData`.
 4. **Exploit entry variant** — PRNG can select `exploit` as the entry variant. The generator attaches a matching vulnerability template + guest owner to the non-SSH open port on the entry machine. Player flow: `nmap -sV` → `exploit` → find SSH creds in restricted shell → SSH to continue.
 5. **Guest password variation** — Guest passwords are picked from a `guestPasswords` pool instead of hardcoded `"guest"`, making SSH entry variant less predictable. The actual password is shown in the mission briefing.
+
+### HTTP/Curl Entry & Lateral Movement
+
+Adds web-based credential discovery using the `curl` command:
+
+1. **HTTP entry variant** — PRNG can select `http` as the entry variant. The entry machine has port 80 open. Player discovers it via `nmap`, uses `curl` to explore, finds SSH credentials in web content (page body or HTTP response headers via `curl -i`). Briefing hints at nmap without revealing curl.
+2. **`.headers` sidecar convention** — A file at `/var/www/html/page.html.headers` injects custom HTTP response headers when curl serves the corresponding page. Format: one `Key: Value` per line. The curl command reads these transparently.
+3. **HTTP lateral movement** — When a next-hop machine has port 80, the attack chain can select `http` as the credential discovery method. Credentials are placed in web-accessible files with optional `.headers` sidecar for header-based secrets.
+4. **Web content generation** — Webserver-role machines and machines with HTTP credential placements get `/var/www/html/` populated with realistic index.html pages and credential files.
+5. **Secret placement mix** — PRNG decides per placement whether the secret is in a response header (needs `curl -i`) or in the page body (~50/50 split).
 
 ### Anti-Cheat
 

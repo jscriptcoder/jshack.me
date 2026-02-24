@@ -70,6 +70,7 @@ export const formatMissionBriefing = (
     ftp: `> ftp("${publicIp}")`,
     nc: `> nc("${publicIp}", ${ncPort})`,
     exploit: `> nmap("-sV", "${publicIp}")  // scan for vulnerabilities, then exploit`,
+    http: `> nmap("${publicIp}")  // scan for open services`,
   };
 
   const accessLine = mission.domainEntry

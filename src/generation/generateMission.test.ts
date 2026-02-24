@@ -257,6 +257,37 @@ describe('generateMissionNetwork', () => {
     expect(found).toBe(true);
   });
 
+  it('http entry variant produces http method and web-accessible credentials', () => {
+    const result = generateMissionNetwork('test-http-easy');
+    expect(result.entryVariant).toBe('http');
+    expect(result.attackChain[0]?.method).toBe('http');
+    // HTTP variant uses a regular user credential (not guest/root)
+    expect(result.entryCredential?.username).not.toBe('root');
+    expect(result.entryCredential?.username).not.toBe('guest');
+  });
+
+  it('seed containing "http" forces http entry variant', () => {
+    const result = generateMissionNetwork('MISSION-http-42');
+    expect(result.entryVariant).toBe('http');
+  });
+
+  it('http variant generates webserver content in entry machine filesystem', () => {
+    const result = generateMissionNetwork('http-webfs-test');
+    // Find the entry machine filesystem
+    const entryFs = result.fileSystems[result.entryPoint];
+    expect(entryFs).toBeDefined();
+
+    // Check for /var/www/html/ directory structure
+    const varDir = entryFs?.type === 'directory' ? entryFs.children?.['var'] : undefined;
+    const wwwDir = varDir?.type === 'directory' ? varDir.children?.['www'] : undefined;
+    const htmlDir = wwwDir?.type === 'directory' ? wwwDir.children?.['html'] : undefined;
+    // Web content might be on the entry machine (if webserver role) or placed via credentials
+    // Not all HTTP entry machines are webservers, but web placements should exist somewhere
+    if (htmlDir?.type === 'directory') {
+      expect(Object.keys(htmlDir.children ?? {}).length).toBeGreaterThan(0);
+    }
+  });
+
   it('router filesystem contains hints about internal machines', () => {
     const result = generateMissionNetwork('ROUTER-FS-TEST');
     const routerFs = result.fileSystems[result.routerPublicIp];

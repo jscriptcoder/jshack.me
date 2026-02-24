@@ -320,6 +320,66 @@ describe('curl command', () => {
     });
   });
 
+  describe('.headers sidecar files', () => {
+    it('should inject sidecar headers into response with -i flag', () => {
+      const curl = createCurlCommand(
+        createMockCurlContext({
+          files: {
+            '/var/www/html/index.html': '<html><body>Welcome</body></html>',
+            '/var/www/html/index.html.headers': 'X-Secret-Key: admin:s3cret\nX-Custom: value123',
+          },
+        }),
+      );
+      const lines = collectAsyncLines(curl.fn('http://webserver.local/', '-i'));
+      const output = lines.join('\n');
+      expect(output).toContain('X-Secret-Key: admin:s3cret');
+      expect(output).toContain('X-Custom: value123');
+    });
+
+    it('should not show sidecar headers without -i flag', () => {
+      const curl = createCurlCommand(
+        createMockCurlContext({
+          files: {
+            '/var/www/html/index.html': '<html><body>Welcome</body></html>',
+            '/var/www/html/index.html.headers': 'X-Secret-Key: admin:s3cret',
+          },
+        }),
+      );
+      const lines = collectAsyncLines(curl.fn('http://webserver.local/'));
+      const output = lines.join('\n');
+      expect(output).not.toContain('X-Secret-Key');
+    });
+
+    it('should handle missing sidecar file gracefully', () => {
+      const curl = createCurlCommand(
+        createMockCurlContext({
+          files: {
+            '/var/www/html/index.html': '<html><body>Welcome</body></html>',
+          },
+        }),
+      );
+      const lines = collectAsyncLines(curl.fn('http://webserver.local/', '-i'));
+      const output = lines.join('\n');
+      expect(output).toContain('HTTP/1.1 200 OK');
+      expect(output).toContain('Welcome');
+    });
+
+    it('should inject sidecar headers for non-root paths', () => {
+      const curl = createCurlCommand(
+        createMockCurlContext({
+          files: {
+            '/var/www/html/admin/config.json': '{"debug": false}',
+            '/var/www/html/admin/config.json.headers': 'X-Internal-Auth: user:pass',
+          },
+        }),
+      );
+      const lines = collectAsyncLines(curl.fn('http://webserver.local/admin/config.json', '-i'));
+      const output = lines.join('\n');
+      expect(output).toContain('X-Internal-Auth: user:pass');
+      expect(output).toContain('"debug"');
+    });
+  });
+
   describe('custom port', () => {
     it('should support non-standard HTTP port', () => {
       const curl = createCurlCommand(

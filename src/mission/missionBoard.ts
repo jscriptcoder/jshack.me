@@ -59,6 +59,15 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     difficulty: '** (Medium)',
     seed: 'IRONGATE-nc-decrypt-22',
   },
+  {
+    id: '006',
+    client: 'bl4ckh4t',
+    clientEmail: 'bl4ckh4t@darkmail.onion',
+    target: 'Vertex Labs — corporate web infrastructure',
+    objective: 'Exfiltrate API credentials from leaky web servers',
+    difficulty: '** (Medium)',
+    seed: 'VERTEX-http-exfiltrate-39',
+  },
 ];
 
 export const formatMissionBoard = (listings: readonly MissionListing[]): string => {

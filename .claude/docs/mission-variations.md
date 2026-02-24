@@ -9,13 +9,13 @@ All six major generation axes can be controlled by embedding keywords in the see
 | Axis          | Keywords                                   | Notes                                                     |
 | ------------- | ------------------------------------------ | --------------------------------------------------------- |
 | Difficulty    | `easy`, `medium`, `hard`                   | Falls back to hash-based derivation without keyword       |
-| Entry variant | `ssh`, `ftp`, `nc`, `exploit`              | Falls back if template unavailable (e.g. nc+router-first) |
+| Entry variant | `ssh`, `ftp`, `nc`, `exploit`, `http`      | Falls back if template unavailable (e.g. nc+router-first) |
 | Network mode  | `forwarded`, `router-first`                | Hyphenated to avoid false matches                         |
 | Objective     | `exfiltrate`, `tamper`, `credential-theft` | Hyphen variant for credential_theft                       |
 | Domain entry  | `domain`                                   | Forces domain-based briefing (nslookup required)          |
 | Encryption    | `decrypt`                                  | Forces exfiltrate + encrypted target file                 |
 
-Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`, `NEXUS-domain-credential-theft`, `IRONGATE-nc-decrypt-22`
+Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`, `NEXUS-domain-credential-theft`, `IRONGATE-nc-decrypt-22`, `VERTEX-http-exfiltrate-39`
 
 ## Difficulty Tiers (3)
 
@@ -25,7 +25,7 @@ Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `tes
 | Medium | 3–4               | 1      | up to 2       | 50% forwarded, 50% router-first     |
 | Hard   | 4–6               | 1      | all non-entry | Always router-first (no forwarding) |
 
-## Entry Variants (4)
+## Entry Variants (5)
 
 How the player gains initial access to the entry machine.
 
@@ -35,6 +35,7 @@ How the player gains initial access to the entry machine.
 | FTP     | Explore via FTP, find SSH credentials in a file                                     |
 | NC      | Connect via netcat backdoor (port 4444), find SSH credentials                       |
 | Exploit | `nmap -sV` → find vulnerable service → `exploit(host, port)` → find SSH credentials |
+| HTTP    | `nmap` → discover port 80 → `curl` to explore web content → find SSH credentials    |
 
 ## NC/Exploit Owner Types (3)
 
@@ -131,7 +132,7 @@ Binary exfiltrate targets use paths like `/opt/app/data.bin`, `/var/lib/export.d
 Entry machines always use the entry port template instead of the role's default ports.
 Router is always the border device between localhost and the mission network.
 
-## Entry Port Templates (9)
+## Entry Port Templates (10)
 
 | Variant | Ports               |
 | ------- | ------------------- |
@@ -144,8 +145,9 @@ Router is always the border device between localhost and the mission network.
 | Exploit | 22/ssh, 80/http     |
 | Exploit | 22/ssh, 3306/mysql  |
 | Exploit | 22/ssh, 6379/redis  |
+| HTTP    | 22/ssh, 80/http     |
 
-## Router Entry Port Templates (2)
+## Router Entry Port Templates (3)
 
 Used when the router itself is the entry point (router-first mode).
 
@@ -153,6 +155,7 @@ Used when the router itself is the entry point (router-first mode).
 | ------- | ------------------ |
 | SSH     | 22/ssh, 80/http    |
 | Exploit | 22/ssh, 8443/https |
+| HTTP    | 22/ssh, 80/http    |
 
 ## Exploit Vulnerabilities (6)
 
@@ -249,13 +252,15 @@ Where next-hop credentials are hidden on the current machine.
 
 ## Entry Credential Hint Templates (3)
 
-Used by FTP/NC/exploit variants to place SSH credentials on the entry machine.
+Used by FTP/NC/exploit/HTTP variants to place SSH credentials on the entry machine.
 
-| FTP Path                         | NC/Exploit Path                  | Style                      |
-| -------------------------------- | -------------------------------- | -------------------------- |
-| `/home/{{user}}/.ssh_backup`     | `/home/{{owner}}/ssh_backup.txt` | SSH credentials backup     |
-| `/home/{{user}}/notes.txt`       | `/home/{{owner}}/notes.txt`      | Server notes with creds    |
-| `/home/{{user}}/credentials.bak` | `/home/{{owner}}/.credentials`   | Auto-generated credentials |
+| FTP Path                         | NC/Exploit Path                  | HTTP Path                        | Style                      |
+| -------------------------------- | -------------------------------- | -------------------------------- | -------------------------- |
+| `/home/{{user}}/.ssh_backup`     | `/home/{{owner}}/ssh_backup.txt` | `/var/www/html/status` (header)  | SSH credentials backup     |
+| `/home/{{user}}/notes.txt`       | `/home/{{owner}}/notes.txt`      | `/var/www/html/admin/debug.html` | Server notes with creds    |
+| `/home/{{user}}/credentials.bak` | `/home/{{owner}}/.credentials`   | `/var/www/html/.env` (header)    | Auto-generated credentials |
+
+HTTP entry variant places credentials either in the page body or in a `.headers` sidecar file (visible via `curl -i`). The `httpInHeader` flag on each template controls the placement: header-based secrets require `curl -i` to discover, while body-based secrets are visible with regular `curl`.
 
 ## Name Pools
 
@@ -321,7 +326,34 @@ Each hint is paired with its credential placement template so the hint always de
 - Check {{localUser}}'s home directory on {{machine}} for notes → `/home/{{localUser}}/notes.txt`
 - Look in /etc/maintenance.conf on {{machine}} for hardcoded credentials → `/etc/maintenance.conf`
 
-## Board Missions (5 hardcoded, more to be added with e2e tests)
+## HTTP Lateral Movement
+
+When the next-hop machine has port 80 open, the attack chain can select `http` as the lateral movement method (alongside existing SSH/FTP). Credentials are placed in web-accessible files on the current machine, discoverable via `curl`. PRNG picks between HTTP and other available methods (FTP, SSH).
+
+### HTTP Credential Placement Templates (4)
+
+| Path                              | Secret Location | Hint                                                     |
+| --------------------------------- | --------------- | -------------------------------------------------------- |
+| `/var/www/html/admin/config.json` | Header sidecar  | "The webserver may be leaking credentials — try curl -i" |
+| `/var/www/html/status`            | Page body       | "Check the status page with curl"                        |
+| `/var/www/html/.env`              | Header sidecar  | "The .env file is web-accessible — try curl -i"          |
+| `/var/www/html/api/health`        | Page body       | "The API has a health endpoint — try curl"               |
+
+### `.headers` Sidecar Convention
+
+A file at `/var/www/html/page.html.headers` injects custom HTTP response headers when curl serves `/var/www/html/page.html`. Format: one `Key: Value` per line. The curl command reads these sidecar files transparently.
+
+Secret header names: `X-Api-Key`, `X-Session-Token`, `Authorization`, `X-Internal-Auth`, `X-Access-Token`.
+
+### Web Content Generation
+
+Webserver-role machines (and any machine with web credential placements) get `/var/www/html/` populated with:
+
+- An `index.html` page from `webContentTemplates` pool
+- Credential placement files at their designated web paths
+- `.headers` sidecar files for header-based secrets
+
+## Board Missions (6 hardcoded, more to be added with e2e tests)
 
 | Seed                          | Client     | Difficulty | Notes                                         |
 | ----------------------------- | ---------- | ---------- | --------------------------------------------- |
@@ -330,6 +362,7 @@ Each hint is paired with its credential placement template so the hint always de
 | NEXUS-domain-credential-theft | cyph3rpunk | Medium     | Domain entry (nslookup required)              |
 | DARKSTONE-ssh-exfiltrate-16   | n3twr4ith  | Medium     | Binary files require `strings` command        |
 | IRONGATE-nc-decrypt-22        | zer0day\_  | Medium     | Encrypted exfiltrate requires `decrypt` + key |
+| VERTEX-http-exfiltrate-39     | bl4ckh4t   | Medium     | HTTP entry variant — discover creds via curl  |
 
 Players can also use any arbitrary seed string via `accept("any-string")`.
 

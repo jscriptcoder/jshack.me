@@ -81,6 +81,7 @@ const buildHeaders = (
   ip: string,
   contentType: string,
   contentLength: number,
+  customHeaders?: readonly (readonly [string, string])[],
 ): readonly (readonly [string, string])[] => {
   const config = SERVER_CONFIGS[ip];
   const base: readonly (readonly [string, string])[] = [
@@ -93,7 +94,28 @@ const buildHeaders = (
   const extra: readonly (readonly [string, string])[] = config
     ? Object.entries(config.extraHeaders)
     : [];
-  return [...base, ...extra];
+  return [...base, ...extra, ...(customHeaders ?? [])];
+};
+
+// Reads a .headers sidecar file and parses it as key:value lines.
+// Sidecar files sit alongside web content (e.g. /var/www/html/page.html.headers)
+// and inject custom HTTP response headers into curl responses.
+const readSidecarHeaders = (
+  context: CurlContext,
+  machineId: MachineId,
+  webPath: string,
+): readonly (readonly [string, string])[] => {
+  const sidecarPath = `${webPath}.headers`;
+  const sidecarContent = context.readFileFromMachine(machineId, sidecarPath, '/', 'root');
+  if (!sidecarContent) return [];
+  return sidecarContent
+    .split('\n')
+    .map((line) => {
+      const colonIdx = line.indexOf(':');
+      if (colonIdx <= 0) return null;
+      return [line.slice(0, colonIdx).trim(), line.slice(colonIdx + 1).trim()] as const;
+    })
+    .filter((entry): entry is readonly [string, string] => entry !== null);
 };
 
 const handleGet = (context: CurlContext, machineId: MachineId, path: string): HttpResponse => {
@@ -110,11 +132,12 @@ const handleGet = (context: CurlContext, machineId: MachineId, path: string): Ht
     };
   }
 
+  const customHeaders = readSidecarHeaders(context, machineId, webPath);
   const contentType = getContentType(webPath);
   return {
     statusCode: 200,
     statusText: 'OK',
-    headers: buildHeaders(machineId, contentType, content.length),
+    headers: buildHeaders(machineId, contentType, content.length, customHeaders),
     body: content,
   };
 };

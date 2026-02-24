@@ -24,13 +24,15 @@ export const parseSeedOverrides = (seed: string): SeedOverrides => {
 
   const entryVariant = lower.includes('exploit')
     ? 'exploit'
-    : lower.includes('ftp')
-      ? 'ftp'
-      : lower.includes('nc')
-        ? 'nc'
-        : lower.includes('ssh')
-          ? 'ssh'
-          : undefined;
+    : lower.includes('http')
+      ? 'http'
+      : lower.includes('ftp')
+        ? 'ftp'
+        : lower.includes('nc')
+          ? 'nc'
+          : lower.includes('ssh')
+            ? 'ssh'
+            : undefined;
 
   const forwarded = lower.includes('forwarded')
     ? true
@@ -284,8 +286,10 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
     ? machinesWithUsers.find((m) => m.ip === credSourceIp)
     : routerWithUsers;
   const portOwner = entryMachineForCred?.remoteMachine.ports.find((p) => p.owner)?.owner;
+  // SSH and HTTP variants use a regular user account (player finds creds via web or briefing).
+  // NC/exploit variants use the port owner's account (guest/user/root, determined by PRNG).
   const entryCred =
-    topology.entryVariant === 'ssh'
+    topology.entryVariant === 'ssh' || topology.entryVariant === 'http'
       ? entryCredentials.find((c) => c.username !== 'root' && c.username !== 'guest')
       : portOwner
         ? entryCredentials.find((c) => c.username === portOwner.username)

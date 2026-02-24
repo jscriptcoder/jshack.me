@@ -13,6 +13,7 @@ import type {
 } from './types';
 import {
   clientHandles,
+  httpCredentialPlacements,
   keyPlacementTemplates,
   targetFileTemplatesByRole,
   tamperFileTemplatesByRole,
@@ -80,8 +81,12 @@ const placementTemplates: readonly {
   },
 ];
 
-const getMethodForMachine = (machine: GeneratedMachine): AttackMethod => {
+const getMethodForMachine = (prng: Prng, machine: GeneratedMachine): AttackMethod => {
   const hasFtp = machine.remoteMachine.ports.some((p) => p.port === 21 && p.open);
+  const hasHttp = machine.remoteMachine.ports.some((p) => p.port === 80 && p.open);
+
+  if (hasHttp && hasFtp) return prng.pick(['http', 'ftp'] as const);
+  if (hasHttp) return prng.pick(['http', 'ssh'] as const);
   if (hasFtp) return 'ftp';
   return 'ssh';
 };
@@ -208,6 +213,7 @@ const entryVariantToMethod = (variant: EntryVariant): AttackMethod => {
     ftp: 'ftp',
     nc: 'nc',
     exploit: 'exploit',
+    http: 'http',
   };
   return methodMap[variant];
 };
@@ -378,7 +384,8 @@ export const generateAttackChain = (input: AttackChainInput): AttackChainResult 
   for (let i = 0; i < path.length - 1; i++) {
     const fromMachine = path[i] as GeneratedMachine;
     const toMachine = path[i + 1] as GeneratedMachine;
-    const method = i === 0 ? entryVariantToMethod(entryVariant) : getMethodForMachine(toMachine);
+    const method =
+      i === 0 ? entryVariantToMethod(entryVariant) : getMethodForMachine(prng, toMachine);
 
     const targetMachineCreds = credentials[toMachine.ip] ?? [];
     const nonRootCreds = targetMachineCreds.filter(
@@ -387,6 +394,54 @@ export const generateAttackChain = (input: AttackChainInput): AttackChainResult 
     const credential = nonRootCreds.length > 0 ? prng.pick(nonRootCreds) : targetMachineCreds[0];
 
     if (!credential) continue;
+
+    // HTTP lateral movement: place credentials in web content on fromMachine
+    if (method === 'http') {
+      const httpPlacement = prng.pick(httpCredentialPlacements);
+
+      const hint = httpPlacement.hint.replace('{{machine}}', fromMachine.hostname);
+
+      attackChain.push({
+        fromMachine: i === 0 ? 'entry' : fromMachine.ip,
+        toMachine: toMachine.ip,
+        method,
+        credential,
+        hint,
+      });
+
+      const bodyContent = httpPlacement.bodyTemplate
+        .replace(/\{\{hostname\}\}/g, toMachine.hostname)
+        .replace(/\{\{ip\}\}/g, toMachine.ip)
+        .replace(/\{\{user\}\}/g, credential.username)
+        .replace(/\{\{password\}\}/g, credential.password);
+
+      credentialPlacements.push({
+        machineIp: fromMachine.ip,
+        filePath: httpPlacement.path,
+        fileContent: bodyContent,
+        username: credential.username,
+        password: credential.password,
+      });
+
+      // Place .headers sidecar file with the secret in a header
+      if (httpPlacement.httpInHeader) {
+        const headerContent = httpPlacement.headerTemplate
+          .replace(/\{\{headerName\}\}/g, httpPlacement.headerName)
+          .replace(/\{\{user\}\}/g, credential.username)
+          .replace(/\{\{password\}\}/g, credential.password)
+          .replace(/\{\{hostname\}\}/g, toMachine.hostname);
+
+        credentialPlacements.push({
+          machineIp: fromMachine.ip,
+          filePath: httpPlacement.headersPath,
+          fileContent: headerContent,
+          username: credential.username,
+          password: credential.password,
+        });
+      }
+
+      continue;
+    }
 
     const placement = prng.pick(placementTemplates);
     const fromCreds = credentials[fromMachine.ip] ?? [];

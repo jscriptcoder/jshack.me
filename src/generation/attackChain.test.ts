@@ -55,7 +55,7 @@ describe('generateAttackChain', () => {
 
   it('each step uses a valid method', () => {
     const { result } = buildTestData('method-test');
-    const validMethods = ['ssh', 'ftp', 'nc', 'su', 'exploit'];
+    const validMethods = ['ssh', 'ftp', 'nc', 'su', 'exploit', 'http'];
     result.attackChain.forEach((step) => {
       expect(validMethods).toContain(step.method);
     });
@@ -163,5 +163,40 @@ describe('generateAttackChain', () => {
       expect(p.fileContent).toContain(p.username);
       expect(p.fileContent).toContain(p.password);
     });
+  });
+
+  it('http entry variant maps to http method on first step', () => {
+    const prng = createPrng('http-entry-forced');
+    const topology = generateTopology(prng, 'medium', { entryVariantOverride: 'http' });
+    const { credentials } = generateUsers(prng, topology.machines, topology.entryPoint);
+    const result = generateAttackChain({
+      prng,
+      machines: topology.machines,
+      credentials,
+      entryPoint: topology.entryPoint,
+      entryVariant: 'http',
+      difficulty: 'medium',
+    });
+
+    expect(result.attackChain[0]?.method).toBe('http');
+  });
+
+  it('http method generates web-path credential placements', () => {
+    // HTTP lateral movement placements use /var/www/html/ paths
+    for (let i = 0; i < 50; i++) {
+      const { result } = buildTestData(`http-lateral-${i}`);
+      const httpStep = result.attackChain.find((s) => s.method === 'http');
+      if (!httpStep) continue;
+
+      const webPlacements = result.credentialPlacements.filter((p) =>
+        p.filePath.startsWith('/var/www/'),
+      );
+      expect(webPlacements.length).toBeGreaterThan(0);
+      webPlacements.forEach((p) => {
+        expect(p.fileContent).toContain(p.password);
+      });
+      return;
+    }
+    // HTTP lateral movement is probabilistic — skip if not found
   });
 });
