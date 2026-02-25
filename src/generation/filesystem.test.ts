@@ -32,6 +32,7 @@ const buildTestData = (seed: string) => {
     objective,
     entryPoint: topology.entryPoint,
     entryVariant: topology.entryVariant,
+    networkMode: 'forwarded',
   });
   return { topology, fileSystems, objective, credentialPlacements };
 };

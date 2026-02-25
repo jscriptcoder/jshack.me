@@ -36,6 +36,7 @@ type FilesystemInput = {
   readonly entryPoint: string;
   readonly entryVariant: EntryVariant;
   readonly routerMachine?: GeneratedMachine;
+  readonly networkMode: 'forwarded' | 'router-first';
 };
 
 const mkFile = (
@@ -519,6 +520,7 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
     entryPoint,
     entryVariant,
     routerMachine,
+    networkMode,
   } = input;
 
   const entries = machines.map((machine) => {
@@ -527,9 +529,13 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
     const basePlacements = credentialPlacements.filter((p) => p.machineIp === machine.ip);
     const machineCreds = credentials[machine.ip] ?? [];
 
-    const entryHints = isEntry
-      ? buildEntryCredentialPlacement(prng, machine, users, entryVariant, machineCreds)
-      : [];
+    // In router-first mode, the entry variant applies to the router, not the
+    // internal entry machine — skip entry hints here to avoid placing them
+    // on a machine the player can't reach first.
+    const entryHints =
+      isEntry && networkMode === 'forwarded'
+        ? buildEntryCredentialPlacement(prng, machine, users, entryVariant, machineCreds)
+        : [];
     const placements = [...basePlacements, ...entryHints];
 
     const isTarget = machine.ip === objective.targetMachine;
@@ -550,11 +556,26 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
   if (routerMachine) {
     const routerUsers = usersByMachine[routerMachine.ip] ?? [];
     const routerPlacements = credentialPlacements.filter((p) => p.machineIp === routerMachine.ip);
+
+    // In router-first mode, the entry variant applies to the router —
+    // generate entry credential hints (web content for HTTP, NC hints, etc.)
+    const routerEntryHints =
+      networkMode === 'router-first'
+        ? buildEntryCredentialPlacement(
+            prng,
+            routerMachine,
+            routerUsers,
+            entryVariant,
+            credentials[routerMachine.ip] ?? [],
+          )
+        : [];
+
+    const allRouterPlacements = [...routerPlacements, ...routerEntryHints];
     const baseRouterConfig = buildMachineConfig(
       prng,
       routerMachine,
       routerUsers,
-      routerPlacements,
+      allRouterPlacements,
       false,
       objective,
       machines,

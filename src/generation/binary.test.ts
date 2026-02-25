@@ -212,6 +212,7 @@ describe('binary integration with attack chain', () => {
         objective,
         entryPoint: topology.entryPoint,
         entryVariant: topology.entryVariant,
+        networkMode: 'forwarded',
       });
 
       binaryPlacements.forEach((p) => {

@@ -149,7 +149,7 @@ Router is always the border device between localhost and the mission network.
 
 ## Router Entry Port Templates (3)
 
-Used when the router itself is the entry point (router-first mode).
+Used when the router itself is the entry point (router-first mode). In router-first mode, entry credential hints (web content for HTTP, NC hints, exploit vulnerabilities) are placed on the router's filesystem, not on the internal entry machine. This ensures `curl`, `nc`, `exploit`, etc. work against the router.
 
 | Variant | Ports              |
 | ------- | ------------------ |

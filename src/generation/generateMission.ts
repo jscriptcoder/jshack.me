@@ -275,6 +275,7 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
     entryPoint: topology.entryPoint,
     entryVariant: topology.entryVariant,
     routerMachine: routerWithUsers,
+    networkMode: isForwarded ? 'forwarded' : 'router-first',
   });
 
   // Extract entry credential for the mission briefing.

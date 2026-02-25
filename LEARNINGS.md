@@ -233,6 +233,13 @@
 - **Solution**: Systematic search for machine names, IPs, and hostnames across the codebase. Most test mocks using static IPs as arbitrary test data didn't need changing (they're self-contained). Real issues were: (1) curl `SERVER_CONFIGS` with hardcoded per-machine headers, (2) command `examples` arrays, (3) localhost filesystem content pointing to deleted machines, (4) initialNetwork.ts machine/DNS configs.
 - **Key insight**: When removing game content, the blast radius extends beyond the content files themselves. Command examples, tests, and filesystem hints all reference specific machines/IPs. A thorough grep for IPs and hostnames is essential.
 
+### Router-first mode entry variant placement
+
+- **Context**: HTTP/NC/exploit entry variants need credential hints placed on the machine the player connects to first
+- **Issue**: `generateFileSystems()` always placed entry credential hints on the internal entry machine, even in router-first mode where the player must hack the router first. The router got no `/var/www/html/` content, making HTTP + router-first missions uncompletable.
+- **Solution**: Added `networkMode` to `FilesystemInput`. In forwarded mode, entry hints go on the internal entry machine (unchanged). In router-first mode, entry hints go on the router. `buildMachineConfig` already generates web content when web placements exist, so the fix is just routing the placements correctly.
+- **PRNG impact**: Forwarded-mode and router-first + SSH seeds are unchanged. Router-first + non-SSH seeds shift PRNG (acceptable — they were broken anyway).
+
 ## Patterns That Worked
 
 ### Command factory pattern with context injection
