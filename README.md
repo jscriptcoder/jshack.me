@@ -8,6 +8,17 @@ A web-based JavaScript terminal emulator with a retro amber-on-black CRT aesthet
   <img src="assets/demo.gif" alt="CTF playthrough demo" width="600">
 </p>
 
+## Coming Soon: Mission System Redesign
+
+A major overhaul of the mission system is in progress — see [PR #1](https://github.com/jscriptcoder/jshack.me/pull/1) for full details. Here's what's coming:
+
+- **Realistic network topology** — every mission features a hackable border router with a public IP, private subnets, and internal machines to pivot through
+- **5 entry variants** — SSH, FTP, netcat backdoors, CVE-based exploits, and HTTP/curl-based credential discovery
+- **New commands** — `apt install` for tool management on remote machines, `john()` for password cracking, `mail()` for mission completion, `exploit()` for vulnerability exploitation, `decrypt()` for encrypted targets
+- **Richer procedural generation** — binary file wrapping (requires `strings`), encrypted exfiltrate objectives (requires `decrypt` + key hunting), `.headers` sidecar files for curl, web content generation
+- **Seed keywords** — control difficulty, entry variant, network mode, objective type, domain entry, and encryption via seed strings (e.g., `accept("HEIST-ssh-hard-exfiltrate")`)
+- **Domain-based entry** — some missions require `nslookup` to resolve the target before connecting
+
 ## The Challenge
 
 You start as a regular user on a machine connected to a network. Hidden throughout the system are **flags** - secret strings in the format `FLAG{...}` that prove you've successfully completed a challenge.
