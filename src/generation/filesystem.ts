@@ -198,8 +198,9 @@ const buildMachineConfig = (
     user: users.find((u) => u.userType === 'user')?.username ?? 'admin',
   });
 
+  // /etc/ system files are world-readable on real Linux (644)
   const etcExtraContent: Record<string, FileNode> = {
-    hostname: mkFile('hostname', machine.hostname),
+    hostname: mkFile('hostname', machine.hostname, 'user'),
   };
 
   const serviceConfigName =
@@ -213,17 +214,17 @@ const buildMachineConfig = (
             ? 'iptables.conf'
             : 'ssh_config';
 
-  etcExtraContent[serviceConfigName] = mkFile(serviceConfigName, configContent);
+  etcExtraContent[serviceConfigName] = mkFile(serviceConfigName, configContent, 'user');
 
   const etcPlacements = placements.filter((p) => p.filePath.startsWith('/etc/'));
   etcPlacements.forEach((p) => {
     const fileName = p.filePath.split('/').pop() ?? 'config';
-    etcExtraContent[fileName] = mkFile(fileName, p.fileContent);
+    etcExtraContent[fileName] = mkFile(fileName, p.fileContent, 'user');
   });
 
   const logContent = generateLogContent(prng, machine, users);
   const varLogContent: Record<string, FileNode> = {
-    'auth.log': mkFile('auth.log', logContent),
+    'auth.log': mkFile('auth.log', logContent, 'user'),
   };
 
   // Router machines get a firewall log with hints about internal network traffic
@@ -234,7 +235,7 @@ const buildMachineConfig = (
       const action = prng.pick(['ACCEPT', 'ACCEPT', 'DROP']);
       return `Jan ${prng.nextInt(1, 28)} ${prng.nextInt(0, 23).toString().padStart(2, '0')}:${prng.nextInt(0, 59).toString().padStart(2, '0')}:${prng.nextInt(0, 59).toString().padStart(2, '0')} kernel: [iptables] ${action} IN=eth0 OUT=eth1 SRC=${srcIp} DST=${machine.ip} PROTO=TCP DPT=${dstPort}`;
     });
-    varLogContent['firewall.log'] = mkFile('firewall.log', fwLines.join('\n'));
+    varLogContent['firewall.log'] = mkFile('firewall.log', fwLines.join('\n'), 'user');
   }
 
   // Router /etc/hosts contains hints about internal machines
@@ -246,7 +247,7 @@ const buildMachineConfig = (
       '# Internal network hosts',
       ...internalMachines.map((m) => `${m.ip}\t${m.hostname}`),
     ];
-    etcExtraContent['hosts'] = mkFile('hosts', hostsLines.join('\n'));
+    etcExtraContent['hosts'] = mkFile('hosts', hostsLines.join('\n'), 'user');
 
     // Routing table hint
     const routeTable = [
@@ -255,14 +256,14 @@ const buildMachineConfig = (
       `0.0.0.0         0.0.0.0         0.0.0.0         eth0`,
       ...internalMachines.map((m) => `${m.ip}        0.0.0.0         255.255.255.255 eth1`),
     ];
-    etcExtraContent['route.conf'] = mkFile('route.conf', routeTable.join('\n'));
+    etcExtraContent['route.conf'] = mkFile('route.conf', routeTable.join('\n'), 'user');
   }
 
   const logPlacements = placements.filter((p) => p.filePath.startsWith('/var/log/'));
   logPlacements.forEach((p) => {
     const fileName = p.filePath.split('/').pop() ?? 'log';
     const content = p.binary ? wrapInBinaryNoise(prng, p.fileContent) : p.fileContent;
-    varLogContent[fileName] = mkFile(fileName, content);
+    varLogContent[fileName] = mkFile(fileName, content, 'user');
   });
 
   const tmpPlacements = placements.filter((p) => p.filePath.startsWith('/tmp/'));
