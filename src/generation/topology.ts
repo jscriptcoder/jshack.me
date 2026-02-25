@@ -167,7 +167,10 @@ export const generateTopology = (
     const ip = `${subnet}.${10 + i}`;
     const hostname = prng.pick(hostnamesByRole[role]);
     const isEntry = i === 0;
-    const ports = isEntry ? buildPortsFromTemplate(entryTemplate.ports) : buildPorts(role);
+    // In forwarded mode, entry machine gets the entry variant ports (player connects directly).
+    // In router-first mode, the entry variant is on the router — internal entry uses role defaults.
+    const ports =
+      isEntry && forwarded ? buildPortsFromTemplate(entryTemplate.ports) : buildPorts(role);
 
     return {
       ip,
