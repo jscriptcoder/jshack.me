@@ -430,10 +430,16 @@ const buildEntryCredentialPlacement = (
       owner: ownerUser,
     });
 
+    // Guest owners can't read deep root-only binary paths — use /tmp/ instead
+    // (/tmp/ placements use owner: 'user', which is readable by guest)
+    const ownerIsGuest = portOwner?.userType === 'guest' || !portOwner;
+    const fileName = binaryPath.split('/').pop() ?? 'data.bin';
+    const filePath = ownerIsGuest ? `/tmp/${fileName}` : binaryPath;
+
     return [
       {
         machineIp: machine.ip,
-        filePath: binaryPath,
+        filePath,
         fileContent,
         username: sshCred.username,
         password: sshCred.password,
