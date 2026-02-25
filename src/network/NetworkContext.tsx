@@ -162,6 +162,8 @@ export const NetworkProvider = ({
 
   // Searches for users by IP across both static and mission networks.
   // Needed by `su` to validate user names on any machine (tutorial or mission-generated).
+  // The router is a special case: it's a key in machineConfigs but never listed in any
+  // config's .machines array, so we check missionRouterMachine separately.
   const findMachineUsers = useCallback(
     (ip: string): readonly string[] => {
       const searchConfigs = (networkConfig: NetworkConfig): readonly string[] => {
@@ -175,12 +177,19 @@ export const NetworkProvider = ({
       if (staticUsers.length > 0) return staticUsers;
 
       if (missionNetworkConfig) {
-        return searchConfigs(missionNetworkConfig);
+        const missionUsers = searchConfigs(missionNetworkConfig);
+        if (missionUsers.length > 0) return missionUsers;
+      }
+
+      // Router is never in any machineConfigs[*].machines array — it's only a key.
+      // Check it directly so `su` works when SSH'd into the router.
+      if (missionRouterMachine && missionRouterMachine.ip === ip) {
+        return missionRouterMachine.remoteMachine.users.map((u) => u.username);
       }
 
       return [];
     },
-    [config, missionNetworkConfig],
+    [config, missionNetworkConfig, missionRouterMachine],
   );
 
   // NAT resolution: translates the router's public IP to the internal entry machine IP
