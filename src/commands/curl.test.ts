@@ -380,6 +380,39 @@ describe('curl command', () => {
     });
   });
 
+  describe('flags-first argument order', () => {
+    it('should support -i flag before URL', () => {
+      const curl = createCurlCommand(createMockCurlContext());
+      const lines = collectAsyncLines(curl.fn('-i', 'http://webserver.local/'));
+      const output = lines.join('\n');
+      expect(output).toContain('HTTP/1.1 200 OK');
+      expect(output).toContain('Welcome');
+    });
+
+    it('should support -X POST flag before URL', () => {
+      const curl = createCurlCommand(createMockCurlContext());
+      const lines = collectAsyncLines(curl.fn('-X POST', 'http://webserver.local/api/users'));
+      const output = lines.join('\n');
+      expect(output).toContain('{"users":[]}');
+    });
+
+    it('should support separate -i and -X POST flags before URL', () => {
+      const curl = createCurlCommand(createMockCurlContext());
+      const lines = collectAsyncLines(curl.fn('-i', '-X POST', 'http://webserver.local/api/users'));
+      const output = lines.join('\n');
+      expect(output).toContain('HTTP/1.1 200 OK');
+      expect(output).toContain('{"users":[]}');
+    });
+
+    it('should support flags before shorthand URL', () => {
+      const curl = createCurlCommand(createMockCurlContext());
+      const lines = collectAsyncLines(curl.fn('-i', 'webserver.local/'));
+      const output = lines.join('\n');
+      expect(output).toContain('HTTP/1.1 200 OK');
+      expect(output).toContain('Welcome');
+    });
+  });
+
   describe('custom port', () => {
     it('should support non-standard HTTP port', () => {
       const curl = createCurlCommand(

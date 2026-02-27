@@ -190,9 +190,9 @@ export const createCurlCommand = (context: CurlContext): Command => ({
   name: 'curl',
   description: 'Transfer data from or to a server',
   manual: {
-    synopsis: 'curl(url: string, [flags: string])',
+    synopsis: 'curl([flags], url: string)',
     description:
-      'Transfer data from or to a server using HTTP protocol. Supports GET and POST requests. Use -i flag to include HTTP response headers in output. Use -X POST to make POST requests to /api/* endpoints.',
+      'Transfer data from or to a server using HTTP protocol. Supports GET and POST requests. Use -i flag to include HTTP response headers in output. Use -X POST to make POST requests to /api/* endpoints. Flags and URL can be in any order.',
     arguments: [
       {
         name: 'url',
@@ -212,11 +212,15 @@ export const createCurlCommand = (context: CurlContext): Command => ({
         description: 'Fetch without protocol (defaults to http)',
       },
       {
-        command: 'curl("http://192.168.1.1/", "-i")',
+        command: 'curl("-i", "http://192.168.1.1/")',
         description: 'Include HTTP response headers',
       },
       {
-        command: 'curl("http://192.168.1.1/api/users", "-X POST")',
+        command: 'curl("http://192.168.1.1/", "-i")',
+        description: 'Flags work in any position',
+      },
+      {
+        command: 'curl("-X POST", "http://192.168.1.1/api/users")',
         description: 'POST request to API',
       },
     ],
@@ -224,8 +228,13 @@ export const createCurlCommand = (context: CurlContext): Command => ({
   fn: (...args: unknown[]): AsyncOutput => {
     const { getMachine, resolveDomain } = context;
 
-    const urlStr = args[0] as string | undefined;
-    const flags = (args[1] as string | undefined) ?? '';
+    const stringArgs = args.filter((a): a is string => typeof a === 'string');
+
+    // Separate flags (start with -) from the URL (positional arg)
+    const flagArgs = stringArgs.filter((a) => a.startsWith('-'));
+    const positionalArgs = stringArgs.filter((a) => !a.startsWith('-'));
+    const urlStr = positionalArgs[0];
+    const flags = flagArgs.join(' ');
 
     if (!urlStr) {
       throw new Error('curl: no URL specified');
