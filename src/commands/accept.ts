@@ -1,7 +1,6 @@
 import type { Command } from '../components/Terminal/types';
 import { generateMissionNetwork } from '../generation/generateMission';
-import type { MissionNetwork, EntryVariant } from '../generation/types';
-import { MISSION_BOARD } from '../mission/missionBoard';
+import type { MissionNetwork } from '../generation/types';
 
 type AcceptCommandContext = {
   readonly startMission: (mission: MissionNetwork) => void;
@@ -42,44 +41,8 @@ export const formatObjectiveHint = (mission: MissionNetwork): string => {
   ].join('\n');
 };
 
-export const formatMissionBriefing = (
-  mission: MissionNetwork,
-  variantOverride?: EntryVariant,
-): string => {
-  const publicIp = mission.routerPublicIp;
-  const variant: EntryVariant = variantOverride ?? mission.entryVariant;
-  const entryUser = mission.entryCredential?.username ?? 'guest';
-  const entryPassword = mission.entryCredential?.password ?? 'guest';
-  const isForwarded = mission.natForwarding !== undefined;
-
-  // Domain mode: show domain + nslookup hint; IP mode: show IP + entry variant command
-  const gatewayLine = mission.domainEntry
-    ? `  Gateway: ${mission.routerDomain}`
-    : `  Gateway: ${mission.routerMachine.hostname} (${publicIp})`;
-
-  // Find the actual backdoor port from the entry machine (could be 4444, 31337, 8888, 1337)
-  const isForwardedMode = mission.natForwarding !== undefined;
-  const entryMachine = isForwardedMode
-    ? mission.machines.find((m) => m.ip === mission.entryPoint)
-    : mission.routerMachine;
-  const ncPort =
-    entryMachine?.remoteMachine.ports.find((p) => p.service === 'elite' && p.open)?.port ?? 4444;
-
-  const entryHints: Readonly<Record<EntryVariant, string>> = {
-    ssh: `> ssh("${entryUser}", "${publicIp}")  // password: ${entryPassword}`,
-    ftp: `> ftp("${publicIp}")`,
-    nc: `> nc("${publicIp}", ${ncPort})`,
-    exploit: `> nmap("-sV", "${publicIp}")  // scan for vulnerabilities, then exploit`,
-    http: `> nmap("${publicIp}")  // scan for open services`,
-  };
-
-  const accessLine = mission.domainEntry
-    ? `  Access: > nslookup("${mission.routerDomain}")  // resolve the target first`
-    : `  Access: ${entryHints[variant]}`;
-
-  const modeHint = isForwarded
-    ? '  Port forwarding detected — connections route to internal DMZ.'
-    : '  No forwarding — hack the router to reach the internal network.';
+export const formatMissionBriefing = (mission: MissionNetwork): string => {
+  const target = mission.domainEntry ? mission.routerDomain : mission.routerPublicIp;
 
   return [
     '============================================',
@@ -93,11 +56,8 @@ export const formatMissionBriefing = (
     '',
     formatObjectiveHint(mission),
     '',
-    gatewayLine,
-    modeHint,
-    accessLine,
+    `  Target: ${target}`,
     '',
-    '  Use nmap() to scan the target network.',
     '  Use abort() to cancel the mission.',
     '============================================',
   ].join('\n');
@@ -111,7 +71,7 @@ export const createAcceptCommand = (context: AcceptCommandContext): Command => (
     description:
       'Accept a mission contract from the darknet marketplace. The seed determines the target network — same seed always generates the same mission. Use missions() to browse available contracts and find seeds.',
     examples: [
-      { command: 'accept("MEDTECH-4A7F-easy")', description: 'Accept the MedTech mission' },
+      { command: 'accept("MY-SEED-easy")', description: 'Accept a mission with this seed' },
     ],
   },
   fn: (seed: unknown): string => {
@@ -124,7 +84,6 @@ export const createAcceptCommand = (context: AcceptCommandContext): Command => (
     const trimmed = seed.trim();
     const mission = generateMissionNetwork(trimmed);
     context.startMission(mission);
-    const boardListing = MISSION_BOARD.find((l) => l.seed === trimmed);
-    return formatMissionBriefing(mission, boardListing?.briefingVariantOverride);
+    return formatMissionBriefing(mission);
   },
 });

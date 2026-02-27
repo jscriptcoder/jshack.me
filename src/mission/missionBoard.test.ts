@@ -1,8 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { MISSION_BOARD, formatMissionBoard } from './missionBoard';
+import { MISSION_BOARD, formatMissionBoard, type MissionListing } from './missionBoard';
 
 describe('missionBoard', () => {
-  it('each listing has required fields', () => {
+  it('starts with an empty board', () => {
+    expect(MISSION_BOARD).toEqual([]);
+  });
+
+  it('each listing has required fields when populated', () => {
     MISSION_BOARD.forEach((listing) => {
       expect(listing.id).toBeTruthy();
       expect(listing.client).toBeTruthy();
@@ -22,13 +26,6 @@ describe('missionBoard', () => {
     const seeds = MISSION_BOARD.map((l) => l.seed);
     expect(new Set(seeds).size).toBe(seeds.length);
   });
-
-  it('grade tamper listing has briefingVariantOverride', () => {
-    const gradeMission = MISSION_BOARD.find((l) => l.seed === 'GRADE-TAMPER-74');
-    expect(gradeMission).toBeDefined();
-    expect(gradeMission?.briefingVariantOverride).toBe('ssh');
-    expect(gradeMission?.difficulty).toBe('** (Medium)');
-  });
 });
 
 describe('formatMissionBoard', () => {
@@ -38,11 +35,20 @@ describe('formatMissionBoard', () => {
   });
 
   it('includes all listing details', () => {
-    const output = formatMissionBoard(MISSION_BOARD);
-    MISSION_BOARD.forEach((listing) => {
-      expect(output).toContain(listing.client);
-      expect(output).toContain(listing.seed);
-    });
+    const listings: readonly MissionListing[] = [
+      {
+        id: '001',
+        client: 'testclient',
+        clientEmail: 'testclient@darkmail.onion',
+        target: 'Test Corp',
+        objective: 'Test objective',
+        difficulty: '* (Easy)',
+        seed: 'TEST-SEED',
+      },
+    ];
+    const output = formatMissionBoard(listings);
+    expect(output).toContain('testclient');
+    expect(output).toContain('TEST-SEED');
   });
 
   it('includes usage hint', () => {

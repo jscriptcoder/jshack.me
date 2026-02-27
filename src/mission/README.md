@@ -61,13 +61,12 @@ Mission machines live on their own subnet (e.g., `10.x.x.0/24`) behind a router 
 
 The entry machine's initial access method varies per seed:
 
-- **ssh** — classic SSH with user credentials shown in the briefing
+- **ssh** — classic SSH with user credentials
 - **ftp** — player FTPs in, finds SSH credentials in accessible files, then SSHes for full access
 - **nc** — player connects via netcat backdoor, finds SSH credentials, then SSHes
 - **exploit** — player scans with `nmap("-sV")`, exploits a vulnerable service, finds SSH credentials, then SSHes
+- **http** — player discovers port 80 via nmap, uses curl to find SSH credentials
 
-SSH is always available on the entry machine; FTP/NC/exploit variants just change the _initial foothold_.
+SSH is always available on the entry machine; other variants just change the _initial foothold_.
 
-### Briefing Variant Override
-
-Board missions can set `briefingVariantOverride` on their `MissionListing` to show a different entry hint in the briefing than the actual entry variant. This enables missions where the real entry path is discovered through gameplay — e.g., the briefing shows `ssh("guest", ip)` but the actual path requires exploiting a vulnerability. The `accept` command looks up the seed in `MISSION_BOARD` and passes the override to `formatMissionBriefing`.
+The mission briefing only shows the target (IP or domain) — the player must figure out how to connect.

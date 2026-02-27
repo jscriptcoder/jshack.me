@@ -15,7 +15,7 @@ All six major generation axes can be controlled by embedding keywords in the see
 | Domain entry  | `domain`                                   | Forces domain-based briefing (nslookup required)          |
 | Encryption    | `decrypt`                                  | Forces exfiltrate + encrypted target file                 |
 
-Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`, `NEXUS-domain-credential-theft`, `IRONGATE-nc-decrypt-22`, `VERTEX-http-exfiltrate-39`
+Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`
 
 ## Difficulty Tiers (3)
 
@@ -353,18 +353,11 @@ Webserver-role machines (and any machine with web credential placements) get `/v
 - Credential placement files at their designated web paths
 - `.headers` sidecar files for header-based secrets
 
-## Board Missions (6 hardcoded, more to be added with e2e tests)
+## Board Missions
 
-| Seed                          | Client     | Difficulty | Notes                                         |
-| ----------------------------- | ---------- | ---------- | --------------------------------------------- |
-| MEDTECH-4A7F-easy             | xR0gu3x    | Easy       |                                               |
-| GRADE-TAMPER-74               | gh0st\_    | Medium     | briefingVariantOverride: ssh (hides exploit)  |
-| NEXUS-domain-credential-theft | cyph3rpunk | Medium     | Domain entry (nslookup required)              |
-| DARKSTONE-ssh-exfiltrate-16   | n3twr4ith  | Medium     | Binary files require `strings` command        |
-| IRONGATE-nc-decrypt-22        | zer0day\_  | Medium     | Encrypted exfiltrate requires `decrypt` + key |
-| VERTEX-http-exfiltrate-39     | bl4ckh4t   | Medium     | HTTP entry variant — discover creds via curl  |
+Board is currently empty — missions are being rebuilt from scratch, one by one, with verified e2e tests.
 
-Players can also use any arbitrary seed string via `accept("any-string")`.
+Players can use any arbitrary seed string via `accept("any-string")`.
 
 ---
 

@@ -1,6 +1,7 @@
-import type { Command } from '../components/Terminal/types';
+import type { Command, AsyncOutput } from '../components/Terminal/types';
 import type { MissionNetwork } from '../generation/types';
 import type { UserType } from '../session/SessionContext';
+import { createCancellationToken } from '../utils/asyncCommand';
 
 type MailCommandContext = {
   readonly getActiveMission: () => MissionNetwork | null;
@@ -13,18 +14,20 @@ type MailCommandContext = {
   ) => string | null;
 };
 
-const MISSION_COMPLETE_BANNER = (mission: MissionNetwork): string =>
-  [
-    '',
-    '============================================',
-    '  MISSION COMPLETE',
-    '============================================',
-    `  Seed: ${mission.seed}`,
-    `  Difficulty: ${mission.difficulty}`,
-    '',
-    '  Contract fulfilled. Type missions() for more jobs.',
-    '============================================',
-  ].join('\n');
+const MISSION_COMPLETE_BANNER: readonly string[] = [
+  '',
+  '============================================',
+  '  MISSION COMPLETE',
+  '============================================',
+];
+
+const formatCompletionDetails = (mission: MissionNetwork): readonly string[] => [
+  `  Seed: ${mission.seed}`,
+  `  Difficulty: ${mission.difficulty}`,
+  '',
+  '  Contract fulfilled. Type missions() for more jobs.',
+  '============================================',
+];
 
 const verifyExfiltrate = (proof: string, mission: MissionNetwork): string | null => {
   if (proof === mission.objective.expectedProof) return null;
@@ -63,6 +66,18 @@ const verifyTamper = (
   return null;
 };
 
+const verifyProof = (
+  proof: string,
+  mission: MissionNetwork,
+  readFileFromMachine: MailCommandContext['readFileFromMachine'],
+): string | null => {
+  const { type } = mission.objective;
+  if (type === 'exfiltrate') return verifyExfiltrate(proof, mission);
+  if (type === 'credential_theft') return verifyCredentialTheft(proof, mission);
+  if (type === 'tamper') return verifyTamper(mission, readFileFromMachine);
+  return null;
+};
+
 export const createMailCommand = (context: MailCommandContext): Command => ({
   name: 'mail',
   description: 'Send proof to a darknet client to complete a mission',
@@ -89,7 +104,7 @@ export const createMailCommand = (context: MailCommandContext): Command => ({
       },
     ],
   },
-  fn: (recipient: unknown, content: unknown): string => {
+  fn: (recipient: unknown, content: unknown): AsyncOutput => {
     if (typeof recipient !== 'string' || !recipient.trim()) {
       throw new Error('Usage: mail("recipient@darkmail.onion", "proof")');
     }
@@ -102,29 +117,51 @@ export const createMailCommand = (context: MailCommandContext): Command => ({
       throw new Error('No active mission. Use accept("SEED") to start one.');
     }
 
-    if (recipient.trim() !== mission.clientEmail) {
+    const trimmedRecipient = recipient.trim();
+    if (trimmedRecipient !== mission.clientEmail) {
       throw new Error(
-        `mail: unknown recipient "${recipient.trim()}". Check the mission briefing for the correct email.`,
+        `mail: unknown recipient "${trimmedRecipient}". Check the mission briefing for the correct email.`,
       );
     }
 
     const proof = content.trim();
-    const { type } = mission.objective;
 
-    let error: string | null = null;
-    if (type === 'exfiltrate') {
-      error = verifyExfiltrate(proof, mission);
-    } else if (type === 'credential_theft') {
-      error = verifyCredentialTheft(proof, mission);
-    } else if (type === 'tamper') {
-      error = verifyTamper(mission, context.readFileFromMachine);
-    }
-
+    // Verify proof synchronously so errors throw immediately
+    const error = verifyProof(proof, mission, context.readFileFromMachine);
     if (error) {
       throw new Error(`mail: delivery failed — ${error}`);
     }
 
-    context.completeMission();
-    return MISSION_COMPLETE_BANNER(mission);
+    const token = createCancellationToken();
+
+    return {
+      __type: 'async',
+      start: (onLine, onComplete) => {
+        onLine(`Connecting to darkmail.onion...`);
+
+        token.schedule(() => {
+          if (token.isCancelled()) return;
+          onLine(`Encrypting message for ${trimmedRecipient}...`);
+        }, 600);
+
+        token.schedule(() => {
+          if (token.isCancelled()) return;
+          onLine('Routing through onion network...');
+        }, 1400);
+
+        token.schedule(() => {
+          if (token.isCancelled()) return;
+          onLine('Message delivered.');
+
+          context.completeMission();
+
+          MISSION_COMPLETE_BANNER.forEach((line) => onLine(line));
+          formatCompletionDetails(mission).forEach((line) => onLine(line));
+
+          onComplete();
+        }, 2400);
+      },
+      cancel: token.cancel,
+    };
   },
 });

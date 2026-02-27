@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createMailCommand } from './mail';
 import type { MissionNetwork, MissionObjective } from '../generation/types';
+import type { AsyncOutput } from '../components/Terminal/types';
 
 const makeMission = (overrides: Partial<MissionObjective> = {}): MissionNetwork =>
   ({
@@ -19,7 +20,29 @@ const makeMission = (overrides: Partial<MissionObjective> = {}): MissionNetwork 
     },
   }) as unknown as MissionNetwork;
 
+const runAsync = (result: AsyncOutput): readonly string[] => {
+  const lines: string[] = [];
+  let completed = false;
+  result.start(
+    (line) => lines.push(line),
+    () => {
+      completed = true;
+    },
+  );
+  vi.runAllTimers();
+  expect(completed).toBe(true);
+  return lines;
+};
+
 describe('mail command', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('completes an exfiltrate mission with correct proof', () => {
     const completeMission = vi.fn();
     const mission = makeMission();
@@ -29,9 +52,29 @@ describe('mail command', () => {
       readFileFromMachine: vi.fn(),
     });
 
-    const result = mail.fn('xR0gu3x@darkmail.onion', 'ACCESS-A1B2-C3D4-E5F6');
+    const result = mail.fn('xR0gu3x@darkmail.onion', 'ACCESS-A1B2-C3D4-E5F6') as AsyncOutput;
+    expect(result.__type).toBe('async');
+
+    const lines = runAsync(result);
     expect(completeMission).toHaveBeenCalled();
-    expect(result).toContain('MISSION COMPLETE');
+    expect(lines.join('\n')).toContain('MISSION COMPLETE');
+  });
+
+  it('shows sending progress lines', () => {
+    const mission = makeMission();
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission: vi.fn(),
+      readFileFromMachine: vi.fn(),
+    });
+
+    const result = mail.fn('xR0gu3x@darkmail.onion', 'ACCESS-A1B2-C3D4-E5F6') as AsyncOutput;
+    const lines = runAsync(result);
+
+    expect(lines.some((l) => l.includes('darkmail.onion'))).toBe(true);
+    expect(lines.some((l) => l.includes('Encrypting'))).toBe(true);
+    expect(lines.some((l) => l.includes('onion network'))).toBe(true);
+    expect(lines.some((l) => l.includes('delivered'))).toBe(true);
   });
 
   it('rejects exfiltrate mission with wrong proof', () => {
@@ -59,9 +102,10 @@ describe('mail command', () => {
       readFileFromMachine: vi.fn(),
     });
 
-    const result = mail.fn('xR0gu3x@darkmail.onion', 's3cr3tP4ss');
+    const result = mail.fn('xR0gu3x@darkmail.onion', 's3cr3tP4ss') as AsyncOutput;
+    const lines = runAsync(result);
     expect(completeMission).toHaveBeenCalled();
-    expect(result).toContain('MISSION COMPLETE');
+    expect(lines.join('\n')).toContain('MISSION COMPLETE');
   });
 
   it('rejects credential_theft with wrong password', () => {
@@ -99,9 +143,10 @@ describe('mail command', () => {
       readFileFromMachine,
     });
 
-    const result = mail.fn('xR0gu3x@darkmail.onion', 'done');
+    const result = mail.fn('xR0gu3x@darkmail.onion', 'done') as AsyncOutput;
+    const lines = runAsync(result);
     expect(completeMission).toHaveBeenCalled();
-    expect(result).toContain('MISSION COMPLETE');
+    expect(lines.join('\n')).toContain('MISSION COMPLETE');
     expect(readFileFromMachine).toHaveBeenCalledWith(
       '10.0.0.10',
       '/opt/mysql/dumps/students.sql',
@@ -179,6 +224,34 @@ describe('mail command', () => {
 
     expect(() => mail.fn()).toThrow('Usage');
     expect(() => mail.fn('someone@darkmail.onion')).toThrow('Usage');
+  });
+
+  it('is cancellable', () => {
+    const completeMission = vi.fn();
+    const mission = makeMission();
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission,
+      readFileFromMachine: vi.fn(),
+    });
+
+    const result = mail.fn('xR0gu3x@darkmail.onion', 'ACCESS-A1B2-C3D4-E5F6') as AsyncOutput;
+    expect(result.cancel).toBeDefined();
+
+    const lines: string[] = [];
+    result.start(
+      (line) => lines.push(line),
+      () => {},
+    );
+
+    // Cancel after first line
+    vi.advanceTimersByTime(100);
+    result.cancel?.();
+    vi.runAllTimers();
+
+    // Should not have completed
+    expect(completeMission).not.toHaveBeenCalled();
+    expect(lines.join('\n')).not.toContain('MISSION COMPLETE');
   });
 
   it('has correct name and description', () => {

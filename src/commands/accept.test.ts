@@ -15,17 +15,41 @@ describe('accept command', () => {
     expect(result).toContain('MEDTECH-4A7F-easy');
   });
 
-  it('shows entry point, difficulty, and client email in briefing', () => {
+  it('shows target, difficulty, and client email in briefing', () => {
     const startMission = vi.fn();
     const accept = createAcceptCommand({ startMission, isMissionActive: () => false });
     const result = accept.fn('MEDTECH-4A7F-easy') as string;
 
     expect(result).toContain('Difficulty: easy');
-    expect(result).toContain('Gateway:');
-    // Gateway shows either IP or domain depending on domain entry mode
-    expect(result).toMatch(/45\.|\.mission/);
+    expect(result).toContain('Target:');
     expect(result).toContain('Reply to:');
     expect(result).toContain('@darkmail.onion');
+  });
+
+  it('shows target as IP or domain', () => {
+    const startMission = vi.fn();
+    const accept = createAcceptCommand({ startMission, isMissionActive: () => false });
+    const result = accept.fn('MEDTECH-4A7F-easy') as string;
+
+    // Target should be either an IP or a .mission domain
+    expect(result).toMatch(/Target: (\d+\.\d+\.\d+\.\d+|[\w-]+\.mission)/);
+  });
+
+  it('does not reveal entry variant or connection hints', () => {
+    const startMission = vi.fn();
+    const accept = createAcceptCommand({ startMission, isMissionActive: () => false });
+    const result = accept.fn('MEDTECH-4A7F-easy') as string;
+
+    expect(result).not.toContain('ssh(');
+    expect(result).not.toContain('ftp(');
+    expect(result).not.toContain('nc(');
+    expect(result).not.toContain('nmap(');
+    expect(result).not.toContain('nslookup(');
+    expect(result).not.toContain('exploit');
+    expect(result).not.toContain('Port forwarding');
+    expect(result).not.toContain('No forwarding');
+    expect(result).not.toContain('Access:');
+    expect(result).not.toContain('Gateway:');
   });
 
   it('shows mail example in briefing', () => {
@@ -34,6 +58,16 @@ describe('accept command', () => {
     const result = accept.fn('MEDTECH-4A7F-easy') as string;
 
     expect(result).toContain('mail(');
+  });
+
+  it('shows domain instead of IP for domain entry missions', () => {
+    const startMission = vi.fn();
+    const accept = createAcceptCommand({ startMission, isMissionActive: () => false });
+    // "domain" keyword forces domain entry mode
+    const result = accept.fn('test-domain-easy') as string;
+
+    expect(result).toMatch(/Target:.*\.mission/);
+    expect(result).not.toMatch(/Target:.*\d+\.\d+\.\d+\.\d+/);
   });
 
   it('trims whitespace from seed', () => {
@@ -73,33 +107,5 @@ describe('accept command', () => {
 
     expect(accept.name).toBe('accept');
     expect(accept.description).toBeTruthy();
-  });
-
-  it('shows nslookup hint for domain entry missions', () => {
-    const startMission = vi.fn();
-    const accept = createAcceptCommand({ startMission, isMissionActive: () => false });
-    // "domain" keyword forces domain entry mode
-    const result = accept.fn('test-domain-easy') as string;
-
-    expect(result).toContain('nslookup(');
-    expect(result).toContain('.mission');
-    // Should NOT show a numeric IP in the gateway line
-    expect(result).not.toMatch(/Gateway:.*\d+\.\d+\.\d+\.\d+/);
-  });
-
-  it('uses briefingVariantOverride for board missions', () => {
-    const startMission = vi.fn();
-    const accept = createAcceptCommand({ startMission, isMissionActive: () => false });
-    // GRADE-TAMPER-74 has briefingVariantOverride: 'ssh' but actual entry may differ
-    const result = accept.fn('GRADE-TAMPER-74') as string;
-
-    // Domain mode shows nslookup instead of variant hint; otherwise override forces SSH hint
-    const isDomainMode = result.includes('nslookup(');
-    if (isDomainMode) {
-      expect(result).not.toContain('nmap("-sV"');
-    } else {
-      expect(result).toContain('ssh(');
-      expect(result).not.toContain('nmap("-sV"');
-    }
   });
 });
