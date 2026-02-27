@@ -2,11 +2,11 @@
 
 ## Current Step
 
-Script fix mission objective type
+Cross-tab sync via BroadcastChannel
 
 ## Status
 
-✅ COMPLETE — `script_fix` objective type (1006 unit tests across 67 files)
+✅ COMPLETE — Multi-tab support with cross-tab sync (1017 unit tests across 68 files)
 
 ## Completed
 
@@ -23,7 +23,23 @@ Script fix mission objective type
 - [x] Mission system — procedurally generated contracts (seeded generator, router topology, NAT forwarding, entry variants)
 - [x] Remove static CTF content (7 machines, 16 flags, E2E CTF test) — mission-only game
 
-## Recent Session (2026-02-27, Session 13)
+## Recent Session (2026-02-28, Session 14)
+
+Implemented:
+
+- **Cross-tab sync via BroadcastChannel**:
+  - Multiple browser tabs run independent terminal sessions with shared state
+  - `src/utils/crossTabSync.ts` — BroadcastChannel wrapper with typed messages (filesystem-patch, wifi-changed, mission-changed, theme-changed), graceful no-op fallback when unavailable
+  - `FileSystemContext.tsx` — broadcasts each filesystem patch on write/create, subscribes to receive and apply patches from other tabs
+  - `SessionContext.tsx` — broadcasts WiFi connect/disconnect and theme changes, subscribes to receive both. WiFi disconnect from another tab resets session to localhost. Added dynamic `document.title` (`username@machine — JSHACK.ME`, `ftp> — JSHACK.ME`, `nc shell — JSHACK.ME`)
+  - `useMissionState.ts` — broadcasts mission start (seed) and abort/complete (null), subscribes to regenerate or clear mission from other tabs
+  - `MissionContext.tsx` — detects cross-tab mission abort while session is on a mission machine, calls `popAllSessions()` to reset to localhost
+  - No echo loops: BroadcastChannel does not deliver messages to the posting tab
+  - Zero refactoring of existing providers/contexts — sync layer is purely additive
+  - **Version bump**: 0.7.0 → 0.8.0
+  - **Test count**: 1017 unit tests across 68 files
+
+## Previous Session (2026-02-27, Session 13)
 
 Implemented:
 
@@ -574,7 +590,17 @@ None currently.
 
 ## Next Action — Mission System Expansion
 
-- [ ] Expand mission types (plant, chain), difficulty tiers, more machine role templates, more vulnerability patterns. See `.claude/docs/missions-design.md` and `PLAN.md`.
+- [ ] Expand mission types (plant, chain), difficulty tiers, more machine role templates, more vulnerability patterns. See `.claude/docs/missions-design.md`.
+
+## Future Ideas
+
+### User-Generated Content
+
+Allow players to create and share missions via seed codes. Community voting, ratings, weekly challenges.
+
+### Backend Integration
+
+Mission catalog API, player accounts, leaderboards. Options: Supabase, Firebase, or self-hosted.
 
 ---
 
@@ -599,7 +625,7 @@ All other machines are procedurally generated per mission.
 
 ### Test Coverage
 
-- 1006 unit tests across 67 colocated test files
+- 1017 unit tests across 68 colocated test files
 - 4 Playwright E2E tests: mission playthroughs (SSH/FTP/NC variants + lifecycle)
 - All commands with logic are tested
 - Async commands tested with fake timers

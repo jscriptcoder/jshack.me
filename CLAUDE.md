@@ -118,6 +118,10 @@ Session and filesystem state persist to IndexedDB (`jshack-db` database):
 - Mission filesystem patches are NOT persisted — only static machine patches are saved
 - `reset("confirm")` clears IndexedDB and reloads to factory state
 
+### Cross-Tab Sync
+
+Multiple browser tabs run independent terminal sessions with shared state via `BroadcastChannel` (`src/utils/crossTabSync.ts`). Filesystem patches, WiFi state, mission state, and theme sync across tabs in real time. Session (user, machine, path, SSH stack, FTP/NC mode), terminal output, and command history are per-tab. Graceful no-op fallback when `BroadcastChannel` is unavailable. Dynamic tab title shows `username@machine — JSHACK.ME`.
+
 ### WiFi Hacking Gate
 
 Network access from localhost requires cracking a WiFi network first. This is a progression gate before network access.
@@ -165,7 +169,6 @@ When making any changes (adding/changing/deleting commands, hooks, machines, uti
 1. **Update `README.md`** if the change affects user-facing documentation (commands, features, setup, etc.)
 2. **Update project docs** — check if any of these files need updates:
    - `WIP.md` — current work in progress
-   - `PLAN.md` — planned features and roadmap
    - `LEARNINGS.md` — lessons learned, gotchas, decisions
    - `CLAUDE.md` — project instructions (this file)
    - `.claude/docs/architecture.md` — architecture documentation

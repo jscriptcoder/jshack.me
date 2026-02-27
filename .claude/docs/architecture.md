@@ -48,7 +48,7 @@ e2e/
 
 ## Terminal Features
 
-- ASCII banner on startup ("JSHACK.ME v0.7.0")
+- ASCII banner on startup ("JSHACK.ME v0.8.0")
 - Dynamic prompt: `username@machine>` (managed via SessionContext)
 - Command history (up/down arrows)
 - Tab autocompletion for commands and variables
@@ -74,6 +74,25 @@ Three-layer system:
 Filesystem persistence uses patches (diffs from base filesystem). Each write/create operation records a `FileSystemPatch` with machineId, path, content, and owner. Patches are replayed on initialization via `applyPatches()`. Mission filesystem patches are excluded from persistence — only static machine patches are saved to IndexedDB.
 
 Mission seed persistence: only the active mission seed string is stored in IndexedDB (session store, key `activeMissionSeed`). On reload, the full `MissionNetwork` is regenerated from the seed (deterministic). Session state (machine, path, stack) and static filesystem patches already persist via existing mechanisms.
+
+## Cross-Tab Sync
+
+Multiple browser tabs can run independent terminal sessions with shared state via the `BroadcastChannel` API (`src/utils/crossTabSync.ts`). Each tab has its own session (user, machine, path, SSH stack, FTP/NC mode) but filesystem patches, WiFi state, mission state, and theme are synchronized across tabs in real time.
+
+**Architecture**: A single `jshack-sync` BroadcastChannel carries typed messages. Each context that needs sync creates a channel on mount and closes it on unmount. Messages are fire-and-forget — IndexedDB persistence serves as the durable backing store.
+
+**Synced state**:
+
+- **Filesystem patches** — `FileSystemContext` broadcasts each patch after `writeFileToMachine` / `createFileOnMachine`. Receiving tabs apply the patch to their local filesystem state via `applyPatches()`.
+- **WiFi state** — `SessionContext` broadcasts `wifi-changed` on connect/disconnect. Receiving tabs update `session.wifiConnected`. WiFi disconnect from another tab resets the session to localhost (same as `disconnectWifi()`).
+- **Mission state** — `useMissionState` broadcasts `mission-changed` with the seed (or null) on start/abort/complete. Receiving tabs regenerate the full `MissionNetwork` from the seed. `MissionProvider` detects cross-tab mission abort and calls `popAllSessions()` if the session is on a mission machine.
+- **Theme** — `SessionContext` broadcasts `theme-changed`. Receiving tabs update `session.theme`, triggering `applyTheme()` via the existing effect.
+
+**Echo loop prevention**: Each context broadcasts only on locally-initiated changes (explicit method calls). BroadcastChannel does not deliver messages to the posting tab, so echo loops cannot occur.
+
+**Graceful fallback**: When `BroadcastChannel` is unavailable (older browsers, SSR), `createSyncChannel()` returns no-op stubs. Tabs work independently, same as before.
+
+**Dynamic tab title**: `SessionContext` updates `document.title` based on the current session mode: `username@machine — JSHACK.ME`, `ftp> — JSHACK.ME`, or `nc shell — JSHACK.ME`.
 
 ## Nano Editor
 

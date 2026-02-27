@@ -1,9 +1,18 @@
-import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useEffect,
+  useRef,
+  type ReactNode,
+} from 'react';
 import { getCachedSessionState, getDatabase } from '../utils/storageCache';
 import { saveSessionState } from '../utils/storage';
 import type { ThemeId } from '../theme/themes';
 import { DEFAULT_THEME_ID, THEMES, isValidThemeId } from '../theme/themes';
 import { applyTheme } from '../theme/applyTheme';
+import { createSyncChannel, type SyncMessage } from '../utils/crossTabSync';
 
 export type UserType = 'root' | 'user' | 'guest';
 
@@ -190,6 +199,37 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
   );
   const [ftpSession, setFtpSession] = useState<FtpSession | null>(initialState.ftpSession);
   const [ncSession, setNcSession] = useState<NcSession | null>(initialState.ncSession);
+  const syncChannelRef = useRef(createSyncChannel());
+
+  // Subscribe to WiFi and theme changes from other tabs.
+  // BroadcastChannel does not deliver messages to the posting tab, so no echo guard needed.
+  useEffect(() => {
+    const channel = syncChannelRef.current;
+    channel.onMessage((message: SyncMessage) => {
+      if (message.type === 'wifi-changed') {
+        if (!message.connected) {
+          // When another tab disconnects WiFi, reset this tab to localhost too
+          setSession((prev) => ({
+            username: 'jshacker',
+            userType: 'user' as const,
+            machine: 'localhost',
+            currentPath: prev.machine === 'localhost' ? prev.currentPath : '/home/jshacker',
+            wifiConnected: false,
+            theme: prev.theme,
+          }));
+          setSessionStack([]);
+          setFtpSession(null);
+          setNcSession(null);
+        } else {
+          setSession((prev) => ({ ...prev, wifiConnected: true }));
+        }
+      }
+      if (message.type === 'theme-changed') {
+        setSession((prev) => ({ ...prev, theme: message.theme }));
+      }
+    });
+    return () => channel.close();
+  }, []);
 
   useEffect(() => {
     const db = getDatabase();
@@ -291,15 +331,27 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
 
   const setWifiConnected = useCallback((connected: boolean) => {
     setSession((prev) => ({ ...prev, wifiConnected: connected }));
+    syncChannelRef.current.broadcast({ type: 'wifi-changed', connected });
   }, []);
 
   const setTheme = useCallback((theme: ThemeId) => {
     setSession((prev) => ({ ...prev, theme }));
+    syncChannelRef.current.broadcast({ type: 'theme-changed', theme });
   }, []);
 
   useEffect(() => {
     applyTheme(THEMES[session.theme]);
   }, [session.theme]);
+
+  // Dynamic browser tab title so users can identify tabs at a glance
+  useEffect(() => {
+    const title = ftpSession
+      ? `ftp> \u2014 JSHACK.ME`
+      : ncSession
+        ? `nc shell \u2014 JSHACK.ME`
+        : `${session.username}@${session.machine} \u2014 JSHACK.ME`;
+    document.title = title;
+  }, [session.username, session.machine, ftpSession, ncSession]);
 
   // Resets to the bottom of the session stack (the original state before any SSH).
   // Used by mission abort to return to localhost regardless of SSH nesting depth.
@@ -344,6 +396,7 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
     setSessionStack([]);
     setFtpSession(null);
     setNcSession(null);
+    syncChannelRef.current.broadcast({ type: 'wifi-changed', connected: false });
   }, [sessionStack]);
 
   return (

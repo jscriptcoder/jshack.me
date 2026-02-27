@@ -13,6 +13,7 @@ Shared utility modules used across the application. Each module is self-containe
 | `storage.ts`      | IndexedDB wrapper — open, read, write, clear for `session` and `filesystem` stores, plus mission seed persistence    |
 | `storageCache.ts` | Pre-load cache that bridges async IndexedDB with sync React `useState` initializers (session, patches, mission seed) |
 | `asyncCommand.ts` | Cancellation token for async commands — encapsulates `setTimeout` scheduling and cleanup                             |
+| `crossTabSync.ts` | BroadcastChannel wrapper for cross-tab state sync (filesystem patches, WiFi, mission, theme)                         |
 
 ## Persistence Stack
 
