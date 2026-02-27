@@ -23,22 +23,22 @@ const mission = generateMissionNetwork('HEIST-7734');
 1. **PRNG** (`prng.ts`) — Mulberry32 seeded via FNV-1a hash of the seed string
 2. **Topology** (`topology.ts`) — Flat subnet, machine count by difficulty, roles, IPs, interfaces, DNS, entry variant selection (ssh/ftp/nc/exploit/http)
 3. **Users** (`users.ts`) — Root + 1-2 role-appropriate users per machine, md5-hashed passwords. Guest passwords picked from `guestPasswords` pool (not hardcoded).
-4. **Attack Chain** (`attackChain.ts`) — Path from entry to target, access methods based on entry variant, credential placements, objective generation (exfiltrate with ACCESS-KEY, tamper with old/new values, credential_theft with root password), client email generation
+4. **Attack Chain** (`attackChain.ts`) — Path from entry to target, access methods based on entry variant, credential placements, objective generation (exfiltrate with ACCESS-KEY, tamper with old/new values, credential_theft with root password, script_fix with broken script + bug type), client email generation
 5. **Filesystems** (`filesystem.ts`) — FileNode trees with role configs, credential breadcrumbs, entry credential hints (for FTP/NC/exploit/HTTP variants), noise, target file at dynamic path with thematic content. Web content generation for webserver-role machines and HTTP credential placements. `/bin/` is populated with system utility binaries; `/usr/bin/` is left empty (players must `apt install` tools).
 
 ## Files
 
-| File                 | Purpose                                                                                                                                                                                                                      |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `prng.ts`            | Mulberry32 PRNG: next, nextInt, pick, pickN, shuffle                                                                                                                                                                         |
-| `types.ts`           | MissionNetwork, GeneratedMachine, AttackStep, EntryVariant, MissionObjective                                                                                                                                                 |
-| `pools.ts`           | Static data: usernames, passwords, guest passwords, hostnames, client handles, vulnerability/port/entry templates, credential hints, target/tamper file templates by role, web content templates, HTTP credential placements |
-| `topology.ts`        | Subnet generation, machine roles, entry variant selection, NetworkConfig                                                                                                                                                     |
-| `users.ts`           | Per-machine users + plaintext credential map                                                                                                                                                                                 |
-| `attackChain.ts`     | Attack path, credential placements, objective generation (exfiltrate/tamper/credential_theft), client email                                                                                                                  |
-| `binary.ts`          | Binary noise wrapping for credential/target files, binary file path pools, binary hint templates                                                                                                                             |
-| `filesystem.ts`      | FileNode trees via createFileSystem(), breadcrumbs, noise, dynamic target file placement                                                                                                                                     |
-| `generateMission.ts` | Orchestrator composing all steps                                                                                                                                                                                             |
+| File                 | Purpose                                                                                                                                                                                                                                 |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prng.ts`            | Mulberry32 PRNG: next, nextInt, pick, pickN, shuffle                                                                                                                                                                                    |
+| `types.ts`           | MissionNetwork, GeneratedMachine, AttackStep, EntryVariant, MissionObjective                                                                                                                                                            |
+| `pools.ts`           | Static data: usernames, passwords, guest passwords, hostnames, client handles, vulnerability/port/entry templates, credential hints, target/tamper/script-fix file templates by role, web content templates, HTTP credential placements |
+| `topology.ts`        | Subnet generation, machine roles, entry variant selection, NetworkConfig                                                                                                                                                                |
+| `users.ts`           | Per-machine users + plaintext credential map                                                                                                                                                                                            |
+| `attackChain.ts`     | Attack path, credential placements, objective generation (exfiltrate/tamper/credential_theft/script_fix), client email                                                                                                                  |
+| `binary.ts`          | Binary noise wrapping for credential/target files, binary file path pools, binary hint templates                                                                                                                                        |
+| `filesystem.ts`      | FileNode trees via createFileSystem(), breadcrumbs, noise, dynamic target file placement                                                                                                                                                |
+| `generateMission.ts` | Orchestrator composing all steps                                                                                                                                                                                                        |
 
 ## Difficulty
 
@@ -87,13 +87,13 @@ NC and exploit variants select a variable owner type via PRNG: guest (60%), user
 
 Players and developers can embed keywords in the seed string to control generation axes. Keywords are case-insensitive and matched via `includes()`. `parseSeedOverrides(seed)` extracts all overrides in one pass.
 
-| Axis          | Keywords                                   | Notes                                                     |
-| ------------- | ------------------------------------------ | --------------------------------------------------------- |
-| Difficulty    | `easy`, `medium`, `hard`                   | Same as before, now unified in parser                     |
-| Entry variant | `ssh`, `ftp`, `nc`, `exploit`, `http`      | Falls back if template unavailable (e.g. nc+router-first) |
-| Network mode  | `forwarded`, `router-first`                | Hyphenated to avoid false matches                         |
-| Objective     | `exfiltrate`, `tamper`, `credential-theft` | Hyphen variant for credential_theft                       |
-| Encryption    | `decrypt`                                  | Forces exfiltrate + encrypted target file                 |
+| Axis          | Keywords                                                 | Notes                                                     |
+| ------------- | -------------------------------------------------------- | --------------------------------------------------------- |
+| Difficulty    | `easy`, `medium`, `hard`                                 | Same as before, now unified in parser                     |
+| Entry variant | `ssh`, `ftp`, `nc`, `exploit`, `http`                    | Falls back if template unavailable (e.g. nc+router-first) |
+| Network mode  | `forwarded`, `router-first`                              | Hyphenated to avoid false matches                         |
+| Objective     | `exfiltrate`, `tamper`, `credential-theft`, `script-fix` | Hyphen variant for credential_theft / script_fix          |
+| Encryption    | `decrypt`                                                | Forces exfiltrate + encrypted target file                 |
 
 Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`, `IRONGATE-nc-decrypt-22`, `VERTEX-http-exfiltrate-39`
 

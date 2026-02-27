@@ -6,14 +6,14 @@ Comprehensive catalog of all procedural generation variation axes. Use this to t
 
 All six major generation axes can be controlled by embedding keywords in the seed string (case-insensitive, matched via `includes()`). `parseSeedOverrides(seed)` in `generateMission.ts` extracts overrides. PRNG sequence is preserved — calls are consumed but results discarded in favor of overrides.
 
-| Axis          | Keywords                                   | Notes                                                     |
-| ------------- | ------------------------------------------ | --------------------------------------------------------- |
-| Difficulty    | `easy`, `medium`, `hard`                   | Falls back to hash-based derivation without keyword       |
-| Entry variant | `ssh`, `ftp`, `nc`, `exploit`, `http`      | Falls back if template unavailable (e.g. nc+router-first) |
-| Network mode  | `forwarded`, `router-first`                | Hyphenated to avoid false matches                         |
-| Objective     | `exfiltrate`, `tamper`, `credential-theft` | Hyphen variant for credential_theft                       |
-| Domain entry  | `domain`                                   | Forces domain-based briefing (nslookup required)          |
-| Encryption    | `decrypt`                                  | Forces exfiltrate + encrypted target file                 |
+| Axis          | Keywords                                                 | Notes                                                     |
+| ------------- | -------------------------------------------------------- | --------------------------------------------------------- |
+| Difficulty    | `easy`, `medium`, `hard`                                 | Falls back to hash-based derivation without keyword       |
+| Entry variant | `ssh`, `ftp`, `nc`, `exploit`, `http`                    | Falls back if template unavailable (e.g. nc+router-first) |
+| Network mode  | `forwarded`, `router-first`                              | Hyphenated to avoid false matches                         |
+| Objective     | `exfiltrate`, `tamper`, `credential-theft`, `script-fix` | Hyphen variant for credential_theft / script_fix          |
+| Domain entry  | `domain`                                                 | Forces domain-based briefing (nslookup required)          |
+| Encryption    | `decrypt`                                                | Forces exfiltrate + encrypted target file                 |
 
 Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`
 
@@ -76,6 +76,39 @@ Exfiltrate objectives have a ~25% chance (or 100% with `decrypt` keyword) of enc
 | `/opt/security/vault.key`          | JSON vault key with algorithm and date |
 
 Key files have ~25% chance of binary wrapping (using `binaryKeyPaths` per role).
+
+## Script Fix Objective
+
+A 4th objective type where the player finds a broken JavaScript script on the target machine, fixes it with `nano()`, runs it with `node()`, and mails the resulting ACCESS-KEY to the client. Seed keyword: `script-fix`.
+
+### Bug Types (3, ~33% each)
+
+| Type      | Description                                                         |
+| --------- | ------------------------------------------------------------------- |
+| syntax    | Missing paren, quote, or brace — script throws a SyntaxError        |
+| logic     | Wrong comparison value or filter condition — script outputs "ERROR" |
+| corrupted | Data line replaced with `???` — correct value in a nearby hint file |
+
+### Script Ownership
+
+| Owner | Chance | Effect                                                           |
+| ----- | ------ | ---------------------------------------------------------------- |
+| user  | 60%    | Anyone can read/write/execute — no privilege escalation needed   |
+| root  | 40%    | Anyone can read, but only root can write/execute — must su first |
+
+### Script Fix Templates (8 + 2 router)
+
+2 templates per main role (fileserver, database, webserver, workstation) + 2 for router (unused).
+
+Each template is a short script that filters/counts array data and conditionally outputs the ACCESS-KEY via `echo()`. Bug variants introduce syntax errors, logic errors, or corrupted data lines. Corrupted variants have a hint file at a nearby path on the same machine containing the correct value.
+
+### Key Design Decisions
+
+- No binary wrapping (scripts must be readable/editable with nano)
+- No encryption (scripts must be directly editable)
+- Dummy PRNG rolls consumed for binary + encrypt to preserve sequence alignment
+- Corrupted hints placed on same target machine (not a different machine)
+- Verification: simple string comparison (same as exfiltrate)
 
 ## Binary File Wrapping
 
@@ -170,13 +203,14 @@ Used when entry variant is `exploit`. Matched by port/service.
 | CVE-2015-1427  | Elasticsearch 1.4.2 | 9200 | Groovy sandbox bypass            |
 | CVE-2019-11510 | PulseSecure/9.0R1   | 8443 | Arbitrary file read (router VPN) |
 
-## Objective Types (3)
+## Objective Types (4)
 
-| Type             | Description                                    | Completion                             |
-| ---------------- | ---------------------------------------------- | -------------------------------------- |
-| exfiltrate       | Find ACCESS-KEY in target file, mail to client | `mail(email, "ACCESS-XXXX-XXXX-XXXX")` |
-| tamper           | Modify a target file, mail client to confirm   | `mail(email, "done")`                  |
-| credential_theft | Discover root password, mail to client         | `mail(email, "<password>")`            |
+| Type             | Description                                         | Completion                             |
+| ---------------- | --------------------------------------------------- | -------------------------------------- |
+| exfiltrate       | Find ACCESS-KEY in target file, mail to client      | `mail(email, "ACCESS-XXXX-XXXX-XXXX")` |
+| tamper           | Modify a target file, mail client to confirm        | `mail(email, "done")`                  |
+| credential_theft | Discover root password, mail to client              | `mail(email, "<password>")`            |
+| script_fix       | Fix broken script, run with node(), mail ACCESS-KEY | `mail(email, "ACCESS-XXXX-XXXX-XXXX")` |
 
 ## Exfiltrate Target File Templates (15 — 3 per role)
 

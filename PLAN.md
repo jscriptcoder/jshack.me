@@ -95,12 +95,13 @@ Procedurally generated hacker-for-hire contracts with seed-based network generat
 4. ~~Vulnerability scanning & exploit system (nmap -sV, exploit command, exploit entry variant, guest password variation)~~ ✅ Done
 5. ~~Thematic target paths (role-based target file templates with flags embedded in realistic content)~~ ✅ Done
 6. ~~Realistic network topology (router + DMZ, NAT forwarding, forwarded vs router-first modes)~~ ✅ Done
-7. Expand mission types (tamper, plant, chain missions)
-8. Polish and social (reputation, seed sharing, history)
+7. ~~Expand mission types (script_fix objective with 3 bug types)~~ ✅ Done
+8. Expand further (plant, chain missions)
+9. Polish and social (reputation, seed sharing, history)
 
 ## Test Coverage
 
-984 tests across 66 colocated test files:
+1006 tests across 67 colocated test files:
 
 - All commands with logic are tested (factory pattern with mock context injection)
 - FTP subcommands tested (cd, lcd, ls, lls, get, put)

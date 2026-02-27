@@ -15,7 +15,9 @@ export type AttackStep = {
   readonly hint: string;
 };
 
-export type MissionObjectiveType = 'exfiltrate' | 'tamper' | 'credential_theft';
+export type MissionObjectiveType = 'exfiltrate' | 'tamper' | 'credential_theft' | 'script_fix';
+
+export type ScriptBugType = 'syntax' | 'logic' | 'corrupted';
 
 export type KeyPlacement = {
   readonly machineIp: string;
@@ -38,6 +40,10 @@ export type MissionObjective = {
   readonly encrypted?: boolean;
   readonly encryptionKey?: string;
   readonly keyPlacement?: KeyPlacement;
+  readonly scriptBugType?: ScriptBugType;
+  readonly scriptHintPath?: string;
+  readonly scriptHintContent?: string;
+  readonly scriptOwner?: 'root' | 'user';
 };
 
 export type GeneratedMachine = {

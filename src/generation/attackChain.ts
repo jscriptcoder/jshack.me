@@ -10,11 +10,13 @@ import type {
   KeyPlacement,
   MissionObjective,
   MissionObjectiveType,
+  ScriptBugType,
 } from './types';
 import {
   clientHandles,
   httpCredentialPlacements,
   keyPlacementTemplates,
+  scriptFixTemplatesByRole,
   targetFileTemplatesByRole,
   tamperFileTemplatesByRole,
 } from './pools';
@@ -166,6 +168,35 @@ const selectTamperFile = (
   };
 };
 
+// Selects a role-appropriate script fix template and picks a bug type via PRNG.
+const selectScriptFixFile = (
+  prng: Prng,
+  targetMachine: GeneratedMachine,
+  accessKey: string,
+): {
+  readonly targetPath: string;
+  readonly targetContent: string;
+  readonly bugType: ScriptBugType;
+  readonly hintPath: string;
+  readonly hintContent: string;
+} => {
+  const templates = scriptFixTemplatesByRole[targetMachine.role];
+  const template = prng.pick(templates);
+
+  const bugTypes: readonly ScriptBugType[] = ['syntax', 'logic', 'corrupted'];
+  const bugType = prng.pick(bugTypes);
+
+  const targetContent = template.bugVariants[bugType].replace(/\{\{access_key\}\}/g, accessKey);
+
+  return {
+    targetPath: template.path,
+    targetContent,
+    bugType,
+    hintPath: template.corruptedHintPath,
+    hintContent: template.corruptedHintContent,
+  };
+};
+
 const generateClientEmail = (prng: Prng): string => {
   const handle = prng.pick(clientHandles);
   return `${handle}@darkmail.onion`;
@@ -306,6 +337,36 @@ const buildObjective = (
     };
   }
 
+  if (objectiveType === 'script_fix') {
+    const accessKey = generateAccessKey(prng);
+    const { targetPath, targetContent, bugType, hintPath, hintContent } = selectScriptFixFile(
+      prng,
+      targetMachine,
+      accessKey,
+    );
+
+    // ~60% user-owned (anyone can edit/run), ~40% root-owned (must su first)
+    const scriptOwner: 'root' | 'user' = prng.next() < 0.6 ? 'user' : 'root';
+
+    // Consume dummy PRNG rolls for binary + encrypt to preserve sequence alignment
+    prng.next();
+    prng.next();
+
+    return {
+      type: 'script_fix',
+      description: `Fix and run the broken script on ${targetMachine.hostname}`,
+      targetMachine: targetMachine.ip,
+      targetPath,
+      targetContent,
+      clientEmail,
+      expectedProof: accessKey,
+      scriptBugType: bugType,
+      scriptOwner,
+      scriptHintPath: bugType === 'corrupted' ? hintPath : undefined,
+      scriptHintContent: bugType === 'corrupted' ? hintContent : undefined,
+    };
+  }
+
   // credential_theft — target is the root password on the target machine
   const targetCreds = credentials[targetMachine.ip] ?? [];
   const rootCred = targetCreds.find((c) => c.username === 'root');
@@ -339,6 +400,7 @@ export const generateAttackChain = (input: AttackChainInput): AttackChainResult 
     'exfiltrate',
     'tamper',
     'credential_theft',
+    'script_fix',
   ];
 
   const path = buildPath(prng, machines, entryPoint, difficulty);

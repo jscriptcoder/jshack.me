@@ -2,11 +2,11 @@
 
 ## Current Step
 
-Tool availability system — `apt install` on remote machines
+Script fix mission objective type
 
 ## Status
 
-✅ COMPLETE — apt command + tool availability system (984 unit tests across 66 files)
+✅ COMPLETE — `script_fix` objective type (1006 unit tests across 67 files)
 
 ## Completed
 
@@ -23,7 +23,26 @@ Tool availability system — `apt install` on remote machines
 - [x] Mission system — procedurally generated contracts (seeded generator, router topology, NAT forwarding, entry variants)
 - [x] Remove static CTF content (7 machines, 16 flags, E2E CTF test) — mission-only game
 
-## Recent Session (2026-02-22, Session 12)
+## Recent Session (2026-02-27, Session 13)
+
+Implemented:
+
+- **Script fix mission objective type (`script_fix`)**:
+  - 4th objective type: player finds a broken JS script on the target machine, fixes with `nano()`, runs with `node()`, mails the ACCESS-KEY
+  - 3 bug types (~33% each): syntax (missing paren/quote/brace), logic (wrong comparison/filter), corrupted (data replaced with `???`, hint file nearby)
+  - `ScriptBugType` type + optional fields on `MissionObjective`: `scriptBugType`, `scriptHintPath`, `scriptHintContent`, `scriptOwner`
+  - `ScriptFixTemplate` type + `scriptFixTemplatesByRole` pool (2 templates per role = 8 main + 2 router)
+  - Variable permissions: ~60% user-owned (anyone can edit/run), ~40% root-owned (must `su` first)
+  - `mkScript()` helper in `filesystem.ts` with owner-based permissions
+  - `findLeafDir()` helper for merging corrupted hint files alongside scripts in the same directory
+  - Seed keyword: `script-fix` in `parseSeedOverrides()`
+  - Mission briefing hints in `accept.ts` (with extra hint for corrupted type)
+  - `verifyScriptFix()` in `mail.ts` (simple string comparison, same as exfiltrate)
+  - Dummy PRNG rolls consumed for binary + encrypt to preserve sequence alignment
+  - No binary wrapping or encryption (scripts must be readable/editable)
+  - **Test count**: 1006 unit tests across 67 files
+
+## Previous Session (2026-02-22, Session 12)
 
 Implemented:
 
@@ -555,7 +574,7 @@ None currently.
 
 ## Next Action — Mission System Expansion
 
-- [ ] Expand mission types, difficulty tiers, more machine role templates, more vulnerability patterns. See `.claude/docs/missions-design.md` and `PLAN.md`.
+- [ ] Expand mission types (plant, chain), difficulty tiers, more machine role templates, more vulnerability patterns. See `.claude/docs/missions-design.md` and `PLAN.md`.
 
 ---
 
@@ -580,7 +599,7 @@ All other machines are procedurally generated per mission.
 
 ### Test Coverage
 
-- 984 unit tests across 66 colocated test files
+- 1006 unit tests across 67 colocated test files
 - 4 Playwright E2E tests: mission playthroughs (SSH/FTP/NC variants + lifecycle)
 - All commands with logic are tested
 - Async commands tested with fake timers

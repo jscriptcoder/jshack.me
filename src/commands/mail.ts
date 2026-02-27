@@ -66,6 +66,11 @@ const verifyTamper = (
   return null;
 };
 
+const verifyScriptFix = (proof: string, mission: MissionNetwork): string | null => {
+  if (proof === mission.objective.expectedProof) return null;
+  return 'Incorrect proof. Fix the script, run it with node(), and send the ACCESS-KEY.';
+};
+
 const verifyProof = (
   proof: string,
   mission: MissionNetwork,
@@ -75,6 +80,7 @@ const verifyProof = (
   if (type === 'exfiltrate') return verifyExfiltrate(proof, mission);
   if (type === 'credential_theft') return verifyCredentialTheft(proof, mission);
   if (type === 'tamper') return verifyTamper(mission, readFileFromMachine);
+  if (type === 'script_fix') return verifyScriptFix(proof, mission);
   return null;
 };
 

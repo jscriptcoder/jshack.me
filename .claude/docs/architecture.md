@@ -223,6 +223,7 @@ SessionProvider → MissionProvider → FileSystemProvider → NetworkProvider �
 - **exfiltrate** — Player finds an ACCESS-KEY in a target file and mails it to the client. Verification: content matches `objective.expectedProof`.
 - **tamper** — Player modifies a target file (e.g., changes a grade from "F" to "A") and mails the client. Verification: `mail` reads the target file from the target machine via `readFileFromMachine`, checks `tamperOldValue` is gone and `tamperNewValue` is present.
 - **credential_theft** — Player discovers the root password on the target machine and mails it to the client. Verification: content matches `objective.expectedProof` (the root password).
+- **script_fix** — Player finds a broken script on the target machine, fixes it with `nano()`, runs it with `node()`, and mails the resulting ACCESS-KEY. Bug types: syntax (missing paren/quote), logic (wrong comparison), corrupted (data replaced with `???`, hint file nearby). ~60% user-owned (anyone can edit/run), ~40% root-owned (must `su` first). Verification: content matches `objective.expectedProof`.
 
 **Mission completion:**
 

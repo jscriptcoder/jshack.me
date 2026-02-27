@@ -55,6 +55,21 @@ const mkFile = (
   content,
 });
 
+// Script files have variable permissions based on owner:
+// user-owned: anyone can read/write/execute (easier — no privilege escalation needed)
+// root-owned: anyone can read, but only root can write/execute (must su first)
+const mkScript = (name: string, content: string, owner: 'root' | 'user' = 'user'): FileNode => ({
+  name,
+  type: 'file',
+  owner,
+  permissions: {
+    read: ['root', 'user', 'guest'],
+    write: owner === 'user' ? ['root', 'user', 'guest'] : ['root'],
+    execute: owner === 'user' ? ['root', 'user', 'guest'] : ['root'],
+  },
+  content,
+});
+
 const mkDir = (
   name: string,
   children: Readonly<Record<string, FileNode>>,
@@ -141,10 +156,18 @@ const placeTargetFile = (
 
   const segments = objective.targetPath.split('/').filter(Boolean);
   const fileName = segments[segments.length - 1] ?? 'flag.txt';
-  const content = objective.binary
-    ? wrapInBinaryNoise(prng, objective.targetContent)
-    : objective.targetContent;
-  const file = mkFile(fileName, content);
+
+  // script_fix: use mkScript with variable permissions, no binary wrapping
+  const file =
+    objective.type === 'script_fix'
+      ? mkScript(fileName, objective.targetContent, objective.scriptOwner ?? 'user')
+      : mkFile(
+          fileName,
+          objective.binary
+            ? wrapInBinaryNoise(prng, objective.targetContent)
+            : objective.targetContent,
+        );
+
   const topDir = segments[0] ?? 'root';
 
   if (topDir === 'root') {
@@ -154,6 +177,16 @@ const placeTargetFile = (
 
   // /srv/, /opt/, etc. — build nested directory tree in extraDirectories
   extraDirectories[topDir] = buildNestedDirs(segments, file);
+};
+
+// Walks a nested directory tree to find the deepest directory node.
+// Used to merge sibling files into an existing directory structure
+// (e.g., adding a hint file alongside a script in /srv/scripts/).
+const findLeafDir = (node: FileNode): FileNode | undefined => {
+  if (node.type !== 'directory' || !node.children) return undefined;
+  const childDirs = Object.values(node.children).filter((c) => c.type === 'directory');
+  if (childDirs.length === 0) return node;
+  return findLeafDir(childDirs[0] as FileNode) ?? node;
 };
 
 // Builds a nested directory tree from path segments, placing the file at the leaf.
@@ -284,6 +317,36 @@ const buildMachineConfig = (
   const rootContent: Record<string, FileNode> = {};
   if (isTarget) {
     placeTargetFile(prng, objective, rootContent, extraDirectories);
+
+    // Place corrupted hint file on the target machine (same machine as the script)
+    if (
+      objective.type === 'script_fix' &&
+      objective.scriptBugType === 'corrupted' &&
+      objective.scriptHintPath &&
+      objective.scriptHintContent
+    ) {
+      const hintSegments = objective.scriptHintPath.split('/').filter(Boolean);
+      const hintFileName = hintSegments[hintSegments.length - 1] ?? 'hint';
+      const hintFile = mkFile(hintFileName, objective.scriptHintContent, 'user');
+      const hintTopDir = hintSegments[0] ?? 'root';
+
+      if (hintTopDir === 'root') {
+        rootContent[hintFileName] = hintFile;
+      } else {
+        // Hint and script share the same parent directory (e.g., /srv/scripts/).
+        // Merge the hint file into the existing leaf directory to avoid overwriting
+        // the script file that was placed by placeTargetFile().
+        const existingDir = extraDirectories[hintTopDir];
+        if (existingDir) {
+          const leafDir = findLeafDir(existingDir);
+          if (leafDir?.children) {
+            (leafDir.children as Record<string, FileNode>)[hintFileName] = hintFile;
+          }
+        } else {
+          extraDirectories[hintTopDir] = buildNestedDirs(hintSegments, hintFile);
+        }
+      }
+    }
   }
 
   if (tmpPlacements.length > 0) {

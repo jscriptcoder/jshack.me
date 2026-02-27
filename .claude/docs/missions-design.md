@@ -170,6 +170,13 @@ Seeds are visible to the player — they can share seeds with friends for the sa
 - Tools: `cat`, `strings`, lateral movement via `ssh`
 - Example: "Recover the CEO's email password from the mail server"
 
+### Script Fix
+
+- Find a broken script on the target machine, fix it, and run it to extract an ACCESS-KEY
+- Three bug types: syntax error, logic error, or corrupted data line
+- Tools: `cat`, `nano`, `node`, `strings` (for corrupted hints)
+- Example: "Fix the broken backup validation script on the file server"
+
 ### Evidence Planting
 
 - Write a specific file to a specific location on a target machine

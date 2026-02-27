@@ -79,8 +79,8 @@ describe('generateMissionNetwork', () => {
     expect(result.fileSystems[result.routerPublicIp]).toBeDefined();
   });
 
-  it('target machine filesystem contains the target file for exfiltrate/tamper', () => {
-    // Find a seed with exfiltrate or tamper (they have target files)
+  it('target machine filesystem contains the target file for exfiltrate/tamper/script_fix', () => {
+    // Find a seed with exfiltrate, tamper, or script_fix (they have target files)
     for (let i = 0; i < 50; i++) {
       const result = generateMissionNetwork(`TARGET-FILE-${i}`);
       if (result.objective.type === 'credential_theft') continue;
@@ -102,7 +102,7 @@ describe('generateMissionNetwork', () => {
       expect(targetFile?.content).toBe(result.objective.targetContent);
       return;
     }
-    throw new Error('No exfiltrate/tamper objective found in 50 seeds');
+    throw new Error('No exfiltrate/tamper/script_fix objective found in 50 seeds');
   });
 
   it('attack chain forms a valid path from entry to target', () => {
@@ -116,7 +116,9 @@ describe('generateMissionNetwork', () => {
 
   it('objective has a valid type', () => {
     const result = generateMissionNetwork('FORMAT-TEST');
-    expect(['exfiltrate', 'tamper', 'credential_theft']).toContain(result.objective.type);
+    expect(['exfiltrate', 'tamper', 'credential_theft', 'script_fix']).toContain(
+      result.objective.type,
+    );
   });
 
   it('clientEmail is set with darkmail.onion domain', () => {

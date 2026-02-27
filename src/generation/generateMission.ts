@@ -47,13 +47,15 @@ export const parseSeedOverrides = (seed: string): SeedOverrides => {
       ? false
       : undefined;
 
-  const objectiveType = lower.includes('exfiltrate')
-    ? 'exfiltrate'
-    : lower.includes('tamper')
-      ? 'tamper'
-      : lower.includes('credential-theft')
-        ? 'credential_theft'
-        : undefined;
+  const objectiveType = lower.includes('script-fix')
+    ? 'script_fix'
+    : lower.includes('exfiltrate')
+      ? 'exfiltrate'
+      : lower.includes('tamper')
+        ? 'tamper'
+        : lower.includes('credential-theft')
+          ? 'credential_theft'
+          : undefined;
 
   const domainEntry = lower.includes('domain') ? true : undefined;
 

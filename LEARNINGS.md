@@ -74,6 +74,12 @@
 - **Issue**: Test expected "Connection refused" for localhost but got "Name or service not known" because DNS resolution runs first
 - **Solution**: Tests should match actual execution order; DNS lookup → localhost check → connection
 
+### buildNestedDirs overwrites siblings when merging into extraDirectories
+
+- **Context**: Script fix objective places both a script and a corrupted hint file in the same top-level directory (e.g., `/srv/scripts/validate_backups.js` and `/srv/scripts/.backup_list`)
+- **Issue**: Calling `buildNestedDirs` for the hint file and assigning to `extraDirectories[topDir]` overwrites the entire subtree, losing the script file placed earlier
+- **Solution**: Use `findLeafDir()` to walk to the deepest directory node in the existing tree and insert the hint file as a sibling, preserving the script file
+
 ### Top-level await not supported in new Function()
 
 - **Context**: Terminal uses `new Function()` to evaluate JavaScript expressions
