@@ -114,10 +114,10 @@ Binary exfiltrate targets use paths like `/opt/app/data.bin`, `/var/lib/export.d
 
 ## Network Modes (2)
 
-| Mode         | Description                                                                       |
-| ------------ | --------------------------------------------------------------------------------- |
-| Forwarded    | Router NATs entry ports to the DMZ/entry machine. Player connects transparently.  |
-| Router-first | No forwarding. Player must hack the router first, then pivot to internal network. |
+| Mode         | Description                                                                                                                                     |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Forwarded    | Router NATs entry ports to the DMZ/entry machine. Player connects transparently.                                                                |
+| Router-first | No forwarding. Player must hack the router first, then pivot to internal network. Router filesystem contains SSH credentials for entry machine. |
 
 ## Machine Roles (5)
 

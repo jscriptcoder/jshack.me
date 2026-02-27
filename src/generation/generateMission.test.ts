@@ -300,4 +300,40 @@ describe('generateMissionNetwork', () => {
       expect(hasInternalIp).toBe(true);
     }
   });
+
+  it('router-first mode places entry machine credentials on router filesystem', () => {
+    // Collect all file contents from the router filesystem recursively
+    const collectFileContents = (node: FileNode): string[] => {
+      if (node.type === 'file') return node.content ? [node.content] : [];
+      if (!node.children) return [];
+      return Object.values(node.children).flatMap(collectFileContents);
+    };
+
+    let found = false;
+    for (let i = 0; i < 100; i++) {
+      const result = generateMissionNetwork(`router-first-bridge-${i}`);
+      // Skip forwarded mode (NAT handles bridging)
+      if (result.natForwarding) continue;
+
+      const routerFs = result.fileSystems[result.routerPublicIp];
+      expect(routerFs).toBeDefined();
+
+      const allContents = collectFileContents(routerFs as FileNode);
+      // The router should have a file containing the entry machine's IP
+      const hasEntryIp = allContents.some((c) => c.includes(result.entryPoint));
+      expect(hasEntryIp).toBe(true);
+
+      // The entry machine should have a non-root, non-guest user whose creds are on the router
+      const entryMachine = result.machines.find((m) => m.ip === result.entryPoint);
+      const entryUser = entryMachine?.remoteMachine.users.find((u) => u.userType === 'user');
+      if (entryUser) {
+        const hasUsername = allContents.some((c) => c.includes(entryUser.username));
+        expect(hasUsername).toBe(true);
+      }
+
+      found = true;
+      break;
+    }
+    expect(found).toBe(true);
+  });
 });

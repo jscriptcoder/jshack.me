@@ -491,7 +491,9 @@ const buildKeyFileTree = (
   const segments = filePath.split('/').filter(Boolean);
   const fileName = segments[segments.length - 1] ?? 'key.txt';
   const content = binary ? wrapInBinaryNoise(prng, fileContent) : fileContent;
-  const file = mkFile(fileName, content);
+  // Key files under /home/ should be readable by the user whose directory they're in
+  const owner = filePath.startsWith('/home/') ? 'user' : 'root';
+  const file = mkFile(fileName, content, owner);
   const topDir = segments[0] ?? 'root';
 
   return { topDir, node: buildNestedDirs(segments, file) };

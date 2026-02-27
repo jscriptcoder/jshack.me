@@ -44,7 +44,7 @@ type AttackChainResult = {
   readonly clientEmail: string;
 };
 
-const placementTemplates: readonly {
+export const placementTemplates: readonly {
   readonly path: string;
   readonly template: string;
   readonly hint: string;

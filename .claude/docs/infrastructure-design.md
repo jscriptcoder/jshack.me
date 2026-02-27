@@ -101,7 +101,7 @@ Internal (<private>.x.x.11, <private>.x.x.12)
 ### Network Modes
 
 - **Forwarded** (easier): Router NATs entry machine ports to its public IP. Player connects to public IP and transparently lands on internal machine. Easy difficulty has 70% chance, medium 50%.
-- **Router-first** (harder): No forwarding. Player must hack the router to reach internal machines. Hard difficulty always uses this mode.
+- **Router-first** (harder): No forwarding. Player must hack the router to reach internal machines. Hard difficulty always uses this mode. A credential placement on the router filesystem contains SSH credentials for the internal entry machine (so the player can reach it after hacking the router).
 
 ### NAT Resolution
 

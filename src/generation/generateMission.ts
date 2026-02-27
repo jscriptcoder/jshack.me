@@ -2,11 +2,18 @@ import { createPrng } from './prng';
 import type { Prng } from './prng';
 import { generateTopology } from './topology';
 import { generateUsers } from './users';
-import { generateAttackChain } from './attackChain';
+import { generateAttackChain, placementTemplates } from './attackChain';
 import { generateFileSystems } from './filesystem';
-import type { Difficulty, GeneratedMachine, MissionNetwork, SeedOverrides } from './types';
+import type {
+  CredentialPlacement,
+  Difficulty,
+  GeneratedMachine,
+  MissionNetwork,
+  SeedOverrides,
+} from './types';
 import type { Port, RemoteMachine, RemoteUser } from '../network/types';
 import { vulnerabilityTemplates } from './pools';
+import { binaryCredentialPaths } from './binary';
 
 // Parses keyword overrides from the seed string. Keywords are case-insensitive
 // and matched via `includes()`. This lets players and devs control generation
@@ -173,6 +180,59 @@ const enrichMachineWithUsers = (
   },
 });
 
+// Builds a credential placement on the router containing SSH credentials for
+// the internal entry machine. In router-first mode, the player hacks the router
+// first but needs credentials to SSH into the internal network. Returns an empty
+// array in forwarded mode (NAT handles the bridge transparently).
+const buildRouterBridgePlacement = (
+  prng: Prng,
+  isForwarded: boolean,
+  entryPoint: string,
+  allCredentials: Readonly<
+    Record<string, readonly { readonly username: string; readonly password: string }[]>
+  >,
+  machines: readonly GeneratedMachine[],
+  routerMachine: GeneratedMachine,
+): readonly CredentialPlacement[] => {
+  if (isForwarded) return [];
+
+  const entryCreds = allCredentials[entryPoint] ?? [];
+  const sshCred = entryCreds.find((c) => c.username !== 'root' && c.username !== 'guest');
+  const entryMachine = machines.find((m) => m.ip === entryPoint);
+  if (!sshCred || !entryMachine) return [];
+
+  const placement = prng.pick(placementTemplates);
+  const routerCreds = allCredentials[routerMachine.ip] ?? [];
+  const routerLocalUsers = routerCreds.filter(
+    (c) => c.username !== 'root' && c.username !== 'guest',
+  );
+  const localUser = routerLocalUsers.length > 0 ? prng.pick(routerLocalUsers).username : 'admin';
+
+  // ~30% chance to wrap in a binary file (same probability as other credential placements)
+  const isBinary = prng.next() < 0.3;
+
+  const filePath = isBinary
+    ? prng.pick(binaryCredentialPaths[routerMachine.role])
+    : placement.path.replace('{{localUser}}', localUser);
+  const fileContent = placement.template
+    .replace(/\{\{hostname\}\}/g, entryMachine.hostname)
+    .replace(/\{\{ip\}\}/g, entryMachine.ip)
+    .replace(/\{\{user\}\}/g, sshCred.username)
+    .replace(/\{\{password\}\}/g, sshCred.password)
+    .replace(/\{\{localUser\}\}/g, localUser);
+
+  return [
+    {
+      machineIp: routerMachine.ip,
+      filePath,
+      fileContent,
+      username: sshCred.username,
+      password: sshCred.password,
+      binary: isBinary || undefined,
+    },
+  ];
+};
+
 export const generateMissionNetwork = (seed: string): MissionNetwork => {
   const prng = createPrng(seed);
   const overrides = parseSeedOverrides(seed);
@@ -265,11 +325,24 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
     encryptedOverride: overrides.encrypted,
   });
 
+  // In router-first mode, place SSH credentials for the internal entry machine
+  // on the router filesystem. Without this, the player has no way to reach the
+  // first internal machine after hacking the router.
+  const routerBridgePlacements = buildRouterBridgePlacement(
+    prng,
+    isForwarded,
+    topology.entryPoint,
+    allCredentials,
+    machinesWithUsers,
+    routerWithUsers,
+  );
+  const allPlacements = [...credentialPlacements, ...routerBridgePlacements];
+
   const fileSystems = generateFileSystems({
     prng,
     machines: machinesWithUsers,
     usersByMachine: allUsersByMachine,
-    credentialPlacements,
+    credentialPlacements: allPlacements,
     credentials: allCredentials,
     objective,
     entryPoint: topology.entryPoint,
