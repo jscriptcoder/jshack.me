@@ -93,6 +93,15 @@ describe('createSyncChannel', () => {
       receiver.close();
     });
 
+    it('does not throw when broadcasting after close', () => {
+      const channel = createSyncChannel();
+      channel.close();
+
+      expect(() =>
+        channel.broadcast({ type: 'wifi-changed', connected: true }),
+      ).not.toThrow();
+    });
+
     it('stops receiving after close', async () => {
       const sender = createSyncChannel();
       const receiver = createSyncChannel();

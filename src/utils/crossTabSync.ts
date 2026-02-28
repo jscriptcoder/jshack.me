@@ -32,7 +32,12 @@ export const createSyncChannel = (): SyncChannel => {
 
   return {
     broadcast: (message: SyncMessage) => {
-      channel.postMessage(message);
+      try {
+        channel.postMessage(message);
+      } catch {
+        // Channel already closed (e.g. broadcast during unmount) — safe to ignore,
+        // the state change is persisted independently via IndexedDB/sessionStorage.
+      }
     },
     onMessage: (handler: (message: SyncMessage) => void) => {
       channel.onmessage = (event: MessageEvent<SyncMessage>) => {

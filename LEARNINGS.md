@@ -246,6 +246,12 @@
 - **Solution**: Added `networkMode` to `FilesystemInput`. In forwarded mode, entry hints go on the internal entry machine (unchanged). In router-first mode, entry hints go on the router. `buildMachineConfig` already generates web content when web placements exist, so the fix is just routing the placements correctly.
 - **PRNG impact**: Forwarded-mode and router-first + SSH seeds are unchanged. Router-first + non-SSH seeds shift PRNG (acceptable — they were broken anyway).
 
+### BroadcastChannel postMessage after close throws
+
+- **Context**: Cross-tab sync uses `BroadcastChannel` for filesystem patches, WiFi state, mission state, and theme sync. Each provider creates a channel on mount and closes it in a `useEffect` cleanup.
+- **Issue**: If a broadcast fires after the channel is closed (e.g., nano save during component unmount, mission abort), `channel.postMessage()` throws `InvalidStateError: Channel is closed`.
+- **Solution**: Wrap `channel.postMessage()` in a try-catch in `createSyncChannel()`. Prefer this over a parallel `closed` flag — the channel itself is the source of truth for its state. The dropped message is fine — the underlying state change is already persisted to IndexedDB/sessionStorage independently of the broadcast.
+
 ## Patterns That Worked
 
 ### Command factory pattern with context injection
