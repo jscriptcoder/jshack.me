@@ -85,6 +85,7 @@ export type MissionNetwork = {
   readonly natForwarding?: NatForwarding;
   readonly routerDomain: string;
   readonly domainEntry: boolean;
+  readonly briefingRevealsCredentials: boolean;
 };
 
 export type NatForwarding = {

@@ -242,7 +242,7 @@ SessionProvider → MissionProvider → FileSystemProvider → NetworkProvider �
 **Mission commands:**
 
 - `missions()` — displays hardcoded darknet contract board (missions added incrementally with e2e tests)
-- `accept(seed)` — generates network from seed, passes `MissionNetwork` to `startMission`, displays briefing with entry point, client email, and objective-specific instructions. Domain entry mode shows router domain + nslookup hint instead of IP + entry variant command.
+- `accept(seed)` — generates network from seed, passes `MissionNetwork` to `startMission`, displays briefing with entry point, client email, objective-specific instructions, and variant-specific intel hint. Intel varies by entry variant: SSH (~50% shows credentials via `briefingRevealsCredentials`, ~50% hints at default credentials), FTP (hints at FTP service), NC (hints at backdoor), exploit (hints at vulnerable software), HTTP (hints at web server). Domain entry mode appends "Resolve the target domain first" and omits `ssh()` command. No command names appear in intel text — hints use natural language.
 - `abort()` — pops all sessions back to localhost, clears mission state
 - `mail(recipient, content)` — submits proof to the client to complete a mission. Verifies proof based on objective type.
 

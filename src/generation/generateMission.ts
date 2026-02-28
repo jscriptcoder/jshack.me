@@ -378,6 +378,9 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
   const domainEntry = overrides.domainEntry ?? domainRoll < domainThreshold;
   const routerDomain = `${topology.routerMachine.hostname}.mission`;
 
+  // ~50% chance the briefing reveals SSH credentials (only affects SSH entry variant)
+  const briefingRevealsCredentials = prng.next() < 0.5;
+
   return {
     seed,
     difficulty,
@@ -395,5 +398,6 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
     natForwarding: topology.natForwarding,
     routerDomain,
     domainEntry,
+    briefingRevealsCredentials,
   };
 };

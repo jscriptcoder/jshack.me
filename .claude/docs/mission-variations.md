@@ -59,7 +59,30 @@ When domain entry is active, the mission briefing shows the router's `.mission` 
 | Medium     | 50%                      |
 | Hard       | 70%                      |
 
-With the `domain` seed keyword, domain entry is always active. Without it, PRNG decides based on difficulty. The entry variant hint (ssh/ftp/nc/exploit) is NOT shown in domain mode — the player must discover the IP via nslookup, then figure out the rest using nmap.
+With the `domain` seed keyword, domain entry is always active. Without it, PRNG decides based on difficulty. Domain mode appends "Resolve the target domain first" to the intel hint but still shows variant-specific intel. SSH variant with credentials shown omits the `ssh()` command (player must nslookup to find IP first).
+
+## Briefing Intel Variation
+
+The mission briefing includes an `Intel:` section with variant-specific hints. No command names appear — hints use natural language so the player must figure out which tools to use.
+
+| Variant | Intel Text                                                                         |
+| ------- | ---------------------------------------------------------------------------------- |
+| SSH     | ~50% shows credentials + `ssh()` command; ~50% hints at default credentials        |
+| FTP     | "Our recon shows an FTP service running on the target."                            |
+| NC      | "Our scanner picked up a suspicious backdoor service. Run a port scan to find it." |
+| Exploit | "The target is running outdated software with known vulnerabilities."              |
+| HTTP    | "There's a web server running on the target."                                      |
+
+### SSH Credential Reveal (`briefingRevealsCredentials`)
+
+A PRNG-determined boolean (~50/50) on `MissionNetwork` controls whether the SSH variant briefing shows credentials. Only affects SSH variant — other variants never reveal credentials.
+
+| Value | Briefing Behavior                                                            |
+| ----- | ---------------------------------------------------------------------------- |
+| true  | Shows username, password, and `ssh()` command (or just creds in domain mode) |
+| false | "Our intel suggests default credentials may still be active"                 |
+
+When credentials are hidden, the player must guess from the `guestPasswords` pool (guest, guest123, password, letmein, welcome, changeme). Entry machines always have a guest account.
 
 ## Encrypted Exfiltrate
 
