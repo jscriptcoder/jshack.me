@@ -172,7 +172,6 @@ const selectTamperFile = (
 const selectScriptFixFile = (
   prng: Prng,
   targetMachine: GeneratedMachine,
-  accessKey: string,
 ): {
   readonly targetPath: string;
   readonly targetContent: string;
@@ -186,7 +185,7 @@ const selectScriptFixFile = (
   const bugTypes: readonly ScriptBugType[] = ['syntax', 'logic', 'corrupted'];
   const bugType = prng.pick(bugTypes);
 
-  const targetContent = template.bugVariants[bugType].replace(/\{\{access_key\}\}/g, accessKey);
+  const targetContent = template.bugVariants[bugType];
 
   return {
     targetPath: template.path,
@@ -342,7 +341,6 @@ const buildObjective = (
     const { targetPath, targetContent, bugType, hintPath, hintContent } = selectScriptFixFile(
       prng,
       targetMachine,
-      accessKey,
     );
 
     // ~60% user-owned (anyone can edit/run), ~40% root-owned (must su first)

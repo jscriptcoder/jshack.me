@@ -172,7 +172,9 @@ Seeds are visible to the player — they can share seeds with friends for the sa
 
 ### Script Fix
 
-- Find a broken script on the target machine, fix it, and run it to extract an ACCESS-KEY
+- Find a broken script on the target machine, fix it with `nano()`, and run it with `node()`
+- Scripts call `_submit()` on success — a function only available in `node()`'s context — which auto-completes the mission (no `mail()` step)
+- ACCESS-KEY never appears in script source (anti-cheat)
 - Three bug types: syntax error, logic error, or corrupted data line
 - Tools: `cat`, `nano`, `node`, `strings` (for corrupted hints)
 - Example: "Fix the broken backup validation script on the file server"

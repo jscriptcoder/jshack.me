@@ -36,13 +36,12 @@ export const formatObjectiveHint = (mission: MissionNetwork): string => {
 
   if (objective.type === 'script_fix') {
     const lines = [
-      '  Find the broken script on the target machine. Fix it with nano(),',
-      '  run it with node(), and mail the ACCESS-KEY to the client.',
+      '  Find the broken script on the target machine. Fix it with nano()',
+      '  and run it with node().',
     ];
     if (objective.scriptBugType === 'corrupted') {
       lines.push('  Look around the machine for the correct values.');
     }
-    lines.push(`  Example: mail("${email}", "ACCESS-XXXX-XXXX-XXXX")`);
     return lines.join('\n');
   }
 

@@ -65,6 +65,7 @@ type NodeContextOverrides = {
   readonly getUserType?: () => UserType;
   readonly resolvePath?: (path: string) => string;
   readonly getExecutionContext?: () => Record<string, (...args: unknown[]) => unknown>;
+  readonly getSubmitFn?: () => (() => string) | undefined;
 };
 
 const createNodeContext = (overrides: NodeContextOverrides = {}) => ({
@@ -73,6 +74,7 @@ const createNodeContext = (overrides: NodeContextOverrides = {}) => ({
   getNode: overrides.getNode ?? (() => null),
   getUserType: overrides.getUserType ?? (() => 'user' as UserType),
   getExecutionContext: overrides.getExecutionContext ?? (() => ({})),
+  getSubmitFn: overrides.getSubmitFn,
 });
 
 // --- Tests ---
@@ -298,6 +300,57 @@ describe('node command', () => {
       const result = node.fn('/secret.js');
 
       expect(result).toBe('secret result');
+    });
+  });
+
+  describe('_submit() injection', () => {
+    it('injects _submit into execution context when getSubmitFn returns a function', () => {
+      const submitFn = vi.fn(() => 'MISSION COMPLETE');
+      const mockEcho = vi.fn((val: unknown) => String(val));
+      const file = getMockFile({
+        content: 'echo(_submit())',
+      });
+      const context = createNodeContext({
+        getNode: () => file,
+        getExecutionContext: () => ({ echo: mockEcho }),
+        getSubmitFn: () => submitFn,
+      });
+
+      const node = createNodeCommand(context);
+      const result = node.fn('/script.js');
+
+      expect(submitFn).toHaveBeenCalled();
+      expect(mockEcho).toHaveBeenCalledWith('MISSION COMPLETE');
+      expect(result).toBe('MISSION COMPLETE');
+    });
+
+    it('does not inject _submit when getSubmitFn returns undefined', () => {
+      const file = getMockFile({
+        content: 'typeof _submit',
+      });
+      const context = createNodeContext({
+        getNode: () => file,
+        getSubmitFn: () => undefined,
+      });
+
+      const node = createNodeCommand(context);
+      const result = node.fn('/script.js');
+
+      expect(result).toBe('undefined');
+    });
+
+    it('does not inject _submit when getSubmitFn is not provided', () => {
+      const file = getMockFile({
+        content: 'typeof _submit',
+      });
+      const context = createNodeContext({
+        getNode: () => file,
+      });
+
+      const node = createNodeCommand(context);
+      const result = node.fn('/script.js');
+
+      expect(result).toBe('undefined');
     });
   });
 });

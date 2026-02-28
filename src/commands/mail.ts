@@ -66,9 +66,8 @@ const verifyTamper = (
   return null;
 };
 
-const verifyScriptFix = (proof: string, mission: MissionNetwork): string | null => {
-  if (proof === mission.objective.expectedProof) return null;
-  return 'Incorrect proof. Fix the script, run it with node(), and send the ACCESS-KEY.';
+const verifyScriptFix = (_proof: string, _mission: MissionNetwork): string | null => {
+  return 'This mission requires fixing and running the script with node().';
 };
 
 const verifyProof = (

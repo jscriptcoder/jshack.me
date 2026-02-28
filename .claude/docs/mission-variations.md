@@ -102,7 +102,7 @@ Key files have ~25% chance of binary wrapping (using `binaryKeyPaths` per role).
 
 ## Script Fix Objective
 
-A 4th objective type where the player finds a broken JavaScript script on the target machine, fixes it with `nano()`, runs it with `node()`, and mails the resulting ACCESS-KEY to the client. Seed keyword: `script-fix`.
+A 4th objective type where the player finds a broken JavaScript script on the target machine, fixes it with `nano()`, and runs it with `node()`. The script calls `_submit()` on success — a function only available inside `node()`'s execution context — which auto-completes the mission. No manual `mail()` step is needed. The ACCESS-KEY never appears in the script source (anti-cheat). Seed keyword: `script-fix`.
 
 ### Bug Types (3, ~33% each)
 
@@ -123,7 +123,7 @@ A 4th objective type where the player finds a broken JavaScript script on the ta
 
 2 templates per main role (fileserver, database, webserver, workstation) + 2 for router (unused).
 
-Each template is a short script that filters/counts array data and conditionally outputs the ACCESS-KEY via `echo()`. Bug variants introduce syntax errors, logic errors, or corrupted data lines. Corrupted variants have a hint file at a nearby path on the same machine containing the correct value.
+Each template is a short script that filters/counts array data and conditionally calls `echo(_submit())` on success. `_submit()` is injected into `node()`'s execution context only during script_fix missions — it completes the mission and returns the completion banner. Bug variants introduce syntax errors, logic errors, or corrupted data lines. Corrupted variants have a hint file at a nearby path on the same machine containing the correct value.
 
 ### Key Design Decisions
 
@@ -131,7 +131,9 @@ Each template is a short script that filters/counts array data and conditionally
 - No encryption (scripts must be directly editable)
 - Dummy PRNG rolls consumed for binary + encrypt to preserve sequence alignment
 - Corrupted hints placed on same target machine (not a different machine)
-- Verification: simple string comparison (same as exfiltrate)
+- `_submit()` auto-completes mission — no `mail()` step needed
+- ACCESS-KEY never appears in script source (anti-cheat: can't `cat` to find it)
+- `_submit()` only exists in `node()`'s execution context, not the terminal
 
 ## Binary File Wrapping
 

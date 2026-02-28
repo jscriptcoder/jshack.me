@@ -7,6 +7,7 @@ type NodeContext = {
   readonly getNode: (path: string) => FileNode | null;
   readonly getUserType: () => UserType;
   readonly getExecutionContext: () => Record<string, (...args: unknown[]) => unknown>;
+  readonly getSubmitFn?: () => (() => string) | undefined;
 };
 
 type EchoFn = (...args: readonly unknown[]) => string;
@@ -66,6 +67,10 @@ export const createNodeCommand = (context: NodeContext): Command => ({
 
     const executionContext = getExecutionContext();
 
+    // _submit() is only available during script_fix missions — it completes
+    // the mission synchronously so the ACCESS-KEY never appears in the script source.
+    const submitFn = context.getSubmitFn?.();
+
     // Captures echo() output during script execution so multiple echo calls
     // can be joined into a single return value (instead of only returning the last one).
     // Uses bracket assignment instead of push() to satisfy the no-mutation linter rule
@@ -73,6 +78,7 @@ export const createNodeCommand = (context: NodeContext): Command => ({
     const mutableBuffer: string[] = [];
     const wrappedContext = {
       ...executionContext,
+      ...(submitFn ? { _submit: submitFn } : {}),
       ...(executionContext.echo
         ? {
             echo: (...args: readonly unknown[]): string => {

@@ -37,12 +37,23 @@ describe('accept command', () => {
     expect(result).toMatch(/Target: (\d+\.\d+\.\d+\.\d+|[\w-]+\.mission)/);
   });
 
-  it('shows mail example in briefing', () => {
+  it('shows mail example in briefing for non-script_fix objectives', () => {
+    // Use a seed that produces a non-script_fix objective
     const startMission = vi.fn();
     const accept = createAcceptCommand({ startMission, isMissionActive: () => false });
-    const result = accept.fn('MEDTECH-4A7F-easy') as string;
+    const result = accept.fn('test-exfiltrate-easy') as string;
 
     expect(result).toContain('mail(');
+  });
+
+  it('does not show mail example for script_fix objectives', () => {
+    const startMission = vi.fn();
+    const accept = createAcceptCommand({ startMission, isMissionActive: () => false });
+    const result = accept.fn('test-script-fix-easy') as string;
+
+    expect(result).not.toContain('mail(');
+    expect(result).toContain('nano()');
+    expect(result).toContain('node()');
   });
 
   it('shows domain instead of IP for domain entry missions', () => {

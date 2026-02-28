@@ -303,6 +303,29 @@ describe('generateMissionNetwork', () => {
     }
   });
 
+  it('script_fix objective content uses _submit() instead of ACCESS-KEY', () => {
+    let found = false;
+    for (let i = 0; i < 100; i++) {
+      const result = generateMissionNetwork(`script-fix-submit-${i}`);
+      if (result.objective.type !== 'script_fix') continue;
+
+      // Script content should NOT contain ACCESS- prefix
+      expect(result.objective.targetContent).not.toMatch(/ACCESS-/);
+      // Script content should contain _submit()
+      expect(result.objective.targetContent).toContain('_submit()');
+      found = true;
+      break;
+    }
+    expect(found).toBe(true);
+  });
+
+  it('script_fix with keyword always uses _submit()', () => {
+    const result = generateMissionNetwork('test-script-fix-easy');
+    expect(result.objective.type).toBe('script_fix');
+    expect(result.objective.targetContent).toContain('_submit()');
+    expect(result.objective.targetContent).not.toMatch(/ACCESS-/);
+  });
+
   it('router-first mode places entry machine credentials on router filesystem', () => {
     // Collect all file contents from the router filesystem recursively
     const collectFileContents = (node: FileNode): string[] => {
