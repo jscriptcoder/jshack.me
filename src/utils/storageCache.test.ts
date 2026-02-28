@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   initializeStorage,
   getCachedSessionState,
+  getCachedWifiState,
   getCachedFilesystemPatches,
   getCachedMissionSeed,
   getDatabase,
@@ -9,7 +10,13 @@ import {
 } from './storageCache';
 import type { PersistedState } from '../session/SessionContext';
 import type { FileSystemPatch } from '../filesystem/types';
-import { openDatabase, saveSessionState, saveFilesystemPatches, saveMissionSeed } from './storage';
+import {
+  openDatabase,
+  saveFilesystemPatches,
+  saveMissionSeed,
+  saveSessionToTab,
+  saveWifiState,
+} from './storage';
 
 const validSession: PersistedState = {
   session: {
@@ -17,7 +24,6 @@ const validSession: PersistedState = {
     userType: 'root',
     machine: '192.168.1.50',
     currentPath: '/root',
-    wifiConnected: false,
     theme: 'amber',
   },
   sessionStack: [
@@ -26,7 +32,6 @@ const validSession: PersistedState = {
       userType: 'user',
       machine: 'localhost',
       currentPath: '/home/jshacker',
-      wifiConnected: false,
       theme: 'amber',
     },
   ],
@@ -55,7 +60,7 @@ describe('storageCache', () => {
   beforeEach(async () => {
     resetCache();
     await deleteDatabase();
-    localStorage.clear();
+    sessionStorage.clear();
   });
 
   describe('initializeStorage', () => {
@@ -74,10 +79,8 @@ describe('storageCache', () => {
       expect(getDatabase()).not.toBeNull();
     });
 
-    it('should load session from IndexedDB', async () => {
-      const db = await openDatabase();
-      await saveSessionState(db, validSession);
-      db.close();
+    it('should load session from sessionStorage', async () => {
+      saveSessionToTab(validSession);
 
       await initializeStorage();
       expect(getCachedSessionState()).toEqual(validSession);
@@ -107,94 +110,37 @@ describe('storageCache', () => {
     });
   });
 
-  describe('migration from localStorage', () => {
-    it('should migrate session from localStorage when IndexedDB is empty', async () => {
-      localStorage.setItem('jshack-session', JSON.stringify(validSession));
-
+  describe('WiFi state (shared via IndexedDB)', () => {
+    it('should default WiFi to false when no state exists', async () => {
       await initializeStorage();
-
-      expect(getCachedSessionState()).toEqual(validSession);
+      expect(getCachedWifiState()).toBe(false);
     });
 
-    it('should migrate patches from localStorage when IndexedDB is empty', async () => {
-      localStorage.setItem('jshack-filesystem', JSON.stringify(validPatches));
-
-      await initializeStorage();
-
-      expect(getCachedFilesystemPatches()).toEqual(validPatches);
-    });
-
-    it('should remove localStorage keys after successful migration', async () => {
-      localStorage.setItem('jshack-session', JSON.stringify(validSession));
-      localStorage.setItem('jshack-filesystem', JSON.stringify(validPatches));
-
-      await initializeStorage();
-
-      expect(localStorage.getItem('jshack-session')).toBeNull();
-      expect(localStorage.getItem('jshack-filesystem')).toBeNull();
-    });
-
-    it('should not migrate when IndexedDB already has session data', async () => {
+    it('should load WiFi state from IndexedDB', async () => {
       const db = await openDatabase();
-      await saveSessionState(db, validSession);
+      await saveWifiState(db, true);
       db.close();
 
-      const differentSession: PersistedState = {
-        ...validSession,
-        session: { ...validSession.session, username: 'guest', userType: 'guest' },
-      };
-      localStorage.setItem('jshack-session', JSON.stringify(differentSession));
-
       await initializeStorage();
-
-      expect(getCachedSessionState()?.session.username).toBe('root');
+      expect(getCachedWifiState()).toBe(true);
     });
 
-    it('should not migrate when IndexedDB already has patches', async () => {
+    it('should load WiFi=false from IndexedDB', async () => {
       const db = await openDatabase();
-      await saveFilesystemPatches(db, validPatches);
+      await saveWifiState(db, false);
       db.close();
 
-      const differentPatches: readonly FileSystemPatch[] = [
-        { machineId: '192.168.1.1', path: '/tmp/other.txt', content: 'other', owner: 'root' },
-      ];
-      localStorage.setItem('jshack-filesystem', JSON.stringify(differentPatches));
-
       await initializeStorage();
-
-      expect(getCachedFilesystemPatches()).toEqual(validPatches);
-    });
-
-    it('should skip migration for invalid localStorage session data', async () => {
-      localStorage.setItem('jshack-session', 'not valid json!!!');
-
-      await initializeStorage();
-
-      expect(getCachedSessionState()).toBeNull();
-    });
-
-    it('should skip migration for invalid localStorage patch data', async () => {
-      localStorage.setItem('jshack-filesystem', JSON.stringify([{ bad: true }]));
-
-      await initializeStorage();
-
-      expect(getCachedFilesystemPatches()).toEqual([]);
-    });
-
-    it('should not remove localStorage key when there is nothing to migrate', async () => {
-      localStorage.setItem('jshack-filesystem', JSON.stringify([]));
-
-      await initializeStorage();
-
-      expect(localStorage.getItem('jshack-filesystem')).toBe('[]');
+      expect(getCachedWifiState()).toBe(false);
     });
   });
 
   describe('resetCache', () => {
     it('should clear all cached values', async () => {
+      saveSessionToTab(validSession);
       const db = await openDatabase();
-      await saveSessionState(db, validSession);
       await saveFilesystemPatches(db, validPatches);
+      await saveWifiState(db, true);
       db.close();
 
       await initializeStorage();
@@ -202,6 +148,7 @@ describe('storageCache', () => {
 
       resetCache();
       expect(getCachedSessionState()).toBeNull();
+      expect(getCachedWifiState()).toBe(false);
       expect(getCachedFilesystemPatches()).toEqual([]);
       expect(getCachedMissionSeed()).toBeNull();
       expect(getDatabase()).toBeNull();

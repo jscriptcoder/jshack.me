@@ -37,10 +37,10 @@ export const useNetworkCommands = (): Map<string, Command> => {
     getGateway,
   } = useNetwork();
   const { readFileFromMachine } = useFileSystem();
-  const { session } = useSession();
+  const { session, wifiConnected } = useSession();
 
   return useMemo(() => {
-    const isWifiRequired = () => session.machine === 'localhost' && !session.wifiConnected;
+    const isWifiRequired = () => session.machine === 'localhost' && !wifiConnected;
 
     const commands = new Map<string, Command>();
 
@@ -112,6 +112,6 @@ export const useNetworkCommands = (): Map<string, Command> => {
     getGateway,
     readFileFromMachine,
     session.machine,
-    session.wifiConnected,
+    wifiConnected,
   ]);
 };

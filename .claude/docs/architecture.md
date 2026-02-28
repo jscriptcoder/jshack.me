@@ -57,23 +57,32 @@ e2e/
 
 ## Session Context
 
-`SessionContext` (`src/session/SessionContext.tsx`) is the single source of truth for session state: username, userType, machine, currentPath, wifiConnected.
+`SessionContext` (`src/session/SessionContext.tsx`) is the single source of truth for session state: username, userType, machine, currentPath, theme. WiFi state (`wifiConnected`) is a standalone `useState<boolean>` in `SessionProvider` — not part of the `Session` type — because it's global shared state (persisted to IndexedDB, synced across tabs) rather than per-tab session state.
 
 Key methods: `setUsername()`, `setMachine()`, `setCurrentPath()`, `setWifiConnected()`, `disconnectWifi()`, `pushSession()` (before SSH), `popSession()` (exit), `popAllSessions()` (mission abort — resets to bottom of stack), `canReturn()`.
 
-Session stack enables SSH nesting — `pushSession()` saves state before connecting, `popSession()` restores it on `exit()`. WiFi state is included in snapshots.
+Session stack enables SSH nesting — `pushSession()` saves state before connecting, `popSession()` restores it on `exit()`. WiFi state is not included in snapshots (it doesn't change per SSH hop).
 
 ## Persistence Architecture
 
 Three-layer system:
 
-1. **`storage.ts`** — Low-level IndexedDB wrapper (`jshack-db`, stores: `session`, `filesystem`)
-2. **`storageCache.ts`** — Pre-load cache, called in `main.tsx` before React mounts. Bridges async IndexedDB with sync `useState` initializers. Handles one-time localStorage migration.
-3. **Contexts** — Read from cache (sync), write to IndexedDB via `useEffect` (async)
+1. **`storage.ts`** — Low-level storage wrapper. IndexedDB (`jshack-db`, stores: `session`, `filesystem`) for shared state; sessionStorage helpers for per-tab session.
+2. **`storageCache.ts`** — Pre-load cache, called in `main.tsx` before React mounts. Loads session from sessionStorage (sync), WiFi/patches/mission from IndexedDB (async). Bridges with sync `useState` initializers.
+3. **Contexts** — `SessionContext` writes session to sessionStorage and WiFi to IndexedDB. `FileSystemContext` writes patches to IndexedDB.
+
+**Storage layout:**
+
+| State                                                   | Storage                             | Scope   |
+| ------------------------------------------------------- | ----------------------------------- | ------- |
+| Session (user, machine, path, theme, SSH stack, FTP/NC) | sessionStorage                      | Per-tab |
+| WiFi connected                                          | IndexedDB (`wifiConnected` key)     | Shared  |
+| Mission seed                                            | IndexedDB (`activeMissionSeed` key) | Shared  |
+| Filesystem patches                                      | IndexedDB (`patches` key)           | Shared  |
 
 Filesystem persistence uses patches (diffs from base filesystem). Each write/create operation records a `FileSystemPatch` with machineId, path, content, and owner. Patches are replayed on initialization via `applyPatches()`. Mission filesystem patches are excluded from persistence — only static machine patches are saved to IndexedDB.
 
-Mission seed persistence: only the active mission seed string is stored in IndexedDB (session store, key `activeMissionSeed`). On reload, the full `MissionNetwork` is regenerated from the seed (deterministic). Session state (machine, path, stack) and static filesystem patches already persist via existing mechanisms.
+Mission seed persistence: only the active mission seed string is stored in IndexedDB (session store). On reload, the full `MissionNetwork` is regenerated from the seed (deterministic). Session state (machine, path, stack) persists per-tab via sessionStorage; static filesystem patches persist via IndexedDB.
 
 ## Cross-Tab Sync
 
@@ -84,7 +93,7 @@ Multiple browser tabs can run independent terminal sessions with shared state vi
 **Synced state**:
 
 - **Filesystem patches** — `FileSystemContext` broadcasts each patch after `writeFileToMachine` / `createFileOnMachine`. Receiving tabs apply the patch to their local filesystem state via `applyPatches()`.
-- **WiFi state** — `SessionContext` broadcasts `wifi-changed` on connect/disconnect. Receiving tabs update `session.wifiConnected`. WiFi disconnect from another tab resets the session to localhost (same as `disconnectWifi()`).
+- **WiFi state** — `SessionContext` broadcasts `wifi-changed` on connect/disconnect. Receiving tabs update standalone `wifiConnected` state. WiFi disconnect from another tab resets the session to localhost (same as `disconnectWifi()`).
 - **Mission state** — `useMissionState` broadcasts `mission-changed` with the seed (or null) on start/abort/complete. Receiving tabs regenerate the full `MissionNetwork` from the seed. `MissionProvider` detects cross-tab mission abort and calls `popAllSessions()` if the session is on a mission machine.
 - **Theme** — `SessionContext` broadcasts `theme-changed`. Receiving tabs update `session.theme`, triggering `applyTheme()` via the existing effect.
 
@@ -120,7 +129,7 @@ Two layers of tab completion, tried in order:
 
 Network access from localhost requires cracking a WiFi network first. This is a progression gate before network access — not a flag itself.
 
-**State**: `session.wifiConnected` (boolean, persisted to IndexedDB). When `false` on localhost:
+**State**: `wifiConnected` (standalone `useState<boolean>` in `SessionProvider`, persisted to IndexedDB). When `false` on localhost:
 
 - `ifconfig()` shows `wlan0` DOWN (no IP) + loopback `lo`
 - Network commands (ping, nmap, ssh, ftp, nc, curl, nslookup) throw `"Network is unreachable"`

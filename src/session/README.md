@@ -16,7 +16,6 @@ type Session = {
   readonly userType: UserType; // 'root' | 'user' | 'guest'
   readonly machine: string; // Current machine (e.g., "localhost", "192.168.1.75")
   readonly currentPath: string; // Working directory (e.g., "/home/jshacker")
-  readonly wifiConnected: boolean; // WiFi connection state (localhost only)
   readonly theme: ThemeId; // Terminal color theme ('amber' | 'green' | 'cyan' | 'light')
 };
 ```
@@ -76,12 +75,10 @@ type NcSession = {
 
 ## Persistence
 
-All session state is persisted to IndexedDB (`jshack-db` database, `session` store):
+Session state uses a split storage model:
 
-- Session (machine, username, userType, currentPath, wifiConnected, theme)
-- Session stack (SSH history)
-- FTP session (if active)
-- NC session (if active)
+- **sessionStorage** (per-tab): Session (machine, username, userType, currentPath, theme), session stack (SSH history), FTP session, NC session. Each browser tab gets an independent session — new tabs start fresh at `localhost /home/jshacker`.
+- **IndexedDB** (shared): WiFi connected state (`wifiConnected` key in `session` store). Shared across all tabs so cracking WiFi in one tab enables network access everywhere. WiFi state is a standalone `useState<boolean>` in `SessionProvider`, not part of the `Session` type.
 
 Validated with type guards on restore. Falls back to defaults if invalid or corrupted.
 
@@ -91,7 +88,8 @@ Validated with type guards on restore. Falls back to defaults if invalid or corr
 
 | Method                    | Description                                               |
 | ------------------------- | --------------------------------------------------------- |
-| `session`                 | Current session state                                     |
+| `session`                 | Current session state (per-tab)                           |
+| `wifiConnected`           | WiFi connection state (shared across tabs)                |
 | `setUsername(name, type)` | Change current user                                       |
 | `setMachine(name)`        | Change current machine                                    |
 | `setCurrentPath(path)`    | Change working directory                                  |

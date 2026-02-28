@@ -7,14 +7,14 @@ import { createNmcliCommand } from '../commands/nmcli';
 import type { Command } from '../components/Terminal/types';
 
 export const useWifiCommands = (): Map<string, Command> => {
-  const { session, setWifiConnected, disconnectWifi } = useSession();
+  const { session, wifiConnected, setWifiConnected, disconnectWifi } = useSession();
   // Monitor mode is transient (not persisted) — resets on page refresh. Using useRef
   // instead of useState because it shouldn't trigger re-renders or persist to IndexedDB.
   const monitorModeRef = useRef(false);
 
   return useMemo(() => {
     const isOnLocalhost = () => session.machine === 'localhost';
-    const isWifiConnected = () => session.wifiConnected;
+    const isWifiConnected = () => wifiConnected;
     const isMonitorMode = () => monitorModeRef.current;
     const setMonitorMode = (enabled: boolean) => {
       monitorModeRef.current = enabled;
@@ -59,5 +59,5 @@ export const useWifiCommands = (): Map<string, Command> => {
     );
 
     return commands;
-  }, [session.machine, session.wifiConnected, setWifiConnected, disconnectWifi]);
+  }, [session.machine, wifiConnected, setWifiConnected, disconnectWifi]);
 };

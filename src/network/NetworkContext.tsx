@@ -48,9 +48,9 @@ export const NetworkProvider = ({
   missionRouterMachine,
 }: NetworkProviderProps) => {
   const [config] = useState<NetworkConfig>(createInitialNetwork);
-  const { session } = useSession();
+  const { session, wifiConnected } = useSession();
 
-  const isLocalhostDisconnected = session.machine === 'localhost' && !session.wifiConnected;
+  const isLocalhostDisconnected = session.machine === 'localhost' && !wifiConnected;
 
   // Multi-tier network config resolution for the current machine:
   // 1. Mission config (if on a mission-generated machine)

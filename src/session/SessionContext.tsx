@@ -7,8 +7,8 @@ import {
   useRef,
   type ReactNode,
 } from 'react';
-import { getCachedSessionState, getDatabase } from '../utils/storageCache';
-import { saveSessionState } from '../utils/storage';
+import { getCachedSessionState, getCachedWifiState, getDatabase } from '../utils/storageCache';
+import { saveSessionToTab, saveWifiState } from '../utils/storage';
 import type { ThemeId } from '../theme/themes';
 import { DEFAULT_THEME_ID, THEMES, isValidThemeId } from '../theme/themes';
 import { applyTheme } from '../theme/applyTheme';
@@ -21,7 +21,6 @@ export type Session = {
   readonly userType: UserType;
   readonly machine: string;
   readonly currentPath: string;
-  readonly wifiConnected: boolean;
   readonly theme: ThemeId;
 };
 
@@ -30,7 +29,6 @@ export type SessionSnapshot = {
   readonly userType: UserType;
   readonly machine: string;
   readonly currentPath: string;
-  readonly wifiConnected: boolean;
   readonly theme: ThemeId;
 };
 
@@ -75,7 +73,6 @@ const isValidSession = (value: unknown): value is Session => {
     typeof obj.machine === 'string' &&
     typeof obj.currentPath === 'string' &&
     isValidUserType(obj.userType) &&
-    (obj.wifiConnected === undefined || typeof obj.wifiConnected === 'boolean') &&
     (obj.theme === undefined || isValidThemeId(obj.theme))
   );
 };
@@ -125,6 +122,7 @@ export const isValidPersistedState = (value: unknown): value is PersistedState =
 
 type SessionContextValue = {
   readonly session: Session;
+  readonly wifiConnected: boolean;
   readonly sessionStack: readonly SessionSnapshot[];
   readonly ftpSession: FtpSession | null;
   readonly ncSession: NcSession | null;
@@ -155,7 +153,6 @@ const defaultSession: Session = {
   userType: 'user',
   machine: 'localhost',
   currentPath: '/home/jshacker',
-  wifiConnected: false,
   theme: DEFAULT_THEME_ID,
 };
 
@@ -163,7 +160,6 @@ const SessionContext = createContext<SessionContextValue | null>(null);
 
 const normalizeSession = (session: Session): Session => ({
   ...session,
-  wifiConnected: session.wifiConnected ?? false,
   theme: isValidThemeId(session.theme) ? session.theme : DEFAULT_THEME_ID,
 });
 
@@ -187,13 +183,13 @@ const getInitialState = (): PersistedState => {
 
 const normalizeSnapshot = (snapshot: SessionSnapshot): SessionSnapshot => ({
   ...snapshot,
-  wifiConnected: snapshot.wifiConnected ?? false,
   theme: isValidThemeId(snapshot.theme) ? snapshot.theme : DEFAULT_THEME_ID,
 });
 
 export const SessionProvider = ({ children }: { children: ReactNode }) => {
   const [initialState] = useState(getInitialState);
   const [session, setSession] = useState<Session>(initialState.session);
+  const [wifiConnected, setWifiConnectedState] = useState<boolean>(getCachedWifiState);
   const [sessionStack, setSessionStack] = useState<readonly SessionSnapshot[]>(
     initialState.sessionStack,
   );
@@ -207,6 +203,7 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
     const channel = syncChannelRef.current;
     channel.onMessage((message: SyncMessage) => {
       if (message.type === 'wifi-changed') {
+        setWifiConnectedState(message.connected);
         if (!message.connected) {
           // When another tab disconnects WiFi, reset this tab to localhost too
           setSession((prev) => ({
@@ -214,14 +211,11 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
             userType: 'user' as const,
             machine: 'localhost',
             currentPath: prev.machine === 'localhost' ? prev.currentPath : '/home/jshacker',
-            wifiConnected: false,
             theme: prev.theme,
           }));
           setSessionStack([]);
           setFtpSession(null);
           setNcSession(null);
-        } else {
-          setSession((prev) => ({ ...prev, wifiConnected: true }));
         }
       }
       if (message.type === 'theme-changed') {
@@ -231,11 +225,9 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
     return () => channel.close();
   }, []);
 
+  // Session state persists to sessionStorage (per-tab)
   useEffect(() => {
-    const db = getDatabase();
-    if (db) {
-      saveSessionState(db, { session, sessionStack, ftpSession, ncSession });
-    }
+    saveSessionToTab({ session, sessionStack, ftpSession, ncSession });
   }, [session, sessionStack, ftpSession, ncSession]);
 
   const setUsername = useCallback((username: string, userType: UserType = 'user') => {
@@ -262,18 +254,10 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
       userType: session.userType,
       machine: session.machine,
       currentPath: session.currentPath,
-      wifiConnected: session.wifiConnected,
       theme: session.theme,
     };
     setSessionStack((prev) => [...prev, snapshot]);
-  }, [
-    session.username,
-    session.userType,
-    session.machine,
-    session.currentPath,
-    session.wifiConnected,
-    session.theme,
-  ]);
+  }, [session.username, session.userType, session.machine, session.currentPath, session.theme]);
 
   const popSession = useCallback((): SessionSnapshot | null => {
     if (sessionStack.length === 0) return null;
@@ -285,7 +269,6 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
       userType: snapshot.userType,
       machine: snapshot.machine,
       currentPath: snapshot.currentPath,
-      wifiConnected: snapshot.wifiConnected,
       theme: snapshot.theme,
     });
     return snapshot;
@@ -330,7 +313,12 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const setWifiConnected = useCallback((connected: boolean) => {
-    setSession((prev) => ({ ...prev, wifiConnected: connected }));
+    setWifiConnectedState(connected);
+    // WiFi state is shared across tabs — persist to IndexedDB
+    const db = getDatabase();
+    if (db) {
+      saveWifiState(db, connected);
+    }
     syncChannelRef.current.broadcast({ type: 'wifi-changed', connected });
   }, []);
 
@@ -367,7 +355,6 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
         userType: bottom.userType,
         machine: bottom.machine,
         currentPath: bottom.currentPath,
-        wifiConnected: bottom.wifiConnected,
         theme: bottom.theme,
       });
     }
@@ -377,6 +364,7 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
   // machine — finds the original localhost path from the bottom of the session stack
   // (the state before the first SSH), or uses the current path if already on localhost.
   const disconnectWifi = useCallback(() => {
+    setWifiConnectedState(false);
     setSession((prev) => {
       const localhostPath =
         sessionStack.length > 0
@@ -389,13 +377,17 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
         userType: 'user' as const,
         machine: 'localhost',
         currentPath: localhostPath,
-        wifiConnected: false,
         theme: prev.theme,
       };
     });
     setSessionStack([]);
     setFtpSession(null);
     setNcSession(null);
+    // WiFi state is shared across tabs — persist to IndexedDB
+    const db = getDatabase();
+    if (db) {
+      saveWifiState(db, false);
+    }
     syncChannelRef.current.broadcast({ type: 'wifi-changed', connected: false });
   }, [sessionStack]);
 
@@ -403,6 +395,7 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
     <SessionContext.Provider
       value={{
         session,
+        wifiConnected,
         sessionStack,
         ftpSession,
         ncSession,

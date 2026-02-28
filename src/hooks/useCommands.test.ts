@@ -11,13 +11,15 @@ import { COMMAND_TIERS } from '../commands/permissions';
 
 vi.mock('../utils/storageCache', () => ({
   getCachedSessionState: vi.fn(() => null),
+  getCachedWifiState: vi.fn(() => true),
   getCachedFilesystemPatches: vi.fn(() => []),
   getCachedMissionSeed: vi.fn(() => null),
   getDatabase: vi.fn(() => null),
 }));
 
 vi.mock('../utils/storage', () => ({
-  saveSessionState: vi.fn(),
+  saveSessionToTab: vi.fn(),
+  saveWifiState: vi.fn(),
   saveFilesystemPatches: vi.fn(),
   saveMissionSeed: vi.fn(),
 }));
@@ -87,7 +89,6 @@ describe('useCommands', () => {
         userType: 'guest',
         machine: 'localhost',
         currentPath: '/home/guest',
-        wifiConnected: true,
         theme: 'amber',
       },
       sessionStack: [],

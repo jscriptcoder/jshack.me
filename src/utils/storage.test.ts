@@ -1,12 +1,16 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   openDatabase,
-  loadSessionState,
-  saveSessionState,
   loadFilesystemPatches,
   saveFilesystemPatches,
   loadMissionSeed,
   saveMissionSeed,
+  saveSessionToTab,
+  loadSessionFromTab,
+  clearSessionFromTab,
+  saveWifiState,
+  loadWifiState,
+  clearAllData,
 } from './storage';
 import type { PersistedState } from '../session/SessionContext';
 import type { FileSystemPatch } from '../filesystem/types';
@@ -17,7 +21,6 @@ const validSession: PersistedState = {
     userType: 'user',
     machine: 'localhost',
     currentPath: '/home/jshacker',
-    wifiConnected: false,
     theme: 'amber',
   },
   sessionStack: [],
@@ -43,6 +46,7 @@ const validPatches: readonly FileSystemPatch[] = [
 describe('storage', () => {
   beforeEach(() => {
     indexedDB.deleteDatabase('jshack-db');
+    sessionStorage.clear();
   });
 
   describe('openDatabase', () => {
@@ -63,23 +67,17 @@ describe('storage', () => {
     });
   });
 
-  describe('session state', () => {
-    it('should return null when no session exists', async () => {
-      const db = await openDatabase();
-      const result = await loadSessionState(db);
-      expect(result).toBeNull();
-      db.close();
+  describe('sessionStorage (per-tab session)', () => {
+    it('should return null when no session exists', () => {
+      expect(loadSessionFromTab()).toBeNull();
     });
 
-    it('should save and load session state', async () => {
-      const db = await openDatabase();
-      await saveSessionState(db, validSession);
-      const result = await loadSessionState(db);
-      expect(result).toEqual(validSession);
-      db.close();
+    it('should save and load session state', () => {
+      saveSessionToTab(validSession);
+      expect(loadSessionFromTab()).toEqual(validSession);
     });
 
-    it('should persist session with SSH stack', async () => {
+    it('should persist session with SSH stack', () => {
       const withStack: PersistedState = {
         ...validSession,
         sessionStack: [
@@ -88,20 +86,16 @@ describe('storage', () => {
             userType: 'user',
             machine: '192.168.1.1',
             currentPath: '/home/admin',
-            wifiConnected: false,
             theme: 'amber',
           },
         ],
       };
-      const db = await openDatabase();
-      await saveSessionState(db, withStack);
-      const result = await loadSessionState(db);
-      expect(result?.sessionStack).toHaveLength(1);
-      expect(result?.sessionStack[0].username).toBe('admin');
-      db.close();
+      saveSessionToTab(withStack);
+      expect(loadSessionFromTab()?.sessionStack).toHaveLength(1);
+      expect(loadSessionFromTab()?.sessionStack[0].username).toBe('admin');
     });
 
-    it('should persist session with FTP session', async () => {
+    it('should persist session with FTP session', () => {
       const withFtp: PersistedState = {
         ...validSession,
         ftpSession: {
@@ -115,36 +109,80 @@ describe('storage', () => {
           originCwd: '/home/jshacker',
         },
       };
-      const db = await openDatabase();
-      await saveSessionState(db, withFtp);
-      const result = await loadSessionState(db);
-      expect(result?.ftpSession?.remoteMachine).toBe('192.168.1.50');
-      db.close();
+      saveSessionToTab(withFtp);
+      expect(loadSessionFromTab()?.ftpSession?.remoteMachine).toBe('192.168.1.50');
     });
 
-    it('should return null for invalid stored data', async () => {
-      const db = await openDatabase();
-      const transaction = db.transaction('session', 'readwrite');
-      const store = transaction.objectStore('session');
-      store.put({ invalid: 'data' }, 'state');
-      await new Promise<void>((resolve) => {
-        transaction.oncomplete = () => resolve();
-      });
-      const result = await loadSessionState(db);
-      expect(result).toBeNull();
-      db.close();
+    it('should return null for invalid stored data', () => {
+      sessionStorage.setItem('jshack-tab-session', '{ "invalid": true }');
+      expect(loadSessionFromTab()).toBeNull();
     });
 
-    it('should overwrite previous session on save', async () => {
-      const db = await openDatabase();
-      await saveSessionState(db, validSession);
+    it('should return null for malformed JSON', () => {
+      sessionStorage.setItem('jshack-tab-session', 'not valid json!!!');
+      expect(loadSessionFromTab()).toBeNull();
+    });
+
+    it('should overwrite previous session on save', () => {
+      saveSessionToTab(validSession);
       const updated: PersistedState = {
         ...validSession,
         session: { ...validSession.session, username: 'root', userType: 'root' },
       };
-      await saveSessionState(db, updated);
-      const result = await loadSessionState(db);
-      expect(result?.session.username).toBe('root');
+      saveSessionToTab(updated);
+      expect(loadSessionFromTab()?.session.username).toBe('root');
+    });
+
+    it('should clear session from tab', () => {
+      saveSessionToTab(validSession);
+      clearSessionFromTab();
+      expect(loadSessionFromTab()).toBeNull();
+    });
+  });
+
+  describe('WiFi state (IndexedDB shared)', () => {
+    it('should return null when no WiFi state exists', async () => {
+      const db = await openDatabase();
+      const result = await loadWifiState(db);
+      expect(result).toBeNull();
+      db.close();
+    });
+
+    it('should save and load WiFi connected state', async () => {
+      const db = await openDatabase();
+      await saveWifiState(db, true);
+      const result = await loadWifiState(db);
+      expect(result).toBe(true);
+      db.close();
+    });
+
+    it('should save and load WiFi disconnected state', async () => {
+      const db = await openDatabase();
+      await saveWifiState(db, false);
+      const result = await loadWifiState(db);
+      expect(result).toBe(false);
+      db.close();
+    });
+
+    it('should overwrite previous WiFi state', async () => {
+      const db = await openDatabase();
+      await saveWifiState(db, true);
+      await saveWifiState(db, false);
+      const result = await loadWifiState(db);
+      expect(result).toBe(false);
+      db.close();
+    });
+
+    it('should return null for non-boolean stored data', async () => {
+      const db = await openDatabase();
+      const transaction = db.transaction('session', 'readwrite');
+      const store = transaction.objectStore('session');
+      store.put('not-a-boolean', 'wifiConnected');
+      await new Promise<void>((resolve) => {
+        transaction.oncomplete = () => resolve();
+      });
+      const result = await loadWifiState(db);
+      expect(result).toBeNull();
       db.close();
     });
   });
@@ -254,6 +292,24 @@ describe('storage', () => {
       await saveMissionSeed(db, 'SEED-B');
       const result = await loadMissionSeed(db);
       expect(result).toBe('SEED-B');
+      db.close();
+    });
+  });
+
+  describe('clearAllData', () => {
+    it('should clear IndexedDB stores and sessionStorage', async () => {
+      const db = await openDatabase();
+      await saveFilesystemPatches(db, validPatches);
+      await saveMissionSeed(db, 'TEST-SEED');
+      await saveWifiState(db, true);
+      saveSessionToTab(validSession);
+
+      await clearAllData(db);
+
+      expect(await loadFilesystemPatches(db)).toBeNull();
+      expect(await loadMissionSeed(db)).toBeNull();
+      expect(await loadWifiState(db)).toBeNull();
+      expect(loadSessionFromTab()).toBeNull();
       db.close();
     });
   });

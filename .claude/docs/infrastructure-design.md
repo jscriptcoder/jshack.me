@@ -30,7 +30,7 @@ Before the player can access the network from localhost, they must crack a WiFi 
 
 ### Implementation
 
-- WiFi state: `session.wifiConnected` (persisted to IndexedDB)
+- WiFi state: standalone `wifiConnected` state in `SessionProvider` (persisted to IndexedDB)
 - Monitor mode: transient `useRef` in `useWifiCommands` hook (resets on page refresh)
 - Localhost uses `wlan0` interface (not `eth0`) + `lo` loopback
 - `NetworkContext` gates interfaces/machines/DNS when WiFi disconnected on localhost
@@ -66,7 +66,7 @@ Mission networks extend beyond the gateway — see "Mission Network Topology" be
 
 Network is per-machine — `NetworkContext` uses `session.machine` to resolve the active config. Each machine has its own interfaces, reachable machines, and DNS records defined in `src/network/initialNetwork.ts`. Types are in `src/network/types.ts`. Static machines are localhost and gateway; all other machines are generated per mission.
 
-Localhost has a special WiFi gating layer: when `session.wifiConnected === false`, `NetworkContext` overrides localhost's config to return disconnected interfaces (wlan0 DOWN), empty machines, and empty DNS. WiFi commands (`airmon`, `airdump`, `aircrack`, `nmcli`) in `src/hooks/useWifiCommands.ts` manage the connection flow. WiFi network definitions live in `src/network/wifiNetworks.ts`.
+Localhost has a special WiFi gating layer: when `wifiConnected === false`, `NetworkContext` overrides localhost's config to return disconnected interfaces (wlan0 DOWN), empty machines, and empty DNS. WiFi commands (`airmon`, `airdump`, `aircrack`, `nmcli`) in `src/hooks/useWifiCommands.ts` manage the connection flow. WiFi network definitions live in `src/network/wifiNetworks.ts`.
 
 ## Mission Network Topology
 

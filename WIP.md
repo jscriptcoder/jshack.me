@@ -287,7 +287,7 @@ Implemented:
   - `src/commands/airdump.ts` — Async WiFi network scanner (progressive table output)
   - `src/commands/aircrack.ts` — Async WPA2 key cracker with progress (auto-connects on success)
   - `src/hooks/useWifiCommands.ts` — Hook wiring commands with session state + monitor mode ref
-  - `session.wifiConnected` boolean added to Session type (persisted to IndexedDB)
+  - `wifiConnected` standalone state in `SessionProvider` (persisted to IndexedDB, synced across tabs)
   - Localhost changed from `eth0` to `wlan0` + `lo` loopback in `initialNetwork.ts`
   - `NetworkContext` gates interfaces/machines/DNS when WiFi disconnected on localhost
   - `useNetworkCommands` wraps network commands with WiFi check (throw "Network is unreachable")

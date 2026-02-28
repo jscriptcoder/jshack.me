@@ -109,14 +109,19 @@ Commands return objects with `__type` for custom rendering (see `src/components/
 
 ### Persistence
 
-Session and filesystem state persist to IndexedDB (`jshack-db` database):
+Two storage mechanisms split by scope:
 
-- `storageCache.ts` pre-loads data before React mounts (sync cache for `useState` initializers)
-- `SessionContext` and `FileSystemContext` write updates via `useEffect` (async, fire-and-forget)
+- **sessionStorage** (per-tab): Session state (user, machine, path, SSH stack, FTP/NC mode, theme). Each tab gets an independent session — opening a new tab starts fresh at `localhost /home/jshacker`.
+- **IndexedDB** (`jshack-db`, shared): Filesystem patches, WiFi state, mission seed. Shared across all tabs.
+
+Key details:
+
+- `storageCache.ts` pre-loads IndexedDB data + sessionStorage before React mounts (sync cache for `useState` initializers)
+- `SessionContext` writes session to `sessionStorage` via `useEffect`; WiFi state writes to IndexedDB separately
 - Filesystem uses a patches approach — only diffs from base filesystem are stored
 - Mission seed persisted to IndexedDB session store (`activeMissionSeed` key); full network regenerated from seed on reload
 - Mission filesystem patches are NOT persisted — only static machine patches are saved
-- `reset("confirm")` clears IndexedDB and reloads to factory state
+- `reset("confirm")` clears both IndexedDB and sessionStorage, then reloads
 
 ### Cross-Tab Sync
 
@@ -126,7 +131,7 @@ Multiple browser tabs run independent terminal sessions with shared state via `B
 
 Network access from localhost requires cracking a WiFi network first. This is a progression gate before network access.
 
-- `session.wifiConnected` (boolean, persisted) tracks WiFi state
+- `wifiConnected` (standalone `useState` in `SessionProvider`, persisted to IndexedDB, synced across tabs) tracks WiFi state
 - When `wifiConnected === false` on localhost:
   - `ifconfig()` shows `wlan0` as DOWN (no IP) + loopback `lo`
   - Network commands (ping, nmap, ssh, ftp, nc, curl, nslookup) throw `"Network is unreachable"`

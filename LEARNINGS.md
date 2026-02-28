@@ -2,6 +2,12 @@
 
 ## Gotchas
 
+### IndexedDB session state leaks across tabs
+
+- **Context**: Session state (user, machine, path, SSH stack) was stored in IndexedDB, which is shared across tabs
+- **Issue**: Opening a new tab inherited the other tab's machine/path instead of starting fresh at `localhost /home/jshacker`. Also, refreshing Tab A while Tab B writes could cause state corruption.
+- **Solution**: Moved session state to `sessionStorage` (per-tab). WiFi and other shared state remain in IndexedDB with dedicated keys. Each tab gets an independent session on load.
+
 ### Empty async output lines collapse
 
 - **Context**: When streaming async command output with `onLine('')`
@@ -186,7 +192,7 @@
 
 - **Context**: WiFi cracking has two pieces of state: monitor mode and WiFi connected
 - **Issue**: Monitor mode is a temporary tool state (like having a program running), while WiFi connected is a persistent achievement
-- **Solution**: Monitor mode uses `useRef` (transient, resets on page refresh — player must re-enable before scanning), WiFi connected uses `session.wifiConnected` (persisted to IndexedDB — stays connected across refreshes)
+- **Solution**: Monitor mode uses `useRef` (transient, resets on page refresh — player must re-enable before scanning), WiFi connected uses standalone `wifiConnected` state in `SessionProvider` (persisted to IndexedDB — stays connected across refreshes)
 - **Key insight**: Match state persistence to its nature — tool state is transient, progress state is persisted
 
 ### Auto-scroll misses layout changes when async command completes
@@ -196,12 +202,12 @@
 - **Solution**: Add `asyncRunning` to the scroll effect's dependency array: `useEffect(() => { ... }, [lines, asyncRunning])`. Now scroll-to-bottom also triggers when the input reappears.
 - **Key insight**: Any layout change that affects the scroll container's visible area (adding/removing fixed-size elements like the input prompt) should be a dependency of the auto-scroll effect, not just content changes.
 
-### Backwards compatibility for new session fields
+### Separating shared state from per-tab session state
 
-- **Context**: Adding `wifiConnected` to Session type breaks persisted data from existing users
-- **Issue**: Old IndexedDB data lacks `wifiConnected` field, causing validation to fail or TypeScript errors
-- **Solution**: `isValidSession` accepts missing `wifiConnected` (undefined), `normalizeSession` defaults it to `false`. Same pattern already used for `ncSession`.
-- **Key insight**: Every new persisted field needs: (1) validation that accepts undefined, (2) normalization to default value in `getInitialState`
+- **Context**: `wifiConnected` was originally a field on the `Session` type, persisted in both sessionStorage (per-tab) and IndexedDB (shared)
+- **Issue**: WiFi state is global shared state (synced across tabs via IndexedDB + BroadcastChannel) but traveled through the SSH session stack and was redundantly stored in sessionStorage
+- **Solution**: Extracted `wifiConnected` to standalone `useState<boolean>` in `SessionProvider`, initialized from `getCachedWifiState()`. Removed from `Session`, `SessionSnapshot`, and all snapshot logic (push/pop/popAll).
+- **Key insight**: Don't conflate per-tab state (user, machine, path) with shared global state (WiFi) in the same type — it leads to redundant persistence and leaky abstractions in snapshot logic
 
 ### Custom cursor removal breaks E2E readiness detection
 
@@ -433,9 +439,9 @@
 
 ### Progression gates via session state + context gating
 
-- **What**: WiFi hacking gate uses `session.wifiConnected` boolean + `NetworkContext` override + command wrapper to block network access until WiFi is cracked
-- **Why it works**: Three-layer approach (session state → context data → command wrapper) ensures the gate works at every level: UI sees correct interfaces, commands get correct machine lists, and even bypassing context still hits the command wrapper. State persists across refresh.
-- **Example**: `wifiConnected: false` → NetworkContext returns empty machines → ping wrapper throws "Network is unreachable" → ifconfig shows wlan0 DOWN
+- **What**: WiFi hacking gate uses standalone `wifiConnected` state + `NetworkContext` override + command wrapper to block network access until WiFi is cracked
+- **Why it works**: Three-layer approach (WiFi state → context data → command wrapper) ensures the gate works at every level: UI sees correct interfaces, commands get correct machine lists, and even bypassing context still hits the command wrapper. State persists across refresh via IndexedDB.
+- **Example**: `wifiConnected === false` → NetworkContext returns empty machines → ping wrapper throws "Network is unreachable" → ifconfig shows wlan0 DOWN
 
 ### Discriminated unions eliminate type assertions
 
