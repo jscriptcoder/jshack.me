@@ -8,6 +8,7 @@ import { createCancellationToken } from '../utils/asyncCommand';
 type CurlContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
+  readonly resolveNat: (ip: string) => string;
   readonly readFileFromMachine: (
     machineId: MachineId,
     path: string,
@@ -279,9 +280,13 @@ export const createCurlCommand = (context: CurlContext): Command => ({
         token.schedule(() => {
           if (token.isCancelled()) return;
 
+          // NAT resolution: in forwarded mode, the router's public IP maps to the
+          // internal entry machine. Filesystem reads must target the actual machine.
+          const filesystemIP = context.resolveNat(targetIP) as MachineId;
+
           const response = isPost
-            ? handlePost(context, targetIP as MachineId, parsed.path)
-            : handleGet(context, targetIP as MachineId, parsed.path);
+            ? handlePost(context, filesystemIP, parsed.path)
+            : handleGet(context, filesystemIP, parsed.path);
 
           const output = formatResponse(response, includeHeaders);
           output.split('\n').forEach((line) => onLine(line));

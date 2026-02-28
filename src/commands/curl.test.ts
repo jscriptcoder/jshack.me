@@ -45,6 +45,7 @@ const createMockCurlContext = (config: CurlContextConfig = {}) => {
   return {
     getMachine: (ip: string) => machines.find((m) => m.ip === ip),
     resolveDomain: (domain: string) => dnsRecords.find((r) => r.domain === domain),
+    resolveNat: (ip: string) => ip,
     readFileFromMachine: (
       _machineId: MachineId,
       path: string,
@@ -431,6 +432,66 @@ describe('curl command', () => {
       );
       const lines = collectAsyncLines(curl.fn('http://darknet.ctf:8080/'));
       expect(lines.join('\n')).toContain('<h1>Darknet</h1>');
+    });
+  });
+
+  describe('NAT resolution', () => {
+    it('should read from the internal machine filesystem when NAT forwards', () => {
+      // Router at public IP has port 80 open, but web content is on the internal machine
+      const routerIP = '103.182.227.201';
+      const internalIP = '10.147.206.10';
+      const context = {
+        getMachine: (ip: string) =>
+          ip === routerIP
+            ? getMockMachine({ ip: routerIP, ports: [{ port: 80, service: 'http', open: true }] })
+            : undefined,
+        resolveDomain: () => undefined,
+        resolveNat: (ip: string) => (ip === routerIP ? internalIP : ip),
+        readFileFromMachine: (
+          machineId: MachineId,
+          path: string,
+          _cwd: string,
+          _userType: UserType,
+        ): string | null => {
+          // Only the internal machine has web content
+          if (machineId === internalIP && path === '/var/www/html/index.html') {
+            return '<html>Internal Web Server</html>';
+          }
+          return null;
+        },
+      };
+      const curl = createCurlCommand(context);
+      const lines = collectAsyncLines(curl.fn(`http://${routerIP}/`));
+      expect(lines.join('\n')).toContain('Internal Web Server');
+    });
+
+    it('should read sidecar headers from NAT-resolved machine', () => {
+      const routerIP = '103.182.227.201';
+      const internalIP = '10.147.206.10';
+      const context = {
+        getMachine: (ip: string) =>
+          ip === routerIP
+            ? getMockMachine({ ip: routerIP, ports: [{ port: 80, service: 'http', open: true }] })
+            : undefined,
+        resolveDomain: () => undefined,
+        resolveNat: (ip: string) => (ip === routerIP ? internalIP : ip),
+        readFileFromMachine: (
+          machineId: MachineId,
+          path: string,
+          _cwd: string,
+          _userType: UserType,
+        ): string | null => {
+          if (machineId !== internalIP) return null;
+          if (path === '/var/www/html/status') return 'Status OK';
+          if (path === '/var/www/html/status.headers') return 'X-Credentials: admin:secret';
+          return null;
+        },
+      };
+      const curl = createCurlCommand(context);
+      const lines = collectAsyncLines(curl.fn(`http://${routerIP}/status`, '-i'));
+      const output = lines.join('\n');
+      expect(output).toContain('Status OK');
+      expect(output).toContain('X-Credentials: admin:secret');
     });
   });
 });
