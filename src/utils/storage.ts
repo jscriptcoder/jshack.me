@@ -7,9 +7,10 @@ const DB_NAME = 'jshack-db';
 const DB_VERSION = 1;
 const SESSION_STORE = 'session';
 const FILESYSTEM_STORE = 'filesystem';
-const SESSION_KEY = 'state';
 const FILESYSTEM_KEY = 'patches';
 const MISSION_KEY = 'activeMissionSeed';
+const WIFI_KEY = 'wifiConnected';
+const TAB_SESSION_KEY = 'jshack-tab-session';
 
 export const openDatabase = (): Promise<IDBDatabase> =>
   new Promise((resolve, reject) => {
@@ -48,26 +49,6 @@ const setValue = <T>(db: IDBDatabase, storeName: string, key: string, value: T):
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
-
-export const loadSessionState = async (db: IDBDatabase): Promise<PersistedState | null> => {
-  try {
-    const data = await getValue<unknown>(db, SESSION_STORE, SESSION_KEY);
-    if (!data || !isValidPersistedState(data)) return null;
-    return data;
-  } catch {
-    return null;
-  }
-};
-
-export const saveSessionState = async (db: IDBDatabase, state: PersistedState): Promise<void> => {
-  try {
-    await setValue(db, SESSION_STORE, SESSION_KEY, state);
-  } catch {
-    // Write failures are non-critical — the app still works in-memory, the user
-    // just loses persistence on refresh. Logging would clutter the console in
-    // environments where IndexedDB is restricted (e.g. some privacy modes).
-  }
-};
 
 export const loadFilesystemPatches = async (
   db: IDBDatabase,
@@ -130,4 +111,55 @@ export const saveMissionSeed = async (db: IDBDatabase, seed: string | null): Pro
 export const clearAllData = async (db: IDBDatabase): Promise<void> => {
   await clearStore(db, SESSION_STORE);
   await clearStore(db, FILESYSTEM_STORE);
+  clearSessionFromTab();
+};
+
+// --- sessionStorage helpers (per-tab session state) ---
+
+export const saveSessionToTab = (state: PersistedState): void => {
+  try {
+    sessionStorage.setItem(TAB_SESSION_KEY, JSON.stringify(state));
+  } catch {
+    // Non-critical — tab just won't survive a refresh
+  }
+};
+
+export const loadSessionFromTab = (): PersistedState | null => {
+  try {
+    const stored = sessionStorage.getItem(TAB_SESSION_KEY);
+    if (!stored) return null;
+    const parsed: unknown = JSON.parse(stored);
+    if (!isValidPersistedState(parsed)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
+export const clearSessionFromTab = (): void => {
+  try {
+    sessionStorage.removeItem(TAB_SESSION_KEY);
+  } catch {
+    // Non-critical
+  }
+};
+
+// --- WiFi state in IndexedDB (shared across tabs) ---
+
+export const saveWifiState = async (db: IDBDatabase, connected: boolean): Promise<void> => {
+  try {
+    await setValue(db, SESSION_STORE, WIFI_KEY, connected);
+  } catch {
+    // Non-critical — WiFi state still works in-memory
+  }
+};
+
+export const loadWifiState = async (db: IDBDatabase): Promise<boolean | null> => {
+  try {
+    const data = await getValue<unknown>(db, SESSION_STORE, WIFI_KEY);
+    if (typeof data === 'boolean') return data;
+    return null;
+  } catch {
+    return null;
+  }
 };
