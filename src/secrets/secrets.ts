@@ -22,4 +22,12 @@ export const secrets = {
     'pr0duct1on',
     'd3v3l0p',
   ]),
+  GUEST_PASSWORDS: JSON.stringify([
+    'guest',
+    'guest123',
+    'password',
+    'letmein',
+    'welcome',
+    'changeme',
+  ]),
 } as const;

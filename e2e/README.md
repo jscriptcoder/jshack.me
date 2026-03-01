@@ -7,7 +7,6 @@ End-to-end tests using [Playwright](https://playwright.dev/) that verify the ful
 | File                          | Description                                                         |
 | ----------------------------- | ------------------------------------------------------------------- |
 | `helpers.ts`                  | Shared constants, selectors, and helper functions used by all tests |
-| `ctf-playthrough.spec.ts`     | Full 16-flag CTF playthrough (WiFi gate, SSH, FTP, NC, nano, node)  |
 | `mission-playthrough.spec.ts` | Mission system tests (SSH/FTP/NC entry variants, abort/re-accept)   |
 
 ## Running
@@ -17,7 +16,6 @@ End-to-end tests using [Playwright](https://playwright.dev/) that verify the ful
 npm run test:e2e
 
 # Run a specific test file
-npx playwright test e2e/ctf-playthrough.spec.ts
 npx playwright test e2e/mission-playthrough.spec.ts
 ```
 

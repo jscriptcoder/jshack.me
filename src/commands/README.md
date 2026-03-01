@@ -8,13 +8,24 @@ Commands use a factory pattern with context injection: `createXCommand(context) 
 
 Commands are tiered by user type. Restricted commands show `permission denied: 'name' requires TYPE privileges` and are hidden from `help()` and tab autocomplete. `man()` can still look up any command.
 
-| Tier     | User Type | Available Commands                                                                                                                                                             |
-| -------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Basic    | `guest`   | help, man, echo, whoami, pwd, ls, cd, cat, su, clear, author, theme                                                                                                            |
-| Standard | `user`    | All basic + ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, exploit, strings, output, resolve, exit, nano, node, airmon, airdump, aircrack, nmcli, missions, accept, abort |
-| Full     | `root`    | All standard + decrypt                                                                                                                                                         |
+| Tier     | User Type | Available Commands                                                                                                                                                                        |
+| -------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Basic    | `guest`   | help, man, echo, whoami, pwd, ls, cd, cat, su, clear, author, theme, exit                                                                                                                 |
+| Standard | `user`    | All basic + apt, ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, exploit, strings, output, resolve, nano, node, john, airmon, airdump, aircrack, nmcli, missions, accept, abort, mail |
+| Full     | `root`    | All standard + decrypt                                                                                                                                                                    |
 
 FTP and NC modes have their own separate command sets and are not restricted.
+
+## Tool Availability (`availability.ts`)
+
+On remote and mission machines, hacking tools aren't pre-installed. Players must use `apt('install', '<tool>')` as root to install them. System utilities (`ls`, `cat`, `ssh`, etc.) are always available via `/bin/`. Apt-installable tools (`nmap`, `john`, `nc`, etc.) require `/usr/bin/<name>` to exist in the filesystem.
+
+| Category         | Location    | Availability                                          |
+| ---------------- | ----------- | ----------------------------------------------------- |
+| Shell builtins   | N/A         | Always (cd, exit, clear, echo, pwd, help, whoami)     |
+| System utilities | `/bin/`     | Always (ls, cat, su, man, nano, strings, ssh, etc.)   |
+| Apt-installable  | `/usr/bin/` | After `apt install` (pre-installed on localhost only) |
+| Game-specific    | N/A         | Always (missions, accept, abort, mail, output, etc.)  |
 
 ## General
 
@@ -29,14 +40,16 @@ FTP and NC modes have their own separate command sets and are not restricted.
 | resolve | `resolve.ts` | `resolve(promise)`   | Unwrap a Promise and display its resolved value            |
 | reset   | `reset.ts`   | `reset(["confirm"])` | Reset game to factory defaults (clears all saved progress) |
 | theme   | `theme.ts`   | `theme([name])`      | List or switch terminal color themes (persists)            |
+| apt     | `apt.ts`     | `apt(sub, [pkg])`    | Package manager — install tools on remote machines         |
 
 ## Mission
 
-| Command  | File          | Signature      | Description                                               |
-| -------- | ------------- | -------------- | --------------------------------------------------------- |
-| missions | `missions.ts` | `missions()`   | Browse available hacker-for-hire contracts on the darknet |
-| accept   | `accept.ts`   | `accept(seed)` | Accept a mission contract and generate the target network |
-| abort    | `abort.ts`    | `abort()`      | Abort the current mission and return to localhost         |
+| Command  | File          | Signature                  | Description                                               |
+| -------- | ------------- | -------------------------- | --------------------------------------------------------- |
+| missions | `missions.ts` | `missions()`               | Browse available hacker-for-hire contracts on the darknet |
+| accept   | `accept.ts`   | `accept(seed)`             | Accept a mission contract and generate the target network |
+| abort    | `abort.ts`    | `abort()`                  | Abort the current mission and return to localhost         |
+| mail     | `mail.ts`     | `mail(recipient, content)` | Send proof to a darknet client to complete a mission      |
 
 ## File System
 
@@ -47,11 +60,12 @@ FTP and NC modes have their own separate command sets and are not restricted.
 | cd      | `cd.ts`      | `cd([path])`           | Change current directory                                |
 | cat     | `cat.ts`     | `cat(path)`            | Display file contents                                   |
 | whoami  | `whoami.ts`  | `whoami()`             | Display current username                                |
-| decrypt | `decrypt.ts` | `decrypt(file, key)`   | Decrypt file using AES-256-GCM (async)                  |
+| decrypt | `decrypt.ts` | `decrypt(file, key)`   | Decrypt file using AES-256 (async)                      |
 | output  | `output.ts`  | `output(cmd, [file])`  | Capture command output to variable or file              |
 | strings | `strings.ts` | `strings(file, [min])` | Extract printable strings from binary files             |
 | nano    | `nano.ts`    | `nano(path)`           | Open file in nano-style text editor overlay             |
 | node    | `node.ts`    | `node(path)`           | Execute a JavaScript file (requires execute permission) |
+| john    | `john.ts`    | `john(file)`           | Crack password hashes using dictionary attack (async)   |
 
 ## User Management
 

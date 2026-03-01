@@ -10,7 +10,7 @@ src/
 │   ├── FileSystemContext.tsx   # Filesystem operations + patch persistence
 │   ├── fileSystemFactory.ts    # Factory for generating machine filesystems
 │   ├── machineFileSystems.ts   # Imports from __encoded.ts, exports Record + MachineId
-│   ├── machines/               # Per-machine filesystem definitions (8 machines)
+│   ├── machines/               # Per-machine filesystem definitions (localhost, fileserver, webserver + gateway)
 │   │   └── __encoded.ts        # GENERATED (gitignored) — encoded trees for production
 │   └── types.ts                # FileNode, FilePermissions, FileSystemPatch types
 ├── secrets/               # Sensitive non-filesystem strings (WiFi password, etc.)
@@ -28,6 +28,7 @@ src/
 │   ├── topology.ts            # Network topology generator (machines, IPs, DNS, entry variant)
 │   ├── users.ts               # User generator (per-machine users + credential map)
 │   ├── attackChain.ts         # Attack chain generator (path, methods, credential placements)
+│   ├── binary.ts              # Binary noise wrapping for credential/target files; binary path pools
 │   ├── filesystem.ts          # Filesystem generator (role templates, breadcrumbs, noise, entry creds)
 │   └── generateMission.ts     # Orchestrator: seed → MissionNetwork
 ├── mission/               # Mission system integration (Phase 2)
@@ -42,13 +43,12 @@ scripts/
 └── encode.ts              # Pre-build: encodes filesystems + secrets into __encoded.ts files
 
 e2e/
-├── ctf-playthrough.spec.ts     # Playwright E2E (full 16-flag CTF playthrough)
 └── mission-playthrough.spec.ts # Playwright E2E (mission system — SSH/FTP/NC variants + lifecycle)
 ```
 
 ## Terminal Features
 
-- ASCII banner on startup ("JSHACK.ME v0.3.0")
+- ASCII banner on startup ("JSHACK.ME v0.8.0")
 - Dynamic prompt: `username@machine>` (managed via SessionContext)
 - Command history (up/down arrows)
 - Tab autocompletion for commands and variables
@@ -57,23 +57,51 @@ e2e/
 
 ## Session Context
 
-`SessionContext` (`src/session/SessionContext.tsx`) is the single source of truth for session state: username, userType, machine, currentPath, wifiConnected.
+`SessionContext` (`src/session/SessionContext.tsx`) is the single source of truth for session state: username, userType, machine, currentPath, theme. WiFi state (`wifiConnected`) is a standalone `useState<boolean>` in `SessionProvider` — not part of the `Session` type — because it's global shared state (persisted to IndexedDB, synced across tabs) rather than per-tab session state.
 
 Key methods: `setUsername()`, `setMachine()`, `setCurrentPath()`, `setWifiConnected()`, `disconnectWifi()`, `pushSession()` (before SSH), `popSession()` (exit), `popAllSessions()` (mission abort — resets to bottom of stack), `canReturn()`.
 
-Session stack enables SSH nesting — `pushSession()` saves state before connecting, `popSession()` restores it on `exit()`. WiFi state is included in snapshots.
+Session stack enables SSH nesting — `pushSession()` saves state before connecting, `popSession()` restores it on `exit()`. WiFi state is not included in snapshots (it doesn't change per SSH hop).
 
 ## Persistence Architecture
 
 Three-layer system:
 
-1. **`storage.ts`** — Low-level IndexedDB wrapper (`jshack-db`, stores: `session`, `filesystem`)
-2. **`storageCache.ts`** — Pre-load cache, called in `main.tsx` before React mounts. Bridges async IndexedDB with sync `useState` initializers. Handles one-time localStorage migration.
-3. **Contexts** — Read from cache (sync), write to IndexedDB via `useEffect` (async)
+1. **`storage.ts`** — Low-level storage wrapper. IndexedDB (`jshack-db`, stores: `session`, `filesystem`) for shared state; sessionStorage helpers for per-tab session.
+2. **`storageCache.ts`** — Pre-load cache, called in `main.tsx` before React mounts. Loads session from sessionStorage (sync), WiFi/patches/mission from IndexedDB (async). Bridges with sync `useState` initializers.
+3. **Contexts** — `SessionContext` writes session to sessionStorage and WiFi to IndexedDB. `FileSystemContext` writes patches to IndexedDB.
+
+**Storage layout:**
+
+| State                                                   | Storage                             | Scope   |
+| ------------------------------------------------------- | ----------------------------------- | ------- |
+| Session (user, machine, path, theme, SSH stack, FTP/NC) | sessionStorage                      | Per-tab |
+| WiFi connected                                          | IndexedDB (`wifiConnected` key)     | Shared  |
+| Mission seed                                            | IndexedDB (`activeMissionSeed` key) | Shared  |
+| Filesystem patches                                      | IndexedDB (`patches` key)           | Shared  |
 
 Filesystem persistence uses patches (diffs from base filesystem). Each write/create operation records a `FileSystemPatch` with machineId, path, content, and owner. Patches are replayed on initialization via `applyPatches()`. Mission filesystem patches are excluded from persistence — only static machine patches are saved to IndexedDB.
 
-Mission seed persistence: only the active mission seed string is stored in IndexedDB (session store, key `activeMissionSeed`). On reload, the full `MissionNetwork` is regenerated from the seed (deterministic). Session state (machine, path, stack) and static filesystem patches already persist via existing mechanisms.
+Mission seed persistence: only the active mission seed string is stored in IndexedDB (session store). On reload, the full `MissionNetwork` is regenerated from the seed (deterministic). Session state (machine, path, stack) persists per-tab via sessionStorage; static filesystem patches persist via IndexedDB.
+
+## Cross-Tab Sync
+
+Multiple browser tabs can run independent terminal sessions with shared state via the `BroadcastChannel` API (`src/utils/crossTabSync.ts`). Each tab has its own session (user, machine, path, SSH stack, FTP/NC mode) but filesystem patches, WiFi state, mission state, and theme are synchronized across tabs in real time.
+
+**Architecture**: A single `jshack-sync` BroadcastChannel carries typed messages. Each context that needs sync creates a channel on mount and closes it on unmount. Messages are fire-and-forget — IndexedDB persistence serves as the durable backing store.
+
+**Synced state**:
+
+- **Filesystem patches** — `FileSystemContext` broadcasts each patch after `writeFileToMachine` / `createFileOnMachine`. Receiving tabs apply the patch to their local filesystem state via `applyPatches()`.
+- **WiFi state** — `SessionContext` broadcasts `wifi-changed` on connect/disconnect. Receiving tabs update standalone `wifiConnected` state. WiFi disconnect from another tab resets the session to localhost (same as `disconnectWifi()`).
+- **Mission state** — `useMissionState` broadcasts `mission-changed` with the seed (or null) on start/abort/complete. Receiving tabs regenerate the full `MissionNetwork` from the seed. `MissionProvider` detects cross-tab mission abort and calls `popAllSessions()` if the session is on a mission machine.
+- **Theme** — `SessionContext` broadcasts `theme-changed`. Receiving tabs update `session.theme`, triggering `applyTheme()` via the existing effect.
+
+**Echo loop prevention**: Each context broadcasts only on locally-initiated changes (explicit method calls). BroadcastChannel does not deliver messages to the posting tab, so echo loops cannot occur.
+
+**Graceful fallback**: When `BroadcastChannel` is unavailable (older browsers, SSR), `createSyncChannel()` returns no-op stubs. Tabs work independently, same as before.
+
+**Dynamic tab title**: `SessionContext` updates `document.title` based on the current session mode: `username@machine — JSHACK.ME`, `ftp> — JSHACK.ME`, or `nc shell — JSHACK.ME`.
 
 ## Nano Editor
 
@@ -95,13 +123,13 @@ Two layers of tab completion, tried in order:
 
 **NC mode context switching**: When NC mode is active, `Terminal.tsx` wraps the machine-specific filesystem APIs (`listDirectoryFromMachine`, `getNodeFromMachine`, `resolvePathForMachine`) with the NC session's `targetIP` and `currentPath` to provide path completion on the correct remote machine. Without this, path completion would resolve against the main session's machine (localhost).
 
-**Known limitation — FTP path completion**: FTP mode operates on two machines simultaneously (origin and remote). Path completion currently resolves against the main session's machine (origin), so remote FTP commands (`cd`, `ls`, `get`'s first arg) autocomplete against the wrong filesystem. Fixing this is non-trivial because dual-argument commands like `get(remote, local)` and `put(local, remote)` would need per-argument context based on cursor position.
+**FTP path completion**: FTP mode operates on two machines simultaneously (origin and remote). Path completion detects which FTP command is being typed and resolves against the correct machine: remote commands (`cd`, `ls`) complete against the FTP target machine, local commands (`lcd`, `lls`) complete against the origin machine, and dual-argument commands (`get(remote, local)`, `put(local, remote)`) switch context per argument position by counting commas before the cursor. Two separate `usePathAutoComplete` instances (remote and local) are created for FTP mode, with `getFtpPathCompletions` selecting the appropriate one.
 
 ## WiFi Hacking Gate
 
-Network access from localhost requires cracking a WiFi network first. This is a progression gate between flags 3 and 4 — not a flag itself.
+Network access from localhost requires cracking a WiFi network first. This is a progression gate before network access — not a flag itself.
 
-**State**: `session.wifiConnected` (boolean, persisted to IndexedDB). When `false` on localhost:
+**State**: `wifiConnected` (standalone `useState<boolean>` in `SessionProvider`, persisted to IndexedDB). When `false` on localhost:
 
 - `ifconfig()` shows `wlan0` DOWN (no IP) + loopback `lo`
 - Network commands (ping, nmap, ssh, ftp, nc, curl, nslookup) throw `"Network is unreachable"`
@@ -128,33 +156,53 @@ Network access from localhost requires cracking a WiFi network first. This is a 
 
 See `src/commands/` for implementations and `src/hooks/useCommands.ts` for the registry.
 
-Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, su, whoami, airmon, airdump, aircrack, nmcli, ifconfig, ping, nmap, nslookup, ssh, exit, ftp, nc, curl, exploit, decrypt, output, resolve, strings, nano, node, missions, accept, abort, theme, reset.
+Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, su, whoami, airmon, airdump, aircrack, nmcli, ifconfig, ping, nmap, nslookup, ssh, exit, ftp, nc, curl, exploit, decrypt, output, resolve, strings, nano, node, missions, accept, abort, mail, apt, theme, reset.
 
 FTP mode (when connected via ftp): pwd, lpwd, cd, lcd, ls, lls, get, put, quit/bye.
 
 NC mode (when connected via nc): pwd, cd, ls, cat, whoami, help, exit — read-only shell access.
 
+## Tool Availability System
+
+On remote/mission machines, hacking tools are not pre-installed. Players must install them via `apt('install', '<tool>')` as root. This adds realism and an additional challenge layer.
+
+**Mechanism:** `src/commands/availability.ts` defines command categories and a `wrapWithInstallCheck` higher-order function (same pattern as `wrapWithWifiCheck`). At execution time, it checks if `/usr/bin/<command>` exists in the current machine's filesystem. On localhost, all tools are pre-installed.
+
+**Categories:**
+
+- **Shell builtins** (cd, exit, echo, pwd, etc.) — always available, no binary check
+- **System utilities** (ls, cat, ssh, ping, apt, etc.) — always available, binaries in `/bin/`
+- **Apt-installable** (nmap, john, nc, ftp, exploit, airmon, airdump, aircrack, decrypt, node, nslookup) — require `/usr/bin/<name>` binary; pre-installed on localhost only
+- **Game-specific** (missions, accept, mail, etc.) — always available, no binary check
+
+**Filesystem integration:** `fileSystemFactory.ts` creates `/bin/` and `/usr/bin/` directories on all machines. `/bin/` contains system utility binary stubs. `/usr/bin/` is empty on remote/mission machines (populated via `apt install`). `mergeExtraDirectories()` does one-level-deep directory merging to prevent mission `extraDirectories` from overwriting factory-created `/usr/`.
+
+**Wrapping order** in `useCommands.ts`: install check wraps the base command, then permission restriction wraps on top. At execution: permission checked first (outermost) → install check → actual execution.
+
 ## Seeded Mission Network Generator
 
 `src/generation/` contains the engine for procedurally generating mission networks from a seed string.
 
-**Pipeline**: `generateMissionNetwork(seed)` composes these steps:
+**Pipeline**: `generateMissionNetwork(seed)` composes these steps. Seeds can embed keywords to override generation axes (difficulty, entry variant, network mode, objective type, domain entry, encrypted exfiltrate) — see `parseSeedOverrides()` in `generateMission.ts`.
 
 1. **PRNG** (`prng.ts`) — Mulberry32 PRNG seeded via FNV-1a hash of the seed string. Provides `next()`, `nextInt()`, `pick()`, `pickN()`, `shuffle()`.
-2. **Topology** (`topology.ts`) — Generates machines on a flat subnet (`10.x.x.0/24`), assigns roles (webserver/database/fileserver/workstation), selects an entry variant (ssh/ftp/nc/exploit) for the entry machine, builds `NetworkConfig` with interfaces, DNS, and per-machine reachability.
+2. **Topology** (`topology.ts`) — Generates a router with a PRNG-varied public IP (from realistic hosting prefixes like 45, 51, 62, 78, etc.) and internal machines on a PRNG-varied private subnet (10.x.x.0/24, 172.{16-31}.x.0/24, or 192.168.{2-254}.0/24). The router is a real `GeneratedMachine` with role `'router'`, dual interfaces (public eth0 + internal eth1), its own filesystem, and users. Internal machines have roles (webserver/database/fileserver/workstation). Two network modes are supported: **forwarded** (easier — router NATs ports to the entry/DMZ machine, player connects transparently) and **router-first** (harder — no forwarding, player must hack the router to reach internal machines). Selects an entry variant (ssh/ftp/nc/exploit/http) and builds `NetworkConfig` with interfaces, DNS, and per-machine reachability. Internal machines see each other + router's internal gateway IP but NOT the router's public IP.
 3. **Users** (`users.ts`) — Generates root + 1-2 role-appropriate users per machine, hashes passwords with `md5()`. Guest passwords are picked from a `guestPasswords` pool (not hardcoded). Returns both `RemoteUser[]` per machine and a plaintext credential map.
-4. **Attack Chain** (`attackChain.ts`) — Picks a target machine, builds an attack path (entry → intermediates → target), assigns access methods based on entry variant for the first hop (ssh/ftp/nc/exploit) and ssh for subsequent hops, plans credential placements. Selects a role-appropriate target file template (from `targetFileTemplatesByRole` in `pools.ts`) and fills the `{{flag}}` placeholder into thematic content.
-5. **Filesystems** (`filesystem.ts`) — Builds `FileNode` trees per machine using the existing `createFileSystem()` factory. Injects role-based configs, credential breadcrumbs, noise files, red herrings, entry credential hints (for FTP/NC/exploit entry variants), and the target file at a dynamic path (from `objective.targetPath`) with thematic content embedding the flag.
+4. **Attack Chain** (`attackChain.ts`) — Picks a target machine, builds an attack path (entry → intermediates → target), assigns access methods based on entry variant for the first hop (ssh/ftp/nc/exploit/http) and ssh/ftp/http for subsequent hops (PRNG selects based on available ports), plans credential placements. Generates objective per type: exfiltrate (ACCESS-KEY in target file, optionally encrypted with key on a different machine), tamper (file with old/new values from `tamperFileTemplatesByRole`), or credential_theft (root password). Generates client email from `clientHandles` pool. In router-first mode, `generateMission.ts` adds a bridge credential placement on the router filesystem containing SSH credentials for the internal entry machine (so the player can reach it after hacking the router).
+5. **Filesystems** (`filesystem.ts`) — Builds `FileNode` trees per machine using the existing `createFileSystem()` factory. Injects role-based configs, credential breadcrumbs, noise files, red herrings, entry credential hints (for FTP/NC/exploit/HTTP entry variants), web content for webserver machines, and the target file at a dynamic path (for exfiltrate/tamper objectives; skipped for credential_theft).
+6. **Binary Wrapping** (`binary.ts`) — Probabilistically wraps credential breadcrumbs (~30%), exfiltrate targets (~25%), and entry credential hints (~20%) in non-printable "binary noise". `cat` shows garbled output; `strings` extracts readable data. Binary files use deep paths like `/usr/local/bin/monitor_agent`.
 
-**Output**: `MissionNetwork` containing seed, difficulty, machines, filesystems, network config, attack chain, objective, and entry variant. Same seed always produces identical output.
+**Output**: `MissionNetwork` containing seed, difficulty, machines, filesystems, network config, attack chain, objective, clientEmail, entry variant, routerDomain, and domainEntry flag. Same seed always produces identical output.
 
-**Data Pools** (`pools.ts`) — Static arrays for usernames, hostnames, guest passwords, port templates, entry port templates (ssh/ftp/nc/exploit variants), vulnerability templates (real CVEs with service versions), entry credential hint templates, log templates, config templates, noise/red-herring files, and target file templates by role (thematic paths and content with `{{flag}}` placeholder). Mission passwords are imported from `src/secrets/__encoded.ts` (encoded at build time via the secrets registry) to prevent bundle inspection.
+**Data Pools** (`pools.ts`) — Static arrays for usernames, hostnames, guest passwords, client handles, port templates, entry port templates (ssh/ftp/nc/exploit/http variants), vulnerability templates (real CVEs with service versions), entry credential hint templates, log templates, config templates, noise/red-herring files, target file templates by role (with `{{access_key}}` placeholder for exfiltrate), and tamper file templates by role (with `{{tamperOldValue}}` placeholder). Mission passwords are imported from `src/secrets/__encoded.ts` (encoded at build time via the secrets registry) to prevent bundle inspection.
 
 **Key properties**:
 
 - Deterministic: same seed → identical network (deep equality)
-- 4 machine roles, 3 difficulty tiers (easy=2, medium=3-4, hard=4-6 machines)
-- 4 entry variants (ssh, ftp, nc, exploit) — entry machine's initial access method varies per seed
+- 5 machine roles (webserver, database, fileserver, workstation, router), 3 difficulty tiers (easy=2, medium=3-4, hard=4-6 internal machines + 1 router)
+- 5 entry variants (ssh, ftp, nc, exploit, http) — initial access method varies per seed
+- 2 network modes: forwarded (transparent NAT to DMZ) vs router-first (hack the router)
+- Router is infrastructure-only (never the mission target) but has realistic content (firewall rules, routing tables, internal machine hints)
 - Output types match existing `NetworkConfig`, `RemoteMachine`, `FileNode`
 
 ## Mission System Integration
@@ -167,6 +215,7 @@ NC mode (when connected via nc): pwd, cd, ls, cat, whoami, help, exit — read-o
 - Passes `activeMission.fileSystems` to `FileSystemProvider` as `missionFileSystems` prop
 - Passes `activeMission.networkConfig` to `NetworkProvider` as `missionNetworkConfig` prop
 - Passes `activeMission.machines` to `NetworkProvider` as `missionMachines` prop (for correct localhost injection)
+- Passes `activeMission.natForwarding` and `activeMission.routerMachine` to `NetworkProvider` for NAT resolution
 - `MissionProvider` wraps everything, providing mission state + methods to commands via `useMission()` hook
 - On init: checks `storageCache` for persisted seed, regenerates mission if present
 
@@ -184,27 +233,36 @@ SessionProvider → MissionProvider → FileSystemProvider → NetworkProvider �
 
 **NetworkContext integration:**
 
-- Accepts optional `missionNetworkConfig` prop and `missionMachines` prop (array of `GeneratedMachine`)
+- Accepts optional `missionNetworkConfig`, `missionMachines`, `missionNatForwarding`, and `missionRouterMachine` props
 - When resolving config for current machine: checks mission config first, then static config
-- When on localhost with active mission: uses `missionMachines` to get full `RemoteMachine` records (with ports and users) for localhost's reachable machine list, plus merges mission DNS
+- When on localhost with active mission: only the router's public IP is visible (not internal machines). In forwarded mode, the router appears with the entry machine's ports/users so connections are transparent.
+- `resolveNat(ip)` — translates the router's public IP to the internal entry machine IP when port forwarding is active (identity function otherwise). Applied at SSH/FTP/NC connection boundaries in `Terminal.tsx`.
 - `findMachineUsers(ip)` — searches both static config and `missionNetworkConfig` for user lists. Used by `useCommands.ts` for `su` user validation on any machine (static or mission-generated).
 
 **Mission commands:**
 
 - `missions()` — displays hardcoded darknet contract board (missions added incrementally with e2e tests)
-- `accept(seed)` — generates network from seed, passes `MissionNetwork` to `startMission`, displays briefing with entry point and access hint
+- `accept(seed)` — generates network from seed, passes `MissionNetwork` to `startMission`, displays briefing with entry point, client email, objective-specific instructions, and variant-specific intel hint. Intel varies by entry variant: SSH (~50% shows credentials via `briefingRevealsCredentials`, ~50% hints at default credentials), FTP (hints at FTP service), NC (hints at backdoor), exploit (hints at vulnerable software), HTTP (hints at web server). Domain entry mode appends "Resolve the target domain first" and omits `ssh()` command. No command names appear in intel text — hints use natural language.
 - `abort()` — pops all sessions back to localhost, clears mission state
+- `mail(recipient, content)` — submits proof to the client to complete a mission. Verifies proof based on objective type.
+
+**Objective types:**
+
+- **exfiltrate** — Player finds an ACCESS-KEY in a target file and mails it to the client. Verification: content matches `objective.expectedProof`.
+- **tamper** — Player modifies a target file (e.g., changes a grade from "F" to "A") and mails the client. Verification: `mail` reads the target file from the target machine via `readFileFromMachine`, checks `tamperOldValue` is gone and `tamperNewValue` is present.
+- **credential_theft** — Player discovers the root password on the target machine and mails it to the client. Verification: content matches `objective.expectedProof` (the root password).
+- **script_fix** — Player finds a broken script on the target machine, fixes it with `nano()`, and runs it with `node()`. Scripts call `_decode(checksum)` — a function injected only into `node()`'s execution context during script_fix missions. If the checksum is correct (script was properly fixed), `_decode()` returns the ACCESS-KEY. The player then mails it to the client like an exfiltrate mission. The ACCESS-KEY never appears in the script source (anti-cheat). Bug types: syntax (missing paren/quote), logic (wrong comparison), corrupted (data replaced with `???`, hint file nearby). ~60% user-owned (anyone can edit/run), ~40% root-owned (must `su` first).
 
 **Mission completion:**
 
-- `Terminal.tsx` scans command output (both sync results and async output lines) for the active mission's flag string
-- When flag is detected, displays ASCII "MISSION COMPLETE" banner and calls `completeMission()`
+- Player sends proof via `mail("client@darkmail.onion", "proof")` — the mail command in `src/commands/mail.ts` validates the proof and calls `completeMission()`, displaying an ASCII "MISSION COMPLETE" banner.
 
 **Entry variant system:**
 
 - Entry machine is NOT always SSH-accessible initially
-- PRNG selects an entry variant: `ssh` (classic), `ftp` (explore via FTP, find SSH creds), `nc` (explore via backdoor, find SSH creds), or `exploit` (scan with `nmap -sV`, exploit vulnerable port for restricted shell, find SSH creds)
-- SSH is always available on the entry machine, but FTP/NC/exploit entry variants require finding credentials first
+- PRNG selects an entry variant: `ssh` (classic), `ftp` (explore via FTP, find SSH creds), `nc` (explore via backdoor, find SSH creds), `exploit` (scan with `nmap -sV`, exploit vulnerable port for restricted shell, find SSH creds), or `http` (discover port 80 via nmap, use `curl` to find SSH creds in web content or response headers via `-i`)
+- SSH is always available on the entry machine, but FTP/NC/exploit/HTTP entry variants require finding credentials first
+- HTTP variant uses `.headers` sidecar files — a file at `/var/www/html/page.headers` injects custom HTTP response headers into curl responses for that page
 - Exploit variant attaches a `Vulnerability` (CVE, description, service version) and `ServiceOwner` to a non-SSH port on the entry machine
 - `nmap("-sV", target)` reveals service versions and CVE details; `exploit(host, port)` exploits the vulnerability and drops into a restricted NC-like shell
 - Mission briefing shows the initial access command based on variant

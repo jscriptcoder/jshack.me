@@ -8,6 +8,7 @@ import { createCancellationToken } from '../utils/asyncCommand';
 type CurlContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
+  readonly resolveNat: (ip: string) => string;
   readonly readFileFromMachine: (
     machineId: MachineId,
     path: string,
@@ -41,14 +42,6 @@ const SERVER_CONFIGS: Readonly<Record<string, ServerConfig>> = {
   '192.168.1.1': {
     serverName: 'nginx/1.18.0 (Ubuntu)',
     extraHeaders: { 'X-Powered-By': 'PHP/7.4.3' },
-  },
-  '192.168.1.75': {
-    serverName: 'Apache/2.4.41 (Ubuntu)',
-    extraHeaders: { 'X-Powered-By': 'PHP/7.4.3', 'X-Frame-Options': 'SAMEORIGIN' },
-  },
-  '203.0.113.42': {
-    serverName: 'nginx/1.19.0',
-    extraHeaders: { 'X-Hidden-Service': 'true' },
   },
 };
 
@@ -89,6 +82,7 @@ const buildHeaders = (
   ip: string,
   contentType: string,
   contentLength: number,
+  customHeaders?: readonly (readonly [string, string])[],
 ): readonly (readonly [string, string])[] => {
   const config = SERVER_CONFIGS[ip];
   const base: readonly (readonly [string, string])[] = [
@@ -101,7 +95,28 @@ const buildHeaders = (
   const extra: readonly (readonly [string, string])[] = config
     ? Object.entries(config.extraHeaders)
     : [];
-  return [...base, ...extra];
+  return [...base, ...extra, ...(customHeaders ?? [])];
+};
+
+// Reads a .headers sidecar file and parses it as key:value lines.
+// Sidecar files sit alongside web content (e.g. /var/www/html/page.html.headers)
+// and inject custom HTTP response headers into curl responses.
+const readSidecarHeaders = (
+  context: CurlContext,
+  machineId: MachineId,
+  webPath: string,
+): readonly (readonly [string, string])[] => {
+  const sidecarPath = `${webPath}.headers`;
+  const sidecarContent = context.readFileFromMachine(machineId, sidecarPath, '/', 'root');
+  if (!sidecarContent) return [];
+  return sidecarContent
+    .split('\n')
+    .map((line) => {
+      const colonIdx = line.indexOf(':');
+      if (colonIdx <= 0) return null;
+      return [line.slice(0, colonIdx).trim(), line.slice(colonIdx + 1).trim()] as const;
+    })
+    .filter((entry): entry is readonly [string, string] => entry !== null);
 };
 
 const handleGet = (context: CurlContext, machineId: MachineId, path: string): HttpResponse => {
@@ -118,11 +133,12 @@ const handleGet = (context: CurlContext, machineId: MachineId, path: string): Ht
     };
   }
 
+  const customHeaders = readSidecarHeaders(context, machineId, webPath);
   const contentType = getContentType(webPath);
   return {
     statusCode: 200,
     statusText: 'OK',
-    headers: buildHeaders(machineId, contentType, content.length),
+    headers: buildHeaders(machineId, contentType, content.length, customHeaders),
     body: content,
   };
 };
@@ -175,13 +191,13 @@ export const createCurlCommand = (context: CurlContext): Command => ({
   name: 'curl',
   description: 'Transfer data from or to a server',
   manual: {
-    synopsis: 'curl(url: string, [flags: string])',
+    synopsis: 'curl([flags], url: string)',
     description:
-      'Transfer data from or to a server using HTTP protocol. Supports GET and POST requests. Use -i flag to include HTTP response headers in output. Use -X POST to make POST requests to /api/* endpoints.',
+      'Transfer data from or to a server using HTTP protocol. Supports GET and POST requests. Use -i flag to include HTTP response headers in output. Use -X POST to make POST requests to /api/* endpoints. Flags and URL can be in any order.',
     arguments: [
       {
         name: 'url',
-        description: 'URL to fetch (e.g., "http://webserver.local/index.html")',
+        description: 'URL to fetch (e.g., "http://192.168.1.1/")',
         required: true,
       },
       {
@@ -191,30 +207,35 @@ export const createCurlCommand = (context: CurlContext): Command => ({
       },
     ],
     examples: [
-      { command: 'curl("http://webserver.local/")', description: 'Fetch a web page' },
+      { command: 'curl("http://192.168.1.1/")', description: 'Fetch a web page' },
       {
-        command: 'curl("webserver.local/config.php")',
+        command: 'curl("192.168.1.1/index.html")',
         description: 'Fetch without protocol (defaults to http)',
       },
       {
-        command: 'curl("http://webserver.local/", "-i")',
+        command: 'curl("-i", "http://192.168.1.1/")',
         description: 'Include HTTP response headers',
       },
       {
-        command: 'curl("http://webserver.local/api/users", "-X POST")',
-        description: 'POST request to API',
+        command: 'curl("http://192.168.1.1/", "-i")',
+        description: 'Flags work in any position',
       },
       {
-        command: 'curl("http://darknet.ctf:8080/", "-i")',
-        description: 'Fetch from non-standard port',
+        command: 'curl("-X POST", "http://192.168.1.1/api/users")',
+        description: 'POST request to API',
       },
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {
     const { getMachine, resolveDomain } = context;
 
-    const urlStr = args[0] as string | undefined;
-    const flags = (args[1] as string | undefined) ?? '';
+    const stringArgs = args.filter((a): a is string => typeof a === 'string');
+
+    // Separate flags (start with -) from the URL (positional arg)
+    const flagArgs = stringArgs.filter((a) => a.startsWith('-'));
+    const positionalArgs = stringArgs.filter((a) => !a.startsWith('-'));
+    const urlStr = positionalArgs[0];
+    const flags = flagArgs.join(' ');
 
     if (!urlStr) {
       throw new Error('curl: no URL specified');
@@ -259,9 +280,13 @@ export const createCurlCommand = (context: CurlContext): Command => ({
         token.schedule(() => {
           if (token.isCancelled()) return;
 
+          // NAT resolution: in forwarded mode, the router's public IP maps to the
+          // internal entry machine. Filesystem reads must target the actual machine.
+          const filesystemIP = context.resolveNat(targetIP) as MachineId;
+
           const response = isPost
-            ? handlePost(context, targetIP as MachineId, parsed.path)
-            : handleGet(context, targetIP as MachineId, parsed.path);
+            ? handlePost(context, filesystemIP, parsed.path)
+            : handleGet(context, filesystemIP, parsed.path);
 
           const output = formatResponse(response, includeHeaders);
           output.split('\n').forEach((line) => onLine(line));

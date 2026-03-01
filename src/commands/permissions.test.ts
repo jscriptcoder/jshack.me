@@ -83,6 +83,7 @@ describe('permissions', () => {
         'su',
         'clear',
         'author',
+        'exit',
       ]);
     });
 
@@ -227,11 +228,12 @@ describe('permissions', () => {
       expect(rootCommands).toEqual(['decrypt']);
     });
 
-    it('should have 22 user-tier commands', () => {
+    it('should have 24 user-tier commands', () => {
       const userCommands = Object.entries(COMMAND_TIERS)
         .filter(([, tier]) => tier === 'user')
         .map(([name]) => name);
-      expect(userCommands).toHaveLength(22);
+      expect(userCommands).toHaveLength(24);
+      expect(userCommands).toContain('apt');
       expect(userCommands).toContain('nmap');
       expect(userCommands).toContain('ssh');
       expect(userCommands).toContain('curl');

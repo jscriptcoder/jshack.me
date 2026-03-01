@@ -1,6 +1,6 @@
 # Network
 
-Simulated network environment for CTF puzzles. Defines the topology, machines, ports, services, and DNS records that network commands interact with. The network is **per-machine** — each machine has its own interfaces, reachable machines, and DNS records.
+Simulated network environment for hacking missions. Defines the topology, machines, ports, services, and DNS records that network commands interact with. The network is **per-machine** — each machine has its own interfaces, reachable machines, and DNS records.
 
 ## Files
 

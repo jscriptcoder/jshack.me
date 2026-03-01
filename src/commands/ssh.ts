@@ -22,8 +22,8 @@ export const createSshCommand = (context: SshContext): Command => ({
       { name: 'host', description: 'IP address of the remote machine', required: true },
     ],
     examples: [
-      { command: 'ssh("root", "192.168.1.50")', description: 'Connect to fileserver as root' },
       { command: 'ssh("admin", "192.168.1.1")', description: 'Connect to gateway as admin' },
+      { command: 'ssh("root", "10.0.0.5")', description: 'Connect to a remote host as root' },
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {

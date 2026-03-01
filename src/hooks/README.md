@@ -26,17 +26,20 @@ useCommands()
 ├── Static commands (echo, author, clear, exit, resolve)
 ├── theme (uses setTheme from session context — unrestricted, guest-accessible)
 ├── node (lazy getter for execution context — needs access to all commands including itself)
-├── Mission commands (missions, accept, abort — uses useMission() context)
-├── useFileSystemCommands() → pwd, ls, cd, cat, whoami, decrypt, output, strings, nano
+├── Mission commands (missions, accept, abort, mail — uses useMission() context)
+├── apt (package manager — install tools on remote machines)
+├── useFileSystemCommands() → pwd, ls, cd, cat, whoami, decrypt, output, strings, nano, john
 ├── useNetworkCommands()    → ifconfig, ping, nmap, nslookup, ssh, curl, ftp, nc, exploit
 ├── useWifiCommands()       → airmon, airdump, aircrack, nmcli
 ├── su (depends on current machine's user list)
 └── help, man (created last, with access to all commands above)
 ```
 
-After assembly, commands are filtered through `permissions.ts`:
+After assembly, apt-installable commands are wrapped with install checks (from `availability.ts`), then all commands are filtered through `permissions.ts`:
 
+- Apt-installable commands (nmap, john, nc, ftp, etc.) get wrapped with `wrapWithInstallCheck` — checks `/usr/bin/<name>` on the current machine
 - Restricted commands get their `fn` wrapped with a permission check (throws `permission denied` error)
+- Wrapping order: permission (outermost) → install check → actual command execution
 - `commandNames` is filtered to only accessible commands (for tab autocomplete)
 - `help()` receives only accessible commands; `man()` receives all commands
 

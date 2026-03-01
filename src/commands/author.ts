@@ -25,7 +25,7 @@ export const authorCommand: Command = {
       'These days my biggest passion is cybersecurity, especially web security. At my current job I helped uncover ' +
         'several security vulnerabilities, which really got me hooked. I earned a Nanodegree as Security Engineer from Udacity, ' +
         "I'm grinding through TryHackMe rooms and Portswigger labs whenever I get the chance, and currently working towards my Burp Suite certification.",
-      'This little CTF terminal is where all those worlds collide, code, hacking, and the love of breaking things, ' +
+      'This little hacking terminal is where all those worlds collide, code, hacking, and the love of breaking things, ' +
         'responsibly of course. Hack away! 😉',
     ],
     avatar: 'https://avatars.githubusercontent.com/u/613724',

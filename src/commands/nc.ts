@@ -42,9 +42,9 @@ export const createNcCommand = (context: NcContext): Command => ({
       { name: 'port', description: 'Port number to connect to', required: true },
     ],
     examples: [
-      { command: 'nc("192.168.1.50", 21)', description: 'Connect to FTP port and see banner' },
-      { command: 'nc("203.0.113.42", 31337)', description: 'Connect to backdoor service' },
-      { command: 'nc("darknet.ctf", 8080)', description: 'Connect using hostname' },
+      { command: 'nc("10.0.0.5", 21)', description: 'Connect to FTP port and see banner' },
+      { command: 'nc("10.0.0.5", 31337)', description: 'Connect to backdoor service' },
+      { command: 'nc("target.local", 8080)', description: 'Connect using hostname' },
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {

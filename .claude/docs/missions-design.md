@@ -2,7 +2,7 @@
 
 ## Overview
 
-After completing the 16-flag introduction (CTF tutorial), players transition into a **mission-based** progression system. Missions are hacker-for-hire contracts discovered on a darknet marketplace. Each mission generates a **procedurally generated network** using a seed, creating unique target infrastructure the player must hack into.
+After completing the introduction (tutorial), players transition into a **mission-based** progression system. Missions are hacker-for-hire contracts discovered on a darknet marketplace. Each mission generates a **procedurally generated network** using a seed, creating unique target infrastructure the player must hack into.
 
 ## Key Decisions
 
@@ -64,9 +64,10 @@ Inspired by Minecraft's world generation — a seed deterministically generates 
 
 ### What a Seed Determines
 
-1. **Network topology** — Number of machines (2-6), subnet, IP addresses
-2. **Machine roles** — Each machine gets a role that defines its services and filesystem template:
-   - Web server, database server, mail server, file server, workstation, router/firewall, backup server
+1. **Network topology** — A border router with a PRNG-varied public IP (from realistic hosting prefixes) + 2-6 internal machines on a PRNG-varied private subnet (10.x.x/24, 172.{16-31}.x/24, or 192.168.{2-254}/24). Two modes: forwarded (router NATs to DMZ) or router-first (hack router to pivot).
+2. **Machine roles** — Each internal machine gets a role that defines its services and filesystem template:
+   - Web server, database server, file server, workstation
+   - The router is always present as infrastructure (role: `'router'`)
 3. **Users** — Realistic usernames per role, password hashes from a wordlist-style pool
 4. **Ports and services** — Which ports are open, what services run (SSH, FTP, HTTP, MySQL, etc.)
 5. **Filesystem content** — Role-based templates with randomized content:
@@ -86,10 +87,10 @@ Inspired by Minecraft's world generation — a seed deterministically generates 
 Seed
  |
  +-- Network Layer
- |   - Subnet (e.g., 172.16.X.0/24)
- |   - Machine count (2-6)
- |   - Machine IPs
- |   - Machine roles (web, db, file, mail, workstation, router, backup)
+ |   - Router with varied public IP (realistic prefixes) + varied private subnet (RFC 1918)
+ |   - Machine count (2-6 internal + 1 router)
+ |   - Network mode (forwarded vs router-first)
+ |   - Machine roles (web, db, file, workstation + router)
  |
  +-- User Layer
  |   - Usernames per machine (role-appropriate: www-data, dbadmin, jsmith, etc.)
@@ -122,6 +123,23 @@ Seed
      - Noise files and logs
 ```
 
+### Seed Keywords
+
+Seeds can embed keywords (case-insensitive) to control generation axes:
+
+| Axis          | Keywords                                   | Notes                                               |
+| ------------- | ------------------------------------------ | --------------------------------------------------- |
+| Difficulty    | `easy`, `medium`, `hard`                   | Unified in `parseSeedOverrides`                     |
+| Entry variant | `ssh`, `ftp`, `nc`, `exploit`, `http`      | Falls back if template unavailable for network mode |
+| Network mode  | `forwarded`, `router-first`                | Hyphenated to avoid false matches                   |
+| Objective     | `exfiltrate`, `tamper`, `credential-theft` | Hyphen variant for credential_theft                 |
+| Domain entry  | `domain`                                   | Briefing shows domain + nslookup hint instead of IP |
+| Encryption    | `decrypt`                                  | Forces exfiltrate + encrypted target file           |
+
+Example: `accept("HEIST-ssh-forwarded-tamper-hard")` forces SSH entry, forwarded mode, tamper objective, hard difficulty.
+
+PRNG sequence is preserved — override calls still consume the PRNG roll but discard the result, so seeds without keywords produce identical networks as before.
+
 ### Seed Sharing
 
 Seeds are visible to the player — they can share seeds with friends for the same challenge. This adds:
@@ -151,6 +169,16 @@ Seeds are visible to the player — they can share seeds with friends for the sa
 - Find a password or key and prove access to a deeper system
 - Tools: `cat`, `strings`, lateral movement via `ssh`
 - Example: "Recover the CEO's email password from the mail server"
+
+### Script Fix
+
+- Find a broken script on the target machine, fix it with `nano()`, and run it with `node()`
+- Scripts call `_decode(checksum)` — a function only available in `node()`'s context — which returns the ACCESS-KEY if the checksum is correct
+- Player mails the ACCESS-KEY to the client (consistent with exfiltrate flow)
+- ACCESS-KEY never appears in script source (anti-cheat)
+- Three bug types: syntax error, logic error, or corrupted data line
+- Tools: `cat`, `nano`, `node`, `strings` (for corrupted hints), `mail`
+- Example: "Fix the broken backup validation script on the file server"
 
 ### Evidence Planting
 
@@ -284,14 +312,13 @@ Expand the existing `fileSystemFactory.ts` pattern:
 - Noise generation (realistic log entries, config files, dotfiles)
 - Target data placement (the objective file/record)
 
-**Thematic target file templates** (`targetFileTemplatesByRole` in `pools.ts`): Instead of a generic `/root/flag.txt`, the target file is role-appropriate with the flag embedded in realistic content. The attack chain generator selects a template based on the target machine's role, fills `{{flag}}` and `{{user}}` placeholders, and the filesystem generator places the file at a dynamic path using `extraDirectories`. Target paths use `/srv/` and `/opt/` prefixes to avoid conflicting with factory-managed directories (`/var/`, `/home/`, `/etc/`).
+**Exfiltrate target file templates** (`targetFileTemplatesByRole` in `pools.ts`): For exfiltrate objectives, the target file is role-appropriate with an ACCESS-KEY embedded in realistic content. The attack chain generator selects a template based on the target machine's role, fills `{{access_key}}` placeholder, and the filesystem generator places the file at a dynamic path using `extraDirectories`. Target paths use `/srv/` and `/opt/` prefixes to avoid conflicting with factory-managed directories (`/var/`, `/home/`, `/etc/`).
 
-Examples by role:
+**Tamper file templates** (`tamperFileTemplatesByRole` in `pools.ts`): For tamper objectives, each template specifies a target file with `tamperOldValue` and `tamperNewValue`. The player must modify the file (e.g., change a grade from "F" to "A") and confirm via `mail()`.
 
-- **fileserver**: `/srv/records/patient_discharge_2024.csv` (flag in CSV row), `/srv/ftp/exports/financial_report.csv`
-- **database**: `/opt/mysql/dumps/users_backup.sql` (flag in SQL INSERT), `/opt/db/exports/accounts.csv`
-- **webserver**: `/srv/www/data/users.json` (flag as API key), `/srv/www/private/admin_credentials.conf`
-- **workstation**: `/opt/projects/classified_memo.txt` (flag as authorization code), `/opt/local/secret_notes.txt`
+**Credential theft**: No target file needed — the objective is to discover the root password on the target machine.
+
+**Completion mechanism**: Player sends proof to the client via `mail("client@darkmail.onion", "proof")`. Each mission has a `clientEmail` (generated from `clientHandles` pool) shown in the briefing. The `mail` command verifies proof based on objective type.
 
 ### Vulnerability Scanning & Exploit System
 
@@ -302,6 +329,16 @@ Adds a realistic pentesting gameplay loop for the `exploit` entry variant:
 3. **`exploit(host, port)` command** — Exploits a vulnerable port (must have both `vulnerability` and `owner`). Async output shows targeting, CVE, payload delivery, then drops into NC-like restricted shell via `NcPromptData`.
 4. **Exploit entry variant** — PRNG can select `exploit` as the entry variant. The generator attaches a matching vulnerability template + guest owner to the non-SSH open port on the entry machine. Player flow: `nmap -sV` → `exploit` → find SSH creds in restricted shell → SSH to continue.
 5. **Guest password variation** — Guest passwords are picked from a `guestPasswords` pool instead of hardcoded `"guest"`, making SSH entry variant less predictable. The actual password is shown in the mission briefing.
+
+### HTTP/Curl Entry & Lateral Movement
+
+Adds web-based credential discovery using the `curl` command:
+
+1. **HTTP entry variant** — PRNG can select `http` as the entry variant. The entry machine has port 80 open. Player discovers it via `nmap`, uses `curl` to explore, finds SSH credentials in web content (page body or HTTP response headers via `curl -i`). Briefing hints at nmap without revealing curl.
+2. **`.headers` sidecar convention** — A file at `/var/www/html/page.html.headers` injects custom HTTP response headers when curl serves the corresponding page. Format: one `Key: Value` per line. The curl command reads these transparently.
+3. **HTTP lateral movement** — When a next-hop machine has port 80, the attack chain can select `http` as the credential discovery method. Credentials are placed in web-accessible files with optional `.headers` sidecar for header-based secrets.
+4. **Web content generation** — Webserver-role machines and machines with HTTP credential placements get `/var/www/html/` populated with realistic index.html pages and credential files.
+5. **Secret placement mix** — PRNG decides per placement whether the secret is in a response header (needs `curl -i`) or in the page body (~50/50 split).
 
 ### Anti-Cheat
 

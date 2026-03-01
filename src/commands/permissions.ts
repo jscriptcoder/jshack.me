@@ -16,6 +16,7 @@ const PRIVILEGE_LABEL: Readonly<Record<UserType, string>> = {
 // Commands not listed here are unrestricted (available to all user types)
 export const COMMAND_TIERS: Readonly<Record<string, UserType>> = {
   // user-level commands
+  apt: 'user',
   ifconfig: 'user',
   ping: 'user',
   nmap: 'user',
@@ -27,7 +28,6 @@ export const COMMAND_TIERS: Readonly<Record<string, UserType>> = {
   strings: 'user',
   output: 'user',
   resolve: 'user',
-  exit: 'user',
   nano: 'user',
   node: 'user',
   airmon: 'user',
@@ -35,9 +35,11 @@ export const COMMAND_TIERS: Readonly<Record<string, UserType>> = {
   aircrack: 'user',
   nmcli: 'user',
   exploit: 'user',
+  john: 'user',
   missions: 'user',
   accept: 'user',
   abort: 'user',
+  mail: 'user',
   // root-level commands
   decrypt: 'root',
 };

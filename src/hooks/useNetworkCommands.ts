@@ -35,12 +35,13 @@ export const useNetworkCommands = (): Map<string, Command> => {
     getLocalIP,
     resolveDomain,
     getGateway,
+    resolveNat,
   } = useNetwork();
   const { readFileFromMachine } = useFileSystem();
-  const { session } = useSession();
+  const { session, wifiConnected } = useSession();
 
   return useMemo(() => {
-    const isWifiRequired = () => session.machine === 'localhost' && !session.wifiConnected;
+    const isWifiRequired = () => session.machine === 'localhost' && !wifiConnected;
 
     const commands = new Map<string, Command>();
 
@@ -88,7 +89,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
     commands.set(
       'curl',
       wrapWithWifiCheck(
-        createCurlCommand({ getMachine, resolveDomain, readFileFromMachine }),
+        createCurlCommand({ getMachine, resolveDomain, resolveNat, readFileFromMachine }),
         isWifiRequired,
       ),
     );
@@ -110,8 +111,9 @@ export const useNetworkCommands = (): Map<string, Command> => {
     getLocalIP,
     resolveDomain,
     getGateway,
+    resolveNat,
     readFileFromMachine,
     session.machine,
-    session.wifiConnected,
+    wifiConnected,
   ]);
 };

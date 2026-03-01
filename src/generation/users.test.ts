@@ -3,10 +3,11 @@ import { createPrng } from './prng';
 import { generateTopology } from './topology';
 import { generateUsers } from './users';
 import { md5 } from '../utils/md5';
-import { guestPasswords, usernamesByRole } from './pools';
+import { usernamesByRole } from './pools';
 import { secrets } from '../secrets/secrets';
 
 const passwords: readonly string[] = JSON.parse(secrets.MISSION_PASSWORDS) as readonly string[];
+const guestPasswords: readonly string[] = JSON.parse(secrets.GUEST_PASSWORDS) as readonly string[];
 
 const buildTestData = (seed: string) => {
   const prng = createPrng(seed);

@@ -1,9 +1,18 @@
-import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useEffect,
+  useRef,
+  type ReactNode,
+} from 'react';
 import type { FileNode, FileSystemPatch, PermissionResult } from './types';
 import { useSession, type UserType } from '../session/SessionContext';
 import { machineFileSystems, getDefaultHomePath, type MachineId } from './machineFileSystems';
 import { getCachedFilesystemPatches, getDatabase } from '../utils/storageCache';
 import { saveFilesystemPatches } from '../utils/storage';
+import { createSyncChannel, type SyncMessage } from '../utils/crossTabSync';
 
 type FileSystemContextValue = {
   readonly fileSystem: FileNode;
@@ -202,6 +211,21 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
   const { session } = useSession();
   const [fileSystems, setFileSystems] = useState<FileSystemsState>(initializeFileSystems);
   const [patches, setPatches] = useState<readonly FileSystemPatch[]>(getCachedFilesystemPatches);
+  const syncChannelRef = useRef(createSyncChannel());
+
+  // Subscribe to filesystem patches from other tabs.
+  // BroadcastChannel does not deliver messages to the posting tab, so no echo guard needed.
+  useEffect(() => {
+    const channel = syncChannelRef.current;
+    channel.onMessage((message: SyncMessage) => {
+      if (message.type !== 'filesystem-patch') return;
+      const patch = message.patch;
+
+      setFileSystems((prev) => applyPatches(prev, [patch]));
+      setPatches((prev) => upsertPatch(prev, patch));
+    });
+    return () => channel.close();
+  }, []);
 
   // Only persist patches for static (tutorial) machines — mission filesystem patches are
   // excluded because missions regenerate entirely from their seed on reload.
@@ -369,6 +393,12 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
     [readFileFromMachine, currentMachine, currentPath],
   );
 
+  // Broadcasts a patch to other tabs and updates local patch state
+  const broadcastAndRecordPatch = useCallback((patch: FileSystemPatch) => {
+    syncChannelRef.current.broadcast({ type: 'filesystem-patch', patch });
+    setPatches((prev) => upsertPatch(prev, patch));
+  }, []);
+
   const writeFileToMachine = useCallback(
     (
       machineId: MachineId,
@@ -393,13 +423,11 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
         })),
       }));
 
-      setPatches((prev) =>
-        upsertPatch(prev, { machineId, path: resolvedPath, content, owner: node.owner }),
-      );
+      broadcastAndRecordPatch({ machineId, path: resolvedPath, content, owner: node.owner });
 
       return { allowed: true };
     },
-    [canWriteFromMachine, getNodeFromMachine, resolvePathForMachine],
+    [canWriteFromMachine, getNodeFromMachine, resolvePathForMachine, broadcastAndRecordPatch],
   );
 
   const createFileOnMachine = useCallback(
@@ -441,13 +469,11 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
         [machineId]: addChildAtPath(prev[machineId], dirParts, fileName, newFile),
       }));
 
-      setPatches((prev) =>
-        upsertPatch(prev, { machineId, path: resolvedPath, content, owner: userType }),
-      );
+      broadcastAndRecordPatch({ machineId, path: resolvedPath, content, owner: userType });
 
       return { allowed: true };
     },
-    [resolvePathForMachine, canWriteFromMachine, getNodeFromMachine],
+    [resolvePathForMachine, canWriteFromMachine, getNodeFromMachine, broadcastAndRecordPatch],
   );
 
   const writeFile = useCallback(

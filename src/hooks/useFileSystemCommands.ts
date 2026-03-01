@@ -10,6 +10,7 @@ import { createDecryptCommand } from '../commands/decrypt';
 import { createOutputCommand } from '../commands/output';
 import { createStringsCommand } from '../commands/strings';
 import { createNanoCommand } from '../commands/nano';
+import { createJohnCommand } from '../commands/john';
 import type { Command } from '../components/Terminal/types';
 
 export const useFileSystemCommands = (): Map<string, Command> => {
@@ -103,6 +104,16 @@ export const useFileSystemCommands = (): Map<string, Command> => {
     commands.set(
       'nano',
       createNanoCommand({
+        resolvePath,
+        getNode,
+        getUserType,
+      }),
+    );
+
+    // john command
+    commands.set(
+      'john',
+      createJohnCommand({
         resolvePath,
         getNode,
         getUserType,

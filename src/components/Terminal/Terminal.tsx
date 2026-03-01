@@ -14,7 +14,6 @@ import type { FtpSession, NcSession } from '../../session/SessionContext';
 import { useFileSystem } from '../../filesystem/FileSystemContext';
 import type { FileNode } from '../../filesystem/types';
 import { useNetwork } from '../../network';
-import { useMission } from '../../mission';
 import { md5 } from '../../utils/md5';
 import type { OutputLine, AuthorData } from './types';
 import {
@@ -40,7 +39,7 @@ const BANNER = `
 ██   ██║╚════██║██╔══██║██╔══██║██║     ██╔═██╗    ██║╚██╔╝██║██╔══╝
 ╚█████╔╝███████║██║  ██║██║  ██║╚██████╗██║  ██╗██╗██║ ╚═╝ ██║███████╗
  ╚════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝╚═╝     ╚═╝╚══════╝
-                                                              v0.3.0
+                                                              v0.8.0
 
   Type help() for available commands
 `;
@@ -78,6 +77,7 @@ export const Terminal = () => {
     canReturn,
     session,
     ncSession,
+    ftpSession,
     enterFtpMode,
     exitFtpMode,
     isInFtpMode,
@@ -100,8 +100,7 @@ export const Terminal = () => {
     getNodeFromMachine,
     listDirectoryFromMachine,
   } = useFileSystem();
-  const { getMachine, config: networkConfig } = useNetwork();
-  const { activeMission, completeMission } = useMission();
+  const { getMachine, config: networkConfig, resolveNat } = useNetwork();
 
   const activeCommandNames =
     isInFtpMode() && ftpCommands
@@ -131,12 +130,62 @@ export const Terminal = () => {
     [ncSession, resolvePathForMachine],
   );
 
+  // FTP mode operates on two machines — remote adapters resolve against the FTP target
+  const ftpRemoteListDirectory = useCallback(
+    (path: string, userType: UserType): string[] | null =>
+      ftpSession
+        ? listDirectoryFromMachine(ftpSession.remoteMachine, path, ftpSession.remoteCwd, userType)
+        : null,
+    [ftpSession, listDirectoryFromMachine],
+  );
+  const ftpRemoteGetNode = useCallback(
+    (path: string): FileNode | null =>
+      ftpSession ? getNodeFromMachine(ftpSession.remoteMachine, path, ftpSession.remoteCwd) : null,
+    [ftpSession, getNodeFromMachine],
+  );
+  const ftpRemoteResolvePath = useCallback(
+    (path: string): string =>
+      ftpSession ? resolvePathForMachine(path, ftpSession.remoteCwd) : path,
+    [ftpSession, resolvePathForMachine],
+  );
+  // FTP local adapters resolve against the origin machine
+  const ftpLocalListDirectory = useCallback(
+    (path: string, userType: UserType): string[] | null =>
+      ftpSession
+        ? listDirectoryFromMachine(ftpSession.originMachine, path, ftpSession.originCwd, userType)
+        : null,
+    [ftpSession, listDirectoryFromMachine],
+  );
+  const ftpLocalGetNode = useCallback(
+    (path: string): FileNode | null =>
+      ftpSession ? getNodeFromMachine(ftpSession.originMachine, path, ftpSession.originCwd) : null,
+    [ftpSession, getNodeFromMachine],
+  );
+  const ftpLocalResolvePath = useCallback(
+    (path: string): string =>
+      ftpSession ? resolvePathForMachine(path, ftpSession.originCwd) : path,
+    [ftpSession, resolvePathForMachine],
+  );
+
   const isNcActive = isInNcMode() && ncSession !== null;
   const { getPathCompletions } = usePathAutoComplete({
     listDirectory: isNcActive ? ncListDirectory : listDirectory,
     getNode: isNcActive ? ncGetNode : getNode,
     resolvePath: isNcActive ? ncResolvePath : resolvePath,
     userType: isNcActive ? ncSession.userType : session.userType,
+  });
+  const isFtpActive = isInFtpMode() && ftpSession !== null;
+  const { getPathCompletions: getFtpRemotePathCompletions } = usePathAutoComplete({
+    listDirectory: isFtpActive ? ftpRemoteListDirectory : listDirectory,
+    getNode: isFtpActive ? ftpRemoteGetNode : getNode,
+    resolvePath: isFtpActive ? ftpRemoteResolvePath : resolvePath,
+    userType: isFtpActive ? ftpSession.remoteUserType : session.userType,
+  });
+  const { getPathCompletions: getFtpLocalPathCompletions } = usePathAutoComplete({
+    listDirectory: isFtpActive ? ftpLocalListDirectory : listDirectory,
+    getNode: isFtpActive ? ftpLocalGetNode : getNode,
+    resolvePath: isFtpActive ? ftpLocalResolvePath : resolvePath,
+    userType: isFtpActive ? ftpSession.originUserType : session.userType,
   });
 
   useEffect(() => {
@@ -159,29 +208,6 @@ export const Terminal = () => {
   const clearLines = useCallback(() => {
     setLines([]);
   }, []);
-
-  const checkMissionFlag = useCallback(
-    (output: string) => {
-      if (!activeMission) return;
-      if (output.includes(activeMission.objective.flag)) {
-        const message = [
-          '',
-          '============================================',
-          '  MISSION COMPLETE',
-          '============================================',
-          `  Seed: ${activeMission.seed}`,
-          `  Difficulty: ${activeMission.difficulty}`,
-          `  Flag: ${activeMission.objective.flag}`,
-          '',
-          '  Contract fulfilled. Type missions() for more jobs.',
-          '============================================',
-        ].join('\n');
-        addLine('banner', message);
-        completeMission();
-      }
-    },
-    [activeMission, addLine, completeMission],
-  );
 
   const executeCommand = useCallback(
     (command: string) => {
@@ -273,7 +299,6 @@ export const Terminal = () => {
             result.start(
               (line: string) => {
                 addLine('result', line);
-                checkMissionFlag(line);
               },
               (followUp?: AsyncFollowUp) => {
                 setAsyncRunning(false);
@@ -294,7 +319,7 @@ export const Terminal = () => {
 
                 if (isNcPrompt(followUp)) {
                   const newNcSession: NcSession = {
-                    targetIP: followUp.targetIP,
+                    targetIP: resolveNat(followUp.targetIP),
                     targetPort: followUp.targetPort,
                     service: followUp.service,
                     username: followUp.username,
@@ -319,7 +344,6 @@ export const Terminal = () => {
           }
           const resultStr = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
           addLine('result', resultStr);
-          checkMissionFlag(resultStr);
         }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -347,7 +371,7 @@ export const Terminal = () => {
       getNode,
       readFile,
       session.userType,
-      checkMissionFlag,
+      resolveNat,
     ],
   );
 
@@ -444,7 +468,7 @@ export const Terminal = () => {
         const remoteHomePath = targetUser === 'root' ? '/root' : `/home/${targetUser}`;
 
         const newFtpSession: FtpSession = {
-          remoteMachine: ftpTargetIP,
+          remoteMachine: resolveNat(ftpTargetIP),
           remoteUsername: targetUser,
           remoteUserType: userType,
           remoteCwd: remoteHomePath,
@@ -460,13 +484,16 @@ export const Terminal = () => {
         // Save current session state before switching to remote machine
         pushSession();
 
+        // NAT resolution: if connecting to a router's public IP with port forwarding,
+        // resolve to the internal entry machine IP
+        const resolvedIp = resolveNat(sshTargetIP);
         const machine = getMachine(sshTargetIP);
         const remoteUser = machine?.users.find((u) => u.username === targetUser);
         const userType: UserType = remoteUser?.userType ?? 'user';
-        const homePath = getDefaultHomePath(sshTargetIP, targetUser);
+        const homePath = getDefaultHomePath(resolvedIp, targetUser);
 
         setUsername(targetUser, userType);
-        setMachine(sshTargetIP);
+        setMachine(resolvedIp);
         setCurrentPath(homePath);
         addLine('result', `Connected to ${sshTargetIP}`);
         addLine('result', `Welcome to ${machine?.hostname ?? sshTargetIP}!`);
@@ -521,6 +548,7 @@ export const Terminal = () => {
     enterFtpMode,
     addLine,
     getDefaultHomePath,
+    resolveNat,
   ]);
 
   const handleSubmit = useCallback(() => {
@@ -553,11 +581,60 @@ export const Terminal = () => {
     setInput(cmd);
   }, [navigateDown]);
 
+  // Determines which path completion context to use in FTP mode by inspecting
+  // the command name and argument position. Remote commands (cd, ls) and the
+  // remote argument of get/put use the FTP target machine; local commands (lcd,
+  // lls) and the local argument of get/put use the origin machine.
+  const getFtpPathCompletions = useCallback(
+    (currentInput: string, cursorPosition: number) => {
+      const trimmed = currentInput.trimStart();
+      // Detect which FTP command is being typed
+      const cmdMatch = trimmed.match(/^(\w+)\s*\(/);
+      const cmd = cmdMatch?.[1] ?? '';
+
+      // For get(remote, local) and put(local, remote), detect argument position
+      // by counting commas before the cursor (outside of string literals)
+      if (cmd === 'get' || cmd === 'put') {
+        const parenIndex = currentInput.indexOf('(');
+        let commaCount = 0;
+        let inStr = false;
+        let qChar = '';
+        for (let i = parenIndex + 1; i < cursorPosition; i++) {
+          const ch = currentInput[i];
+          if (!inStr && (ch === "'" || ch === '"')) {
+            inStr = true;
+            qChar = ch;
+          } else if (inStr && ch === qChar && currentInput[i - 1] !== '\\') {
+            inStr = false;
+          } else if (!inStr && ch === ',') {
+            commaCount++;
+          }
+        }
+        // get: arg0=remote, arg1=local; put: arg0=local, arg1=remote
+        const useRemote = cmd === 'get' ? commaCount === 0 : commaCount > 0;
+        return useRemote
+          ? getFtpRemotePathCompletions(currentInput, cursorPosition)
+          : getFtpLocalPathCompletions(currentInput, cursorPosition);
+      }
+
+      // Local commands use origin machine
+      if (cmd === 'lcd' || cmd === 'lls') {
+        return getFtpLocalPathCompletions(currentInput, cursorPosition);
+      }
+
+      // Remote commands (cd, ls) and anything else use remote machine
+      return getFtpRemotePathCompletions(currentInput, cursorPosition);
+    },
+    [getFtpRemotePathCompletions, getFtpLocalPathCompletions],
+  );
+
   // Two-layer tab completion: path completion (inside string literals) takes priority,
   // then falls back to command/variable name completion
   const handleTab = useCallback(
     (cursorPosition: number) => {
-      const pathResult = getPathCompletions(input, cursorPosition);
+      const pathResult = isFtpActive
+        ? getFtpPathCompletions(input, cursorPosition)
+        : getPathCompletions(input, cursorPosition);
       if (pathResult) {
         if (pathResult.replacement !== input) {
           setInput(pathResult.replacement);
@@ -585,7 +662,7 @@ export const Terminal = () => {
         addLine('result', displayText);
       }
     },
-    [input, getPathCompletions, getCompletions, addLine],
+    [input, isFtpActive, getFtpPathCompletions, getPathCompletions, getCompletions, addLine],
   );
 
   const handleInputChange = useCallback((value: string) => {

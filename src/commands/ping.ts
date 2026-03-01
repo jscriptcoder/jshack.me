@@ -31,8 +31,8 @@ export const createPingCommand = (context: PingContext): Command => ({
     ],
     examples: [
       { command: 'ping("192.168.1.1")', description: 'Ping the gateway' },
-      { command: 'ping("fileserver")', description: 'Ping by hostname' },
-      { command: 'ping("192.168.1.50", 2)', description: 'Send only 2 packets' },
+      { command: 'ping("gateway")', description: 'Ping by hostname' },
+      { command: 'ping("192.168.1.1", 2)', description: 'Send only 2 packets' },
     ],
   },
   fn: (...args: unknown[]): AsyncOutput | string => {

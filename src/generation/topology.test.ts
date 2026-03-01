@@ -3,6 +3,15 @@ import { createPrng } from './prng';
 import { generateTopology } from './topology';
 import type { Difficulty } from './types';
 
+// Checks if an IP falls within RFC 1918 private ranges
+const isPrivateIp = (ip: string): boolean => {
+  const octets = ip.split('.').map(Number);
+  if (octets[0] === 10) return true;
+  if (octets[0] === 172 && (octets[1] ?? 0) >= 16 && (octets[1] ?? 0) <= 31) return true;
+  if (octets[0] === 192 && octets[1] === 168) return true;
+  return false;
+};
+
 describe('generateTopology', () => {
   it('produces deterministic output for the same seed', () => {
     const a = generateTopology(createPrng('topo-seed'), 'medium');
@@ -43,7 +52,7 @@ describe('generateTopology', () => {
     });
   });
 
-  it('assigns IPs on the same subnet starting from .10', () => {
+  it('assigns internal IPs on the same subnet starting from .10', () => {
     const result = generateTopology(createPrng('ip-test'), 'medium');
     const ips = result.machines.map((m) => m.ip);
     const parts = ips.map((ip) => ip.split('.'));
@@ -67,10 +76,11 @@ describe('generateTopology', () => {
     });
   });
 
-  it('generates DNS records for all machines', () => {
+  it('generates DNS records for all internal machines plus router', () => {
     const result = generateTopology(createPrng('dns-test'), 'medium');
     const firstConfig = Object.values(result.networkConfig.machineConfigs)[0];
-    expect(firstConfig?.dnsRecords).toHaveLength(result.machines.length);
+    // Internal DNS includes all mission machines + router
+    expect(firstConfig?.dnsRecords).toHaveLength(result.machines.length + 1);
     result.machines.forEach((m) => {
       const dns = firstConfig?.dnsRecords.find((d) => d.ip === m.ip);
       expect(dns).toBeDefined();
@@ -78,18 +88,19 @@ describe('generateTopology', () => {
     });
   });
 
-  it('each machine config excludes itself from visible machines', () => {
+  it('each internal machine config excludes itself from visible machines', () => {
     const result = generateTopology(createPrng('self-test'), 'medium');
     result.machines.forEach((m) => {
       const config = result.networkConfig.machineConfigs[m.ip];
       expect(config).toBeDefined();
       const ips = config?.machines.map((rm) => rm.ip) ?? [];
       expect(ips).not.toContain(m.ip);
-      expect(config?.machines).toHaveLength(result.machines.length - 1);
+      // Visible machines = other internal machines + router internal IP
+      expect(config?.machines).toHaveLength(result.machines.length);
     });
   });
 
-  it('generates valid network interfaces for each machine', () => {
+  it('generates valid network interfaces for each internal machine', () => {
     const result = generateTopology(createPrng('iface-test'), 'medium');
     result.machines.forEach((m) => {
       const config = result.networkConfig.machineConfigs[m.ip];
@@ -102,12 +113,127 @@ describe('generateTopology', () => {
   });
 
   (['easy', 'medium', 'hard'] as readonly Difficulty[]).forEach((diff) => {
-    it(`all machines have SSH open for ${diff} difficulty`, () => {
+    it(`all internal machines have SSH open for ${diff} difficulty`, () => {
       const result = generateTopology(createPrng(`ssh-${diff}`), diff);
       result.machines.forEach((m) => {
         const sshPort = m.remoteMachine.ports.find((p) => p.port === 22);
         expect(sshPort).toBeDefined();
         expect(sshPort?.open).toBe(true);
+      });
+    });
+  });
+
+  // Router-specific tests
+  it('generates a router machine with role "router"', () => {
+    const result = generateTopology(createPrng('router-test'), 'medium');
+    expect(result.routerMachine).toBeDefined();
+    expect(result.routerMachine.role).toBe('router');
+  });
+
+  it('router has a valid public IP from the known prefix pool', () => {
+    const validFirstOctets = [45, 51, 62, 78, 91, 103, 138, 162, 185, 198, 203, 212];
+    const result = generateTopology(createPrng('pub-ip-test'), 'medium');
+    const octets = result.routerPublicIp.split('.').map(Number);
+    expect(validFirstOctets).toContain(octets[0]);
+    expect(octets[1]).toBeGreaterThanOrEqual(1);
+    expect(octets[2]).toBeGreaterThanOrEqual(1);
+    expect(octets[3]).toBeGreaterThanOrEqual(2);
+    expect(result.routerMachine.ip).toBe(result.routerPublicIp);
+  });
+
+  it('router config has dual interfaces (eth0 public, eth1 internal)', () => {
+    const result = generateTopology(createPrng('dual-iface'), 'medium');
+    const routerConfig = result.networkConfig.machineConfigs[result.routerPublicIp];
+    expect(routerConfig).toBeDefined();
+    expect(routerConfig?.interfaces).toHaveLength(2);
+    expect(routerConfig?.interfaces[0]?.name).toBe('eth0');
+    expect(routerConfig?.interfaces[1]?.name).toBe('eth1');
+    expect(routerConfig?.interfaces[0]?.inet).toBe(result.routerPublicIp);
+    // eth1 is the internal gateway (private subnet .1)
+    const eth1Ip = routerConfig?.interfaces[1]?.inet ?? '';
+    expect(eth1Ip).toMatch(/\.1$/);
+    expect(isPrivateIp(eth1Ip)).toBe(true);
+  });
+
+  it('router can see all internal machines', () => {
+    const result = generateTopology(createPrng('router-sees'), 'medium');
+    const routerConfig = result.networkConfig.machineConfigs[result.routerPublicIp];
+    expect(routerConfig?.machines).toHaveLength(result.machines.length);
+    result.machines.forEach((m) => {
+      const found = routerConfig?.machines.find((rm) => rm.ip === m.ip);
+      expect(found).toBeDefined();
+    });
+  });
+
+  it('internal machines cannot see router public IP directly', () => {
+    const result = generateTopology(createPrng('no-pub-ip'), 'medium');
+    result.machines.forEach((m) => {
+      const config = result.networkConfig.machineConfigs[m.ip];
+      const routerVisible = config?.machines.find((rm) => rm.ip === result.routerPublicIp);
+      expect(routerVisible).toBeUndefined();
+      // But router internal gateway IS visible
+      const gatewayVisible = config?.machines.find((rm) => rm.ip.endsWith('.1'));
+      expect(gatewayVisible).toBeDefined();
+    });
+  });
+
+  it('hard difficulty always produces router-first mode (no forwarding)', () => {
+    const results = Array.from({ length: 20 }, (_, i) =>
+      generateTopology(createPrng(`hard-fwd-${i}`), 'hard'),
+    );
+    results.forEach((r) => {
+      expect(r.natForwarding).toBeUndefined();
+    });
+  });
+
+  it('forwarded mode sets natForwarding with correct IPs', () => {
+    // Search for a seed that produces forwarded mode
+    let found = false;
+    for (let i = 0; i < 50; i++) {
+      const result = generateTopology(createPrng(`fwd-${i}`), 'easy');
+      if (result.natForwarding) {
+        expect(result.natForwarding.publicIp).toBe(result.routerPublicIp);
+        expect(result.natForwarding.internalIp).toBe(result.entryPoint);
+        found = true;
+        break;
+      }
+    }
+    expect(found).toBe(true);
+  });
+
+  it('external DNS records contain only router public IP', () => {
+    const result = generateTopology(createPrng('ext-dns'), 'medium');
+    expect(result.externalDnsRecords).toHaveLength(1);
+    expect(result.externalDnsRecords[0]?.ip).toBe(result.routerPublicIp);
+  });
+
+  it('generates varied public IP first octets across seeds', () => {
+    const firstOctets = new Set(
+      Array.from({ length: 30 }, (_, i) => {
+        const result = generateTopology(createPrng(`variety-pub-${i}`), 'medium');
+        return Number(result.routerPublicIp.split('.')[0]);
+      }),
+    );
+    // With 12 possible prefixes and 30 seeds, expect at least 3 distinct first octets
+    expect(firstOctets.size).toBeGreaterThanOrEqual(3);
+  });
+
+  it('generates varied internal subnet prefixes across seeds', () => {
+    const prefixes = new Set(
+      Array.from({ length: 30 }, (_, i) => {
+        const result = generateTopology(createPrng(`variety-priv-${i}`), 'medium');
+        return result.machines[0]?.ip.split('.')[0];
+      }),
+    );
+    // With 3 range types (10.x, 172.x, 192.168.x), expect at least 2 distinct first octets
+    expect(prefixes.size).toBeGreaterThanOrEqual(2);
+  });
+
+  it('internal subnets never collide with static 192.168.1.x network', () => {
+    Array.from({ length: 50 }, (_, i) => {
+      const result = generateTopology(createPrng(`collision-${i}`), 'medium');
+      result.machines.forEach((m) => {
+        expect(m.ip).not.toMatch(/^192\.168\.1\./);
       });
     });
   });

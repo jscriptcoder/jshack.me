@@ -90,54 +90,60 @@ describe('generateKey', () => {
 });
 
 describe('encryptContent and decryptContent round-trip', () => {
-  it('should decrypt to original plaintext', async () => {
+  it('should decrypt to original plaintext', () => {
     const key = generateKey();
     const plaintext = 'FLAG{test_crypto_roundtrip}';
-    const encrypted = await encryptContent(plaintext, key);
-    const decrypted = await decryptContent(encrypted, key);
+    const encrypted = encryptContent(plaintext, key);
+    const decrypted = decryptContent(encrypted, key);
     expect(decrypted).toBe(plaintext);
   });
 
-  it('should produce base64 encoded output', async () => {
+  it('should produce base64 encoded output', () => {
     const key = generateKey();
-    const encrypted = await encryptContent('hello', key);
+    const encrypted = encryptContent('hello', key);
     expect(() => atob(encrypted)).not.toThrow();
   });
 
-  it('should produce different ciphertext for same plaintext (random IV)', async () => {
+  it('should produce deterministic ciphertext for same key and plaintext', () => {
     const key = generateKey();
-    const encrypted1 = await encryptContent('same input', key);
-    const encrypted2 = await encryptContent('same input', key);
-    expect(encrypted1).not.toBe(encrypted2);
+    const encrypted1 = encryptContent('same input', key);
+    const encrypted2 = encryptContent('same input', key);
+    expect(encrypted1).toBe(encrypted2);
   });
 
-  it('should fail to decrypt with wrong key', async () => {
+  it('should throw on decrypt with wrong key', () => {
     const key1 = generateKey();
     const key2 = generateKey();
-    const encrypted = await encryptContent('secret', key1);
-    await expect(decryptContent(encrypted, key2)).rejects.toThrow();
+    const encrypted = encryptContent('secret', key1);
+    expect(() => decryptContent(encrypted, key2)).toThrow('Decryption failed');
   });
 
-  it('should handle empty string', async () => {
+  it('should handle empty string', () => {
     const key = generateKey();
-    const encrypted = await encryptContent('', key);
-    const decrypted = await decryptContent(encrypted, key);
+    const encrypted = encryptContent('', key);
+    const decrypted = decryptContent(encrypted, key);
     expect(decrypted).toBe('');
   });
 
-  it('should handle unicode content', async () => {
+  it('should handle unicode content', () => {
     const key = generateKey();
     const plaintext = 'Hello 🔐 世界 émojis';
-    const encrypted = await encryptContent(plaintext, key);
-    const decrypted = await decryptContent(encrypted, key);
+    const encrypted = encryptContent(plaintext, key);
+    const decrypted = decryptContent(encrypted, key);
     expect(decrypted).toBe(plaintext);
   });
 
-  it('should handle long content', async () => {
+  it('should handle long content', () => {
     const key = generateKey();
     const plaintext = 'x'.repeat(10000);
-    const encrypted = await encryptContent(plaintext, key);
-    const decrypted = await decryptContent(encrypted, key);
+    const encrypted = encryptContent(plaintext, key);
+    const decrypted = decryptContent(encrypted, key);
     expect(decrypted).toBe(plaintext);
+  });
+
+  it('should throw on data too short', () => {
+    const key = generateKey();
+    const tooShort = btoa('ab');
+    expect(() => decryptContent(tooShort, key)).toThrow('data too short');
   });
 });

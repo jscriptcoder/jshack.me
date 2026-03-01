@@ -14,8 +14,15 @@ import { createThemeCommand } from '../commands/theme';
 import { createMissionsCommand } from '../commands/missions';
 import { createAcceptCommand } from '../commands/accept';
 import { createAbortCommand } from '../commands/abort';
+import { createMailCommand } from '../commands/mail';
+import { createAptCommand } from '../commands/apt';
 import { useMission } from '../mission';
 import { applyCommandRestrictions, getAccessibleCommandNames } from '../commands/permissions';
+import {
+  APT_INSTALLABLE,
+  isCommandInstalled,
+  wrapWithInstallCheck,
+} from '../commands/availability';
 import { useFileSystemCommands } from './useFileSystemCommands';
 import { useNetworkCommands } from './useNetworkCommands';
 import { useWifiCommands } from './useWifiCommands';
@@ -39,8 +46,10 @@ export const useCommands = (): UseCommandsResult => {
   const wifiCommands = useWifiCommands();
   const { session, setTheme, popAllSessions } = useSession();
   const { findMachineUsers } = useNetwork();
-  const { resolvePath, getNode } = useFileSystem();
-  const { isMissionActive, startMission, abortMission } = useMission();
+  const { resolvePath, getNode, readFileFromMachine, createFile, getNodeFromMachine } =
+    useFileSystem();
+  const { isMissionActive, startMission, abortMission, completeMission, activeMission } =
+    useMission();
 
   const getUsers = useCallback((): readonly string[] => {
     if (session.machine === 'localhost') {
@@ -82,12 +91,41 @@ export const useCommands = (): UseCommandsResult => {
         getNode,
         getUserType: () => session.userType,
         getExecutionContext: () => resolvedExecutionContext,
+        getDecodeFn: () => {
+          if (!activeMission || activeMission.objective.type !== 'script_fix') return undefined;
+          const { expectedChecksum, expectedProof } = activeMission.objective;
+          return (value: unknown) => {
+            if (String(value) === expectedChecksum) return expectedProof;
+            return 'ERROR: checksum mismatch — script output is incorrect';
+          };
+        },
       }),
     );
 
-    commands.set('missions', createMissionsCommand({ isMissionActive }));
+    commands.set(
+      'missions',
+      createMissionsCommand({ isMissionActive, getActiveMission: () => activeMission }),
+    );
     commands.set('accept', createAcceptCommand({ startMission, isMissionActive }));
     commands.set('abort', createAbortCommand({ abortMission, isMissionActive, popAllSessions }));
+    commands.set(
+      'mail',
+      createMailCommand({
+        getActiveMission: () => activeMission,
+        completeMission,
+        readFileFromMachine,
+      }),
+    );
+
+    commands.set(
+      'apt',
+      createAptCommand({
+        getMachine: () => session.machine,
+        getNode,
+        createFile,
+        getUserType: () => session.userType,
+      }),
+    );
 
     fileSystemCommands.forEach((cmd, name) => commands.set(name, cmd));
     networkCommands.forEach((cmd, name) => commands.set(name, cmd));
@@ -96,6 +134,7 @@ export const useCommands = (): UseCommandsResult => {
     const getAccessibleCommands = () => {
       const accessible = getAccessibleCommandNames(Array.from(commands.keys()), session.userType);
       return accessible
+        .filter((name) => isCommandInstalled(name, session.machine, getNodeFromMachine))
         .map((name) => commands.get(name))
         .filter((cmd): cmd is Command => cmd !== undefined);
     };
@@ -108,6 +147,22 @@ export const useCommands = (): UseCommandsResult => {
     commands.set('help', helpCommand);
     commands.set('man', manCommand);
 
+    // Wrap apt-installable commands with install check — must run before permission
+    // restrictions so wrapping order is: permission (outermost) → install check → command
+    APT_INSTALLABLE.forEach((name) => {
+      const cmd = commands.get(name);
+      if (cmd) {
+        commands.set(
+          name,
+          wrapWithInstallCheck(
+            cmd,
+            name,
+            () => !isCommandInstalled(name, session.machine, getNodeFromMachine),
+          ),
+        );
+      }
+    });
+
     const restrictedCommands = applyCommandRestrictions(commands, session.userType);
 
     const executionContext: Record<string, (...args: unknown[]) => unknown> = Object.fromEntries(
@@ -116,7 +171,12 @@ export const useCommands = (): UseCommandsResult => {
 
     resolvedExecutionContext = executionContext;
 
-    const commandNames = getAccessibleCommandNames(Array.from(commands.keys()), session.userType);
+    // Filter by privilege level, then by installation status so tab-complete
+    // only suggests commands the player can actually run on this machine
+    const commandNames = getAccessibleCommandNames(
+      Array.from(commands.keys()),
+      session.userType,
+    ).filter((name) => isCommandInstalled(name, session.machine, getNodeFromMachine));
 
     return { executionContext, commandNames };
   }, [
@@ -125,13 +185,19 @@ export const useCommands = (): UseCommandsResult => {
     wifiCommands,
     getUsers,
     session.userType,
+    session.machine,
     session.theme,
     setTheme,
     resolvePath,
     getNode,
+    getNodeFromMachine,
+    createFile,
     isMissionActive,
     startMission,
     abortMission,
+    completeMission,
+    activeMission,
+    readFileFromMachine,
     popAllSessions,
   ]);
 };

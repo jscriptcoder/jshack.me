@@ -45,6 +45,7 @@ const createMockCurlContext = (config: CurlContextConfig = {}) => {
   return {
     getMachine: (ip: string) => machines.find((m) => m.ip === ip),
     resolveDomain: (domain: string) => dnsRecords.find((r) => r.domain === domain),
+    resolveNat: (ip: string) => ip,
     readFileFromMachine: (
       _machineId: MachineId,
       path: string,
@@ -231,11 +232,15 @@ describe('curl command', () => {
     });
 
     it('should include per-machine custom headers with -i flag', () => {
-      const curl = createCurlCommand(createMockCurlContext());
-      const lines = collectAsyncLines(curl.fn('http://webserver.local/', '-i'));
+      const curl = createCurlCommand(
+        createMockCurlContext({
+          machines: [getMockMachine({ ip: '192.168.1.1', hostname: 'gateway' })],
+          dnsRecords: [getMockDnsRecord({ domain: 'gateway.local', ip: '192.168.1.1' })],
+        }),
+      );
+      const lines = collectAsyncLines(curl.fn('http://gateway.local/', '-i'));
       const output = lines.join('\n');
       expect(output).toContain('X-Powered-By: PHP/7.4.3');
-      expect(output).toContain('X-Frame-Options: SAMEORIGIN');
     });
 
     it('should show 404 headers with -i flag', () => {
@@ -316,6 +321,99 @@ describe('curl command', () => {
     });
   });
 
+  describe('.headers sidecar files', () => {
+    it('should inject sidecar headers into response with -i flag', () => {
+      const curl = createCurlCommand(
+        createMockCurlContext({
+          files: {
+            '/var/www/html/index.html': '<html><body>Welcome</body></html>',
+            '/var/www/html/index.html.headers': 'X-Secret-Key: admin:s3cret\nX-Custom: value123',
+          },
+        }),
+      );
+      const lines = collectAsyncLines(curl.fn('http://webserver.local/', '-i'));
+      const output = lines.join('\n');
+      expect(output).toContain('X-Secret-Key: admin:s3cret');
+      expect(output).toContain('X-Custom: value123');
+    });
+
+    it('should not show sidecar headers without -i flag', () => {
+      const curl = createCurlCommand(
+        createMockCurlContext({
+          files: {
+            '/var/www/html/index.html': '<html><body>Welcome</body></html>',
+            '/var/www/html/index.html.headers': 'X-Secret-Key: admin:s3cret',
+          },
+        }),
+      );
+      const lines = collectAsyncLines(curl.fn('http://webserver.local/'));
+      const output = lines.join('\n');
+      expect(output).not.toContain('X-Secret-Key');
+    });
+
+    it('should handle missing sidecar file gracefully', () => {
+      const curl = createCurlCommand(
+        createMockCurlContext({
+          files: {
+            '/var/www/html/index.html': '<html><body>Welcome</body></html>',
+          },
+        }),
+      );
+      const lines = collectAsyncLines(curl.fn('http://webserver.local/', '-i'));
+      const output = lines.join('\n');
+      expect(output).toContain('HTTP/1.1 200 OK');
+      expect(output).toContain('Welcome');
+    });
+
+    it('should inject sidecar headers for non-root paths', () => {
+      const curl = createCurlCommand(
+        createMockCurlContext({
+          files: {
+            '/var/www/html/admin/config.json': '{"debug": false}',
+            '/var/www/html/admin/config.json.headers': 'X-Internal-Auth: user:pass',
+          },
+        }),
+      );
+      const lines = collectAsyncLines(curl.fn('http://webserver.local/admin/config.json', '-i'));
+      const output = lines.join('\n');
+      expect(output).toContain('X-Internal-Auth: user:pass');
+      expect(output).toContain('"debug"');
+    });
+  });
+
+  describe('flags-first argument order', () => {
+    it('should support -i flag before URL', () => {
+      const curl = createCurlCommand(createMockCurlContext());
+      const lines = collectAsyncLines(curl.fn('-i', 'http://webserver.local/'));
+      const output = lines.join('\n');
+      expect(output).toContain('HTTP/1.1 200 OK');
+      expect(output).toContain('Welcome');
+    });
+
+    it('should support -X POST flag before URL', () => {
+      const curl = createCurlCommand(createMockCurlContext());
+      const lines = collectAsyncLines(curl.fn('-X POST', 'http://webserver.local/api/users'));
+      const output = lines.join('\n');
+      expect(output).toContain('{"users":[]}');
+    });
+
+    it('should support separate -i and -X POST flags before URL', () => {
+      const curl = createCurlCommand(createMockCurlContext());
+      const lines = collectAsyncLines(curl.fn('-i', '-X POST', 'http://webserver.local/api/users'));
+      const output = lines.join('\n');
+      expect(output).toContain('HTTP/1.1 200 OK');
+      expect(output).toContain('{"users":[]}');
+    });
+
+    it('should support flags before shorthand URL', () => {
+      const curl = createCurlCommand(createMockCurlContext());
+      const lines = collectAsyncLines(curl.fn('-i', 'webserver.local/'));
+      const output = lines.join('\n');
+      expect(output).toContain('HTTP/1.1 200 OK');
+      expect(output).toContain('Welcome');
+    });
+  });
+
   describe('custom port', () => {
     it('should support non-standard HTTP port', () => {
       const curl = createCurlCommand(
@@ -334,6 +432,66 @@ describe('curl command', () => {
       );
       const lines = collectAsyncLines(curl.fn('http://darknet.ctf:8080/'));
       expect(lines.join('\n')).toContain('<h1>Darknet</h1>');
+    });
+  });
+
+  describe('NAT resolution', () => {
+    it('should read from the internal machine filesystem when NAT forwards', () => {
+      // Router at public IP has port 80 open, but web content is on the internal machine
+      const routerIP = '103.182.227.201';
+      const internalIP = '10.147.206.10';
+      const context = {
+        getMachine: (ip: string) =>
+          ip === routerIP
+            ? getMockMachine({ ip: routerIP, ports: [{ port: 80, service: 'http', open: true }] })
+            : undefined,
+        resolveDomain: () => undefined,
+        resolveNat: (ip: string) => (ip === routerIP ? internalIP : ip),
+        readFileFromMachine: (
+          machineId: MachineId,
+          path: string,
+          _cwd: string,
+          _userType: UserType,
+        ): string | null => {
+          // Only the internal machine has web content
+          if (machineId === internalIP && path === '/var/www/html/index.html') {
+            return '<html>Internal Web Server</html>';
+          }
+          return null;
+        },
+      };
+      const curl = createCurlCommand(context);
+      const lines = collectAsyncLines(curl.fn(`http://${routerIP}/`));
+      expect(lines.join('\n')).toContain('Internal Web Server');
+    });
+
+    it('should read sidecar headers from NAT-resolved machine', () => {
+      const routerIP = '103.182.227.201';
+      const internalIP = '10.147.206.10';
+      const context = {
+        getMachine: (ip: string) =>
+          ip === routerIP
+            ? getMockMachine({ ip: routerIP, ports: [{ port: 80, service: 'http', open: true }] })
+            : undefined,
+        resolveDomain: () => undefined,
+        resolveNat: (ip: string) => (ip === routerIP ? internalIP : ip),
+        readFileFromMachine: (
+          machineId: MachineId,
+          path: string,
+          _cwd: string,
+          _userType: UserType,
+        ): string | null => {
+          if (machineId !== internalIP) return null;
+          if (path === '/var/www/html/status') return 'Status OK';
+          if (path === '/var/www/html/status.headers') return 'X-Credentials: admin:secret';
+          return null;
+        },
+      };
+      const curl = createCurlCommand(context);
+      const lines = collectAsyncLines(curl.fn(`http://${routerIP}/status`, '-i'));
+      const output = lines.join('\n');
+      expect(output).toContain('Status OK');
+      expect(output).toContain('X-Credentials: admin:secret');
     });
   });
 });

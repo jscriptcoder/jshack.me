@@ -1,11 +1,11 @@
 import type { FileNode } from '../filesystem/types';
 import type { NetworkConfig, RemoteMachine } from '../network/types';
 
-export type MachineRole = 'webserver' | 'database' | 'fileserver' | 'workstation';
+export type MachineRole = 'webserver' | 'database' | 'fileserver' | 'workstation' | 'router';
 
 export type Difficulty = 'easy' | 'medium' | 'hard';
 
-export type AttackMethod = 'ssh' | 'ftp' | 'nc' | 'su' | 'exploit';
+export type AttackMethod = 'ssh' | 'ftp' | 'nc' | 'su' | 'exploit' | 'http';
 
 export type AttackStep = {
   readonly fromMachine: string;
@@ -15,7 +15,16 @@ export type AttackStep = {
   readonly hint: string;
 };
 
-export type MissionObjectiveType = 'exfiltrate' | 'tamper' | 'find_flag';
+export type MissionObjectiveType = 'exfiltrate' | 'tamper' | 'credential_theft' | 'script_fix';
+
+export type ScriptBugType = 'syntax' | 'logic' | 'corrupted';
+
+export type KeyPlacement = {
+  readonly machineIp: string;
+  readonly filePath: string;
+  readonly fileContent: string;
+  readonly binary?: boolean;
+};
 
 export type MissionObjective = {
   readonly type: MissionObjectiveType;
@@ -23,7 +32,19 @@ export type MissionObjective = {
   readonly targetMachine: string;
   readonly targetPath: string;
   readonly targetContent: string;
-  readonly flag: string;
+  readonly clientEmail: string;
+  readonly expectedProof: string;
+  readonly tamperOldValue?: string;
+  readonly tamperNewValue?: string;
+  readonly binary?: boolean;
+  readonly encrypted?: boolean;
+  readonly encryptionKey?: string;
+  readonly keyPlacement?: KeyPlacement;
+  readonly scriptBugType?: ScriptBugType;
+  readonly scriptHintPath?: string;
+  readonly scriptHintContent?: string;
+  readonly scriptOwner?: 'root' | 'user';
+  readonly expectedChecksum?: string;
 };
 
 export type GeneratedMachine = {
@@ -39,13 +60,14 @@ export type CredentialPlacement = {
   readonly fileContent: string;
   readonly username: string;
   readonly password: string;
+  readonly binary?: boolean;
 };
 
 export type CredentialMap = Readonly<
   Record<string, readonly { readonly username: string; readonly password: string }[]>
 >;
 
-export type EntryVariant = 'ssh' | 'ftp' | 'nc' | 'exploit';
+export type EntryVariant = 'ssh' | 'ftp' | 'nc' | 'exploit' | 'http';
 
 export type MissionNetwork = {
   readonly seed: string;
@@ -58,4 +80,25 @@ export type MissionNetwork = {
   readonly networkConfig: NetworkConfig;
   readonly attackChain: readonly AttackStep[];
   readonly objective: MissionObjective;
+  readonly clientEmail: string;
+  readonly routerPublicIp: string;
+  readonly routerMachine: GeneratedMachine;
+  readonly natForwarding?: NatForwarding;
+  readonly routerDomain: string;
+  readonly domainEntry: boolean;
+  readonly briefingRevealsCredentials: boolean;
+};
+
+export type NatForwarding = {
+  readonly publicIp: string;
+  readonly internalIp: string;
+};
+
+export type SeedOverrides = {
+  readonly difficulty?: Difficulty;
+  readonly entryVariant?: EntryVariant;
+  readonly forwarded?: boolean;
+  readonly objectiveType?: MissionObjectiveType;
+  readonly domainEntry?: boolean;
+  readonly encrypted?: boolean;
 };

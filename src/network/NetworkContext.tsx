@@ -6,7 +6,7 @@ import type {
   RemoteMachine,
   DnsRecord,
 } from './types';
-import type { GeneratedMachine } from '../generation/types';
+import type { GeneratedMachine, NatForwarding } from '../generation/types';
 import { createInitialNetwork, localhostDisconnectedInterfaces } from './initialNetwork';
 import { useSession } from '../session/SessionContext';
 
@@ -21,6 +21,7 @@ type NetworkContextType = {
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
   readonly getDnsRecords: () => readonly DnsRecord[];
   readonly findMachineUsers: (ip: string) => readonly string[];
+  readonly resolveNat: (ip: string) => string;
 };
 
 const NetworkContext = createContext<NetworkContextType | null>(null);
@@ -35,24 +36,28 @@ type NetworkProviderProps = {
   readonly children: ReactNode;
   readonly missionNetworkConfig?: NetworkConfig;
   readonly missionMachines?: readonly GeneratedMachine[];
+  readonly missionNatForwarding?: NatForwarding;
+  readonly missionRouterMachine?: GeneratedMachine;
 };
 
 export const NetworkProvider = ({
   children,
   missionNetworkConfig,
   missionMachines,
+  missionNatForwarding,
+  missionRouterMachine,
 }: NetworkProviderProps) => {
   const [config] = useState<NetworkConfig>(createInitialNetwork);
-  const { session } = useSession();
+  const { session, wifiConnected } = useSession();
 
-  const isLocalhostDisconnected = session.machine === 'localhost' && !session.wifiConnected;
+  const isLocalhostDisconnected = session.machine === 'localhost' && !wifiConnected;
 
   // Multi-tier network config resolution for the current machine:
   // 1. Mission config (if on a mission-generated machine)
   // 2. Static config (tutorial machines)
   // 3. WiFi gating (localhost with WiFi off → disconnected interfaces, no machines)
-  // 4. Localhost with active mission → merge mission machines/DNS into static config
-  //    so mission machines are reachable from localhost
+  // 4. Localhost with active mission → only router is visible from localhost
+  //    (internal machines are behind the router)
   const currentConfig = useMemo((): MachineNetworkConfig => {
     const missionConfig = missionNetworkConfig?.machineConfigs[session.machine];
     if (missionConfig) return missionConfig;
@@ -67,24 +72,30 @@ export const NetworkProvider = ({
       };
     }
 
-    if (session.machine === 'localhost' && missionNetworkConfig) {
-      const missionRemoteMachines: readonly RemoteMachine[] = (missionMachines ?? []).map(
-        (m) => m.remoteMachine,
-      );
+    if (session.machine === 'localhost' && missionNetworkConfig && missionRouterMachine) {
+      // From localhost, only the router's public IP is reachable.
+      // In forwarded mode, the router appears to have the entry machine's ports/users.
+      const routerRemote: RemoteMachine = missionNatForwarding
+        ? buildForwardedRouterMachine(
+            missionRouterMachine,
+            missionMachines ?? [],
+            missionNatForwarding,
+          )
+        : missionRouterMachine.remoteMachine;
 
-      const missionIps = Object.keys(missionNetworkConfig.machineConfigs);
-      const missionDns = missionIps.flatMap((ip) => {
-        const mc = missionNetworkConfig.machineConfigs[ip];
-        return mc ? mc.dnsRecords : [];
-      });
-      const uniqueDns = missionDns.filter(
-        (d, i, arr) => arr.findIndex((x) => x.domain === d.domain) === i,
-      );
+      // External DNS: only router's public IP
+      const externalDns: readonly DnsRecord[] = [
+        {
+          domain: `${missionRouterMachine.hostname}.mission`,
+          ip: missionRouterMachine.ip,
+          type: 'A' as const,
+        },
+      ];
 
       return {
         ...base,
-        machines: [...base.machines, ...missionRemoteMachines],
-        dnsRecords: [...base.dnsRecords, ...uniqueDns],
+        machines: [...base.machines, routerRemote],
+        dnsRecords: [...base.dnsRecords, ...externalDns],
       };
     }
 
@@ -95,6 +106,8 @@ export const NetworkProvider = ({
     isLocalhostDisconnected,
     missionNetworkConfig,
     missionMachines,
+    missionNatForwarding,
+    missionRouterMachine,
   ]);
 
   const getInterface = useCallback(
@@ -149,6 +162,8 @@ export const NetworkProvider = ({
 
   // Searches for users by IP across both static and mission networks.
   // Needed by `su` to validate user names on any machine (tutorial or mission-generated).
+  // The router is a special case: it's a key in machineConfigs but never listed in any
+  // config's .machines array, so we check missionRouterMachine separately.
   const findMachineUsers = useCallback(
     (ip: string): readonly string[] => {
       const searchConfigs = (networkConfig: NetworkConfig): readonly string[] => {
@@ -162,12 +177,31 @@ export const NetworkProvider = ({
       if (staticUsers.length > 0) return staticUsers;
 
       if (missionNetworkConfig) {
-        return searchConfigs(missionNetworkConfig);
+        const missionUsers = searchConfigs(missionNetworkConfig);
+        if (missionUsers.length > 0) return missionUsers;
+      }
+
+      // Router is never in any machineConfigs[*].machines array — it's only a key.
+      // Check it directly so `su` works when SSH'd into the router.
+      if (missionRouterMachine && missionRouterMachine.ip === ip) {
+        return missionRouterMachine.remoteMachine.users.map((u) => u.username);
       }
 
       return [];
     },
-    [config, missionNetworkConfig],
+    [config, missionNetworkConfig, missionRouterMachine],
+  );
+
+  // NAT resolution: translates the router's public IP to the internal entry machine IP
+  // when port forwarding is active. Identity function otherwise.
+  const resolveNat = useCallback(
+    (ip: string): string => {
+      if (missionNatForwarding && ip === missionNatForwarding.publicIp) {
+        return missionNatForwarding.internalIp;
+      }
+      return ip;
+    },
+    [missionNatForwarding],
   );
 
   return (
@@ -183,11 +217,31 @@ export const NetworkProvider = ({
         resolveDomain,
         getDnsRecords,
         findMachineUsers,
+        resolveNat,
       }}
     >
       {children}
     </NetworkContext.Provider>
   );
+};
+
+// In forwarded mode, the router appears from localhost as having the entry machine's
+// ports and users, so `ssh("guest", routerPublicIp)` transparently connects to the
+// internal entry machine.
+const buildForwardedRouterMachine = (
+  routerMachine: GeneratedMachine,
+  missionMachines: readonly GeneratedMachine[],
+  natForwarding: NatForwarding,
+): RemoteMachine => {
+  const entryMachine = missionMachines.find((m) => m.ip === natForwarding.internalIp);
+  if (!entryMachine) return routerMachine.remoteMachine;
+
+  return {
+    ip: routerMachine.ip,
+    hostname: routerMachine.hostname,
+    ports: entryMachine.remoteMachine.ports,
+    users: entryMachine.remoteMachine.users,
+  };
 };
 
 export const useNetwork = (): NetworkContextType => {

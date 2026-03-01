@@ -32,6 +32,7 @@ const buildTestData = (seed: string) => {
     objective,
     entryPoint: topology.entryPoint,
     entryVariant: topology.entryVariant,
+    networkMode: 'forwarded',
   });
   return { topology, fileSystems, objective, credentialPlacements };
 };
@@ -90,14 +91,38 @@ describe('generateFileSystems', () => {
     });
   });
 
-  it('target machine has the flag file at a thematic path', () => {
-    const { fileSystems, objective } = buildTestData('flag-test');
-    const targetFs = fileSystems[objective.targetMachine];
-    const flagFile = resolveNode(targetFs as FileNode, objective.targetPath);
-    expect(flagFile).toBeDefined();
-    expect(flagFile?.content).toBe(objective.targetContent);
-    expect(flagFile?.content).toContain(objective.flag);
-    expect(objective.targetPath).not.toBe('/root/flag.txt');
+  it('target machine has the target file for exfiltrate/tamper objectives', () => {
+    // Try seeds until we get an exfiltrate or tamper objective (which have target files)
+    for (let i = 0; i < 50; i++) {
+      const { fileSystems, objective } = buildTestData(`target-file-${i}`);
+      if (objective.type === 'credential_theft') continue;
+
+      const targetFs = fileSystems[objective.targetMachine];
+      const targetFile = resolveNode(targetFs as FileNode, objective.targetPath);
+      expect(targetFile).toBeDefined();
+      if (objective.binary) {
+        // Binary-wrapped files embed each line in noise — verify first non-empty line is present
+        const firstLine = objective.targetContent.split('\n').find((l) => l.trim().length > 0);
+        expect(targetFile?.content).toContain(firstLine);
+      } else {
+        expect(targetFile?.content).toBe(objective.targetContent);
+      }
+      expect(objective.targetPath).not.toBe('/root/flag.txt');
+      return;
+    }
+    throw new Error('No exfiltrate/tamper objective found in 50 seeds');
+  });
+
+  it('credential_theft objective skips target file placement', () => {
+    for (let i = 0; i < 100; i++) {
+      const { objective } = buildTestData(`cred-theft-fs-${i}`);
+      if (objective.type !== 'credential_theft') continue;
+
+      expect(objective.targetPath).toBe('');
+      // No target file placed — the objective is a password, not a file
+      return;
+    }
+    throw new Error('No credential_theft objective found in 100 seeds');
   });
 
   it('non-target machines do not have a flag file in /root', () => {

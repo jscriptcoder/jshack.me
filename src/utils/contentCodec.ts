@@ -1,7 +1,7 @@
 import type { FileNode } from '../filesystem/types';
 
 // XOR key for encoding filesystem content at build time. This is an anti-cheat measure
-// to prevent players from finding FLAG{...} strings by searching the JS bundle.
+// to prevent players from finding sensitive strings by searching the JS bundle.
 // The value itself is arbitrary — changing it would invalidate any previously encoded data.
 const CODEC_KEY = 'JSHACK_CTF';
 

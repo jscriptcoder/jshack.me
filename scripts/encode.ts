@@ -2,13 +2,8 @@ import { writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { localhost } from '../src/filesystem/machines/localhost';
-import { gateway } from '../src/filesystem/machines/gateway';
 import { fileserver } from '../src/filesystem/machines/fileserver';
 import { webserver } from '../src/filesystem/machines/webserver';
-import { darknet } from '../src/filesystem/machines/darknet';
-import { shadow } from '../src/filesystem/machines/shadow';
-import { voidFs } from '../src/filesystem/machines/void';
-import { abyss } from '../src/filesystem/machines/abyss';
 import { encodeContent, encodeFileSystem } from '../src/utils/contentCodec';
 import { secrets } from '../src/secrets/secrets';
 
@@ -16,13 +11,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const machines = [
   ['localhost', localhost],
-  ['gateway', gateway],
   ['fileserver', fileserver],
   ['webserver', webserver],
-  ['darknet', darknet],
-  ['shadow', shadow],
-  ['voidFs', voidFs],
-  ['abyss', abyss],
 ] as const;
 
 const encodedEntries = machines.map(

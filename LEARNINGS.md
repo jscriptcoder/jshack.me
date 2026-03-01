@@ -1,6 +1,12 @@
-# Learnings: JSHACK.ME CTF Terminal Game
+# Learnings: JSHACK.ME Hacking Terminal Game
 
 ## Gotchas
+
+### IndexedDB session state leaks across tabs
+
+- **Context**: Session state (user, machine, path, SSH stack) was stored in IndexedDB, which is shared across tabs
+- **Issue**: Opening a new tab inherited the other tab's machine/path instead of starting fresh at `localhost /home/jshacker`. Also, refreshing Tab A while Tab B writes could cause state corruption.
+- **Solution**: Moved session state to `sessionStorage` (per-tab). WiFi and other shared state remain in IndexedDB with dedicated keys. Each tab gets an independent session on load.
 
 ### Empty async output lines collapse
 
@@ -73,6 +79,12 @@
 - **Context**: nc command checks if target is localhost
 - **Issue**: Test expected "Connection refused" for localhost but got "Name or service not known" because DNS resolution runs first
 - **Solution**: Tests should match actual execution order; DNS lookup → localhost check → connection
+
+### buildNestedDirs overwrites siblings when merging into extraDirectories
+
+- **Context**: Script fix objective places both a script and a corrupted hint file in the same top-level directory (e.g., `/srv/scripts/validate_backups.js` and `/srv/scripts/.backup_list`)
+- **Issue**: Calling `buildNestedDirs` for the hint file and assigning to `extraDirectories[topDir]` overwrites the entire subtree, losing the script file placed earlier
+- **Solution**: Use `findLeafDir()` to walk to the deepest directory node in the existing tree and insert the hint file as a sibling, preserving the script file
 
 ### Top-level await not supported in new Function()
 
@@ -180,7 +192,7 @@
 
 - **Context**: WiFi cracking has two pieces of state: monitor mode and WiFi connected
 - **Issue**: Monitor mode is a temporary tool state (like having a program running), while WiFi connected is a persistent achievement
-- **Solution**: Monitor mode uses `useRef` (transient, resets on page refresh — player must re-enable before scanning), WiFi connected uses `session.wifiConnected` (persisted to IndexedDB — stays connected across refreshes)
+- **Solution**: Monitor mode uses `useRef` (transient, resets on page refresh — player must re-enable before scanning), WiFi connected uses standalone `wifiConnected` state in `SessionProvider` (persisted to IndexedDB — stays connected across refreshes)
 - **Key insight**: Match state persistence to its nature — tool state is transient, progress state is persisted
 
 ### Auto-scroll misses layout changes when async command completes
@@ -190,12 +202,12 @@
 - **Solution**: Add `asyncRunning` to the scroll effect's dependency array: `useEffect(() => { ... }, [lines, asyncRunning])`. Now scroll-to-bottom also triggers when the input reappears.
 - **Key insight**: Any layout change that affects the scroll container's visible area (adding/removing fixed-size elements like the input prompt) should be a dependency of the auto-scroll effect, not just content changes.
 
-### Backwards compatibility for new session fields
+### Separating shared state from per-tab session state
 
-- **Context**: Adding `wifiConnected` to Session type breaks persisted data from existing users
-- **Issue**: Old IndexedDB data lacks `wifiConnected` field, causing validation to fail or TypeScript errors
-- **Solution**: `isValidSession` accepts missing `wifiConnected` (undefined), `normalizeSession` defaults it to `false`. Same pattern already used for `ncSession`.
-- **Key insight**: Every new persisted field needs: (1) validation that accepts undefined, (2) normalization to default value in `getInitialState`
+- **Context**: `wifiConnected` was originally a field on the `Session` type, persisted in both sessionStorage (per-tab) and IndexedDB (shared)
+- **Issue**: WiFi state is global shared state (synced across tabs via IndexedDB + BroadcastChannel) but traveled through the SSH session stack and was redundantly stored in sessionStorage
+- **Solution**: Extracted `wifiConnected` to standalone `useState<boolean>` in `SessionProvider`, initialized from `getCachedWifiState()`. Removed from `Session`, `SessionSnapshot`, and all snapshot logic (push/pop/popAll).
+- **Key insight**: Don't conflate per-tab state (user, machine, path) with shared global state (WiFi) in the same type — it leads to redundant persistence and leaky abstractions in snapshot logic
 
 ### Custom cursor removal breaks E2E readiness detection
 
@@ -225,6 +237,26 @@
 - **Issue**: `react-refresh/only-export-components` warns that non-component exports break Fast Refresh
 - **Solution**: Use `allowExportNames` option to whitelist specific hook and validator exports (e.g., `useSession`, `isValidPatch`). Note: only exact string matches are supported — no regex/glob patterns.
 - **Alternative**: Move hooks to separate files, but co-locating Provider + hook is a well-established React pattern
+
+### Static content removal requires broad reference cleanup
+
+- **Context**: Removing 7 static machines (gateway through abyss) and their 16 flags to make the game mission-only
+- **Issue**: Static machine references were embedded everywhere — command help examples, curl server configs, localhost filesystem hints, auth.log credential leaks, network configs, DNS records, encode script imports, test mocks
+- **Solution**: Systematic search for machine names, IPs, and hostnames across the codebase. Most test mocks using static IPs as arbitrary test data didn't need changing (they're self-contained). Real issues were: (1) curl `SERVER_CONFIGS` with hardcoded per-machine headers, (2) command `examples` arrays, (3) localhost filesystem content pointing to deleted machines, (4) initialNetwork.ts machine/DNS configs.
+- **Key insight**: When removing game content, the blast radius extends beyond the content files themselves. Command examples, tests, and filesystem hints all reference specific machines/IPs. A thorough grep for IPs and hostnames is essential.
+
+### Router-first mode entry variant placement
+
+- **Context**: HTTP/NC/exploit entry variants need credential hints placed on the machine the player connects to first
+- **Issue**: `generateFileSystems()` always placed entry credential hints on the internal entry machine, even in router-first mode where the player must hack the router first. The router got no `/var/www/html/` content, making HTTP + router-first missions uncompletable.
+- **Solution**: Added `networkMode` to `FilesystemInput`. In forwarded mode, entry hints go on the internal entry machine (unchanged). In router-first mode, entry hints go on the router. `buildMachineConfig` already generates web content when web placements exist, so the fix is just routing the placements correctly.
+- **PRNG impact**: Forwarded-mode and router-first + SSH seeds are unchanged. Router-first + non-SSH seeds shift PRNG (acceptable — they were broken anyway).
+
+### BroadcastChannel postMessage after close throws
+
+- **Context**: Cross-tab sync uses `BroadcastChannel` for filesystem patches, WiFi state, mission state, and theme sync. Each provider creates a channel on mount and closes it in a `useEffect` cleanup.
+- **Issue**: If a broadcast fires after the channel is closed (e.g., nano save during component unmount, mission abort), `channel.postMessage()` throws `InvalidStateError: Channel is closed`.
+- **Solution**: Wrap `channel.postMessage()` in a try-catch in `createSyncChannel()`. Prefer this over a parallel `closed` flag — the channel itself is the source of truth for its state. The dropped message is fine — the underlying state change is already persisted to IndexedDB/sessionStorage independently of the broadcast.
 
 ## Patterns That Worked
 
@@ -281,6 +313,7 @@
 - **What**: Use `crypto.subtle.encrypt/decrypt` with AES-256-GCM for CTF encryption challenges
 - **Why it works**: Browser-native, secure algorithm, async API fits AsyncOutput pattern
 - **Example**: `decrypt("secret.enc", "64-char-hex-key")` decrypts base64-encoded ciphertext
+- **Note**: Originally used for CTF flag puzzles; now used for mission encryption challenges
 
 ### IndexedDB persistence with pre-load cache
 
@@ -326,7 +359,7 @@
 - **What**: `FilePermissions` has `execute` field alongside `read` and `write`. Only `node()` checks it; `cat`, `ls`, `cd` etc. only check read/write.
 - **Why it works**: Creates realistic Unix rwx semantics; data files (.txt, .log, .conf) are readable but not executable. Scripts/binaries explicitly grant execute permission.
 - **Rule**: Directories: `execute` matches `read`. Scripts/binaries: `execute` matches `read`. Data files: `execute: ['root']`. User-created files: `execute: ['root', owner]`.
-- **Key insight**: Separating read from execute means `cat("script.js")` works but `node("script.js")` fails unless the file has explicit execute permission — CTF puzzle opportunity.
+- **Key insight**: Separating read from execute means `cat("script.js")` works but `node("script.js")` fails unless the file has explicit execute permission — puzzle opportunity.
 
 ### Lazy getter for circular execution context
 
@@ -336,7 +369,7 @@
 
 ### Playwright E2E as living documentation
 
-- **What**: Single sequential test that plays through all 16 CTF flags, acting as both regression test and visual demo
+- **What**: Single sequential test that plays through all 16 tutorial flags, acting as both regression test and visual demo
 - **Why it works**: Catches real bugs that unit tests miss (found the su user-type bug on gateway), validates the full user experience end-to-end, `--headed` mode lets you watch the entire game play itself
 - **Key patterns**: `countThenWait` for robust DOM matching in accumulating output, composite helpers (`suTo`, `sshTo`, `ftpConnect`) that encapsulate multi-step flows, `test.step` blocks for per-flag organization
 
@@ -352,7 +385,7 @@
 - **What**: Pre-build script encodes all filesystem `content` strings (XOR+Base64), writes a generated module that decodes at import time
 - **Why it works**: Source machine files stay readable for development and tests. Only the generated encoded module is imported by the app, so original files are tree-shaken away. Bundle contains only encoded content — `grep "FLAG{" dist/` returns zero matches.
 - **Key design**: Generated file calls `decodeFileSystem(JSON.parse(json))` at import time, so downstream code (contexts, commands) receives fully decoded FileNode trees with zero changes needed.
-- **Example**: `npm run encode` → `scripts/encode.ts` imports all 8 machines + secrets → encodes → writes `__encoded.ts` files → app code imports from `__encoded`
+- **Example**: `npm run encode` → `scripts/encode.ts` imports machine filesystems + secrets → encodes → writes `__encoded.ts` files → app code imports from `__encoded`
 - **Gotcha**: The generated file is gitignored and must be regenerated before dev/build — `predev`/`prebuild` npm hooks handle this automatically
 
 ### JSON-stringified arrays in the secrets registry
@@ -373,7 +406,7 @@
 - **Why it works**: Consistent UX — `-a` works everywhere, dotfiles behave the same across all contexts
 - **Example**: `const showAll = stringArgs.some(arg => arg.startsWith('-') && arg.includes('a'))`
 
-### CTF flag progression through credential chains
+### Flag progression through credential chains
 
 - **What**: Flags are gated behind multi-step chains: hint file → credential → access → flag
 - **Why it works**: Creates natural puzzle flow; each discovery unlocks the next step. Players can't skip ahead without finding credentials.
@@ -406,9 +439,9 @@
 
 ### Progression gates via session state + context gating
 
-- **What**: WiFi hacking gate uses `session.wifiConnected` boolean + `NetworkContext` override + command wrapper to block network access until WiFi is cracked
-- **Why it works**: Three-layer approach (session state → context data → command wrapper) ensures the gate works at every level: UI sees correct interfaces, commands get correct machine lists, and even bypassing context still hits the command wrapper. State persists across refresh.
-- **Example**: `wifiConnected: false` → NetworkContext returns empty machines → ping wrapper throws "Network is unreachable" → ifconfig shows wlan0 DOWN
+- **What**: WiFi hacking gate uses standalone `wifiConnected` state + `NetworkContext` override + command wrapper to block network access until WiFi is cracked
+- **Why it works**: Three-layer approach (WiFi state → context data → command wrapper) ensures the gate works at every level: UI sees correct interfaces, commands get correct machine lists, and even bypassing context still hits the command wrapper. State persists across refresh via IndexedDB.
+- **Example**: `wifiConnected === false` → NetworkContext returns empty machines → ping wrapper throws "Network is unreachable" → ifconfig shows wlan0 DOWN
 
 ### Discriminated unions eliminate type assertions
 
@@ -435,6 +468,13 @@
 - **Solution**: Added `data-testid` attributes to output elements (`terminal-banner`, `terminal-result`, `terminal-command`, `terminal-error`, `nano-status`) and updated E2E selectors to use them
 - **Key insight**: E2E selectors should never depend on styling classes. Use `data-testid` attributes for test targeting — they survive CSS refactors, theme changes, and class renames. This is the same lesson as the custom cursor removal (line 163) but for E2E instead of unit tests.
 
+### PRNG sequence preservation for seed keyword overrides
+
+- **What**: When a seed keyword overrides a PRNG decision (e.g., `easy` forcing difficulty, `ssh` forcing entry variant), the PRNG call is still consumed but its result is discarded in favor of the override
+- **Why it works**: Seeds without keywords produce identical networks as before (no regression). Seeds with keywords only change the overridden axis; everything downstream stays deterministic from the same PRNG sequence position.
+- **Pattern**: `const prngResult = prng.pick(options); const actual = override ?? prngResult;`
+- **Key insight**: In a deterministic PRNG pipeline, skipping a call shifts ALL downstream values. By always consuming the call, you keep the sequence stable for non-overridden decisions. This only matters for seeds without keywords (backward compatibility); seeds with keywords are new and don't need to match any prior output.
+
 ### Readonly types throughout
 
 - **What**: All type properties marked `readonly`, arrays as `readonly T[]`
@@ -459,7 +499,7 @@
 
 - **Options considered**: bcrypt, SHA-256, MD5, plaintext
 - **Decision**: MD5
-- **Rationale**: CTF game context, realistic for vulnerable systems, simple implementation
+- **Rationale**: Hacking game context, realistic for vulnerable systems, simple implementation
 - **Trade-offs**: Not secure for real apps, but fits the "hackable system" theme
 
 ### Per-machine network configs with session awareness
@@ -616,6 +656,8 @@
 - Mission complete banner: uses `addLine('banner', ...)` — match with `BANNER` selector, not `RESULT`
 - Mission credential placements in `/var/log/auth.log`: root-only by default (regular users can't read)
 - FTP entry variant credential hints: placed in `/home/{user}/` dirs which are `read: ['root', 'user']` — guest can't access
-- Guest users on mission entry machines: can't call `exit()`, `ssh()`, or `abort()` (all require 'user' privilege)
+- Guest users on mission entry machines: can't call `ssh()` or `abort()` (require 'user' privilege). SSH entry variant now uses a regular user account instead of guest. `exit()` was moved to unrestricted (guest-accessible).
 - NC mode path autocomplete: resolves on the NC target machine (via adapted wrappers), not localhost
-- FTP mode path autocomplete: resolves on origin machine only — remote commands (`cd`, `ls`) autocomplete wrong (known limitation)
+- FTP mode path autocomplete: requires two separate `usePathAutoComplete` instances (remote + local) because FTP operates on two machines simultaneously. `getFtpPathCompletions` detects the FTP command and argument position: remote commands (cd, ls) → remote instance, local commands (lcd, lls) → local instance, dual-argument commands (get/put) → count commas before cursor to determine which argument and context
+- Router not in any `machineConfigs[*].machines` array: the router is a _key_ in `machineConfigs` but never appears in another config's `.machines` list. This means `findMachineUsers(routerPublicIp)` — which flat-searches all `.machines` arrays — returns nothing, breaking `su` on the router. Fix: check `missionRouterMachine` directly as a fallback in `findMachineUsers`. General lesson: when a lookup searches "reachable machines from other machines", entities that are only keys (not values) in the config are invisible.
+- Binary entry credential hints for guest owners: deep binary paths (e.g., `/opt/lib/libmod_auth.so`) are created with `owner: 'root'` — guest users in NC/exploit shells can't read them. Fix: when port owner is guest, redirect binary placements to `/tmp/` which uses `owner: 'user'` (readable by guest). The `/tmp/` placement pipeline already handles binary wrapping correctly.
