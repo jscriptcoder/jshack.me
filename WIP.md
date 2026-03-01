@@ -2,11 +2,11 @@
 
 ## Current Step
 
-Cross-tab sync via BroadcastChannel
+Recovering static machines + FTP path autocompletion
 
 ## Status
 
-✅ COMPLETE — Multi-tab support with cross-tab sync (1017 unit tests across 68 files)
+✅ COMPLETE — Static fileserver/webserver restored, FTP dual-machine path completion (1039 unit tests across 68 files)
 
 ## Completed
 
@@ -23,7 +23,37 @@ Cross-tab sync via BroadcastChannel
 - [x] Mission system — procedurally generated contracts (seeded generator, router topology, NAT forwarding, entry variants)
 - [x] Remove static CTF content (7 machines, 16 flags, E2E CTF test) — mission-only game
 
-## Recent Session (2026-02-28, Session 14)
+## Recent Session (2026-03-01, Session 15)
+
+Implemented:
+
+- **Restored static fileserver machine (192.168.1.50)**:
+  - FTP/SSH file server for practicing FTP commands before missions
+  - Users: root (b4ckup2024), ftpuser (tr4nsf3r), guest (anonymous)
+  - Ports: 21/ftp + 22/ssh, DNS: fileserver.local
+  - `/srv/ftp/` content tree: public/ (readme, changelog), uploads/ (backup notes, meeting notes, traffic CSV), config/ (key fragment)
+  - Registered in encode pipeline, network config, and filesystem map
+- **Restored static webserver machine (192.168.1.75)**:
+  - Web server with NC backdoor for practicing nc connections
+  - Users: root (r00tW3b!), www-data (d3v0ps2024), guest (w3lcome)
+  - Ports: 22/ssh + 80/http + 3306/mysql + 4444/elite (backdoor owned by www-data)
+  - DNS: webserver.local
+  - `/var/www/html/` (index, robots, htaccess, style.css), `/var/www/backups/` (db_backup.sql, manifest), `/opt/tools/` (scanner binary, backdoor log)
+  - Apache/MySQL configs, access/error/mysql/syslog logs
+- **Restored flag-stripped files from main branch**:
+  - Fileserver: .backup_notes.txt, meeting_notes_2024.txt, .key_fragment (all CTF flags removed)
+  - Webserver: scanner binary, .htaccess, style.css, backups/ with db_backup.sql (all CTF flags removed)
+- **FTP path autocompletion with dual-machine context switching**:
+  - FTP mode operates on two machines simultaneously — path completion now resolves against the correct one
+  - Remote FTP commands (cd, ls) complete against the FTP target machine
+  - Local FTP commands (lcd, lls) complete against the origin machine
+  - Dual-argument commands (get, put) switch context per argument by counting commas before cursor
+  - Two separate `usePathAutoComplete` instances (remote + local) created for FTP mode
+  - `getFtpPathCompletions` in Terminal.tsx selects the appropriate completion source
+  - Resolves the known limitation noted in Session 8
+- **Test count**: 1039 unit tests across 68 files
+
+## Previous Session (2026-02-28, Session 14)
 
 Implemented:
 
@@ -608,10 +638,12 @@ Mission catalog API, player accounts, leaderboards. Options: Supabase, Firebase,
 
 ### Static Machines
 
-| Machine   | IP            | Users                 | Purpose              |
-| --------- | ------------- | --------------------- | -------------------- |
-| localhost | 192.168.1.100 | jshacker, root, guest | Starting machine     |
-| gateway   | 192.168.1.1   | admin, guest          | Static border router |
+| Machine    | IP            | Users                 | Purpose                     |
+| ---------- | ------------- | --------------------- | --------------------------- |
+| localhost  | 192.168.1.100 | jshacker, root, guest | Starting machine            |
+| gateway    | 192.168.1.1   | admin, guest          | Static border router        |
+| fileserver | 192.168.1.50  | root, ftpuser, guest  | FTP/SSH practice server     |
+| webserver  | 192.168.1.75  | root, www-data, guest | Web server with NC backdoor |
 
 All other machines are procedurally generated per mission.
 
@@ -622,10 +654,16 @@ All other machines are procedurally generated per mission.
 - guest@localhost: guestpass
 - admin@gateway: n3tgu4rd!
 - guest@gateway: guest2024
+- root@fileserver: b4ckup2024
+- ftpuser@fileserver: tr4nsf3r
+- guest@fileserver: anonymous
+- root@webserver: r00tW3b!
+- www-data@webserver: d3v0ps2024
+- guest@webserver: w3lcome
 
 ### Test Coverage
 
-- 1017 unit tests across 68 colocated test files
+- 1039 unit tests across 68 colocated test files
 - 4 Playwright E2E tests: mission playthroughs (SSH/FTP/NC variants + lifecycle)
 - All commands with logic are tested
 - Async commands tested with fake timers
