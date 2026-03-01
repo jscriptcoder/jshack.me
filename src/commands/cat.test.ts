@@ -227,8 +227,8 @@ describe('cat command', () => {
     });
   });
 
-  describe('binary file detection', () => {
-    it('should show warning for file with null bytes', () => {
+  describe('binary file output', () => {
+    it('should output raw content for file with null bytes', () => {
       const binaryFile = getMockFile({
         name: 'program.bin',
         content: '\x7fELF\x00\x00\x00binary data',
@@ -241,10 +241,10 @@ describe('cat command', () => {
       const cat = createCatCommand(context);
       const result = cat.fn('/program.bin');
 
-      expect(result).toBe('cat: /program.bin: Binary file (use strings() to extract text)');
+      expect(result).toBe('\x7fELF\x00\x00\x00binary data');
     });
 
-    it('should show warning for file with control characters', () => {
+    it('should output raw content for file with control characters', () => {
       const binaryFile = getMockFile({
         name: 'data.bin',
         content: '\x01\x02\x03control chars',
@@ -257,7 +257,7 @@ describe('cat command', () => {
       const cat = createCatCommand(context);
       const result = cat.fn('/data.bin');
 
-      expect(result).toBe('cat: /data.bin: Binary file (use strings() to extract text)');
+      expect(result).toBe('\x01\x02\x03control chars');
     });
 
     it('should allow files with normal newlines and tabs', () => {
