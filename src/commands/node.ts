@@ -7,7 +7,7 @@ type NodeContext = {
   readonly getNode: (path: string) => FileNode | null;
   readonly getUserType: () => UserType;
   readonly getExecutionContext: () => Record<string, (...args: unknown[]) => unknown>;
-  readonly getSubmitFn?: () => (() => string) | undefined;
+  readonly getDecodeFn?: () => ((value: unknown) => string) | undefined;
 };
 
 type EchoFn = (...args: readonly unknown[]) => string;
@@ -67,9 +67,9 @@ export const createNodeCommand = (context: NodeContext): Command => ({
 
     const executionContext = getExecutionContext();
 
-    // _submit() is only available during script_fix missions — it completes
-    // the mission synchronously so the ACCESS-KEY never appears in the script source.
-    const submitFn = context.getSubmitFn?.();
+    // _decode(checksum) is only available during script_fix missions — it returns
+    // the ACCESS-KEY when the checksum matches, so the key never appears in the script source.
+    const decodeFn = context.getDecodeFn?.();
 
     // Captures echo() output during script execution so multiple echo calls
     // can be joined into a single return value (instead of only returning the last one).
@@ -78,7 +78,7 @@ export const createNodeCommand = (context: NodeContext): Command => ({
     const mutableBuffer: string[] = [];
     const wrappedContext = {
       ...executionContext,
-      ...(submitFn ? { _submit: submitFn } : {}),
+      ...(decodeFn ? { _decode: decodeFn } : {}),
       ...(executionContext.echo
         ? {
             echo: (...args: readonly unknown[]): string => {

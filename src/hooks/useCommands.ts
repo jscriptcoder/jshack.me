@@ -17,7 +17,6 @@ import { createAbortCommand } from '../commands/abort';
 import { createMailCommand } from '../commands/mail';
 import { createAptCommand } from '../commands/apt';
 import { useMission } from '../mission';
-import type { MissionNetwork } from '../generation/types';
 import { applyCommandRestrictions, getAccessibleCommandNames } from '../commands/permissions';
 import {
   APT_INSTALLABLE,
@@ -35,23 +34,6 @@ import { getDatabase } from '../utils/storageCache';
 // Hardcoded localhost users — localhost doesn't exist in the network config like remote
 // machines do, so its users can't be dynamically looked up via getMachine()
 const LOCAL_USERS = ['root', 'jshacker', 'guest'] as const;
-
-// Builds the mission-complete banner returned by _submit() in script_fix missions.
-// Mirrors the format used by mail.ts for consistency.
-const formatSubmitMessage = (mission: MissionNetwork): string =>
-  [
-    `Sending proof to ${mission.clientEmail}...`,
-    'Message delivered.',
-    '',
-    '============================================',
-    '  MISSION COMPLETE',
-    '============================================',
-    `  Seed: ${mission.seed}`,
-    `  Difficulty: ${mission.difficulty}`,
-    '',
-    '  Contract fulfilled. Type missions() for more jobs.',
-    '============================================',
-  ].join('\n');
 
 type UseCommandsResult = {
   readonly executionContext: Record<string, (...args: unknown[]) => unknown>;
@@ -109,12 +91,12 @@ export const useCommands = (): UseCommandsResult => {
         getNode,
         getUserType: () => session.userType,
         getExecutionContext: () => resolvedExecutionContext,
-        getSubmitFn: () => {
+        getDecodeFn: () => {
           if (!activeMission || activeMission.objective.type !== 'script_fix') return undefined;
-          const mission = activeMission;
-          return () => {
-            completeMission();
-            return formatSubmitMessage(mission);
+          const { expectedChecksum, expectedProof } = activeMission.objective;
+          return (value: unknown) => {
+            if (String(value) === expectedChecksum) return expectedProof;
+            return 'ERROR: checksum mismatch — script output is incorrect';
           };
         },
       }),

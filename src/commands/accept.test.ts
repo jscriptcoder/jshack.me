@@ -46,14 +46,15 @@ describe('accept command', () => {
     expect(result).toContain('mail(');
   });
 
-  it('does not show mail example for script_fix objectives', () => {
+  it('shows mail example for script_fix objectives', () => {
     const startMission = vi.fn();
     const accept = createAcceptCommand({ startMission, isMissionActive: () => false });
     const result = accept.fn('test-script-fix-easy') as string;
 
-    expect(result).not.toContain('mail(');
+    expect(result).toContain('mail(');
     expect(result).toContain('nano()');
     expect(result).toContain('node()');
+    expect(result).toContain('ACCESS-KEY');
   });
 
   it('shows domain instead of IP for domain entry missions', () => {

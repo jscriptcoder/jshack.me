@@ -303,27 +303,30 @@ describe('generateMissionNetwork', () => {
     }
   });
 
-  it('script_fix objective content uses _submit() instead of ACCESS-KEY', () => {
+  it('script_fix objective content uses _decode() instead of ACCESS-KEY', () => {
     let found = false;
     for (let i = 0; i < 100; i++) {
-      const result = generateMissionNetwork(`script-fix-submit-${i}`);
+      const result = generateMissionNetwork(`script-fix-decode-${i}`);
       if (result.objective.type !== 'script_fix') continue;
 
       // Script content should NOT contain ACCESS- prefix
       expect(result.objective.targetContent).not.toMatch(/ACCESS-/);
-      // Script content should contain _submit()
-      expect(result.objective.targetContent).toContain('_submit()');
+      // Script content should contain _decode( call
+      expect(result.objective.targetContent).toContain('_decode(');
+      // Should have an expectedChecksum
+      expect(result.objective.expectedChecksum).toBeTruthy();
       found = true;
       break;
     }
     expect(found).toBe(true);
   });
 
-  it('script_fix with keyword always uses _submit()', () => {
+  it('script_fix with keyword always uses _decode()', () => {
     const result = generateMissionNetwork('test-script-fix-easy');
     expect(result.objective.type).toBe('script_fix');
-    expect(result.objective.targetContent).toContain('_submit()');
+    expect(result.objective.targetContent).toContain('_decode(');
     expect(result.objective.targetContent).not.toMatch(/ACCESS-/);
+    expect(result.objective.expectedChecksum).toBeTruthy();
   });
 
   it('router-first mode places entry machine credentials on router filesystem', () => {

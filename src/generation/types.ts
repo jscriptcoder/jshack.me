@@ -44,6 +44,7 @@ export type MissionObjective = {
   readonly scriptHintPath?: string;
   readonly scriptHintContent?: string;
   readonly scriptOwner?: 'root' | 'user';
+  readonly expectedChecksum?: string;
 };
 
 export type GeneratedMachine = {

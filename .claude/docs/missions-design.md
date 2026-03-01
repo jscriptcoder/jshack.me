@@ -173,10 +173,11 @@ Seeds are visible to the player — they can share seeds with friends for the sa
 ### Script Fix
 
 - Find a broken script on the target machine, fix it with `nano()`, and run it with `node()`
-- Scripts call `_submit()` on success — a function only available in `node()`'s context — which auto-completes the mission (no `mail()` step)
+- Scripts call `_decode(checksum)` — a function only available in `node()`'s context — which returns the ACCESS-KEY if the checksum is correct
+- Player mails the ACCESS-KEY to the client (consistent with exfiltrate flow)
 - ACCESS-KEY never appears in script source (anti-cheat)
 - Three bug types: syntax error, logic error, or corrupted data line
-- Tools: `cat`, `nano`, `node`, `strings` (for corrupted hints)
+- Tools: `cat`, `nano`, `node`, `strings` (for corrupted hints), `mail`
 - Example: "Fix the broken backup validation script on the file server"
 
 ### Evidence Planting

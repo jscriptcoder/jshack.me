@@ -178,6 +178,7 @@ const selectScriptFixFile = (
   readonly bugType: ScriptBugType;
   readonly hintPath: string;
   readonly hintContent: string;
+  readonly expectedChecksum: string;
 } => {
   const templates = scriptFixTemplatesByRole[targetMachine.role];
   const template = prng.pick(templates);
@@ -193,6 +194,7 @@ const selectScriptFixFile = (
     bugType,
     hintPath: template.corruptedHintPath,
     hintContent: template.corruptedHintContent,
+    expectedChecksum: template.expectedChecksum,
   };
 };
 
@@ -338,10 +340,8 @@ const buildObjective = (
 
   if (objectiveType === 'script_fix') {
     const accessKey = generateAccessKey(prng);
-    const { targetPath, targetContent, bugType, hintPath, hintContent } = selectScriptFixFile(
-      prng,
-      targetMachine,
-    );
+    const { targetPath, targetContent, bugType, hintPath, hintContent, expectedChecksum } =
+      selectScriptFixFile(prng, targetMachine);
 
     // ~60% user-owned (anyone can edit/run), ~40% root-owned (must su first)
     const scriptOwner: 'root' | 'user' = prng.next() < 0.6 ? 'user' : 'root';
@@ -362,6 +362,7 @@ const buildObjective = (
       scriptOwner,
       scriptHintPath: bugType === 'corrupted' ? hintPath : undefined,
       scriptHintContent: bugType === 'corrupted' ? hintContent : undefined,
+      expectedChecksum,
     };
   }
 
