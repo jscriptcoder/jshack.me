@@ -44,7 +44,7 @@ Before the player can access the network from localhost, they must crack a WiFi 
 Four static machines exist. All other machines are procedurally generated per mission.
 
 - **localhost** (192.168.1.100) — the player's starting machine (users: jshacker, guest, root)
-- **gateway** (192.168.1.1) — local network router, config backups, dual-interface WAN+LAN (users: admin)
+- **gateway** (192.168.1.1) — local network router, dual-interface WAN+LAN, PulseSecure VPN vulnerability on port 8443 (users: admin, guest); ports 22/ssh + 8443/https (CVE-2019-11510)
 - **fileserver** (192.168.1.50) — FTP/SSH file server for practice (users: root, ftpuser, guest); ports 21/ftp + 22/ssh
 - **webserver** (192.168.1.75) — web server with NC backdoor for practice (users: root, www-data, guest); ports 22/ssh + 80/http + 3306/mysql + 4444/elite
 
@@ -54,7 +54,7 @@ Machine filesystems are defined in `src/filesystem/machines/` and built via `fil
 
 ```
 192.168.1.0/24 (Local LAN)
-├── 192.168.1.1   gateway (eth0 LAN / eth1 WAN)
+├── 192.168.1.1   gateway (eth0 LAN, SSH + HTTPS/VPN:8443)
 ├── 192.168.1.50  fileserver (eth0 LAN, FTP + SSH)
 ├── 192.168.1.75  webserver (eth0 LAN, SSH + HTTP + MySQL + backdoor:4444)
 └── 192.168.1.100 localhost (wlan0, requires WiFi crack)

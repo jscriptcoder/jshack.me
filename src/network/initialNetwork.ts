@@ -5,7 +5,20 @@ import type { NetworkConfig, RemoteMachine, DnsRecord, NetworkInterface } from '
 const gatewayMachine: RemoteMachine = {
   ip: '192.168.1.1',
   hostname: 'gateway',
-  ports: [{ port: 22, service: 'ssh', open: true }],
+  ports: [
+    { port: 22, service: 'ssh', open: true },
+    {
+      port: 8443,
+      service: 'https',
+      open: true,
+      vulnerability: {
+        cve: 'CVE-2019-11510',
+        description: 'PulseSecure arbitrary file read',
+        serviceVersion: 'PulseSecure/9.0R1',
+      },
+      owner: { username: 'guest', userType: 'guest', homePath: '/home/guest' },
+    },
+  ],
   users: [
     { username: 'admin', passwordHash: 'dab569cb96513965ca00379d69b2f40c', userType: 'root' }, // n3tgu4rd!
     { username: 'guest', passwordHash: 'dbf0171774108c80c94819b1ce0dbd9b', userType: 'guest' }, // guest2024
