@@ -3,6 +3,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { localhost } from '../src/filesystem/machines/localhost';
 import { fileserver } from '../src/filesystem/machines/fileserver';
+import { webserver } from '../src/filesystem/machines/webserver';
 import { encodeContent, encodeFileSystem } from '../src/utils/contentCodec';
 import { secrets } from '../src/secrets/secrets';
 
@@ -11,6 +12,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const machines = [
   ['localhost', localhost],
   ['fileserver', fileserver],
+  ['webserver', webserver],
 ] as const;
 
 const encodedEntries = machines.map(

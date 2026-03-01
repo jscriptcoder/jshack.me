@@ -9,7 +9,7 @@ Virtual Unix-like filesystem for the hacking terminal. Each machine (localhost a
 | `types.ts`              | Core types: `FileNode`, `FilePermissions`, `FileSystemPatch`                                                                                                                                                                                                   |
 | `fileSystemFactory.ts`  | `createFileSystem(config)` — generates a standard directory tree (`/root`, `/home`, `/etc`, `/var`, `/tmp`, `/bin`, `/usr/bin`) from a `MachineFileSystemConfig`. Uses `mergeExtraDirectories()` to safely merge `extraDirectories` with factory-created dirs. |
 | `machineFileSystems.ts` | Thin assembly — imports from `machines/`, exports `machineFileSystems` Record, `MachineId` type, and `getDefaultHomePath`. Gateway filesystem defined inline with `/bin/` (system utilities) and empty `/usr/bin/`.                                            |
-| `machines/`             | Per-machine filesystem definitions: `localhost.ts`, `fileserver.ts` (each exports a `FileNode`). Localhost includes `/bin/` (system utilities) and `/usr/bin/` (apt-installable tools) via binary stubs.                                                       |
+| `machines/`             | Per-machine filesystem definitions: `localhost.ts`, `fileserver.ts`, `webserver.ts` (each exports a `FileNode`). Localhost includes `/bin/` (system utilities) and `/usr/bin/` (apt-installable tools) via binary stubs.                                       |
 | `FileSystemContext.tsx` | React context providing filesystem operations: `resolvePath`, `getNode`, `readFile`, `writeFile`, `readFileFromMachine`, plus persistence via IndexedDB patches                                                                                                |
 | `index.ts`              | Module exports                                                                                                                                                                                                                                                 |
 
@@ -45,11 +45,12 @@ type FileNode = {
 
 ### Machines
 
-| Machine    | IP            | Key Content                                                          |
-| ---------- | ------------- | -------------------------------------------------------------------- |
-| localhost  | 192.168.1.100 | Starting machine, all tools pre-installed in `/bin/` and `/usr/bin/` |
-| gateway    | 192.168.1.1   | Static border router, system utilities in `/bin/`, empty `/usr/bin/` |
-| fileserver | 192.168.1.50  | FTP/SSH file server (ports 21, 22), `/srv/ftp/` content tree         |
+| Machine    | IP            | Key Content                                                                 |
+| ---------- | ------------- | --------------------------------------------------------------------------- |
+| localhost  | 192.168.1.100 | Starting machine, all tools pre-installed in `/bin/` and `/usr/bin/`        |
+| gateway    | 192.168.1.1   | Static border router, system utilities in `/bin/`, empty `/usr/bin/`        |
+| fileserver | 192.168.1.50  | FTP/SSH file server (ports 21, 22), `/srv/ftp/` content tree                |
+| webserver  | 192.168.1.75  | Web server with NC backdoor (ports 22, 80, 3306, 4444), `/var/www/` content |
 
 ### Mission Filesystem Integration
 

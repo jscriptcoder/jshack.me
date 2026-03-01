@@ -10,7 +10,7 @@ src/
 │   ├── FileSystemContext.tsx   # Filesystem operations + patch persistence
 │   ├── fileSystemFactory.ts    # Factory for generating machine filesystems
 │   ├── machineFileSystems.ts   # Imports from __encoded.ts, exports Record + MachineId
-│   ├── machines/               # Per-machine filesystem definitions (localhost, fileserver + gateway)
+│   ├── machines/               # Per-machine filesystem definitions (localhost, fileserver, webserver + gateway)
 │   │   └── __encoded.ts        # GENERATED (gitignored) — encoded trees for production
 │   └── types.ts                # FileNode, FilePermissions, FileSystemPatch types
 ├── secrets/               # Sensitive non-filesystem strings (WiFi password, etc.)

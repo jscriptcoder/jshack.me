@@ -37,11 +37,33 @@ const fileserverMachine: RemoteMachine = {
   ],
 };
 
+const webserverMachine: RemoteMachine = {
+  ip: '192.168.1.75',
+  hostname: 'webserver',
+  ports: [
+    { port: 22, service: 'ssh', open: true },
+    { port: 80, service: 'http', open: true },
+    { port: 3306, service: 'mysql', open: true },
+    {
+      port: 4444,
+      service: 'elite',
+      open: true,
+      owner: { username: 'www-data', userType: 'user', homePath: '/var/www' },
+    },
+  ],
+  users: [
+    { username: 'root', passwordHash: 'a6f6c10dc3602b020c56ff49fb043ca9', userType: 'root' }, // r00tW3b!
+    { username: 'www-data', passwordHash: 'd2d8d0cdf38ea5a54439ffadf7597722', userType: 'user' }, // d3v0ps2024
+    { username: 'guest', passwordHash: 'b2ce03aefab9060e1a42bd1aa1c571f6', userType: 'guest' }, // w3lcome
+  ],
+};
+
 // === DNS records ===
 
 const localDns: readonly DnsRecord[] = [
   { domain: 'gateway.local', ip: '192.168.1.1', type: 'A' },
   { domain: 'fileserver.local', ip: '192.168.1.50', type: 'A' },
+  { domain: 'webserver.local', ip: '192.168.1.75', type: 'A' },
 ];
 
 // === Shared interface templates ===
@@ -89,7 +111,7 @@ export const createInitialNetwork = (): NetworkConfig => ({
   machineConfigs: {
     localhost: {
       interfaces: localhostConnectedInterfaces,
-      machines: [gatewayMachine, fileserverMachine],
+      machines: [gatewayMachine, fileserverMachine, webserverMachine],
       dnsRecords: localDns,
     },
     '192.168.1.1': {
@@ -103,7 +125,7 @@ export const createInitialNetwork = (): NetworkConfig => ({
           mac: '02:42:ac:11:00:0a',
         },
       ],
-      machines: [localhostMachine, fileserverMachine],
+      machines: [localhostMachine, fileserverMachine, webserverMachine],
       dnsRecords: localDns,
     },
     '192.168.1.50': {
@@ -117,7 +139,21 @@ export const createInitialNetwork = (): NetworkConfig => ({
           mac: '02:42:ac:11:00:32',
         },
       ],
-      machines: [localhostMachine, gatewayMachine],
+      machines: [localhostMachine, gatewayMachine, webserverMachine],
+      dnsRecords: localDns,
+    },
+    '192.168.1.75': {
+      interfaces: [
+        {
+          name: 'eth0',
+          flags: ['UP', 'BROADCAST', 'RUNNING', 'MULTICAST'],
+          inet: '192.168.1.75',
+          netmask: '255.255.255.0',
+          gateway: '192.168.1.1',
+          mac: '02:42:ac:11:00:4b',
+        },
+      ],
+      machines: [localhostMachine, gatewayMachine, fileserverMachine],
       dnsRecords: localDns,
     },
   },
