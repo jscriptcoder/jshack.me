@@ -2,6 +2,23 @@ import type { FileNode } from '../types';
 import { createFileSystem, type MachineFileSystemConfig } from '../fileSystemFactory';
 import { createBinaryEntries, SYSTEM_UTILITY_NAMES } from '../../commands/availability';
 
+// Scanner binary — ELF-style tool with embedded strings
+const scannerBinary =
+  '\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00' +
+  '\x02\x00>\x00\x01\x00\x00\x00\x80\x04\x40\x00\x00\x00\x00\x00' +
+  '\x40\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00' +
+  'scanner v2.3.1\x00' +
+  '\x89\xe5\x48\x83\xec\x20\x00\x00\x00\x00\x00\x00' +
+  'Usage: scanner [options] target\x00' +
+  '\xb8\x01\x00\x00\x00\xbb\x00\x00\x00\x00\xcd\x80' +
+  '\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00' +
+  'DECRYPT_KEY_PART1=76e2e21dacea215ff2293e4eafc5985c\x00' +
+  '\x48\x89\xc7\xe8\x00\x00\x00\x00\x00\x00\x00\x00' +
+  'See /var/www/backups/ for the encrypted file.\x00' +
+  '\x00\x00\x00\x00' +
+  'The second half of the key is in /srv/ftp/config/ on the fileserver.\x00' +
+  '\xc3\x90\x90\x00\x00\x00\x00\x00';
+
 const wwwDataHome: Readonly<Record<string, FileNode>> = {
   '.bash_history': {
     name: '.bash_history',
@@ -234,7 +251,94 @@ Mar 15 08:30:05 webserver kernel: [  120.5] eth0: link up
                   content: `User-agent: *
 Disallow: /admin/
 Disallow: /api/
+Disallow: /backups/
 Sitemap: http://webserver.local/sitemap.xml
+`,
+                },
+                '.htaccess': {
+                  name: '.htaccess',
+                  type: 'file',
+                  owner: 'root',
+                  permissions: { read: ['root', 'user'], write: ['root'], execute: ['root'] },
+                  content: `RewriteEngine On
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ /index.html [L]
+
+# Security headers
+Header set X-Content-Type-Options "nosniff"
+Header set X-Frame-Options "SAMEORIGIN"
+Header set X-XSS-Protection "1; mode=block"
+`,
+                },
+                'style.css': {
+                  name: 'style.css',
+                  type: 'file',
+                  owner: 'root',
+                  permissions: {
+                    read: ['root', 'user', 'guest'],
+                    write: ['root'],
+                    execute: ['root'],
+                  },
+                  content: `/* TechCorp Internal Portal */
+:root { --primary: #1a5276; --accent: #2ecc71; --bg: #ecf0f1; }
+body { font-family: 'Segoe UI', sans-serif; background: var(--bg); margin: 0; }
+.header { background: var(--primary); color: white; padding: 1rem 2rem; }
+.nav a { color: #85c1e9; margin-right: 1rem; text-decoration: none; }
+.content { padding: 2rem; max-width: 960px; margin: 0 auto; }
+.alert { background: #f9e79f; padding: 10px; border-left: 4px solid #f1c40f; }
+`,
+                },
+              },
+            },
+            backups: {
+              name: 'backups',
+              type: 'directory',
+              owner: 'root',
+              permissions: { read: ['root', 'user'], write: ['root'], execute: ['root', 'user'] },
+              children: {
+                'backup_manifest.txt': {
+                  name: 'backup_manifest.txt',
+                  type: 'file',
+                  owner: 'root',
+                  permissions: { read: ['root', 'user'], write: ['root'], execute: ['root'] },
+                  content: `Backup Manifest — TechCorp Webserver
+=====================================
+
+Date        File                    Size     Status
+2024-03-10  db_backup.sql           2.4 KB   OK
+2024-03-03  db_backup_old.sql       2.1 KB   ARCHIVED
+2024-02-24  site_backup.tar.gz      45.2 MB  ARCHIVED
+
+Schedule: Daily at 02:00 UTC
+Retention: 30 days
+`,
+                },
+                'db_backup.sql': {
+                  name: 'db_backup.sql',
+                  type: 'file',
+                  owner: 'root',
+                  permissions: { read: ['root', 'user'], write: ['root'], execute: ['root'] },
+                  content: `-- MySQL dump
+-- Server version: 5.7.42
+-- Database: production
+
+CREATE TABLE users (
+  id INT PRIMARY KEY,
+  username VARCHAR(50),
+  password VARCHAR(255),
+  role VARCHAR(20)
+);
+
+INSERT INTO users VALUES (1, 'root', 'r00tW3b!', 'administrator');
+INSERT INTO users VALUES (2, 'www-data', 'd3v0ps2024', 'service');
+INSERT INTO users VALUES (3, 'guest', 'w3lcome', 'readonly');
+
+CREATE TABLE sessions (
+  token VARCHAR(255),
+  user_id INT,
+  expires DATETIME
+);
 `,
                 },
               },
@@ -259,7 +363,13 @@ Sitemap: http://webserver.local/sitemap.xml
           owner: 'root',
           permissions: { read: ['root', 'user'], write: ['root'], execute: ['root', 'user'] },
           children: {
-            // Backdoor log — discoverable via nc on port 4444
+            scanner: {
+              name: 'scanner',
+              type: 'file',
+              owner: 'root',
+              permissions: { read: ['root', 'user'], write: ['root'], execute: ['root', 'user'] },
+              content: scannerBinary,
+            },
             '.backdoor_log': {
               name: '.backdoor_log',
               type: 'file',

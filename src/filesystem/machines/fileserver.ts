@@ -106,22 +106,46 @@ v2.0.0 - Initial deployment
             execute: ['root', 'user', 'guest'],
           },
           children: {
-            'meeting_notes.txt': {
-              name: 'meeting_notes.txt',
+            '.backup_notes.txt': {
+              name: '.backup_notes.txt',
               type: 'file',
               owner: 'user',
               permissions: {
-                read: ['root', 'user', 'guest'],
+                read: ['root', 'user'],
                 write: ['root', 'user'],
                 execute: ['root'],
               },
-              content: `Meeting Notes — 2024-03-15
-Attendees: admin, ftpuser, ops
+              content: `Backup rotation schedule — DO NOT SHARE
 
-- Backup schedule moved to 02:00 UTC
-- New firewall rules deployed on gateway
-- FTP server migrated to /srv/ftp
-- TODO: rotate SSH keys by end of month
+Daily backups run at 02:00 UTC via /usr/local/bin/backup.sh
+Retention policy: 30 days
+Encryption: AES-256-GCM (key stored separately in /srv/ftp/config/)
+
+Webserver SSH accepts default guest credentials.
+`,
+            },
+            'meeting_notes_2024.txt': {
+              name: 'meeting_notes_2024.txt',
+              type: 'file',
+              owner: 'user',
+              permissions: {
+                read: ['root', 'user'],
+                write: ['root', 'user'],
+                execute: ['root'],
+              },
+              content: `Team Standup — March 2024
+=========================
+
+Attendees: admin, www-data, ftpuser
+
+Action Items:
+- [admin] Review firewall rules on gateway
+- [www-data] Deploy new portal update by Friday
+- [ftpuser] Clean up old uploads directory
+- [admin] Schedule quarterly password rotation
+- [www-data] Fix Apache config warnings
+
+Next meeting: April 1, 2024
 `,
             },
             'tmp_data.csv': {
@@ -133,12 +157,12 @@ Attendees: admin, ftpuser, ops
                 write: ['root', 'user'],
                 execute: ['root'],
               },
-              content: `id,timestamp,status,bytes
-1001,2024-03-10T08:00:00Z,completed,45230
-1002,2024-03-10T08:15:00Z,completed,12044
-1003,2024-03-10T09:30:00Z,failed,0
-1004,2024-03-10T10:00:00Z,completed,88120
-1005,2024-03-10T11:45:00Z,pending,0
+              content: `timestamp,source_ip,dest_ip,bytes,protocol
+2024-03-10T10:00:00,192.168.1.100,192.168.1.75,4520,TCP
+2024-03-10T10:05:00,192.168.1.75,192.168.1.50,12800,TCP
+2024-03-10T10:10:00,192.168.1.1,192.168.1.100,890,ICMP
+2024-03-10T10:15:00,192.168.1.50,192.168.1.1,1200,TCP
+2024-03-10T10:20:00,192.168.1.100,192.168.1.75,33200,TCP
 `,
             },
           },
@@ -152,7 +176,19 @@ Attendees: admin, ftpuser, ops
             write: ['root'],
             execute: ['root', 'user'],
           },
-          children: {},
+          children: {
+            '.key_fragment': {
+              name: '.key_fragment',
+              type: 'file',
+              owner: 'root',
+              permissions: { read: ['root', 'user'], write: ['root'], execute: ['root'] },
+              content: `# Encryption key fragment (part 2 of 2)
+# Combine with part 1 to get the full 64-character hex key
+
+DECRYPT_KEY_PART2=ea2d996cb180258ec89c0000b42db460
+`,
+            },
+          },
         },
       },
     },
