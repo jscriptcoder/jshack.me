@@ -8,17 +8,6 @@ A web-based JavaScript terminal emulator with a retro amber-on-black CRT aesthet
   <img src="assets/demo.gif" alt="Terminal demo" width="600">
 </p>
 
-## Coming Soon: Mission System Redesign
-
-A major overhaul of the mission system is in progress — see [PR #1](https://github.com/jscriptcoder/jshack.me/pull/1) for full details. Here's what's coming:
-
-- **Realistic network topology** — every mission features a hackable border router with a public IP, private subnets, and internal machines to pivot through
-- **5 entry variants** — SSH, FTP, netcat backdoors, CVE-based exploits, and HTTP/curl-based credential discovery
-- **New commands** — `apt install` for tool management on remote machines, `john()` for password cracking, `mail()` for mission completion, `exploit()` for vulnerability exploitation, `decrypt()` for encrypted targets
-- **Richer procedural generation** — binary file wrapping (requires `strings`), encrypted exfiltrate objectives (requires `decrypt` + key hunting), `.headers` sidecar files for curl, web content generation
-- **Seed keywords** — control difficulty, entry variant, network mode, objective type, domain entry, and encryption via seed strings (e.g., `accept("HEIST-ssh-hard-exfiltrate")`)
-- **Domain-based entry** — some missions require `nslookup` to resolve the target before connecting
-
 ## The Challenge
 
 You start as a hacker on a local machine. Crack the WiFi, get online, browse the darknet marketplace for contracts, and hack into procedurally generated networks to complete missions.
@@ -223,7 +212,7 @@ npm run test:e2e      # Run Playwright E2E tests (mission playthroughs)
 
 ### Test Coverage
 
-961 unit tests across 64 colocated test files covering terminal commands, hooks, components, utilities, filesystem, persistence, procedural generation, and mission system.
+1039 unit tests across 68 colocated test files covering terminal commands, hooks, components, utilities, filesystem, persistence, procedural generation, and mission system.
 
 4 Playwright E2E tests: mission playthroughs covering SSH, FTP, NC entry variants + mission lifecycle. Run with `--headed` to watch them play:
 
@@ -263,8 +252,7 @@ npx playwright screenshot --viewport-size="1200,630" --full-page public/og-image
 
 ## Documentation
 
-- **[WIP.md](WIP.md)** — Work-in-progress log: session-by-session implementation history and current status
-- **[PLAN.md](PLAN.md)** — Feature roadmap and acceptance criteria
+- **[WIP.md](WIP.md)** — Work-in-progress log: session-by-session implementation history, current status, and future ideas
 - **[LEARNINGS.md](LEARNINGS.md)** — Gotchas, patterns that worked, architectural decisions, and testing insights
 
 ## Deployment
