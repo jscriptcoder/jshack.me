@@ -23,9 +23,26 @@ const localhostMachine: RemoteMachine = {
   ],
 };
 
+const fileserverMachine: RemoteMachine = {
+  ip: '192.168.1.50',
+  hostname: 'fileserver',
+  ports: [
+    { port: 21, service: 'ftp', open: true },
+    { port: 22, service: 'ssh', open: true },
+  ],
+  users: [
+    { username: 'root', passwordHash: '4a080e0e088d55294ab894a02b5c8e3f', userType: 'root' }, // b4ckup2024
+    { username: 'ftpuser', passwordHash: 'be7a9d8e813210208cb7fba28717cda7', userType: 'user' }, // tr4nsf3r
+    { username: 'guest', passwordHash: '294de3557d9d00b3d2d8a1e6aab028cf', userType: 'guest' }, // anonymous
+  ],
+};
+
 // === DNS records ===
 
-const localDns: readonly DnsRecord[] = [{ domain: 'gateway.local', ip: '192.168.1.1', type: 'A' }];
+const localDns: readonly DnsRecord[] = [
+  { domain: 'gateway.local', ip: '192.168.1.1', type: 'A' },
+  { domain: 'fileserver.local', ip: '192.168.1.50', type: 'A' },
+];
 
 // === Shared interface templates ===
 
@@ -72,7 +89,7 @@ export const createInitialNetwork = (): NetworkConfig => ({
   machineConfigs: {
     localhost: {
       interfaces: localhostConnectedInterfaces,
-      machines: [gatewayMachine],
+      machines: [gatewayMachine, fileserverMachine],
       dnsRecords: localDns,
     },
     '192.168.1.1': {
@@ -86,7 +103,21 @@ export const createInitialNetwork = (): NetworkConfig => ({
           mac: '02:42:ac:11:00:0a',
         },
       ],
-      machines: [localhostMachine],
+      machines: [localhostMachine, fileserverMachine],
+      dnsRecords: localDns,
+    },
+    '192.168.1.50': {
+      interfaces: [
+        {
+          name: 'eth0',
+          flags: ['UP', 'BROADCAST', 'RUNNING', 'MULTICAST'],
+          inet: '192.168.1.50',
+          netmask: '255.255.255.0',
+          gateway: '192.168.1.1',
+          mac: '02:42:ac:11:00:32',
+        },
+      ],
+      machines: [localhostMachine, gatewayMachine],
       dnsRecords: localDns,
     },
   },

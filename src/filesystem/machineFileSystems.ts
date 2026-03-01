@@ -1,5 +1,5 @@
 import type { FileNode } from './types';
-import { localhost } from './machines/__encoded';
+import { localhost, fileserver } from './machines/__encoded';
 import { createBinaryEntries, SYSTEM_UTILITY_NAMES } from '../commands/availability';
 
 const BIN_DIR_PERMISSIONS = {
@@ -98,6 +98,7 @@ export type MachineId = string;
 export const machineFileSystems: Readonly<Record<string, FileNode>> = {
   localhost,
   '192.168.1.1': gatewayFs,
+  '192.168.1.50': fileserver,
 };
 
 // _machineId is unused today (all machines use the same /home/username convention)

@@ -10,7 +10,7 @@ src/
 │   ├── FileSystemContext.tsx   # Filesystem operations + patch persistence
 │   ├── fileSystemFactory.ts    # Factory for generating machine filesystems
 │   ├── machineFileSystems.ts   # Imports from __encoded.ts, exports Record + MachineId
-│   ├── machines/               # Per-machine filesystem definitions (localhost + gateway)
+│   ├── machines/               # Per-machine filesystem definitions (localhost, fileserver + gateway)
 │   │   └── __encoded.ts        # GENERATED (gitignored) — encoded trees for production
 │   └── types.ts                # FileNode, FilePermissions, FileSystemPatch types
 ├── secrets/               # Sensitive non-filesystem strings (WiFi password, etc.)
@@ -123,7 +123,7 @@ Two layers of tab completion, tried in order:
 
 **NC mode context switching**: When NC mode is active, `Terminal.tsx` wraps the machine-specific filesystem APIs (`listDirectoryFromMachine`, `getNodeFromMachine`, `resolvePathForMachine`) with the NC session's `targetIP` and `currentPath` to provide path completion on the correct remote machine. Without this, path completion would resolve against the main session's machine (localhost).
 
-**Known limitation — FTP path completion**: FTP mode operates on two machines simultaneously (origin and remote). Path completion currently resolves against the main session's machine (origin), so remote FTP commands (`cd`, `ls`, `get`'s first arg) autocomplete against the wrong filesystem. Fixing this is non-trivial because dual-argument commands like `get(remote, local)` and `put(local, remote)` would need per-argument context based on cursor position.
+**FTP path completion**: FTP mode operates on two machines simultaneously (origin and remote). Path completion detects which FTP command is being typed and resolves against the correct machine: remote commands (`cd`, `ls`) complete against the FTP target machine, local commands (`lcd`, `lls`) complete against the origin machine, and dual-argument commands (`get(remote, local)`, `put(local, remote)`) switch context per argument position by counting commas before the cursor. Two separate `usePathAutoComplete` instances (remote and local) are created for FTP mode, with `getFtpPathCompletions` selecting the appropriate one.
 
 ## WiFi Hacking Gate
 

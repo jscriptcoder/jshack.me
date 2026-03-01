@@ -41,10 +41,11 @@ Before the player can access the network from localhost, they must crack a WiFi 
 
 ## Static Machines
 
-Only two static machines exist. All other machines are procedurally generated per mission.
+Three static machines exist. All other machines are procedurally generated per mission.
 
 - **localhost** (192.168.1.100) — the player's starting machine (users: jshacker, guest, root)
 - **gateway** (192.168.1.1) — local network router, config backups, dual-interface WAN+LAN (users: admin)
+- **fileserver** (192.168.1.50) — FTP/SSH file server for practice (users: root, ftpuser, guest); ports 21/ftp + 22/ssh
 
 Machine filesystems are defined in `src/filesystem/machines/` and built via `fileSystemFactory.ts` with users, directories, and content. Common structure per machine: `/root/`, `/home/[users]/`, `/etc/` (passwd with MD5 hashes, hostname, hosts, configs), `/var/log/`, `/tmp/`.
 
@@ -53,6 +54,7 @@ Machine filesystems are defined in `src/filesystem/machines/` and built via `fil
 ```
 192.168.1.0/24 (Local LAN)
 ├── 192.168.1.1   gateway (eth0 LAN / eth1 WAN)
+├── 192.168.1.50  fileserver (eth0 LAN, FTP + SSH)
 └── 192.168.1.100 localhost (wlan0, requires WiFi crack)
 ```
 
@@ -61,10 +63,11 @@ Mission networks extend beyond the gateway — see "Mission Network Topology" be
 ## DNS Records
 
 - gateway.local → 192.168.1.1
+- fileserver.local → 192.168.1.50
 
 ## Network Implementation
 
-Network is per-machine — `NetworkContext` uses `session.machine` to resolve the active config. Each machine has its own interfaces, reachable machines, and DNS records defined in `src/network/initialNetwork.ts`. Types are in `src/network/types.ts`. Static machines are localhost and gateway; all other machines are generated per mission.
+Network is per-machine — `NetworkContext` uses `session.machine` to resolve the active config. Each machine has its own interfaces, reachable machines, and DNS records defined in `src/network/initialNetwork.ts`. Types are in `src/network/types.ts`. Static machines are localhost, gateway, and fileserver; all other machines are generated per mission.
 
 Localhost has a special WiFi gating layer: when `wifiConnected === false`, `NetworkContext` overrides localhost's config to return disconnected interfaces (wlan0 DOWN), empty machines, and empty DNS. WiFi commands (`airmon`, `airdump`, `aircrack`, `nmcli`) in `src/hooks/useWifiCommands.ts` manage the connection flow. WiFi network definitions live in `src/network/wifiNetworks.ts`.
 
