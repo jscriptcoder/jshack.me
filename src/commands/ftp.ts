@@ -15,7 +15,7 @@ export const createFtpCommand = (context: FtpContext): Command => ({
   name: 'ftp',
   description: 'File Transfer Protocol connection to remote host',
   manual: {
-    synopsis: 'ftp(host: string)',
+    synopsis: 'ftp(host)',
     description:
       'Connect to a remote machine via FTP. You will be prompted for username and password. ' +
       'The connection will only succeed if the remote machine has FTP (port 21) open and the credentials are valid. ' +

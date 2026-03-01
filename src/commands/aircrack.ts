@@ -15,7 +15,7 @@ export const createAircrackCommand = (context: AircrackContext): Command => ({
   name: 'aircrack',
   description: 'Crack WPA/WPA2 wireless network keys',
   manual: {
-    synopsis: 'aircrack(bssid: string)',
+    synopsis: 'aircrack(bssid)',
     description:
       'Attempt to crack the WPA/WPA2 key for a target wireless network using a wordlist attack. The BSSID can be found via airdump(). Requires monitor mode to be enabled.',
     arguments: [

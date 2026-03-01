@@ -191,7 +191,7 @@ export const createCurlCommand = (context: CurlContext): Command => ({
   name: 'curl',
   description: 'Transfer data from or to a server',
   manual: {
-    synopsis: 'curl([flags], url: string)',
+    synopsis: 'curl([flags], url)',
     description:
       'Transfer data from or to a server using HTTP protocol. Supports GET and POST requests. Use -i flag to include HTTP response headers in output. Use -X POST to make POST requests to /api/* endpoints. Flags and URL can be in any order.',
     arguments: [

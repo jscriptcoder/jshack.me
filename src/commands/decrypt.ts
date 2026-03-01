@@ -16,7 +16,7 @@ export const createDecryptCommand = (context: DecryptContext): Command => ({
   name: 'decrypt',
   description: 'Decrypt a file using AES-256',
   manual: {
-    synopsis: 'decrypt(file: string, key: string)',
+    synopsis: 'decrypt(file, key)',
     description:
       'Decrypt an encrypted file using a 256-bit key. ' +
       'The file should contain base64-encoded encrypted data. ' +

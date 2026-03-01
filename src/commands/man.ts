@@ -29,7 +29,7 @@ export const createManCommand = (getCommands: () => Map<string, Command>): Comma
   name: 'man',
   description: 'Display manual for a command',
   manual: {
-    synopsis: 'man(command: string)',
+    synopsis: 'man(command)',
     description:
       'Display detailed documentation for a command, including description, arguments, and usage examples.',
     arguments: [

@@ -60,7 +60,7 @@ describe('help command', () => {
         name: 'test',
         description: 'Test command',
         manual: {
-          synopsis: 'test(arg1: string, arg2?: number)',
+          synopsis: 'test(arg1, [arg2])',
           description: 'Full description',
         },
       }),
@@ -69,7 +69,7 @@ describe('help command', () => {
     const help = createHelpCommand(() => commands);
     const result = help.fn();
 
-    expect(result).toContain('test(arg1: string, arg2?: number)');
+    expect(result).toContain('test(arg1, [arg2])');
     expect(result).not.toContain('test() -');
   });
 
@@ -86,6 +86,29 @@ describe('help command', () => {
     const result = help.fn();
 
     expect(result).toContain('simple()');
+  });
+
+  it('should align descriptions by padding synopses', () => {
+    const commands = [
+      getMockCommand({
+        name: 'short',
+        description: 'Short one',
+        manual: { synopsis: 'short()', description: '' },
+      }),
+      getMockCommand({
+        name: 'longer',
+        description: 'Longer one',
+        manual: { synopsis: 'longer(a, b, c)', description: '' },
+      }),
+    ];
+
+    const help = createHelpCommand(() => commands);
+    const result = String(help.fn());
+
+    // Both descriptions should start at the same column
+    const descCol = (line: string) => line.indexOf(line.includes('Short') ? 'Short' : 'Longer');
+    const lines = result.split('\n').filter((l) => l.includes('one'));
+    expect(descCol(lines[0]!)).toBe(descCol(lines[1]!));
   });
 
   it('should handle empty command list', () => {

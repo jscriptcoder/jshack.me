@@ -138,7 +138,7 @@ export const createAcceptCommand = (context: AcceptCommandContext): Command => (
   name: 'accept',
   description: 'Accept a mission contract',
   manual: {
-    synopsis: 'accept(seed: string)',
+    synopsis: 'accept(seed)',
     description:
       'Accept a mission contract from the darknet marketplace. The seed determines the target network — same seed always generates the same mission. Use missions() to browse available contracts and find seeds.',
     examples: [

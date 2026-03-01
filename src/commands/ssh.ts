@@ -14,7 +14,7 @@ export const createSshCommand = (context: SshContext): Command => ({
   name: 'ssh',
   description: 'Secure shell connection to remote host',
   manual: {
-    synopsis: 'ssh(user: string, host: string)',
+    synopsis: 'ssh(user, host)',
     description:
       'Connect to a remote machine via SSH. You will be prompted for the password. The connection will only succeed if the remote machine has SSH (port 22) open and the credentials are valid.',
     arguments: [

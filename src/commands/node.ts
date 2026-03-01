@@ -16,7 +16,7 @@ export const createNodeCommand = (context: NodeContext): Command => ({
   name: 'node',
   description: 'Execute a JavaScript file',
   manual: {
-    synopsis: 'node(path: string)',
+    synopsis: 'node(path)',
     description:
       'Execute the contents of a JavaScript file. ' +
       'The file runs with access to all terminal commands. ' +

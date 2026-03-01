@@ -11,7 +11,7 @@ export const createAirmonCommand = (context: AirmonContext): Command => ({
   name: 'airmon',
   description: 'Enable/disable wireless monitor mode',
   manual: {
-    synopsis: 'airmon(action: string, interface: string)',
+    synopsis: 'airmon(action, interface)',
     description:
       'Put a wireless interface into or out of monitor mode. Monitor mode is required before scanning for networks with airdump() or cracking with aircrack().',
     arguments: [

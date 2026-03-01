@@ -62,7 +62,7 @@ export const createNmapCommand = (context: NmapContext): Command => ({
   name: 'nmap',
   description: 'Network exploration and port scanning',
   manual: {
-    synopsis: 'nmap(target: string[, "-sV"]) | nmap("-sV", target: string)',
+    synopsis: 'nmap(target[, "-sV"]) | nmap("-sV", target)',
     description:
       'Nmap ("Network Mapper") is a utility for network exploration and security auditing. It can discover hosts on a network and determine what services they are running. Use a single IP to scan ports on that host, or use a range (e.g., "192.168.1.1-254") to discover live hosts. Use -sV for service version detection and vulnerability scanning.',
     arguments: [

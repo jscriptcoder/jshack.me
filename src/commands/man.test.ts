@@ -75,7 +75,7 @@ describe('man command', () => {
           name: 'test',
           description: 'Test',
           manual: {
-            synopsis: 'test(arg: string)',
+            synopsis: 'test(arg)',
             description: 'Full description',
           },
         }),
@@ -85,7 +85,7 @@ describe('man command', () => {
       const result = man.fn('test');
 
       expect(result).toContain('SYNOPSIS');
-      expect(result).toContain('test(arg: string)');
+      expect(result).toContain('test(arg)');
     });
 
     it('should display DESCRIPTION section', () => {

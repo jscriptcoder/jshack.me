@@ -22,7 +22,7 @@ export const createPingCommand = (context: PingContext): Command => ({
   name: 'ping',
   description: 'Send ICMP echo request to network host',
   manual: {
-    synopsis: 'ping(host: string, [count: number])',
+    synopsis: 'ping(host, [count])',
     description:
       'Send ICMP ECHO_REQUEST packets to a network host to test connectivity. By default sends 4 packets. The host can be an IP address or hostname of a known machine on the network.',
     arguments: [

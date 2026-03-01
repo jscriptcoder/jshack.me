@@ -13,12 +13,13 @@ export const createHelpCommand = (getCommands: () => Command[]): Command => ({
     const commands = getCommands();
     const sortedCommands = [...commands].sort((a, b) => a.name.localeCompare(b.name));
 
+    const synopses = sortedCommands.map((cmd) => cmd.manual?.synopsis ?? cmd.name + '()');
+    const maxWidth = synopses.reduce((max, s) => Math.max(max, s.length), 0);
+
     const lines = [
       'Available commands:',
       '',
-      ...sortedCommands.map(
-        (cmd) => ` ${cmd.manual?.synopsis ?? cmd.name + '()'} - ${cmd.description}`,
-      ),
+      ...sortedCommands.map((cmd, i) => ` ${synopses[i]!.padEnd(maxWidth)}  ${cmd.description}`),
     ];
 
     return lines.join('\n');

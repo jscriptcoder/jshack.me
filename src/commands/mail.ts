@@ -88,7 +88,7 @@ export const createMailCommand = (context: MailCommandContext): Command => ({
   name: 'mail',
   description: 'Send proof to a darknet client to complete a mission',
   manual: {
-    synopsis: 'mail(recipient: string, content: string)',
+    synopsis: 'mail(recipient, content)',
     description:
       'Send a message to a darknet client. Used to submit mission proof and complete contracts. The recipient must match the client email shown in the mission briefing.',
     arguments: [

@@ -5,7 +5,7 @@ export const echoCommand: Command = {
   name: 'echo',
   description: 'Output the given value as a string',
   manual: {
-    synopsis: 'echo(value: any)',
+    synopsis: 'echo(value)',
     description:
       'Output the given value as a string. Objects and arrays are pretty-printed as JSON.',
     arguments: [

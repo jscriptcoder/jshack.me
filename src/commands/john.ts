@@ -42,7 +42,7 @@ export const createJohnCommand = (context: JohnContext): Command => ({
   name: 'john',
   description: 'Crack password hashes using dictionary attack',
   manual: {
-    synopsis: 'john(file: string)',
+    synopsis: 'john(file)',
     description:
       'Crack password hashes from a passwd-format file using a dictionary attack. ' +
       'Reads username:hash pairs and attempts to crack them against a built-in wordlist. ' +

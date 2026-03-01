@@ -12,7 +12,7 @@ export const createNanoCommand = (context: NanoContext): Command => ({
   name: 'nano',
   description: 'Open a file in the text editor',
   manual: {
-    synopsis: 'nano(path: string)',
+    synopsis: 'nano(path)',
     description:
       'Open a file for editing in a nano-style text editor. ' +
       'Creates a new file if the path does not exist. ' +

@@ -13,7 +13,7 @@ export const createLsCommand = (context: LsContext): Command => ({
   name: 'ls',
   description: 'List directory contents',
   manual: {
-    synopsis: 'ls([path: string], [flags: string])',
+    synopsis: 'ls([path], [flags])',
     description:
       'List the contents of a directory. Directories are shown with a trailing slash. Hidden files (starting with .) are not shown by default. If no path is specified, lists the current directory.',
     arguments: [

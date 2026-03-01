@@ -13,7 +13,7 @@ export const createSuCommand = (context: SuContext): Command => ({
   name: 'su',
   description: 'Switch user',
   manual: {
-    synopsis: 'su(username: string)',
+    synopsis: 'su(username)',
     description:
       'Switch to another user account. You will be prompted for the password. The password is validated against MD5 hashes stored in /etc/passwd.',
     arguments: [

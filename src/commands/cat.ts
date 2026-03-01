@@ -12,7 +12,7 @@ export const createCatCommand = (context: CatContext): Command => ({
   name: 'cat',
   description: 'Display file contents',
   manual: {
-    synopsis: 'cat(path: string)',
+    synopsis: 'cat(path)',
     description: 'Display the contents of a file. The file must be readable by the current user.',
     arguments: [
       {

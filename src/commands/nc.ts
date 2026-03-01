@@ -32,7 +32,7 @@ export const createNcCommand = (context: NcContext): Command => ({
   name: 'nc',
   description: 'Netcat - arbitrary TCP connections',
   manual: {
-    synopsis: 'nc(host: string, port: number)',
+    synopsis: 'nc(host, port)',
     description:
       'Connect to a remote host on the specified port. ' +
       'Netcat opens a raw TCP connection and displays any data received from the remote host. ' +

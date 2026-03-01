@@ -84,7 +84,7 @@ export const createNmcliCommand = (context: NmcliContext): Command => ({
   name: 'nmcli',
   description: 'NetworkManager CLI — manage WiFi connections',
   manual: {
-    synopsis: 'nmcli(subcommand: string, ...args: string[])',
+    synopsis: 'nmcli(subcommand, ...args)',
     description:
       'Manage WiFi network connections. Use "connect" to join a network, "disconnect" to leave, and "status" to check connection state.',
     arguments: [

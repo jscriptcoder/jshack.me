@@ -13,7 +13,7 @@ export const createNslookupCommand = (context: NslookupContext): Command => ({
   name: 'nslookup',
   description: 'Query DNS for domain name resolution',
   manual: {
-    synopsis: 'nslookup(domain: string)',
+    synopsis: 'nslookup(domain)',
     description:
       'Query the DNS server to resolve a domain name to its IP address. Returns the IP address associated with the given domain name if found.',
     arguments: [{ name: 'domain', description: 'The domain name to look up', required: true }],
