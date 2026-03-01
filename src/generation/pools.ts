@@ -29,14 +29,9 @@ export const usernamesByRole: Readonly<Record<MachineRole, readonly string[]>> =
   router: ['netops', 'routeadm', 'admin', 'fwadmin', 'operator'],
 };
 
-export const guestPasswords: readonly string[] = [
-  'guest',
-  'guest123',
-  'password',
-  'letmein',
-  'welcome',
-  'changeme',
-];
+export const guestPasswords: readonly string[] = JSON.parse(
+  secrets.GUEST_PASSWORDS,
+) as readonly string[];
 
 export const passwords: readonly string[] = JSON.parse(
   secrets.MISSION_PASSWORDS,
