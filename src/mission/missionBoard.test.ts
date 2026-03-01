@@ -2,10 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { MISSION_BOARD, formatMissionBoard, type MissionListing } from './missionBoard';
 
 describe('missionBoard', () => {
-  it('starts with an empty board', () => {
-    expect(MISSION_BOARD).toEqual([]);
-  });
-
   it('each listing has required fields when populated', () => {
     MISSION_BOARD.forEach((listing) => {
       expect(listing.id).toBeTruthy();

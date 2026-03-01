@@ -412,11 +412,23 @@ Webserver-role machines (and any machine with web credential placements) get `/v
 - Credential placement files at their designated web paths
 - `.headers` sidecar files for header-based secrets
 
-## Board Missions
+## Board Missions (9)
 
-Board is currently empty — missions are being rebuilt from scratch, one by one, with verified e2e tests.
+9 curated missions covering all generation axes. Players can also use any arbitrary seed string via `accept("any-string")`.
 
-Players can use any arbitrary seed string via `accept("any-string")`.
+| #   | Client     | Target                               | Objective        | Difficulty | Entry   | Mode         | Special | Seed                                                    |
+| --- | ---------- | ------------------------------------ | ---------------- | ---------- | ------- | ------------ | ------- | ------------------------------------------------------- |
+| 001 | xR0gu3x    | MedTech Solutions — hospital records | exfiltrate       | Easy       | SSH     | Forwarded    | —       | `MEDTECH-ssh-easy-forwarded-exfiltrate`                 |
+| 002 | gh0st\_    | Eastwood University — registrar DB   | tamper           | Easy       | FTP     | Forwarded    | —       | `EASTWOOD-ftp-easy-forwarded-tamper`                    |
+| 003 | cyph3rpunk | Nexus Corp — employee workstations   | credential_theft | Easy       | HTTP    | Forwarded    | —       | `NEXUS-http-easy-forwarded-credential-theft`            |
+| 004 | n3twr4ith  | Vanguard Finance — trading platform  | exfiltrate       | Medium     | NC      | Forwarded    | —       | `VANGUARD-nc-medium-forwarded-exfiltrate`               |
+| 005 | zer0day\_  | Sentinel Defense — weapons research  | tamper           | Medium     | Exploit | Router-first | —       | `SENTINEL-exploit-medium-router-first-tamper`           |
+| 006 | bl4ckh4t   | OmniCloud Services — backup systems  | script_fix       | Medium     | SSH     | Forwarded    | Domain  | `OMNICLOUD-ssh-medium-forwarded-script-fix-domain`      |
+| 007 | darkfl0w   | Iron Gate Security — vault server    | exfiltrate       | Hard       | Exploit | Router-first | Decrypt | `IRONGATE-exploit-hard-router-first-exfiltrate-decrypt` |
+| 008 | v0id_agent | Cobalt Industries — R&D network      | credential_theft | Hard       | NC      | Router-first | —       | `COBALT-nc-hard-router-first-credential-theft`          |
+| 009 | ph4nt0m    | Axiom Biotech — gene sequencer       | script_fix       | Hard       | HTTP    | Router-first | —       | `AXIOM-http-hard-router-first-script-fix`               |
+
+**Coverage**: 3 easy / 3 medium / 3 hard, SSH×2 / FTP×1 / NC×2 / Exploit×2 / HTTP×2, exfiltrate×3 / tamper×2 / credential_theft×2 / script_fix×2, forwarded×5 / router-first×4, 1 domain, 1 decrypt.
 
 ---
 
