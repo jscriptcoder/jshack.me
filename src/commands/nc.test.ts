@@ -473,7 +473,7 @@ describe('nc command', () => {
       const context = createMockNcContext();
       const nc = createNcCommand(context);
 
-      expect(nc.description).toBe('Netcat - arbitrary TCP connections');
+      expect(nc.description).toBe('Netcat — arbitrary TCP connections');
     });
 
     it('should have manual', () => {
