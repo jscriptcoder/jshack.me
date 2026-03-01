@@ -83,6 +83,7 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 | `airmon(action, iface)` | Enable/disable wireless monitor mode                                 |
 | `airdump()`             | Scan for nearby wireless networks                                    |
 | `aircrack(bssid)`       | Crack WPA/WPA2 wireless network key                                  |
+| `nmcli(action, ...)`    | Connect to or disconnect from a wireless network                     |
 | `ifconfig([iface])`     | Display network interface configuration                              |
 | `ping(host, [count])`   | Test connectivity to a network host                                  |
 | `nmap(["-sV",] target)` | Scan ports; -sV enables version detection and vulnerability scanning |
