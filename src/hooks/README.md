@@ -4,18 +4,20 @@ Custom React hooks that wire together commands, context, and terminal features. 
 
 ## Files
 
-| File                       | Description                                                                                                                               |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `useCommands.ts`           | Master command registry — combines all command sources into a single execution context and command name list                              |
-| `useFileSystemCommands.ts` | Creates filesystem commands (pwd, ls, cd, cat, whoami, decrypt, output, strings, nano) with context from `useFileSystem` and `useSession` |
-| `useNetworkCommands.ts`    | Creates network commands (ifconfig, ping, nmap, nslookup, ssh, curl, ftp, nc, exploit) with context from `useNetwork` and `useFileSystem` |
-| `useFtpCommands.ts`        | Creates FTP-mode commands (pwd, lpwd, cd, lcd, ls, lls, get, put, quit/bye) — returns `null` when not in FTP mode                         |
-| `useNcCommands.ts`         | Creates NC-mode commands (pwd, cd, ls, cat, whoami, help, exit) — returns `null` when not in NC mode                                      |
-| `useWifiCommands.ts`       | Creates WiFi commands (airmon, airdump, aircrack, nmcli) — manages monitor mode state via `useRef`                                        |
-| `useCommandHistory.ts`     | Up/down arrow navigation through previous commands                                                                                        |
-| `useAutoComplete.ts`       | Tab completion for command names and variable names                                                                                       |
-| `usePathAutoComplete.ts`   | Tab completion for file/directory paths inside string arguments — resolves paths via filesystem context                                   |
-| `useVariables.ts`          | `const`/`let` variable declarations, reassignment, and immutability enforcement                                                           |
+| File                           | Description                                                                                                                                                   |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `useCommands.ts`               | Master command registry — combines all command sources into a single execution context and command name list                                                  |
+| `useFileSystemCommands.ts`     | Creates filesystem commands (pwd, ls, cd, cat, whoami, decrypt, output, strings, nano) with context from `useFileSystem` and `useSession`                     |
+| `useNetworkCommands.ts`        | Creates network commands (ifconfig, ping, nmap, nslookup, ssh, curl, ftp, nc, exploit) with context from `useNetwork` and `useFileSystem`                     |
+| `useFtpCommands.ts`            | Creates FTP-mode commands (pwd, lpwd, cd, lcd, ls, lls, get, put, quit/bye) — returns `null` when not in FTP mode                                             |
+| `useNcCommands.ts`             | Creates NC-mode commands (pwd, cd, ls, cat, whoami, help, exit) — returns `null` when not in NC mode                                                          |
+| `useWifiCommands.ts`           | Creates WiFi commands (airmon, airdump, aircrack, nmcli) — manages monitor mode state via `useRef`                                                            |
+| `useCommandHistory.ts`         | Up/down arrow navigation through previous commands                                                                                                            |
+| `useAutoComplete.ts`           | Tab completion for command names and variable names                                                                                                           |
+| `usePathAutoComplete.ts`       | Tab completion for file/directory paths inside string arguments — resolves paths via filesystem context                                                       |
+| `usePathCompletionAdapters.ts` | Adapts filesystem APIs for NC/FTP mode path completion — wraps three `usePathAutoComplete` instances (default, FTP remote, FTP local) with mode-aware routing |
+| `useAuthentication.ts`         | Password/SSH/FTP/su authentication state and logic — manages password prompts, credential validation, and session transitions on successful login             |
+| `useVariables.ts`              | `const`/`let` variable declarations, reassignment, and immutability enforcement                                                                               |
 
 ## How Commands Are Assembled
 
@@ -54,9 +56,24 @@ Returns `{ executionContext, commandNames }` where:
 
 ## Input Hooks
 
-| Hook                  | Used By        | Description                                                                                                           |
-| --------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `useCommandHistory`   | `Terminal.tsx` | Tracks command history array and current index; `navigateUp()`/`navigateDown()` return the command string             |
-| `useAutoComplete`     | `Terminal.tsx` | Takes command names + variable names; `getCompletions(input)` returns matches with display text                       |
-| `usePathAutoComplete` | `Terminal.tsx` | Takes filesystem helpers; `getPathCompletions(input, cursorPosition)` returns path matches when cursor is in a string |
-| `useVariables`        | `Terminal.tsx` | Intercepts `const`/`let`/reassignment before command execution; manages variable store with immutability checks       |
+| Hook                        | Used By                        | Description                                                                                                           |
+| --------------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `useCommandHistory`         | `Terminal.tsx`                 | Tracks command history array and current index; `navigateUp()`/`navigateDown()` return the command string             |
+| `useAutoComplete`           | `Terminal.tsx`                 | Takes command names + variable names; `getCompletions(input)` returns matches with display text                       |
+| `usePathAutoComplete`       | `usePathCompletionAdapters.ts` | Takes filesystem helpers; `getPathCompletions(input, cursorPosition)` returns path matches when cursor is in a string |
+| `usePathCompletionAdapters` | `Terminal.tsx`                 | Mode-aware path completion — routes to NC/FTP/default `usePathAutoComplete` instance based on active mode             |
+| `useVariables`              | `Terminal.tsx`                 | Intercepts `const`/`let`/reassignment before command execution; manages variable store with immutability checks       |
+
+## Authentication Hook
+
+| Hook                | Used By        | Description                                                                                                    |
+| ------------------- | -------------- | -------------------------------------------------------------------------------------------------------------- |
+| `useAuthentication` | `Terminal.tsx` | Manages password prompt state (su/SSH/FTP), credential validation, and session transitions on successful login |
+
+`useAuthentication` encapsulates three authentication flows:
+
+- **su** — validates password against `/etc/passwd` hashes on the current machine, switches user type
+- **SSH** — validates against remote machine user list, pushes session stack, resolves NAT, switches to remote machine
+- **FTP** — two-stage login (username → password), validates against remote machine, enters FTP mode session
+
+Returns `startPasswordPrompt()`, `startSshPrompt()`, `startFtpPrompt()` for triggering prompts, and `handlePasswordSubmit()`, `handleFtpUsernameSubmit()` for processing input. Terminal.tsx passes the current `input` and a `clearInput` callback to the submit handlers.

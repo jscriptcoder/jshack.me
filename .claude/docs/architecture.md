@@ -107,9 +107,19 @@ Multiple browser tabs can run independent terminal sessions with shared state vi
 
 `nano(path)` returns `{ __type: 'nano_open', filePath }`. Terminal.tsx renders `NanoEditor` as a fixed overlay. Ctrl+S saves (creates or updates file via FileSystemContext), Ctrl+X/Escape exits (prompts if unsaved changes). Tab inserts 2 spaces.
 
+## Authentication
+
+`useAuthentication` (`src/hooks/useAuthentication.ts`) encapsulates all password-related state and login logic, extracted from Terminal.tsx. Manages three authentication flows:
+
+- **su** — validates password against `/etc/passwd` hashes on the current machine, switches user type and home path
+- **SSH** — validates against remote machine user list, pushes session stack, resolves NAT, switches to remote machine
+- **FTP** — two-stage login (username prompt → password prompt), validates against remote machine, creates FTP session
+
+Terminal.tsx triggers auth flows via `startPasswordPrompt()` (from `su` command), `startSshPrompt()` (from SSH async follow-up), and `startFtpPrompt()` (from FTP async follow-up). Submit handlers receive the current `input` and a `clearInput` callback (state ownership stays in Terminal.tsx).
+
 ## Async Output Pattern
 
-Network commands (ping, nmap, ssh, nslookup) and WiFi commands (airdump, aircrack) return `AsyncOutput` with `start(onLine, onComplete)` and optional `cancel()`. Terminal disables input during execution. The `onComplete` callback can trigger a password prompt (used by SSH).
+Network commands (ping, nmap, ssh, nslookup) and WiFi commands (airdump, aircrack) return `AsyncOutput` with `start(onLine, onComplete)` and optional `cancel()`. Terminal disables input during execution. The `onComplete` callback can trigger a password prompt (used by SSH/FTP via `useAuthentication`).
 
 ## Tab Autocompletion
 
@@ -121,9 +131,13 @@ Two layers of tab completion, tried in order:
 
 `TerminalInput` passes `cursorPosition` to `onTab`, enabling mid-input completion. `Terminal.tsx` orchestrates both hooks in `handleTab`.
 
-**NC mode context switching**: When NC mode is active, `Terminal.tsx` wraps the machine-specific filesystem APIs (`listDirectoryFromMachine`, `getNodeFromMachine`, `resolvePathForMachine`) with the NC session's `targetIP` and `currentPath` to provide path completion on the correct remote machine. Without this, path completion would resolve against the main session's machine (localhost).
+**Mode-aware path completion** (`usePathCompletionAdapters`): A hook that adapts filesystem APIs for different terminal modes and manages three `usePathAutoComplete` instances internally:
 
-**FTP path completion**: FTP mode operates on two machines simultaneously (origin and remote). Path completion detects which FTP command is being typed and resolves against the correct machine: remote commands (`cd`, `ls`) complete against the FTP target machine, local commands (`lcd`, `lls`) complete against the origin machine, and dual-argument commands (`get(remote, local)`, `put(local, remote)`) switch context per argument position by counting commas before the cursor. Two separate `usePathAutoComplete` instances (remote and local) are created for FTP mode, with `getFtpPathCompletions` selecting the appropriate one.
+- **Default/NC mode** — uses NC session's `targetIP` and `currentPath` when NC mode is active, otherwise uses the main session's filesystem. Without this, path completion would resolve against the main session's machine (localhost).
+- **FTP remote** — resolves against the FTP target machine for remote commands (`cd`, `ls`).
+- **FTP local** — resolves against the origin machine for local commands (`lcd`, `lls`).
+
+FTP mode operates on two machines simultaneously. The adapter detects which FTP command is being typed and routes to the correct instance: dual-argument commands (`get(remote, local)`, `put(local, remote)`) switch context per argument position by counting commas before the cursor. Returns a single `getPathCompletions` function that handles all mode switching internally.
 
 ## WiFi Hacking Gate
 
