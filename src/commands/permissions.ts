@@ -40,6 +40,7 @@ export const COMMAND_TIERS: Readonly<Record<string, UserType>> = {
   accept: 'user',
   abort: 'user',
   mail: 'user',
+  xterm: 'user',
   // root-level commands
   decrypt: 'root',
 };

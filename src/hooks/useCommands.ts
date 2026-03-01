@@ -16,6 +16,7 @@ import { createAcceptCommand } from '../commands/accept';
 import { createAbortCommand } from '../commands/abort';
 import { createMailCommand } from '../commands/mail';
 import { createAptCommand } from '../commands/apt';
+import { xtermCommand } from '../commands/xterm';
 import { useMission } from '../mission';
 import { applyCommandRestrictions, getAccessibleCommandNames } from '../commands/permissions';
 import {
@@ -71,6 +72,7 @@ export const useCommands = (): UseCommandsResult => {
     commands.set('author', authorCommand);
     commands.set('clear', clearCommand);
     commands.set('exit', exitCommand);
+    commands.set('xterm', xtermCommand);
     commands.set('resolve', createResolveCommand());
     commands.set('reset', createResetCommand({ getDatabase }));
     commands.set(

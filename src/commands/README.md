@@ -8,11 +8,11 @@ Commands use a factory pattern with context injection: `createXCommand(context) 
 
 Commands are tiered by user type. Restricted commands show `permission denied: 'name' requires TYPE privileges` and are hidden from `help()` and tab autocomplete. `man()` can still look up any command.
 
-| Tier     | User Type | Available Commands                                                                                                                                                                        |
-| -------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Basic    | `guest`   | help, man, echo, whoami, pwd, ls, cd, cat, su, clear, author, theme, exit                                                                                                                 |
-| Standard | `user`    | All basic + apt, ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, exploit, strings, output, resolve, nano, node, john, airmon, airdump, aircrack, nmcli, missions, accept, abort, mail |
-| Full     | `root`    | All standard + decrypt                                                                                                                                                                    |
+| Tier     | User Type | Available Commands                                                                                                                                                                               |
+| -------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Basic    | `guest`   | help, man, echo, whoami, pwd, ls, cd, cat, su, clear, author, theme, exit                                                                                                                        |
+| Standard | `user`    | All basic + apt, ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, exploit, strings, output, resolve, nano, node, john, airmon, airdump, aircrack, nmcli, missions, accept, abort, mail, xterm |
+| Full     | `root`    | All standard + decrypt                                                                                                                                                                           |
 
 FTP and NC modes have their own separate command sets and are not restricted.
 
@@ -41,6 +41,7 @@ On remote and mission machines, hacking tools aren't pre-installed. Players must
 | reset   | `reset.ts`   | `reset(["confirm"])` | Reset game to factory defaults (clears all saved progress) |
 | theme   | `theme.ts`   | `theme([name])`      | List or switch terminal color themes (persists)            |
 | apt     | `apt.ts`     | `apt(sub, [pkg])`    | Package manager — install tools on remote machines         |
+| xterm   | `xterm.ts`   | `xterm()`            | Open a new terminal session in a separate browser tab      |
 
 ## Mission
 

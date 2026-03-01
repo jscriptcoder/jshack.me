@@ -107,6 +107,7 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 | `mail(to, content)`     | Send proof to a darknet client to complete a mission                 |
 | `apt(sub, [pkg])`       | Package manager — install tools on remote machines                   |
 | `theme([name])`         | List themes or switch terminal color theme                           |
+| `xterm()`               | Open a new terminal session in a separate browser tab                |
 | `reset(["confirm"])`    | Reset game to factory defaults (clears all saved progress)           |
 
 ### FTP Mode Commands

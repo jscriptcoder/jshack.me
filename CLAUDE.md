@@ -66,7 +66,7 @@ User input flows through `Terminal.tsx`:
 Commands are tiered by user type (`src/commands/permissions.ts`):
 
 - **guest**: help, man, echo, whoami, pwd, ls, cd, cat, su, clear, author, exit
-- **user**: All guest + apt, ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, exploit, strings, output, resolve, nano, node, john, airmon, airdump, aircrack, nmcli, missions, accept, abort, mail
+- **user**: All guest + apt, ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, exploit, strings, output, resolve, nano, node, john, airmon, airdump, aircrack, nmcli, missions, accept, abort, mail, xterm
 - **root**: All user + decrypt
 
 ### Tool Availability (apt install)
