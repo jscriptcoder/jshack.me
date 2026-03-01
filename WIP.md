@@ -632,6 +632,19 @@ Allow players to create and share missions via seed codes. Community voting, rat
 
 Mission catalog API, player accounts, leaderboards. Options: Supabase, Firebase, or self-hosted.
 
+### Nano + Scripting Mission Concepts
+
+Advanced mission ideas that require `nano` (edit/create files) + `node` (execute JS) as core gameplay:
+
+- **Custom Cipher Decode** — target file encoded with a non-standard cipher (rotation, base-N, substitution map); player finds hint describing the algorithm, writes a decoder script
+- **Log Parser / Data Extraction** — large log file (200-500 lines) with ACCESS-KEY fragmented across specific entries; hint describes the extraction pattern (every Nth line, specific field); too tedious to do manually
+- **Brute Force a PIN / Token** — locked resource requires a numeric PIN with constraints (divisibility, digit sum, etc.); player writes a brute-force script to find valid candidates
+- **Config Generator / Exploit Payload** — craft a file in a specific format to bypass validation (checksum must match body, fields must satisfy relationships); closest to real exploit development
+- **Fragmented Key Assembly** — key split across multiple machines in different formats (hex, base64, reversed); player collects fragments and writes an assembly script
+- **Chained Concepts** — hard missions combining 2-3 of the above (e.g., fix broken script → parse log → assemble fragments)
+
+Note: "Debug a Broken Script" (Concept 6 from original brainstorm) is already implemented as the `script_fix` objective type.
+
 ---
 
 ## Infrastructure Ready
