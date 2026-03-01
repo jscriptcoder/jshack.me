@@ -179,6 +179,14 @@ describe('apt command', () => {
       expect(result).toContain('nmap');
       expect(result).toContain('Listing installed packages');
     });
+
+    it('accepts -i as shorthand for --installed', () => {
+      const { context } = createMockAptContext({ installedTools: ['nmap'] });
+      const apt = createAptCommand(context);
+      const result = apt.fn('list', '-i') as string;
+      expect(result).toContain('nmap');
+      expect(result).toContain('Listing installed packages');
+    });
   });
 
   describe('invalid subcommand', () => {

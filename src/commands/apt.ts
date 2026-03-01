@@ -26,7 +26,7 @@ const handleList = (
   machine: string,
   args: readonly unknown[],
 ): string => {
-  const showInstalled = args[0] === '--installed';
+  const showInstalled = args[0] === '--installed' || args[0] === '-i';
 
   const lines = APT_PACKAGES.map((pkg) => {
     const status = formatInstalledStatus(pkg.name, getNode, machine);
@@ -112,7 +112,7 @@ export const createAptCommand = (context: AptContext): Command => ({
   name: 'apt',
   description: 'Package manager — install tools on remote machines',
   manual: {
-    synopsis: "apt('install', packageName) | apt('list', ['--installed'])",
+    synopsis: "apt('install', packageName) | apt('list', ['-i'])",
     description:
       'Advanced package tool for installing hacking utilities on remote machines. ' +
       'On localhost, all tools are pre-installed. On remote machines, tools like nmap, ' +
@@ -121,7 +121,7 @@ export const createAptCommand = (context: AptContext): Command => ({
       { name: 'subcommand', description: "'install' or 'list'", required: true },
       {
         name: 'package/flag',
-        description: "Package name for install, or '--installed' for list",
+        description: "Package name for install, or '-i'/'--installed' for list",
         required: false,
       },
     ],
@@ -129,7 +129,7 @@ export const createAptCommand = (context: AptContext): Command => ({
       { command: "apt('install', 'nmap')", description: 'Install nmap on the current machine' },
       { command: "apt('list')", description: 'List all available packages' },
       {
-        command: "apt('list', '--installed')",
+        command: "apt('list', '-i')",
         description: 'List only installed packages',
       },
     ],
@@ -144,7 +144,7 @@ export const createAptCommand = (context: AptContext): Command => ({
         'Subcommands:',
         "  apt('install', '<package>')   Install a package",
         "  apt('list')                   List available packages",
-        "  apt('list', '--installed')    List installed packages",
+        "  apt('list', '-i')             List installed packages",
       ].join('\n');
     }
 
