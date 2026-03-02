@@ -9,6 +9,7 @@ import type {
   Difficulty,
   GeneratedMachine,
   MissionNetwork,
+  MissionObjectiveType,
   SeedOverrides,
 } from './types';
 import type { Port, RemoteMachine, RemoteUser } from '../network/types';
@@ -263,6 +264,73 @@ const buildRouterBridgePlacement = (
   ];
 };
 
+// Applies PRNG-driven port closures to increase lateral movement variety.
+// At most one SSH closure and one FTP closure per network. When SSH is closed
+// on a machine, FTP port 21 is ensured open so the player can still transfer
+// files. Always consumes 4 PRNG calls for sequence stability.
+const applyPortClosures = (
+  prng: Prng,
+  machines: readonly GeneratedMachine[],
+  entryPoint: string,
+  objectiveType: MissionObjectiveType,
+): readonly GeneratedMachine[] => {
+  // Always consume 4 PRNG calls regardless of whether closures apply
+  const sshRoll = prng.next();
+  const sshTargetIdx = prng.nextInt(0, Math.max(0, machines.length - 1));
+  const ftpRoll = prng.next();
+  const ftpTargetIdx = prng.nextInt(0, Math.max(0, machines.length - 1));
+
+  // script_fix needs SSH shell access on target — skip all closures
+  if (objectiveType === 'script_fix') return machines;
+
+  // Eligible machines: internal (non-router), non-entry
+  const eligible = machines.filter((m) => m.role !== 'router' && m.ip !== entryPoint);
+  if (eligible.length === 0) return machines;
+
+  const sshClosureIp = sshRoll < 0.3 ? eligible[sshTargetIdx % eligible.length]?.ip : undefined;
+  const ftpClosureIp = ftpRoll < 0.3 ? eligible[ftpTargetIdx % eligible.length]?.ip : undefined;
+
+  // Never close both SSH and FTP on the same machine
+  const effectiveFtpClosureIp =
+    ftpClosureIp !== undefined && ftpClosureIp === sshClosureIp ? undefined : ftpClosureIp;
+
+  if (sshClosureIp === undefined && effectiveFtpClosureIp === undefined) return machines;
+
+  return machines.map((m) => {
+    if (m.ip === sshClosureIp) {
+      // Close SSH, ensure FTP port 21 is open
+      const hasFtp = m.remoteMachine.ports.some((p) => p.port === 21);
+      const portsWithClosedSsh = m.remoteMachine.ports.map((p) =>
+        p.port === 22 ? { ...p, open: false } : p,
+      );
+      const ports = hasFtp
+        ? portsWithClosedSsh.map((p) => (p.port === 21 ? { ...p, open: true } : p))
+        : [...portsWithClosedSsh, { port: 21, service: 'ftp', open: true }];
+
+      return {
+        ...m,
+        remoteMachine: { ...m.remoteMachine, ports },
+      };
+    }
+
+    if (m.ip === effectiveFtpClosureIp) {
+      // Close FTP port 21 if present and open (cosmetic — only affects fileservers)
+      const hasFtpOpen = m.remoteMachine.ports.some((p) => p.port === 21 && p.open);
+      if (!hasFtpOpen) return m;
+
+      return {
+        ...m,
+        remoteMachine: {
+          ...m.remoteMachine,
+          ports: m.remoteMachine.ports.map((p) => (p.port === 21 ? { ...p, open: false } : p)),
+        },
+      };
+    }
+
+    return m;
+  });
+};
+
 export const generateMissionNetwork = (seed: string): MissionNetwork => {
   const prng = createPrng(seed);
   const overrides = parseSeedOverrides(seed);
@@ -329,26 +397,49 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
     prng,
   );
 
-  // Update network configs with populated users
+  // Resolve objective type early so port closures can skip SSH closures for
+  // script_fix (player needs shell access via node()). The PRNG pick is consumed
+  // here; generateAttackChain will consume its own pick but use the override.
+  const effectiveObjectiveOverride = overrides.encrypted ? 'exfiltrate' : overrides.objectiveType;
+  const objectiveTypes: readonly MissionObjectiveType[] = [
+    'exfiltrate',
+    'tamper',
+    'credential_theft',
+    'script_fix',
+  ];
+  const prngObjectiveType = prng.pick(objectiveTypes);
+  const resolvedObjectiveType = effectiveObjectiveOverride ?? prngObjectiveType;
+
+  // Apply PRNG-driven port closures (~30% SSH, ~30% FTP, independent rolls).
+  // Entry machine and router are always protected from closures.
+  const machinesAfterClosures = applyPortClosures(
+    prng,
+    machinesWithUsers,
+    topology.entryPoint,
+    resolvedObjectiveType,
+  );
+
+  // Update network configs with populated users and port closures
   const updatedMachineConfigs = Object.fromEntries(
     Object.entries(topology.networkConfig.machineConfigs).map(([ip, config]) => [
       ip,
       {
         ...config,
-        machines: config.machines.map((rm) => ({
-          ...rm,
-          users: allUsersByMachine[rm.ip] ?? [],
-        })),
+        machines: config.machines.map((rm) => {
+          const updated = machinesAfterClosures.find((m) => m.ip === rm.ip);
+          return {
+            ...rm,
+            users: allUsersByMachine[rm.ip] ?? [],
+            ports: updated?.remoteMachine.ports ?? rm.ports,
+          };
+        }),
       },
     ]),
   );
 
-  // When encrypted override is set, force exfiltrate (decrypt only makes sense for exfiltrate)
-  const effectiveObjectiveOverride = overrides.encrypted ? 'exfiltrate' : overrides.objectiveType;
-
   const { attackChain, credentialPlacements, objective, clientEmail } = generateAttackChain({
     prng,
-    machines: machinesWithUsers,
+    machines: machinesAfterClosures,
     credentials: allCredentials,
     entryPoint: topology.entryPoint,
     entryVariant: topology.entryVariant,
@@ -365,14 +456,14 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
     isForwarded,
     topology.entryPoint,
     allCredentials,
-    machinesWithUsers,
+    machinesAfterClosures,
     routerWithUsers,
   );
   const allPlacements = [...credentialPlacements, ...routerBridgePlacements];
 
   const fileSystems = generateFileSystems({
     prng,
-    machines: machinesWithUsers,
+    machines: machinesAfterClosures,
     usersByMachine: allUsersByMachine,
     credentialPlacements: allPlacements,
     credentials: allCredentials,
@@ -389,7 +480,7 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
   const credSourceIp = isForwarded ? topology.entryPoint : topology.routerPublicIp;
   const entryCredentials = allCredentials[credSourceIp] ?? [];
   const entryMachineForCred = isForwarded
-    ? machinesWithUsers.find((m) => m.ip === credSourceIp)
+    ? machinesAfterClosures.find((m) => m.ip === credSourceIp)
     : routerWithUsers;
   const portOwner = entryMachineForCred?.remoteMachine.ports.find((p) => p.owner)?.owner;
   // SSH and HTTP variants use a regular user account (player finds creds via web or briefing).
@@ -417,7 +508,7 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
     entryPoint: topology.entryPoint,
     entryVariant: topology.entryVariant,
     entryCredential: entryCred,
-    machines: machinesWithUsers,
+    machines: machinesAfterClosures,
     fileSystems,
     networkConfig: { machineConfigs: updatedMachineConfigs },
     attackChain,

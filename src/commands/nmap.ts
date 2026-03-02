@@ -14,10 +14,11 @@ const PORT_SCAN_DELAY_MS = 300;
 
 const formatPortLine = (port: Port, versionScan: boolean): string => {
   const portStr = `${port.port}/tcp`.padEnd(10);
-  const stateService = `open   ${port.service}`;
+  const state = port.open ? 'open' : 'closed';
+  const stateService = `${state.padEnd(7)}${port.service}`;
   if (!versionScan) return `${portStr}${stateService}`;
 
-  const version = port.vulnerability?.serviceVersion ?? '';
+  const version = port.open ? (port.vulnerability?.serviceVersion ?? '') : '';
   return `${portStr}${stateService.padEnd(16)}${version}`;
 };
 
@@ -214,7 +215,12 @@ export const createNmapCommand = (context: NmapContext): Command => ({
           throw new Error(`nmap: failed to resolve "${target}"`);
         }
 
-        const openPorts = machine.ports.filter((p) => p.open);
+        // Sort ports: open first, then closed, by port number within each group
+        const sortedPorts = [...machine.ports].sort((a, b) => {
+          if (a.open !== b.open) return a.open ? -1 : 1;
+          return a.port - b.port;
+        });
+        const openPorts = sortedPorts.filter((p) => p.open);
 
         onLine(`Starting Nmap scan on ${target}${versionScan ? ' (version detection)' : ''}`);
         onLine('Scanning ports...');
@@ -231,20 +237,20 @@ export const createNmapCommand = (context: NmapContext): Command => ({
           onLine(header);
         }, 400);
 
-        if (openPorts.length === 0) {
+        if (sortedPorts.length === 0) {
           token.schedule(() => {
             if (token.isCancelled()) return;
             onLine('All scanned ports are closed.');
             onComplete();
           }, 600);
         } else {
-          openPorts.forEach((port, index) => {
+          sortedPorts.forEach((port, index) => {
             token.schedule(
               () => {
                 if (token.isCancelled()) return;
                 onLine(formatPortLine(port, versionScan));
 
-                if (index === openPorts.length - 1) {
+                if (index === sortedPorts.length - 1) {
                   token.schedule(() => {
                     if (token.isCancelled()) return;
 

@@ -329,6 +329,83 @@ describe('generateMissionNetwork', () => {
     expect(result.objective.expectedChecksum).toBeTruthy();
   });
 
+  describe('port closures', () => {
+    it('SSH closure occurs for some seeds (statistical)', () => {
+      let sshClosureCount = 0;
+      for (let i = 0; i < 200; i++) {
+        const result = generateMissionNetwork(`port-closure-ssh-${i}`);
+        const hasClosedSsh = result.machines.some(
+          (m) =>
+            m.role !== 'router' &&
+            m.ip !== result.entryPoint &&
+            m.remoteMachine.ports.some((p) => p.port === 22 && !p.open),
+        );
+        if (hasClosedSsh) sshClosureCount++;
+      }
+      // ~30% chance per eligible machine, should appear in at least some seeds
+      expect(sshClosureCount).toBeGreaterThan(0);
+    });
+
+    it('FTP port 21 is always open when SSH is closed on a machine', () => {
+      for (let i = 0; i < 200; i++) {
+        const result = generateMissionNetwork(`ftp-guarantee-${i}`);
+        result.machines.forEach((m) => {
+          const sshClosed = m.remoteMachine.ports.some((p) => p.port === 22 && !p.open);
+          if (sshClosed) {
+            const ftpOpen = m.remoteMachine.ports.some((p) => p.port === 21 && p.open);
+            expect(ftpOpen).toBe(true);
+          }
+        });
+      }
+    });
+
+    it('entry machine SSH is never closed', () => {
+      for (let i = 0; i < 200; i++) {
+        const result = generateMissionNetwork(`entry-protect-${i}`);
+        const entryMachine = result.machines.find((m) => m.ip === result.entryPoint);
+        const sshPort = entryMachine?.remoteMachine.ports.find((p) => p.port === 22);
+        if (sshPort) {
+          expect(sshPort.open).toBe(true);
+        }
+      }
+    });
+
+    it('router ports are never modified by closures', () => {
+      for (let i = 0; i < 200; i++) {
+        const result = generateMissionNetwork(`router-protect-${i}`);
+        const routerSsh = result.routerMachine.remoteMachine.ports.find((p) => p.port === 22);
+        if (routerSsh) {
+          expect(routerSsh.open).toBe(true);
+        }
+      }
+    });
+
+    it('script_fix seeds never have SSH closures', () => {
+      for (let i = 0; i < 50; i++) {
+        const result = generateMissionNetwork(`script-fix-noclose-${i}`);
+        if (result.objective.type !== 'script_fix') continue;
+
+        result.machines.forEach((m) => {
+          const sshPort = m.remoteMachine.ports.find((p) => p.port === 22);
+          if (sshPort) {
+            expect(sshPort.open).toBe(true);
+          }
+        });
+      }
+    });
+
+    it('never both SSH and FTP closed on the same machine', () => {
+      for (let i = 0; i < 200; i++) {
+        const result = generateMissionNetwork(`no-double-close-${i}`);
+        result.machines.forEach((m) => {
+          const sshClosed = m.remoteMachine.ports.some((p) => p.port === 22 && !p.open);
+          const ftpClosed = m.remoteMachine.ports.some((p) => p.port === 21 && !p.open);
+          expect(sshClosed && ftpClosed).toBe(false);
+        });
+      }
+    });
+  });
+
   it('router-first mode places entry machine credentials on router filesystem', () => {
     // Collect all file contents from the router filesystem recursively
     const collectFileContents = (node: FileNode): string[] => {

@@ -2,11 +2,11 @@
 
 ## Current Step
 
-FTP entry variant port owner fix
+Random SSH/FTP port closures in mission networks
 
 ## Status
 
-✅ COMPLETE — FTP entry variant now has PRNG-weighted port owner (guest/user/root) like NC/exploit. Credential hints use owner-based paths with root→/tmp/ fallback. (1040 unit tests across 68 files)
+✅ COMPLETE — PRNG-driven port closures (~30% SSH, ~30% FTP, independent rolls) add lateral movement variety. When SSH is closed, FTP port 21 is ensured open. Entry machine, router, and script_fix objectives are protected. Attack chain routes through FTP/HTTP when SSH is unavailable. (1046 unit tests across 68 files)
 
 ## Completed
 

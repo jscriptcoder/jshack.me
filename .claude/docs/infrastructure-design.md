@@ -109,6 +109,10 @@ Internal (<private>.x.x.11, <private>.x.x.12)
 - **Forwarded** (easier): Router NATs entry machine ports to its public IP. Player connects to public IP and transparently lands on internal machine. Easy difficulty has 70% chance, medium 50%.
 - **Router-first** (harder): No forwarding. Player must hack the router to reach internal machines. Hard difficulty always uses this mode. A credential placement on the router filesystem contains SSH credentials for the internal entry machine (so the player can reach it after hacking the router).
 
+### Port Closures
+
+PRNG-driven SSH/FTP port closures (~30% each, independent rolls) add lateral movement variety. At most one SSH and one FTP closure per network. Entry machine, router, and script_fix objectives are protected. When SSH is closed on a machine, FTP port 21 is ensured open, forcing FTP file transfers instead of shell access. The attack chain's `getMethodForMachine` checks SSH availability before routing.
+
 ### NAT Resolution
 
 `NetworkContext.resolveNat(ip)` handles the translation from public to internal IPs. Applied at three connection boundaries in `Terminal.tsx`: SSH login, FTP session, NC session.

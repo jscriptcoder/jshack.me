@@ -547,7 +547,7 @@ describe('nmap command', () => {
       ).toBe(true);
     });
 
-    it('should only show open ports', () => {
+    it('should show both open and closed ports', () => {
       const context = createMockNmapContext({
         machines: [
           getMockRemoteMachine({
@@ -573,11 +573,11 @@ describe('nmap command', () => {
 
       vi.advanceTimersByTime(2000);
 
-      expect(lines.some((l) => l.includes('22/tcp'))).toBe(true);
-      expect(lines.some((l) => l.includes('23/tcp'))).toBe(false);
+      expect(lines.some((l) => l.includes('22/tcp') && l.includes('open'))).toBe(true);
+      expect(lines.some((l) => l.includes('23/tcp') && l.includes('closed'))).toBe(true);
     });
 
-    it('should show all ports closed when no open ports', () => {
+    it('should show closed ports in table when no open ports', () => {
       const context = createMockNmapContext({
         machines: [
           getMockRemoteMachine({
@@ -598,9 +598,9 @@ describe('nmap command', () => {
         );
       }
 
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(2000);
 
-      expect(lines.some((l) => l.includes('All scanned ports are closed'))).toBe(true);
+      expect(lines.some((l) => l.includes('22/tcp') && l.includes('closed'))).toBe(true);
     });
 
     it('should cancel port scan', () => {

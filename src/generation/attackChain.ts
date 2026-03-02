@@ -84,11 +84,14 @@ export const placementTemplates: readonly {
 ];
 
 const getMethodForMachine = (prng: Prng, machine: GeneratedMachine): AttackMethod => {
+  const hasSsh = machine.remoteMachine.ports.some((p) => p.port === 22 && p.open);
   const hasFtp = machine.remoteMachine.ports.some((p) => p.port === 21 && p.open);
   const hasHttp = machine.remoteMachine.ports.some((p) => p.port === 80 && p.open);
 
   if (hasHttp && hasFtp) return prng.pick(['http', 'ftp'] as const);
-  if (hasHttp) return prng.pick(['http', 'ssh'] as const);
+  if (hasHttp && hasSsh) return prng.pick(['http', 'ssh'] as const);
+  if (hasFtp && hasSsh) return prng.pick(['ftp', 'ssh'] as const);
+  if (hasHttp) return 'http';
   if (hasFtp) return 'ftp';
   return 'ssh';
 };

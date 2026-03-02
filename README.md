@@ -214,7 +214,7 @@ npm run test:e2e      # Run Playwright E2E tests (mission playthroughs)
 
 ### Test Coverage
 
-1039 unit tests across 68 colocated test files covering terminal commands, hooks, components, utilities, filesystem, persistence, procedural generation, and mission system.
+1046 unit tests across 68 colocated test files covering terminal commands, hooks, components, utilities, filesystem, persistence, procedural generation, and mission system.
 
 4 Playwright E2E tests: mission playthroughs covering SSH, FTP, NC entry variants + mission lifecycle. Run with `--headed` to watch them play:
 

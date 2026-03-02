@@ -170,6 +170,27 @@ Binary exfiltrate targets use paths like `/opt/app/data.bin`, `/var/lib/export.d
 - `strings` command's `isPrintable()` (ASCII 32-126 + tab + newline) filters these out
 - Hints for binary placements mention `strings` (e.g., "try extracting strings from it")
 
+## Port Closures
+
+PRNG-driven SSH/FTP port closures increase lateral movement variety. At most one SSH and one FTP closure per network (independent ~30% rolls). When SSH is closed on a machine, FTP port 21 is ensured open so the player must use FTP file transfers instead of a shell.
+
+### Rules
+
+- ~30% chance to close one SSH port; ~30% chance to close one FTP port (independent rolls)
+- **Entry machine**: never closed (protected)
+- **Router**: never closed (infrastructure)
+- **script_fix objective**: never close SSH (player needs `node()` shell access on target)
+- **Same-machine collision**: FTP closure skipped if it targets the same machine as SSH closure
+- When SSH is closed, FTP port 21 is added/opened on that machine
+
+### PRNG Consumption
+
+Always consumes 4 PRNG calls (2× `next` + 2× `nextInt`) for sequence stability, even when no closures apply (e.g., script_fix or no eligible machines).
+
+### Lateral Movement Impact
+
+`getMethodForMachine` in `attackChain.ts` checks `hasSsh` before selecting SSH as a lateral movement method. When SSH is closed, the attack chain routes through FTP or HTTP instead.
+
 ## Network Modes (2)
 
 | Mode         | Description                                                                                                                                     |
