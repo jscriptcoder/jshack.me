@@ -26,6 +26,14 @@ let cache: StorageCache = {
 };
 
 export const initializeStorage = async (): Promise<void> => {
+  // xterm() opens a new tab with ?fresh to prevent Chromium's sessionStorage
+  // cloning. Clear the inherited session so this tab starts at localhost.
+  const params = new URLSearchParams(window.location.search);
+  if (params.has('fresh')) {
+    sessionStorage.clear();
+    window.history.replaceState(null, '', window.location.pathname);
+  }
+
   // Session state is per-tab (sessionStorage) — load synchronously
   const sessionState = loadSessionFromTab();
 

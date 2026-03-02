@@ -10,7 +10,10 @@ export const xtermCommand: Command = {
     examples: [{ command: 'xterm()', description: 'Open a new terminal tab' }],
   },
   fn: (): string => {
-    window.open(window.location.href, '_blank');
+    // Chromium clones sessionStorage from the opener when using window.open,
+    // so the new tab would inherit the current machine/user/path. The ?fresh
+    // param tells main.tsx to clear sessionStorage before initializing.
+    window.open(`${window.location.origin}?fresh`, '_blank');
     return 'Opening new terminal...';
   },
 };
