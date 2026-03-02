@@ -133,6 +133,32 @@ const addNcBackdoorOwner = (
   );
 };
 
+// For FTP entry variant: assigns a user as owner of the FTP port (port 21).
+// Owner type is picked by PRNG (guest/user/root) for difficulty variety,
+// matching the NC/exploit pattern. The FTP login user becomes this owner.
+const addFtpServerOwner = (
+  ports: readonly Port[],
+  users: readonly RemoteUser[],
+  prng: Prng,
+): readonly Port[] => {
+  const ownerType = pickOwnerType(prng);
+  const owner = findUserByType(users, ownerType);
+  if (!owner) return ports;
+
+  return ports.map((p) =>
+    p.service === 'ftp' && p.open
+      ? {
+          ...p,
+          owner: {
+            username: owner.username,
+            userType: owner.userType,
+            homePath: owner.userType === 'root' ? '/root' : `/home/${owner.username}`,
+          },
+        }
+      : p,
+  );
+};
+
 // For exploit entry variant: attaches a vulnerability and owner to the
 // non-SSH open port on the entry machine. Owner type is picked by PRNG
 // (guest/user/root) for difficulty variety.
@@ -166,7 +192,7 @@ const addExploitVulnerability = (
 const enrichMachineWithUsers = (
   machine: GeneratedMachine,
   users: RemoteMachine['users'],
-  entryVariantFlag: 'nc' | 'exploit' | null,
+  entryVariantFlag: 'nc' | 'exploit' | 'ftp' | null,
   prng: Prng,
 ): GeneratedMachine => ({
   ...machine,
@@ -177,7 +203,9 @@ const enrichMachineWithUsers = (
         ? addNcBackdoorOwner(machine.remoteMachine.ports, users, prng)
         : entryVariantFlag === 'exploit'
           ? addExploitVulnerability(machine.remoteMachine.ports, users, prng)
-          : machine.remoteMachine.ports,
+          : entryVariantFlag === 'ftp'
+            ? addFtpServerOwner(machine.remoteMachine.ports, users, prng)
+            : machine.remoteMachine.ports,
     users,
   },
 });
@@ -282,9 +310,11 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
   const isForwarded = topology.natForwarding !== undefined;
   const entryVariantTarget = isForwarded ? topology.entryPoint : topology.routerPublicIp;
 
-  const isEntryVariant = (ip: string): 'nc' | 'exploit' | null =>
+  const isEntryVariant = (ip: string): 'nc' | 'exploit' | 'ftp' | null =>
     ip === entryVariantTarget &&
-    (topology.entryVariant === 'nc' || topology.entryVariant === 'exploit')
+    (topology.entryVariant === 'nc' ||
+      topology.entryVariant === 'exploit' ||
+      topology.entryVariant === 'ftp')
       ? topology.entryVariant
       : null;
 
@@ -363,7 +393,7 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
     : routerWithUsers;
   const portOwner = entryMachineForCred?.remoteMachine.ports.find((p) => p.owner)?.owner;
   // SSH and HTTP variants use a regular user account (player finds creds via web or briefing).
-  // NC/exploit variants use the port owner's account (guest/user/root, determined by PRNG).
+  // NC/exploit/FTP variants use the port owner's account (guest/user/root, determined by PRNG).
   const entryCred =
     topology.entryVariant === 'ssh' || topology.entryVariant === 'http'
       ? entryCredentials.find((c) => c.username !== 'root' && c.username !== 'guest')

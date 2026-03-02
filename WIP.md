@@ -2,11 +2,11 @@
 
 ## Current Step
 
-Recovering static machines + FTP path autocompletion
+FTP entry variant port owner fix
 
 ## Status
 
-✅ COMPLETE — Static fileserver/webserver restored, FTP dual-machine path completion (1039 unit tests across 68 files)
+✅ COMPLETE — FTP entry variant now has PRNG-weighted port owner (guest/user/root) like NC/exploit. Credential hints use owner-based paths with root→/tmp/ fallback. (1040 unit tests across 68 files)
 
 ## Completed
 

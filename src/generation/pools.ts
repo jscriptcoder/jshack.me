@@ -322,7 +322,7 @@ export type EntryCredentialHintTemplate = {
 
 export const entryCredentialHintTemplates: readonly EntryCredentialHintTemplate[] = [
   {
-    ftpPath: '/home/{{localUser}}/.ssh_backup',
+    ftpPath: '/home/{{owner}}/.ssh_backup',
     ncPath: '/home/{{owner}}/ssh_backup.txt',
     exploitPath: '/home/{{owner}}/ssh_backup.txt',
     httpPath: '/var/www/html/status',
@@ -333,7 +333,7 @@ export const entryCredentialHintTemplates: readonly EntryCredentialHintTemplate[
       'SSH Credentials Backup\n======================\nHost: {{hostname}}\nUser: {{user}}\nPass: {{password}}\nLast updated: Jan 10',
   },
   {
-    ftpPath: '/home/{{localUser}}/notes.txt',
+    ftpPath: '/home/{{owner}}/notes.txt',
     ncPath: '/home/{{owner}}/notes.txt',
     exploitPath: '/home/{{owner}}/notes.txt',
     httpPath: '/var/www/html/admin/debug.html',
@@ -343,7 +343,7 @@ export const entryCredentialHintTemplates: readonly EntryCredentialHintTemplate[
     template: 'Server notes:\n- SSH access: {{user}} / {{password}}\n- Remember to rotate!',
   },
   {
-    ftpPath: '/home/{{localUser}}/credentials.bak',
+    ftpPath: '/home/{{owner}}/credentials.bak',
     ncPath: '/home/{{owner}}/.credentials',
     exploitPath: '/home/{{owner}}/.credentials',
     httpPath: '/var/www/html/.env',

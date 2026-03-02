@@ -655,7 +655,7 @@
 - Mission `su` on generated machines: `getUsers()` must search mission network config, not just static config
 - Mission complete banner: uses `addLine('banner', ...)` — match with `BANNER` selector, not `RESULT`
 - Mission credential placements in `/var/log/auth.log`: root-only by default (regular users can't read)
-- FTP entry variant credential hints: placed in `/home/{user}/` dirs which are `read: ['root', 'user']` — guest can't access
+- FTP entry variant credential hints: originally placed in `/home/{regularUser}/` dirs (inaccessible to guest). Fixed by adding FTP port owner variant (PRNG-weighted guest/user/root, like NC/exploit). Hints now go in `/home/{owner}/` (owner can read their own home) with root→`/tmp/` fallback.
 - Guest users on mission entry machines: can't call `ssh()` or `abort()` (require 'user' privilege). SSH entry variant now uses a regular user account instead of guest. `exit()` was moved to unrestricted (guest-accessible).
 - NC mode path autocomplete: resolves on the NC target machine (via adapted wrappers), not localhost
 - FTP mode path autocomplete: requires two separate `usePathAutoComplete` instances (remote + local) because FTP operates on two machines simultaneously. `getFtpPathCompletions` detects the FTP command and argument position: remote commands (cd, ls) → remote instance, local commands (lcd, lls) → local instance, dual-argument commands (get/put) → count commas before cursor to determine which argument and context

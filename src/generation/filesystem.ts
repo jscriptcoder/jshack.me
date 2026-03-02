@@ -478,10 +478,10 @@ const buildEntryCredentialPlacement = (
     ? prng.pick(binaryEntryCredentialHintTemplates)
     : prng.pick(entryCredentialHintTemplates);
   const localUser = sshUser.username;
-  // NC and exploit variants derive owner from the machine's port owner (guest/user/root)
+  // NC, exploit, and FTP variants derive owner from the machine's port owner (guest/user/root)
   const portOwner = machine.remoteMachine.ports.find((p) => p.owner)?.owner;
   const ownerUser =
-    entryVariant === 'nc' || entryVariant === 'exploit'
+    entryVariant === 'nc' || entryVariant === 'exploit' || entryVariant === 'ftp'
       ? (portOwner?.username ?? users.find((u) => u.userType === 'guest')?.username ?? 'guest')
       : localUser;
 
@@ -515,14 +515,15 @@ const buildEntryCredentialPlacement = (
 
   // Root's home is /root/, not /home/root/ — place hints in /tmp/ instead
   const ownerIsRoot = portOwner?.userType === 'root';
-  const filePath =
+  const pathByVariant =
     entryVariant === 'ftp'
-      ? hintTemplate.ftpPath.replace('{{localUser}}', localUser)
-      : ownerIsRoot
-        ? `/tmp/${hintTemplate.ncPath.split('/').pop()}`
-        : entryVariant === 'exploit'
-          ? hintTemplate.exploitPath.replace('{{owner}}', ownerUser)
-          : hintTemplate.ncPath.replace('{{owner}}', ownerUser);
+      ? hintTemplate.ftpPath
+      : entryVariant === 'exploit'
+        ? hintTemplate.exploitPath
+        : hintTemplate.ncPath;
+  const filePath = ownerIsRoot
+    ? `/tmp/${pathByVariant.split('/').pop()}`
+    : pathByVariant.replace('{{owner}}', ownerUser);
 
   const fileContent = fillTemplate(hintTemplate.template, {
     hostname: machine.hostname,

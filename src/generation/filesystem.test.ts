@@ -156,9 +156,9 @@ describe('generateFileSystems', () => {
     });
   });
 
-  it('all FTP entry credential hint paths use /home/ prefix', () => {
+  it('all FTP entry credential hint paths use /home/{{owner}}/ prefix', () => {
     entryCredentialHintTemplates.forEach((t) => {
-      expect(t.ftpPath).toMatch(/^\/home\//);
+      expect(t.ftpPath).toMatch(/^\/home\/\{\{owner\}\}\//);
     });
   });
 

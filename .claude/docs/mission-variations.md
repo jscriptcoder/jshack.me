@@ -37,15 +37,15 @@ How the player gains initial access to the entry machine.
 | Exploit | `nmap -sV` → find vulnerable service → `exploit(host, port)` → find SSH credentials |
 | HTTP    | `nmap` → discover port 80 → `curl` to explore web content → find SSH credentials    |
 
-## NC/Exploit Owner Types (3)
+## FTP/NC/Exploit Owner Types (3)
 
-Owner type for NC backdoor and exploit port owners varies per seed, adding difficulty variety to restricted shells.
+Owner type for FTP, NC backdoor, and exploit port owners varies per seed, adding difficulty variety. The FTP login user, NC shell user, and exploit shell user are all determined by the port owner.
 
-| Type  | Weight | Effect                                                           |
-| ----- | ------ | ---------------------------------------------------------------- |
-| guest | 60%    | Limited file visibility in NC/exploit shell, must find SSH creds |
-| user  | 30%    | Same visibility (permission model), different identity           |
-| root  | 10%    | Can read root-owned files, easiest to find what's needed         |
+| Type  | Weight | Effect                                                   |
+| ----- | ------ | -------------------------------------------------------- |
+| guest | 60%    | Limited file visibility, must find SSH creds             |
+| user  | 30%    | Hint files in owner's home dir, accessible to that user  |
+| root  | 10%    | Can read root-owned files, easiest to find what's needed |
 
 Root owners have hints placed in `/tmp/` instead of `/home/root/` (since root's home is `/root/`, not managed by `generateHomeContent`).
 
@@ -313,11 +313,11 @@ Where next-hop credentials are hidden on the current machine.
 
 Used by FTP/NC/exploit/HTTP variants to place SSH credentials on the entry machine.
 
-| FTP Path                         | NC/Exploit Path                  | HTTP Path                        | Style                      |
-| -------------------------------- | -------------------------------- | -------------------------------- | -------------------------- |
-| `/home/{{user}}/.ssh_backup`     | `/home/{{owner}}/ssh_backup.txt` | `/var/www/html/status` (header)  | SSH credentials backup     |
-| `/home/{{user}}/notes.txt`       | `/home/{{owner}}/notes.txt`      | `/var/www/html/admin/debug.html` | Server notes with creds    |
-| `/home/{{user}}/credentials.bak` | `/home/{{owner}}/.credentials`   | `/var/www/html/.env` (header)    | Auto-generated credentials |
+| FTP Path                          | NC/Exploit Path                  | HTTP Path                        | Style                      |
+| --------------------------------- | -------------------------------- | -------------------------------- | -------------------------- |
+| `/home/{{owner}}/.ssh_backup`     | `/home/{{owner}}/ssh_backup.txt` | `/var/www/html/status` (header)  | SSH credentials backup     |
+| `/home/{{owner}}/notes.txt`       | `/home/{{owner}}/notes.txt`      | `/var/www/html/admin/debug.html` | Server notes with creds    |
+| `/home/{{owner}}/credentials.bak` | `/home/{{owner}}/.credentials`   | `/var/www/html/.env` (header)    | Auto-generated credentials |
 
 HTTP entry variant places credentials either in the page body or in a `.headers` sidecar file (visible via `curl -i`). The `httpInHeader` flag on each template controls the placement: header-based secrets require `curl -i` to discover, while body-based secrets are visible with regular `curl`.
 
