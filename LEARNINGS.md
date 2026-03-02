@@ -8,6 +8,12 @@
 - **Issue**: Opening a new tab inherited the other tab's machine/path instead of starting fresh at `localhost /home/jshacker`. Also, refreshing Tab A while Tab B writes could cause state corruption.
 - **Solution**: Moved session state to `sessionStorage` (per-tab). WiFi and other shared state remain in IndexedDB with dedicated keys. Each tab gets an independent session on load.
 
+### Chromium clones sessionStorage on window.open
+
+- **Context**: `xterm()` command opens a new browser tab via `window.open()`
+- **Issue**: Chromium-based browsers clone `sessionStorage` from the opener tab to the new tab. Even though sessionStorage is "per-tab", `window.open` is a special case — the new tab inherits the opener's session state (machine, user, path, SSH stack) instead of starting fresh at localhost.
+- **Solution**: `xterm()` appends a `?fresh` query param to the URL. `initializeStorage()` in `storageCache.ts` detects this param, clears `sessionStorage`, and strips it from the URL via `history.replaceState()` before loading session state. The `about:blank` intermediate navigation trick does not reliably prevent cloning.
+
 ### Empty async output lines collapse
 
 - **Context**: When streaming async command output with `onLine('')`
