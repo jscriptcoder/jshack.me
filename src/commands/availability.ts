@@ -31,6 +31,7 @@ export const APT_INSTALLABLE = new Set([
   'decrypt',
   'node',
   'nslookup',
+  'hydra',
 ]);
 
 export type AptPackageInfo = {
@@ -51,6 +52,7 @@ export const APT_PACKAGES: readonly AptPackageInfo[] = [
   { name: 'decrypt', description: 'File decryption utility', version: '1.0.0' },
   { name: 'node', description: 'Node.js JavaScript runtime', version: '20.11.0' },
   { name: 'nslookup', description: 'DNS lookup utility', version: '9.18.0' },
+  { name: 'hydra', description: 'Network login brute-force tool', version: '9.4' },
 ];
 
 // Binary stub content — looks like an ELF binary header
@@ -86,6 +88,7 @@ export const APT_TOOL_NAMES = [
   'decrypt',
   'node',
   'nslookup',
+  'hydra',
 ] as const;
 
 // Creates binary stub FileNode entries for populating /bin/ or /usr/bin/

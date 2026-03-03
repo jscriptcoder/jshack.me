@@ -364,9 +364,9 @@ HTTP entry variant places credentials either in the page body or in a `.headers`
 | workstation | ws-admin, dev-box, ops-station, analyst-pc, jump-box |
 | router      | router01, gw-main, border-gw, core-rtr, firewall01   |
 
-### Guest Passwords (6)
+### Guest Passwords (7)
 
-`guest`, `guest123`, `password`, `letmein`, `welcome`, `changeme`
+`guest`, `guest123`, `password`, `letmein`, `welcome`, `changeme`, `123456`
 
 ### Client Handles (10)
 
@@ -374,7 +374,7 @@ Used for `clientEmail` generation: `${handle}@darkmail.onion`
 
 `xR0gu3x`, `gh0st_`, `cyph3rpunk`, `n3twr4ith`, `zer0day_`, `bl4ckh4t`, `silkr0ad`, `darkfl0w`, `v0id_agent`, `ph4nt0m`
 
-### Mission Passwords (20)
+### Mission Passwords (60)
 
 Encoded in `src/secrets/__encoded.ts` — used for machine user passwords.
 

@@ -8,11 +8,11 @@ Commands use a factory pattern with context injection: `createXCommand(context) 
 
 Commands are tiered by user type. Restricted commands show `permission denied: 'name' requires TYPE privileges` and are hidden from `help()` and tab autocomplete. `man()` can still look up any command.
 
-| Tier     | User Type | Available Commands                                                                                                                                                                               |
-| -------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Basic    | `guest`   | help, man, echo, whoami, pwd, ls, cd, cat, su, clear, author, theme, exit                                                                                                                        |
-| Standard | `user`    | All basic + apt, ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, exploit, strings, output, resolve, nano, node, john, airmon, airdump, aircrack, nmcli, missions, accept, abort, mail, xterm |
-| Full     | `root`    | All standard + decrypt                                                                                                                                                                           |
+| Tier     | User Type | Available Commands                                                                                                                                                                                      |
+| -------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Basic    | `guest`   | help, man, echo, whoami, pwd, ls, cd, cat, su, clear, author, theme, exit                                                                                                                               |
+| Standard | `user`    | All basic + apt, ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, exploit, hydra, strings, output, resolve, nano, node, john, airmon, airdump, aircrack, nmcli, missions, accept, abort, mail, xterm |
+| Full     | `root`    | All standard + decrypt                                                                                                                                                                                  |
 
 FTP and NC modes have their own separate command sets and are not restricted.
 
@@ -76,17 +76,18 @@ On remote and mission machines, hacking tools aren't pre-installed. Players must
 
 ## Network
 
-| Command  | File          | Signature               | Description                                                                   |
-| -------- | ------------- | ----------------------- | ----------------------------------------------------------------------------- |
-| ifconfig | `ifconfig.ts` | `ifconfig([iface])`     | Display network interface configuration                                       |
-| ping     | `ping.ts`     | `ping(host, [count])`   | Send ICMP echo request to network host (async)                                |
-| nmap     | `nmap.ts`     | `nmap(["-sV",] target)` | Network exploration and port scanning; -sV for version/vuln detection (async) |
-| nslookup | `nslookup.ts` | `nslookup(domain)`      | Query DNS to resolve domain to IP address (async)                             |
-| ssh      | `ssh.ts`      | `ssh(user, host)`       | Connect to remote machine via SSH (async)                                     |
-| curl     | `curl.ts`     | `curl(url, [flags])`    | HTTP client for GET/POST requests (async, `-i` for headers, `-X POST`)        |
-| ftp      | `ftp.ts`      | `ftp(host)`             | Connect to remote machine via FTP (async)                                     |
-| nc       | `nc.ts`       | `nc(host, port)`        | Netcat - connect to arbitrary port (async, interactive for special services)  |
-| exploit  | `exploit.ts`  | `exploit(host, port)`   | Exploit a vulnerable service for RCE (async, drops into restricted shell)     |
+| Command  | File          | Signature                    | Description                                                                   |
+| -------- | ------------- | ---------------------------- | ----------------------------------------------------------------------------- |
+| ifconfig | `ifconfig.ts` | `ifconfig([iface])`          | Display network interface configuration                                       |
+| ping     | `ping.ts`     | `ping(host, [count])`        | Send ICMP echo request to network host (async)                                |
+| nmap     | `nmap.ts`     | `nmap(["-sV",] target)`      | Network exploration and port scanning; -sV for version/vuln detection (async) |
+| nslookup | `nslookup.ts` | `nslookup(domain)`           | Query DNS to resolve domain to IP address (async)                             |
+| ssh      | `ssh.ts`      | `ssh(user, host)`            | Connect to remote machine via SSH (async)                                     |
+| curl     | `curl.ts`     | `curl(url, [flags])`         | HTTP client for GET/POST requests (async, `-i` for headers, `-X POST`)        |
+| ftp      | `ftp.ts`      | `ftp(host)`                  | Connect to remote machine via FTP (async)                                     |
+| nc       | `nc.ts`       | `nc(host, port)`             | Netcat - connect to arbitrary port (async, interactive for special services)  |
+| exploit  | `exploit.ts`  | `exploit(host, port)`        | Exploit a vulnerable service for RCE (async, drops into restricted shell)     |
+| hydra    | `hydra.ts`    | `hydra(host[, svc[, user]])` | Brute-force SSH/FTP login credentials (async, probability-based)              |
 
 ## WiFi
 

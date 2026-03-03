@@ -11,6 +11,7 @@ import { createFtpCommand } from '../commands/ftp';
 import { createNcCommand } from '../commands/nc';
 import { createCurlCommand } from '../commands/curl';
 import { createExploitCommand } from '../commands/exploit';
+import { createHydraCommand } from '../commands/hydra';
 import type { Command } from '../components/Terminal/types';
 
 // Higher-order function that wraps a network command with WiFi connectivity gating.
@@ -98,6 +99,14 @@ export const useNetworkCommands = (): Map<string, Command> => {
       'exploit',
       wrapWithWifiCheck(
         createExploitCommand({ getMachine, getLocalIP, resolveDomain }),
+        isWifiRequired,
+      ),
+    );
+
+    commands.set(
+      'hydra',
+      wrapWithWifiCheck(
+        createHydraCommand({ getMachine, getLocalIP, resolveDomain }),
         isWifiRequired,
       ),
     );

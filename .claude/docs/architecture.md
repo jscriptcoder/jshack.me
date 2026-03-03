@@ -48,7 +48,7 @@ e2e/
 
 ## Terminal Features
 
-- ASCII banner on startup ("JSHACK.ME v0.8.1")
+- ASCII banner on startup ("JSHACK.ME v0.9.0")
 - Dynamic prompt: `username@machine>` (managed via SessionContext)
 - Command history (up/down arrows)
 - Tab autocompletion for commands and variables
@@ -170,7 +170,7 @@ Network access from localhost requires cracking a WiFi network first. This is a 
 
 See `src/commands/` for implementations and `src/hooks/useCommands.ts` for the registry.
 
-Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, su, whoami, airmon, airdump, aircrack, nmcli, ifconfig, ping, nmap, nslookup, ssh, exit, ftp, nc, curl, exploit, decrypt, output, resolve, strings, nano, node, missions, accept, abort, mail, apt, theme, reset, xterm.
+Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, su, whoami, airmon, airdump, aircrack, nmcli, ifconfig, ping, nmap, nslookup, ssh, exit, ftp, nc, curl, exploit, hydra, decrypt, output, resolve, strings, nano, node, missions, accept, abort, mail, apt, theme, reset, xterm.
 
 FTP mode (when connected via ftp): pwd, lpwd, cd, lcd, ls, lls, get, put, quit/bye.
 
@@ -186,7 +186,7 @@ On remote/mission machines, hacking tools are not pre-installed. Players must in
 
 - **Shell builtins** (cd, exit, echo, pwd, etc.) — always available, no binary check
 - **System utilities** (ls, cat, ssh, ping, apt, etc.) — always available, binaries in `/bin/`
-- **Apt-installable** (nmap, john, nc, ftp, exploit, airmon, airdump, aircrack, decrypt, node, nslookup) — require `/usr/bin/<name>` binary; pre-installed on localhost only
+- **Apt-installable** (nmap, john, hydra, nc, ftp, exploit, airmon, airdump, aircrack, decrypt, node, nslookup) — require `/usr/bin/<name>` binary; pre-installed on localhost only
 - **Game-specific** (missions, accept, mail, etc.) — always available, no binary check
 
 **Filesystem integration:** `fileSystemFactory.ts` creates `/bin/` and `/usr/bin/` directories on all machines. `/bin/` contains system utility binary stubs. `/usr/bin/` is empty on remote/mission machines (populated via `apt install`). `mergeExtraDirectories()` does one-level-deep directory merging to prevent mission `extraDirectories` from overwriting factory-created `/usr/`.

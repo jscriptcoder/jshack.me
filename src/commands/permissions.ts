@@ -36,6 +36,7 @@ export const COMMAND_TIERS: Readonly<Record<string, UserType>> = {
   nmcli: 'user',
   exploit: 'user',
   john: 'user',
+  hydra: 'user',
   missions: 'user',
   accept: 'user',
   abort: 'user',

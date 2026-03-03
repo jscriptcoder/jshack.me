@@ -8,6 +8,95 @@ Random SSH/FTP port closures in mission networks
 
 ✅ COMPLETE — PRNG-driven port closures (~30% SSH, ~30% FTP, independent rolls) add lateral movement variety. When SSH is closed, FTP port 21 is ensured open. Entry machine, router, and script_fix objectives are protected. Attack chain routes through FTP/HTTP when SSH is unavailable. (1046 unit tests across 68 files)
 
+## Future Ideas
+
+Brainstormed ideas for expanding gameplay variety. Prioritized by estimated impact.
+
+### High Priority
+
+#### Firewall Manipulation
+
+- Router has `/etc/iptables/rules.v4` with realistic firewall rules blocking internal ports
+- Player must `nano` the rules and run a reload script (`node /etc/iptables/apply.js`) to open blocked ports
+- Until firewall is modified, certain internal machine ports show as "filtered" in nmap
+- Adds a puzzle layer to router-first mode — router isn't just a stepping stone
+
+#### Scripted Exploits (nano + node as core hacking loop)
+
+- Some machines require writing a custom exploit script to progress:
+  - **SQL injection script**: write a script that calls `curl` with crafted payloads to dump credentials from a web endpoint
+  - **Brute force script**: write a script that tries passwords from a wordlist file found on the machine
+  - **Reverse shell script**: plant a listener script on a machine, then trigger it from another
+- `node()` executes and returns results based on correctness
+- Makes `nano` + `node` a core hacking mechanic, not just script_fix
+
+#### Log Wiping / Cover Tracks (`cover_tracks` objective)
+
+- After completing another objective, the client demands you clean up evidence
+- Must edit auth.log/access.log with `nano` to remove entries containing your username/IP
+- Verification: `mail` checks the log file no longer contains the target strings
+- Very realistic — real attackers do this post-exploitation
+
+#### Evidence Planting (`plant` objective)
+
+- Use `nano` to create a specific file at a specific path on a target machine
+- Content must match requirements (e.g., "plant a backdoor SSH key in /root/.ssh/authorized_keys")
+- Verification: `mail` checks file exists with correct content
+- Simple new objective type, reuses existing nano mechanics
+
+#### Chain Missions (multi-objective)
+
+- Multi-step heists: exfiltrate THEN tamper THEN cover tracks
+- `mail` accepts proof for each step sequentially (or a combined proof)
+- Unlocked at higher difficulty / reputation tiers
+- Combines existing objectives for harder, more varied content
+
+### Medium Priority
+
+#### Port Knocking
+
+- Some machines have SSH hidden behind a port knock sequence
+- Player finds the sequence in a config file (e.g., `/etc/knockd.conf`)
+- Must `nc` to ports in correct order, then SSH opens
+- Could add a `knock(host, port1, port2, port3)` command or reuse `nc` sequentially
+
+#### Encrypted Communications (PGP-style)
+
+- Find encrypted messages between users in mail spools (PGP-style blocks)
+- Must find the private key on another machine, use `decrypt` to read
+- Decrypted message contains the next credential or objective proof
+- Adds depth to exfiltrate chains and makes `decrypt` more useful
+
+#### Cron Job Exploitation
+
+- A cron job runs periodically (simulated with async delay)
+- Player plants a malicious script in a writable cron directory
+- When the "cron fires," it executes and dumps results to a file the player can read
+- Realistic privilege escalation vector used in real pentests
+
+### Lower Priority / Experimental
+
+#### Machine Destruction (`sabotage` objective)
+
+- Delete `/boot/vmlinuz` or corrupt `/etc/init.d/` configs
+- Machine goes "offline" — becomes unreachable after a few seconds (async)
+- Could be an objective ("take down their backup server") or a consequence of detection
+- Adds stakes and permanence to actions
+
+#### Honeypot Machines
+
+- Some machines are traps — connecting triggers a "detection" timer
+- Player must complete objective before detection completes, or mission fails
+- Or: honeypot has fake credentials that waste time as red herrings
+- Adds tension and forces reconnaissance before acting
+
+#### SSH Tunneling / Port Forwarding
+
+- Some internal machines are only reachable through a specific intermediate host
+- `ssh -L localport:targethost:targetport` to set up port forwarding
+- Then connect to `localhost:localport` to reach the hidden machine
+- Very realistic lateral movement technique, but complex to implement
+
 ## Completed
 
 - [x] Core terminal with JavaScript execution
