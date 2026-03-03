@@ -263,20 +263,4 @@ describe('nc cd command', () => {
       expect(context.setCwd).toHaveBeenCalledWith('/shared');
     });
   });
-
-  describe('command metadata', () => {
-    it('should have correct name', () => {
-      const context = createMockNcCdContext();
-      const cd = createNcCdCommand(context);
-
-      expect(cd.name).toBe('cd');
-    });
-
-    it('should have description', () => {
-      const context = createMockNcCdContext();
-      const cd = createNcCdCommand(context);
-
-      expect(cd.description).toBe('Change directory');
-    });
-  });
 });

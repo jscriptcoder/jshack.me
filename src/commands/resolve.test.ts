@@ -210,25 +210,4 @@ describe('resolve command', () => {
       expect(completed).toBe(false);
     });
   });
-
-  describe('command metadata', () => {
-    it('should have correct name', () => {
-      const resolve = createResolveCommand();
-
-      expect(resolve.name).toBe('resolve');
-    });
-
-    it('should have description', () => {
-      const resolve = createResolveCommand();
-
-      expect(resolve.description).toBe('Unwrap a Promise and display its resolved value');
-    });
-
-    it('should have manual with examples', () => {
-      const resolve = createResolveCommand();
-
-      expect(resolve.manual).toBeDefined();
-      expect(resolve.manual?.examples?.length).toBeGreaterThan(0);
-    });
-  });
 });

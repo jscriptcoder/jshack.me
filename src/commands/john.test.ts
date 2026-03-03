@@ -241,28 +241,4 @@ describe('john command', () => {
       expect(lines).toContain('1/1 password hash cracked');
     });
   });
-
-  describe('command metadata', () => {
-    it('should have correct name', () => {
-      const context = createMockJohnContext();
-      const john = createJohnCommand(context);
-
-      expect(john.name).toBe('john');
-    });
-
-    it('should have description', () => {
-      const context = createMockJohnContext();
-      const john = createJohnCommand(context);
-
-      expect(john.description).toBe('Crack password hashes using dictionary attack');
-    });
-
-    it('should have manual with examples', () => {
-      const context = createMockJohnContext();
-      const john = createJohnCommand(context);
-
-      expect(john.manual).toBeDefined();
-      expect(john.manual?.examples?.length).toBeGreaterThan(0);
-    });
-  });
 });

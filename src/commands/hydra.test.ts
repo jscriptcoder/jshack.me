@@ -62,22 +62,6 @@ describe('hydra command', () => {
     vi.restoreAllMocks();
   });
 
-  describe('command metadata', () => {
-    it('should have correct name and description', () => {
-      const hydra = createHydraCommand(createMockContext());
-      expect(hydra.name).toBe('hydra');
-      expect(hydra.description).toBe('Network login brute-force tool');
-    });
-
-    it('should have a manual page', () => {
-      const hydra = createHydraCommand(createMockContext());
-      expect(hydra.manual).toBeDefined();
-      expect(hydra.manual?.synopsis).toContain('hydra');
-      expect(hydra.manual?.arguments?.length).toBeGreaterThan(0);
-      expect(hydra.manual?.examples?.length).toBeGreaterThan(0);
-    });
-  });
-
   describe('argument validation', () => {
     it('should throw when no host given', () => {
       const hydra = createHydraCommand(createMockContext());

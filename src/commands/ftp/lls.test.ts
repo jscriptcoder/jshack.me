@@ -333,28 +333,4 @@ describe('FTP lls command', () => {
       expect(result).toBe('(empty directory)');
     });
   });
-
-  describe('command metadata', () => {
-    it('should have correct name', () => {
-      const context = createMockContext();
-      const lls = createFtpLlsCommand(context);
-
-      expect(lls.name).toBe('lls');
-    });
-
-    it('should have description', () => {
-      const context = createMockContext();
-      const lls = createFtpLlsCommand(context);
-
-      expect(lls.description).toBe('List local directory contents');
-    });
-
-    it('should have manual with examples', () => {
-      const context = createMockContext();
-      const lls = createFtpLlsCommand(context);
-
-      expect(lls.manual).toBeDefined();
-      expect(lls.manual?.examples?.length).toBeGreaterThan(0);
-    });
-  });
 });

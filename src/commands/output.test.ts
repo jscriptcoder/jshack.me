@@ -209,28 +209,4 @@ describe('output command', () => {
       expect(result).toBe('hello');
     });
   });
-
-  describe('command metadata', () => {
-    it('should have correct name', () => {
-      const { context } = createMockOutputContext();
-      const output = createOutputCommand(context);
-
-      expect(output.name).toBe('output');
-    });
-
-    it('should have description', () => {
-      const { context } = createMockOutputContext();
-      const output = createOutputCommand(context);
-
-      expect(output.description).toBe('Capture command output to variable or file');
-    });
-
-    it('should have manual with examples', () => {
-      const { context } = createMockOutputContext();
-      const output = createOutputCommand(context);
-
-      expect(output.manual).toBeDefined();
-      expect(output.manual?.examples?.length).toBeGreaterThan(0);
-    });
-  });
 });

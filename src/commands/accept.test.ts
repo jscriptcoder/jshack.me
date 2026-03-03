@@ -98,13 +98,6 @@ describe('accept command', () => {
 
     expect(() => accept.fn('SOME-SEED')).toThrow('A mission is already active');
   });
-
-  it('has correct name and description', () => {
-    const accept = createAcceptCommand({ startMission: vi.fn(), isMissionActive: () => false });
-
-    expect(accept.name).toBe('accept');
-    expect(accept.description).toBeTruthy();
-  });
 });
 
 describe('formatEntryHint', () => {

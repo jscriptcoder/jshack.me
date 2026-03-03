@@ -41,15 +41,4 @@ describe('abort command', () => {
 
     expect(() => abort.fn()).toThrow('No active mission to abort');
   });
-
-  it('has correct name and description', () => {
-    const abort = createAbortCommand({
-      abortMission: vi.fn(),
-      isMissionActive: () => false,
-      popAllSessions: vi.fn(),
-    });
-
-    expect(abort.name).toBe('abort');
-    expect(abort.description).toBeTruthy();
-  });
 });

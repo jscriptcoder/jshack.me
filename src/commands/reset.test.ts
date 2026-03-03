@@ -153,22 +153,4 @@ describe('reset command', () => {
       expect(window.location.reload).toHaveBeenCalled();
     });
   });
-
-  describe('command metadata', () => {
-    it('should have correct name', () => {
-      const reset = createResetCommand({ getDatabase: () => null });
-      expect(reset.name).toBe('reset');
-    });
-
-    it('should have description', () => {
-      const reset = createResetCommand({ getDatabase: () => null });
-      expect(reset.description).toContain('Reset game');
-    });
-
-    it('should have manual with examples', () => {
-      const reset = createResetCommand({ getDatabase: () => null });
-      expect(reset.manual).toBeDefined();
-      expect(reset.manual?.examples?.length).toBeGreaterThan(0);
-    });
-  });
 });

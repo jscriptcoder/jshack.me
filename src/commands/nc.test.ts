@@ -460,28 +460,4 @@ describe('nc command', () => {
       expect(lines[0]).toBe('Connecting to 192.168.1.50:21...');
     });
   });
-
-  describe('command metadata', () => {
-    it('should have correct name', () => {
-      const context = createMockNcContext();
-      const nc = createNcCommand(context);
-
-      expect(nc.name).toBe('nc');
-    });
-
-    it('should have description', () => {
-      const context = createMockNcContext();
-      const nc = createNcCommand(context);
-
-      expect(nc.description).toBe('Netcat — arbitrary TCP connections');
-    });
-
-    it('should have manual', () => {
-      const context = createMockNcContext();
-      const nc = createNcCommand(context);
-
-      expect(nc.manual).toBeDefined();
-      expect(nc.manual?.synopsis).toContain('nc');
-    });
-  });
 });

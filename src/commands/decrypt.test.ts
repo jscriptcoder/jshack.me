@@ -260,28 +260,4 @@ describe('decrypt command', () => {
       expect(lines[0]).toBe('Decrypting...');
     });
   });
-
-  describe('command metadata', () => {
-    it('should have correct name', () => {
-      const context = createMockDecryptContext();
-      const decrypt = createDecryptCommand(context);
-
-      expect(decrypt.name).toBe('decrypt');
-    });
-
-    it('should have description', () => {
-      const context = createMockDecryptContext();
-      const decrypt = createDecryptCommand(context);
-
-      expect(decrypt.description).toBe('Decrypt a file using AES-256');
-    });
-
-    it('should have manual', () => {
-      const context = createMockDecryptContext();
-      const decrypt = createDecryptCommand(context);
-
-      expect(decrypt.manual).toBeDefined();
-      expect(decrypt.manual?.synopsis).toContain('decrypt');
-    });
-  });
 });

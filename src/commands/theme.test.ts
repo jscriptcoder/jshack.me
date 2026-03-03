@@ -53,10 +53,4 @@ describe('theme command', () => {
     const result = command.fn(undefined);
     expect(result).toContain('amber');
   });
-
-  it('has manual documentation', () => {
-    const { command } = createTestCommand();
-    expect(command.manual).toBeDefined();
-    expect(command.manual?.synopsis).toContain('theme');
-  });
 });

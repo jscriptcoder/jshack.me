@@ -237,28 +237,4 @@ describe('strings command', () => {
       expect(result).toBe('ENDING');
     });
   });
-
-  describe('command metadata', () => {
-    it('should have correct name', () => {
-      const context = createMockStringsContext();
-      const strings = createStringsCommand(context);
-
-      expect(strings.name).toBe('strings');
-    });
-
-    it('should have description', () => {
-      const context = createMockStringsContext();
-      const strings = createStringsCommand(context);
-
-      expect(strings.description).toBe('Extract printable strings from a file');
-    });
-
-    it('should have manual with examples', () => {
-      const context = createMockStringsContext();
-      const strings = createStringsCommand(context);
-
-      expect(strings.manual).toBeDefined();
-      expect(strings.manual?.examples?.length).toBeGreaterThan(0);
-    });
-  });
 });

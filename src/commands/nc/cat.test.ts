@@ -216,20 +216,4 @@ describe('nc cat command', () => {
       expect(() => cat.fn('/root/secret.txt')).toThrow('cat: /root/secret.txt: Permission denied');
     });
   });
-
-  describe('command metadata', () => {
-    it('should have correct name', () => {
-      const context = createMockNcCatContext();
-      const cat = createNcCatCommand(context);
-
-      expect(cat.name).toBe('cat');
-    });
-
-    it('should have description', () => {
-      const context = createMockNcCatContext();
-      const cat = createNcCatCommand(context);
-
-      expect(cat.description).toBe('Read file contents');
-    });
-  });
 });

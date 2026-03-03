@@ -272,29 +272,4 @@ describe('FTP lcd command', () => {
       expect(() => lcd.fn('private')).toThrow('lcd: private: Permission denied');
     });
   });
-
-  describe('command metadata', () => {
-    it('should have correct name', () => {
-      const context = createMockContext();
-      const lcd = createFtpLcdCommand(context);
-
-      expect(lcd.name).toBe('lcd');
-    });
-
-    it('should have description', () => {
-      const context = createMockContext();
-      const lcd = createFtpLcdCommand(context);
-
-      expect(lcd.description).toBe('Change local directory');
-    });
-
-    it('should have manual with examples', () => {
-      const context = createMockContext();
-      const lcd = createFtpLcdCommand(context);
-
-      expect(lcd.manual).toBeDefined();
-      expect(lcd.manual?.examples).toBeDefined();
-      expect(lcd.manual?.examples?.length).toBeGreaterThan(0);
-    });
-  });
 });

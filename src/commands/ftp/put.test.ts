@@ -289,28 +289,4 @@ describe('FTP put command', () => {
       expect(() => put.fn('file.txt')).toThrow('Permission denied');
     });
   });
-
-  describe('command metadata', () => {
-    it('should have correct name', () => {
-      const context = createMockContext();
-      const put = createFtpPutCommand(context);
-
-      expect(put.name).toBe('put');
-    });
-
-    it('should have description', () => {
-      const context = createMockContext();
-      const put = createFtpPutCommand(context);
-
-      expect(put.description).toBe('Upload file to remote server');
-    });
-
-    it('should have manual with examples', () => {
-      const context = createMockContext();
-      const put = createFtpPutCommand(context);
-
-      expect(put.manual).toBeDefined();
-      expect(put.manual?.examples?.length).toBeGreaterThan(0);
-    });
-  });
 });

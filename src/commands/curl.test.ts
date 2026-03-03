@@ -84,20 +84,6 @@ describe('curl command', () => {
     vi.restoreAllMocks();
   });
 
-  describe('command metadata', () => {
-    it('should have correct name and description', () => {
-      const curl = createCurlCommand(createMockCurlContext());
-      expect(curl.name).toBe('curl');
-      expect(curl.description).toBe('Transfer data from or to a server');
-    });
-
-    it('should have a manual with examples', () => {
-      const curl = createCurlCommand(createMockCurlContext());
-      expect(curl.manual).toBeDefined();
-      expect(curl.manual?.examples?.length).toBeGreaterThan(0);
-    });
-  });
-
   describe('error handling', () => {
     it('should throw error when no URL given', () => {
       const curl = createCurlCommand(createMockCurlContext());

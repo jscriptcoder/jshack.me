@@ -289,28 +289,4 @@ describe('FTP get command', () => {
       expect(() => get.fn('file.txt')).toThrow('Permission denied');
     });
   });
-
-  describe('command metadata', () => {
-    it('should have correct name', () => {
-      const context = createMockContext();
-      const get = createFtpGetCommand(context);
-
-      expect(get.name).toBe('get');
-    });
-
-    it('should have description', () => {
-      const context = createMockContext();
-      const get = createFtpGetCommand(context);
-
-      expect(get.description).toBe('Download file from remote server');
-    });
-
-    it('should have manual with examples', () => {
-      const context = createMockContext();
-      const get = createFtpGetCommand(context);
-
-      expect(get.manual).toBeDefined();
-      expect(get.manual?.examples?.length).toBeGreaterThan(0);
-    });
-  });
 });

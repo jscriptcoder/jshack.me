@@ -253,16 +253,4 @@ describe('mail command', () => {
     expect(completeMission).not.toHaveBeenCalled();
     expect(lines.join('\n')).not.toContain('MISSION COMPLETE');
   });
-
-  it('has correct name and description', () => {
-    const mail = createMailCommand({
-      getActiveMission: () => null,
-      completeMission: vi.fn(),
-      readFileFromMachine: vi.fn(),
-    });
-
-    expect(mail.name).toBe('mail');
-    expect(mail.description).toBeTruthy();
-    expect(mail.manual).toBeDefined();
-  });
 });

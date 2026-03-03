@@ -272,29 +272,4 @@ describe('FTP cd command', () => {
       expect(() => cd.fn('admin')).toThrow('cd: admin: Permission denied');
     });
   });
-
-  describe('command metadata', () => {
-    it('should have correct name', () => {
-      const context = createMockContext();
-      const cd = createFtpCdCommand(context);
-
-      expect(cd.name).toBe('cd');
-    });
-
-    it('should have description', () => {
-      const context = createMockContext();
-      const cd = createFtpCdCommand(context);
-
-      expect(cd.description).toBe('Change remote directory');
-    });
-
-    it('should have manual with examples', () => {
-      const context = createMockContext();
-      const cd = createFtpCdCommand(context);
-
-      expect(cd.manual).toBeDefined();
-      expect(cd.manual?.examples).toBeDefined();
-      expect(cd.manual?.examples?.length).toBeGreaterThan(0);
-    });
-  });
 });

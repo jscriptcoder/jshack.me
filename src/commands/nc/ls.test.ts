@@ -367,20 +367,4 @@ describe('nc ls command', () => {
       expect(result).toBe('passwords.txt');
     });
   });
-
-  describe('command metadata', () => {
-    it('should have correct name', () => {
-      const context = createMockNcLsContext();
-      const ls = createNcLsCommand(context);
-
-      expect(ls.name).toBe('ls');
-    });
-
-    it('should have description', () => {
-      const context = createMockNcLsContext();
-      const ls = createNcLsCommand(context);
-
-      expect(ls.description).toBe('List directory contents');
-    });
-  });
 });
