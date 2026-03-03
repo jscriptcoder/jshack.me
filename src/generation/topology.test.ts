@@ -229,6 +229,21 @@ describe('generateTopology', () => {
     expect(prefixes.size).toBeGreaterThanOrEqual(2);
   });
 
+  it('generates unique hostnames even when multiple machines share a role', () => {
+    // Hard difficulty produces 4-6 internal machines, increasing duplicate role likelihood
+    const seeds = Array.from({ length: 30 }, (_, i) => `hostname-unique-${i}`);
+    const difficulties: readonly Difficulty[] = ['hard', 'medium', 'easy'];
+
+    for (const seed of seeds) {
+      for (const difficulty of difficulties) {
+        const result = generateTopology(createPrng(seed), difficulty);
+        const hostnames = result.machines.map((m) => m.hostname);
+        const unique = new Set(hostnames);
+        expect(unique.size).toBe(hostnames.length);
+      }
+    }
+  });
+
   it('internal subnets never collide with static 192.168.1.x network', () => {
     Array.from({ length: 50 }, (_, i) => {
       const result = generateTopology(createPrng(`collision-${i}`), 'medium');

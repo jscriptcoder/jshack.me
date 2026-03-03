@@ -163,9 +163,24 @@ export const generateTopology = (
   const remainingRoles = Array.from({ length: machineCount - 1 }, () => prng.pick(allRoles));
   const roles: readonly MachineRole[] = [entryRole, ...remainingRoles];
 
+  // Track used hostnames to prevent duplicates across same-role machines
+  const usedHostnames: Record<string, Set<string>> = {};
+
+  const pickUniqueHostname = (role: MachineRole): string => {
+    const used = usedHostnames[role] ?? new Set<string>();
+    const available = hostnamesByRole[role].filter((h) => !used.has(h));
+    // Always consume one PRNG call; fall back to suffix if pool exhausted
+    const hostname =
+      available.length > 0
+        ? prng.pick(available)
+        : `${prng.pick(hostnamesByRole[role])}-${used.size}`;
+    usedHostnames[role] = new Set([...used, hostname]);
+    return hostname;
+  };
+
   const machines: readonly GeneratedMachine[] = roles.map((role, i) => {
     const ip = `${subnet}.${10 + i}`;
-    const hostname = prng.pick(hostnamesByRole[role]);
+    const hostname = pickUniqueHostname(role);
     const isEntry = i === 0;
     // In forwarded mode, entry machine gets the entry variant ports (player connects directly).
     // In router-first mode, the entry variant is on the router — internal entry uses role defaults.
