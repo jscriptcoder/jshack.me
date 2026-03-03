@@ -48,7 +48,7 @@ e2e/
 
 ## Terminal Features
 
-- ASCII banner on startup ("JSHACK.ME v0.9.0")
+- ASCII banner on startup ("JSHACK.ME v0.9.1")
 - Dynamic prompt: `username@machine>` (managed via SessionContext)
 - Command history (up/down arrows)
 - Tab autocompletion for commands and variables
@@ -189,7 +189,7 @@ On remote/mission machines, hacking tools are not pre-installed. Players must in
 - **Apt-installable** (nmap, john, hydra, nc, ftp, exploit, airmon, airdump, aircrack, decrypt, node, nslookup) — require `/usr/bin/<name>` binary; pre-installed on localhost only
 - **Game-specific** (missions, accept, mail, etc.) — always available, no binary check
 
-**Filesystem integration:** `fileSystemFactory.ts` creates `/bin/` and `/usr/bin/` directories on all machines. `/bin/` contains system utility binary stubs. `/usr/bin/` is empty on remote/mission machines (populated via `apt install`). `mergeExtraDirectories()` does one-level-deep directory merging to prevent mission `extraDirectories` from overwriting factory-created `/usr/`.
+**Filesystem integration:** `fileSystemFactory.ts` creates `/boot/`, `/bin/`, and `/usr/bin/` directories on all machines. `/bin/` contains system utility binary stubs. `/usr/bin/` is empty on remote/mission machines (populated via `apt install`). `mergeExtraDirectories()` does one-level-deep directory merging to prevent mission `extraDirectories` from overwriting factory-created `/usr/`.
 
 **Wrapping order** in `useCommands.ts`: install check wraps the base command, then permission restriction wraps on top. At execution: permission checked first (outermost) → install check → actual execution.
 

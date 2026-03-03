@@ -78,7 +78,7 @@ On remote/mission machines, hacking tools must be installed via `apt('install', 
 - **Apt-installable** (nmap, john, hydra, nc, ftp, exploit, etc.) — require `/usr/bin/<name>` to exist; pre-installed on localhost only
 - **Game-specific** (missions, accept, mail, etc.) — always available
 
-The filesystem factory (`fileSystemFactory.ts`) creates `/bin/` and `/usr/bin/` directories on all machines. `mergeExtraDirectories()` handles one-level-deep merging to prevent mission generation's `extraDirectories` from overwriting factory directories.
+The filesystem factory (`fileSystemFactory.ts`) creates `/boot/`, `/bin/`, and `/usr/bin/` directories on all machines. `mergeExtraDirectories()` handles one-level-deep merging to prevent mission generation's `extraDirectories` from overwriting factory directories.
 
 ### Content Encoding (Anti-Cheat)
 

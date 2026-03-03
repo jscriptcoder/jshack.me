@@ -162,6 +162,40 @@ export const createFileSystem = (config: MachineFileSystemConfig): FileNode => {
       },
       children: {},
     },
+    boot: {
+      name: 'boot',
+      type: 'directory',
+      owner: 'root',
+      permissions: {
+        read: ['root', 'user', 'guest'],
+        write: ['root'],
+        execute: ['root', 'user', 'guest'],
+      },
+      children: {
+        vmlinuz: {
+          name: 'vmlinuz',
+          type: 'file',
+          owner: 'root',
+          permissions: {
+            read: ['root', 'user', 'guest'],
+            write: ['root'],
+            execute: ['root'],
+          },
+          content: 'bzImage, version 5.15.0-91-generic',
+        },
+        'initrd.img': {
+          name: 'initrd.img',
+          type: 'file',
+          owner: 'root',
+          permissions: {
+            read: ['root', 'user', 'guest'],
+            write: ['root'],
+            execute: ['root'],
+          },
+          content: 'initramfs image, version 5.15.0-91-generic',
+        },
+      },
+    },
     bin: {
       name: 'bin',
       type: 'directory',

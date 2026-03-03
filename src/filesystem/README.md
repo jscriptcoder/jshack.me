@@ -4,14 +4,14 @@ Virtual Unix-like filesystem for the hacking terminal. Each machine (localhost a
 
 ## Files
 
-| File                    | Description                                                                                                                                                                                                                                                    |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `types.ts`              | Core types: `FileNode`, `FilePermissions`, `FileSystemPatch`                                                                                                                                                                                                   |
-| `fileSystemFactory.ts`  | `createFileSystem(config)` — generates a standard directory tree (`/root`, `/home`, `/etc`, `/var`, `/tmp`, `/bin`, `/usr/bin`) from a `MachineFileSystemConfig`. Uses `mergeExtraDirectories()` to safely merge `extraDirectories` with factory-created dirs. |
-| `machineFileSystems.ts` | Thin assembly — imports from `machines/`, exports `machineFileSystems` Record, `MachineId` type, and `getDefaultHomePath`. Gateway filesystem defined inline with `/bin/` (system utilities) and empty `/usr/bin/`.                                            |
-| `machines/`             | Per-machine filesystem definitions: `localhost.ts`, `fileserver.ts`, `webserver.ts` (each exports a `FileNode`). Localhost includes `/bin/` (system utilities) and `/usr/bin/` (apt-installable tools) via binary stubs.                                       |
-| `FileSystemContext.tsx` | React context providing filesystem operations: `resolvePath`, `getNode`, `readFile`, `writeFile`, `readFileFromMachine`, plus persistence via IndexedDB patches                                                                                                |
-| `index.ts`              | Module exports                                                                                                                                                                                                                                                 |
+| File                    | Description                                                                                                                                                                                                                                                             |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `types.ts`              | Core types: `FileNode`, `FilePermissions`, `FileSystemPatch`                                                                                                                                                                                                            |
+| `fileSystemFactory.ts`  | `createFileSystem(config)` — generates a standard directory tree (`/root`, `/home`, `/etc`, `/var`, `/tmp`, `/boot`, `/bin`, `/usr/bin`) from a `MachineFileSystemConfig`. Uses `mergeExtraDirectories()` to safely merge `extraDirectories` with factory-created dirs. |
+| `machineFileSystems.ts` | Thin assembly — imports from `machines/`, exports `machineFileSystems` Record, `MachineId` type, and `getDefaultHomePath`. Gateway filesystem defined inline with `/bin/` (system utilities) and empty `/usr/bin/`.                                                     |
+| `machines/`             | Per-machine filesystem definitions: `localhost.ts`, `fileserver.ts`, `webserver.ts` (each exports a `FileNode`). Localhost includes `/bin/` (system utilities) and `/usr/bin/` (apt-installable tools) via binary stubs.                                                |
+| `FileSystemContext.tsx` | React context providing filesystem operations: `resolvePath`, `getNode`, `readFile`, `writeFile`, `readFileFromMachine`, plus persistence via IndexedDB patches                                                                                                         |
+| `index.ts`              | Module exports                                                                                                                                                                                                                                                          |
 
 ## Architecture
 
@@ -39,6 +39,7 @@ type FileNode = {
 - `/etc/passwd` — auto-generated from user list (MD5 hashes)
 - `/var/log` — log files from `varLogContent`
 - `/tmp` — world-writable temp directory
+- `/boot` — kernel and bootloader files (`vmlinuz`, `initrd.img`)
 - `/bin` — system utility binaries from `binContent`
 - `/usr/bin` — apt-installable tool binaries from `usrBinContent`
 - Extra directories via `extraDirectories` (merged one-level-deep with `mergeExtraDirectories()`)
