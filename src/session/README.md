@@ -4,9 +4,11 @@ Single source of truth for all terminal session state. Manages the current user,
 
 ## Files
 
-| File                 | Description                                                                       |
-| -------------------- | --------------------------------------------------------------------------------- |
-| `SessionContext.tsx` | React context with session state, connection stacks, persistence, and type guards |
+| File                   | Description                                                                        |
+| ---------------------- | ---------------------------------------------------------------------------------- |
+| `SessionContext.tsx`   | React context with session state, connection stacks, persistence, and type guards  |
+| `sessionUtils.ts`      | Pure functions: type guards, validators, normalizers, and default session constant |
+| `sessionUtils.test.ts` | Unit tests for sessionUtils                                                        |
 
 ## Session State
 

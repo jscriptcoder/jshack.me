@@ -14,10 +14,14 @@ import {
   getDatabase,
 } from '../utils/storageCache';
 import { saveSessionToTab, saveWifiState, saveBrickedMachines } from '../utils/storage';
+import { THEMES } from '../theme/themes';
 import type { ThemeId } from '../theme/themes';
-import { DEFAULT_THEME_ID, THEMES, isValidThemeId } from '../theme/themes';
 import { applyTheme } from '../theme/applyTheme';
 import { createSyncChannel, type SyncMessage } from '../utils/crossTabSync';
+import { defaultSession, normalizeSession, normalizeSnapshot } from './sessionUtils';
+
+// Re-export for backward compatibility — consumed by storage.ts
+export { isValidPersistedState } from './sessionUtils';
 
 export type UserType = 'root' | 'user' | 'guest';
 
@@ -64,67 +68,6 @@ export type PersistedState = {
   readonly ncSession: NcSession | null;
 };
 
-const isValidUserType = (value: unknown): value is UserType =>
-  value === 'root' || value === 'user' || value === 'guest';
-
-const asRecord = (value: unknown): Record<string, unknown> | null =>
-  typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
-
-const isValidSession = (value: unknown): value is Session => {
-  const obj = asRecord(value);
-  if (!obj) return false;
-  return (
-    typeof obj.username === 'string' &&
-    typeof obj.machine === 'string' &&
-    typeof obj.currentPath === 'string' &&
-    isValidUserType(obj.userType) &&
-    (obj.theme === undefined || isValidThemeId(obj.theme))
-  );
-};
-
-const isValidSessionSnapshot = (value: unknown): value is SessionSnapshot => isValidSession(value);
-
-const isValidFtpSession = (value: unknown): value is FtpSession => {
-  const obj = asRecord(value);
-  if (!obj) return false;
-  return (
-    typeof obj.remoteMachine === 'string' &&
-    typeof obj.remoteUsername === 'string' &&
-    typeof obj.remoteCwd === 'string' &&
-    typeof obj.originMachine === 'string' &&
-    typeof obj.originUsername === 'string' &&
-    typeof obj.originCwd === 'string' &&
-    isValidUserType(obj.remoteUserType) &&
-    isValidUserType(obj.originUserType)
-  );
-};
-
-const isValidNcSession = (value: unknown): value is NcSession => {
-  const obj = asRecord(value);
-  if (!obj) return false;
-  return (
-    typeof obj.targetIP === 'string' &&
-    typeof obj.targetPort === 'number' &&
-    typeof obj.service === 'string' &&
-    typeof obj.username === 'string' &&
-    typeof obj.currentPath === 'string' &&
-    isValidUserType(obj.userType)
-  );
-};
-
-export const isValidPersistedState = (value: unknown): value is PersistedState => {
-  const obj = asRecord(value);
-  if (!obj) return false;
-  return (
-    isValidSession(obj.session) &&
-    Array.isArray(obj.sessionStack) &&
-    (obj.sessionStack as unknown[]).every(isValidSessionSnapshot) &&
-    (obj.ftpSession === null || isValidFtpSession(obj.ftpSession)) &&
-    // ncSession was added after v0 — old persisted data may have it as undefined (missing key)
-    (obj.ncSession === null || obj.ncSession === undefined || isValidNcSession(obj.ncSession))
-  );
-};
-
 type SessionContextValue = {
   readonly session: Session;
   readonly wifiConnected: boolean;
@@ -155,20 +98,7 @@ type SessionContextValue = {
   readonly isMachineBricked: (machine: string) => boolean;
 };
 
-const defaultSession: Session = {
-  username: 'jshacker',
-  userType: 'user',
-  machine: 'localhost',
-  currentPath: '/home/jshacker',
-  theme: DEFAULT_THEME_ID,
-};
-
 const SessionContext = createContext<SessionContextValue | null>(null);
-
-const normalizeSession = (session: Session): Session => ({
-  ...session,
-  theme: isValidThemeId(session.theme) ? session.theme : DEFAULT_THEME_ID,
-});
 
 const getInitialState = (): PersistedState => {
   const persisted = getCachedSessionState();
@@ -187,11 +117,6 @@ const getInitialState = (): PersistedState => {
     ncSession: null,
   };
 };
-
-const normalizeSnapshot = (snapshot: SessionSnapshot): SessionSnapshot => ({
-  ...snapshot,
-  theme: isValidThemeId(snapshot.theme) ? snapshot.theme : DEFAULT_THEME_ID,
-});
 
 export const SessionProvider = ({ children }: { children: ReactNode }) => {
   const [initialState] = useState(getInitialState);
