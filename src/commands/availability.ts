@@ -76,6 +76,7 @@ export const SYSTEM_UTILITY_NAMES = [
   'nmcli',
   'apt',
   'rm',
+  'reboot',
 ] as const;
 
 // Apt-installable tool names for /usr/bin/

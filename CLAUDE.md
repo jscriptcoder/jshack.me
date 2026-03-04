@@ -67,7 +67,7 @@ Commands are tiered by user type (`src/commands/permissions.ts`):
 
 - **guest**: help, man, echo, whoami, pwd, ls, cd, cat, rm, su, clear, author, exit
 - **user**: All guest + apt, ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, exploit, gobuster, strings, output, resolve, nano, node, john, hydra, airmon, airdump, aircrack, nmcli, missions, accept, abort, mail, xterm
-- **root**: All user + decrypt
+- **root**: All user + decrypt, reboot
 
 ### Tool Availability (apt install)
 
@@ -112,7 +112,7 @@ Commands return objects with `__type` for custom rendering (see `src/components/
 Two storage mechanisms split by scope:
 
 - **sessionStorage** (per-tab): Session state (user, machine, path, SSH stack, FTP/NC mode, theme). Each tab gets an independent session — opening a new tab starts fresh at `localhost /home/jshacker`.
-- **IndexedDB** (`jshack-db`, shared): Filesystem patches, WiFi state, mission seed. Shared across all tabs.
+- **IndexedDB** (`jshack-db`, shared): Filesystem patches, WiFi state, mission seed, bricked machines. Shared across all tabs.
 
 Key details:
 
@@ -125,7 +125,18 @@ Key details:
 
 ### Cross-Tab Sync
 
-Multiple browser tabs run independent terminal sessions with shared state via `BroadcastChannel` (`src/utils/crossTabSync.ts`). Filesystem patches, WiFi state, mission state, and theme sync across tabs in real time. Session (user, machine, path, SSH stack, FTP/NC mode), terminal output, and command history are per-tab. Graceful no-op fallback when `BroadcastChannel` is unavailable. Dynamic tab title shows `username@machine — JSHACK.ME`.
+Multiple browser tabs run independent terminal sessions with shared state via `BroadcastChannel` (`src/utils/crossTabSync.ts`). Filesystem patches, WiFi state, mission state, bricked machines, and theme sync across tabs in real time. Session (user, machine, path, SSH stack, FTP/NC mode), terminal output, and command history are per-tab. Graceful no-op fallback when `BroadcastChannel` is unavailable. Dynamic tab title shows `username@machine — JSHACK.ME`.
+
+### Bricked Machine System
+
+`reboot()` (root-only, apt-installable) reboots the current machine. If critical boot files (`/boot/vmlinuz`, `/boot/initrd.img`) are missing, the machine fails to boot and becomes permanently unreachable ("bricked").
+
+- **Boot check**: vmlinuz checked first (GRUB error), then initrd.img (kernel panic). Either missing = bricked.
+- **Bricked state**: `brickedMachines: ReadonlySet<string>` in `SessionContext`, persisted to IndexedDB (`brickedMachines` key), synced across tabs via `bricked-changed` message.
+- **Connection gating**: `wrapWithBrickedCheck` HOF in `useNetworkCommands.ts` blocks ssh, ftp, nc, ping, nmap, curl, exploit, hydra, gobuster to bricked machines with `"Connection timed out — host <ip> appears to be down"`.
+- **Localhost bricking**: If localhost is bricked, Terminal.tsx renders a frozen kernel panic screen (no input, no recovery except clearing browser data via `reset("confirm")` or dev tools).
+- **Router bricking**: Bricking a mission router makes the entire internal network unreachable (all connections route through the router's public IP).
+- **Cleanup**: Bricked state clears when IndexedDB is cleared (via `reset("confirm")`).
 
 ### WiFi Hacking Gate
 

@@ -7,8 +7,13 @@ import {
   useRef,
   type ReactNode,
 } from 'react';
-import { getCachedSessionState, getCachedWifiState, getDatabase } from '../utils/storageCache';
-import { saveSessionToTab, saveWifiState } from '../utils/storage';
+import {
+  getCachedSessionState,
+  getCachedWifiState,
+  getCachedBrickedMachines,
+  getDatabase,
+} from '../utils/storageCache';
+import { saveSessionToTab, saveWifiState, saveBrickedMachines } from '../utils/storage';
 import type { ThemeId } from '../theme/themes';
 import { DEFAULT_THEME_ID, THEMES, isValidThemeId } from '../theme/themes';
 import { applyTheme } from '../theme/applyTheme';
@@ -146,6 +151,8 @@ type SessionContextValue = {
   readonly disconnectWifi: () => void;
   readonly popAllSessions: () => void;
   readonly setTheme: (theme: ThemeId) => void;
+  readonly markMachineBricked: (machine: string) => void;
+  readonly isMachineBricked: (machine: string) => boolean;
 };
 
 const defaultSession: Session = {
@@ -195,6 +202,9 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
   );
   const [ftpSession, setFtpSession] = useState<FtpSession | null>(initialState.ftpSession);
   const [ncSession, setNcSession] = useState<NcSession | null>(initialState.ncSession);
+  const [brickedMachines, setBrickedMachines] = useState<ReadonlySet<string>>(
+    () => new Set(getCachedBrickedMachines()),
+  );
   const syncChannelRef = useRef(createSyncChannel());
 
   // Subscribe to WiFi and theme changes from other tabs.
@@ -220,6 +230,9 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
       }
       if (message.type === 'theme-changed') {
         setSession((prev) => ({ ...prev, theme: message.theme }));
+      }
+      if (message.type === 'bricked-changed') {
+        setBrickedMachines((prev) => new Set([...prev, message.machine]));
       }
     });
     return () => channel.close();
@@ -322,6 +335,25 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
     syncChannelRef.current.broadcast({ type: 'wifi-changed', connected });
   }, []);
 
+  const markMachineBricked = useCallback((machine: string) => {
+    setBrickedMachines((prev) => {
+      if (prev.has(machine)) return prev;
+      const updated = new Set([...prev, machine]);
+      // Persist to IndexedDB (shared across tabs)
+      const db = getDatabase();
+      if (db) {
+        saveBrickedMachines(db, [...updated]);
+      }
+      syncChannelRef.current.broadcast({ type: 'bricked-changed', machine });
+      return updated;
+    });
+  }, []);
+
+  const isMachineBricked = useCallback(
+    (machine: string) => brickedMachines.has(machine),
+    [brickedMachines],
+  );
+
   const setTheme = useCallback((theme: ThemeId) => {
     setSession((prev) => ({ ...prev, theme }));
     syncChannelRef.current.broadcast({ type: 'theme-changed', theme });
@@ -419,6 +451,8 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
         disconnectWifi,
         popAllSessions,
         setTheme,
+        markMachineBricked,
+        isMachineBricked,
       }}
     >
       {children}

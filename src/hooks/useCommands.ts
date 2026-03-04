@@ -16,6 +16,7 @@ import { createAcceptCommand } from '../commands/accept';
 import { createAbortCommand } from '../commands/abort';
 import { createMailCommand } from '../commands/mail';
 import { createAptCommand } from '../commands/apt';
+import { createRebootCommand } from '../commands/reboot';
 import { xtermCommand } from '../commands/xterm';
 import { useMission } from '../mission';
 import { applyCommandRestrictions, getAccessibleCommandNames } from '../commands/permissions';
@@ -45,7 +46,8 @@ export const useCommands = (): UseCommandsResult => {
   const fileSystemCommands = useFileSystemCommands();
   const networkCommands = useNetworkCommands();
   const wifiCommands = useWifiCommands();
-  const { session, setTheme, popAllSessions } = useSession();
+  const { session, setTheme, popAllSessions, popSession, canReturn, markMachineBricked } =
+    useSession();
   const { findMachineUsers } = useNetwork();
   const { resolvePath, getNode, readFileFromMachine, createFile, getNodeFromMachine } =
     useFileSystem();
@@ -129,6 +131,18 @@ export const useCommands = (): UseCommandsResult => {
       }),
     );
 
+    commands.set(
+      'reboot',
+      createRebootCommand({
+        getMachine: () => session.machine,
+        getNodeFromMachine,
+        readFileFromMachine,
+        popSession,
+        canReturn,
+        markMachineBricked,
+      }),
+    );
+
     fileSystemCommands.forEach((cmd, name) => commands.set(name, cmd));
     networkCommands.forEach((cmd, name) => commands.set(name, cmd));
     wifiCommands.forEach((cmd, name) => commands.set(name, cmd));
@@ -201,5 +215,8 @@ export const useCommands = (): UseCommandsResult => {
     activeMission,
     readFileFromMachine,
     popAllSessions,
+    popSession,
+    canReturn,
+    markMachineBricked,
   ]);
 };

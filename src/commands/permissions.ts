@@ -45,6 +45,7 @@ export const COMMAND_TIERS: Readonly<Record<string, UserType>> = {
   xterm: 'user',
   // root-level commands
   decrypt: 'root',
+  reboot: 'root',
 };
 
 export const hasPrivilege = (current: UserType, required: UserType): boolean =>

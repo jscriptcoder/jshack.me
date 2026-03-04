@@ -28,6 +28,22 @@ const wrapWithWifiCheck = (cmd: Command, isWifiRequired: () => boolean): Command
   },
 });
 
+// Wraps a network command with a bricked machine check. Extracts the target IP
+// from the first string argument and checks if that machine has been bricked.
+const wrapWithBrickedCheck = (
+  cmd: Command,
+  isMachineBricked: (machine: string) => boolean,
+): Command => ({
+  ...cmd,
+  fn: (...args: unknown[]) => {
+    const target = args.find((arg) => typeof arg === 'string') as string | undefined;
+    if (target && isMachineBricked(target)) {
+      throw new Error(`Connection timed out — host ${target} appears to be down`);
+    }
+    return cmd.fn(...args);
+  },
+});
+
 export const useNetworkCommands = (): Map<string, Command> => {
   const {
     getInterfaces,
@@ -40,7 +56,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
     resolveNat,
   } = useNetwork();
   const { readFileFromMachine, getNodeFromMachine } = useFileSystem();
-  const { session, wifiConnected } = useSession();
+  const { session, wifiConnected, isMachineBricked } = useSession();
 
   return useMemo(() => {
     const isWifiRequired = () => session.machine === 'localhost' && !wifiConnected;
@@ -57,12 +73,24 @@ export const useNetworkCommands = (): Map<string, Command> => {
 
     commands.set(
       'ping',
-      wrapWithWifiCheck(createPingCommand({ getMachine, getMachines, getLocalIP }), isWifiRequired),
+      wrapWithBrickedCheck(
+        wrapWithWifiCheck(
+          createPingCommand({ getMachine, getMachines, getLocalIP }),
+          isWifiRequired,
+        ),
+        isMachineBricked,
+      ),
     );
 
     commands.set(
       'nmap',
-      wrapWithWifiCheck(createNmapCommand({ getMachine, getMachines, getLocalIP }), isWifiRequired),
+      wrapWithBrickedCheck(
+        wrapWithWifiCheck(
+          createNmapCommand({ getMachine, getMachines, getLocalIP }),
+          isWifiRequired,
+        ),
+        isMachineBricked,
+      ),
     );
 
     commands.set(
@@ -72,51 +100,75 @@ export const useNetworkCommands = (): Map<string, Command> => {
 
     commands.set(
       'ssh',
-      wrapWithWifiCheck(createSshCommand({ getMachine, getLocalIP }), isWifiRequired),
+      wrapWithBrickedCheck(
+        wrapWithWifiCheck(createSshCommand({ getMachine, getLocalIP }), isWifiRequired),
+        isMachineBricked,
+      ),
     );
 
     commands.set(
       'ftp',
-      wrapWithWifiCheck(
-        createFtpCommand({ getMachine, getLocalIP, resolveDomain }),
-        isWifiRequired,
+      wrapWithBrickedCheck(
+        wrapWithWifiCheck(
+          createFtpCommand({ getMachine, getLocalIP, resolveDomain }),
+          isWifiRequired,
+        ),
+        isMachineBricked,
       ),
     );
 
     commands.set(
       'nc',
-      wrapWithWifiCheck(createNcCommand({ getMachine, getLocalIP, resolveDomain }), isWifiRequired),
+      wrapWithBrickedCheck(
+        wrapWithWifiCheck(
+          createNcCommand({ getMachine, getLocalIP, resolveDomain }),
+          isWifiRequired,
+        ),
+        isMachineBricked,
+      ),
     );
 
     commands.set(
       'curl',
-      wrapWithWifiCheck(
-        createCurlCommand({ getMachine, resolveDomain, resolveNat, readFileFromMachine }),
-        isWifiRequired,
+      wrapWithBrickedCheck(
+        wrapWithWifiCheck(
+          createCurlCommand({ getMachine, resolveDomain, resolveNat, readFileFromMachine }),
+          isWifiRequired,
+        ),
+        isMachineBricked,
       ),
     );
 
     commands.set(
       'exploit',
-      wrapWithWifiCheck(
-        createExploitCommand({ getMachine, getLocalIP, resolveDomain }),
-        isWifiRequired,
+      wrapWithBrickedCheck(
+        wrapWithWifiCheck(
+          createExploitCommand({ getMachine, getLocalIP, resolveDomain }),
+          isWifiRequired,
+        ),
+        isMachineBricked,
       ),
     );
 
     commands.set(
       'hydra',
-      wrapWithWifiCheck(
-        createHydraCommand({ getMachine, getLocalIP, resolveDomain }),
-        isWifiRequired,
+      wrapWithBrickedCheck(
+        wrapWithWifiCheck(
+          createHydraCommand({ getMachine, getLocalIP, resolveDomain }),
+          isWifiRequired,
+        ),
+        isMachineBricked,
       ),
     );
 
     commands.set(
       'gobuster',
-      wrapWithWifiCheck(
-        createGobusterCommand({ getMachine, resolveDomain, resolveNat, getNodeFromMachine }),
-        isWifiRequired,
+      wrapWithBrickedCheck(
+        wrapWithWifiCheck(
+          createGobusterCommand({ getMachine, resolveDomain, resolveNat, getNodeFromMachine }),
+          isWifiRequired,
+        ),
+        isMachineBricked,
       ),
     );
 
@@ -134,5 +186,6 @@ export const useNetworkCommands = (): Map<string, Command> => {
     getNodeFromMachine,
     session.machine,
     wifiConnected,
+    isMachineBricked,
   ]);
 };

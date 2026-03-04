@@ -37,12 +37,24 @@ const BANNER = `
 ██   ██║╚════██║██╔══██║██╔══██║██║     ██╔═██╗    ██║╚██╔╝██║██╔══╝
 ╚█████╔╝███████║██║  ██║██║  ██║╚██████╗██║  ██╗██╗██║ ╚═╝ ██║███████╗
  ╚════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝╚═╝     ╚═╝╚══════╝
-                                                              v0.11.1
+                                                              v0.12.0
 
   Type help() for available commands
 `;
 
 const getInitialLines = (): readonly OutputLine[] => [{ id: 0, type: 'banner', content: BANNER }];
+
+const KERNEL_PANIC_SCREEN = `
+BIOS POST... OK
+Booting from disk...
+
+error: file '/boot/vmlinuz' not found.
+GRUB error: no loaded kernel.
+
+System halted.
+
+---[ end Kernel panic - not syncing: Fatal exception ]---
+`;
 
 export const Terminal = () => {
   const [input, setInput] = useState('');
@@ -77,6 +89,7 @@ export const Terminal = () => {
     enterNcMode,
     exitNcMode,
     isInNcMode,
+    isMachineBricked,
   } = useSession();
   const { executionContext, commandNames } = useCommands();
   const ftpCommands = useFtpCommands();
@@ -396,6 +409,20 @@ export const Terminal = () => {
   }, []);
 
   const handleTerminalClick = useCallback(() => {}, []);
+
+  // Localhost bricked = frozen kernel panic screen (no input, no recovery except clearing data)
+  if (isMachineBricked('localhost')) {
+    return (
+      <div
+        className="flex flex-col h-screen font-mono text-sm"
+        style={{ backgroundColor: 'var(--theme-bg)' }}
+      >
+        <pre className="p-4 whitespace-pre-wrap" style={{ color: 'var(--theme-text)' }}>
+          {KERNEL_PANIC_SCREEN}
+        </pre>
+      </div>
+    );
+  }
 
   return (
     <div

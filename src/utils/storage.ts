@@ -10,6 +10,7 @@ const FILESYSTEM_STORE = 'filesystem';
 const FILESYSTEM_KEY = 'patches';
 const MISSION_KEY = 'activeMissionSeed';
 const WIFI_KEY = 'wifiConnected';
+const BRICKED_KEY = 'brickedMachines';
 const TAB_SESSION_KEY = 'jshack-tab-session';
 
 export const openDatabase = (): Promise<IDBDatabase> =>
@@ -158,6 +159,31 @@ export const loadWifiState = async (db: IDBDatabase): Promise<boolean | null> =>
   try {
     const data = await getValue<unknown>(db, SESSION_STORE, WIFI_KEY);
     if (typeof data === 'boolean') return data;
+    return null;
+  } catch {
+    return null;
+  }
+};
+
+// --- Bricked machines state in IndexedDB (shared across tabs) ---
+
+export const saveBrickedMachines = async (
+  db: IDBDatabase,
+  machines: readonly string[],
+): Promise<void> => {
+  try {
+    await setValue(db, SESSION_STORE, BRICKED_KEY, [...machines]);
+  } catch {
+    // Non-critical — bricked state still works in-memory
+  }
+};
+
+export const loadBrickedMachines = async (db: IDBDatabase): Promise<readonly string[] | null> => {
+  try {
+    const data = await getValue<unknown>(db, SESSION_STORE, BRICKED_KEY);
+    if (Array.isArray(data) && data.every((item) => typeof item === 'string')) {
+      return data as readonly string[];
+    }
     return null;
   } catch {
     return null;

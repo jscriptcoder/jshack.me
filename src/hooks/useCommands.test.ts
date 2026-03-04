@@ -12,6 +12,7 @@ import { COMMAND_TIERS } from '../commands/permissions';
 vi.mock('../utils/storageCache', () => ({
   getCachedSessionState: vi.fn(() => null),
   getCachedWifiState: vi.fn(() => true),
+  getCachedBrickedMachines: vi.fn(() => []),
   getCachedFilesystemPatches: vi.fn(() => []),
   getCachedMissionSeed: vi.fn(() => null),
   getDatabase: vi.fn(() => null),

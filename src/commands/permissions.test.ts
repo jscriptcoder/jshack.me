@@ -221,11 +221,11 @@ describe('permissions', () => {
   });
 
   describe('COMMAND_TIERS', () => {
-    it('should have decrypt as the only root-tier command', () => {
+    it('should have decrypt and reboot as root-tier commands', () => {
       const rootCommands = Object.entries(COMMAND_TIERS)
         .filter(([, tier]) => tier === 'root')
         .map(([name]) => name);
-      expect(rootCommands).toEqual(['decrypt']);
+      expect(rootCommands).toEqual(['decrypt', 'reboot']);
     });
 
     it('should have 27 user-tier commands', () => {

@@ -49,7 +49,7 @@ e2e/
 
 ## Terminal Features
 
-- ASCII banner on startup ("JSHACK.ME v0.11.1")
+- ASCII banner on startup ("JSHACK.ME v0.12.0")
 - Dynamic prompt: `username@machine>` (managed via SessionContext)
 - Command history (up/down arrows)
 - Tab autocompletion for commands and variables
@@ -80,6 +80,7 @@ Three-layer system:
 | WiFi connected                                          | IndexedDB (`wifiConnected` key)     | Shared  |
 | Mission seed                                            | IndexedDB (`activeMissionSeed` key) | Shared  |
 | Filesystem patches                                      | IndexedDB (`patches` key)           | Shared  |
+| Bricked machines                                        | IndexedDB (`brickedMachines` key)   | Shared  |
 
 Filesystem persistence uses patches (diffs from base filesystem). Each write/create operation records a `FileSystemPatch` with machineId, path, content, owner, and optional `isNew` flag. Patches are replayed on initialization via `applyPatches()`. Mission filesystem patches are excluded from persistence — only static machine patches are saved to IndexedDB.
 
@@ -169,11 +170,27 @@ Network access from localhost requires cracking a WiFi network first. This is a 
 - localhost uses `wlan0` (not `eth0`) + `lo` loopback
 - `nmcli("disconnect")` while SSH'd calls `SessionContext.disconnectWifi()` — atomically resets to localhost, clears session stack + FTP/NC sessions
 
+## Bricked Machine System
+
+`reboot()` (root-only, apt-installable) reboots the current machine with an animated shutdown/boot sequence. If critical boot files are missing, the machine is permanently bricked.
+
+**Boot check order**: `/boot/vmlinuz` checked first — if missing, GRUB error and halt. If vmlinuz exists but `/boot/initrd.img` missing, kernel loads then panics (VFS: Unable to mount root fs). Deleting either file is enough to brick.
+
+**State**: `brickedMachines: ReadonlySet<string>` in `SessionContext` (initialized from `storageCache`). Persisted to IndexedDB (`brickedMachines` key in session store), synced across tabs via `bricked-changed` BroadcastChannel message.
+
+**Connection gating**: `wrapWithBrickedCheck` HOF in `useNetworkCommands.ts` (outermost wrapper — checked before WiFi) blocks ssh, ftp, nc, ping, nmap, curl, exploit, hydra, gobuster to bricked machines. Error: `"Connection timed out — host <ip> appears to be down"`. nslookup is not gated (DNS doesn't require the target to be up).
+
+**Localhost bricking**: Terminal.tsx checks `isMachineBricked('localhost')` at the top of render. If true, renders a frozen kernel panic screen with no input. Only recovery: `reset("confirm")` (which clears IndexedDB) or clearing browser site data.
+
+**Remote bricking**: After bricking a remote machine, the reboot command pops the SSH session (returns to parent machine). The bricked machine is then unreachable via any connection command.
+
+**Cleanup**: `clearAllData()` clears the entire IndexedDB session store, which includes bricked machines state. No explicit cleanup needed for mission machines.
+
 ## Available Commands
 
 See `src/commands/` for implementations and `src/hooks/useCommands.ts` for the registry.
 
-Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, rm, su, whoami, airmon, airdump, aircrack, nmcli, ifconfig, ping, nmap, nslookup, ssh, exit, ftp, nc, curl, exploit, gobuster, hydra, decrypt, output, resolve, strings, nano, node, missions, accept, abort, mail, apt, theme, reset, xterm.
+Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, rm, su, whoami, airmon, airdump, aircrack, nmcli, ifconfig, ping, nmap, nslookup, ssh, exit, ftp, nc, curl, exploit, gobuster, hydra, decrypt, reboot, output, resolve, strings, nano, node, missions, accept, abort, mail, apt, theme, reset, xterm.
 
 FTP mode (when connected via ftp): pwd, lpwd, cd, lcd, ls, lls, get, put, quit/bye.
 

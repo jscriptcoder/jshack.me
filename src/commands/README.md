@@ -12,7 +12,7 @@ Commands are tiered by user type. Restricted commands show `permission denied: '
 | -------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Basic    | `guest`   | help, man, echo, whoami, pwd, ls, cd, cat, rm, su, clear, author, theme, exit                                                                                                                           |
 | Standard | `user`    | All basic + apt, ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, exploit, hydra, strings, output, resolve, nano, node, john, airmon, airdump, aircrack, nmcli, missions, accept, abort, mail, xterm |
-| Full     | `root`    | All standard + decrypt                                                                                                                                                                                  |
+| Full     | `root`    | All standard + decrypt, reboot                                                                                                                                                                          |
 
 FTP and NC modes have their own separate command sets and are not restricted.
 
@@ -68,6 +68,7 @@ On remote and mission machines, hacking tools aren't pre-installed. Players must
 | nano    | `nano.ts`    | `nano(path)`             | Open file in nano-style text editor overlay             |
 | node    | `node.ts`    | `node(path)`             | Execute a JavaScript file (requires execute permission) |
 | john    | `john.ts`    | `john(file)`             | Crack password hashes using dictionary attack (async)   |
+| reboot  | `reboot.ts`  | `reboot()`               | Reboot current machine; bricks if boot files missing    |
 
 ## User Management
 
