@@ -30,9 +30,9 @@ const localhostMachine: RemoteMachine = {
   hostname: 'localhost',
   ports: [{ port: 22, service: 'ssh', open: true }],
   users: [
-    { username: 'root', passwordHash: '63a9f0ea7bb98050796b649e85481845', userType: 'root' }, // root
-    { username: 'jshacker', passwordHash: '5f4dcc3b5aa765d61d8327deb882cf99', userType: 'user' }, // password
-    { username: 'guest', passwordHash: '084e0343a0486ff05530df6c705c8bb4', userType: 'guest' }, // guest
+    { username: 'root', passwordHash: 'a0ff67e77425eb3cea40ecb60941aea4', userType: 'root' }, // sup3rus3r
+    { username: 'jshacker', passwordHash: '25cd52d0d5975297e6c28700caa9dd72', userType: 'user' }, // h4ckth3pl4n3t
+    { username: 'guest', passwordHash: '0fb9cbecb7b8881511c69c39db643e8c', userType: 'guest' }, // guestpass
   ],
 };
 
