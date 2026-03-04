@@ -32,6 +32,7 @@ export const APT_INSTALLABLE = new Set([
   'node',
   'nslookup',
   'hydra',
+  'gobuster',
 ]);
 
 export type AptPackageInfo = {
@@ -53,6 +54,7 @@ export const APT_PACKAGES: readonly AptPackageInfo[] = [
   { name: 'node', description: 'Node.js JavaScript runtime', version: '20.11.0' },
   { name: 'nslookup', description: 'DNS lookup utility', version: '9.18.0' },
   { name: 'hydra', description: 'Network login brute-force tool', version: '9.4' },
+  { name: 'gobuster', description: 'Directory/file enumeration tool', version: '3.6' },
 ];
 
 // Binary stub content — looks like an ELF binary header
@@ -89,6 +91,7 @@ export const APT_TOOL_NAMES = [
   'node',
   'nslookup',
   'hydra',
+  'gobuster',
 ] as const;
 
 // Creates binary stub FileNode entries for populating /bin/ or /usr/bin/

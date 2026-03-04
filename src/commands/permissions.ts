@@ -37,6 +37,7 @@ export const COMMAND_TIERS: Readonly<Record<string, UserType>> = {
   exploit: 'user',
   john: 'user',
   hydra: 'user',
+  gobuster: 'user',
   missions: 'user',
   accept: 'user',
   abort: 'user',

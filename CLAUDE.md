@@ -66,7 +66,7 @@ User input flows through `Terminal.tsx`:
 Commands are tiered by user type (`src/commands/permissions.ts`):
 
 - **guest**: help, man, echo, whoami, pwd, ls, cd, cat, su, clear, author, exit
-- **user**: All guest + apt, ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, exploit, strings, output, resolve, nano, node, john, hydra, airmon, airdump, aircrack, nmcli, missions, accept, abort, mail, xterm
+- **user**: All guest + apt, ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, exploit, gobuster, strings, output, resolve, nano, node, john, hydra, airmon, airdump, aircrack, nmcli, missions, accept, abort, mail, xterm
 - **root**: All user + decrypt
 
 ### Tool Availability (apt install)
@@ -75,7 +75,7 @@ On remote/mission machines, hacking tools must be installed via `apt('install', 
 
 - **Shell builtins** (cd, echo, pwd, etc.) — always available
 - **System utilities** (ls, cat, ssh, ping, etc.) — always available, binaries in `/bin/`
-- **Apt-installable** (nmap, john, hydra, nc, ftp, exploit, etc.) — require `/usr/bin/<name>` to exist; pre-installed on localhost only
+- **Apt-installable** (nmap, john, hydra, nc, ftp, exploit, gobuster, etc.) — require `/usr/bin/<name>` to exist; pre-installed on localhost only
 - **Game-specific** (missions, accept, mail, etc.) — always available
 
 The filesystem factory (`fileSystemFactory.ts`) creates `/boot/`, `/bin/`, and `/usr/bin/` directories on all machines. `mergeExtraDirectories()` handles one-level-deep merging to prevent mission generation's `extraDirectories` from overwriting factory directories.

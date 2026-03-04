@@ -12,6 +12,7 @@ import { createNcCommand } from '../commands/nc';
 import { createCurlCommand } from '../commands/curl';
 import { createExploitCommand } from '../commands/exploit';
 import { createHydraCommand } from '../commands/hydra';
+import { createGobusterCommand } from '../commands/gobuster';
 import type { Command } from '../components/Terminal/types';
 
 // Higher-order function that wraps a network command with WiFi connectivity gating.
@@ -38,7 +39,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
     getGateway,
     resolveNat,
   } = useNetwork();
-  const { readFileFromMachine } = useFileSystem();
+  const { readFileFromMachine, getNodeFromMachine } = useFileSystem();
   const { session, wifiConnected } = useSession();
 
   return useMemo(() => {
@@ -111,6 +112,14 @@ export const useNetworkCommands = (): Map<string, Command> => {
       ),
     );
 
+    commands.set(
+      'gobuster',
+      wrapWithWifiCheck(
+        createGobusterCommand({ getMachine, resolveDomain, resolveNat, getNodeFromMachine }),
+        isWifiRequired,
+      ),
+    );
+
     return commands;
   }, [
     getInterfaces,
@@ -122,6 +131,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
     getGateway,
     resolveNat,
     readFileFromMachine,
+    getNodeFromMachine,
     session.machine,
     wifiConnected,
   ]);

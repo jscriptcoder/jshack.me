@@ -95,6 +95,7 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 | `nc(host, port)`             | Connect to arbitrary port (interactive for special services)         |
 | `exploit(host, port)`        | Exploit a vulnerable service for remote code execution               |
 | `hydra(host[, svc[, user]])` | Brute-force SSH/FTP login credentials                                |
+| `gobuster("dir", url)`       | Enumerate directories and files on a web server                      |
 | `decrypt(file, key)`         | Decrypt file using AES-256                                           |
 | `output(cmd, [file])`        | Capture command output to variable or file                           |
 | `resolve(promise)`           | Unwrap a Promise and display its value                               |

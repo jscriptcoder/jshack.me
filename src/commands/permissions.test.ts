@@ -228,11 +228,11 @@ describe('permissions', () => {
       expect(rootCommands).toEqual(['decrypt']);
     });
 
-    it('should have 26 user-tier commands', () => {
+    it('should have 27 user-tier commands', () => {
       const userCommands = Object.entries(COMMAND_TIERS)
         .filter(([, tier]) => tier === 'user')
         .map(([name]) => name);
-      expect(userCommands).toHaveLength(26);
+      expect(userCommands).toHaveLength(27);
       expect(userCommands).toContain('apt');
       expect(userCommands).toContain('nmap');
       expect(userCommands).toContain('ssh');

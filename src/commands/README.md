@@ -88,6 +88,7 @@ On remote and mission machines, hacking tools aren't pre-installed. Players must
 | nc       | `nc.ts`       | `nc(host, port)`             | Netcat - connect to arbitrary port (async, interactive for special services)  |
 | exploit  | `exploit.ts`  | `exploit(host, port)`        | Exploit a vulnerable service for RCE (async, drops into restricted shell)     |
 | hydra    | `hydra.ts`    | `hydra(host[, svc[, user]])` | Brute-force SSH/FTP login credentials (async, probability-based)              |
+| gobuster | `gobuster.ts` | `gobuster("dir", url)`       | Enumerate directories/files on web servers (async, walks /var/www/html/ tree) |
 
 ## WiFi
 
