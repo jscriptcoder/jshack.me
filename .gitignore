@@ -33,3 +33,6 @@ src/filesystem/machines/__encoded.ts
 
 # Generated encoded secrets
 src/secrets/__encoded.ts
+
+# Local Claude settings
+.claude/settings.local.json
