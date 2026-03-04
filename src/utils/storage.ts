@@ -1,7 +1,7 @@
 import type { PersistedState } from '../session/SessionContext';
 import type { FileSystemPatch } from '../filesystem/types';
 import { isValidPersistedState } from '../session/SessionContext';
-import { isValidPatch } from '../filesystem/FileSystemContext';
+import { isValidPatch } from '../filesystem/fileSystemUtils';
 
 const DB_NAME = 'jshack-db';
 const DB_VERSION = 1;

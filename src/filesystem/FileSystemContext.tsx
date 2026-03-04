@@ -13,6 +13,16 @@ import { machineFileSystems, getDefaultHomePath, type MachineId } from './machin
 import { getCachedFilesystemPatches, getDatabase } from '../utils/storageCache';
 import { saveFilesystemPatches } from '../utils/storage';
 import { createSyncChannel, type SyncMessage } from '../utils/crossTabSync';
+import {
+  resolvePath as resolvePathUtil,
+  getNodeAtPath,
+  updateNodeAtPath,
+  addChildAtPath,
+  removeChildAtPath,
+  upsertPatch,
+  applyPatches,
+  type FileSystemsState,
+} from './fileSystemUtils';
 
 type DeleteOptions = {
   readonly recursive?: boolean;
@@ -85,175 +95,6 @@ type FileSystemContextValue = {
 
 const FileSystemContext = createContext<FileSystemContextValue | null>(null);
 
-// Recursively navigates an immutable filesystem tree and applies `updater` to the
-// node at `pathParts`. Returns a new tree with only the affected path rebuilt.
-const updateNodeAtPath = (
-  root: FileNode,
-  pathParts: readonly string[],
-  updater: (node: FileNode) => FileNode,
-): FileNode => {
-  if (pathParts.length === 0) return updater(root);
-
-  const [first, ...rest] = pathParts;
-  if (root.type !== 'directory' || !root.children) return root;
-
-  return {
-    ...root,
-    children: {
-      ...root.children,
-      [first]: updateNodeAtPath(root.children[first], rest, updater),
-    },
-  };
-};
-
-const addChildAtPath = (
-  root: FileNode,
-  pathParts: readonly string[],
-  childName: string,
-  child: FileNode,
-): FileNode => {
-  if (pathParts.length === 0) {
-    if (root.type !== 'directory') return root;
-    return {
-      ...root,
-      children: {
-        ...root.children,
-        [childName]: child,
-      },
-    };
-  }
-
-  const [first, ...rest] = pathParts;
-  if (root.type !== 'directory' || !root.children) return root;
-
-  return {
-    ...root,
-    children: {
-      ...root.children,
-      [first]: addChildAtPath(root.children[first], rest, childName, child),
-    },
-  };
-};
-
-// Immutably removes a named child from the directory at the given path.
-// Uses destructuring to exclude the target child from the children record.
-const removeChildAtPath = (
-  root: FileNode,
-  pathParts: readonly string[],
-  childName: string,
-): FileNode => {
-  if (pathParts.length === 0) {
-    if (root.type !== 'directory' || !root.children) return root;
-    const { [childName]: _removed, ...remaining } = root.children;
-    return {
-      ...root,
-      children: remaining,
-    };
-  }
-
-  const [first, ...rest] = pathParts;
-  if (root.type !== 'directory' || !root.children) return root;
-
-  return {
-    ...root,
-    children: {
-      ...root.children,
-      [first]: removeChildAtPath(root.children[first], rest, childName),
-    },
-  };
-};
-
-type FileSystemsState = Readonly<Record<string, FileNode>>;
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null;
-
-export const isValidPatch = (value: unknown): value is FileSystemPatch =>
-  isRecord(value) &&
-  typeof value.machineId === 'string' &&
-  typeof value.path === 'string' &&
-  (typeof value.content === 'string' || value.content === null) &&
-  typeof value.owner === 'string' &&
-  ['root', 'user', 'guest'].includes(value.owner);
-
-const getNodeFromFileSystemStatic = (fs: FileNode, resolvedPath: string): FileNode | null => {
-  const parts = resolvedPath.split('/').filter(Boolean);
-  return parts.reduce<FileNode | null>((current, part) => {
-    if (!current || current.type !== 'directory' || !current.children) return null;
-    return current.children[part] ?? null;
-  }, fs);
-};
-
-// Replays filesystem patches onto a base filesystem state. Each patch either updates
-// an existing file's content or creates a new file at the specified path with inferred
-// permissions. This is how changes persist across page reloads via IndexedDB.
-const applyPatches = (
-  base: FileSystemsState,
-  patches: readonly FileSystemPatch[],
-): FileSystemsState =>
-  patches.reduce<FileSystemsState>((state, patch) => {
-    const machineId = patch.machineId as MachineId;
-    const machineFs = state[machineId];
-    if (!machineFs) return state;
-
-    const parts = patch.path.split('/').filter(Boolean);
-
-    // Deletion patch — remove the node from the filesystem
-    if (patch.content === null) {
-      const childName = parts[parts.length - 1];
-      const dirParts = parts.slice(0, -1);
-      return {
-        ...state,
-        [machineId]: removeChildAtPath(machineFs, dirParts, childName),
-      };
-    }
-
-    // After the null check above, content is guaranteed to be a string
-    const content = patch.content;
-    const existingNode = getNodeFromFileSystemStatic(machineFs, patch.path);
-
-    if (existingNode) {
-      return {
-        ...state,
-        [machineId]: updateNodeAtPath(machineFs, parts, (node) => ({
-          ...node,
-          content,
-        })),
-      };
-    }
-
-    const fileName = parts[parts.length - 1];
-    const dirParts = parts.slice(0, -1);
-    const newFile: FileNode = {
-      name: fileName,
-      type: 'file',
-      owner: patch.owner,
-      permissions: {
-        read: ['root', patch.owner],
-        write: ['root', patch.owner],
-        execute: ['root', patch.owner],
-      },
-      content,
-    };
-
-    return {
-      ...state,
-      [machineId]: addChildAtPath(machineFs, dirParts, fileName, newFile),
-    };
-  }, base);
-
-const upsertPatch = (
-  patches: readonly FileSystemPatch[],
-  patch: FileSystemPatch,
-): readonly FileSystemPatch[] => {
-  const existingIndex = patches.findIndex(
-    (p) => p.machineId === patch.machineId && p.path === patch.path,
-  );
-  if (existingIndex === -1) return [...patches, patch];
-
-  return patches.map((p, i) => (i === existingIndex ? patch : p));
-};
-
 const STATIC_MACHINE_KEYS = new Set(Object.keys(machineFileSystems));
 
 const initializeFileSystems = (): FileSystemsState =>
@@ -280,12 +121,21 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
 
       setFileSystems((prev) => applyPatches(prev, [patch]));
       setPatches((prev) => {
-        const updated = upsertPatch(prev, patch);
-        if (patch.content !== null) return updated;
+        if (patch.content !== null) return upsertPatch(prev, patch);
+
+        const existing = prev.find((p) => p.machineId === patch.machineId && p.path === patch.path);
         const deletedPrefix = patch.path.endsWith('/') ? patch.path : patch.path + '/';
-        return updated.filter(
+        const withoutChildren = prev.filter(
           (p) => !(p.machineId === patch.machineId && p.path.startsWith(deletedPrefix)),
         );
+
+        if (existing?.isNew) {
+          return withoutChildren.filter(
+            (p) => !(p.machineId === patch.machineId && p.path === patch.path),
+          );
+        }
+
+        return upsertPatch(withoutChildren, patch);
       });
     });
     return () => channel.close();
@@ -321,64 +171,32 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
   // a key in fileSystems because SSH only connects to known machines
   const fileSystem = fileSystems[currentMachine] ?? fileSystems['localhost'];
 
-  const normalizePath = useCallback((path: string): string => {
-    const parts = path.split('/').filter(Boolean);
-    const resolved = parts.reduce<readonly string[]>((acc, part) => {
-      if (part === '..') return acc.slice(0, -1);
-      if (part !== '.') return [...acc, part];
-      return acc;
-    }, []);
-    return '/' + resolved.join('/');
-  }, []);
-
   const resolvePathForMachine = useCallback(
-    (path: string, cwd: string): string => {
-      if (path.startsWith('/')) return normalizePath(path);
-      if (path === '..') {
-        const parts = cwd.split('/').filter(Boolean);
-        return '/' + parts.slice(0, -1).join('/') || '/';
-      }
-      if (path === '.') return cwd;
-      const combined = cwd === '/' ? `/${path}` : `${cwd}/${path}`;
-      return normalizePath(combined);
-    },
-    [normalizePath],
+    (path: string, cwd: string): string => resolvePathUtil(path, cwd),
+    [],
   );
 
   const resolvePath = useCallback(
-    (path: string): string => {
-      return resolvePathForMachine(path, currentPath);
-    },
-    [resolvePathForMachine, currentPath],
-  );
-
-  const getNodeFromFileSystem = useCallback(
-    (fs: FileNode, resolvedPath: string): FileNode | null => {
-      const parts = resolvedPath.split('/').filter(Boolean);
-      return parts.reduce<FileNode | null>((current, part) => {
-        if (!current || current.type !== 'directory' || !current.children) return null;
-        return current.children[part] ?? null;
-      }, fs);
-    },
-    [],
+    (path: string): string => resolvePathUtil(path, currentPath),
+    [currentPath],
   );
 
   const getNodeFromMachine = useCallback(
     (machineId: MachineId, path: string, cwd: string): FileNode | null => {
       const fs = fileSystems[machineId];
       if (!fs) return null;
-      const resolvedPath = resolvePathForMachine(path, cwd);
-      return getNodeFromFileSystem(fs, resolvedPath);
+      const resolvedPath = resolvePathUtil(path, cwd);
+      return getNodeAtPath(fs, resolvedPath);
     },
-    [fileSystems, resolvePathForMachine, getNodeFromFileSystem],
+    [fileSystems],
   );
 
   const getNode = useCallback(
     (path: string): FileNode | null => {
-      const resolvedPath = path.startsWith('/') ? path : resolvePath(path);
-      return getNodeFromFileSystem(fileSystem, resolvedPath);
+      const resolvedPath = path.startsWith('/') ? path : resolvePathUtil(path, currentPath);
+      return getNodeAtPath(fileSystem, resolvedPath);
     },
-    [fileSystem, resolvePath, getNodeFromFileSystem],
+    [fileSystem, currentPath],
   );
 
   const canReadFromMachine = useCallback(
@@ -458,16 +276,30 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
   );
 
   // Broadcasts a patch to other tabs and updates local patch state.
-  // Deletion patches (content === null) also remove any child patches under that path.
+  // Deletion of a patch-created file (isNew) removes the patch entirely instead of
+  // recording a null patch — the file never existed in the base filesystem.
+  // Deletion of a base filesystem file records a null patch.
+  // Both cases also remove any child patches under the deleted path.
   const broadcastAndRecordPatch = useCallback((patch: FileSystemPatch) => {
     syncChannelRef.current.broadcast({ type: 'filesystem-patch', patch });
     setPatches((prev) => {
-      const updated = upsertPatch(prev, patch);
-      if (patch.content !== null) return updated;
+      if (patch.content !== null) return upsertPatch(prev, patch);
+
+      const existing = prev.find((p) => p.machineId === patch.machineId && p.path === patch.path);
       const deletedPrefix = patch.path.endsWith('/') ? patch.path : patch.path + '/';
-      return updated.filter(
+      const withoutChildren = prev.filter(
         (p) => !(p.machineId === patch.machineId && p.path.startsWith(deletedPrefix)),
       );
+
+      // File was created via patch — just remove the patch (no null patch needed)
+      if (existing?.isNew) {
+        return withoutChildren.filter(
+          (p) => !(p.machineId === patch.machineId && p.path === patch.path),
+        );
+      }
+
+      // Base filesystem file — record a null patch to mark deletion
+      return upsertPatch(withoutChildren, patch);
     });
   }, []);
 
@@ -541,7 +373,13 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
         [machineId]: addChildAtPath(prev[machineId], dirParts, fileName, newFile),
       }));
 
-      broadcastAndRecordPatch({ machineId, path: resolvedPath, content, owner: userType });
+      broadcastAndRecordPatch({
+        machineId,
+        path: resolvedPath,
+        content,
+        owner: userType,
+        isNew: true,
+      });
 
       return { allowed: true };
     },

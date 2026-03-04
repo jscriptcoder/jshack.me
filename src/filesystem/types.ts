@@ -29,4 +29,5 @@ export type FileSystemPatch = {
   readonly path: string;
   readonly content: string | null;
   readonly owner: UserType;
+  readonly isNew?: true;
 };

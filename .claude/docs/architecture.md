@@ -7,7 +7,8 @@ src/
 ├── components/Terminal/   # Terminal UI (Terminal.tsx orchestrator, Input, Output, NanoEditor)
 ├── session/               # SessionContext — global session state (user, machine, path, wifiConnected)
 ├── filesystem/            # Virtual filesystem with IndexedDB persistence
-│   ├── FileSystemContext.tsx   # Filesystem operations + patch persistence
+│   ├── FileSystemContext.tsx   # React context provider for filesystem operations + patch persistence
+│   ├── fileSystemUtils.ts      # Pure utility functions (path resolution, tree ops, patches)
 │   ├── fileSystemFactory.ts    # Factory for generating machine filesystems
 │   ├── machineFileSystems.ts   # Imports from __encoded.ts, exports Record + MachineId
 │   ├── machines/               # Per-machine filesystem definitions (localhost, fileserver, webserver + gateway)
@@ -48,7 +49,7 @@ e2e/
 
 ## Terminal Features
 
-- ASCII banner on startup ("JSHACK.ME v0.11.0")
+- ASCII banner on startup ("JSHACK.ME v0.11.1")
 - Dynamic prompt: `username@machine>` (managed via SessionContext)
 - Command history (up/down arrows)
 - Tab autocompletion for commands and variables
@@ -80,7 +81,9 @@ Three-layer system:
 | Mission seed                                            | IndexedDB (`activeMissionSeed` key) | Shared  |
 | Filesystem patches                                      | IndexedDB (`patches` key)           | Shared  |
 
-Filesystem persistence uses patches (diffs from base filesystem). Each write/create operation records a `FileSystemPatch` with machineId, path, content, and owner. Patches are replayed on initialization via `applyPatches()`. Mission filesystem patches are excluded from persistence — only static machine patches are saved to IndexedDB.
+Filesystem persistence uses patches (diffs from base filesystem). Each write/create operation records a `FileSystemPatch` with machineId, path, content, owner, and optional `isNew` flag. Patches are replayed on initialization via `applyPatches()`. Mission filesystem patches are excluded from persistence — only static machine patches are saved to IndexedDB.
+
+**Patch-aware deletion**: File creation patches are tagged with `isNew: true`. When deleting a file, if the existing patch has `isNew`, the patch is simply removed (the file never existed in the base filesystem, so no null-content tombstone is needed). Deleting a base filesystem file records a `content: null` patch. The `isNew` flag is preserved through write-after-create sequences by `upsertPatch`.
 
 Mission seed persistence: only the active mission seed string is stored in IndexedDB (session store). On reload, the full `MissionNetwork` is regenerated from the seed (deterministic). Session state (machine, path, stack) persists per-tab via sessionStorage; static filesystem patches persist via IndexedDB.
 
