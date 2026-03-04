@@ -67,6 +67,7 @@ export type AsyncOutput = {
     onComplete: (followUp?: AsyncFollowUp) => void,
   ) => void;
   readonly cancel?: () => void;
+  readonly clearScreen?: true;
 };
 
 // Discriminated union for special command results

@@ -56,6 +56,7 @@ export const createRebootCommand = (context: RebootContext): Command => ({
 
     return {
       __type: 'async',
+      clearScreen: true,
       start: (onLine, onComplete) => {
         const hasVmlinuz = getNodeFromMachine(machine, '/boot/vmlinuz', '/') !== null;
         const hasInitrd = getNodeFromMachine(machine, '/boot/initrd.img', '/') !== null;

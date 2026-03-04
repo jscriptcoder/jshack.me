@@ -37,7 +37,7 @@ const BANNER = `
 ██   ██║╚════██║██╔══██║██╔══██║██║     ██╔═██╗    ██║╚██╔╝██║██╔══╝
 ╚█████╔╝███████║██║  ██║██║  ██║╚██████╗██║  ██╗██╗██║ ╚═╝ ██║███████╗
  ╚════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝╚═╝     ╚═╝╚══════╝
-                                                              v0.12.2
+                                                              v0.12.3
 
   Type help() for available commands
 `;
@@ -256,6 +256,9 @@ export const Terminal = () => {
             return;
           }
           if (isAsyncOutput(result)) {
+            if (result.clearScreen) {
+              clearLines();
+            }
             setAsyncRunning(true);
             asyncCancelRef.current = result.cancel ?? null;
 
