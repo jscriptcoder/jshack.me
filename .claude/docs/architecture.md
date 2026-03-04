@@ -48,7 +48,7 @@ e2e/
 
 ## Terminal Features
 
-- ASCII banner on startup ("JSHACK.ME v0.10.0")
+- ASCII banner on startup ("JSHACK.ME v0.11.0")
 - Dynamic prompt: `username@machine>` (managed via SessionContext)
 - Command history (up/down arrows)
 - Tab autocompletion for commands and variables
@@ -170,7 +170,7 @@ Network access from localhost requires cracking a WiFi network first. This is a 
 
 See `src/commands/` for implementations and `src/hooks/useCommands.ts` for the registry.
 
-Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, su, whoami, airmon, airdump, aircrack, nmcli, ifconfig, ping, nmap, nslookup, ssh, exit, ftp, nc, curl, exploit, gobuster, hydra, decrypt, output, resolve, strings, nano, node, missions, accept, abort, mail, apt, theme, reset, xterm.
+Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, rm, su, whoami, airmon, airdump, aircrack, nmcli, ifconfig, ping, nmap, nslookup, ssh, exit, ftp, nc, curl, exploit, gobuster, hydra, decrypt, output, resolve, strings, nano, node, missions, accept, abort, mail, apt, theme, reset, xterm.
 
 FTP mode (when connected via ftp): pwd, lpwd, cd, lcd, ls, lls, get, put, quit/bye.
 

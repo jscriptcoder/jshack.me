@@ -14,6 +14,10 @@ import { getCachedFilesystemPatches, getDatabase } from '../utils/storageCache';
 import { saveFilesystemPatches } from '../utils/storage';
 import { createSyncChannel, type SyncMessage } from '../utils/crossTabSync';
 
+type DeleteOptions = {
+  readonly recursive?: boolean;
+};
+
 type FileSystemContextValue = {
   readonly fileSystem: FileNode;
   readonly resolvePath: (path: string) => string;
@@ -24,6 +28,11 @@ type FileSystemContextValue = {
   readonly readFile: (path: string, userType: UserType) => string | null;
   readonly writeFile: (path: string, content: string, userType: UserType) => PermissionResult;
   readonly createFile: (path: string, content: string, userType: UserType) => PermissionResult;
+  readonly deleteNode: (
+    path: string,
+    userType: UserType,
+    options?: DeleteOptions,
+  ) => PermissionResult;
   readonly getDefaultHomePath: (machineId: string, username: string) => string;
   readonly resolvePathForMachine: (path: string, cwd: string) => string;
   readonly getNodeFromMachine: (machineId: MachineId, path: string, cwd: string) => FileNode | null;
@@ -64,6 +73,13 @@ type FileSystemContextValue = {
     cwd: string,
     content: string,
     userType: UserType,
+  ) => PermissionResult;
+  readonly deleteNodeFromMachine: (
+    machineId: MachineId,
+    path: string,
+    cwd: string,
+    userType: UserType,
+    options?: DeleteOptions,
   ) => PermissionResult;
 };
 
@@ -119,6 +135,34 @@ const addChildAtPath = (
   };
 };
 
+// Immutably removes a named child from the directory at the given path.
+// Uses destructuring to exclude the target child from the children record.
+const removeChildAtPath = (
+  root: FileNode,
+  pathParts: readonly string[],
+  childName: string,
+): FileNode => {
+  if (pathParts.length === 0) {
+    if (root.type !== 'directory' || !root.children) return root;
+    const { [childName]: _removed, ...remaining } = root.children;
+    return {
+      ...root,
+      children: remaining,
+    };
+  }
+
+  const [first, ...rest] = pathParts;
+  if (root.type !== 'directory' || !root.children) return root;
+
+  return {
+    ...root,
+    children: {
+      ...root.children,
+      [first]: removeChildAtPath(root.children[first], rest, childName),
+    },
+  };
+};
+
 type FileSystemsState = Readonly<Record<string, FileNode>>;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -128,7 +172,7 @@ export const isValidPatch = (value: unknown): value is FileSystemPatch =>
   isRecord(value) &&
   typeof value.machineId === 'string' &&
   typeof value.path === 'string' &&
-  typeof value.content === 'string' &&
+  (typeof value.content === 'string' || value.content === null) &&
   typeof value.owner === 'string' &&
   ['root', 'user', 'guest'].includes(value.owner);
 
@@ -153,6 +197,19 @@ const applyPatches = (
     if (!machineFs) return state;
 
     const parts = patch.path.split('/').filter(Boolean);
+
+    // Deletion patch — remove the node from the filesystem
+    if (patch.content === null) {
+      const childName = parts[parts.length - 1];
+      const dirParts = parts.slice(0, -1);
+      return {
+        ...state,
+        [machineId]: removeChildAtPath(machineFs, dirParts, childName),
+      };
+    }
+
+    // After the null check above, content is guaranteed to be a string
+    const content = patch.content;
     const existingNode = getNodeFromFileSystemStatic(machineFs, patch.path);
 
     if (existingNode) {
@@ -160,7 +217,7 @@ const applyPatches = (
         ...state,
         [machineId]: updateNodeAtPath(machineFs, parts, (node) => ({
           ...node,
-          content: patch.content,
+          content,
         })),
       };
     }
@@ -176,7 +233,7 @@ const applyPatches = (
         write: ['root', patch.owner],
         execute: ['root', patch.owner],
       },
-      content: patch.content,
+      content,
     };
 
     return {
@@ -222,7 +279,14 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
       const patch = message.patch;
 
       setFileSystems((prev) => applyPatches(prev, [patch]));
-      setPatches((prev) => upsertPatch(prev, patch));
+      setPatches((prev) => {
+        const updated = upsertPatch(prev, patch);
+        if (patch.content !== null) return updated;
+        const deletedPrefix = patch.path.endsWith('/') ? patch.path : patch.path + '/';
+        return updated.filter(
+          (p) => !(p.machineId === patch.machineId && p.path.startsWith(deletedPrefix)),
+        );
+      });
     });
     return () => channel.close();
   }, []);
@@ -393,10 +457,18 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
     [readFileFromMachine, currentMachine, currentPath],
   );
 
-  // Broadcasts a patch to other tabs and updates local patch state
+  // Broadcasts a patch to other tabs and updates local patch state.
+  // Deletion patches (content === null) also remove any child patches under that path.
   const broadcastAndRecordPatch = useCallback((patch: FileSystemPatch) => {
     syncChannelRef.current.broadcast({ type: 'filesystem-patch', patch });
-    setPatches((prev) => upsertPatch(prev, patch));
+    setPatches((prev) => {
+      const updated = upsertPatch(prev, patch);
+      if (patch.content !== null) return updated;
+      const deletedPrefix = patch.path.endsWith('/') ? patch.path : patch.path + '/';
+      return updated.filter(
+        (p) => !(p.machineId === patch.machineId && p.path.startsWith(deletedPrefix)),
+      );
+    });
   }, []);
 
   const writeFileToMachine = useCallback(
@@ -476,6 +548,53 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
     [resolvePathForMachine, canWriteFromMachine, getNodeFromMachine, broadcastAndRecordPatch],
   );
 
+  const deleteNodeFromMachine = useCallback(
+    (
+      machineId: MachineId,
+      path: string,
+      cwd: string,
+      userType: UserType,
+      options?: DeleteOptions,
+    ): PermissionResult => {
+      const resolvedPath = resolvePathForMachine(path, cwd);
+      if (resolvedPath === '/')
+        return { allowed: false, error: 'rm: cannot remove root directory' };
+
+      const parts = resolvedPath.split('/').filter(Boolean);
+      const childName = parts[parts.length - 1];
+      const dirParts = parts.slice(0, -1);
+      const dirPath = '/' + dirParts.join('/') || '/';
+
+      const parentPermission = canWriteFromMachine(machineId, dirPath, '/', userType);
+      if (!parentPermission.allowed)
+        return { allowed: false, error: `rm: cannot remove '${path}': Permission denied` };
+
+      const node = getNodeFromMachine(machineId, resolvedPath, '/');
+      if (!node)
+        return { allowed: false, error: `rm: cannot remove '${path}': No such file or directory` };
+
+      if (node.type === 'directory' && !options?.recursive)
+        return { allowed: false, error: `rm: cannot remove '${path}': Is a directory` };
+
+      setFileSystems((prev) => ({
+        ...prev,
+        [machineId]: removeChildAtPath(prev[machineId], dirParts, childName),
+      }));
+
+      broadcastAndRecordPatch({ machineId, path: resolvedPath, content: null, owner: userType });
+
+      return { allowed: true };
+    },
+    [resolvePathForMachine, canWriteFromMachine, getNodeFromMachine, broadcastAndRecordPatch],
+  );
+
+  const deleteNode = useCallback(
+    (path: string, userType: UserType, options?: DeleteOptions): PermissionResult => {
+      return deleteNodeFromMachine(currentMachine, path, currentPath, userType, options);
+    },
+    [deleteNodeFromMachine, currentMachine, currentPath],
+  );
+
   const writeFile = useCallback(
     (path: string, content: string, userType: UserType): PermissionResult => {
       return writeFileToMachine(currentMachine, path, currentPath, content, userType);
@@ -506,6 +625,7 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
         readFile,
         writeFile,
         createFile,
+        deleteNode,
         getDefaultHomePath: getDefaultHomePathFn,
         resolvePathForMachine,
         getNodeFromMachine,
@@ -515,6 +635,7 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
         readFileFromMachine,
         writeFileToMachine,
         createFileOnMachine,
+        deleteNodeFromMachine,
       }}
     >
       {children}

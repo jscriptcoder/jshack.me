@@ -11,10 +11,11 @@ import { createOutputCommand } from '../commands/output';
 import { createStringsCommand } from '../commands/strings';
 import { createNanoCommand } from '../commands/nano';
 import { createJohnCommand } from '../commands/john';
+import { createRmCommand } from '../commands/rm';
 import type { Command } from '../components/Terminal/types';
 
 export const useFileSystemCommands = (): Map<string, Command> => {
-  const { resolvePath, getNode, createFile, writeFile } = useFileSystem();
+  const { resolvePath, getNode, createFile, writeFile, deleteNode } = useFileSystem();
   const { session, setCurrentPath } = useSession();
 
   return useMemo(() => {
@@ -120,6 +121,17 @@ export const useFileSystemCommands = (): Map<string, Command> => {
       }),
     );
 
+    // rm command
+    commands.set(
+      'rm',
+      createRmCommand({
+        resolvePath,
+        getNode,
+        getUserType,
+        deleteNode,
+      }),
+    );
+
     return commands;
-  }, [setCurrentPath, resolvePath, getNode, createFile, writeFile, session]);
+  }, [setCurrentPath, resolvePath, getNode, createFile, writeFile, deleteNode, session]);
 };

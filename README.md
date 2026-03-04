@@ -67,66 +67,9 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 
 ## Available Commands
 
-| Command                      | Description                                                          |
-| ---------------------------- | -------------------------------------------------------------------- |
-| `help()`                     | List all available commands                                          |
-| `man(cmd)`                   | Display detailed manual for a command                                |
-| `echo(value)`                | Output a stringified value                                           |
-| `author()`                   | Display author profile card                                          |
-| `clear()`                    | Clear the terminal screen                                            |
-| `pwd()`                      | Print current working directory                                      |
-| `ls([path], [flags])`        | List directory contents (-a for hidden files)                        |
-| `cd([path])`                 | Change current directory                                             |
-| `cat(path)`                  | Display file contents                                                |
-| `su(user)`                   | Switch user (prompts for password)                                   |
-| `whoami()`                   | Display current username                                             |
-| `airmon(action, iface)`      | Enable/disable wireless monitor mode                                 |
-| `airdump()`                  | Scan for nearby wireless networks                                    |
-| `aircrack(bssid)`            | Crack WPA/WPA2 wireless network key                                  |
-| `nmcli(action, ...)`         | Connect to or disconnect from a wireless network                     |
-| `ifconfig([iface])`          | Display network interface configuration                              |
-| `ping(host, [count])`        | Test connectivity to a network host                                  |
-| `nmap(["-sV",] target)`      | Scan ports; -sV enables version detection and vulnerability scanning |
-| `nslookup(domain)`           | Query DNS to resolve domain to IP address                            |
-| `ssh(user, host)`            | Connect to remote machine via SSH                                    |
-| `exit()`                     | Close SSH connection and return to previous machine                  |
-| `ftp(host)`                  | Connect to remote machine via FTP                                    |
-| `curl(url, [flags])`         | Fetch web content via HTTP (supports -i for headers, -X POST)        |
-| `nc(host, port)`             | Connect to arbitrary port (interactive for special services)         |
-| `exploit(host, port)`        | Exploit a vulnerable service for remote code execution               |
-| `hydra(host[, svc[, user]])` | Brute-force SSH/FTP login credentials                                |
-| `gobuster("dir", url)`       | Enumerate directories and files on a web server                      |
-| `decrypt(file, key)`         | Decrypt file using AES-256                                           |
-| `output(cmd, [file])`        | Capture command output to variable or file                           |
-| `resolve(promise)`           | Unwrap a Promise and display its value                               |
-| `strings(file, [min])`       | Extract printable strings from binary files                          |
-| `john(file)`                 | Crack password hashes using dictionary attack                        |
-| `nano(path)`                 | Open file in nano-style text editor (Ctrl+S save, Ctrl+X exit)       |
-| `node(path)`                 | Execute a JavaScript file (requires execute permission)              |
-| `missions()`                 | Browse available hacker-for-hire contracts on the darknet            |
-| `accept(seed)`               | Accept a mission contract and generate the target network            |
-| `abort()`                    | Abort the current mission and return to localhost                    |
-| `mail(to, content)`          | Send proof to a darknet client to complete a mission                 |
-| `apt(sub, [pkg])`            | Package manager — install tools on remote machines                   |
-| `theme([name])`              | List themes or switch terminal color theme                           |
-| `xterm()`                    | Open a new terminal session in a separate browser tab                |
-| `reset(["confirm"])`         | Reset game to factory defaults (clears all saved progress)           |
+35+ commands covering filesystem operations, networking, WiFi hacking, mission gameplay, and more. Use `help()` in the terminal to list commands or `man(cmd)` for detailed usage.
 
-### FTP Mode Commands
-
-When connected via FTP, a dedicated command set is available:
-
-| Command                | Description                                          |
-| ---------------------- | ---------------------------------------------------- |
-| `pwd()`                | Print remote working directory                       |
-| `lpwd()`               | Print local working directory                        |
-| `cd(path)`             | Change remote directory                              |
-| `lcd(path)`            | Change local directory                               |
-| `ls([path], [flags])`  | List remote directory contents (-a for hidden files) |
-| `lls([path], [flags])` | List local directory contents (-a for hidden files)  |
-| `get(file, [dest])`    | Download file from remote to local                   |
-| `put(file, [dest])`    | Upload file from local to remote                     |
-| `quit()` / `bye()`     | Close FTP connection                                 |
+See [src/commands/README.md](src/commands/README.md) for the full command reference.
 
 ### Examples
 

@@ -10,7 +10,7 @@ Commands are tiered by user type. Restricted commands show `permission denied: '
 
 | Tier     | User Type | Available Commands                                                                                                                                                                                      |
 | -------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Basic    | `guest`   | help, man, echo, whoami, pwd, ls, cd, cat, su, clear, author, theme, exit                                                                                                                               |
+| Basic    | `guest`   | help, man, echo, whoami, pwd, ls, cd, cat, rm, su, clear, author, theme, exit                                                                                                                           |
 | Standard | `user`    | All basic + apt, ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, exploit, hydra, strings, output, resolve, nano, node, john, airmon, airdump, aircrack, nmcli, missions, accept, abort, mail, xterm |
 | Full     | `root`    | All standard + decrypt                                                                                                                                                                                  |
 
@@ -20,12 +20,12 @@ FTP and NC modes have their own separate command sets and are not restricted.
 
 On remote and mission machines, hacking tools aren't pre-installed. Players must use `apt('install', '<tool>')` as root to install them. System utilities (`ls`, `cat`, `ssh`, etc.) are always available via `/bin/`. Apt-installable tools (`nmap`, `john`, `nc`, etc.) require `/usr/bin/<name>` to exist in the filesystem.
 
-| Category         | Location    | Availability                                          |
-| ---------------- | ----------- | ----------------------------------------------------- |
-| Shell builtins   | N/A         | Always (cd, exit, clear, echo, pwd, help, whoami)     |
-| System utilities | `/bin/`     | Always (ls, cat, su, man, nano, strings, ssh, etc.)   |
-| Apt-installable  | `/usr/bin/` | After `apt install` (pre-installed on localhost only) |
-| Game-specific    | N/A         | Always (missions, accept, abort, mail, output, etc.)  |
+| Category         | Location    | Availability                                            |
+| ---------------- | ----------- | ------------------------------------------------------- |
+| Shell builtins   | N/A         | Always (cd, exit, clear, echo, pwd, help, whoami)       |
+| System utilities | `/bin/`     | Always (ls, cat, rm, su, man, nano, strings, ssh, etc.) |
+| Apt-installable  | `/usr/bin/` | After `apt install` (pre-installed on localhost only)   |
+| Game-specific    | N/A         | Always (missions, accept, abort, mail, output, etc.)    |
 
 ## General
 
@@ -54,19 +54,20 @@ On remote and mission machines, hacking tools aren't pre-installed. Players must
 
 ## File System
 
-| Command | File         | Signature              | Description                                             |
-| ------- | ------------ | ---------------------- | ------------------------------------------------------- |
-| pwd     | `pwd.ts`     | `pwd()`                | Print current working directory                         |
-| ls      | `ls.ts`      | `ls([path], [flags])`  | List directory contents (`-a` for hidden files)         |
-| cd      | `cd.ts`      | `cd([path])`           | Change current directory                                |
-| cat     | `cat.ts`     | `cat(path)`            | Display file contents                                   |
-| whoami  | `whoami.ts`  | `whoami()`             | Display current username                                |
-| decrypt | `decrypt.ts` | `decrypt(file, key)`   | Decrypt file using AES-256 (async)                      |
-| output  | `output.ts`  | `output(cmd, [file])`  | Capture command output to variable or file              |
-| strings | `strings.ts` | `strings(file, [min])` | Extract printable strings from binary files             |
-| nano    | `nano.ts`    | `nano(path)`           | Open file in nano-style text editor overlay             |
-| node    | `node.ts`    | `node(path)`           | Execute a JavaScript file (requires execute permission) |
-| john    | `john.ts`    | `john(file)`           | Crack password hashes using dictionary attack (async)   |
+| Command | File         | Signature                | Description                                             |
+| ------- | ------------ | ------------------------ | ------------------------------------------------------- |
+| pwd     | `pwd.ts`     | `pwd()`                  | Print current working directory                         |
+| ls      | `ls.ts`      | `ls([path], [flags])`    | List directory contents (`-a` for hidden files)         |
+| cd      | `cd.ts`      | `cd([path])`             | Change current directory                                |
+| cat     | `cat.ts`     | `cat(path)`              | Display file contents                                   |
+| rm      | `rm.ts`      | `rm([flags], path, ...)` | Remove files or directories (-r recursive, -f force)    |
+| whoami  | `whoami.ts`  | `whoami()`               | Display current username                                |
+| decrypt | `decrypt.ts` | `decrypt(file, key)`     | Decrypt file using AES-256 (async)                      |
+| output  | `output.ts`  | `output(cmd, [file])`    | Capture command output to variable or file              |
+| strings | `strings.ts` | `strings(file, [min])`   | Extract printable strings from binary files             |
+| nano    | `nano.ts`    | `nano(path)`             | Open file in nano-style text editor overlay             |
+| node    | `node.ts`    | `node(path)`             | Execute a JavaScript file (requires execute permission) |
+| john    | `john.ts`    | `john(file)`             | Crack password hashes using dictionary attack (async)   |
 
 ## User Management
 

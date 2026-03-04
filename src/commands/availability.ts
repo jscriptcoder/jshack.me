@@ -75,6 +75,7 @@ export const SYSTEM_UTILITY_NAMES = [
   'curl',
   'nmcli',
   'apt',
+  'rm',
 ] as const;
 
 // Apt-installable tool names for /usr/bin/

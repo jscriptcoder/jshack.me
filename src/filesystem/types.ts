@@ -27,6 +27,6 @@ export type PermissionResult = {
 export type FileSystemPatch = {
   readonly machineId: string;
   readonly path: string;
-  readonly content: string;
+  readonly content: string | null;
   readonly owner: UserType;
 };
