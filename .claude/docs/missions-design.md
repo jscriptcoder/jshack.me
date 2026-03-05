@@ -125,20 +125,9 @@ Seed
 
 ### Seed Keywords
 
-Seeds can embed keywords (case-insensitive) to control generation axes:
+Seeds can embed keywords (case-insensitive) to control generation axes (difficulty, entry variant, network mode, objective, domain entry, encryption). See `mission-variations.md` for the complete keyword table and all generation axes.
 
-| Axis          | Keywords                                   | Notes                                               |
-| ------------- | ------------------------------------------ | --------------------------------------------------- |
-| Difficulty    | `easy`, `medium`, `hard`                   | Unified in `parseSeedOverrides`                     |
-| Entry variant | `ssh`, `ftp`, `nc`, `exploit`, `http`      | Falls back if template unavailable for network mode |
-| Network mode  | `forwarded`, `router-first`                | Hyphenated to avoid false matches                   |
-| Objective     | `exfiltrate`, `tamper`, `credential-theft` | Hyphen variant for credential_theft                 |
-| Domain entry  | `domain`                                   | Briefing shows domain + nslookup hint instead of IP |
-| Encryption    | `decrypt`                                  | Forces exfiltrate + encrypted target file           |
-
-Example: `accept("HEIST-ssh-forwarded-tamper-hard")` forces SSH entry, forwarded mode, tamper objective, hard difficulty.
-
-PRNG sequence is preserved — override calls still consume the PRNG roll but discard the result, so seeds without keywords produce identical networks as before.
+Example: `accept("HEIST-ssh-forwarded-tamper-hard")` forces SSH entry, forwarded mode, tamper objective, hard difficulty. PRNG sequence is preserved — override calls still consume the PRNG roll but discard the result.
 
 ### Seed Sharing
 

@@ -159,30 +159,9 @@ FTP mode operates on two machines simultaneously. The adapter detects which FTP 
 
 ## WiFi Hacking Gate
 
-Network access from localhost requires cracking a WiFi network first. This is a progression gate before network access — not a flag itself.
+Network access from localhost requires cracking a WiFi network first. See `infrastructure-design.md` for full details (WiFi networks, player flow, password).
 
-**State**: `wifiConnected` (standalone `useState<boolean>` in `SessionProvider`, persisted to IndexedDB). When `false` on localhost:
-
-- `ifconfig()` shows `wlan0` DOWN (no IP) + loopback `lo`
-- Network commands (ping, nmap, ssh, ftp, nc, curl, nslookup) throw `"Network is unreachable"`
-- `NetworkContext` returns empty machines/DNS
-
-**Player flow**:
-
-1. `airmon("start", "wlan0")` — enables monitor mode (transient `useRef`, not persisted)
-2. `airdump()` — async scan revealing 4 nearby WiFi networks
-3. `aircrack("A4:CF:12:D3:8B:7A")` — cracks JSHACK-CORP, reveals password + nmcli hint
-4. `nmcli("connect", "JSHACK-CORP", "cr4ck3d_w1f1")` — connects to WiFi, sets `wifiConnected: true`
-
-**Implementation**:
-
-- WiFi networks: `src/network/wifiNetworks.ts` (4 networks with signal/encryption/crackability)
-- Commands: `src/commands/airmon.ts`, `airdump.ts`, `aircrack.ts`, `nmcli.ts`
-- Hook: `src/hooks/useWifiCommands.ts` (wires commands with session + monitor mode ref)
-- Gating: `useNetworkCommands.ts` wraps network commands with `wrapWithWifiCheck`
-- `NetworkContext` switches localhost interfaces between `localhostDisconnectedInterfaces` and `localhostConnectedInterfaces` based on WiFi state
-- localhost uses `wlan0` (not `eth0`) + `lo` loopback
-- `nmcli("disconnect")` while SSH'd calls `SessionContext.disconnectWifi()` — atomically resets to localhost, clears session stack + FTP/NC sessions
+**Implementation**: `wifiConnected` standalone `useState<boolean>` in `SessionProvider` (persisted to IndexedDB, synced across tabs). Commands: `src/commands/airmon.ts`, `airdump.ts`, `aircrack.ts`, `nmcli.ts`. Hook: `src/hooks/useWifiCommands.ts`. Gating: `useNetworkCommands.ts` wraps network commands with `wrapWithWifiCheck`. `NetworkContext` switches localhost interfaces based on WiFi state. `nmcli("disconnect")` while SSH'd calls `SessionContext.disconnectWifi()` — atomically resets to localhost.
 
 ## Bricked Machine System
 
@@ -229,44 +208,15 @@ On remote/mission machines, hacking tools are not pre-installed. Players must in
 
 ## Seeded Mission Network Generator
 
-`src/generation/` contains the engine for procedurally generating mission networks from a seed string.
+`src/generation/` contains the engine for procedurally generating mission networks from a seed string. See `missions-design.md` for design rationale and `mission-variations.md` for the complete catalog of all generation axes, templates, and pools.
 
-**Pipeline**: `generateMissionNetwork(seed)` composes these steps. Seeds can embed keywords to override generation axes (difficulty, entry variant, network mode, objective type, domain entry, encrypted exfiltrate) — see `parseSeedOverrides()` in `generateMission.ts`.
+**Pipeline**: `generateMissionNetwork(seed)` composes 7 steps: PRNG (`prng.ts`) → Topology (`topology.ts`) → Users (`users.ts`) → Port Closures (`generateMission.ts: applyPortClosures`) → Attack Chain (`attackChain.ts`) → Filesystems (`filesystem.ts`) → Binary Wrapping (`binary.ts`). Seeds can embed keywords to override generation axes — see `parseSeedOverrides()` in `generateMission.ts`.
 
-1. **PRNG** (`prng.ts`) — Mulberry32 PRNG seeded via FNV-1a hash of the seed string. Provides `next()`, `nextInt()`, `pick()`, `pickN()`, `shuffle()`.
-2. **Topology** (`topology.ts`) — Generates a router with a PRNG-varied public IP (from realistic hosting prefixes like 45, 51, 62, 78, etc.) and internal machines on a PRNG-varied private subnet (10.x.x.0/24, 172.{16-31}.x.0/24, or 192.168.{2-254}.0/24). The router is a real `GeneratedMachine` with role `'router'`, dual interfaces (public eth0 + internal eth1), its own filesystem, and users. Internal machines have roles (webserver/database/fileserver/workstation). Two network modes are supported: **forwarded** (easier — router NATs ports to the entry/DMZ machine, player connects transparently) and **router-first** (harder — no forwarding, player must hack the router to reach internal machines). Selects an entry variant (ssh/ftp/nc/exploit/http) and builds `NetworkConfig` with interfaces, DNS, and per-machine reachability. Internal machines see each other + router's internal gateway IP but NOT the router's public IP.
-3. **Users** (`users.ts`) — Generates root + 1-2 role-appropriate users per machine, hashes passwords with `md5()`. Guest passwords are picked from a `guestPasswords` pool (not hardcoded). Returns both `RemoteUser[]` per machine and a plaintext credential map.
-4. **Port Closures** (`generateMission.ts: applyPortClosures`) — PRNG-driven SSH/FTP port closures (~30% each, independent rolls) increase lateral movement variety. At most one SSH and one FTP closure per network. Entry machine, router, script_fix, and sabotage objectives are protected from SSH closures. When SSH is closed, FTP port 21 is ensured open. Always consumes 4 PRNG calls for sequence stability.
-5. **Attack Chain** (`attackChain.ts`) — Picks a target machine, builds an attack path (entry → intermediates → target), assigns access methods based on entry variant for the first hop (ssh/ftp/nc/exploit/http) and ssh/ftp/http for subsequent hops (PRNG selects based on available ports — checks `hasSsh` to avoid routing through closed SSH), plans credential placements. Generates objective per type: exfiltrate (ACCESS-KEY in target file, optionally encrypted with key on a different machine), tamper (file with old/new values from `tamperFileTemplatesByRole`), credential_theft (root password), or sabotage (no target file — player bricks the machine). Generates client email from `clientHandles` pool. In router-first mode, `generateMission.ts` adds a bridge credential placement on the router filesystem containing SSH credentials for the internal entry machine (so the player can reach it after hacking the router).
-6. **Filesystems** (`filesystem.ts`) — Builds `FileNode` trees per machine using the existing `createFileSystem()` factory. Injects role-based configs, credential breadcrumbs, noise files, red herrings, entry credential hints (for FTP/NC/exploit/HTTP entry variants), web content for webserver machines, and the target file at a dynamic path (for exfiltrate/tamper objectives; skipped for credential_theft and sabotage).
-7. **Binary Wrapping** (`binary.ts`) — Probabilistically wraps credential breadcrumbs (~30%), exfiltrate targets (~25%), and entry credential hints (~20%) in non-printable "binary noise". `cat` shows garbled output; `strings` extracts readable data. Binary files use deep paths like `/usr/local/bin/monitor_agent`.
-
-**Output**: `MissionNetwork` containing seed, difficulty, machines, filesystems, network config, attack chain, objective, clientEmail, entry variant, routerDomain, and domainEntry flag. Same seed always produces identical output.
-
-**Data Pools** (`pools.ts`) — Static arrays for usernames, hostnames, guest passwords, client handles, port templates, entry port templates (ssh/ftp/nc/exploit/http variants), vulnerability templates (real CVEs with service versions), entry credential hint templates, log templates, config templates, noise/red-herring files, target file templates by role (with `{{access_key}}` placeholder for exfiltrate), and tamper file templates by role (with `{{tamperOldValue}}` placeholder). Mission passwords are imported from `src/secrets/__encoded.ts` (encoded at build time via the secrets registry) to prevent bundle inspection.
-
-**Key properties**:
-
-- Deterministic: same seed → identical network (deep equality)
-- 5 machine roles (webserver, database, fileserver, workstation, router), 3 difficulty tiers (easy=2, medium=3-4, hard=4-6 internal machines + 1 router)
-- 5 entry variants (ssh, ftp, nc, exploit, http) — initial access method varies per seed
-- 2 network modes: forwarded (transparent NAT to DMZ) vs router-first (hack the router)
-- Router is infrastructure-only (never the mission target) but has realistic content (firewall rules, routing tables, internal machine hints)
-- Output types match existing `NetworkConfig`, `RemoteMachine`, `FileNode`
+**Key properties**: Deterministic (same seed → identical network). 5 machine roles, 3 difficulty tiers, 5 entry variants, 2 network modes, 5 objective types. Output types match existing `NetworkConfig`, `RemoteMachine`, `FileNode`. Mission passwords imported from `src/secrets/__encoded.ts`.
 
 ## Mission System Integration
 
-`src/mission/` integrates the generator with React contexts so players can discover, accept, and play missions.
-
-**Architecture — App.tsx orchestration:**
-
-- `App.tsx` holds `activeMission` state + `startMission`/`abortMission`/`completeMission` callbacks
-- Passes `activeMission.fileSystems` to `FileSystemProvider` as `missionFileSystems` prop
-- Passes `activeMission.networkConfig` to `NetworkProvider` as `missionNetworkConfig` prop
-- Passes `activeMission.machines` to `NetworkProvider` as `missionMachines` prop (for correct localhost injection)
-- Passes `activeMission.natForwarding` and `activeMission.routerMachine` to `NetworkProvider` for NAT resolution
-- `MissionProvider` wraps everything, providing mission state + methods to commands via `useMission()` hook
-- On init: checks `storageCache` for persisted seed, regenerates mission if present
+`src/mission/` integrates the generator with React contexts. See `missions-design.md` for design rationale and objective type details. See `mission-variations.md` for entry variants, objective types, templates, and briefing intel.
 
 **Provider hierarchy:**
 
@@ -274,48 +224,16 @@ On remote/mission machines, hacking tools are not pre-installed. Players must in
 SessionProvider → MissionProvider → FileSystemProvider → NetworkProvider → Terminal
 ```
 
-**FileSystemContext integration:**
+**App.tsx orchestration:** Holds `activeMission` state + `startMission`/`abortMission`/`completeMission` callbacks. Passes mission filesystems, network config, machines, NAT forwarding, and router machine to their respective providers. On init: checks `storageCache` for persisted seed, regenerates mission if present.
 
-- Accepts optional `missionFileSystems` prop
-- Merges mission filesystems into state when mission starts, removes when mission ends
-- `STATIC_MACHINE_KEYS` set filters patches — only static machine patches persist to IndexedDB
+**Context integration:**
 
-**NetworkContext integration:**
+- `FileSystemContext` accepts optional `missionFileSystems` prop — merges on mission start, removes on end. `STATIC_MACHINE_KEYS` set filters patches for IndexedDB persistence.
+- `NetworkContext` accepts optional `missionNetworkConfig`, `missionMachines`, `missionNatForwarding`, `missionRouterMachine` props. Checks mission config first, then static. `resolveNat(ip)` translates router public IP to internal entry IP when forwarding is active. `findMachineUsers(ip)` searches both configs.
 
-- Accepts optional `missionNetworkConfig`, `missionMachines`, `missionNatForwarding`, and `missionRouterMachine` props
-- When resolving config for current machine: checks mission config first, then static config
-- When on localhost with active mission: only the router's public IP is visible (not internal machines). In forwarded mode, the router appears with the entry machine's ports/users so connections are transparent.
-- `resolveNat(ip)` — translates the router's public IP to the internal entry machine IP when port forwarding is active (identity function otherwise). Applied at SSH/FTP/NC connection boundaries in `Terminal.tsx`.
-- `findMachineUsers(ip)` — searches both static config and `missionNetworkConfig` for user lists. Used by `useCommands.ts` for `su` user validation on any machine (static or mission-generated).
+**Mission commands:** `missions()` (browse contracts), `accept(seed)` (generate + start), `abort()` (pop all sessions, clear state), `mail(recipient, content)` (submit proof, verify by objective type).
 
-**Mission commands:**
-
-- `missions()` — displays hardcoded darknet contract board (missions added incrementally with e2e tests)
-- `accept(seed)` — generates network from seed, passes `MissionNetwork` to `startMission`, displays briefing with entry point, client email, objective-specific instructions, and variant-specific intel hint. Intel varies by entry variant: SSH (~50% shows credentials via `briefingRevealsCredentials`, ~50% hints at default credentials), FTP (hints at FTP service), NC (hints at backdoor), exploit (hints at vulnerable software), HTTP (hints at web server). Domain entry mode appends "Resolve the target domain first" and omits `ssh()` command. No command names appear in intel text — hints use natural language.
-- `abort()` — pops all sessions back to localhost, clears mission state
-- `mail(recipient, content)` — submits proof to the client to complete a mission. Verifies proof based on objective type.
-
-**Objective types:**
-
-- **exfiltrate** — Player finds an ACCESS-KEY in a target file and mails it to the client. Verification: content matches `objective.expectedProof`.
-- **tamper** — Player modifies a target file (e.g., changes a grade from "F" to "A") and mails the client. Verification: `mail` reads the target file from the target machine via `readFileFromMachine`, checks `tamperOldValue` is gone and `tamperNewValue` is present.
-- **credential_theft** — Player discovers the root password on the target machine and mails it to the client. Verification: content matches `objective.expectedProof` (the root password).
-- **script_fix** — Player finds a broken script on the target machine, fixes it with `nano()`, and runs it with `node()`. Scripts call `_decode(checksum)` — a function injected only into `node()`'s execution context during script_fix missions. If the checksum is correct (script was properly fixed), `_decode()` returns the ACCESS-KEY. The player then mails it to the client like an exfiltrate mission. The ACCESS-KEY never appears in the script source (anti-cheat). Bug types: syntax (missing paren/quote), logic (wrong comparison), corrupted (data replaced with `???`, hint file nearby). ~60% user-owned (anyone can edit/run), ~40% root-owned (must `su` first).
-- **sabotage** — Player bricks the target machine by gaining root, deleting `/boot/vmlinuz`, and running `reboot()`. Verification: `mail` checks `isMachineBricked(targetIP)`. No target file needed. SSH protected from port closures (player needs shell access).
-
-**Mission completion:**
-
-- Player sends proof via `mail("client@darkmail.onion", "proof")` — the mail command in `src/commands/mail.ts` validates the proof and calls `completeMission()`, displaying an ASCII "MISSION COMPLETE" banner.
-
-**Entry variant system:**
-
-- Entry machine is NOT always SSH-accessible initially
-- PRNG selects an entry variant: `ssh` (classic), `ftp` (explore via FTP, find SSH creds), `nc` (explore via backdoor, find SSH creds), `exploit` (scan with `nmap -sV`, exploit vulnerable port for restricted shell, find SSH creds), or `http` (discover port 80 via nmap, use `curl` to find SSH creds in web content or response headers via `-i`)
-- SSH is always available on the entry machine, but FTP/NC/exploit/HTTP entry variants require finding credentials first
-- HTTP variant uses `.headers` sidecar files — a file at `/var/www/html/page.headers` injects custom HTTP response headers into curl responses for that page
-- Exploit variant attaches a `Vulnerability` (CVE, description, service version) and `ServiceOwner` to a non-SSH port on the entry machine
-- `nmap("-sV", target)` reveals service versions and CVE details; `exploit(host, port)` exploits the vulnerability and drops into a restricted NC-like shell
-- Mission briefing shows the initial access command based on variant
+**Objective types:** exfiltrate (find ACCESS-KEY), tamper (modify file), credential_theft (find root password), script_fix (fix broken script + run with node), sabotage (brick target machine). Player sends proof via `mail()` — the mail command validates and calls `completeMission()`.
 
 ## SEO & Open Graph
 
