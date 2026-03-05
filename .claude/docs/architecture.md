@@ -49,7 +49,7 @@ e2e/
 
 ## Terminal Features
 
-- ASCII banner on startup ("JSHACK.ME v0.14.0")
+- ASCII banner on startup ("JSHACK.ME v0.15.0")
 - Dynamic prompt: `username@machine>` (managed via SessionContext)
 - Command history (up/down arrows)
 - Tab autocompletion for commands and variables
@@ -219,8 +219,8 @@ On remote/mission machines, hacking tools are not pre-installed. Players must in
 **Categories:**
 
 - **Shell builtins** (cd, exit, echo, pwd, etc.) — always available, no binary check
-- **System utilities** (ls, cat, ssh, ping, apt, etc.) — always available, binaries in `/bin/`
-- **Apt-installable** (nmap, john, hydra, nc, ftp, exploit, gobuster, airmon, airdump, aircrack, decrypt, node, nslookup) — require `/usr/bin/<name>` binary; pre-installed on localhost only
+- **System utilities** (ls, cat, ssh, ping, curl, nslookup, apt, etc.) — always available, binaries in `/bin/`
+- **Apt-installable** (nmap, john, hydra, nc, ftp, exploit, gobuster, airmon, airdump, aircrack, decrypt, node) — require `/usr/bin/<name>` binary; pre-installed on localhost only
 - **Game-specific** (missions, accept, mail, etc.) — always available, no binary check
 
 **Filesystem integration:** `fileSystemFactory.ts` creates `/boot/`, `/bin/`, and `/usr/bin/` directories on all machines. `/bin/` contains system utility binary stubs. `/usr/bin/` is empty on remote/mission machines (populated via `apt install`). `mergeExtraDirectories()` does one-level-deep directory merging to prevent mission `extraDirectories` from overwriting factory-created `/usr/`.

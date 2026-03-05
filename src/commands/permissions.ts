@@ -18,13 +18,9 @@ export const COMMAND_TIERS: Readonly<Record<string, UserType>> = {
   // user-level commands
   apt: 'user',
   ifconfig: 'user',
-  ping: 'user',
   nmap: 'user',
-  nslookup: 'user',
-  ssh: 'user',
   ftp: 'user',
   nc: 'user',
-  curl: 'user',
   strings: 'user',
   output: 'user',
   resolve: 'user',

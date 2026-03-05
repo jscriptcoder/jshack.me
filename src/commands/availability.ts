@@ -30,7 +30,6 @@ export const APT_INSTALLABLE = new Set([
   'aircrack',
   'decrypt',
   'node',
-  'nslookup',
   'hydra',
   'gobuster',
 ]);
@@ -52,7 +51,6 @@ export const APT_PACKAGES: readonly AptPackageInfo[] = [
   { name: 'aircrack', description: 'Wireless key cracker', version: '1.7' },
   { name: 'decrypt', description: 'File decryption utility', version: '1.0.0' },
   { name: 'node', description: 'Node.js JavaScript runtime', version: '20.11.0' },
-  { name: 'nslookup', description: 'DNS lookup utility', version: '9.18.0' },
   { name: 'hydra', description: 'Network login brute-force tool', version: '9.4' },
   { name: 'gobuster', description: 'Directory/file enumeration tool', version: '3.6' },
 ];
@@ -73,6 +71,7 @@ export const SYSTEM_UTILITY_NAMES = [
   'ping',
   'ifconfig',
   'curl',
+  'nslookup',
   'nmcli',
   'apt',
   'rm',
@@ -91,7 +90,6 @@ export const APT_TOOL_NAMES = [
   'aircrack',
   'decrypt',
   'node',
-  'nslookup',
   'hydra',
   'gobuster',
 ] as const;

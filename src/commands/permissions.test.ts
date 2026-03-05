@@ -83,6 +83,10 @@ describe('permissions', () => {
         'su',
         'clear',
         'author',
+        'ping',
+        'nslookup',
+        'ssh',
+        'curl',
         'exit',
       ]);
     });
@@ -228,15 +232,13 @@ describe('permissions', () => {
       expect(rootCommands).toEqual(['decrypt', 'reboot']);
     });
 
-    it('should have 27 user-tier commands', () => {
+    it('should have 23 user-tier commands', () => {
       const userCommands = Object.entries(COMMAND_TIERS)
         .filter(([, tier]) => tier === 'user')
         .map(([name]) => name);
-      expect(userCommands).toHaveLength(27);
+      expect(userCommands).toHaveLength(23);
       expect(userCommands).toContain('apt');
       expect(userCommands).toContain('nmap');
-      expect(userCommands).toContain('ssh');
-      expect(userCommands).toContain('curl');
       expect(userCommands).toContain('strings');
       expect(userCommands).toContain('nano');
       expect(userCommands).toContain('exploit');
@@ -259,6 +261,10 @@ describe('permissions', () => {
         'su',
         'clear',
         'author',
+        'ssh',
+        'ping',
+        'curl',
+        'nslookup',
       ];
       basicCommands.forEach((name) => {
         expect(COMMAND_TIERS[name]).toBeUndefined();
