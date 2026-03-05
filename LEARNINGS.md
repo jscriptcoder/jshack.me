@@ -258,6 +258,19 @@
 - **Solution**: Added `networkMode` to `FilesystemInput`. In forwarded mode, entry hints go on the internal entry machine (unchanged). In router-first mode, entry hints go on the router. `buildMachineConfig` already generates web content when web placements exist, so the fix is just routing the placements correctly.
 - **PRNG impact**: Forwarded-mode and router-first + SSH seeds are unchanged. Router-first + non-SSH seeds shift PRNG (acceptable — they were broken anyway).
 
+### Owner-scoped permissions break mission entry flow
+
+- **Context**: Fixed `mkFile`/`mkDir` to use owner-scoped permissions (only owner + root can read, matching real Unix). Added directory traversal checking (`checkTraversal`) that verifies execute permission on every parent directory.
+- **Issue**: Guest users on mission entry machines can no longer read files in `/home/operator/` (correct behavior), but this breaks the credential discovery flow — guest can't find SSH credentials to escalate. Worse, guest users can't even use `ssh` (user-tier command), making the entire guest→explore→SSH chain unworkable.
+- **Partial fix**: Changed system-directory files (`/var/log/`, `/tmp/`, `/etc/`, `/var/www/html/`) to `owner: 'guest'` (world-readable). Entry machine credential placements remapped to world-readable paths (deterministic remap, no extra PRNG call). But the fundamental problem of guest SSH access remains unresolved.
+- **Lesson**: Permission model changes have cascading effects on game progression. The credential breadcrumb system needs rethinking — `hydra` brute-force from localhost is a cleaner approach for `briefingRevealsCredentials=false` scenarios.
+
+### PRNG sequence stability when modifying generation logic
+
+- **Context**: Mission networks are deterministically generated from a seed string. Any PRNG call added or removed shifts the entire sequence downstream.
+- **Issue**: Attempted to fix entry machine breadcrumb placement by adding `prng.pick(worldReadablePlacements)` — an extra PRNG call that shifted the entire sequence, changing `briefingRevealsCredentials` from `false` to `true` for existing seeds.
+- **Solution**: Use deterministic remap (`worldReadablePlacements[0]`) instead of consuming an extra PRNG call. General rule: when modifying generation logic, never add/remove PRNG calls — use conditional remapping or always consume the same number of calls (as `applyPortClosures` does with its 4 fixed calls).
+
 ### BroadcastChannel postMessage after close throws
 
 - **Context**: Cross-tab sync uses `BroadcastChannel` for filesystem patches, WiFi state, mission state, and theme sync. Each provider creates a channel on mount and closes it in a `useEffect` cleanup.
@@ -493,6 +506,12 @@
 - **Why it works**: Replaces type assertions (`as Type`) with type-safe narrowing, compiler verifies correctness
 - **Example**: `if (isAsyncOutput(result)) { result.start(...) }` - no assertion needed
 
+### Directory traversal checking via context injection
+
+- **What**: `checkTraversal(fs, path, userType)` walks every parent directory verifying execute permission, injected into commands as `canTraverse` context dependency
+- **Why it works**: Real Unix behavior — accessing `/home/operator/notes.txt` requires execute on `/`, `/home/`, and `/home/operator/`. Injecting as a context dependency means commands don't import filesystem utils directly, and tests can mock it with `canTraverse: () => ({ allowed: true })`.
+- **Key detail**: `cd` checks execute (not read) on the target directory, matching real Unix. You can `cd` into a dir you can't `ls`.
+
 ### `type` over `interface` for data structures
 
 - **What**: Use `type` for all data shapes, reserve `interface` for behavior contracts (rare)
@@ -667,4 +686,6 @@
 - FTP mode path autocomplete: requires two separate `usePathAutoComplete` instances (remote + local) because FTP operates on two machines simultaneously. `getFtpPathCompletions` detects the FTP command and argument position: remote commands (cd, ls) → remote instance, local commands (lcd, lls) → local instance, dual-argument commands (get/put) → count commas before cursor to determine which argument and context
 - Router not in any `machineConfigs[*].machines` array: the router is a _key_ in `machineConfigs` but never appears in another config's `.machines` list. This means `findMachineUsers(routerPublicIp)` — which flat-searches all `.machines` arrays — returns nothing, breaking `su` on the router. Fix: check `missionRouterMachine` directly as a fallback in `findMachineUsers`. General lesson: when a lookup searches "reachable machines from other machines", entities that are only keys (not values) in the config are invisible.
 - Binary entry credential hints for guest owners: deep binary paths (e.g., `/opt/lib/libmod_auth.so`) are created with `owner: 'root'` — guest users in NC/exploit shells can't read them. Fix: when port owner is guest, redirect binary placements to `/tmp/` which uses `owner: 'user'` (readable by guest). The `/tmp/` placement pipeline already handles binary wrapping correctly.
+- `/var/log/` not traversable by guest: after making files `owner: 'guest'` (world-readable), the parent `/var/log/` directory in `fileSystemFactory.ts` still had `execute: ['root', 'user']` — guest couldn't traverse into it. Fix: made `/var/log/` world-executable. General lesson: changing file permissions is insufficient if parent directories block traversal.
+- `cd` checks execute, not read: real Unix requires execute (not read) to enter a directory. `cd("/etc")` with execute but no read works; `ls("/etc")` requires read. Three files affected: `cd.ts`, `ftp/cd.ts`, `ftp/lcd.ts`.
 - Duplicate hostnames in hard missions: `prng.pick(hostnamesByRole[role])` can pick the same hostname for two machines of the same role (e.g., two databases both named "mysql-prod"). This makes briefings and DNS ambiguous. Fix: track used hostnames per role, filter out already-used names before picking. Falls back to a `-N` suffix if the pool is exhausted. PRNG consumption is unchanged (one `pick()` call per machine).
