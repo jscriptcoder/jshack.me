@@ -3,7 +3,7 @@ import type { RemoteMachine, DnsRecord } from '../network/types';
 import type { MachineId } from '../filesystem/machineFileSystems';
 import type { UserType } from '../session/SessionContext';
 import { isValidIP } from '../utils/network';
-import { createCancellationToken } from '../utils/asyncCommand';
+import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 type CurlContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
@@ -275,7 +275,7 @@ export const createCurlCommand = (context: CurlContext): Command => ({
     return {
       __type: 'async',
       start: (onLine, onComplete) => {
-        const delay = Math.random() * 200 + 400;
+        const delay = jitter(500);
 
         token.schedule(() => {
           if (token.isCancelled()) return;

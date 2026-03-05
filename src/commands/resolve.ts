@@ -1,6 +1,6 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
 import { stringify } from '../utils/stringify';
-import { createCancellationToken } from '../utils/asyncCommand';
+import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 const RESOLVE_DELAY_MS = 100;
 
@@ -68,7 +68,7 @@ export const createResolveCommand = (): Command => ({
               onLine(`Error: ${errorMessage}`);
               onComplete();
             });
-        }, RESOLVE_DELAY_MS);
+        }, jitter(RESOLVE_DELAY_MS));
       },
       cancel: token.cancel,
     };

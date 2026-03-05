@@ -2,7 +2,7 @@ import type { Command, AsyncOutput } from '../components/Terminal/types';
 import type { RemoteMachine, DnsRecord } from '../network/types';
 import type { FileNode } from '../filesystem/types';
 import { isValidIP } from '../utils/network';
-import { createCancellationToken } from '../utils/asyncCommand';
+import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 type GobusterContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
@@ -184,7 +184,7 @@ export const createGobusterCommand = (context: GobusterContext): Command => ({
 
         // Stream header lines
         headerLines.forEach((line) => {
-          delay += HEADER_DELAY_MS;
+          delay += jitter(HEADER_DELAY_MS);
           token.schedule(() => {
             if (token.isCancelled()) return;
             onLine(line);
@@ -193,7 +193,7 @@ export const createGobusterCommand = (context: GobusterContext): Command => ({
 
         // Stream each discovered entry
         entries.forEach((entry) => {
-          delay += RESULT_DELAY_MS;
+          delay += jitter(RESULT_DELAY_MS);
           token.schedule(() => {
             if (token.isCancelled()) return;
             onLine(formatEntry(entry));
@@ -201,7 +201,7 @@ export const createGobusterCommand = (context: GobusterContext): Command => ({
         });
 
         // Footer
-        delay += HEADER_DELAY_MS;
+        delay += jitter(HEADER_DELAY_MS);
         token.schedule(() => {
           if (token.isCancelled()) return;
           onLine('===============================================================');

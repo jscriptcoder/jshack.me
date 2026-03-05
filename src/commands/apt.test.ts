@@ -119,8 +119,8 @@ describe('apt command', () => {
         () => {},
       );
 
-      // Advance through all output lines
-      vi.advanceTimersByTime(2000);
+      // Advance past max jitter range
+      vi.advanceTimersByTime(3000);
 
       expect(lines.some((l) => l.includes('Reading package lists'))).toBe(true);
       expect(lines.some((l) => l.includes('Setting up nmap'))).toBe(true);
@@ -142,7 +142,7 @@ describe('apt command', () => {
         },
       );
 
-      vi.advanceTimersByTime(2000);
+      vi.advanceTimersByTime(3000);
       expect(completed).toBe(true);
     });
   });

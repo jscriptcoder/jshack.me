@@ -1,7 +1,7 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
 import type { RemoteMachine } from '../network/types';
 import { isValidIP } from '../utils/network';
-import { createCancellationToken } from '../utils/asyncCommand';
+import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 type PingContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
@@ -124,7 +124,7 @@ export const createPingCommand = (context: PingContext): Command => ({
                 }, 200);
               }
             },
-            (i + 1) * PING_DELAY_MS,
+            jitter((i + 1) * PING_DELAY_MS),
           );
         }
       },

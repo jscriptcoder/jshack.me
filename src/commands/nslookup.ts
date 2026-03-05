@@ -1,6 +1,6 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
 import type { DnsRecord } from '../network/types';
-import { createCancellationToken } from '../utils/asyncCommand';
+import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 type NslookupContext = {
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
@@ -60,7 +60,7 @@ export const createNslookupCommand = (context: NslookupContext): Command => ({
           }
 
           onComplete();
-        }, DNS_LOOKUP_DELAY_MS);
+        }, jitter(DNS_LOOKUP_DELAY_MS));
       },
       cancel: token.cancel,
     };

@@ -1,6 +1,6 @@
 import type { Command, AsyncOutput, SshPromptData } from '../components/Terminal/types';
 import type { RemoteMachine } from '../network/types';
-import { createCancellationToken } from '../utils/asyncCommand';
+import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 type SshContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
@@ -84,8 +84,8 @@ export const createSshCommand = (context: SshContext): Command => ({
             };
 
             onComplete(sshPrompt);
-          }, SSH_HANDSHAKE_DELAY_MS);
-        }, SSH_CONNECT_DELAY_MS);
+          }, jitter(SSH_HANDSHAKE_DELAY_MS));
+        }, jitter(SSH_CONNECT_DELAY_MS));
       },
       cancel: token.cancel,
     };

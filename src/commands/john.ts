@@ -3,7 +3,7 @@ import type { UserType } from '../session/SessionContext';
 import type { FileNode } from '../filesystem/types';
 import { passwords, guestPasswords } from '../generation/pools';
 import { md5 } from '../utils/md5';
-import { createCancellationToken } from '../utils/asyncCommand';
+import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 type JohnContext = {
   readonly resolvePath: (path: string) => string;
@@ -106,7 +106,7 @@ export const createJohnCommand = (context: JohnContext): Command => ({
           if (token.isCancelled()) return;
           onLine(`Cracking ${entries.length} password hash${entries.length === 1 ? '' : 'es'}...`);
           onLine('');
-        }, STEP_DELAY_MS);
+        }, jitter(STEP_DELAY_MS));
 
         const crackedResults: { readonly username: string; readonly password: string }[] = [];
 
@@ -130,10 +130,10 @@ export const createJohnCommand = (context: JohnContext): Command => ({
                     `${crackedResults.length}/${entries.length} password hash${entries.length === 1 ? '' : 'es'} cracked`,
                   );
                   onComplete();
-                }, STEP_DELAY_MS);
+                }, jitter(STEP_DELAY_MS));
               }
             },
-            (index + 2) * STEP_DELAY_MS,
+            jitter((index + 2) * STEP_DELAY_MS),
           );
         });
       },

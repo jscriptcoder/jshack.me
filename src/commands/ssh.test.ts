@@ -250,8 +250,8 @@ describe('ssh command', () => {
         );
       }
 
-      // Fast-forward first delay (SSH_CONNECT_DELAY_MS = 800)
-      vi.advanceTimersByTime(800);
+      // Advance past max jitter range (SSH_CONNECT_DELAY_MS = 800)
+      vi.advanceTimersByTime(1200);
 
       expect(lines.some((l) => l.includes('SSH-2.0-OpenSSH'))).toBe(true);
     });
@@ -277,8 +277,8 @@ describe('ssh command', () => {
         );
       }
 
-      // Fast-forward both delays (800 + 600 = 1400ms)
-      vi.advanceTimersByTime(1400);
+      // Fast-forward both delays (800 + 600 = 1400ms, ×1.5 for jitter)
+      vi.advanceTimersByTime(2100);
 
       expect(lines.some((l) => l.includes('Authenticating as admin'))).toBe(true);
     });
@@ -307,7 +307,7 @@ describe('ssh command', () => {
       }
 
       // Fast-forward to completion
-      vi.advanceTimersByTime(1400);
+      vi.advanceTimersByTime(2100);
 
       expect(isSshPrompt(followUp)).toBe(true);
       if (isSshPrompt(followUp)) {
@@ -342,7 +342,7 @@ describe('ssh command', () => {
         );
       }
 
-      vi.advanceTimersByTime(1400);
+      vi.advanceTimersByTime(2100);
 
       if (isSshPrompt(followUp)) {
         expect(followUp.targetUser).toBe('root');
@@ -374,7 +374,7 @@ describe('ssh command', () => {
         // Cancel before first delay completes
         vi.advanceTimersByTime(400);
         result.cancel?.();
-        vi.advanceTimersByTime(2000);
+        vi.advanceTimersByTime(3000);
       }
 
       // Should only have connecting message
@@ -405,10 +405,10 @@ describe('ssh command', () => {
           },
         );
 
-        // Advance past first delay, then cancel
-        vi.advanceTimersByTime(900);
+        // Advance past first delay max jitter (800 × 1.25 = 1000), then cancel before auth
+        vi.advanceTimersByTime(1001);
         result.cancel?.();
-        vi.advanceTimersByTime(2000);
+        vi.advanceTimersByTime(3000);
       }
 
       // Should have connecting and SSH version, but not authentication

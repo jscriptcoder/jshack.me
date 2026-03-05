@@ -300,8 +300,8 @@ describe('ftp command', () => {
         );
       }
 
-      // Fast-forward first delay (FTP_CONNECT_DELAY_MS = 600)
-      vi.advanceTimersByTime(600);
+      // Advance past max jitter range (FTP_CONNECT_DELAY_MS = 600)
+      vi.advanceTimersByTime(900);
 
       expect(lines.some((l) => l === 'Connected to 192.168.1.50.')).toBe(true);
     });
@@ -327,8 +327,8 @@ describe('ftp command', () => {
         );
       }
 
-      // Fast-forward both delays (600 + 400 = 1000ms)
-      vi.advanceTimersByTime(1000);
+      // Fast-forward both delays (600 + 400 = 1000ms, ×1.5 for jitter)
+      vi.advanceTimersByTime(1500);
 
       expect(lines.some((l) => l.includes('220 Welcome to fileserver FTP server'))).toBe(true);
     });
@@ -355,8 +355,8 @@ describe('ftp command', () => {
         );
       }
 
-      // Fast-forward to completion
-      vi.advanceTimersByTime(1000);
+      // Fast-forward to completion (×1.5 for jitter)
+      vi.advanceTimersByTime(1500);
 
       expect(isFtpPrompt(followUp)).toBe(true);
       if (isFtpPrompt(followUp)) {
@@ -419,7 +419,7 @@ describe('ftp command', () => {
         // Cancel before first delay completes
         vi.advanceTimersByTime(300);
         result.cancel?.();
-        vi.advanceTimersByTime(2000);
+        vi.advanceTimersByTime(3000);
       }
 
       // Should only have connecting message
@@ -450,10 +450,10 @@ describe('ftp command', () => {
           },
         );
 
-        // Advance past first delay, then cancel
-        vi.advanceTimersByTime(700);
+        // Advance past first delay max jitter (600 × 1.25 = 750), then cancel before banner
+        vi.advanceTimersByTime(751);
         result.cancel?.();
-        vi.advanceTimersByTime(2000);
+        vi.advanceTimersByTime(3000);
       }
 
       // Should have connecting and connected, but not banner

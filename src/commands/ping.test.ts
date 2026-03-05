@@ -158,12 +158,12 @@ describe('ping command', () => {
         );
       }
 
-      // Fast-forward first ping delay
-      vi.advanceTimersByTime(800);
+      // Advance past max jitter range (first ping delay)
+      vi.advanceTimersByTime(1200);
       expect(lines.some((l) => l.includes('icmp_seq=1'))).toBe(true);
 
-      // Fast-forward second ping delay
-      vi.advanceTimersByTime(800);
+      // Fast-forward second ping delay (×1.5 for jitter)
+      vi.advanceTimersByTime(1200);
       expect(lines.some((l) => l.includes('icmp_seq=2'))).toBe(true);
     });
 
@@ -183,8 +183,8 @@ describe('ping command', () => {
         );
       }
 
-      // Fast-forward through ping and stats delay
-      vi.advanceTimersByTime(1000);
+      // Fast-forward through ping and stats delay (×1.5 for jitter)
+      vi.advanceTimersByTime(1500);
 
       expect(lines.some((l) => l.includes('ping statistics'))).toBe(true);
       expect(lines.some((l) => l.includes('packets transmitted'))).toBe(true);
@@ -206,7 +206,7 @@ describe('ping command', () => {
 
       expect(lines[0]).toContain('PING localhost (127.0.0.1)');
 
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(1500);
       expect(lines.some((l) => l.includes('icmp_seq=1'))).toBe(true);
     });
 
@@ -223,7 +223,7 @@ describe('ping command', () => {
         );
       }
 
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(1500);
       expect(lines.some((l) => l.includes('1 packets transmitted, 1 received'))).toBe(true);
     });
 
@@ -239,10 +239,10 @@ describe('ping command', () => {
           () => {},
         );
 
-        // Cancel after first ping
-        vi.advanceTimersByTime(800);
+        // Cancel after first ping (×1.5 for jitter)
+        vi.advanceTimersByTime(1200);
         result.cancel?.();
-        vi.advanceTimersByTime(3000);
+        vi.advanceTimersByTime(4500);
       }
 
       // Should only have header and first ping, no more
@@ -270,7 +270,7 @@ describe('ping command', () => {
       }
 
       // Fast-forward through all pings and stats
-      vi.advanceTimersByTime(2000);
+      vi.advanceTimersByTime(3000);
 
       expect(completed).toBe(true);
       expect(
@@ -296,7 +296,7 @@ describe('ping command', () => {
         );
       }
 
-      vi.advanceTimersByTime(2000);
+      vi.advanceTimersByTime(3000);
 
       expect(lines.some((l) => l.includes('100% packet loss'))).toBe(true);
     });

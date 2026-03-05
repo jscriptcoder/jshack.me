@@ -1,6 +1,6 @@
 import type { Command, AsyncOutput, NcPromptData } from '../components/Terminal/types';
 import type { RemoteMachine, DnsRecord, Port } from '../network/types';
-import { createCancellationToken } from '../utils/asyncCommand';
+import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 type NcContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
@@ -131,8 +131,8 @@ export const createNcCommand = (context: NcContext): Command => ({
               onLine('Connection closed.');
               onComplete();
             }
-          }, NC_BANNER_DELAY_MS);
-        }, NC_CONNECT_DELAY_MS);
+          }, jitter(NC_BANNER_DELAY_MS));
+        }, jitter(NC_CONNECT_DELAY_MS));
       },
       cancel: token.cancel,
     };

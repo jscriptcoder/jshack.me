@@ -1,6 +1,6 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
 import { WIFI_NETWORKS, type WifiNetwork } from '../network/wifiNetworks';
-import { createCancellationToken } from '../utils/asyncCommand';
+import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 type AirdumpContext = {
   readonly isOnLocalhost: () => boolean;
@@ -77,10 +77,10 @@ export const createAirdumpCommand = (context: AirdumpContext): Command => ({
                   onLine('');
                   onLine(`Scan complete — ${WIFI_NETWORKS.length} networks found`);
                   onComplete();
-                }, SCAN_DELAY_MS);
+                }, jitter(SCAN_DELAY_MS));
               }
             },
-            (index + 1) * SCAN_DELAY_MS,
+            jitter((index + 1) * SCAN_DELAY_MS),
           );
         });
       },

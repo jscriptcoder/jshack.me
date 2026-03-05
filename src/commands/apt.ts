@@ -3,7 +3,7 @@ import type { FileNode } from '../filesystem/types';
 import type { PermissionResult } from '../filesystem/types';
 import type { UserType } from '../session/SessionContext';
 import { APT_PACKAGES, APT_INSTALLABLE, BINARY_STUB } from './availability';
-import { createCancellationToken } from '../utils/asyncCommand';
+import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 type AptContext = {
   readonly getMachine: () => string;
@@ -100,7 +100,7 @@ const handleInstall = (packageName: string, context: AptContext): AsyncOutput | 
               onComplete();
             }
           },
-          (i + 1) * 200,
+          jitter((i + 1) * 200),
         );
       });
     },

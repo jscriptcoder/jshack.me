@@ -1,7 +1,7 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
 import type { MissionNetwork } from '../generation/types';
 import type { UserType } from '../session/SessionContext';
-import { createCancellationToken } from '../utils/asyncCommand';
+import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 type MailCommandContext = {
   readonly getActiveMission: () => MissionNetwork | null;
@@ -148,12 +148,12 @@ export const createMailCommand = (context: MailCommandContext): Command => ({
         token.schedule(() => {
           if (token.isCancelled()) return;
           onLine(`Encrypting message for ${trimmedRecipient}...`);
-        }, 600);
+        }, jitter(600));
 
         token.schedule(() => {
           if (token.isCancelled()) return;
           onLine('Routing through onion network...');
-        }, 1400);
+        }, jitter(1400));
 
         token.schedule(() => {
           if (token.isCancelled()) return;
@@ -165,7 +165,7 @@ export const createMailCommand = (context: MailCommandContext): Command => ({
           formatCompletionDetails(mission).forEach((line) => onLine(line));
 
           onComplete();
-        }, 2400);
+        }, jitter(2400));
       },
       cancel: token.cancel,
     };

@@ -23,4 +23,11 @@ const createCancellationToken = (): CancellationToken => {
   };
 };
 
-export { createCancellationToken, type CancellationToken };
+// Adds ±25% random variance to a base delay for realistic timing.
+// Each call produces a different value, so staggered schedules drift naturally.
+const JITTER_VARIANCE = 0.25;
+
+const jitter = (baseMs: number): number =>
+  Math.round(baseMs * (1 - JITTER_VARIANCE + Math.random() * JITTER_VARIANCE * 2));
+
+export { createCancellationToken, jitter, type CancellationToken };

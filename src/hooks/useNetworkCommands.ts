@@ -13,36 +13,8 @@ import { createCurlCommand } from '../commands/curl';
 import { createExploitCommand } from '../commands/exploit';
 import { createHydraCommand } from '../commands/hydra';
 import { createGobusterCommand } from '../commands/gobuster';
+import { wrapWithWifiCheck, wrapWithBrickedCheck } from '../commands/networkGuards';
 import type { Command } from '../components/Terminal/types';
-
-// Higher-order function that wraps a network command with WiFi connectivity gating.
-// The isWifiRequired closure is evaluated at execution time (not wrap time), so it
-// always reflects the current WiFi state.
-const wrapWithWifiCheck = (cmd: Command, isWifiRequired: () => boolean): Command => ({
-  ...cmd,
-  fn: (...args: unknown[]) => {
-    if (isWifiRequired()) {
-      throw new Error('Network is unreachable — wlan0 is not connected');
-    }
-    return cmd.fn(...args);
-  },
-});
-
-// Wraps a network command with a bricked machine check. Extracts the target IP
-// from the first string argument and checks if that machine has been bricked.
-const wrapWithBrickedCheck = (
-  cmd: Command,
-  isMachineBricked: (machine: string) => boolean,
-): Command => ({
-  ...cmd,
-  fn: (...args: unknown[]) => {
-    const target = args.find((arg) => typeof arg === 'string') as string | undefined;
-    if (target && isMachineBricked(target)) {
-      throw new Error(`Connection timed out — host ${target} appears to be down`);
-    }
-    return cmd.fn(...args);
-  },
-});
 
 export const useNetworkCommands = (): Map<string, Command> => {
   const {

@@ -1,6 +1,6 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
 import { findWifiNetwork } from '../network/wifiNetworks';
-import { createCancellationToken } from '../utils/asyncCommand';
+import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 type AircrackContext = {
   readonly isOnLocalhost: () => boolean;
@@ -62,61 +62,64 @@ export const createAircrackCommand = (context: AircrackContext): Command => ({
         token.schedule(() => {
           if (token.isCancelled()) return;
           onLine('Reading packets from capture file...');
-        }, STEP_DELAY_MS);
+        }, jitter(STEP_DELAY_MS));
 
-        token.schedule(() => {
-          if (token.isCancelled()) return;
+        token.schedule(
+          () => {
+            if (token.isCancelled()) return;
 
-          if (network.encryption === 'WPA3') {
-            onLine(`${network.essid} uses WPA3 — handshake capture not supported`);
+            if (network.encryption === 'WPA3') {
+              onLine(`${network.essid} uses WPA3 — handshake capture not supported`);
+              onLine('');
+              onLine('Quitting aircrack...');
+              onComplete();
+              return;
+            }
+
+            if (network.power < -80) {
+              onLine(`Signal too weak (${network.power} dBm) — no handshake captured`);
+              onLine('');
+              onLine('Quitting aircrack...');
+              onComplete();
+              return;
+            }
+
+            onLine('Launching aircrack with /usr/share/wordlists/rockyou.txt...');
             onLine('');
-            onLine('Quitting aircrack...');
-            onComplete();
-            return;
-          }
 
-          if (network.power < -80) {
-            onLine(`Signal too weak (${network.power} dBm) — no handshake captured`);
-            onLine('');
-            onLine('Quitting aircrack...');
-            onComplete();
-            return;
-          }
+            const steps = 6;
+            const keysPerStep = Math.floor(TOTAL_KEYS / steps);
 
-          onLine('Launching aircrack with /usr/share/wordlists/rockyou.txt...');
-          onLine('');
+            for (let i = 1; i <= steps; i++) {
+              const stepIndex = i;
+              token.schedule(
+                () => {
+                  if (token.isCancelled()) return;
 
-          const steps = 6;
-          const keysPerStep = Math.floor(TOTAL_KEYS / steps);
+                  const tested = Math.min(stepIndex * keysPerStep, TOTAL_KEYS);
+                  const elapsed = String(stepIndex * 2).padStart(2, '0');
+                  onLine(
+                    `[00:00:${elapsed}] ${tested}/${TOTAL_KEYS} keys tested (${KEYS_PER_SECOND} k/s)`,
+                  );
 
-          for (let i = 1; i <= steps; i++) {
-            const stepIndex = i;
-            token.schedule(
-              () => {
-                if (token.isCancelled()) return;
+                  if (stepIndex === steps) {
+                    token.schedule(() => {
+                      if (token.isCancelled()) return;
 
-                const tested = Math.min(stepIndex * keysPerStep, TOTAL_KEYS);
-                const elapsed = String(stepIndex * 2).padStart(2, '0');
-                onLine(
-                  `[00:00:${elapsed}] ${tested}/${TOTAL_KEYS} keys tested (${KEYS_PER_SECOND} k/s)`,
-                );
-
-                if (stepIndex === steps) {
-                  token.schedule(() => {
-                    if (token.isCancelled()) return;
-
-                    if (network.crackable && network.password) {
-                      onLine('');
-                      onLine(`                 KEY FOUND! [ ${network.password} ]`);
-                    }
-                    onComplete();
-                  }, STEP_DELAY_MS);
-                }
-              },
-              (i + 1) * STEP_DELAY_MS,
-            );
-          }
-        }, 2 * STEP_DELAY_MS);
+                      if (network.crackable && network.password) {
+                        onLine('');
+                        onLine(`                 KEY FOUND! [ ${network.password} ]`);
+                      }
+                      onComplete();
+                    }, jitter(STEP_DELAY_MS));
+                  }
+                },
+                jitter((i + 1) * STEP_DELAY_MS),
+              );
+            }
+          },
+          jitter(2 * STEP_DELAY_MS),
+        );
       },
       cancel: token.cancel,
     };

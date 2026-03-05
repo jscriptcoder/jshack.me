@@ -254,8 +254,8 @@ describe('nc command', () => {
         );
       }
 
-      // Fast-forward first delay (NC_CONNECT_DELAY_MS = 400)
-      vi.advanceTimersByTime(400);
+      // Advance past max jitter range (NC_CONNECT_DELAY_MS = 400)
+      vi.advanceTimersByTime(600);
 
       expect(lines).toContain('Connected to 192.168.1.50.');
     });
@@ -279,8 +279,8 @@ describe('nc command', () => {
         );
       }
 
-      // Fast-forward both delays (400 + 300 = 700ms)
-      vi.advanceTimersByTime(700);
+      // Fast-forward both delays (400 + 300 = 700ms, ×1.5 for jitter)
+      vi.advanceTimersByTime(1050);
 
       expect(lines).toContain('220 FTP server ready.');
       expect(lines).toContain('Connection closed.');
@@ -305,7 +305,7 @@ describe('nc command', () => {
         );
       }
 
-      vi.advanceTimersByTime(700);
+      vi.advanceTimersByTime(1050);
 
       expect(lines.some((l) => l.includes('SSH-2.0-OpenSSH'))).toBe(true);
     });
@@ -329,7 +329,7 @@ describe('nc command', () => {
         );
       }
 
-      vi.advanceTimersByTime(700);
+      vi.advanceTimersByTime(1050);
 
       expect(lines.some((l) => l.includes('HTTP/1.1 400 Bad Request'))).toBe(true);
     });
@@ -353,7 +353,7 @@ describe('nc command', () => {
         );
       }
 
-      vi.advanceTimersByTime(700);
+      vi.advanceTimersByTime(1050);
 
       expect(lines).toContain('Connected to custom service');
     });
@@ -389,7 +389,7 @@ describe('nc command', () => {
         );
       }
 
-      vi.advanceTimersByTime(700);
+      vi.advanceTimersByTime(1050);
 
       expect(isNcPrompt(followUp)).toBe(true);
       if (isNcPrompt(followUp)) {
@@ -429,7 +429,7 @@ describe('nc command', () => {
         );
       }
 
-      vi.advanceTimersByTime(700);
+      vi.advanceTimersByTime(1050);
 
       expect(lines).toContain('# 31337 #');
     });
@@ -452,7 +452,7 @@ describe('nc command', () => {
 
         // Cancel before first delay completes
         result.cancel?.();
-        vi.advanceTimersByTime(700);
+        vi.advanceTimersByTime(1050);
       }
 
       // Should only have the initial "Connecting" message

@@ -1,6 +1,6 @@
 import type { Command, AsyncOutput, FtpPromptData } from '../components/Terminal/types';
 import type { RemoteMachine, DnsRecord } from '../network/types';
-import { createCancellationToken } from '../utils/asyncCommand';
+import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 type FtpContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
@@ -84,8 +84,8 @@ export const createFtpCommand = (context: FtpContext): Command => ({
             };
 
             onComplete(ftpPrompt);
-          }, FTP_BANNER_DELAY_MS);
-        }, FTP_CONNECT_DELAY_MS);
+          }, jitter(FTP_BANNER_DELAY_MS));
+        }, jitter(FTP_CONNECT_DELAY_MS));
       },
       cancel: token.cancel,
     };

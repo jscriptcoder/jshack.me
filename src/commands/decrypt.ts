@@ -1,7 +1,7 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
 import type { UserType } from '../session/SessionContext';
 import type { FileNode } from '../filesystem/types';
-import { createCancellationToken } from '../utils/asyncCommand';
+import { createCancellationToken, jitter } from '../utils/asyncCommand';
 import { decryptContent } from '../utils/crypto';
 
 type DecryptContext = {
@@ -107,7 +107,7 @@ export const createDecryptCommand = (context: DecryptContext): Command => ({
             onLine('Error: Decryption failed - invalid key or corrupted data');
             onComplete();
           }
-        }, DECRYPT_DELAY_MS);
+        }, jitter(DECRYPT_DELAY_MS));
       },
       cancel: token.cancel,
     };

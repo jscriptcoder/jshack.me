@@ -119,8 +119,8 @@ describe('nslookup command', () => {
         );
       }
 
-      // Fast-forward DNS lookup delay
-      vi.advanceTimersByTime(600);
+      // Advance past max jitter range (DNS lookup delay)
+      vi.advanceTimersByTime(900);
 
       expect(lines.some((l) => l.includes('Non-authoritative answer'))).toBe(true);
       expect(lines.some((l) => l.includes('Name:    fileserver.local'))).toBe(true);
@@ -143,7 +143,7 @@ describe('nslookup command', () => {
         );
       }
 
-      vi.advanceTimersByTime(600);
+      vi.advanceTimersByTime(900);
 
       expect(lines.some((l) => l.includes("can't find unknown.domain: NXDOMAIN"))).toBe(true);
     });
@@ -163,7 +163,7 @@ describe('nslookup command', () => {
         );
       }
 
-      vi.advanceTimersByTime(600);
+      vi.advanceTimersByTime(900);
 
       expect(lines.some((l) => l.includes('Address: 192.168.1.1'))).toBe(true);
     });
@@ -186,7 +186,7 @@ describe('nslookup command', () => {
         // Cancel before lookup completes
         vi.advanceTimersByTime(300);
         result.cancel?.();
-        vi.advanceTimersByTime(600);
+        vi.advanceTimersByTime(900);
       }
 
       // Should only have server info, no answer
