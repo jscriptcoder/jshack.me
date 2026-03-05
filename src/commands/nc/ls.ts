@@ -1,5 +1,5 @@
 import type { Command } from '../../components/Terminal/types';
-import type { FileNode } from '../../filesystem/types';
+import type { FileNode, PermissionResult } from '../../filesystem/types';
 import type { UserType } from '../../session/SessionContext';
 import type { MachineId } from '../../filesystem/machineFileSystems';
 
@@ -15,6 +15,11 @@ type NcLsContext = {
     cwd: string,
     userType: UserType,
   ) => readonly string[] | null;
+  readonly canTraverseOnMachine: (
+    machineId: MachineId,
+    path: string,
+    userType: UserType,
+  ) => PermissionResult;
 };
 
 export const createNcLsCommand = (context: NcLsContext): Command => ({
@@ -28,6 +33,7 @@ export const createNcLsCommand = (context: NcLsContext): Command => ({
       resolvePath,
       getNodeFromMachine,
       listDirectoryFromMachine,
+      canTraverseOnMachine,
     } = context;
 
     const stringArgs = args.filter((arg): arg is string => typeof arg === 'string');
@@ -38,6 +44,12 @@ export const createNcLsCommand = (context: NcLsContext): Command => ({
     const userType = getUserType();
 
     const targetPath = path ? resolvePath(path, cwd) : cwd;
+
+    // Check traversal permissions on parent directories
+    const traversal = canTraverseOnMachine(machine, targetPath, userType);
+    if (!traversal.allowed) {
+      throw new Error(`ls: ${path ?? cwd}: Permission denied`);
+    }
 
     // Check if path exists
     const node = getNodeFromMachine(machine, targetPath, cwd);

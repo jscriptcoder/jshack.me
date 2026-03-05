@@ -1,6 +1,6 @@
 import type { Command } from '../components/Terminal/types';
 import type { UserType } from '../session/SessionContext';
-import type { FileNode } from '../filesystem/types';
+import type { FileNode, PermissionResult } from '../filesystem/types';
 
 type NodeContext = {
   readonly resolvePath: (path: string) => string;
@@ -8,6 +8,7 @@ type NodeContext = {
   readonly getUserType: () => UserType;
   readonly getExecutionContext: () => Record<string, (...args: unknown[]) => unknown>;
   readonly getDecodeFn?: () => ((value: unknown) => string) | undefined;
+  readonly canTraverse: (path: string) => PermissionResult;
 };
 
 type EchoFn = (...args: readonly unknown[]) => string;
@@ -39,9 +40,15 @@ export const createNodeCommand = (context: NodeContext): Command => ({
       throw new Error('node: missing file operand');
     }
 
-    const { resolvePath, getNode, getUserType, getExecutionContext } = context;
+    const { resolvePath, getNode, getUserType, getExecutionContext, canTraverse } = context;
     const userType = getUserType();
     const targetPath = resolvePath(path);
+
+    const traversal = canTraverse(targetPath);
+    if (!traversal.allowed) {
+      throw new Error(`node: ${path}: Permission denied`);
+    }
+
     const node = getNode(targetPath);
 
     if (!node) {

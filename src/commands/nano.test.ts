@@ -56,6 +56,7 @@ const createMockContext = (config: MockContextConfig = {}) => {
     resolvePath,
     getNode: (path: string) => fileSystem[path] ?? null,
     getUserType: () => userType,
+    canTraverse: () => ({ allowed: true }),
   };
 };
 

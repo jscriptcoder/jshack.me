@@ -70,6 +70,7 @@ const createMockContext = (config: MockContextConfig = {}) => {
     resolvePathForMachine,
     getNodeFromMachine,
     listDirectoryFromMachine,
+    canTraverseOnMachine: () => ({ allowed: true }),
   };
 };
 

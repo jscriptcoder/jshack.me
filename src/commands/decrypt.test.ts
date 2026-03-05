@@ -51,6 +51,7 @@ const createMockDecryptContext = (config: DecryptContextConfig = {}) => {
     },
     getNode: (path: string) => files[path] ?? null,
     getUserType: () => userType,
+    canTraverse: () => ({ allowed: true }),
   };
 };
 

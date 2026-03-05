@@ -16,6 +16,7 @@ import { createSyncChannel, type SyncMessage } from '../utils/crossTabSync';
 import {
   resolvePath as resolvePathUtil,
   getNodeAtPath,
+  checkTraversal,
   updateNodeAtPath,
   addChildAtPath,
   removeChildAtPath,
@@ -90,6 +91,12 @@ type FileSystemContextValue = {
     cwd: string,
     userType: UserType,
     options?: DeleteOptions,
+  ) => PermissionResult;
+  readonly canTraverse: (path: string, userType: UserType) => PermissionResult;
+  readonly canTraverseOnMachine: (
+    machineId: MachineId,
+    path: string,
+    userType: UserType,
   ) => PermissionResult;
 };
 
@@ -201,24 +208,34 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
 
   const canReadFromMachine = useCallback(
     (machineId: MachineId, path: string, cwd: string, userType: UserType): PermissionResult => {
-      const node = getNodeFromMachine(machineId, path, cwd);
+      const fs = fileSystems[machineId];
+      if (!fs) return { allowed: false, error: `No such file or directory: ${path}` };
+      const resolvedPath = resolvePathUtil(path, cwd);
+      const traversal = checkTraversal(fs, resolvedPath, userType);
+      if (!traversal.allowed) return { allowed: false, error: `Permission denied: ${path}` };
+      const node = getNodeAtPath(fs, resolvedPath);
       if (!node) return { allowed: false, error: `No such file or directory: ${path}` };
       if (!node.permissions.read.includes(userType))
         return { allowed: false, error: `Permission denied: ${path}` };
       return { allowed: true };
     },
-    [getNodeFromMachine],
+    [fileSystems],
   );
 
   const canWriteFromMachine = useCallback(
     (machineId: MachineId, path: string, cwd: string, userType: UserType): PermissionResult => {
-      const node = getNodeFromMachine(machineId, path, cwd);
+      const fs = fileSystems[machineId];
+      if (!fs) return { allowed: false, error: `No such file or directory: ${path}` };
+      const resolvedPath = resolvePathUtil(path, cwd);
+      const traversal = checkTraversal(fs, resolvedPath, userType);
+      if (!traversal.allowed) return { allowed: false, error: `Permission denied: ${path}` };
+      const node = getNodeAtPath(fs, resolvedPath);
       if (!node) return { allowed: false, error: `No such file or directory: ${path}` };
       if (!node.permissions.write.includes(userType))
         return { allowed: false, error: `Permission denied: ${path}` };
       return { allowed: true };
     },
-    [getNodeFromMachine],
+    [fileSystems],
   );
 
   const canRead = useCallback(
@@ -447,6 +464,25 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
     [createFileOnMachine, currentMachine, currentPath],
   );
 
+  const canTraverseOnMachine = useCallback(
+    (machineId: MachineId, path: string, userType: UserType): PermissionResult => {
+      const fs = fileSystems[machineId];
+      if (!fs) return { allowed: false, error: `Permission denied: ${path}` };
+      const result = checkTraversal(fs, path, userType);
+      if (!result.allowed) return { allowed: false, error: `Permission denied: ${path}` };
+      return { allowed: true };
+    },
+    [fileSystems],
+  );
+
+  const canTraverseFn = useCallback(
+    (path: string, userType: UserType): PermissionResult => {
+      const resolvedPath = resolvePathUtil(path, currentPath);
+      return canTraverseOnMachine(currentMachine, resolvedPath, userType);
+    },
+    [canTraverseOnMachine, currentMachine, currentPath],
+  );
+
   const getDefaultHomePathFn = useCallback((machineId: string, username: string): string => {
     return getDefaultHomePath(machineId, username);
   }, []);
@@ -474,6 +510,8 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
         writeFileToMachine,
         createFileOnMachine,
         deleteNodeFromMachine,
+        canTraverse: canTraverseFn,
+        canTraverseOnMachine,
       }}
     >
       {children}

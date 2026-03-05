@@ -1,5 +1,5 @@
 import type { Command } from '../../components/Terminal/types';
-import type { FileNode } from '../../filesystem/types';
+import type { FileNode, PermissionResult } from '../../filesystem/types';
 import type { UserType } from '../../session/SessionContext';
 import type { MachineId } from '../../filesystem/machineFileSystems';
 
@@ -10,6 +10,11 @@ type FtpCdContext = {
   readonly setRemoteCwd: (cwd: string) => void;
   readonly resolvePathForMachine: (path: string, cwd: string) => string;
   readonly getNodeFromMachine: (machineId: MachineId, path: string, cwd: string) => FileNode | null;
+  readonly canTraverseOnMachine: (
+    machineId: MachineId,
+    path: string,
+    userType: UserType,
+  ) => PermissionResult;
 };
 
 export const createFtpCdCommand = (context: FtpCdContext): Command => ({
@@ -35,6 +40,11 @@ export const createFtpCdCommand = (context: FtpCdContext): Command => ({
     const targetPath = typeof path === 'string' ? path : remoteCwd;
     const resolvedPath = context.resolvePathForMachine(targetPath, remoteCwd);
 
+    const traversal = context.canTraverseOnMachine(remoteMachine, resolvedPath, userType);
+    if (!traversal.allowed) {
+      throw new Error(`cd: ${targetPath}: Permission denied`);
+    }
+
     const node = context.getNodeFromMachine(remoteMachine, resolvedPath, '/');
     if (!node) {
       throw new Error(`cd: ${targetPath}: No such file or directory`);
@@ -42,7 +52,8 @@ export const createFtpCdCommand = (context: FtpCdContext): Command => ({
     if (node.type !== 'directory') {
       throw new Error(`cd: ${targetPath}: Not a directory`);
     }
-    if (!node.permissions.read.includes(userType)) {
+    // cd requires execute permission (not read)
+    if (!node.permissions.execute.includes(userType)) {
       throw new Error(`cd: ${targetPath}: Permission denied`);
     }
 

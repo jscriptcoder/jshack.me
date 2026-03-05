@@ -48,8 +48,8 @@ const mkFile = (
   type: 'file',
   owner,
   permissions: {
-    read: owner === 'root' ? ['root'] : ['root', 'user', 'guest'],
-    write: [owner === 'guest' ? 'guest' : 'root'],
+    read: owner === 'guest' ? ['root', 'user', 'guest'] : ['root', owner],
+    write: owner === 'guest' ? ['root', 'guest'] : ['root', owner],
     execute: ['root'],
   },
   content,
@@ -70,18 +70,21 @@ const mkScript = (name: string, content: string, owner: 'root' | 'user' = 'user'
   content,
 });
 
+// worldReadable: system directories (/var, /tmp, /etc, /srv, /opt, /home, /usr) should
+// be traversable by all users. Home subdirs remain owner-scoped via the default.
 const mkDir = (
   name: string,
   children: Readonly<Record<string, FileNode>>,
   owner: 'root' | 'user' | 'guest' = 'root',
+  worldReadable: boolean = false,
 ): FileNode => ({
   name,
   type: 'directory',
   owner,
   permissions: {
-    read: ['root', 'user', 'guest'],
-    write: [owner],
-    execute: ['root', 'user', 'guest'],
+    read: worldReadable || owner === 'guest' ? ['root', 'user', 'guest'] : ['root', owner],
+    write: ['root', owner],
+    execute: worldReadable || owner === 'guest' ? ['root', 'user', 'guest'] : ['root', owner],
   },
   children,
 });
@@ -191,6 +194,7 @@ const findLeafDir = (node: FileNode): FileNode | undefined => {
 
 // Builds a nested directory tree from path segments, placing the file at the leaf.
 // e.g., ['srv', 'records', 'file.csv'] → mkDir('srv', { records: mkDir('records', { 'file.csv': file }) })
+// All intermediate directories are world-readable (system paths like /srv/, /opt/, /usr/).
 const buildNestedDirs = (segments: readonly string[], file: FileNode): FileNode => {
   if (segments.length <= 1) return file;
 
@@ -198,7 +202,7 @@ const buildNestedDirs = (segments: readonly string[], file: FileNode): FileNode 
   const child = buildNestedDirs(segments.slice(1), file);
   const childName = segments[1] as string;
 
-  return mkDir(dirName, { [childName]: child });
+  return mkDir(dirName, { [childName]: child }, 'root', true);
 };
 
 const buildMachineConfig = (
@@ -233,7 +237,7 @@ const buildMachineConfig = (
 
   // /etc/ system files are world-readable on real Linux (644)
   const etcExtraContent: Record<string, FileNode> = {
-    hostname: mkFile('hostname', machine.hostname, 'user'),
+    hostname: mkFile('hostname', machine.hostname, 'guest'),
   };
 
   const serviceConfigName =
@@ -247,17 +251,19 @@ const buildMachineConfig = (
             ? 'iptables.conf'
             : 'ssh_config';
 
-  etcExtraContent[serviceConfigName] = mkFile(serviceConfigName, configContent, 'user');
+  // System config files in /etc/ are world-readable (guest-owned)
+  etcExtraContent[serviceConfigName] = mkFile(serviceConfigName, configContent, 'guest');
 
   const etcPlacements = placements.filter((p) => p.filePath.startsWith('/etc/'));
   etcPlacements.forEach((p) => {
     const fileName = p.filePath.split('/').pop() ?? 'config';
-    etcExtraContent[fileName] = mkFile(fileName, p.fileContent, 'user');
+    etcExtraContent[fileName] = mkFile(fileName, p.fileContent, 'guest');
   });
 
+  // Log files in /var/log/ are world-readable (guest-owned)
   const logContent = generateLogContent(prng, machine, users);
   const varLogContent: Record<string, FileNode> = {
-    'auth.log': mkFile('auth.log', logContent, 'user'),
+    'auth.log': mkFile('auth.log', logContent, 'guest'),
   };
 
   // Router machines get a firewall log with hints about internal network traffic
@@ -268,7 +274,7 @@ const buildMachineConfig = (
       const action = prng.pick(['ACCEPT', 'ACCEPT', 'DROP']);
       return `Jan ${prng.nextInt(1, 28)} ${prng.nextInt(0, 23).toString().padStart(2, '0')}:${prng.nextInt(0, 59).toString().padStart(2, '0')}:${prng.nextInt(0, 59).toString().padStart(2, '0')} kernel: [iptables] ${action} IN=eth0 OUT=eth1 SRC=${srcIp} DST=${machine.ip} PROTO=TCP DPT=${dstPort}`;
     });
-    varLogContent['firewall.log'] = mkFile('firewall.log', fwLines.join('\n'), 'user');
+    varLogContent['firewall.log'] = mkFile('firewall.log', fwLines.join('\n'), 'guest');
   }
 
   // Router /etc/hosts contains hints about internal machines
@@ -280,7 +286,7 @@ const buildMachineConfig = (
       '# Internal network hosts',
       ...internalMachines.map((m) => `${m.ip}\t${m.hostname}`),
     ];
-    etcExtraContent['hosts'] = mkFile('hosts', hostsLines.join('\n'), 'user');
+    etcExtraContent['hosts'] = mkFile('hosts', hostsLines.join('\n'), 'guest');
 
     // Routing table hint
     const routeTable = [
@@ -289,14 +295,14 @@ const buildMachineConfig = (
       `0.0.0.0         0.0.0.0         0.0.0.0         eth0`,
       ...internalMachines.map((m) => `${m.ip}        0.0.0.0         255.255.255.255 eth1`),
     ];
-    etcExtraContent['route.conf'] = mkFile('route.conf', routeTable.join('\n'), 'user');
+    etcExtraContent['route.conf'] = mkFile('route.conf', routeTable.join('\n'), 'guest');
   }
 
   const logPlacements = placements.filter((p) => p.filePath.startsWith('/var/log/'));
   logPlacements.forEach((p) => {
     const fileName = p.filePath.split('/').pop() ?? 'log';
     const content = p.binary ? wrapInBinaryNoise(prng, p.fileContent) : p.fileContent;
-    varLogContent[fileName] = mkFile(fileName, content, 'user');
+    varLogContent[fileName] = mkFile(fileName, content, 'guest');
   });
 
   const tmpPlacements = placements.filter((p) => p.filePath.startsWith('/tmp/'));
@@ -354,9 +360,9 @@ const buildMachineConfig = (
     tmpPlacements.forEach((p) => {
       const fileName = p.filePath.split('/').pop() ?? 'file';
       const content = p.binary ? wrapInBinaryNoise(prng, p.fileContent) : p.fileContent;
-      tmpChildren[fileName] = mkFile(fileName, content, 'user');
+      tmpChildren[fileName] = mkFile(fileName, content, 'guest');
     });
-    extraDirectories['tmp'] = mkDir('tmp', tmpChildren);
+    extraDirectories['tmp'] = mkDir('tmp', tmpChildren, 'root', true);
   }
 
   // Generate web content for webserver machines (index.html + any credential placements)
@@ -368,8 +374,9 @@ const buildMachineConfig = (
     });
 
     // Build /var/www/html/ directory tree with index.html + credential placement files
+    // Web content files are world-readable (guest-owned) — served by the web server
     const htmlChildren: Record<string, FileNode> = {
-      'index.html': mkFile('index.html', indexContent),
+      'index.html': mkFile('index.html', indexContent, 'guest'),
     };
 
     // Place credential files at their web paths (under /var/www/html/)
@@ -377,7 +384,7 @@ const buildMachineConfig = (
       const relPath = p.filePath.replace('/var/www/html/', '');
       const segments = relPath.split('/');
       if (segments.length === 1) {
-        htmlChildren[relPath] = mkFile(relPath, p.fileContent);
+        htmlChildren[relPath] = mkFile(relPath, p.fileContent, 'guest');
       } else {
         // Nested path (e.g., admin/config.json) — build nested dirs under html/
         const fullSegments = p.filePath.split('/').filter(Boolean);
@@ -386,24 +393,35 @@ const buildMachineConfig = (
         const topChild = htmlRelSegments[0] as string;
         htmlChildren[topChild] = buildNestedDirs(
           htmlRelSegments,
-          mkFile(htmlRelSegments[htmlRelSegments.length - 1] as string, p.fileContent),
+          mkFile(htmlRelSegments[htmlRelSegments.length - 1] as string, p.fileContent, 'guest'),
         );
       }
     });
 
-    extraDirectories['var'] = mkDir('var', {
-      www: mkDir('www', {
-        html: mkDir('html', htmlChildren),
-      }),
-    });
+    extraDirectories['var'] = mkDir(
+      'var',
+      {
+        www: mkDir(
+          'www',
+          {
+            html: mkDir('html', htmlChildren, 'root', true),
+          },
+          'root',
+          true,
+        ),
+      },
+      'root',
+      true,
+    );
   }
 
   // Place binary credential files at deep paths (e.g., /usr/local/bin/monitor_agent)
+  // Binary credential files at system paths are world-readable (guest-owned)
   binaryDeepPlacements.forEach((p) => {
     const segments = p.filePath.split('/').filter(Boolean);
     const fileName = segments[segments.length - 1] ?? 'data.bin';
     const content = wrapInBinaryNoise(prng, p.fileContent);
-    const file = mkFile(fileName, content);
+    const file = mkFile(fileName, content, 'guest');
     const topDir = segments[0] ?? 'usr';
     extraDirectories[topDir] = buildNestedDirs(segments, file);
   });

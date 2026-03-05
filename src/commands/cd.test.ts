@@ -75,6 +75,7 @@ const createMockFileSystemContext = (config: FileSystemContextConfig = {}) => {
     getUserType: () => userType,
     getHomePath: () => homePath,
     setCurrentPath: vi.fn(),
+    canTraverse: () => ({ allowed: true }),
   };
 };
 

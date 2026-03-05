@@ -1,6 +1,7 @@
 import type { Command } from '../components/Terminal/types';
 import type { UserType } from '../session/SessionContext';
 import type { FileNode } from '../filesystem/types';
+import type { PermissionResult } from '../filesystem/types';
 
 type CdContext = {
   readonly resolvePath: (path: string) => string;
@@ -8,6 +9,7 @@ type CdContext = {
   readonly setCurrentPath: (path: string) => void;
   readonly getUserType: () => UserType;
   readonly getHomePath: () => string;
+  readonly canTraverse: (path: string) => PermissionResult;
 };
 
 export const createCdCommand = (context: CdContext): Command => ({
@@ -34,10 +36,16 @@ export const createCdCommand = (context: CdContext): Command => ({
   },
   fn: (...args: unknown[]): undefined => {
     const path = args[0] as string | undefined;
-    const { resolvePath, getNode, setCurrentPath, getUserType, getHomePath } = context;
+    const { resolvePath, getNode, setCurrentPath, getUserType, getHomePath, canTraverse } = context;
     const userType = getUserType();
 
     const targetPath = path ? resolvePath(path) : getHomePath();
+
+    const traversal = canTraverse(targetPath);
+    if (!traversal.allowed) {
+      throw new Error(`cd: ${path ?? targetPath}: Permission denied`);
+    }
+
     const node = getNode(targetPath);
 
     if (!node) {
@@ -48,7 +56,8 @@ export const createCdCommand = (context: CdContext): Command => ({
       throw new Error(`cd: ${path}: Not a directory`);
     }
 
-    if (!node.permissions.read.includes(userType)) {
+    // cd requires execute permission on the target directory (not read)
+    if (!node.permissions.execute.includes(userType)) {
       throw new Error(`cd: ${path}: Permission denied`);
     }
 

@@ -8,7 +8,7 @@ src/
 ├── session/               # SessionContext — global session state (user, machine, path, wifiConnected)
 ├── filesystem/            # Virtual filesystem with IndexedDB persistence
 │   ├── FileSystemContext.tsx   # React context provider for filesystem operations + patch persistence
-│   ├── fileSystemUtils.ts      # Pure utility functions (path resolution, tree ops, patches)
+│   ├── fileSystemUtils.ts      # Pure utility functions (path resolution, tree ops, patches, traversal checks)
 │   ├── fileSystemFactory.ts    # Factory for generating machine filesystems
 │   ├── machineFileSystems.ts   # Imports from __encoded.ts, exports Record + MachineId
 │   ├── machines/               # Per-machine filesystem definitions (localhost, fileserver, webserver + gateway)
@@ -49,7 +49,7 @@ e2e/
 
 ## Terminal Features
 
-- ASCII banner on startup ("JSHACK.ME v0.13.0")
+- ASCII banner on startup ("JSHACK.ME v0.14.0")
 - Dynamic prompt: `username@machine>` (managed via SessionContext)
 - Command history (up/down arrows)
 - Tab autocompletion for commands and variables
@@ -106,6 +106,20 @@ Multiple browser tabs can run independent terminal sessions with shared state vi
 **Graceful fallback**: When `BroadcastChannel` is unavailable (older browsers, SSR), `createSyncChannel()` returns no-op stubs. Tabs work independently, same as before.
 
 **Dynamic tab title**: `SessionContext` updates `document.title` based on the current session mode: `username@machine — JSHACK.ME`, `ftp> — JSHACK.ME`, or `nc shell — JSHACK.ME`.
+
+## Filesystem Permission Model
+
+Unix-realistic permission model with owner-scoped access and directory traversal checking.
+
+**Owner-scoped permissions**: Files and directories are only accessible to their owner + root. Guest-owned items are world-readable (matching real Unix behavior where guest home dirs are typically open). Root-owned items are root-only unless marked as system directories.
+
+**System directories**: Directories like `/var/`, `/tmp/`, `/etc/`, `/home/`, `/usr/`, `/boot/`, `/srv/`, `/opt/` use a `worldReadable` flag — all users can list and traverse them, but individual files inside may be restricted by their own permissions.
+
+**Directory traversal checking**: Accessing `/home/operator/notes.txt` requires execute permission on every parent directory (`/`, `/home/`, `/home/operator/`). The `checkTraversal()` function in `fileSystemUtils.ts` walks the path and verifies execute permission at each level. Root bypasses all traversal checks. Traversal is wired into `canReadFromMachine`/`canWriteFromMachine` in `FileSystemContext`, and injected as `canTraverse`/`canTraverseOnMachine` dependency into commands that do manual permission checks.
+
+**`cd` checks execute, not read**: Matches real Unix — `cd` into a directory requires execute permission. `ls` requires read permission on the target but execute on all parents. This applies to main `cd`, FTP `cd`/`lcd`, and NC `cd`.
+
+**Generated mission filesystems** (`src/generation/filesystem.ts`): `mkFile` and `mkDir` helpers produce owner-scoped permissions. `mkDir` accepts an optional `worldReadable` parameter for system directories. `mkScript` has its own explicit permission logic for script_fix objectives.
 
 ## Nano Editor
 

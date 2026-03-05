@@ -50,6 +50,7 @@ const createMockStringsContext = (config: StringsContextConfig = {}) => {
     },
     getNode: (path: string) => files[path] ?? null,
     getUserType: () => userType,
+    canTraverse: () => ({ allowed: true }),
   };
 };
 

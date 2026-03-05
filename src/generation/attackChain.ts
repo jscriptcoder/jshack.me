@@ -46,11 +46,13 @@ type AttackChainResult = {
   readonly clientEmail: string;
 };
 
-export const placementTemplates: readonly {
+type PlacementTemplate = {
   readonly path: string;
   readonly template: string;
   readonly hint: string;
-}[] = [
+};
+
+export const placementTemplates: readonly PlacementTemplate[] = [
   {
     path: '/var/log/auth.log',
     template:
@@ -82,6 +84,13 @@ export const placementTemplates: readonly {
     hint: 'Look in /etc/maintenance.conf on {{machine}} for hardcoded credentials',
   },
 ];
+
+// World-readable placements — paths in /var/log/, /tmp/, /etc/ are accessible to all users.
+// Used on the entry machine where the player may SSH as guest and cannot read other
+// users' home directories due to owner-scoped permissions.
+const worldReadablePlacements: readonly PlacementTemplate[] = placementTemplates.filter(
+  (t) => !t.path.includes('/home/'),
+);
 
 const getMethodForMachine = (prng: Prng, machine: GeneratedMachine): AttackMethod => {
   const hasSsh = machine.remoteMachine.ports.some((p) => p.port === 22 && p.open);
@@ -524,7 +533,15 @@ export const generateAttackChain = (input: AttackChainInput): AttackChainResult 
       continue;
     }
 
-    const placement = prng.pick(placementTemplates);
+    // On the entry machine (i === 0), remap /home/ placements to world-readable ones —
+    // the player may enter as guest and can't read other users' home directories.
+    // Deterministic remap (no extra PRNG call) to preserve sequence stability.
+    const prngPlacement = prng.pick(placementTemplates);
+    const isEntryMachine = i === 0;
+    const placement =
+      isEntryMachine && prngPlacement.path.includes('/home/')
+        ? (worldReadablePlacements[0] as PlacementTemplate)
+        : prngPlacement;
     const fromCreds = credentials[fromMachine.ip] ?? [];
     const localUsers = fromCreds.filter((c) => c.username !== 'root' && c.username !== 'guest');
     const localUser = localUsers.length > 0 ? prng.pick(localUsers).username : 'admin';

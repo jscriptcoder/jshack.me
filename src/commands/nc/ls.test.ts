@@ -81,6 +81,7 @@ const createMockNcLsContext = (config: NcLsContextConfig = {}) => {
       _cwd: string,
       _userType: UserType,
     ) => listings[path] ?? null,
+    canTraverseOnMachine: () => ({ allowed: true }),
   };
 };
 

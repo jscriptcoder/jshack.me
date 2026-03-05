@@ -21,6 +21,7 @@ export const useNcCommands = (): Map<string, Command> | null => {
     getNodeFromMachine,
     listDirectoryFromMachine,
     readFileFromMachine,
+    canTraverseOnMachine,
   } = useFileSystem();
 
   return useMemo(() => {
@@ -47,6 +48,7 @@ export const useNcCommands = (): Map<string, Command> | null => {
         setCwd: updateNcCwd,
         resolvePath: resolvePathForMachine,
         getNodeFromMachine,
+        canTraverseOnMachine,
       }),
     );
 
@@ -60,6 +62,7 @@ export const useNcCommands = (): Map<string, Command> | null => {
         resolvePath: resolvePathForMachine,
         getNodeFromMachine,
         listDirectoryFromMachine,
+        canTraverseOnMachine,
       }),
     );
 
@@ -93,5 +96,6 @@ export const useNcCommands = (): Map<string, Command> | null => {
     getNodeFromMachine,
     listDirectoryFromMachine,
     readFileFromMachine,
+    canTraverseOnMachine,
   ]);
 };

@@ -1,12 +1,13 @@
 import type { Command } from '../components/Terminal/types';
 import type { UserType } from '../session/SessionContext';
-import type { FileNode } from '../filesystem/types';
+import type { FileNode, PermissionResult } from '../filesystem/types';
 
 type LsContext = {
   readonly getCurrentPath: () => string;
   readonly resolvePath: (path: string) => string;
   readonly getNode: (path: string) => FileNode | null;
   readonly getUserType: () => UserType;
+  readonly canTraverse: (path: string) => PermissionResult;
 };
 
 export const createLsCommand = (context: LsContext): Command => ({
@@ -32,7 +33,7 @@ export const createLsCommand = (context: LsContext): Command => ({
     ],
   },
   fn: (...args: unknown[]): string => {
-    const { getCurrentPath, resolvePath, getNode, getUserType } = context;
+    const { getCurrentPath, resolvePath, getNode, getUserType, canTraverse } = context;
 
     // Parse arguments - can be path, flags, or both in any order
     const stringArgs = args.filter((arg): arg is string => typeof arg === 'string');
@@ -41,6 +42,12 @@ export const createLsCommand = (context: LsContext): Command => ({
 
     const userType = getUserType();
     const targetPath = path ? resolvePath(path) : getCurrentPath();
+
+    const traversal = canTraverse(targetPath);
+    if (!traversal.allowed) {
+      throw new Error(`ls: cannot open directory '${targetPath}': Permission denied`);
+    }
+
     const node = getNode(targetPath);
 
     if (!node) {

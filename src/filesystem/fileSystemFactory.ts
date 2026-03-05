@@ -143,9 +143,9 @@ export const createFileSystem = (config: MachineFileSystemConfig): FileNode => {
           type: 'directory',
           owner: 'root',
           permissions: {
-            read: ['root', 'user'],
+            read: ['root', 'user', 'guest'],
             write: ['root'],
-            execute: ['root', 'user'],
+            execute: ['root', 'user', 'guest'],
           },
           children: config.varLogContent ?? {},
         },

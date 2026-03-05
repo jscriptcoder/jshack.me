@@ -1,6 +1,6 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
 import type { UserType } from '../session/SessionContext';
-import type { FileNode } from '../filesystem/types';
+import type { FileNode, PermissionResult } from '../filesystem/types';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 import { decryptContent } from '../utils/crypto';
 
@@ -8,6 +8,7 @@ type DecryptContext = {
   readonly resolvePath: (path: string) => string;
   readonly getNode: (path: string) => FileNode | null;
   readonly getUserType: () => UserType;
+  readonly canTraverse: (path: string) => PermissionResult;
 };
 
 const DECRYPT_DELAY_MS = 500;
@@ -68,6 +69,12 @@ export const createDecryptCommand = (context: DecryptContext): Command => ({
 
     const userType = getUserType();
     const targetPath = resolvePath(filePath);
+
+    const traversal = context.canTraverse(targetPath);
+    if (!traversal.allowed) {
+      throw new Error(`decrypt: ${filePath}: Permission denied`);
+    }
+
     const node = getNode(targetPath);
 
     if (!node) {

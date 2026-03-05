@@ -1,5 +1,6 @@
-import type { FileNode, FileSystemPatch } from './types';
+import type { FileNode, FileSystemPatch, PermissionResult } from './types';
 import type { MachineId } from './machineFileSystems';
+import type { UserType } from '../session/SessionContext';
 
 export type FileSystemsState = Readonly<Record<string, FileNode>>;
 
@@ -22,6 +23,38 @@ export const resolvePath = (path: string, cwd: string): string => {
   if (path === '.') return cwd;
   const combined = cwd === '/' ? `/${path}` : `${cwd}/${path}`;
   return normalizePath(combined);
+};
+
+// Verifies execute permission on every directory along the path (excluding the target itself).
+// Real Unix requires execute (traverse) permission on each parent directory to access a file.
+export const checkTraversal = (
+  fs: FileNode,
+  resolvedPath: string,
+  userType: UserType,
+): PermissionResult => {
+  if (userType === 'root') return { allowed: true };
+
+  const parts = resolvedPath.split('/').filter(Boolean);
+  if (parts.length === 0) return { allowed: true };
+
+  // Check execute on root directory
+  if (!fs.permissions.execute.includes(userType)) {
+    return { allowed: false, error: 'Permission denied: /' };
+  }
+
+  // Walk each parent directory (all segments except the last, which is the target)
+  let current: FileNode = fs;
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (!current.children) return { allowed: true };
+    const next = current.children[parts[i] as string];
+    if (!next) return { allowed: true };
+    if (next.type === 'directory' && !next.permissions.execute.includes(userType)) {
+      return { allowed: false, error: `Permission denied: /${parts.slice(0, i + 1).join('/')}` };
+    }
+    current = next;
+  }
+
+  return { allowed: true };
 };
 
 export const getNodeAtPath = (fs: FileNode, resolvedPath: string): FileNode | null => {

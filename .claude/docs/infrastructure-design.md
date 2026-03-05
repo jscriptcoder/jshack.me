@@ -50,6 +50,10 @@ Four static machines exist. All other machines are procedurally generated per mi
 
 Machine filesystems are defined in `src/filesystem/machines/` and built via `fileSystemFactory.ts` with users, directories, and content. Common structure per machine: `/root/`, `/home/[users]/`, `/etc/` (passwd with MD5 hashes, hostname, hosts, configs), `/var/log/`, `/tmp/`.
 
+### Filesystem Permissions
+
+Unix-realistic permission model: files and directories are owner-scoped (only owner + root can access). System directories (`/var`, `/tmp`, `/etc`, `/home`, `/usr`, `/boot`, `/srv`, `/opt`) are world-readable via `worldReadable` flag. Guest-owned items are world-readable. Directory traversal checking (`checkTraversal` in `fileSystemUtils.ts`) verifies execute permission on every parent directory — e.g., accessing `/home/operator/notes.txt` requires execute on `/`, `/home/`, and `/home/operator/`. `cd` checks execute permission (not read). Generated mission filesystems use `mkFile`/`mkDir` helpers with owner-scoped defaults.
+
 ## Network Topology
 
 ```

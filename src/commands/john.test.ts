@@ -52,6 +52,7 @@ const createMockJohnContext = (config: JohnContextConfig = {}) => {
     },
     getNode: (path: string) => files[path] ?? null,
     getUserType: () => userType,
+    canTraverse: () => ({ allowed: true }),
   };
 };
 

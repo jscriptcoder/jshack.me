@@ -1,5 +1,5 @@
 import type { Command } from '../../components/Terminal/types';
-import type { FileNode } from '../../filesystem/types';
+import type { FileNode, PermissionResult } from '../../filesystem/types';
 import type { UserType } from '../../session/SessionContext';
 import type { MachineId } from '../../filesystem/machineFileSystems';
 
@@ -15,6 +15,11 @@ type FtpLlsContext = {
     cwd: string,
     userType: UserType,
   ) => string[] | null;
+  readonly canTraverseOnMachine: (
+    machineId: MachineId,
+    path: string,
+    userType: UserType,
+  ) => PermissionResult;
 };
 
 export const createFtpLlsCommand = (context: FtpLlsContext): Command => ({
@@ -49,6 +54,11 @@ export const createFtpLlsCommand = (context: FtpLlsContext): Command => ({
 
     const targetPath = path ?? originCwd;
     const resolvedPath = context.resolvePathForMachine(targetPath, originCwd);
+
+    const traversal = context.canTraverseOnMachine(originMachine, resolvedPath, userType);
+    if (!traversal.allowed) {
+      throw new Error(`lls: ${targetPath}: Permission denied`);
+    }
 
     const node = context.getNodeFromMachine(originMachine, resolvedPath, '/');
     if (!node) {

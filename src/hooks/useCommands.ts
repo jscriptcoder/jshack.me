@@ -56,7 +56,7 @@ export const useCommands = (): UseCommandsResult => {
     isMachineBricked,
   } = useSession();
   const { findMachineUsers } = useNetwork();
-  const { resolvePath, getNode, readFileFromMachine, createFile, getNodeFromMachine } =
+  const { resolvePath, getNode, readFileFromMachine, createFile, getNodeFromMachine, canTraverse } =
     useFileSystem();
   const { isMissionActive, startMission, abortMission, completeMission, activeMission } =
     useMission();
@@ -101,6 +101,7 @@ export const useCommands = (): UseCommandsResult => {
         resolvePath,
         getNode,
         getUserType: () => session.userType,
+        canTraverse: (path: string) => canTraverse(path, session.userType),
         getExecutionContext: () => resolvedExecutionContext,
         getDecodeFn: () => {
           if (!activeMission || activeMission.objective.type !== 'script_fix') return undefined;
@@ -216,6 +217,7 @@ export const useCommands = (): UseCommandsResult => {
     getNode,
     getNodeFromMachine,
     createFile,
+    canTraverse,
     isMissionActive,
     startMission,
     abortMission,

@@ -15,7 +15,7 @@ import { createRmCommand } from '../commands/rm';
 import type { Command } from '../components/Terminal/types';
 
 export const useFileSystemCommands = (): Map<string, Command> => {
-  const { resolvePath, getNode, createFile, writeFile, deleteNode } = useFileSystem();
+  const { resolvePath, getNode, createFile, writeFile, deleteNode, canTraverse } = useFileSystem();
   const { session, setCurrentPath } = useSession();
 
   return useMemo(() => {
@@ -29,6 +29,9 @@ export const useFileSystemCommands = (): Map<string, Command> => {
       if (session.userType === 'guest') return '/home/guest';
       return `/home/${session.username}`;
     };
+
+    // Bind canTraverse to the current user type for command contexts
+    const canTraverseFn = (path: string) => canTraverse(path, session.userType);
 
     // pwd command
     commands.set('pwd', createPwdCommand(getCurrentPath));
@@ -44,6 +47,7 @@ export const useFileSystemCommands = (): Map<string, Command> => {
         resolvePath,
         getNode,
         getUserType,
+        canTraverse: canTraverseFn,
       }),
     );
 
@@ -56,6 +60,7 @@ export const useFileSystemCommands = (): Map<string, Command> => {
         setCurrentPath,
         getUserType,
         getHomePath,
+        canTraverse: canTraverseFn,
       }),
     );
 
@@ -66,6 +71,7 @@ export const useFileSystemCommands = (): Map<string, Command> => {
         resolvePath,
         getNode,
         getUserType,
+        canTraverse: canTraverseFn,
       }),
     );
 
@@ -76,6 +82,7 @@ export const useFileSystemCommands = (): Map<string, Command> => {
         resolvePath,
         getNode,
         getUserType,
+        canTraverse: canTraverseFn,
       }),
     );
 
@@ -98,6 +105,7 @@ export const useFileSystemCommands = (): Map<string, Command> => {
         resolvePath,
         getNode,
         getUserType,
+        canTraverse: canTraverseFn,
       }),
     );
 
@@ -108,6 +116,7 @@ export const useFileSystemCommands = (): Map<string, Command> => {
         resolvePath,
         getNode,
         getUserType,
+        canTraverse: canTraverseFn,
       }),
     );
 
@@ -118,6 +127,7 @@ export const useFileSystemCommands = (): Map<string, Command> => {
         resolvePath,
         getNode,
         getUserType,
+        canTraverse: canTraverseFn,
       }),
     );
 
@@ -133,5 +143,14 @@ export const useFileSystemCommands = (): Map<string, Command> => {
     );
 
     return commands;
-  }, [setCurrentPath, resolvePath, getNode, createFile, writeFile, deleteNode, session]);
+  }, [
+    setCurrentPath,
+    resolvePath,
+    getNode,
+    createFile,
+    writeFile,
+    deleteNode,
+    canTraverse,
+    session,
+  ]);
 };

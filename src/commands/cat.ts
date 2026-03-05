@@ -1,11 +1,12 @@
 import type { Command } from '../components/Terminal/types';
 import type { UserType } from '../session/SessionContext';
-import type { FileNode } from '../filesystem/types';
+import type { FileNode, PermissionResult } from '../filesystem/types';
 
 type CatContext = {
   readonly resolvePath: (path: string) => string;
   readonly getNode: (path: string) => FileNode | null;
   readonly getUserType: () => UserType;
+  readonly canTraverse: (path: string) => PermissionResult;
 };
 
 export const createCatCommand = (context: CatContext): Command => ({
@@ -33,9 +34,15 @@ export const createCatCommand = (context: CatContext): Command => ({
       throw new Error('cat: missing file operand');
     }
 
-    const { resolvePath, getNode, getUserType } = context;
+    const { resolvePath, getNode, getUserType, canTraverse } = context;
     const userType = getUserType();
     const targetPath = resolvePath(path);
+
+    const traversal = canTraverse(targetPath);
+    if (!traversal.allowed) {
+      throw new Error(`cat: ${path}: Permission denied`);
+    }
+
     const node = getNode(targetPath);
 
     if (!node) {

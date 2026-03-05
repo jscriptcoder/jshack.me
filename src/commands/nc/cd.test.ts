@@ -76,6 +76,7 @@ const createMockNcCdContext = (config: NcCdContextConfig = {}) => {
     setCwd,
     resolvePath,
     getNodeFromMachine: (_machineId: MachineId, path: string, _cwd: string) => nodes[path] ?? null,
+    canTraverseOnMachine: () => ({ allowed: true }),
   };
 };
 

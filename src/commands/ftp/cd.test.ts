@@ -61,6 +61,7 @@ const createMockContext = (config: MockContextConfig = {}) => {
     setRemoteCwd,
     resolvePathForMachine,
     getNodeFromMachine,
+    canTraverseOnMachine: () => ({ allowed: true }),
   };
 };
 

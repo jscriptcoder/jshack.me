@@ -57,6 +57,7 @@ const createMockContext = (config: MockContextConfig = {}) => {
     getNode: (path: string) => fileSystem[path] ?? null,
     getUserType: () => userType,
     getExecutionContext: () => executionContext,
+    canTraverse: () => ({ allowed: true }),
   };
 };
 
@@ -75,6 +76,7 @@ const createNodeContext = (overrides: NodeContextOverrides = {}) => ({
   getUserType: overrides.getUserType ?? (() => 'user' as UserType),
   getExecutionContext: overrides.getExecutionContext ?? (() => ({})),
   getDecodeFn: overrides.getDecodeFn,
+  canTraverse: () => ({ allowed: true }),
 });
 
 // --- Tests ---

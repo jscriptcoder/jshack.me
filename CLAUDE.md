@@ -69,6 +69,10 @@ Commands are tiered by user type (`src/commands/permissions.ts`):
 - **user**: All guest + apt, ifconfig, ping, nmap, nslookup, ssh, ftp, nc, curl, exploit, gobuster, strings, output, resolve, nano, node, john, hydra, airmon, airdump, aircrack, nmcli, missions, accept, abort, mail, xterm
 - **root**: All user + decrypt, reboot
 
+### Filesystem Permissions
+
+Unix-realistic permission model with owner-scoped access and directory traversal checking. Files/directories are only accessible to their owner + root (guest-owned items are world-readable). System directories (`/var`, `/tmp`, `/etc`, `/home`, `/usr`, etc.) are world-readable via `worldReadable` flag. Accessing a file requires execute permission on every parent directory (`checkTraversal` in `fileSystemUtils.ts`). `cd` checks execute permission (not read), matching real Unix. See `.claude/docs/architecture.md` for full details.
+
 ### Tool Availability (apt install)
 
 On remote/mission machines, hacking tools must be installed via `apt('install', '<tool>')` as root. The availability system (`src/commands/availability.ts`) wraps apt-installable commands with a filesystem check for `/usr/bin/<command>`.

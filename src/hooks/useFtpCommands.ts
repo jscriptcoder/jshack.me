@@ -27,6 +27,7 @@ export const useFtpCommands = (): Map<string, Command> | null => {
     readFileFromMachine,
     writeFileToMachine,
     createFileOnMachine,
+    canTraverseOnMachine,
   } = useFileSystem();
 
   return useMemo(() => {
@@ -58,6 +59,7 @@ export const useFtpCommands = (): Map<string, Command> | null => {
         setRemoteCwd: updateFtpRemoteCwd,
         resolvePathForMachine,
         getNodeFromMachine,
+        canTraverseOnMachine,
       }),
     );
 
@@ -71,6 +73,7 @@ export const useFtpCommands = (): Map<string, Command> | null => {
         setOriginCwd: updateFtpOriginCwd,
         resolvePathForMachine,
         getNodeFromMachine,
+        canTraverseOnMachine,
       }),
     );
 
@@ -84,6 +87,7 @@ export const useFtpCommands = (): Map<string, Command> | null => {
         resolvePathForMachine,
         getNodeFromMachine,
         listDirectoryFromMachine,
+        canTraverseOnMachine,
       }),
     );
 
@@ -97,6 +101,7 @@ export const useFtpCommands = (): Map<string, Command> | null => {
         resolvePathForMachine,
         getNodeFromMachine,
         listDirectoryFromMachine,
+        canTraverseOnMachine,
       }),
     );
 
@@ -154,5 +159,6 @@ export const useFtpCommands = (): Map<string, Command> | null => {
     readFileFromMachine,
     writeFileToMachine,
     createFileOnMachine,
+    canTraverseOnMachine,
   ]);
 };

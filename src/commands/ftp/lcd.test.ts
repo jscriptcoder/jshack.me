@@ -61,6 +61,7 @@ const createMockContext = (config: MockContextConfig = {}) => {
     setOriginCwd,
     resolvePathForMachine,
     getNodeFromMachine,
+    canTraverseOnMachine: () => ({ allowed: true }),
   };
 };
 

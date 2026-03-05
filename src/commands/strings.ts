@@ -1,11 +1,12 @@
 import type { Command } from '../components/Terminal/types';
 import type { UserType } from '../session/SessionContext';
-import type { FileNode } from '../filesystem/types';
+import type { FileNode, PermissionResult } from '../filesystem/types';
 
 type StringsContext = {
   readonly resolvePath: (path: string) => string;
   readonly getNode: (path: string) => FileNode | null;
   readonly getUserType: () => UserType;
+  readonly canTraverse: (path: string) => PermissionResult;
 };
 
 // Matches the default minimum length of the real Unix `strings` command
@@ -89,6 +90,12 @@ export const createStringsCommand = (context: StringsContext): Command => ({
 
     const userType = getUserType();
     const targetPath = resolvePath(filePath);
+
+    const traversal = context.canTraverse(targetPath);
+    if (!traversal.allowed) {
+      throw new Error(`strings: ${filePath}: Permission denied`);
+    }
+
     const node = getNode(targetPath);
 
     if (!node) {
