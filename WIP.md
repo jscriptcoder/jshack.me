@@ -6,7 +6,7 @@ Random SSH/FTP port closures in mission networks
 
 ## Status
 
-✅ COMPLETE — PRNG-driven port closures (~30% SSH, ~30% FTP, independent rolls) add lateral movement variety. When SSH is closed, FTP port 21 is ensured open. Entry machine, router, and script_fix objectives are protected. Attack chain routes through FTP/HTTP when SSH is unavailable. (1046 unit tests across 68 files)
+✅ COMPLETE — PRNG-driven port closures (~30% SSH, ~30% FTP, independent rolls) add lateral movement variety. When SSH is closed, FTP port 21 is ensured open. Entry machine, router, and script_fix objectives are protected. Attack chain routes through FTP/HTTP when SSH is unavailable.
 
 ## Future Ideas
 
@@ -140,7 +140,6 @@ Implemented:
   - Two separate `usePathAutoComplete` instances (remote + local) created for FTP mode
   - `getFtpPathCompletions` in Terminal.tsx selects the appropriate completion source
   - Resolves the known limitation noted in Session 8
-- **Test count**: 1039 unit tests across 68 files
 
 ## Previous Session (2026-02-28, Session 14)
 
@@ -156,7 +155,6 @@ Implemented:
   - No echo loops: BroadcastChannel does not deliver messages to the posting tab
   - Zero refactoring of existing providers/contexts — sync layer is purely additive
   - **Version bump**: 0.7.0 → 0.8.0
-  - **Test count**: 1017 unit tests across 68 files
 
 ## Previous Session (2026-02-27, Session 13)
 
@@ -175,7 +173,6 @@ Implemented:
   - `verifyScriptFix()` in `mail.ts` (simple string comparison, same as exfiltrate)
   - Dummy PRNG rolls consumed for binary + encrypt to preserve sequence alignment
   - No binary wrapping or encryption (scripts must be readable/editable)
-  - **Test count**: 1006 unit tests across 67 files
 
 ## Previous Session (2026-02-22, Session 12)
 
@@ -193,7 +190,6 @@ Implemented:
   - Wrapping order: permission (outermost) → install check → command execution
   - 22 new tests (apt: 12, availability: 10)
   - **Version bump**: 0.5.0 → 0.6.0
-  - **Test count**: 984 unit tests across 66 files
 
 ## Previous Session (2026-02-21, Session 11)
 
@@ -210,7 +206,6 @@ Implemented:
   - Overrides passed through `generateTopology` (via `TopologyOverrides`) and `generateAttackChain` (via `objectiveTypeOverride` field)
   - Debug script (`dumpMission.ts`) shows active overrides in overview section
   - Example: `accept("HEIST-ssh-forwarded-tamper-hard")` forces SSH entry, forwarded mode, tamper objective, hard difficulty
-  - **Test count**: 941 unit tests across 63 files (all passing, no regressions)
 
 ## Previous Session (2026-02-21, Session 10)
 
@@ -227,7 +222,6 @@ Implemented:
   - Removed webserver/darknet server configs from curl command
   - Fixed curl test for per-machine custom headers (now uses gateway IP)
   - Updated all documentation: README, CLAUDE.md, architecture.md, ctf-design.md, WIP.md, PLAN.md, LEARNINGS.md
-  - **Test count**: 904 unit tests across 61 files + 4 Playwright E2E tests
 
 ## Previous Session (2026-02-21, Session 9)
 
@@ -246,7 +240,6 @@ Implemented:
   - Mission briefing (`accept.ts`) shows router public IP as gateway, with mode-aware hints
   - Router filesystem contains `/etc/hosts` (internal machine list), `/etc/route.conf` (routing table), `/var/log/firewall.log` (iptables traffic)
   - Updated all documentation: CLAUDE.md, architecture.md, ctf-design.md, missions-design.md, mission-variations.md
-  - **Test count**: 950 unit tests across 65 files
 
 ## Previous Session (2026-02-20, Session 8)
 
@@ -258,7 +251,6 @@ Implemented:
   - When NC mode is active, `usePathAutoComplete` receives the NC-specific wrappers; otherwise uses the default session-based functions
   - Example: `cat('ind` + Tab now correctly autocompletes to `cat('index.html')` on the NC machine
   - **Known limitation**: FTP path completion has a similar issue — resolves against the origin machine, so remote commands (`cd`, `ls`) autocomplete wrong. FTP is harder to fix because dual-argument commands (`get(remote, local)`, `put(local, remote)`) need per-argument context based on cursor position. Deferred for now.
-  - **Test count**: 938 unit tests across 65 files + 5 Playwright E2E tests
 
 ## Previous Session (2026-02-20, Session 7)
 
@@ -273,7 +265,6 @@ Implemented:
   - Target paths use `/srv/` and `/opt/` prefixes to avoid conflicting with factory-managed directories (`/var/`, `/home/`, `/etc/`)
   - Examples: `/srv/records/patient_discharge_2024.csv` (fileserver), `/opt/mysql/dumps/users_backup.sql` (database), `/srv/www/data/users.json` (webserver), `/opt/projects/classified_memo.txt` (workstation)
   - Updated E2E test for new target path and PRNG-shifted attack chain
-  - **Test count**: 938 unit tests across 65 files + 5 Playwright E2E tests
 
 ## Previous Session (2026-02-20, Session 6)
 
@@ -291,14 +282,13 @@ Implemented:
   - Registered `exploit` in `useNetworkCommands.ts` + `permissions.ts` (user tier, WiFi gated)
   - `accept()` shows exploit hint and SSH password for respective variants
   - 32 new tests (exploit.test.ts + nmap -sV tests + generation tests)
-  - **Test count**: 938 unit tests across 65 files + 5 Playwright E2E tests
 
 ## Session 5 (2026-02-19)
 
 Implemented:
 
 - **Mission E2E Playwright tests** (`e2e/mission-playthrough.spec.ts`):
-  - 4 tests covering all 3 entry variants (SSH, FTP, NC) + mission lifecycle (abort/re-accept)
+  - Covers all 3 entry variants (SSH, FTP, NC) + mission lifecycle (abort/re-accept)
   - SSH variant (TEST-1-easy): SSH to target, su to root, capture flag
   - NC variant (MEDTECH-4A7F-easy): NC backdoor to entry, find creds, SSH to target, capture flag
   - FTP variant (NOVA-7E2A-easy): FTP to entry, download creds file, SSH to target, capture flag
@@ -306,7 +296,6 @@ Implemented:
   - Shared `completeWifiGate` helper (WiFi gate is prerequisite for all mission tests)
   - Uses deterministic seeds with pre-verified attack chains, credentials, and flags
 - **Bug fix: `su` on mission machines** — `getUsers()` in `useCommands.ts` only searched static `config.machineConfigs`. Mission machine IPs aren't in static config → "user does not exist" error. Added `findMachineUsers(ip)` to `NetworkContext` that searches both static and mission configs. `useCommands.ts` now delegates to this centralized lookup.
-- **Test count**: 906 unit tests across 64 files + 5 Playwright E2E tests (1 CTF + 4 mission)
 
 ## Previous Session (2026-02-19, Session 4)
 
@@ -318,7 +307,6 @@ Implemented:
   - Added `pretest`, `pretest:run`, `pretest:coverage` npm hooks to ensure `__encoded.ts` exists before tests
   - Updated `users.test.ts` to import passwords from plaintext source (matching existing test pattern)
   - Verified: `s3cur3!`, `p4ssw0rd` etc. return zero matches in `dist/` after build
-- **Test count**: 906 tests across 64 files (unchanged)
 
 ## Previous Session (2026-02-19, Session 3)
 
@@ -329,7 +317,6 @@ Implemented:
   - **Bug fix: FTP entry credential hints placed in nonexistent `/srv/ftp/`** — Two of three FTP hint templates used `/srv/ftp/` paths, but entry machines have no `/srv/ftp/` directory. Changed all `ftpPath` values to `/home/{{localUser}}/` which the filesystem factory always creates.
   - **Bug fix: Double network generation in `accept`** — `accept` generated the network for the briefing, then `startMission` generated it again internally. Changed `startMission` to accept `MissionNetwork` directly instead of a seed string. Only the seed is persisted.
   - Updated tests: `useMissionState.test.ts`, `accept.test.ts`, `filesystem.test.ts` (new FTP path validation test)
-- **Test count**: 906 tests across 64 files
 
 ## Previous Session (2026-02-19, Session 2)
 
@@ -351,7 +338,6 @@ Implemented:
   - `src/filesystem/machines/darknet.ts` — Added `.contracts` breadcrumb file for mission discovery
   - Mission completion detection in Terminal.tsx — scans command output for mission flag
   - 23 new tests (missions, accept, abort, missionBoard)
-- **Test count**: 895 tests across 64 files
 
 ## Previous Session (2026-02-19)
 
@@ -370,7 +356,6 @@ Implemented:
   - 4 machine roles (webserver, database, fileserver, workstation), 3 difficulty tiers
   - Output types match existing NetworkConfig, RemoteMachine, FileNode for future integration
   - 66 new unit tests (determinism, variation, structure, credential embedding)
-- **Test count**: 872 tests across 60 files
 
 ## Previous Session (2026-02-18)
 
@@ -394,7 +379,6 @@ Implemented:
   - Theme preserved through `pushSession`/`popSession` (SSH nesting)
   - 12 new unit tests: theme command (7), applyTheme (5)
   - Updated test fixtures in storage.test.ts, storageCache.test.ts, TerminalOutput.test.tsx, TerminalInput.test.tsx
-- **Test count**: 806 tests across 54 files
 
 ## Previous Session (2026-02-18)
 
@@ -420,8 +404,7 @@ Implemented:
   - `src/hooks/usePathAutoComplete.ts` — detects cursor inside quotes, resolves directory, filters entries by prefix
   - `TerminalInput` passes `cursorPosition` to `onTab`; `Terminal.tsx` tries path completion first, falls through to command/variable completion
   - Directories append `/` in completions; single match auto-completes, multiple matches show list + advance to common prefix
-  - 16 unit tests covering string detection, absolute/relative paths, single/multiple matches, edge cases
-- **Test count**: 794 tests across 52 files
+  - Tests covering string detection, absolute/relative paths, single/multiple matches, edge cases
 
 ## Previous Session (2026-02-13)
 
@@ -435,11 +418,10 @@ Implemented:
   - `src/secrets/secrets.ts` — plaintext secrets registry (WiFi password, etc.), only used by encode script + tests
   - `predev` and `prebuild` npm hooks auto-run `npm run encode` before `dev` and `build`
   - Added `tsx` dev dependency for running the encode script
-  - 8 unit tests for codec round-trips (strings, empty strings, special characters, full FileNode trees, structure preservation)
+  - Tests for codec round-trips (strings, empty strings, special characters, full FileNode trees, structure preservation)
   - Encoding scheme: UTF-8 bytes → XOR with static key → Base64. Only `content` strings encoded; tree structure (names, types, permissions) stays as plain JSON.
   - Existing unit tests unchanged (they import source machine files directly)
   - Verified: `grep -r "FLAG{" dist/` returns zero matches after build
-- **Test count**: 738 tests across 47 files
 
 ## Previous Session (2026-02-12)
 
@@ -473,7 +455,6 @@ Implemented:
   - `/var/log/auth.log` — NO phantom password leak (creds come from void's .abyss_notes)
   - Noise: phantom .bashrc (vault aliases), .bash_history, /etc/crontab, syslog, guest .bash_history
   - 7 behavior-focused tests: XOR decode, simulated node script, vault contents, auth.log does NOT leak phantom password
-- **Test count**: 730 tests across 46 files
 
 ## Previous Session (2026-02-12)
 
@@ -506,7 +487,6 @@ Implemented:
   - Minimal filesystems with root + named user + guest, hostname, hosts
   - Hidden DNS: shadow.hidden, void.hidden, abyss.hidden
   - Reachable only from darknet or each other
-- **Test count**: 681 tests across 42 files (unchanged — no test changes needed)
 
 ## Previous Session (2026-02-12)
 
@@ -518,12 +498,12 @@ Implemented:
   - Ctrl+S save, Ctrl+X/Escape exit, Tab inserts 2 spaces, cursor position tracking
   - Exit prompt (Y/N/C) when unsaved changes exist
   - Calls `writeFile`/`createFile` from FileSystemContext — changes persist to IndexedDB
-  - 9 tests for nano command, 17 tests for NanoEditor component
+  - Tests for nano command and NanoEditor component
 - **node command**: Execute JavaScript files with access to all terminal commands
   - `node(path)` reads file content and evaluates via `new Function()` with full command context
   - Lazy getter pattern resolves circular dependency (node needs execution context that includes node)
   - Tries expression mode first, falls back to statement execution
-  - 12 tests covering execution, context access, and error handling
+  - Tests covering execution, context access, and error handling
 - **Execute permission**: Added Unix-like execute permission to filesystem
   - `FilePermissions` now has `execute` field alongside `read` and `write`
   - Directories: `execute` matches `read`. Scripts/binaries: `execute` matches `read`. Data files: `execute: ['root']`
@@ -531,7 +511,6 @@ Implemented:
   - User-created files (nano, output, ftp get/put): `execute: ['root', owner]`
   - 4 new tests in node.test.ts for execute permission behavior
 - **Permission tiers**: Both nano and node added to user-tier (same as strings, output, etc.)
-- **Test count**: 674 tests across 41 colocated files
 
 ## Previous Session (2026-02-10)
 
@@ -543,7 +522,7 @@ Implemented:
   - Created `.prettierignore` for dist/coverage/node_modules/binary files
   - Added `eslint-config-prettier` as last entry in `eslint.config.js` (disables conflicting ESLint rules)
   - Added `npm run format` and `npm run format:check` scripts
-  - Formatted entire codebase — all 632 tests pass, build succeeds
+  - Formatted entire codebase — all tests pass, build succeeds
 - **SEO & Open Graph**: Full search engine optimization and social sharing support
   - Added `robots.txt` and `sitemap.xml` for search engine crawlers
   - Created OG image (1200x630) with CRT terminal aesthetic — ASCII banner, nmap scan, amber glow
@@ -558,7 +537,6 @@ Implemented:
   - One-time auto-migration from localStorage keys (`jshack-session`, `jshack-filesystem`) for returning users
   - Added `fake-indexeddb` dev dependency for test environment polyfill
   - 28 new tests (14 for storage wrapper, 14 for cache/migration)
-- **Test count**: 632 tests across 38 colocated files (before nano/node)
 
 ## Session (2026-02-09)
 
@@ -578,7 +556,6 @@ Implemented:
   - Red herrings: nmap_cheatsheet.txt, todo.txt, meeting_notes, tmp_data.csv, backup_manifest.txt
   - Darknet flavor: ghost tools/ with port_scanner.py, /etc/hosts with .onion entries
 - **FTP/NC ls hidden file support**: Added `-a` flag to show dotfiles (consistent with regular ls)
-- **Test count**: 604 tests across 36 colocated files (before IndexedDB migration)
 
 ## Previous Session (2026-02-08)
 
@@ -593,9 +570,8 @@ Implemented:
   - `man()` can still look up any command (for learning)
   - Privileges update instantly on `su()` via `session.userType` in `useMemo` deps
   - FTP/NC modes unaffected (separate command sets)
-  - 21 tests for permissions module
+  - Tests for permissions module
 - **CTF flag redesign plan** (`CTF_DESIGN.md`): 12-flag progression, command tiers, escalation paths
-- **Test count**: 604 tests across 36 colocated files
 
 Previous session (2026-02-08):
 
@@ -607,13 +583,12 @@ Previous session (2026-02-08):
   - DNS resolution via existing `resolveDomain()`
   - Port validation: must be open HTTP/HTTPS/HTTP-ALT service
   - AsyncOutput with 400-600ms delay for realism
-  - 27 tests covering errors, GET, POST, headers, DNS, async, cancellation
+  - Tests covering errors, GET, POST, headers, DNS, async, cancellation
 - **Web content added to machine filesystems**:
   - Gateway: `/var/www/html/index.html` (router page), `admin.html` (root-only, has flag)
   - Webserver: `/var/www/api/users.json`, `config.json` (DB creds + flag)
   - Darknet: `/var/www/html/index.html` (ASCII art), `/var/www/api/secrets.json` (encoded hint + flag)
 - **New flags**: FLAG{router_admin_panel}, FLAG{api_config_exposed}, FLAG{darknet_api_discovered}
-- **Test count**: 572 tests across 35 colocated files
 
 ## Session (2026-02-07)
 
@@ -629,20 +604,19 @@ Implemented:
 - **output command**: Capture command output to variable or file
   - `output(cmd)` - returns string for sync, Promise for async
   - `output(cmd, filePath)` - writes output to file
-  - 16 tests covering sync/async capture and file writing
+  - Tests covering sync/async capture and file writing
 - **resolve command**: Unwrap Promises and display resolved value
   - Shows "Resolving..." then displays the value
   - Handles both resolved values and rejections
-  - 14 tests covering all scenarios
+  - Tests covering all scenarios
 - **stringify utility**: Extracted shared stringification logic
   - Used by echo, output, and resolve commands
-  - 12 tests for stringify, removed echo tests (trivial wrapper)
+  - Tests for stringify, removed echo tests (trivial wrapper)
 - **ping fix**: Only respond to known machines, 100% packet loss for unknown IPs
 - **strings command**: Extract printable strings from binary files
   - `strings(file, [minLength])` - extracts ASCII sequences (4+ chars default)
   - Added binary file detection to `cat` - shows warning for binary files
   - Added `/bin/sudo` binary on webserver with hidden FLAG
-- **Test count**: 545 tests across 34 colocated files (before curl)
 
 ## Session (2026-02-06)
 
@@ -653,7 +627,7 @@ Implemented:
   - Returns AsyncOutput with "Decrypting..." progress
   - Validates key format (hex, correct length)
   - Handles permission checks and file validation
-  - 17 tests covering all edge cases
+  - Tests covering all edge cases
 - **Crypto utilities** (`src/utils/crypto.ts`):
   - `hexToBytes()`, `bytesToHex()` - hex/binary conversion
   - `generateKey()` - random 256-bit key generation
@@ -661,7 +635,6 @@ Implemented:
 - **Test encrypted files**: Added to localhost `/home/jshacker/`:
   - `secret.enc` - encrypted file with test flag
   - `keyfile.txt` - decryption key for testing
-- **Test count**: 469 tests across 30 colocated files
 
 ## Session (2026-02-05)
 
@@ -675,7 +648,6 @@ Implemented:
   - Banner now shows actual port number (e.g., `# 4444 #`)
 - **Fixed nc commands**: Corrected `resolvePath` signature in cd, ls, cat
 - **NC command tests**: nc (28), cat (11), cd (13), ls (14)
-- **Test count**: Now 452 tests across 29 colocated files
 
 ## Session (2026-02-04)
 
@@ -699,9 +671,8 @@ Implemented:
   - Validates persisted data with type guards before restoring
   - Fallback to defaults if localStorage is empty/invalid/corrupted
   - Auto-saves on every state change
-- **Component tests**: TerminalOutput (19 tests), TerminalInput (26 tests)
+- **Component tests**: TerminalOutput, TerminalInput
 - **FTP command tests**: cd (15), lcd (15), ls (12), lls (12), get (13), put (13)
-- **Test count**: 386 tests across 25 colocated files
 
 ## Blockers
 
@@ -765,8 +736,7 @@ All other machines are procedurally generated per mission.
 
 ### Test Coverage
 
-- 1039 unit tests across 68 colocated test files
-- 4 Playwright E2E tests: mission playthroughs (SSH/FTP/NC variants + lifecycle)
+- Playwright E2E tests: mission playthroughs (SSH/FTP/NC variants + lifecycle)
 - All commands with logic are tested
 - Async commands tested with fake timers
 - React hooks and components tested with React Testing Library
