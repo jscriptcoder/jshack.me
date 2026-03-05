@@ -192,6 +192,15 @@ Seeds are visible to the player — they can share seeds with friends for the sa
 - Tools: `nano`
 - Example: "Disable the firewall rules on the gateway to allow our team access"
 
+### Sabotage / Machine Destruction
+
+- Brick a target machine by deleting critical boot files and rebooting it
+- Gain root access, delete `/boot/vmlinuz`, then run `reboot()` to permanently brick the machine
+- No target file needed — verification checks `isMachineBricked(targetIP)` (same pattern as tamper)
+- SSH protected from port closures (player needs shell access to `rm` and `reboot`)
+- Tools: `su`, `rm`, `reboot`
+- Example: "Destroy the power grid controller so it never comes back online"
+
 ### Chain Missions
 
 - Multi-step heists across several machines

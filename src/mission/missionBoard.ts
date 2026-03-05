@@ -90,6 +90,24 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     difficulty: '*** (Hard)',
     seed: 'AXIOM-http-hard-router-first-script-fix',
   },
+  {
+    id: '010',
+    client: 'silkr0ad',
+    clientEmail: 'silkr0ad@darkmail.onion',
+    target: 'Titan Energy — power grid controller',
+    objective: 'Destroy the grid controller',
+    difficulty: '** (Medium)',
+    seed: 'TITAN-ssh-medium-forwarded-sabotage',
+  },
+  {
+    id: '011',
+    client: 'n3twr4ith',
+    clientEmail: 'n3twr4ith@darkmail.onion',
+    target: 'Meridian Bank — core banking server',
+    objective: 'Destroy the core banking server',
+    difficulty: '*** (Hard)',
+    seed: 'MERIDIAN-exploit-hard-router-first-sabotage',
+  },
 ];
 
 export const formatMissionBoard = (listings: readonly MissionListing[]): string => {

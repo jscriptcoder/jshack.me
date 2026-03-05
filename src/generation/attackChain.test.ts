@@ -100,7 +100,9 @@ describe('generateAttackChain', () => {
 
   it('objective has a valid type', () => {
     const { result } = buildTestData('type-test');
-    expect(['exfiltrate', 'tamper', 'credential_theft']).toContain(result.objective.type);
+    expect(['exfiltrate', 'tamper', 'credential_theft', 'script_fix', 'sabotage']).toContain(
+      result.objective.type,
+    );
   });
 
   it('exfiltrate objective has ACCESS-KEY format expectedProof', () => {
@@ -198,5 +200,19 @@ describe('generateAttackChain', () => {
       return;
     }
     // HTTP lateral movement is probabilistic — skip if not found
+  });
+
+  it('sabotage objective has empty path and content', () => {
+    for (let i = 0; i < 100; i++) {
+      const { result } = buildTestData(`sabotage-${i}`);
+      if (result.objective.type !== 'sabotage') continue;
+
+      expect(result.objective.targetPath).toBe('');
+      expect(result.objective.targetContent).toBe('');
+      expect(result.objective.expectedProof).toBe('');
+      expect(result.objective.description).toContain('Destroy');
+      return;
+    }
+    throw new Error('No sabotage objective found in 100 seeds');
   });
 });

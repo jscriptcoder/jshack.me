@@ -98,6 +98,17 @@ describe('accept command', () => {
 
     expect(() => accept.fn('SOME-SEED')).toThrow('A mission is already active');
   });
+
+  it('shows sabotage briefing with boot file instructions', () => {
+    const startMission = vi.fn();
+    const accept = createAcceptCommand({ startMission, isMissionActive: () => false });
+    const result = accept.fn('test-sabotage-easy') as string;
+
+    expect(result).toContain('mail(');
+    expect(result).toContain('boot files');
+    expect(result).toContain('reboot');
+    expect(result).toContain('done');
+  });
 });
 
 describe('formatEntryHint', () => {

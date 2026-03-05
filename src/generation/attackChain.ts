@@ -369,6 +369,22 @@ const buildObjective = (
     };
   }
 
+  if (objectiveType === 'sabotage') {
+    // Consume dummy PRNG rolls for binary + encrypt to preserve sequence alignment
+    prng.next();
+    prng.next();
+
+    return {
+      type: 'sabotage',
+      description: `Destroy the target machine — ${targetMachine.hostname}`,
+      targetMachine: targetMachine.ip,
+      targetPath: '',
+      targetContent: '',
+      clientEmail,
+      expectedProof: '',
+    };
+  }
+
   // credential_theft — target is the root password on the target machine
   const targetCreds = credentials[targetMachine.ip] ?? [];
   const rootCred = targetCreds.find((c) => c.username === 'root');
@@ -403,6 +419,7 @@ export const generateAttackChain = (input: AttackChainInput): AttackChainResult 
     'tamper',
     'credential_theft',
     'script_fix',
+    'sabotage',
   ];
 
   const path = buildPath(prng, machines, entryPoint, difficulty);

@@ -6,14 +6,14 @@ Comprehensive catalog of all procedural generation variation axes. Use this to t
 
 All six major generation axes can be controlled by embedding keywords in the seed string (case-insensitive, matched via `includes()`). `parseSeedOverrides(seed)` in `generateMission.ts` extracts overrides. PRNG sequence is preserved — calls are consumed but results discarded in favor of overrides.
 
-| Axis          | Keywords                                                 | Notes                                                     |
-| ------------- | -------------------------------------------------------- | --------------------------------------------------------- |
-| Difficulty    | `easy`, `medium`, `hard`                                 | Falls back to hash-based derivation without keyword       |
-| Entry variant | `ssh`, `ftp`, `nc`, `exploit`, `http`                    | Falls back if template unavailable (e.g. nc+router-first) |
-| Network mode  | `forwarded`, `router-first`                              | Hyphenated to avoid false matches                         |
-| Objective     | `exfiltrate`, `tamper`, `credential-theft`, `script-fix` | Hyphen variant for credential_theft / script_fix          |
-| Domain entry  | `domain`                                                 | Forces domain-based briefing (nslookup required)          |
-| Encryption    | `decrypt`                                                | Forces exfiltrate + encrypted target file                 |
+| Axis          | Keywords                                                             | Notes                                                     |
+| ------------- | -------------------------------------------------------------------- | --------------------------------------------------------- |
+| Difficulty    | `easy`, `medium`, `hard`                                             | Falls back to hash-based derivation without keyword       |
+| Entry variant | `ssh`, `ftp`, `nc`, `exploit`, `http`                                | Falls back if template unavailable (e.g. nc+router-first) |
+| Network mode  | `forwarded`, `router-first`                                          | Hyphenated to avoid false matches                         |
+| Objective     | `exfiltrate`, `tamper`, `credential-theft`, `script-fix`, `sabotage` | Hyphen variant for credential_theft / script_fix          |
+| Domain entry  | `domain`                                                             | Forces domain-based briefing (nslookup required)          |
+| Encryption    | `decrypt`                                                            | Forces exfiltrate + encrypted target file                 |
 
 Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`
 
@@ -180,6 +180,7 @@ PRNG-driven SSH/FTP port closures increase lateral movement variety. At most one
 - **Entry machine**: never closed (protected)
 - **Router**: never closed (infrastructure)
 - **script_fix objective**: never close SSH (player needs `node()` shell access on target)
+- **sabotage objective**: never close SSH (player needs shell access to `rm` boot files and `reboot`)
 - **Same-machine collision**: FTP closure skipped if it targets the same machine as SSH closure
 - When SSH is closed, FTP port 21 is added/opened on that machine
 
@@ -249,7 +250,7 @@ Used when entry variant is `exploit`. Matched by port/service.
 | CVE-2015-1427  | Elasticsearch 1.4.2 | 9200 | Groovy sandbox bypass            |
 | CVE-2019-11510 | PulseSecure/9.0R1   | 8443 | Arbitrary file read (router VPN) |
 
-## Objective Types (4)
+## Objective Types (5)
 
 | Type             | Description                                         | Completion                             |
 | ---------------- | --------------------------------------------------- | -------------------------------------- |
@@ -257,6 +258,7 @@ Used when entry variant is `exploit`. Matched by port/service.
 | tamper           | Modify a target file, mail client to confirm        | `mail(email, "done")`                  |
 | credential_theft | Discover root password, mail to client              | `mail(email, "<password>")`            |
 | script_fix       | Fix broken script, run with node(), mail ACCESS-KEY | `mail(email, "ACCESS-XXXX-XXXX-XXXX")` |
+| sabotage         | Destroy target machine, confirm the kill            | `mail(email, "done")`                  |
 
 ## Exfiltrate Target File Templates (15 — 3 per role)
 
@@ -433,9 +435,9 @@ Webserver-role machines (and any machine with web credential placements) get `/v
 - Credential placement files at their designated web paths
 - `.headers` sidecar files for header-based secrets
 
-## Board Missions (9)
+## Board Missions (11)
 
-9 curated missions covering all generation axes. Players can also use any arbitrary seed string via `accept("any-string")`.
+11 curated missions covering all generation axes. Players can also use any arbitrary seed string via `accept("any-string")`.
 
 | #   | Client     | Target                               | Objective        | Difficulty | Entry   | Mode         | Special | Seed                                                    |
 | --- | ---------- | ------------------------------------ | ---------------- | ---------- | ------- | ------------ | ------- | ------------------------------------------------------- |
@@ -448,8 +450,10 @@ Webserver-role machines (and any machine with web credential placements) get `/v
 | 007 | darkfl0w   | Iron Gate Security — vault server    | exfiltrate       | Hard       | Exploit | Router-first | Decrypt | `IRONGATE-exploit-hard-router-first-exfiltrate-decrypt` |
 | 008 | v0id_agent | Cobalt Industries — R&D network      | credential_theft | Hard       | NC      | Router-first | —       | `COBALT-nc-hard-router-first-credential-theft`          |
 | 009 | ph4nt0m    | Axiom Biotech — gene sequencer       | script_fix       | Hard       | HTTP    | Router-first | —       | `AXIOM-http-hard-router-first-script-fix`               |
+| 010 | silkr0ad   | Titan Energy — grid controller       | sabotage         | Medium     | SSH     | Forwarded    | —       | `TITAN-ssh-medium-forwarded-sabotage`                   |
+| 011 | darkfl0w   | Meridian Bank — trading servers      | sabotage         | Hard       | Exploit | Router-first | —       | `MERIDIAN-exploit-hard-router-first-sabotage`           |
 
-**Coverage**: 3 easy / 3 medium / 3 hard, SSH×2 / FTP×1 / NC×2 / Exploit×2 / HTTP×2, exfiltrate×3 / tamper×2 / credential_theft×2 / script_fix×2, forwarded×5 / router-first×4, 1 domain, 1 decrypt.
+**Coverage**: 3 easy / 4 medium / 4 hard, SSH×3 / FTP×1 / NC×2 / Exploit×3 / HTTP×2, exfiltrate×3 / tamper×2 / credential_theft×2 / script_fix×2 / sabotage×2, forwarded×6 / router-first×5, 1 domain, 1 decrypt.
 
 ---
 

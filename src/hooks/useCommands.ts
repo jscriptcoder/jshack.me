@@ -46,8 +46,15 @@ export const useCommands = (): UseCommandsResult => {
   const fileSystemCommands = useFileSystemCommands();
   const networkCommands = useNetworkCommands();
   const wifiCommands = useWifiCommands();
-  const { session, setTheme, popAllSessions, popSession, canReturn, markMachineBricked } =
-    useSession();
+  const {
+    session,
+    setTheme,
+    popAllSessions,
+    popSession,
+    canReturn,
+    markMachineBricked,
+    isMachineBricked,
+  } = useSession();
   const { findMachineUsers } = useNetwork();
   const { resolvePath, getNode, readFileFromMachine, createFile, getNodeFromMachine } =
     useFileSystem();
@@ -118,6 +125,7 @@ export const useCommands = (): UseCommandsResult => {
         getActiveMission: () => activeMission,
         completeMission,
         readFileFromMachine,
+        isMachineBricked,
       }),
     );
 
@@ -218,5 +226,6 @@ export const useCommands = (): UseCommandsResult => {
     popSession,
     canReturn,
     markMachineBricked,
+    isMachineBricked,
   ]);
 };

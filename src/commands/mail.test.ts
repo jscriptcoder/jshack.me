@@ -50,6 +50,7 @@ describe('mail command', () => {
       getActiveMission: () => mission,
       completeMission,
       readFileFromMachine: vi.fn(),
+      isMachineBricked: () => false,
     });
 
     const result = mail.fn('xR0gu3x@darkmail.onion', 'ACCESS-A1B2-C3D4-E5F6') as AsyncOutput;
@@ -66,6 +67,7 @@ describe('mail command', () => {
       getActiveMission: () => mission,
       completeMission: vi.fn(),
       readFileFromMachine: vi.fn(),
+      isMachineBricked: () => false,
     });
 
     const result = mail.fn('xR0gu3x@darkmail.onion', 'ACCESS-A1B2-C3D4-E5F6') as AsyncOutput;
@@ -83,6 +85,7 @@ describe('mail command', () => {
       getActiveMission: () => mission,
       completeMission: vi.fn(),
       readFileFromMachine: vi.fn(),
+      isMachineBricked: () => false,
     });
 
     expect(() => mail.fn('xR0gu3x@darkmail.onion', 'WRONG-KEY')).toThrow('delivery failed');
@@ -100,6 +103,7 @@ describe('mail command', () => {
       getActiveMission: () => mission,
       completeMission,
       readFileFromMachine: vi.fn(),
+      isMachineBricked: () => false,
     });
 
     const result = mail.fn('xR0gu3x@darkmail.onion', 's3cr3tP4ss') as AsyncOutput;
@@ -119,6 +123,7 @@ describe('mail command', () => {
       getActiveMission: () => mission,
       completeMission: vi.fn(),
       readFileFromMachine: vi.fn(),
+      isMachineBricked: () => false,
     });
 
     expect(() => mail.fn('xR0gu3x@darkmail.onion', 'wrongpass')).toThrow('delivery failed');
@@ -141,6 +146,7 @@ describe('mail command', () => {
       getActiveMission: () => mission,
       completeMission,
       readFileFromMachine,
+      isMachineBricked: () => false,
     });
 
     const result = mail.fn('xR0gu3x@darkmail.onion', 'done') as AsyncOutput;
@@ -171,6 +177,7 @@ describe('mail command', () => {
       getActiveMission: () => mission,
       completeMission: vi.fn(),
       readFileFromMachine,
+      isMachineBricked: () => false,
     });
 
     expect(() => mail.fn('xR0gu3x@darkmail.onion', 'done')).toThrow('still contains');
@@ -188,6 +195,7 @@ describe('mail command', () => {
       getActiveMission: () => mission,
       completeMission: vi.fn(),
       readFileFromMachine,
+      isMachineBricked: () => false,
     });
 
     expect(() => mail.fn('xR0gu3x@darkmail.onion', 'done')).toThrow('not found');
@@ -198,6 +206,7 @@ describe('mail command', () => {
       getActiveMission: () => null,
       completeMission: vi.fn(),
       readFileFromMachine: vi.fn(),
+      isMachineBricked: () => false,
     });
 
     expect(() => mail.fn('someone@darkmail.onion', 'proof')).toThrow('No active mission');
@@ -209,6 +218,7 @@ describe('mail command', () => {
       getActiveMission: () => mission,
       completeMission: vi.fn(),
       readFileFromMachine: vi.fn(),
+      isMachineBricked: () => false,
     });
 
     expect(() => mail.fn('wrong@darkmail.onion', 'proof')).toThrow('unknown recipient');
@@ -220,6 +230,7 @@ describe('mail command', () => {
       getActiveMission: () => mission,
       completeMission: vi.fn(),
       readFileFromMachine: vi.fn(),
+      isMachineBricked: () => false,
     });
 
     expect(() => mail.fn()).toThrow('Usage');
@@ -233,6 +244,7 @@ describe('mail command', () => {
       getActiveMission: () => mission,
       completeMission,
       readFileFromMachine: vi.fn(),
+      isMachineBricked: () => false,
     });
 
     const result = mail.fn('xR0gu3x@darkmail.onion', 'ACCESS-A1B2-C3D4-E5F6') as AsyncOutput;
@@ -252,5 +264,43 @@ describe('mail command', () => {
     // Should not have completed
     expect(completeMission).not.toHaveBeenCalled();
     expect(lines.join('\n')).not.toContain('MISSION COMPLETE');
+  });
+
+  it('completes a sabotage mission when target is bricked', () => {
+    const completeMission = vi.fn();
+    const mission = makeMission({
+      type: 'sabotage',
+      expectedProof: '',
+      targetPath: '',
+      targetContent: '',
+    });
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission,
+      readFileFromMachine: vi.fn(),
+      isMachineBricked: (ip) => ip === '10.0.0.10',
+    });
+
+    const result = mail.fn('xR0gu3x@darkmail.onion', 'done') as AsyncOutput;
+    const lines = runAsync(result);
+    expect(completeMission).toHaveBeenCalled();
+    expect(lines.join('\n')).toContain('MISSION COMPLETE');
+  });
+
+  it('rejects sabotage mission when target is not bricked', () => {
+    const mission = makeMission({
+      type: 'sabotage',
+      expectedProof: '',
+      targetPath: '',
+      targetContent: '',
+    });
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission: vi.fn(),
+      readFileFromMachine: vi.fn(),
+      isMachineBricked: () => false,
+    });
+
+    expect(() => mail.fn('xR0gu3x@darkmail.onion', 'done')).toThrow('still operational');
   });
 });

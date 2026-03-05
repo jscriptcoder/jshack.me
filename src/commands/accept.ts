@@ -47,6 +47,14 @@ export const formatObjectiveHint = (mission: MissionNetwork): string => {
     return lines.join('\n');
   }
 
+  if (objective.type === 'sabotage') {
+    return [
+      '  Destroy the target machine. Delete critical boot files and reboot it.',
+      '  Then confirm the kill to the client.',
+      `  Example: mail("${email}", "done")`,
+    ].join('\n');
+  }
+
   // credential_theft
   return [
     '  Discover the root password on the target machine and mail it to the client.',

@@ -15,7 +15,12 @@ export type AttackStep = {
   readonly hint: string;
 };
 
-export type MissionObjectiveType = 'exfiltrate' | 'tamper' | 'credential_theft' | 'script_fix';
+export type MissionObjectiveType =
+  | 'exfiltrate'
+  | 'tamper'
+  | 'credential_theft'
+  | 'script_fix'
+  | 'sabotage';
 
 export type ScriptBugType = 'syntax' | 'logic' | 'corrupted';
 

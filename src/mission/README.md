@@ -28,6 +28,7 @@ Integrates the seeded network generator (`src/generation/`) with React contexts 
 - **exfiltrate (encrypted)** — Target file is encrypted; find the decryption key on another machine, use `decrypt(file, key)` as root, then mail the ACCESS-KEY
 - **tamper** — Modify a specific value in a target file (e.g., change a grade from "F" to "A"), then mail the client to confirm
 - **credential_theft** — Discover the root password on the target machine, mail it to the client
+- **sabotage** — Gain root on the target machine, delete critical boot files (`/boot/vmlinuz`), reboot to brick it, then mail the client to confirm
 
 ### Completion via `mail()`
 
@@ -36,6 +37,7 @@ The `mail(recipient, content)` command is the universal completion mechanism:
 - Recipient must match the mission's `clientEmail` (shown in the briefing)
 - For exfiltrate/credential_theft: content must match `objective.expectedProof`
 - For tamper: `mail` reads the target file from the target machine and verifies the old value is gone and new value is present
+- For sabotage: `mail` checks `isMachineBricked(targetIP)` — target must be bricked before confirming
 
 ### State Management
 

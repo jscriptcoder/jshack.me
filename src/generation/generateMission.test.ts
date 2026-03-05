@@ -11,6 +11,11 @@ describe('parseSeedOverrides', () => {
   it('returns undefined domainEntry without keyword', () => {
     expect(parseSeedOverrides('test-mission').domainEntry).toBeUndefined();
   });
+
+  it('parses sabotage keyword', () => {
+    expect(parseSeedOverrides('test-sabotage').objectiveType).toBe('sabotage');
+    expect(parseSeedOverrides('SABOTAGE-MISSION').objectiveType).toBe('sabotage');
+  });
 });
 
 describe('generateMissionNetwork', () => {
@@ -83,7 +88,8 @@ describe('generateMissionNetwork', () => {
     // Find a seed with exfiltrate, tamper, or script_fix (they have target files)
     for (let i = 0; i < 50; i++) {
       const result = generateMissionNetwork(`TARGET-FILE-${i}`);
-      if (result.objective.type === 'credential_theft') continue;
+      if (result.objective.type === 'credential_theft' || result.objective.type === 'sabotage')
+        continue;
 
       const targetFs = result.fileSystems[result.objective.targetMachine];
       expect(targetFs).toBeDefined();
@@ -116,7 +122,7 @@ describe('generateMissionNetwork', () => {
 
   it('objective has a valid type', () => {
     const result = generateMissionNetwork('FORMAT-TEST');
-    expect(['exfiltrate', 'tamper', 'credential_theft', 'script_fix']).toContain(
+    expect(['exfiltrate', 'tamper', 'credential_theft', 'script_fix', 'sabotage']).toContain(
       result.objective.type,
     );
   });
@@ -404,6 +410,28 @@ describe('generateMissionNetwork', () => {
         });
       }
     });
+  });
+
+  it('sabotage keyword forces sabotage objective', () => {
+    const result = generateMissionNetwork('test-sabotage-easy');
+    expect(result.objective.type).toBe('sabotage');
+    expect(result.objective.targetPath).toBe('');
+    expect(result.objective.targetContent).toBe('');
+    expect(result.objective.description).toContain('Destroy');
+  });
+
+  it('sabotage seeds never have SSH closures', () => {
+    for (let i = 0; i < 50; i++) {
+      const result = generateMissionNetwork(`sabotage-noclose-${i}`);
+      if (result.objective.type !== 'sabotage') continue;
+
+      result.machines.forEach((m) => {
+        const sshPort = m.remoteMachine.ports.find((p) => p.port === 22);
+        if (sshPort) {
+          expect(sshPort.open).toBe(true);
+        }
+      });
+    }
   });
 
   it('router-first mode places entry machine credentials on router filesystem', () => {

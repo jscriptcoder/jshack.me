@@ -6,7 +6,7 @@ Random SSH/FTP port closures in mission networks
 
 ## Status
 
-✅ COMPLETE — PRNG-driven port closures (~30% SSH, ~30% FTP, independent rolls) add lateral movement variety. When SSH is closed, FTP port 21 is ensured open. Entry machine, router, and script_fix objectives are protected. Attack chain routes through FTP/HTTP when SSH is unavailable.
+✅ COMPLETE — PRNG-driven port closures (~30% SSH, ~30% FTP, independent rolls) add lateral movement variety. When SSH is closed, FTP port 21 is ensured open. Entry machine, router, script_fix, and sabotage objectives are protected. Attack chain routes through FTP/HTTP when SSH is unavailable.
 
 ## Future Ideas
 

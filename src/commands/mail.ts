@@ -12,6 +12,7 @@ type MailCommandContext = {
     cwd: string,
     userType: UserType,
   ) => string | null;
+  readonly isMachineBricked: (machine: string) => boolean;
 };
 
 const MISSION_COMPLETE_BANNER: readonly string[] = [
@@ -71,16 +72,26 @@ const verifyScriptFix = (proof: string, mission: MissionNetwork): string | null 
   return 'Incorrect proof. Fix and run the script to get the ACCESS-KEY.';
 };
 
+const verifySabotage = (
+  mission: MissionNetwork,
+  isMachineBricked: MailCommandContext['isMachineBricked'],
+): string | null => {
+  if (isMachineBricked(mission.objective.targetMachine)) return null;
+  return 'Target machine is still operational. Delete critical boot files and reboot it.';
+};
+
 const verifyProof = (
   proof: string,
   mission: MissionNetwork,
   readFileFromMachine: MailCommandContext['readFileFromMachine'],
+  isMachineBricked: MailCommandContext['isMachineBricked'],
 ): string | null => {
   const { type } = mission.objective;
   if (type === 'exfiltrate') return verifyExfiltrate(proof, mission);
   if (type === 'credential_theft') return verifyCredentialTheft(proof, mission);
   if (type === 'tamper') return verifyTamper(mission, readFileFromMachine);
   if (type === 'script_fix') return verifyScriptFix(proof, mission);
+  if (type === 'sabotage') return verifySabotage(mission, isMachineBricked);
   return null;
 };
 
@@ -133,7 +144,12 @@ export const createMailCommand = (context: MailCommandContext): Command => ({
     const proof = content.trim();
 
     // Verify proof synchronously so errors throw immediately
-    const error = verifyProof(proof, mission, context.readFileFromMachine);
+    const error = verifyProof(
+      proof,
+      mission,
+      context.readFileFromMachine,
+      context.isMachineBricked,
+    );
     if (error) {
       throw new Error(`mail: delivery failed — ${error}`);
     }
