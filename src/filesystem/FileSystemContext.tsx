@@ -7,7 +7,7 @@ import {
   useRef,
   type ReactNode,
 } from 'react';
-import type { FileNode, FileSystemPatch, PermissionResult } from './types';
+import type { FileNode, FilePermissions, FileSystemPatch, PermissionResult } from './types';
 import { useSession, type UserType } from '../session/SessionContext';
 import { machineFileSystems, getDefaultHomePath, type MachineId } from './machineFileSystems';
 import { getCachedFilesystemPatches, getDatabase } from '../utils/storageCache';
@@ -91,6 +91,11 @@ type FileSystemContextValue = {
     cwd: string,
     userType: UserType,
     options?: DeleteOptions,
+  ) => PermissionResult;
+  readonly updatePermissions: (
+    path: string,
+    permissions: FilePermissions,
+    userType: UserType,
   ) => PermissionResult;
   readonly canTraverse: (path: string, userType: UserType) => PermissionResult;
   readonly canTraverseOnMachine: (
@@ -470,6 +475,39 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
     [createFileOnMachine, currentMachine, currentPath],
   );
 
+  const updatePermissions = useCallback(
+    (path: string, permissions: FilePermissions, userType: UserType): PermissionResult => {
+      const resolvedPath = resolvePathUtil(path, currentPath);
+      const node = getNodeAtPath(fileSystem, resolvedPath);
+      if (!node) return { allowed: false, error: `No such file or directory: ${path}` };
+
+      // Only owner or root can change permissions
+      if (userType !== 'root' && userType !== node.owner) {
+        return { allowed: false, error: `Operation not permitted: ${path}` };
+      }
+
+      const parts = resolvedPath.split('/').filter(Boolean);
+      setFileSystems((prev) => ({
+        ...prev,
+        [currentMachine]: updateNodeAtPath(prev[currentMachine], parts, (fileNode) => ({
+          ...fileNode,
+          permissions,
+        })),
+      }));
+
+      broadcastAndRecordPatch({
+        machineId: currentMachine,
+        path: resolvedPath,
+        content: node.content ?? null,
+        owner: node.owner,
+        permissions,
+      });
+
+      return { allowed: true };
+    },
+    [fileSystem, currentPath, currentMachine, broadcastAndRecordPatch],
+  );
+
   const canTraverseOnMachine = useCallback(
     (machineId: MachineId, path: string, userType: UserType): PermissionResult => {
       const fs = fileSystems[machineId];
@@ -516,6 +554,7 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
         writeFileToMachine,
         createFileOnMachine,
         deleteNodeFromMachine,
+        updatePermissions,
         canTraverse: canTraverseFn,
         canTraverseOnMachine,
       }}

@@ -10,7 +10,7 @@ Commands are tiered by user type. Restricted commands show `permission denied: '
 
 | Tier     | User Type | Available Commands                                                                                                                                                                     |
 | -------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Basic    | `guest`   | help, man, echo, whoami, pwd, ls, cd, cat, rm, su, clear, author, theme, exit, ssh, ping, curl, nslookup                                                                               |
+| Basic    | `guest`   | help, man, echo, whoami, pwd, ls, cd, cat, rm, chmod, su, clear, author, theme, exit, ssh, ping, curl, nslookup                                                                        |
 | Standard | `user`    | All basic + apt, ifconfig, nmap, ftp, nc, exploit, hydra, strings, output, resolve, nano, node, john, airmon, airdump, aircrack, nmcli, gobuster, missions, accept, abort, mail, xterm |
 | Full     | `root`    | All standard + decrypt, reboot                                                                                                                                                         |
 
@@ -20,12 +20,12 @@ FTP and NC modes have their own separate command sets and are not restricted.
 
 On remote and mission machines, hacking tools aren't pre-installed. Players must use `apt('install', '<tool>')` as root to install them. System utilities (`ls`, `cat`, `ssh`, etc.) are always available via `/bin/`. Apt-installable tools (`nmap`, `john`, `nc`, etc.) require `/usr/bin/<name>` to exist in the filesystem.
 
-| Category         | Location    | Availability                                            |
-| ---------------- | ----------- | ------------------------------------------------------- |
-| Shell builtins   | N/A         | Always (cd, exit, clear, echo, pwd, help, whoami)       |
-| System utilities | `/bin/`     | Always (ls, cat, rm, su, man, nano, strings, ssh, etc.) |
-| Apt-installable  | `/usr/bin/` | After `apt install` (pre-installed on localhost only)   |
-| Game-specific    | N/A         | Always (missions, accept, abort, mail, output, etc.)    |
+| Category         | Location    | Availability                                                   |
+| ---------------- | ----------- | -------------------------------------------------------------- |
+| Shell builtins   | N/A         | Always (cd, exit, clear, echo, pwd, help, whoami)              |
+| System utilities | `/bin/`     | Always (ls, cat, rm, chmod, su, man, nano, strings, ssh, etc.) |
+| Apt-installable  | `/usr/bin/` | After `apt install` (pre-installed on localhost only)          |
+| Game-specific    | N/A         | Always (missions, accept, abort, mail, output, etc.)           |
 
 ## General
 
@@ -57,7 +57,7 @@ On remote and mission machines, hacking tools aren't pre-installed. Players must
 | Command | File         | Signature                | Description                                             |
 | ------- | ------------ | ------------------------ | ------------------------------------------------------- |
 | pwd     | `pwd.ts`     | `pwd()`                  | Print current working directory                         |
-| ls      | `ls.ts`      | `ls([path], [flags])`    | List directory contents (`-a` for hidden files)         |
+| ls      | `ls.ts`      | `ls([path], [flags])`    | List directory contents (`-a` hidden, `-l` long format) |
 | cd      | `cd.ts`      | `cd([path])`             | Change current directory                                |
 | cat     | `cat.ts`     | `cat(path)`              | Display file contents                                   |
 | rm      | `rm.ts`      | `rm([flags], path, ...)` | Remove files or directories (-r recursive, -f force)    |
@@ -68,6 +68,7 @@ On remote and mission machines, hacking tools aren't pre-installed. Players must
 | nano    | `nano.ts`    | `nano(path)`             | Open file in nano-style text editor overlay             |
 | node    | `node.ts`    | `node(path)`             | Execute a JavaScript file (requires execute permission) |
 | john    | `john.ts`    | `john(file)`             | Crack password hashes using dictionary attack (async)   |
+| chmod   | `chmod.ts`   | `chmod(mode, path)`      | Change file permissions (symbolic: `o+x`, `u-w`, etc.)  |
 | reboot  | `reboot.ts`  | `reboot()`               | Reboot current machine; bricks if boot files missing    |
 
 ## User Management

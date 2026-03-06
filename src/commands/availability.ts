@@ -75,6 +75,7 @@ export const SYSTEM_UTILITY_NAMES = [
   'nmcli',
   'apt',
   'rm',
+  'chmod',
   'reboot',
 ] as const;
 
