@@ -159,7 +159,15 @@ export const useCommands = (): UseCommandsResult => {
     const getAccessibleCommands = () => {
       const accessible = getAccessibleCommandNames(Array.from(commands.keys()), session.userType);
       return accessible
-        .filter((name) => isCommandInstalled(name, session.machine, getNodeFromMachine))
+        .filter((name) =>
+          isCommandInstalled(
+            name,
+            session.machine,
+            getNodeFromMachine,
+            session.currentPath,
+            session.userType,
+          ),
+        )
         .map((name) => commands.get(name))
         .filter((cmd): cmd is Command => cmd !== undefined);
     };
@@ -182,7 +190,14 @@ export const useCommands = (): UseCommandsResult => {
           wrapWithInstallCheck(
             cmd,
             name,
-            () => !isCommandInstalled(name, session.machine, getNodeFromMachine),
+            () =>
+              !isCommandInstalled(
+                name,
+                session.machine,
+                getNodeFromMachine,
+                session.currentPath,
+                session.userType,
+              ),
           ),
         );
       }
@@ -201,7 +216,15 @@ export const useCommands = (): UseCommandsResult => {
     const commandNames = getAccessibleCommandNames(
       Array.from(commands.keys()),
       session.userType,
-    ).filter((name) => isCommandInstalled(name, session.machine, getNodeFromMachine));
+    ).filter((name) =>
+      isCommandInstalled(
+        name,
+        session.machine,
+        getNodeFromMachine,
+        session.currentPath,
+        session.userType,
+      ),
+    );
 
     return { executionContext, commandNames };
   }, [
@@ -211,6 +234,7 @@ export const useCommands = (): UseCommandsResult => {
     getUsers,
     session.userType,
     session.machine,
+    session.currentPath,
     session.theme,
     setTheme,
     resolvePath,

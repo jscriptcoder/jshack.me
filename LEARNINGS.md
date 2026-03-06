@@ -16,6 +16,12 @@
 - **Rationale**: Makes chmod meaningful for tool-based progression. Matches real Unix behavior (umask 022 → 644 for files). Edited files preserve original permissions.
 - **Trade-offs**: May break some existing tests. Needs careful handling in nano (preserve permissions of existing files).
 
+### Command resolution — optional params for backward compatibility
+
+- **Context**: `isCommandInstalled` gained `currentPath` and `userType` params for cwd resolution
+- **Decision**: Made both params optional with existing callers unchanged
+- **Rationale**: Existing call sites without cwd/userType skip cwd check entirely — backward compatible. Only apt-installable commands check cwd (builtins and system utilities short-circuit before that code path).
+
 ### scp permission preservation
 
 - **Options considered**: (A) Destination gets owner-based defaults; (B) Source permissions preserved

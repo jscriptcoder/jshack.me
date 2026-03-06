@@ -1,5 +1,6 @@
 import type { Command } from '../components/Terminal/types';
 import type { FileNode } from '../filesystem/types';
+import type { UserType } from '../session/SessionContext';
 
 // Shell builtins — always available, no binary needed
 const SHELL_BUILTINS = new Set(['cd', 'exit', 'clear', 'echo', 'pwd', 'help', 'whoami']);
@@ -116,15 +117,26 @@ export const createBinaryEntries = (names: readonly string[]): Readonly<Record<s
 
 // Checks whether a command is available on the current machine.
 // Builtins, game commands, and anything on localhost are always available.
-// Apt-installable commands require /usr/bin/<name> to exist on the machine.
+// Apt-installable commands check: current directory (with execute permission) → /usr/bin/<name>.
 export const isCommandInstalled = (
   name: string,
   machine: string,
   getNode: (machineId: string, path: string, cwd: string) => FileNode | null,
+  currentPath?: string,
+  userType?: UserType,
 ): boolean => {
   if (machine === 'localhost') return true;
   if (SHELL_BUILTINS.has(name) || GAME_COMMANDS.has(name)) return true;
   if (!APT_INSTALLABLE.has(name)) return true;
+
+  // Check current directory first — binary must exist AND be executable by user
+  if (currentPath && userType) {
+    const cwdBinary = getNode(machine, `${currentPath}/${name}`, '/');
+    if (cwdBinary && (userType === 'root' || cwdBinary.permissions.execute.includes(userType))) {
+      return true;
+    }
+  }
+
   return getNode(machine, `/usr/bin/${name}`, '/') !== null;
 };
 
