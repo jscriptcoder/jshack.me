@@ -77,6 +77,7 @@ export const SYSTEM_UTILITY_NAMES = [
   'apt',
   'rm',
   'chmod',
+  'scp',
   'reboot',
 ] as const;
 

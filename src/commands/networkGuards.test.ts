@@ -138,7 +138,7 @@ describe('wrapWithBrickedCheck', () => {
     const cmd: Command = {
       name: 'ssh',
       description: 'secure shell',
-      manual: { synopsis: 'ssh(user, host)', description: 'connect via SSH' },
+      manual: { synopsis: 'ssh("user@host")', description: 'connect via SSH' },
       fn: vi.fn(),
     };
     const wrapped = wrapWithBrickedCheck(cmd, () => false);

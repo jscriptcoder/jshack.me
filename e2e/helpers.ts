@@ -80,7 +80,7 @@ export const sshTo = async (
   const pwLocator = page.locator(RESULT, { hasText: `${user}@${host}'s password:` });
   const connLocator = page.locator(RESULT, { hasText: `Connected to ${host}` });
 
-  await countThenWait(pwLocator, () => typeCommand(page, `ssh("${user}", "${host}")`), 60_000);
+  await countThenWait(pwLocator, () => typeCommand(page, `ssh("${user}@${host}")`), 60_000);
   await countThenWait(connLocator, () => enterInput(page, password));
 };
 

@@ -28,3 +28,16 @@
 - **Decision**: Option B — scp preserves source file permissions
 - **Rationale**: Makes the chmod→transfer→execute flow work. Player must chmod before transferring to make tools executable by guest.
 - **Trade-offs**: Slightly more complex implementation (must include permissions in patch).
+
+### scp authentication — no password prompt
+
+- **Options considered**: (A) Full SSH-style password prompt via AsyncOutput follow-up; (B) No auth (SSH key-based)
+- **Decision**: Option B — scp uses publickey auth, no password prompt
+- **Rationale**: Password prompt would require new AsyncFollowUp type, useAuthentication changes, and Terminal.tsx integration — significant complexity for little gameplay value. Players already know credentials from prior SSH access. The command validates SSH port is open and user exists.
+- **Trade-offs**: Less realistic, but keeps the step small and focused.
+
+### createFileOnMachine optional permissions parameter
+
+- **Context**: scp needs to create files with preserved source permissions
+- **Decision**: Added optional `permissions?: FilePermissions` param to `createFileOnMachine`
+- **Rationale**: Clean extension — existing callers unaffected (use defaults), scp passes source permissions. Patch includes permissions when provided.

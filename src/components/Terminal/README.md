@@ -47,7 +47,7 @@ Terminal.tsx handleSubmit()
 | `author`          | `author()`             | Renders profile card with avatar, bio, links                      |
 | `clear`           | `clear()`              | Clears all output lines                                           |
 | `password_prompt` | `su(user)`             | Hides prompt, masks input with `*`                                |
-| `ssh_prompt`      | `ssh(user, host)`      | After async delay, enters password mode for SSH                   |
+| `ssh_prompt`      | `ssh("user@host")`     | After async delay, enters password mode for SSH                   |
 | `ftp_prompt`      | `ftp(host)`            | After auth, switches to FTP command set                           |
 | `ftp_quit`        | `quit()`/`bye()`       | Exits FTP mode, restores normal commands                          |
 | `nc_prompt`       | `nc(host, port)`       | Switches to NC command set with `$` prompt                        |

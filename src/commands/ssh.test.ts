@@ -51,25 +51,25 @@ describe('ssh command', () => {
   });
 
   describe('error handling', () => {
-    it('should throw error when no username given', () => {
+    it('should throw error when no argument given', () => {
       const context = createMockSshContext();
       const ssh = createSshCommand(context);
 
-      expect(() => ssh.fn()).toThrow('ssh: missing username');
+      expect(() => ssh.fn()).toThrow('ssh: missing destination');
     });
 
-    it('should throw error when no host given', () => {
+    it('should throw error with invalid format (no @)', () => {
       const context = createMockSshContext();
       const ssh = createSshCommand(context);
 
-      expect(() => ssh.fn('admin')).toThrow('ssh: missing host');
+      expect(() => ssh.fn('admin')).toThrow("ssh: invalid destination: 'admin'");
     });
 
     it('should throw error when connecting to localhost IP', () => {
       const context = createMockSshContext({ localIP: '192.168.1.100' });
       const ssh = createSshCommand(context);
 
-      expect(() => ssh.fn('user', '192.168.1.100')).toThrow(
+      expect(() => ssh.fn('user@192.168.1.100')).toThrow(
         'ssh: cannot connect to localhost via SSH',
       );
     });
@@ -78,21 +78,21 @@ describe('ssh command', () => {
       const context = createMockSshContext();
       const ssh = createSshCommand(context);
 
-      expect(() => ssh.fn('user', '127.0.0.1')).toThrow('ssh: cannot connect to localhost via SSH');
+      expect(() => ssh.fn('user@127.0.0.1')).toThrow('ssh: cannot connect to localhost via SSH');
     });
 
     it('should throw error when connecting to localhost hostname', () => {
       const context = createMockSshContext();
       const ssh = createSshCommand(context);
 
-      expect(() => ssh.fn('user', 'localhost')).toThrow('ssh: cannot connect to localhost via SSH');
+      expect(() => ssh.fn('user@localhost')).toThrow('ssh: cannot connect to localhost via SSH');
     });
 
     it('should throw error when machine does not exist', () => {
       const context = createMockSshContext({ machines: [] });
       const ssh = createSshCommand(context);
 
-      expect(() => ssh.fn('admin', '10.0.0.1')).toThrow(
+      expect(() => ssh.fn('admin@10.0.0.1')).toThrow(
         'ssh: connect to host 10.0.0.1 port 22: Connection refused',
       );
     });
@@ -108,7 +108,7 @@ describe('ssh command', () => {
       });
       const ssh = createSshCommand(context);
 
-      expect(() => ssh.fn('admin', '192.168.1.50')).toThrow(
+      expect(() => ssh.fn('admin@192.168.1.50')).toThrow(
         'ssh: connect to host 192.168.1.50 port 22: Connection refused',
       );
     });
@@ -124,7 +124,7 @@ describe('ssh command', () => {
       });
       const ssh = createSshCommand(context);
 
-      expect(() => ssh.fn('admin', '192.168.1.50')).toThrow(
+      expect(() => ssh.fn('admin@192.168.1.50')).toThrow(
         'ssh: connect to host 192.168.1.50 port 22: Connection refused',
       );
     });
@@ -141,7 +141,7 @@ describe('ssh command', () => {
       });
       const ssh = createSshCommand(context);
 
-      expect(() => ssh.fn('nobody', '192.168.1.50')).toThrow(
+      expect(() => ssh.fn('nobody@192.168.1.50')).toThrow(
         'ssh: nobody@192.168.1.50: Permission denied (publickey,password)',
       );
     });
@@ -160,7 +160,7 @@ describe('ssh command', () => {
       });
       const ssh = createSshCommand(context);
 
-      const result = ssh.fn('admin', '192.168.1.50');
+      const result = ssh.fn('admin@192.168.1.50');
 
       expect(isAsyncOutput(result)).toBe(true);
     });
@@ -177,7 +177,7 @@ describe('ssh command', () => {
       });
       const ssh = createSshCommand(context);
 
-      const result = ssh.fn('admin', '192.168.1.50');
+      const result = ssh.fn('admin@192.168.1.50');
 
       if (isAsyncOutput(result)) {
         expect(typeof result.start).toBe('function');
@@ -196,7 +196,7 @@ describe('ssh command', () => {
       });
       const ssh = createSshCommand(context);
 
-      const result = ssh.fn('admin', '192.168.1.50');
+      const result = ssh.fn('admin@192.168.1.50');
 
       if (isAsyncOutput(result)) {
         expect(typeof result.cancel).toBe('function');
@@ -216,7 +216,7 @@ describe('ssh command', () => {
         ],
       });
       const ssh = createSshCommand(context);
-      const result = ssh.fn('admin', '192.168.1.50');
+      const result = ssh.fn('admin@192.168.1.50');
 
       const lines: string[] = [];
       if (isAsyncOutput(result)) {
@@ -240,7 +240,7 @@ describe('ssh command', () => {
         ],
       });
       const ssh = createSshCommand(context);
-      const result = ssh.fn('admin', '192.168.1.50');
+      const result = ssh.fn('admin@192.168.1.50');
 
       const lines: string[] = [];
       if (isAsyncOutput(result)) {
@@ -267,7 +267,7 @@ describe('ssh command', () => {
         ],
       });
       const ssh = createSshCommand(context);
-      const result = ssh.fn('admin', '192.168.1.50');
+      const result = ssh.fn('admin@192.168.1.50');
 
       const lines: string[] = [];
       if (isAsyncOutput(result)) {
@@ -294,7 +294,7 @@ describe('ssh command', () => {
         ],
       });
       const ssh = createSshCommand(context);
-      const result = ssh.fn('admin', '192.168.1.50');
+      const result = ssh.fn('admin@192.168.1.50');
 
       let followUp: unknown = null;
       if (isAsyncOutput(result)) {
@@ -330,7 +330,7 @@ describe('ssh command', () => {
         ],
       });
       const ssh = createSshCommand(context);
-      const result = ssh.fn('root', '192.168.1.50');
+      const result = ssh.fn('root@192.168.1.50');
 
       let followUp: unknown = null;
       if (isAsyncOutput(result)) {
@@ -362,7 +362,7 @@ describe('ssh command', () => {
         ],
       });
       const ssh = createSshCommand(context);
-      const result = ssh.fn('admin', '192.168.1.50');
+      const result = ssh.fn('admin@192.168.1.50');
 
       const lines: string[] = [];
       if (isAsyncOutput(result)) {
@@ -393,7 +393,7 @@ describe('ssh command', () => {
         ],
       });
       const ssh = createSshCommand(context);
-      const result = ssh.fn('admin', '192.168.1.50');
+      const result = ssh.fn('admin@192.168.1.50');
 
       const lines: string[] = [];
       let completed = false;

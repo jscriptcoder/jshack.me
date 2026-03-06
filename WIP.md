@@ -2,7 +2,7 @@
 
 ## Current Step
 
-Step 4 of 6: Command resolution from current directory with execute check
+Step 5 of 6: `scp` command — Secure copy between machines
 
 ## Status
 
@@ -14,7 +14,7 @@ Step 4 of 6: Command resolution from current directory with execute check
 - [x] Step 2: Extend FileSystemPatch to persist permissions
 - [x] Step 3: chmod command
 - [x] Step 4: Command resolution from current directory with execute check
-- [ ] Step 5: `scp` command — Secure copy between machines
+- [x] Step 5: `scp` command — Secure copy between machines
 - [ ] Step 6: Remove credential-based generation and mission board
 
 ## Blockers
@@ -23,4 +23,4 @@ None
 
 ## Next Action
 
-Commit Step 4, then start Step 5 (`scp`).
+Commit Step 5, then start Step 6 (remove credentials and mission board).

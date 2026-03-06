@@ -226,7 +226,7 @@ export const NetworkProvider = ({
 };
 
 // In forwarded mode, the router appears from localhost as having the entry machine's
-// ports and users, so `ssh("guest", routerPublicIp)` transparently connects to the
+// ports and users, so `ssh("guest@routerPublicIp")` transparently connects to the
 // internal entry machine.
 const buildForwardedRouterMachine = (
   routerMachine: GeneratedMachine,

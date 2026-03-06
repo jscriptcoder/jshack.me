@@ -10,35 +10,49 @@ type SshContext = {
 const SSH_CONNECT_DELAY_MS = 800;
 const SSH_HANDSHAKE_DELAY_MS = 600;
 
+// Parses "user@host" into components
+const parseTarget = (target: string): { readonly user: string; readonly host: string } | null => {
+  const atIndex = target.indexOf('@');
+  if (atIndex < 1) return null;
+  const user = target.slice(0, atIndex);
+  const host = target.slice(atIndex + 1);
+  if (!host) return null;
+  return { user, host };
+};
+
 export const createSshCommand = (context: SshContext): Command => ({
   name: 'ssh',
   description: 'Secure shell connection to remote host',
   manual: {
-    synopsis: 'ssh(user, host)',
+    synopsis: 'ssh("user@host")',
     description:
       'Connect to a remote machine via SSH. You will be prompted for the password. The connection will only succeed if the remote machine has SSH (port 22) open and the credentials are valid.',
     arguments: [
-      { name: 'user', description: 'Username to authenticate as', required: true },
-      { name: 'host', description: 'IP address of the remote machine', required: true },
+      {
+        name: 'target',
+        description: 'Connection string in user@host format',
+        required: true,
+      },
     ],
     examples: [
-      { command: 'ssh("admin", "192.168.1.1")', description: 'Connect to gateway as admin' },
-      { command: 'ssh("root", "10.0.0.5")', description: 'Connect to a remote host as root' },
+      { command: 'ssh("admin@192.168.1.1")', description: 'Connect to gateway as admin' },
+      { command: 'ssh("root@10.0.0.5")', description: 'Connect to a remote host as root' },
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {
     const { getMachine, getLocalIP } = context;
 
-    const user = args[0] as string | undefined;
-    const host = args[1] as string | undefined;
-
-    if (!user) {
-      throw new Error('ssh: missing username\nUsage: ssh("user", "host")');
+    const arg = args[0];
+    if (typeof arg !== 'string' || !arg) {
+      throw new Error('ssh: missing destination\nUsage: ssh("user@host")');
     }
 
-    if (!host) {
-      throw new Error('ssh: missing host\nUsage: ssh("user", "host")');
+    const parsed = parseTarget(arg);
+    if (!parsed) {
+      throw new Error(`ssh: invalid destination: '${arg}'\nUsage: ssh("user@host")`);
     }
+
+    const { user, host } = parsed;
 
     const localIP = getLocalIP();
     if (host === localIP || host === '127.0.0.1' || host === 'localhost') {

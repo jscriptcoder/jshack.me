@@ -84,6 +84,7 @@ type FileSystemContextValue = {
     cwd: string,
     content: string,
     userType: UserType,
+    permissions?: FilePermissions,
   ) => PermissionResult;
   readonly deleteNodeFromMachine: (
     machineId: MachineId,
@@ -369,6 +370,7 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
       cwd: string,
       content: string,
       userType: UserType,
+      permissions?: FilePermissions,
     ): PermissionResult => {
       const resolvedPath = resolvePathForMachine(path, cwd);
       const parts = resolvedPath.split('/').filter(Boolean);
@@ -384,15 +386,17 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
         return { allowed: false, error: `Not a directory: ${dirPath}` };
       if (parentNode.children?.[fileName]) return { allowed: false, error: `File exists: ${path}` };
 
+      const defaultPermissions: FilePermissions = {
+        read: ['root', userType],
+        write: ['root', userType],
+        execute: ['root'],
+      };
+
       const newFile: FileNode = {
         name: fileName,
         type: 'file',
         owner: userType,
-        permissions: {
-          read: ['root', userType],
-          write: ['root', userType],
-          execute: ['root'],
-        },
+        permissions: permissions ?? defaultPermissions,
         content,
       };
 
@@ -407,6 +411,7 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
         content,
         owner: userType,
         isNew: true,
+        ...(permissions ? { permissions } : {}),
       });
 
       return { allowed: true };

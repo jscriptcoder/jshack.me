@@ -13,6 +13,7 @@ import { createCurlCommand } from '../commands/curl';
 import { createExploitCommand } from '../commands/exploit';
 import { createHydraCommand } from '../commands/hydra';
 import { createGobusterCommand } from '../commands/gobuster';
+import { createScpCommand } from '../commands/scp';
 import { wrapWithWifiCheck, wrapWithBrickedCheck } from '../commands/networkGuards';
 import type { Command } from '../components/Terminal/types';
 
@@ -27,7 +28,8 @@ export const useNetworkCommands = (): Map<string, Command> => {
     getGateway,
     resolveNat,
   } = useNetwork();
-  const { readFileFromMachine, getNodeFromMachine } = useFileSystem();
+  const { resolvePath, getNode, readFileFromMachine, getNodeFromMachine, createFileOnMachine } =
+    useFileSystem();
   const { session, wifiConnected, isMachineBricked } = useSession();
 
   return useMemo(() => {
@@ -144,6 +146,26 @@ export const useNetworkCommands = (): Map<string, Command> => {
       ),
     );
 
+    commands.set(
+      'scp',
+      wrapWithBrickedCheck(
+        wrapWithWifiCheck(
+          createScpCommand({
+            getMachine,
+            getLocalIP,
+            getCurrentMachine: () => session.machine,
+            getCurrentPath: () => session.currentPath,
+            resolvePath: (path: string) => resolvePath(path),
+            getNode: (path: string) => getNode(path),
+            getNodeFromMachine,
+            createFileOnMachine,
+          }),
+          isWifiRequired,
+        ),
+        isMachineBricked,
+      ),
+    );
+
     return commands;
   }, [
     getInterfaces,
@@ -154,9 +176,13 @@ export const useNetworkCommands = (): Map<string, Command> => {
     resolveDomain,
     getGateway,
     resolveNat,
+    resolvePath,
+    getNode,
     readFileFromMachine,
     getNodeFromMachine,
+    createFileOnMachine,
     session.machine,
+    session.currentPath,
     wifiConnected,
     isMachineBricked,
   ]);

@@ -10,7 +10,7 @@ Commands are tiered by user type. Restricted commands show `permission denied: '
 
 | Tier     | User Type | Available Commands                                                                                                                                                                     |
 | -------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Basic    | `guest`   | help, man, echo, whoami, pwd, ls, cd, cat, rm, chmod, su, clear, author, theme, exit, ssh, ping, curl, nslookup                                                                        |
+| Basic    | `guest`   | help, man, echo, whoami, pwd, ls, cd, cat, rm, chmod, scp, su, clear, author, theme, exit, ssh, ping, curl, nslookup                                                                   |
 | Standard | `user`    | All basic + apt, ifconfig, nmap, ftp, nc, exploit, hydra, strings, output, resolve, nano, node, john, airmon, airdump, aircrack, nmcli, gobuster, missions, accept, abort, mail, xterm |
 | Full     | `root`    | All standard + decrypt, reboot                                                                                                                                                         |
 
@@ -20,12 +20,12 @@ FTP and NC modes have their own separate command sets and are not restricted.
 
 On remote and mission machines, hacking tools aren't pre-installed. Players must use `apt('install', '<tool>')` as root to install them. System utilities (`ls`, `cat`, `ssh`, etc.) are always available via `/bin/`. Apt-installable tools (`nmap`, `john`, `nc`, etc.) require `/usr/bin/<name>` to exist in the filesystem.
 
-| Category         | Location    | Availability                                                   |
-| ---------------- | ----------- | -------------------------------------------------------------- |
-| Shell builtins   | N/A         | Always (cd, exit, clear, echo, pwd, help, whoami)              |
-| System utilities | `/bin/`     | Always (ls, cat, rm, chmod, su, man, nano, strings, ssh, etc.) |
-| Apt-installable  | `/usr/bin/` | After `apt install` (pre-installed on localhost only)          |
-| Game-specific    | N/A         | Always (missions, accept, abort, mail, output, etc.)           |
+| Category         | Location    | Availability                                                        |
+| ---------------- | ----------- | ------------------------------------------------------------------- |
+| Shell builtins   | N/A         | Always (cd, exit, clear, echo, pwd, help, whoami)                   |
+| System utilities | `/bin/`     | Always (ls, cat, rm, chmod, scp, su, man, nano, strings, ssh, etc.) |
+| Apt-installable  | `/usr/bin/` | After `apt install` (pre-installed on localhost only)               |
+| Game-specific    | N/A         | Always (missions, accept, abort, mail, output, etc.)                |
 
 ## General
 
@@ -85,7 +85,8 @@ On remote and mission machines, hacking tools aren't pre-installed. Players must
 | ping     | `ping.ts`     | `ping(host, [count])`        | Send ICMP echo request to network host (async)                                |
 | nmap     | `nmap.ts`     | `nmap(["-sV",] target)`      | Network exploration and port scanning; -sV for version/vuln detection (async) |
 | nslookup | `nslookup.ts` | `nslookup(domain)`           | Query DNS to resolve domain to IP address (async)                             |
-| ssh      | `ssh.ts`      | `ssh(user, host)`            | Connect to remote machine via SSH (async)                                     |
+| ssh      | `ssh.ts`      | `ssh("user@host")`           | Connect to remote machine via SSH (async)                                     |
+| scp      | `scp.ts`      | `scp(source, dest)`          | Copy file to remote machine preserving permissions                            |
 | curl     | `curl.ts`     | `curl(url, [flags])`         | HTTP client for GET/POST requests (async, `-i` for headers, `-X POST`)        |
 | ftp      | `ftp.ts`      | `ftp(host)`                  | Connect to remote machine via FTP (async)                                     |
 | nc       | `nc.ts`       | `nc(host, port)`             | Netcat - connect to arbitrary port (async, interactive for special services)  |

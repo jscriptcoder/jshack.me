@@ -74,7 +74,7 @@ export const formatEntryHint = (mission: MissionNetwork): string => {
       const { username, password } = mission.entryCredential;
       const sshLine = mission.domainEntry
         ? `  SSH access available — ${username}:${password}`
-        : `  SSH access available — ssh("${username}", "${target}") — password: ${password}`;
+        : `  SSH access available — ssh("${username}@${target}") — password: ${password}`;
       return (
         [`  Intel:`, sshLine].join('\n') + (mission.domainEntry ? `\n  ${domainSuffix.trim()}` : '')
       );
