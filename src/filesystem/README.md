@@ -64,4 +64,14 @@ User-created/modified files are persisted as patches in IndexedDB (`jshack-db` d
 
 ### Permission System
 
-Each `FileNode` has read/write/execute permission arrays per user type (`root`, `user`, `guest`). Root has access to everything. Commands like `cat`, `ls`, `cd` check read permissions. The `node()` command additionally checks execute permission — directories and scripts have execute matching read, while data files are execute-restricted to root only.
+Each `FileNode` has read/write/execute permission arrays per user type (`root`, `user`, `guest`). Root has access to everything. Commands like `cat`, `ls`, `cd` check read permissions. The `node()` command additionally checks execute permission. `ls -l` displays permissions in Unix `drwxrwxrwx` format where triples represent owner/user/guest.
+
+**Default permissions for new files**: Files created by users (via `nano`, `createFile`, or patches without explicit permissions) default to `execute: ['root']` only — matching Unix umask behavior where new files are not executable. Editing existing files preserves their original permissions. The `chmod` command is needed to add execute permission.
+
+### Permission Patches
+
+`FileSystemPatch` supports an optional `permissions` field. When present, `applyPatches` uses the explicit permissions instead of inferring from owner. This enables:
+
+- **Permission preservation**: `writeFile` includes the existing file's permissions in the patch, so edits don't lose execute bits or custom permissions.
+- **Permission transfer**: `scp` copies files with source permissions preserved via the patch.
+- **Permission modification**: `chmod` creates patches with updated permission arrays.

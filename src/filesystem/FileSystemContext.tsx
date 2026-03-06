@@ -344,7 +344,13 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
         })),
       }));
 
-      broadcastAndRecordPatch({ machineId, path: resolvedPath, content, owner: node.owner });
+      broadcastAndRecordPatch({
+        machineId,
+        path: resolvedPath,
+        content,
+        owner: node.owner,
+        permissions: node.permissions,
+      });
 
       return { allowed: true };
     },
@@ -380,7 +386,7 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
         permissions: {
           read: ['root', userType],
           write: ['root', userType],
-          execute: ['root', userType],
+          execute: ['root'],
         },
         content,
       };

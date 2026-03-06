@@ -2,15 +2,15 @@
 
 ## Current Step
 
-Step 0 of 6: Planning (awaiting approval)
+Step 2 of 6: Extend FileSystemPatch to persist permissions
 
 ## Status
 
-⏸️ WAITING — Plan created, awaiting approval before starting
+🔴 RED — Writing failing tests
 
 ## Completed
 
-- [ ] Step 1: `ls -l` flag — Long listing with permissions display
+- [x] Step 1: `ls -l` flag — Long listing with permissions display
 - [ ] Step 2: Extend FileSystemPatch to persist permissions
 - [ ] Step 3: `chmod` command — Change file permissions
 - [ ] Step 4: Command resolution from current directory with execute check
