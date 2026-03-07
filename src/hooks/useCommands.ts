@@ -19,11 +19,10 @@ import { createAptCommand } from '../commands/apt';
 import { createRebootCommand } from '../commands/reboot';
 import { xtermCommand } from '../commands/xterm';
 import { useMission } from '../mission';
-import { applyCommandRestrictions, getAccessibleCommandNames } from '../commands/permissions';
 import {
-  APT_INSTALLABLE,
-  isCommandInstalled,
-  wrapWithInstallCheck,
+  isCommandVisible,
+  checkCommandAccess,
+  wrapWithAccessCheck,
 } from '../commands/availability';
 import { useFileSystemCommands } from './useFileSystemCommands';
 import { useNetworkCommands } from './useNetworkCommands';
@@ -36,6 +35,27 @@ import { getDatabase } from '../utils/storageCache';
 // Hardcoded localhost users — localhost doesn't exist in the network config like remote
 // machines do, so its users can't be dynamically looked up via getMachine()
 const LOCAL_USERS = ['root', 'jshacker', 'guest'] as const;
+
+// Shell builtins and game commands don't need binary checks
+const SKIP_ACCESS_CHECK = new Set([
+  'cd',
+  'exit',
+  'clear',
+  'echo',
+  'pwd',
+  'help',
+  'whoami',
+  'missions',
+  'accept',
+  'abort',
+  'mail',
+  'output',
+  'resolve',
+  'author',
+  'theme',
+  'reset',
+  'xterm',
+]);
 
 type UseCommandsResult = {
   readonly executionContext: Record<string, (...args: unknown[]) => unknown>;
@@ -156,74 +176,51 @@ export const useCommands = (): UseCommandsResult => {
     networkCommands.forEach((cmd, name) => commands.set(name, cmd));
     wifiCommands.forEach((cmd, name) => commands.set(name, cmd));
 
-    const getAccessibleCommands = () => {
-      const accessible = getAccessibleCommandNames(Array.from(commands.keys()), session.userType);
-      return accessible
+    const getVisibleCommands = () =>
+      Array.from(commands.keys())
         .filter((name) =>
-          isCommandInstalled(
-            name,
-            session.machine,
-            getNodeFromMachine,
-            session.currentPath,
-            session.userType,
-          ),
+          isCommandVisible(name, session.machine, getNodeFromMachine, session.currentPath),
         )
         .map((name) => commands.get(name))
         .filter((cmd): cmd is Command => cmd !== undefined);
-    };
 
     const getCommandsMap = () => commands;
 
-    const helpCommand = createHelpCommand(getAccessibleCommands);
+    const helpCommand = createHelpCommand(getVisibleCommands);
     const manCommand = createManCommand(getCommandsMap);
 
     commands.set('help', helpCommand);
     commands.set('man', manCommand);
 
-    // Wrap apt-installable commands with install check — must run before permission
-    // restrictions so wrapping order is: permission (outermost) → install check → command
-    APT_INSTALLABLE.forEach((name) => {
-      const cmd = commands.get(name);
-      if (cmd) {
+    // Wrap all non-builtin/non-game commands with unified access check
+    // (binary existence + execute permissions)
+    commands.forEach((cmd, name) => {
+      if (!SKIP_ACCESS_CHECK.has(name)) {
         commands.set(
           name,
-          wrapWithInstallCheck(
-            cmd,
-            name,
-            () =>
-              !isCommandInstalled(
-                name,
-                session.machine,
-                getNodeFromMachine,
-                session.currentPath,
-                session.userType,
-              ),
+          wrapWithAccessCheck(cmd, name, () =>
+            checkCommandAccess(
+              name,
+              session.machine,
+              getNodeFromMachine,
+              session.currentPath,
+              session.userType,
+            ),
           ),
         );
       }
     });
 
-    const restrictedCommands = applyCommandRestrictions(commands, session.userType);
-
     const executionContext: Record<string, (...args: unknown[]) => unknown> = Object.fromEntries(
-      Array.from(restrictedCommands.entries()).map(([name, cmd]) => [name, cmd.fn]),
+      Array.from(commands.entries()).map(([name, cmd]) => [name, cmd.fn]),
     );
 
     resolvedExecutionContext = executionContext;
 
-    // Filter by privilege level, then by installation status so tab-complete
-    // only suggests commands the player can actually run on this machine
-    const commandNames = getAccessibleCommandNames(
-      Array.from(commands.keys()),
-      session.userType,
-    ).filter((name) =>
-      isCommandInstalled(
-        name,
-        session.machine,
-        getNodeFromMachine,
-        session.currentPath,
-        session.userType,
-      ),
+    // Show all commands with a visible binary (or builtins/game commands) —
+    // no user-type filtering, all users see the same commands
+    const commandNames = Array.from(commands.keys()).filter((name) =>
+      isCommandVisible(name, session.machine, getNodeFromMachine, session.currentPath),
     );
 
     return { executionContext, commandNames };

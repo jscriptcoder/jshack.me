@@ -7,7 +7,6 @@ import { MissionProvider } from '../mission/MissionContext';
 import { FileSystemProvider } from '../filesystem/FileSystemContext';
 import { NetworkProvider } from '../network/NetworkContext';
 import type { MissionState } from '../mission/useMissionState';
-import { COMMAND_TIERS } from '../commands/permissions';
 
 vi.mock('../utils/storageCache', () => ({
   getCachedSessionState: vi.fn(() => null),
@@ -58,11 +57,11 @@ describe('useCommands', () => {
     expect(typeof result.current.executionContext).toBe('object');
   });
 
-  it('includes all user-accessible commands on localhost', () => {
+  it('includes all commands on localhost regardless of user type', () => {
     const { result } = renderHook(() => useCommands(), { wrapper: createWrapper() });
     const names = result.current.commandNames;
 
-    // Default session is userType 'user' on localhost — all user-tier commands available
+    // All commands should be visible — no user-type filtering
     expect(names).toContain('help');
     expect(names).toContain('ls');
     expect(names).toContain('cat');
@@ -70,19 +69,11 @@ describe('useCommands', () => {
     expect(names).toContain('ssh');
     expect(names).toContain('echo');
     expect(names).toContain('missions');
-    expect(names).not.toContain('decrypt'); // root-only command should be excluded
+    expect(names).toContain('gpg');
+    expect(names).toContain('reboot');
   });
 
-  it('excludes root-only commands for default user', () => {
-    const { result } = renderHook(() => useCommands(), { wrapper: createWrapper() });
-    const names = result.current.commandNames;
-
-    // Default session is userType 'user' — root commands should be filtered out
-    expect(names).not.toContain('decrypt');
-  });
-
-  it('excludes user-tier commands for guest', async () => {
-    // Override cached session to start as guest
+  it('shows all commands to guest on localhost', async () => {
     const { getCachedSessionState } = await import('../utils/storageCache');
     vi.mocked(getCachedSessionState).mockReturnValue({
       session: {
@@ -100,22 +91,16 @@ describe('useCommands', () => {
     const { result } = renderHook(() => useCommands(), { wrapper: createWrapper() });
     const names = result.current.commandNames;
 
-    // Guest-accessible commands present
+    // Guest sees ALL commands on localhost — visibility is not user-type filtered
     expect(names).toContain('help');
     expect(names).toContain('ls');
-    expect(names).toContain('cat');
-    expect(names).toContain('echo');
+    expect(names).toContain('nmap');
+    expect(names).toContain('missions');
+    expect(names).toContain('gpg');
+    expect(names).toContain('reboot');
+    expect(names).toContain('apt');
+    expect(names).toContain('ifconfig');
 
-    // User-tier commands absent
-    const userTierCommands = Object.entries(COMMAND_TIERS)
-      .filter(([, tier]) => tier === 'user')
-      .map(([name]) => name);
-
-    for (const cmd of userTierCommands) {
-      expect(names).not.toContain(cmd);
-    }
-
-    // Restore
     vi.mocked(getCachedSessionState).mockReturnValue(null);
   });
 
@@ -134,5 +119,13 @@ describe('useCommands', () => {
 
     const output = result.current.executionContext.echo('hello');
     expect(output).toBe('hello');
+  });
+
+  it('root-only commands throw Permission denied for non-root users', () => {
+    const { result } = renderHook(() => useCommands(), { wrapper: createWrapper() });
+
+    // Default session is userType 'user' — gpg and reboot are root-only binaries
+    expect(() => result.current.executionContext.gpg()).toThrow('Permission denied');
+    expect(() => result.current.executionContext.reboot()).toThrow('Permission denied');
   });
 });

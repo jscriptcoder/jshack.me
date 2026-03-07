@@ -49,7 +49,7 @@ e2e/
 
 ## Terminal Features
 
-- ASCII banner on startup ("JSHACK.ME v0.16.2")
+- ASCII banner on startup ("JSHACK.ME v0.17.0")
 - Dynamic prompt: `username@machine>` (managed via SessionContext)
 - Command history (up/down arrows)
 - Tab autocompletion for commands and variables
@@ -183,28 +183,30 @@ Network access from localhost requires cracking a WiFi network first. See `infra
 
 See `src/commands/` for implementations and `src/hooks/useCommands.ts` for the registry.
 
-Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, rm, su, whoami, airmon, airdump, aircrack, nmcli, ifconfig, ping, nmap, nslookup, ssh, exit, ftp, nc, curl, exploit, gobuster, hydra, decrypt, reboot, output, resolve, strings, nano, node, missions, accept, abort, mail, apt, theme, reset, xterm.
+Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, rm, su, whoami, airmon, airdump, aircrack, nmcli, ifconfig, ping, nmap, nslookup, ssh, exit, ftp, nc, curl, exploit, gobuster, hydra, gpg, reboot, output, resolve, strings, nano, node, missions, accept, abort, mail, apt, theme, reset, xterm.
 
 FTP mode (when connected via ftp): pwd, lpwd, cd, lcd, ls, lls, get, put, quit/bye.
 
 NC mode (when connected via nc): pwd, cd, ls, cat, whoami, help, exit — read-only shell access.
 
-## Tool Availability System
+## Command Access Control
 
-On remote/mission machines, hacking tools are not pre-installed. Players must install them via `apt('install', '<tool>')` as root. This adds realism and an additional challenge layer.
+Unified filesystem-based access model. All commands are visible to all users in `help()` and tab-complete. Execution is gated by binary file permissions in `/bin/` and `/usr/bin/`.
 
-**Mechanism:** `src/commands/availability.ts` defines command categories and a `wrapWithInstallCheck` higher-order function (same pattern as `wrapWithWifiCheck`). At execution time, it checks if `/usr/bin/<command>` exists in the current machine's filesystem. On localhost, all tools are pre-installed.
+**Mechanism:** `src/commands/availability.ts` defines command categories and a `wrapWithAccessCheck` higher-order function. At execution time, it checks binary existence and execute permissions. Shell builtins and game commands bypass the check entirely.
 
 **Categories:**
 
-- **Shell builtins** (cd, exit, echo, pwd, etc.) — always available, no binary check
-- **System utilities** (ls, cat, ssh, ping, curl, nslookup, apt, etc.) — always available, binaries in `/bin/`
-- **Apt-installable** (nmap, john, hydra, nc, ftp, exploit, gobuster, airmon, airdump, aircrack, decrypt, node) — require `/usr/bin/<name>` binary; pre-installed on localhost only
-- **Game-specific** (missions, accept, mail, etc.) — always available, no binary check
+- **Shell builtins** (cd, exit, echo, pwd, help, whoami, clear) — always available, no binary check
+- **Game commands** (missions, accept, abort, mail, output, resolve, author, theme, reset, xterm) — always available
+- **System utilities** in `/bin/` — always present, world-executable (except `reboot`: root-only)
+- **Apt-installable** (nmap, john, hydra, nc, ftp, exploit, gobuster, airmon, airdump, aircrack, gpg, node) — require `/usr/bin/<name>` binary; pre-installed on localhost only; world-executable once installed (except `gpg`: root-only)
 
-**Filesystem integration:** `fileSystemFactory.ts` creates `/boot/`, `/bin/`, and `/usr/bin/` directories on all machines. `/bin/` contains system utility binary stubs. `/usr/bin/` is empty on remote/mission machines (populated via `apt install`). `mergeExtraDirectories()` does one-level-deep directory merging to prevent mission `extraDirectories` from overwriting factory-created `/usr/`.
+**Restricted binaries:** `reboot` and `gpg` have `execute: ['root']` via `RESTRICTED_EXECUTE` map. All other binaries are world-executable `['root', 'user', 'guest']`.
 
-**Wrapping order** in `useCommands.ts`: install check wraps the base command, then permission restriction wraps on top. At execution: permission checked first (outermost) → install check → actual execution.
+**Filesystem integration:** `fileSystemFactory.ts` creates `/boot/`, `/bin/`, and `/usr/bin/` directories on all machines. `/bin/` contains system utility binary stubs. `/usr/bin/` is empty on remote/mission machines (populated via `apt install`). `createBinaryEntries()` applies `RESTRICTED_EXECUTE` permissions automatically. `mergeExtraDirectories()` does one-level-deep directory merging to prevent mission `extraDirectories` from overwriting factory-created `/usr/`.
+
+**Error messages:** Binary missing → `"bash: name: command not found"` (with apt install hint for apt-installable tools). Binary exists but no execute permission → `"bash: name: Permission denied"`.
 
 ## Seeded Mission Network Generator
 

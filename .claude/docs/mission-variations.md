@@ -13,7 +13,7 @@ All six major generation axes can be controlled by embedding keywords in the see
 | Network mode  | `forwarded`, `router-first`                                          | Hyphenated to avoid false matches                         |
 | Objective     | `exfiltrate`, `tamper`, `credential-theft`, `script-fix`, `sabotage` | Hyphen variant for credential_theft / script_fix          |
 | Domain entry  | `domain`                                                             | Forces domain-based briefing (nslookup required)          |
-| Encryption    | `decrypt`                                                            | Forces exfiltrate + encrypted target file                 |
+| Encryption    | `gpg`                                                                | Forces exfiltrate + encrypted target file                 |
 
 Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`
 
@@ -86,7 +86,7 @@ When credentials are hidden, the player must guess from the `guestPasswords` poo
 
 ## Encrypted Exfiltrate
 
-Exfiltrate objectives have a ~25% chance (or 100% with `decrypt` keyword) of encrypting the target file. The decryption key (64-char hex) is placed on a different machine in the attack path. Players must find the key and use `decrypt(file, key)` as root to reveal the ACCESS-KEY. Encryption uses deterministic XOR+FNV-1a checksum (`src/utils/crypto.ts`). Key files under `/home/` are user-owned (readable without root); key files in system paths (`/root/`, `/etc/`, `/var/`, `/opt/`) are root-owned.
+Exfiltrate objectives have a ~25% chance (or 100% with `gpg` keyword) of encrypting the target file. The decryption key (64-char hex) is placed on a different machine in the attack path. Players must find the key and use `gpg(file, key)` as root to reveal the ACCESS-KEY. Encryption uses deterministic XOR+FNV-1a checksum (`src/utils/crypto.ts`). Key files under `/home/` are user-owned (readable without root); key files in system paths (`/root/`, `/etc/`, `/var/`, `/opt/`) are root-owned.
 
 ### Key Placement Templates (5)
 
@@ -439,21 +439,21 @@ Webserver-role machines (and any machine with web credential placements) get `/v
 
 11 curated missions covering all generation axes. Players can also use any arbitrary seed string via `accept("any-string")`.
 
-| #   | Client     | Target                               | Objective        | Difficulty | Entry   | Mode         | Special | Seed                                                    |
-| --- | ---------- | ------------------------------------ | ---------------- | ---------- | ------- | ------------ | ------- | ------------------------------------------------------- |
-| 001 | xR0gu3x    | MedTech Solutions — hospital records | exfiltrate       | Easy       | SSH     | Forwarded    | —       | `MEDTECH-ssh-easy-forwarded-exfiltrate`                 |
-| 002 | gh0st\_    | Eastwood University — registrar DB   | tamper           | Easy       | FTP     | Forwarded    | —       | `EASTWOOD-ftp-easy-forwarded-tamper`                    |
-| 003 | cyph3rpunk | Nexus Corp — employee workstations   | credential_theft | Easy       | HTTP    | Forwarded    | —       | `NEXUS-http-easy-forwarded-credential-theft`            |
-| 004 | n3twr4ith  | Vanguard Finance — trading platform  | exfiltrate       | Medium     | NC      | Forwarded    | —       | `VANGUARD-nc-medium-forwarded-exfiltrate`               |
-| 005 | zer0day\_  | Sentinel Defense — weapons research  | tamper           | Medium     | Exploit | Router-first | —       | `SENTINEL-exploit-medium-router-first-tamper`           |
-| 006 | bl4ckh4t   | OmniCloud Services — backup systems  | script_fix       | Medium     | SSH     | Forwarded    | Domain  | `OMNICLOUD-ssh-medium-forwarded-script-fix-domain`      |
-| 007 | darkfl0w   | Iron Gate Security — vault server    | exfiltrate       | Hard       | Exploit | Router-first | Decrypt | `IRONGATE-exploit-hard-router-first-exfiltrate-decrypt` |
-| 008 | v0id_agent | Cobalt Industries — R&D network      | credential_theft | Hard       | NC      | Router-first | —       | `COBALT-nc-hard-router-first-credential-theft`          |
-| 009 | ph4nt0m    | Axiom Biotech — gene sequencer       | script_fix       | Hard       | HTTP    | Router-first | —       | `AXIOM-http-hard-router-first-script-fix`               |
-| 010 | silkr0ad   | Titan Energy — grid controller       | sabotage         | Medium     | SSH     | Forwarded    | —       | `TITAN-ssh-medium-forwarded-sabotage`                   |
-| 011 | darkfl0w   | Meridian Bank — trading servers      | sabotage         | Hard       | Exploit | Router-first | —       | `MERIDIAN-exploit-hard-router-first-sabotage`           |
+| #   | Client     | Target                               | Objective        | Difficulty | Entry   | Mode         | Special | Seed                                                |
+| --- | ---------- | ------------------------------------ | ---------------- | ---------- | ------- | ------------ | ------- | --------------------------------------------------- |
+| 001 | xR0gu3x    | MedTech Solutions — hospital records | exfiltrate       | Easy       | SSH     | Forwarded    | —       | `MEDTECH-ssh-easy-forwarded-exfiltrate`             |
+| 002 | gh0st\_    | Eastwood University — registrar DB   | tamper           | Easy       | FTP     | Forwarded    | —       | `EASTWOOD-ftp-easy-forwarded-tamper`                |
+| 003 | cyph3rpunk | Nexus Corp — employee workstations   | credential_theft | Easy       | HTTP    | Forwarded    | —       | `NEXUS-http-easy-forwarded-credential-theft`        |
+| 004 | n3twr4ith  | Vanguard Finance — trading platform  | exfiltrate       | Medium     | NC      | Forwarded    | —       | `VANGUARD-nc-medium-forwarded-exfiltrate`           |
+| 005 | zer0day\_  | Sentinel Defense — weapons research  | tamper           | Medium     | Exploit | Router-first | —       | `SENTINEL-exploit-medium-router-first-tamper`       |
+| 006 | bl4ckh4t   | OmniCloud Services — backup systems  | script_fix       | Medium     | SSH     | Forwarded    | Domain  | `OMNICLOUD-ssh-medium-forwarded-script-fix-domain`  |
+| 007 | darkfl0w   | Iron Gate Security — vault server    | exfiltrate       | Hard       | Exploit | Router-first | GPG     | `IRONGATE-exploit-hard-router-first-exfiltrate-gpg` |
+| 008 | v0id_agent | Cobalt Industries — R&D network      | credential_theft | Hard       | NC      | Router-first | —       | `COBALT-nc-hard-router-first-credential-theft`      |
+| 009 | ph4nt0m    | Axiom Biotech — gene sequencer       | script_fix       | Hard       | HTTP    | Router-first | —       | `AXIOM-http-hard-router-first-script-fix`           |
+| 010 | silkr0ad   | Titan Energy — grid controller       | sabotage         | Medium     | SSH     | Forwarded    | —       | `TITAN-ssh-medium-forwarded-sabotage`               |
+| 011 | darkfl0w   | Meridian Bank — trading servers      | sabotage         | Hard       | Exploit | Router-first | —       | `MERIDIAN-exploit-hard-router-first-sabotage`       |
 
-**Coverage**: 3 easy / 4 medium / 4 hard, SSH×3 / FTP×1 / NC×2 / Exploit×3 / HTTP×2, exfiltrate×3 / tamper×2 / credential_theft×2 / script_fix×2 / sabotage×2, forwarded×6 / router-first×5, 1 domain, 1 decrypt.
+**Coverage**: 3 easy / 4 medium / 4 hard, SSH×3 / FTP×1 / NC×2 / Exploit×3 / HTTP×2, exfiltrate×3 / tamper×2 / credential_theft×2 / script_fix×2 / sabotage×2, forwarded×6 / router-first×5, 1 domain, 1 gpg.
 
 ---
 

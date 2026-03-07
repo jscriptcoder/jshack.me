@@ -89,15 +89,15 @@ Players and developers can embed keywords in the seed string to control generati
 | Entry variant | `ssh`, `ftp`, `nc`, `exploit`, `http`                                | Falls back if template unavailable (e.g. nc+router-first) |
 | Network mode  | `forwarded`, `router-first`                                          | Hyphenated to avoid false matches                         |
 | Objective     | `exfiltrate`, `tamper`, `credential-theft`, `script-fix`, `sabotage` | Hyphen variant for credential_theft / script_fix          |
-| Encryption    | `decrypt`                                                            | Forces exfiltrate + encrypted target file                 |
+| Encryption    | `gpg`                                                                | Forces exfiltrate + encrypted target file                 |
 
-Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`, `IRONGATE-nc-decrypt-22`
+Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`, `IRONGATE-nc-gpg-22`
 
 PRNG sequence is preserved when overrides are active — the PRNG call is always consumed, but its result is discarded in favor of the override. Seeds without keywords produce identical networks as before.
 
 ## Encrypted Exfiltrate
 
-Exfiltrate objectives have a ~25% chance (or 100% with `decrypt` keyword) of encrypting the target file. The decryption key is placed on a different machine in the attack path (~25% chance of binary wrapping). Players must find the key, escalate to root, and use `decrypt(file, key)` to reveal the ACCESS-KEY. The encryption uses a deterministic XOR+FNV-1a checksum scheme (`src/utils/crypto.ts`) — same key always produces identical ciphertext.
+Exfiltrate objectives have a ~25% chance (or 100% with `gpg` keyword) of encrypting the target file. The decryption key is placed on a different machine in the attack path (~25% chance of binary wrapping). Players must find the key, escalate to root, and use `gpg(file, key)` to reveal the ACCESS-KEY. The encryption uses a deterministic XOR+FNV-1a checksum scheme (`src/utils/crypto.ts`) — same key always produces identical ciphertext.
 
 ## Binary File Wrapping
 

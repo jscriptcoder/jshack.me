@@ -75,7 +75,7 @@ export const createOutputCommand = (context: OutputContext): Command => ({
         description: 'Copy file content to another file',
       },
       {
-        command: 'await output(decrypt("secret.enc", key), "/tmp/decrypted.txt")',
+        command: 'await output(gpg("secret.enc", key), "/tmp/decrypted.txt")',
         description: 'Decrypt and save to file',
       },
     ],

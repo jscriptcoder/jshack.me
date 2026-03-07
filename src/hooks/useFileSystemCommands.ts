@@ -6,7 +6,7 @@ import { createLsCommand } from '../commands/ls';
 import { createCdCommand } from '../commands/cd';
 import { createCatCommand } from '../commands/cat';
 import { createWhoamiCommand } from '../commands/whoami';
-import { createDecryptCommand } from '../commands/decrypt';
+import { createGpgCommand } from '../commands/gpg';
 import { createOutputCommand } from '../commands/output';
 import { createStringsCommand } from '../commands/strings';
 import { createNanoCommand } from '../commands/nano';
@@ -84,10 +84,10 @@ export const useFileSystemCommands = (): Map<string, Command> => {
       }),
     );
 
-    // decrypt command
+    // gpg command
     commands.set(
-      'decrypt',
-      createDecryptCommand({
+      'gpg',
+      createGpgCommand({
         resolvePath,
         getNode,
         getUserType,

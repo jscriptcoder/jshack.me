@@ -59,15 +59,18 @@ User input flows through `Terminal.tsx`:
 
 1. Create file in `src/commands/` exporting a `Command` object (see `src/components/Terminal/types.ts` for type)
 2. Register in `src/hooks/useCommands.ts` via `commands.set('name', myCommand)`
-3. Add permission tier in `src/commands/permissions.ts` (guest/user/root)
+3. If it needs a binary, add to `SYSTEM_UTILITY_NAMES` (for `/bin/`) or `APT_TOOL_NAMES` (for `/usr/bin/`) in `src/commands/availability.ts`
+4. If it should be root-only, add to `RESTRICTED_EXECUTE` in `availability.ts`
 
-### Command Restrictions
+### Command Access Control
 
-Commands are tiered by user type (`src/commands/permissions.ts`):
+Commands use a unified filesystem-based access model (`src/commands/availability.ts`). All commands are visible to all users in `help()` and tab-complete. Execution is gated by binary file permissions:
 
-- **guest**: help, man, echo, whoami, pwd, ls, cd, cat, rm, su, clear, author, exit, ssh, ping, curl, nslookup, xterm
-- **user**: All guest + apt, ifconfig, nmap, ftp, nc, exploit, gobuster, strings, output, resolve, nano, node, john, hydra, airmon, airdump, aircrack, nmcli, missions, accept, abort, mail
-- **root**: All user + decrypt, reboot
+- **Shell builtins** (cd, exit, clear, echo, pwd, help, whoami) — always available, no binary needed
+- **Game commands** (missions, accept, abort, mail, output, resolve, author, theme, reset, xterm) — always available
+- **System utilities** in `/bin/` — always present, world-executable (except `reboot`: root-only)
+- **Apt-installable tools** in `/usr/bin/` — require `apt install` as root; world-executable once installed (except `gpg`: root-only)
+- **Root-only binaries**: `reboot` and `gpg` have `execute: ['root']`
 
 ### Filesystem Permissions
 
@@ -75,12 +78,7 @@ Unix-realistic permission model with owner-scoped access and directory traversal
 
 ### Tool Availability (apt install)
 
-On remote/mission machines, hacking tools must be installed via `apt('install', '<tool>')` as root. The availability system (`src/commands/availability.ts`) wraps apt-installable commands with a filesystem check for `/usr/bin/<command>`.
-
-- **Shell builtins** (cd, echo, pwd, etc.) — always available
-- **System utilities** (ls, cat, ssh, ping, etc.) — always available, binaries in `/bin/`
-- **Apt-installable** (nmap, john, hydra, nc, ftp, exploit, gobuster, etc.) — require `/usr/bin/<name>` to exist; pre-installed on localhost only
-- **Game-specific** (missions, accept, mail, etc.) — always available
+On remote/mission machines, hacking tools must be installed via `apt('install', '<tool>')` as root. The availability system (`src/commands/availability.ts`) wraps commands with `wrapWithAccessCheck` which checks binary existence and execute permissions at execution time.
 
 The filesystem factory (`fileSystemFactory.ts`) creates `/boot/`, `/bin/`, and `/usr/bin/` directories on all machines. `mergeExtraDirectories()` handles one-level-deep merging to prevent mission generation's `extraDirectories` from overwriting factory directories.
 
@@ -163,12 +161,12 @@ After completing the 16-flag tutorial, players can take on procedurally generate
 
 - **MissionContext** (`src/mission/MissionContext.tsx`) — React context providing `activeMission`, `startMission`, `abortMission`, `completeMission`, `isMissionActive` via `useMission()` hook
 - **App.tsx orchestration** — Mission state lives in `App.tsx`, passed as props to `FileSystemProvider` (`missionFileSystems`) and `NetworkProvider` (`missionNetworkConfig`, `missionRouterMachine`). `MissionProvider` wraps both for command access.
-- **Generator** — `generateMissionNetwork(seed)` in `src/generation/generateMission.ts` deterministically produces a full network from a seed string. Seeds can embed keywords to control generation: difficulty (`easy`/`medium`/`hard`), entry variant (`ssh`/`ftp`/`nc`/`exploit`/`http`), network mode (`forwarded`/`router-first`), objective (`exfiltrate`/`tamper`/`credential-theft`/`script-fix`/`sabotage`), domain entry (`domain`), encrypted exfiltrate (`decrypt`). `parseSeedOverrides(seed)` extracts overrides; PRNG sequence is preserved (calls consumed but overridden).
+- **Generator** — `generateMissionNetwork(seed)` in `src/generation/generateMission.ts` deterministically produces a full network from a seed string. Seeds can embed keywords to control generation: difficulty (`easy`/`medium`/`hard`), entry variant (`ssh`/`ftp`/`nc`/`exploit`/`http`), network mode (`forwarded`/`router-first`), objective (`exfiltrate`/`tamper`/`credential-theft`/`script-fix`/`sabotage`), domain entry (`domain`), encrypted exfiltrate (`gpg`). `parseSeedOverrides(seed)` extracts overrides; PRNG sequence is preserved (calls consumed but overridden).
 - **Router topology** — Every mission has a real, hackable router (role `'router'`) between localhost and internal machines. Router has a PRNG-varied public IP (from realistic prefixes like 45, 51, 62, 78, etc.) and internal machines on a PRNG-varied private subnet (10.x.x/24, 172.{16-31}.x/24, or 192.168.{2-254}/24). Dual interfaces (public + internal), filesystem with firewall rules and internal machine hints. Two modes: **forwarded** (easier — NAT ports to DMZ, transparent to player) and **router-first** (harder — must hack router first to reach internal network).
 - **Entry variants** — Entry machine initial access varies: ssh (classic), ftp (find SSH creds via FTP), nc (find SSH creds via backdoor), exploit (scan with `nmap -sV`, exploit vulnerable port), http (discover SSH creds via `curl` on port 80, possibly in response headers via `-i`). Selected by PRNG per seed. In forwarded mode, variant applies to the internal entry machine; in router-first mode, variant applies to the router.
 - **NAT resolution** — `NetworkContext.resolveNat(ip, port)` translates router public IP + port to internal machine IP + port based on iptables rules parsed dynamically from `/etc/iptables/rules.v4` on the router's filesystem (`src/network/iptablesParser.ts`). Applied at SSH/FTP/NC connection boundaries in `Terminal.tsx`. Players can edit the iptables file with `nano` to add/remove forwarding rules — changes take effect on the next connection or `nmap` scan.
 - **Commands** — `missions()` browses contracts, `accept(seed)` starts a mission, `abort()` cancels and returns to localhost, `mail(recipient, content)` submits proof to complete
-- **Completion** — Player sends proof via `mail("client@darkmail.onion", "proof")`. Five objective types: exfiltrate (find ACCESS-KEY, optionally encrypted — requires `decrypt(file, key)` as root), tamper (modify a file), credential_theft (steal root password), script_fix (fix broken script with nano, run with node — scripts call `_decode(checksum)` which returns the ACCESS-KEY if the checksum is correct, then player mails it to the client), sabotage (gain root, delete `/boot/vmlinuz`, reboot to brick the target machine). The `mail` command verifies proof and calls `completeMission()`.
+- **Completion** — Player sends proof via `mail("client@darkmail.onion", "proof")`. Five objective types: exfiltrate (find ACCESS-KEY, optionally encrypted — requires `gpg(file, key)` as root), tamper (modify a file), credential_theft (steal root password), script_fix (fix broken script with nano, run with node — scripts call `_decode(checksum)` which returns the ACCESS-KEY if the checksum is correct, then player mails it to the client), sabotage (gain root, delete `/boot/vmlinuz`, reboot to brick the target machine). The `mail` command verifies proof and calls `completeMission()`.
 - **Isolation** — From localhost, only the router's public IP is reachable. Internal machines are discovered after connecting to the router or through forwarded ports. Mission filesystem patches are excluded from IndexedDB persistence.
 - **Persistence** — Only the seed string is persisted; full network regenerated on reload
 

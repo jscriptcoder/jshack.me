@@ -4,21 +4,20 @@ All terminal commands live here. Each command implements the `Command` type and 
 
 Commands use a factory pattern with context injection: `createXCommand(context) => Command`.
 
-## Command Restrictions (`permissions.ts`)
+## Access Control (`availability.ts`)
 
-Commands are tiered by user type. Restricted commands show `permission denied: 'name' requires TYPE privileges` and are hidden from `help()` and tab autocomplete. `man()` can still look up any command.
+Commands use a unified filesystem-based access model. All commands are visible to all users — execution is gated by binary file permissions.
 
-| Tier     | User Type | Available Commands                                                                                                                                                              |
-| -------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Basic    | `guest`   | help, man, echo, whoami, pwd, ls, cd, cat, rm, chmod, scp, su, clear, author, theme, exit, ssh, ping, curl, nslookup, xterm                                                     |
-| Standard | `user`    | All basic + apt, ifconfig, nmap, ftp, nc, exploit, hydra, strings, output, resolve, nano, node, john, airmon, airdump, aircrack, nmcli, gobuster, missions, accept, abort, mail |
-| Full     | `root`    | All standard + decrypt, reboot                                                                                                                                                  |
+- **Shell builtins** (cd, exit, clear, echo, pwd, help, whoami) — always available, no binary needed
+- **Game commands** (missions, accept, abort, mail, output, resolve, author, theme, reset, xterm) — always available
+- **System utilities** in `/bin/` — always present on all machines; most are world-executable
+- **Apt-installable tools** in `/usr/bin/` — must be installed via `apt('install', '<tool>')` as root; pre-installed on localhost only
+- **Restricted binaries** — `reboot` and `gpg` have `execute: ['root']`; all others are world-executable
 
-FTP and NC modes have their own separate command sets and are not restricted.
+At execution time, `wrapWithAccessCheck` checks binary existence and execute permissions:
 
-## Tool Availability (`availability.ts`)
-
-On remote and mission machines, hacking tools aren't pre-installed. Players must use `apt('install', '<tool>')` as root to install them. System utilities (`ls`, `cat`, `ssh`, etc.) are always available via `/bin/`. Apt-installable tools (`nmap`, `john`, `nc`, etc.) require `/usr/bin/<name>` to exist in the filesystem.
+- Binary missing → `"bash: name: command not found"` (with apt install hint for apt-installable tools)
+- Binary exists but no execute permission → `"bash: name: Permission denied"`
 
 | Category         | Location    | Availability                                                        |
 | ---------------- | ----------- | ------------------------------------------------------------------- |
@@ -26,6 +25,8 @@ On remote and mission machines, hacking tools aren't pre-installed. Players must
 | System utilities | `/bin/`     | Always (ls, cat, rm, chmod, scp, su, man, nano, strings, ssh, etc.) |
 | Apt-installable  | `/usr/bin/` | After `apt install` (pre-installed on localhost only)               |
 | Game-specific    | N/A         | Always (missions, accept, abort, mail, output, etc.)                |
+
+FTP and NC modes have their own separate command sets and are not restricted.
 
 ## General
 
@@ -62,7 +63,7 @@ On remote and mission machines, hacking tools aren't pre-installed. Players must
 | cat     | `cat.ts`     | `cat(path)`              | Display file contents                                   |
 | rm      | `rm.ts`      | `rm([flags], path, ...)` | Remove files or directories (-r recursive, -f force)    |
 | whoami  | `whoami.ts`  | `whoami()`               | Display current username                                |
-| decrypt | `decrypt.ts` | `decrypt(file, key)`     | Decrypt file using AES-256 (async)                      |
+| gpg     | `gpg.ts`     | `gpg(file, key)`         | Decrypt file using AES-256 (async, root-only)           |
 | output  | `output.ts`  | `output(cmd, [file])`    | Capture command output to variable or file              |
 | strings | `strings.ts` | `strings(file, [min])`   | Extract printable strings from binary files             |
 | nano    | `nano.ts`    | `nano(path)`             | Open file in nano-style text editor overlay             |

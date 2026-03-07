@@ -60,8 +60,8 @@ export const parseSeedOverrides = (seed: string): SeedOverrides => {
 
   const domainEntry = lower.includes('domain') ? true : undefined;
 
-  // 'decrypt' keyword forces encrypted exfiltrate mode
-  const encrypted = lower.includes('decrypt') ? true : undefined;
+  // 'gpg' keyword forces encrypted exfiltrate mode
+  const encrypted = lower.includes('gpg') ? true : undefined;
 
   return { difficulty, entryVariant, forwarded, objectiveType, domainEntry, encrypted };
 };
