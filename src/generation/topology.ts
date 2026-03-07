@@ -16,6 +16,8 @@ import {
   routerEntryPortTemplates,
 } from './pools';
 
+const allVariants: readonly EntryVariant[] = ['ssh', 'ftp', 'nc', 'exploit', 'http'];
+
 export type TopologyResult = {
   readonly machines: readonly GeneratedMachine[];
   readonly routerMachine: GeneratedMachine;
@@ -187,10 +189,14 @@ export const generateTopology = (
     const ports =
       isEntry && forwarded ? buildPortsFromTemplate(entryTemplate.ports) : buildPorts(role);
 
+    // Entry machine gets the internal entry variant; non-entry machines get PRNG-picked variants
+    const accessVariant = isEntry ? internalEntryVariant : prng.pick(allVariants);
+
     return {
       ip,
       hostname,
       role,
+      accessVariant,
       remoteMachine: {
         ip,
         hostname,
@@ -208,10 +214,15 @@ export const generateTopology = (
     ? buildPortsFromTemplate(routerTemplate.ports)
     : buildPorts('router');
 
+  // Router access variant: in router-first mode, uses the entry variant (player hacks router).
+  // In forwarded mode, router is accessed via SSH (player pivots through it).
+  const routerAccessVariant: EntryVariant = forwarded ? 'ssh' : entryVariant;
+
   const routerMachine: GeneratedMachine = {
     ip: routerPublicIp,
     hostname: routerHostname,
     role: 'router',
+    accessVariant: routerAccessVariant,
     remoteMachine: {
       ip: routerPublicIp,
       hostname: routerHostname,

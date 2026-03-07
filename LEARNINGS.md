@@ -1,50 +1,22 @@
-# Learnings: Tool-Based Progression System
+# Learnings: Dynamic Network Access & Iptables
 
 ## Decisions Made
 
-### Permission model mapping (u/g/o → root/user/guest)
+### Iptables rule format — simplified
 
-- **Options considered**: (A) u=owner, g=user, o=guest; (B) Unix-faithful with simulated groups; (C) Simplified +x/-x only
-- **Decision**: Option A — u maps to file's owner, g maps to 'user' type, o maps to 'guest' type, a maps to all
-- **Rationale**: Clean mapping to existing UserType system. Root always has full access (enforced at check time). No need for group simulation.
-- **Trade-offs**: Not 100% Unix-faithful (no real groups), but sufficient for gameplay.
+- **Options considered**: (A) Real iptables-restore format; (B) `forward <port> to <ip>:<port>` keyword format; (C) Arrow format `port -> ip:port`; (D) `DNAT tcp port -> ip:port`
+- **Decision**: Option B — `forward <port> to <ip>:<port>`
+- **Rationale**: Self-documenting, easy to parse, still feels like a config file. Real iptables format is too cryptic for a game. File lives at `/etc/iptables/rules.v4` for realism.
+- **Trade-offs**: Less realistic than real iptables, but the gameplay value outweighs authenticity.
 
-### Default file permissions — no execute for created files
+### Iptables auto-apply on save (no reload command)
 
-- **Options considered**: (A) Keep current behavior (owner gets execute); (B) No execute by default (Unix umask style)
-- **Decision**: Option B — new files get `execute: ['root']` only
-- **Rationale**: Makes chmod meaningful for tool-based progression. Matches real Unix behavior (umask 022 → 644 for files). Edited files preserve original permissions.
-- **Trade-offs**: May break some existing tests. Needs careful handling in nano (preserve permissions of existing files).
+- **Options considered**: (A) `nano` + `iptables-restore` command; (B) `iptables` command with flags; (C) Auto-apply on nano save
+- **Decision**: Option C — changes auto-apply when the file is saved
+- **Rationale**: Adding a separate reload command is significant complexity for little gameplay value. On-demand parsing (read file at connection/scan time) achieves the same effect with no save hooks needed.
 
-### Command resolution — optional params for backward compatibility
+### Per-machine credential hints — deferred
 
-- **Context**: `isCommandInstalled` gained `currentPath` and `userType` params for cwd resolution
-- **Decision**: Made both params optional with existing callers unchanged
-- **Rationale**: Existing call sites without cwd/userType skip cwd check entirely — backward compatible. Only apt-installable commands check cwd (builtins and system utilities short-circuit before that code path).
-
-### scp permission preservation
-
-- **Options considered**: (A) Destination gets owner-based defaults; (B) Source permissions preserved
-- **Decision**: Option B — scp preserves source file permissions
-- **Rationale**: Makes the chmod→transfer→execute flow work. Player must chmod before transferring to make tools executable by guest.
-- **Trade-offs**: Slightly more complex implementation (must include permissions in patch).
-
-### scp authentication — no password prompt
-
-- **Options considered**: (A) Full SSH-style password prompt via AsyncOutput follow-up; (B) No auth (SSH key-based)
-- **Decision**: Option B — scp uses publickey auth, no password prompt
-- **Rationale**: Password prompt would require new AsyncFollowUp type, useAuthentication changes, and Terminal.tsx integration — significant complexity for little gameplay value. Players already know credentials from prior SSH access. The command validates SSH port is open and user exists.
-- **Trade-offs**: Less realistic, but keeps the step small and focused.
-
-### createFileOnMachine optional permissions parameter
-
-- **Context**: scp needs to create files with preserved source permissions
-- **Decision**: Added optional `permissions?: FilePermissions` param to `createFileOnMachine`
-- **Rationale**: Clean extension — existing callers unaffected (use defaults), scp passes source permissions. Patch includes permissions when provided.
-
-### Credential removal scope
-
-- **Context**: Removing credential-based attack chains while keeping objective generation
-- **Decision**: Keep `CredentialMap` type and user generation — only remove credential placements, attack chain routing, entry credential hints, and binary credential paths
-- **Rationale**: `buildObjective` for `credential_theft` needs to look up root passwords, and `buildKeyPlacement` needs regular usernames for path templates. Entry variants (ssh/ftp/nc/exploit/http) still exist at the topology level for port configuration, but no longer generate credential hint files.
-- **Trade-offs**: Some PRNG calls are consumed for sequence stability even though credential paths aren't generated. This preserves determinism for seeds that already existed.
+- **Context**: With credential-based attack chains removed, how do players discover SSH credentials for internal machines?
+- **Decision**: Defer — don't add per-machine credential hints for now
+- **Rationale**: Only a problem when accessing as guest (can't read /etc/passwd). If this becomes an issue in practice, we'll address it then. Avoids re-introducing the complexity we just removed.

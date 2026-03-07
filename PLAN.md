@@ -1,106 +1,123 @@
-# Plan: Tool-Based Progression System
+# Plan: Dynamic Network Access & Iptables
 
 ## Goal
 
-Replace credential-based lateral movement with a tool-based progression system where players transfer and chmod binaries to navigate mission networks.
+Each internal mission machine has a PRNG-selected access method (ssh/ftp/nc/exploit/http), and the router's port forwarding is configurable via an iptables rules file that the player can edit with nano (auto-applied on save).
 
 ## Acceptance Criteria
 
-- [ ] `ls` supports `-l` flag showing `drwxrwxrwx owner filename` format
-- [ ] `chmod` command supports symbolic notation (`o+x`, `u-w`, `a+rx`)
-- [ ] Commands resolve binaries from current directory, then `/bin/`, then `/usr/bin/`
-- [ ] Binary resolution includes execute permission check
-- [ ] `scp` command copies files between machines preserving permissions
-- [ ] Created files default to no execute permission (matching Unix umask)
-- [ ] Editing existing files preserves their original permissions
-- [ ] All credential-based generation removed (attack chains, hints, Intel, breadcrumbs)
-- [ ] All 11 mission board entries removed
-- [ ] All tests pass, build succeeds
+- [ ] Every internal machine has an `accessVariant` determining how it's accessed
+- [ ] Machine ports reflect their access variant (NC backdoor, exploit vuln, FTP, HTTP, SSH)
+- [ ] All machines are enriched with variant-specific data (owners, vulnerabilities)
+- [ ] SSH supports `-p PORT` flag for non-default ports
+- [ ] NAT resolution is port-aware (multi-port forwarding)
+- [ ] Router has `/etc/iptables/rules.v4` with a simple forwarding format
+- [ ] Player can edit iptables rules; changes are reflected in nmap/connections
+- [ ] All existing tests pass, new behavior is tested
 
 ## Steps
 
-### Step 1: `ls -l` flag — Long listing with permissions display
+### Step 1: Add `accessVariant` to `GeneratedMachine`
 
-**Test**: `ls('-l')` returns formatted output with `drwxrwxrwx owner filename` per entry.
-**Implementation**: Parse `-l` flag in ls command. Map `FilePermissions` arrays to Unix permission string. Format output with columns.
-**Done when**: `ls('-l')` shows permission string, owner, and name for each entry. Existing `ls()` behavior unchanged.
+**Test**: Generate networks from multiple seeds, verify each machine has an `accessVariant` field, entry machine matches `entryVariant`, non-entry machines have PRNG-picked variants, determinism holds.
+**Implementation**: Add `accessVariant: EntryVariant` to `GeneratedMachine` type. In `topology.ts`, PRNG-pick a variant for each non-entry machine. Entry machine gets the existing `entryVariant`. Router gets its existing variant (router-first) or `'ssh'` (forwarded mode).
+**Done when**: Field exists on all machines, populated correctly, all existing tests pass.
 
-### Step 2: Extend FileSystemPatch to persist permissions
+### Step 2: Generate variant-specific ports per machine
 
-**Test**: A patch with `permissions` field preserves those permissions through `applyPatches`. A patch without permissions uses defaults (no execute for non-root).
-**Implementation**: Add optional `permissions` field to `FileSystemPatch` type. Update `applyPatches` to use patch permissions when present, otherwise default to `execute: ['root']` only. Update `writeFile`/`createFile`/`nano` to include original file permissions in patch when editing existing files.
-**Done when**: Patches can round-trip permissions. New files have no execute by default. Edited files preserve original permissions.
+**Test**: Machines with NC variant have a backdoor port, exploit variant has a vulnerability-compatible port, FTP variant has port 21, HTTP variant has port 80. Port closures don't close a machine's variant primary port.
+**Implementation**: Replace `buildPorts(role)` for non-entry machines with a function that combines role base ports + access variant ports:
 
-### Step 3: `chmod` command — Change file permissions
+- SSH: role ports unchanged (SSH already present in all roles)
+- FTP: add port 21 if not already present (fileserver already has it)
+- NC: add a PRNG-picked backdoor port (4444/31337/8888/1337)
+- Exploit: add a port matching a vulnerability template (if no existing port matches)
+- HTTP: add port 80 if not already present (webserver already has it)
 
-**Test**: `chmod('o+x', '/path/to/file')` adds guest to execute array. `chmod('u-w', '/path')` removes owner from write array. Non-owner non-root gets "Operation not permitted".
-**Implementation**: Parse symbolic notation (`[ugoa][+-][rwx]+`). Map u/g/o/a to UserType arrays. Create `updatePermissions` method on FileSystemContext. Guest-tier command (any user can chmod their own files, root can chmod anything).
-**Done when**: chmod modifies permissions, persisted via patches. Permission checks enforced. Registered and tested.
+Port closures (`applyPortClosures`) must respect access variants — never close a machine's variant primary port.
+**Done when**: Each machine has ports matching its access variant, closures are safe.
 
-### Step 4: Command resolution from current directory with execute check
+### Step 3: Enrich all machines with variant data
 
-**Test**: A command binary at `${currentPath}/nmap` that is executable by current user allows running `nmap()`. A binary without execute permission blocks it. Falls back to `/bin/` then `/usr/bin/`.
-**Implementation**: Modify `isCommandInstalled` in `availability.ts` to check current directory first (with execute permission check), then `/bin/`, then `/usr/bin/`. Pass current path and user type into the check.
-**Done when**: Commands resolve from current directory. Execute permission is verified. Existing `/bin/` and `/usr/bin/` resolution still works.
+**Test**: Non-entry NC machines have backdoor owners, exploit machines have vulnerabilities, FTP machines have FTP owners. Owner types vary by PRNG.
+**Implementation**: Extend `enrichMachineWithUsers` to handle all machines based on their `accessVariant`, not just the entry machine. Reuse existing `addNcBackdoorOwner`, `addExploitVulnerability`, `addFtpServerOwner`. The `isEntryVariant` check in `generateMission.ts` becomes a per-machine check using `accessVariant`.
+**Done when**: All machines enriched based on their access variant.
 
-### Step 5: `scp` command — Secure copy between machines
+### Step 4: SSH `-p` flag support
 
-**Test**: `scp('/usr/bin/nmap', 'guest@192.168.1.50:/home/guest/nmap')` transfers file with preserved permissions after password authentication.
-**Implementation**: Parse `user@host:path` syntax. AsyncOutput with connection animation + password prompt (same pattern as SSH). Read source file, create on destination preserving source permissions. Guest-tier command, system utility (in `/bin/`).
-**Done when**: scp transfers files between machines with permission preservation. Password authentication works. Registered and tested.
+**Test**: `ssh("user@host")` connects on port 22 (default). `ssh("user@host", "-p", "2222")` connects on port 2222. Invalid port returns error. Port not found/closed returns "Connection refused".
+**Implementation**: Parse `-p PORT` from ssh arguments. Default to port 22. Look up the specified port on the target machine instead of hard-coded `p.port === 22 && p.service === 'ssh'`. Validate port exists and is open.
+**Done when**: SSH works with custom ports.
 
-### Step 6: Remove credential-based generation and mission board
+### Step 5: Port-aware NAT resolution
 
-**Test**: `generateMissionNetwork` produces a network with topology, users, and filesystems but no credential placements or attack chain. Mission board is empty.
-**Implementation**: Remove `attackChain.ts` credential placement logic (keep objective building). Remove credential pools from `pools.ts`. Remove credential/hint generation from `filesystem.ts`. Clear all 11 mission board entries. Simplify `generateMission.ts` pipeline. Update/remove affected tests.
-**Done when**: No credentials are generated. Mission board is empty. Generation still produces valid topology + users + filesystems + objectives. All tests pass.
+**Test**: Multi-port forwarding resolves correctly (port 22 -> machine A, port 2222 -> machine B). Existing single-entry forwarding still works. `buildForwardedRouterMachine` removed. Connections through router land on correct internal machines.
+**Implementation**:
 
-## Permission Model Mapping
+- Change `NatForwarding` type to port-level rules:
+  ```
+  { publicIp: string; rules: [{ publicPort: number; internalIp: string; internalPort: number }] }
+  ```
+- Change `resolveNat(ip)` to `resolveNat(ip, port)` returning `{ ip, port }`
+- Move NAT resolution before machine lookup in SSH/FTP/NC/curl (early resolution)
+- Remove `buildForwardedRouterMachine` — no longer needed with early port-aware NAT
+- Update all callers: SSH, FTP, NC, curl, useAuthentication, Terminal.tsx
+- Generate initial NAT rules from topology (forwarded mode creates rules for entry machine ports)
 
-For `chmod` symbolic notation and `ls -l` display:
+**Done when**: Connections through router use port-level NAT rules, old workaround removed.
 
-| Symbol | Maps to         | Notes                           |
-| ------ | --------------- | ------------------------------- |
-| u      | file's `owner`  | Whatever UserType owns the file |
-| g      | `'user'` type   | Middle privilege tier           |
-| o      | `'guest'` type  | Lowest privilege tier           |
-| a      | all three types | root + user + guest             |
+### Step 6: Generate iptables rules file on router
 
-Root always has full access (enforced at check time, not in permission arrays).
-
-## `ls -l` Display Format
+**Test**: Forwarded mode: router has `/etc/iptables/rules.v4` with forward rules matching NAT config. Router-first mode: file has empty rules section (template for player).
+**Implementation**: In `filesystem.ts`, generate `/etc/iptables/rules.v4` on the router machine. Format:
 
 ```
-drwxr-xr-x  root   bin/
--rw-r-----  user   notes.txt
--rwx------  root   secret.sh
+# Port Forwarding Rules
+# forward <public_port> to <internal_ip>:<port>
+forward 22 to 10.0.1.10:22
+forward 80 to 10.0.1.11:80
 ```
 
-- First char: `d` for directory, `-` for file
-- Triple 1 (owner): permissions for file's owner (root owner = always rwx)
-- Triple 2 (user): permissions for 'user' type
-- Triple 3 (guest): permissions for 'guest' type
+Forwarded mode: pre-populated from NAT rules. Router-first mode: only comments and blank template. File is root-owned (must `su` to edit).
+**Done when**: Router has correct iptables file for both modes.
 
-## Command Resolution Order
+### Step 7: Dynamic iptables parsing for NAT + port visibility
 
-1. `${currentPath}/${commandName}` — exists AND executable by current user
-2. `/bin/${commandName}` — exists (system utilities, always executable)
-3. `/usr/bin/${commandName}` — exists (apt-installed tools)
+**Test**: Empty rules file -> no forwarding visible. Player adds rules -> `nmap` shows forwarded ports. NAT resolves through parsed rules. Router's own SSH always visible.
+**Implementation**:
 
-## New Permission Defaults
+- Add iptables parser: reads `/etc/iptables/rules.v4` from router filesystem, parses `forward <port> to <ip>:<port>` lines into NAT rules
+- `resolveNat` reads iptables file on demand from the router's filesystem (not cached statically)
+- `nmap` of router's public IP from localhost shows: router's own ports + forwarded ports from iptables
+- No save hooks — parsing is on-demand (read file at connection/scan time)
+- Player edits file with nano -> next nmap/connection sees the changes
 
-| Operation            | Execute Permission           |
-| -------------------- | ---------------------------- |
-| New file (nano/etc)  | `['root']` only              |
-| Edited file          | Preserved from original      |
-| scp transferred file | Preserved from source        |
-| chmod'd file         | Whatever chmod sets          |
-| Generator mkFile     | `['root']` (unchanged)       |
-| Generator mkScript   | World-executable (unchanged) |
+**Done when**: Player can edit iptables and see changes reflected in nmap and connections.
 
-## Command Tiers
+## Iptables Rules Format
 
-| Command | Tier  | Availability   |
-| ------- | ----- | -------------- |
-| chmod   | guest | System utility |
-| scp     | guest | System utility |
+Simple, human-readable format for `/etc/iptables/rules.v4`:
+
+```
+# Port Forwarding Rules
+# forward <public_port> to <internal_ip>:<port>
+
+forward 22 to 10.0.1.10:22
+forward 80 to 10.0.1.11:80
+forward 4444 to 10.0.1.12:4444
+```
+
+- One rule per line
+- `#` comments and blank lines ignored
+- Root-owned file (requires `su` to edit with nano)
+- Auto-applied: no restart or reload command needed
+
+## Dependencies
+
+```
+Step 1 -> Step 2 -> Step 3 (generation pipeline)
+Step 4 (independent, can parallel with 1-3)
+Step 5 (needs Step 4 for SSH port support)
+Step 6 (needs Step 5 for NAT rules type)
+Step 7 (needs Step 6 for iptables file)
+```

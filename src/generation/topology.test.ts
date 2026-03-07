@@ -252,4 +252,58 @@ describe('generateTopology', () => {
       });
     });
   });
+
+  // accessVariant tests
+  it('every machine has an accessVariant field', () => {
+    const result = generateTopology(createPrng('variant-test'), 'medium');
+    result.machines.forEach((m) => {
+      expect(m.accessVariant).toBeDefined();
+      expect(['ssh', 'ftp', 'nc', 'exploit', 'http']).toContain(m.accessVariant);
+    });
+    expect(result.routerMachine.accessVariant).toBeDefined();
+  });
+
+  it('in forwarded mode, entry machine accessVariant matches entryVariant', () => {
+    // In forwarded mode, the entry machine IS the player-facing entry point
+    const results = Array.from({ length: 30 }, (_, i) =>
+      generateTopology(createPrng(`entry-var-${i}`), 'easy'),
+    );
+    results
+      .filter((r) => r.natForwarding !== undefined)
+      .forEach((r) => {
+        const entry = r.machines.find((m) => m.ip === r.entryPoint);
+        expect(entry?.accessVariant).toBe(r.entryVariant);
+      });
+  });
+
+  it('in router-first mode, router accessVariant matches entryVariant', () => {
+    // In router-first mode, the router IS the player-facing entry point
+    const results = Array.from({ length: 30 }, (_, i) =>
+      generateTopology(createPrng(`router-var-${i}`), 'hard'),
+    );
+    results.forEach((r) => {
+      expect(r.routerMachine.accessVariant).toBe(r.entryVariant);
+    });
+  });
+
+  it('accessVariant is deterministic for the same seed', () => {
+    const a = generateTopology(createPrng('det-variant'), 'medium');
+    const b = generateTopology(createPrng('det-variant'), 'medium');
+    a.machines.forEach((m, i) => {
+      expect(m.accessVariant).toBe(b.machines[i]?.accessVariant);
+    });
+    expect(a.routerMachine.accessVariant).toBe(b.routerMachine.accessVariant);
+  });
+
+  it('non-entry machines have varied accessVariants across seeds', () => {
+    const variants = new Set<string>();
+    Array.from({ length: 30 }, (_, i) => {
+      const result = generateTopology(createPrng(`variety-${i}`), 'hard');
+      result.machines
+        .filter((m) => m.ip !== result.entryPoint)
+        .forEach((m) => variants.add(m.accessVariant));
+    });
+    // With 5 possible variants and 30 seeds (hard = 4-6 machines each), expect at least 3
+    expect(variants.size).toBeGreaterThanOrEqual(3);
+  });
 });

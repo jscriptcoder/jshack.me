@@ -46,6 +46,7 @@ export type GeneratedMachine = {
   readonly ip: string;
   readonly hostname: string;
   readonly role: MachineRole;
+  readonly accessVariant: EntryVariant;
   readonly remoteMachine: RemoteMachine;
 };
 

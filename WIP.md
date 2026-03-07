@@ -1,21 +1,22 @@
-# WIP: Tool-Based Progression System
+# WIP: Dynamic Network Access & Iptables
 
 ## Current Step
 
-Step 6 of 6: Remove credential-based generation and mission board
+Step 1 of 7: Add `accessVariant` to `GeneratedMachine`
 
 ## Status
 
-⏸️ WAITING — Awaiting commit approval
+WAITING - Awaiting commit approval
 
 ## Completed
 
-- [x] Step 1: `ls -l` flag — Long listing with permissions display
-- [x] Step 2: Extend FileSystemPatch to persist permissions
-- [x] Step 3: chmod command
-- [x] Step 4: Command resolution from current directory with execute check
-- [x] Step 5: `scp` command — Secure copy between machines
-- [x] Step 6: Remove credential-based generation and mission board
+- [ ] Step 1: Add `accessVariant` to `GeneratedMachine`
+- [ ] Step 2: Generate variant-specific ports per machine
+- [ ] Step 3: Enrich all machines with variant data
+- [ ] Step 4: SSH `-p` flag support
+- [ ] Step 5: Port-aware NAT resolution
+- [ ] Step 6: Generate iptables rules file on router
+- [ ] Step 7: Dynamic iptables parsing for NAT + port visibility
 
 ## Blockers
 
@@ -23,4 +24,4 @@ None
 
 ## Next Action
 
-Commit Step 6 and complete the feature.
+Get plan approval, then start Step 1.
