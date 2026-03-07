@@ -186,14 +186,17 @@ describe('generateTopology', () => {
     });
   });
 
-  it('forwarded mode sets natForwarding with correct IPs', () => {
+  it('forwarded mode sets natForwarding with port-level rules', () => {
     // Search for a seed that produces forwarded mode
     let found = false;
     for (let i = 0; i < 50; i++) {
       const result = generateTopology(createPrng(`fwd-${i}`), 'easy');
       if (result.natForwarding) {
         expect(result.natForwarding.publicIp).toBe(result.routerPublicIp);
-        expect(result.natForwarding.internalIp).toBe(result.entryPoint);
+        expect(result.natForwarding.rules.length).toBeGreaterThan(0);
+        result.natForwarding.rules.forEach((rule) => {
+          expect(rule.internalIp).toBe(result.entryPoint);
+        });
         found = true;
         break;
       }

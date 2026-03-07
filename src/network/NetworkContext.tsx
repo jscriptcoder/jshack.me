@@ -21,7 +21,7 @@ type NetworkContextType = {
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
   readonly getDnsRecords: () => readonly DnsRecord[];
   readonly findMachineUsers: (ip: string) => readonly string[];
-  readonly resolveNat: (ip: string) => string;
+  readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
 };
 
 const NetworkContext = createContext<NetworkContextType | null>(null);
@@ -74,13 +74,10 @@ export const NetworkProvider = ({
 
     if (session.machine === 'localhost' && missionNetworkConfig && missionRouterMachine) {
       // From localhost, only the router's public IP is reachable.
-      // In forwarded mode, the router appears to have the entry machine's ports/users.
+      // In forwarded mode, the router shows its own ports + forwarded ports, and
+      // merged users from forwarded machines (so SSH user check works before NAT resolution).
       const routerRemote: RemoteMachine = missionNatForwarding
-        ? buildForwardedRouterMachine(
-            missionRouterMachine,
-            missionMachines ?? [],
-            missionNatForwarding,
-          )
+        ? buildMergedRouterView(missionRouterMachine, missionMachines ?? [], missionNatForwarding)
         : missionRouterMachine.remoteMachine;
 
       // External DNS: only router's public IP
@@ -192,14 +189,15 @@ export const NetworkProvider = ({
     [config, missionNetworkConfig, missionRouterMachine],
   );
 
-  // NAT resolution: translates the router's public IP to the internal entry machine IP
-  // when port forwarding is active. Identity function otherwise.
+  // Port-aware NAT resolution: translates the router's public IP + port to the
+  // internal machine IP + port based on forwarding rules. Identity otherwise.
   const resolveNat = useCallback(
-    (ip: string): string => {
+    (ip: string, port: number): { readonly ip: string; readonly port: number } => {
       if (missionNatForwarding && ip === missionNatForwarding.publicIp) {
-        return missionNatForwarding.internalIp;
+        const rule = missionNatForwarding.rules.find((r) => r.publicPort === port);
+        if (rule) return { ip: rule.internalIp, port: rule.internalPort };
       }
-      return ip;
+      return { ip, port };
     },
     [missionNatForwarding],
   );
@@ -225,22 +223,53 @@ export const NetworkProvider = ({
   );
 };
 
-// In forwarded mode, the router appears from localhost as having the entry machine's
-// ports and users, so `ssh("guest@routerPublicIp")` transparently connects to the
-// internal entry machine.
-const buildForwardedRouterMachine = (
+// In forwarded mode, the router appears from localhost with its own ports plus
+// forwarded ports and merged users from forwarded machines. This lets SSH user
+// verification work against the visible machine before NAT resolution.
+const buildMergedRouterView = (
   routerMachine: GeneratedMachine,
   missionMachines: readonly GeneratedMachine[],
   natForwarding: NatForwarding,
 ): RemoteMachine => {
-  const entryMachine = missionMachines.find((m) => m.ip === natForwarding.internalIp);
-  if (!entryMachine) return routerMachine.remoteMachine;
+  // Collect internal machines referenced by NAT rules
+  const forwardedIps = new Set(natForwarding.rules.map((r) => r.internalIp));
+  const forwardedMachines = missionMachines.filter((m) => forwardedIps.has(m.ip));
+
+  // Forwarded ports mapped to their public port numbers
+  const forwardedPorts = natForwarding.rules
+    .map((rule) => {
+      const machine = forwardedMachines.find((m) => m.ip === rule.internalIp);
+      const internalPort = machine?.remoteMachine.ports.find(
+        (p) => p.port === rule.internalPort && p.open,
+      );
+      if (!internalPort) return undefined;
+      return { ...internalPort, port: rule.publicPort };
+    })
+    .filter((p) => p !== undefined);
+
+  // Deduplicate: forwarded ports override router ports on collision
+  const forwardedPortNumbers = new Set(forwardedPorts.map((p) => p.port));
+  const routerOnlyPorts = routerMachine.remoteMachine.ports.filter(
+    (p) => !forwardedPortNumbers.has(p.port),
+  );
+
+  // Merge users: router's own + forwarded machines', deduplicated by username
+  const allUsers = [
+    ...routerMachine.remoteMachine.users,
+    ...forwardedMachines.flatMap((m) => m.remoteMachine.users),
+  ];
+  const seenUsernames = new Set<string>();
+  const uniqueUsers = allUsers.filter((u) => {
+    if (seenUsernames.has(u.username)) return false;
+    seenUsernames.add(u.username);
+    return true;
+  });
 
   return {
     ip: routerMachine.ip,
     hostname: routerMachine.hostname,
-    ports: entryMachine.remoteMachine.ports,
-    users: entryMachine.remoteMachine.users,
+    ports: [...routerOnlyPorts, ...forwardedPorts],
+    users: uniqueUsers,
   };
 };
 

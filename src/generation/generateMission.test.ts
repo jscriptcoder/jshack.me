@@ -290,14 +290,26 @@ describe('generateMissionNetwork', () => {
     });
   });
 
-  it('forwarded mode natForwarding points router public IP to entry machine', () => {
+  it('forwarded mode natForwarding has port-level rules for entry machine', () => {
     let found = false;
     for (let i = 0; i < 50; i++) {
       const result = generateMissionNetwork(`fwd-mission-${i}`);
       if (!result.natForwarding) continue;
 
       expect(result.natForwarding.publicIp).toBe(result.routerPublicIp);
-      expect(result.natForwarding.internalIp).toBe(result.entryPoint);
+      expect(result.natForwarding.rules.length).toBeGreaterThan(0);
+
+      // All rules should point to the entry machine
+      result.natForwarding.rules.forEach((rule) => {
+        expect(rule.internalIp).toBe(result.entryPoint);
+        expect(rule.publicPort).toBe(rule.internalPort);
+      });
+
+      // Rules should match the entry machine's open ports
+      const entryMachine = result.machines.find((m) => m.ip === result.entryPoint);
+      const openPorts = entryMachine?.remoteMachine.ports.filter((p) => p.open) ?? [];
+      expect(result.natForwarding.rules.length).toBe(openPorts.length);
+
       found = true;
       break;
     }

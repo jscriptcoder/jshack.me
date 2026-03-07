@@ -289,9 +289,15 @@ export const generateTopology = (
     },
   };
 
-  // NAT forwarding config (forwarded mode only)
+  // NAT forwarding config (forwarded mode only) — port-level rules from entry machine
   const natForwarding: NatForwarding | undefined = forwarded
-    ? { publicIp: routerPublicIp, internalIp: entryIp }
+    ? {
+        publicIp: routerPublicIp,
+        rules:
+          machines[0]?.remoteMachine.ports
+            .filter((p) => p.open)
+            .map((p) => ({ publicPort: p.port, internalIp: entryIp, internalPort: p.port })) ?? [],
+      }
     : undefined;
 
   // DNS: internal records for all mission machines + router internal IP

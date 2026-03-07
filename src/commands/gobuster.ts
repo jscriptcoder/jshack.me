@@ -7,7 +7,7 @@ import { createCancellationToken, jitter } from '../utils/asyncCommand';
 type GobusterContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
-  readonly resolveNat: (ip: string) => string;
+  readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
   readonly getNodeFromMachine: (machineId: string, path: string, cwd: string) => FileNode | null;
 };
 
@@ -149,7 +149,7 @@ export const createGobusterCommand = (context: GobusterContext): Command => ({
     }
 
     // Resolve NAT for filesystem reads (forwarded mode maps router to internal machine)
-    const filesystemIP = resolveNat(targetIP);
+    const filesystemIP = resolveNat(targetIP, 80).ip;
     const webRoot = getNodeFromMachine(filesystemIP, '/var/www/html', '/');
 
     if (!webRoot || webRoot.type !== 'directory') {

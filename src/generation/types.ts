@@ -73,9 +73,15 @@ export type MissionNetwork = {
   readonly domainEntry: boolean;
 };
 
+export type NatForwardingRule = {
+  readonly publicPort: number;
+  readonly internalIp: string;
+  readonly internalPort: number;
+};
+
 export type NatForwarding = {
   readonly publicIp: string;
-  readonly internalIp: string;
+  readonly rules: readonly NatForwardingRule[];
 };
 
 export type SeedOverrides = {

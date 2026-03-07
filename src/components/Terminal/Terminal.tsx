@@ -271,7 +271,7 @@ export const Terminal = () => {
                 asyncCancelRef.current = null;
 
                 if (isSshPrompt(followUp)) {
-                  startSshPrompt(followUp.targetUser, followUp.targetIP);
+                  startSshPrompt(followUp.targetUser, followUp.targetIP, followUp.targetPort);
                 }
 
                 if (isFtpPrompt(followUp)) {
@@ -280,7 +280,7 @@ export const Terminal = () => {
 
                 if (isNcPrompt(followUp)) {
                   const newNcSession: NcSession = {
-                    targetIP: resolveNat(followUp.targetIP),
+                    targetIP: resolveNat(followUp.targetIP, followUp.targetPort).ip,
                     targetPort: followUp.targetPort,
                     service: followUp.service,
                     username: followUp.username,

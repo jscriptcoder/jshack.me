@@ -45,7 +45,7 @@ const createMockCurlContext = (config: CurlContextConfig = {}) => {
   return {
     getMachine: (ip: string) => machines.find((m) => m.ip === ip),
     resolveDomain: (domain: string) => dnsRecords.find((r) => r.domain === domain),
-    resolveNat: (ip: string) => ip,
+    resolveNat: (ip: string, port: number) => ({ ip, port }),
     readFileFromMachine: (
       _machineId: MachineId,
       path: string,
@@ -432,7 +432,8 @@ describe('curl command', () => {
             ? getMockMachine({ ip: routerIP, ports: [{ port: 80, service: 'http', open: true }] })
             : undefined,
         resolveDomain: () => undefined,
-        resolveNat: (ip: string) => (ip === routerIP ? internalIP : ip),
+        resolveNat: (ip: string, port: number) =>
+          ip === routerIP ? { ip: internalIP, port } : { ip, port },
         readFileFromMachine: (
           machineId: MachineId,
           path: string,
@@ -460,7 +461,8 @@ describe('curl command', () => {
             ? getMockMachine({ ip: routerIP, ports: [{ port: 80, service: 'http', open: true }] })
             : undefined,
         resolveDomain: () => undefined,
-        resolveNat: (ip: string) => (ip === routerIP ? internalIP : ip),
+        resolveNat: (ip: string, port: number) =>
+          ip === routerIP ? { ip: internalIP, port } : { ip, port },
         readFileFromMachine: (
           machineId: MachineId,
           path: string,

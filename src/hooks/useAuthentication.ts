@@ -23,7 +23,7 @@ type AuthenticationOptions = {
     ip: string,
   ) => { readonly hostname: string; readonly users: readonly RemoteUser[] } | undefined;
   readonly readFile: (path: string, userType: UserType) => string | null;
-  readonly resolveNat: (ip: string) => string;
+  readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
   readonly getDefaultHomePath: (machineIp: string, username: string) => string;
   readonly setUsername: (username: string, userType: UserType) => void;
   readonly setMachine: (machine: string) => void;
@@ -50,6 +50,7 @@ export const useAuthentication = ({
   const [passwordMode, setPasswordMode] = useState(false);
   const [targetUser, setTargetUser] = useState<string | null>(null);
   const [sshTargetIP, setSshTargetIP] = useState<string | null>(null);
+  const [sshTargetPort, setSshTargetPort] = useState<number | null>(null);
   const [ftpTargetIP, setFtpTargetIP] = useState<string | null>(null);
   const [ftpUsernameMode, setFtpUsernameMode] = useState(false);
 
@@ -63,9 +64,10 @@ export const useAuthentication = ({
   );
 
   const startSshPrompt = useCallback(
-    (user: string, targetIP: string) => {
+    (user: string, targetIP: string, targetPort: number) => {
       setTargetUser(user);
       setSshTargetIP(targetIP);
+      setSshTargetPort(targetPort);
       setPasswordMode(true);
       addLine('result', `${user}@${targetIP}'s password:`);
     },
@@ -85,6 +87,7 @@ export const useAuthentication = ({
     setPasswordMode(false);
     setTargetUser(null);
     setSshTargetIP(null);
+    setSshTargetPort(null);
     setFtpTargetIP(null);
     setFtpUsernameMode(false);
   }, []);
@@ -186,7 +189,7 @@ export const useAuthentication = ({
           const remoteHomePath = targetUser === 'root' ? '/root' : `/home/${targetUser}`;
 
           const newFtpSession: FtpSession = {
-            remoteMachine: resolveNat(ftpTargetIP),
+            remoteMachine: resolveNat(ftpTargetIP, 21).ip,
             remoteUsername: targetUser,
             remoteUserType: userType,
             remoteCwd: remoteHomePath,
@@ -203,8 +206,9 @@ export const useAuthentication = ({
           pushSession();
 
           // NAT resolution: if connecting to a router's public IP with port forwarding,
-          // resolve to the internal entry machine IP
-          const resolvedIp = resolveNat(sshTargetIP);
+          // resolve to the internal entry machine IP using the target port
+          const resolved = resolveNat(sshTargetIP, sshTargetPort ?? 22);
+          const resolvedIp = resolved.ip;
           const machine = getMachine(sshTargetIP);
           const remoteUser = machine?.users.find((u) => u.username === targetUser);
           const userType: UserType = remoteUser?.userType ?? 'user';
@@ -248,12 +252,14 @@ export const useAuthentication = ({
       setPasswordMode(false);
       setTargetUser(null);
       setSshTargetIP(null);
+      setSshTargetPort(null);
       setFtpTargetIP(null);
       clearInput();
     },
     [
       targetUser,
       sshTargetIP,
+      sshTargetPort,
       ftpTargetIP,
       validatePassword,
       setUsername,
