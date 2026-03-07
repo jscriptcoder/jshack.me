@@ -23,11 +23,15 @@ export type MissionState = {
 
 export const useMissionState = (): MissionState => {
   const [activeMission, setActiveMission] = useState<MissionNetwork | null>(initializeMission);
-  const syncChannelRef = useRef(createSyncChannel());
+  // Create channel inside effect so StrictMode's cleanup + re-run cycle gets
+  // a fresh (open) channel. The ref is updated so broadcast calls always use
+  // the currently-active channel.
+  const syncChannelRef = useRef<ReturnType<typeof createSyncChannel> | null>(null);
 
   // Subscribe to mission changes from other tabs
   useEffect(() => {
-    const channel = syncChannelRef.current;
+    const channel = createSyncChannel();
+    syncChannelRef.current = channel;
     channel.onMessage((message: SyncMessage) => {
       if (message.type !== 'mission-changed') return;
 
@@ -56,7 +60,7 @@ export const useMissionState = (): MissionState => {
     (mission: MissionNetwork) => {
       setActiveMission(mission);
       persistSeed(mission.seed);
-      syncChannelRef.current.broadcast({ type: 'mission-changed', seed: mission.seed });
+      syncChannelRef.current?.broadcast({ type: 'mission-changed', seed: mission.seed });
     },
     [persistSeed],
   );
@@ -64,13 +68,13 @@ export const useMissionState = (): MissionState => {
   const abortMission = useCallback(() => {
     setActiveMission(null);
     persistSeed(null);
-    syncChannelRef.current.broadcast({ type: 'mission-changed', seed: null });
+    syncChannelRef.current?.broadcast({ type: 'mission-changed', seed: null });
   }, [persistSeed]);
 
   const completeMission = useCallback(() => {
     setActiveMission(null);
     persistSeed(null);
-    syncChannelRef.current.broadcast({ type: 'mission-changed', seed: null });
+    syncChannelRef.current?.broadcast({ type: 'mission-changed', seed: null });
   }, [persistSeed]);
 
   return { activeMission, startMission, abortMission, completeMission };

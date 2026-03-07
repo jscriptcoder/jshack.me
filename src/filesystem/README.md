@@ -60,7 +60,7 @@ type FileNode = {
 
 ### Persistence
 
-User-created/modified files are persisted as patches in IndexedDB (`jshack-db` database, `filesystem` store). On init, patches are replayed on top of the base filesystem. Only the diff is stored — clearing the database resets to factory state. Mission filesystem patches are excluded from persistence — only static machine patches are saved to IndexedDB. This means `apt install` on mission machines persists within a session (via filesystem patches) but resets when the mission is regenerated.
+User-created/modified files are persisted as patches in IndexedDB (`jshack-db` database, `filesystem` store). On init, patches are replayed on top of the base filesystem. Only the diff is stored — clearing the database resets to factory state. Both static and mission filesystem patches are persisted. On reload with an active mission, the mission is regenerated from its seed and mission patches are replayed on top. Mission patches are cleaned up on mission end/transition.
 
 ### Permission System
 

@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useRef,
+  useMemo,
   type ReactNode,
 } from 'react';
 import type { FileNode, FilePermissions, FileSystemPatch, PermissionResult } from './types';
@@ -122,12 +123,16 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
   const { session } = useSession();
   const [fileSystems, setFileSystems] = useState<FileSystemsState>(initializeFileSystems);
   const [patches, setPatches] = useState<readonly FileSystemPatch[]>(getCachedFilesystemPatches);
-  const syncChannelRef = useRef(createSyncChannel());
+  // Create channel inside effect so StrictMode's cleanup + re-run cycle gets
+  // a fresh (open) channel. The ref is updated so broadcastAndRecordPatch always
+  // posts on the currently-active channel.
+  const syncChannelRef = useRef<ReturnType<typeof createSyncChannel> | null>(null);
 
   // Subscribe to filesystem patches from other tabs.
   // BroadcastChannel does not deliver messages to the posting tab, so no echo guard needed.
   useEffect(() => {
-    const channel = syncChannelRef.current;
+    const channel = createSyncChannel();
+    syncChannelRef.current = channel;
     channel.onMessage((message: SyncMessage) => {
       if (message.type !== 'filesystem-patch') return;
       const patch = message.patch;
@@ -154,27 +159,59 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
     return () => channel.close();
   }, []);
 
-  // Only persist patches for static (tutorial) machines — mission filesystem patches are
-  // excluded because missions regenerate entirely from their seed on reload.
+  // Persist all patches (static + mission) to IndexedDB. Mission patches are replayed
+  // on top of regenerated filesystems when the page reloads with an active mission seed.
   useEffect(() => {
     const db = getDatabase();
     if (db) {
-      const staticPatches = patches.filter((p) => STATIC_MACHINE_KEYS.has(p.machineId));
-      saveFilesystemPatches(db, staticPatches);
+      saveFilesystemPatches(db, [...patches]);
     }
   }, [patches]);
+
+  // Track whether the missionFileSystems effect is running for the first time.
+  // On initial mount with a persisted mission, we replay cached patches so the
+  // user's in-progress work (apt installs, nano edits, etc.) survives page reload.
+  const isInitialMissionMount = useRef(true);
+
+  // Snapshot of cached patches at mount time — used only once during initial
+  // mission replay and never updated, avoiding a stale dependency in the effect.
+  const cachedPatchesAtMount = useMemo(() => getCachedFilesystemPatches(), []);
 
   // When a mission starts/ends, merge or remove mission filesystems.
   // Static machine filesystems are always preserved; mission ones are overlaid on top.
   useEffect(() => {
+    // On runtime mission transitions (not initial mount), clean up old mission
+    // patches — they belong to the previous mission and shouldn't carry over.
+    if (!isInitialMissionMount.current) {
+      setPatches((prev) => prev.filter((p) => STATIC_MACHINE_KEYS.has(p.machineId)));
+    }
+
     setFileSystems((prev) => {
       const staticOnly = Object.fromEntries(
         Object.entries(prev).filter(([key]) => STATIC_MACHINE_KEYS.has(key)),
       );
-      if (!missionFileSystems) return staticOnly;
-      return { ...staticOnly, ...missionFileSystems };
+      if (!missionFileSystems) {
+        isInitialMissionMount.current = false;
+        return staticOnly;
+      }
+
+      const merged = { ...staticOnly, ...missionFileSystems };
+
+      // On initial mount, replay persisted mission patches on top of regenerated
+      // filesystems so the user's in-progress changes survive page reload.
+      if (isInitialMissionMount.current) {
+        isInitialMissionMount.current = false;
+        const missionPatches = cachedPatchesAtMount.filter(
+          (p) => !STATIC_MACHINE_KEYS.has(p.machineId),
+        );
+        if (missionPatches.length > 0) {
+          return applyPatches(merged, missionPatches);
+        }
+      }
+
+      return merged;
     });
-  }, [missionFileSystems]);
+  }, [missionFileSystems, cachedPatchesAtMount]);
 
   // session.machine is typed as string but always holds a valid MachineId at runtime
   // (set by SSH/session logic). The assertion avoids threading MachineId through SessionContext.
@@ -304,7 +341,7 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
   // Deletion of a base filesystem file records a null patch.
   // Both cases also remove any child patches under the deleted path.
   const broadcastAndRecordPatch = useCallback((patch: FileSystemPatch) => {
-    syncChannelRef.current.broadcast({ type: 'filesystem-patch', patch });
+    syncChannelRef.current?.broadcast({ type: 'filesystem-patch', patch });
     setPatches((prev) => {
       if (patch.content !== null) return upsertPatch(prev, patch);
 

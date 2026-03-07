@@ -130,12 +130,16 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
   const [brickedMachines, setBrickedMachines] = useState<ReadonlySet<string>>(
     () => new Set(getCachedBrickedMachines()),
   );
-  const syncChannelRef = useRef(createSyncChannel());
+  // Create channel inside effect so StrictMode's cleanup + re-run cycle gets
+  // a fresh (open) channel. The ref is updated so broadcast calls always use
+  // the currently-active channel.
+  const syncChannelRef = useRef<ReturnType<typeof createSyncChannel> | null>(null);
 
   // Subscribe to WiFi and theme changes from other tabs.
   // BroadcastChannel does not deliver messages to the posting tab, so no echo guard needed.
   useEffect(() => {
-    const channel = syncChannelRef.current;
+    const channel = createSyncChannel();
+    syncChannelRef.current = channel;
     channel.onMessage((message: SyncMessage) => {
       if (message.type === 'wifi-changed') {
         setWifiConnectedState(message.connected);
@@ -257,7 +261,7 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
     if (db) {
       saveWifiState(db, connected);
     }
-    syncChannelRef.current.broadcast({ type: 'wifi-changed', connected });
+    syncChannelRef.current?.broadcast({ type: 'wifi-changed', connected });
   }, []);
 
   const markMachineBricked = useCallback((machine: string) => {
@@ -269,7 +273,7 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
       if (db) {
         saveBrickedMachines(db, [...updated]);
       }
-      syncChannelRef.current.broadcast({ type: 'bricked-changed', machine });
+      syncChannelRef.current?.broadcast({ type: 'bricked-changed', machine });
       return updated;
     });
   }, []);
@@ -281,7 +285,7 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
 
   const setTheme = useCallback((theme: ThemeId) => {
     setSession((prev) => ({ ...prev, theme }));
-    syncChannelRef.current.broadcast({ type: 'theme-changed', theme });
+    syncChannelRef.current?.broadcast({ type: 'theme-changed', theme });
   }, []);
 
   useEffect(() => {
@@ -345,7 +349,7 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
     if (db) {
       saveWifiState(db, false);
     }
-    syncChannelRef.current.broadcast({ type: 'wifi-changed', connected: false });
+    syncChannelRef.current?.broadcast({ type: 'wifi-changed', connected: false });
   }, [sessionStack]);
 
   return (

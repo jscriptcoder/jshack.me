@@ -144,9 +144,11 @@ let resolvedExecutionContext: ExecutionContext | undefined;
 ✅ **CORRECT - Comment explaining "why"**
 
 ```typescript
-// Mission filesystem patches are excluded from persistence — only static
-// machine patches are saved, since missions regenerate from seed on reload.
-const patchesToSave = patches.filter((p) => STATIC_MACHINE_KEYS.has(p.machineId));
+// On runtime mission transitions (not initial mount), clean up old mission
+// patches — they belong to the previous mission and shouldn't carry over.
+if (!isInitialMissionMount.current) {
+  setPatches((prev) => prev.filter((p) => STATIC_MACHINE_KEYS.has(p.machineId)));
+}
 ```
 
 ### First Resort: Refactor

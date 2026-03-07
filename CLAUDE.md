@@ -122,7 +122,7 @@ Key details:
 - `SessionContext` writes session to `sessionStorage` via `useEffect`; WiFi state writes to IndexedDB separately
 - Filesystem uses a patches approach — only diffs from base filesystem are stored
 - Mission seed persisted to IndexedDB session store (`activeMissionSeed` key); full network regenerated from seed on reload
-- Mission filesystem patches are NOT persisted — only static machine patches are saved
+- Mission filesystem patches are persisted to IndexedDB and replayed on reload (cleaned up on mission end/transition)
 - `reset("confirm")` clears both IndexedDB and sessionStorage, then reloads
 
 ### Cross-Tab Sync
@@ -167,8 +167,8 @@ After completing the 16-flag tutorial, players can take on procedurally generate
 - **NAT resolution** — `NetworkContext.resolveNat(ip, port)` translates router public IP + port to internal machine IP + port based on iptables rules parsed dynamically from `/etc/iptables/rules.v4` on the router's filesystem (`src/network/iptablesParser.ts`). Applied at SSH/FTP/NC connection boundaries in `Terminal.tsx`. Players can edit the iptables file with `nano` to add/remove forwarding rules — changes take effect on the next connection or `nmap` scan.
 - **Commands** — `missions()` browses contracts, `accept(seed)` starts a mission, `abort()` cancels and returns to localhost, `mail(recipient, content)` submits proof to complete
 - **Completion** — Player sends proof via `mail("client@darkmail.onion", "proof")`. Five objective types: exfiltrate (find ACCESS-KEY, optionally encrypted — requires `gpg(file, key)` as root), tamper (modify a file), credential_theft (steal root password), script_fix (fix broken script with nano, run with node — scripts call `_decode(checksum)` which returns the ACCESS-KEY if the checksum is correct, then player mails it to the client), sabotage (gain root, delete `/boot/vmlinuz`, reboot to brick the target machine). The `mail` command verifies proof and calls `completeMission()`.
-- **Isolation** — From localhost, only the router's public IP is reachable. Internal machines are discovered after connecting to the router or through forwarded ports. Mission filesystem patches are excluded from IndexedDB persistence.
-- **Persistence** — Only the seed string is persisted; full network regenerated on reload
+- **Isolation** — From localhost, only the router's public IP is reachable. Internal machines are discovered after connecting to the router or through forwarded ports.
+- **Persistence** — Seed string + filesystem patches persisted to IndexedDB. On reload, mission is regenerated from seed and patches are replayed. Patches are cleaned up on mission end/transition.
 
 ### Node Execution Circular Dependency
 

@@ -53,7 +53,7 @@ App (useMissionState)
 
 ### Persistence
 
-Only the seed string is persisted to IndexedDB (`activeMissionSeed` key in the session store). On page reload, `useMissionState` checks the storage cache for a persisted seed and regenerates the full `MissionNetwork` deterministically. Session state (current machine, path, SSH stack) and static filesystem patches persist via existing mechanisms. Mission filesystem patches are intentionally excluded from persistence.
+The seed string and filesystem patches are persisted to IndexedDB. On page reload, `useMissionState` checks the storage cache for a persisted seed and regenerates the full `MissionNetwork` deterministically. `FileSystemContext` then replays any cached mission patches (apt installs, nano edits, etc.) on top of the regenerated filesystems. Mission patches are cleaned up on mission end/transition.
 
 ### Network Isolation
 
