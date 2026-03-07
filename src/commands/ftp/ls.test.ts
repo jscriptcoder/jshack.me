@@ -6,8 +6,25 @@ import type { MachineId } from '../../filesystem/machineFileSystems';
 
 // --- Factory Functions ---
 
-const createMockFileNode = (overrides?: Partial<FileNode>): FileNode => ({
-  name: 'test',
+const createMockFile = (name: string, overrides?: Partial<FileNode>): FileNode => ({
+  name,
+  type: 'file',
+  owner: 'root',
+  content: 'test content',
+  permissions: {
+    read: ['root', 'user', 'guest'],
+    write: ['root'],
+    execute: ['root'],
+  },
+  ...overrides,
+});
+
+const createMockDirectory = (
+  name: string,
+  children: Record<string, FileNode> = {},
+  overrides?: Partial<FileNode>,
+): FileNode => ({
+  name,
   type: 'directory',
   owner: 'root',
   permissions: {
@@ -15,7 +32,7 @@ const createMockFileNode = (overrides?: Partial<FileNode>): FileNode => ({
     write: ['root'],
     execute: ['root', 'user', 'guest'],
   },
-  children: {},
+  children,
   ...overrides,
 });
 
@@ -24,7 +41,6 @@ type MockContextConfig = {
   readonly remoteCwd?: string;
   readonly remoteUserType?: UserType;
   readonly nodes?: Readonly<Record<string, FileNode | null>>;
-  readonly directoryEntries?: Readonly<Record<string, string[]>>;
 };
 
 const createMockContext = (config: MockContextConfig = {}) => {
@@ -33,7 +49,6 @@ const createMockContext = (config: MockContextConfig = {}) => {
     remoteCwd = '/srv/ftp',
     remoteUserType = 'user',
     nodes = {},
-    directoryEntries = {},
   } = config;
 
   const resolvePathForMachine = (path: string, cwd: string): string => {
@@ -46,30 +61,13 @@ const createMockContext = (config: MockContextConfig = {}) => {
     return cwd === '/' ? `/${path}` : `${cwd}/${path}`;
   };
 
-  const getNodeFromMachine = (
-    _machineId: MachineId,
-    path: string,
-    _cwd: string,
-  ): FileNode | null => {
-    return nodes[path] ?? null;
-  };
-
-  const listDirectoryFromMachine = (
-    _machineId: MachineId,
-    path: string,
-    _cwd: string,
-    _userType: UserType,
-  ): string[] | null => {
-    return directoryEntries[path] ?? null;
-  };
-
   return {
     getRemoteMachine: () => remoteMachine,
     getRemoteCwd: () => remoteCwd,
     getRemoteUserType: () => remoteUserType,
     resolvePathForMachine,
-    getNodeFromMachine,
-    listDirectoryFromMachine,
+    getNodeFromMachine: (_machineId: MachineId, path: string, _cwd: string): FileNode | null =>
+      nodes[path] ?? null,
     canTraverseOnMachine: () => ({ allowed: true }),
   };
 };
@@ -82,10 +80,10 @@ describe('FTP ls command', () => {
       const context = createMockContext({
         remoteCwd: '/srv/ftp',
         nodes: {
-          '/srv/ftp': createMockFileNode({ name: 'ftp' }),
-        },
-        directoryEntries: {
-          '/srv/ftp': ['file1.txt', 'file2.txt'],
+          '/srv/ftp': createMockDirectory('ftp', {
+            'file1.txt': createMockFile('file1.txt'),
+            'file2.txt': createMockFile('file2.txt'),
+          }),
         },
       });
       const ls = createFtpLsCommand(context);
@@ -99,27 +97,26 @@ describe('FTP ls command', () => {
       const context = createMockContext({
         remoteCwd: '/home',
         nodes: {
-          '/srv/ftp': createMockFileNode({ name: 'ftp' }),
-        },
-        directoryEntries: {
-          '/srv/ftp': ['pub', 'incoming'],
+          '/srv/ftp': createMockDirectory('ftp', {
+            incoming: createMockDirectory('incoming'),
+            pub: createMockDirectory('pub'),
+          }),
         },
       });
       const ls = createFtpLsCommand(context);
 
       const result = ls.fn('/srv/ftp');
 
-      expect(result).toBe('pub  incoming');
+      expect(result).toBe('incoming/  pub/');
     });
 
     it('should list relative path', () => {
       const context = createMockContext({
         remoteCwd: '/srv',
         nodes: {
-          '/srv/ftp': createMockFileNode({ name: 'ftp' }),
-        },
-        directoryEntries: {
-          '/srv/ftp': ['data.zip'],
+          '/srv/ftp': createMockDirectory('ftp', {
+            'data.zip': createMockFile('data.zip'),
+          }),
         },
       });
       const ls = createFtpLsCommand(context);
@@ -129,48 +126,52 @@ describe('FTP ls command', () => {
       expect(result).toBe('data.zip');
     });
 
-    it('should return empty directory message', () => {
+    it('should return empty string for empty directory', () => {
       const context = createMockContext({
         remoteCwd: '/srv/ftp',
         nodes: {
-          '/srv/ftp': createMockFileNode({ name: 'ftp' }),
-        },
-        directoryEntries: {
-          '/srv/ftp': [],
+          '/srv/ftp': createMockDirectory('ftp'),
         },
       });
       const ls = createFtpLsCommand(context);
 
       const result = ls.fn();
 
-      expect(result).toBe('(empty directory)');
+      expect(result).toBe('');
     });
 
     it('should add trailing slash to directories', () => {
       const context = createMockContext({
         remoteCwd: '/srv',
         nodes: {
-          '/srv': createMockFileNode({ name: 'srv' }),
-          '/srv/ftp': createMockFileNode({ name: 'ftp', type: 'directory' }),
-          '/srv/data.txt': createMockFileNode({
-            name: 'data.txt',
-            type: 'file',
-            permissions: {
-              read: ['root', 'user', 'guest'],
-              write: ['root'],
-              execute: ['root'],
-            },
+          '/srv': createMockDirectory('srv', {
+            'data.txt': createMockFile('data.txt'),
+            ftp: createMockDirectory('ftp'),
           }),
-        },
-        directoryEntries: {
-          '/srv': ['ftp', 'data.txt'],
         },
       });
       const ls = createFtpLsCommand(context);
 
       const result = ls.fn();
 
-      expect(result).toBe('ftp/  data.txt');
+      expect(result).toBe('data.txt  ftp/');
+    });
+
+    it('should sort entries alphabetically', () => {
+      const context = createMockContext({
+        remoteCwd: '/srv/ftp',
+        nodes: {
+          '/srv/ftp': createMockDirectory('ftp', {
+            'zebra.txt': createMockFile('zebra.txt'),
+            'alpha.txt': createMockFile('alpha.txt'),
+          }),
+        },
+      });
+      const ls = createFtpLsCommand(context);
+
+      const result = ls.fn();
+
+      expect(result).toBe('alpha.txt  zebra.txt');
     });
   });
 
@@ -179,16 +180,7 @@ describe('FTP ls command', () => {
       const context = createMockContext({
         remoteCwd: '/srv/ftp',
         nodes: {
-          '/srv/ftp/readme.txt': createMockFileNode({
-            name: 'readme.txt',
-            type: 'file',
-            content: 'hello',
-            permissions: {
-              read: ['root', 'user', 'guest'],
-              write: ['root'],
-              execute: ['root'],
-            },
-          }),
+          '/srv/ftp/readme.txt': createMockFile('readme.txt'),
         },
       });
       const ls = createFtpLsCommand(context);
@@ -207,7 +199,9 @@ describe('FTP ls command', () => {
       });
       const ls = createFtpLsCommand(context);
 
-      expect(() => ls.fn('/nonexistent')).toThrow('ls: /nonexistent: No such file or directory');
+      expect(() => ls.fn('/nonexistent')).toThrow(
+        "ls: cannot access '/nonexistent': No such file or directory",
+      );
     });
 
     it('should throw error when permission denied on directory', () => {
@@ -215,32 +209,22 @@ describe('FTP ls command', () => {
         remoteCwd: '/',
         remoteUserType: 'guest',
         nodes: {
-          '/root': createMockFileNode({
-            name: 'root',
-            permissions: {
-              read: ['root'],
-              write: ['root'],
-              execute: ['root'],
+          '/root': createMockDirectory(
+            'root',
+            {},
+            {
+              permissions: {
+                read: ['root'],
+                write: ['root'],
+                execute: ['root'],
+              },
             },
-          }),
+          ),
         },
       });
       const ls = createFtpLsCommand(context);
 
-      expect(() => ls.fn('/root')).toThrow('ls: /root: Permission denied');
-    });
-
-    it('should throw error when listDirectory returns null', () => {
-      const context = createMockContext({
-        remoteCwd: '/srv',
-        nodes: {
-          '/srv/restricted': createMockFileNode({ name: 'restricted' }),
-        },
-        directoryEntries: {},
-      });
-      const ls = createFtpLsCommand(context);
-
-      expect(() => ls.fn('restricted')).toThrow('ls: restricted: Permission denied');
+      expect(() => ls.fn('/root')).toThrow("ls: cannot open directory '/root': Permission denied");
     });
   });
 
@@ -249,28 +233,10 @@ describe('FTP ls command', () => {
       const context = createMockContext({
         remoteCwd: '/srv/ftp',
         nodes: {
-          '/srv/ftp': createMockFileNode({ name: 'ftp' }),
-          '/srv/ftp/.hidden': createMockFileNode({
-            name: '.hidden',
-            type: 'file',
-            permissions: {
-              read: ['root', 'user', 'guest'],
-              write: ['root'],
-              execute: ['root'],
-            },
+          '/srv/ftp': createMockDirectory('ftp', {
+            '.hidden': createMockFile('.hidden'),
+            'visible.txt': createMockFile('visible.txt'),
           }),
-          '/srv/ftp/visible.txt': createMockFileNode({
-            name: 'visible.txt',
-            type: 'file',
-            permissions: {
-              read: ['root', 'user', 'guest'],
-              write: ['root'],
-              execute: ['root'],
-            },
-          }),
-        },
-        directoryEntries: {
-          '/srv/ftp': ['.hidden', 'visible.txt'],
         },
       });
       const ls = createFtpLsCommand(context);
@@ -285,28 +251,10 @@ describe('FTP ls command', () => {
       const context = createMockContext({
         remoteCwd: '/srv/ftp',
         nodes: {
-          '/srv/ftp': createMockFileNode({ name: 'ftp' }),
-          '/srv/ftp/.hidden': createMockFileNode({
-            name: '.hidden',
-            type: 'file',
-            permissions: {
-              read: ['root', 'user', 'guest'],
-              write: ['root'],
-              execute: ['root'],
-            },
+          '/srv/ftp': createMockDirectory('ftp', {
+            '.hidden': createMockFile('.hidden'),
+            'visible.txt': createMockFile('visible.txt'),
           }),
-          '/srv/ftp/visible.txt': createMockFileNode({
-            name: 'visible.txt',
-            type: 'file',
-            permissions: {
-              read: ['root', 'user', 'guest'],
-              write: ['root'],
-              execute: ['root'],
-            },
-          }),
-        },
-        directoryEntries: {
-          '/srv/ftp': ['.hidden', 'visible.txt'],
         },
       });
       const ls = createFtpLsCommand(context);
@@ -321,28 +269,10 @@ describe('FTP ls command', () => {
       const context = createMockContext({
         remoteCwd: '/',
         nodes: {
-          '/uploads': createMockFileNode({ name: 'uploads' }),
-          '/uploads/.backup': createMockFileNode({
-            name: '.backup',
-            type: 'file',
-            permissions: {
-              read: ['root', 'user', 'guest'],
-              write: ['root'],
-              execute: ['root'],
-            },
+          '/uploads': createMockDirectory('uploads', {
+            '.backup': createMockFile('.backup'),
+            'readme.txt': createMockFile('readme.txt'),
           }),
-          '/uploads/readme.txt': createMockFileNode({
-            name: 'readme.txt',
-            type: 'file',
-            permissions: {
-              read: ['root', 'user', 'guest'],
-              write: ['root'],
-              execute: ['root'],
-            },
-          }),
-        },
-        directoryEntries: {
-          '/uploads': ['.backup', 'readme.txt'],
         },
       });
       const ls = createFtpLsCommand(context);
@@ -353,21 +283,65 @@ describe('FTP ls command', () => {
       expect(result).toContain('readme.txt');
     });
 
-    it('should show empty directory when only dotfiles exist', () => {
+    it('should return empty string when only dotfiles exist', () => {
       const context = createMockContext({
         remoteCwd: '/srv/ftp',
         nodes: {
-          '/srv/ftp': createMockFileNode({ name: 'ftp' }),
-        },
-        directoryEntries: {
-          '/srv/ftp': ['.hidden_only'],
+          '/srv/ftp': createMockDirectory('ftp', {
+            '.hidden_only': createMockFile('.hidden_only'),
+          }),
         },
       });
       const ls = createFtpLsCommand(context);
 
       const result = ls.fn();
 
-      expect(result).toBe('(empty directory)');
+      expect(result).toBe('');
+    });
+  });
+
+  describe('long listing (-l flag)', () => {
+    it('should show permission string, owner, and name', () => {
+      const context = createMockContext({
+        remoteCwd: '/srv/ftp',
+        nodes: {
+          '/srv/ftp': createMockDirectory('ftp', {
+            'notes.txt': createMockFile('notes.txt', {
+              owner: 'user',
+              permissions: {
+                read: ['root', 'user'],
+                write: ['root', 'user'],
+                execute: ['root'],
+              },
+            }),
+          }),
+        },
+      });
+      const ls = createFtpLsCommand(context);
+
+      const result = ls.fn('-l');
+
+      expect(result).toBe('-rw-rw----  user   notes.txt');
+    });
+
+    it('should combine -l and -a flags', () => {
+      const context = createMockContext({
+        remoteCwd: '/srv/ftp',
+        nodes: {
+          '/srv/ftp': createMockDirectory('ftp', {
+            '.bashrc': createMockFile('.bashrc', { owner: 'user' }),
+            'visible.txt': createMockFile('visible.txt', { owner: 'user' }),
+          }),
+        },
+      });
+      const ls = createFtpLsCommand(context);
+
+      const result = ls.fn('-la') as string;
+      const lines = result.split('\n');
+
+      expect(lines).toHaveLength(2);
+      expect(lines[0]).toContain('.bashrc');
+      expect(lines[1]).toContain('visible.txt');
     });
   });
 });

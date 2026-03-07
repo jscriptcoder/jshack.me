@@ -2,8 +2,10 @@ import type { Command } from '../components/Terminal/types';
 import type { UserType } from '../session/SessionContext';
 import type { FileNode, FilePermissions, PermissionResult } from '../filesystem/types';
 
-type LsContext = {
-  readonly getCurrentPath: () => string;
+// Adapter interface for filesystem operations — allows ls to work
+// across shell, FTP, and NC modes with different backing stores.
+export type LsAdapter = {
+  readonly getCwd: () => string;
   readonly resolvePath: (path: string) => string;
   readonly getNode: (path: string) => FileNode | null;
   readonly getUserType: () => UserType;
@@ -31,6 +33,72 @@ const formatLongEntry = (child: FileNode): string => {
   const owner = child.owner.padEnd(5);
   const name = child.type === 'directory' ? `${child.name}/` : child.name;
   return `${perms}  ${owner}  ${name}`;
+};
+
+// Core ls logic shared across shell, FTP, and NC modes.
+export const listDirectory = (
+  adapter: LsAdapter,
+  args: readonly unknown[],
+  errorPrefix: string,
+): string => {
+  const { getCwd, resolvePath, getNode, getUserType, canTraverse } = adapter;
+
+  const stringArgs = args.filter((arg): arg is string => typeof arg === 'string');
+  const flags = stringArgs.filter((arg) => arg.startsWith('-'));
+  const showAll = flags.some((f) => f.includes('a'));
+  const longFormat = flags.some((f) => f.includes('l'));
+  const path = stringArgs.find((arg) => !arg.startsWith('-'));
+
+  const userType = getUserType();
+  const targetPath = path ? resolvePath(path) : getCwd();
+
+  const traversal = canTraverse(targetPath);
+  if (!traversal.allowed) {
+    throw new Error(
+      `${errorPrefix}: cannot open directory '${path ?? targetPath}': Permission denied`,
+    );
+  }
+
+  const node = getNode(targetPath);
+  if (!node) {
+    throw new Error(
+      `${errorPrefix}: cannot access '${path ?? targetPath}': No such file or directory`,
+    );
+  }
+
+  if (node.type === 'file') {
+    return longFormat ? formatLongEntry(node) : node.name;
+  }
+
+  if (!node.permissions.read.includes(userType)) {
+    throw new Error(
+      `${errorPrefix}: cannot open directory '${path ?? targetPath}': Permission denied`,
+    );
+  }
+
+  if (!node.children || Object.keys(node.children).length === 0) {
+    return '';
+  }
+
+  const filtered = Object.values(node.children)
+    .filter((child) => showAll || !child.name.startsWith('.'))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  if (longFormat) {
+    return filtered.map(formatLongEntry).join('\n');
+  }
+
+  return filtered
+    .map((child) => (child.type === 'directory' ? `${child.name}/` : child.name))
+    .join('  ');
+};
+
+type LsContext = {
+  readonly getCurrentPath: () => string;
+  readonly resolvePath: (path: string) => string;
+  readonly getNode: (path: string) => FileNode | null;
+  readonly getUserType: () => UserType;
+  readonly canTraverse: (path: string) => PermissionResult;
 };
 
 export const createLsCommand = (context: LsContext): Command => ({
@@ -62,52 +130,13 @@ export const createLsCommand = (context: LsContext): Command => ({
     ],
   },
   fn: (...args: unknown[]): string => {
-    const { getCurrentPath, resolvePath, getNode, getUserType, canTraverse } = context;
-
-    // Parse arguments - can be path, flags, or both in any order
-    const stringArgs = args.filter((arg): arg is string => typeof arg === 'string');
-    const flags = stringArgs.filter((arg) => arg.startsWith('-'));
-    const showAll = flags.some((f) => f.includes('a'));
-    const longFormat = flags.some((f) => f.includes('l'));
-    const path = stringArgs.find((arg) => !arg.startsWith('-'));
-
-    const userType = getUserType();
-    const targetPath = path ? resolvePath(path) : getCurrentPath();
-
-    const traversal = canTraverse(targetPath);
-    if (!traversal.allowed) {
-      throw new Error(`ls: cannot open directory '${targetPath}': Permission denied`);
-    }
-
-    const node = getNode(targetPath);
-
-    if (!node) {
-      throw new Error(`ls: cannot access '${targetPath}': No such file or directory`);
-    }
-
-    if (node.type === 'file') {
-      return longFormat ? formatLongEntry(node) : node.name;
-    }
-
-    // Check read permission
-    if (!node.permissions.read.includes(userType)) {
-      throw new Error(`ls: cannot open directory '${targetPath}': Permission denied`);
-    }
-
-    if (!node.children || Object.keys(node.children).length === 0) {
-      return ''; // Empty directory
-    }
-
-    const filtered = Object.values(node.children)
-      .filter((child) => showAll || !child.name.startsWith('.'))
-      .sort((a, b) => a.name.localeCompare(b.name));
-
-    if (longFormat) {
-      return filtered.map(formatLongEntry).join('\n');
-    }
-
-    return filtered
-      .map((child) => (child.type === 'directory' ? `${child.name}/` : child.name))
-      .join('  ');
+    const adapter: LsAdapter = {
+      getCwd: context.getCurrentPath,
+      resolvePath: context.resolvePath,
+      getNode: context.getNode,
+      getUserType: context.getUserType,
+      canTraverse: context.canTraverse,
+    };
+    return listDirectory(adapter, args, 'ls');
   },
 });

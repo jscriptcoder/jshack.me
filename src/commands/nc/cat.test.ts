@@ -6,8 +6,8 @@ import { createNcCatCommand } from './cat';
 
 // --- Factory Functions ---
 
-const createMockFileNode = (overrides?: Partial<FileNode>): FileNode => ({
-  name: 'test',
+const createMockFile = (name: string, overrides?: Partial<FileNode>): FileNode => ({
+  name,
   type: 'file',
   owner: 'user',
   permissions: {
@@ -36,7 +36,6 @@ type NcCatContextConfig = {
   readonly cwd?: string;
   readonly userType?: UserType;
   readonly nodes?: Record<string, FileNode | null>;
-  readonly fileContents?: Record<string, string | null>;
 };
 
 const createMockNcCatContext = (config: NcCatContextConfig = {}) => {
@@ -45,7 +44,6 @@ const createMockNcCatContext = (config: NcCatContextConfig = {}) => {
     cwd = '/home/ghost',
     userType = 'user',
     nodes = {},
-    fileContents = {},
   } = config;
 
   const resolvePath = (path: string, currentCwd: string): string => {
@@ -71,8 +69,7 @@ const createMockNcCatContext = (config: NcCatContextConfig = {}) => {
     getUserType: () => userType,
     resolvePath,
     getNodeFromMachine: (_machineId: MachineId, path: string, _cwd: string) => nodes[path] ?? null,
-    readFileFromMachine: (_machineId: MachineId, path: string, _cwd: string, _userType: UserType) =>
-      fileContents[path] ?? null,
+    canTraverseOnMachine: () => ({ allowed: true }),
   };
 };
 
@@ -81,14 +78,10 @@ const createMockNcCatContext = (config: NcCatContextConfig = {}) => {
 describe('nc cat command', () => {
   describe('displaying file contents', () => {
     it('should display file content', () => {
-      const file = createMockFileNode({
-        name: 'notes.txt',
-        content: 'secret notes',
-      });
-
       const context = createMockNcCatContext({
-        nodes: { '/home/ghost/notes.txt': file },
-        fileContents: { '/home/ghost/notes.txt': 'secret notes' },
+        nodes: {
+          '/home/ghost/notes.txt': createMockFile('notes.txt', { content: 'secret notes' }),
+        },
       });
 
       const cat = createNcCatCommand(context);
@@ -98,15 +91,11 @@ describe('nc cat command', () => {
     });
 
     it('should handle absolute paths', () => {
-      const file = createMockFileNode({
-        name: 'flag.txt',
-        content: 'FLAG{found_it}',
-      });
-
       const context = createMockNcCatContext({
         cwd: '/tmp',
-        nodes: { '/home/ghost/flag.txt': file },
-        fileContents: { '/home/ghost/flag.txt': 'FLAG{found_it}' },
+        nodes: {
+          '/home/ghost/flag.txt': createMockFile('flag.txt', { content: 'FLAG{found_it}' }),
+        },
       });
 
       const cat = createNcCatCommand(context);
@@ -116,15 +105,9 @@ describe('nc cat command', () => {
     });
 
     it('should handle relative paths with parent directory', () => {
-      const file = createMockFileNode({
-        name: 'config',
-        content: 'settings',
-      });
-
       const context = createMockNcCatContext({
         cwd: '/home/ghost/subdir',
-        nodes: { '/home/ghost/config': file },
-        fileContents: { '/home/ghost/config': 'settings' },
+        nodes: { '/home/ghost/config': createMockFile('config', { content: 'settings' }) },
       });
 
       const cat = createNcCatCommand(context);
@@ -134,14 +117,10 @@ describe('nc cat command', () => {
     });
 
     it('should preserve multiline content', () => {
-      const file = createMockFileNode({
-        name: 'log.txt',
-        content: 'line 1\nline 2\nline 3',
-      });
-
       const context = createMockNcCatContext({
-        nodes: { '/var/log/log.txt': file },
-        fileContents: { '/var/log/log.txt': 'line 1\nline 2\nline 3' },
+        nodes: {
+          '/var/log/log.txt': createMockFile('log.txt', { content: 'line 1\nline 2\nline 3' }),
+        },
       });
 
       const cat = createNcCatCommand(context);
@@ -150,15 +129,11 @@ describe('nc cat command', () => {
       expect(result).toBe('line 1\nline 2\nline 3');
     });
 
-    it('should return empty string for empty file', () => {
-      const file = createMockFileNode({
-        name: 'empty.txt',
-        content: '',
-      });
-
+    it('should return empty string for file with no content', () => {
       const context = createMockNcCatContext({
-        nodes: { '/home/ghost/empty.txt': file },
-        fileContents: { '/home/ghost/empty.txt': '' },
+        nodes: {
+          '/home/ghost/empty.txt': createMockFile('empty.txt', { content: undefined }),
+        },
       });
 
       const cat = createNcCatCommand(context);
@@ -173,14 +148,11 @@ describe('nc cat command', () => {
       const context = createMockNcCatContext();
       const cat = createNcCatCommand(context);
 
-      expect(() => cat.fn()).toThrow('cat: missing filename');
+      expect(() => cat.fn()).toThrow('cat: missing file operand');
     });
 
     it('should throw error for non-existent file', () => {
-      const context = createMockNcCatContext({
-        nodes: {},
-      });
-
+      const context = createMockNcCatContext({ nodes: {} });
       const cat = createNcCatCommand(context);
 
       expect(() => cat.fn('nonexistent.txt')).toThrow(
@@ -189,28 +161,27 @@ describe('nc cat command', () => {
     });
 
     it('should throw error when path is a directory', () => {
-      const dir = createMockDirectory('subdir');
-
       const context = createMockNcCatContext({
-        nodes: { '/home/ghost/subdir': dir },
+        nodes: { '/home/ghost/subdir': createMockDirectory('subdir') },
       });
-
       const cat = createNcCatCommand(context);
 
       expect(() => cat.fn('subdir')).toThrow('cat: subdir: Is a directory');
     });
 
     it('should throw error when permission denied', () => {
-      const file = createMockFileNode({
-        name: 'secret.txt',
-      });
-
       const context = createMockNcCatContext({
         userType: 'guest',
-        nodes: { '/root/secret.txt': file },
-        fileContents: { '/root/secret.txt': null },
+        nodes: {
+          '/root/secret.txt': createMockFile('secret.txt', {
+            permissions: {
+              read: ['root'],
+              write: ['root'],
+              execute: ['root'],
+            },
+          }),
+        },
       });
-
       const cat = createNcCatCommand(context);
 
       expect(() => cat.fn('/root/secret.txt')).toThrow('cat: /root/secret.txt: Permission denied');

@@ -16,13 +16,7 @@ import type { MachineId } from '../filesystem/machineFileSystems';
 export const useNcCommands = (): Map<string, Command> | null => {
   const { ncSession, updateNcCwd } = useSession();
 
-  const {
-    resolvePathForMachine,
-    getNodeFromMachine,
-    listDirectoryFromMachine,
-    readFileFromMachine,
-    canTraverseOnMachine,
-  } = useFileSystem();
+  const { resolvePathForMachine, getNodeFromMachine, canTraverseOnMachine } = useFileSystem();
 
   return useMemo(() => {
     if (!ncSession) return null;
@@ -61,7 +55,6 @@ export const useNcCommands = (): Map<string, Command> | null => {
         getUserType,
         resolvePath: resolvePathForMachine,
         getNodeFromMachine,
-        listDirectoryFromMachine,
         canTraverseOnMachine,
       }),
     );
@@ -75,7 +68,7 @@ export const useNcCommands = (): Map<string, Command> | null => {
         getUserType,
         resolvePath: resolvePathForMachine,
         getNodeFromMachine,
-        readFileFromMachine,
+        canTraverseOnMachine,
       }),
     );
 
@@ -89,13 +82,5 @@ export const useNcCommands = (): Map<string, Command> | null => {
     commands.set('exit', ncExitCommand);
 
     return commands;
-  }, [
-    ncSession,
-    updateNcCwd,
-    resolvePathForMachine,
-    getNodeFromMachine,
-    listDirectoryFromMachine,
-    readFileFromMachine,
-    canTraverseOnMachine,
-  ]);
+  }, [ncSession, updateNcCwd, resolvePathForMachine, getNodeFromMachine, canTraverseOnMachine]);
 };

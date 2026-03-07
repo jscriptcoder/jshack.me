@@ -6,7 +6,24 @@ import { createNcLsCommand } from './ls';
 
 // --- Factory Functions ---
 
-const createMockDirectory = (name: string, overrides?: Partial<FileNode>): FileNode => ({
+const createMockFile = (name: string, overrides?: Partial<FileNode>): FileNode => ({
+  name,
+  type: 'file',
+  owner: 'user',
+  content: 'test content',
+  permissions: {
+    read: ['root', 'user', 'guest'],
+    write: ['root', 'user'],
+    execute: ['root'],
+  },
+  ...overrides,
+});
+
+const createMockDirectory = (
+  name: string,
+  children: Record<string, FileNode> = {},
+  overrides?: Partial<FileNode>,
+): FileNode => ({
   name,
   type: 'directory',
   owner: 'root',
@@ -15,20 +32,8 @@ const createMockDirectory = (name: string, overrides?: Partial<FileNode>): FileN
     write: ['root'],
     execute: ['root', 'user', 'guest'],
   },
-  children: {},
+  children,
   ...overrides,
-});
-
-const createMockFile = (name: string): FileNode => ({
-  name,
-  type: 'file',
-  owner: 'user',
-  permissions: {
-    read: ['root', 'user', 'guest'],
-    write: ['root', 'user'],
-    execute: ['root'],
-  },
-  content: 'test content',
 });
 
 type NcLsContextConfig = {
@@ -36,7 +41,6 @@ type NcLsContextConfig = {
   readonly cwd?: string;
   readonly userType?: UserType;
   readonly nodes?: Record<string, FileNode | null>;
-  readonly listings?: Record<string, readonly string[] | null>;
 };
 
 const createMockNcLsContext = (config: NcLsContextConfig = {}) => {
@@ -45,7 +49,6 @@ const createMockNcLsContext = (config: NcLsContextConfig = {}) => {
     cwd = '/home/ghost',
     userType = 'user',
     nodes = {},
-    listings = {},
   } = config;
 
   const resolvePath = (path: string, currentCwd: string): string => {
@@ -75,12 +78,6 @@ const createMockNcLsContext = (config: NcLsContextConfig = {}) => {
     getUserType: () => userType,
     resolvePath,
     getNodeFromMachine: (_machineId: MachineId, path: string, _cwd: string) => nodes[path] ?? null,
-    listDirectoryFromMachine: (
-      _machineId: MachineId,
-      path: string,
-      _cwd: string,
-      _userType: UserType,
-    ) => listings[path] ?? null,
     canTraverseOnMachine: () => ({ allowed: true }),
   };
 };
@@ -90,35 +87,31 @@ const createMockNcLsContext = (config: NcLsContextConfig = {}) => {
 describe('nc ls command', () => {
   describe('listing directories', () => {
     it('should list current directory when no argument given', () => {
-      const homeDir = createMockDirectory('ghost');
-
       const context = createMockNcLsContext({
         cwd: '/home/ghost',
         nodes: {
-          '/home/ghost': homeDir,
-          '/home/ghost/notes.txt': createMockFile('notes.txt'),
-          '/home/ghost/docs': createMockDirectory('docs'),
+          '/home/ghost': createMockDirectory('ghost', {
+            docs: createMockDirectory('docs'),
+            'notes.txt': createMockFile('notes.txt'),
+          }),
         },
-        listings: { '/home/ghost': ['notes.txt', 'docs'] },
       });
 
       const ls = createNcLsCommand(context);
       const result = ls.fn();
 
-      expect(result).toBe('notes.txt  docs/');
+      expect(result).toBe('docs/  notes.txt');
     });
 
     it('should list specified directory with absolute path', () => {
-      const varDir = createMockDirectory('var');
-
       const context = createMockNcLsContext({
         cwd: '/home/ghost',
         nodes: {
-          '/var': varDir,
-          '/var/log': createMockDirectory('log'),
-          '/var/tmp': createMockDirectory('tmp'),
+          '/var': createMockDirectory('var', {
+            log: createMockDirectory('log'),
+            tmp: createMockDirectory('tmp'),
+          }),
         },
-        listings: { '/var': ['log', 'tmp'] },
       });
 
       const ls = createNcLsCommand(context);
@@ -128,16 +121,14 @@ describe('nc ls command', () => {
     });
 
     it('should list specified directory with relative path', () => {
-      const subdir = createMockDirectory('subdir');
-
       const context = createMockNcLsContext({
         cwd: '/home/ghost',
         nodes: {
-          '/home/ghost/subdir': subdir,
-          '/home/ghost/subdir/file1.txt': createMockFile('file1.txt'),
-          '/home/ghost/subdir/file2.txt': createMockFile('file2.txt'),
+          '/home/ghost/subdir': createMockDirectory('subdir', {
+            'file1.txt': createMockFile('file1.txt'),
+            'file2.txt': createMockFile('file2.txt'),
+          }),
         },
-        listings: { '/home/ghost/subdir': ['file1.txt', 'file2.txt'] },
       });
 
       const ls = createNcLsCommand(context);
@@ -147,30 +138,26 @@ describe('nc ls command', () => {
     });
 
     it('should add trailing slash to directories', () => {
-      const homeDir = createMockDirectory('home');
-
       const context = createMockNcLsContext({
         cwd: '/',
         nodes: {
-          '/': createMockDirectory('/'),
-          '/home': homeDir,
-          '/tmp': createMockDirectory('tmp'),
-          '/etc': createMockDirectory('etc'),
+          '/': createMockDirectory('/', {
+            etc: createMockDirectory('etc'),
+            home: createMockDirectory('home'),
+            tmp: createMockDirectory('tmp'),
+          }),
         },
-        listings: { '/': ['home', 'tmp', 'etc'] },
       });
 
       const ls = createNcLsCommand(context);
       const result = ls.fn('/');
 
-      expect(result).toBe('home/  tmp/  etc/');
+      expect(result).toBe('etc/  home/  tmp/');
     });
 
     it('should return filename when path is a file', () => {
-      const file = createMockFile('secret.txt');
-
       const context = createMockNcLsContext({
-        nodes: { '/home/ghost/secret.txt': file },
+        nodes: { '/home/ghost/secret.txt': createMockFile('secret.txt') },
       });
 
       const ls = createNcLsCommand(context);
@@ -179,41 +166,34 @@ describe('nc ls command', () => {
       expect(result).toBe('secret.txt');
     });
 
-    it('should return empty directory message', () => {
-      const emptyDir = createMockDirectory('empty');
-
+    it('should return empty string for empty directory', () => {
       const context = createMockNcLsContext({
-        nodes: { '/home/ghost/empty': emptyDir },
-        listings: { '/home/ghost/empty': [] },
+        nodes: { '/home/ghost/empty': createMockDirectory('empty') },
       });
 
       const ls = createNcLsCommand(context);
       const result = ls.fn('empty');
 
-      expect(result).toBe('(empty directory)');
+      expect(result).toBe('');
     });
 
-    it('should handle mixed files and directories', () => {
-      const homeDir = createMockDirectory('ghost');
-
+    it('should sort entries alphabetically', () => {
       const context = createMockNcLsContext({
         cwd: '/home/ghost',
         nodes: {
-          '/home/ghost': homeDir,
-          '/home/ghost/readme.txt': createMockFile('readme.txt'),
-          '/home/ghost/docs': createMockDirectory('docs'),
-          '/home/ghost/notes': createMockDirectory('notes'),
-          '/home/ghost/script.sh': createMockFile('script.sh'),
-        },
-        listings: {
-          '/home/ghost': ['readme.txt', 'docs', 'notes', 'script.sh'],
+          '/home/ghost': createMockDirectory('ghost', {
+            'script.sh': createMockFile('script.sh'),
+            docs: createMockDirectory('docs'),
+            notes: createMockDirectory('notes'),
+            'readme.txt': createMockFile('readme.txt'),
+          }),
         },
       });
 
       const ls = createNcLsCommand(context);
       const result = ls.fn();
 
-      expect(result).toBe('readme.txt  docs/  notes/  script.sh');
+      expect(result).toBe('docs/  notes/  readme.txt  script.sh');
     });
   });
 
@@ -222,11 +202,11 @@ describe('nc ls command', () => {
       const context = createMockNcLsContext({
         cwd: '/home/ghost',
         nodes: {
-          '/home/ghost': createMockDirectory('ghost'),
-          '/home/ghost/.secret': createMockFile('.secret'),
-          '/home/ghost/notes.txt': createMockFile('notes.txt'),
+          '/home/ghost': createMockDirectory('ghost', {
+            '.secret': createMockFile('.secret'),
+            'notes.txt': createMockFile('notes.txt'),
+          }),
         },
-        listings: { '/home/ghost': ['.secret', 'notes.txt'] },
       });
 
       const ls = createNcLsCommand(context);
@@ -240,11 +220,11 @@ describe('nc ls command', () => {
       const context = createMockNcLsContext({
         cwd: '/home/ghost',
         nodes: {
-          '/home/ghost': createMockDirectory('ghost'),
-          '/home/ghost/.secret': createMockFile('.secret'),
-          '/home/ghost/notes.txt': createMockFile('notes.txt'),
+          '/home/ghost': createMockDirectory('ghost', {
+            '.secret': createMockFile('.secret'),
+            'notes.txt': createMockFile('notes.txt'),
+          }),
         },
-        listings: { '/home/ghost': ['.secret', 'notes.txt'] },
       });
 
       const ls = createNcLsCommand(context);
@@ -258,11 +238,11 @@ describe('nc ls command', () => {
       const context = createMockNcLsContext({
         cwd: '/',
         nodes: {
-          '/opt/tools': createMockDirectory('tools'),
-          '/opt/tools/.backdoor_log': createMockFile('.backdoor_log'),
-          '/opt/tools/scanner': createMockFile('scanner'),
+          '/opt/tools': createMockDirectory('tools', {
+            '.backdoor_log': createMockFile('.backdoor_log'),
+            scanner: createMockFile('scanner'),
+          }),
         },
-        listings: { '/opt/tools': ['.backdoor_log', 'scanner'] },
       });
 
       const ls = createNcLsCommand(context);
@@ -272,100 +252,116 @@ describe('nc ls command', () => {
       expect(result).toContain('scanner');
     });
 
-    it('should show empty directory when only dotfiles exist', () => {
+    it('should return empty string when only dotfiles exist', () => {
       const context = createMockNcLsContext({
         cwd: '/home/ghost',
         nodes: {
-          '/home/ghost': createMockDirectory('ghost'),
+          '/home/ghost': createMockDirectory('ghost', {
+            '.only_hidden': createMockFile('.only_hidden'),
+          }),
         },
-        listings: { '/home/ghost': ['.only_hidden'] },
       });
 
       const ls = createNcLsCommand(context);
       const result = ls.fn();
 
-      expect(result).toBe('(empty directory)');
+      expect(result).toBe('');
     });
   });
 
   describe('error handling', () => {
     it('should throw error for non-existent path', () => {
-      const context = createMockNcLsContext({
-        nodes: {},
-      });
-
+      const context = createMockNcLsContext({ nodes: {} });
       const ls = createNcLsCommand(context);
 
-      expect(() => ls.fn('nonexistent')).toThrow('ls: nonexistent: No such file or directory');
+      expect(() => ls.fn('nonexistent')).toThrow(
+        "ls: cannot access 'nonexistent': No such file or directory",
+      );
     });
 
     it('should throw error for non-existent absolute path', () => {
-      const context = createMockNcLsContext({
-        nodes: {},
-      });
-
+      const context = createMockNcLsContext({ nodes: {} });
       const ls = createNcLsCommand(context);
 
-      expect(() => ls.fn('/no/such/path')).toThrow('ls: /no/such/path: No such file or directory');
+      expect(() => ls.fn('/no/such/path')).toThrow(
+        "ls: cannot access '/no/such/path': No such file or directory",
+      );
     });
 
     it('should throw error when permission denied on directory', () => {
-      const restrictedDir = createMockDirectory('secret', {
-        permissions: {
-          read: ['root'],
-          write: ['root'],
-          execute: ['root'],
+      const context = createMockNcLsContext({
+        userType: 'guest',
+        nodes: {
+          '/root/secret': createMockDirectory(
+            'secret',
+            {},
+            {
+              permissions: {
+                read: ['root'],
+                write: ['root'],
+                execute: ['root'],
+              },
+            },
+          ),
         },
       });
 
-      const context = createMockNcLsContext({
-        userType: 'guest',
-        nodes: { '/root/secret': restrictedDir },
-      });
-
       const ls = createNcLsCommand(context);
 
-      expect(() => ls.fn('/root/secret')).toThrow('ls: /root/secret: Permission denied');
-    });
-
-    it('should throw error when listing returns null', () => {
-      const dir = createMockDirectory('protected');
-
-      const context = createMockNcLsContext({
-        userType: 'user',
-        nodes: { '/protected': dir },
-        listings: { '/protected': null },
-      });
-
-      const ls = createNcLsCommand(context);
-
-      expect(() => ls.fn('/protected')).toThrow('ls: /protected: Permission denied');
+      expect(() => ls.fn('/root/secret')).toThrow(
+        "ls: cannot open directory '/root/secret': Permission denied",
+      );
     });
   });
 
   describe('permissions', () => {
     it('should allow root to list any directory', () => {
-      const restrictedDir = createMockDirectory('secret', {
-        permissions: {
-          read: ['root'],
-          write: ['root'],
-          execute: ['root'],
-        },
-      });
-
       const context = createMockNcLsContext({
         userType: 'root',
         nodes: {
-          '/root/secret': restrictedDir,
-          '/root/secret/passwords.txt': createMockFile('passwords.txt'),
+          '/root/secret': createMockDirectory(
+            'secret',
+            { 'passwords.txt': createMockFile('passwords.txt') },
+            {
+              permissions: {
+                read: ['root'],
+                write: ['root'],
+                execute: ['root'],
+              },
+            },
+          ),
         },
-        listings: { '/root/secret': ['passwords.txt'] },
       });
 
       const ls = createNcLsCommand(context);
       const result = ls.fn('/root/secret');
 
       expect(result).toBe('passwords.txt');
+    });
+  });
+
+  describe('long listing (-l flag)', () => {
+    it('should show permission string, owner, and name', () => {
+      const context = createMockNcLsContext({
+        cwd: '/home/ghost',
+        nodes: {
+          '/home/ghost': createMockDirectory('ghost', {
+            'notes.txt': createMockFile('notes.txt', {
+              owner: 'user',
+              permissions: {
+                read: ['root', 'user'],
+                write: ['root', 'user'],
+                execute: ['root'],
+              },
+            }),
+          }),
+        },
+      });
+
+      const ls = createNcLsCommand(context);
+      const result = ls.fn('-l');
+
+      expect(result).toBe('-rw-rw----  user   notes.txt');
     });
   });
 });
