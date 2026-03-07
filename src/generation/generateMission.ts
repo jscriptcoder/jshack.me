@@ -190,26 +190,35 @@ const addExploitVulnerability = (
   });
 };
 
+// Derives the enrichment flag from a machine's access variant.
+// NC, exploit, and FTP variants need port owners/vulnerabilities attached.
+const variantEnrichmentFlag = (
+  variant: import('./types').EntryVariant,
+): 'nc' | 'exploit' | 'ftp' | null =>
+  variant === 'nc' || variant === 'exploit' || variant === 'ftp' ? variant : null;
+
 const enrichMachineWithUsers = (
   machine: GeneratedMachine,
   users: RemoteMachine['users'],
-  entryVariantFlag: 'nc' | 'exploit' | 'ftp' | null,
   prng: Prng,
-): GeneratedMachine => ({
-  ...machine,
-  remoteMachine: {
-    ...machine.remoteMachine,
-    ports:
-      entryVariantFlag === 'nc'
-        ? addNcBackdoorOwner(machine.remoteMachine.ports, users, prng)
-        : entryVariantFlag === 'exploit'
-          ? addExploitVulnerability(machine.remoteMachine.ports, users, prng)
-          : entryVariantFlag === 'ftp'
-            ? addFtpServerOwner(machine.remoteMachine.ports, users, prng)
-            : machine.remoteMachine.ports,
-    users,
-  },
-});
+): GeneratedMachine => {
+  const flag = variantEnrichmentFlag(machine.accessVariant);
+  return {
+    ...machine,
+    remoteMachine: {
+      ...machine.remoteMachine,
+      ports:
+        flag === 'nc'
+          ? addNcBackdoorOwner(machine.remoteMachine.ports, users, prng)
+          : flag === 'exploit'
+            ? addExploitVulnerability(machine.remoteMachine.ports, users, prng)
+            : flag === 'ftp'
+              ? addFtpServerOwner(machine.remoteMachine.ports, users, prng)
+              : machine.remoteMachine.ports,
+      users,
+    },
+  };
+};
 
 // Applies PRNG-driven port closures to increase lateral movement variety.
 // At most one SSH closure and one FTP closure per network. When SSH is closed
@@ -323,28 +332,15 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
     [routerInternalIp]: routerCreds,
   };
 
-  // Determine which machine gets entry variant enrichment.
-  // In forwarded mode, the internal entry machine gets the variant.
-  // In router-first mode, the router gets the variant.
-  const isForwarded = topology.natForwarding !== undefined;
-  const entryVariantTarget = isForwarded ? topology.entryPoint : topology.routerPublicIp;
-
-  const isEntryVariant = (ip: string): 'nc' | 'exploit' | 'ftp' | null =>
-    ip === entryVariantTarget &&
-    (topology.entryVariant === 'nc' ||
-      topology.entryVariant === 'exploit' ||
-      topology.entryVariant === 'ftp')
-      ? topology.entryVariant
-      : null;
-
+  // Enrich all machines with users and variant-specific port data (owners, vulnerabilities).
+  // Each machine's own accessVariant determines which enrichment it gets.
   const machinesWithUsers: readonly GeneratedMachine[] = topology.machines.map((m) =>
-    enrichMachineWithUsers(m, allUsersByMachine[m.ip] ?? [], isEntryVariant(m.ip), prng),
+    enrichMachineWithUsers(m, allUsersByMachine[m.ip] ?? [], prng),
   );
 
   const routerWithUsers = enrichMachineWithUsers(
     topology.routerMachine,
     allUsersByMachine[topology.routerPublicIp] ?? [],
-    isEntryVariant(topology.routerPublicIp),
     prng,
   );
 

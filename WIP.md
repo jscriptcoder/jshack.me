@@ -2,7 +2,7 @@
 
 ## Current Step
 
-Step 2 of 7: Generate variant-specific ports per machine
+Step 3 of 7: Enrich all machines with variant data
 
 ## Status
 
@@ -12,7 +12,7 @@ WAITING - Awaiting commit approval
 
 - [x] Step 1: Add `accessVariant` to `GeneratedMachine`
 - [x] Step 2: Generate variant-specific ports per machine
-- [ ] Step 3: Enrich all machines with variant data
+- [x] Step 3: Enrich all machines with variant data
 - [ ] Step 4: SSH `-p` flag support
 - [ ] Step 5: Port-aware NAT resolution
 - [ ] Step 6: Generate iptables rules file on router
@@ -24,4 +24,4 @@ None
 
 ## Next Action
 
-Commit Step 2, then start Step 3.
+Commit Step 3, then start Step 4.

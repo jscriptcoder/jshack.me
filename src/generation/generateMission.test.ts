@@ -183,6 +183,69 @@ describe('generateMissionNetwork', () => {
     expect(ownerTypes.size).toBeGreaterThanOrEqual(2);
   });
 
+  it('non-entry NC machines have backdoor port owners', () => {
+    let found = false;
+    for (let i = 0; i < 300; i++) {
+      const result = generateMissionNetwork(`nc-nonentry-${i}`);
+      const nonEntryNc = result.machines.find(
+        (m) => m.ip !== result.entryPoint && m.accessVariant === 'nc',
+      );
+      if (!nonEntryNc) continue;
+
+      const backdoorPort = nonEntryNc.remoteMachine.ports.find(
+        (p) => p.service === 'elite' && p.open,
+      );
+      expect(backdoorPort).toBeDefined();
+      expect(backdoorPort?.owner).toBeDefined();
+      expect(['guest', 'user', 'root']).toContain(backdoorPort?.owner?.userType);
+      found = true;
+      break;
+    }
+    expect(found).toBe(true);
+  });
+
+  it('non-entry exploit machines have vulnerability and owner', () => {
+    let found = false;
+    for (let i = 0; i < 300; i++) {
+      const result = generateMissionNetwork(`exploit-nonentry-${i}`);
+      const nonEntryExploit = result.machines.find(
+        (m) => m.ip !== result.entryPoint && m.accessVariant === 'exploit',
+      );
+      if (!nonEntryExploit) continue;
+
+      const vulnPort = nonEntryExploit.remoteMachine.ports.find(
+        (p) => p.service !== 'ssh' && p.open && p.vulnerability,
+      );
+      if (!vulnPort) continue;
+
+      expect(vulnPort.vulnerability?.cve).toBeTruthy();
+      expect(vulnPort.owner).toBeDefined();
+      expect(['guest', 'user', 'root']).toContain(vulnPort.owner?.userType);
+      found = true;
+      break;
+    }
+    expect(found).toBe(true);
+  });
+
+  it('non-entry FTP machines have FTP port owners', () => {
+    let found = false;
+    for (let i = 0; i < 300; i++) {
+      const result = generateMissionNetwork(`ftp-nonentry-${i}`);
+      const nonEntryFtp = result.machines.find(
+        (m) => m.ip !== result.entryPoint && m.accessVariant === 'ftp',
+      );
+      if (!nonEntryFtp) continue;
+
+      const ftpPort = nonEntryFtp.remoteMachine.ports.find((p) => p.service === 'ftp' && p.open);
+      expect(ftpPort).toBeDefined();
+      expect(ftpPort?.owner).toBeDefined();
+      expect(['guest', 'user', 'root']).toContain(ftpPort?.owner?.userType);
+      found = true;
+      break;
+    }
+    expect(found).toBe(true);
+  });
+
   it('routerMachine is a valid machine with router role', () => {
     const result = generateMissionNetwork('ROUTER-TEST');
     expect(result.routerMachine).toBeDefined();
