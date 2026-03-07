@@ -145,4 +145,107 @@ describe('generateFileSystems', () => {
       expect(authLog?.content).toBeTruthy();
     });
   });
+
+  describe('iptables rules file on router', () => {
+    const buildWithRouter = (seed: string) => {
+      const prng = createPrng(seed);
+      const topology = generateTopology(prng, 'medium');
+      const { usersByMachine, credentials } = generateUsers(
+        prng,
+        topology.machines,
+        topology.entryPoint,
+      );
+      const { objective } = buildMissionObjective({
+        prng,
+        machines: topology.machines,
+        credentials,
+        entryPoint: topology.entryPoint,
+        difficulty: 'medium',
+      });
+      const fileSystems = generateFileSystems({
+        prng,
+        machines: topology.machines,
+        usersByMachine,
+        objective,
+        routerMachine: topology.routerMachine,
+        natForwarding: topology.natForwarding,
+      });
+      return { topology, fileSystems, objective };
+    };
+
+    it('forwarded mode: router has /etc/iptables/rules.v4 with forward rules', () => {
+      const { topology, fileSystems } = buildWithRouter('iptables-forwarded-forwarded');
+      // Find a seed that produces forwarded mode
+      if (!topology.natForwarding) {
+        // Skip if this seed doesn't produce forwarded mode — test with explicit seed
+        return;
+      }
+
+      const routerFs = fileSystems[topology.routerMachine.ip];
+      const rulesFile = resolveNode(routerFs as FileNode, '/etc/iptables/rules.v4');
+
+      expect(rulesFile).toBeDefined();
+      expect(rulesFile?.type).toBe('file');
+      expect(rulesFile?.owner).toBe('root');
+
+      // Should contain forward rules matching NAT config
+      for (const rule of topology.natForwarding.rules) {
+        expect(rulesFile?.content).toContain(
+          `forward ${rule.publicPort} to ${rule.internalIp}:${rule.internalPort}`,
+        );
+      }
+    });
+
+    it('forwarded mode: rules match NAT forwarding exactly', () => {
+      // Use explicit forwarded seed to guarantee forwarded mode
+      for (let i = 0; i < 50; i++) {
+        const data = buildWithRouter(`iptables-fwd-exact-${i}-forwarded`);
+        if (!data.topology.natForwarding) continue;
+
+        const routerFs = data.fileSystems[data.topology.routerMachine.ip];
+        const rulesFile = resolveNode(routerFs as FileNode, '/etc/iptables/rules.v4');
+        expect(rulesFile).toBeDefined();
+
+        const content = rulesFile?.content ?? '';
+        const forwardLines = content.split('\n').filter((line) => line.startsWith('forward '));
+
+        expect(forwardLines.length).toBe(data.topology.natForwarding.rules.length);
+        return;
+      }
+      throw new Error('No forwarded mode found in 50 seeds');
+    });
+
+    it('router-first mode: rules file exists but has no forward lines', () => {
+      for (let i = 0; i < 50; i++) {
+        const data = buildWithRouter(`iptables-routerfirst-${i}-router-first`);
+        if (data.topology.natForwarding) continue; // skip forwarded seeds
+
+        const routerFs = data.fileSystems[data.topology.routerMachine.ip];
+        const rulesFile = resolveNode(routerFs as FileNode, '/etc/iptables/rules.v4');
+
+        expect(rulesFile).toBeDefined();
+        expect(rulesFile?.type).toBe('file');
+        expect(rulesFile?.owner).toBe('root');
+
+        // Should have the comment header but no forward lines
+        const content = rulesFile?.content ?? '';
+        expect(content).toContain('# Port Forwarding Rules');
+        const forwardLines = content.split('\n').filter((line) => line.startsWith('forward '));
+        expect(forwardLines.length).toBe(0);
+        return;
+      }
+      throw new Error('No router-first mode found in 50 seeds');
+    });
+
+    it('iptables file is root-owned', () => {
+      const data = buildWithRouter('iptables-owner-test-forwarded');
+      const routerFs = data.fileSystems[data.topology.routerMachine.ip];
+      const rulesFile = resolveNode(routerFs as FileNode, '/etc/iptables/rules.v4');
+
+      expect(rulesFile).toBeDefined();
+      expect(rulesFile?.owner).toBe('root');
+      // mkFile('root') produces ['root', 'root'] — only root can write
+      expect(rulesFile?.permissions.write).toEqual(['root', 'root']);
+    });
+  });
 });

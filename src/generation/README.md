@@ -23,7 +23,7 @@ const mission = generateMissionNetwork('HEIST-7734');
 2. **Topology** (`topology.ts`) — Flat subnet, machine count by difficulty, roles, IPs, interfaces, DNS, entry variant selection (ssh/ftp/nc/exploit/http)
 3. **Users** (`users.ts`) — Root + 1-2 role-appropriate users per machine, md5-hashed passwords. Guest passwords picked from `guestPasswords` pool (not hardcoded).
 4. **Objective** (`attackChain.ts`) — Objective generation (exfiltrate with ACCESS-KEY, tamper with old/new values, credential_theft with root password, script_fix with broken script + bug type, sabotage with machine bricking), client email generation
-5. **Filesystems** (`filesystem.ts`) — FileNode trees with role configs, noise, target file at dynamic path with thematic content. Web content generation for webserver-role machines. `/bin/` is populated with system utility binaries; `/usr/bin/` is left empty (players must `apt install` tools).
+5. **Filesystems** (`filesystem.ts`) — FileNode trees with role configs, noise, target file at dynamic path with thematic content. Web content generation for webserver-role machines. `/bin/` is populated with system utility binaries; `/usr/bin/` is left empty (players must `apt install` tools). Router gets `/etc/iptables/rules.v4` — pre-populated with forwarding rules in forwarded mode, empty template in router-first mode.
 
 ## Files
 
@@ -36,7 +36,7 @@ const mission = generateMissionNetwork('HEIST-7734');
 | `users.ts`           | Per-machine users + plaintext credential map                                                                                                                                              |
 | `attackChain.ts`     | Objective generation (exfiltrate/tamper/credential_theft/script_fix/sabotage), client email                                                                                               |
 | `binary.ts`          | Binary noise wrapping for target files, binary file path pools                                                                                                                            |
-| `filesystem.ts`      | FileNode trees via createFileSystem(), noise, dynamic target file placement                                                                                                               |
+| `filesystem.ts`      | FileNode trees via createFileSystem(), noise, dynamic target file placement, router iptables rules                                                                                        |
 | `generateMission.ts` | Orchestrator composing all steps                                                                                                                                                          |
 
 ## Difficulty

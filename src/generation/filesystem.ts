@@ -1,5 +1,5 @@
 import type { Prng } from './prng';
-import type { GeneratedMachine, MissionObjective } from './types';
+import type { GeneratedMachine, MissionObjective, NatForwarding } from './types';
 import type { FileNode } from '../filesystem/types';
 import type { RemoteUser } from '../network/types';
 import {
@@ -23,6 +23,7 @@ type FilesystemInput = {
   readonly usersByMachine: Readonly<Record<string, readonly RemoteUser[]>>;
   readonly objective: MissionObjective;
   readonly routerMachine?: GeneratedMachine;
+  readonly natForwarding?: NatForwarding;
 };
 
 const mkFile = (
@@ -179,6 +180,21 @@ const buildNestedDirs = (segments: readonly string[], file: FileNode): FileNode 
   return mkDir(dirName, { [childName]: child }, 'root', true);
 };
 
+// Generates the content for /etc/iptables/rules.v4 on the router.
+// Forwarded mode: pre-populated with forward rules matching NAT config.
+// Router-first mode (no NAT): only comments and an empty template.
+const generateIptablesContent = (natForwarding?: NatForwarding): string => {
+  const lines = ['# Port Forwarding Rules', '# forward <public_port> to <internal_ip>:<port>'];
+
+  if (natForwarding) {
+    for (const rule of natForwarding.rules) {
+      lines.push(`forward ${rule.publicPort} to ${rule.internalIp}:${rule.internalPort}`);
+    }
+  }
+
+  return lines.join('\n');
+};
+
 const buildMachineConfig = (
   prng: Prng,
   machine: GeneratedMachine,
@@ -186,6 +202,7 @@ const buildMachineConfig = (
   isTarget: boolean,
   objective: MissionObjective,
   internalMachines?: readonly GeneratedMachine[],
+  natForwarding?: NatForwarding,
 ): MachineFileSystemConfig => {
   const userConfigs: readonly UserConfig[] = users.map((u, i) => ({
     username: u.username,
@@ -236,6 +253,22 @@ const buildMachineConfig = (
       return `Jan ${prng.nextInt(1, 28)} ${prng.nextInt(0, 23).toString().padStart(2, '0')}:${prng.nextInt(0, 59).toString().padStart(2, '0')}:${prng.nextInt(0, 59).toString().padStart(2, '0')} kernel: [iptables] ${action} IN=eth0 OUT=eth1 SRC=${srcIp} DST=${machine.ip} PROTO=TCP DPT=${dstPort}`;
     });
     varLogContent['firewall.log'] = mkFile('firewall.log', fwLines.join('\n'), 'guest');
+  }
+
+  // Router iptables rules file: forwarded mode has pre-populated rules,
+  // router-first mode has an empty template for the player to fill in.
+  if (machine.role === 'router') {
+    const iptablesContent = generateIptablesContent(natForwarding);
+    if (!etcExtraContent['iptables']) {
+      etcExtraContent['iptables'] = mkDir('iptables', {}, 'root', true);
+    }
+    const iptablesDir = etcExtraContent['iptables'];
+    if (iptablesDir.type === 'directory' && iptablesDir.children) {
+      (iptablesDir.children as Record<string, FileNode>)['rules.v4'] = mkFile(
+        'rules.v4',
+        iptablesContent,
+      );
+    }
   }
 
   // Router /etc/hosts contains hints about internal machines
@@ -370,7 +403,7 @@ const mergeKeyPlacement = (
 };
 
 export const generateFileSystems = (input: FilesystemInput): Readonly<Record<string, FileNode>> => {
-  const { prng, machines, usersByMachine, objective, routerMachine } = input;
+  const { prng, machines, usersByMachine, objective, routerMachine, natForwarding } = input;
 
   const entries = machines.map((machine) => {
     const users = usersByMachine[machine.ip] ?? [];
@@ -399,6 +432,7 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
       false,
       objective,
       machines,
+      natForwarding,
     );
 
     // Place encryption key on router if it's the key machine
