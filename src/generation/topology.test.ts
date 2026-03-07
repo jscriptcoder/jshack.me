@@ -253,6 +253,76 @@ describe('generateTopology', () => {
     });
   });
 
+  // Variant-specific port tests
+  it('NC variant machines have a backdoor port with elite service', () => {
+    const results = Array.from({ length: 30 }, (_, i) =>
+      generateTopology(createPrng(`nc-port-${i}`), 'hard'),
+    );
+    const ncMachines = results.flatMap((r) => r.machines).filter((m) => m.accessVariant === 'nc');
+    expect(ncMachines.length).toBeGreaterThan(0);
+    ncMachines.forEach((m) => {
+      const backdoor = m.remoteMachine.ports.find((p) => p.service === 'elite' && p.open);
+      expect(backdoor).toBeDefined();
+      expect([4444, 31337, 8888, 1337]).toContain(backdoor?.port);
+    });
+  });
+
+  it('FTP variant machines have port 21 open', () => {
+    const results = Array.from({ length: 30 }, (_, i) =>
+      generateTopology(createPrng(`ftp-port-${i}`), 'hard'),
+    );
+    const ftpMachines = results.flatMap((r) => r.machines).filter((m) => m.accessVariant === 'ftp');
+    expect(ftpMachines.length).toBeGreaterThan(0);
+    ftpMachines.forEach((m) => {
+      const ftpPort = m.remoteMachine.ports.find((p) => p.port === 21);
+      expect(ftpPort).toBeDefined();
+      expect(ftpPort?.open).toBe(true);
+    });
+  });
+
+  it('HTTP variant machines have port 80 open', () => {
+    const results = Array.from({ length: 30 }, (_, i) =>
+      generateTopology(createPrng(`http-port-${i}`), 'hard'),
+    );
+    const httpMachines = results
+      .flatMap((r) => r.machines)
+      .filter((m) => m.accessVariant === 'http');
+    expect(httpMachines.length).toBeGreaterThan(0);
+    httpMachines.forEach((m) => {
+      const httpPort = m.remoteMachine.ports.find((p) => p.port === 80 && p.open);
+      expect(httpPort).toBeDefined();
+    });
+  });
+
+  it('exploit variant machines have a port matching a vulnerability template', () => {
+    const vulnerablePorts = [80, 3306, 6379, 8080, 9200, 8443];
+    const results = Array.from({ length: 30 }, (_, i) =>
+      generateTopology(createPrng(`exploit-port-${i}`), 'hard'),
+    );
+    const exploitMachines = results
+      .flatMap((r) => r.machines)
+      .filter((m) => m.accessVariant === 'exploit');
+    expect(exploitMachines.length).toBeGreaterThan(0);
+    exploitMachines.forEach((m) => {
+      const hasVulnPort = m.remoteMachine.ports.some(
+        (p) => vulnerablePorts.includes(p.port) && p.open,
+      );
+      expect(hasVulnPort).toBe(true);
+    });
+  });
+
+  it('all machines still have SSH port 22', () => {
+    const results = Array.from({ length: 20 }, (_, i) =>
+      generateTopology(createPrng(`ssh-still-${i}`), 'hard'),
+    );
+    results
+      .flatMap((r) => r.machines)
+      .forEach((m) => {
+        const sshPort = m.remoteMachine.ports.find((p) => p.port === 22);
+        expect(sshPort).toBeDefined();
+      });
+  });
+
   // accessVariant tests
   it('every machine has an accessVariant field', () => {
     const result = generateTopology(createPrng('variant-test'), 'medium');

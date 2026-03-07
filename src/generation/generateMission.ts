@@ -234,8 +234,12 @@ const applyPortClosures = (
   const eligible = machines.filter((m) => m.role !== 'router' && m.ip !== entryPoint);
   if (eligible.length === 0) return machines;
 
-  const sshClosureIp = sshRoll < 0.3 ? eligible[sshTargetIdx % eligible.length]?.ip : undefined;
-  const ftpClosureIp = ftpRoll < 0.3 ? eligible[ftpTargetIdx % eligible.length]?.ip : undefined;
+  const sshTarget = eligible[sshTargetIdx % eligible.length];
+  const sshClosureIp =
+    sshRoll < 0.3 && sshTarget?.accessVariant !== 'ssh' ? sshTarget?.ip : undefined;
+  const ftpTarget = eligible[ftpTargetIdx % eligible.length];
+  const ftpClosureIp =
+    ftpRoll < 0.3 && ftpTarget?.accessVariant !== 'ftp' ? ftpTarget?.ip : undefined;
 
   // Never close both SSH and FTP on the same machine
   const effectiveFtpClosureIp =

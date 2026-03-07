@@ -72,6 +72,8 @@ export const portTemplatesByRole: Readonly<Record<MachineRole, readonly PortTemp
   ],
 };
 
+export const backdoorPorts: readonly number[] = [4444, 31337, 8888, 1337];
+
 export type EntryPortTemplate = {
   readonly variant: EntryVariant;
   readonly ports: readonly PortTemplate[];

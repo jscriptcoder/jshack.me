@@ -346,6 +346,34 @@ describe('generateMissionNetwork', () => {
       }
     });
 
+    it('SSH variant machines never have SSH closed', () => {
+      for (let i = 0; i < 200; i++) {
+        const result = generateMissionNetwork(`ssh-var-protect-${i}`);
+        result.machines
+          .filter((m) => m.accessVariant === 'ssh')
+          .forEach((m) => {
+            const sshPort = m.remoteMachine.ports.find((p) => p.port === 22);
+            if (sshPort) {
+              expect(sshPort.open).toBe(true);
+            }
+          });
+      }
+    });
+
+    it('FTP variant machines never have FTP closed', () => {
+      for (let i = 0; i < 200; i++) {
+        const result = generateMissionNetwork(`ftp-var-protect-${i}`);
+        result.machines
+          .filter((m) => m.accessVariant === 'ftp')
+          .forEach((m) => {
+            const ftpPort = m.remoteMachine.ports.find((p) => p.port === 21);
+            if (ftpPort) {
+              expect(ftpPort.open).toBe(true);
+            }
+          });
+      }
+    });
+
     it('never both SSH and FTP closed on the same machine', () => {
       for (let i = 0; i < 200; i++) {
         const result = generateMissionNetwork(`no-double-close-${i}`);
