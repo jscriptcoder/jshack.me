@@ -79,20 +79,20 @@ On remote and mission machines, hacking tools aren't pre-installed. Players must
 
 ## Network
 
-| Command  | File          | Signature                    | Description                                                                   |
-| -------- | ------------- | ---------------------------- | ----------------------------------------------------------------------------- |
-| ifconfig | `ifconfig.ts` | `ifconfig([iface])`          | Display network interface configuration                                       |
-| ping     | `ping.ts`     | `ping(host, [count])`        | Send ICMP echo request to network host (async)                                |
-| nmap     | `nmap.ts`     | `nmap(["-sV",] target)`      | Network exploration and port scanning; -sV for version/vuln detection (async) |
-| nslookup | `nslookup.ts` | `nslookup(domain)`           | Query DNS to resolve domain to IP address (async)                             |
-| ssh      | `ssh.ts`      | `ssh("user@host")`           | Connect to remote machine via SSH (async)                                     |
-| scp      | `scp.ts`      | `scp(source, dest)`          | Copy file to remote machine preserving permissions                            |
-| curl     | `curl.ts`     | `curl(url, [flags])`         | HTTP client for GET/POST requests (async, `-i` for headers, `-X POST`)        |
-| ftp      | `ftp.ts`      | `ftp(host)`                  | Connect to remote machine via FTP (async)                                     |
-| nc       | `nc.ts`       | `nc(host, port)`             | Netcat - connect to arbitrary port (async, interactive for special services)  |
-| exploit  | `exploit.ts`  | `exploit(host, port)`        | Exploit a vulnerable service for RCE (async, drops into restricted shell)     |
-| hydra    | `hydra.ts`    | `hydra(host[, svc[, user]])` | Brute-force SSH/FTP login credentials (async, probability-based)              |
-| gobuster | `gobuster.ts` | `gobuster("dir", url)`       | Enumerate directories/files on web servers (async, walks /var/www/html/ tree) |
+| Command  | File          | Signature                          | Description                                                                   |
+| -------- | ------------- | ---------------------------------- | ----------------------------------------------------------------------------- |
+| ifconfig | `ifconfig.ts` | `ifconfig([iface])`                | Display network interface configuration                                       |
+| ping     | `ping.ts`     | `ping(host, [count])`              | Send ICMP echo request to network host (async)                                |
+| nmap     | `nmap.ts`     | `nmap(["-sV",] target)`            | Network exploration and port scanning; -sV for version/vuln detection (async) |
+| nslookup | `nslookup.ts` | `nslookup(domain)`                 | Query DNS to resolve domain to IP address (async)                             |
+| ssh      | `ssh.ts`      | `ssh("user@host"[, "-p", "PORT"])` | Connect to remote machine via SSH, optional port flag (async)                 |
+| scp      | `scp.ts`      | `scp(source, dest)`                | Copy file to remote machine preserving permissions                            |
+| curl     | `curl.ts`     | `curl(url, [flags])`               | HTTP client for GET/POST requests (async, `-i` for headers, `-X POST`)        |
+| ftp      | `ftp.ts`      | `ftp(host)`                        | Connect to remote machine via FTP (async)                                     |
+| nc       | `nc.ts`       | `nc(host, port)`                   | Netcat - connect to arbitrary port (async, interactive for special services)  |
+| exploit  | `exploit.ts`  | `exploit(host, port)`              | Exploit a vulnerable service for RCE (async, drops into restricted shell)     |
+| hydra    | `hydra.ts`    | `hydra(host[, svc[, user]])`       | Brute-force SSH/FTP login credentials (async, probability-based)              |
+| gobuster | `gobuster.ts` | `gobuster("dir", url)`             | Enumerate directories/files on web servers (async, walks /var/www/html/ tree) |
 
 ## WiFi
 

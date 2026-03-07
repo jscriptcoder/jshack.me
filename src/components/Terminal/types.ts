@@ -20,6 +20,7 @@ export type SshPromptData = {
   readonly __type: 'ssh_prompt';
   readonly targetUser: string;
   readonly targetIP: string;
+  readonly targetPort: number;
 };
 
 export type ClearOutput = {

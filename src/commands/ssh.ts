@@ -20,23 +20,50 @@ const parseTarget = (target: string): { readonly user: string; readonly host: st
   return { user, host };
 };
 
+// Parses -p PORT from remaining args after the target string.
+// Returns the port number or 22 as default.
+const parsePortFlag = (args: readonly unknown[]): number => {
+  const pIndex = args.indexOf('-p');
+  if (pIndex === -1) return 22;
+
+  const portArg = args[pIndex + 1];
+  if (portArg === undefined) {
+    throw new Error('ssh: option requires an argument -- p\nUsage: ssh("user@host", "-p", "PORT")');
+  }
+
+  const port = Number(portArg);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`ssh: invalid port '${String(portArg)}'`);
+  }
+
+  return port;
+};
+
 export const createSshCommand = (context: SshContext): Command => ({
   name: 'ssh',
   description: 'Secure shell connection to remote host',
   manual: {
-    synopsis: 'ssh("user@host")',
+    synopsis: 'ssh("user@host") or ssh("user@host", "-p", "PORT")',
     description:
-      'Connect to a remote machine via SSH. You will be prompted for the password. The connection will only succeed if the remote machine has SSH (port 22) open and the credentials are valid.',
+      'Connect to a remote machine via SSH. You will be prompted for the password. The connection will only succeed if the remote machine has the specified port open and the credentials are valid. Default port is 22.',
     arguments: [
       {
         name: 'target',
         description: 'Connection string in user@host format',
         required: true,
       },
+      {
+        name: '-p PORT',
+        description: 'Port to connect on (default: 22)',
+        required: false,
+      },
     ],
     examples: [
       { command: 'ssh("admin@192.168.1.1")', description: 'Connect to gateway as admin' },
-      { command: 'ssh("root@10.0.0.5")', description: 'Connect to a remote host as root' },
+      {
+        command: 'ssh("root@10.0.0.5", "-p", "2222")',
+        description: 'Connect on port 2222',
+      },
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {
@@ -53,6 +80,7 @@ export const createSshCommand = (context: SshContext): Command => ({
     }
 
     const { user, host } = parsed;
+    const port = parsePortFlag(args.slice(1));
 
     const localIP = getLocalIP();
     if (host === localIP || host === '127.0.0.1' || host === 'localhost') {
@@ -61,12 +89,12 @@ export const createSshCommand = (context: SshContext): Command => ({
 
     const machine = getMachine(host);
     if (!machine) {
-      throw new Error(`ssh: connect to host ${host} port 22: Connection refused`);
+      throw new Error(`ssh: connect to host ${host} port ${port}: Connection refused`);
     }
 
-    const sshPort = machine.ports.find((p) => p.port === 22 && p.service === 'ssh');
-    if (!sshPort || !sshPort.open) {
-      throw new Error(`ssh: connect to host ${host} port 22: Connection refused`);
+    const targetPort = machine.ports.find((p) => p.port === port);
+    if (!targetPort || !targetPort.open) {
+      throw new Error(`ssh: connect to host ${host} port ${port}: Connection refused`);
     }
 
     const remoteUser = machine.users.find((u) => u.username === user);
@@ -95,6 +123,7 @@ export const createSshCommand = (context: SshContext): Command => ({
               __type: 'ssh_prompt',
               targetUser: user,
               targetIP: host,
+              targetPort: port,
             };
 
             onComplete(sshPrompt);
