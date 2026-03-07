@@ -104,17 +104,20 @@ const generateLogContent = (
   }).join('\n');
 };
 
-const generateHomeContent = (prng: Prng): Readonly<Record<string, FileNode>> => {
+const generateHomeContent = (
+  prng: Prng,
+  owner: 'user' | 'guest',
+): Readonly<Record<string, FileNode>> => {
   const children: Record<string, FileNode> = {};
 
   const selectedNoise = prng.pickN(noiseFiles, prng.nextInt(1, 3));
   selectedNoise.forEach((noise) => {
-    children[noise.name] = mkFile(noise.name, noise.content, 'user');
+    children[noise.name] = mkFile(noise.name, noise.content, owner);
   });
 
   if (prng.next() < 0.3) {
     const herring = prng.pick(redHerringFiles);
-    children[herring.name] = mkFile(herring.name, herring.content, 'user');
+    children[herring.name] = mkFile(herring.name, herring.content, owner);
   }
 
   return children;
@@ -209,7 +212,10 @@ const buildMachineConfig = (
     passwordHash: u.passwordHash,
     userType: u.userType,
     uid: u.userType === 'root' ? 0 : 1000 + i,
-    homeContent: u.userType === 'root' ? undefined : generateHomeContent(prng),
+    homeContent:
+      u.userType === 'root'
+        ? undefined
+        : generateHomeContent(prng, u.userType === 'guest' ? 'guest' : 'user'),
   }));
 
   const configTemplates = configTemplatesByRole[machine.role];
