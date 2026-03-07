@@ -45,7 +45,6 @@ npm run test:e2e      # Run Playwright E2E test (mission playthrough)
 
 Detailed architecture: @.claude/docs/architecture.md
 Infrastructure design (network, machines, filesystems): @.claude/docs/infrastructure-design.md
-Mission system design (procedural generation, contracts): @.claude/docs/missions-design.md
 Mission variations catalog (all generation axes): @.claude/docs/mission-variations.md
 
 ### Command Execution Flow

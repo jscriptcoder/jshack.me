@@ -210,7 +210,7 @@ Unified filesystem-based access model. All commands are visible to all users in 
 
 ## Seeded Mission Network Generator
 
-`src/generation/` contains the engine for procedurally generating mission networks from a seed string. See `missions-design.md` for design rationale and `mission-variations.md` for the complete catalog of all generation axes, templates, and pools.
+`src/generation/` contains the engine for procedurally generating mission networks from a seed string. See `mission-variations.md` for the complete catalog of all generation axes, templates, and pools.
 
 **Pipeline**: `generateMissionNetwork(seed)` composes 7 steps: PRNG (`prng.ts`) → Topology (`topology.ts`) → Users (`users.ts`) → Port Closures (`generateMission.ts: applyPortClosures`) → Attack Chain (`attackChain.ts`) → Filesystems (`filesystem.ts`) → Binary Wrapping (`binary.ts`). Seeds can embed keywords to override generation axes — see `parseSeedOverrides()` in `generateMission.ts`.
 
@@ -218,7 +218,7 @@ Unified filesystem-based access model. All commands are visible to all users in 
 
 ## Mission System Integration
 
-`src/mission/` integrates the generator with React contexts. See `missions-design.md` for design rationale and objective type details. See `mission-variations.md` for entry variants, objective types, templates, and briefing intel.
+`src/mission/` integrates the generator with React contexts. See `mission-variations.md` for entry variants, objective types, templates, and briefing intel.
 
 **Provider hierarchy:**
 
