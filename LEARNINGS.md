@@ -41,3 +41,10 @@
 - **Context**: scp needs to create files with preserved source permissions
 - **Decision**: Added optional `permissions?: FilePermissions` param to `createFileOnMachine`
 - **Rationale**: Clean extension — existing callers unaffected (use defaults), scp passes source permissions. Patch includes permissions when provided.
+
+### Credential removal scope
+
+- **Context**: Removing credential-based attack chains while keeping objective generation
+- **Decision**: Keep `CredentialMap` type and user generation — only remove credential placements, attack chain routing, entry credential hints, and binary credential paths
+- **Rationale**: `buildObjective` for `credential_theft` needs to look up root passwords, and `buildKeyPlacement` needs regular usernames for path templates. Entry variants (ssh/ftp/nc/exploit/http) still exist at the topology level for port configuration, but no longer generate credential hint files.
+- **Trade-offs**: Some PRNG calls are consumed for sequence stability even though credential paths aren't generated. This preserves determinism for seeds that already existed.

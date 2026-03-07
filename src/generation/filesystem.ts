@@ -1,10 +1,5 @@
 import type { Prng } from './prng';
-import type {
-  CredentialPlacement,
-  EntryVariant,
-  GeneratedMachine,
-  MissionObjective,
-} from './types';
+import type { GeneratedMachine, MissionObjective } from './types';
 import type { FileNode } from '../filesystem/types';
 import type { RemoteUser } from '../network/types';
 import {
@@ -13,30 +8,21 @@ import {
   type UserConfig,
 } from '../filesystem/fileSystemFactory';
 import {
-  binaryEntryCredentialHintTemplates,
   configTemplatesByRole,
-  entryCredentialHintTemplates,
   logTemplates,
   noiseFiles,
   redHerringFiles,
   webContentTemplates,
 } from './pools';
-import { binaryCredentialPaths, wrapInBinaryNoise } from './binary';
+import { wrapInBinaryNoise } from './binary';
 import { createBinaryEntries, SYSTEM_UTILITY_NAMES } from '../commands/availability';
 
 type FilesystemInput = {
   readonly prng: Prng;
   readonly machines: readonly GeneratedMachine[];
   readonly usersByMachine: Readonly<Record<string, readonly RemoteUser[]>>;
-  readonly credentialPlacements: readonly CredentialPlacement[];
-  readonly credentials: Readonly<
-    Record<string, readonly { readonly username: string; readonly password: string }[]>
-  >;
   readonly objective: MissionObjective;
-  readonly entryPoint: string;
-  readonly entryVariant: EntryVariant;
   readonly routerMachine?: GeneratedMachine;
-  readonly networkMode: 'forwarded' | 'router-first';
 };
 
 const mkFile = (
@@ -117,10 +103,7 @@ const generateLogContent = (
   }).join('\n');
 };
 
-const generateHomeContent = (
-  prng: Prng,
-  placements: readonly CredentialPlacement[],
-): Readonly<Record<string, FileNode>> => {
+const generateHomeContent = (prng: Prng): Readonly<Record<string, FileNode>> => {
   const children: Record<string, FileNode> = {};
 
   const selectedNoise = prng.pickN(noiseFiles, prng.nextInt(1, 3));
@@ -132,15 +115,6 @@ const generateHomeContent = (
     const herring = prng.pick(redHerringFiles);
     children[herring.name] = mkFile(herring.name, herring.content, 'user');
   }
-
-  placements.forEach((p) => {
-    const parts = p.filePath.split('/');
-    const fileName = parts[parts.length - 1] ?? 'credentials.txt';
-    if (p.filePath.startsWith('/home/')) {
-      const content = p.binary ? wrapInBinaryNoise(prng, p.fileContent) : p.fileContent;
-      children[fileName] = mkFile(fileName, content, 'user');
-    }
-  });
 
   return children;
 };
@@ -209,7 +183,6 @@ const buildMachineConfig = (
   prng: Prng,
   machine: GeneratedMachine,
   users: readonly RemoteUser[],
-  placements: readonly CredentialPlacement[],
   isTarget: boolean,
   objective: MissionObjective,
   internalMachines?: readonly GeneratedMachine[],
@@ -219,13 +192,7 @@ const buildMachineConfig = (
     passwordHash: u.passwordHash,
     userType: u.userType,
     uid: u.userType === 'root' ? 0 : 1000 + i,
-    homeContent:
-      u.userType === 'root'
-        ? undefined
-        : generateHomeContent(
-            prng,
-            placements.filter((p) => p.filePath.startsWith(`/home/${u.username}/`)),
-          ),
+    homeContent: u.userType === 'root' ? undefined : generateHomeContent(prng),
   }));
 
   const configTemplates = configTemplatesByRole[machine.role];
@@ -253,12 +220,6 @@ const buildMachineConfig = (
 
   // System config files in /etc/ are world-readable (guest-owned)
   etcExtraContent[serviceConfigName] = mkFile(serviceConfigName, configContent, 'guest');
-
-  const etcPlacements = placements.filter((p) => p.filePath.startsWith('/etc/'));
-  etcPlacements.forEach((p) => {
-    const fileName = p.filePath.split('/').pop() ?? 'config';
-    etcExtraContent[fileName] = mkFile(fileName, p.fileContent, 'guest');
-  });
 
   // Log files in /var/log/ are world-readable (guest-owned)
   const logContent = generateLogContent(prng, machine, users);
@@ -298,26 +259,6 @@ const buildMachineConfig = (
     etcExtraContent['route.conf'] = mkFile('route.conf', routeTable.join('\n'), 'guest');
   }
 
-  const logPlacements = placements.filter((p) => p.filePath.startsWith('/var/log/'));
-  logPlacements.forEach((p) => {
-    const fileName = p.filePath.split('/').pop() ?? 'log';
-    const content = p.binary ? wrapInBinaryNoise(prng, p.fileContent) : p.fileContent;
-    varLogContent[fileName] = mkFile(fileName, content, 'guest');
-  });
-
-  const tmpPlacements = placements.filter((p) => p.filePath.startsWith('/tmp/'));
-  // Web content placements (curl-based credential discovery)
-  const webPlacements = placements.filter((p) => p.filePath.startsWith('/var/www/'));
-  // Binary credential placements use deep paths like /usr/local/bin/, /opt/lib/, /var/cache/
-  const binaryDeepPlacements = placements.filter(
-    (p) =>
-      p.binary &&
-      !p.filePath.startsWith('/home/') &&
-      !p.filePath.startsWith('/var/log/') &&
-      !p.filePath.startsWith('/tmp/') &&
-      !p.filePath.startsWith('/var/www/') &&
-      !p.filePath.startsWith('/etc/'),
-  );
   const extraDirectories: Record<string, FileNode> = {};
 
   const rootContent: Record<string, FileNode> = {};
@@ -355,48 +296,17 @@ const buildMachineConfig = (
     }
   }
 
-  if (tmpPlacements.length > 0) {
-    const tmpChildren: Record<string, FileNode> = {};
-    tmpPlacements.forEach((p) => {
-      const fileName = p.filePath.split('/').pop() ?? 'file';
-      const content = p.binary ? wrapInBinaryNoise(prng, p.fileContent) : p.fileContent;
-      tmpChildren[fileName] = mkFile(fileName, content, 'guest');
-    });
-    extraDirectories['tmp'] = mkDir('tmp', tmpChildren, 'root', true);
-  }
-
-  // Generate web content for webserver machines (index.html + any credential placements)
-  if (machine.role === 'webserver' || webPlacements.length > 0) {
+  // Generate web content for webserver machines
+  if (machine.role === 'webserver') {
     const webTemplate = prng.pick(webContentTemplates);
     const indexContent = fillTemplate(webTemplate.content, {
       hostname: machine.hostname,
       ip: machine.ip,
     });
 
-    // Build /var/www/html/ directory tree with index.html + credential placement files
-    // Web content files are world-readable (guest-owned) — served by the web server
     const htmlChildren: Record<string, FileNode> = {
       'index.html': mkFile('index.html', indexContent, 'guest'),
     };
-
-    // Place credential files at their web paths (under /var/www/html/)
-    webPlacements.forEach((p) => {
-      const relPath = p.filePath.replace('/var/www/html/', '');
-      const segments = relPath.split('/');
-      if (segments.length === 1) {
-        htmlChildren[relPath] = mkFile(relPath, p.fileContent, 'guest');
-      } else {
-        // Nested path (e.g., admin/config.json) — build nested dirs under html/
-        const fullSegments = p.filePath.split('/').filter(Boolean);
-        // segments: ['var', 'www', 'html', 'admin', 'config.json']
-        const htmlRelSegments = fullSegments.slice(3);
-        const topChild = htmlRelSegments[0] as string;
-        htmlChildren[topChild] = buildNestedDirs(
-          htmlRelSegments,
-          mkFile(htmlRelSegments[htmlRelSegments.length - 1] as string, p.fileContent, 'guest'),
-        );
-      }
-    });
 
     extraDirectories['var'] = mkDir(
       'var',
@@ -415,17 +325,6 @@ const buildMachineConfig = (
     );
   }
 
-  // Place binary credential files at deep paths (e.g., /usr/local/bin/monitor_agent)
-  // Binary credential files at system paths are world-readable (guest-owned)
-  binaryDeepPlacements.forEach((p) => {
-    const segments = p.filePath.split('/').filter(Boolean);
-    const fileName = segments[segments.length - 1] ?? 'data.bin';
-    const content = wrapInBinaryNoise(prng, p.fileContent);
-    const file = mkFile(fileName, content, 'guest');
-    const topDir = segments[0] ?? 'usr';
-    extraDirectories[topDir] = buildNestedDirs(segments, file);
-  });
-
   return {
     users: userConfigs,
     rootContent,
@@ -435,130 +334,6 @@ const buildMachineConfig = (
     binContent: createBinaryEntries(SYSTEM_UTILITY_NAMES),
     passwdReadableBy: ['root', 'user'],
   };
-};
-
-const buildEntryCredentialPlacement = (
-  prng: Prng,
-  machine: GeneratedMachine,
-  users: readonly RemoteUser[],
-  entryVariant: EntryVariant,
-  machineCredentials: readonly { readonly username: string; readonly password: string }[],
-): readonly CredentialPlacement[] => {
-  if (entryVariant === 'ssh') return [];
-
-  const sshUser = users.find((u) => u.userType === 'user');
-  if (!sshUser) return [];
-
-  const sshCred = machineCredentials.find((c) => c.username === sshUser.username);
-  if (!sshCred) return [];
-
-  // HTTP entry variant: place SSH credentials in web content (+ optional .headers sidecar)
-  if (entryVariant === 'http') {
-    const hintTemplate = prng.pick(entryCredentialHintTemplates);
-    const fileContent = fillTemplate(hintTemplate.template, {
-      hostname: machine.hostname,
-      user: sshCred.username,
-      password: sshCred.password,
-    });
-
-    const placements: CredentialPlacement[] = [
-      {
-        machineIp: machine.ip,
-        filePath: hintTemplate.httpPath,
-        fileContent: hintTemplate.httpInHeader
-          ? `<!-- internal auth configured via response headers -->\n<p>System status: OK</p>`
-          : fileContent,
-        username: sshCred.username,
-        password: sshCred.password,
-      },
-    ];
-
-    // When httpInHeader, place the actual credentials in a .headers sidecar
-    if (hintTemplate.httpInHeader) {
-      placements.push({
-        machineIp: machine.ip,
-        filePath: hintTemplate.httpHeadersPath,
-        fileContent: `${hintTemplate.httpHeaderName}: ${sshCred.username}:${sshCred.password}`,
-        username: sshCred.username,
-        password: sshCred.password,
-      });
-    } else {
-      // Body-based: overwrite with credential-containing content
-      placements[0] = { ...placements[0], fileContent } as CredentialPlacement;
-    }
-
-    return placements;
-  }
-
-  // ~20% chance to wrap entry credential hint in a binary file
-  const isBinary = prng.next() < 0.2;
-  const hintTemplate = isBinary
-    ? prng.pick(binaryEntryCredentialHintTemplates)
-    : prng.pick(entryCredentialHintTemplates);
-  const localUser = sshUser.username;
-  // NC, exploit, and FTP variants derive owner from the machine's port owner (guest/user/root)
-  const portOwner = machine.remoteMachine.ports.find((p) => p.owner)?.owner;
-  const ownerUser =
-    entryVariant === 'nc' || entryVariant === 'exploit' || entryVariant === 'ftp'
-      ? (portOwner?.username ?? users.find((u) => u.userType === 'guest')?.username ?? 'guest')
-      : localUser;
-
-  // Binary entry credentials use a role-appropriate deep path
-  if (isBinary) {
-    const binaryPath = prng.pick(binaryCredentialPaths[machine.role]);
-    const fileContent = fillTemplate(hintTemplate.template, {
-      hostname: machine.hostname,
-      user: sshCred.username,
-      password: sshCred.password,
-      owner: ownerUser,
-    });
-
-    // Guest owners can't read deep root-only binary paths — use /tmp/ instead
-    // (/tmp/ placements use owner: 'user', which is readable by guest)
-    const ownerIsGuest = portOwner?.userType === 'guest' || !portOwner;
-    const fileName = binaryPath.split('/').pop() ?? 'data.bin';
-    const filePath = ownerIsGuest ? `/tmp/${fileName}` : binaryPath;
-
-    return [
-      {
-        machineIp: machine.ip,
-        filePath,
-        fileContent,
-        username: sshCred.username,
-        password: sshCred.password,
-        binary: true,
-      },
-    ];
-  }
-
-  // Root's home is /root/, not /home/root/ — place hints in /tmp/ instead
-  const ownerIsRoot = portOwner?.userType === 'root';
-  const pathByVariant =
-    entryVariant === 'ftp'
-      ? hintTemplate.ftpPath
-      : entryVariant === 'exploit'
-        ? hintTemplate.exploitPath
-        : hintTemplate.ncPath;
-  const filePath = ownerIsRoot
-    ? `/tmp/${pathByVariant.split('/').pop()}`
-    : pathByVariant.replace('{{owner}}', ownerUser);
-
-  const fileContent = fillTemplate(hintTemplate.template, {
-    hostname: machine.hostname,
-    user: sshCred.username,
-    password: sshCred.password,
-    owner: ownerUser,
-  });
-
-  return [
-    {
-      machineIp: machine.ip,
-      filePath,
-      fileContent,
-      username: sshCred.username,
-      password: sshCred.password,
-    },
-  ];
 };
 
 // Builds the key file directory tree for encrypted objectives.
@@ -595,37 +370,13 @@ const mergeKeyPlacement = (
 };
 
 export const generateFileSystems = (input: FilesystemInput): Readonly<Record<string, FileNode>> => {
-  const {
-    prng,
-    machines,
-    usersByMachine,
-    credentialPlacements,
-    credentials,
-    objective,
-    entryPoint,
-    entryVariant,
-    routerMachine,
-    networkMode,
-  } = input;
+  const { prng, machines, usersByMachine, objective, routerMachine } = input;
 
   const entries = machines.map((machine) => {
     const users = usersByMachine[machine.ip] ?? [];
-    const isEntry = machine.ip === entryPoint;
-    const basePlacements = credentialPlacements.filter((p) => p.machineIp === machine.ip);
-    const machineCreds = credentials[machine.ip] ?? [];
-
-    // In router-first mode, the entry variant applies to the router, not the
-    // internal entry machine — skip entry hints here to avoid placing them
-    // on a machine the player can't reach first.
-    const entryHints =
-      isEntry && networkMode === 'forwarded'
-        ? buildEntryCredentialPlacement(prng, machine, users, entryVariant, machineCreds)
-        : [];
-    const placements = [...basePlacements, ...entryHints];
-
     const isTarget = machine.ip === objective.targetMachine;
 
-    const baseConfig = buildMachineConfig(prng, machine, users, placements, isTarget, objective);
+    const baseConfig = buildMachineConfig(prng, machine, users, isTarget, objective);
 
     // Place encryption key file on the key machine (if this is that machine)
     const keyTree =
@@ -640,27 +391,11 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
   // Generate router filesystem with hints about internal machines
   if (routerMachine) {
     const routerUsers = usersByMachine[routerMachine.ip] ?? [];
-    const routerPlacements = credentialPlacements.filter((p) => p.machineIp === routerMachine.ip);
 
-    // In router-first mode, the entry variant applies to the router —
-    // generate entry credential hints (web content for HTTP, NC hints, etc.)
-    const routerEntryHints =
-      networkMode === 'router-first'
-        ? buildEntryCredentialPlacement(
-            prng,
-            routerMachine,
-            routerUsers,
-            entryVariant,
-            credentials[routerMachine.ip] ?? [],
-          )
-        : [];
-
-    const allRouterPlacements = [...routerPlacements, ...routerEntryHints];
     const baseRouterConfig = buildMachineConfig(
       prng,
       routerMachine,
       routerUsers,
-      allRouterPlacements,
       false,
       objective,
       machines,

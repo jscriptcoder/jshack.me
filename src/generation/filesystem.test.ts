@@ -2,9 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { createPrng } from './prng';
 import { generateTopology } from './topology';
 import { generateUsers } from './users';
-import { generateAttackChain } from './attackChain';
+import { buildMissionObjective } from './attackChain';
 import { generateFileSystems } from './filesystem';
-import { entryCredentialHintTemplates } from './pools';
 import type { FileNode } from '../filesystem/types';
 
 const buildTestData = (seed: string) => {
@@ -15,26 +14,20 @@ const buildTestData = (seed: string) => {
     topology.machines,
     topology.entryPoint,
   );
-  const { credentialPlacements, objective } = generateAttackChain({
+  const { objective } = buildMissionObjective({
     prng,
     machines: topology.machines,
     credentials,
     entryPoint: topology.entryPoint,
-    entryVariant: topology.entryVariant,
     difficulty: 'medium',
   });
   const fileSystems = generateFileSystems({
     prng,
     machines: topology.machines,
     usersByMachine,
-    credentialPlacements,
-    credentials,
     objective,
-    entryPoint: topology.entryPoint,
-    entryVariant: topology.entryVariant,
-    networkMode: 'forwarded',
   });
-  return { topology, fileSystems, objective, credentialPlacements };
+  return { topology, fileSystems, objective };
 };
 
 const resolveNode = (root: FileNode, path: string): FileNode | undefined => {
@@ -92,16 +85,14 @@ describe('generateFileSystems', () => {
   });
 
   it('target machine has the target file for exfiltrate/tamper objectives', () => {
-    // Try seeds until we get an exfiltrate or tamper objective (which have target files)
     for (let i = 0; i < 50; i++) {
       const { fileSystems, objective } = buildTestData(`target-file-${i}`);
-      if (objective.type === 'credential_theft') continue;
+      if (objective.type === 'credential_theft' || objective.type === 'sabotage') continue;
 
       const targetFs = fileSystems[objective.targetMachine];
       const targetFile = resolveNode(targetFs as FileNode, objective.targetPath);
       expect(targetFile).toBeDefined();
       if (objective.binary) {
-        // Binary-wrapped files embed each line in noise — verify first non-empty line is present
         const firstLine = objective.targetContent.split('\n').find((l) => l.trim().length > 0);
         expect(targetFile?.content).toContain(firstLine);
       } else {
@@ -119,7 +110,6 @@ describe('generateFileSystems', () => {
       if (objective.type !== 'credential_theft') continue;
 
       expect(objective.targetPath).toBe('');
-      // No target file placed — the objective is a password, not a file
       return;
     }
     throw new Error('No credential_theft objective found in 100 seeds');
@@ -153,41 +143,6 @@ describe('generateFileSystems', () => {
       const authLog = resolveNode(root as FileNode, '/var/log/auth.log');
       expect(authLog).toBeDefined();
       expect(authLog?.content).toBeTruthy();
-    });
-  });
-
-  it('all FTP entry credential hint paths use /home/{{owner}}/ prefix', () => {
-    entryCredentialHintTemplates.forEach((t) => {
-      expect(t.ftpPath).toMatch(/^\/home\/\{\{owner\}\}\//);
-    });
-  });
-
-  it('all exploit entry credential hint paths use /home/ prefix', () => {
-    entryCredentialHintTemplates.forEach((t) => {
-      expect(t.exploitPath).toMatch(/^\/home\//);
-    });
-  });
-
-  it('credential placements are embedded in filesystems', () => {
-    const { fileSystems, credentialPlacements } = buildTestData('embed-test');
-    credentialPlacements.forEach((placement) => {
-      const fs = fileSystems[placement.machineIp];
-      if (!fs) return;
-
-      const fileNames = placement.filePath.split('/').filter(Boolean);
-      const fileName = fileNames[fileNames.length - 1] ?? '';
-
-      const searchInNode = (node: FileNode): boolean => {
-        if (node.type === 'file' && node.name === fileName) {
-          return node.content?.includes(placement.password) ?? false;
-        }
-        if (node.children) {
-          return Object.values(node.children).some(searchInNode);
-        }
-        return false;
-      };
-
-      expect(searchInNode(fs)).toBe(true);
     });
   });
 });

@@ -3,18 +3,13 @@
  *
  * Usage: npx tsx scripts/dumpMission.ts <seed>
  *
- * Prints machines, ports, users, attack chain, objective,
+ * Prints machines, ports, users, objective,
  * and full filesystem trees with ANSI colors.
  */
 
 import { generateMissionNetwork, parseSeedOverrides } from '../src/generation/generateMission';
 import type { FileNode } from '../src/filesystem/types';
-import type {
-  AttackStep,
-  GeneratedMachine,
-  MissionNetwork,
-  MissionObjective,
-} from '../src/generation/types';
+import type { GeneratedMachine, MissionNetwork, MissionObjective } from '../src/generation/types';
 import type { Port, RemoteUser } from '../src/network/types';
 
 // ---------------------------------------------------------------------------
@@ -28,23 +23,6 @@ const yellow = (s: string) => `\x1b[33m${s}\x1b[0m`;
 const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
 const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
 const magenta = (s: string) => `\x1b[35m${s}\x1b[0m`;
-
-// ---------------------------------------------------------------------------
-// Credential lookup — resolve password hashes to plaintext
-// ---------------------------------------------------------------------------
-
-const buildPasswordMap = (net: MissionNetwork): ReadonlyMap<string, string> => {
-  const map = new Map<string, string>();
-  // Collect from attack chain steps
-  net.attackChain.forEach((step) => {
-    map.set(step.credential.username, step.credential.password);
-  });
-  // Collect from entry credential
-  if (net.entryCredential) {
-    map.set(net.entryCredential.username, net.entryCredential.password);
-  }
-  return map;
-};
 
 // ---------------------------------------------------------------------------
 // Formatters
@@ -62,10 +40,8 @@ const formatPort = (p: Port): string => {
   return `  ${p.port}/${p.service}  ${state}${extra}`;
 };
 
-const formatUser = (u: RemoteUser, knownPasswords: ReadonlyMap<string, string>): string => {
-  const pw = knownPasswords.get(u.username);
-  const pwStr = pw ? green(pw) : dim('(unknown)');
-  return `  ${u.username} (${u.userType})  hash=${dim(u.passwordHash)}  pw=${pwStr}`;
+const formatUser = (u: RemoteUser): string => {
+  return `  ${u.username} (${u.userType})  hash=${dim(u.passwordHash)}`;
 };
 
 // ---------------------------------------------------------------------------
@@ -93,7 +69,7 @@ const printTree = (node: FileNode, prefix: string, isLast: boolean): void => {
   }
 };
 
-const printFileSystem = (machineId: string, root: FileNode): void => {
+const printFileSystem = (_machineId: string, root: FileNode): void => {
   console.log(`  ${cyan('/')} ${dim(`[${root.owner}]`)}`);
   const children = root.children ? Object.values(root.children) : [];
   children.forEach((child, i) => {
@@ -131,11 +107,6 @@ const printOverview = (net: MissionNetwork): void => {
     );
   }
   console.log(`  Client email:    ${net.clientEmail}`);
-  if (net.entryCredential) {
-    console.log(
-      `  Entry cred:      ${net.entryCredential.username} / ${green(net.entryCredential.password)}`,
-    );
-  }
 };
 
 const printObjective = (obj: MissionObjective): void => {
@@ -155,40 +126,24 @@ const printObjective = (obj: MissionObjective): void => {
   }
 };
 
-const printAttackChain = (chain: readonly AttackStep[]): void => {
-  heading('ATTACK CHAIN');
-  chain.forEach((step, i) => {
-    console.log(
-      `  ${bold(`${i + 1}.`)} ${step.fromMachine} → ${step.toMachine}  ` +
-        `${cyan(step.method)}  ${step.credential.username}/${green(step.credential.password)}`,
-    );
-    console.log(`     ${dim(step.hint)}`);
-  });
-};
-
-const printMachine = (
-  m: GeneratedMachine,
-  knownPasswords: ReadonlyMap<string, string>,
-  label: string,
-): void => {
+const printMachine = (m: GeneratedMachine, label: string): void => {
   console.log('');
   console.log(`  ${bold(m.hostname)} ${dim(`(${m.role})`)} ${label}  ${yellow(m.ip)}`);
   console.log(dim('  Ports:'));
   m.remoteMachine.ports.forEach((p) => console.log(formatPort(p)));
   console.log(dim('  Users:'));
-  m.remoteMachine.users.forEach((u) => console.log(formatUser(u, knownPasswords)));
+  m.remoteMachine.users.forEach((u) => console.log(formatUser(u)));
 };
 
-const printMachines = (net: MissionNetwork, knownPasswords: ReadonlyMap<string, string>): void => {
+const printMachines = (net: MissionNetwork): void => {
   heading('ROUTER');
-  printMachine(net.routerMachine, knownPasswords, magenta('[ROUTER]'));
+  printMachine(net.routerMachine, magenta('[ROUTER]'));
 
   heading('INTERNAL MACHINES');
-  // Find internal machines (everything except the router)
   const internal = net.machines.filter((m) => m.ip !== net.routerMachine.ip);
   internal.forEach((m) => {
     const label = m.ip === net.entryPoint ? green('[ENTRY]') : '';
-    printMachine(m, knownPasswords, label);
+    printMachine(m, label);
   });
 };
 
@@ -233,7 +188,6 @@ if (!seed) {
 }
 
 const net = generateMissionNetwork(seed);
-const knownPasswords = buildPasswordMap(net);
 
 console.log(bold(magenta(`\n╔══════════════════════════════════════╗`)));
 console.log(bold(magenta(`║     MISSION NETWORK DUMP             ║`)));
@@ -241,8 +195,7 @@ console.log(bold(magenta(`╚═════════════════
 
 printOverview(net);
 printObjective(net.objective);
-printAttackChain(net.attackChain);
-printMachines(net, knownPasswords);
+printMachines(net);
 printFileSystems(net);
 
 console.log('');

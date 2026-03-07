@@ -279,82 +279,6 @@ export const noiseFiles: readonly { readonly name: string; readonly content: str
   { name: '.ssh_known_hosts', content: '# known hosts\n192.168.1.1 ssh-rsa AAAAB3NzaC1yc2E...' },
 ];
 
-export const binaryEntryCredentialHintTemplates: readonly {
-  readonly ftpPath: string;
-  readonly ncPath: string;
-  readonly exploitPath: string;
-  readonly httpPath: string;
-  readonly httpHeadersPath: string;
-  readonly httpHeaderName: string;
-  readonly template: string;
-}[] = [
-  {
-    ftpPath: '/home/{{localUser}}/.auth_cache',
-    ncPath: '/home/{{owner}}/.auth_cache',
-    exploitPath: '/home/{{owner}}/.auth_cache',
-    httpPath: '/var/www/html/admin/config.json',
-    httpHeadersPath: '/var/www/html/admin/config.json.headers',
-    httpHeaderName: 'X-Api-Key',
-    template:
-      'SSH Credentials Backup\n======================\nHost: {{hostname}}\nUser: {{user}}\nPass: {{password}}\nLast updated: Jan 10',
-  },
-  {
-    ftpPath: '/home/{{localUser}}/service_check',
-    ncPath: '/home/{{owner}}/service_check',
-    exploitPath: '/home/{{owner}}/service_check',
-    httpPath: '/var/www/html/.env',
-    httpHeadersPath: '/var/www/html/.env.headers',
-    httpHeaderName: 'X-Session-Token',
-    template: 'Server notes:\n- SSH access: {{user}} / {{password}}\n- Remember to rotate!',
-  },
-];
-
-export type EntryCredentialHintTemplate = {
-  readonly ftpPath: string;
-  readonly ncPath: string;
-  readonly exploitPath: string;
-  readonly httpPath: string;
-  readonly httpHeadersPath: string;
-  readonly httpHeaderName: string;
-  readonly httpInHeader: boolean;
-  readonly template: string;
-};
-
-export const entryCredentialHintTemplates: readonly EntryCredentialHintTemplate[] = [
-  {
-    ftpPath: '/home/{{owner}}/.ssh_backup',
-    ncPath: '/home/{{owner}}/ssh_backup.txt',
-    exploitPath: '/home/{{owner}}/ssh_backup.txt',
-    httpPath: '/var/www/html/status',
-    httpHeadersPath: '/var/www/html/status.headers',
-    httpHeaderName: 'X-Internal-Auth',
-    httpInHeader: true,
-    template:
-      'SSH Credentials Backup\n======================\nHost: {{hostname}}\nUser: {{user}}\nPass: {{password}}\nLast updated: Jan 10',
-  },
-  {
-    ftpPath: '/home/{{owner}}/notes.txt',
-    ncPath: '/home/{{owner}}/notes.txt',
-    exploitPath: '/home/{{owner}}/notes.txt',
-    httpPath: '/var/www/html/admin/debug.html',
-    httpHeadersPath: '/var/www/html/admin/debug.html.headers',
-    httpHeaderName: 'X-Access-Token',
-    httpInHeader: false,
-    template: 'Server notes:\n- SSH access: {{user}} / {{password}}\n- Remember to rotate!',
-  },
-  {
-    ftpPath: '/home/{{owner}}/credentials.bak',
-    ncPath: '/home/{{owner}}/.credentials',
-    exploitPath: '/home/{{owner}}/.credentials',
-    httpPath: '/var/www/html/.env',
-    httpHeadersPath: '/var/www/html/.env.headers',
-    httpHeaderName: 'X-Api-Key',
-    httpInHeader: true,
-    template:
-      '# auto-generated credentials\nssh_user={{user}}\nssh_pass={{password}}\nhost={{hostname}}',
-  },
-];
-
 export type TargetFileTemplate = {
   readonly path: string;
   readonly contentTemplate: string;
@@ -585,16 +509,7 @@ export const keyPlacementTemplates: readonly KeyPlacementTemplate[] = [
   },
 ];
 
-export const secretHeaderNames: readonly string[] = [
-  'X-Api-Key',
-  'X-Session-Token',
-  'Authorization',
-  'X-Internal-Auth',
-  'X-Access-Token',
-];
-
 // Web page templates for webserver machines. {{hostname}} and {{ip}} are filled in at generation.
-// Pages with httpInHeader=true hide credentials in a .headers sidecar file.
 export const webContentTemplates: readonly {
   readonly path: string;
   readonly content: string;
@@ -608,61 +523,6 @@ export const webContentTemplates: readonly {
     path: '/var/www/html/index.html',
     content:
       '<html>\n<head><title>Welcome — {{hostname}}</title></head>\n<body>\n<h1>Welcome to {{hostname}}</h1>\n<p>Internal corporate portal v3.1.0</p>\n<ul>\n<li><a href="/status">System Status</a></li>\n<li><a href="/admin/">Administration</a></li>\n</ul>\n<!-- TODO: remove debug endpoints before release -->\n</body>\n</html>',
-  },
-];
-
-// HTTP credential placement templates for lateral movement via curl.
-// Placed on webserver-role machines when curl is used for credential discovery.
-export type HttpCredentialPlacement = {
-  readonly path: string;
-  readonly headersPath: string;
-  readonly headerName: string;
-  readonly httpInHeader: boolean;
-  readonly bodyTemplate: string;
-  readonly headerTemplate: string;
-  readonly hint: string;
-};
-
-export const httpCredentialPlacements: readonly HttpCredentialPlacement[] = [
-  {
-    path: '/var/www/html/admin/config.json',
-    headersPath: '/var/www/html/admin/config.json.headers',
-    headerName: 'X-Internal-Auth',
-    httpInHeader: true,
-    bodyTemplate:
-      '{\n  "app": "admin-panel",\n  "version": "2.4.1",\n  "debug": false,\n  "_internal_backup": "{{user}}:{{password}}"\n}',
-    headerTemplate: '{{headerName}}: {{user}}:{{password}}',
-    hint: 'The webserver on {{machine}} may be leaking credentials — try curl -i',
-  },
-  {
-    path: '/var/www/html/status',
-    headersPath: '/var/www/html/status.headers',
-    headerName: 'X-Api-Key',
-    httpInHeader: false,
-    bodyTemplate:
-      'Service Status Report\n=====================\nServer: {{hostname}}\nStatus: running\nUptime: 47d 12h\n\n# Maintenance credentials\n# SSH: {{user}} / {{password}}\n# Rotate after next deployment',
-    headerTemplate: '{{headerName}}: status-token-{{hostname}}',
-    hint: 'Check the status page on {{machine}} with curl — it may contain credentials',
-  },
-  {
-    path: '/var/www/html/.env',
-    headersPath: '/var/www/html/.env.headers',
-    headerName: 'X-Access-Token',
-    httpInHeader: true,
-    bodyTemplate:
-      'APP_ENV=production\nAPP_DEBUG=false\nDB_HOST=localhost\nDB_NAME=app\n# remote: {{user}}:{{password}}\n# See response headers for auth tokens',
-    headerTemplate: '{{headerName}}: {{user}}:{{password}}',
-    hint: 'The .env file on {{machine}} is web-accessible — try curl -i',
-  },
-  {
-    path: '/var/www/html/api/health',
-    headersPath: '/var/www/html/api/health.headers',
-    headerName: 'X-Session-Token',
-    httpInHeader: false,
-    bodyTemplate:
-      '{"status":"healthy","version":"3.0.2","uptime":"47d"}\n\n<!-- debug: ssh access {{user}}@{{hostname}} pass={{password}} -->',
-    headerTemplate: '{{headerName}}: session-{{hostname}}-prod',
-    hint: 'The API on {{machine}} has a health endpoint — try curl',
   },
 ];
 

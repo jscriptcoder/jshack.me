@@ -47,19 +47,6 @@ export const wrapInBinaryNoise = (prng: Prng, content: string): string => {
   return header + wrappedLines.join(generateNoiseChunk(prng, 2, 5)) + footer;
 };
 
-// Binary-looking file paths for credential breadcrumbs, keyed by machine role.
-export const binaryCredentialPaths: Readonly<Record<MachineRole, readonly string[]>> = {
-  webserver: ['/usr/local/bin/httpd_monitor', '/opt/lib/libmod_auth.so', '/var/cache/sessions.db'],
-  database: ['/usr/local/bin/db_healthcheck', '/opt/lib/libmysqlclient.so', '/var/cache/query.db'],
-  fileserver: ['/usr/local/bin/sync_agent', '/opt/lib/libstorage.so', '/var/cache/ftp_sessions.db'],
-  workstation: [
-    '/usr/local/bin/monitor_agent',
-    '/opt/lib/libauth.so',
-    '/var/cache/user_sessions.db',
-  ],
-  router: ['/usr/local/bin/fw_monitor', '/opt/lib/libnetfilter.so', '/var/cache/routing.db'],
-};
-
 // Binary-looking file paths for exfiltrate target files.
 export const binaryTargetPaths: Readonly<Record<MachineRole, readonly string[]>> = {
   fileserver: ['/opt/app/records.bin', '/var/lib/export.dat', '/srv/cache/backup.db'],
@@ -77,10 +64,3 @@ export const binaryKeyPaths: Readonly<Record<MachineRole, readonly string[]>> = 
   workstation: ['/usr/local/lib/user_keyring.db', '/opt/lib/libvault.so'],
   router: ['/usr/local/lib/vpn_keystore.db', '/opt/lib/libipsec_keys.so'],
 };
-
-// Hint templates for binary credential placements that mention `strings`.
-export const binaryHintTemplates: readonly string[] = [
-  "There's a suspicious binary at {{path}} on {{machine}} — try extracting strings from it",
-  'A compiled binary on {{machine}} at {{path}} may contain embedded credentials — use strings',
-  'Check {{path}} on {{machine}} with the strings command — looks like a data file with secrets',
-];
