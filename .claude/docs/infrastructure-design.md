@@ -119,4 +119,6 @@ PRNG-driven SSH/FTP port closures (~30% each, independent rolls) add lateral mov
 
 ### NAT Resolution
 
-`NetworkContext.resolveNat(ip)` handles the translation from public to internal IPs. Applied at three connection boundaries in `Terminal.tsx`: SSH login, FTP session, NC session.
+`NetworkContext.resolveNat(ip, port)` handles port-level translation from public IP + port to internal machine IP + port. Rules are parsed dynamically from `/etc/iptables/rules.v4` on the router's filesystem (`src/network/iptablesParser.ts`). Applied at three connection boundaries in `Terminal.tsx`: SSH login, FTP session, NC session.
+
+In forwarded mode, the iptables file is pre-populated with forwarding rules. In router-first mode, it starts as an empty template — the player can add rules with `nano` after hacking the router. Changes take effect immediately on the next `nmap` scan or connection attempt. Format: `forward <public_port> to <internal_ip>:<port>`.

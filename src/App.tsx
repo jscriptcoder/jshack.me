@@ -14,7 +14,6 @@ function App() {
           <NetworkProvider
             missionNetworkConfig={missionState.activeMission?.networkConfig}
             missionMachines={missionState.activeMission?.machines}
-            missionNatForwarding={missionState.activeMission?.natForwarding}
             missionRouterMachine={
               missionState.activeMission ? missionState.activeMission.routerMachine : undefined
             }

@@ -9,6 +9,7 @@ Simulated network environment for hacking missions. Defines the topology, machin
 | `types.ts`           | Core types: `NetworkInterface`, `RemoteMachine`, `Port`, `Vulnerability`, `DnsRecord`, `MachineNetworkConfig`, `NetworkConfig` |
 | `initialNetwork.ts`  | `createInitialNetwork()` — defines per-machine network configs (interfaces, reachable machines, DNS) for all 8 machines        |
 | `NetworkContext.tsx` | React context — imports `useSession`, resolves config per `session.machine`, provides `getMachine`, `getLocalIP`, etc.         |
+| `iptablesParser.ts`  | Pure parser for router's `/etc/iptables/rules.v4` — extracts `forward <port> to <ip>:<port>` rules into `NatForwardingRule[]`  |
 | `index.ts`           | Module exports                                                                                                                 |
 
 ## Network Topology
@@ -138,3 +139,12 @@ Mission machines live on dynamically generated subnets (e.g., `10.x.x.0/24`) and
 - `getGateway()` — current machine's gateway IP
 - `resolveDomain(domain)` — DNS lookup (per-machine DNS records)
 - `getDnsRecords()` — all DNS records visible from current machine
+- `resolveNat(ip, port)` — translate router public IP + port to internal machine IP + port via parsed iptables rules
+
+## Dynamic Iptables
+
+NAT forwarding rules are parsed on-demand from `/etc/iptables/rules.v4` on the router's filesystem. `NetworkProvider` reads the file via `useFileSystem()` — when the player edits it with `nano`, the filesystem state updates and the rules re-parse automatically.
+
+- **Forwarded mode**: file is pre-populated with forwarding rules matching the generated topology
+- **Router-first mode**: file has only comment headers (empty template for the player)
+- Format: `forward <public_port> to <internal_ip>:<port>` — comments (`#`) and blank lines are ignored

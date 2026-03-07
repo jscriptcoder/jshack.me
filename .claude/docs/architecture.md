@@ -224,12 +224,12 @@ On remote/mission machines, hacking tools are not pre-installed. Players must in
 SessionProvider → MissionProvider → FileSystemProvider → NetworkProvider → Terminal
 ```
 
-**App.tsx orchestration:** Holds `activeMission` state + `startMission`/`abortMission`/`completeMission` callbacks. Passes mission filesystems, network config, machines, NAT forwarding, and router machine to their respective providers. On init: checks `storageCache` for persisted seed, regenerates mission if present.
+**App.tsx orchestration:** Holds `activeMission` state + `startMission`/`abortMission`/`completeMission` callbacks. Passes mission filesystems, network config, machines, and router machine to their respective providers. On init: checks `storageCache` for persisted seed, regenerates mission if present.
 
 **Context integration:**
 
 - `FileSystemContext` accepts optional `missionFileSystems` prop — merges on mission start, removes on end. `STATIC_MACHINE_KEYS` set filters patches for IndexedDB persistence.
-- `NetworkContext` accepts optional `missionNetworkConfig`, `missionMachines`, `missionNatForwarding`, `missionRouterMachine` props. Checks mission config first, then static. `resolveNat(ip)` translates router public IP to internal entry IP when forwarding is active. `findMachineUsers(ip)` searches both configs.
+- `NetworkContext` accepts optional `missionNetworkConfig`, `missionMachines`, `missionRouterMachine` props. Checks mission config first, then static. `resolveNat(ip, port)` translates router public IP + port to internal machine IP + port based on iptables rules parsed dynamically from the router's filesystem. `findMachineUsers(ip)` searches both configs.
 
 **Mission commands:** `missions()` (browse contracts), `accept(seed)` (generate + start), `abort()` (pop all sessions, clear state), `mail(recipient, content)` (submit proof, verify by objective type).
 
