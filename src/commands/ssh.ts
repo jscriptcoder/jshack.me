@@ -20,30 +20,11 @@ const parseTarget = (target: string): { readonly user: string; readonly host: st
   return { user, host };
 };
 
-// Parses -p PORT from remaining args after the target string.
-// Returns the port number or 22 as default.
-const parsePortFlag = (args: readonly unknown[]): number => {
-  const pIndex = args.indexOf('-p');
-  if (pIndex === -1) return 22;
-
-  const portArg = args[pIndex + 1];
-  if (portArg === undefined) {
-    throw new Error('ssh: option requires an argument -- p\nUsage: ssh("user@host", "-p", "PORT")');
-  }
-
-  const port = Number(portArg);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error(`ssh: invalid port '${String(portArg)}'`);
-  }
-
-  return port;
-};
-
 export const createSshCommand = (context: SshContext): Command => ({
   name: 'ssh',
   description: 'Secure shell connection to remote host',
   manual: {
-    synopsis: 'ssh("user@host") or ssh("user@host", "-p", "PORT")',
+    synopsis: 'ssh("user@host"[, port])',
     description:
       'Connect to a remote machine via SSH. You will be prompted for the password. The connection will only succeed if the remote machine has the specified port open and the credentials are valid. Default port is 22.',
     arguments: [
@@ -53,7 +34,7 @@ export const createSshCommand = (context: SshContext): Command => ({
         required: true,
       },
       {
-        name: '-p PORT',
+        name: 'port',
         description: 'Port to connect on (default: 22)',
         required: false,
       },
@@ -61,7 +42,7 @@ export const createSshCommand = (context: SshContext): Command => ({
     examples: [
       { command: 'ssh("admin@192.168.1.1")', description: 'Connect to gateway as admin' },
       {
-        command: 'ssh("root@10.0.0.5", "-p", "2222")',
+        command: 'ssh("root@10.0.0.5", 2222)',
         description: 'Connect on port 2222',
       },
     ],
@@ -80,7 +61,18 @@ export const createSshCommand = (context: SshContext): Command => ({
     }
 
     const { user, host } = parsed;
-    const port = parsePortFlag(args.slice(1));
+    const portArg = args[1];
+    const port =
+      portArg === undefined
+        ? 22
+        : typeof portArg === 'number' &&
+            Number.isInteger(portArg) &&
+            portArg >= 1 &&
+            portArg <= 65535
+          ? portArg
+          : (() => {
+              throw new Error(`ssh: invalid port '${String(portArg)}'`);
+            })();
 
     const localIP = getLocalIP();
     if (host === localIP || host === '127.0.0.1' || host === 'localhost') {

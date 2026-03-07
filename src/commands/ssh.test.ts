@@ -350,8 +350,8 @@ describe('ssh command', () => {
     });
   });
 
-  describe('-p PORT flag', () => {
-    it('should connect on specified port when -p is used', () => {
+  describe('custom port parameter', () => {
+    it('should connect on specified port', () => {
       const context = createMockSshContext({
         machines: [
           getMockRemoteMachine({
@@ -363,7 +363,7 @@ describe('ssh command', () => {
       });
       const ssh = createSshCommand(context);
 
-      const result = ssh.fn('admin@192.168.1.50', '-p', '2222');
+      const result = ssh.fn('admin@192.168.1.50', 2222);
 
       expect(isAsyncOutput(result)).toBe(true);
     });
@@ -383,7 +383,7 @@ describe('ssh command', () => {
       });
       const ssh = createSshCommand(context);
 
-      expect(() => ssh.fn('admin@192.168.1.50', '-p', '2222')).toThrow(
+      expect(() => ssh.fn('admin@192.168.1.50', 2222)).toThrow(
         'ssh: connect to host 192.168.1.50 port 2222: Connection refused',
       );
     });
@@ -400,12 +400,12 @@ describe('ssh command', () => {
       });
       const ssh = createSshCommand(context);
 
-      expect(() => ssh.fn('admin@192.168.1.50', '-p', '9999')).toThrow(
+      expect(() => ssh.fn('admin@192.168.1.50', 9999)).toThrow(
         'ssh: connect to host 192.168.1.50 port 9999: Connection refused',
       );
     });
 
-    it('should throw error for invalid port number', () => {
+    it('should throw error for invalid port value', () => {
       const context = createMockSshContext({
         machines: [
           getMockRemoteMachine({
@@ -417,22 +417,7 @@ describe('ssh command', () => {
       });
       const ssh = createSshCommand(context);
 
-      expect(() => ssh.fn('admin@192.168.1.50', '-p', 'abc')).toThrow('ssh: invalid port');
-    });
-
-    it('should throw error when -p is given without a port', () => {
-      const context = createMockSshContext({
-        machines: [
-          getMockRemoteMachine({
-            ip: '192.168.1.50',
-            ports: [{ port: 22, service: 'ssh', open: true }],
-            users: [{ username: 'admin', passwordHash: 'abc', userType: 'user' }],
-          }),
-        ],
-      });
-      const ssh = createSshCommand(context);
-
-      expect(() => ssh.fn('admin@192.168.1.50', '-p')).toThrow('ssh: option requires an argument');
+      expect(() => ssh.fn('admin@192.168.1.50', 'abc')).toThrow('ssh: invalid port');
     });
 
     it('should include specified port in SshPromptData', () => {
@@ -446,7 +431,7 @@ describe('ssh command', () => {
         ],
       });
       const ssh = createSshCommand(context);
-      const result = ssh.fn('admin@192.168.1.50', '-p', '2222');
+      const result = ssh.fn('admin@192.168.1.50', 2222);
 
       let followUp: unknown = null;
       if (isAsyncOutput(result)) {
@@ -465,7 +450,7 @@ describe('ssh command', () => {
       }
     });
 
-    it('should default to port 22 in SshPromptData when -p not used', () => {
+    it('should default to port 22 in SshPromptData when port not given', () => {
       const context = createMockSshContext({
         machines: [
           getMockRemoteMachine({
