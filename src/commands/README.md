@@ -8,11 +8,11 @@ Commands use a factory pattern with context injection: `createXCommand(context) 
 
 Commands are tiered by user type. Restricted commands show `permission denied: 'name' requires TYPE privileges` and are hidden from `help()` and tab autocomplete. `man()` can still look up any command.
 
-| Tier     | User Type | Available Commands                                                                                                                                                                     |
-| -------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Basic    | `guest`   | help, man, echo, whoami, pwd, ls, cd, cat, rm, chmod, scp, su, clear, author, theme, exit, ssh, ping, curl, nslookup                                                                   |
-| Standard | `user`    | All basic + apt, ifconfig, nmap, ftp, nc, exploit, hydra, strings, output, resolve, nano, node, john, airmon, airdump, aircrack, nmcli, gobuster, missions, accept, abort, mail, xterm |
-| Full     | `root`    | All standard + decrypt, reboot                                                                                                                                                         |
+| Tier     | User Type | Available Commands                                                                                                                                                              |
+| -------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Basic    | `guest`   | help, man, echo, whoami, pwd, ls, cd, cat, rm, chmod, scp, su, clear, author, theme, exit, ssh, ping, curl, nslookup, xterm                                                     |
+| Standard | `user`    | All basic + apt, ifconfig, nmap, ftp, nc, exploit, hydra, strings, output, resolve, nano, node, john, airmon, airdump, aircrack, nmcli, gobuster, missions, accept, abort, mail |
+| Full     | `root`    | All standard + decrypt, reboot                                                                                                                                                  |
 
 FTP and NC modes have their own separate command sets and are not restricted.
 
