@@ -1,14 +1,19 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
-import type { FileNode } from '../filesystem/types';
+import type { FileNode, FilePermissions } from '../filesystem/types';
 import type { PermissionResult } from '../filesystem/types';
 import type { UserType } from '../session/SessionContext';
-import { APT_PACKAGES, APT_INSTALLABLE, BINARY_STUB } from './availability';
+import { APT_PACKAGES, APT_INSTALLABLE, BINARY_STUB, RESTRICTED_EXECUTE } from './availability';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 type AptContext = {
   readonly getMachine: () => string;
   readonly getNode: (path: string) => FileNode | null;
-  readonly createFile: (path: string, content: string, userType: UserType) => PermissionResult;
+  readonly createFile: (
+    path: string,
+    content: string,
+    userType: UserType,
+    permissions?: FilePermissions,
+  ) => PermissionResult;
   readonly getUserType: () => UserType;
 };
 
@@ -96,7 +101,12 @@ const handleInstall = (packageName: string, context: AptContext): AsyncOutput | 
             onLine(line);
 
             if (i === lines.length - 1) {
-              createFile(`/usr/bin/${packageName}`, BINARY_STUB, 'root');
+              const binaryPermissions: FilePermissions = {
+                read: ['root', 'user', 'guest'],
+                write: ['root'],
+                execute: RESTRICTED_EXECUTE[packageName] ?? ['root', 'user', 'guest'],
+              };
+              createFile(`/usr/bin/${packageName}`, BINARY_STUB, 'root', binaryPermissions);
               onComplete();
             }
           },

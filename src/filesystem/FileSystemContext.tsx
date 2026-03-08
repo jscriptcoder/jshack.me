@@ -39,7 +39,12 @@ type FileSystemContextValue = {
   readonly listDirectory: (path: string, userType: UserType) => string[] | null;
   readonly readFile: (path: string, userType: UserType) => string | null;
   readonly writeFile: (path: string, content: string, userType: UserType) => PermissionResult;
-  readonly createFile: (path: string, content: string, userType: UserType) => PermissionResult;
+  readonly createFile: (
+    path: string,
+    content: string,
+    userType: UserType,
+    permissions?: FilePermissions,
+  ) => PermissionResult;
   readonly deleteNode: (
     path: string,
     userType: UserType,
@@ -511,8 +516,13 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
   );
 
   const createFile = useCallback(
-    (path: string, content: string, userType: UserType): PermissionResult => {
-      return createFileOnMachine(currentMachine, path, currentPath, content, userType);
+    (
+      path: string,
+      content: string,
+      userType: UserType,
+      permissions?: FilePermissions,
+    ): PermissionResult => {
+      return createFileOnMachine(currentMachine, path, currentPath, content, userType, permissions);
     },
     [createFileOnMachine, currentMachine, currentPath],
   );

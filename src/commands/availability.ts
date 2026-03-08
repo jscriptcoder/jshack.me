@@ -104,7 +104,7 @@ export const APT_TOOL_NAMES = [
 
 // Binaries with restricted execute permissions (root-only).
 // All other binaries default to world-executable ['root', 'user', 'guest'].
-const RESTRICTED_EXECUTE: Readonly<Record<string, readonly UserType[]>> = {
+export const RESTRICTED_EXECUTE: Readonly<Record<string, readonly UserType[]>> = {
   reboot: ['root'],
   gpg: ['root'],
 };
