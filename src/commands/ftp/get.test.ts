@@ -1,8 +1,9 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createFtpGetCommand } from './get';
 import type { FileNode, PermissionResult } from '../../filesystem/types';
 import type { UserType } from '../../session/SessionContext';
 import type { MachineId } from '../../filesystem/machineFileSystems';
+import type { AsyncOutput } from '../../components/Terminal/types';
 
 // --- Factory Functions ---
 
@@ -112,9 +113,23 @@ const createMockContext = (config: MockContextConfig = {}) => {
   };
 };
 
+// Runs an AsyncOutput to completion with fake timers, collecting output lines
+const runAsync = (output: AsyncOutput): readonly string[] => {
+  const lines: string[] = [];
+  output.start(
+    (line) => lines.push(line),
+    () => {},
+  );
+  vi.runAllTimers();
+  return lines;
+};
+
 // --- Tests ---
 
 describe('FTP get command', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
   describe('successful download', () => {
     it('should download file to current local directory', () => {
       const context = createMockContext({
@@ -129,9 +144,10 @@ describe('FTP get command', () => {
       });
       const get = createFtpGetCommand(context);
 
-      const result = get.fn('secret.txt');
+      const result = get.fn('secret.txt') as AsyncOutput;
+      const lines = runAsync(result);
 
-      expect(result).toBe('Downloaded secret.txt (11 bytes) to /home/jshacker/secret.txt');
+      expect(lines.some((l) => l.includes('226 Transfer complete'))).toBe(true);
       expect(context.createFileOnMachine).toHaveBeenCalled();
     });
 
@@ -148,9 +164,11 @@ describe('FTP get command', () => {
       });
       const get = createFtpGetCommand(context);
 
-      const result = get.fn('data.txt', '/tmp/downloaded.txt');
+      const result = get.fn('data.txt', '/tmp/downloaded.txt') as AsyncOutput;
+      const lines = runAsync(result);
 
-      expect(result).toBe('Downloaded data.txt (12 bytes) to /tmp/downloaded.txt');
+      expect(lines.some((l) => l.includes('226 Transfer complete'))).toBe(true);
+      expect(lines.some((l) => l.includes('12 bytes received'))).toBe(true);
     });
 
     it('should download file from absolute remote path', () => {
@@ -166,9 +184,11 @@ describe('FTP get command', () => {
       });
       const get = createFtpGetCommand(context);
 
-      const result = get.fn('/srv/ftp/pub/file.txt');
+      const result = get.fn('/srv/ftp/pub/file.txt') as AsyncOutput;
+      const lines = runAsync(result);
 
-      expect(result).toBe('Downloaded file.txt (7 bytes) to /home/jshacker/file.txt');
+      expect(lines.some((l) => l.includes('226 Transfer complete'))).toBe(true);
+      expect(lines.some((l) => l.includes('7 bytes received'))).toBe(true);
     });
 
     it('should overwrite existing local file', () => {
@@ -185,9 +205,10 @@ describe('FTP get command', () => {
       });
       const get = createFtpGetCommand(context);
 
-      const result = get.fn('update.txt');
+      const result = get.fn('update.txt') as AsyncOutput;
+      const lines = runAsync(result);
 
-      expect(result).toBe('Downloaded update.txt (11 bytes) to /home/jshacker/update.txt');
+      expect(lines.some((l) => l.includes('226 Transfer complete'))).toBe(true);
       expect(context.writeFileToMachine).toHaveBeenCalled();
     });
   });
@@ -269,7 +290,7 @@ describe('FTP get command', () => {
       expect(() => get.fn('file.txt')).toThrow('Is a directory');
     });
 
-    it('should throw error when cannot create local file', () => {
+    it('should show error when cannot create local file', () => {
       const context = createMockContext({
         remoteCwd: '/srv/ftp',
         originCwd: '/root',
@@ -286,7 +307,10 @@ describe('FTP get command', () => {
       });
       const get = createFtpGetCommand(context);
 
-      expect(() => get.fn('file.txt')).toThrow('Permission denied');
+      const result = get.fn('file.txt') as AsyncOutput;
+      const lines = runAsync(result);
+
+      expect(lines.some((l) => l.includes('Permission denied'))).toBe(true);
     });
   });
 });

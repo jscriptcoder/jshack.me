@@ -1,8 +1,9 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createFtpPutCommand } from './put';
 import type { FileNode, PermissionResult } from '../../filesystem/types';
 import type { UserType } from '../../session/SessionContext';
 import type { MachineId } from '../../filesystem/machineFileSystems';
+import type { AsyncOutput } from '../../components/Terminal/types';
 
 // --- Factory Functions ---
 
@@ -112,9 +113,23 @@ const createMockContext = (config: MockContextConfig = {}) => {
   };
 };
 
+// Runs an AsyncOutput to completion with fake timers, collecting output lines
+const runAsync = (output: AsyncOutput): readonly string[] => {
+  const lines: string[] = [];
+  output.start(
+    (line) => lines.push(line),
+    () => {},
+  );
+  vi.runAllTimers();
+  return lines;
+};
+
 // --- Tests ---
 
 describe('FTP put command', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
   describe('successful upload', () => {
     it('should upload file to current remote directory', () => {
       const context = createMockContext({
@@ -129,9 +144,10 @@ describe('FTP put command', () => {
       });
       const put = createFtpPutCommand(context);
 
-      const result = put.fn('payload.sh');
+      const result = put.fn('payload.sh') as AsyncOutput;
+      const lines = runAsync(result);
 
-      expect(result).toBe('Uploaded payload.sh (10 bytes) to /srv/ftp/uploads/payload.sh');
+      expect(lines.some((l) => l.includes('226 Transfer complete'))).toBe(true);
       expect(context.createFileOnMachine).toHaveBeenCalled();
     });
 
@@ -148,9 +164,11 @@ describe('FTP put command', () => {
       });
       const put = createFtpPutCommand(context);
 
-      const result = put.fn('data.txt', '/srv/ftp/incoming/backup.txt');
+      const result = put.fn('data.txt', '/srv/ftp/incoming/backup.txt') as AsyncOutput;
+      const lines = runAsync(result);
 
-      expect(result).toBe('Uploaded data.txt (14 bytes) to /srv/ftp/incoming/backup.txt');
+      expect(lines.some((l) => l.includes('226 Transfer complete'))).toBe(true);
+      expect(lines.some((l) => l.includes('14 bytes sent'))).toBe(true);
     });
 
     it('should upload file from absolute local path', () => {
@@ -166,9 +184,11 @@ describe('FTP put command', () => {
       });
       const put = createFtpPutCommand(context);
 
-      const result = put.fn('/tmp/cache.dat');
+      const result = put.fn('/tmp/cache.dat') as AsyncOutput;
+      const lines = runAsync(result);
 
-      expect(result).toBe('Uploaded cache.dat (6 bytes) to /srv/ftp/cache.dat');
+      expect(lines.some((l) => l.includes('226 Transfer complete'))).toBe(true);
+      expect(lines.some((l) => l.includes('6 bytes sent'))).toBe(true);
     });
 
     it('should overwrite existing remote file', () => {
@@ -185,9 +205,10 @@ describe('FTP put command', () => {
       });
       const put = createFtpPutCommand(context);
 
-      const result = put.fn('update.txt');
+      const result = put.fn('update.txt') as AsyncOutput;
+      const lines = runAsync(result);
 
-      expect(result).toBe('Uploaded update.txt (15 bytes) to /srv/ftp/update.txt');
+      expect(lines.some((l) => l.includes('226 Transfer complete'))).toBe(true);
       expect(context.writeFileToMachine).toHaveBeenCalled();
     });
   });
@@ -269,7 +290,7 @@ describe('FTP put command', () => {
       expect(() => put.fn('file.txt')).toThrow('Is a directory');
     });
 
-    it('should throw error when cannot create remote file', () => {
+    it('should show error when cannot create remote file', () => {
       const context = createMockContext({
         originCwd: '/home/jshacker',
         remoteCwd: '/srv/ftp',
@@ -286,7 +307,10 @@ describe('FTP put command', () => {
       });
       const put = createFtpPutCommand(context);
 
-      expect(() => put.fn('file.txt')).toThrow('Permission denied');
+      const result = put.fn('file.txt') as AsyncOutput;
+      const lines = runAsync(result);
+
+      expect(lines.some((l) => l.includes('Permission denied'))).toBe(true);
     });
   });
 });

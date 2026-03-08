@@ -1,7 +1,8 @@
-import type { Command } from '../../components/Terminal/types';
+import type { Command, AsyncOutput } from '../../components/Terminal/types';
 import type { FileNode, PermissionResult } from '../../filesystem/types';
 import type { UserType } from '../../session/SessionContext';
 import type { MachineId } from '../../filesystem/machineFileSystems';
+import { createCancellationToken, jitter } from '../../utils/asyncCommand';
 
 type FtpPutContext = {
   readonly getRemoteMachine: () => MachineId;
@@ -61,7 +62,7 @@ export const createFtpPutCommand = (context: FtpPutContext): Command => ({
       },
     ],
   },
-  fn: (localFile?: unknown, remotePath?: unknown): string => {
+  fn: (localFile?: unknown, remotePath?: unknown): AsyncOutput => {
     if (typeof localFile !== 'string' || !localFile) {
       throw new Error('put: missing local file argument\nUsage: put("localFile", ["remotePath"])');
     }
@@ -107,39 +108,78 @@ export const createFtpPutCommand = (context: FtpPutContext): Command => ({
           : `${remoteCwd}/${fileName}`;
     const resolvedRemotePath = context.resolvePathForMachine(remoteDestination, remoteCwd);
 
-    // Check if remote file already exists
+    // Pre-validate remote destination before starting async transfer
     const remoteNode = context.getNodeFromMachine(remoteMachine, resolvedRemotePath, '/');
-
-    if (remoteNode) {
-      // File exists - try to overwrite
-      if (remoteNode.type !== 'file') {
-        throw new Error(`put: remote path ${remoteDestination}: Is a directory`);
-      }
-      const writeResult = context.writeFileToMachine(
-        remoteMachine,
-        resolvedRemotePath,
-        '/',
-        content,
-        remoteUserType,
-      );
-      if (!writeResult.allowed) {
-        throw new Error(`put: remote path ${remoteDestination}: ${writeResult.error}`);
-      }
-    } else {
-      // File doesn't exist - create it
-      const createResult = context.createFileOnMachine(
-        remoteMachine,
-        resolvedRemotePath,
-        '/',
-        content,
-        remoteUserType,
-      );
-      if (!createResult.allowed) {
-        throw new Error(`put: remote path ${remoteDestination}: ${createResult.error}`);
-      }
+    if (remoteNode && remoteNode.type !== 'file') {
+      throw new Error(`put: remote path ${remoteDestination}: Is a directory`);
     }
 
     const bytes = content.length;
-    return `Uploaded ${fileName} (${bytes} bytes) to ${resolvedRemotePath}`;
+    const token = createCancellationToken();
+    const STEP_MS = 300;
+
+    return {
+      __type: 'async',
+      start: (onLine, onComplete) => {
+        let phase = 0;
+
+        onLine(`200 PORT command successful.`);
+
+        token.schedule(
+          () => {
+            if (token.isCancelled()) return;
+            onLine(`150 Opening BINARY mode data connection for ${fileName} (${bytes} bytes).`);
+          },
+          jitter(++phase * STEP_MS),
+        );
+
+        const steps = [0, 25, 50, 75, 100];
+        steps.forEach((pct) => {
+          token.schedule(
+            () => {
+              if (token.isCancelled()) return;
+              const transferred = Math.floor((bytes * pct) / 100);
+              const bar = '#'.repeat(Math.floor(pct / 5)).padEnd(20, ' ');
+              onLine(`${fileName}  ${pct}% [${bar}]  ${transferred}/${bytes} bytes`);
+            },
+            jitter(++phase * STEP_MS),
+          );
+        });
+
+        token.schedule(
+          () => {
+            if (token.isCancelled()) return;
+
+            // Perform the actual file write
+            const result = remoteNode
+              ? context.writeFileToMachine(
+                  remoteMachine,
+                  resolvedRemotePath,
+                  '/',
+                  content,
+                  remoteUserType,
+                )
+              : context.createFileOnMachine(
+                  remoteMachine,
+                  resolvedRemotePath,
+                  '/',
+                  content,
+                  remoteUserType,
+                );
+
+            if (!result.allowed) {
+              onLine(`put: remote path ${remoteDestination}: ${result.error}`);
+            } else {
+              onLine(`226 Transfer complete.`);
+              onLine(`${bytes} bytes sent`);
+            }
+
+            onComplete();
+          },
+          jitter(++phase * STEP_MS),
+        );
+      },
+      cancel: token.cancel,
+    };
   },
 });
