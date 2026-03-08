@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type { FileNode, FilePermissions, PermissionResult } from '../filesystem/types';
 import type { UserType } from '../session/SessionContext';
 import type { RemoteMachine } from '../network/types';
+import type { AsyncOutput, AsyncFollowUp, ScpPromptData } from '../components/Terminal/types';
 import { createScpCommand } from './scp';
 
 const mkFile = (
@@ -59,6 +60,7 @@ type MockFs = Readonly<Record<string, FileNode | null>>;
 const createContext = (
   overrides: {
     readonly localFs?: MockFs;
+    readonly remoteFs?: MockFs;
     readonly machines?: readonly RemoteMachine[];
     readonly currentMachine?: string;
     readonly currentPath?: string;
@@ -73,6 +75,7 @@ const createContext = (
   const localFs: MockFs = overrides.localFs ?? {
     '/usr/bin/nmap': mkFile('nmap', '\x7fELF'),
   };
+  const remoteFs: MockFs = overrides.remoteFs ?? {};
   const machines = overrides.machines ?? [remoteMachine];
   const currentMachine = overrides.currentMachine ?? 'localhost';
   const currentPath = overrides.currentPath ?? '/root';
@@ -88,7 +91,7 @@ const createContext = (
       return currentPath === '/' ? `/${path}` : `${currentPath}/${path}`;
     },
     getNode: (path: string) => localFs[path] ?? null,
-    getNodeFromMachine: (_machineId: string, path: string) => localFs[path] ?? null,
+    getNodeFromMachine: (_machineId: string, path: string) => remoteFs[path] ?? null,
     createFileOnMachine: (
       machineId: string,
       path: string,
@@ -103,7 +106,37 @@ const createContext = (
   });
 };
 
+const isScpPrompt = (value: unknown): value is ScpPromptData =>
+  typeof value === 'object' &&
+  value !== null &&
+  '__type' in value &&
+  (value as ScpPromptData).__type === 'scp_prompt';
+
+// Runs an AsyncOutput to completion with fake timers, returning the ScpPromptData follow-up
+const runAsync = (
+  output: AsyncOutput,
+): { readonly lines: readonly string[]; readonly followUp: ScpPromptData | undefined } => {
+  const lines: string[] = [];
+  let followUp: ScpPromptData | undefined;
+  output.start(
+    (line) => lines.push(line),
+    (f?: AsyncFollowUp) => {
+      if (isScpPrompt(f)) followUp = f;
+    },
+  );
+  vi.runAllTimers();
+  return { lines, followUp };
+};
+
 describe('scp', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('transfers file to remote machine', () => {
     const createdFiles: {
       machineId: string;
@@ -112,9 +145,22 @@ describe('scp', () => {
       permissions?: FilePermissions;
     }[] = [];
     const scp = createContext({ createdFiles });
-    const result = scp.fn('/usr/bin/nmap', 'guest@192.168.1.50:/home/guest/nmap') as string;
+    const result = scp.fn('/usr/bin/nmap', 'guest@192.168.1.50:/home/guest/nmap') as AsyncOutput;
 
-    expect(result).toContain('nmap');
+    expect(result.__type).toBe('async');
+    const { followUp } = runAsync(result);
+
+    expect(followUp).toBeDefined();
+    expect(followUp?.targetUser).toBe('guest');
+    expect(followUp?.targetIP).toBe('192.168.1.50');
+
+    // Simulate successful password → perform the transfer (second async phase)
+    const transferAsync = followUp!.performTransfer();
+    expect(transferAsync.__type).toBe('async');
+    const transferLines = runAsync(transferAsync);
+
+    expect(transferLines.lines.some((l) => l.includes('nmap'))).toBe(true);
+    expect(transferLines.lines.some((l) => l.includes('100%'))).toBe(true);
     expect(createdFiles).toHaveLength(1);
     expect(createdFiles[0]?.machineId).toBe('192.168.1.50');
     expect(createdFiles[0]?.path).toBe('/home/guest/nmap');
@@ -138,9 +184,31 @@ describe('scp', () => {
       },
       createdFiles,
     });
-    scp.fn('/usr/bin/nmap', 'guest@192.168.1.50:/home/guest/nmap');
+    const result = scp.fn('/usr/bin/nmap', 'guest@192.168.1.50:/home/guest/nmap') as AsyncOutput;
+    const { followUp } = runAsync(result);
+    const transferAsync = followUp!.performTransfer();
+    runAsync(transferAsync);
 
     expect(createdFiles[0]?.permissions).toEqual(customPerms);
+  });
+
+  it('appends source filename when destination is a directory', () => {
+    const createdFiles: {
+      machineId: string;
+      path: string;
+      content: string;
+      permissions?: FilePermissions;
+    }[] = [];
+    const scp = createContext({
+      remoteFs: { '/home/guest': mkDir('guest') },
+      createdFiles,
+    });
+    const result = scp.fn('/usr/bin/nmap', 'guest@192.168.1.50:/home/guest') as AsyncOutput;
+    const { followUp } = runAsync(result);
+    const transferAsync = followUp!.performTransfer();
+    runAsync(transferAsync);
+
+    expect(createdFiles[0]?.path).toBe('/home/guest/nmap');
   });
 
   it('throws when source file does not exist', () => {

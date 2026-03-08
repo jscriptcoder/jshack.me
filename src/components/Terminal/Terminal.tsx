@@ -22,6 +22,7 @@ import {
   isExitOutput,
   isAsyncOutput,
   isSshPrompt,
+  isScpPrompt,
   isFtpPrompt,
   isFtpQuit,
   isNcPrompt,
@@ -37,7 +38,7 @@ const BANNER = `
 ██   ██║╚════██║██╔══██║██╔══██║██║     ██╔═██╗    ██║╚██╔╝██║██╔══╝
 ╚█████╔╝███████║██║  ██║██║  ██║╚██████╗██║  ██╗██╗██║ ╚═╝ ██║███████╗
  ╚════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝╚═╝     ╚═╝╚══════╝
-                                                              v0.17.3
+                                                              v0.18.0
 
   Type help() for available commands
 `;
@@ -139,6 +140,7 @@ export const Terminal = () => {
     startPasswordPrompt,
     startSshPrompt,
     startFtpPrompt,
+    startScpPrompt,
   } = useAuthentication({
     addLine,
     session,
@@ -274,6 +276,10 @@ export const Terminal = () => {
                   startSshPrompt(followUp.targetUser, followUp.targetIP, followUp.targetPort);
                 }
 
+                if (isScpPrompt(followUp)) {
+                  startScpPrompt(followUp.targetUser, followUp.targetIP, followUp.performTransfer);
+                }
+
                 if (isFtpPrompt(followUp)) {
                   startFtpPrompt(followUp.targetIP);
                 }
@@ -335,6 +341,7 @@ export const Terminal = () => {
       resolveNat,
       startPasswordPrompt,
       startSshPrompt,
+      startScpPrompt,
       startFtpPrompt,
     ],
   );
@@ -345,7 +352,18 @@ export const Terminal = () => {
     if (ftpUsernameMode) {
       handleFtpUsernameSubmit(input, clearInput);
     } else if (passwordMode) {
-      handlePasswordSubmit(input, clearInput);
+      const scpAsync = handlePasswordSubmit(input, clearInput);
+      if (scpAsync) {
+        setAsyncRunning(true);
+        asyncCancelRef.current = scpAsync.cancel ?? null;
+        scpAsync.start(
+          (line: string) => addLine('result', line),
+          () => {
+            setAsyncRunning(false);
+            asyncCancelRef.current = null;
+          },
+        );
+      }
     } else {
       executeCommand(input);
       setInput('');
@@ -360,6 +378,7 @@ export const Terminal = () => {
     handleFtpUsernameSubmit,
     resetNavigation,
     clearInput,
+    addLine,
   ]);
 
   const handleHistoryUp = useCallback(() => {

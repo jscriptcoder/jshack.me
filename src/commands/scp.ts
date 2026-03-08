@@ -1,7 +1,8 @@
-import type { Command } from '../components/Terminal/types';
+import type { Command, AsyncOutput, ScpPromptData } from '../components/Terminal/types';
 import type { FileNode, FilePermissions, PermissionResult } from '../filesystem/types';
 import type { UserType } from '../session/SessionContext';
 import type { RemoteMachine } from '../network/types';
+import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 type ScpContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
@@ -60,7 +61,7 @@ export const createScpCommand = (context: ScpContext): Command => ({
       },
     ],
   },
-  fn: (...args: unknown[]): string => {
+  fn: (...args: unknown[]): AsyncOutput => {
     const { getMachine, getLocalIP, getCurrentMachine, resolvePath, getNode, createFileOnMachine } =
       context;
 
@@ -110,26 +111,101 @@ export const createScpCommand = (context: ScpContext): Command => ({
       throw new Error(`scp: ${dest.user}@${dest.host}: Permission denied (publickey)`);
     }
 
+    // If destination is a directory, append source filename
+    const remoteNode = context.getNodeFromMachine(dest.host, dest.path, '/');
+    const destPath =
+      remoteNode?.type === 'directory'
+        ? `${dest.path.replace(/\/$/, '')}/${sourceNode.name}`
+        : dest.path;
+
     // Read source content
     const content = sourceNode.content ?? '';
-
-    // Create file on remote machine preserving source permissions
     const currentMachine = getCurrentMachine();
-    const result = createFileOnMachine(
-      dest.host,
-      dest.path,
-      '/',
-      content,
-      remoteUser.userType,
-      sourceNode.permissions,
-    );
-
-    if (!result.allowed) {
-      throw new Error(`scp: ${dest.path}: ${result.error}`);
-    }
-
-    const fileName = dest.path.split('/').pop() ?? dest.path;
+    const fileName = destPath.split('/').pop() ?? destPath;
     const bytes = content.length;
-    return `${fileName}  ${bytes} bytes  ${currentMachine} → ${dest.host}`;
+
+    const PROGRESS_STEP_MS = 350;
+
+    // Returns an async transfer animation — called after password validation
+    const performTransfer = (): AsyncOutput => {
+      const transferToken = createCancellationToken();
+
+      return {
+        __type: 'async',
+        start: (onLine, onComplete) => {
+          let phase = 0;
+
+          const steps = [0, 25, 50, 75, 100];
+          steps.forEach((pct) => {
+            transferToken.schedule(
+              () => {
+                if (transferToken.isCancelled()) return;
+                const transferred = Math.floor((bytes * pct) / 100);
+                const bar = '#'.repeat(Math.floor(pct / 5)).padEnd(20, ' ');
+                onLine(`${fileName}  ${pct}% [${bar}]  ${transferred}/${bytes} bytes`);
+              },
+              jitter(++phase * PROGRESS_STEP_MS),
+            );
+          });
+
+          // Actual transfer + summary
+          transferToken.schedule(
+            () => {
+              if (transferToken.isCancelled()) return;
+
+              const result = createFileOnMachine(
+                dest.host,
+                destPath,
+                '/',
+                content,
+                remoteUser.userType,
+                sourceNode.permissions,
+              );
+
+              if (!result.allowed) {
+                onLine(`scp: ${destPath}: ${result.error}`);
+              } else {
+                onLine(`${fileName}  ${bytes} bytes  ${currentMachine} → ${dest.host}`);
+              }
+
+              onComplete();
+            },
+            jitter(++phase * PROGRESS_STEP_MS),
+          );
+        },
+        cancel: transferToken.cancel,
+      };
+    };
+
+    const token = createCancellationToken();
+    const CONNECT_MS = 800;
+    const HANDSHAKE_MS = 600;
+
+    return {
+      __type: 'async',
+      start: (onLine, onComplete) => {
+        onLine(`Connecting to ${dest.host}...`);
+
+        token.schedule(() => {
+          if (token.isCancelled()) return;
+          onLine('SSH-2.0-OpenSSH_8.9');
+
+          token.schedule(() => {
+            if (token.isCancelled()) return;
+            onLine(`Authenticating as ${dest.user}...`);
+
+            const scpPrompt: ScpPromptData = {
+              __type: 'scp_prompt',
+              targetUser: dest.user,
+              targetIP: dest.host,
+              performTransfer,
+            };
+
+            onComplete(scpPrompt);
+          }, jitter(HANDSHAKE_MS));
+        }, jitter(CONNECT_MS));
+      },
+      cancel: token.cancel,
+    };
   },
 });

@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import type { UserType, FtpSession } from '../session/SessionContext';
 import type { RemoteUser } from '../network/types';
+import type { AsyncOutput } from '../components/Terminal/types';
 import { md5 } from '../utils/md5';
 
 type MachineNetworkConfig = {
@@ -53,6 +54,8 @@ export const useAuthentication = ({
   const [sshTargetPort, setSshTargetPort] = useState<number | null>(null);
   const [ftpTargetIP, setFtpTargetIP] = useState<string | null>(null);
   const [ftpUsernameMode, setFtpUsernameMode] = useState(false);
+  const [scpTargetIP, setScpTargetIP] = useState<string | null>(null);
+  const [scpPerformTransfer, setScpPerformTransfer] = useState<(() => AsyncOutput) | null>(null);
 
   const startPasswordPrompt = useCallback(
     (user: string) => {
@@ -83,6 +86,18 @@ export const useAuthentication = ({
     [addLine],
   );
 
+  const startScpPrompt = useCallback(
+    (user: string, ip: string, performTransfer: () => AsyncOutput) => {
+      setTargetUser(user);
+      setScpTargetIP(ip);
+      // Wrap in thunk to avoid React treating the function as a state updater
+      setScpPerformTransfer(() => performTransfer);
+      setPasswordMode(true);
+      addLine('result', `${user}@${ip}'s password:`);
+    },
+    [addLine],
+  );
+
   const resetAuthState = useCallback(() => {
     setPasswordMode(false);
     setTargetUser(null);
@@ -90,14 +105,27 @@ export const useAuthentication = ({
     setSshTargetPort(null);
     setFtpTargetIP(null);
     setFtpUsernameMode(false);
+    setScpTargetIP(null);
+    setScpPerformTransfer(null);
   }, []);
 
-  // Three-mode password validation: SSH (remote machine lookup), FTP (remote machine lookup),
+  // Four-mode password validation: SCP/SSH (remote machine lookup), FTP (remote machine lookup),
   // or su (local /etc/passwd hash comparison). The mode is determined by which target IP
   // state is set when the password prompt was triggered.
   const validatePassword = useCallback(
     (password: string): boolean => {
       if (!targetUser) return false;
+
+      if (scpTargetIP) {
+        const machine = getMachine(scpTargetIP);
+        if (!machine) return false;
+
+        const remoteUser = machine.users.find((u) => u.username === targetUser);
+        if (!remoteUser) return false;
+
+        const inputHash = md5(password);
+        return remoteUser.passwordHash === inputHash;
+      }
 
       if (sshTargetIP) {
         const machine = getMachine(sshTargetIP);
@@ -132,7 +160,7 @@ export const useAuthentication = ({
 
       return storedHash === md5(password);
     },
-    [targetUser, sshTargetIP, ftpTargetIP, readFile, getMachine],
+    [targetUser, scpTargetIP, sshTargetIP, ftpTargetIP, readFile, getMachine],
   );
 
   const handleFtpUsernameSubmit = useCallback(
@@ -169,20 +197,29 @@ export const useAuthentication = ({
     [ftpTargetIP, getMachine, addLine],
   );
 
+  // Returns an optional AsyncOutput for SCP transfer animation
   const handlePasswordSubmit = useCallback(
-    (input: string, clearInput: () => void) => {
+    (input: string, clearInput: () => void): AsyncOutput | undefined => {
       const maskedPassword = '*'.repeat(input.length);
-      const promptLabel = ftpTargetIP
-        ? 'Password:'
-        : sshTargetIP
-          ? `${targetUser}@${sshTargetIP}'s password:`
-          : 'Password:';
+      const promptLabel = scpTargetIP
+        ? `${targetUser}@${scpTargetIP}'s password:`
+        : ftpTargetIP
+          ? 'Password:'
+          : sshTargetIP
+            ? `${targetUser}@${sshTargetIP}'s password:`
+            : 'Password:';
       addLine('command', maskedPassword, promptLabel);
 
-      if (validatePassword(input)) {
-        if (!targetUser) return;
+      let scpTransferAsync: AsyncOutput | undefined;
 
-        if (ftpTargetIP) {
+      if (validatePassword(input)) {
+        if (!targetUser) return undefined;
+
+        if (scpTargetIP) {
+          if (scpPerformTransfer) {
+            scpTransferAsync = scpPerformTransfer();
+          }
+        } else if (ftpTargetIP) {
           const machine = getMachine(ftpTargetIP);
           const remoteUser = machine?.users.find((u) => u.username === targetUser);
           const userType: UserType = remoteUser?.userType ?? 'user';
@@ -240,7 +277,9 @@ export const useAuthentication = ({
           addLine('result', `Switched to user: ${targetUser}`);
         }
       } else {
-        if (ftpTargetIP) {
+        if (scpTargetIP) {
+          addLine('error', `Permission denied, please try again.`);
+        } else if (ftpTargetIP) {
           addLine('error', '530 Login incorrect.');
         } else if (sshTargetIP) {
           addLine('error', `Permission denied, please try again.`);
@@ -254,10 +293,16 @@ export const useAuthentication = ({
       setSshTargetIP(null);
       setSshTargetPort(null);
       setFtpTargetIP(null);
+      setScpTargetIP(null);
+      setScpPerformTransfer(null);
       clearInput();
+
+      return scpTransferAsync;
     },
     [
       targetUser,
+      scpTargetIP,
+      scpPerformTransfer,
       sshTargetIP,
       sshTargetPort,
       ftpTargetIP,
@@ -284,6 +329,7 @@ export const useAuthentication = ({
     startPasswordPrompt,
     startSshPrompt,
     startFtpPrompt,
+    startScpPrompt,
     resetAuthState,
   };
 };

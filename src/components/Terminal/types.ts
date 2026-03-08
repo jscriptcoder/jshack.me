@@ -59,7 +59,14 @@ export type NanoOpenData = {
   readonly filePath: string;
 };
 
-export type AsyncFollowUp = SshPromptData | FtpPromptData | NcPromptData;
+export type ScpPromptData = {
+  readonly __type: 'scp_prompt';
+  readonly targetUser: string;
+  readonly targetIP: string;
+  readonly performTransfer: () => AsyncOutput;
+};
+
+export type AsyncFollowUp = SshPromptData | FtpPromptData | NcPromptData | ScpPromptData;
 
 export type AsyncOutput = {
   readonly __type: 'async';
@@ -76,6 +83,7 @@ export type SpecialOutput =
   | AuthorData
   | PasswordPromptData
   | SshPromptData
+  | ScpPromptData
   | ClearOutput
   | ExitOutput
   | FtpPromptData
@@ -159,3 +167,6 @@ export const isNcQuit = (value: unknown): value is NcQuitOutput =>
 
 export const isNanoOpen = (value: unknown): value is NanoOpenData =>
   isSpecialOutput(value) && value.__type === 'nano_open';
+
+export const isScpPrompt = (value: unknown): value is ScpPromptData =>
+  isSpecialOutput(value) && value.__type === 'scp_prompt';
