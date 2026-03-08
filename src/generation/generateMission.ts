@@ -398,6 +398,7 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
     prng,
     machines: machinesAfterClosures,
     usersByMachine: allUsersByMachine,
+    credentials: allCredentials,
     objective,
     routerMachine: routerWithUsers,
     natForwarding: topology.natForwarding,

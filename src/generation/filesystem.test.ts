@@ -4,6 +4,7 @@ import { generateTopology } from './topology';
 import { generateUsers } from './users';
 import { buildMissionObjective } from './attackChain';
 import { generateFileSystems } from './filesystem';
+import { credentialLeakTemplates } from './pools';
 import type { FileNode } from '../filesystem/types';
 
 const buildTestData = (seed: string) => {
@@ -25,9 +26,10 @@ const buildTestData = (seed: string) => {
     prng,
     machines: topology.machines,
     usersByMachine,
+    credentials,
     objective,
   });
-  return { topology, fileSystems, objective };
+  return { topology, fileSystems, objective, credentials, usersByMachine };
 };
 
 const resolveNode = (root: FileNode, path: string): FileNode | undefined => {
@@ -166,6 +168,7 @@ describe('generateFileSystems', () => {
         prng,
         machines: topology.machines,
         usersByMachine,
+        credentials,
         objective,
         routerMachine: topology.routerMachine,
         natForwarding: topology.natForwarding,
@@ -246,6 +249,133 @@ describe('generateFileSystems', () => {
       expect(rulesFile?.owner).toBe('root');
       // mkFile('root') produces ['root', 'root'] — only root can write
       expect(rulesFile?.permissions.write).toEqual(['root', 'root']);
+    });
+  });
+
+  describe('credential leak placement', () => {
+    it('templates all have path and content with {{username}} and {{password}}', () => {
+      credentialLeakTemplates.forEach((t) => {
+        expect(t.path).toBeTruthy();
+        expect(t.content).toContain('{{username}}');
+        expect(t.content).toContain('{{password}}');
+      });
+    });
+
+    it('templates use guest-readable system paths (not /home/ or /root/)', () => {
+      credentialLeakTemplates.forEach((t) => {
+        expect(t.path).not.toMatch(/^\/home\//);
+        expect(t.path).not.toMatch(/^\/root\//);
+        expect(t.path).toMatch(/^\/(etc|tmp|srv|var|opt|usr)\//);
+      });
+    });
+
+    it('places credential leaks on ~30% of machines across many seeds', () => {
+      let totalMachines = 0;
+      let machinesWithLeaks = 0;
+
+      for (let i = 0; i < 100; i++) {
+        const { topology, fileSystems, credentials } = buildTestData(`cred-leak-rate-${i}`);
+        topology.machines.forEach((m) => {
+          totalMachines++;
+          const creds = credentials[m.ip] ?? [];
+          const userCred = creds.find((c) => c.username !== 'root' && c.username !== 'guest');
+          if (!userCred) return;
+
+          const fs = fileSystems[m.ip];
+          if (!fs) return;
+
+          // Check if any credential leak template path exists
+          const hasLeak = credentialLeakTemplates.some((t) => {
+            const node = resolveNode(fs, t.path);
+            return node?.type === 'file' && node.content?.includes(userCred.password);
+          });
+          if (hasLeak) machinesWithLeaks++;
+        });
+      }
+
+      const rate = machinesWithLeaks / totalMachines;
+      // ~30% chance — allow 15%-45% range for statistical variation
+      expect(rate).toBeGreaterThan(0.15);
+      expect(rate).toBeLessThan(0.45);
+    });
+
+    it('leaked credentials belong to a user-type account (never root or guest)', () => {
+      for (let i = 0; i < 100; i++) {
+        const { topology, fileSystems, usersByMachine } = buildTestData(`cred-leak-user-${i}`);
+        topology.machines.forEach((m) => {
+          const fs = fileSystems[m.ip];
+          if (!fs) return;
+
+          const users = usersByMachine[m.ip] ?? [];
+          const regularUsers = users.filter((u) => u.userType === 'user');
+
+          credentialLeakTemplates.forEach((t) => {
+            const node = resolveNode(fs, t.path);
+            if (!node?.content) return;
+
+            // If this file exists and has credential content, verify it's a regular user
+            const containsUserCred = regularUsers.some((u) => node.content?.includes(u.username));
+            if (containsUserCred) {
+              // Must NOT contain root or guest usernames as the credential subject
+              const rootUser = users.find((u) => u.userType === 'root');
+              const guestUser = users.find((u) => u.userType === 'guest');
+              // The file content should not have root/guest as the leaked credential
+              // (they might appear in other template boilerplate like crontab "root" entries)
+              if (rootUser) {
+                expect(node.content).not.toContain(`pass = ${rootUser.username}`);
+              }
+              if (guestUser) {
+                expect(node.content).not.toContain(`pass = ${guestUser.username}`);
+              }
+            }
+          });
+        });
+      }
+    });
+
+    it('leaked files are guest-readable', () => {
+      for (let i = 0; i < 50; i++) {
+        const { topology, fileSystems } = buildTestData(`cred-leak-perms-${i}`);
+        topology.machines.forEach((m) => {
+          const fs = fileSystems[m.ip];
+          if (!fs) return;
+
+          credentialLeakTemplates.forEach((t) => {
+            const node = resolveNode(fs, t.path);
+            if (!node?.content) return;
+            expect(node.permissions.read).toContain('guest');
+          });
+        });
+      }
+    });
+
+    it('binary templates produce files that contain credentials extractable via strings', () => {
+      const binaryTemplates = credentialLeakTemplates.filter((t) => t.binary);
+      expect(binaryTemplates.length).toBeGreaterThanOrEqual(3);
+
+      for (let i = 0; i < 100; i++) {
+        const { topology, fileSystems, credentials } = buildTestData(`cred-leak-binary-${i}`);
+        topology.machines.forEach((m) => {
+          const fs = fileSystems[m.ip];
+          if (!fs) return;
+          const creds = credentials[m.ip] ?? [];
+          const userCred = creds.find((c) => c.username !== 'root' && c.username !== 'guest');
+          if (!userCred) return;
+
+          binaryTemplates.forEach((t) => {
+            const node = resolveNode(fs, t.path);
+            if (!node?.content) return;
+            // Binary-wrapped files still contain the password (extractable with strings)
+            expect(node.content).toContain(userCred.password);
+          });
+        });
+      }
+    });
+
+    it('produces deterministic output for the same seed', () => {
+      const a = buildTestData('cred-leak-deterministic');
+      const b = buildTestData('cred-leak-deterministic');
+      expect(a.fileSystems).toEqual(b.fileSystems);
     });
   });
 });

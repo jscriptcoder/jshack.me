@@ -1,5 +1,5 @@
 import type { Prng } from './prng';
-import type { GeneratedMachine, MissionObjective, NatForwarding } from './types';
+import type { CredentialMap, GeneratedMachine, MissionObjective, NatForwarding } from './types';
 import type { FileNode } from '../filesystem/types';
 import type { RemoteUser } from '../network/types';
 import {
@@ -9,6 +9,7 @@ import {
 } from '../filesystem/fileSystemFactory';
 import {
   configTemplatesByRole,
+  credentialLeakTemplates,
   logTemplates,
   noiseFiles,
   redHerringFiles,
@@ -21,6 +22,7 @@ type FilesystemInput = {
   readonly prng: Prng;
   readonly machines: readonly GeneratedMachine[];
   readonly usersByMachine: Readonly<Record<string, readonly RemoteUser[]>>;
+  readonly credentials: CredentialMap;
   readonly objective: MissionObjective;
   readonly routerMachine?: GeneratedMachine;
   readonly natForwarding?: NatForwarding;
@@ -81,6 +83,65 @@ const fillTemplate = (template: string, vars: Readonly<Record<string, string>>):
     (result, [key, value]) => result.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value),
     template,
   );
+
+const CREDENTIAL_LEAK_CHANCE = 0.3;
+
+// Places a credential leak file on a machine ~30% of the time.
+// Leaks a user-type account's credentials in a guest-readable location.
+// Always consumes 2 PRNG calls for sequence stability.
+const placeCredentialLeak = (
+  prng: Prng,
+  machineCreds: readonly { readonly username: string; readonly password: string }[],
+  extraDirectories: Record<string, FileNode>,
+  etcExtraContent: Record<string, FileNode>,
+): void => {
+  const roll = prng.next();
+  const template = prng.pick(credentialLeakTemplates);
+
+  // Only user-type credentials (never root or guest)
+  const userCred = machineCreds.find((c) => c.username !== 'root' && c.username !== 'guest');
+  if (roll >= CREDENTIAL_LEAK_CHANCE || !userCred) return;
+
+  const content = fillTemplate(template.content, {
+    username: userCred.username,
+    password: userCred.password,
+  });
+
+  const segments = template.path.split('/').filter(Boolean);
+  const fileName = segments[segments.length - 1] ?? 'config';
+  const fileContent = template.binary ? wrapInBinaryNoise(prng, content) : content;
+
+  // Guest-readable: use 'guest' owner so all users can read
+  const file = mkFile(fileName, fileContent, 'guest');
+
+  const topDir = segments[0] ?? 'etc';
+
+  // /etc/ files go into etcExtraContent (merged into the /etc/ directory by the factory)
+  if (topDir === 'etc') {
+    // For nested /etc/ paths like /etc/crontab, place directly in etcExtraContent
+    if (segments.length === 2) {
+      etcExtraContent[fileName] = file;
+    } else {
+      // Deeper paths like /etc/foo/bar — build nested dirs
+      const subSegments = segments.slice(1);
+      etcExtraContent[subSegments[0] as string] = buildNestedDirs(subSegments, file);
+    }
+    return;
+  }
+
+  // Other paths (/tmp/, /srv/, /opt/, /var/, /usr/) go into extraDirectories.
+  // If the top-level directory already exists (e.g., /var/ from web content),
+  // merge the leak file into the existing tree's deepest directory.
+  const existingDir = extraDirectories[topDir];
+  if (existingDir) {
+    const leafDir = findLeafDir(existingDir);
+    if (leafDir?.children) {
+      (leafDir.children as Record<string, FileNode>)[fileName] = file;
+    }
+  } else {
+    extraDirectories[topDir] = buildNestedDirs(segments, file);
+  }
+};
 
 const generateLogContent = (
   prng: Prng,
@@ -202,6 +263,7 @@ const buildMachineConfig = (
   prng: Prng,
   machine: GeneratedMachine,
   users: readonly RemoteUser[],
+  machineCreds: readonly { readonly username: string; readonly password: string }[],
   isTarget: boolean,
   objective: MissionObjective,
   internalMachines?: readonly GeneratedMachine[],
@@ -335,6 +397,9 @@ const buildMachineConfig = (
     }
   }
 
+  // ~30% chance to place a careless user's credentials in a guest-readable location
+  placeCredentialLeak(prng, machineCreds, extraDirectories, etcExtraContent);
+
   // Generate web content for webserver machines
   if (machine.role === 'webserver') {
     const webTemplate = prng.pick(webContentTemplates);
@@ -409,13 +474,15 @@ const mergeKeyPlacement = (
 };
 
 export const generateFileSystems = (input: FilesystemInput): Readonly<Record<string, FileNode>> => {
-  const { prng, machines, usersByMachine, objective, routerMachine, natForwarding } = input;
+  const { prng, machines, usersByMachine, credentials, objective, routerMachine, natForwarding } =
+    input;
 
   const entries = machines.map((machine) => {
     const users = usersByMachine[machine.ip] ?? [];
+    const machineCreds = credentials[machine.ip] ?? [];
     const isTarget = machine.ip === objective.targetMachine;
 
-    const baseConfig = buildMachineConfig(prng, machine, users, isTarget, objective);
+    const baseConfig = buildMachineConfig(prng, machine, users, machineCreds, isTarget, objective);
 
     // Place encryption key file on the key machine (if this is that machine)
     const keyTree =
@@ -430,11 +497,13 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
   // Generate router filesystem with hints about internal machines
   if (routerMachine) {
     const routerUsers = usersByMachine[routerMachine.ip] ?? [];
+    const routerCreds = credentials[routerMachine.ip] ?? [];
 
     const baseRouterConfig = buildMachineConfig(
       prng,
       routerMachine,
       routerUsers,
+      routerCreds,
       false,
       objective,
       machines,

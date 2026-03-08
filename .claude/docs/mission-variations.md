@@ -435,6 +435,43 @@ Webserver-role machines (and any machine with web credential placements) get `/v
 - Credential placement files at their designated web paths
 - `.headers` sidecar files for header-based secrets
 
+## Credential Leak Placement
+
+Careless user credentials left in guest-readable locations. ~30% chance per machine (PRNG roll). Only leaks `user`-type account credentials (never root, never guest). Gives guest accounts a realistic path to privilege escalation — but not always.
+
+### PRNG Consumption
+
+Always consumes 2 PRNG calls per machine (1 roll + 1 template pick) for sequence stability, even when no leak is placed.
+
+### Plaintext Templates (10)
+
+| Path                               | Content Style                                            |
+| ---------------------------------- | -------------------------------------------------------- |
+| `/etc/maintenance.conf`            | Maintenance config with `user`/`pass` fields             |
+| `/etc/crontab`                     | Cron job with `--user=` `--pass=` in command line        |
+| `/srv/www/.env`                    | Laravel-style `DB_USERNAME`/`DB_PASSWORD` env vars       |
+| `/var/www/config.php.bak`          | PHP config with `$db_user`/`$db_pass` variables          |
+| `/tmp/.backup.sh`                  | Bash backup script with `REMOTE_USER`/`REMOTE_PASS`      |
+| `/tmp/deploy.log`                  | Deploy log leaking credentials in connection string      |
+| `/opt/app/config.ini`              | INI-style `[database]` section with `user`/`password`    |
+| `/opt/app/settings.yml`            | YAML config with `username`/`password` under `database:` |
+| `/srv/app/db.conf`                 | Key-value config with `USER`/`PASS`                      |
+| `/opt/monitoring/check_service.sh` | Health check script with DB credentials                  |
+
+### Binary Templates (3)
+
+Wrapped in binary noise — `cat` shows garbled output, `strings` extracts credentials.
+
+| Path                          | Content Style                                 |
+| ----------------------------- | --------------------------------------------- |
+| `/usr/local/bin/health_check` | Compiled monitoring tool with hardcoded creds |
+| `/opt/lib/libauth.so`         | Shared library with embedded service creds    |
+| `/var/cache/app.db`           | SQLite-style cache with credentials table     |
+
+### Permissions
+
+All credential leak files are guest-owned (world-readable), placed in system directories with `worldReadable` traversal. Guest can always discover and read them.
+
 ## Ideas for More Variety
 
 _Uncomment and implement as needed._
