@@ -20,6 +20,7 @@ type ScpContext = {
     userType: UserType,
     permissions?: FilePermissions,
   ) => PermissionResult;
+  readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
 };
 
 // Parses "user@host:path" into components
@@ -62,8 +63,15 @@ export const createScpCommand = (context: ScpContext): Command => ({
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {
-    const { getMachine, getLocalIP, getCurrentMachine, resolvePath, getNode, createFileOnMachine } =
-      context;
+    const {
+      getMachine,
+      getLocalIP,
+      getCurrentMachine,
+      resolvePath,
+      getNode,
+      createFileOnMachine,
+      resolveNat,
+    } = context;
 
     if (args.length < 2 || typeof args[0] !== 'string' || typeof args[1] !== 'string') {
       throw new Error('scp: missing operand\nUsage: scp(source, "user@host:path")');
@@ -111,8 +119,12 @@ export const createScpCommand = (context: ScpContext): Command => ({
       throw new Error(`scp: ${dest.user}@${dest.host}: Permission denied (publickey)`);
     }
 
+    // NAT resolution: in forwarded mode, the public router IP maps to the
+    // internal entry machine. Filesystem operations use the resolved IP.
+    const resolvedHost = resolveNat(dest.host, 22).ip;
+
     // If destination is a directory, append source filename
-    const remoteNode = context.getNodeFromMachine(dest.host, dest.path, '/');
+    const remoteNode = context.getNodeFromMachine(resolvedHost, dest.path, '/');
     const destPath =
       remoteNode?.type === 'directory'
         ? `${dest.path.replace(/\/$/, '')}/${sourceNode.name}`
@@ -154,7 +166,7 @@ export const createScpCommand = (context: ScpContext): Command => ({
               if (transferToken.isCancelled()) return;
 
               const result = createFileOnMachine(
-                dest.host,
+                resolvedHost,
                 destPath,
                 '/',
                 content,

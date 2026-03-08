@@ -159,6 +159,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
             getNode: (path: string) => getNode(path),
             getNodeFromMachine,
             createFileOnMachine,
+            resolveNat,
           }),
           isWifiRequired,
         ),

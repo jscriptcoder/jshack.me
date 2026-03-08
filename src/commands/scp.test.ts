@@ -70,6 +70,10 @@ const createContext = (
       content: string;
       permissions?: FilePermissions;
     }[];
+    readonly resolveNat?: (
+      ip: string,
+      port: number,
+    ) => { readonly ip: string; readonly port: number };
   } = {},
 ) => {
   const localFs: MockFs = overrides.localFs ?? {
@@ -80,6 +84,8 @@ const createContext = (
   const currentMachine = overrides.currentMachine ?? 'localhost';
   const currentPath = overrides.currentPath ?? '/root';
   const createdFiles = overrides.createdFiles ?? [];
+
+  const resolveNat = overrides.resolveNat ?? ((ip: string, port: number) => ({ ip, port }));
 
   return createScpCommand({
     getMachine: (ip: string) => machines.find((m) => m.ip === ip),
@@ -103,6 +109,7 @@ const createContext = (
       createdFiles.push({ machineId, path, content, permissions });
       return { allowed: true };
     },
+    resolveNat,
   });
 };
 
@@ -264,5 +271,38 @@ describe('scp', () => {
     expect(() => scp.fn('/usr/bin/nmap', 'guest@192.168.1.100:/tmp/nmap')).toThrow(
       'cannot copy to localhost',
     );
+  });
+
+  it('resolves NAT to write file on internal machine', () => {
+    const routerMachine: RemoteMachine = {
+      ip: '45.33.100.1',
+      hostname: 'router01',
+      ports: [{ port: 22, service: 'ssh', open: true }],
+      users: [{ username: 'guest', passwordHash: 'ghi', userType: 'guest' }],
+    };
+    const createdFiles: {
+      machineId: string;
+      path: string;
+      content: string;
+      permissions?: FilePermissions;
+    }[] = [];
+    const scp = createContext({
+      machines: [routerMachine],
+      createdFiles,
+      resolveNat: (ip, port) =>
+        ip === '45.33.100.1' && port === 22 ? { ip: '10.0.0.10', port: 22 } : { ip, port },
+    });
+    const result = scp.fn('/usr/bin/nmap', 'guest@45.33.100.1:/tmp/nmap') as AsyncOutput;
+    const { followUp } = runAsync(result);
+
+    // Follow-up still shows the public IP for display
+    expect(followUp?.targetIP).toBe('45.33.100.1');
+
+    const transferAsync = followUp!.performTransfer();
+    runAsync(transferAsync);
+
+    // File is created on the internal machine, not the router
+    expect(createdFiles).toHaveLength(1);
+    expect(createdFiles[0]?.machineId).toBe('10.0.0.10');
   });
 });
