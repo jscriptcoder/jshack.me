@@ -48,11 +48,7 @@ Four static machines exist. All other machines are procedurally generated per mi
 - **fileserver** (192.168.1.50) — FTP/SSH file server for practice (users: root, ftpuser, guest); ports 21/ftp + 22/ssh
 - **webserver** (192.168.1.75) — web server with NC backdoor for practice (users: root, www-data, guest); ports 22/ssh + 80/http + 3306/mysql + 4444/elite
 
-Machine filesystems are defined in `src/filesystem/machines/` and built via `fileSystemFactory.ts` with users, directories, and content. Common structure per machine: `/root/`, `/home/[users]/`, `/etc/` (passwd with MD5 hashes, hostname, hosts, configs), `/var/log/`, `/tmp/`.
-
-### Filesystem Permissions
-
-Unix-realistic permission model: files and directories are owner-scoped (only owner + root can access). System directories (`/var`, `/tmp`, `/etc`, `/home`, `/usr`, `/boot`, `/srv`, `/opt`) are world-readable via `worldReadable` flag. Guest-owned items are world-readable. Directory traversal checking (`checkTraversal` in `fileSystemUtils.ts`) verifies execute permission on every parent directory — e.g., accessing `/home/operator/notes.txt` requires execute on `/`, `/home/`, and `/home/operator/`. `cd` checks execute permission (not read). Generated mission filesystems use `mkFile`/`mkDir` helpers with owner-scoped defaults.
+Machine filesystems are defined in `src/filesystem/machines/` and built via `fileSystemFactory.ts` with users, directories, and content. Common structure per machine: `/root/`, `/home/[users]/`, `/etc/` (passwd with MD5 hashes, hostname, hosts, configs), `/var/log/`, `/tmp/`. See `architecture.md` for the full filesystem permission model.
 
 ## Network Topology
 

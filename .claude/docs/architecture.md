@@ -159,9 +159,7 @@ FTP mode operates on two machines simultaneously. The adapter detects which FTP 
 
 ## WiFi Hacking Gate
 
-Network access from localhost requires cracking a WiFi network first. See `infrastructure-design.md` for full details (WiFi networks, player flow, password).
-
-**Implementation**: `wifiConnected` standalone `useState<boolean>` in `SessionProvider` (persisted to IndexedDB, synced across tabs). Commands: `src/commands/airmon.ts`, `airdump.ts`, `aircrack.ts`, `nmcli.ts`. Hook: `src/hooks/useWifiCommands.ts`. Gating: `useNetworkCommands.ts` wraps network commands with `wrapWithWifiCheck`. `NetworkContext` switches localhost interfaces based on WiFi state. `nmcli("disconnect")` while SSH'd calls `SessionContext.disconnectWifi()` — atomically resets to localhost.
+Network access from localhost requires cracking a WiFi network first. See `infrastructure-design.md` for full details (WiFi networks, player flow, password, implementation).
 
 ## Bricked Machine System
 
@@ -191,22 +189,13 @@ NC mode (when connected via nc): pwd, cd, ls, cat, whoami, help, exit — read-o
 
 ## Command Access Control
 
-Unified filesystem-based access model. All commands are visible to all users in `help()` and tab-complete. Execution is gated by binary file permissions in `/bin/` and `/usr/bin/`.
+Unified filesystem-based access model (`src/commands/availability.ts`). All commands visible in `help()` and tab-complete. Execution gated by binary file permissions. See `CLAUDE.md` for command categories (builtins, game, system utilities, apt-installable).
 
-**Mechanism:** `src/commands/availability.ts` defines command categories and a `wrapWithAccessCheck` higher-order function. At execution time, it checks binary existence and execute permissions. Shell builtins and game commands bypass the check entirely.
-
-**Categories:**
-
-- **Shell builtins** (cd, exit, echo, pwd, help, whoami, clear) — always available, no binary check
-- **Game commands** (missions, accept, abort, mail, output, resolve, author, theme, reset, xterm) — always available
-- **System utilities** in `/bin/` — always present, world-executable (except `reboot`: root-only)
-- **Apt-installable** (nmap, john, hydra, nc, ftp, exploit, gobuster, airmon, airdump, aircrack, gpg, node) — require `/usr/bin/<name>` binary; pre-installed on localhost only; world-executable once installed (except `gpg`: root-only)
-
-**Restricted binaries:** `reboot` and `gpg` have `execute: ['root']` via `RESTRICTED_EXECUTE` map. All other binaries are world-executable `['root', 'user', 'guest']`.
+**Mechanism:** `wrapWithAccessCheck` HOF checks binary existence and execute permissions at execution time. Shell builtins and game commands bypass the check.
 
 **Filesystem integration:** `fileSystemFactory.ts` creates `/boot/`, `/bin/`, and `/usr/bin/` directories on all machines. `/bin/` contains system utility binary stubs. `/usr/bin/` is empty on remote/mission machines (populated via `apt install`). `createBinaryEntries()` applies `RESTRICTED_EXECUTE` permissions automatically. `mergeExtraDirectories()` does one-level-deep directory merging to prevent mission `extraDirectories` from overwriting factory-created `/usr/`.
 
-**Error messages:** Binary missing → `"bash: name: command not found"` (with apt install hint for apt-installable tools). Binary exists but no execute permission → `"bash: name: Permission denied"`.
+**Error messages:** Binary missing → `"bash: name: command not found"` (with apt install hint). Binary exists but no execute permission → `"bash: name: Permission denied"`.
 
 ## Seeded Mission Network Generator
 
@@ -233,9 +222,9 @@ SessionProvider → MissionProvider → FileSystemProvider → NetworkProvider �
 - `FileSystemContext` accepts optional `missionFileSystems` prop — merges on mission start, removes on end. All patches (static + mission) are persisted to IndexedDB. On initial mount with a persisted mission, cached mission patches are replayed on top of regenerated filesystems. On mission end/transition, mission patches are cleaned up from state.
 - `NetworkContext` accepts optional `missionNetworkConfig`, `missionMachines`, `missionRouterMachine` props. Checks mission config first, then static. `resolveNat(ip, port)` translates router public IP + port to internal machine IP + port based on iptables rules parsed dynamically from the router's filesystem. `findMachineUsers(ip)` searches both configs.
 
-**Mission commands:** `missions()` (browse contracts), `accept(seed)` (generate + start), `abort()` (pop all sessions, clear state), `mail(recipient, content)` (submit proof, verify by objective type).
+**Mission commands:** `missions()` (browse contracts), `accept(seed)` (generate + start), `abort()` (pop all sessions, clear state), `mail(recipient, content)` (submit proof, verify by objective type, calls `completeMission()`).
 
-**Objective types:** exfiltrate (find ACCESS-KEY), tamper (modify file), credential_theft (find root password), script_fix (fix broken script + run with node), sabotage (brick target machine). Player sends proof via `mail()` — the mail command validates and calls `completeMission()`.
+**Objective types:** exfiltrate, tamper, credential_theft, script_fix, sabotage. See `mission-variations.md` for details and completion criteria.
 
 ## SEO & Open Graph
 

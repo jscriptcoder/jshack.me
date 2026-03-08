@@ -73,7 +73,7 @@ Commands use a unified filesystem-based access model (`src/commands/availability
 
 ### Filesystem Permissions
 
-Unix-realistic permission model with owner-scoped access and directory traversal checking. Files/directories are only accessible to their owner + root (guest-owned items are world-readable). System directories (`/var`, `/tmp`, `/etc`, `/home`, `/usr`, etc.) are world-readable via `worldReadable` flag. Accessing a file requires execute permission on every parent directory (`checkTraversal` in `fileSystemUtils.ts`). `cd` checks execute permission (not read), matching real Unix. See `.claude/docs/architecture.md` for full details.
+Unix-realistic permission model with owner-scoped access and directory traversal checking. See `architecture.md` for full details (owner-scoped permissions, `worldReadable` flag, `checkTraversal`, `cd` execute vs read).
 
 ### Tool Availability (apt install)
 
@@ -108,66 +108,24 @@ Commands return objects with `__type` for custom rendering (see `src/components/
 - `'clear'`, `'author'`, `'password_prompt'`, `'nano_open'`, `'async'`
 - `AsyncOutput` streams lines with delays for network commands (ping, nmap, ssh, nslookup)
 
-### Persistence
+### Persistence, Cross-Tab Sync, Bricked Machines, WiFi Gate
 
-Two storage mechanisms split by scope:
+See `architecture.md` for full details. Key points:
 
-- **sessionStorage** (per-tab): Session state (user, machine, path, SSH stack, FTP/NC mode, theme). Each tab gets an independent session — opening a new tab starts fresh at `localhost /home/jshacker`.
-- **IndexedDB** (`jshack-db`, shared): Filesystem patches, WiFi state, mission seed, bricked machines. Shared across all tabs.
-
-Key details:
-
-- `storageCache.ts` pre-loads IndexedDB data + sessionStorage before React mounts (sync cache for `useState` initializers)
-- `SessionContext` writes session to `sessionStorage` via `useEffect`; WiFi state writes to IndexedDB separately
-- Filesystem uses a patches approach — only diffs from base filesystem are stored
-- Mission seed persisted to IndexedDB session store (`activeMissionSeed` key); full network regenerated from seed on reload
-- Mission filesystem patches are persisted to IndexedDB and replayed on reload (cleaned up on mission end/transition)
-- `reset("confirm")` clears both IndexedDB and sessionStorage, then reloads
-
-### Cross-Tab Sync
-
-Multiple browser tabs run independent terminal sessions with shared state via `BroadcastChannel` (`src/utils/crossTabSync.ts`). Filesystem patches, WiFi state, mission state, bricked machines, and theme sync across tabs in real time. Session (user, machine, path, SSH stack, FTP/NC mode), terminal output, and command history are per-tab. Graceful no-op fallback when `BroadcastChannel` is unavailable. Dynamic tab title shows `username@machine — JSHACK.ME`.
-
-### Bricked Machine System
-
-`reboot()` (root-only, apt-installable) reboots the current machine. If critical boot files (`/boot/vmlinuz`, `/boot/initrd.img`) are missing, the machine fails to boot and becomes permanently unreachable ("bricked").
-
-- **Boot check**: vmlinuz checked first (GRUB error), then initrd.img (kernel panic). Either missing = bricked.
-- **Bricked state**: `brickedMachines: ReadonlySet<string>` in `SessionContext`, persisted to IndexedDB (`brickedMachines` key), synced across tabs via `bricked-changed` message.
-- **Connection gating**: `wrapWithBrickedCheck` HOF in `useNetworkCommands.ts` blocks ssh, ftp, nc, ping, nmap, curl, exploit, hydra, gobuster to bricked machines with `"Connection timed out — host <ip> appears to be down"`.
-- **Localhost bricking**: If localhost is bricked, Terminal.tsx renders a frozen kernel panic screen (no input, no recovery except clearing browser data via `reset("confirm")` or dev tools).
-- **Router bricking**: Bricking a mission router makes the entire internal network unreachable (all connections route through the router's public IP).
-- **Cleanup**: Bricked state clears when IndexedDB is cleared (via `reset("confirm")`).
-
-### WiFi Hacking Gate
-
-Network access from localhost requires cracking a WiFi network first. This is a progression gate before network access.
-
-- `wifiConnected` (standalone `useState` in `SessionProvider`, persisted to IndexedDB, synced across tabs) tracks WiFi state
-- When `wifiConnected === false` on localhost:
-  - `ifconfig()` shows `wlan0` as DOWN (no IP) + loopback `lo`
-  - Network commands (ping, nmap, ssh, ftp, nc, curl, nslookup) throw `"Network is unreachable"`
-  - `NetworkContext` returns empty machines/DNS lists
-- Player flow: `airmon("start", "wlan0")` → `airdump()` → `aircrack("A4:CF:12:D3:8B:7A")` → `nmcli("connect", "JSHACK-CORP", "cr4ck3d_w1f1")` → WiFi connected
-- WiFi networks defined in `src/network/wifiNetworks.ts` (4 networks, 1 crackable)
-- Commands in `src/commands/airmon.ts`, `airdump.ts`, `aircrack.ts`, `nmcli.ts`
-- Hook: `src/hooks/useWifiCommands.ts` (manages monitor mode state via `useRef`)
-- WiFi gating only applies on localhost; remote machines are unaffected
+- **sessionStorage** (per-tab): session state. **IndexedDB** (shared): filesystem patches, WiFi, mission seed, bricked machines.
+- `BroadcastChannel` syncs filesystem patches, WiFi, missions, bricked machines, and theme across tabs.
+- `reboot()` bricks machines missing `/boot/vmlinuz` or `/boot/initrd.img`. Bricked machines are unreachable.
+- WiFi must be cracked before network access on localhost. See `infrastructure-design.md` for networks/flow.
 
 ### Mission System
 
-After completing the 16-flag tutorial, players can take on procedurally generated hacker-for-hire contracts from a darknet marketplace.
+See `architecture.md` for integration details, `mission-variations.md` for all generation axes.
 
-- **MissionContext** (`src/mission/MissionContext.tsx`) — React context providing `activeMission`, `startMission`, `abortMission`, `completeMission`, `isMissionActive` via `useMission()` hook
-- **App.tsx orchestration** — Mission state lives in `App.tsx`, passed as props to `FileSystemProvider` (`missionFileSystems`) and `NetworkProvider` (`missionNetworkConfig`, `missionRouterMachine`). `MissionProvider` wraps both for command access.
-- **Generator** — `generateMissionNetwork(seed)` in `src/generation/generateMission.ts` deterministically produces a full network from a seed string. Seeds can embed keywords to control generation: difficulty (`easy`/`medium`/`hard`), entry variant (`ssh`/`ftp`/`nc`/`exploit`/`http`), network mode (`forwarded`/`router-first`), objective (`exfiltrate`/`tamper`/`credential-theft`/`script-fix`/`sabotage`), domain entry (`domain`), encrypted exfiltrate (`gpg`). `parseSeedOverrides(seed)` extracts overrides; PRNG sequence is preserved (calls consumed but overridden).
-- **Router topology** — Every mission has a real, hackable router (role `'router'`) between localhost and internal machines. Router has a PRNG-varied public IP (from realistic prefixes like 45, 51, 62, 78, etc.) and internal machines on a PRNG-varied private subnet (10.x.x/24, 172.{16-31}.x/24, or 192.168.{2-254}/24). Dual interfaces (public + internal), filesystem with firewall rules and internal machine hints. Two modes: **forwarded** (easier — NAT ports to DMZ, transparent to player) and **router-first** (harder — must hack router first to reach internal network).
-- **Entry variants** — Entry machine initial access varies: ssh (classic), ftp (find SSH creds via FTP), nc (find SSH creds via backdoor), exploit (scan with `nmap -sV`, exploit vulnerable port), http (discover SSH creds via `curl` on port 80, possibly in response headers via `-i`). Selected by PRNG per seed. In forwarded mode, variant applies to the internal entry machine; in router-first mode, variant applies to the router.
-- **NAT resolution** — `NetworkContext.resolveNat(ip, port)` translates router public IP + port to internal machine IP + port based on iptables rules parsed dynamically from `/etc/iptables/rules.v4` on the router's filesystem (`src/network/iptablesParser.ts`). Applied at SSH/FTP/NC connection boundaries in `Terminal.tsx`. Players can edit the iptables file with `nano` to add/remove forwarding rules — changes take effect on the next connection or `nmap` scan.
-- **Commands** — `missions()` browses contracts, `accept(seed)` starts a mission, `abort()` cancels and returns to localhost, `mail(recipient, content)` submits proof to complete
-- **Completion** — Player sends proof via `mail("client@darkmail.onion", "proof")`. Five objective types: exfiltrate (find ACCESS-KEY, optionally encrypted — requires `gpg(file, key)` as root), tamper (modify a file), credential_theft (steal root password), script_fix (fix broken script with nano, run with node — scripts call `_decode(checksum)` which returns the ACCESS-KEY if the checksum is correct, then player mails it to the client), sabotage (gain root, delete `/boot/vmlinuz`, reboot to brick the target machine). The `mail` command verifies proof and calls `completeMission()`.
-- **Isolation** — From localhost, only the router's public IP is reachable. Internal machines are discovered after connecting to the router or through forwarded ports.
-- **Persistence** — Seed string + filesystem patches persisted to IndexedDB. On reload, mission is regenerated from seed and patches are replayed. Patches are cleaned up on mission end/transition.
+- `generateMissionNetwork(seed)` deterministically produces a full network. Seeds embed keywords for overrides (difficulty, entry variant, network mode, objective, domain, gpg).
+- Provider hierarchy: `SessionProvider → MissionProvider → FileSystemProvider → NetworkProvider → Terminal`
+- Commands: `missions()`, `accept(seed)`, `abort()`, `mail(recipient, content)`
+- Five objectives: exfiltrate, tamper, credential_theft, script_fix, sabotage
+- NAT resolution via `resolveNat(ip, port)` using iptables rules on router filesystem
 
 ### Node Execution Circular Dependency
 
