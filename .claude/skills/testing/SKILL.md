@@ -1,15 +1,17 @@
 ---
 name: testing
-description: Testing patterns for behavior-driven tests. Use when writing tests or test factories.
+description: Testing patterns for behavior-driven tests. Use when writing tests, creating test factories, structuring test files, or deciding what to test. Do NOT use for UI-specific testing (see front-end-testing or react-testing skills).
 ---
 
 # Testing Patterns
+
+For verifying test effectiveness through mutation analysis, load the `mutation-testing` skill. For evaluating test quality against Dave Farley's properties, load the `test-design-reviewer` skill.
 
 ## Core Principle
 
 **Test behavior, not implementation.** 100% coverage through business behavior, not implementation details.
 
-**Example:** Permission checking code in `filesystem/` gets 100% coverage by testing `cat()` and `ls()` behavior, NOT by directly testing permission functions.
+**Example:** Permission logic in `fileSystemUtils.ts` gets 100% coverage by testing `canReadFromMachine()` behavior, NOT by directly testing internal helper functions.
 
 ---
 
@@ -18,7 +20,6 @@ description: Testing patterns for behavior-driven tests. Use when writing tests 
 Never test implementation details. Test behavior through public APIs.
 
 **Why this matters:**
-
 - Tests remain valid when refactoring
 - Tests document intended behavior
 - Tests catch real bugs, not implementation changes
@@ -26,45 +27,44 @@ Never test implementation details. Test behavior through public APIs.
 ### Examples
 
 ❌ **WRONG - Testing implementation:**
-
 ```typescript
 // ❌ Testing HOW (implementation detail)
-it('should call checkPermissions', () => {
-  const spy = vi.spyOn(fs, 'checkPermissions');
-  cat('/etc/passwd');
+it('should call checkTraversal', () => {
+  const spy = vi.spyOn(utils, 'checkTraversal');
+  canReadFromMachine('localhost', '/home/guest/notes.txt', 'guest');
   expect(spy).toHaveBeenCalled(); // Tests HOW, not WHAT
 });
 
 // ❌ Testing private methods
-it('should validate path format', () => {
-  const result = fs._normalizePath('../etc'); // Private method!
-  expect(result).toBe('/etc');
+it('should normalize path segments', () => {
+  const result = utils._normalizeSegments(['home', '..', 'root']); // Private method!
+  expect(result).toEqual(['root']);
 });
 
 // ❌ Testing internal state
-it('should set currentPath', () => {
-  cd('/home');
-  expect(fs.internalState.currentPath).toBe('/home'); // Internal state
+it('should set wifiConnected flag', () => {
+  connectWifi('JSHACK-CORP', 'cr4ck3d_w1f1');
+  expect(sessionState.wifiConnected).toBe(true); // Internal state
 });
 ```
 
 ✅ **CORRECT - Testing behavior through public API:**
-
 ```typescript
-it('should deny access to restricted files for guest users', () => {
-  const result = cat('/root/secret.txt', 'guest');
-  expect(result).toContain('Permission denied');
+it('should deny guest access to root-owned files', () => {
+  const tree = getMockFileTree({ owner: 'root' });
+  const result = canReadFromMachine('localhost', '/root/secret.txt', 'guest', tree);
+  expect(result).toBe(false);
 });
 
 it('should allow root to read any file', () => {
-  const result = cat('/root/secret.txt', 'root');
-  expect(result).not.toContain('Permission denied');
+  const tree = getMockFileTree({ owner: 'operator' });
+  const result = canReadFromMachine('localhost', '/home/operator/notes.txt', 'root', tree);
+  expect(result).toBe(true);
 });
 
-it('should list directory contents with correct format', () => {
-  const result = ls('/home');
-  expect(result).toContain('jshacker/');
-  expect(result).toContain('guest/');
+it('should resolve relative paths correctly', () => {
+  const result = resolvePath('/home/jshacker', '../guest/notes.txt');
+  expect(result).toBe('/home/guest/notes.txt');
 });
 ```
 
@@ -72,33 +72,37 @@ it('should list directory contents with correct format', () => {
 
 ## Coverage Through Behavior
 
-Permission checking code gets 100% coverage by testing the behavior it protects:
+Permission logic gets 100% coverage by testing the behavior it protects:
 
 ```typescript
-// Tests covering permissions WITHOUT testing permission functions directly
-describe('cat command', () => {
-  it('should deny guest access to root files', () => {
-    const result = cat('/root/secret.txt', 'guest');
-    expect(result).toContain('Permission denied');
+// Tests covering permission checks WITHOUT testing internal functions directly
+describe('canReadFromMachine', () => {
+  it('should deny access when directory traversal fails', () => {
+    const tree = getMockFileTree({ parentExecute: ['root'] });
+    const result = canReadFromMachine('localhost', '/root/.ssh/id_rsa', 'guest', tree);
+    expect(result).toBe(false);
   });
 
-  it('should deny guest access to other user home dirs', () => {
-    const result = cat('/home/jshacker/.bashrc', 'guest');
-    expect(result).toContain('Permission denied');
+  it('should deny guest access to root-owned files', () => {
+    const tree = getMockFileTree({ owner: 'root' });
+    const result = canReadFromMachine('localhost', '/root/secret.txt', 'guest', tree);
+    expect(result).toBe(false);
   });
 
-  it('should allow users to read their own files', () => {
-    const result = cat('/home/jshacker/README.md', 'user');
-    expect(result).not.toContain('Permission denied');
+  it('should allow owner to read their own files', () => {
+    const tree = getMockFileTree({ owner: 'jshacker' });
+    const result = canReadFromMachine('localhost', '/home/jshacker/notes.txt', 'jshacker', tree);
+    expect(result).toBe(true);
   });
 
   it('should allow root to read any file', () => {
-    const result = cat('/root/secret.txt', 'root');
-    expect(result).not.toContain('Permission denied');
+    const tree = getMockFileTree({ owner: 'operator' });
+    const result = canReadFromMachine('localhost', '/home/operator/notes.txt', 'root', tree);
+    expect(result).toBe(true);
   });
 });
 
-// ✅ Result: filesystem permissions have 100% coverage through behavior
+// ✅ Result: fileSystemUtils.ts has 100% coverage through behavior
 ```
 
 **Key insight:** When coverage drops, ask **"What business behavior am I not testing?"** not "What line am I missing?"
@@ -120,50 +124,40 @@ For test data, use factory functions with optional overrides.
 
 ```typescript
 const getMockFileNode = (overrides?: Partial<FileNode>): FileNode => ({
-  name: 'test.txt',
   type: 'file',
   content: 'test content',
-  permissions: {
-    read: ['root', 'user'],
-    write: ['root'],
-    execute: [],
-  },
+  owner: 'jshacker',
+  permissions: { read: ['jshacker', 'root'], write: ['jshacker', 'root'], execute: [] },
   ...overrides,
 });
 
 // Usage
-it('denies write access to non-root users', () => {
-  const file = getMockFileNode({ permissions: { read: ['user'], write: ['root'], execute: [] } });
-  const result = writeFile(file, 'new content', 'user');
-  expect(result).toContain('Permission denied');
+it('should deny write access for non-owners', () => {
+  const file = getMockFileNode({ owner: 'root' });
+  const result = canWriteFile(file, 'guest');
+  expect(result).toBe(false);
 });
 ```
 
 ### Complete Factory Example
 
 ```typescript
-import type { RemoteMachine } from '../network/types';
-
-const getMockMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine => ({
-  ip: '192.168.1.50',
-  hostname: 'testserver',
-  ports: [
-    { port: 22, service: 'ssh', open: true },
-    { port: 80, service: 'http', open: false },
-  ],
-  users: [
-    { username: 'root', passwordHash: '63a9f0ea7bb98050796b649e85481845', userType: 'root' },
-    { username: 'testuser', passwordHash: '5f4dcc3b5aa765d61d8327deb882cf99', userType: 'user' },
-  ],
+const getMockSession = (overrides?: Partial<Session>): Session => ({
+  username: 'jshacker',
+  userType: 'user',
+  machine: 'localhost',
+  currentPath: '/home/jshacker',
+  theme: 'amber',
   ...overrides,
 });
 ```
 
-**Why use factory functions?**
+**Why validate with schema?**
+- Ensures test data is valid according to production schema
+- Catches breaking changes early (schema changes fail tests)
+- Single source of truth (no schema redefinition)
 
-- Ensures test data is complete and valid
-- Catches breaking changes early (type errors on missing fields)
-- Single source of truth (consistent test data)
+**Tip:** For factories where only a subset of fields are relevant, use `Pick<T, 'field1' | 'field2'>` for the overrides parameter to constrain what callers can customize.
 
 ### Factory Composition
 
@@ -171,111 +165,101 @@ For nested objects, compose factories:
 
 ```typescript
 const getMockPort = (overrides?: Partial<Port>): Port => ({
-  port: 22,
+  number: 22,
   service: 'ssh',
-  open: true,
+  closed: false,
   ...overrides,
 });
 
-const getMockUser = (overrides?: Partial<RemoteUser>): RemoteUser => ({
-  username: 'testuser',
-  passwordHash: '5f4dcc3b5aa765d61d8327deb882cf99',
-  userType: 'user',
-  ...overrides,
-});
-
-const getMockMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine => ({
-  ip: '192.168.1.50',
-  hostname: 'testserver',
-  ports: [getMockPort()], // ✅ Compose factories
-  users: [getMockUser()], // ✅ Compose factories
+const getMockMachine = (overrides?: Partial<GeneratedMachine>): GeneratedMachine => ({
+  role: 'webserver',
+  hostname: 'web01',
+  ip: '10.0.1.10',
+  ports: [getMockPort()],               // ✅ Compose factories
+  users: [getMockMachineUser()],         // ✅ Compose factories
+  filesystem: getMockFileTree(),         // ✅ Compose factories
   ...overrides,
 });
 
 // Usage - override nested objects
-it('detects machines with multiple open ports', () => {
+it('should detect SSH-accessible machines', () => {
   const machine = getMockMachine({
     ports: [
-      getMockPort({ port: 22, service: 'ssh', open: true }),
-      getMockPort({ port: 80, service: 'http', open: true }),
+      getMockPort({ number: 22, service: 'ssh' }),
+      getMockPort({ number: 80, service: 'http' }),
     ],
   });
-  const openPorts = machine.ports.filter((p) => p.open);
-  expect(openPorts.length).toBe(2);
+  expect(hasSshAccess(machine)).toBe(true);
 });
 ```
 
 ### Anti-Patterns
 
 ❌ **WRONG: Using `let` and `beforeEach`**
-
 ```typescript
-let machine: RemoteMachine;
+let session: Session;
 beforeEach(() => {
-  machine = { ip: '192.168.1.50', hostname: 'test', ... };  // Shared mutable state!
+  session = { username: 'jshacker', machine: 'localhost', ... };  // Shared mutable state!
 });
 
 it('test 1', () => {
-  machine.hostname = 'modified';  // Mutates shared state
+  session.machine = 'fileserver';  // Mutates shared state
 });
 
 it('test 2', () => {
-  expect(machine.hostname).toBe('test');  // Fails! Modified by test 1
+  expect(session.machine).toBe('localhost');  // Fails! Modified by test 1
 });
 ```
 
 ✅ **CORRECT: Factory per test**
-
 ```typescript
 it('test 1', () => {
-  const machine = getMockMachine({ hostname: 'modified' }); // Fresh state
+  const session = getMockSession({ machine: 'fileserver' });  // Fresh state
   // ...
 });
 
 it('test 2', () => {
-  const machine = getMockMachine(); // Fresh state, not affected by test 1
-  expect(machine.hostname).toBe('testserver'); // ✅ Passes
+  const session = getMockSession();  // Fresh state, not affected by test 1
+  expect(session.machine).toBe('localhost');  // ✅ Passes
 });
 ```
 
 ❌ **WRONG: Incomplete objects**
-
 ```typescript
 const getMockMachine = () => ({
-  ip: '192.168.1.50', // Missing hostname, ports, users!
+  hostname: 'web01',  // Missing ip, role, ports, users, filesystem!
 });
 ```
 
 ✅ **CORRECT: Complete objects**
-
 ```typescript
-const getMockMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine => ({
-  ip: '192.168.1.50',
-  hostname: 'testserver',
-  ports: [{ port: 22, service: 'ssh', open: true }],
-  users: [{ username: 'root', passwordHash: '...', userType: 'root' }],
-  ...overrides, // All required fields present
+const getMockMachine = (overrides?: Partial<GeneratedMachine>): GeneratedMachine => ({
+  role: 'webserver',
+  hostname: 'web01',
+  ip: '10.0.1.10',
+  ports: [getMockPort()],
+  users: [getMockMachineUser()],
+  filesystem: getMockFileTree(),
+  ...overrides,  // All required fields present
 });
 ```
 
-❌ **WRONG: Redefining types in tests**
-
+❌ **WRONG: Redefining schemas in tests**
 ```typescript
-// ❌ Type already defined in src/network/types.ts!
-type RemoteMachine = { ip: string; hostname: string; };
-const getMockMachine = (): RemoteMachine => ({ ... });
+// ❌ Type already defined in src/filesystem/types.ts!
+type FileNode = { type: string; content: string | null; owner: string };
+const getMockFileNode = () => ({ ... });
 ```
 
 ✅ **CORRECT: Import real types**
-
 ```typescript
-import type { RemoteMachine } from '../network/types';
+import type { FileNode } from '@/filesystem/types';
 
-const getMockMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine => ({
-  ip: '192.168.1.50',
-  hostname: 'testserver',
-  ports: [],
-  users: [],
+const getMockFileNode = (overrides?: Partial<FileNode>): FileNode => ({
+  type: 'file',
+  content: 'test content',
+  owner: 'jshacker',
+  permissions: { read: ['jshacker', 'root'], write: ['jshacker', 'root'], execute: [] },
   ...overrides,
 });
 ```
@@ -289,146 +273,125 @@ Watch for these patterns that give fake 100% coverage:
 ### Pattern 1: Mock the function being tested
 
 ❌ **WRONG** - Gives 100% coverage but tests nothing:
-
 ```typescript
-it('calls permission check', () => {
-  const spy = vi.spyOn(fs, 'checkPermissions');
-  cat('/etc/passwd');
+it('calls checkTraversal', () => {
+  const spy = vi.spyOn(utils, 'checkTraversal');
+  canReadFromMachine('localhost', '/root/secret.txt', 'guest', tree);
   expect(spy).toHaveBeenCalled(); // Meaningless assertion
 });
 ```
 
 ✅ **CORRECT** - Test actual behavior:
-
 ```typescript
-it('should deny guest access to passwd file', () => {
-  const result = cat('/etc/passwd', 'guest');
-  expect(result).toContain('Permission denied');
+it('should deny access when traversal fails', () => {
+  const tree = getMockFileTree({ parentExecute: ['root'] });
+  const result = canReadFromMachine('localhost', '/root/secret.txt', 'guest', tree);
+  expect(result).toBe(false);
 });
 ```
 
 ### Pattern 2: Test only that function was called
 
 ❌ **WRONG** - No behavior validation:
-
 ```typescript
-it('validates SSH connection', () => {
-  const spy = vi.spyOn(network, 'getMachine');
-  ssh('root', '192.168.1.50');
-  expect(spy).toHaveBeenCalledWith('192.168.1.50'); // So what?
+it('executes command', () => {
+  const spy = vi.spyOn(command, 'execute');
+  processInput('ls()');
+  expect(spy).toHaveBeenCalledWith([]); // So what?
 });
 ```
 
 ✅ **CORRECT** - Verify the outcome:
-
 ```typescript
-it('should reject SSH to machine without SSH port open', () => {
-  const result = ssh('root', '192.168.1.1'); // gateway has SSH closed
-  expect(result).toContain('Connection refused');
+it('should list files in current directory', () => {
+  const session = getMockSession({ currentPath: '/home/jshacker' });
+  const result = ls(session, tree);
+  expect(result).toContain('notes.txt');
+  expect(result).toContain('downloads');
 });
 ```
 
 ### Pattern 3: Test trivial getters/setters
 
 ❌ **WRONG** - Testing implementation, not behavior:
-
 ```typescript
-it('sets current path', () => {
-  setCurrentPath('/home');
-  expect(getCurrentPath()).toBe('/home'); // Trivial
+it('sets machine name', () => {
+  session.setMachine('fileserver');
+  expect(session.getMachine()).toBe('fileserver'); // Trivial
 });
 ```
 
 ✅ **CORRECT** - Test meaningful behavior:
-
 ```typescript
-it('should resolve relative paths from current directory', () => {
-  cd('/home/jshacker');
-  const result = ls('.');
-  expect(result).toContain('README.md');
+it('should update prompt after SSH connection', () => {
+  const session = getMockSession({ machine: 'localhost', username: 'jshacker' });
+  const updated = pushSession(session, { machine: 'fileserver', username: 'ftpuser' });
+  expect(formatPrompt(updated)).toBe('ftpuser@fileserver>');
 });
 ```
 
 ### Pattern 4: 100% line coverage, 0% branch coverage
 
 ❌ **WRONG** - Missing edge cases:
-
 ```typescript
-it('lists directory', () => {
-  const result = ls('/home');
-  expect(result).toBeDefined(); // Only happy path!
+it('resolves path', () => {
+  const result = resolvePath('/home', 'jshacker');
+  expect(result).toBe('/home/jshacker'); // Only happy path!
 });
-// Missing: non-existent path, file instead of dir, permission denied, etc.
+// Missing: '..' traversal, absolute paths, empty input, etc.
 ```
 
 ✅ **CORRECT** - Test all branches:
-
 ```typescript
-describe('ls command', () => {
-  it('should return error for non-existent path', () => {
-    const result = ls('/nonexistent');
-    expect(result).toContain('No such file or directory');
+describe('resolvePath', () => {
+  it('should resolve relative paths', () => {
+    expect(resolvePath('/home', 'jshacker')).toBe('/home/jshacker');
   });
 
-  it('should return error when listing a file', () => {
-    const result = ls('/etc/passwd');
-    expect(result).toContain('Not a directory');
+  it('should handle parent directory traversal', () => {
+    expect(resolvePath('/home/jshacker', '../guest')).toBe('/home/guest');
   });
 
-  it('should deny access to restricted directories', () => {
-    const result = ls('/root', 'guest');
-    expect(result).toContain('Permission denied');
+  it('should treat absolute paths as-is', () => {
+    expect(resolvePath('/home/jshacker', '/etc/passwd')).toBe('/etc/passwd');
   });
 
-  it('should list directory contents', () => {
-    const result = ls('/home');
-    expect(result).toContain('jshacker/');
+  it('should normalize trailing slashes', () => {
+    expect(resolvePath('/home/', 'jshacker/')).toBe('/home/jshacker');
   });
 });
 ```
 
 ---
 
-## Colocated Tests
+## No 1:1 Mapping Between Tests and Implementation
 
-Place test files next to their implementation files.
-
-✅ **CORRECT:**
-
-```
-src/
-  commands/
-    ls.ts
-    ls.test.ts         ← Test next to implementation
-    cat.ts
-    cat.test.ts        ← Test next to implementation
-    ssh.ts
-    ssh.test.ts
-  filesystem/
-    FileSystemContext.tsx
-    FileSystemContext.test.tsx
-```
+Don't create test files that mirror implementation files.
 
 ❌ **WRONG:**
-
 ```
 src/
-  commands/
-    ls.ts
-    cat.ts
-    ssh.ts
+  filesystem/fileSystemUtils.ts
+  filesystem/fileSystemFactory.ts
+  filesystem/machineFileSystems.ts
 tests/
-  commands.test.ts     ← Far from implementation, grows unwieldy
+  filesystem/fileSystemUtils.test.ts  ← 1:1 mapping
+  filesystem/fileSystemFactory.test.ts  ← 1:1 mapping
+  filesystem/machineFileSystems.test.ts  ← 1:1 mapping
 ```
 
-**Why colocated tests:**
+✅ **CORRECT:**
+```
+src/
+  filesystem/fileSystemUtils.ts
+  filesystem/fileSystemFactory.ts
+  filesystem/machineFileSystems.ts
+tests/
+  filesystem/file-permissions.test.ts  ← Tests behavior, not implementation files
+  filesystem/path-resolution.test.ts
+```
 
-- **Discoverable**: `ssh.ts` → `ssh.test.ts` right next to it
-- **Manageable**: Small, focused test files instead of large monoliths
-- **Encourages testing**: Tests are visible when working on a file
-- **Clear coverage**: Obvious which files have tests
-
-**Important:** This is about _file organization_, not test content. Tests should still focus on behavior through public APIs, not implementation details. A colocated `ssh.test.ts` tests what `ssh()` does, not how it's implemented internally.
+**Why:** Implementation details can be refactored without changing tests. Tests verify behavior remains correct regardless of how code is organized internally.
 
 ---
 
@@ -436,7 +399,6 @@ tests/
 
 When writing tests, verify:
 
-- [ ] Test file colocated with implementation (`foo.ts` → `foo.test.ts`)
 - [ ] Testing behavior through public API (not implementation details)
 - [ ] No mocks of the function being tested
 - [ ] No tests of private methods or internal state
@@ -446,3 +408,4 @@ When writing tests, verify:
 - [ ] No `let`/`beforeEach` - use factories for fresh state
 - [ ] Edge cases covered (not just happy path)
 - [ ] Tests would pass even if implementation is refactored
+- [ ] No 1:1 mapping between test files and implementation files

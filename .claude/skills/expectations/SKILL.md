@@ -1,26 +1,26 @@
 ---
 name: expectations
-description: Working expectations and documentation practices. Use when capturing learnings or understanding how to work with this codebase.
+description: Working expectations and documentation practices. Use when capturing learnings, documenting gotchas, recording architectural decisions, or understanding how to work with a codebase. Triggers on "document this", "remember this pattern", "what should I know about", or after completing significant features.
 ---
 
 # Expectations
 
 ## When Working with Code
 
-1. **Think deeply** before making any edits
-2. **Understand the full context** of the code and requirements
-3. **Ask clarifying questions** when requirements are ambiguous
-4. **Think from first principles** - don't make assumptions
-5. **Assess refactoring after every green** - but only refactor if it adds value
-6. **Keep project docs current** - Update CLAUDE.md when introducing meaningful changes
+1. **ALWAYS FOLLOW TDD** - No production code without a failing test. Non-negotiable.
+2. **Think deeply** before making any edits
+3. **Understand the full context** of the code and requirements
+4. **Ask clarifying questions** when requirements are ambiguous
+5. **Think from first principles** - don't make assumptions
+6. **Assess refactoring after every green** - but only refactor if it adds value
+7. **Keep project docs current** - Update CLAUDE.md when introducing meaningful changes
 
 ## Documentation Framework
 
 **At the end of every significant change, ask: "What do I wish I'd known at the start?"**
 
 Document if ANY of these are true:
-
-- Would save future developers >30 minutes
+- Would save future developers significant time
 - Prevents a class of bugs or errors
 - Reveals non-obvious behavior or constraints
 - Captures architectural rationale or trade-offs
@@ -30,7 +30,7 @@ Document if ANY of these are true:
 
 ## Types of Learnings to Capture
 
-- **Gotchas**: Unexpected behavior discovered (e.g., "API returns null instead of empty array")
+- **Gotchas**: Unexpected behavior discovered (e.g., "mergeExtraDirectories overwrites factory-created /usr/ if not one-level-deep merged")
 - **Patterns**: Approaches that worked particularly well
 - **Anti-patterns**: Approaches that seemed good but caused problems
 - **Decisions**: Architectural choices with rationale and trade-offs
@@ -40,17 +40,18 @@ Document if ANY of these are true:
 ## Documentation Format
 
 ```markdown
-#### Gotcha: [Descriptive Title]
+#### Gotcha: Mission patches replayed on wrong filesystem
 
-**Context**: When this occurs
-**Issue**: What goes wrong
-**Solution**: How to handle it
+**Context**: When reloading a tab with an active mission
+**Issue**: Mission filesystem patches were applied before regenerating the mission network from seed, causing patches to apply to the static localhost filesystem instead
+**Solution**: Always regenerate mission from seed first, then replay cached mission patches on top
 
-// CORRECT - Solution
-const example = "correct approach";
+// CORRECT - Regenerate first, then apply patches
+const mission = generateMissionNetwork(cachedSeed);
+const filesystems = applyPatches(mission.filesystems, cachedMissionPatches);
 
-// WRONG - What causes the problem
-const wrong = "incorrect approach";
+// WRONG - Applying patches without regeneration
+const filesystems = applyPatches(staticFilesystems, cachedMissionPatches);
 ```
 
 ## Code Change Principles

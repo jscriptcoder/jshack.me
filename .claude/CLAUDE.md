@@ -143,9 +143,7 @@ When making any changes (adding/changing/deleting commands, hooks, machines, uti
 
 1. **Update `README.md`** if the change affects user-facing documentation (commands, features, setup, etc.)
 2. **Update project docs** — check if any of these files need updates:
-   - `WIP.md` — current work in progress
-   - `LEARNINGS.md` — lessons learned, gotchas, decisions
-   - `CLAUDE.md` — project instructions (this file)
+   - `.claude/CLAUDE.md` — project instructions (this file)
    - `.claude/docs/architecture.md` — architecture documentation
    - `.claude/docs/infrastructure-design.md` — Infrastructure design documentation
    - `.claude/docs/mission-variations.md` — mission generation variations catalog
