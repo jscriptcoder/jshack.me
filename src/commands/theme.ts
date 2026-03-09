@@ -14,6 +14,7 @@ export const createThemeCommand = ({
   getCurrentTheme,
 }: CreateThemeCommandOptions): Command => ({
   name: 'theme',
+  category: 'general',
   description: 'List or switch terminal color themes',
   manual: {
     synopsis: 'theme([name])',

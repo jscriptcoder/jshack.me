@@ -44,6 +44,7 @@ const extractStrings = (
 
 export const createStringsCommand = (context: StringsContext): Command => ({
   name: 'strings',
+  category: 'filesystem',
   description: 'Extract printable strings from a file',
   manual: {
     synopsis: 'strings(file, [minLength])',

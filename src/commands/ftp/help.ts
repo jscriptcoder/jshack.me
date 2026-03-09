@@ -16,6 +16,7 @@ const FTP_HELP_LINES: readonly string[] = [
 
 export const ftpHelpCommand: Command = {
   name: 'help',
+  category: 'network',
   description: 'Show available commands',
   fn: (): string => FTP_HELP_LINES.join('\n'),
 };

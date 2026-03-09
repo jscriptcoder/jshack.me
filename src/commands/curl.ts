@@ -189,6 +189,7 @@ const isHttpService = (service: string): boolean => HTTP_SERVICES.some((s) => s 
 
 export const createCurlCommand = (context: CurlContext): Command => ({
   name: 'curl',
+  category: 'network',
   description: 'Transfer data from or to a server',
   manual: {
     synopsis: 'curl([flags], url)',

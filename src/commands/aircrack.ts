@@ -13,6 +13,7 @@ const STEP_DELAY_MS = 400;
 
 export const createAircrackCommand = (context: AircrackContext): Command => ({
   name: 'aircrack',
+  category: 'wifi',
   description: 'Crack WPA/WPA2 wireless network keys',
   manual: {
     synopsis: 'aircrack(bssid)',

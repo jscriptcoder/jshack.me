@@ -53,6 +53,7 @@ type CatContext = {
 
 export const createCatCommand = (context: CatContext): Command => ({
   name: 'cat',
+  category: 'filesystem',
   description: 'Display file contents',
   manual: {
     synopsis: 'cat(path)',

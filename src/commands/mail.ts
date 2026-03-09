@@ -97,6 +97,7 @@ const verifyProof = (
 
 export const createMailCommand = (context: MailCommandContext): Command => ({
   name: 'mail',
+  category: 'mission',
   description: 'Send proof to a darknet client to complete a mission',
   manual: {
     synopsis: 'mail(recipient, content)',

@@ -20,6 +20,7 @@ const PING_DELAY_MS = 800;
 
 export const createPingCommand = (context: PingContext): Command => ({
   name: 'ping',
+  category: 'network',
   description: 'Send ICMP echo request to network host',
   manual: {
     synopsis: 'ping(host, [count])',

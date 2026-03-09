@@ -11,6 +11,7 @@ const DNS_LOOKUP_DELAY_MS = 600;
 
 export const createNslookupCommand = (context: NslookupContext): Command => ({
   name: 'nslookup',
+  category: 'network',
   description: 'Query DNS for domain name resolution',
   manual: {
     synopsis: 'nslookup(domain)',

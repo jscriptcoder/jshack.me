@@ -41,6 +41,7 @@ const parsePasswdLines = (content: string): readonly PasswdEntry[] =>
 
 export const createJohnCommand = (context: JohnContext): Command => ({
   name: 'john',
+  category: 'filesystem',
   description: 'Crack password hashes using dictionary attack',
   manual: {
     synopsis: 'john(file)',

@@ -19,6 +19,7 @@ type FtpLlsContext = {
 
 export const createFtpLlsCommand = (context: FtpLlsContext): Command => ({
   name: 'lls',
+  category: 'network',
   description: 'List local directory contents',
   manual: {
     synopsis: 'lls([path], [flags])',

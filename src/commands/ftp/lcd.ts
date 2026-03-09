@@ -19,6 +19,7 @@ type FtpLcdContext = {
 
 export const createFtpLcdCommand = (context: FtpLcdContext): Command => ({
   name: 'lcd',
+  category: 'network',
   description: 'Change local directory',
   manual: {
     synopsis: 'lcd([path])',

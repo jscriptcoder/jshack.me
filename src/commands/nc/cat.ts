@@ -19,6 +19,7 @@ type NcCatContext = {
 
 export const createNcCatCommand = (context: NcCatContext): Command => ({
   name: 'cat',
+  category: 'network',
   description: 'Read file contents',
   fn: (...args: unknown[]): string => {
     const adapter: CatAdapter = {

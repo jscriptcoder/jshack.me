@@ -3,6 +3,7 @@ import { stringify } from '../utils/stringify';
 
 export const echoCommand: Command = {
   name: 'echo',
+  category: 'general',
   description: 'Output the given value as a string',
   manual: {
     synopsis: 'echo(value)',

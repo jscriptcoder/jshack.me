@@ -6,6 +6,7 @@ export type FtpQuitOutput = {
 
 export const ftpQuitCommand: Command = {
   name: 'quit',
+  category: 'network',
   description: 'Close FTP connection',
   manual: {
     synopsis: 'quit()',
@@ -19,6 +20,7 @@ export const ftpQuitCommand: Command = {
 
 export const ftpByeCommand: Command = {
   name: 'bye',
+  category: 'network',
   description: 'Close FTP connection',
   manual: {
     synopsis: 'bye()',

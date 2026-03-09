@@ -6,6 +6,7 @@ type NcWhoamiContext = {
 
 export const createNcWhoamiCommand = (context: NcWhoamiContext): Command => ({
   name: 'whoami',
+  category: 'network',
   description: 'Show current user',
   fn: (): string => context.getUsername(),
 });

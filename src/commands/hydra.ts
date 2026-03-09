@@ -58,6 +58,7 @@ const getTargetServices = (
 
 export const createHydraCommand = (context: HydraContext): Command => ({
   name: 'hydra',
+  category: 'network',
   description: 'Network login brute-force tool',
   manual: {
     synopsis: 'hydra(host[, service[, user]])',

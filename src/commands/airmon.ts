@@ -9,6 +9,7 @@ type AirmonContext = {
 
 export const createAirmonCommand = (context: AirmonContext): Command => ({
   name: 'airmon',
+  category: 'wifi',
   description: 'Enable/disable wireless monitor mode',
   manual: {
     synopsis: 'airmon(action, interface)',

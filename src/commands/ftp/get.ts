@@ -37,6 +37,7 @@ type FtpGetContext = {
 
 export const createFtpGetCommand = (context: FtpGetContext): Command => ({
   name: 'get',
+  category: 'network',
   description: 'Download file from remote server',
   manual: {
     synopsis: 'get(remoteFile, [localPath])',

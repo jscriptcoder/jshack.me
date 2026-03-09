@@ -18,6 +18,7 @@ const formatInterface = (iface: NetworkInterface): string => {
 
 export const createIfconfigCommand = (context: IfconfigContext): Command => ({
   name: 'ifconfig',
+  category: 'network',
   description: 'Display network interface configuration',
   manual: {
     synopsis: 'ifconfig([interface])',

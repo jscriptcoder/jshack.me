@@ -82,6 +82,7 @@ const handleStatus = (context: NmcliContext): string => {
 
 export const createNmcliCommand = (context: NmcliContext): Command => ({
   name: 'nmcli',
+  category: 'wifi',
   description: 'NetworkManager CLI — manage WiFi connections',
   manual: {
     synopsis: 'nmcli(subcommand, ...args)',

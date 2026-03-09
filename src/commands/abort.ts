@@ -8,6 +8,7 @@ type AbortCommandContext = {
 
 export const createAbortCommand = (context: AbortCommandContext): Command => ({
   name: 'abort',
+  category: 'mission',
   description: 'Abort the current mission',
   manual: {
     synopsis: 'abort()',

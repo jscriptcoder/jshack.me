@@ -27,6 +27,7 @@ const buildManualLines = (manual: CommandManual): readonly string[] => [
 
 export const createManCommand = (getCommands: () => Map<string, Command>): Command => ({
   name: 'man',
+  category: 'general',
   description: 'Display manual for a command',
   manual: {
     synopsis: 'man(command)',

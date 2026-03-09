@@ -19,6 +19,7 @@ type NcLsContext = {
 
 export const createNcLsCommand = (context: NcLsContext): Command => ({
   name: 'ls',
+  category: 'network',
   description: 'List directory contents',
   fn: (...args: unknown[]): string => {
     const adapter: LsAdapter = {

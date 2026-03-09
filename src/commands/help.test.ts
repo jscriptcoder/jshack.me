@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import type { Command } from '../components/Terminal/types';
+import type { Command, CommandCategory } from '../components/Terminal/types';
 import { createHelpCommand } from './help';
 
 // --- Factory Functions ---
 
 const getMockCommand = (overrides?: Partial<Command>): Command => ({
   name: 'test',
+  category: 'general',
   description: 'A test command',
   fn: () => 'test result',
   ...overrides,
@@ -14,11 +15,17 @@ const getMockCommand = (overrides?: Partial<Command>): Command => ({
 // --- Tests ---
 
 describe('help command', () => {
-  it('should display header', () => {
-    const help = createHelpCommand(() => []);
-    const result = help.fn();
+  it('should display category headers', () => {
+    const commands = [
+      getMockCommand({ name: 'foo', category: 'general', description: 'General cmd' }),
+      getMockCommand({ name: 'bar', category: 'network', description: 'Network cmd' }),
+    ];
 
-    expect(result).toContain('Available commands:');
+    const help = createHelpCommand(() => commands);
+    const result = String(help.fn());
+
+    expect(result).toContain('General');
+    expect(result).toContain('Network');
   });
 
   it('should list all commands with descriptions', () => {
@@ -36,7 +43,7 @@ describe('help command', () => {
     expect(result).toContain('Does bar things');
   });
 
-  it('should sort commands alphabetically', () => {
+  it('should sort commands alphabetically within each category', () => {
     const commands = [
       getMockCommand({ name: 'zebra', description: 'Last' }),
       getMockCommand({ name: 'alpha', description: 'First' }),
@@ -88,15 +95,17 @@ describe('help command', () => {
     expect(result).toContain('simple()');
   });
 
-  it('should align descriptions by padding synopses', () => {
+  it('should align descriptions by padding synopses across categories', () => {
     const commands = [
       getMockCommand({
         name: 'short',
+        category: 'general',
         description: 'Short one',
         manual: { synopsis: 'short()', description: '' },
       }),
       getMockCommand({
         name: 'longer',
+        category: 'network',
         description: 'Longer one',
         manual: { synopsis: 'longer(a, b, c)', description: '' },
       }),
@@ -113,8 +122,66 @@ describe('help command', () => {
 
   it('should handle empty command list', () => {
     const help = createHelpCommand(() => []);
-    const result = help.fn();
+    const result = String(help.fn());
 
-    expect(result).toBe('Available commands:\n');
+    expect(result).toContain('man(command)');
+  });
+
+  it('should display categories in fixed order', () => {
+    const commands = [
+      getMockCommand({ name: 'wifi-cmd', category: 'wifi', description: 'WiFi' }),
+      getMockCommand({ name: 'net-cmd', category: 'network', description: 'Network' }),
+      getMockCommand({ name: 'gen-cmd', category: 'general', description: 'General' }),
+      getMockCommand({ name: 'fs-cmd', category: 'filesystem', description: 'Filesystem' }),
+      getMockCommand({ name: 'mis-cmd', category: 'mission', description: 'Mission' }),
+    ];
+
+    const help = createHelpCommand(() => commands);
+    const result = String(help.fn());
+
+    const order: readonly CommandCategory[] = [
+      'general',
+      'filesystem',
+      'mission',
+      'network',
+      'wifi',
+    ];
+    const positions = order.map((cat) =>
+      result.indexOf(
+        cat === 'general'
+          ? 'General'
+          : cat === 'filesystem'
+            ? 'Filesystem'
+            : cat === 'mission'
+              ? 'Mission'
+              : cat === 'network'
+                ? 'Network'
+                : 'WiFi',
+      ),
+    );
+
+    for (let i = 1; i < positions.length; i++) {
+      expect(positions[i]!).toBeGreaterThan(positions[i - 1]!);
+    }
+  });
+
+  it('should only show categories that have commands', () => {
+    const commands = [
+      getMockCommand({ name: 'net-cmd', category: 'network', description: 'Network cmd' }),
+    ];
+
+    const help = createHelpCommand(() => commands);
+    const result = String(help.fn());
+
+    expect(result).toContain('Network');
+    expect(result).not.toContain('General');
+    expect(result).not.toContain('WiFi');
+  });
+
+  it('should show man hint at the bottom', () => {
+    const help = createHelpCommand(() => [getMockCommand()]);
+    const result = String(help.fn());
+
+    expect(result).toContain('man(command)');
   });
 });

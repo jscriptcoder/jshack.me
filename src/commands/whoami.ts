@@ -2,6 +2,7 @@ import type { Command } from '../components/Terminal/types';
 
 export const createWhoamiCommand = (getUsername: () => string): Command => ({
   name: 'whoami',
+  category: 'filesystem',
   description: 'Print current user name',
   manual: {
     synopsis: 'whoami()',

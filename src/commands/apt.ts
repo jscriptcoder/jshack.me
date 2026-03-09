@@ -120,6 +120,7 @@ const handleInstall = (packageName: string, context: AptContext): AsyncOutput | 
 
 export const createAptCommand = (context: AptContext): Command => ({
   name: 'apt',
+  category: 'general',
   description: 'Package manager — install tools on remote machines',
   manual: {
     synopsis: "apt('install', packageName) | apt('list', ['-i'])",

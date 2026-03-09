@@ -39,6 +39,7 @@ const SCAN_DELAY_MS = 600;
 
 export const createAirdumpCommand = (context: AirdumpContext): Command => ({
   name: 'airdump',
+  category: 'wifi',
   description: 'Scan for nearby wireless networks',
   manual: {
     synopsis: 'airdump()',

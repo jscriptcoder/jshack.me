@@ -86,6 +86,7 @@ export const formatMissionBriefing = (mission: MissionNetwork): string => {
 
 export const createAcceptCommand = (context: AcceptCommandContext): Command => ({
   name: 'accept',
+  category: 'mission',
   description: 'Accept a mission contract',
   manual: {
     synopsis: 'accept(seed)',

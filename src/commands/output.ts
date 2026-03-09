@@ -42,6 +42,7 @@ const writeToFile = (context: OutputContext, filePath: string, content: string):
 
 export const createOutputCommand = (context: OutputContext): Command => ({
   name: 'output',
+  category: 'general',
   description: 'Capture command output to variable or file',
   manual: {
     synopsis: 'output(command, [filePath])',

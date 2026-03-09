@@ -6,6 +6,7 @@ import { createManCommand } from './man';
 
 const getMockCommand = (overrides?: Partial<Command>): Command => ({
   name: 'test',
+  category: 'general',
   description: 'A test command',
   fn: () => 'test result',
   ...overrides,

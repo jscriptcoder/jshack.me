@@ -6,6 +6,7 @@ export interface ClearAction {
 
 export const clearCommand: Command = {
   name: 'clear',
+  category: 'general',
   description: 'Clear the terminal screen',
   manual: {
     synopsis: 'clear()',

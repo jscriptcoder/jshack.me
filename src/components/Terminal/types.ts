@@ -124,8 +124,11 @@ export type CommandManual = {
   readonly examples?: readonly CommandExample[];
 };
 
+export type CommandCategory = 'general' | 'mission' | 'filesystem' | 'network' | 'wifi';
+
 export type Command = {
   readonly name: string;
+  readonly category: CommandCategory;
   readonly description: string;
   readonly manual?: CommandManual;
   readonly fn: (...args: unknown[]) => unknown;

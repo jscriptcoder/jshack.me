@@ -22,6 +22,7 @@ const parseTarget = (target: string): { readonly user: string; readonly host: st
 
 export const createSshCommand = (context: SshContext): Command => ({
   name: 'ssh',
+  category: 'network',
   description: 'Secure shell connection to remote host',
   manual: {
     synopsis: 'ssh("user@host"[, port])',

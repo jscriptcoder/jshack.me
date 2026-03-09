@@ -61,6 +61,7 @@ const parseNmapArgs = (
 
 export const createNmapCommand = (context: NmapContext): Command => ({
   name: 'nmap',
+  category: 'network',
   description: 'Network exploration and port scanning',
   manual: {
     synopsis: 'nmap(target[, "-sV"]) | nmap("-sV", target)',

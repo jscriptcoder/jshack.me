@@ -13,6 +13,7 @@ const FTP_BANNER_DELAY_MS = 400;
 
 export const createFtpCommand = (context: FtpContext): Command => ({
   name: 'ftp',
+  category: 'network',
   description: 'File Transfer Protocol connection to remote host',
   manual: {
     synopsis: 'ftp(host)',

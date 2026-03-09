@@ -36,6 +36,7 @@ const parseDestination = (
 
 export const createScpCommand = (context: ScpContext): Command => ({
   name: 'scp',
+  category: 'network',
   description: 'Secure copy files between machines',
   manual: {
     synopsis: 'scp(source, destination)',

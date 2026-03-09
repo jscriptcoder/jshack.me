@@ -6,6 +6,7 @@ type FtpLpwdContext = {
 
 export const createFtpLpwdCommand = (context: FtpLpwdContext): Command => ({
   name: 'lpwd',
+  category: 'network',
   description: 'Print local working directory',
   manual: {
     synopsis: 'lpwd()',

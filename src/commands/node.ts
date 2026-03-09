@@ -15,6 +15,7 @@ type EchoFn = (...args: readonly unknown[]) => string;
 
 export const createNodeCommand = (context: NodeContext): Command => ({
   name: 'node',
+  category: 'filesystem',
   description: 'Execute a JavaScript file',
   manual: {
     synopsis: 'node(path)',

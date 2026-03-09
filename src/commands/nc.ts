@@ -30,6 +30,7 @@ const isInteractivePort = (port: Port): boolean => port.owner !== undefined;
 
 export const createNcCommand = (context: NcContext): Command => ({
   name: 'nc',
+  category: 'network',
   description: 'Netcat — arbitrary TCP connections',
   manual: {
     synopsis: 'nc(host, port)',

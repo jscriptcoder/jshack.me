@@ -103,6 +103,7 @@ type LsContext = {
 
 export const createLsCommand = (context: LsContext): Command => ({
   name: 'ls',
+  category: 'filesystem',
   description: 'List directory contents',
   manual: {
     synopsis: 'ls([path], [flags])',

@@ -15,6 +15,7 @@ const DECRYPT_DELAY_MS = 500;
 
 export const createGpgCommand = (context: GpgContext): Command => ({
   name: 'gpg',
+  category: 'filesystem',
   description: 'Decrypt a file using AES-256',
   manual: {
     synopsis: 'gpg(file, key)',

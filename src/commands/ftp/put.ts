@@ -37,6 +37,7 @@ type FtpPutContext = {
 
 export const createFtpPutCommand = (context: FtpPutContext): Command => ({
   name: 'put',
+  category: 'network',
   description: 'Upload file to remote server',
   manual: {
     synopsis: 'put(localFile, [remotePath])',

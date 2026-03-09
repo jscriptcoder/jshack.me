@@ -89,6 +89,7 @@ const applyMode = (
 
 export const createChmodCommand = (context: ChmodContext): Command => ({
   name: 'chmod',
+  category: 'filesystem',
   description: 'Change file permissions',
   manual: {
     synopsis: 'chmod(mode, path)',

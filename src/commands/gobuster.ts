@@ -73,6 +73,7 @@ const formatEntry = (entry: WebEntry): string => {
 
 export const createGobusterCommand = (context: GobusterContext): Command => ({
   name: 'gobuster',
+  category: 'network',
   description: 'Directory/file enumeration on web servers',
   manual: {
     synopsis: 'gobuster("dir", url)',

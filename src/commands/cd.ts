@@ -14,6 +14,7 @@ type CdContext = {
 
 export const createCdCommand = (context: CdContext): Command => ({
   name: 'cd',
+  category: 'filesystem',
   description: 'Change current directory',
   manual: {
     synopsis: 'cd([path])',
