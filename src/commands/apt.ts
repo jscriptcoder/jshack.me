@@ -94,24 +94,24 @@ const handleInstall = (packageName: string, context: AptContext): AsyncOutput | 
         `Processing triggers for man-db ...`,
       ];
 
-      lines.forEach((line, i) => {
-        token.schedule(
-          () => {
-            if (token.isCancelled()) return;
-            onLine(line);
+      let delay = 0;
 
-            if (i === lines.length - 1) {
-              const binaryPermissions: FilePermissions = {
-                read: ['root', 'user', 'guest'],
-                write: ['root'],
-                execute: RESTRICTED_EXECUTE[packageName] ?? ['root', 'user', 'guest'],
-              };
-              createFile(`/usr/bin/${packageName}`, BINARY_STUB, 'root', binaryPermissions);
-              onComplete();
-            }
-          },
-          jitter((i + 1) * 200),
-        );
+      lines.forEach((line, i) => {
+        delay += jitter(200);
+        token.schedule(() => {
+          if (token.isCancelled()) return;
+          onLine(line);
+
+          if (i === lines.length - 1) {
+            const binaryPermissions: FilePermissions = {
+              read: ['root', 'user', 'guest'],
+              write: ['root'],
+              execute: RESTRICTED_EXECUTE[packageName] ?? ['root', 'user', 'guest'],
+            };
+            createFile(`/usr/bin/${packageName}`, BINARY_STUB, 'root', binaryPermissions);
+            onComplete();
+          }
+        }, delay);
       });
     },
     cancel: token.cancel,

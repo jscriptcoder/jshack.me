@@ -146,45 +146,41 @@ export const createScpCommand = (context: ScpContext): Command => ({
       return {
         __type: 'async',
         start: (onLine, onComplete) => {
-          let phase = 0;
+          let delay = 0;
 
           const steps = [0, 25, 50, 75, 100];
           steps.forEach((pct) => {
-            transferToken.schedule(
-              () => {
-                if (transferToken.isCancelled()) return;
-                const transferred = Math.floor((bytes * pct) / 100);
-                const bar = '#'.repeat(Math.floor(pct / 5)).padEnd(20, ' ');
-                onLine(`${fileName}  ${pct}% [${bar}]  ${transferred}/${bytes} bytes`);
-              },
-              jitter(++phase * PROGRESS_STEP_MS),
-            );
+            delay += jitter(PROGRESS_STEP_MS);
+            transferToken.schedule(() => {
+              if (transferToken.isCancelled()) return;
+              const transferred = Math.floor((bytes * pct) / 100);
+              const bar = '#'.repeat(Math.floor(pct / 5)).padEnd(20, ' ');
+              onLine(`${fileName}  ${pct}% [${bar}]  ${transferred}/${bytes} bytes`);
+            }, delay);
           });
 
           // Actual transfer + summary
-          transferToken.schedule(
-            () => {
-              if (transferToken.isCancelled()) return;
+          delay += jitter(PROGRESS_STEP_MS);
+          transferToken.schedule(() => {
+            if (transferToken.isCancelled()) return;
 
-              const result = createFileOnMachine(
-                resolvedHost,
-                destPath,
-                '/',
-                content,
-                remoteUser.userType,
-                sourceNode.permissions,
-              );
+            const result = createFileOnMachine(
+              resolvedHost,
+              destPath,
+              '/',
+              content,
+              remoteUser.userType,
+              sourceNode.permissions,
+            );
 
-              if (!result.allowed) {
-                onLine(`scp: ${destPath}: ${result.error}`);
-              } else {
-                onLine(`${fileName}  ${bytes} bytes  ${currentMachine} → ${dest.host}`);
-              }
+            if (!result.allowed) {
+              onLine(`scp: ${destPath}: ${result.error}`);
+            } else {
+              onLine(`${fileName}  ${bytes} bytes  ${currentMachine} → ${dest.host}`);
+            }
 
-              onComplete();
-            },
-            jitter(++phase * PROGRESS_STEP_MS),
-          );
+            onComplete();
+          }, delay);
         },
         cancel: transferToken.cancel,
       };

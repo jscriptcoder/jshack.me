@@ -66,23 +66,23 @@ export const createAirdumpCommand = (context: AirdumpContext): Command => ({
         onLine(' CH  0 ][ Elapsed: 0 s ][ scanning...');
         onLine(HEADER);
 
-        WIFI_NETWORKS.forEach((network, index) => {
-          token.schedule(
-            () => {
-              if (token.isCancelled()) return;
-              onLine(formatNetworkRow(network));
+        let delay = 0;
 
-              if (index === WIFI_NETWORKS.length - 1) {
-                token.schedule(() => {
-                  if (token.isCancelled()) return;
-                  onLine('');
-                  onLine(`Scan complete — ${WIFI_NETWORKS.length} networks found`);
-                  onComplete();
-                }, jitter(SCAN_DELAY_MS));
-              }
-            },
-            jitter((index + 1) * SCAN_DELAY_MS),
-          );
+        WIFI_NETWORKS.forEach((network, index) => {
+          delay += jitter(SCAN_DELAY_MS);
+          token.schedule(() => {
+            if (token.isCancelled()) return;
+            onLine(formatNetworkRow(network));
+
+            if (index === WIFI_NETWORKS.length - 1) {
+              token.schedule(() => {
+                if (token.isCancelled()) return;
+                onLine('');
+                onLine(`Scan complete — ${WIFI_NETWORKS.length} networks found`);
+                onComplete();
+              }, jitter(SCAN_DELAY_MS));
+            }
+          }, delay);
         });
       },
       cancel: token.cancel,

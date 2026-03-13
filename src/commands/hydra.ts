@@ -141,82 +141,72 @@ export const createHydraCommand = (context: HydraContext): Command => ({
         onLine('Hydra v9.4 — Network Login Cracker');
         onLine('');
 
-        let phase = 0;
+        let delay = 0;
 
         services.forEach((svc) => {
           const totalAttempts = users.length * ATTEMPTS_PER_USER;
           const svcResults: CrackResult[] = [];
 
           // DATA line
-          token.schedule(
-            () => {
-              if (token.isCancelled()) return;
-              onLine(`[DATA] attacking ${svc.service}://${targetIP}:${svc.port}`);
-            },
-            jitter(++phase * STATUS_DELAY_MS),
-          );
+          delay += jitter(STATUS_DELAY_MS);
+          token.schedule(() => {
+            if (token.isCancelled()) return;
+            onLine(`[DATA] attacking ${svc.service}://${targetIP}:${svc.port}`);
+          }, delay);
 
           // STATUS progress lines (4 evenly spaced)
           const statusSteps = 4;
           for (let i = 1; i <= statusSteps; i++) {
             const completed = Math.floor((totalAttempts / statusSteps) * i);
-            token.schedule(
-              () => {
-                if (token.isCancelled()) return;
-                onLine(`[STATUS] ${completed}/${totalAttempts} attempts completed`);
-              },
-              jitter(++phase * STATUS_DELAY_MS),
-            );
+            delay += jitter(STATUS_DELAY_MS);
+            token.schedule(() => {
+              if (token.isCancelled()) return;
+              onLine(`[STATUS] ${completed}/${totalAttempts} attempts completed`);
+            }, delay);
           }
 
           // Per-user crack attempts — one Math.random() roll per user
           users.forEach((user) => {
-            token.schedule(
-              () => {
-                if (token.isCancelled()) return;
+            delay += jitter(STATUS_DELAY_MS);
+            token.schedule(() => {
+              if (token.isCancelled()) return;
 
-                const probability = CRACK_PROBABILITY[user.userType] ?? 0;
-                const cracked = Math.random() < probability;
-                if (!cracked) return;
+              const probability = CRACK_PROBABILITY[user.userType] ?? 0;
+              const cracked = Math.random() < probability;
+              if (!cracked) return;
 
-                const password = hashToPassword.get(user.passwordHash);
-                if (!password) return;
+              const password = hashToPassword.get(user.passwordHash);
+              if (!password) return;
 
-                svcResults.push({
-                  port: svc.port,
-                  service: svc.service,
-                  username: user.username,
-                  password,
-                });
-                onLine(
-                  `[${svc.port}][${svc.service}] host: ${targetIP}   login: ${user.username}   password: ${password}`,
-                );
-              },
-              jitter(++phase * STATUS_DELAY_MS),
-            );
+              svcResults.push({
+                port: svc.port,
+                service: svc.service,
+                username: user.username,
+                password,
+              });
+              onLine(
+                `[${svc.port}][${svc.service}] host: ${targetIP}   login: ${user.username}   password: ${password}`,
+              );
+            }, delay);
           });
 
           // Service summary
-          token.schedule(
-            () => {
-              if (token.isCancelled()) return;
-              onLine('');
-              onLine(
-                `${svcResults.length} of ${users.length} target user${users.length === 1 ? '' : 's'} successfully cracked`,
-              );
-            },
-            jitter(++phase * STATUS_DELAY_MS),
-          );
+          delay += jitter(STATUS_DELAY_MS);
+          token.schedule(() => {
+            if (token.isCancelled()) return;
+            onLine('');
+            onLine(
+              `${svcResults.length} of ${users.length} target user${users.length === 1 ? '' : 's'} successfully cracked`,
+            );
+          }, delay);
         });
 
         // Final completion
-        token.schedule(
-          () => {
-            if (token.isCancelled()) return;
-            onComplete();
-          },
-          jitter(++phase * STATUS_DELAY_MS),
-        );
+        delay += jitter(STATUS_DELAY_MS);
+        token.schedule(() => {
+          if (token.isCancelled()) return;
+          onComplete();
+        }, delay);
       },
       cancel: token.cancel,
     };

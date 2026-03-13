@@ -87,46 +87,46 @@ export const createPingCommand = (context: PingContext): Command => ({
 
         const isReachable = isLocalhost || targetMachine !== undefined;
 
+        let delay = 0;
+
         for (let i = 0; i < count; i++) {
-          token.schedule(
-            () => {
-              if (token.isCancelled()) return;
+          delay += jitter(PING_DELAY_MS);
+          token.schedule(() => {
+            if (token.isCancelled()) return;
 
-              if (isReachable) {
-                const time = isLocalhost ? generateLatency() * 0.1 : generateLatency();
-                times.push(time);
-                totalTime += time;
-                received++;
-                onLine(formatPingResponse(targetIP, i + 1, 64, time));
-              }
+            if (isReachable) {
+              const time = isLocalhost ? generateLatency() * 0.1 : generateLatency();
+              times.push(time);
+              totalTime += time;
+              received++;
+              onLine(formatPingResponse(targetIP, i + 1, 64, time));
+            }
 
-              if (i === count - 1) {
-                token.schedule(() => {
-                  if (token.isCancelled()) return;
+            if (i === count - 1) {
+              token.schedule(() => {
+                if (token.isCancelled()) return;
 
-                  onLine('');
-                  onLine(`--- ${host} ping statistics ---`);
+                onLine('');
+                onLine(`--- ${host} ping statistics ---`);
 
-                  const packetLoss = Math.round(((count - received) / count) * 100);
+                const packetLoss = Math.round(((count - received) / count) * 100);
+                onLine(
+                  `${count} packets transmitted, ${received} received, ${packetLoss}% packet loss`,
+                );
+
+                if (received > 0) {
+                  const minTime = Math.min(...times);
+                  const maxTime = Math.max(...times);
+                  const avgTime = totalTime / received;
                   onLine(
-                    `${count} packets transmitted, ${received} received, ${packetLoss}% packet loss`,
+                    `rtt min/avg/max = ${minTime.toFixed(2)}/${avgTime.toFixed(2)}/${maxTime.toFixed(2)} ms`,
                   );
+                }
 
-                  if (received > 0) {
-                    const minTime = Math.min(...times);
-                    const maxTime = Math.max(...times);
-                    const avgTime = totalTime / received;
-                    onLine(
-                      `rtt min/avg/max = ${minTime.toFixed(2)}/${avgTime.toFixed(2)}/${maxTime.toFixed(2)} ms`,
-                    );
-                  }
-
-                  onComplete();
-                }, 200);
-              }
-            },
-            jitter((i + 1) * PING_DELAY_MS),
-          );
+                onComplete();
+              }, 200);
+            }
+          }, delay);
         }
       },
       cancel: token.cancel,
