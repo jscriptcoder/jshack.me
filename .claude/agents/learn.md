@@ -93,13 +93,14 @@ Before suggesting updates:
 Determine which section(s) the learning belongs to:
 
 **Existing Sections:**
-- **Project Overview** - What the project is and does
-- **Code Style** - Functional patterns, TypeScript strict
-- **Build & Development Commands** - npm scripts, dev workflow
-- **Key Architecture** - Command flow, filesystem, missions, network
-- **Styling** - Theme, colors, fonts
-- **Documentation Maintenance** - What docs to update
-- **Verification After Changes** - Build, lint, test checks
+- **Core Philosophy** - Fundamental principles (TDD, FP, immutability)
+- **Testing Principles** - Test strategy and patterns
+- **TypeScript Guidelines** - Type system usage
+- **Code Style** - Functional patterns, naming, structure
+- **Development Workflow** - TDD process, refactoring, commits
+- **Working with Claude** - Expectations and communication
+- **Example Patterns** - Concrete code examples
+- **Common Patterns to Avoid** - Anti-patterns
 
 **New Sections** (if learning doesn't fit existing):
 - Project-specific setup instructions
@@ -311,40 +312,60 @@ grep -i "keyword" CLAUDE.md
 ## CLAUDE.md Learning Integration
 
 ### Summary
-Discovered that mission filesystem patches must be replayed after regenerating the mission network from seed, not before — otherwise patches apply to the wrong filesystem.
+Discovered that shared type definitions must be exported from a central types module for test files to import them, preventing type duplication between production and test code.
 
 ### Proposed Location
-**Section**: Persistence Architecture
-**Position**: After "Mission seed persistence" paragraph
+**Section**: Type Organization
+**Position**: Add new subsection "Shared Types for Tests"
 
 ### Proposed Addition
 
 ```markdown
-#### Gotcha: Mission Patch Replay Order
+#### Type Organization for Tests
 
-**CRITICAL**: When reloading a tab with an active mission, always regenerate the mission network from the persisted seed BEFORE replaying cached mission patches. The patches reference machine IDs and paths that only exist in the generated filesystem.
+**CRITICAL**: All shared types must be exported from a central module that both production and test code can import.
 
 ```typescript
-// ✅ CORRECT - Regenerate first, then apply patches
-const mission = generateMissionNetwork(cachedSeed);
-const filesystems = applyPatches(mission.filesystems, cachedMissionPatches);
+// ✅ CORRECT - Shared types module
+// src/components/Terminal/types.ts
+export type Command = {
+  readonly name: string;
+  readonly category: string;
+  readonly description: string;
+  readonly manual?: string;
+  readonly fn: (...args: readonly string[]) => CommandOutput;
+};
 
-// ❌ WRONG - Patches applied to static filesystems, not mission ones
-const filesystems = applyPatches(staticFilesystems, cachedMissionPatches);
+// src/commands/cat.ts
+import { type Command } from '../components/Terminal/types';
+
+// src/commands/__tests__/cat.test.ts
+import { type Command } from '../../components/Terminal/types';
 ```
 
-**Why**: Mission patches contain machineId references like `10.0.1.10` that don't exist in the static filesystem. Applying them before regeneration silently creates patches on non-existent machines.
+**Why this matters:**
+- Tests must use the exact same types as production code
+- Prevents type drift between tests and production
+- Ensures test data factories match real command signatures
+- Changes to types automatically propagate to tests
+
+**Common mistake:**
+```typescript
+// ❌ WRONG - Redefining type in test file
+// cat.test.ts
+type Command = { name: string; fn: Function; /* incomplete definition */ };
+```
 ```
 
 ### Rationale
-- Encountered this when mission state was lost on reload
-- Would have saved significant debugging time if documented
-- Prevents future patch-ordering bugs in persistence layer
-- Directly relates to existing "Mission seed persistence" section
+- Encountered this when tests were using stale type definitions
+- Would have saved significant time if type export pattern was documented
+- Prevents future type duplication violations
+- Directly relates to existing command and filesystem type system
 
 ### Verification Checklist
 - [x] Learning is not already documented
-- [x] Fits naturally into Persistence Architecture section
+- [x] Fits naturally into Schema-First Development section
 - [x] Maintains consistent voice with CLAUDE.md
 - [x] Includes concrete examples showing right and wrong approaches
 - [x] Prevents the specific confusion encountered during this task

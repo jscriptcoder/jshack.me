@@ -30,7 +30,7 @@ Document if ANY of these are true:
 
 ## Types of Learnings to Capture
 
-- **Gotchas**: Unexpected behavior discovered (e.g., "mergeExtraDirectories overwrites factory-created /usr/ if not one-level-deep merged")
+- **Gotchas**: Unexpected behavior discovered (e.g., "API returns null instead of empty array")
 - **Patterns**: Approaches that worked particularly well
 - **Anti-patterns**: Approaches that seemed good but caused problems
 - **Decisions**: Architectural choices with rationale and trade-offs
@@ -40,18 +40,17 @@ Document if ANY of these are true:
 ## Documentation Format
 
 ```markdown
-#### Gotcha: Mission patches replayed on wrong filesystem
+#### Gotcha: [Descriptive Title]
 
-**Context**: When reloading a tab with an active mission
-**Issue**: Mission filesystem patches were applied before regenerating the mission network from seed, causing patches to apply to the static localhost filesystem instead
-**Solution**: Always regenerate mission from seed first, then replay cached mission patches on top
+**Context**: When this occurs
+**Issue**: What goes wrong
+**Solution**: How to handle it
 
-// CORRECT - Regenerate first, then apply patches
-const mission = generateMissionNetwork(cachedSeed);
-const filesystems = applyPatches(mission.filesystems, cachedMissionPatches);
+// CORRECT - Solution
+const example = "correct approach";
 
-// WRONG - Applying patches without regeneration
-const filesystems = applyPatches(staticFilesystems, cachedMissionPatches);
+// WRONG - What causes the problem
+const wrong = "incorrect approach";
 ```
 
 ## Code Change Principles

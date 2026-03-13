@@ -110,32 +110,32 @@ Use this format:
 ### ⚠️ Issues Found
 
 #### 1. Test written after production code
-**File**: `src/commands/reboot.ts:45-67`
-**Issue**: Function `checkBootFiles` was implemented without a failing test first
+**File**: `src/commands/availability.ts:45-67`
+**Issue**: Function `wrapWithAccessCheck` was implemented without a failing test first
 **Impact**: Violates fundamental TDD principle - no production code without failing test
 **Git Evidence**: `git log -p` shows implementation committed before test
 **Recommendation**:
-1. Remove or comment out the `checkBootFiles` function
-2. Write a failing test describing the boot validation behavior
+1. Remove or comment out the `wrapWithAccessCheck` function
+2. Write a failing test describing the access-checking behavior
 3. Implement minimal code to pass the test
 4. Refactor if needed
 
 #### 2. Implementation-focused test
-**File**: `src/commands/reboot.test.ts:89-95`
-**Test**: "should call checkTraversal for boot directory"
+**File**: `src/commands/availability.test.ts:89-95`
+**Test**: "should call checkCommandAccess"
 **Issue**: Test checks if internal method is called (implementation detail)
 **Impact**: Test is brittle and doesn't verify actual behavior
 **Recommendation**:
 Replace with behavior-focused tests:
-- "should brick machine when vmlinuz is missing"
-- "should show kernel panic when initrd.img is missing"
+- "should deny execution when binary is missing from filesystem"
+- "should deny execution when user lacks execute permission"
 Test the outcome, not the internal call
 
 #### 3. Missing edge case coverage
-**File**: `src/filesystem/fileSystemUtils.ts:23-31`
-**Issue**: Traversal check has no test for symlink-like paths with `..`
-**Impact**: Boundary condition untested - may have path traversal vulnerability
-**Recommendation**: Add test case for paths like `/home/jshacker/../../root/secret.txt`
+**File**: `src/filesystem/permissions.ts:23-31`
+**Issue**: Permission check has no test for root user on guest-owned files
+**Impact**: Boundary condition untested - root override behavior unverified
+**Recommendation**: Add test case for root accessing guest-owned restricted files
 
 ### 📊 Coverage Assessment
 - Production files changed: 3
@@ -144,7 +144,7 @@ Test the outcome, not the internal call
 - Behavior coverage: ~85% (missing edge cases)
 
 ### 🎯 Next Steps
-1. Fix the test-first violation in reboot.ts
+1. Fix the test-first violation in availability.ts
 2. Refactor implementation-focused tests to behavior-focused tests
 3. Add missing edge case tests
 4. Achieve 100% behavior coverage before proceeding
@@ -164,20 +164,22 @@ Test the outcome, not the internal call
 **Example:**
 ```typescript
 // ✅ GOOD - Behavior-focused, uses factory
-it("should deny guest access to root-owned files", () => {
-  const file = getMockFileNode({ owner: 'root' });
-  const result = canReadFile(file, 'guest');
-  expect(result).toBe(false);
+it("should deny access when binary is missing from filesystem", () => {
+  const cmd = getMockCommand({ name: 'nmap' });
+  const machine = getMockMachine({ installedTools: [] });
+  const result = checkCommandAccess('nmap', machine);
+  expect(result.allowed).toBe(false);
+  expect(result.error).toBe('nmap: command not found');
 });
 
 // ❌ BAD - Implementation-focused, uses let
-let session: Session;
+let node: FileNode;
 beforeEach(() => {
-  session = { username: 'jshacker', machine: 'localhost' };
+  node = { name: 'test.txt', type: 'file', owner: 'user' };
 });
-it("should call checkTraversal", () => {
-  const spy = vi.spyOn(utils, 'checkTraversal');
-  canReadFromMachine('localhost', '/root/secret.txt', 'guest');
+it("should call checkPermissions", () => {
+  const spy = vi.spyOn(permissions, 'checkPermissions');
+  readFile(node);
   expect(spy).toHaveBeenCalled();
 });
 ```
@@ -249,10 +251,10 @@ OR if refactoring would help:
 "Tests are green! I've identified refactoring opportunities:
 
 🔴 Critical:
-- Magic number 4444 repeated 3 times → Extract BACKDOOR_PORT constant
+- Magic number 1024 repeated 3 times → Extract MAX_WELL_KNOWN_PORT constant
 
 ⚠️ Should fix:
-- Nested conditionals in canExecuteCommand → Use early returns
+- Nested conditionals in checkTraversal → Use early returns
 
 Let's refactor these while tests stay green."
 ```
@@ -289,7 +291,7 @@ From CLAUDE.md:
 - Schema-first development with Zod
 
 **Code Style:**
-- Comments for complex/non-obvious logic only
+- Self-documenting code; comments explain "why", not "what"
 - Pure functions and immutable data
 - Early returns over nested conditionals
 - Factory functions for test data
@@ -299,16 +301,19 @@ From CLAUDE.md:
 // ✅ CORRECT - Factory with optional overrides
 const getMockFileNode = (
   overrides?: Partial<FileNode>
-): FileNode => ({
-  type: 'file',
-  content: 'test content',
-  owner: 'jshacker',
-  permissions: { read: ['jshacker', 'root'], write: ['jshacker', 'root'], execute: [] },
-  ...overrides,
-});
+): FileNode => {
+  return {
+    name: 'test.txt',
+    type: 'file',
+    owner: 'user',
+    permissions: { read: ['user'], write: ['user'], execute: [] },
+    content: 'test content',
+    ...overrides,
+  };
+};
 
 // Usage
-const file = getMockFileNode({ owner: 'root' });
+const node = getMockFileNode({ owner: 'root', permissions: { read: ['root'], write: ['root'], execute: [] } });
 ```
 
 ## Commands to Use

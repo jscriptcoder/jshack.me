@@ -16,12 +16,14 @@ Refactoring is the third step of TDD. After GREEN, assess if refactoring adds va
 ### Commit Before Refactoring - WHY
 
 Having a working baseline before refactoring:
+
 - Allows reverting if refactoring breaks things
 - Provides safety net for experimentation
 - Makes refactoring less risky
 - Shows clear separation in git history
 
 **Workflow:**
+
 1. GREEN: Tests pass
 2. COMMIT: Save working code
 3. REFACTOR: Improve structure
@@ -29,21 +31,23 @@ Having a working baseline before refactoring:
 
 ## Priority Classification
 
-| Priority | Action | Examples |
-|----------|--------|----------|
-| Critical | Fix now | Mutations, knowledge duplication, >3 levels nesting |
-| High | This session | Magic numbers, unclear names, >30 line functions |
-| Nice | Later | Minor naming, single-use helpers |
-| Skip | Don't change | Already clean code |
+| Priority | Action       | Examples                                            |
+| -------- | ------------ | --------------------------------------------------- |
+| Critical | Fix now      | Mutations, knowledge duplication, >3 levels nesting |
+| High     | This session | Magic numbers, unclear names, >30 line functions    |
+| Nice     | Later        | Minor naming, single-use helpers                    |
+| Skip     | Don't change | Already clean code                                  |
 
 ## DRY = Knowledge, Not Code
 
 **Abstract when**:
+
 - Same business concept (semantic meaning)
 - Would change together if requirements change
 - Obvious why grouped together
 
 **Keep separate when**:
+
 - Different concepts that look similar (structural)
 - Would evolve independently
 - Coupling would be confusing
@@ -52,17 +56,20 @@ Having a working baseline before refactoring:
 
 ```typescript
 // After GREEN:
-const formatNmapOutput = (machine: GeneratedMachine): string => {
-  const openPorts = machine.ports.filter(p => !p.closed);
-  const header = openPorts.length > 0 ? 'PORT   STATE SERVICE' : 'All 1000 scanned ports are closed';
-  return `Nmap scan report for ${machine.ip}\n${header}\n${openPorts.map(p => `${p.number}/tcp open  ${p.service}`).join('\n')}`;
+const countOpenPorts = (machine: RemoteMachine): PortSummary => {
+  const openPorts = machine.ports.filter((p) => p.open);
+  const vulnerable = openPorts.filter((p) => p.vulnerability !== undefined);
+  return {
+    total: openPorts.length,
+    vulnerable: vulnerable.length,
+    safe: openPorts.length - vulnerable.length,
+  };
 };
 
 // ASSESSMENT:
-// ⚠️ High: Magic number 1000 → extract constant
-// ⚠️ High: String formatting in one expression → extract port line formatter
-// ✅ Skip: Overall structure is clear enough
-// DECISION: Extract constant + port formatter
+// ⚠️ High: Repeated openPorts.length → extract to const
+// ✅ Skip: Structure is clear enough
+// DECISION: Extract repeated expression only
 ```
 
 ## Speculative Code is a TDD Violation
@@ -72,6 +79,7 @@ If code isn't driven by a failing test, don't write it.
 **Key lesson**: Every line must have a test that demanded its existence.
 
 ❌ **Speculative code examples:**
+
 - "Just in case" logic
 - Features not yet needed
 - Code written "for future flexibility"
@@ -81,8 +89,8 @@ If code isn't driven by a failing test, don't write it.
 
 ```typescript
 // ❌ WRONG - Speculative error handling (no test demands this)
-if (machines.length === 0) {
-  throw new Error('No machines in network'); // No test for this path!
+if (items.length === 0) {
+  throw new Error('Empty cart'); // No test for this path!
 }
 
 // ✅ CORRECT - Test-driven error handling
@@ -109,9 +117,9 @@ Don't refactor when:
 ## Commit Messages for Refactoring
 
 ```
-refactor: extract filesystem traversal check into utility
-refactor: simplify mission seed parsing flow
-refactor: rename ambiguous network config parameters
+refactor: extract permission traversal logic
+refactor: simplify command access check flow
+refactor: rename ambiguous network parameters
 ```
 
 **Format**: `refactor: <what was changed>`

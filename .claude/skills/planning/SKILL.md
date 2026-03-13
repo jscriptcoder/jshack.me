@@ -11,7 +11,7 @@ Use the `/plan` command to create plans. Use the `/continue` command to resume w
 
 ## Plans Directory
 
-Plans live in `plans/` at the project root. Each plan is a self-contained file named descriptively (e.g., `plans/mission-generator.md`, `plans/wifi-gate.md`).
+Plans live in `plans/` at the project root. Each plan is a self-contained file named descriptively (e.g., `plans/gift-tracking.md`, `plans/email-validation.md`).
 
 To discover active plans: `ls plans/`
 
@@ -146,41 +146,6 @@ Before each PR:
 *Delete this file when the plan is complete. If `plans/` is empty, delete the directory.*
 ```
 
-### Example Plan
-
-```markdown
-# Plan: Bricked Machine System
-
-**Branch**: feat/bricked-machines
-**Status**: Active
-
-## Goal
-
-Allow players to permanently brick remote machines by deleting boot files and rebooting.
-
-## Acceptance Criteria
-
-- [ ] reboot checks /boot/vmlinuz and /boot/initrd.img
-- [ ] Missing boot files result in kernel panic and permanent brick
-- [ ] Bricked machines are unreachable via SSH, FTP, NC, ping, nmap
-- [ ] Bricked state persists across tabs (IndexedDB + BroadcastChannel)
-- [ ] Bricking localhost shows frozen kernel panic screen
-
-## Steps
-
-### Step 1: Add boot file validation to reboot command
-
-**Test**: reboot with missing vmlinuz returns GRUB error
-**Implementation**: Check boot files in reboot() before shutdown sequence
-**Done when**: Test passes, reboot detects missing boot files
-
-### Step 2: Add bricked machine state to SessionContext
-
-**Test**: brickedMachines set persists and syncs across tabs
-**Implementation**: Add brickedMachines state + IndexedDB persistence
-**Done when**: State persists on reload and syncs via BroadcastChannel
-```
-
 ### Plan Changes Require Approval
 
 If the plan needs to change:
@@ -196,7 +161,7 @@ Plans are not immutable, but changes must be explicit and approved.
 When all steps are complete:
 
 1. **Verify completion** — all acceptance criteria met, all tests passing
-2. **Merge learnings** — if significant insights were gained, use the `learn` agent for CLAUDE.md updates
+2. **Merge learnings** — if significant insights were gained, use the `learn` agent for CLAUDE.md updates or `adr` agent for architectural decisions
 3. **Delete plan file** — remove from `plans/`, delete `plans/` if empty
 
 ## Anti-Patterns
@@ -233,6 +198,6 @@ START FEATURE
 END FEATURE
 │
 ├─► Verify all criteria met
-├─► Merge learnings if significant (learn agent)
+├─► Merge learnings if significant (learn agent, adr agent)
 └─► Delete plan file from plans/
 ```

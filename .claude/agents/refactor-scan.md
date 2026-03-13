@@ -144,55 +144,54 @@ Use this format:
 ## Refactoring Opportunity Scan
 
 ### 📁 Files Analyzed
-- `src/commands/nmap.ts` (45 lines changed)
-- `src/filesystem/fileSystemUtils.ts` (23 lines changed)
+- `src/commands/availability.ts` (45 lines changed)
+- `src/filesystem/permissions.ts` (23 lines changed)
 
 ### 🎯 Assessment
 
 #### ✅ Already Clean
 The following code requires no refactoring:
-- **fileSystemUtils.ts** - Clear function names, appropriate abstraction level
-- Pure traversal check functions with good separation of concerns
+- **permissions.ts** - Clear function names, appropriate abstraction level
+- Pure permission-checking functions with good separation of concerns
 
 #### 🔴 Critical Refactoring Needed
 
-##### 1. Knowledge Duplication: WiFi Connectivity Check
-**Files**: `src/hooks/useNetworkCommands.ts:23`, `src/commands/ping.ts:45`, `src/commands/nmap.ts:67`
-**Issue**: The rule "block network commands when WiFi disconnected" is duplicated in 3 places
-**Impact**: Changes to connectivity gating require updates in multiple locations
-**Semantic Analysis**: All three instances represent the same business knowledge
+##### 1. Knowledge Duplication: Default Port Scan Range
+**Files**: `src/commands/nmap.ts:23`, `src/network/portScanner.ts:45`, `src/generation/networkFactory.ts:67`
+**Issue**: The rule "scan ports 1-1024 by default" is duplicated in 3 places
+**Impact**: Changes to default scan range require updates in multiple locations
+**Semantic Analysis**: All three instances represent the same domain knowledge
 **Recommendation**:
 ```typescript
-// Extract to shared wrapper
-const wrapWithWifiCheck = (command: Command): Command => ({
-  ...command,
-  execute: (args) => {
-    if (!wifiConnected) return 'Network is unreachable';
-    return command.execute(args);
-  },
-});
+// Extract to shared constant and function
+export const DEFAULT_PORT_SCAN_MAX = 1024;
+export const WELL_KNOWN_PORTS = [22, 80, 443, 8080] as const;
+
+export const isInScanRange = (port: number): boolean => {
+  return port >= 1 && port <= DEFAULT_PORT_SCAN_MAX;
+};
 ```
-**Files to update**: useNetworkCommands.ts, ping.ts, nmap.ts
+**Files to update**: nmap.ts, portScanner.ts, networkFactory.ts
 
 #### ⚠️ High Value Refactoring
 
 ##### 1. Complex Nested Conditionals
 **File**: `src/commands/ssh.ts:56-78`
-**Issue**: 3 levels of nested if statements for connection validation
+**Issue**: 3 levels of nested if statements
 **Recommendation**: Use early returns (see example)
 
 #### 💡 Consider for Next Refactoring Session
 
 ##### 1. Long Function
-**File**: `src/generation/filesystem.ts:45-89`
+**File**: `src/generation/missionGenerator.ts:45-89`
 **Note**: Currently readable, consider splitting if making changes to this area
 
 #### 🚫 Do Not Refactor
 
-##### 1. Similar Permission Check Functions
-**Files**: `src/commands/cat.ts:12`, `src/commands/ls.ts:23`
-**Analysis**: Despite structural similarity, these check permissions for different operations (read vs list)
-**Semantic Assessment**: Different command behaviors will evolve independently
+##### 1. Similar Permission-Checking Functions
+**Files**: `src/filesystem/permissions.ts:12`, `src/commands/availability.ts:23`
+**Analysis**: Despite structural similarity, these validate different access concerns
+**Semantic Assessment**: File permissions and command availability will evolve independently
 **Recommendation**: **Keep separate** - appropriate domain separation
 
 ### 📊 Summary
@@ -204,10 +203,10 @@ const wrapWithWifiCheck = (command: Command): Command => ({
 
 ### 🎯 Recommended Action Plan
 
-1. **Commit current green state first**: `git commit -m "feat: add bricked machine detection"`
+1. **Commit current green state first**: `git commit -m "feat: add port scanning command"`
 2. **Fix critical issues** (immutability, knowledge duplication)
 3. **Run all tests** - must stay green
-4. **Commit refactoring**: `git commit -m "refactor: extract WiFi connectivity wrapper"`
+4. **Commit refactoring**: `git commit -m "refactor: extract default port scan range"`
 5. **Address high-value issues** if time permits
 6. **Skip** "consider" items unless actively working in those areas
 
@@ -311,45 +310,45 @@ Ready to commit?"
 
 ```typescript
 // Similar structure, DIFFERENT semantic meaning - DO NOT ABSTRACT
-const canReadFile = (file: FileNode, username: string): boolean => {
-  return username === 'root' || file.permissions.read.includes(username);
+const checkFilePermission = (node: FileNode, user: UserType): boolean => {
+  return node.permissions.read.includes(user) || node.worldReadable;
 };
 
-const canExecuteFile = (file: FileNode, username: string): boolean => {
-  return username === 'root' || file.permissions.execute.includes(username);
+const checkCommandAccess = (name: string, user: UserType): boolean => {
+  return BUILTINS.includes(name) || binaries.has(name);
 };
 
-// ❌ WRONG - Abstracting these couples unrelated permission checks
-const checkPermission = (file: FileNode, username: string, perm: string): boolean => {
-  return username === 'root' || file.permissions[perm].includes(username);
+// ❌ WRONG - Abstracting these couples unrelated domain rules
+const checkAccess = (target: string, user: UserType): boolean => {
+  return hasPermission(target, user);
 };
 ```
 
-**Why not abstract?** Read permissions and execute permissions are different access control concepts that may evolve independently. Read might gain world-readable rules; execute might gain sudo elevation logic.
+**Why not abstract?** File permissions and command access are different domain concepts that will likely evolve independently. File permissions depend on owner-scoped Unix rules; command access depends on binary existence and apt installation.
 
 ### Example: Same Concept - SAFE TO ABSTRACT
 
 ```typescript
 // Similar structure, SAME semantic meaning - SAFE TO ABSTRACT
-const formatNmapPort = (port: Port): string => {
-  return `${port.number}/tcp ${port.closed ? 'closed' : 'open'}  ${port.service}`;
+const formatSshError = (ip: string, message: string): string => {
+  return `ssh: connect to host ${ip}: ${message}`;
 };
 
-const formatScanPort = (port: Port): string => {
-  return `${port.number}/tcp ${port.closed ? 'closed' : 'open'}  ${port.service}`;
+const formatPingError = (ip: string, message: string): string => {
+  return `ping: connect to host ${ip}: ${message}`;
 };
 
-const formatNetstatPort = (port: Port): string => {
-  return `${port.number}/tcp ${port.closed ? 'closed' : 'open'}  ${port.service}`;
+const formatNmapError = (ip: string, message: string): string => {
+  return `nmap: connect to host ${ip}: ${message}`;
 };
 
 // ✅ CORRECT - These all represent the same concept
-const formatPortLine = (port: Port): string => {
-  return `${port.number}/tcp ${port.closed ? 'closed' : 'open'}  ${port.service}`;
+const formatNetworkError = (command: string, ip: string, message: string): string => {
+  return `${command}: connect to host ${ip}: ${message}`;
 };
 ```
 
-**Why abstract?** These all represent "how we format a port for display" - the same semantic meaning.
+**Why abstract?** These all represent "how we format a network connection error" - the same semantic meaning.
 
 ## DRY: It's About Knowledge, Not Code
 
@@ -358,38 +357,40 @@ const formatPortLine = (port: Port): string => {
 ### Not a DRY Violation (Different Knowledge)
 
 ```typescript
-const validateMachineIp = (ip: string): boolean => {
-  return /^\d{1,3}(\.\d{1,3}){3}$/.test(ip);  // Network address validation
+const validatePortNumber = (port: number): boolean => {
+  return port >= 1 && port <= 65535;  // TCP/UDP port range
 };
 
-const validateSeedFormat = (seed: string): boolean => {
-  return /^[A-Z0-9-]+$/.test(seed);  // Mission seed format
+const validatePermissionCount = (count: number): boolean => {
+  return count >= 0 && count <= 3;  // Max user types: root, user, guest
 };
 
-const validatePathSegment = (segment: string): boolean => {
-  return /^[a-zA-Z0-9._-]+$/.test(segment);  // Filesystem path safety
+const validateNestingDepth = (depth: number): boolean => {
+  return depth >= 0 && depth <= 10;  // Max filesystem depth
 };
 ```
 
-**Assessment**: Similar structure, but each represents different business knowledge. **Do not refactor.**
+**Assessment**: Similar structure, but each represents different domain knowledge. **Do not refactor.**
 
 ### IS a DRY Violation (Same Knowledge)
 
 ```typescript
-const canAccessFromSsh = (machine: string, brickedMachines: ReadonlySet<string>): boolean => {
-  return !brickedMachines.has(machine); // Same knowledge duplicated!
+const resolveCommand = (name: string, machine: MachineState): PermissionResult => {
+  const binaryPath = machine.isSystemUtil(name) ? `/bin/${name}` : `/usr/bin/${name}`;
+  const node = getNode(binaryPath);
+  if (!node) return { allowed: false, error: `${name}: command not found` }; // Knowledge duplicated!
+  return { allowed: true };
 };
 
-const canAccessFromFtp = (machine: string, brickedMachines: ReadonlySet<string>): boolean => {
-  return !brickedMachines.has(machine); // Same knowledge!
-};
-
-const canAccessFromNc = (machine: string, brickedMachines: ReadonlySet<string>): boolean => {
-  return !brickedMachines.has(machine); // Same knowledge!
+const checkToolAvailability = (name: string, machine: MachineState): PermissionResult => {
+  const path = machine.isSystemUtil(name) ? `/bin/${name}` : `/usr/bin/${name}`;
+  const exists = getNode(path);
+  if (!exists) return { allowed: false, error: `${name}: command not found` }; // Same knowledge!
+  return { allowed: true };
 };
 ```
 
-**Assessment**: The rule "bricked machines are unreachable" is the same business knowledge repeated. **Should refactor** into `wrapWithBrickedCheck`.
+**Assessment**: The rule "resolve binary path based on system vs apt tool" is the same domain knowledge repeated. **Should refactor.**
 
 ## Decision-Making Questions
 
@@ -417,52 +418,55 @@ Before recommending refactoring, verify:
 ### Extract Constant
 ```typescript
 // Before
-if (port === 4444) { ... }
+if (port > 1024) { ... }
 
 // After
-const BACKDOOR_PORT = 4444;
-if (port === BACKDOOR_PORT) { ... }
+const MAX_WELL_KNOWN_PORT = 1024;
+if (port > MAX_WELL_KNOWN_PORT) { ... }
 ```
 
 ### Early Returns
 ```typescript
 // Before
-if (file) {
-  if (file.type === 'file') {
-    if (file.permissions.read.includes(username)) {
-      return file.content;
+if (node) {
+  if (node.type === 'file') {
+    if (node.permissions.read.includes(user)) {
+      return node.content;
     }
   }
 }
 
 // After
-if (!file) return undefined;
-if (file.type !== 'file') return undefined;
-if (!file.permissions.read.includes(username)) return undefined;
-return file.content;
+if (!node) return;
+if (node.type !== 'file') return;
+if (!node.permissions.read.includes(user)) return;
+return node.content;
 ```
 
 ### Extract Function
 ```typescript
 // Before
-const formatNmapOutput = (machine: GeneratedMachine) => {
-  const openPorts = machine.ports.filter(p => !p.closed);
-  const header = openPorts.length > 0 ? 'PORT   STATE SERVICE' : 'All 1000 scanned ports are closed';
-  return `Nmap scan report for ${machine.ip}\n${header}\n${openPorts.map(p => `${p.number}/tcp open  ${p.service}`).join('\n')}`;
+const executeCommand = (name: string, machine: MachineState) => {
+  const binaryPath = SYSTEM_UTILITIES.includes(name) ? `/bin/${name}` : `/usr/bin/${name}`;
+  const node = getNode(binaryPath);
+  if (!node) return { allowed: false, error: `${name}: command not found` };
+  return { allowed: node.permissions.execute.includes(currentUser) };
 };
 
 // After
-const SCANNED_PORT_COUNT = 1000;
+const resolveBinaryPath = (name: string): string => {
+  return SYSTEM_UTILITIES.includes(name) ? `/bin/${name}` : `/usr/bin/${name}`;
+};
 
-const formatPortLine = (port: Port): string =>
-  `${port.number}/tcp open  ${port.service}`;
+const checkBinaryPermission = (node: FileNode, user: UserType): PermissionResult => {
+  if (!node) return { allowed: false, error: 'command not found' };
+  return { allowed: node.permissions.execute.includes(user) };
+};
 
-const formatNmapHeader = (openPorts: ReadonlyArray<Port>): string =>
-  openPorts.length > 0 ? 'PORT   STATE SERVICE' : `All ${SCANNED_PORT_COUNT} scanned ports are closed`;
-
-const formatNmapOutput = (machine: GeneratedMachine): string => {
-  const openPorts = machine.ports.filter(p => !p.closed);
-  return `Nmap scan report for ${machine.ip}\n${formatNmapHeader(openPorts)}\n${openPorts.map(formatPortLine).join('\n')}`;
+const executeCommand = (name: string, machine: MachineState): PermissionResult => {
+  const path = resolveBinaryPath(name);
+  const node = getNode(path);
+  return checkBinaryPermission(node, currentUser);
 };
 ```
 

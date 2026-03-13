@@ -19,12 +19,12 @@ description: TypeScript strict mode patterns including schema-first development,
 ### `type` — for data structures
 
 ```typescript
-export type FileNode = {
-  readonly type: 'file' | 'directory';
-  readonly content: string | null;
-  readonly owner: string;
-  readonly permissions: FilePermissions;
-  readonly children?: Readonly<Record<string, FileNode>>;
+export type Port = {
+  readonly port: number;
+  readonly service: string;
+  readonly open: boolean;
+  readonly owner?: ServiceOwner;
+  readonly vulnerability?: Vulnerability;
 };
 ```
 
@@ -33,10 +33,9 @@ export type FileNode = {
 ### `interface` — for behavior contracts
 
 ```typescript
-export interface FileSystemOperations {
-  readFile(machineId: string, path: string): FileNode | undefined;
-  writeFile(machineId: string, path: string, content: string): void;
-  canTraverse(machineId: string, path: string, username: string): boolean;
+export interface NetworkResolver {
+  resolveHostname(hostname: string): DnsRecord | undefined;
+  resolveNat(ip: string, port: number): string | undefined;
 }
 ```
 
@@ -48,14 +47,12 @@ Define schemas once, import everywhere. Never duplicate the same validation logi
 
 ```typescript
 // ✅ Define once
-export const FileSystemPatchSchema = z.object({
-  machineId: z.string(),
-  path: z.string(),
-  content: z.string().nullable(),
-  owner: z.string(),
-  isNew: z.boolean().optional(),
+export const DnsRecordSchema = z.object({
+  domain: z.string().min(1),
+  ip: z.string().ip(),
+  type: z.literal('A'),
 });
-export type FileSystemPatch = z.infer<typeof FileSystemPatchSchema>;
+export type DnsRecord = z.infer<typeof DnsRecordSchema>;
 
 // Import and use wherever needed
 ```
@@ -88,6 +85,7 @@ export type FileSystemPatch = z.infer<typeof FileSystemPatchSchema>;
 ### What Each Setting Does
 
 **Core strict flags:**
+
 - **`strict: true`** - Enables all strict type checking options
 - **`noImplicitAny`** - Error on expressions/declarations with implied `any` type
 - **`strictNullChecks`** - `null` and `undefined` have their own types (not assignable to everything)
@@ -97,6 +95,7 @@ export type FileSystemPatch = z.infer<typeof FileSystemPatchSchema>;
 - **`noFallthroughCasesInSwitch`** - Error on fallthrough cases in switch statements
 
 **Additional safety flags (CRITICAL):**
+
 - **`noUncheckedIndexedAccess`** - Array/object access returns `T | undefined` (prevents runtime errors from assuming elements exist)
 - **`exactOptionalPropertyTypes`** - Distinguishes `property?: T` from `property: T | undefined` (more precise types)
 - **`noPropertyAccessFromIndexSignature`** - Requires bracket notation for index signature properties (forces awareness of dynamic access)
@@ -121,6 +120,7 @@ The `noUnusedParameters` rule can reveal architectural problems:
 For detailed patterns on immutability (`readonly`, `ReadonlyArray`), pure functions, composition, Result types, array methods, and factory functions, see the `functional` skill. These are the canonical patterns used across the codebase.
 
 Key TypeScript-specific notes:
+
 - Use `readonly` on all `type` properties and `ReadonlyArray<T>` for arrays
 - The compiler enforces immutability when `readonly` is used — leverage this
 - Factory functions (not classes) for object creation, supporting dependency injection
@@ -137,17 +137,16 @@ Key TypeScript-specific notes:
 - Used in test factories (validate test data completeness)
 
 ```typescript
-// IndexedDB data, seed parsing, external storage
-const SessionDataSchema = z.object({
-  username: z.string(),
-  machine: z.string(),
-  currentPath: z.string(),
-  wifiConnected: z.boolean(),
+// API responses, user input, external data
+const RemoteMachineSchema = z.object({
+  ip: z.string().ip(),
+  hostname: z.string().min(1),
+  ports: z.array(PortSchema),
 });
-type SessionData = z.infer<typeof SessionDataSchema>;
+type RemoteMachine = z.infer<typeof RemoteMachineSchema>;
 
 // Validate at boundary
-const session = SessionDataSchema.parse(indexedDbResult);
+const machine = RemoteMachineSchema.parse(apiResponse);
 ```
 
 ### When Schemas AREN'T Required
@@ -160,13 +159,11 @@ const session = SessionDataSchema.parse(indexedDbResult);
 
 ```typescript
 // ✅ CORRECT - No schema needed
-type CommandResult<T, E> =
-  | { success: true; data: T }
-  | { success: false; error: E };
+type Result<T, E> = { success: true; data: T } | { success: false; error: E };
 
 // ✅ CORRECT - Interface, no validation
-interface CommandExecutor {
-  execute(args: ReadonlyArray<string>): CommandOutput;
+interface UserService {
+  createUser(user: User): void;
 }
 ```
 
@@ -177,21 +174,21 @@ interface CommandExecutor {
 For type-safe primitives:
 
 ```typescript
-type MachineId = string & { readonly brand: unique symbol };
-type IpAddress = string & { readonly brand: unique symbol };
+type MachineIP = string & { readonly brand: unique symbol };
+type PortNumber = number & { readonly brand: unique symbol };
 
 // Type-safe at compile time
-const resolveMachine = (machineId: MachineId, ip: IpAddress) => {
+const connectToMachine = (ip: MachineIP, port: PortNumber) => {
   // Implementation
 };
 
-// ❌ Can't pass raw strings
-resolveMachine('fileserver', '192.168.1.50'); // Error
+// ❌ Can't pass raw string/number
+connectToMachine('192.168.1.10', 22); // Error
 
 // ✅ Must use branded type
-const machineId = 'fileserver' as MachineId;
-const ip = '192.168.1.50' as IpAddress;
-resolveMachine(machineId, ip); // OK
+const ip = '192.168.1.10' as MachineIP;
+const port = 22 as PortNumber;
+connectToMachine(ip, port); // OK
 ```
 
 ---

@@ -42,13 +42,11 @@ export default defineConfig({
 import { render } from 'vitest-browser-react'
 import { expect, test } from 'vitest'
 
-test('should display command output lines', async () => {
-  const screen = await render(
-    <TerminalOutput lines={['total 3', 'notes.txt', 'downloads/']} />
-  )
+test('should display command output with correct type', async () => {
+  const screen = await render(<CommandOutput text="Permission denied" type="error" />)
 
-  await expect.element(screen.getByText(/notes\.txt/)).toBeVisible()
-  await expect.element(screen.getByText(/downloads/)).toBeVisible()
+  await expect.element(screen.getByText(/permission denied/i)).toBeVisible()
+  await expect.element(screen.getByText(/permission denied/i)).toHaveClass('text-red-500')
 })
 ```
 
@@ -62,28 +60,31 @@ test('should display command output lines', async () => {
 ### Testing Props and Callbacks
 
 ```tsx
-test('should call onSubmit when command entered', async () => {
-  const handleSubmit = vi.fn()
-  const screen = await render(<TerminalInput onSubmit={handleSubmit} prompt="jshacker@localhost>" />)
+test('should call onExecute when command is submitted', async () => {
+  const handleExecute = vi.fn()
+  const screen = await render(<TerminalInput onExecute={handleExecute} />)
 
-  await screen.getByRole('textbox').fill('ls()')
+  await screen.getByRole('textbox').fill('nmap("192.168.1.1")')
   await screen.getByRole('textbox').press('Enter')
 
-  expect(handleSubmit).toHaveBeenCalledWith('ls()')
+  expect(handleExecute).toHaveBeenCalledWith('nmap("192.168.1.1")')
 })
 ```
 
 ### Testing Conditional Rendering
 
 ```tsx
-test('should show kernel panic when machine is bricked', async () => {
+test('should show permission denied when executing root-only command as guest', async () => {
   const screen = await render(
-    <SessionProvider initialBrickedMachines={new Set(['localhost'])}>
+    <SessionProvider initialUser="guest">
       <Terminal />
     </SessionProvider>
   )
 
-  await expect.element(screen.getByText(/Kernel panic/i)).toBeVisible()
+  await screen.getByRole('textbox').fill('reboot()')
+  await screen.getByRole('textbox').press('Enter')
+
+  await expect.element(screen.getByText(/permission denied/i)).toBeVisible()
 })
 ```
 
@@ -92,38 +93,38 @@ test('should show kernel panic when machine is bricked', async () => {
 ```tsx
 import { renderHook } from 'vitest-browser-react'
 
-test('should toggle WiFi connection state', async () => {
-  const { result } = await renderHook(() => useWifiState(false))
+test('should toggle wifi connection status', async () => {
+  const { result } = await renderHook(() => useWifiStatus(false))
 
-  expect(result.current.wifiConnected).toBe(false)
+  expect(result.current.connected).toBe(false)
 
   await act(() => {
     result.current.connect()
   })
 
-  expect(result.current.wifiConnected).toBe(true)
+  expect(result.current.connected).toBe(true)
 })
 ```
 
 ### Testing Context Providers
 
 ```tsx
-test('should show mission briefing when mission is active', async () => {
+test('should show mission list when session is active', async () => {
   const screen = await render(
-    <MissionProvider activeMission={getMockMissionNetwork()}>
-      <MissionStatus />
-    </MissionProvider>
+    <SessionProvider initialUser="root">
+      <MissionList />
+    </SessionProvider>
   )
 
-  await expect.element(screen.getByText(/ACTIVE MISSION/i)).toBeVisible()
+  await expect.element(screen.getByText(/available contracts/i)).toBeVisible()
 })
 ```
 
 For hooks that need context:
 ```tsx
-const { result } = await renderHook(() => useSession(), {
+const { result } = await renderHook(() => useMission(), {
   wrapper: ({ children }) => (
-    <SessionProvider>{children}</SessionProvider>
+    <MissionProvider>{children}</MissionProvider>
   ),
 })
 ```
@@ -144,19 +145,19 @@ The patterns below apply when using `@testing-library/react` with jsdom. **Prefe
 
 ```tsx
 // ✅ CORRECT - Test component behavior
-it('should display async output lines with delay', () => {
-  render(<AsyncOutput lines={['Scanning ports...', 'Port 22/tcp open ssh']} />);
+it('should display command output with correct styling', () => {
+  render(<CommandOutput text="Permission denied" type="error" />);
 
-  expect(screen.getByText(/Scanning ports/i)).toBeInTheDocument();
-  expect(screen.getByText(/Port 22\/tcp open ssh/i)).toBeInTheDocument();
+  expect(screen.getByText(/permission denied/i)).toBeInTheDocument();
+  expect(screen.getByText(/permission denied/i)).toHaveClass('text-red-500');
 });
 ```
 
 ```tsx
 // ❌ WRONG - Testing implementation
-it('should set lineIndex state', () => {
-  const wrapper = mount(<AsyncOutput lines={['line1']} />);
-  expect(wrapper.state('lineIndex')).toBe(0); // Internal state!
+it('should set output state', () => {
+  const wrapper = mount(<CommandOutput text="Permission denied" />);
+  expect(wrapper.state('text')).toBe('Permission denied'); // Internal state!
 });
 ```
 
@@ -164,16 +165,16 @@ it('should set lineIndex state', () => {
 
 ```tsx
 // ✅ CORRECT - Test how props affect rendered output
-it('should call onComplete when password submitted', async () => {
-  const handleComplete = vi.fn();
+it('should call onExecute when command is submitted', async () => {
+  const handleExecute = vi.fn();
   const user = userEvent.setup();
 
-  render(<PasswordPrompt prompt="Password:" onComplete={handleComplete} />);
+  render(<TerminalInput onExecute={handleExecute} />);
 
-  await user.type(screen.getByLabelText(/password/i), 'cr4ck3d_w1f1');
+  await user.type(screen.getByRole('textbox'), 'nmap("192.168.1.1")');
   await user.keyboard('{Enter}');
 
-  expect(handleComplete).toHaveBeenCalledWith('cr4ck3d_w1f1');
+  expect(handleExecute).toHaveBeenCalledWith('nmap("192.168.1.1")');
 });
 ```
 
@@ -181,18 +182,18 @@ it('should call onComplete when password submitted', async () => {
 
 ```tsx
 // ✅ CORRECT - Test what user sees in different states
-it('should show network unreachable when WiFi disconnected', async () => {
+it('should show command not found for unknown commands', async () => {
+  const user = userEvent.setup();
   render(
-    <SessionProvider initialWifiConnected={false}>
+    <SessionProvider>
       <Terminal />
     </SessionProvider>
   );
 
-  const user = userEvent.setup();
-  await user.type(screen.getByRole('textbox'), 'ping("192.168.1.50")');
+  await user.type(screen.getByRole('textbox'), 'foobar()');
   await user.keyboard('{Enter}');
 
-  await screen.findByText(/Network is unreachable/i);
+  await screen.findByText(/foobar is not defined/i);
 });
 ```
 
@@ -207,22 +208,16 @@ it('should show network unreachable when WiFi disconnected', async () => {
 ```tsx
 import { renderHook } from '@testing-library/react';
 
-it('should push and pop session stack for SSH', () => {
-  const { result } = renderHook(() => useSessionStack());
+it('should toggle wifi connection status', () => {
+  const { result } = renderHook(() => useWifiStatus(false));
 
-  expect(result.current.canReturn()).toBe(false);
-
-  act(() => {
-    result.current.pushSession({ machine: 'fileserver', username: 'ftpuser' });
-  });
-
-  expect(result.current.canReturn()).toBe(true);
+  expect(result.current.connected).toBe(false);
 
   act(() => {
-    result.current.popSession();
+    result.current.connect();
   });
 
-  expect(result.current.canReturn()).toBe(false);
+  expect(result.current.connected).toBe(true);
 });
 ```
 
@@ -234,16 +229,17 @@ it('should push and pop session stack for SSH', () => {
 ### Hooks with Props
 
 ```tsx
-it('should accept initial path', () => {
+it('should accept initial value', () => {
   const { result, rerender } = renderHook(
-    ({ initialPath }) => useCurrentPath(initialPath),
-    { initialProps: { initialPath: '/home/jshacker' } }
+    ({ initialValue }) => useCounter(initialValue),
+    { initialProps: { initialValue: 10 } }
   );
 
-  expect(result.current.path).toBe('/home/jshacker');
+  expect(result.current.count).toBe(10);
 
-  rerender({ initialPath: '/root' });
-  expect(result.current.path).toBe('/root');
+  // Test with different initial value
+  rerender({ initialValue: 20 });
+  expect(result.current.count).toBe(20);
 });
 ```
 
@@ -256,21 +252,21 @@ it('should accept initial path', () => {
 **For hooks that need context providers:**
 
 ```tsx
-const { result } = renderHook(() => useFileSystem(), {
+const { result } = renderHook(() => useMission(), {
   wrapper: ({ children }) => (
-    <FileSystemProvider>
+    <MissionProvider>
       {children}
-    </FileSystemProvider>
+    </MissionProvider>
   ),
 });
 
-expect(result.current.readFile('localhost', '/etc/hostname')).toBeDefined();
+expect(result.current.activeMission).toBeNull();
 
 act(() => {
-  result.current.writeFile('localhost', '/tmp/test.txt', 'hello');
+  result.current.accept('seed-exfiltrate-easy');
 });
 
-expect(result.current.readFile('localhost', '/tmp/test.txt')?.content).toBe('hello');
+expect(result.current.activeMission).toEqual(expect.objectContaining({ seed: 'seed-exfiltrate-easy' }));
 ```
 
 ### Multiple Providers
@@ -288,7 +284,7 @@ const AllProviders = ({ children }) => (
   </SessionProvider>
 );
 
-const { result } = renderHook(() => useNetworkCommands(), {
+const { result } = renderHook(() => useCommands(), {
   wrapper: AllProviders,
 });
 ```
@@ -297,21 +293,21 @@ const { result } = renderHook(() => useNetworkCommands(), {
 
 ```tsx
 // ✅ CORRECT - Wrap component in provider
-const renderWithSession = (ui, { session = getMockSession(), ...options } = {}) => {
+const renderWithSession = (ui, { user = 'guest', ...options } = {}) => {
   return render(
-    <SessionProvider initialSession={session}>
+    <SessionProvider initialUser={user}>
       {ui}
     </SessionProvider>,
     options
   );
 };
 
-it('should show root prompt when logged in as root', () => {
-  renderWithSession(<TerminalInput />, {
-    session: getMockSession({ username: 'root', userType: 'root' }),
+it('should show mission list when session is active', () => {
+  renderWithSession(<MissionList />, {
+    user: 'root',
   });
 
-  expect(screen.getByText(/root@localhost>/)).toBeInTheDocument();
+  expect(screen.getByText(/available contracts/i)).toBeInTheDocument();
 });
 ```
 
@@ -322,51 +318,52 @@ it('should show root prompt when logged in as root', () => {
 ### Controlled Inputs
 
 ```tsx
-it('should update terminal input as user types', async () => {
+it('should update input value as user types command', async () => {
   const user = userEvent.setup();
 
-  render(<TerminalInput prompt="jshacker@localhost>" />);
+  render(<TerminalInput />);
 
   const input = screen.getByRole('textbox');
 
-  await user.type(input, 'ssh("192.168.1.50")');
+  await user.type(input, 'ls("/home")');
 
-  expect(input).toHaveValue('ssh("192.168.1.50")');
+  expect(input).toHaveValue('ls("/home")');
 });
 ```
 
 ### Form Submissions
 
 ```tsx
-it('should execute command on enter', async () => {
-  const handleCommand = vi.fn();
+it('should submit password prompt with entered password', async () => {
+  const handleSubmit = vi.fn();
   const user = userEvent.setup();
 
-  render(<TerminalInput onSubmit={handleCommand} prompt="jshacker@localhost>" />);
+  render(<PasswordPrompt hostname="10.0.0.5" username="root" onSubmit={handleSubmit} />);
 
-  await user.type(screen.getByRole('textbox'), 'nmap("192.168.1.50")');
+  await user.type(screen.getByLabelText(/password/i), 'cr4ck3d_p4ss');
   await user.keyboard('{Enter}');
 
-  expect(handleCommand).toHaveBeenCalledWith('nmap("192.168.1.50")');
+  expect(handleSubmit).toHaveBeenCalledWith({
+    hostname: '10.0.0.5',
+    username: 'root',
+    password: 'cr4ck3d_p4ss',
+  });
 });
 ```
 
 ### Form Validation
 
 ```tsx
-it('should show permission denied for root-only commands', async () => {
+it('should show error when submitting empty password', async () => {
   const user = userEvent.setup();
 
-  render(
-    <SessionProvider initialSession={getMockSession({ userType: 'user' })}>
-      <Terminal />
-    </SessionProvider>
-  );
+  render(<PasswordPrompt hostname="10.0.0.5" username="root" onSubmit={vi.fn()} />);
 
-  await user.type(screen.getByRole('textbox'), 'gpg("secret.gpg", "key")');
+  // Submit without entering password
   await user.keyboard('{Enter}');
 
-  expect(screen.getByText(/Permission denied/i)).toBeInTheDocument();
+  // Validation error appears
+  expect(screen.getByText(/password is required/i)).toBeInTheDocument();
 });
 ```
 
@@ -379,7 +376,7 @@ it('should show permission denied for root-only commands', async () => {
 ❌ **WRONG - Manual act() everywhere**
 ```tsx
 act(() => {
-  render(<Terminal />);
+  render(<MyComponent />);
 });
 
 await act(async () => {
@@ -389,7 +386,7 @@ await act(async () => {
 
 ✅ **CORRECT - RTL handles it**
 ```tsx
-render(<Terminal />);
+render(<MyComponent />);
 await user.click(button);
 ```
 
@@ -425,28 +422,28 @@ afterEach(() => {
 
 ❌ **WRONG - Shared render in beforeEach**
 ```tsx
-let input;
+let button;
 beforeEach(() => {
-  render(<TerminalInput prompt=">" />);
-  input = screen.getByRole('textbox'); // Shared state across tests
+  render(<MyComponent />);
+  button = screen.getByRole('button'); // Shared state across tests
 });
 
 it('test 1', () => {
-  // Uses shared input from beforeEach
+  // Uses shared button from beforeEach
 });
 ```
 
 ✅ **CORRECT - Factory function per test**
 ```tsx
-const renderTerminalInput = (props = {}) => {
-  render(<TerminalInput prompt="jshacker@localhost>" {...props} />);
+const renderComponent = () => {
+  render(<MyComponent />);
   return {
-    input: screen.getByRole('textbox'),
+    button: screen.getByRole('button'),
   };
 };
 
 it('test 1', () => {
-  const { input } = renderTerminalInput(); // Fresh state
+  const { button } = renderComponent(); // Fresh state
 });
 ```
 
@@ -458,15 +455,15 @@ For factory patterns, see `testing` skill.
 
 ❌ **WRONG - Accessing component internals**
 ```tsx
-const wrapper = shallow(<NanoEditor />);
-expect(wrapper.state('unsavedChanges')).toBe(true); // Internal state
-expect(wrapper.instance().handleSave).toBeDefined(); // Internal method
+const wrapper = shallow(<MyComponent />);
+expect(wrapper.state('isOpen')).toBe(true); // Internal state
+expect(wrapper.instance().handleClick).toBeDefined(); // Internal method
 ```
 
 ✅ **CORRECT - Test rendered output**
 ```tsx
-render(<NanoEditor filePath="/tmp/test.txt" content="hello" />);
-expect(screen.getByText(/\^S Save/i)).toBeInTheDocument(); // What user sees
+render(<MyComponent />);
+expect(screen.getByRole('dialog')).toBeInTheDocument(); // What user sees
 ```
 
 ---
@@ -475,13 +472,13 @@ expect(screen.getByText(/\^S Save/i)).toBeInTheDocument(); // What user sees
 
 ❌ **WRONG - Shallow rendering**
 ```tsx
-const wrapper = shallow(<Terminal />);
+const wrapper = shallow(<MyComponent />);
 // Child components not rendered - incomplete test
 ```
 
 ✅ **CORRECT - Full rendering**
 ```tsx
-render(<Terminal />);
+render(<MyComponent />);
 // Full component tree rendered - realistic test
 ```
 
@@ -492,14 +489,17 @@ render(<Terminal />);
 ## Testing Loading States
 
 ```tsx
-it('should show scanning animation then nmap results', async () => {
-  render(<AsyncOutput lines={['Starting Nmap...', 'PORT   STATE SERVICE', '22/tcp open  ssh']} />);
+it('should show scanning then results', async () => {
+  render(<NmapOutput target="192.168.1.0/24" />);
 
-  // Initially shows first line
-  expect(screen.getByText(/Starting Nmap/i)).toBeInTheDocument();
+  // Initially scanning
+  expect(screen.getByText(/scanning/i)).toBeInTheDocument();
 
-  // Wait for all lines
-  await screen.findByText(/22\/tcp open/i);
+  // Wait for results
+  await screen.findByText(/22\/tcp.*open/i);
+
+  // Scanning done
+  expect(screen.queryByText(/scanning/i)).not.toBeInTheDocument();
 });
 ```
 
@@ -509,15 +509,16 @@ it('should show scanning animation then nmap results', async () => {
 
 ```tsx
 it('should catch errors with error boundary', () => {
+  // Suppress console.error for this test
   const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
   render(
-    <ErrorBoundary fallback={<div>Terminal crashed</div>}>
-      <BrokenComponent />
+    <ErrorBoundary fallback={<div>Something went wrong</div>}>
+      <ThrowsError />
     </ErrorBoundary>
   );
 
-  expect(screen.getByText(/Terminal crashed/i)).toBeInTheDocument();
+  expect(screen.getByText(/something went wrong/i)).toBeInTheDocument();
 
   spy.mockRestore();
 });
@@ -528,11 +529,11 @@ it('should catch errors with error boundary', () => {
 ## Testing Portals
 
 ```tsx
-it('should render nano editor as overlay', () => {
-  render(<NanoEditor filePath="/tmp/test.txt" content="hello" isOpen={true} />);
+it('should render nano editor overlay in portal', () => {
+  render(<NanoOverlay isOpen={true} filePath="/etc/hosts" />);
 
   // Portal renders outside root, but Testing Library finds it
-  expect(screen.getByText(/hello/)).toBeInTheDocument();
+  expect(screen.getByText(/\/etc\/hosts/i)).toBeInTheDocument();
 });
 ```
 
@@ -543,18 +544,18 @@ it('should render nano editor as overlay', () => {
 ## Testing Suspense
 
 ```tsx
-it('should show fallback then content', async () => {
+it('should show fallback then terminal content', async () => {
   render(
-    <Suspense fallback={<div>Loading terminal...</div>}>
+    <Suspense fallback={<div>Loading...</div>}>
       <LazyTerminal />
     </Suspense>
   );
 
   // Initially fallback
-  expect(screen.getByText(/loading terminal/i)).toBeInTheDocument();
+  expect(screen.getByText(/loading/i)).toBeInTheDocument();
 
-  // Wait for component
-  await screen.findByText(/JSHACK\.ME/i);
+  // Wait for terminal to render
+  await screen.findByText(/jshack\.me/i);
 });
 ```
 

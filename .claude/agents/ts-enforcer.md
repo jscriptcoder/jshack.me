@@ -1,6 +1,7 @@
 ---
 name: ts-enforcer
-description: Use this agent proactively to guide TypeScript best practices during development and reactively to enforce compliance after code is written. Invoke when defining types/schemas, writing TypeScript code, or reviewing for type safety violations.
+description: >
+  Use this agent proactively to guide TypeScript best practices during development and reactively to enforce compliance after code is written. Invoke when defining types/schemas, writing TypeScript code, or reviewing for type safety violations.
 tools: Read, Grep, Glob, Bash
 model: sonnet
 color: red
@@ -130,105 +131,105 @@ Use this format with severity levels:
 ### 🔴 CRITICAL VIOLATIONS (Must Fix Before Commit)
 
 #### 1. Use of `any` type
-**File**: `src/hooks/useCommands.ts:45`
-**Code**: `const result: any = command.execute(args)`
+**File**: `src/commands/ssh.ts:45`
+**Code**: `const result: any = executeRemoteCommand(args)`
 **Issue**: Using `any` bypasses all type safety
 **Impact**: Runtime errors not caught at compile time
 **Fix**:
 ```typescript
-// Use the proper CommandOutput type
-const result: CommandOutput = command.execute(args);
+// Use unknown and validate, or use the proper Command return type
+const result: unknown = executeRemoteCommand(args);
+const validatedResult = CommandOutputSchema.parse(result);
 ```
 
 #### 2. Missing schema for type
-**File**: `src/filesystem/types.ts:10-15`
+**File**: `src/network/types.ts:10-15`
 **Code**:
 ```typescript
-type FileSystemPatch = {
-  machineId: string;
-  path: string;
-  content: string | null;
+type Port = {
+  port: number;
+  service: string;
+  open: boolean;
+  vulnerability?: string;
 };
 ```
 **Issue**: Type defined without schema - no runtime validation
-**Impact**: Invalid data from IndexedDB can pass through unchecked
+**Impact**: Invalid data can pass through unchecked
 **Fix**:
 ```typescript
 // Schema first, then derive type
-const FileSystemPatchSchema = z.object({
-  machineId: z.string(),
-  path: z.string(),
-  content: z.string().nullable(),
-  owner: z.string(),
-  isNew: z.boolean().optional(),
+const PortSchema = z.object({
+  port: z.number().int().min(1).max(65535),
+  service: z.string(),
+  open: z.boolean(),
+  vulnerability: z.string().optional(),
 });
-type FileSystemPatch = z.infer<typeof FileSystemPatchSchema>;
+type Port = z.infer<typeof PortSchema>;
 
-// Use at runtime boundaries (IndexedDB reads)
-const patch = FileSystemPatchSchema.parse(storedData);
+// Use at runtime boundaries
+const port = PortSchema.parse(generatedPort);
 ```
 
 #### 3. Immutability violation
-**File**: `src/hooks/useCommands.ts:23`
-**Code**: `commands.set('newCommand', command)`
-**Issue**: Mutating Map violates immutability principle
+**File**: `src/filesystem/operations.ts:23`
+**Code**: `directory.children[newFile.name] = newFile`
+**Issue**: Mutating object violates immutability principle
 **Impact**: Unexpected side effects, hard to debug
 **Fix**:
 ```typescript
-return new Map([...commands, ['newCommand', command]]);
+return { ...directory, children: { ...directory.children, [newFile.name]: newFile } };
 ```
 
 ### ⚠️ HIGH PRIORITY ISSUES (Should Fix Soon)
 
 #### 1. Multiple positional parameters
-**File**: `src/generation/topology.ts:67`
-**Code**: `generateMachine(role, hostname, ip, subnet, isEntry, hasSsh)`
-**Issue**: 6 positional parameters - hard to read and error-prone
+**File**: `src/generation/missionGenerator.ts:67`
+**Code**: `generateMission(seed, difficulty, entryVariant, networkMode, objective)`
+**Issue**: 5 positional parameters - hard to read and error-prone
 **Impact**: Reduced maintainability, easy to swap arguments
 **Fix**:
 ```typescript
-type GenerateMachineOptions = {
-  readonly role: MachineRole;
-  readonly hostname: string;
-  readonly ip: string;
-  readonly subnet: string;
-  readonly isEntry?: boolean;
-  readonly hasSsh?: boolean;
+type GenerateMissionOptions = {
+  readonly seed: string;
+  readonly difficulty: number;
+  readonly entryVariant: string;
+  readonly networkMode: string;
+  readonly objective: string;
 };
-const generateMachine = (options: GenerateMachineOptions) => { ... };
+const generateMission = (options: GenerateMissionOptions) => { ... };
 ```
 
 #### 2. Type assertion without justification
 **File**: `src/commands/node.ts:34`
-**Code**: `const context = executionContext as ExecutionContext`
+**Code**: `const output = result as CommandOutput`
 **Issue**: Type assertion bypasses type checking
 **Impact**: Assumes type without validation
 **Fix**:
 ```typescript
 // If you have a schema, use it
-const context = ExecutionContextSchema.parse(executionContext);
+const output = CommandOutputSchema.parse(result);
 
 // If no schema, add comment explaining why assertion is safe
-// Safe: executionContext is set via lazy getter after full command map is built
-const context = executionContext as ExecutionContext;
+// Safe: executeScript always returns CommandOutput after successful eval
+const output = result as CommandOutput;
 ```
 
 ### 💡 STYLE IMPROVEMENTS (Consider for Refactoring)
 
 #### 1. Could use readonly modifier
-**File**: `src/generation/types.ts:12`
+**File**: `src/types/cart.ts:12`
 **Suggestion**: Add `readonly` to array/object properties for immutability
 
 #### 2. Could simplify nested conditionals
-**File**: `src/commands/availability.ts:45`
+**File**: `src/utils/validator.ts:45`
 **Suggestion**: Use early returns instead of nested if/else
 
 ### ✅ COMPLIANT CODE
 
 The following files follow all TypeScript guidelines:
-- `src/filesystem/fileSystemUtils.ts` - Pure functions with proper types
-- `src/generation/prng.ts` - Clean immutable implementation
-- `src/utils/crypto.ts` - Types derived properly, readonly throughout
+- `src/filesystem/permissions.ts` - Perfect schema-first pattern
+- `src/commands/availability.ts` - Pure functions with proper types
+- `src/network/types.ts` - Types derived from schemas
 
 ### 📊 Summary
 - Total files scanned: 45

@@ -14,16 +14,19 @@ TDD is the fundamental practice. Every line of production code must be written i
 ## RED-GREEN-REFACTOR Cycle
 
 ### RED: Write Failing Test First
+
 - NO production code until you have a failing test
 - Test describes desired behavior, not implementation
 - Test should fail for the right reason
 
 ### GREEN: Minimum Code to Pass
+
 - Write ONLY enough code to make the test pass
 - Resist adding functionality not demanded by a test
 - Commit immediately after green
 
 ### REFACTOR: Assess Improvements
+
 - Assess AFTER every green (but only refactor if it adds value)
 - Commit before refactoring
 - All tests must pass after refactoring
@@ -37,10 +40,11 @@ TDD is the fundamental practice. Every line of production code must be written i
 Commit history should show clear RED → GREEN → REFACTOR progression.
 
 **Ideal progression:**
+
 ```
-commit abc123: test: add failing test for WiFi gate blocking network commands
-commit def456: feat: implement WiFi connectivity check for network commands
-commit ghi789: refactor: extract WiFi check into reusable wrapper
+commit abc123: test: add failing test for user authentication
+commit def456: feat: implement user authentication to pass test
+commit ghi789: refactor: extract validation logic for clarity
 ```
 
 ### Rare Exceptions
@@ -48,18 +52,21 @@ commit ghi789: refactor: extract WiFi check into reusable wrapper
 TDD evidence may not be linearly visible in commits in these cases:
 
 **1. Multi-Session Work**
+
 - Feature spans multiple development sessions
 - Work done with TDD in each session
 - Commits organized for PR clarity rather than strict TDD phases
 - **Evidence**: Tests exist, all passing, implementation matches test requirements
 
 **2. Context Continuation**
+
 - Resuming from previous work
 - Original RED phase done in previous session/commit
 - Current work continues from that point
 - **Evidence**: Reference to RED commit in PR description
 
 **3. Refactoring Commits**
+
 - Large refactors after GREEN
 - Multiple small refactors combined into single commit
 - All tests remained green throughout
@@ -72,9 +79,9 @@ When exception applies, document in PR description:
 ```markdown
 ## TDD Evidence
 
-RED phase: commit c925187 (added failing tests for bricked machine detection)
-GREEN phase: commits 5e0055b, 9a246d0 (implementation + boot file checks)
-REFACTOR: commit 11dbd1a (extract bricked check into HOF wrapper)
+RED phase: commit c925187 (added failing tests for shopping cart)
+GREEN phase: commits 5e0055b, 9a246d0 (implementation + bug fixes)
+REFACTOR: commit 11dbd1a (test isolation improvements)
 
 Test Evidence:
 ✅ 4/4 tests passing (7.7s with 4 workers)
@@ -95,13 +102,18 @@ Test Evidence:
 **Before approving any PR claiming "100% coverage":**
 
 1. Check out the branch
+
    ```bash
    git checkout feature-branch
    ```
 
 2. Run coverage verification:
+
    ```bash
-   npm run test:coverage
+   cd packages/core
+   pnpm test:coverage
+   # OR
+   pnpm exec vitest run --coverage
    ```
 
 3. Verify ALL metrics hit 100%:
@@ -119,12 +131,12 @@ Test Evidence:
 Look for the "All files" line in coverage summary:
 
 ```
-File                | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s
---------------------|---------|----------|---------|---------|-------------------
-All files           |     100 |      100 |     100 |     100 |
-fileSystemUtils.ts  |     100 |      100 |     100 |     100 |
-availability.ts     |     100 |      100 |     100 |     100 |
-permissions.ts      |     100 |      100 |     100 |     100 |
+File           | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s
+---------------|---------|----------|---------|---------|-------------------
+All files      |     100 |      100 |     100 |     100 |
+setup.ts       |     100 |      100 |     100 |     100 |
+context.ts     |     100 |      100 |     100 |     100 |
+endpoints.ts   |     100 |      100 |     100 |     100 |
 ```
 
 ✅ This is 100% coverage - all four metrics at 100%.
@@ -134,21 +146,27 @@ permissions.ts      |     100 |      100 |     100 |     100 |
 Watch for these signs of incomplete coverage:
 
 ❌ **PR claims "100% coverage" but you haven't verified**
+
 - Never trust claims without running coverage yourself
 
 ❌ **Coverage summary shows <100% on any metric**
+
 ```
 All files      |   97.11 |    93.97 |   81.81 |   97.11 |
 ```
+
 - This is NOT 100% coverage (Functions: 81.81%, Lines: 97.11%)
 
 ❌ **"Uncovered Line #s" column shows line numbers**
+
 ```
-fileSystemUtils.ts |   95.23 |      100 |      60 |   95.23 | 45-48, 52-55
+setup.ts       |   95.23 |      100 |      60 |   95.23 | 45-48, 52-55
 ```
+
 - Lines 45-48 and 52-55 are not covered
 
 ❌ **Coverage gaps without explicit exception documentation**
+
 - If coverage <100%, exception should be documented (see Exception Process below)
 
 ### When Coverage Drops, Ask
@@ -174,6 +192,7 @@ If 100% coverage cannot be achieved:
 **Step 1: Document in package README**
 
 Explain:
+
 - Current coverage metrics
 - WHY 100% cannot be achieved in this package
 - WHERE the missing coverage will come from (integration tests, E2E, etc.)
@@ -191,10 +210,10 @@ Under "Test Coverage: 100% Required" section, list the exception
 ```markdown
 ## Current Exceptions
 
-- **Terminal.tsx**: 86% branch coverage
-  - Documented in `src/components/Terminal/README.md`
-  - Missing coverage from async output timing edge cases (tested in E2E layer)
-  - Approved: 2026-03-01
+- **Next.js Adapter**: 86% function coverage
+  - Documented in `/packages/nextjs-adapter/README.md`
+  - Missing coverage from SSR functions (tested in E2E layer)
+  - Approved: 2024-11-15
 ```
 
 ### Remember
@@ -208,7 +227,7 @@ The burden of proof is on the requester. 100% is the default expectation.
 ### Adding a New Feature
 
 1. **Write failing test** - describe expected behavior
-2. **Run test** - confirm it fails (`npm test`)
+2. **Run test** - confirm it fails (`pnpm test:watch`)
 3. **Implement minimum** - just enough to pass
 4. **Run test** - confirm it passes
 5. **Refactor if valuable** - improve code structure
@@ -218,21 +237,21 @@ The burden of proof is on the requester. 100% is the default expectation.
 
 ```bash
 # 1. Write failing test
-it('should block SSH to bricked machines', () => {
-  const result = ssh('192.168.1.50', brickedMachines);
-  expect(result).toContain('Connection timed out');
+it('should deny execute permission for guest users', () => {
+  const result = checkPermission(guestUser, fileNode, 'execute');
+  expect(result).toEqual({ allowed: false, error: 'Permission denied' });
 }); # ❌ Test fails (no implementation)
 
 # 2. Implement minimum code
-if (brickedMachines.has(targetIp)) {
-  return `Connection timed out — host ${targetIp} appears to be down`;
+if (!node.permissions.execute.includes(userType)) {
+  return { allowed: false, error: 'Permission denied' };
 } # ✅ Test passes
 
-# 3. Refactor if needed (extract bricked check wrapper)
+# 3. Refactor if needed (extract validation, improve naming)
 
 # 4. Commit
 git add .
-git commit -m "feat: block connections to bricked machines"
+git commit -m "feat: deny execute permission for non-permitted users"
 ```
 
 ---
@@ -242,14 +261,15 @@ git commit -m "feat: block connections to bricked machines"
 Use conventional commits format:
 
 ```
-feat: add PRNG-controlled credential leak placement
-fix: resolve NAT for scp file transfers to forwarded machines
-refactor: extract WiFi check into reusable wrapper
-test: add edge cases for directory traversal permission checks
+feat: add filesystem permission traversal checks
+fix: correct NAT port resolution for routed machines
+refactor: extract command access check logic
+test: add edge cases for root-only binary execution
 docs: update architecture documentation
 ```
 
 **Format:**
+
 - `feat:` - New feature
 - `fix:` - Bug fix
 - `refactor:` - Code change that neither fixes bug nor adds feature
@@ -273,13 +293,13 @@ Before submitting PR:
 ```markdown
 ## Summary
 
-Adds filesystem-based command access control with binary permission checks.
+Adds directory traversal checking for filesystem permission enforcement.
 
 ## Behavior Changes
 
-- Commands are gated by binary file existence and execute permissions
-- Shell builtins and game commands bypass access checks
-- `apt install` places binaries in `/usr/bin/` on remote machines
+- `checkTraversal` verifies execute permission on each path segment
+- Permission denied if any parent directory lacks execute for current user
+- Root user bypasses traversal checks
 
 ## Test Evidence
 
@@ -288,9 +308,9 @@ Adds filesystem-based command access control with binary permission checks.
 
 ## TDD Evidence
 
-RED: commit 4a3b2c1 (failing tests for access control wrapper)
-GREEN: commit 5d4e3f2 (implementation of wrapWithAccessCheck)
-REFACTOR: commit 6e5f4a3 (extract binary permission helpers)
+RED: commit 4a3b2c1 (failing tests for traversal permission checks)
+GREEN: commit 5d4e3f2 (implementation)
+REFACTOR: commit 6e5f4a3 (extract traversal resolution logic)
 ```
 
 ---
@@ -299,12 +319,12 @@ REFACTOR: commit 6e5f4a3 (extract binary permission helpers)
 
 After green, classify any issues:
 
-| Priority | Action | Examples |
-|----------|--------|----------|
-| Critical | Fix now | Mutations, knowledge duplication, >3 levels nesting |
-| High | This session | Magic numbers, unclear names, >30 line functions |
-| Nice | Later | Minor naming, single-use helpers |
-| Skip | Don't change | Already clean code |
+| Priority | Action       | Examples                                            |
+| -------- | ------------ | --------------------------------------------------- |
+| Critical | Fix now      | Mutations, knowledge duplication, >3 levels nesting |
+| High     | This session | Magic numbers, unclear names, >30 line functions    |
+| Nice     | Later        | Minor naming, single-use helpers                    |
+| Skip     | Don't change | Already clean code                                  |
 
 For detailed refactoring methodology, load the `refactoring` skill.
 

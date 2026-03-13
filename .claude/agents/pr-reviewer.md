@@ -130,11 +130,11 @@ gh pr diff <number> | grep -E "^\+\+\+ b/.*\.(ts|tsx)" | grep -v test
 ### TDD Compliance
 
 ✅ **Tests present for all production changes**
-- `src/commands/reboot.ts` ↔ `src/commands/reboot.test.ts`
+- `src/commands/ssh.ts` ↔ `src/commands/__tests__/ssh.test.ts`
 
 ❌ **Missing tests:**
-- `src/filesystem/fileSystemUtils.ts` - New function `checkTraversal()` has no test coverage
-- `src/hooks/useWifiCommands.ts` - Modified `aircrack()` but tests not updated
+- `src/commands/availability.ts` - New function `checkCommandAccess()` has no test coverage
+- `src/filesystem/permissions.ts` - Modified `checkTraversal()` but tests not updated
 ```
 
 ---
@@ -163,7 +163,7 @@ gh pr diff <number> | grep -E "^\+\+\+ b/.*\.(ts|tsx)" | grep -v test
 **Detection patterns:**
 ```bash
 # Look for spy/mock on internal methods
-gh pr diff <number> | grep -E "vi\.spyOn|\.mock\("
+gh pr diff <number> | grep -E "jest\.spyOn|\.mock\("
 
 # Look for let/beforeEach anti-patterns
 gh pr diff <number> | grep -E "^\+\s*(let|beforeEach)"
@@ -177,16 +177,16 @@ gh pr diff <number> | grep -E "should call|should invoke|should trigger"
 ### Testing Quality
 
 ✅ **Behavior-focused tests:**
-- "should deny guest access to root-owned files" - Tests outcome, not implementation
-- Using factory functions: `getMockFileNode({ owner: 'root' })`
+- "should deny execute permission for guest users" - Tests outcome, not implementation
+- Using factory functions: `getMockFileNode({ owner: 'root', permissions: { execute: ['root'] } })`
 
 ❌ **Implementation-focused tests:**
-- Line 45: `vi.spyOn(utils, 'checkTraversal')` - Tests internal call, not behavior
+- Line 45: `jest.spyOn(availability, 'checkBinaryExists')` - Tests internal call, not behavior
 - Line 67: `expect(spy).toHaveBeenCalled()` - Meaningless assertion
 
 ❌ **Anti-patterns:**
-- Line 12: `let session: Session` - Should use factory function
-- Line 15: `beforeEach(() => { session = ... })` - Creates shared mutable state
+- Line 12: `let command: Command` - Should use factory function
+- Line 15: `beforeEach(() => { command = ... })` - Creates shared mutable state
 ```
 
 ---
@@ -202,7 +202,7 @@ gh pr diff <number> | grep -E "should call|should invoke|should trigger"
 - No type assertions (`as Type`) without clear justification
 - `type` for data structures, `interface` for behavior contracts
 - Schemas at trust boundaries (Zod/Standard Schema)
-- Types derived from schemas: `type FileNode = z.infer<typeof FileNodeSchema>`
+- Types derived from schemas: `type User = z.infer<typeof UserSchema>`
 - `readonly` on data structure properties
 
 ❌ **Violations:**
@@ -243,8 +243,8 @@ gh pr diff <number> | grep -E "^\+\s*interface\s+[A-Z]"
 - Line 12: `interface MachineConfig { ... }` - Should be `type MachineConfig = { readonly ... }`
 
 ✅ **Good patterns:**
-- Schema-first: `const FileSystemPatchSchema = z.object({ ... })`
-- Type derived: `type FileSystemPatch = z.infer<typeof FileSystemPatchSchema>`
+- Schema-first: `const PortSchema = z.object({ ... })`
+- Type derived: `type Port = z.infer<typeof PortSchema>`
 ```
 
 ---
@@ -270,7 +270,7 @@ gh pr diff <number> | grep -E "^\+\s*interface\s+[A-Z]"
 - `for`/`while` loops (should use array methods)
 - Multiple positional parameters (should use options object)
 - Variable reassignment (`let x = 1; x = 2;`)
-- Comments restating what the code already says
+- "What" comments (code should be self-documenting; "why" comments are valuable)
 
 **Detection patterns:**
 ```bash
@@ -292,17 +292,17 @@ gh pr diff <number> | grep -E "^\+.*}\s*else\s*{"
 ### Functional Patterns
 
 ❌ **Data mutation:**
-- Line 34: `patches.push(newPatch)` - Use spread: `[...patches, newPatch]`
-- Line 56: `session.machine = 'fileserver'` - Create new object with spread
+- Line 34: `children.push(newNode)` - Use spread: `[...children, newNode]`
+- Line 56: `node.permissions.execute = ['root']` - Create new object with spread
 
 ❌ **Side effects:**
-- Line 78: Function modifies external `brickedMachines` set directly
+- Line 78: Function modifies external `fileSystem` object
 
 ❌ **Control flow:**
 - Line 45-52: Nested if/else - Refactor to early returns
 
 ⚠️ **Loops:**
-- Line 67: `for (const machine of machines)` - Consider `machines.map()` or `machines.filter()`
+- Line 67: `for (const port of ports)` - Consider `ports.map()` or `ports.filter()`
 ```
 
 ---
@@ -322,7 +322,7 @@ gh pr diff <number> | grep -E "^\+.*}\s*else\s*{"
 ❌ **Issues:**
 - Overly large PRs (too many changes)
 - Feature creep (changes unrelated to PR purpose)
-- Potential security issues (XSS, hardcoded credentials)
+- Potential security issues (SQL injection, XSS, hardcoded credentials)
 - Console.log/debug statements left in
 - TODO comments without linked issues
 - Backwards-compatibility hacks (unused `_vars`, re-exports)
@@ -356,7 +356,7 @@ gh pr view <number> --json additions,deletions
 - Line 78: `// TODO: handle edge case` - Create issue or fix now
 
 🔴 **Security concern:**
-- Line 23: Hardcoded password in filesystem definition — should use secrets registry
+- Line 23: Sensitive strings (flags, passwords) not routed through content encoding pipeline
 ```
 
 ---
@@ -502,7 +502,7 @@ Analyzing..."
 - Early returns (no nested if/else)
 - Array methods over loops
 - Options objects over positional parameters
-- Comments for complex/non-obvious logic only, not restating code
+- No "what" comments (self-documenting code; "why" comments are valuable)
 
 ### General Rules
 - Small, focused PRs
@@ -650,7 +650,7 @@ Before approving any PR, verify:
 - [ ] Pure functions where possible
 - [ ] Early returns instead of nested if/else
 - [ ] Options objects for multiple parameters
-- [ ] Comments only for complex/non-obvious logic
+- [ ] Code is self-documenting; comments explain "why", not "what"
 
 **Nice to have:**
 - [ ] Small, focused PR scope

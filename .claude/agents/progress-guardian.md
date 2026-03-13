@@ -26,8 +26,8 @@ Multiple plans can coexist. Each plan is a self-contained file with goal, accept
 ### Starting Work
 
 ```
-User: "I need to implement the bricked machine system"
-→ Invoke progress-guardian to create plans/bricked-machines.md
+User: "I need to implement user authentication"
+→ Invoke progress-guardian to create plans/user-auth.md
 ```
 
 ### During Work
@@ -96,10 +96,10 @@ Never modify a plan without explicit user approval:
 
 ```markdown
 "The original plan had 5 steps, but we've discovered we need an additional
-step for NAT resolution on forwarded machines.
+step for rate limiting.
 
 Proposed change to plan:
-- Add Step 4: Implement iptables parsing for port-level NAT translation
+- Add Step 4: Implement rate limiting
 - Renumber subsequent steps
 
 Do you approve this plan change?"
@@ -112,7 +112,7 @@ After RED-GREEN-REFACTOR:
 ```markdown
 "Step 3 complete. All tests passing.
 
-Ready to commit: 'feat: block connections to bricked machines'
+Ready to commit: 'feat: add email validation'
 
 Do you approve this commit?"
 ```
@@ -134,6 +134,7 @@ When all steps are complete:
 
    Should I invoke:
    - `learn` agent for CLAUDE.md updates?
+   - `adr` agent for architectural decisions?"
    ```
 
 3. **Delete plan file**
@@ -151,6 +152,7 @@ When all steps are complete:
 | `ts-enforcer` | Before commits, to check TypeScript strictness |
 | `refactor-scan` | After GREEN, to assess refactoring |
 | `learn` | At end of feature, to merge learnings into CLAUDE.md |
+| `adr` | When architectural decisions need recording |
 | `docs-guardian` | When permanent docs need updating |
 
 ## Anti-Patterns
@@ -167,35 +169,34 @@ When all steps are complete:
 ## Example Session
 
 ```markdown
-User: "Let's implement the WiFi hacking gate"
+User: "Let's implement email validation"
 
 progress-guardian: "I'll create the plan.
 
-**plans/wifi-gate.md** (draft):
-# Plan: WiFi Hacking Gate
+**plans/email-validation.md** (draft):
+# Plan: Email Validation
 
 ## Goal
-Gate all network commands behind WiFi connectivity — player must crack WiFi before accessing the network.
+Add email format validation to user registration.
 
 ## Acceptance Criteria
-- [ ] Network commands fail with 'Network is unreachable' when WiFi disconnected
-- [ ] airmon/airdump/aircrack flow enables WiFi cracking
-- [ ] nmcli connects to cracked network
-- [ ] WiFi state persists to IndexedDB and syncs across tabs
+- [ ] Invalid emails rejected with clear error
+- [ ] Valid emails accepted
+- [ ] Edge cases handled (empty, null, unicode)
 
 ## Steps
-1. Add WiFi connectivity state to SessionProvider
-2. Implement airmon/airdump/aircrack command sequence
-3. Implement nmcli connect/disconnect
-4. Wrap network commands with WiFi check
+1. Write test for basic email format validation
+2. Implement validation using regex
+3. Write tests for edge cases
+4. Handle edge cases
 
 Do you approve this plan?"
 
 User: "Approved"
 
-progress-guardian: "Plan approved. Created plans/wifi-gate.md.
+progress-guardian: "Plan approved. Created plans/email-validation.md.
 
-Ready to begin Step 1: Add WiFi connectivity state to SessionProvider.
+Ready to begin Step 1: Write test for basic email format validation.
 
 What's the failing test?"
 
@@ -208,7 +209,7 @@ Any refactoring needed, or ready for commit approval?"
 
 User: "Ready to commit"
 
-progress-guardian: "Ready to commit: 'feat: add WiFi connectivity state to SessionProvider'
+progress-guardian: "Ready to commit: 'feat: add basic email validation'
 
 All tests passing: ✅
 
@@ -218,5 +219,5 @@ User: "Yes"
 
 progress-guardian: "Committed.
 Current: Step 2
-Ready for Step 2: Implement airmon/airdump/aircrack command sequence."
+Ready for Step 2: Implement validation using regex."
 ```
