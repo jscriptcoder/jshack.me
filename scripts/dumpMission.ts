@@ -102,10 +102,15 @@ const printOverview = (net: MissionNetwork): void => {
   console.log(`  Router public:   ${net.routerPublicIp}`);
   console.log(`  NAT mode:        ${net.natForwarding ? green('forwarded') : red('router-first')}`);
   if (net.natForwarding) {
-    console.log(
-      `  NAT:             ${net.natForwarding.publicIp} → ${net.natForwarding.internalIp}`,
-    );
+    console.log(`  NAT public IP:   ${net.natForwarding.publicIp}`);
+    net.natForwarding.rules.forEach((r) => {
+      console.log(
+        `  NAT rule:        :${r.publicPort} → ${r.internalIp}:${r.internalPort}`,
+      );
+    });
   }
+  console.log(`  Router domain:   ${net.routerDomain}`);
+  console.log(`  Domain entry:    ${net.domainEntry ? green('yes') : 'no'}`);
   console.log(`  Client email:    ${net.clientEmail}`);
 };
 
@@ -123,6 +128,32 @@ const printObjective = (obj: MissionObjective): void => {
   }
   if (obj.expectedProof) {
     console.log(`  Expected proof:  ${green(obj.expectedProof)}`);
+  }
+  if (obj.binary) {
+    console.log(`  Binary:          ${yellow('yes')}`);
+  }
+  if (obj.encrypted) {
+    console.log(`  Encrypted:       ${yellow('yes')}`);
+    if (obj.encryptionKey) {
+      console.log(`  Encryption key:  ${dim(obj.encryptionKey)}`);
+    }
+  }
+  if (obj.keyPlacement) {
+    console.log(
+      `  Key placement:   ${obj.keyPlacement.machineIp}:${obj.keyPlacement.filePath}`,
+    );
+  }
+  if (obj.scriptBugType) {
+    console.log(`  Script bug:      ${magenta(obj.scriptBugType)}`);
+    if (obj.scriptOwner) {
+      console.log(`  Script owner:    ${obj.scriptOwner}`);
+    }
+    if (obj.scriptHintPath) {
+      console.log(`  Script hint:     ${obj.scriptHintPath}`);
+    }
+  }
+  if (obj.expectedChecksum) {
+    console.log(`  Expected chksum: ${dim(obj.expectedChecksum)}`);
   }
 };
 
