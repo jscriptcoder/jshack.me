@@ -200,7 +200,7 @@ const executeAsyncScript = (
     start: (onLine, onComplete) => {
       const asyncContext = {
         ...buildAsyncContext(executionContext, decodeFn, onLine, cancellation),
-        args: scriptArgs,
+        process: { argv: scriptArgs },
       };
       const contextKeys = Object.keys(asyncContext);
       const contextValues = Object.values(asyncContext);
@@ -238,7 +238,7 @@ export const createNodeCommand = (context: NodeContext): Command => ({
     description:
       'Execute the contents of a JavaScript file. ' +
       'The file runs with access to all terminal commands. ' +
-      'Extra arguments are available inside the script as the args array. ' +
+      'Extra arguments are available inside the script via process.argv. ' +
       'Scripts containing await run asynchronously — async commands like hydra() and nmap() ' +
       'return a string[] of output lines when awaited. ' +
       'Use console.log() for output and sleep(ms) for delays.',
@@ -250,14 +250,14 @@ export const createNodeCommand = (context: NodeContext): Command => ({
       },
       {
         name: '...args',
-        description: 'Arguments passed to the script (available as args array)',
+        description: 'Arguments passed to the script (available via process.argv)',
       },
     ],
     examples: [
       { command: 'node("script.js")', description: 'Execute a JavaScript file' },
       {
         command: 'node("brute.js", "192.168.1.50", "ssh")',
-        description: 'Run script with arguments (args[0]="192.168.1.50", args[1]="ssh")',
+        description: 'Run with args (process.argv[0]="192.168.1.50")',
       },
     ],
   },
@@ -289,7 +289,7 @@ export const createNodeCommand = (context: NodeContext): Command => ({
     const mutableBuffer: string[] = [];
     const wrappedContext = {
       ...buildSyncContext(executionContext, decodeFn, mutableBuffer),
-      args: scriptArgs,
+      process: { argv: scriptArgs },
     };
 
     return executeSyncScript(content, wrappedContext, mutableBuffer);

@@ -406,9 +406,9 @@ describe('node command', () => {
     });
   });
 
-  describe('script arguments', () => {
-    it('exposes extra arguments as args array in sync scripts', () => {
-      const file = getMockFile({ content: 'args' });
+  describe('process.argv', () => {
+    it('exposes extra arguments as process.argv in sync scripts', () => {
+      const file = getMockFile({ content: 'process.argv' });
       const context = createMockContext({
         fileSystem: { '/script.js': file },
       });
@@ -419,8 +419,8 @@ describe('node command', () => {
       expect(result).toEqual(['192.168.1.1', 'ssh']);
     });
 
-    it('exposes args as empty array when no extra arguments given', () => {
-      const file = getMockFile({ content: 'args' });
+    it('exposes argv as empty array when no extra arguments given', () => {
+      const file = getMockFile({ content: 'process.argv' });
       const context = createMockContext({
         fileSystem: { '/script.js': file },
       });
@@ -431,10 +431,10 @@ describe('node command', () => {
       expect(result).toEqual([]);
     });
 
-    it('args are accessible in async scripts', async () => {
+    it('process.argv is accessible in async scripts', async () => {
       const mockCmd = createMockAsyncCommand([]);
       const file = getMockFile({
-        content: 'await mockCmd();\nconsole.log("host: " + args[0]);',
+        content: 'await mockCmd();\nconsole.log("host: " + process.argv[0]);',
       });
       const context = createMockContext({
         fileSystem: { '/script.js': file },
@@ -448,10 +448,10 @@ describe('node command', () => {
       expect(lines).toContain('host: 10.0.0.5');
     });
 
-    it('args are usable with destructuring in scripts', () => {
+    it('argv is usable with destructuring in scripts', () => {
       const mockEcho = vi.fn((val: unknown) => String(val));
       const file = getMockFile({
-        content: 'const [host, svc] = args;\necho(host + ":" + svc);',
+        content: 'const [host, svc] = process.argv;\necho(host + ":" + svc);',
       });
       const context = createMockContext({
         fileSystem: { '/script.js': file },
