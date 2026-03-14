@@ -104,9 +104,7 @@ const printOverview = (net: MissionNetwork): void => {
   if (net.natForwarding) {
     console.log(`  NAT public IP:   ${net.natForwarding.publicIp}`);
     net.natForwarding.rules.forEach((r) => {
-      console.log(
-        `  NAT rule:        :${r.publicPort} → ${r.internalIp}:${r.internalPort}`,
-      );
+      console.log(`  NAT rule:        :${r.publicPort} → ${r.internalIp}:${r.internalPort}`);
     });
   }
   console.log(`  Router domain:   ${net.routerDomain}`);
@@ -139,9 +137,7 @@ const printObjective = (obj: MissionObjective): void => {
     }
   }
   if (obj.keyPlacement) {
-    console.log(
-      `  Key placement:   ${obj.keyPlacement.machineIp}:${obj.keyPlacement.filePath}`,
-    );
+    console.log(`  Key placement:   ${obj.keyPlacement.machineIp}:${obj.keyPlacement.filePath}`);
   }
   if (obj.scriptBugType) {
     console.log(`  Script bug:      ${magenta(obj.scriptBugType)}`);

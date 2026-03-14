@@ -40,6 +40,7 @@ Create the following, skipping any that already exist (ask before overwriting):
 ### 1. Project CLAUDE.md (`.claude/CLAUDE.md`)
 
 Include sections based on what was detected:
+
 - **Project commands**: exact build, test, lint, typecheck, dev commands from package.json/Makefile
 - **Tech stack**: framework, language version, key dependencies
 - **TypeScript config**: note strict mode settings, especially `noUncheckedIndexedAccess` if enabled
@@ -53,6 +54,7 @@ Keep it concise and actionable — this replaces the need to run `/init`.
 ### 2. Project hooks (`.claude/settings.json`)
 
 Generate a PostToolUse hook for typecheck after Write/Edit on .ts/.tsx files:
+
 ```json
 {
   "hooks": {
@@ -76,6 +78,7 @@ Use the actual typecheck command detected from the project (e.g., `pnpm typechec
 ### 3. Project /pr command (`.claude/commands/pr.md`)
 
 Generate a project-specific PR command that runs the detected quality gates before creating a PR:
+
 - Typecheck command
 - Lint command
 - Test command
