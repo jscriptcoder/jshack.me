@@ -25,17 +25,41 @@ const AsyncFunction: new (...args: string[]) => (...args: unknown[]) => Promise<
     ...args: string[]
   ) => (...args: unknown[]) => Promise<unknown>;
 
+// Sentinel error class for cancellation — distinguished from real errors
+// so the catch handler can suppress it silently.
+class ScriptCancelledError extends Error {
+  constructor() {
+    super('Script cancelled');
+  }
+}
+
+// Mutable state for script cancellation. Tracks whether the script has been
+// cancelled and holds a reference to the current inner command's cancel fn.
+type CancellationState = {
+  cancelled: boolean;
+  innerCancel: (() => void) | null;
+  sleepReject: ((err: Error) => void) | null;
+};
+
 // Wraps a command function so that AsyncOutput returns are automatically
 // collected into Promise<string[]>. Lines are forwarded to onLine for
 // real-time terminal display. Sync returns pass through unchanged.
+// Checks cancellation state before starting each async command.
 const wrapCommandForAsync = (
   fn: (...args: unknown[]) => unknown,
   onLine: (line: string) => void,
+  cancellation: CancellationState,
 ): ((...args: unknown[]) => unknown) => {
   return (...args: unknown[]): unknown => {
+    if (cancellation.cancelled) throw new ScriptCancelledError();
     const result = fn(...args);
     if (isAsyncOutput(result)) {
-      return collectAsyncOutput(result, onLine);
+      cancellation.innerCancel = result.cancel ?? null;
+      return collectAsyncOutput(result, onLine).then((lines) => {
+        cancellation.innerCancel = null;
+        if (cancellation.cancelled) throw new ScriptCancelledError();
+        return lines;
+      });
     }
     return result;
   };
@@ -98,9 +122,10 @@ const buildAsyncContext = (
   executionContext: Record<string, (...args: unknown[]) => unknown>,
   decodeFn: ((value: unknown) => string) | undefined,
   onLine: (line: string) => void,
+  cancellation: CancellationState,
 ): Record<string, unknown> => {
   const wrappedEntries = Object.entries(executionContext).map(
-    ([name, fn]) => [name, wrapCommandForAsync(fn, onLine)] as const,
+    ([name, fn]) => [name, wrapCommandForAsync(fn, onLine, cancellation)] as const,
   );
   const wrapped = Object.fromEntries(wrappedEntries);
 
@@ -117,7 +142,18 @@ const buildAsyncContext = (
     ...wrapped,
     ...(decodeFn ? { _decode: decodeFn } : {}),
     console: { log: (...args: readonly unknown[]) => onLine(args.join(' ')) },
-    sleep: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+    sleep: (ms: number) =>
+      new Promise<void>((resolve, reject) => {
+        if (cancellation.cancelled) {
+          reject(new ScriptCancelledError());
+          return;
+        }
+        const id = setTimeout(resolve, ms);
+        cancellation.sleepReject = (err: Error) => {
+          clearTimeout(id);
+          reject(err);
+        };
+      }),
   };
 };
 
@@ -151,23 +187,41 @@ const executeAsyncScript = (
   content: string,
   executionContext: Record<string, (...args: unknown[]) => unknown>,
   decodeFn: ((value: unknown) => string) | undefined,
-): AsyncOutput => ({
-  __type: 'async',
-  start: (onLine, onComplete) => {
-    const asyncContext = buildAsyncContext(executionContext, decodeFn, onLine);
-    const contextKeys = Object.keys(asyncContext);
-    const contextValues = Object.values(asyncContext);
+): AsyncOutput => {
+  const cancellation: CancellationState = {
+    cancelled: false,
+    innerCancel: null,
+    sleepReject: null,
+  };
 
-    const fn = new AsyncFunction(...contextKeys, content);
-    (fn(...contextValues) as Promise<unknown>)
-      .then(() => onComplete())
-      .catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err);
-        onLine(`Error: ${message}`);
-        onComplete();
-      });
-  },
-});
+  return {
+    __type: 'async',
+    start: (onLine, onComplete) => {
+      const asyncContext = buildAsyncContext(executionContext, decodeFn, onLine, cancellation);
+      const contextKeys = Object.keys(asyncContext);
+      const contextValues = Object.values(asyncContext);
+
+      const fn = new AsyncFunction(...contextKeys, content);
+      (fn(...contextValues) as Promise<unknown>)
+        .then(() => onComplete())
+        .catch((err: unknown) => {
+          // Cancellation errors are expected — complete silently
+          if (err instanceof ScriptCancelledError) {
+            onComplete();
+            return;
+          }
+          const message = err instanceof Error ? err.message : String(err);
+          onLine(`Error: ${message}`);
+          onComplete();
+        });
+    },
+    cancel: () => {
+      cancellation.cancelled = true;
+      cancellation.innerCancel?.();
+      cancellation.sleepReject?.(new ScriptCancelledError());
+    },
+  };
+};
 
 const HAS_AWAIT = /\bawait\b/;
 

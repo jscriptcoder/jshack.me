@@ -589,6 +589,144 @@ describe('node command', () => {
       expect(lines.some((l) => l.includes('script failed'))).toBe(true);
     });
 
+    it('cancel function is provided on async output', () => {
+      const mockCmd = createMockAsyncCommand(['line']);
+      const file = getMockFile({ content: 'await mockCmd();' });
+      const context = createMockContext({
+        fileSystem: { '/script.js': file },
+        executionContext: { mockCmd },
+      });
+
+      const node = createNodeCommand(context);
+      const result = node.fn('/script.js') as AsyncOutput;
+
+      expect(typeof result.cancel).toBe('function');
+    });
+
+    it('cancelling stops subsequent async commands from running', async () => {
+      let callCount = 0;
+      const slowCmd = vi.fn(
+        (): AsyncOutput => ({
+          __type: 'async',
+          start: (onLine, onComplete) => {
+            callCount++;
+            onLine(`call ${callCount}`);
+            // Simulate async delay
+            setTimeout(() => onComplete(), 10);
+          },
+        }),
+      );
+      const file = getMockFile({
+        content: ['await slowCmd();', 'await slowCmd();', 'await slowCmd();'].join('\n'),
+      });
+      const context = createMockContext({
+        fileSystem: { '/script.js': file },
+        executionContext: { slowCmd },
+      });
+
+      const node = createNodeCommand(context);
+      const result = node.fn('/script.js') as AsyncOutput;
+
+      const lines: string[] = [];
+      let completed = false;
+      result.start(
+        (line) => {
+          lines[lines.length] = line;
+          // Cancel after first command completes
+          if (lines.length === 1) {
+            result.cancel?.();
+          }
+        },
+        () => {
+          completed = true;
+        },
+      );
+
+      // Wait for everything to settle
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Should have completed (via cancellation error caught internally)
+      expect(completed).toBe(true);
+      // Only the first command should have run
+      expect(callCount).toBe(1);
+    });
+
+    it('cancelling sleep resolves the script', async () => {
+      vi.useFakeTimers();
+      const mockCmd = createMockAsyncCommand([]);
+      const file = getMockFile({
+        content: [
+          'await mockCmd();',
+          'console.log("before sleep");',
+          'await sleep(999999);',
+          'console.log("after sleep");',
+        ].join('\n'),
+      });
+      const context = createMockContext({
+        fileSystem: { '/script.js': file },
+        executionContext: { mockCmd },
+      });
+
+      const node = createNodeCommand(context);
+      const result = node.fn('/script.js') as AsyncOutput;
+
+      const lines: string[] = [];
+      let completed = false;
+      result.start(
+        (line) => {
+          lines[lines.length] = line;
+        },
+        () => {
+          completed = true;
+        },
+      );
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(lines).toContain('before sleep');
+      expect(completed).toBe(false);
+
+      // Cancel during sleep
+      result.cancel?.();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(completed).toBe(true);
+      // "after sleep" should NOT appear
+      expect(lines).not.toContain('after sleep');
+
+      vi.useRealTimers();
+    });
+
+    it('cancellation errors are not displayed as script errors', async () => {
+      const mockCmd = createMockAsyncCommand(['data']);
+      const file = getMockFile({
+        content: 'await mockCmd();\nawait mockCmd();',
+      });
+      const context = createMockContext({
+        fileSystem: { '/script.js': file },
+        executionContext: { mockCmd },
+      });
+
+      const node = createNodeCommand(context);
+      const result = node.fn('/script.js') as AsyncOutput;
+
+      const lines: string[] = [];
+      result.start(
+        (line) => {
+          lines[lines.length] = line;
+          // Cancel after first line from first command
+          if (line === 'data') {
+            result.cancel?.();
+          }
+        },
+        () => {},
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // No "Error:" lines should appear from cancellation
+      expect(lines.some((l) => l.startsWith('Error:'))).toBe(false);
+    });
+
     it('passes through sync command results unchanged in async scripts', async () => {
       const mockSync = vi.fn(() => 'sync result');
       const mockCmd = createMockAsyncCommand([]);
