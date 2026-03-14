@@ -159,7 +159,16 @@ export const useAuthentication = ({
 
       return storedHash === md5(password);
     },
-    [targetUser, scpTargetIP, sshTargetIP, sshTargetPort, ftpTargetIP, readFile, findMachineUsers, resolveNat],
+    [
+      targetUser,
+      scpTargetIP,
+      sshTargetIP,
+      sshTargetPort,
+      ftpTargetIP,
+      readFile,
+      findMachineUsers,
+      resolveNat,
+    ],
   );
 
   const handleFtpUsernameSubmit = useCallback(

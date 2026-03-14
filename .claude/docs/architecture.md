@@ -127,13 +127,16 @@ Unix-realistic permission model with owner-scoped access and directory traversal
 
 ## Authentication
 
-`useAuthentication` (`src/hooks/useAuthentication.ts`) encapsulates all password-related state and login logic, extracted from Terminal.tsx. Manages three authentication flows:
+`useAuthentication` (`src/hooks/useAuthentication.ts`) encapsulates all password-related state and login logic, extracted from Terminal.tsx. Manages four authentication flows:
 
 - **su** — validates password against `/etc/passwd` hashes on the current machine, switches user type and home path
-- **SSH** — validates against remote machine user list, pushes session stack, resolves NAT, switches to remote machine
-- **FTP** — two-stage login (username prompt → password prompt), validates against remote machine, creates FTP session
+- **SSH** — resolves NAT, validates against target machine user list via `findMachineUsers`, pushes session stack, switches to remote machine
+- **FTP** — two-stage login (username prompt → password prompt), resolves NAT, validates against target machine via `findMachineUsers`, creates FTP session
+- **SCP** — resolves NAT, validates against target machine via `findMachineUsers`, triggers file transfer animation
 
-Terminal.tsx triggers auth flows via `startPasswordPrompt()` (from `su` command), `startSshPrompt()` (from SSH async follow-up), and `startFtpPrompt()` (from FTP async follow-up). Submit handlers receive the current `input` and a `clearInput` callback (state ownership stays in Terminal.tsx).
+**NAT-aware auth**: For SSH/FTP/SCP, credentials are validated against the NAT-resolved target machine (not the router's merged view). `findMachineUsers(ip)` from `NetworkContext` searches both static and mission network configs, finding internal machines not directly visible from localhost. This prevents router-only users from authenticating on forwarded services. `hydra` also resolves NAT per port before cracking.
+
+Terminal.tsx triggers auth flows via `startPasswordPrompt()` (from `su` command), `startSshPrompt()` (from SSH async follow-up), `startFtpPrompt()` (from FTP async follow-up), and `startScpPrompt()` (from SCP command). Submit handlers receive the current `input` and a `clearInput` callback (state ownership stays in Terminal.tsx).
 
 ## Async Output Pattern
 

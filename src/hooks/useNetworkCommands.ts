@@ -129,7 +129,13 @@ export const useNetworkCommands = (): Map<string, Command> => {
       'hydra',
       wrapWithBrickedCheck(
         wrapWithWifiCheck(
-          createHydraCommand({ getMachine, getLocalIP, resolveDomain, resolveNat, findMachineUsers }),
+          createHydraCommand({
+            getMachine,
+            getLocalIP,
+            resolveDomain,
+            resolveNat,
+            findMachineUsers,
+          }),
           isWifiRequired,
         ),
         isMachineBricked,
