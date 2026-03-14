@@ -1,5 +1,5 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
-import type { RemoteMachine, DnsRecord } from '../network/types';
+import type { RemoteMachine, RemoteUser, DnsRecord } from '../network/types';
 import { passwords, guestPasswords } from '../generation/pools';
 import { md5 } from '../utils/md5';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
@@ -8,6 +8,8 @@ type HydraContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
   readonly getLocalIP: () => string;
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
+  readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
+  readonly findMachineUsers: (ip: string) => readonly RemoteUser[];
 };
 
 type CrackResult = {
@@ -87,7 +89,7 @@ export const createHydraCommand = (context: HydraContext): Command => ({
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {
-    const { getMachine, getLocalIP, resolveDomain } = context;
+    const { getMachine, getLocalIP, resolveDomain, resolveNat, findMachineUsers } = context;
 
     const host = args[0] as string | undefined;
     const serviceFilter = args[1] as string | undefined;
@@ -125,11 +127,19 @@ export const createHydraCommand = (context: HydraContext): Command => ({
       throw new Error(`hydra: ${detail}`);
     }
 
-    const users = userFilter
-      ? machine.users.filter((u) => u.username === userFilter)
-      : machine.users;
+    // Resolve NAT per service port to get the actual target machine's users.
+    // Each port may forward to a different internal machine.
+    const serviceUsers = services.map((svc) => {
+      const resolvedIp = resolveNat(targetIP, svc.port).ip;
+      const resolved = findMachineUsers(resolvedIp);
+      // Fall back to visible machine users if NAT-resolved machine has no users
+      // (e.g., non-forwarded port on the router itself)
+      const users = resolved.length > 0 ? resolved : machine.users;
+      const filtered = userFilter ? users.filter((u) => u.username === userFilter) : users;
+      return { svc, users: filtered };
+    });
 
-    if (userFilter && users.length === 0) {
+    if (userFilter && serviceUsers.every((su) => su.users.length === 0)) {
       throw new Error(`hydra: user "${userFilter}" not found on ${targetIP}`);
     }
 
@@ -143,7 +153,7 @@ export const createHydraCommand = (context: HydraContext): Command => ({
 
         let delay = 0;
 
-        services.forEach((svc) => {
+        serviceUsers.forEach(({ svc, users }) => {
           const totalAttempts = users.length * ATTEMPTS_PER_USER;
           const svcResults: CrackResult[] = [];
 

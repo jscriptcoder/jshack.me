@@ -4,6 +4,7 @@ import type {
   MachineNetworkConfig,
   NetworkInterface,
   RemoteMachine,
+  RemoteUser,
   DnsRecord,
 } from './types';
 import type { GeneratedMachine, NatForwardingRule } from '../generation/types';
@@ -22,7 +23,7 @@ type NetworkContextType = {
   readonly getLocalIP: () => string;
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
   readonly getDnsRecords: () => readonly DnsRecord[];
-  readonly findMachineUsers: (ip: string) => readonly string[];
+  readonly findMachineUsers: (ip: string) => readonly RemoteUser[];
   readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
 };
 
@@ -175,12 +176,12 @@ export const NetworkProvider = ({
   // The router is a special case: it's a key in machineConfigs but never listed in any
   // config's .machines array, so we check missionRouterMachine separately.
   const findMachineUsers = useCallback(
-    (ip: string): readonly string[] => {
-      const searchConfigs = (networkConfig: NetworkConfig): readonly string[] => {
+    (ip: string): readonly RemoteUser[] => {
+      const searchConfigs = (networkConfig: NetworkConfig): readonly RemoteUser[] => {
         const found = Object.values(networkConfig.machineConfigs)
           .flatMap((mc) => mc.machines)
           .find((m) => m.ip === ip);
-        return found ? found.users.map((u) => u.username) : [];
+        return found ? found.users : [];
       };
 
       const staticUsers = searchConfigs(config);
@@ -194,7 +195,7 @@ export const NetworkProvider = ({
       // Router is never in any machineConfigs[*].machines array — it's only a key.
       // Check it directly so `su` works when SSH'd into the router.
       if (missionRouterMachine && missionRouterMachine.ip === ip) {
-        return missionRouterMachine.remoteMachine.users.map((u) => u.username);
+        return missionRouterMachine.remoteMachine.users;
       }
 
       return [];

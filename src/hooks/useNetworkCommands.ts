@@ -27,6 +27,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
     resolveDomain,
     getGateway,
     resolveNat,
+    findMachineUsers,
   } = useNetwork();
   const { resolvePath, getNode, readFileFromMachine, getNodeFromMachine, createFileOnMachine } =
     useFileSystem();
@@ -128,7 +129,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
       'hydra',
       wrapWithBrickedCheck(
         wrapWithWifiCheck(
-          createHydraCommand({ getMachine, getLocalIP, resolveDomain }),
+          createHydraCommand({ getMachine, getLocalIP, resolveDomain, resolveNat, findMachineUsers }),
           isWifiRequired,
         ),
         isMachineBricked,
@@ -177,6 +178,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
     resolveDomain,
     getGateway,
     resolveNat,
+    findMachineUsers,
     resolvePath,
     getNode,
     readFileFromMachine,

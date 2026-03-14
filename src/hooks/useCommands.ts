@@ -85,7 +85,7 @@ export const useCommands = (): UseCommandsResult => {
     if (session.machine === 'localhost') {
       return LOCAL_USERS;
     }
-    return findMachineUsers(session.machine);
+    return findMachineUsers(session.machine).map((u) => u.username);
   }, [session.machine, findMachineUsers]);
 
   return useMemo(() => {

@@ -107,7 +107,7 @@ export const Terminal = () => {
     getNodeFromMachine,
     listDirectoryFromMachine,
   } = useFileSystem();
-  const { getMachine, config: networkConfig, resolveNat } = useNetwork();
+  const { getMachine, findMachineUsers, resolveNat } = useNetwork();
 
   const activeCommandNames =
     isInFtpMode() && ftpCommands
@@ -153,7 +153,7 @@ export const Terminal = () => {
     setCurrentPath,
     pushSession,
     enterFtpMode,
-    machineConfigs: networkConfig.machineConfigs,
+    findMachineUsers,
   });
 
   const { getPathCompletions } = usePathCompletionAdapters({
