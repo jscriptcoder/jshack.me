@@ -406,6 +406,65 @@ describe('node command', () => {
     });
   });
 
+  describe('script arguments', () => {
+    it('exposes extra arguments as args array in sync scripts', () => {
+      const file = getMockFile({ content: 'args' });
+      const context = createMockContext({
+        fileSystem: { '/script.js': file },
+      });
+
+      const node = createNodeCommand(context);
+      const result = node.fn('/script.js', '192.168.1.1', 'ssh');
+
+      expect(result).toEqual(['192.168.1.1', 'ssh']);
+    });
+
+    it('exposes args as empty array when no extra arguments given', () => {
+      const file = getMockFile({ content: 'args' });
+      const context = createMockContext({
+        fileSystem: { '/script.js': file },
+      });
+
+      const node = createNodeCommand(context);
+      const result = node.fn('/script.js');
+
+      expect(result).toEqual([]);
+    });
+
+    it('args are accessible in async scripts', async () => {
+      const mockCmd = createMockAsyncCommand([]);
+      const file = getMockFile({
+        content: 'await mockCmd();\nconsole.log("host: " + args[0]);',
+      });
+      const context = createMockContext({
+        fileSystem: { '/script.js': file },
+        executionContext: { mockCmd },
+      });
+
+      const node = createNodeCommand(context);
+      const result = node.fn('/script.js', '10.0.0.5') as AsyncOutput;
+      const lines = await collectOutput(result);
+
+      expect(lines).toContain('host: 10.0.0.5');
+    });
+
+    it('args are usable with destructuring in scripts', () => {
+      const mockEcho = vi.fn((val: unknown) => String(val));
+      const file = getMockFile({
+        content: 'const [host, svc] = args;\necho(host + ":" + svc);',
+      });
+      const context = createMockContext({
+        fileSystem: { '/script.js': file },
+        executionContext: { echo: mockEcho },
+      });
+
+      const node = createNodeCommand(context);
+      const result = node.fn('/script.js', '192.168.1.50', 'ftp');
+
+      expect(result).toBe('192.168.1.50:ftp');
+    });
+  });
+
   describe('async execution', () => {
     it('returns AsyncOutput when script contains await', () => {
       const mockCmd = createMockAsyncCommand(['line 1', 'line 2']);

@@ -187,6 +187,7 @@ const executeAsyncScript = (
   content: string,
   executionContext: Record<string, (...args: unknown[]) => unknown>,
   decodeFn: ((value: unknown) => string) | undefined,
+  scriptArgs: readonly unknown[],
 ): AsyncOutput => {
   const cancellation: CancellationState = {
     cancelled: false,
@@ -197,7 +198,10 @@ const executeAsyncScript = (
   return {
     __type: 'async',
     start: (onLine, onComplete) => {
-      const asyncContext = buildAsyncContext(executionContext, decodeFn, onLine, cancellation);
+      const asyncContext = {
+        ...buildAsyncContext(executionContext, decodeFn, onLine, cancellation),
+        args: scriptArgs,
+      };
       const contextKeys = Object.keys(asyncContext);
       const contextValues = Object.values(asyncContext);
 
@@ -230,10 +234,11 @@ export const createNodeCommand = (context: NodeContext): Command => ({
   category: 'filesystem',
   description: 'Execute a JavaScript file',
   manual: {
-    synopsis: 'node(path)',
+    synopsis: 'node(path[, ...args])',
     description:
       'Execute the contents of a JavaScript file. ' +
       'The file runs with access to all terminal commands. ' +
+      'Extra arguments are available inside the script as the args array. ' +
       'Scripts containing await run asynchronously — async commands like hydra() and nmap() ' +
       'return a string[] of output lines when awaited. ' +
       'Use console.log() for output and sleep(ms) for delays.',
@@ -243,10 +248,17 @@ export const createNodeCommand = (context: NodeContext): Command => ({
         description: 'Path to the JavaScript file to execute',
         required: true,
       },
+      {
+        name: '...args',
+        description: 'Arguments passed to the script (available as args array)',
+      },
     ],
     examples: [
       { command: 'node("script.js")', description: 'Execute a JavaScript file' },
-      { command: 'node("/home/user/exploit.js")', description: 'Run a script from absolute path' },
+      {
+        command: 'node("brute.js", "192.168.1.50", "ssh")',
+        description: 'Run script with arguments (args[0]="192.168.1.50", args[1]="ssh")',
+      },
     ],
   },
   fn: (...args: unknown[]): unknown => {
@@ -262,11 +274,12 @@ export const createNodeCommand = (context: NodeContext): Command => ({
 
     const executionContext = context.getExecutionContext();
     const decodeFn = context.getDecodeFn?.();
+    const scriptArgs = args.slice(1);
 
     // Scripts with await use the async execution path — returns AsyncOutput
     // so Terminal can stream lines in real time.
     if (HAS_AWAIT.test(content)) {
-      return executeAsyncScript(content, executionContext, decodeFn);
+      return executeAsyncScript(content, executionContext, decodeFn, scriptArgs);
     }
 
     // Captures echo() output during script execution so multiple echo calls
@@ -274,7 +287,10 @@ export const createNodeCommand = (context: NodeContext): Command => ({
     // Uses bracket assignment instead of push() to satisfy the no-mutation linter rule
     // on arrays — push() mutates in place, but bracket access on a local is tolerated.
     const mutableBuffer: string[] = [];
-    const wrappedContext = buildSyncContext(executionContext, decodeFn, mutableBuffer);
+    const wrappedContext = {
+      ...buildSyncContext(executionContext, decodeFn, mutableBuffer),
+      args: scriptArgs,
+    };
 
     return executeSyncScript(content, wrappedContext, mutableBuffer);
   },
