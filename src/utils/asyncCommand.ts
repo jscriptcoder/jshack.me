@@ -1,3 +1,5 @@
+import type { AsyncOutput } from '../components/Terminal/types';
+
 type CancellationToken = {
   readonly isCancelled: () => boolean;
   readonly schedule: (fn: () => void, delay: number) => void;
@@ -30,4 +32,22 @@ const JITTER_VARIANCE = 0.25;
 const jitter = (baseMs: number): number =>
   Math.round(baseMs * (1 - JITTER_VARIANCE + Math.random() * JITTER_VARIANCE * 2));
 
-export { createCancellationToken, jitter, type CancellationToken };
+// Bridges AsyncOutput into a Promise: starts the async command, collects all
+// emitted lines, and optionally forwards each line to an onLine callback.
+// Used by node scripts so `await hydra(...)` returns the collected output.
+const collectAsyncOutput = (
+  asyncOutput: AsyncOutput,
+  onLine?: (line: string) => void,
+): Promise<readonly string[]> =>
+  new Promise((resolve) => {
+    const lines: string[] = [];
+    asyncOutput.start(
+      (line: string) => {
+        lines[lines.length] = line;
+        onLine?.(line);
+      },
+      () => resolve(lines),
+    );
+  });
+
+export { createCancellationToken, jitter, collectAsyncOutput, type CancellationToken };
