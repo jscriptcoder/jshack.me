@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import type { UserType, FtpSession } from '../session/SessionContext';
 import type { RemoteUser } from '../network/types';
 import type { AsyncOutput } from '../components/Terminal/types';
+import type { PermissionResult } from '../filesystem/types';
 import { md5 } from '../utils/md5';
 
 type AuthenticationOptions = {
@@ -28,6 +29,8 @@ type AuthenticationOptions = {
   readonly setCurrentPath: (path: string) => void;
   readonly pushSession: () => void;
   readonly enterFtpMode: (session: FtpSession) => void;
+  readonly createFile: (path: string, content: string, userType: UserType) => PermissionResult;
+  readonly writeFile: (path: string, content: string, userType: UserType) => PermissionResult;
 };
 
 export const useAuthentication = ({
@@ -43,6 +46,8 @@ export const useAuthentication = ({
   setCurrentPath,
   pushSession,
   enterFtpMode,
+  createFile,
+  writeFile,
 }: AuthenticationOptions) => {
   const [passwordMode, setPasswordMode] = useState(false);
   const [targetUser, setTargetUser] = useState<string | null>(null);
@@ -62,15 +67,93 @@ export const useAuthentication = ({
     [addLine],
   );
 
+  // Checks whether the current user has an SSH key stored for the given target
+  const hasAuthorizedKey = useCallback(
+    (targetUser: string, targetIP: string): boolean => {
+      const homePath = getDefaultHomePath(session.machine, session.username);
+      const keysPath = `${homePath}/.ssh_keys`;
+      const content = readFile(keysPath, session.userType);
+      if (!content) return false;
+      const entry = `${targetUser}@${targetIP}`;
+      return content.split('\n').some((line) => line.trim() === entry);
+    },
+    [getDefaultHomePath, readFile, session.machine, session.username, session.userType],
+  );
+
+  // Persists an SSH key for the given target on the current machine's filesystem
+  const saveAuthorizedKey = useCallback(
+    (targetUser: string, targetIP: string): void => {
+      const homePath = getDefaultHomePath(session.machine, session.username);
+      const keysPath = `${homePath}/.ssh_keys`;
+      const entry = `${targetUser}@${targetIP}`;
+      const existing = readFile(keysPath, session.userType);
+
+      if (existing !== null) {
+        if (existing.split('\n').some((line) => line.trim() === entry)) return;
+        const updated = existing ? `${existing}\n${entry}` : entry;
+        writeFile(keysPath, updated, session.userType);
+      } else {
+        createFile(keysPath, entry, session.userType);
+      }
+    },
+    [
+      getDefaultHomePath,
+      readFile,
+      writeFile,
+      createFile,
+      session.machine,
+      session.username,
+      session.userType,
+    ],
+  );
+
+  // Shared SSH session setup: pushes session stack and switches to remote machine
+  const connectSsh = useCallback(
+    (user: string, ip: string, port: number) => {
+      pushSession();
+
+      const resolved = resolveNat(ip, port);
+      const resolvedIp = resolved.ip;
+      const users = findMachineUsers(resolvedIp);
+      const remoteUser = users.find((u) => u.username === user);
+      const userType: UserType = remoteUser?.userType ?? 'user';
+      const homePath = getDefaultHomePath(resolvedIp, user);
+      const machine = getMachine(ip);
+
+      setUsername(user, userType);
+      setMachine(resolvedIp);
+      setCurrentPath(homePath);
+      addLine('result', `Connected to ${ip}`);
+      addLine('result', `Welcome to ${machine?.hostname ?? ip}!`);
+    },
+    [
+      pushSession,
+      resolveNat,
+      findMachineUsers,
+      getDefaultHomePath,
+      getMachine,
+      setUsername,
+      setMachine,
+      setCurrentPath,
+      addLine,
+    ],
+  );
+
   const startSshPrompt = useCallback(
     (user: string, targetIP: string, targetPort: number) => {
+      if (hasAuthorizedKey(user, targetIP)) {
+        addLine('result', 'Authenticated with saved key.');
+        connectSsh(user, targetIP, targetPort);
+        return;
+      }
+
       setTargetUser(user);
       setSshTargetIP(targetIP);
       setSshTargetPort(targetPort);
       setPasswordMode(true);
       addLine('result', `${user}@${targetIP}'s password:`);
     },
-    [addLine],
+    [hasAuthorizedKey, addLine, connectSsh],
   );
 
   const startFtpPrompt = useCallback(
@@ -83,15 +166,21 @@ export const useAuthentication = ({
   );
 
   const startScpPrompt = useCallback(
-    (user: string, ip: string, performTransfer: () => AsyncOutput) => {
+    (user: string, ip: string, performTransfer: () => AsyncOutput): AsyncOutput | undefined => {
+      if (hasAuthorizedKey(user, ip)) {
+        addLine('result', 'Authenticated with saved key.');
+        return performTransfer();
+      }
+
       setTargetUser(user);
       setScpTargetIP(ip);
       // Wrap in thunk to avoid React treating the function as a state updater
       setScpPerformTransfer(() => performTransfer);
       setPasswordMode(true);
       addLine('result', `${user}@${ip}'s password:`);
+      return undefined;
     },
-    [addLine],
+    [hasAuthorizedKey, addLine],
   );
 
   const resetAuthState = useCallback(() => {
@@ -218,6 +307,7 @@ export const useAuthentication = ({
         if (!targetUser) return undefined;
 
         if (scpTargetIP) {
+          saveAuthorizedKey(targetUser, scpTargetIP);
           if (scpPerformTransfer) {
             scpTransferAsync = scpPerformTransfer();
           }
@@ -242,24 +332,8 @@ export const useAuthentication = ({
           enterFtpMode(newFtpSession);
           addLine('result', '230 Login successful.');
         } else if (sshTargetIP) {
-          // Save current session state before switching to remote machine
-          pushSession();
-
-          // NAT resolution: if connecting to a router's public IP with port forwarding,
-          // resolve to the internal entry machine IP using the target port
-          const resolved = resolveNat(sshTargetIP, sshTargetPort ?? 22);
-          const resolvedIp = resolved.ip;
-          const users = findMachineUsers(resolvedIp);
-          const remoteUser = users.find((u) => u.username === targetUser);
-          const userType: UserType = remoteUser?.userType ?? 'user';
-          const homePath = getDefaultHomePath(resolvedIp, targetUser);
-          const machine = getMachine(sshTargetIP);
-
-          setUsername(targetUser, userType);
-          setMachine(resolvedIp);
-          setCurrentPath(homePath);
-          addLine('result', `Connected to ${sshTargetIP}`);
-          addLine('result', `Welcome to ${machine?.hostname ?? sshTargetIP}!`);
+          saveAuthorizedKey(targetUser, sshTargetIP);
+          connectSsh(targetUser, sshTargetIP, sshTargetPort ?? 22);
         } else {
           // su (local user switch) — look up user type from the machine's user list.
           // findMachineUsers checks both the current network view and all mission
@@ -306,12 +380,11 @@ export const useAuthentication = ({
       sshTargetPort,
       ftpTargetIP,
       validatePassword,
+      saveAuthorizedKey,
+      connectSsh,
       setUsername,
-      setMachine,
       setCurrentPath,
-      pushSession,
       session,
-      getMachine,
       findMachineUsers,
       enterFtpMode,
       addLine,

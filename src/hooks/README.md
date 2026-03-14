@@ -70,10 +70,13 @@ Returns `{ executionContext, commandNames }` where:
 | ------------------- | -------------- | -------------------------------------------------------------------------------------------------------------- |
 | `useAuthentication` | `Terminal.tsx` | Manages password prompt state (su/SSH/FTP), credential validation, and session transitions on successful login |
 
-`useAuthentication` encapsulates three authentication flows:
+`useAuthentication` encapsulates four authentication flows:
 
 - **su** — validates password against `/etc/passwd` hashes on the current machine, switches user type
-- **SSH** — validates against remote machine user list, pushes session stack, resolves NAT, switches to remote machine
+- **SSH** — validates against remote machine user list, pushes session stack, resolves NAT, switches to remote machine. Saves SSH key on success; auto-authenticates on subsequent connections.
+- **SCP** — validates against remote machine user list, triggers file transfer. Saves SSH key on success; auto-authenticates on subsequent connections.
 - **FTP** — two-stage login (username → password), validates against remote machine, enters FTP mode session
 
-Returns `startPasswordPrompt()`, `startSshPrompt()`, `startFtpPrompt()` for triggering prompts, and `handlePasswordSubmit()`, `handleFtpUsernameSubmit()` for processing input. Terminal.tsx passes the current `input` and a `clearInput` callback to the submit handlers.
+**SSH key persistence**: After first successful SSH/SCP password auth, saves `user@ip` to `~/.ssh_keys` on the source machine. On subsequent connections, `hasAuthorizedKey()` checks for a match and skips the password prompt. The `connectSsh()` helper extracts the shared session setup logic used by both auto-auth and password-auth paths.
+
+Returns `startPasswordPrompt()`, `startSshPrompt()`, `startFtpPrompt()`, `startScpPrompt()` for triggering prompts, and `handlePasswordSubmit()`, `handleFtpUsernameSubmit()` for processing input. `startSshPrompt` and `startScpPrompt` check for saved keys and auto-authenticate when found. Terminal.tsx passes the current `input` and a `clearInput` callback to the submit handlers.

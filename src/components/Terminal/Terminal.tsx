@@ -38,7 +38,7 @@ const BANNER = `
 ██   ██║╚════██║██╔══██║██╔══██║██║     ██╔═██╗    ██║╚██╔╝██║██╔══╝
 ╚█████╔╝███████║██║  ██║██║  ██║╚██████╗██║  ██╗██╗██║ ╚═╝ ██║███████╗
  ╚════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝╚═╝     ╚═╝╚══════╝
-                                                              v0.22.0
+                                                              v0.23.0
 
   Type help() for available commands
 `;
@@ -154,6 +154,8 @@ export const Terminal = () => {
     pushSession,
     enterFtpMode,
     findMachineUsers,
+    createFile,
+    writeFile,
   });
 
   const { getPathCompletions } = usePathCompletionAdapters({
@@ -277,7 +279,22 @@ export const Terminal = () => {
                 }
 
                 if (isScpPrompt(followUp)) {
-                  startScpPrompt(followUp.targetUser, followUp.targetIP, followUp.performTransfer);
+                  const transferAsync = startScpPrompt(
+                    followUp.targetUser,
+                    followUp.targetIP,
+                    followUp.performTransfer,
+                  );
+                  if (transferAsync) {
+                    setAsyncRunning(true);
+                    asyncCancelRef.current = transferAsync.cancel ?? null;
+                    transferAsync.start(
+                      (line: string) => addLine('result', line),
+                      () => {
+                        setAsyncRunning(false);
+                        asyncCancelRef.current = null;
+                      },
+                    );
+                  }
                 }
 
                 if (isFtpPrompt(followUp)) {

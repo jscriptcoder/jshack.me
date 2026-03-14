@@ -49,7 +49,7 @@ e2e/
 
 ## Terminal Features
 
-- ASCII banner on startup ("JSHACK.ME v0.22.0")
+- ASCII banner on startup ("JSHACK.ME v0.23.0")
 - Dynamic prompt: `username@machine>` (managed via SessionContext)
 - Command history (up/down arrows)
 - Tab autocompletion for commands and variables
@@ -81,6 +81,7 @@ Three-layer system:
 | Mission seed                                            | IndexedDB (`activeMissionSeed` key) | Shared  |
 | Filesystem patches                                      | IndexedDB (`patches` key)           | Shared  |
 | Bricked machines                                        | IndexedDB (`brickedMachines` key)   | Shared  |
+| SSH keys (`~/.ssh_keys`)                                | Filesystem patches (IndexedDB)      | Shared  |
 
 Filesystem persistence uses patches (diffs from base filesystem). Each write/create operation records a `FileSystemPatch` with machineId, path, content, owner, and optional `isNew` flag. Patches are replayed on initialization via `applyPatches()`. Both static and mission filesystem patches are persisted to IndexedDB. On reload with an active mission, mission patches are replayed on top of regenerated filesystems. Mission patches are cleaned up on mission end/transition.
 
@@ -134,9 +135,11 @@ Unix-realistic permission model with owner-scoped access and directory traversal
 - **FTP** — two-stage login (username prompt → password prompt), resolves NAT, validates against target machine via `findMachineUsers`, creates FTP session
 - **SCP** — resolves NAT, validates against target machine via `findMachineUsers`, triggers file transfer animation
 
+**SSH key persistence**: After the first successful SSH or SCP password authentication, an authorized key entry (`user@ip`) is saved to `~/.ssh_keys` on the source machine's filesystem. On subsequent SSH/SCP connections to the same `user@ip`, the password prompt is skipped and the connection authenticates automatically with a "Authenticated with saved key." message. Keys are stored per-user (each user's home directory has its own `.ssh_keys` file), persist via the filesystem patch system (IndexedDB), and sync across tabs via BroadcastChannel. The `hasAuthorizedKey` and `saveAuthorizedKey` helpers in `useAuthentication` handle the check/save logic; the shared `connectSsh` helper extracts the SSH session setup used by both auto-auth and password-auth paths.
+
 **NAT-aware auth**: For SSH/FTP/SCP, credentials are validated against the NAT-resolved target machine (not the router's merged view). `findMachineUsers(ip)` from `NetworkContext` searches both static and mission network configs, finding internal machines not directly visible from localhost. This prevents router-only users from authenticating on forwarded services. `hydra` also resolves NAT per port before cracking.
 
-Terminal.tsx triggers auth flows via `startPasswordPrompt()` (from `su` command), `startSshPrompt()` (from SSH async follow-up), `startFtpPrompt()` (from FTP async follow-up), and `startScpPrompt()` (from SCP command). Submit handlers receive the current `input` and a `clearInput` callback (state ownership stays in Terminal.tsx).
+Terminal.tsx triggers auth flows via `startPasswordPrompt()` (from `su` command), `startSshPrompt()` (from SSH async follow-up), `startFtpPrompt()` (from FTP async follow-up), and `startScpPrompt()` (from SCP command). `startSshPrompt` and `startScpPrompt` check for saved keys before entering password mode — if a key exists, they auto-authenticate (SSH: connects immediately; SCP: returns transfer `AsyncOutput` for Terminal to start). Submit handlers receive the current `input` and a `clearInput` callback (state ownership stays in Terminal.tsx).
 
 ## Async Output Pattern
 

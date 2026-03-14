@@ -116,6 +116,7 @@ See `architecture.md` for full details. Key points:
 - `BroadcastChannel` syncs filesystem patches, WiFi, missions, bricked machines, and theme across tabs.
 - `reboot()` bricks machines missing `/boot/vmlinuz` or `/boot/initrd.img`. Bricked machines are unreachable.
 - WiFi must be cracked before network access on localhost. See `infrastructure-design.md` for networks/flow.
+- SSH key persistence: after first SSH/SCP password auth, `~/.ssh_keys` on the source machine stores `user@ip` entries. Subsequent connections auto-authenticate.
 
 ### Mission System
 

@@ -26,6 +26,7 @@ Start with `help()` to see available commands. Good luck, hacker.
 - **Command Restrictions** - Commands are tiered by privilege level; escalate from guest to root to unlock tools
 - **WiFi Hacking Gate** - Crack a WiFi network using aircrack-ng-style commands before accessing the network
 - **Network Simulation** - Discover and hack into remote machines
+- **SSH Key Persistence** - After first successful SSH/SCP login, the key is saved; subsequent connections auto-authenticate
 - **Multi-Tab Support** - Open multiple browser tabs as independent terminals with shared filesystem, WiFi, mission, and theme state
 - **Session Persistence** - Your location and files are saved; return where you left off after refresh
 - **SEO & Social Sharing** - Open Graph and Twitter Card meta tags for rich link previews
