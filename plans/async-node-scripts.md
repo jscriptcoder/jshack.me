@@ -12,10 +12,10 @@ Enable `node` scripts to use `await` for async commands (hydra, nmap, etc.), so 
 ```js
 // brute.js — written with nano, run with node("brute.js")
 for (let i = 0; i < 20; i++) {
-  const output = await hydra("192.168.162.11", "ftp");
-  const creds = output.filter(l => l.includes("login:"));
+  const output = await hydra('192.168.162.11', 'ftp');
+  const creds = output.filter((l) => l.includes('login:'));
   if (creds.length > 0) {
-    creds.forEach(l => console.log(l));
+    creds.forEach((l) => console.log(l));
     break;
   }
   console.log(`Attempt ${i + 1}: no results, retrying...`);
@@ -69,6 +69,7 @@ Converts `AsyncOutput` → `Promise<string[]>`, forwarding each line to an `onLi
 
 **Test**: Script with `await` on a mock async command → node returns AsyncOutput → start produces collected lines. Also: sync scripts still work unchanged.
 **Implementation**:
+
 - Detect `await` keyword in content
 - Use `AsyncFunction` constructor (`Object.getPrototypeOf(async function(){}).constructor`)
 - Wrap execution context: each command fn is wrapped so AsyncOutput returns become `Promise<string[]>` via `collectAsyncOutput`
@@ -83,6 +84,7 @@ Converts `AsyncOutput` → `Promise<string[]>`, forwarding each line to an `onLi
 
 **Test**: Cancelling node's AsyncOutput stops script execution (subsequent awaits throw).
 **Implementation**:
+
 - Cancellation token tracks state + current inner cancel fn
 - Async wrappers check cancelled state before starting commands
 - `sleep()` rejects on cancel

@@ -1,7 +1,34 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { FileNode } from '../filesystem/types';
+import type { AsyncOutput } from '../components/Terminal/types';
 import type { UserType } from '../session/SessionContext';
 import { createNodeCommand } from './node';
+
+// --- Async Helpers ---
+
+// Collects all lines from an AsyncOutput and resolves when complete
+const collectOutput = (asyncOutput: AsyncOutput): Promise<readonly string[]> =>
+  new Promise((resolve) => {
+    const lines: string[] = [];
+    asyncOutput.start(
+      (line) => {
+        lines[lines.length] = line;
+      },
+      () => resolve(lines),
+    );
+  });
+
+// Creates a mock command that returns AsyncOutput (like hydra, nmap, etc.)
+const createMockAsyncCommand = (lines: readonly string[]) =>
+  vi.fn(
+    (): AsyncOutput => ({
+      __type: 'async',
+      start: (onLine, onComplete) => {
+        lines.forEach((line) => onLine(line));
+        onComplete();
+      },
+    }),
+  );
 
 // --- Factory Functions ---
 
@@ -376,6 +403,208 @@ describe('node command', () => {
       const result = node.fn('/script.js');
 
       expect(result).toBe('undefined');
+    });
+  });
+
+  describe('async execution', () => {
+    it('returns AsyncOutput when script contains await', () => {
+      const mockCmd = createMockAsyncCommand(['line 1', 'line 2']);
+      const file = getMockFile({
+        content: 'const result = await mockCmd();\nconsole.log("done");',
+      });
+      const context = createMockContext({
+        fileSystem: { '/script.js': file },
+        executionContext: { mockCmd },
+      });
+
+      const node = createNodeCommand(context);
+      const result = node.fn('/script.js') as AsyncOutput;
+
+      expect(result).toHaveProperty('__type', 'async');
+      expect(typeof result.start).toBe('function');
+    });
+
+    it('collects async command output into string array via await', async () => {
+      const mockCmd = createMockAsyncCommand(['result 1', 'result 2']);
+      const file = getMockFile({
+        content: [
+          'const output = await mockCmd();',
+          'console.log("got " + output.length + " lines");',
+        ].join('\n'),
+      });
+      const context = createMockContext({
+        fileSystem: { '/script.js': file },
+        executionContext: { mockCmd },
+      });
+
+      const node = createNodeCommand(context);
+      const result = node.fn('/script.js') as AsyncOutput;
+      const lines = await collectOutput(result);
+
+      // Lines from mockCmd are forwarded, plus the console.log
+      expect(lines).toContain('result 1');
+      expect(lines).toContain('result 2');
+      expect(lines).toContain('got 2 lines');
+    });
+
+    it('forwards async command lines to terminal in real time', async () => {
+      const mockCmd = createMockAsyncCommand(['scanning...', 'found: admin']);
+      const file = getMockFile({
+        content: 'await mockCmd();',
+      });
+      const context = createMockContext({
+        fileSystem: { '/script.js': file },
+        executionContext: { mockCmd },
+      });
+
+      const node = createNodeCommand(context);
+      const result = node.fn('/script.js') as AsyncOutput;
+      const lines = await collectOutput(result);
+
+      expect(lines).toContain('scanning...');
+      expect(lines).toContain('found: admin');
+    });
+
+    it('console.log prints to terminal output', async () => {
+      const mockCmd = createMockAsyncCommand([]);
+      const file = getMockFile({
+        content: 'await mockCmd();\nconsole.log("hello from script");',
+      });
+      const context = createMockContext({
+        fileSystem: { '/script.js': file },
+        executionContext: { mockCmd },
+      });
+
+      const node = createNodeCommand(context);
+      const result = node.fn('/script.js') as AsyncOutput;
+      const lines = await collectOutput(result);
+
+      expect(lines).toContain('hello from script');
+    });
+
+    it('console.log joins multiple arguments with spaces', async () => {
+      const mockCmd = createMockAsyncCommand([]);
+      const file = getMockFile({
+        content: 'await mockCmd();\nconsole.log("count:", 3, "items");',
+      });
+      const context = createMockContext({
+        fileSystem: { '/script.js': file },
+        executionContext: { mockCmd },
+      });
+
+      const node = createNodeCommand(context);
+      const result = node.fn('/script.js') as AsyncOutput;
+      const lines = await collectOutput(result);
+
+      expect(lines).toContain('count: 3 items');
+    });
+
+    it('echo forwards to terminal in async mode instead of buffering', async () => {
+      const mockEcho = vi.fn((val: unknown) => String(val));
+      const mockCmd = createMockAsyncCommand([]);
+      const file = getMockFile({
+        content: 'await mockCmd();\necho("echoed line");',
+      });
+      const context = createMockContext({
+        fileSystem: { '/script.js': file },
+        executionContext: { mockCmd, echo: mockEcho },
+      });
+
+      const node = createNodeCommand(context);
+      const result = node.fn('/script.js') as AsyncOutput;
+      const lines = await collectOutput(result);
+
+      expect(lines).toContain('echoed line');
+    });
+
+    it('sleep pauses execution for specified duration', async () => {
+      vi.useFakeTimers();
+      const mockCmd = createMockAsyncCommand([]);
+      const file = getMockFile({
+        content: [
+          'await mockCmd();',
+          'console.log("before");',
+          'await sleep(500);',
+          'console.log("after");',
+        ].join('\n'),
+      });
+      const context = createMockContext({
+        fileSystem: { '/script.js': file },
+        executionContext: { mockCmd },
+      });
+
+      const node = createNodeCommand(context);
+      const result = node.fn('/script.js') as AsyncOutput;
+
+      const lines: string[] = [];
+      let completed = false;
+      result.start(
+        (line) => {
+          lines[lines.length] = line;
+        },
+        () => {
+          completed = true;
+        },
+      );
+
+      // "before" should appear, but "after" is waiting for sleep
+      await vi.advanceTimersByTimeAsync(0);
+      expect(lines).toContain('before');
+      expect(completed).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(500);
+      expect(lines).toContain('after');
+      expect(completed).toBe(true);
+
+      vi.useRealTimers();
+    });
+
+    it('does not use async path for scripts without await', () => {
+      const file = getMockFile({ content: '1 + 2' });
+      const context = createMockContext({
+        fileSystem: { '/script.js': file },
+      });
+
+      const node = createNodeCommand(context);
+      const result = node.fn('/script.js');
+
+      // Sync path — returns value directly, not AsyncOutput
+      expect(result).toBe(3);
+    });
+
+    it('reports script errors via terminal output', async () => {
+      const mockCmd = createMockAsyncCommand([]);
+      const file = getMockFile({
+        content: 'await mockCmd();\nthrow new Error("script failed");',
+      });
+      const context = createMockContext({
+        fileSystem: { '/script.js': file },
+        executionContext: { mockCmd },
+      });
+
+      const node = createNodeCommand(context);
+      const result = node.fn('/script.js') as AsyncOutput;
+      const lines = await collectOutput(result);
+
+      expect(lines.some((l) => l.includes('script failed'))).toBe(true);
+    });
+
+    it('passes through sync command results unchanged in async scripts', async () => {
+      const mockSync = vi.fn(() => 'sync result');
+      const mockCmd = createMockAsyncCommand([]);
+      const file = getMockFile({
+        content: 'await mockCmd();\nconst val = mockSync();\nconsole.log(val);',
+      });
+      const context = createMockContext({
+        fileSystem: { '/script.js': file },
+        executionContext: { mockCmd, mockSync },
+      });
+
+      const node = createNodeCommand(context);
+      const result = node.fn('/script.js') as AsyncOutput;
+      const lines = await collectOutput(result);
+
+      expect(lines).toContain('sync result');
     });
   });
 });

@@ -4,10 +4,7 @@ import type { AsyncOutput } from '../components/Terminal/types';
 
 // --- Factory ---
 
-const createMockAsyncOutput = (
-  lines: readonly string[],
-  delayMs = 0,
-): AsyncOutput => ({
+const createMockAsyncOutput = (lines: readonly string[], delayMs = 0): AsyncOutput => ({
   __type: 'async',
   start: (onLine, onComplete) => {
     lines.forEach((line, i) => {
