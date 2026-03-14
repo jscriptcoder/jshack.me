@@ -28,6 +28,9 @@ dist-ssr
 test-results/
 playwright-report/
 
+# Coverage
+coverage/
+
 # Generated encoded filesystems
 src/filesystem/machines/__encoded.ts
 
