@@ -23,6 +23,7 @@ export type Port = {
   readonly port: number;
   readonly service: string;
   readonly open: boolean;
+  readonly protocol?: 'tcp' | 'udp';
   readonly owner?: ServiceOwner; // For interactive services (backdoors)
   readonly vulnerability?: Vulnerability;
 };

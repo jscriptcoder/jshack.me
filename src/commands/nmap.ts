@@ -13,7 +13,7 @@ const SCAN_DELAY_MS = 150;
 const PORT_SCAN_DELAY_MS = 300;
 
 const formatPortLine = (port: Port, versionScan: boolean): string => {
-  const portStr = `${port.port}/tcp`.padEnd(10);
+  const portStr = `${port.port}/${port.protocol ?? 'tcp'}`.padEnd(10);
   const state = port.open ? 'open' : 'closed';
   const stateService = `${state.padEnd(7)}${port.service}`;
   if (!versionScan) return `${portStr}${stateService}`;
@@ -41,22 +41,42 @@ const formatVulnerabilitySection = (openPorts: readonly Port[]): readonly string
   ];
 };
 
-// Parses args to detect the -sV flag. Returns the actual target and whether
-// version scanning is enabled.
-const parseNmapArgs = (
-  args: readonly unknown[],
-): { readonly target: string | undefined; readonly versionScan: boolean } => {
-  const first = args[0] as string | undefined;
-  const second = args[1] as string | undefined;
+type NmapParsedArgs = {
+  readonly target: string | undefined;
+  readonly versionScan: boolean;
+  readonly udpScan: boolean;
+};
 
-  // Support -sV in either position: nmap("-sV", ip) or nmap(ip, "-sV")
-  if (first === '-sV') {
-    return { target: second, versionScan: true };
+// Parses args to detect -sV and -sU flags. Flags can appear in any position;
+// the first non-flag argument is the target.
+const parseNmapArgs = (args: readonly unknown[]): NmapParsedArgs => {
+  const flags = new Set<string>();
+  let target: string | undefined;
+
+  for (const arg of args) {
+    if (typeof arg !== 'string') continue;
+    if (arg === '-sV' || arg === '-sU') {
+      flags.add(arg);
+    } else if (target === undefined) {
+      target = arg;
+    }
   }
-  if (second === '-sV') {
-    return { target: first, versionScan: true };
-  }
-  return { target: first, versionScan: false };
+
+  return { target, versionScan: flags.has('-sV'), udpScan: flags.has('-sU') };
+};
+
+// Filters ports by protocol: -sU shows only UDP, default shows only TCP (including unset)
+const filterPortsByProtocol = (ports: readonly Port[], udpScan: boolean): readonly Port[] =>
+  udpScan
+    ? ports.filter((p) => p.protocol === 'udp')
+    : ports.filter((p) => p.protocol !== 'udp');
+
+// Builds the scan mode label for output lines
+const scanModeLabel = (versionScan: boolean, udpScan: boolean): string => {
+  const parts: string[] = [];
+  if (udpScan) parts.push('UDP scan');
+  if (versionScan) parts.push('version detection');
+  return parts.length > 0 ? ` (${parts.join(', ')})` : '';
 };
 
 export const createNmapCommand = (context: NmapContext): Command => ({
@@ -64,13 +84,18 @@ export const createNmapCommand = (context: NmapContext): Command => ({
   category: 'network',
   description: 'Network exploration and port scanning',
   manual: {
-    synopsis: 'nmap(target[, "-sV"]) | nmap("-sV", target)',
+    synopsis: 'nmap(target[, "-sV"][, "-sU"])',
     description:
-      'Nmap ("Network Mapper") is a utility for network exploration and security auditing. It can discover hosts on a network and determine what services they are running. Use a single IP to scan ports on that host, or use a range (e.g., "192.168.1.1-254") to discover live hosts. Use -sV for service version detection and vulnerability scanning.',
+      'Nmap ("Network Mapper") is a utility for network exploration and security auditing. It can discover hosts on a network and determine what services they are running. Use a single IP to scan ports on that host, or use a range (e.g., "192.168.1.1-254") to discover live hosts. Use -sV for service version detection and vulnerability scanning. Use -sU for UDP port scanning.',
     arguments: [
       {
         name: '-sV',
         description: 'Enable service version detection and vulnerability scanning (optional)',
+        required: false,
+      },
+      {
+        name: '-sU',
+        description: 'Scan UDP ports instead of TCP (optional)',
         required: false,
       },
       {
@@ -94,7 +119,7 @@ export const createNmapCommand = (context: NmapContext): Command => ({
   },
   fn: (...args: unknown[]): AsyncOutput => {
     const { getMachine, getMachines, getLocalIP } = context;
-    const { target, versionScan } = parseNmapArgs(args);
+    const { target, versionScan, udpScan } = parseNmapArgs(args);
 
     if (!target) {
       throw new Error('nmap: missing target specification');
@@ -112,7 +137,7 @@ export const createNmapCommand = (context: NmapContext): Command => ({
           const localIP = getLocalIP();
           const totalIPs = range.end - range.start + 1;
 
-          onLine(`Starting Nmap scan on ${target}${versionScan ? ' (version detection)' : ''}`);
+          onLine(`Starting Nmap scan on ${target}${scanModeLabel(versionScan, udpScan)}`);
           onLine(`Scanning ${totalIPs} hosts...`);
           onLine('');
 
@@ -217,15 +242,16 @@ export const createNmapCommand = (context: NmapContext): Command => ({
           throw new Error(`nmap: failed to resolve "${target}"`);
         }
 
-        // Sort ports: open first, then closed, by port number within each group
-        const sortedPorts = [...machine.ports].sort((a, b) => {
+        // Filter by protocol, then sort: open first, then closed, by port number
+        const protocolPorts = filterPortsByProtocol(machine.ports, udpScan);
+        const sortedPorts = [...protocolPorts].sort((a, b) => {
           if (a.open !== b.open) return a.open ? -1 : 1;
           return a.port - b.port;
         });
         const openPorts = sortedPorts.filter((p) => p.open);
 
-        onLine(`Starting Nmap scan on ${target}${versionScan ? ' (version detection)' : ''}`);
-        onLine('Scanning ports...');
+        onLine(`Starting Nmap scan on ${target}${scanModeLabel(versionScan, udpScan)}`);
+        onLine(`Scanning ${udpScan ? 'UDP ' : ''}ports...`);
 
         let delay = jitter(400);
 

@@ -469,6 +469,158 @@ describe('nmap command', () => {
     });
   });
 
+  describe('-sU UDP scan', () => {
+    it('should show only UDP ports when -sU flag is used', () => {
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.50',
+            hostname: 'router',
+            ports: [
+              { port: 22, service: 'ssh', open: true },
+              { port: 80, service: 'http', open: true },
+              { port: 161, service: 'snmp', open: true, protocol: 'udp' },
+            ],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('-sU', '192.168.1.50');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(2000);
+
+      expect(lines.some((l) => l.includes('161/udp'))).toBe(true);
+      expect(lines.some((l) => l.includes('22/tcp'))).toBe(false);
+      expect(lines.some((l) => l.includes('80/tcp'))).toBe(false);
+      expect(lines.some((l) => l.includes('UDP scan'))).toBe(true);
+    });
+
+    it('should parse -sU as second arg', () => {
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.50',
+            hostname: 'router',
+            ports: [
+              { port: 22, service: 'ssh', open: true },
+              { port: 161, service: 'snmp', open: true, protocol: 'udp' },
+            ],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('192.168.1.50', '-sU');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(2000);
+
+      expect(lines.some((l) => l.includes('161/udp'))).toBe(true);
+      expect(lines.some((l) => l.includes('22/tcp'))).toBe(false);
+    });
+
+    it('should hide UDP ports from default TCP scan', () => {
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.50',
+            hostname: 'router',
+            ports: [
+              { port: 22, service: 'ssh', open: true },
+              { port: 161, service: 'snmp', open: true, protocol: 'udp' },
+            ],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('192.168.1.50');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(2000);
+
+      expect(lines.some((l) => l.includes('22/tcp'))).toBe(true);
+      expect(lines.some((l) => l.includes('161/udp'))).toBe(false);
+    });
+
+    it('should support combined -sU and -sV flags', () => {
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.50',
+            hostname: 'router',
+            ports: [
+              { port: 22, service: 'ssh', open: true },
+              { port: 161, service: 'snmp', open: true, protocol: 'udp' },
+            ],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('-sU', '-sV', '192.168.1.50');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(2000);
+
+      expect(lines.some((l) => l.includes('161/udp'))).toBe(true);
+      expect(lines.some((l) => l.includes('VERSION'))).toBe(true);
+      expect(lines.some((l) => l.includes('22/tcp'))).toBe(false);
+    });
+
+    it('should show "no open UDP ports" when machine has no UDP ports', () => {
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.50',
+            hostname: 'server',
+            ports: [{ port: 22, service: 'ssh', open: true }],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('-sU', '192.168.1.50');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(2000);
+
+      expect(lines.some((l) => l.includes('All scanned ports are closed'))).toBe(true);
+    });
+  });
+
   describe('single IP port scan', () => {
     it('should show localhost ports as closed', () => {
       const context = createMockNmapContext({ localIP: '192.168.1.100' });
