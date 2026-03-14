@@ -38,7 +38,7 @@ const BANNER = `
 ██   ██║╚════██║██╔══██║██╔══██║██║     ██╔═██╗    ██║╚██╔╝██║██╔══╝
 ╚█████╔╝███████║██║  ██║██║  ██║╚██████╗██║  ██╗██╗██║ ╚═╝ ██║███████╗
  ╚════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝╚═╝     ╚═╝╚══════╝
-                                                              v0.23.0
+                                                              v0.23.1
 
   Type help() for available commands
 `;
@@ -282,6 +282,7 @@ export const Terminal = () => {
                   const transferAsync = startScpPrompt(
                     followUp.targetUser,
                     followUp.targetIP,
+                    followUp.targetPort,
                     followUp.performTransfer,
                   );
                   if (transferAsync) {

@@ -43,7 +43,7 @@ export const createScpCommand = (context: ScpContext): Command => ({
     description:
       'Copy a file from the current machine to a remote machine via SSH. ' +
       'The destination uses user@host:path format. Preserves file permissions from the source. ' +
-      'Requires SSH (port 22) to be open on the target machine.',
+      'Requires an open SSH port on the target machine.',
     arguments: [
       { name: 'source', description: 'Path to the file on the current machine', required: true },
       {
@@ -109,8 +109,8 @@ export const createScpCommand = (context: ScpContext): Command => ({
       throw new Error(`scp: connect to host ${dest.host} port 22: Connection refused`);
     }
 
-    const sshPort = machine.ports.find((p) => p.port === 22 && p.service === 'ssh');
-    if (!sshPort || !sshPort.open) {
+    const sshPort = machine.ports.find((p) => p.service === 'ssh' && p.open);
+    if (!sshPort) {
       throw new Error(`scp: connect to host ${dest.host} port 22: Connection refused`);
     }
 
@@ -122,7 +122,7 @@ export const createScpCommand = (context: ScpContext): Command => ({
 
     // NAT resolution: in forwarded mode, the public router IP maps to the
     // internal entry machine. Filesystem operations use the resolved IP.
-    const resolvedHost = resolveNat(dest.host, 22).ip;
+    const resolvedHost = resolveNat(dest.host, sshPort.port).ip;
 
     // If destination is a directory, append source filename
     const remoteNode = context.getNodeFromMachine(resolvedHost, dest.path, '/');
@@ -207,6 +207,7 @@ export const createScpCommand = (context: ScpContext): Command => ({
               __type: 'scp_prompt',
               targetUser: dest.user,
               targetIP: dest.host,
+              targetPort: sshPort.port,
               performTransfer,
             };
 

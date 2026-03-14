@@ -56,6 +56,7 @@ export const useAuthentication = ({
   const [ftpTargetIP, setFtpTargetIP] = useState<string | null>(null);
   const [ftpUsernameMode, setFtpUsernameMode] = useState(false);
   const [scpTargetIP, setScpTargetIP] = useState<string | null>(null);
+  const [scpTargetPort, setScpTargetPort] = useState<number | null>(null);
   const [scpPerformTransfer, setScpPerformTransfer] = useState<(() => AsyncOutput) | null>(null);
 
   const startPasswordPrompt = useCallback(
@@ -199,14 +200,20 @@ export const useAuthentication = ({
   );
 
   const startScpPrompt = useCallback(
-    (user: string, ip: string, performTransfer: () => AsyncOutput): AsyncOutput | undefined => {
-      if (hasAuthorizedKey(user, ip, 22)) {
+    (
+      user: string,
+      ip: string,
+      port: number,
+      performTransfer: () => AsyncOutput,
+    ): AsyncOutput | undefined => {
+      if (hasAuthorizedKey(user, ip, port)) {
         addLine('result', 'Authenticated with saved key.');
         return performTransfer();
       }
 
       setTargetUser(user);
       setScpTargetIP(ip);
+      setScpTargetPort(port);
       // Wrap in thunk to avoid React treating the function as a state updater
       setScpPerformTransfer(() => performTransfer);
       setPasswordMode(true);
@@ -224,6 +231,7 @@ export const useAuthentication = ({
     setFtpTargetIP(null);
     setFtpUsernameMode(false);
     setScpTargetIP(null);
+    setScpTargetPort(null);
     setScpPerformTransfer(null);
   }, []);
 
@@ -238,7 +246,7 @@ export const useAuthentication = ({
       if (!targetUser) return false;
 
       if (scpTargetIP) {
-        const resolvedIp = resolveNat(scpTargetIP, 22).ip;
+        const resolvedIp = resolveNat(scpTargetIP, scpTargetPort ?? 22).ip;
         const users = findMachineUsers(resolvedIp);
 
         const remoteUser = users.find((u) => u.username === targetUser);
@@ -284,6 +292,7 @@ export const useAuthentication = ({
     [
       targetUser,
       scpTargetIP,
+      scpTargetPort,
       sshTargetIP,
       sshTargetPort,
       ftpTargetIP,
@@ -340,7 +349,7 @@ export const useAuthentication = ({
         if (!targetUser) return undefined;
 
         if (scpTargetIP) {
-          saveAuthorizedKey(targetUser, scpTargetIP, 22);
+          saveAuthorizedKey(targetUser, scpTargetIP, scpTargetPort ?? 22);
           if (scpPerformTransfer) {
             scpTransferAsync = scpPerformTransfer();
           }
@@ -400,6 +409,7 @@ export const useAuthentication = ({
       setSshTargetPort(null);
       setFtpTargetIP(null);
       setScpTargetIP(null);
+      setScpTargetPort(null);
       setScpPerformTransfer(null);
       clearInput();
 
@@ -408,6 +418,7 @@ export const useAuthentication = ({
     [
       targetUser,
       scpTargetIP,
+      scpTargetPort,
       scpPerformTransfer,
       sshTargetIP,
       sshTargetPort,

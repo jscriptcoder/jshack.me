@@ -63,6 +63,7 @@ export type ScpPromptData = {
   readonly __type: 'scp_prompt';
   readonly targetUser: string;
   readonly targetIP: string;
+  readonly targetPort: number;
   readonly performTransfer: () => AsyncOutput;
 };
 
