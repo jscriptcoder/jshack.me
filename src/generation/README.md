@@ -77,7 +77,7 @@ The entry machine's initial access method varies per seed:
 - **exploit** — player scans with `nmap("-sV")` to find vulnerable service, runs `exploit(host, port)` for restricted shell; ports: 22, (80|3306|6379)
 - **http** — player discovers port 80 via nmap, uses `curl` to explore web content; ports: 22, 80
 
-NC and exploit variants select a variable owner type via PRNG: guest (60%), user (30%), or root (10%). This adds difficulty variety — guest owners have limited file visibility, while root owners can read root-only files.
+NC, exploit, and FTP variants select a variable owner type via PRNG: guest (60%), user (30%), or root (10%). NC backdoors exclude root (remapped to user) since backdoors are planted by attackers, not by root on their own machine. This adds difficulty variety — guest owners have limited file visibility, while root owners can read root-only files.
 
 ## Seed Keywords
 

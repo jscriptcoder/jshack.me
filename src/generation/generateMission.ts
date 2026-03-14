@@ -110,14 +110,17 @@ const findUserByType = (
 };
 
 // For NC entry variant: assigns a user as owner of the backdoor port ('elite' service).
-// Owner type is picked by PRNG (guest/user/root) for difficulty variety.
+// Owner type is picked by PRNG (guest/user) — root is excluded because a backdoor is
+// planted by a prior attacker or rogue insider, not by root on their own machine.
 const addNcBackdoorOwner = (
   ports: readonly Port[],
   users: readonly RemoteUser[],
   prng: Prng,
 ): readonly Port[] => {
   const ownerType = pickOwnerType(prng);
-  const owner = findUserByType(users, ownerType);
+  // Backdoors aren't root-owned — remap to user to preserve PRNG sequence
+  const effectiveOwnerType = ownerType === 'root' ? 'user' : ownerType;
+  const owner = findUserByType(users, effectiveOwnerType);
   if (!owner) return ports;
 
   return ports.map((p) =>

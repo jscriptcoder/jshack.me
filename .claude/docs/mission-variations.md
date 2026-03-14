@@ -47,6 +47,8 @@ Owner type for FTP, NC backdoor, and exploit port owners varies per seed, adding
 | user  | 30%    | Hint files in owner's home dir, accessible to that user  |
 | root  | 10%    | Can read root-owned files, easiest to find what's needed |
 
+**NC exception:** Backdoors are planted by prior attackers, not by root on their own machine. NC remaps root → user, so NC backdoors are effectively 60% guest / 40% user (PRNG sequence preserved).
+
 Root owners have hints placed in `/tmp/` instead of `/home/root/` (since root's home is `/root/`, not managed by `generateHomeContent`).
 
 ## Domain Entry Mode

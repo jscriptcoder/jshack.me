@@ -197,7 +197,7 @@ describe('generateMissionNetwork', () => {
       );
       expect(backdoorPort).toBeDefined();
       expect(backdoorPort?.owner).toBeDefined();
-      expect(['guest', 'user', 'root']).toContain(backdoorPort?.owner?.userType);
+      expect(['guest', 'user']).toContain(backdoorPort?.owner?.userType);
       found = true;
       break;
     }
