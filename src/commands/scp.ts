@@ -39,17 +39,23 @@ export const createScpCommand = (context: ScpContext): Command => ({
   category: 'network',
   description: 'Secure copy files between machines',
   manual: {
-    synopsis: 'scp(source, destination)',
+    synopsis: 'scp(source, destination[, port])',
     description:
       'Copy a file from the current machine to a remote machine via SSH. ' +
       'The destination uses user@host:path format. Preserves file permissions from the source. ' +
-      'Requires an open SSH port on the target machine.',
+      'Requires an open SSH port on the target machine. ' +
+      'An optional third argument overrides the SSH port (default: auto-detect).',
     arguments: [
       { name: 'source', description: 'Path to the file on the current machine', required: true },
       {
         name: 'destination',
         description: 'Remote destination in user@host:path format',
         required: true,
+      },
+      {
+        name: 'port',
+        description: 'SSH port to connect on (default: auto-detect)',
+        required: false,
       },
     ],
     examples: [
@@ -58,8 +64,8 @@ export const createScpCommand = (context: ScpContext): Command => ({
         description: 'Copy nmap binary to remote machine',
       },
       {
-        command: 'scp("/tmp/exploit.sh", "ftpuser@10.0.0.5:/home/ftpuser/exploit.sh")',
-        description: 'Copy script to remote server',
+        command: 'scp("/usr/bin/node", "guest@185.13.117.85:/home/guest", 25)',
+        description: 'Copy via forwarded SSH port',
       },
     ],
   },
@@ -75,11 +81,12 @@ export const createScpCommand = (context: ScpContext): Command => ({
     } = context;
 
     if (args.length < 2 || typeof args[0] !== 'string' || typeof args[1] !== 'string') {
-      throw new Error('scp: missing operand\nUsage: scp(source, "user@host:path")');
+      throw new Error('scp: missing operand\nUsage: scp(source, "user@host:path"[, port])');
     }
 
     const sourcePath = args[0];
     const destStr = args[1];
+    const portArg = args[2];
 
     const dest = parseDestination(destStr);
     if (!dest) {
@@ -103,15 +110,44 @@ export const createScpCommand = (context: ScpContext): Command => ({
       throw new Error(`scp: ${sourcePath}: Is a directory`);
     }
 
+    // Parse optional port argument; when omitted, auto-detect SSH service
+    const explicitPort =
+      portArg === undefined
+        ? undefined
+        : typeof portArg === 'number' &&
+            Number.isInteger(portArg) &&
+            portArg >= 1 &&
+            portArg <= 65535
+          ? portArg
+          : (() => {
+              throw new Error(`scp: invalid port '${String(portArg)}'`);
+            })();
+
     // Validate remote machine SSH access
     const machine = getMachine(dest.host);
     if (!machine) {
-      throw new Error(`scp: connect to host ${dest.host} port 22: Connection refused`);
+      throw new Error(
+        `scp: connect to host ${dest.host} port ${explicitPort ?? 22}: Connection refused`,
+      );
     }
 
-    const sshPort = machine.ports.find((p) => p.service === 'ssh' && p.open);
-    if (!sshPort) {
-      throw new Error(`scp: connect to host ${dest.host} port 22: Connection refused`);
+    let port: number;
+    if (explicitPort !== undefined) {
+      // Explicit port: validate it's open (may be a forwarded port, not necessarily 'ssh')
+      const targetPort = machine.ports.find((p) => p.port === explicitPort);
+      if (!targetPort || !targetPort.open) {
+        throw new Error(
+          `scp: connect to host ${dest.host} port ${explicitPort}: Connection refused`,
+        );
+      }
+      port = explicitPort;
+    } else {
+      // Auto-detect: find the first open SSH service port
+      const sshPort = machine.ports.find((p) => p.service === 'ssh' && p.open);
+      if (!sshPort) {
+        throw new Error(`scp: connect to host ${dest.host} port 22: Connection refused`);
+      }
+      port = sshPort.port;
     }
 
     // Validate remote user exists
@@ -122,7 +158,7 @@ export const createScpCommand = (context: ScpContext): Command => ({
 
     // NAT resolution: in forwarded mode, the public router IP maps to the
     // internal entry machine. Filesystem operations use the resolved IP.
-    const resolvedHost = resolveNat(dest.host, sshPort.port).ip;
+    const resolvedHost = resolveNat(dest.host, port).ip;
 
     // If destination is a directory, append source filename
     const remoteNode = context.getNodeFromMachine(resolvedHost, dest.path, '/');
@@ -207,7 +243,7 @@ export const createScpCommand = (context: ScpContext): Command => ({
               __type: 'scp_prompt',
               targetUser: dest.user,
               targetIP: dest.host,
-              targetPort: sshPort.port,
+              targetPort: port,
               performTransfer,
             };
 

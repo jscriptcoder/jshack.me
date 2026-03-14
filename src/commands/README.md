@@ -87,7 +87,7 @@ FTP and NC modes have their own separate command sets and are not restricted.
 | nmap     | `nmap.ts`     | `nmap(["-sV",] target)`      | Network exploration and port scanning; -sV for version/vuln detection (async) |
 | nslookup | `nslookup.ts` | `nslookup(domain)`           | Query DNS to resolve domain to IP address (async)                             |
 | ssh      | `ssh.ts`      | `ssh("user@host"[, port])`   | Connect to remote machine via SSH, optional port (async)                      |
-| scp      | `scp.ts`      | `scp(source, dest)`          | Copy file to remote machine preserving permissions                            |
+| scp      | `scp.ts`      | `scp(source, dest[, port])`  | Copy file to remote machine preserving permissions, optional SSH port         |
 | curl     | `curl.ts`     | `curl(url, [flags])`         | HTTP client for GET/POST requests (async, `-i` for headers, `-X POST`)        |
 | ftp      | `ftp.ts`      | `ftp(host)`                  | Connect to remote machine via FTP (async)                                     |
 | nc       | `nc.ts`       | `nc(host, port)`             | Netcat - connect to arbitrary port (async, interactive for special services)  |

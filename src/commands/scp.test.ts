@@ -273,6 +273,58 @@ describe('scp', () => {
     );
   });
 
+  it('uses explicit port for NAT resolution when provided', () => {
+    const routerMachine: RemoteMachine = {
+      ip: '185.13.117.85',
+      hostname: 'router01',
+      ports: [
+        { port: 22, service: 'ssh', open: true },
+        { port: 25, service: 'smtp', open: true },
+      ],
+      users: [
+        { username: 'guest', passwordHash: 'ghi', userType: 'guest' },
+        { username: 'root', passwordHash: 'abc', userType: 'root' },
+      ],
+    };
+    const createdFiles: {
+      machineId: string;
+      path: string;
+      content: string;
+      permissions?: FilePermissions;
+    }[] = [];
+    const scp = createContext({
+      machines: [routerMachine],
+      createdFiles,
+      resolveNat: (ip, port) =>
+        ip === '185.13.117.85' && port === 25 ? { ip: '10.0.0.10', port: 22 } : { ip, port },
+    });
+    const result = scp.fn('/usr/bin/nmap', 'guest@185.13.117.85:/home/guest', 25) as AsyncOutput;
+    const { followUp } = runAsync(result);
+
+    expect(followUp?.targetPort).toBe(25);
+
+    const transferAsync = followUp!.performTransfer();
+    runAsync(transferAsync);
+
+    // File is created on the internal machine behind port 25, not the router
+    expect(createdFiles).toHaveLength(1);
+    expect(createdFiles[0]?.machineId).toBe('10.0.0.10');
+  });
+
+  it('throws when explicit port is not open', () => {
+    const scp = createContext();
+    expect(() => scp.fn('/usr/bin/nmap', 'guest@192.168.1.50:/home/guest/nmap', 9999)).toThrow(
+      'Connection refused',
+    );
+  });
+
+  it('throws when explicit port is invalid', () => {
+    const scp = createContext();
+    expect(() => scp.fn('/usr/bin/nmap', 'guest@192.168.1.50:/home/guest/nmap', 'abc')).toThrow(
+      'invalid port',
+    );
+  });
+
   it('resolves NAT to write file on internal machine', () => {
     const routerMachine: RemoteMachine = {
       ip: '45.33.100.1',
