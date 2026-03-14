@@ -14,7 +14,65 @@ import {
   portTemplatesByRole,
   entryPortTemplates,
   routerEntryPortTemplates,
+  backdoorPorts,
 } from './pools';
+import { vulnerabilityTemplates } from './pools';
+
+const allVariants: readonly EntryVariant[] = ['ssh', 'ftp', 'nc', 'exploit', 'http'];
+
+// Builds ports for a machine by combining role-based ports with access variant extras.
+// SSH variant: role ports unchanged. FTP: ensures port 21 open. NC: adds backdoor port.
+// Exploit: ensures a vulnerable port is open. HTTP: ensures port 80 open.
+const buildVariantPorts = (
+  prng: Prng,
+  role: MachineRole,
+  variant: EntryVariant,
+): readonly Port[] => {
+  const rolePorts = buildPorts(role);
+
+  // Always consume one PRNG call for NC backdoor port selection (sequence stability)
+  const backdoorPort = prng.pick(backdoorPorts);
+
+  if (variant === 'ssh') return rolePorts;
+
+  if (variant === 'ftp') {
+    const hasFtp = rolePorts.some((p) => p.port === 21);
+    if (hasFtp) {
+      return rolePorts.map((p) => (p.port === 21 ? { ...p, open: true } : p));
+    }
+    return [...rolePorts, { port: 21, service: 'ftp', open: true }];
+  }
+
+  if (variant === 'nc') {
+    return [...rolePorts, { port: backdoorPort, service: 'elite', open: true }];
+  }
+
+  if (variant === 'exploit') {
+    // Find an existing open port that matches a vulnerability template
+    const existingVuln = rolePorts.find(
+      (p) => p.open && vulnerabilityTemplates.some((v) => v.port === p.port),
+    );
+    if (existingVuln) return rolePorts;
+
+    // No matching open port — find a closed role port with a vuln template and open it
+    const closedVuln = rolePorts.find(
+      (p) => !p.open && vulnerabilityTemplates.some((v) => v.port === p.port),
+    );
+    if (closedVuln) {
+      return rolePorts.map((p) => (p.port === closedVuln.port ? { ...p, open: true } : p));
+    }
+
+    // No role port matches — add port 80 (http) which has a vulnerability template
+    return [...rolePorts, { port: 80, service: 'http', open: true }];
+  }
+
+  // HTTP variant
+  const hasHttp = rolePorts.some((p) => p.port === 80);
+  if (hasHttp) {
+    return rolePorts.map((p) => (p.port === 80 ? { ...p, open: true } : p));
+  }
+  return [...rolePorts, { port: 80, service: 'http', open: true }];
+};
 
 export type TopologyResult = {
   readonly machines: readonly GeneratedMachine[];
@@ -182,15 +240,21 @@ export const generateTopology = (
     const ip = `${subnet}.${10 + i}`;
     const hostname = pickUniqueHostname(role);
     const isEntry = i === 0;
-    // In forwarded mode, entry machine gets the entry variant ports (player connects directly).
-    // In router-first mode, the entry variant is on the router — internal entry uses role defaults.
+    // Entry machine gets the internal entry variant; non-entry machines get PRNG-picked variants
+    const accessVariant = isEntry ? internalEntryVariant : prng.pick(allVariants);
+
+    // In forwarded mode, entry machine gets the entry template ports (player connects directly).
+    // All other machines get variant-specific ports (role base + access variant extras).
     const ports =
-      isEntry && forwarded ? buildPortsFromTemplate(entryTemplate.ports) : buildPorts(role);
+      isEntry && forwarded
+        ? buildPortsFromTemplate(entryTemplate.ports)
+        : buildVariantPorts(prng, role, accessVariant);
 
     return {
       ip,
       hostname,
       role,
+      accessVariant,
       remoteMachine: {
         ip,
         hostname,
@@ -208,10 +272,15 @@ export const generateTopology = (
     ? buildPortsFromTemplate(routerTemplate.ports)
     : buildPorts('router');
 
+  // Router access variant: in router-first mode, uses the entry variant (player hacks router).
+  // In forwarded mode, router is accessed via SSH (player pivots through it).
+  const routerAccessVariant: EntryVariant = forwarded ? 'ssh' : entryVariant;
+
   const routerMachine: GeneratedMachine = {
     ip: routerPublicIp,
     hostname: routerHostname,
     role: 'router',
+    accessVariant: routerAccessVariant,
     remoteMachine: {
       ip: routerPublicIp,
       hostname: routerHostname,
@@ -220,9 +289,15 @@ export const generateTopology = (
     },
   };
 
-  // NAT forwarding config (forwarded mode only)
+  // NAT forwarding config (forwarded mode only) — port-level rules from entry machine
   const natForwarding: NatForwarding | undefined = forwarded
-    ? { publicIp: routerPublicIp, internalIp: entryIp }
+    ? {
+        publicIp: routerPublicIp,
+        rules:
+          machines[0]?.remoteMachine.ports
+            .filter((p) => p.open)
+            .map((p) => ({ publicPort: p.port, internalIp: entryIp, internalPort: p.port })) ?? [],
+      }
     : undefined;
 
   // DNS: internal records for all mission machines + router internal IP

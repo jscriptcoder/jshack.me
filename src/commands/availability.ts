@@ -1,5 +1,6 @@
 import type { Command } from '../components/Terminal/types';
 import type { FileNode } from '../filesystem/types';
+import type { UserType } from '../session/SessionContext';
 
 // Shell builtins — always available, no binary needed
 const SHELL_BUILTINS = new Set(['cd', 'exit', 'clear', 'echo', 'pwd', 'help', 'whoami']);
@@ -15,6 +16,7 @@ const GAME_COMMANDS = new Set([
   'author',
   'theme',
   'reset',
+  'xterm',
 ]);
 
 // Commands that require `apt install` on remote machines.
@@ -28,7 +30,7 @@ export const APT_INSTALLABLE = new Set([
   'airmon',
   'airdump',
   'aircrack',
-  'decrypt',
+  'gpg',
   'node',
   'hydra',
   'gobuster',
@@ -49,7 +51,11 @@ export const APT_PACKAGES: readonly AptPackageInfo[] = [
   { name: 'airmon', description: 'Wireless monitor mode manager', version: '1.7' },
   { name: 'airdump', description: 'Wireless network scanner', version: '1.7' },
   { name: 'aircrack', description: 'Wireless key cracker', version: '1.7' },
-  { name: 'decrypt', description: 'File decryption utility', version: '1.0.0' },
+  {
+    name: 'gpg',
+    description: 'GNU Privacy Guard — file encryption and decryption',
+    version: '2.4.4',
+  },
   { name: 'node', description: 'Node.js JavaScript runtime', version: '20.11.0' },
   { name: 'hydra', description: 'Network login brute-force tool', version: '9.4' },
   { name: 'gobuster', description: 'Directory/file enumeration tool', version: '3.6' },
@@ -75,6 +81,8 @@ export const SYSTEM_UTILITY_NAMES = [
   'nmcli',
   'apt',
   'rm',
+  'chmod',
+  'scp',
   'reboot',
 ] as const;
 
@@ -88,11 +96,18 @@ export const APT_TOOL_NAMES = [
   'airmon',
   'airdump',
   'aircrack',
-  'decrypt',
+  'gpg',
   'node',
   'hydra',
   'gobuster',
 ] as const;
+
+// Binaries with restricted execute permissions (root-only).
+// All other binaries default to world-executable ['root', 'user', 'guest'].
+export const RESTRICTED_EXECUTE: Readonly<Record<string, readonly UserType[]>> = {
+  reboot: ['root'],
+  gpg: ['root'],
+};
 
 // Creates binary stub FileNode entries for populating /bin/ or /usr/bin/
 export const createBinaryEntries = (names: readonly string[]): Readonly<Record<string, FileNode>> =>
@@ -106,39 +121,86 @@ export const createBinaryEntries = (names: readonly string[]): Readonly<Record<s
         permissions: {
           read: ['root', 'user', 'guest'] as const,
           write: ['root'] as const,
-          execute: ['root', 'user', 'guest'] as const,
+          execute: (RESTRICTED_EXECUTE[name] ?? ['root', 'user', 'guest']) as readonly UserType[],
         },
         content: BINARY_STUB,
       },
     ]),
   );
 
-// Checks whether a command is available on the current machine.
-// Builtins, game commands, and anything on localhost are always available.
-// Apt-installable commands require /usr/bin/<name> to exist on the machine.
-export const isCommandInstalled = (
+// Returns true if a command doesn't need a binary check (builtin or game command)
+const isAlwaysAvailable = (name: string): boolean =>
+  SHELL_BUILTINS.has(name) || GAME_COMMANDS.has(name);
+
+// Finds a command's binary in the filesystem, checking cwd → /bin/ → /usr/bin/
+const findBinary = (
   name: string,
   machine: string,
   getNode: (machineId: string, path: string, cwd: string) => FileNode | null,
-): boolean => {
-  if (machine === 'localhost') return true;
-  if (SHELL_BUILTINS.has(name) || GAME_COMMANDS.has(name)) return true;
-  if (!APT_INSTALLABLE.has(name)) return true;
-  return getNode(machine, `/usr/bin/${name}`, '/') !== null;
+  currentPath?: string,
+): FileNode | null => {
+  if (currentPath) {
+    const cwdBinary = getNode(machine, `${currentPath}/${name}`, '/');
+    if (cwdBinary) return cwdBinary;
+  }
+  const binBinary = getNode(machine, `/bin/${name}`, '/');
+  if (binBinary) return binBinary;
+  return getNode(machine, `/usr/bin/${name}`, '/');
 };
 
-// Higher-order function that wraps a command with an install check.
-// The isInstallRequired closure is evaluated at execution time (not wrap time),
-// so it always reflects the current filesystem state.
-export const wrapWithInstallCheck = (
+// Checks whether a command is visible on the current machine (for help/tab-complete).
+// Builtins and game commands are always visible. Other commands need a binary in /bin/ or /usr/bin/.
+export const isCommandVisible = (
+  name: string,
+  machine: string,
+  getNode: (machineId: string, path: string, cwd: string) => FileNode | null,
+  currentPath?: string,
+): boolean => {
+  if (isAlwaysAvailable(name)) return true;
+  return findBinary(name, machine, getNode, currentPath) !== null;
+};
+
+// Checks whether a command can be executed by the current user on this machine.
+// Returns { found, permitted } — found=false means binary missing, permitted=false
+// means binary exists but user lacks execute permission.
+export const checkCommandAccess = (
+  name: string,
+  machine: string,
+  getNode: (machineId: string, path: string, cwd: string) => FileNode | null,
+  currentPath: string | undefined,
+  userType: UserType,
+): { readonly found: boolean; readonly permitted: boolean } => {
+  if (isAlwaysAvailable(name)) return { found: true, permitted: true };
+
+  const binary = findBinary(name, machine, getNode, currentPath);
+  if (!binary) return { found: false, permitted: false };
+
+  return {
+    found: true,
+    permitted: userType === 'root' || binary.permissions.execute.includes(userType),
+  };
+};
+
+// Higher-order function that wraps a command with a unified access check.
+// Checks binary existence and execute permissions at execution time.
+export const wrapWithAccessCheck = (
   cmd: Command,
   name: string,
-  isInstallRequired: () => boolean,
+  getAccess: () => { readonly found: boolean; readonly permitted: boolean },
 ): Command => ({
   ...cmd,
   fn: (...args: unknown[]) => {
-    if (isInstallRequired()) {
-      throw new Error(`bash: ${name}: command not found. Install with: apt('install', '${name}')`);
+    const { found, permitted } = getAccess();
+    if (!found) {
+      if (APT_INSTALLABLE.has(name)) {
+        throw new Error(
+          `bash: ${name}: command not found. Install with: apt('install', '${name}')`,
+        );
+      }
+      throw new Error(`bash: ${name}: command not found`);
+    }
+    if (!permitted) {
+      throw new Error(`bash: ${name}: Permission denied`);
     }
     return cmd.fn(...args);
   },

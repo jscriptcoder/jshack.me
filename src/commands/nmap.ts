@@ -61,6 +61,7 @@ const parseNmapArgs = (
 
 export const createNmapCommand = (context: NmapContext): Command => ({
   name: 'nmap',
+  category: 'network',
   description: 'Network exploration and port scanning',
   manual: {
     synopsis: 'nmap(target[, "-sV"]) | nmap("-sV", target)',
@@ -117,58 +118,56 @@ export const createNmapCommand = (context: NmapContext): Command => ({
 
           const foundHosts: string[] = [];
           let scannedCount = 0;
+          let delay = 0;
 
           for (let i = range.start; i <= range.end; i++) {
-            const index = i - range.start;
-            token.schedule(
-              () => {
-                if (token.isCancelled()) return;
+            delay += jitter(SCAN_DELAY_MS);
+            token.schedule(() => {
+              if (token.isCancelled()) return;
 
-                const ip = `${range.baseIP}.${i}`;
-                scannedCount++;
+              const ip = `${range.baseIP}.${i}`;
+              scannedCount++;
 
-                if (ip === localIP) {
-                  foundHosts.push(`${ip} - localhost (this machine)`);
-                  onLine(`Host discovered: ${ip} (localhost)`);
-                } else {
-                  const machine = machines.find((m) => m.ip === ip);
-                  if (machine) {
-                    const openPorts = machine.ports.filter((p) => p.open);
-                    const services = versionScan
-                      ? openPorts
-                          .map((p) =>
-                            p.vulnerability
-                              ? `${p.service} ${p.vulnerability.serviceVersion}`
-                              : p.service,
-                          )
-                          .join(', ')
-                      : openPorts.map((p) => p.service).join(', ');
-                    foundHosts.push(`${ip} - ${machine.hostname} (${services || 'no open ports'})`);
-                    onLine(`Host discovered: ${ip} (${machine.hostname})`);
+              if (ip === localIP) {
+                foundHosts.push(`${ip} - localhost (this machine)`);
+                onLine(`Host discovered: ${ip} (localhost)`);
+              } else {
+                const machine = machines.find((m) => m.ip === ip);
+                if (machine) {
+                  const openPorts = machine.ports.filter((p) => p.open);
+                  const services = versionScan
+                    ? openPorts
+                        .map((p) =>
+                          p.vulnerability
+                            ? `${p.service} ${p.vulnerability.serviceVersion}`
+                            : p.service,
+                        )
+                        .join(', ')
+                    : openPorts.map((p) => p.service).join(', ');
+                  foundHosts.push(`${ip} - ${machine.hostname} (${services || 'no open ports'})`);
+                  onLine(`Host discovered: ${ip} (${machine.hostname})`);
+                }
+              }
+
+              if (scannedCount === totalIPs) {
+                token.schedule(() => {
+                  if (token.isCancelled()) return;
+
+                  onLine('');
+                  if (foundHosts.length === 0) {
+                    onLine('No hosts found in range.');
+                  } else {
+                    onLine('Scan complete. Summary:');
+                    foundHosts.forEach((host) => onLine(`  ${host}`));
                   }
-                }
-
-                if (scannedCount === totalIPs) {
-                  token.schedule(() => {
-                    if (token.isCancelled()) return;
-
-                    onLine('');
-                    if (foundHosts.length === 0) {
-                      onLine('No hosts found in range.');
-                    } else {
-                      onLine('Scan complete. Summary:');
-                      foundHosts.forEach((host) => onLine(`  ${host}`));
-                    }
-                    onLine('');
-                    onLine(
-                      `Nmap done: ${totalIPs} IP addresses scanned, ${foundHosts.length} hosts up`,
-                    );
-                    onComplete();
-                  }, jitter(300));
-                }
-              },
-              jitter(index * SCAN_DELAY_MS),
-            );
+                  onLine('');
+                  onLine(
+                    `Nmap done: ${totalIPs} IP addresses scanned, ${foundHosts.length} hosts up`,
+                  );
+                  onComplete();
+                }, jitter(300));
+              }
+            }, delay);
           }
         },
         cancel: token.cancel,
@@ -228,6 +227,8 @@ export const createNmapCommand = (context: NmapContext): Command => ({
         onLine(`Starting Nmap scan on ${target}${versionScan ? ' (version detection)' : ''}`);
         onLine('Scanning ports...');
 
+        let delay = jitter(400);
+
         token.schedule(() => {
           if (token.isCancelled()) return;
           onLine('');
@@ -238,36 +239,35 @@ export const createNmapCommand = (context: NmapContext): Command => ({
             ? 'PORT      STATE  SERVICE         VERSION'
             : 'PORT      STATE  SERVICE';
           onLine(header);
-        }, jitter(400));
+        }, delay);
 
         if (sortedPorts.length === 0) {
+          delay += jitter(200);
           token.schedule(() => {
             if (token.isCancelled()) return;
             onLine('All scanned ports are closed.');
             onComplete();
-          }, jitter(600));
+          }, delay);
         } else {
           sortedPorts.forEach((port, index) => {
-            token.schedule(
-              () => {
-                if (token.isCancelled()) return;
-                onLine(formatPortLine(port, versionScan));
+            delay += jitter(PORT_SCAN_DELAY_MS);
+            token.schedule(() => {
+              if (token.isCancelled()) return;
+              onLine(formatPortLine(port, versionScan));
 
-                if (index === sortedPorts.length - 1) {
-                  token.schedule(() => {
-                    if (token.isCancelled()) return;
+              if (index === sortedPorts.length - 1) {
+                token.schedule(() => {
+                  if (token.isCancelled()) return;
 
-                    if (versionScan) {
-                      const vulnLines = formatVulnerabilitySection(openPorts);
-                      vulnLines.forEach((line) => onLine(line));
-                    }
+                  if (versionScan) {
+                    const vulnLines = formatVulnerabilitySection(openPorts);
+                    vulnLines.forEach((line) => onLine(line));
+                  }
 
-                    onComplete();
-                  }, jitter(200));
-                }
-              },
-              jitter(500 + (index + 1) * PORT_SCAN_DELAY_MS),
-            );
+                  onComplete();
+                }, jitter(200));
+              }
+            }, delay);
           });
         }
       },

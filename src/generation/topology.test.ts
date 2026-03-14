@@ -186,14 +186,17 @@ describe('generateTopology', () => {
     });
   });
 
-  it('forwarded mode sets natForwarding with correct IPs', () => {
+  it('forwarded mode sets natForwarding with port-level rules', () => {
     // Search for a seed that produces forwarded mode
     let found = false;
     for (let i = 0; i < 50; i++) {
       const result = generateTopology(createPrng(`fwd-${i}`), 'easy');
       if (result.natForwarding) {
         expect(result.natForwarding.publicIp).toBe(result.routerPublicIp);
-        expect(result.natForwarding.internalIp).toBe(result.entryPoint);
+        expect(result.natForwarding.rules.length).toBeGreaterThan(0);
+        result.natForwarding.rules.forEach((rule) => {
+          expect(rule.internalIp).toBe(result.entryPoint);
+        });
         found = true;
         break;
       }
@@ -251,5 +254,129 @@ describe('generateTopology', () => {
         expect(m.ip).not.toMatch(/^192\.168\.1\./);
       });
     });
+  });
+
+  // Variant-specific port tests
+  it('NC variant machines have a backdoor port with elite service', () => {
+    const results = Array.from({ length: 30 }, (_, i) =>
+      generateTopology(createPrng(`nc-port-${i}`), 'hard'),
+    );
+    const ncMachines = results.flatMap((r) => r.machines).filter((m) => m.accessVariant === 'nc');
+    expect(ncMachines.length).toBeGreaterThan(0);
+    ncMachines.forEach((m) => {
+      const backdoor = m.remoteMachine.ports.find((p) => p.service === 'elite' && p.open);
+      expect(backdoor).toBeDefined();
+      expect([4444, 31337, 8888, 1337]).toContain(backdoor?.port);
+    });
+  });
+
+  it('FTP variant machines have port 21 open', () => {
+    const results = Array.from({ length: 30 }, (_, i) =>
+      generateTopology(createPrng(`ftp-port-${i}`), 'hard'),
+    );
+    const ftpMachines = results.flatMap((r) => r.machines).filter((m) => m.accessVariant === 'ftp');
+    expect(ftpMachines.length).toBeGreaterThan(0);
+    ftpMachines.forEach((m) => {
+      const ftpPort = m.remoteMachine.ports.find((p) => p.port === 21);
+      expect(ftpPort).toBeDefined();
+      expect(ftpPort?.open).toBe(true);
+    });
+  });
+
+  it('HTTP variant machines have port 80 open', () => {
+    const results = Array.from({ length: 30 }, (_, i) =>
+      generateTopology(createPrng(`http-port-${i}`), 'hard'),
+    );
+    const httpMachines = results
+      .flatMap((r) => r.machines)
+      .filter((m) => m.accessVariant === 'http');
+    expect(httpMachines.length).toBeGreaterThan(0);
+    httpMachines.forEach((m) => {
+      const httpPort = m.remoteMachine.ports.find((p) => p.port === 80 && p.open);
+      expect(httpPort).toBeDefined();
+    });
+  });
+
+  it('exploit variant machines have a port matching a vulnerability template', () => {
+    const vulnerablePorts = [80, 3306, 6379, 8080, 9200, 8443];
+    const results = Array.from({ length: 30 }, (_, i) =>
+      generateTopology(createPrng(`exploit-port-${i}`), 'hard'),
+    );
+    const exploitMachines = results
+      .flatMap((r) => r.machines)
+      .filter((m) => m.accessVariant === 'exploit');
+    expect(exploitMachines.length).toBeGreaterThan(0);
+    exploitMachines.forEach((m) => {
+      const hasVulnPort = m.remoteMachine.ports.some(
+        (p) => vulnerablePorts.includes(p.port) && p.open,
+      );
+      expect(hasVulnPort).toBe(true);
+    });
+  });
+
+  it('all machines still have SSH port 22', () => {
+    const results = Array.from({ length: 20 }, (_, i) =>
+      generateTopology(createPrng(`ssh-still-${i}`), 'hard'),
+    );
+    results
+      .flatMap((r) => r.machines)
+      .forEach((m) => {
+        const sshPort = m.remoteMachine.ports.find((p) => p.port === 22);
+        expect(sshPort).toBeDefined();
+      });
+  });
+
+  // accessVariant tests
+  it('every machine has an accessVariant field', () => {
+    const result = generateTopology(createPrng('variant-test'), 'medium');
+    result.machines.forEach((m) => {
+      expect(m.accessVariant).toBeDefined();
+      expect(['ssh', 'ftp', 'nc', 'exploit', 'http']).toContain(m.accessVariant);
+    });
+    expect(result.routerMachine.accessVariant).toBeDefined();
+  });
+
+  it('in forwarded mode, entry machine accessVariant matches entryVariant', () => {
+    // In forwarded mode, the entry machine IS the player-facing entry point
+    const results = Array.from({ length: 30 }, (_, i) =>
+      generateTopology(createPrng(`entry-var-${i}`), 'easy'),
+    );
+    results
+      .filter((r) => r.natForwarding !== undefined)
+      .forEach((r) => {
+        const entry = r.machines.find((m) => m.ip === r.entryPoint);
+        expect(entry?.accessVariant).toBe(r.entryVariant);
+      });
+  });
+
+  it('in router-first mode, router accessVariant matches entryVariant', () => {
+    // In router-first mode, the router IS the player-facing entry point
+    const results = Array.from({ length: 30 }, (_, i) =>
+      generateTopology(createPrng(`router-var-${i}`), 'hard'),
+    );
+    results.forEach((r) => {
+      expect(r.routerMachine.accessVariant).toBe(r.entryVariant);
+    });
+  });
+
+  it('accessVariant is deterministic for the same seed', () => {
+    const a = generateTopology(createPrng('det-variant'), 'medium');
+    const b = generateTopology(createPrng('det-variant'), 'medium');
+    a.machines.forEach((m, i) => {
+      expect(m.accessVariant).toBe(b.machines[i]?.accessVariant);
+    });
+    expect(a.routerMachine.accessVariant).toBe(b.routerMachine.accessVariant);
+  });
+
+  it('non-entry machines have varied accessVariants across seeds', () => {
+    const variants = new Set<string>();
+    Array.from({ length: 30 }, (_, i) => {
+      const result = generateTopology(createPrng(`variety-${i}`), 'hard');
+      result.machines
+        .filter((m) => m.ip !== result.entryPoint)
+        .forEach((m) => variants.add(m.accessVariant));
+    });
+    // With 5 possible variants and 30 seeds (hard = 4-6 machines each), expect at least 3
+    expect(variants.size).toBeGreaterThanOrEqual(3);
   });
 });

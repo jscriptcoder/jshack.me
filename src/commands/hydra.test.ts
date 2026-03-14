@@ -32,6 +32,8 @@ const createMockContext = (config: HydraContextConfig = {}) => {
     getMachine: (ip: string) => machines.find((m) => m.ip === ip),
     getLocalIP: () => localIP,
     resolveDomain: (domain: string) => dnsRecords.find((r) => r.domain === domain),
+    resolveNat: (ip: string, _port: number) => ({ ip, port: _port }),
+    findMachineUsers: (ip: string) => machines.find((m) => m.ip === ip)?.users ?? [],
   };
 };
 

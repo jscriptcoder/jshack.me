@@ -97,6 +97,7 @@ const verifyProof = (
 
 export const createMailCommand = (context: MailCommandContext): Command => ({
   name: 'mail',
+  category: 'mission',
   description: 'Send proof to a darknet client to complete a mission',
   manual: {
     synopsis: 'mail(recipient, content)',
@@ -161,16 +162,20 @@ export const createMailCommand = (context: MailCommandContext): Command => ({
       start: (onLine, onComplete) => {
         onLine(`Connecting to darkmail.onion...`);
 
+        let delay = jitter(600);
+
         token.schedule(() => {
           if (token.isCancelled()) return;
           onLine(`Encrypting message for ${trimmedRecipient}...`);
-        }, jitter(600));
+        }, delay);
 
+        delay += jitter(800);
         token.schedule(() => {
           if (token.isCancelled()) return;
           onLine('Routing through onion network...');
-        }, jitter(1400));
+        }, delay);
 
+        delay += jitter(1000);
         token.schedule(() => {
           if (token.isCancelled()) return;
           onLine('Message delivered.');
@@ -181,7 +186,7 @@ export const createMailCommand = (context: MailCommandContext): Command => ({
           formatCompletionDetails(mission).forEach((line) => onLine(line));
 
           onComplete();
-        }, jitter(2400));
+        }, delay);
       },
       cancel: token.cancel,
     };

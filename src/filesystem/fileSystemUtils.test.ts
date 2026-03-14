@@ -248,6 +248,73 @@ describe('applyPatches', () => {
     expect(node?.owner).toBe('user');
   });
 
+  it('creates new file with no execute permission by default', () => {
+    const patch: FileSystemPatch = {
+      machineId: 'localhost',
+      path: '/home/jshacker/new.txt',
+      content: 'new file',
+      owner: 'user',
+    };
+    const result = applyPatches(baseState, [patch]);
+    const node = getNodeAtPath(result['localhost'], '/home/jshacker/new.txt');
+    expect(node?.permissions.execute).toEqual(['root']);
+    expect(node?.permissions.read).toEqual(['root', 'user']);
+    expect(node?.permissions.write).toEqual(['root', 'user']);
+  });
+
+  it('uses explicit permissions from patch when provided', () => {
+    const patch: FileSystemPatch = {
+      machineId: 'localhost',
+      path: '/home/jshacker/script.sh',
+      content: '#!/bin/bash',
+      owner: 'user',
+      permissions: {
+        read: ['root', 'user', 'guest'],
+        write: ['root', 'user'],
+        execute: ['root', 'user', 'guest'],
+      },
+    };
+    const result = applyPatches(baseState, [patch]);
+    const node = getNodeAtPath(result['localhost'], '/home/jshacker/script.sh');
+    expect(node?.permissions.execute).toEqual(['root', 'user', 'guest']);
+    expect(node?.permissions.read).toEqual(['root', 'user', 'guest']);
+    expect(node?.permissions.write).toEqual(['root', 'user']);
+  });
+
+  it('preserves existing file permissions when updating content only', () => {
+    const existingNode = getNodeAtPath(baseState['localhost'], '/home/jshacker/notes.txt');
+    const originalPerms = existingNode?.permissions;
+
+    const patch: FileSystemPatch = {
+      machineId: 'localhost',
+      path: '/home/jshacker/notes.txt',
+      content: 'updated content',
+      owner: 'user',
+    };
+    const result = applyPatches(baseState, [patch]);
+    const node = getNodeAtPath(result['localhost'], '/home/jshacker/notes.txt');
+    expect(node?.content).toBe('updated content');
+    expect(node?.permissions).toEqual(originalPerms);
+  });
+
+  it('overrides existing file permissions when patch includes permissions', () => {
+    const patch: FileSystemPatch = {
+      machineId: 'localhost',
+      path: '/home/jshacker/notes.txt',
+      content: 'updated content',
+      owner: 'user',
+      permissions: {
+        read: ['root', 'user', 'guest'],
+        write: ['root'],
+        execute: ['root', 'user'],
+      },
+    };
+    const result = applyPatches(baseState, [patch]);
+    const node = getNodeAtPath(result['localhost'], '/home/jshacker/notes.txt');
+    expect(node?.permissions.execute).toEqual(['root', 'user']);
+    expect(node?.permissions.read).toEqual(['root', 'user', 'guest']);
+  });
+
   it('updates an existing file via patch', () => {
     const patch: FileSystemPatch = {
       machineId: 'localhost',
@@ -349,5 +416,31 @@ describe('isValidPatch', () => {
     expect(isValidPatch({ ...validBase, owner: 'root' })).toBe(true);
     expect(isValidPatch({ ...validBase, owner: 'user' })).toBe(true);
     expect(isValidPatch({ ...validBase, owner: 'guest' })).toBe(true);
+  });
+
+  it('should accept a valid patch with permissions', () => {
+    expect(
+      isValidPatch({
+        ...validBase,
+        permissions: {
+          read: ['root', 'user'],
+          write: ['root'],
+          execute: ['root', 'user'],
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it('should accept a valid patch without permissions (undefined)', () => {
+    expect(isValidPatch(validBase)).toBe(true);
+    expect(validBase).not.toHaveProperty('permissions');
+  });
+
+  it('should reject a patch with invalid permissions structure', () => {
+    expect(isValidPatch({ ...validBase, permissions: 'rwx' })).toBe(false);
+    expect(isValidPatch({ ...validBase, permissions: { read: ['root'] } })).toBe(false);
+    expect(
+      isValidPatch({ ...validBase, permissions: { read: 'root', write: [], execute: [] } }),
+    ).toBe(false);
   });
 });

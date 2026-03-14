@@ -11,6 +11,7 @@ type NanoContext = {
 
 export const createNanoCommand = (context: NanoContext): Command => ({
   name: 'nano',
+  category: 'filesystem',
   description: 'Open a file in the text editor',
   manual: {
     synopsis: 'nano(path)',

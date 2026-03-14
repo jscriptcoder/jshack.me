@@ -44,6 +44,7 @@ const parseArgs = (
 
 export const createRmCommand = (context: RmContext): Command => ({
   name: 'rm',
+  category: 'filesystem',
   description: 'Remove files or directories',
   manual: {
     synopsis: 'rm([flags], path, [path2, ...])',

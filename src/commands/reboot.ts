@@ -32,6 +32,7 @@ const DELAY = {
 
 export const createRebootCommand = (context: RebootContext): Command => ({
   name: 'reboot',
+  category: 'filesystem',
   description: 'Reboot the current machine',
   manual: {
     synopsis: 'reboot()',

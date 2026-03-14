@@ -1,14 +1,19 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
-import type { FileNode } from '../filesystem/types';
+import type { FileNode, FilePermissions } from '../filesystem/types';
 import type { PermissionResult } from '../filesystem/types';
 import type { UserType } from '../session/SessionContext';
-import { APT_PACKAGES, APT_INSTALLABLE, BINARY_STUB } from './availability';
+import { APT_PACKAGES, APT_INSTALLABLE, BINARY_STUB, RESTRICTED_EXECUTE } from './availability';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 type AptContext = {
   readonly getMachine: () => string;
   readonly getNode: (path: string) => FileNode | null;
-  readonly createFile: (path: string, content: string, userType: UserType) => PermissionResult;
+  readonly createFile: (
+    path: string,
+    content: string,
+    userType: UserType,
+    permissions?: FilePermissions,
+  ) => PermissionResult;
   readonly getUserType: () => UserType;
 };
 
@@ -89,19 +94,24 @@ const handleInstall = (packageName: string, context: AptContext): AsyncOutput | 
         `Processing triggers for man-db ...`,
       ];
 
-      lines.forEach((line, i) => {
-        token.schedule(
-          () => {
-            if (token.isCancelled()) return;
-            onLine(line);
+      let delay = 0;
 
-            if (i === lines.length - 1) {
-              createFile(`/usr/bin/${packageName}`, BINARY_STUB, 'root');
-              onComplete();
-            }
-          },
-          jitter((i + 1) * 200),
-        );
+      lines.forEach((line, i) => {
+        delay += jitter(200);
+        token.schedule(() => {
+          if (token.isCancelled()) return;
+          onLine(line);
+
+          if (i === lines.length - 1) {
+            const binaryPermissions: FilePermissions = {
+              read: ['root', 'user', 'guest'],
+              write: ['root'],
+              execute: RESTRICTED_EXECUTE[packageName] ?? ['root', 'user', 'guest'],
+            };
+            createFile(`/usr/bin/${packageName}`, BINARY_STUB, 'root', binaryPermissions);
+            onComplete();
+          }
+        }, delay);
       });
     },
     cancel: token.cancel,
@@ -110,6 +120,7 @@ const handleInstall = (packageName: string, context: AptContext): AsyncOutput | 
 
 export const createAptCommand = (context: AptContext): Command => ({
   name: 'apt',
+  category: 'general',
   description: 'Package manager — install tools on remote machines',
   manual: {
     synopsis: "apt('install', packageName) | apt('list', ['-i'])",

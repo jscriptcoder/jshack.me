@@ -4,11 +4,14 @@ import type {
   MachineNetworkConfig,
   NetworkInterface,
   RemoteMachine,
+  RemoteUser,
   DnsRecord,
 } from './types';
-import type { GeneratedMachine, NatForwarding } from '../generation/types';
+import type { GeneratedMachine, NatForwardingRule } from '../generation/types';
 import { createInitialNetwork, localhostDisconnectedInterfaces } from './initialNetwork';
 import { useSession } from '../session/SessionContext';
+import { useFileSystem } from '../filesystem';
+import { parseIptablesRules } from './iptablesParser';
 
 type NetworkContextType = {
   readonly config: NetworkConfig;
@@ -20,8 +23,8 @@ type NetworkContextType = {
   readonly getLocalIP: () => string;
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
   readonly getDnsRecords: () => readonly DnsRecord[];
-  readonly findMachineUsers: (ip: string) => readonly string[];
-  readonly resolveNat: (ip: string) => string;
+  readonly findMachineUsers: (ip: string) => readonly RemoteUser[];
+  readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
 };
 
 const NetworkContext = createContext<NetworkContextType | null>(null);
@@ -36,7 +39,6 @@ type NetworkProviderProps = {
   readonly children: ReactNode;
   readonly missionNetworkConfig?: NetworkConfig;
   readonly missionMachines?: readonly GeneratedMachine[];
-  readonly missionNatForwarding?: NatForwarding;
   readonly missionRouterMachine?: GeneratedMachine;
 };
 
@@ -44,13 +46,23 @@ export const NetworkProvider = ({
   children,
   missionNetworkConfig,
   missionMachines,
-  missionNatForwarding,
   missionRouterMachine,
 }: NetworkProviderProps) => {
   const [config] = useState<NetworkConfig>(createInitialNetwork);
   const { session, wifiConnected } = useSession();
+  const { getNodeFromMachine } = useFileSystem();
 
   const isLocalhostDisconnected = session.machine === 'localhost' && !wifiConnected;
+
+  // Dynamic iptables rules: read and parse /etc/iptables/rules.v4 from the
+  // router's filesystem on every render. When the player edits the file with
+  // nano, the filesystem state updates, triggering re-render and re-parse.
+  const iptablesRules = useMemo((): readonly NatForwardingRule[] => {
+    if (!missionRouterMachine) return [];
+    const node = getNodeFromMachine(missionRouterMachine.ip, '/etc/iptables/rules.v4', '/');
+    if (!node || node.type !== 'file' || !node.content) return [];
+    return parseIptablesRules(node.content);
+  }, [missionRouterMachine, getNodeFromMachine]);
 
   // Multi-tier network config resolution for the current machine:
   // 1. Mission config (if on a mission-generated machine)
@@ -74,14 +86,13 @@ export const NetworkProvider = ({
 
     if (session.machine === 'localhost' && missionNetworkConfig && missionRouterMachine) {
       // From localhost, only the router's public IP is reachable.
-      // In forwarded mode, the router appears to have the entry machine's ports/users.
-      const routerRemote: RemoteMachine = missionNatForwarding
-        ? buildForwardedRouterMachine(
-            missionRouterMachine,
-            missionMachines ?? [],
-            missionNatForwarding,
-          )
-        : missionRouterMachine.remoteMachine;
+      // When iptables has forwarding rules, the router shows its own ports +
+      // forwarded ports and merged users (so SSH user check works before NAT).
+      // Rules come from the filesystem dynamically — player edits with nano.
+      const routerRemote: RemoteMachine =
+        iptablesRules.length > 0
+          ? buildMergedRouterView(missionRouterMachine, missionMachines ?? [], iptablesRules)
+          : missionRouterMachine.remoteMachine;
 
       // External DNS: only router's public IP
       const externalDns: readonly DnsRecord[] = [
@@ -106,7 +117,7 @@ export const NetworkProvider = ({
     isLocalhostDisconnected,
     missionNetworkConfig,
     missionMachines,
-    missionNatForwarding,
+    iptablesRules,
     missionRouterMachine,
   ]);
 
@@ -165,12 +176,12 @@ export const NetworkProvider = ({
   // The router is a special case: it's a key in machineConfigs but never listed in any
   // config's .machines array, so we check missionRouterMachine separately.
   const findMachineUsers = useCallback(
-    (ip: string): readonly string[] => {
-      const searchConfigs = (networkConfig: NetworkConfig): readonly string[] => {
+    (ip: string): readonly RemoteUser[] => {
+      const searchConfigs = (networkConfig: NetworkConfig): readonly RemoteUser[] => {
         const found = Object.values(networkConfig.machineConfigs)
           .flatMap((mc) => mc.machines)
           .find((m) => m.ip === ip);
-        return found ? found.users.map((u) => u.username) : [];
+        return found ? found.users : [];
       };
 
       const staticUsers = searchConfigs(config);
@@ -184,7 +195,7 @@ export const NetworkProvider = ({
       // Router is never in any machineConfigs[*].machines array — it's only a key.
       // Check it directly so `su` works when SSH'd into the router.
       if (missionRouterMachine && missionRouterMachine.ip === ip) {
-        return missionRouterMachine.remoteMachine.users.map((u) => u.username);
+        return missionRouterMachine.remoteMachine.users;
       }
 
       return [];
@@ -192,16 +203,19 @@ export const NetworkProvider = ({
     [config, missionNetworkConfig, missionRouterMachine],
   );
 
-  // NAT resolution: translates the router's public IP to the internal entry machine IP
-  // when port forwarding is active. Identity function otherwise.
+  // Port-aware NAT resolution: translates the router's public IP + port to the
+  // internal machine IP + port based on iptables rules parsed from the router's
+  // filesystem. Rules are dynamic — editing /etc/iptables/rules.v4 with nano
+  // takes effect on the next connection/scan.
   const resolveNat = useCallback(
-    (ip: string): string => {
-      if (missionNatForwarding && ip === missionNatForwarding.publicIp) {
-        return missionNatForwarding.internalIp;
+    (ip: string, port: number): { readonly ip: string; readonly port: number } => {
+      if (missionRouterMachine && ip === missionRouterMachine.ip) {
+        const rule = iptablesRules.find((r) => r.publicPort === port);
+        if (rule) return { ip: rule.internalIp, port: rule.internalPort };
       }
-      return ip;
+      return { ip, port };
     },
-    [missionNatForwarding],
+    [missionRouterMachine, iptablesRules],
   );
 
   return (
@@ -225,22 +239,54 @@ export const NetworkProvider = ({
   );
 };
 
-// In forwarded mode, the router appears from localhost as having the entry machine's
-// ports and users, so `ssh("guest", routerPublicIp)` transparently connects to the
-// internal entry machine.
-const buildForwardedRouterMachine = (
+// When iptables has forwarding rules, the router appears from localhost with
+// its own ports plus forwarded ports and merged users from forwarded machines.
+// This lets SSH user verification work against the visible machine before NAT.
+// Rules come from the filesystem dynamically — player can edit with nano.
+const buildMergedRouterView = (
   routerMachine: GeneratedMachine,
   missionMachines: readonly GeneratedMachine[],
-  natForwarding: NatForwarding,
+  rules: readonly NatForwardingRule[],
 ): RemoteMachine => {
-  const entryMachine = missionMachines.find((m) => m.ip === natForwarding.internalIp);
-  if (!entryMachine) return routerMachine.remoteMachine;
+  // Collect internal machines referenced by forwarding rules
+  const forwardedIps = new Set(rules.map((r) => r.internalIp));
+  const forwardedMachines = missionMachines.filter((m) => forwardedIps.has(m.ip));
+
+  // Forwarded ports mapped to their public port numbers
+  const forwardedPorts = rules
+    .map((rule) => {
+      const machine = forwardedMachines.find((m) => m.ip === rule.internalIp);
+      const internalPort = machine?.remoteMachine.ports.find(
+        (p) => p.port === rule.internalPort && p.open,
+      );
+      if (!internalPort) return undefined;
+      return { ...internalPort, port: rule.publicPort };
+    })
+    .filter((p) => p !== undefined);
+
+  // Deduplicate: forwarded ports override router ports on collision
+  const forwardedPortNumbers = new Set(forwardedPorts.map((p) => p.port));
+  const routerOnlyPorts = routerMachine.remoteMachine.ports.filter(
+    (p) => !forwardedPortNumbers.has(p.port),
+  );
+
+  // Merge users: router's own + forwarded machines', deduplicated by username
+  const allUsers = [
+    ...routerMachine.remoteMachine.users,
+    ...forwardedMachines.flatMap((m) => m.remoteMachine.users),
+  ];
+  const seenUsernames = new Set<string>();
+  const uniqueUsers = allUsers.filter((u) => {
+    if (seenUsernames.has(u.username)) return false;
+    seenUsernames.add(u.username);
+    return true;
+  });
 
   return {
     ip: routerMachine.ip,
     hostname: routerMachine.hostname,
-    ports: entryMachine.remoteMachine.ports,
-    users: entryMachine.remoteMachine.users,
+    ports: [...routerOnlyPorts, ...forwardedPorts],
+    users: uniqueUsers,
   };
 };
 

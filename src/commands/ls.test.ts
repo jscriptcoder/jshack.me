@@ -296,4 +296,212 @@ describe('ls command', () => {
       expect(result).toBe('secret.txt');
     });
   });
+
+  describe('long listing (-l flag)', () => {
+    it('should show permission string, owner, and name for each entry', () => {
+      const dir = getMockDirectory('home', {
+        'notes.txt': getMockFile({
+          name: 'notes.txt',
+          owner: 'user',
+          permissions: {
+            read: ['root', 'user'],
+            write: ['root', 'user'],
+            execute: ['root'],
+          },
+        }),
+      });
+
+      const context = createMockFileSystemContext({
+        fileSystem: { '/home': dir },
+      });
+
+      const ls = createLsCommand(context);
+      const result = ls.fn('/home', '-l');
+
+      expect(result).toBe('-rw-rw----  user   notes.txt');
+    });
+
+    it('should show directory type character and trailing slash', () => {
+      const dir = getMockDirectory('root', {
+        documents: getMockDirectory(
+          'documents',
+          {},
+          {
+            owner: 'user',
+            permissions: {
+              read: ['root', 'user', 'guest'],
+              write: ['root', 'user'],
+              execute: ['root', 'user', 'guest'],
+            },
+          },
+        ),
+      });
+
+      const context = createMockFileSystemContext({
+        fileSystem: { '/root': dir },
+      });
+
+      const ls = createLsCommand(context);
+      const result = ls.fn('/root', '-l');
+
+      expect(result).toBe('drwxrwxr-x  user   documents/');
+    });
+
+    it('should show rwx for root-owned files (root always has full access)', () => {
+      const dir = getMockDirectory('etc', {
+        passwd: getMockFile({
+          name: 'passwd',
+          owner: 'root',
+          permissions: {
+            read: ['root', 'user', 'guest'],
+            write: ['root'],
+            execute: ['root'],
+          },
+        }),
+      });
+
+      const context = createMockFileSystemContext({
+        fileSystem: { '/etc': dir },
+      });
+
+      const ls = createLsCommand(context);
+      const result = ls.fn('/etc', '-l');
+
+      expect(result).toBe('-rwxr--r--  root   passwd');
+    });
+
+    it('should list multiple entries sorted alphabetically', () => {
+      const dir = getMockDirectory('home', {
+        'zebra.txt': getMockFile({
+          name: 'zebra.txt',
+          owner: 'user',
+          permissions: {
+            read: ['root', 'user'],
+            write: ['root', 'user'],
+            execute: ['root'],
+          },
+        }),
+        bin: getMockDirectory(
+          'bin',
+          {},
+          {
+            owner: 'root',
+            permissions: {
+              read: ['root', 'user', 'guest'],
+              write: ['root'],
+              execute: ['root', 'user', 'guest'],
+            },
+          },
+        ),
+      });
+
+      const context = createMockFileSystemContext({
+        fileSystem: { '/home': dir },
+      });
+
+      const ls = createLsCommand(context);
+      const result = ls.fn('/home', '-l') as string;
+
+      const lines = result.split('\n');
+      expect(lines).toHaveLength(2);
+      expect(lines[0]).toBe('drwxr-xr-x  root   bin/');
+      expect(lines[1]).toBe('-rw-rw----  user   zebra.txt');
+    });
+
+    it('should combine -l and -a flags', () => {
+      const dir = getMockDirectory('home', {
+        '.bashrc': getMockFile({
+          name: '.bashrc',
+          owner: 'user',
+          permissions: {
+            read: ['root', 'user'],
+            write: ['root', 'user'],
+            execute: ['root'],
+          },
+        }),
+        'visible.txt': getMockFile({
+          name: 'visible.txt',
+          owner: 'user',
+          permissions: {
+            read: ['root', 'user'],
+            write: ['root', 'user'],
+            execute: ['root'],
+          },
+        }),
+      });
+
+      const context = createMockFileSystemContext({
+        fileSystem: { '/home': dir },
+      });
+
+      const ls = createLsCommand(context);
+      const result = ls.fn('/home', '-la') as string;
+
+      const lines = result.split('\n');
+      expect(lines).toHaveLength(2);
+      expect(lines[0]).toContain('.bashrc');
+      expect(lines[1]).toContain('visible.txt');
+    });
+
+    it('should handle -l with -a as separate arguments', () => {
+      const dir = getMockDirectory('home', {
+        '.hidden': getMockFile({ name: '.hidden', owner: 'user' }),
+        'visible.txt': getMockFile({ name: 'visible.txt', owner: 'user' }),
+      });
+
+      const context = createMockFileSystemContext({
+        fileSystem: { '/home': dir },
+      });
+
+      const ls = createLsCommand(context);
+      const result = ls.fn('/home', '-l', '-a');
+
+      expect(result).toContain('.hidden');
+      expect(result).toContain('visible.txt');
+    });
+
+    it('should show guest-owned file permissions correctly', () => {
+      const dir = getMockDirectory('tmp', {
+        'upload.txt': getMockFile({
+          name: 'upload.txt',
+          owner: 'guest',
+          permissions: {
+            read: ['root', 'user', 'guest'],
+            write: ['root', 'guest'],
+            execute: ['root'],
+          },
+        }),
+      });
+
+      const context = createMockFileSystemContext({
+        fileSystem: { '/tmp': dir },
+      });
+
+      const ls = createLsCommand(context);
+      const result = ls.fn('/tmp', '-l');
+
+      expect(result).toBe('-rw-r--rw-  guest  upload.txt');
+    });
+
+    it('should show long format for a single file path', () => {
+      const file = getMockFile({
+        name: 'myfile.txt',
+        owner: 'user',
+        permissions: {
+          read: ['root', 'user', 'guest'],
+          write: ['root', 'user'],
+          execute: ['root'],
+        },
+      });
+
+      const context = createMockFileSystemContext({
+        fileSystem: { '/myfile.txt': file },
+      });
+
+      const ls = createLsCommand(context);
+      const result = ls.fn('-l', '/myfile.txt');
+
+      expect(result).toBe('-rw-rw-r--  user   myfile.txt');
+    });
+  });
 });

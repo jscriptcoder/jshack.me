@@ -1,11 +1,7 @@
 import type { Prng } from './prng';
 import type {
-  AttackMethod,
-  AttackStep,
   CredentialMap,
-  CredentialPlacement,
   Difficulty,
-  EntryVariant,
   GeneratedMachine,
   KeyPlacement,
   MissionObjective,
@@ -14,118 +10,27 @@ import type {
 } from './types';
 import {
   clientHandles,
-  httpCredentialPlacements,
   keyPlacementTemplates,
   scriptFixTemplatesByRole,
   targetFileTemplatesByRole,
   tamperFileTemplatesByRole,
 } from './pools';
-import {
-  binaryCredentialPaths,
-  binaryHintTemplates,
-  binaryKeyPaths,
-  binaryTargetPaths,
-} from './binary';
+import { binaryKeyPaths, binaryTargetPaths } from './binary';
 import { encryptContent, bytesToHex } from '../utils/crypto';
 
-type AttackChainInput = {
+type BuildObjectiveInput = {
   readonly prng: Prng;
   readonly machines: readonly GeneratedMachine[];
   readonly credentials: CredentialMap;
   readonly entryPoint: string;
-  readonly entryVariant: EntryVariant;
   readonly difficulty: Difficulty;
   readonly objectiveTypeOverride?: MissionObjectiveType;
   readonly encryptedOverride?: boolean;
 };
 
-type AttackChainResult = {
-  readonly attackChain: readonly AttackStep[];
-  readonly credentialPlacements: readonly CredentialPlacement[];
+type BuildObjectiveResult = {
   readonly objective: MissionObjective;
   readonly clientEmail: string;
-};
-
-type PlacementTemplate = {
-  readonly path: string;
-  readonly template: string;
-  readonly hint: string;
-};
-
-export const placementTemplates: readonly PlacementTemplate[] = [
-  {
-    path: '/var/log/auth.log',
-    template:
-      'Jan 15 03:22:14 {{hostname}} sshd[1842]: Accepted password for {{user}} from {{ip}} port 52413\nJan 15 03:22:14 {{hostname}} sshd[1842]: pam_unix(sshd:session): session opened for user {{user}}\n# Password hint: {{password}}',
-    hint: 'Check auth.log on {{machine}} for login attempts',
-  },
-  {
-    path: '/home/{{localUser}}/.bash_history',
-    template:
-      'ssh {{user}}@{{ip}}\ncat /etc/passwd\nsudo -l\n# tried: {{password}}\nssh -o StrictHostKeyChecking=no {{user}}@{{ip}}',
-    hint: 'The user {{localUser}} left credentials in their .bash_history on {{machine}}',
-  },
-  {
-    path: '/tmp/backup_credentials.txt',
-    template:
-      'Backup Credentials (DO NOT SHARE)\n================================\nServer: {{ip}}\nUser: {{user}}\nPass: {{password}}\nLast rotated: never',
-    hint: 'A backup file in /tmp on {{machine}} contains plaintext passwords',
-  },
-  {
-    path: '/home/{{localUser}}/notes.txt',
-    template:
-      'Server access notes:\n- {{hostname}} ({{ip}}): {{user}} / {{password}}\n- Remember to rotate these!',
-    hint: "Check {{localUser}}'s home directory on {{machine}} for notes",
-  },
-  {
-    path: '/etc/maintenance.conf',
-    template:
-      '[remote_backup]\nhost={{ip}}\nuser={{user}}\npassword={{password}}\nschedule=daily\npath=/var/backups',
-    hint: 'Look in /etc/maintenance.conf on {{machine}} for hardcoded credentials',
-  },
-];
-
-// World-readable placements — paths in /var/log/, /tmp/, /etc/ are accessible to all users.
-// Used on the entry machine where the player may SSH as guest and cannot read other
-// users' home directories due to owner-scoped permissions.
-const worldReadablePlacements: readonly PlacementTemplate[] = placementTemplates.filter(
-  (t) => !t.path.includes('/home/'),
-);
-
-const getMethodForMachine = (prng: Prng, machine: GeneratedMachine): AttackMethod => {
-  const hasSsh = machine.remoteMachine.ports.some((p) => p.port === 22 && p.open);
-  const hasFtp = machine.remoteMachine.ports.some((p) => p.port === 21 && p.open);
-  const hasHttp = machine.remoteMachine.ports.some((p) => p.port === 80 && p.open);
-
-  if (hasHttp && hasFtp) return prng.pick(['http', 'ftp'] as const);
-  if (hasHttp && hasSsh) return prng.pick(['http', 'ssh'] as const);
-  if (hasFtp && hasSsh) return prng.pick(['ftp', 'ssh'] as const);
-  if (hasHttp) return 'http';
-  if (hasFtp) return 'ftp';
-  return 'ssh';
-};
-
-const buildPath = (
-  prng: Prng,
-  machines: readonly GeneratedMachine[],
-  entryPoint: string,
-  difficulty: Difficulty,
-): readonly GeneratedMachine[] => {
-  const entry = machines.find((m) => m.ip === entryPoint);
-  if (!entry) return [];
-
-  const nonEntry = machines.filter((m) => m.ip !== entryPoint);
-  if (nonEntry.length === 0) return [entry];
-
-  const hopCount =
-    difficulty === 'easy'
-      ? 1
-      : difficulty === 'medium'
-        ? Math.min(2, nonEntry.length)
-        : nonEntry.length;
-
-  const shuffled = prng.pickN(nonEntry, hopCount);
-  return [entry, ...shuffled];
 };
 
 // Generates a hex access key like ACCESS-A1B2-C3D4-E5F6
@@ -251,15 +156,28 @@ const buildKeyPlacement = (
   };
 };
 
-const entryVariantToMethod = (variant: EntryVariant): AttackMethod => {
-  const methodMap: Readonly<Record<EntryVariant, AttackMethod>> = {
-    ssh: 'ssh',
-    ftp: 'ftp',
-    nc: 'nc',
-    exploit: 'exploit',
-    http: 'http',
-  };
-  return methodMap[variant];
+// Builds the path of machines from entry to target based on difficulty.
+const buildPath = (
+  prng: Prng,
+  machines: readonly GeneratedMachine[],
+  entryPoint: string,
+  difficulty: Difficulty,
+): readonly GeneratedMachine[] => {
+  const entry = machines.find((m) => m.ip === entryPoint);
+  if (!entry) return [];
+
+  const nonEntry = machines.filter((m) => m.ip !== entryPoint);
+  if (nonEntry.length === 0) return [entry];
+
+  const hopCount =
+    difficulty === 'easy'
+      ? 1
+      : difficulty === 'medium'
+        ? Math.min(2, nonEntry.length)
+        : nonEntry.length;
+
+  const shuffled = prng.pickN(nonEntry, hopCount);
+  return [entry, ...shuffled];
 };
 
 // Builds the objective for a given type, target machine, and credentials.
@@ -410,13 +328,12 @@ const buildObjective = (
   };
 };
 
-export const generateAttackChain = (input: AttackChainInput): AttackChainResult => {
+export const buildMissionObjective = (input: BuildObjectiveInput): BuildObjectiveResult => {
   const {
     prng,
     machines,
     credentials,
     entryPoint,
-    entryVariant,
     difficulty,
     objectiveTypeOverride,
     encryptedOverride,
@@ -432,159 +349,9 @@ export const generateAttackChain = (input: AttackChainInput): AttackChainResult 
   ];
 
   const path = buildPath(prng, machines, entryPoint, difficulty);
-  if (path.length < 2) {
-    const target = path[0] ?? machines[0];
-    const targetIp = target?.ip ?? entryPoint;
-    const targetCreds = credentials[targetIp] ?? [];
-    const rootCred = targetCreds.find((c) => c.username === 'root') ?? {
-      username: 'root',
-      password: 'r00tpass',
-    };
 
-    // Always consume PRNG pick to preserve sequence, then apply override
-    const prngObjectiveType = prng.pick(objectiveTypes);
-    const objectiveType = objectiveTypeOverride ?? prngObjectiveType;
-    const objective = buildObjective(prng, objectiveType, target, credentials, clientEmail, {
-      encrypted: encryptedOverride ?? false,
-      machines: path,
-      entryPoint,
-    });
-
-    return {
-      attackChain: [
-        {
-          fromMachine: 'entry',
-          toMachine: targetIp,
-          method: 'su',
-          credential: rootCred,
-          hint: 'Escalate privileges on the entry machine',
-        },
-      ],
-      credentialPlacements: [],
-      objective,
-      clientEmail,
-    };
-  }
-
-  const targetMachine = path[path.length - 1] as GeneratedMachine;
-
-  const attackChain: AttackStep[] = [];
-  const credentialPlacements: CredentialPlacement[] = [];
-
-  for (let i = 0; i < path.length - 1; i++) {
-    const fromMachine = path[i] as GeneratedMachine;
-    const toMachine = path[i + 1] as GeneratedMachine;
-    const method =
-      i === 0 ? entryVariantToMethod(entryVariant) : getMethodForMachine(prng, toMachine);
-
-    const targetMachineCreds = credentials[toMachine.ip] ?? [];
-    const nonRootCreds = targetMachineCreds.filter(
-      (c) => c.username !== 'root' && c.username !== 'guest',
-    );
-    const credential = nonRootCreds.length > 0 ? prng.pick(nonRootCreds) : targetMachineCreds[0];
-
-    if (!credential) continue;
-
-    // HTTP lateral movement: place credentials in web content on fromMachine
-    if (method === 'http') {
-      const httpPlacement = prng.pick(httpCredentialPlacements);
-
-      const hint = httpPlacement.hint.replace('{{machine}}', fromMachine.hostname);
-
-      attackChain.push({
-        fromMachine: i === 0 ? 'entry' : fromMachine.ip,
-        toMachine: toMachine.ip,
-        method,
-        credential,
-        hint,
-      });
-
-      const bodyContent = httpPlacement.bodyTemplate
-        .replace(/\{\{hostname\}\}/g, toMachine.hostname)
-        .replace(/\{\{ip\}\}/g, toMachine.ip)
-        .replace(/\{\{user\}\}/g, credential.username)
-        .replace(/\{\{password\}\}/g, credential.password);
-
-      credentialPlacements.push({
-        machineIp: fromMachine.ip,
-        filePath: httpPlacement.path,
-        fileContent: bodyContent,
-        username: credential.username,
-        password: credential.password,
-      });
-
-      // Place .headers sidecar file with the secret in a header
-      if (httpPlacement.httpInHeader) {
-        const headerContent = httpPlacement.headerTemplate
-          .replace(/\{\{headerName\}\}/g, httpPlacement.headerName)
-          .replace(/\{\{user\}\}/g, credential.username)
-          .replace(/\{\{password\}\}/g, credential.password)
-          .replace(/\{\{hostname\}\}/g, toMachine.hostname);
-
-        credentialPlacements.push({
-          machineIp: fromMachine.ip,
-          filePath: httpPlacement.headersPath,
-          fileContent: headerContent,
-          username: credential.username,
-          password: credential.password,
-        });
-      }
-
-      continue;
-    }
-
-    // On the entry machine (i === 0), remap /home/ placements to world-readable ones —
-    // the player may enter as guest and can't read other users' home directories.
-    // Deterministic remap (no extra PRNG call) to preserve sequence stability.
-    const prngPlacement = prng.pick(placementTemplates);
-    const isEntryMachine = i === 0;
-    const placement =
-      isEntryMachine && prngPlacement.path.includes('/home/')
-        ? (worldReadablePlacements[0] as PlacementTemplate)
-        : prngPlacement;
-    const fromCreds = credentials[fromMachine.ip] ?? [];
-    const localUsers = fromCreds.filter((c) => c.username !== 'root' && c.username !== 'guest');
-    const localUser = localUsers.length > 0 ? prng.pick(localUsers).username : 'admin';
-
-    // ~30% chance to wrap credential in a binary file
-    const isBinary = prng.next() < 0.3;
-
-    const hint = isBinary
-      ? prng
-          .pick(binaryHintTemplates)
-          .replace('{{machine}}', fromMachine.hostname)
-          .replace('{{path}}', prng.pick(binaryCredentialPaths[fromMachine.role]))
-      : placement.hint
-          .replace('{{machine}}', fromMachine.hostname)
-          .replace('{{localUser}}', localUser);
-
-    attackChain.push({
-      fromMachine: i === 0 ? 'entry' : fromMachine.ip,
-      toMachine: toMachine.ip,
-      method,
-      credential,
-      hint,
-    });
-
-    const filePath = isBinary
-      ? prng.pick(binaryCredentialPaths[fromMachine.role])
-      : placement.path.replace('{{localUser}}', localUser);
-    const fileContent = placement.template
-      .replace(/\{\{hostname\}\}/g, toMachine.hostname)
-      .replace(/\{\{ip\}\}/g, toMachine.ip)
-      .replace(/\{\{user\}\}/g, credential.username)
-      .replace(/\{\{password\}\}/g, credential.password)
-      .replace(/\{\{localUser\}\}/g, localUser);
-
-    credentialPlacements.push({
-      machineIp: fromMachine.ip,
-      filePath,
-      fileContent,
-      username: credential.username,
-      password: credential.password,
-      binary: isBinary || undefined,
-    });
-  }
+  const targetMachine =
+    path.length >= 2 ? (path[path.length - 1] as GeneratedMachine) : (path[0] ?? machines[0]);
 
   // Always consume PRNG pick to preserve sequence, then apply override
   const prngObjectiveType = prng.pick(objectiveTypes);
@@ -595,10 +362,5 @@ export const generateAttackChain = (input: AttackChainInput): AttackChainResult 
     entryPoint,
   });
 
-  return {
-    attackChain,
-    credentialPlacements,
-    objective,
-    clientEmail,
-  };
+  return { objective, clientEmail };
 };

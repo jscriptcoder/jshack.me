@@ -2,6 +2,7 @@ import type { Command } from '../components/Terminal/types';
 
 export const xtermCommand: Command = {
   name: 'xterm',
+  category: 'general',
   description: 'Open a new terminal in a browser tab',
   manual: {
     synopsis: 'xterm()',

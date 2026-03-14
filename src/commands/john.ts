@@ -41,6 +41,7 @@ const parsePasswdLines = (content: string): readonly PasswdEntry[] =>
 
 export const createJohnCommand = (context: JohnContext): Command => ({
   name: 'john',
+  category: 'filesystem',
   description: 'Crack password hashes using dictionary attack',
   manual: {
     synopsis: 'john(file)',
@@ -117,31 +118,31 @@ export const createJohnCommand = (context: JohnContext): Command => ({
 
         const crackedResults: { readonly username: string; readonly password: string }[] = [];
 
+        let delay = jitter(STEP_DELAY_MS);
+
         entries.forEach((entry, index) => {
-          token.schedule(
-            () => {
-              if (token.isCancelled()) return;
+          delay += jitter(STEP_DELAY_MS);
+          token.schedule(() => {
+            if (token.isCancelled()) return;
 
-              const password = hashToPassword.get(entry.hash);
-              if (password) {
-                crackedResults.push({ username: entry.username, password });
-                onLine(`${entry.username}:${password}`);
-              }
+            const password = hashToPassword.get(entry.hash);
+            if (password) {
+              crackedResults.push({ username: entry.username, password });
+              onLine(`${entry.username}:${password}`);
+            }
 
-              // Last entry — show summary
-              if (index === entries.length - 1) {
-                token.schedule(() => {
-                  if (token.isCancelled()) return;
-                  onLine('');
-                  onLine(
-                    `${crackedResults.length}/${entries.length} password hash${entries.length === 1 ? '' : 'es'} cracked`,
-                  );
-                  onComplete();
-                }, jitter(STEP_DELAY_MS));
-              }
-            },
-            jitter((index + 2) * STEP_DELAY_MS),
-          );
+            // Last entry — show summary
+            if (index === entries.length - 1) {
+              token.schedule(() => {
+                if (token.isCancelled()) return;
+                onLine('');
+                onLine(
+                  `${crackedResults.length}/${entries.length} password hash${entries.length === 1 ? '' : 'es'} cracked`,
+                );
+                onComplete();
+              }, jitter(STEP_DELAY_MS));
+            }
+          }, delay);
         });
       },
       cancel: token.cancel,

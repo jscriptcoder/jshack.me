@@ -2,6 +2,7 @@ import type { Command, AuthorData } from '../components/Terminal/types';
 
 export const authorCommand: Command = {
   name: 'author',
+  category: 'general',
   description: 'Display information about the author',
   manual: {
     synopsis: 'author()',

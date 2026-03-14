@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { FileNode } from '../filesystem/types';
 import type { UserType } from '../session/SessionContext';
 import type { AsyncOutput } from '../components/Terminal/types';
-import { createDecryptCommand } from './decrypt';
+import { createGpgCommand } from './gpg';
 
 // --- Factory Functions ---
 
@@ -35,13 +35,13 @@ const createMockDirectory = (name: string): FileNode => ({
   children: {},
 });
 
-type DecryptContextConfig = {
+type GpgContextConfig = {
   readonly currentPath?: string;
   readonly userType?: UserType;
   readonly files?: Record<string, FileNode | null>;
 };
 
-const createMockDecryptContext = (config: DecryptContextConfig = {}) => {
+const createMockGpgContext = (config: GpgContextConfig = {}) => {
   const { currentPath = '/', userType = 'user', files = {} } = config;
 
   return {
@@ -63,7 +63,7 @@ const isAsyncOutput = (value: unknown): value is AsyncOutput =>
 
 // --- Tests ---
 
-describe('decrypt command', () => {
+describe('gpg command', () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -74,45 +74,45 @@ describe('decrypt command', () => {
 
   describe('argument validation', () => {
     it('should throw error when no file path given', () => {
-      const context = createMockDecryptContext();
-      const decrypt = createDecryptCommand(context);
+      const context = createMockGpgContext();
+      const gpg = createGpgCommand(context);
 
-      expect(() => decrypt.fn()).toThrow('decrypt: missing file path');
+      expect(() => gpg.fn()).toThrow('gpg: missing file path');
     });
 
     it('should throw error when no key given', () => {
-      const context = createMockDecryptContext();
-      const decrypt = createDecryptCommand(context);
+      const context = createMockGpgContext();
+      const gpg = createGpgCommand(context);
 
-      expect(() => decrypt.fn('secret.enc')).toThrow('decrypt: missing key');
+      expect(() => gpg.fn('secret.enc')).toThrow('gpg: missing key');
     });
 
     it('should throw error when key is too short', () => {
-      const context = createMockDecryptContext();
-      const decrypt = createDecryptCommand(context);
+      const context = createMockGpgContext();
+      const gpg = createGpgCommand(context);
 
-      expect(() => decrypt.fn('secret.enc', 'abc123')).toThrow('decrypt: invalid key format');
+      expect(() => gpg.fn('secret.enc', 'abc123')).toThrow('gpg: invalid key format');
     });
 
     it('should throw error when key contains non-hex characters', () => {
-      const context = createMockDecryptContext();
-      const decrypt = createDecryptCommand(context);
+      const context = createMockGpgContext();
+      const gpg = createGpgCommand(context);
 
       const invalidKey = 'g'.repeat(64); // 'g' is not valid hex
 
-      expect(() => decrypt.fn('secret.enc', invalidKey)).toThrow('decrypt: invalid key format');
+      expect(() => gpg.fn('secret.enc', invalidKey)).toThrow('gpg: invalid key format');
     });
 
     it('should accept valid 64-character hex key', () => {
       const validKey = 'a'.repeat(64);
       const file = createMockFile('secret.enc', 'encrypted content');
 
-      const context = createMockDecryptContext({
+      const context = createMockGpgContext({
         files: { '/secret.enc': file },
       });
-      const decrypt = createDecryptCommand(context);
+      const gpg = createGpgCommand(context);
 
-      const result = decrypt.fn('secret.enc', validKey);
+      const result = gpg.fn('secret.enc', validKey);
 
       expect(isAsyncOutput(result)).toBe(true);
     });
@@ -120,27 +120,27 @@ describe('decrypt command', () => {
 
   describe('file validation', () => {
     it('should throw error when file does not exist', () => {
-      const context = createMockDecryptContext({
+      const context = createMockGpgContext({
         files: {},
       });
-      const decrypt = createDecryptCommand(context);
+      const gpg = createGpgCommand(context);
       const validKey = 'a'.repeat(64);
 
-      expect(() => decrypt.fn('nonexistent.enc', validKey)).toThrow(
-        'decrypt: nonexistent.enc: No such file or directory',
+      expect(() => gpg.fn('nonexistent.enc', validKey)).toThrow(
+        'gpg: nonexistent.enc: No such file or directory',
       );
     });
 
     it('should throw error when path is a directory', () => {
       const dir = createMockDirectory('secrets');
 
-      const context = createMockDecryptContext({
+      const context = createMockGpgContext({
         files: { '/secrets': dir },
       });
-      const decrypt = createDecryptCommand(context);
+      const gpg = createGpgCommand(context);
       const validKey = 'a'.repeat(64);
 
-      expect(() => decrypt.fn('/secrets', validKey)).toThrow('decrypt: /secrets: Is a directory');
+      expect(() => gpg.fn('/secrets', validKey)).toThrow('gpg: /secrets: Is a directory');
     });
 
     it('should throw error when permission denied', () => {
@@ -148,30 +148,26 @@ describe('decrypt command', () => {
         permissions: { read: ['root'], write: ['root'], execute: ['root'] },
       });
 
-      const context = createMockDecryptContext({
+      const context = createMockGpgContext({
         userType: 'guest',
         files: { '/secret.enc': restrictedFile },
       });
-      const decrypt = createDecryptCommand(context);
+      const gpg = createGpgCommand(context);
       const validKey = 'a'.repeat(64);
 
-      expect(() => decrypt.fn('/secret.enc', validKey)).toThrow(
-        'decrypt: /secret.enc: Permission denied',
-      );
+      expect(() => gpg.fn('/secret.enc', validKey)).toThrow('gpg: /secret.enc: Permission denied');
     });
 
     it('should throw error when file is empty', () => {
       const emptyFile = createMockFile('empty.enc', '');
 
-      const context = createMockDecryptContext({
+      const context = createMockGpgContext({
         files: { '/empty.enc': emptyFile },
       });
-      const decrypt = createDecryptCommand(context);
+      const gpg = createGpgCommand(context);
       const validKey = 'a'.repeat(64);
 
-      expect(() => decrypt.fn('/empty.enc', validKey)).toThrow(
-        'decrypt: /empty.enc: File is empty',
-      );
+      expect(() => gpg.fn('/empty.enc', validKey)).toThrow('gpg: /empty.enc: File is empty');
     });
 
     it('should allow root to read any file', () => {
@@ -179,14 +175,14 @@ describe('decrypt command', () => {
         permissions: { read: ['root'], write: ['root'], execute: ['root'] },
       });
 
-      const context = createMockDecryptContext({
+      const context = createMockGpgContext({
         userType: 'root',
         files: { '/secret.enc': restrictedFile },
       });
-      const decrypt = createDecryptCommand(context);
+      const gpg = createGpgCommand(context);
       const validKey = 'a'.repeat(64);
 
-      const result = decrypt.fn('/secret.enc', validKey);
+      const result = gpg.fn('/secret.enc', validKey);
 
       expect(isAsyncOutput(result)).toBe(true);
     });
@@ -196,13 +192,13 @@ describe('decrypt command', () => {
     it('should return AsyncOutput object', () => {
       const file = createMockFile('secret.enc', 'encrypted content');
 
-      const context = createMockDecryptContext({
+      const context = createMockGpgContext({
         files: { '/secret.enc': file },
       });
-      const decrypt = createDecryptCommand(context);
+      const gpg = createGpgCommand(context);
       const validKey = 'a'.repeat(64);
 
-      const result = decrypt.fn('secret.enc', validKey);
+      const result = gpg.fn('secret.enc', validKey);
 
       expect(isAsyncOutput(result)).toBe(true);
     });
@@ -210,13 +206,13 @@ describe('decrypt command', () => {
     it('should have start function', () => {
       const file = createMockFile('secret.enc', 'encrypted content');
 
-      const context = createMockDecryptContext({
+      const context = createMockGpgContext({
         files: { '/secret.enc': file },
       });
-      const decrypt = createDecryptCommand(context);
+      const gpg = createGpgCommand(context);
       const validKey = 'a'.repeat(64);
 
-      const result = decrypt.fn('secret.enc', validKey);
+      const result = gpg.fn('secret.enc', validKey);
 
       if (isAsyncOutput(result)) {
         expect(typeof result.start).toBe('function');
@@ -226,13 +222,13 @@ describe('decrypt command', () => {
     it('should have cancel function', () => {
       const file = createMockFile('secret.enc', 'encrypted content');
 
-      const context = createMockDecryptContext({
+      const context = createMockGpgContext({
         files: { '/secret.enc': file },
       });
-      const decrypt = createDecryptCommand(context);
+      const gpg = createGpgCommand(context);
       const validKey = 'a'.repeat(64);
 
-      const result = decrypt.fn('secret.enc', validKey);
+      const result = gpg.fn('secret.enc', validKey);
 
       if (isAsyncOutput(result)) {
         expect(typeof result.cancel).toBe('function');
@@ -242,13 +238,13 @@ describe('decrypt command', () => {
     it('should output decrypting message immediately', () => {
       const file = createMockFile('secret.enc', 'encrypted content');
 
-      const context = createMockDecryptContext({
+      const context = createMockGpgContext({
         files: { '/secret.enc': file },
       });
-      const decrypt = createDecryptCommand(context);
+      const gpg = createGpgCommand(context);
       const validKey = 'a'.repeat(64);
 
-      const result = decrypt.fn('secret.enc', validKey);
+      const result = gpg.fn('secret.enc', validKey);
 
       const lines: string[] = [];
       if (isAsyncOutput(result)) {

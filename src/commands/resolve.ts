@@ -12,6 +12,7 @@ const isPromise = (value: unknown): value is Promise<unknown> =>
 
 export const createResolveCommand = (): Command => ({
   name: 'resolve',
+  category: 'general',
   description: 'Unwrap a Promise and display its resolved value',
   manual: {
     synopsis: 'resolve(promise)',

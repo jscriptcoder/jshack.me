@@ -6,16 +6,25 @@ import { createLsCommand } from '../commands/ls';
 import { createCdCommand } from '../commands/cd';
 import { createCatCommand } from '../commands/cat';
 import { createWhoamiCommand } from '../commands/whoami';
-import { createDecryptCommand } from '../commands/decrypt';
+import { createGpgCommand } from '../commands/gpg';
 import { createOutputCommand } from '../commands/output';
 import { createStringsCommand } from '../commands/strings';
 import { createNanoCommand } from '../commands/nano';
 import { createJohnCommand } from '../commands/john';
 import { createRmCommand } from '../commands/rm';
+import { createChmodCommand } from '../commands/chmod';
 import type { Command } from '../components/Terminal/types';
 
 export const useFileSystemCommands = (): Map<string, Command> => {
-  const { resolvePath, getNode, createFile, writeFile, deleteNode, canTraverse } = useFileSystem();
+  const {
+    resolvePath,
+    getNode,
+    createFile,
+    writeFile,
+    deleteNode,
+    updatePermissions,
+    canTraverse,
+  } = useFileSystem();
   const { session, setCurrentPath } = useSession();
 
   return useMemo(() => {
@@ -75,10 +84,10 @@ export const useFileSystemCommands = (): Map<string, Command> => {
       }),
     );
 
-    // decrypt command
+    // gpg command
     commands.set(
-      'decrypt',
-      createDecryptCommand({
+      'gpg',
+      createGpgCommand({
         resolvePath,
         getNode,
         getUserType,
@@ -142,6 +151,19 @@ export const useFileSystemCommands = (): Map<string, Command> => {
       }),
     );
 
+    // chmod command
+    commands.set(
+      'chmod',
+      createChmodCommand({
+        resolvePath,
+        getNode,
+        getUserType,
+        updatePermissions: (path: string, permissions) =>
+          updatePermissions(path, permissions, session.userType),
+        canTraverse: canTraverseFn,
+      }),
+    );
+
     return commands;
   }, [
     setCurrentPath,
@@ -150,6 +172,7 @@ export const useFileSystemCommands = (): Map<string, Command> => {
     createFile,
     writeFile,
     deleteNode,
+    updatePermissions,
     canTraverse,
     session,
   ]);

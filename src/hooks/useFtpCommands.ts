@@ -23,7 +23,6 @@ export const useFtpCommands = (): Map<string, Command> | null => {
   const {
     resolvePathForMachine,
     getNodeFromMachine,
-    listDirectoryFromMachine,
     readFileFromMachine,
     writeFileToMachine,
     createFileOnMachine,
@@ -86,7 +85,6 @@ export const useFtpCommands = (): Map<string, Command> | null => {
         getRemoteUserType,
         resolvePathForMachine,
         getNodeFromMachine,
-        listDirectoryFromMachine,
         canTraverseOnMachine,
       }),
     );
@@ -100,7 +98,6 @@ export const useFtpCommands = (): Map<string, Command> | null => {
         getOriginUserType,
         resolvePathForMachine,
         getNodeFromMachine,
-        listDirectoryFromMachine,
         canTraverseOnMachine,
       }),
     );
@@ -155,7 +152,6 @@ export const useFtpCommands = (): Map<string, Command> | null => {
     updateFtpOriginCwd,
     resolvePathForMachine,
     getNodeFromMachine,
-    listDirectoryFromMachine,
     readFileFromMachine,
     writeFileToMachine,
     createFileOnMachine,

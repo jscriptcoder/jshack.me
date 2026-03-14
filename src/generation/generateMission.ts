@@ -2,10 +2,9 @@ import { createPrng } from './prng';
 import type { Prng } from './prng';
 import { generateTopology } from './topology';
 import { generateUsers } from './users';
-import { generateAttackChain, placementTemplates } from './attackChain';
+import { buildMissionObjective } from './attackChain';
 import { generateFileSystems } from './filesystem';
 import type {
-  CredentialPlacement,
   Difficulty,
   GeneratedMachine,
   MissionNetwork,
@@ -14,7 +13,6 @@ import type {
 } from './types';
 import type { Port, RemoteMachine, RemoteUser } from '../network/types';
 import { vulnerabilityTemplates } from './pools';
-import { binaryCredentialPaths } from './binary';
 
 // Parses keyword overrides from the seed string. Keywords are case-insensitive
 // and matched via `includes()`. This lets players and devs control generation
@@ -62,8 +60,8 @@ export const parseSeedOverrides = (seed: string): SeedOverrides => {
 
   const domainEntry = lower.includes('domain') ? true : undefined;
 
-  // 'decrypt' keyword forces encrypted exfiltrate mode
-  const encrypted = lower.includes('decrypt') ? true : undefined;
+  // 'gpg' keyword forces encrypted exfiltrate mode
+  const encrypted = lower.includes('gpg') ? true : undefined;
 
   return { difficulty, entryVariant, forwarded, objectiveType, domainEntry, encrypted };
 };
@@ -192,78 +190,34 @@ const addExploitVulnerability = (
   });
 };
 
+// Derives the enrichment flag from a machine's access variant.
+// NC, exploit, and FTP variants need port owners/vulnerabilities attached.
+const variantEnrichmentFlag = (
+  variant: import('./types').EntryVariant,
+): 'nc' | 'exploit' | 'ftp' | null =>
+  variant === 'nc' || variant === 'exploit' || variant === 'ftp' ? variant : null;
+
 const enrichMachineWithUsers = (
   machine: GeneratedMachine,
   users: RemoteMachine['users'],
-  entryVariantFlag: 'nc' | 'exploit' | 'ftp' | null,
   prng: Prng,
-): GeneratedMachine => ({
-  ...machine,
-  remoteMachine: {
-    ...machine.remoteMachine,
-    ports:
-      entryVariantFlag === 'nc'
-        ? addNcBackdoorOwner(machine.remoteMachine.ports, users, prng)
-        : entryVariantFlag === 'exploit'
-          ? addExploitVulnerability(machine.remoteMachine.ports, users, prng)
-          : entryVariantFlag === 'ftp'
-            ? addFtpServerOwner(machine.remoteMachine.ports, users, prng)
-            : machine.remoteMachine.ports,
-    users,
-  },
-});
-
-// Builds a credential placement on the router containing SSH credentials for
-// the internal entry machine. In router-first mode, the player hacks the router
-// first but needs credentials to SSH into the internal network. Returns an empty
-// array in forwarded mode (NAT handles the bridge transparently).
-const buildRouterBridgePlacement = (
-  prng: Prng,
-  isForwarded: boolean,
-  entryPoint: string,
-  allCredentials: Readonly<
-    Record<string, readonly { readonly username: string; readonly password: string }[]>
-  >,
-  machines: readonly GeneratedMachine[],
-  routerMachine: GeneratedMachine,
-): readonly CredentialPlacement[] => {
-  if (isForwarded) return [];
-
-  const entryCreds = allCredentials[entryPoint] ?? [];
-  const sshCred = entryCreds.find((c) => c.username !== 'root' && c.username !== 'guest');
-  const entryMachine = machines.find((m) => m.ip === entryPoint);
-  if (!sshCred || !entryMachine) return [];
-
-  const placement = prng.pick(placementTemplates);
-  const routerCreds = allCredentials[routerMachine.ip] ?? [];
-  const routerLocalUsers = routerCreds.filter(
-    (c) => c.username !== 'root' && c.username !== 'guest',
-  );
-  const localUser = routerLocalUsers.length > 0 ? prng.pick(routerLocalUsers).username : 'admin';
-
-  // ~30% chance to wrap in a binary file (same probability as other credential placements)
-  const isBinary = prng.next() < 0.3;
-
-  const filePath = isBinary
-    ? prng.pick(binaryCredentialPaths[routerMachine.role])
-    : placement.path.replace('{{localUser}}', localUser);
-  const fileContent = placement.template
-    .replace(/\{\{hostname\}\}/g, entryMachine.hostname)
-    .replace(/\{\{ip\}\}/g, entryMachine.ip)
-    .replace(/\{\{user\}\}/g, sshCred.username)
-    .replace(/\{\{password\}\}/g, sshCred.password)
-    .replace(/\{\{localUser\}\}/g, localUser);
-
-  return [
-    {
-      machineIp: routerMachine.ip,
-      filePath,
-      fileContent,
-      username: sshCred.username,
-      password: sshCred.password,
-      binary: isBinary || undefined,
+): GeneratedMachine => {
+  const flag = variantEnrichmentFlag(machine.accessVariant);
+  return {
+    ...machine,
+    remoteMachine: {
+      ...machine.remoteMachine,
+      ports:
+        flag === 'nc'
+          ? addNcBackdoorOwner(machine.remoteMachine.ports, users, prng)
+          : flag === 'exploit'
+            ? addExploitVulnerability(machine.remoteMachine.ports, users, prng)
+            : flag === 'ftp'
+              ? addFtpServerOwner(machine.remoteMachine.ports, users, prng)
+              : machine.remoteMachine.ports,
+      users,
     },
-  ];
+  };
 };
 
 // Applies PRNG-driven port closures to increase lateral movement variety.
@@ -289,8 +243,12 @@ const applyPortClosures = (
   const eligible = machines.filter((m) => m.role !== 'router' && m.ip !== entryPoint);
   if (eligible.length === 0) return machines;
 
-  const sshClosureIp = sshRoll < 0.3 ? eligible[sshTargetIdx % eligible.length]?.ip : undefined;
-  const ftpClosureIp = ftpRoll < 0.3 ? eligible[ftpTargetIdx % eligible.length]?.ip : undefined;
+  const sshTarget = eligible[sshTargetIdx % eligible.length];
+  const sshClosureIp =
+    sshRoll < 0.3 && sshTarget?.accessVariant !== 'ssh' ? sshTarget?.ip : undefined;
+  const ftpTarget = eligible[ftpTargetIdx % eligible.length];
+  const ftpClosureIp =
+    ftpRoll < 0.3 && ftpTarget?.accessVariant !== 'ftp' ? ftpTarget?.ip : undefined;
 
   // Never close both SSH and FTP on the same machine
   const effectiveFtpClosureIp =
@@ -374,34 +332,20 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
     [routerInternalIp]: routerCreds,
   };
 
-  // Determine which machine gets entry variant enrichment.
-  // In forwarded mode, the internal entry machine gets the variant.
-  // In router-first mode, the router gets the variant.
-  const isForwarded = topology.natForwarding !== undefined;
-  const entryVariantTarget = isForwarded ? topology.entryPoint : topology.routerPublicIp;
-
-  const isEntryVariant = (ip: string): 'nc' | 'exploit' | 'ftp' | null =>
-    ip === entryVariantTarget &&
-    (topology.entryVariant === 'nc' ||
-      topology.entryVariant === 'exploit' ||
-      topology.entryVariant === 'ftp')
-      ? topology.entryVariant
-      : null;
-
+  // Enrich all machines with users and variant-specific port data (owners, vulnerabilities).
+  // Each machine's own accessVariant determines which enrichment it gets.
   const machinesWithUsers: readonly GeneratedMachine[] = topology.machines.map((m) =>
-    enrichMachineWithUsers(m, allUsersByMachine[m.ip] ?? [], isEntryVariant(m.ip), prng),
+    enrichMachineWithUsers(m, allUsersByMachine[m.ip] ?? [], prng),
   );
 
   const routerWithUsers = enrichMachineWithUsers(
     topology.routerMachine,
     allUsersByMachine[topology.routerPublicIp] ?? [],
-    isEntryVariant(topology.routerPublicIp),
     prng,
   );
 
   // Resolve objective type early so port closures can skip SSH closures for
-  // script_fix (player needs shell access via node()). The PRNG pick is consumed
-  // here; generateAttackChain will consume its own pick but use the override.
+  // script_fix (player needs shell access via node()).
   const effectiveObjectiveOverride = overrides.encrypted ? 'exfiltrate' : overrides.objectiveType;
   const objectiveTypes: readonly MissionObjectiveType[] = [
     'exfiltrate',
@@ -440,60 +384,25 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
     ]),
   );
 
-  const { attackChain, credentialPlacements, objective, clientEmail } = generateAttackChain({
+  const { objective, clientEmail } = buildMissionObjective({
     prng,
     machines: machinesAfterClosures,
     credentials: allCredentials,
     entryPoint: topology.entryPoint,
-    entryVariant: topology.entryVariant,
     difficulty,
     objectiveTypeOverride: effectiveObjectiveOverride,
     encryptedOverride: overrides.encrypted,
   });
 
-  // In router-first mode, place SSH credentials for the internal entry machine
-  // on the router filesystem. Without this, the player has no way to reach the
-  // first internal machine after hacking the router.
-  const routerBridgePlacements = buildRouterBridgePlacement(
-    prng,
-    isForwarded,
-    topology.entryPoint,
-    allCredentials,
-    machinesAfterClosures,
-    routerWithUsers,
-  );
-  const allPlacements = [...credentialPlacements, ...routerBridgePlacements];
-
   const fileSystems = generateFileSystems({
     prng,
     machines: machinesAfterClosures,
     usersByMachine: allUsersByMachine,
-    credentialPlacements: allPlacements,
     credentials: allCredentials,
     objective,
-    entryPoint: topology.entryPoint,
-    entryVariant: topology.entryVariant,
     routerMachine: routerWithUsers,
-    networkMode: isForwarded ? 'forwarded' : 'router-first',
+    natForwarding: topology.natForwarding,
   });
-
-  // Extract entry credential for the mission briefing.
-  // SSH variant uses a regular user account (so the player has user-tier commands).
-  // Other variants use the port owner's account (guest/user/root, determined by PRNG).
-  const credSourceIp = isForwarded ? topology.entryPoint : topology.routerPublicIp;
-  const entryCredentials = allCredentials[credSourceIp] ?? [];
-  const entryMachineForCred = isForwarded
-    ? machinesAfterClosures.find((m) => m.ip === credSourceIp)
-    : routerWithUsers;
-  const portOwner = entryMachineForCred?.remoteMachine.ports.find((p) => p.owner)?.owner;
-  // SSH and HTTP variants use a regular user account (player finds creds via web or briefing).
-  // NC/exploit/FTP variants use the port owner's account (guest/user/root, determined by PRNG).
-  const entryCred =
-    topology.entryVariant === 'ssh' || topology.entryVariant === 'http'
-      ? entryCredentials.find((c) => c.username !== 'root' && c.username !== 'guest')
-      : portOwner
-        ? entryCredentials.find((c) => c.username === portOwner.username)
-        : entryCredentials.find((c) => c.username === 'guest');
 
   // Domain entry: when active, briefing shows router domain instead of IP.
   // Always consume a PRNG call to preserve sequence regardless of override.
@@ -502,19 +411,14 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
   const domainEntry = overrides.domainEntry ?? domainRoll < domainThreshold;
   const routerDomain = `${topology.routerMachine.hostname}.mission`;
 
-  // ~50% chance the briefing reveals SSH credentials (only affects SSH entry variant)
-  const briefingRevealsCredentials = prng.next() < 0.5;
-
   return {
     seed,
     difficulty,
     entryPoint: topology.entryPoint,
     entryVariant: topology.entryVariant,
-    entryCredential: entryCred,
     machines: machinesAfterClosures,
     fileSystems,
     networkConfig: { machineConfigs: updatedMachineConfigs },
-    attackChain,
     objective,
     clientEmail,
     routerPublicIp: topology.routerPublicIp,
@@ -522,6 +426,5 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
     natForwarding: topology.natForwarding,
     routerDomain,
     domainEntry,
-    briefingRevealsCredentials,
   };
 };

@@ -12,7 +12,7 @@ Shared utility modules used across the application. Each module is self-containe
 | `stringify.ts`    | Value-to-string conversion (used by `echo`, `output`, `resolve`)                                                          |
 | `storage.ts`      | Storage wrapper — sessionStorage for per-tab session, IndexedDB for shared state (filesystem patches, WiFi, mission seed) |
 | `storageCache.ts` | Pre-load cache that bridges async IndexedDB + sync sessionStorage with React `useState` initializers                      |
-| `asyncCommand.ts` | Cancellation token for async commands — encapsulates `setTimeout` scheduling and cleanup                                  |
+| `asyncCommand.ts` | Cancellation token for async commands + `collectAsyncOutput` for bridging AsyncOutput into Promise<string[]>              |
 | `crossTabSync.ts` | BroadcastChannel wrapper for cross-tab state sync (filesystem patches, WiFi, mission, theme)                              |
 
 ## Persistence Stack

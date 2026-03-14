@@ -22,6 +22,7 @@ import {
   isExitOutput,
   isAsyncOutput,
   isSshPrompt,
+  isScpPrompt,
   isFtpPrompt,
   isFtpQuit,
   isNcPrompt,
@@ -37,7 +38,7 @@ const BANNER = `
 ██   ██║╚════██║██╔══██║██╔══██║██║     ██╔═██╗    ██║╚██╔╝██║██╔══╝
 ╚█████╔╝███████║██║  ██║██║  ██║╚██████╗██║  ██╗██╗██║ ╚═╝ ██║███████╗
  ╚════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝╚═╝     ╚═╝╚══════╝
-                                                              v0.15.0
+                                                              v0.21.0
 
   Type help() for available commands
 `;
@@ -106,7 +107,7 @@ export const Terminal = () => {
     getNodeFromMachine,
     listDirectoryFromMachine,
   } = useFileSystem();
-  const { getMachine, config: networkConfig, resolveNat } = useNetwork();
+  const { getMachine, findMachineUsers, resolveNat } = useNetwork();
 
   const activeCommandNames =
     isInFtpMode() && ftpCommands
@@ -139,6 +140,7 @@ export const Terminal = () => {
     startPasswordPrompt,
     startSshPrompt,
     startFtpPrompt,
+    startScpPrompt,
   } = useAuthentication({
     addLine,
     session,
@@ -151,7 +153,7 @@ export const Terminal = () => {
     setCurrentPath,
     pushSession,
     enterFtpMode,
-    machineConfigs: networkConfig.machineConfigs,
+    findMachineUsers,
   });
 
   const { getPathCompletions } = usePathCompletionAdapters({
@@ -271,7 +273,11 @@ export const Terminal = () => {
                 asyncCancelRef.current = null;
 
                 if (isSshPrompt(followUp)) {
-                  startSshPrompt(followUp.targetUser, followUp.targetIP);
+                  startSshPrompt(followUp.targetUser, followUp.targetIP, followUp.targetPort);
+                }
+
+                if (isScpPrompt(followUp)) {
+                  startScpPrompt(followUp.targetUser, followUp.targetIP, followUp.performTransfer);
                 }
 
                 if (isFtpPrompt(followUp)) {
@@ -280,7 +286,7 @@ export const Terminal = () => {
 
                 if (isNcPrompt(followUp)) {
                   const newNcSession: NcSession = {
-                    targetIP: resolveNat(followUp.targetIP),
+                    targetIP: resolveNat(followUp.targetIP, followUp.targetPort).ip,
                     targetPort: followUp.targetPort,
                     service: followUp.service,
                     username: followUp.username,
@@ -335,6 +341,7 @@ export const Terminal = () => {
       resolveNat,
       startPasswordPrompt,
       startSshPrompt,
+      startScpPrompt,
       startFtpPrompt,
     ],
   );
@@ -345,7 +352,18 @@ export const Terminal = () => {
     if (ftpUsernameMode) {
       handleFtpUsernameSubmit(input, clearInput);
     } else if (passwordMode) {
-      handlePasswordSubmit(input, clearInput);
+      const scpAsync = handlePasswordSubmit(input, clearInput);
+      if (scpAsync) {
+        setAsyncRunning(true);
+        asyncCancelRef.current = scpAsync.cancel ?? null;
+        scpAsync.start(
+          (line: string) => addLine('result', line),
+          () => {
+            setAsyncRunning(false);
+            asyncCancelRef.current = null;
+          },
+        );
+      }
     } else {
       executeCommand(input);
       setInput('');
@@ -360,6 +378,7 @@ export const Terminal = () => {
     handleFtpUsernameSubmit,
     resetNavigation,
     clearInput,
+    addLine,
   ]);
 
   const handleHistoryUp = useCallback(() => {

@@ -8,7 +8,7 @@ import { createCancellationToken, jitter } from '../utils/asyncCommand';
 type CurlContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
-  readonly resolveNat: (ip: string) => string;
+  readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
   readonly readFileFromMachine: (
     machineId: MachineId,
     path: string,
@@ -189,6 +189,7 @@ const isHttpService = (service: string): boolean => HTTP_SERVICES.some((s) => s 
 
 export const createCurlCommand = (context: CurlContext): Command => ({
   name: 'curl',
+  category: 'network',
   description: 'Transfer data from or to a server',
   manual: {
     synopsis: 'curl([flags], url)',
@@ -282,7 +283,7 @@ export const createCurlCommand = (context: CurlContext): Command => ({
 
           // NAT resolution: in forwarded mode, the router's public IP maps to the
           // internal entry machine. Filesystem reads must target the actual machine.
-          const filesystemIP = context.resolveNat(targetIP) as MachineId;
+          const filesystemIP = context.resolveNat(targetIP, parsed.port ?? 80).ip as MachineId;
 
           const response = isPost
             ? handlePost(context, filesystemIP, parsed.path)

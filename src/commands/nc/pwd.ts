@@ -6,6 +6,7 @@ type NcPwdContext = {
 
 export const createNcPwdCommand = (context: NcPwdContext): Command => ({
   name: 'pwd',
+  category: 'network',
   description: 'Print working directory',
   fn: (): string => context.getCwd(),
 });

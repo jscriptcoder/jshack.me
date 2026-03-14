@@ -25,7 +25,7 @@ Integrates the seeded network generator (`src/generation/`) with React contexts 
 ### Objective Types
 
 - **exfiltrate** — Find a document containing an ACCESS-KEY on the target machine, mail it to the client
-- **exfiltrate (encrypted)** — Target file is encrypted; find the decryption key on another machine, use `decrypt(file, key)` as root, then mail the ACCESS-KEY
+- **exfiltrate (encrypted)** — Target file is encrypted; find the decryption key on another machine, use `gpg(file, key)` as root, then mail the ACCESS-KEY
 - **tamper** — Modify a specific value in a target file (e.g., change a grade from "F" to "A"), then mail the client to confirm
 - **credential_theft** — Discover the root password on the target machine, mail it to the client
 - **sabotage** — Gain root on the target machine, delete critical boot files (`/boot/vmlinuz`), reboot to brick it, then mail the client to confirm
@@ -53,7 +53,7 @@ App (useMissionState)
 
 ### Persistence
 
-Only the seed string is persisted to IndexedDB (`activeMissionSeed` key in the session store). On page reload, `useMissionState` checks the storage cache for a persisted seed and regenerates the full `MissionNetwork` deterministically. Session state (current machine, path, SSH stack) and static filesystem patches persist via existing mechanisms. Mission filesystem patches are intentionally excluded from persistence.
+The seed string and filesystem patches are persisted to IndexedDB. On page reload, `useMissionState` checks the storage cache for a persisted seed and regenerates the full `MissionNetwork` deterministically. `FileSystemContext` then replays any cached mission patches (apt installs, nano edits, etc.) on top of the regenerated filesystems. Mission patches are cleaned up on mission end/transition.
 
 ### Network Isolation
 

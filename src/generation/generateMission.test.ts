@@ -85,7 +85,6 @@ describe('generateMissionNetwork', () => {
   });
 
   it('target machine filesystem contains the target file for exfiltrate/tamper/script_fix', () => {
-    // Find a seed with exfiltrate, tamper, or script_fix (they have target files)
     for (let i = 0; i < 50; i++) {
       const result = generateMissionNetwork(`TARGET-FILE-${i}`);
       if (result.objective.type === 'credential_theft' || result.objective.type === 'sabotage')
@@ -109,15 +108,6 @@ describe('generateMissionNetwork', () => {
       return;
     }
     throw new Error('No exfiltrate/tamper/script_fix objective found in 50 seeds');
-  });
-
-  it('attack chain forms a valid path from entry to target', () => {
-    const result = generateMissionNetwork('PATH-TEST');
-    expect(result.attackChain.length).toBeGreaterThan(0);
-    expect(result.attackChain[0]?.fromMachine).toBe('entry');
-
-    const lastStep = result.attackChain[result.attackChain.length - 1];
-    expect(lastStep?.toMachine).toBe(result.objective.targetMachine);
   });
 
   it('objective has a valid type', () => {
@@ -173,20 +163,6 @@ describe('generateMissionNetwork', () => {
     expect(found).toBe(true);
   });
 
-  it('entryCredential is set for missions', () => {
-    const result = generateMissionNetwork('ENTRY-CRED-TEST');
-    expect(result.entryCredential).toBeDefined();
-    expect(result.entryCredential?.password).toBeTruthy();
-    // SSH variant uses a regular user; other variants use the port owner (guest/user/root)
-    if (result.entryVariant === 'ssh') {
-      expect(result.entryCredential?.username).not.toBe('guest');
-      expect(result.entryCredential?.username).not.toBe('root');
-    } else {
-      // Port owner determines the entry credential — could be guest, user, or root
-      expect(result.entryCredential?.username).toBeTruthy();
-    }
-  });
-
   it('NC/exploit owner type varies across seeds', () => {
     const ownerTypes = new Set<string>();
     for (let i = 0; i < 300; i++) {
@@ -205,6 +181,69 @@ describe('generateMissionNetwork', () => {
       if (ownerTypes.size >= 2) break;
     }
     expect(ownerTypes.size).toBeGreaterThanOrEqual(2);
+  });
+
+  it('non-entry NC machines have backdoor port owners', () => {
+    let found = false;
+    for (let i = 0; i < 300; i++) {
+      const result = generateMissionNetwork(`nc-nonentry-${i}`);
+      const nonEntryNc = result.machines.find(
+        (m) => m.ip !== result.entryPoint && m.accessVariant === 'nc',
+      );
+      if (!nonEntryNc) continue;
+
+      const backdoorPort = nonEntryNc.remoteMachine.ports.find(
+        (p) => p.service === 'elite' && p.open,
+      );
+      expect(backdoorPort).toBeDefined();
+      expect(backdoorPort?.owner).toBeDefined();
+      expect(['guest', 'user', 'root']).toContain(backdoorPort?.owner?.userType);
+      found = true;
+      break;
+    }
+    expect(found).toBe(true);
+  });
+
+  it('non-entry exploit machines have vulnerability and owner', () => {
+    let found = false;
+    for (let i = 0; i < 300; i++) {
+      const result = generateMissionNetwork(`exploit-nonentry-${i}`);
+      const nonEntryExploit = result.machines.find(
+        (m) => m.ip !== result.entryPoint && m.accessVariant === 'exploit',
+      );
+      if (!nonEntryExploit) continue;
+
+      const vulnPort = nonEntryExploit.remoteMachine.ports.find(
+        (p) => p.service !== 'ssh' && p.open && p.vulnerability,
+      );
+      if (!vulnPort) continue;
+
+      expect(vulnPort.vulnerability?.cve).toBeTruthy();
+      expect(vulnPort.owner).toBeDefined();
+      expect(['guest', 'user', 'root']).toContain(vulnPort.owner?.userType);
+      found = true;
+      break;
+    }
+    expect(found).toBe(true);
+  });
+
+  it('non-entry FTP machines have FTP port owners', () => {
+    let found = false;
+    for (let i = 0; i < 300; i++) {
+      const result = generateMissionNetwork(`ftp-nonentry-${i}`);
+      const nonEntryFtp = result.machines.find(
+        (m) => m.ip !== result.entryPoint && m.accessVariant === 'ftp',
+      );
+      if (!nonEntryFtp) continue;
+
+      const ftpPort = nonEntryFtp.remoteMachine.ports.find((p) => p.service === 'ftp' && p.open);
+      expect(ftpPort).toBeDefined();
+      expect(ftpPort?.owner).toBeDefined();
+      expect(['guest', 'user', 'root']).toContain(ftpPort?.owner?.userType);
+      found = true;
+      break;
+    }
+    expect(found).toBe(true);
   });
 
   it('routerMachine is a valid machine with router role', () => {
@@ -251,49 +290,35 @@ describe('generateMissionNetwork', () => {
     });
   });
 
-  it('forwarded mode natForwarding points router public IP to entry machine', () => {
+  it('forwarded mode natForwarding has port-level rules for entry machine', () => {
     let found = false;
     for (let i = 0; i < 50; i++) {
       const result = generateMissionNetwork(`fwd-mission-${i}`);
       if (!result.natForwarding) continue;
 
       expect(result.natForwarding.publicIp).toBe(result.routerPublicIp);
-      expect(result.natForwarding.internalIp).toBe(result.entryPoint);
+      expect(result.natForwarding.rules.length).toBeGreaterThan(0);
+
+      // All rules should point to the entry machine
+      result.natForwarding.rules.forEach((rule) => {
+        expect(rule.internalIp).toBe(result.entryPoint);
+        expect(rule.publicPort).toBe(rule.internalPort);
+      });
+
+      // Rules should match the entry machine's open ports
+      const entryMachine = result.machines.find((m) => m.ip === result.entryPoint);
+      const openPorts = entryMachine?.remoteMachine.ports.filter((p) => p.open) ?? [];
+      expect(result.natForwarding.rules.length).toBe(openPorts.length);
+
       found = true;
       break;
     }
     expect(found).toBe(true);
   });
 
-  it('http entry variant produces http method and web-accessible credentials', () => {
-    const result = generateMissionNetwork('test-http-easy');
-    expect(result.entryVariant).toBe('http');
-    expect(result.attackChain[0]?.method).toBe('http');
-    // HTTP variant uses a regular user credential (not guest/root)
-    expect(result.entryCredential?.username).not.toBe('root');
-    expect(result.entryCredential?.username).not.toBe('guest');
-  });
-
   it('seed containing "http" forces http entry variant', () => {
     const result = generateMissionNetwork('MISSION-http-42');
     expect(result.entryVariant).toBe('http');
-  });
-
-  it('http variant generates webserver content in entry machine filesystem', () => {
-    const result = generateMissionNetwork('http-webfs-test');
-    // Find the entry machine filesystem
-    const entryFs = result.fileSystems[result.entryPoint];
-    expect(entryFs).toBeDefined();
-
-    // Check for /var/www/html/ directory structure
-    const varDir = entryFs?.type === 'directory' ? entryFs.children?.['var'] : undefined;
-    const wwwDir = varDir?.type === 'directory' ? varDir.children?.['www'] : undefined;
-    const htmlDir = wwwDir?.type === 'directory' ? wwwDir.children?.['html'] : undefined;
-    // Web content might be on the entry machine (if webserver role) or placed via credentials
-    // Not all HTTP entry machines are webservers, but web placements should exist somewhere
-    if (htmlDir?.type === 'directory') {
-      expect(Object.keys(htmlDir.children ?? {}).length).toBeGreaterThan(0);
-    }
   });
 
   it('router filesystem contains hints about internal machines', () => {
@@ -315,11 +340,8 @@ describe('generateMissionNetwork', () => {
       const result = generateMissionNetwork(`script-fix-decode-${i}`);
       if (result.objective.type !== 'script_fix') continue;
 
-      // Script content should NOT contain ACCESS- prefix
       expect(result.objective.targetContent).not.toMatch(/ACCESS-/);
-      // Script content should contain _decode( call
       expect(result.objective.targetContent).toContain('_decode(');
-      // Should have an expectedChecksum
       expect(result.objective.expectedChecksum).toBeTruthy();
       found = true;
       break;
@@ -348,7 +370,6 @@ describe('generateMissionNetwork', () => {
         );
         if (hasClosedSsh) sshClosureCount++;
       }
-      // ~30% chance per eligible machine, should appear in at least some seeds
       expect(sshClosureCount).toBeGreaterThan(0);
     });
 
@@ -400,6 +421,34 @@ describe('generateMissionNetwork', () => {
       }
     });
 
+    it('SSH variant machines never have SSH closed', () => {
+      for (let i = 0; i < 200; i++) {
+        const result = generateMissionNetwork(`ssh-var-protect-${i}`);
+        result.machines
+          .filter((m) => m.accessVariant === 'ssh')
+          .forEach((m) => {
+            const sshPort = m.remoteMachine.ports.find((p) => p.port === 22);
+            if (sshPort) {
+              expect(sshPort.open).toBe(true);
+            }
+          });
+      }
+    });
+
+    it('FTP variant machines never have FTP closed', () => {
+      for (let i = 0; i < 200; i++) {
+        const result = generateMissionNetwork(`ftp-var-protect-${i}`);
+        result.machines
+          .filter((m) => m.accessVariant === 'ftp')
+          .forEach((m) => {
+            const ftpPort = m.remoteMachine.ports.find((p) => p.port === 21);
+            if (ftpPort) {
+              expect(ftpPort.open).toBe(true);
+            }
+          });
+      }
+    });
+
     it('never both SSH and FTP closed on the same machine', () => {
       for (let i = 0; i < 200; i++) {
         const result = generateMissionNetwork(`no-double-close-${i}`);
@@ -432,41 +481,5 @@ describe('generateMissionNetwork', () => {
         }
       });
     }
-  });
-
-  it('router-first mode places entry machine credentials on router filesystem', () => {
-    // Collect all file contents from the router filesystem recursively
-    const collectFileContents = (node: FileNode): string[] => {
-      if (node.type === 'file') return node.content ? [node.content] : [];
-      if (!node.children) return [];
-      return Object.values(node.children).flatMap(collectFileContents);
-    };
-
-    let found = false;
-    for (let i = 0; i < 100; i++) {
-      const result = generateMissionNetwork(`router-first-bridge-${i}`);
-      // Skip forwarded mode (NAT handles bridging)
-      if (result.natForwarding) continue;
-
-      const routerFs = result.fileSystems[result.routerPublicIp];
-      expect(routerFs).toBeDefined();
-
-      const allContents = collectFileContents(routerFs as FileNode);
-      // The router should have a file containing the entry machine's IP
-      const hasEntryIp = allContents.some((c) => c.includes(result.entryPoint));
-      expect(hasEntryIp).toBe(true);
-
-      // The entry machine should have a non-root, non-guest user whose creds are on the router
-      const entryMachine = result.machines.find((m) => m.ip === result.entryPoint);
-      const entryUser = entryMachine?.remoteMachine.users.find((u) => u.userType === 'user');
-      if (entryUser) {
-        const hasUsername = allContents.some((c) => c.includes(entryUser.username));
-        expect(hasUsername).toBe(true);
-      }
-
-      found = true;
-      break;
-    }
-    expect(found).toBe(true);
   });
 });

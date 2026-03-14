@@ -4,7 +4,7 @@ import type { FileNode, PermissionResult } from '../filesystem/types';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 import { decryptContent } from '../utils/crypto';
 
-type DecryptContext = {
+type GpgContext = {
   readonly resolvePath: (path: string) => string;
   readonly getNode: (path: string) => FileNode | null;
   readonly getUserType: () => UserType;
@@ -13,11 +13,12 @@ type DecryptContext = {
 
 const DECRYPT_DELAY_MS = 500;
 
-export const createDecryptCommand = (context: DecryptContext): Command => ({
-  name: 'decrypt',
+export const createGpgCommand = (context: GpgContext): Command => ({
+  name: 'gpg',
+  category: 'filesystem',
   description: 'Decrypt a file using AES-256',
   manual: {
-    synopsis: 'decrypt(file, key)',
+    synopsis: 'gpg(file, key)',
     description:
       'Decrypt an encrypted file using a 256-bit key. ' +
       'The file should contain base64-encoded encrypted data. ' +
@@ -36,11 +37,11 @@ export const createDecryptCommand = (context: DecryptContext): Command => ({
     ],
     examples: [
       {
-        command: 'decrypt("secret.enc", "a1b2c3...")',
+        command: 'gpg("secret.enc", "a1b2c3...")',
         description: 'Decrypt a file with the given key',
       },
       {
-        command: 'decrypt("/home/ghost/message.enc", key)',
+        command: 'gpg("/home/ghost/message.enc", key)',
         description: 'Decrypt using a key stored in a variable',
       },
     ],
@@ -52,19 +53,17 @@ export const createDecryptCommand = (context: DecryptContext): Command => ({
     const key = args[1] as string | undefined;
 
     if (!filePath) {
-      throw new Error('decrypt: missing file path\nUsage: decrypt("file", "key")');
+      throw new Error('gpg: missing file path\nUsage: gpg("file", "key")');
     }
 
     if (!key) {
-      throw new Error('decrypt: missing key\nUsage: decrypt("file", "key")');
+      throw new Error('gpg: missing key\nUsage: gpg("file", "key")');
     }
 
     const cleanKey = key.replace(/\s/g, '');
     // 64 hex chars = 256 bits key length
     if (!/^[0-9a-fA-F]{64}$/.test(cleanKey)) {
-      throw new Error(
-        'decrypt: invalid key format\nKey must be 64 hexadecimal characters (256 bits)',
-      );
+      throw new Error('gpg: invalid key format\nKey must be 64 hexadecimal characters (256 bits)');
     }
 
     const userType = getUserType();
@@ -72,26 +71,26 @@ export const createDecryptCommand = (context: DecryptContext): Command => ({
 
     const traversal = context.canTraverse(targetPath);
     if (!traversal.allowed) {
-      throw new Error(`decrypt: ${filePath}: Permission denied`);
+      throw new Error(`gpg: ${filePath}: Permission denied`);
     }
 
     const node = getNode(targetPath);
 
     if (!node) {
-      throw new Error(`decrypt: ${filePath}: No such file or directory`);
+      throw new Error(`gpg: ${filePath}: No such file or directory`);
     }
 
     if (node.type === 'directory') {
-      throw new Error(`decrypt: ${filePath}: Is a directory`);
+      throw new Error(`gpg: ${filePath}: Is a directory`);
     }
 
     if (!node.permissions.read.includes(userType) && userType !== 'root') {
-      throw new Error(`decrypt: ${filePath}: Permission denied`);
+      throw new Error(`gpg: ${filePath}: Permission denied`);
     }
 
     const encryptedContent = node.content ?? '';
     if (!encryptedContent) {
-      throw new Error(`decrypt: ${filePath}: File is empty`);
+      throw new Error(`gpg: ${filePath}: File is empty`);
     }
 
     const token = createCancellationToken();

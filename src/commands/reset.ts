@@ -13,6 +13,7 @@ const WARNING_MESSAGE =
 
 export const createResetCommand = (context: ResetContext): Command => ({
   name: 'reset',
+  category: 'general',
   description: 'Reset game to factory defaults (clears all saved progress)',
   manual: {
     synopsis: 'reset(["confirm"])',

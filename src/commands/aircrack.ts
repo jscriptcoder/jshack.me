@@ -13,6 +13,7 @@ const STEP_DELAY_MS = 400;
 
 export const createAircrackCommand = (context: AircrackContext): Command => ({
   name: 'aircrack',
+  category: 'wifi',
   description: 'Crack WPA/WPA2 wireless network keys',
   manual: {
     synopsis: 'aircrack(bssid)',
@@ -90,32 +91,32 @@ export const createAircrackCommand = (context: AircrackContext): Command => ({
             const steps = 6;
             const keysPerStep = Math.floor(TOTAL_KEYS / steps);
 
+            let stepDelay = 0;
+
             for (let i = 1; i <= steps; i++) {
               const stepIndex = i;
-              token.schedule(
-                () => {
-                  if (token.isCancelled()) return;
+              stepDelay += jitter(STEP_DELAY_MS);
+              token.schedule(() => {
+                if (token.isCancelled()) return;
 
-                  const tested = Math.min(stepIndex * keysPerStep, TOTAL_KEYS);
-                  const elapsed = String(stepIndex * 2).padStart(2, '0');
-                  onLine(
-                    `[00:00:${elapsed}] ${tested}/${TOTAL_KEYS} keys tested (${KEYS_PER_SECOND} k/s)`,
-                  );
+                const tested = Math.min(stepIndex * keysPerStep, TOTAL_KEYS);
+                const elapsed = String(stepIndex * 2).padStart(2, '0');
+                onLine(
+                  `[00:00:${elapsed}] ${tested}/${TOTAL_KEYS} keys tested (${KEYS_PER_SECOND} k/s)`,
+                );
 
-                  if (stepIndex === steps) {
-                    token.schedule(() => {
-                      if (token.isCancelled()) return;
+                if (stepIndex === steps) {
+                  token.schedule(() => {
+                    if (token.isCancelled()) return;
 
-                      if (network.crackable && network.password) {
-                        onLine('');
-                        onLine(`                 KEY FOUND! [ ${network.password} ]`);
-                      }
-                      onComplete();
-                    }, jitter(STEP_DELAY_MS));
-                  }
-                },
-                jitter((i + 1) * STEP_DELAY_MS),
-              );
+                    if (network.crackable && network.password) {
+                      onLine('');
+                      onLine(`                 KEY FOUND! [ ${network.password} ]`);
+                    }
+                    onComplete();
+                  }, jitter(STEP_DELAY_MS));
+                }
+              }, stepDelay);
             }
           },
           jitter(2 * STEP_DELAY_MS),

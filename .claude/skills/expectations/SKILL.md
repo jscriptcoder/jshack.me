@@ -1,18 +1,19 @@
 ---
 name: expectations
-description: Working expectations and documentation practices. Use when capturing learnings or understanding how to work with this codebase.
+description: Working expectations and documentation practices. Use when capturing learnings, documenting gotchas, recording architectural decisions, or understanding how to work with a codebase. Triggers on "document this", "remember this pattern", "what should I know about", or after completing significant features.
 ---
 
 # Expectations
 
 ## When Working with Code
 
-1. **Think deeply** before making any edits
-2. **Understand the full context** of the code and requirements
-3. **Ask clarifying questions** when requirements are ambiguous
-4. **Think from first principles** - don't make assumptions
-5. **Assess refactoring after every green** - but only refactor if it adds value
-6. **Keep project docs current** - Update CLAUDE.md when introducing meaningful changes
+1. **ALWAYS FOLLOW TDD** - No production code without a failing test. Non-negotiable.
+2. **Think deeply** before making any edits
+3. **Understand the full context** of the code and requirements
+4. **Ask clarifying questions** when requirements are ambiguous
+5. **Think from first principles** - don't make assumptions
+6. **Assess refactoring after every green** - but only refactor if it adds value
+7. **Keep project docs current** - Update CLAUDE.md when introducing meaningful changes
 
 ## Documentation Framework
 
@@ -20,7 +21,7 @@ description: Working expectations and documentation practices. Use when capturin
 
 Document if ANY of these are true:
 
-- Would save future developers >30 minutes
+- Would save future developers significant time
 - Prevents a class of bugs or errors
 - Reveals non-obvious behavior or constraints
 - Captures architectural rationale or trade-offs

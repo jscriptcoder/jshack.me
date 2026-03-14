@@ -48,11 +48,7 @@ Four static machines exist. All other machines are procedurally generated per mi
 - **fileserver** (192.168.1.50) — FTP/SSH file server for practice (users: root, ftpuser, guest); ports 21/ftp + 22/ssh
 - **webserver** (192.168.1.75) — web server with NC backdoor for practice (users: root, www-data, guest); ports 22/ssh + 80/http + 3306/mysql + 4444/elite
 
-Machine filesystems are defined in `src/filesystem/machines/` and built via `fileSystemFactory.ts` with users, directories, and content. Common structure per machine: `/root/`, `/home/[users]/`, `/etc/` (passwd with MD5 hashes, hostname, hosts, configs), `/var/log/`, `/tmp/`.
-
-### Filesystem Permissions
-
-Unix-realistic permission model: files and directories are owner-scoped (only owner + root can access). System directories (`/var`, `/tmp`, `/etc`, `/home`, `/usr`, `/boot`, `/srv`, `/opt`) are world-readable via `worldReadable` flag. Guest-owned items are world-readable. Directory traversal checking (`checkTraversal` in `fileSystemUtils.ts`) verifies execute permission on every parent directory — e.g., accessing `/home/operator/notes.txt` requires execute on `/`, `/home/`, and `/home/operator/`. `cd` checks execute permission (not read). Generated mission filesystems use `mkFile`/`mkDir` helpers with owner-scoped defaults.
+Machine filesystems are defined in `src/filesystem/machines/` and built via `fileSystemFactory.ts` with users, directories, and content. Common structure per machine: `/root/`, `/home/[users]/`, `/etc/` (passwd with MD5 hashes, hostname, hosts, configs), `/var/log/`, `/tmp/`. See `architecture.md` for the full filesystem permission model.
 
 ## Network Topology
 
@@ -119,4 +115,6 @@ PRNG-driven SSH/FTP port closures (~30% each, independent rolls) add lateral mov
 
 ### NAT Resolution
 
-`NetworkContext.resolveNat(ip)` handles the translation from public to internal IPs. Applied at three connection boundaries in `Terminal.tsx`: SSH login, FTP session, NC session.
+`NetworkContext.resolveNat(ip, port)` handles port-level translation from public IP + port to internal machine IP + port. Rules are parsed dynamically from `/etc/iptables/rules.v4` on the router's filesystem (`src/network/iptablesParser.ts`). Applied at three connection boundaries in `Terminal.tsx`: SSH login, FTP session, NC session.
+
+In forwarded mode, the iptables file is pre-populated with forwarding rules. In router-first mode, it starts as an empty template — the player can add rules with `nano` after hacking the router. Changes take effect immediately on the next `nmap` scan or connection attempt. Format: `forward <public_port> to <internal_ip>:<port>`.

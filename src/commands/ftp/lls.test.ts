@@ -6,8 +6,25 @@ import type { MachineId } from '../../filesystem/machineFileSystems';
 
 // --- Factory Functions ---
 
-const createMockFileNode = (overrides?: Partial<FileNode>): FileNode => ({
-  name: 'test',
+const createMockFile = (name: string, overrides?: Partial<FileNode>): FileNode => ({
+  name,
+  type: 'file',
+  owner: 'root',
+  content: 'test content',
+  permissions: {
+    read: ['root', 'user', 'guest'],
+    write: ['root'],
+    execute: ['root'],
+  },
+  ...overrides,
+});
+
+const createMockDirectory = (
+  name: string,
+  children: Record<string, FileNode> = {},
+  overrides?: Partial<FileNode>,
+): FileNode => ({
+  name,
   type: 'directory',
   owner: 'root',
   permissions: {
@@ -15,7 +32,7 @@ const createMockFileNode = (overrides?: Partial<FileNode>): FileNode => ({
     write: ['root'],
     execute: ['root', 'user', 'guest'],
   },
-  children: {},
+  children,
   ...overrides,
 });
 
@@ -24,7 +41,6 @@ type MockContextConfig = {
   readonly originCwd?: string;
   readonly originUserType?: UserType;
   readonly nodes?: Readonly<Record<string, FileNode | null>>;
-  readonly directoryEntries?: Readonly<Record<string, string[]>>;
 };
 
 const createMockContext = (config: MockContextConfig = {}) => {
@@ -33,7 +49,6 @@ const createMockContext = (config: MockContextConfig = {}) => {
     originCwd = '/home/jshacker',
     originUserType = 'user',
     nodes = {},
-    directoryEntries = {},
   } = config;
 
   const resolvePathForMachine = (path: string, cwd: string): string => {
@@ -46,30 +61,13 @@ const createMockContext = (config: MockContextConfig = {}) => {
     return cwd === '/' ? `/${path}` : `${cwd}/${path}`;
   };
 
-  const getNodeFromMachine = (
-    _machineId: MachineId,
-    path: string,
-    _cwd: string,
-  ): FileNode | null => {
-    return nodes[path] ?? null;
-  };
-
-  const listDirectoryFromMachine = (
-    _machineId: MachineId,
-    path: string,
-    _cwd: string,
-    _userType: UserType,
-  ): string[] | null => {
-    return directoryEntries[path] ?? null;
-  };
-
   return {
     getOriginMachine: () => originMachine,
     getOriginCwd: () => originCwd,
     getOriginUserType: () => originUserType,
     resolvePathForMachine,
-    getNodeFromMachine,
-    listDirectoryFromMachine,
+    getNodeFromMachine: (_machineId: MachineId, path: string, _cwd: string): FileNode | null =>
+      nodes[path] ?? null,
     canTraverseOnMachine: () => ({ allowed: true }),
   };
 };
@@ -82,44 +80,43 @@ describe('FTP lls command', () => {
       const context = createMockContext({
         originCwd: '/home/jshacker',
         nodes: {
-          '/home/jshacker': createMockFileNode({ name: 'jshacker' }),
-        },
-        directoryEntries: {
-          '/home/jshacker': ['notes.txt', 'downloads'],
+          '/home/jshacker': createMockDirectory('jshacker', {
+            downloads: createMockDirectory('downloads'),
+            'notes.txt': createMockFile('notes.txt'),
+          }),
         },
       });
       const lls = createFtpLlsCommand(context);
 
       const result = lls.fn();
 
-      expect(result).toBe('notes.txt  downloads');
+      expect(result).toBe('downloads/  notes.txt');
     });
 
     it('should list specified directory', () => {
       const context = createMockContext({
         originCwd: '/home/jshacker',
         nodes: {
-          '/tmp': createMockFileNode({ name: 'tmp' }),
-        },
-        directoryEntries: {
-          '/tmp': ['cache', 'session.dat'],
+          '/tmp': createMockDirectory('tmp', {
+            cache: createMockDirectory('cache'),
+            'session.dat': createMockFile('session.dat'),
+          }),
         },
       });
       const lls = createFtpLlsCommand(context);
 
       const result = lls.fn('/tmp');
 
-      expect(result).toBe('cache  session.dat');
+      expect(result).toBe('cache/  session.dat');
     });
 
     it('should list relative path', () => {
       const context = createMockContext({
         originCwd: '/home',
         nodes: {
-          '/home/jshacker': createMockFileNode({ name: 'jshacker' }),
-        },
-        directoryEntries: {
-          '/home/jshacker': ['file.txt'],
+          '/home/jshacker': createMockDirectory('jshacker', {
+            'file.txt': createMockFile('file.txt'),
+          }),
         },
       });
       const lls = createFtpLlsCommand(context);
@@ -129,41 +126,28 @@ describe('FTP lls command', () => {
       expect(result).toBe('file.txt');
     });
 
-    it('should return empty directory message', () => {
+    it('should return empty string for empty directory', () => {
       const context = createMockContext({
         originCwd: '/home/jshacker',
         nodes: {
-          '/home/jshacker': createMockFileNode({ name: 'jshacker' }),
-        },
-        directoryEntries: {
-          '/home/jshacker': [],
+          '/home/jshacker': createMockDirectory('jshacker'),
         },
       });
       const lls = createFtpLlsCommand(context);
 
       const result = lls.fn();
 
-      expect(result).toBe('(empty directory)');
+      expect(result).toBe('');
     });
 
     it('should add trailing slash to directories', () => {
       const context = createMockContext({
         originCwd: '/home/jshacker',
         nodes: {
-          '/home/jshacker': createMockFileNode({ name: 'jshacker' }),
-          '/home/jshacker/docs': createMockFileNode({ name: 'docs', type: 'directory' }),
-          '/home/jshacker/notes.txt': createMockFileNode({
-            name: 'notes.txt',
-            type: 'file',
-            permissions: {
-              read: ['root', 'user', 'guest'],
-              write: ['root'],
-              execute: ['root'],
-            },
+          '/home/jshacker': createMockDirectory('jshacker', {
+            docs: createMockDirectory('docs'),
+            'notes.txt': createMockFile('notes.txt'),
           }),
-        },
-        directoryEntries: {
-          '/home/jshacker': ['docs', 'notes.txt'],
         },
       });
       const lls = createFtpLlsCommand(context);
@@ -179,16 +163,7 @@ describe('FTP lls command', () => {
       const context = createMockContext({
         originCwd: '/home/jshacker',
         nodes: {
-          '/home/jshacker/notes.txt': createMockFileNode({
-            name: 'notes.txt',
-            type: 'file',
-            content: 'my notes',
-            permissions: {
-              read: ['root', 'user', 'guest'],
-              write: ['root'],
-              execute: ['root'],
-            },
-          }),
+          '/home/jshacker/notes.txt': createMockFile('notes.txt'),
         },
       });
       const lls = createFtpLlsCommand(context);
@@ -207,7 +182,9 @@ describe('FTP lls command', () => {
       });
       const lls = createFtpLlsCommand(context);
 
-      expect(() => lls.fn('/nonexistent')).toThrow('lls: /nonexistent: No such file or directory');
+      expect(() => lls.fn('/nonexistent')).toThrow(
+        "lls: cannot access '/nonexistent': No such file or directory",
+      );
     });
 
     it('should throw error when permission denied', () => {
@@ -215,32 +192,24 @@ describe('FTP lls command', () => {
         originCwd: '/',
         originUserType: 'guest',
         nodes: {
-          '/root': createMockFileNode({
-            name: 'root',
-            permissions: {
-              read: ['root'],
-              write: ['root'],
-              execute: ['root'],
+          '/root': createMockDirectory(
+            'root',
+            {},
+            {
+              permissions: {
+                read: ['root'],
+                write: ['root'],
+                execute: ['root'],
+              },
             },
-          }),
+          ),
         },
       });
       const lls = createFtpLlsCommand(context);
 
-      expect(() => lls.fn('/root')).toThrow('lls: /root: Permission denied');
-    });
-
-    it('should throw error when listDirectory returns null', () => {
-      const context = createMockContext({
-        originCwd: '/home',
-        nodes: {
-          '/home/private': createMockFileNode({ name: 'private' }),
-        },
-        directoryEntries: {},
-      });
-      const lls = createFtpLlsCommand(context);
-
-      expect(() => lls.fn('private')).toThrow('lls: private: Permission denied');
+      expect(() => lls.fn('/root')).toThrow(
+        "lls: cannot open directory '/root': Permission denied",
+      );
     });
   });
 
@@ -249,28 +218,10 @@ describe('FTP lls command', () => {
       const context = createMockContext({
         originCwd: '/home/jshacker',
         nodes: {
-          '/home/jshacker': createMockFileNode({ name: 'jshacker' }),
-          '/home/jshacker/.mission': createMockFileNode({
-            name: '.mission',
-            type: 'file',
-            permissions: {
-              read: ['root', 'user', 'guest'],
-              write: ['root'],
-              execute: ['root'],
-            },
+          '/home/jshacker': createMockDirectory('jshacker', {
+            '.mission': createMockFile('.mission'),
+            'README.txt': createMockFile('README.txt'),
           }),
-          '/home/jshacker/README.txt': createMockFileNode({
-            name: 'README.txt',
-            type: 'file',
-            permissions: {
-              read: ['root', 'user', 'guest'],
-              write: ['root'],
-              execute: ['root'],
-            },
-          }),
-        },
-        directoryEntries: {
-          '/home/jshacker': ['.mission', 'README.txt'],
         },
       });
       const lls = createFtpLlsCommand(context);
@@ -285,28 +236,10 @@ describe('FTP lls command', () => {
       const context = createMockContext({
         originCwd: '/home/jshacker',
         nodes: {
-          '/home/jshacker': createMockFileNode({ name: 'jshacker' }),
-          '/home/jshacker/.mission': createMockFileNode({
-            name: '.mission',
-            type: 'file',
-            permissions: {
-              read: ['root', 'user', 'guest'],
-              write: ['root'],
-              execute: ['root'],
-            },
+          '/home/jshacker': createMockDirectory('jshacker', {
+            '.mission': createMockFile('.mission'),
+            'README.txt': createMockFile('README.txt'),
           }),
-          '/home/jshacker/README.txt': createMockFileNode({
-            name: 'README.txt',
-            type: 'file',
-            permissions: {
-              read: ['root', 'user', 'guest'],
-              write: ['root'],
-              execute: ['root'],
-            },
-          }),
-        },
-        directoryEntries: {
-          '/home/jshacker': ['.mission', 'README.txt'],
         },
       });
       const lls = createFtpLlsCommand(context);
@@ -317,21 +250,45 @@ describe('FTP lls command', () => {
       expect(result).toContain('README.txt');
     });
 
-    it('should show empty directory when only dotfiles exist', () => {
+    it('should return empty string when only dotfiles exist', () => {
       const context = createMockContext({
         originCwd: '/home/jshacker',
         nodes: {
-          '/home/jshacker': createMockFileNode({ name: 'jshacker' }),
-        },
-        directoryEntries: {
-          '/home/jshacker': ['.hidden_only'],
+          '/home/jshacker': createMockDirectory('jshacker', {
+            '.hidden_only': createMockFile('.hidden_only'),
+          }),
         },
       });
       const lls = createFtpLlsCommand(context);
 
       const result = lls.fn();
 
-      expect(result).toBe('(empty directory)');
+      expect(result).toBe('');
+    });
+  });
+
+  describe('long listing (-l flag)', () => {
+    it('should show permission string, owner, and name', () => {
+      const context = createMockContext({
+        originCwd: '/home/jshacker',
+        nodes: {
+          '/home/jshacker': createMockDirectory('jshacker', {
+            'notes.txt': createMockFile('notes.txt', {
+              owner: 'user',
+              permissions: {
+                read: ['root', 'user'],
+                write: ['root', 'user'],
+                execute: ['root'],
+              },
+            }),
+          }),
+        },
+      });
+      const lls = createFtpLlsCommand(context);
+
+      const result = lls.fn('-l');
+
+      expect(result).toBe('-rw-rw----  user   notes.txt');
     });
   });
 });

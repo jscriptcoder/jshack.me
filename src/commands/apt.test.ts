@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { FileNode } from '../filesystem/types';
+import type { FileNode, FilePermissions } from '../filesystem/types';
 import type { AsyncOutput } from '../components/Terminal/types';
 import { createAptCommand } from './apt';
 
@@ -27,9 +27,15 @@ type MockAptConfig = {
   readonly installedTools?: readonly string[];
 };
 
+type CreatedFile = {
+  readonly path: string;
+  readonly content: string;
+  readonly permissions?: FilePermissions;
+};
+
 const createMockAptContext = (config: MockAptConfig = {}) => {
   const { machine = '10.0.0.1', userType = 'root', installedTools = [] } = config;
-  const createdFiles: { path: string; content: string }[] = [];
+  const createdFiles: CreatedFile[] = [];
 
   return {
     context: {
@@ -40,8 +46,13 @@ const createMockAptContext = (config: MockAptConfig = {}) => {
         if (createdFiles.some((f) => f.path === path)) return mkBinaryNode(name);
         return null;
       },
-      createFile: (path: string, content: string) => {
-        createdFiles.push({ path, content });
+      createFile: (
+        path: string,
+        content: string,
+        _userType: string,
+        permissions?: FilePermissions,
+      ) => {
+        createdFiles.push({ path, content, permissions });
         return { allowed: true };
       },
       getUserType: () => userType,
@@ -125,6 +136,46 @@ describe('apt command', () => {
       expect(lines.some((l) => l.includes('Reading package lists'))).toBe(true);
       expect(lines.some((l) => l.includes('Setting up nmap'))).toBe(true);
       expect(createdFiles.some((f) => f.path === '/usr/bin/nmap')).toBe(true);
+    });
+
+    it('creates binary with world-executable permissions', () => {
+      const { context, createdFiles } = createMockAptContext();
+      const apt = createAptCommand(context);
+      const result = apt.fn('install', 'nmap');
+
+      if (!isAsyncOutput(result)) return;
+
+      result.start(
+        () => {},
+        () => {},
+      );
+
+      vi.advanceTimersByTime(3000);
+
+      const created = createdFiles.find((f) => f.path === '/usr/bin/nmap');
+      expect(created?.permissions).toEqual({
+        read: ['root', 'user', 'guest'],
+        write: ['root'],
+        execute: ['root', 'user', 'guest'],
+      });
+    });
+
+    it('creates root-only binary for restricted commands like gpg', () => {
+      const { context, createdFiles } = createMockAptContext();
+      const apt = createAptCommand(context);
+      const result = apt.fn('install', 'gpg');
+
+      if (!isAsyncOutput(result)) return;
+
+      result.start(
+        () => {},
+        () => {},
+      );
+
+      vi.advanceTimersByTime(3000);
+
+      const created = createdFiles.find((f) => f.path === '/usr/bin/gpg');
+      expect(created?.permissions?.execute).toEqual(['root']);
     });
 
     it('calls onComplete after install finishes', () => {

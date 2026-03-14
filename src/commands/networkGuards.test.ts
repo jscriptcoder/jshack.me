@@ -5,6 +5,7 @@ import { wrapWithWifiCheck, wrapWithBrickedCheck } from './networkGuards';
 
 const createMockCommand = (name = 'test'): Command => ({
   name,
+  category: 'network',
   description: 'test command',
   fn: vi.fn((...args: readonly unknown[]) => `executed with ${args.join(', ')}`),
 });
@@ -33,6 +34,7 @@ describe('wrapWithWifiCheck', () => {
   it('preserves command metadata', () => {
     const cmd: Command = {
       name: 'ping',
+      category: 'network',
       description: 'send ICMP echo',
       manual: { synopsis: 'ping(host)', description: 'ping a host' },
       fn: vi.fn(),
@@ -137,8 +139,9 @@ describe('wrapWithBrickedCheck', () => {
   it('preserves command metadata', () => {
     const cmd: Command = {
       name: 'ssh',
+      category: 'network',
       description: 'secure shell',
-      manual: { synopsis: 'ssh(user, host)', description: 'connect via SSH' },
+      manual: { synopsis: 'ssh("user@host")', description: 'connect via SSH' },
       fn: vi.fn(),
     };
     const wrapped = wrapWithBrickedCheck(cmd, () => false);

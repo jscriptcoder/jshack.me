@@ -1,11 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createPrng } from './prng';
-import { wrapInBinaryNoise, binaryCredentialPaths, binaryTargetPaths } from './binary';
-import { generateTopology } from './topology';
-import { generateUsers } from './users';
-import { generateAttackChain } from './attackChain';
-import { generateFileSystems } from './filesystem';
-import type { FileNode } from '../filesystem/types';
+import { wrapInBinaryNoise, binaryTargetPaths } from './binary';
 
 // Replicates the strings command's isPrintable logic (ASCII 32-126 + tab + newline)
 const isPrintable = (charCode: number): boolean =>
@@ -93,26 +88,11 @@ describe('wrapInBinaryNoise', () => {
 });
 
 describe('binary path pools', () => {
-  it('binaryCredentialPaths has entries for all roles', () => {
-    const roles = ['webserver', 'database', 'fileserver', 'workstation', 'router'] as const;
-    roles.forEach((role) => {
-      expect(binaryCredentialPaths[role].length).toBeGreaterThan(0);
-    });
-  });
-
   it('binaryTargetPaths has entries for all roles', () => {
     const roles = ['webserver', 'database', 'fileserver', 'workstation', 'router'] as const;
     roles.forEach((role) => {
       expect(binaryTargetPaths[role].length).toBeGreaterThan(0);
     });
-  });
-
-  it('binary credential paths look like binary file paths', () => {
-    Object.values(binaryCredentialPaths)
-      .flat()
-      .forEach((path) => {
-        expect(path).toMatch(/\.(so|db)$|\/bin\//);
-      });
   });
 
   it('binary target paths look like binary/data file paths', () => {
@@ -121,131 +101,5 @@ describe('binary path pools', () => {
       .forEach((path) => {
         expect(path).toMatch(/\.(bin|dat|db)$/);
       });
-  });
-});
-
-describe('binary integration with attack chain', () => {
-  it('some credential placements are marked binary across many seeds', () => {
-    let binaryCount = 0;
-    let totalPlacements = 0;
-
-    for (let i = 0; i < 50; i++) {
-      const seed = `binary-chain-${i}`;
-      const prng = createPrng(seed);
-      const topology = generateTopology(prng, 'medium');
-      const { credentials } = generateUsers(prng, topology.machines, topology.entryPoint);
-      const { credentialPlacements } = generateAttackChain({
-        prng,
-        machines: topology.machines,
-        credentials,
-        entryPoint: topology.entryPoint,
-        entryVariant: topology.entryVariant,
-        difficulty: 'medium',
-      });
-
-      totalPlacements += credentialPlacements.length;
-      binaryCount += credentialPlacements.filter((p) => p.binary).length;
-    }
-
-    // With ~30% chance, we expect some binary placements
-    expect(binaryCount).toBeGreaterThan(0);
-    expect(binaryCount).toBeLessThan(totalPlacements);
-  });
-
-  it('some exfiltrate objectives are marked binary across many seeds', () => {
-    let binaryCount = 0;
-    let exfiltrateCount = 0;
-
-    for (let i = 0; i < 100; i++) {
-      const seed = `binary-exfil-${i}`;
-      const prng = createPrng(seed);
-      const topology = generateTopology(prng, 'medium');
-      const { credentials } = generateUsers(prng, topology.machines, topology.entryPoint);
-      const { objective } = generateAttackChain({
-        prng,
-        machines: topology.machines,
-        credentials,
-        entryPoint: topology.entryPoint,
-        entryVariant: topology.entryVariant,
-        difficulty: 'medium',
-      });
-
-      if (objective.type === 'exfiltrate') {
-        exfiltrateCount++;
-        if (objective.binary) binaryCount++;
-      }
-    }
-
-    expect(exfiltrateCount).toBeGreaterThan(0);
-    expect(binaryCount).toBeGreaterThan(0);
-    expect(binaryCount).toBeLessThan(exfiltrateCount);
-  });
-
-  it('binary credential placements still contain the password when extracted with strings', () => {
-    for (let i = 0; i < 100; i++) {
-      const seed = `binary-extract-${i}`;
-      const prng = createPrng(seed);
-      const topology = generateTopology(prng, 'medium');
-      const { usersByMachine, credentials } = generateUsers(
-        prng,
-        topology.machines,
-        topology.entryPoint,
-      );
-      const { credentialPlacements, objective } = generateAttackChain({
-        prng,
-        machines: topology.machines,
-        credentials,
-        entryPoint: topology.entryPoint,
-        entryVariant: topology.entryVariant,
-        difficulty: 'medium',
-      });
-
-      const binaryPlacements = credentialPlacements.filter((p) => p.binary);
-      if (binaryPlacements.length === 0) continue;
-
-      const fileSystems = generateFileSystems({
-        prng,
-        machines: topology.machines,
-        usersByMachine,
-        credentialPlacements,
-        credentials,
-        objective,
-        entryPoint: topology.entryPoint,
-        entryVariant: topology.entryVariant,
-        networkMode: 'forwarded',
-      });
-
-      binaryPlacements.forEach((p) => {
-        const fs = fileSystems[p.machineIp];
-        if (!fs) return;
-
-        // Find the binary file in the filesystem
-        const findFile = (node: FileNode, name: string): FileNode | undefined => {
-          if (node.type === 'file' && node.name === name) return node;
-          if (node.children) {
-            for (const child of Object.values(node.children)) {
-              const found = findFile(child, name);
-              if (found) return found;
-            }
-          }
-          return undefined;
-        };
-
-        const fileName = p.filePath.split('/').pop() ?? '';
-        const file = findFile(fs, fileName);
-        if (!file?.content) return;
-
-        // The content should have non-printable chars (binary wrapped)
-        const hasNonPrintable = [...file.content].some((ch) => !isPrintable(ch.charCodeAt(0)));
-        expect(hasNonPrintable).toBe(true);
-
-        // strings should recover the password
-        const extracted = extractStrings(file.content);
-        const joined = extracted.join('\n');
-        expect(joined).toContain(p.password);
-      });
-      return;
-    }
-    throw new Error('No binary credential placements found in 100 seeds');
   });
 });

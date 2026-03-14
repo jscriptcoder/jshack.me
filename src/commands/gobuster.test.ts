@@ -72,7 +72,7 @@ const createMockContext = (config: GobusterContextConfig = {}) => {
   return {
     getMachine: (ip: string) => machines.find((m) => m.ip === ip),
     resolveDomain: (domain: string) => dnsRecords.find((r) => r.domain === domain),
-    resolveNat: (ip: string) => ip,
+    resolveNat: (ip: string, port: number) => ({ ip, port }),
     getNodeFromMachine: (_machineId: string, path: string, _cwd: string): FileNode | null => {
       if (path === '/var/www/html') return webRoot;
       return null;
@@ -290,7 +290,8 @@ describe('gobuster command', () => {
             ? getMockMachine({ ip: routerIP, ports: [{ port: 80, service: 'http', open: true }] })
             : undefined,
         resolveDomain: () => undefined,
-        resolveNat: (ip: string) => (ip === routerIP ? internalIP : ip),
+        resolveNat: (ip: string, port: number) =>
+          ip === routerIP ? { ip: internalIP, port } : { ip, port },
         getNodeFromMachine: (machineId: string, path: string, _cwd: string): FileNode | null => {
           if (machineId === internalIP && path === '/var/www/html') return internalWebRoot;
           return null;

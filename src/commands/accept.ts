@@ -14,7 +14,7 @@ export const formatObjectiveHint = (mission: MissionNetwork): string => {
   if (objective.type === 'exfiltrate' && objective.encrypted) {
     return [
       '  Find the encrypted target file and the decryption key.',
-      "  You'll need root access to use decrypt(). The key is on another machine.",
+      "  You'll need root access to use gpg(). The key is on another machine.",
       `  Example: mail("${email}", "ACCESS-XXXX-XXXX-XXXX")`,
     ].join('\n');
   }
@@ -62,62 +62,6 @@ export const formatObjectiveHint = (mission: MissionNetwork): string => {
   ].join('\n');
 };
 
-// Generates variant-specific "Intel:" text for the mission briefing.
-// No command names appear — hints use natural language so the player
-// must figure out which tools to use.
-export const formatEntryHint = (mission: MissionNetwork): string => {
-  const target = mission.domainEntry ? mission.routerDomain : mission.routerPublicIp;
-  const domainSuffix = mission.domainEntry ? ' Resolve the target domain first.' : '';
-
-  if (mission.entryVariant === 'ssh') {
-    if (mission.briefingRevealsCredentials && mission.entryCredential) {
-      const { username, password } = mission.entryCredential;
-      const sshLine = mission.domainEntry
-        ? `  SSH access available — ${username}:${password}`
-        : `  SSH access available — ssh("${username}", "${target}") — password: ${password}`;
-      return (
-        [`  Intel:`, sshLine].join('\n') + (mission.domainEntry ? `\n  ${domainSuffix.trim()}` : '')
-      );
-    }
-    return [
-      `  Intel:`,
-      '  Our intel suggests default credentials may still be active on the target.',
-      '  Try common accounts.' + domainSuffix,
-    ].join('\n');
-  }
-
-  if (mission.entryVariant === 'ftp') {
-    return [
-      `  Intel:`,
-      '  Our recon shows an FTP service running on the target.' + domainSuffix,
-      '  Explore it for useful credentials.',
-    ].join('\n');
-  }
-
-  if (mission.entryVariant === 'nc') {
-    return [
-      `  Intel:`,
-      '  Our scanner picked up a suspicious backdoor service.' + domainSuffix,
-      '  Run a port scan to find it.',
-    ].join('\n');
-  }
-
-  if (mission.entryVariant === 'exploit') {
-    return [
-      `  Intel:`,
-      '  The target is running outdated software with known vulnerabilities.' + domainSuffix,
-      '  A thorough scan should reveal the weak point.',
-    ].join('\n');
-  }
-
-  // http variant
-  return [
-    `  Intel:`,
-    "  There's a web server running on the target." + domainSuffix,
-    "  Check what it's serving — credentials might be leaking.",
-  ].join('\n');
-};
-
 export const formatMissionBriefing = (mission: MissionNetwork): string => {
   const target = mission.domainEntry ? mission.routerDomain : mission.routerPublicIp;
 
@@ -133,8 +77,6 @@ export const formatMissionBriefing = (mission: MissionNetwork): string => {
     '',
     formatObjectiveHint(mission),
     '',
-    formatEntryHint(mission),
-    '',
     `  Target: ${target}`,
     '',
     '  Use abort() to cancel the mission.',
@@ -144,6 +86,7 @@ export const formatMissionBriefing = (mission: MissionNetwork): string => {
 
 export const createAcceptCommand = (context: AcceptCommandContext): Command => ({
   name: 'accept',
+  category: 'mission',
   description: 'Accept a mission contract',
   manual: {
     synopsis: 'accept(seed)',

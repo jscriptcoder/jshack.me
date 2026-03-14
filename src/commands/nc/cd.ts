@@ -19,6 +19,7 @@ type NcCdContext = {
 
 export const createNcCdCommand = (context: NcCdContext): Command => ({
   name: 'cd',
+  category: 'network',
   description: 'Change directory',
   fn: (...args: unknown[]): string => {
     const {

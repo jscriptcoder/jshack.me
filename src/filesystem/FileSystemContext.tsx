@@ -5,9 +5,10 @@ import {
   useCallback,
   useEffect,
   useRef,
+  useMemo,
   type ReactNode,
 } from 'react';
-import type { FileNode, FileSystemPatch, PermissionResult } from './types';
+import type { FileNode, FilePermissions, FileSystemPatch, PermissionResult } from './types';
 import { useSession, type UserType } from '../session/SessionContext';
 import { machineFileSystems, getDefaultHomePath, type MachineId } from './machineFileSystems';
 import { getCachedFilesystemPatches, getDatabase } from '../utils/storageCache';
@@ -38,7 +39,12 @@ type FileSystemContextValue = {
   readonly listDirectory: (path: string, userType: UserType) => string[] | null;
   readonly readFile: (path: string, userType: UserType) => string | null;
   readonly writeFile: (path: string, content: string, userType: UserType) => PermissionResult;
-  readonly createFile: (path: string, content: string, userType: UserType) => PermissionResult;
+  readonly createFile: (
+    path: string,
+    content: string,
+    userType: UserType,
+    permissions?: FilePermissions,
+  ) => PermissionResult;
   readonly deleteNode: (
     path: string,
     userType: UserType,
@@ -84,6 +90,7 @@ type FileSystemContextValue = {
     cwd: string,
     content: string,
     userType: UserType,
+    permissions?: FilePermissions,
   ) => PermissionResult;
   readonly deleteNodeFromMachine: (
     machineId: MachineId,
@@ -91,6 +98,11 @@ type FileSystemContextValue = {
     cwd: string,
     userType: UserType,
     options?: DeleteOptions,
+  ) => PermissionResult;
+  readonly updatePermissions: (
+    path: string,
+    permissions: FilePermissions,
+    userType: UserType,
   ) => PermissionResult;
   readonly canTraverse: (path: string, userType: UserType) => PermissionResult;
   readonly canTraverseOnMachine: (
@@ -116,12 +128,16 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
   const { session } = useSession();
   const [fileSystems, setFileSystems] = useState<FileSystemsState>(initializeFileSystems);
   const [patches, setPatches] = useState<readonly FileSystemPatch[]>(getCachedFilesystemPatches);
-  const syncChannelRef = useRef(createSyncChannel());
+  // Create channel inside effect so StrictMode's cleanup + re-run cycle gets
+  // a fresh (open) channel. The ref is updated so broadcastAndRecordPatch always
+  // posts on the currently-active channel.
+  const syncChannelRef = useRef<ReturnType<typeof createSyncChannel> | null>(null);
 
   // Subscribe to filesystem patches from other tabs.
   // BroadcastChannel does not deliver messages to the posting tab, so no echo guard needed.
   useEffect(() => {
-    const channel = syncChannelRef.current;
+    const channel = createSyncChannel();
+    syncChannelRef.current = channel;
     channel.onMessage((message: SyncMessage) => {
       if (message.type !== 'filesystem-patch') return;
       const patch = message.patch;
@@ -148,27 +164,59 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
     return () => channel.close();
   }, []);
 
-  // Only persist patches for static (tutorial) machines — mission filesystem patches are
-  // excluded because missions regenerate entirely from their seed on reload.
+  // Persist all patches (static + mission) to IndexedDB. Mission patches are replayed
+  // on top of regenerated filesystems when the page reloads with an active mission seed.
   useEffect(() => {
     const db = getDatabase();
     if (db) {
-      const staticPatches = patches.filter((p) => STATIC_MACHINE_KEYS.has(p.machineId));
-      saveFilesystemPatches(db, staticPatches);
+      saveFilesystemPatches(db, [...patches]);
     }
   }, [patches]);
+
+  // Track whether the missionFileSystems effect is running for the first time.
+  // On initial mount with a persisted mission, we replay cached patches so the
+  // user's in-progress work (apt installs, nano edits, etc.) survives page reload.
+  const isInitialMissionMount = useRef(true);
+
+  // Snapshot of cached patches at mount time — used only once during initial
+  // mission replay and never updated, avoiding a stale dependency in the effect.
+  const cachedPatchesAtMount = useMemo(() => getCachedFilesystemPatches(), []);
 
   // When a mission starts/ends, merge or remove mission filesystems.
   // Static machine filesystems are always preserved; mission ones are overlaid on top.
   useEffect(() => {
+    // On runtime mission transitions (not initial mount), clean up old mission
+    // patches — they belong to the previous mission and shouldn't carry over.
+    if (!isInitialMissionMount.current) {
+      setPatches((prev) => prev.filter((p) => STATIC_MACHINE_KEYS.has(p.machineId)));
+    }
+
     setFileSystems((prev) => {
       const staticOnly = Object.fromEntries(
         Object.entries(prev).filter(([key]) => STATIC_MACHINE_KEYS.has(key)),
       );
-      if (!missionFileSystems) return staticOnly;
-      return { ...staticOnly, ...missionFileSystems };
+      if (!missionFileSystems) {
+        isInitialMissionMount.current = false;
+        return staticOnly;
+      }
+
+      const merged = { ...staticOnly, ...missionFileSystems };
+
+      // On initial mount, replay persisted mission patches on top of regenerated
+      // filesystems so the user's in-progress changes survive page reload.
+      if (isInitialMissionMount.current) {
+        isInitialMissionMount.current = false;
+        const missionPatches = cachedPatchesAtMount.filter(
+          (p) => !STATIC_MACHINE_KEYS.has(p.machineId),
+        );
+        if (missionPatches.length > 0) {
+          return applyPatches(merged, missionPatches);
+        }
+      }
+
+      return merged;
     });
-  }, [missionFileSystems]);
+  }, [missionFileSystems, cachedPatchesAtMount]);
 
   // session.machine is typed as string but always holds a valid MachineId at runtime
   // (set by SSH/session logic). The assertion avoids threading MachineId through SessionContext.
@@ -298,7 +346,7 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
   // Deletion of a base filesystem file records a null patch.
   // Both cases also remove any child patches under the deleted path.
   const broadcastAndRecordPatch = useCallback((patch: FileSystemPatch) => {
-    syncChannelRef.current.broadcast({ type: 'filesystem-patch', patch });
+    syncChannelRef.current?.broadcast({ type: 'filesystem-patch', patch });
     setPatches((prev) => {
       if (patch.content !== null) return upsertPatch(prev, patch);
 
@@ -344,7 +392,13 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
         })),
       }));
 
-      broadcastAndRecordPatch({ machineId, path: resolvedPath, content, owner: node.owner });
+      broadcastAndRecordPatch({
+        machineId,
+        path: resolvedPath,
+        content,
+        owner: node.owner,
+        permissions: node.permissions,
+      });
 
       return { allowed: true };
     },
@@ -358,6 +412,7 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
       cwd: string,
       content: string,
       userType: UserType,
+      permissions?: FilePermissions,
     ): PermissionResult => {
       const resolvedPath = resolvePathForMachine(path, cwd);
       const parts = resolvedPath.split('/').filter(Boolean);
@@ -373,15 +428,17 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
         return { allowed: false, error: `Not a directory: ${dirPath}` };
       if (parentNode.children?.[fileName]) return { allowed: false, error: `File exists: ${path}` };
 
+      const defaultPermissions: FilePermissions = {
+        read: ['root', userType],
+        write: ['root', userType],
+        execute: ['root'],
+      };
+
       const newFile: FileNode = {
         name: fileName,
         type: 'file',
         owner: userType,
-        permissions: {
-          read: ['root', userType],
-          write: ['root', userType],
-          execute: ['root', userType],
-        },
+        permissions: permissions ?? defaultPermissions,
         content,
       };
 
@@ -396,6 +453,7 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
         content,
         owner: userType,
         isNew: true,
+        ...(permissions ? { permissions } : {}),
       });
 
       return { allowed: true };
@@ -458,10 +516,48 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
   );
 
   const createFile = useCallback(
-    (path: string, content: string, userType: UserType): PermissionResult => {
-      return createFileOnMachine(currentMachine, path, currentPath, content, userType);
+    (
+      path: string,
+      content: string,
+      userType: UserType,
+      permissions?: FilePermissions,
+    ): PermissionResult => {
+      return createFileOnMachine(currentMachine, path, currentPath, content, userType, permissions);
     },
     [createFileOnMachine, currentMachine, currentPath],
+  );
+
+  const updatePermissions = useCallback(
+    (path: string, permissions: FilePermissions, userType: UserType): PermissionResult => {
+      const resolvedPath = resolvePathUtil(path, currentPath);
+      const node = getNodeAtPath(fileSystem, resolvedPath);
+      if (!node) return { allowed: false, error: `No such file or directory: ${path}` };
+
+      // Only owner or root can change permissions
+      if (userType !== 'root' && userType !== node.owner) {
+        return { allowed: false, error: `Operation not permitted: ${path}` };
+      }
+
+      const parts = resolvedPath.split('/').filter(Boolean);
+      setFileSystems((prev) => ({
+        ...prev,
+        [currentMachine]: updateNodeAtPath(prev[currentMachine], parts, (fileNode) => ({
+          ...fileNode,
+          permissions,
+        })),
+      }));
+
+      broadcastAndRecordPatch({
+        machineId: currentMachine,
+        path: resolvedPath,
+        content: node.content ?? null,
+        owner: node.owner,
+        permissions,
+      });
+
+      return { allowed: true };
+    },
+    [fileSystem, currentPath, currentMachine, broadcastAndRecordPatch],
   );
 
   const canTraverseOnMachine = useCallback(
@@ -510,6 +606,7 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
         writeFileToMachine,
         createFileOnMachine,
         deleteNodeFromMachine,
+        updatePermissions,
         canTraverse: canTraverseFn,
         canTraverseOnMachine,
       }}

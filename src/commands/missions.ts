@@ -10,6 +10,7 @@ type MissionsCommandContext = {
 
 export const createMissionsCommand = (context: MissionsCommandContext): Command => ({
   name: 'missions',
+  category: 'mission',
   description: 'Browse available contracts or view active mission briefing',
   manual: {
     synopsis: 'missions()',

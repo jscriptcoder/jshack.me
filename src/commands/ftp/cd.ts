@@ -19,6 +19,7 @@ type FtpCdContext = {
 
 export const createFtpCdCommand = (context: FtpCdContext): Command => ({
   name: 'cd',
+  category: 'network',
   description: 'Change remote directory',
   manual: {
     synopsis: 'cd([path])',

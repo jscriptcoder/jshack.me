@@ -2,6 +2,7 @@ import type { Command, ExitOutput } from '../components/Terminal/types';
 
 export const exitCommand: Command = {
   name: 'exit',
+  category: 'general',
   description: 'Close SSH connection and return to previous machine',
   manual: {
     synopsis: 'exit()',

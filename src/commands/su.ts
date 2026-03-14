@@ -11,6 +11,7 @@ type SuContext = {
 
 export const createSuCommand = (context: SuContext): Command => ({
   name: 'su',
+  category: 'general',
   description: 'Switch user',
   manual: {
     synopsis: 'su(username)',

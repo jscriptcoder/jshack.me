@@ -146,6 +146,12 @@ export const removeChildAtPath = (
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
 
+const isValidPermissions = (value: unknown): boolean =>
+  isRecord(value) &&
+  Array.isArray(value.read) &&
+  Array.isArray(value.write) &&
+  Array.isArray(value.execute);
+
 export const isValidPatch = (value: unknown): value is FileSystemPatch =>
   isRecord(value) &&
   typeof value.machineId === 'string' &&
@@ -153,6 +159,7 @@ export const isValidPatch = (value: unknown): value is FileSystemPatch =>
   (typeof value.content === 'string' || value.content === null) &&
   typeof value.owner === 'string' &&
   ['root', 'user', 'guest'].includes(value.owner) &&
+  (value.permissions === undefined || isValidPermissions(value.permissions)) &&
   (value.isNew === undefined || value.isNew === true);
 
 // Preserves `isNew` from the existing patch so a create-then-write sequence
@@ -205,6 +212,8 @@ export const applyPatches = (
         [machineId]: updateNodeAtPath(machineFs, parts, (node) => ({
           ...node,
           content,
+          // Use explicit patch permissions if provided, otherwise preserve original
+          ...(patch.permissions ? { permissions: patch.permissions } : {}),
         })),
       };
     }
@@ -215,10 +224,11 @@ export const applyPatches = (
       name: fileName,
       type: 'file',
       owner: patch.owner,
-      permissions: {
+      // Use explicit patch permissions if provided, otherwise default to no-execute
+      permissions: patch.permissions ?? {
         read: ['root', patch.owner],
         write: ['root', patch.owner],
-        execute: ['root', patch.owner],
+        execute: ['root'],
       },
       content,
     };

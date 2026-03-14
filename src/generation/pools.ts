@@ -72,6 +72,8 @@ export const portTemplatesByRole: Readonly<Record<MachineRole, readonly PortTemp
   ],
 };
 
+export const backdoorPorts: readonly number[] = [4444, 31337, 8888, 1337];
+
 export type EntryPortTemplate = {
   readonly variant: EntryVariant;
   readonly ports: readonly PortTemplate[];
@@ -277,82 +279,6 @@ export const noiseFiles: readonly { readonly name: string; readonly content: str
   { name: '.vimrc', content: 'set number\nset tabstop=2\nset shiftwidth=2\nsyntax on' },
   { name: '.profile', content: '# ~/.profile\nif [ -n "$BASH_VERSION" ]; then\n  . ~/.bashrc\nfi' },
   { name: '.ssh_known_hosts', content: '# known hosts\n192.168.1.1 ssh-rsa AAAAB3NzaC1yc2E...' },
-];
-
-export const binaryEntryCredentialHintTemplates: readonly {
-  readonly ftpPath: string;
-  readonly ncPath: string;
-  readonly exploitPath: string;
-  readonly httpPath: string;
-  readonly httpHeadersPath: string;
-  readonly httpHeaderName: string;
-  readonly template: string;
-}[] = [
-  {
-    ftpPath: '/home/{{localUser}}/.auth_cache',
-    ncPath: '/home/{{owner}}/.auth_cache',
-    exploitPath: '/home/{{owner}}/.auth_cache',
-    httpPath: '/var/www/html/admin/config.json',
-    httpHeadersPath: '/var/www/html/admin/config.json.headers',
-    httpHeaderName: 'X-Api-Key',
-    template:
-      'SSH Credentials Backup\n======================\nHost: {{hostname}}\nUser: {{user}}\nPass: {{password}}\nLast updated: Jan 10',
-  },
-  {
-    ftpPath: '/home/{{localUser}}/service_check',
-    ncPath: '/home/{{owner}}/service_check',
-    exploitPath: '/home/{{owner}}/service_check',
-    httpPath: '/var/www/html/.env',
-    httpHeadersPath: '/var/www/html/.env.headers',
-    httpHeaderName: 'X-Session-Token',
-    template: 'Server notes:\n- SSH access: {{user}} / {{password}}\n- Remember to rotate!',
-  },
-];
-
-export type EntryCredentialHintTemplate = {
-  readonly ftpPath: string;
-  readonly ncPath: string;
-  readonly exploitPath: string;
-  readonly httpPath: string;
-  readonly httpHeadersPath: string;
-  readonly httpHeaderName: string;
-  readonly httpInHeader: boolean;
-  readonly template: string;
-};
-
-export const entryCredentialHintTemplates: readonly EntryCredentialHintTemplate[] = [
-  {
-    ftpPath: '/home/{{owner}}/.ssh_backup',
-    ncPath: '/home/{{owner}}/ssh_backup.txt',
-    exploitPath: '/home/{{owner}}/ssh_backup.txt',
-    httpPath: '/var/www/html/status',
-    httpHeadersPath: '/var/www/html/status.headers',
-    httpHeaderName: 'X-Internal-Auth',
-    httpInHeader: true,
-    template:
-      'SSH Credentials Backup\n======================\nHost: {{hostname}}\nUser: {{user}}\nPass: {{password}}\nLast updated: Jan 10',
-  },
-  {
-    ftpPath: '/home/{{owner}}/notes.txt',
-    ncPath: '/home/{{owner}}/notes.txt',
-    exploitPath: '/home/{{owner}}/notes.txt',
-    httpPath: '/var/www/html/admin/debug.html',
-    httpHeadersPath: '/var/www/html/admin/debug.html.headers',
-    httpHeaderName: 'X-Access-Token',
-    httpInHeader: false,
-    template: 'Server notes:\n- SSH access: {{user}} / {{password}}\n- Remember to rotate!',
-  },
-  {
-    ftpPath: '/home/{{owner}}/credentials.bak',
-    ncPath: '/home/{{owner}}/.credentials',
-    exploitPath: '/home/{{owner}}/.credentials',
-    httpPath: '/var/www/html/.env',
-    httpHeadersPath: '/var/www/html/.env.headers',
-    httpHeaderName: 'X-Api-Key',
-    httpInHeader: true,
-    template:
-      '# auto-generated credentials\nssh_user={{user}}\nssh_pass={{password}}\nhost={{hostname}}',
-  },
 ];
 
 export type TargetFileTemplate = {
@@ -585,16 +511,7 @@ export const keyPlacementTemplates: readonly KeyPlacementTemplate[] = [
   },
 ];
 
-export const secretHeaderNames: readonly string[] = [
-  'X-Api-Key',
-  'X-Session-Token',
-  'Authorization',
-  'X-Internal-Auth',
-  'X-Access-Token',
-];
-
 // Web page templates for webserver machines. {{hostname}} and {{ip}} are filled in at generation.
-// Pages with httpInHeader=true hide credentials in a .headers sidecar file.
 export const webContentTemplates: readonly {
   readonly path: string;
   readonly content: string;
@@ -608,61 +525,6 @@ export const webContentTemplates: readonly {
     path: '/var/www/html/index.html',
     content:
       '<html>\n<head><title>Welcome — {{hostname}}</title></head>\n<body>\n<h1>Welcome to {{hostname}}</h1>\n<p>Internal corporate portal v3.1.0</p>\n<ul>\n<li><a href="/status">System Status</a></li>\n<li><a href="/admin/">Administration</a></li>\n</ul>\n<!-- TODO: remove debug endpoints before release -->\n</body>\n</html>',
-  },
-];
-
-// HTTP credential placement templates for lateral movement via curl.
-// Placed on webserver-role machines when curl is used for credential discovery.
-export type HttpCredentialPlacement = {
-  readonly path: string;
-  readonly headersPath: string;
-  readonly headerName: string;
-  readonly httpInHeader: boolean;
-  readonly bodyTemplate: string;
-  readonly headerTemplate: string;
-  readonly hint: string;
-};
-
-export const httpCredentialPlacements: readonly HttpCredentialPlacement[] = [
-  {
-    path: '/var/www/html/admin/config.json',
-    headersPath: '/var/www/html/admin/config.json.headers',
-    headerName: 'X-Internal-Auth',
-    httpInHeader: true,
-    bodyTemplate:
-      '{\n  "app": "admin-panel",\n  "version": "2.4.1",\n  "debug": false,\n  "_internal_backup": "{{user}}:{{password}}"\n}',
-    headerTemplate: '{{headerName}}: {{user}}:{{password}}',
-    hint: 'The webserver on {{machine}} may be leaking credentials — try curl -i',
-  },
-  {
-    path: '/var/www/html/status',
-    headersPath: '/var/www/html/status.headers',
-    headerName: 'X-Api-Key',
-    httpInHeader: false,
-    bodyTemplate:
-      'Service Status Report\n=====================\nServer: {{hostname}}\nStatus: running\nUptime: 47d 12h\n\n# Maintenance credentials\n# SSH: {{user}} / {{password}}\n# Rotate after next deployment',
-    headerTemplate: '{{headerName}}: status-token-{{hostname}}',
-    hint: 'Check the status page on {{machine}} with curl — it may contain credentials',
-  },
-  {
-    path: '/var/www/html/.env',
-    headersPath: '/var/www/html/.env.headers',
-    headerName: 'X-Access-Token',
-    httpInHeader: true,
-    bodyTemplate:
-      'APP_ENV=production\nAPP_DEBUG=false\nDB_HOST=localhost\nDB_NAME=app\n# remote: {{user}}:{{password}}\n# See response headers for auth tokens',
-    headerTemplate: '{{headerName}}: {{user}}:{{password}}',
-    hint: 'The .env file on {{machine}} is web-accessible — try curl -i',
-  },
-  {
-    path: '/var/www/html/api/health',
-    headersPath: '/var/www/html/api/health.headers',
-    headerName: 'X-Session-Token',
-    httpInHeader: false,
-    bodyTemplate:
-      '{"status":"healthy","version":"3.0.2","uptime":"47d"}\n\n<!-- debug: ssh access {{user}}@{{hostname}} pass={{password}} -->',
-    headerTemplate: '{{headerName}}: session-{{hostname}}-prod',
-    hint: 'The API on {{machine}} has a health endpoint — try curl',
   },
 ];
 
@@ -681,6 +543,208 @@ export const redHerringFiles: readonly { readonly name: string; readonly content
     name: 'maintenance_log.txt',
     content:
       'Jan 15: Patched OpenSSH\nJan 20: Rotated all passwords\nFeb 01: Updated firewall rules',
+  },
+];
+
+// Credential leak templates — careless user credentials found in guest-readable locations.
+// {{username}} and {{password}} are filled with an actual user-type account on the machine.
+// binary: true means the file is wrapped in binary noise (requires `strings` to read cleanly).
+export type CredentialLeakTemplate = {
+  readonly path: string;
+  readonly content: string;
+  readonly binary?: boolean;
+};
+
+export const credentialLeakTemplates: readonly CredentialLeakTemplate[] = [
+  // /etc/ config files
+  {
+    path: '/etc/maintenance.conf',
+    content: [
+      '# Automated maintenance configuration',
+      '# Last updated: 2024-03-15',
+      '[remote_backup]',
+      'host = 10.0.0.1',
+      'user = {{username}}',
+      'pass = {{password}}',
+      'schedule = daily 02:00',
+      'compress = gzip',
+    ].join('\n'),
+  },
+  {
+    path: '/etc/crontab',
+    content: [
+      'SHELL=/bin/bash',
+      'PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin',
+      '',
+      '# m h dom mon dow user command',
+      '17 * * * * root cd / && run-parts --report /etc/cron.hourly',
+      '25 6 * * * root test -x /usr/sbin/anacron || ( cd / && run-parts --report /etc/cron.daily )',
+      `0 2 * * * {{username}} /opt/backup.sh --user={{username}} --pass={{password}}`,
+      '47 6 * * 7 root test -x /usr/sbin/anacron || ( cd / && run-parts --report /etc/cron.weekly )',
+    ].join('\n'),
+  },
+  // /srv/www/ and /var/www/ web configs
+  {
+    path: '/srv/www/.env',
+    content: [
+      'APP_ENV=production',
+      'APP_DEBUG=false',
+      'APP_KEY=base64:Rg2Kf8Q7vYz3mXpNsL0wJh6dBtCeAuWi9oElGnHjDs=',
+      '',
+      'DB_CONNECTION=mysql',
+      'DB_HOST=127.0.0.1',
+      'DB_PORT=3306',
+      'DB_DATABASE=app_prod',
+      'DB_USERNAME={{username}}',
+      'DB_PASSWORD={{password}}',
+      '',
+      'CACHE_DRIVER=redis',
+      'SESSION_DRIVER=file',
+    ].join('\n'),
+  },
+  {
+    path: '/var/www/config.php.bak',
+    content: [
+      '<?php',
+      '// Database configuration — backed up before migration',
+      '$db_host = "localhost";',
+      '$db_name = "webapp";',
+      '$db_user = "{{username}}";',
+      '$db_pass = "{{password}}";',
+      '',
+      '$db = new PDO("mysql:host=$db_host;dbname=$db_name", $db_user, $db_pass);',
+      '?>',
+    ].join('\n'),
+  },
+  // /tmp/ forgotten scripts and logs
+  {
+    path: '/tmp/.backup.sh',
+    content: [
+      '#!/bin/bash',
+      '# Quick backup script — delete after use',
+      'TIMESTAMP=$(date +%Y%m%d_%H%M%S)',
+      `REMOTE_USER="{{username}}"`,
+      `REMOTE_PASS="{{password}}"`,
+      '',
+      'mysqldump -u $REMOTE_USER -p$REMOTE_PASS --all-databases > /tmp/dump_$TIMESTAMP.sql',
+      'echo "Backup complete: /tmp/dump_$TIMESTAMP.sql"',
+    ].join('\n'),
+  },
+  {
+    path: '/tmp/deploy.log',
+    content: [
+      '[2024-03-12 14:23:01] Starting deployment v4.2.1',
+      '[2024-03-12 14:23:02] Connecting to database...',
+      `[2024-03-12 14:23:02] Using credentials: {{username}} / {{password}}`,
+      '[2024-03-12 14:23:03] Running migrations... OK',
+      '[2024-03-12 14:23:05] Restarting services... OK',
+      '[2024-03-12 14:23:06] Deployment complete',
+      '[2024-03-12 14:23:06] TODO: clean up this log file',
+    ].join('\n'),
+  },
+  // /opt/ and /srv/ application configs
+  {
+    path: '/opt/app/config.ini',
+    content: [
+      '[general]',
+      'name = app-service',
+      'debug = false',
+      'log_level = warn',
+      '',
+      '[database]',
+      'host = 127.0.0.1',
+      'port = 3306',
+      'name = app_data',
+      'user = {{username}}',
+      'password = {{password}}',
+      '',
+      '[cache]',
+      'driver = redis',
+      'host = 127.0.0.1',
+      'port = 6379',
+    ].join('\n'),
+  },
+  {
+    path: '/opt/app/settings.yml',
+    content: [
+      'app:',
+      '  name: internal-service',
+      '  version: 2.1.0',
+      '  environment: production',
+      '',
+      'database:',
+      '  driver: postgresql',
+      '  host: localhost',
+      '  port: 5432',
+      '  username: {{username}}',
+      '  password: {{password}}',
+      '  pool_size: 10',
+      '',
+      'logging:',
+      '  level: info',
+      '  output: /var/log/app.log',
+    ].join('\n'),
+  },
+  {
+    path: '/srv/app/db.conf',
+    content: [
+      '# Service database connector',
+      '# Auto-generated by setup wizard',
+      'DRIVER=mysql',
+      'HOST=localhost',
+      'PORT=3306',
+      'USER={{username}}',
+      'PASS={{password}}',
+      'MAX_CONNECTIONS=50',
+      'TIMEOUT=30',
+    ].join('\n'),
+  },
+  {
+    path: '/opt/monitoring/check_service.sh',
+    content: [
+      '#!/bin/bash',
+      '# Health check script — runs every 5 minutes',
+      'SERVICE_URL="http://localhost:8080/health"',
+      `DB_USER="{{username}}"`,
+      `DB_PASS="{{password}}"`,
+      '',
+      'curl -sf $SERVICE_URL > /dev/null || echo "ALERT: service down"',
+      'mysql -u $DB_USER -p$DB_PASS -e "SELECT 1" > /dev/null 2>&1 || echo "ALERT: db down"',
+    ].join('\n'),
+  },
+  // Binary files (require `strings` to read cleanly)
+  {
+    path: '/usr/local/bin/health_check',
+    content: [
+      'health_check v2.1.3 — compiled service monitor',
+      'config: host=localhost port=8080',
+      `credentials: user={{username}} pass={{password}}`,
+      'interval: 60s',
+      'timeout: 5s',
+    ].join('\n'),
+    binary: true,
+  },
+  {
+    path: '/opt/lib/libauth.so',
+    content: [
+      'libauth.so.2.0 — authentication module',
+      'default_realm=INTERNAL',
+      `service_account={{username}}`,
+      `service_secret={{password}}`,
+      'token_expiry=3600',
+    ].join('\n'),
+    binary: true,
+  },
+  {
+    path: '/var/cache/app.db',
+    content: [
+      'SQLite format 3',
+      'CREATE TABLE sessions (id INTEGER PRIMARY KEY, user TEXT, token TEXT);',
+      `INSERT INTO credentials VALUES (1, "{{username}}", "{{password}}");`,
+      'INSERT INTO sessions VALUES (1, "admin", "tok_a8f3e2b1");',
+      'INSERT INTO sessions VALUES (2, "service", "tok_c4d9f0e7");',
+    ].join('\n'),
+    binary: true,
   },
 ];
 

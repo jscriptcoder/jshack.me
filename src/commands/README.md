@@ -4,28 +4,29 @@ All terminal commands live here. Each command implements the `Command` type and 
 
 Commands use a factory pattern with context injection: `createXCommand(context) => Command`.
 
-## Command Restrictions (`permissions.ts`)
+## Access Control (`availability.ts`)
 
-Commands are tiered by user type. Restricted commands show `permission denied: 'name' requires TYPE privileges` and are hidden from `help()` and tab autocomplete. `man()` can still look up any command.
+Commands use a unified filesystem-based access model. All commands are visible to all users — execution is gated by binary file permissions.
 
-| Tier     | User Type | Available Commands                                                                                                                                                                     |
-| -------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Basic    | `guest`   | help, man, echo, whoami, pwd, ls, cd, cat, rm, su, clear, author, theme, exit, ssh, ping, curl, nslookup                                                                               |
-| Standard | `user`    | All basic + apt, ifconfig, nmap, ftp, nc, exploit, hydra, strings, output, resolve, nano, node, john, airmon, airdump, aircrack, nmcli, gobuster, missions, accept, abort, mail, xterm |
-| Full     | `root`    | All standard + decrypt, reboot                                                                                                                                                         |
+- **Shell builtins** (cd, exit, clear, echo, pwd, help, whoami) — always available, no binary needed
+- **Game commands** (missions, accept, abort, mail, output, resolve, author, theme, reset, xterm) — always available
+- **System utilities** in `/bin/` — always present on all machines; most are world-executable
+- **Apt-installable tools** in `/usr/bin/` — must be installed via `apt('install', '<tool>')` as root; pre-installed on localhost only
+- **Restricted binaries** — `reboot` and `gpg` have `execute: ['root']`; all others are world-executable
+
+At execution time, `wrapWithAccessCheck` checks binary existence and execute permissions:
+
+- Binary missing → `"bash: name: command not found"` (with apt install hint for apt-installable tools)
+- Binary exists but no execute permission → `"bash: name: Permission denied"`
+
+| Category         | Location    | Availability                                                        |
+| ---------------- | ----------- | ------------------------------------------------------------------- |
+| Shell builtins   | N/A         | Always (cd, exit, clear, echo, pwd, help, whoami)                   |
+| System utilities | `/bin/`     | Always (ls, cat, rm, chmod, scp, su, man, nano, strings, ssh, etc.) |
+| Apt-installable  | `/usr/bin/` | After `apt install` (pre-installed on localhost only)               |
+| Game-specific    | N/A         | Always (missions, accept, abort, mail, output, etc.)                |
 
 FTP and NC modes have their own separate command sets and are not restricted.
-
-## Tool Availability (`availability.ts`)
-
-On remote and mission machines, hacking tools aren't pre-installed. Players must use `apt('install', '<tool>')` as root to install them. System utilities (`ls`, `cat`, `ssh`, etc.) are always available via `/bin/`. Apt-installable tools (`nmap`, `john`, `nc`, etc.) require `/usr/bin/<name>` to exist in the filesystem.
-
-| Category         | Location    | Availability                                            |
-| ---------------- | ----------- | ------------------------------------------------------- |
-| Shell builtins   | N/A         | Always (cd, exit, clear, echo, pwd, help, whoami)       |
-| System utilities | `/bin/`     | Always (ls, cat, rm, su, man, nano, strings, ssh, etc.) |
-| Apt-installable  | `/usr/bin/` | After `apt install` (pre-installed on localhost only)   |
-| Game-specific    | N/A         | Always (missions, accept, abort, mail, output, etc.)    |
 
 ## General
 
@@ -54,21 +55,22 @@ On remote and mission machines, hacking tools aren't pre-installed. Players must
 
 ## File System
 
-| Command | File         | Signature                | Description                                             |
-| ------- | ------------ | ------------------------ | ------------------------------------------------------- |
-| pwd     | `pwd.ts`     | `pwd()`                  | Print current working directory                         |
-| ls      | `ls.ts`      | `ls([path], [flags])`    | List directory contents (`-a` for hidden files)         |
-| cd      | `cd.ts`      | `cd([path])`             | Change current directory                                |
-| cat     | `cat.ts`     | `cat(path)`              | Display file contents                                   |
-| rm      | `rm.ts`      | `rm([flags], path, ...)` | Remove files or directories (-r recursive, -f force)    |
-| whoami  | `whoami.ts`  | `whoami()`               | Display current username                                |
-| decrypt | `decrypt.ts` | `decrypt(file, key)`     | Decrypt file using AES-256 (async)                      |
-| output  | `output.ts`  | `output(cmd, [file])`    | Capture command output to variable or file              |
-| strings | `strings.ts` | `strings(file, [min])`   | Extract printable strings from binary files             |
-| nano    | `nano.ts`    | `nano(path)`             | Open file in nano-style text editor overlay             |
-| node    | `node.ts`    | `node(path)`             | Execute a JavaScript file (requires execute permission) |
-| john    | `john.ts`    | `john(file)`             | Crack password hashes using dictionary attack (async)   |
-| reboot  | `reboot.ts`  | `reboot()`               | Reboot current machine; bricks if boot files missing    |
+| Command | File         | Signature                | Description                                                     |
+| ------- | ------------ | ------------------------ | --------------------------------------------------------------- |
+| pwd     | `pwd.ts`     | `pwd()`                  | Print current working directory                                 |
+| ls      | `ls.ts`      | `ls([path], [flags])`    | List directory contents (`-a` hidden, `-l` long format)         |
+| cd      | `cd.ts`      | `cd([path])`             | Change current directory                                        |
+| cat     | `cat.ts`     | `cat(path)`              | Display file contents                                           |
+| rm      | `rm.ts`      | `rm([flags], path, ...)` | Remove files or directories (-r recursive, -f force)            |
+| whoami  | `whoami.ts`  | `whoami()`               | Display current username                                        |
+| gpg     | `gpg.ts`     | `gpg(file, key)`         | Decrypt file using AES-256 (async, root-only)                   |
+| output  | `output.ts`  | `output(cmd, [file])`    | Capture command output to variable or file                      |
+| strings | `strings.ts` | `strings(file, [min])`   | Extract printable strings from binary files                     |
+| nano    | `nano.ts`    | `nano(path)`             | Open file in nano-style text editor overlay                     |
+| node    | `node.ts`    | `node(path)`             | Execute a JavaScript file — supports `await` for async commands |
+| john    | `john.ts`    | `john(file)`             | Crack password hashes using dictionary attack (async)           |
+| chmod   | `chmod.ts`   | `chmod(mode, path)`      | Change file permissions (symbolic: `o+x`, `u-w`, etc.)          |
+| reboot  | `reboot.ts`  | `reboot()`               | Reboot current machine; bricks if boot files missing            |
 
 ## User Management
 
@@ -84,7 +86,8 @@ On remote and mission machines, hacking tools aren't pre-installed. Players must
 | ping     | `ping.ts`     | `ping(host, [count])`        | Send ICMP echo request to network host (async)                                |
 | nmap     | `nmap.ts`     | `nmap(["-sV",] target)`      | Network exploration and port scanning; -sV for version/vuln detection (async) |
 | nslookup | `nslookup.ts` | `nslookup(domain)`           | Query DNS to resolve domain to IP address (async)                             |
-| ssh      | `ssh.ts`      | `ssh(user, host)`            | Connect to remote machine via SSH (async)                                     |
+| ssh      | `ssh.ts`      | `ssh("user@host"[, port])`   | Connect to remote machine via SSH, optional port (async)                      |
+| scp      | `scp.ts`      | `scp(source, dest)`          | Copy file to remote machine preserving permissions                            |
 | curl     | `curl.ts`     | `curl(url, [flags])`         | HTTP client for GET/POST requests (async, `-i` for headers, `-X POST`)        |
 | ftp      | `ftp.ts`      | `ftp(host)`                  | Connect to remote machine via FTP (async)                                     |
 | nc       | `nc.ts`       | `nc(host, port)`             | Netcat - connect to arbitrary port (async, interactive for special services)  |

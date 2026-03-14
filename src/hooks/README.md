@@ -7,7 +7,7 @@ Custom React hooks that wire together commands, context, and terminal features. 
 | File                           | Description                                                                                                                                                   |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `useCommands.ts`               | Master command registry — combines all command sources into a single execution context and command name list                                                  |
-| `useFileSystemCommands.ts`     | Creates filesystem commands (pwd, ls, cd, cat, whoami, decrypt, output, strings, nano) with context from `useFileSystem` and `useSession`                     |
+| `useFileSystemCommands.ts`     | Creates filesystem commands (pwd, ls, cd, cat, whoami, gpg, output, strings, nano) with context from `useFileSystem` and `useSession`                         |
 | `useNetworkCommands.ts`        | Creates network commands (ifconfig, ping, nmap, nslookup, ssh, curl, ftp, nc, exploit, gobuster) with context from `useNetwork` and `useFileSystem`           |
 | `useFtpCommands.ts`            | Creates FTP-mode commands (pwd, lpwd, cd, lcd, ls, lls, get, put, quit/bye) — returns `null` when not in FTP mode                                             |
 | `useNcCommands.ts`             | Creates NC-mode commands (pwd, cd, ls, cat, whoami, help, exit) — returns `null` when not in NC mode                                                          |
@@ -30,20 +30,20 @@ useCommands()
 ├── node (lazy getter for execution context — needs access to all commands including itself)
 ├── Mission commands (missions, accept, abort, mail — uses useMission() context)
 ├── apt (package manager — install tools on remote machines)
-├── useFileSystemCommands() → pwd, ls, cd, cat, whoami, decrypt, output, strings, nano, john
+├── useFileSystemCommands() → pwd, ls, cd, cat, whoami, gpg, output, strings, nano, john
 ├── useNetworkCommands()    → ifconfig, ping, nmap, nslookup, ssh, curl, ftp, nc, exploit, gobuster
 ├── useWifiCommands()       → airmon, airdump, aircrack, nmcli
 ├── su (depends on current machine's user list)
 └── help, man (created last, with access to all commands above)
 ```
 
-After assembly, apt-installable commands are wrapped with install checks (from `availability.ts`), then all commands are filtered through `permissions.ts`:
+After assembly, all non-builtin/non-game commands are wrapped with a unified access check (from `availability.ts`):
 
-- Apt-installable commands (nmap, john, nc, ftp, etc.) get wrapped with `wrapWithInstallCheck` — checks `/usr/bin/<name>` on the current machine
-- Restricted commands get their `fn` wrapped with a permission check (throws `permission denied` error)
-- Wrapping order: permission (outermost) → install check → actual command execution
-- `commandNames` is filtered to only accessible commands (for tab autocomplete)
-- `help()` receives only accessible commands; `man()` receives all commands
+- `wrapWithAccessCheck` checks binary existence + execute permissions at execution time
+- Binary missing → `"command not found"` (with apt install hint for apt-installable tools)
+- Binary exists but no execute permission → `"Permission denied"`
+- All commands are visible to all users — no user-type filtering for tab autocomplete or `help()`
+- `man()` receives all commands regardless
 
 Returns `{ executionContext, commandNames }` where:
 

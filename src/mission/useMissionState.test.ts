@@ -113,7 +113,6 @@ describe('useMissionState', () => {
     });
 
     expect(result.current.activeMission?.machines).toEqual(mission.machines);
-    expect(result.current.activeMission?.attackChain).toEqual(mission.attackChain);
     expect(result.current.activeMission?.objective).toEqual(mission.objective);
   });
 });

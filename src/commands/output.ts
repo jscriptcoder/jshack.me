@@ -42,6 +42,7 @@ const writeToFile = (context: OutputContext, filePath: string, content: string):
 
 export const createOutputCommand = (context: OutputContext): Command => ({
   name: 'output',
+  category: 'general',
   description: 'Capture command output to variable or file',
   manual: {
     synopsis: 'output(command, [filePath])',
@@ -75,7 +76,7 @@ export const createOutputCommand = (context: OutputContext): Command => ({
         description: 'Copy file content to another file',
       },
       {
-        command: 'await output(decrypt("secret.enc", key), "/tmp/decrypted.txt")',
+        command: 'await output(gpg("secret.enc", key), "/tmp/decrypted.txt")',
         description: 'Decrypt and save to file',
       },
     ],

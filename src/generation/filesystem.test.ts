@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { createPrng } from './prng';
 import { generateTopology } from './topology';
 import { generateUsers } from './users';
-import { generateAttackChain } from './attackChain';
+import { buildMissionObjective } from './attackChain';
 import { generateFileSystems } from './filesystem';
-import { entryCredentialHintTemplates } from './pools';
+import { credentialLeakTemplates } from './pools';
 import type { FileNode } from '../filesystem/types';
 
 const buildTestData = (seed: string) => {
@@ -15,26 +15,21 @@ const buildTestData = (seed: string) => {
     topology.machines,
     topology.entryPoint,
   );
-  const { credentialPlacements, objective } = generateAttackChain({
+  const { objective } = buildMissionObjective({
     prng,
     machines: topology.machines,
     credentials,
     entryPoint: topology.entryPoint,
-    entryVariant: topology.entryVariant,
     difficulty: 'medium',
   });
   const fileSystems = generateFileSystems({
     prng,
     machines: topology.machines,
     usersByMachine,
-    credentialPlacements,
     credentials,
     objective,
-    entryPoint: topology.entryPoint,
-    entryVariant: topology.entryVariant,
-    networkMode: 'forwarded',
   });
-  return { topology, fileSystems, objective, credentialPlacements };
+  return { topology, fileSystems, objective, credentials, usersByMachine };
 };
 
 const resolveNode = (root: FileNode, path: string): FileNode | undefined => {
@@ -92,16 +87,14 @@ describe('generateFileSystems', () => {
   });
 
   it('target machine has the target file for exfiltrate/tamper objectives', () => {
-    // Try seeds until we get an exfiltrate or tamper objective (which have target files)
     for (let i = 0; i < 50; i++) {
       const { fileSystems, objective } = buildTestData(`target-file-${i}`);
-      if (objective.type === 'credential_theft') continue;
+      if (objective.type === 'credential_theft' || objective.type === 'sabotage') continue;
 
       const targetFs = fileSystems[objective.targetMachine];
       const targetFile = resolveNode(targetFs as FileNode, objective.targetPath);
       expect(targetFile).toBeDefined();
       if (objective.binary) {
-        // Binary-wrapped files embed each line in noise — verify first non-empty line is present
         const firstLine = objective.targetContent.split('\n').find((l) => l.trim().length > 0);
         expect(targetFile?.content).toContain(firstLine);
       } else {
@@ -119,7 +112,6 @@ describe('generateFileSystems', () => {
       if (objective.type !== 'credential_theft') continue;
 
       expect(objective.targetPath).toBe('');
-      // No target file placed — the objective is a password, not a file
       return;
     }
     throw new Error('No credential_theft objective found in 100 seeds');
@@ -156,38 +148,234 @@ describe('generateFileSystems', () => {
     });
   });
 
-  it('all FTP entry credential hint paths use /home/{{owner}}/ prefix', () => {
-    entryCredentialHintTemplates.forEach((t) => {
-      expect(t.ftpPath).toMatch(/^\/home\/\{\{owner\}\}\//);
+  describe('iptables rules file on router', () => {
+    const buildWithRouter = (seed: string) => {
+      const prng = createPrng(seed);
+      const topology = generateTopology(prng, 'medium');
+      const { usersByMachine, credentials } = generateUsers(
+        prng,
+        topology.machines,
+        topology.entryPoint,
+      );
+      const { objective } = buildMissionObjective({
+        prng,
+        machines: topology.machines,
+        credentials,
+        entryPoint: topology.entryPoint,
+        difficulty: 'medium',
+      });
+      const fileSystems = generateFileSystems({
+        prng,
+        machines: topology.machines,
+        usersByMachine,
+        credentials,
+        objective,
+        routerMachine: topology.routerMachine,
+        natForwarding: topology.natForwarding,
+      });
+      return { topology, fileSystems, objective };
+    };
+
+    it('forwarded mode: router has /etc/iptables/rules.v4 with forward rules', () => {
+      const { topology, fileSystems } = buildWithRouter('iptables-forwarded-forwarded');
+      // Find a seed that produces forwarded mode
+      if (!topology.natForwarding) {
+        // Skip if this seed doesn't produce forwarded mode — test with explicit seed
+        return;
+      }
+
+      const routerFs = fileSystems[topology.routerMachine.ip];
+      const rulesFile = resolveNode(routerFs as FileNode, '/etc/iptables/rules.v4');
+
+      expect(rulesFile).toBeDefined();
+      expect(rulesFile?.type).toBe('file');
+      expect(rulesFile?.owner).toBe('root');
+
+      // Should contain forward rules matching NAT config
+      for (const rule of topology.natForwarding.rules) {
+        expect(rulesFile?.content).toContain(
+          `forward ${rule.publicPort} to ${rule.internalIp}:${rule.internalPort}`,
+        );
+      }
+    });
+
+    it('forwarded mode: rules match NAT forwarding exactly', () => {
+      // Use explicit forwarded seed to guarantee forwarded mode
+      for (let i = 0; i < 50; i++) {
+        const data = buildWithRouter(`iptables-fwd-exact-${i}-forwarded`);
+        if (!data.topology.natForwarding) continue;
+
+        const routerFs = data.fileSystems[data.topology.routerMachine.ip];
+        const rulesFile = resolveNode(routerFs as FileNode, '/etc/iptables/rules.v4');
+        expect(rulesFile).toBeDefined();
+
+        const content = rulesFile?.content ?? '';
+        const forwardLines = content.split('\n').filter((line) => line.startsWith('forward '));
+
+        expect(forwardLines.length).toBe(data.topology.natForwarding.rules.length);
+        return;
+      }
+      throw new Error('No forwarded mode found in 50 seeds');
+    });
+
+    it('router-first mode: rules file exists but has no forward lines', () => {
+      for (let i = 0; i < 50; i++) {
+        const data = buildWithRouter(`iptables-routerfirst-${i}-router-first`);
+        if (data.topology.natForwarding) continue; // skip forwarded seeds
+
+        const routerFs = data.fileSystems[data.topology.routerMachine.ip];
+        const rulesFile = resolveNode(routerFs as FileNode, '/etc/iptables/rules.v4');
+
+        expect(rulesFile).toBeDefined();
+        expect(rulesFile?.type).toBe('file');
+        expect(rulesFile?.owner).toBe('root');
+
+        // Should have the comment header but no forward lines
+        const content = rulesFile?.content ?? '';
+        expect(content).toContain('# Port Forwarding Rules');
+        const forwardLines = content.split('\n').filter((line) => line.startsWith('forward '));
+        expect(forwardLines.length).toBe(0);
+        return;
+      }
+      throw new Error('No router-first mode found in 50 seeds');
+    });
+
+    it('iptables file is root-owned', () => {
+      const data = buildWithRouter('iptables-owner-test-forwarded');
+      const routerFs = data.fileSystems[data.topology.routerMachine.ip];
+      const rulesFile = resolveNode(routerFs as FileNode, '/etc/iptables/rules.v4');
+
+      expect(rulesFile).toBeDefined();
+      expect(rulesFile?.owner).toBe('root');
+      // mkFile('root') produces ['root', 'root'] — only root can write
+      expect(rulesFile?.permissions.write).toEqual(['root', 'root']);
     });
   });
 
-  it('all exploit entry credential hint paths use /home/ prefix', () => {
-    entryCredentialHintTemplates.forEach((t) => {
-      expect(t.exploitPath).toMatch(/^\/home\//);
+  describe('credential leak placement', () => {
+    it('templates all have path and content with {{username}} and {{password}}', () => {
+      credentialLeakTemplates.forEach((t) => {
+        expect(t.path).toBeTruthy();
+        expect(t.content).toContain('{{username}}');
+        expect(t.content).toContain('{{password}}');
+      });
     });
-  });
 
-  it('credential placements are embedded in filesystems', () => {
-    const { fileSystems, credentialPlacements } = buildTestData('embed-test');
-    credentialPlacements.forEach((placement) => {
-      const fs = fileSystems[placement.machineIp];
-      if (!fs) return;
+    it('templates use guest-readable system paths (not /home/ or /root/)', () => {
+      credentialLeakTemplates.forEach((t) => {
+        expect(t.path).not.toMatch(/^\/home\//);
+        expect(t.path).not.toMatch(/^\/root\//);
+        expect(t.path).toMatch(/^\/(etc|tmp|srv|var|opt|usr)\//);
+      });
+    });
 
-      const fileNames = placement.filePath.split('/').filter(Boolean);
-      const fileName = fileNames[fileNames.length - 1] ?? '';
+    it('places credential leaks on ~30% of machines across many seeds', () => {
+      let totalMachines = 0;
+      let machinesWithLeaks = 0;
 
-      const searchInNode = (node: FileNode): boolean => {
-        if (node.type === 'file' && node.name === fileName) {
-          return node.content?.includes(placement.password) ?? false;
-        }
-        if (node.children) {
-          return Object.values(node.children).some(searchInNode);
-        }
-        return false;
-      };
+      for (let i = 0; i < 100; i++) {
+        const { topology, fileSystems, credentials } = buildTestData(`cred-leak-rate-${i}`);
+        topology.machines.forEach((m) => {
+          totalMachines++;
+          const creds = credentials[m.ip] ?? [];
+          const userCred = creds.find((c) => c.username !== 'root' && c.username !== 'guest');
+          if (!userCred) return;
 
-      expect(searchInNode(fs)).toBe(true);
+          const fs = fileSystems[m.ip];
+          if (!fs) return;
+
+          // Check if any credential leak template path exists
+          const hasLeak = credentialLeakTemplates.some((t) => {
+            const node = resolveNode(fs, t.path);
+            return node?.type === 'file' && node.content?.includes(userCred.password);
+          });
+          if (hasLeak) machinesWithLeaks++;
+        });
+      }
+
+      const rate = machinesWithLeaks / totalMachines;
+      // ~30% chance — allow 15%-45% range for statistical variation
+      expect(rate).toBeGreaterThan(0.15);
+      expect(rate).toBeLessThan(0.45);
+    });
+
+    it('leaked credentials belong to a user-type account (never root or guest)', () => {
+      for (let i = 0; i < 100; i++) {
+        const { topology, fileSystems, usersByMachine } = buildTestData(`cred-leak-user-${i}`);
+        topology.machines.forEach((m) => {
+          const fs = fileSystems[m.ip];
+          if (!fs) return;
+
+          const users = usersByMachine[m.ip] ?? [];
+          const regularUsers = users.filter((u) => u.userType === 'user');
+
+          credentialLeakTemplates.forEach((t) => {
+            const node = resolveNode(fs, t.path);
+            if (!node?.content) return;
+
+            // If this file exists and has credential content, verify it's a regular user
+            const containsUserCred = regularUsers.some((u) => node.content?.includes(u.username));
+            if (containsUserCred) {
+              // Must NOT contain root or guest usernames as the credential subject
+              const rootUser = users.find((u) => u.userType === 'root');
+              const guestUser = users.find((u) => u.userType === 'guest');
+              // The file content should not have root/guest as the leaked credential
+              // (they might appear in other template boilerplate like crontab "root" entries)
+              if (rootUser) {
+                expect(node.content).not.toContain(`pass = ${rootUser.username}`);
+              }
+              if (guestUser) {
+                expect(node.content).not.toContain(`pass = ${guestUser.username}`);
+              }
+            }
+          });
+        });
+      }
+    });
+
+    it('leaked files are guest-readable', () => {
+      for (let i = 0; i < 50; i++) {
+        const { topology, fileSystems } = buildTestData(`cred-leak-perms-${i}`);
+        topology.machines.forEach((m) => {
+          const fs = fileSystems[m.ip];
+          if (!fs) return;
+
+          credentialLeakTemplates.forEach((t) => {
+            const node = resolveNode(fs, t.path);
+            if (!node?.content) return;
+            expect(node.permissions.read).toContain('guest');
+          });
+        });
+      }
+    });
+
+    it('binary templates produce files that contain credentials extractable via strings', () => {
+      const binaryTemplates = credentialLeakTemplates.filter((t) => t.binary);
+      expect(binaryTemplates.length).toBeGreaterThanOrEqual(3);
+
+      for (let i = 0; i < 100; i++) {
+        const { topology, fileSystems, credentials } = buildTestData(`cred-leak-binary-${i}`);
+        topology.machines.forEach((m) => {
+          const fs = fileSystems[m.ip];
+          if (!fs) return;
+          const creds = credentials[m.ip] ?? [];
+          const userCred = creds.find((c) => c.username !== 'root' && c.username !== 'guest');
+          if (!userCred) return;
+
+          binaryTemplates.forEach((t) => {
+            const node = resolveNode(fs, t.path);
+            if (!node?.content) return;
+            // Binary-wrapped files still contain the password (extractable with strings)
+            expect(node.content).toContain(userCred.password);
+          });
+        });
+      }
+    });
+
+    it('produces deterministic output for the same seed', () => {
+      const a = buildTestData('cred-leak-deterministic');
+      const b = buildTestData('cred-leak-deterministic');
+      expect(a.fileSystems).toEqual(b.fileSystems);
     });
   });
 });
