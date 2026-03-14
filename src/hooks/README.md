@@ -77,6 +77,6 @@ Returns `{ executionContext, commandNames }` where:
 - **SCP** — validates against remote machine user list, triggers file transfer. Saves SSH key on success; auto-authenticates on subsequent connections.
 - **FTP** — two-stage login (username → password), validates against remote machine, enters FTP mode session
 
-**SSH key persistence**: After first successful SSH/SCP password auth, saves `user@ip` to `~/.ssh_keys` on the source machine. On subsequent connections, `hasAuthorizedKey()` checks for a match and skips the password prompt. The `connectSsh()` helper extracts the shared session setup logic used by both auto-auth and password-auth paths.
+**SSH key persistence**: After first successful SSH/SCP password auth, saves a fingerprint-signed entry (`user@ip:md5(user:ip:passwordHash)`) to `~/.ssh_keys` on the source machine. On subsequent connections, `hasAuthorizedKey()` recomputes the fingerprint from the remote user's password hash and verifies it — manually crafted entries are rejected. The `connectSsh()` helper extracts the shared session setup logic used by both auto-auth and password-auth paths.
 
 Returns `startPasswordPrompt()`, `startSshPrompt()`, `startFtpPrompt()`, `startScpPrompt()` for triggering prompts, and `handlePasswordSubmit()`, `handleFtpUsernameSubmit()` for processing input. `startSshPrompt` and `startScpPrompt` check for saved keys and auto-authenticate when found. Terminal.tsx passes the current `input` and a `clearInput` callback to the submit handlers.

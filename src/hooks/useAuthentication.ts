@@ -67,25 +67,57 @@ export const useAuthentication = ({
     [addLine],
   );
 
-  // Checks whether the current user has an SSH key stored for the given target
+  // Computes a fingerprint from the target's password hash so that entries in
+  // ~/.ssh_keys cannot be forged without knowing the credential. Returns null
+  // when the target user cannot be resolved (machine or user not found).
+  const computeKeyFingerprint = useCallback(
+    (targetUser: string, targetIP: string, port: number): string | null => {
+      const resolvedIp = resolveNat(targetIP, port).ip;
+      const users = findMachineUsers(resolvedIp);
+      const remoteUser = users.find((u) => u.username === targetUser);
+      if (!remoteUser) return null;
+      return md5(`${targetUser}:${targetIP}:${remoteUser.passwordHash}`);
+    },
+    [resolveNat, findMachineUsers],
+  );
+
+  // Checks whether the current user has a verified SSH key for the given target.
+  // The stored fingerprint is recomputed from the remote user's password hash,
+  // so manually created entries without the correct fingerprint are rejected.
   const hasAuthorizedKey = useCallback(
-    (targetUser: string, targetIP: string): boolean => {
+    (targetUser: string, targetIP: string, port: number): boolean => {
       const homePath = getDefaultHomePath(session.machine, session.username);
       const keysPath = `${homePath}/.ssh_keys`;
       const content = readFile(keysPath, session.userType);
       if (!content) return false;
-      const entry = `${targetUser}@${targetIP}`;
-      return content.split('\n').some((line) => line.trim() === entry);
+
+      const fingerprint = computeKeyFingerprint(targetUser, targetIP, port);
+      if (!fingerprint) return false;
+
+      const expectedEntry = `${targetUser}@${targetIP}:${fingerprint}`;
+      return content.split('\n').some((line) => line.trim() === expectedEntry);
     },
-    [getDefaultHomePath, readFile, session.machine, session.username, session.userType],
+    [
+      getDefaultHomePath,
+      readFile,
+      computeKeyFingerprint,
+      session.machine,
+      session.username,
+      session.userType,
+    ],
   );
 
-  // Persists an SSH key for the given target on the current machine's filesystem
+  // Persists a fingerprint-signed SSH key for the given target on the current
+  // machine's filesystem. The fingerprint includes the password hash, so only
+  // a successful authentication can produce a valid entry.
   const saveAuthorizedKey = useCallback(
-    (targetUser: string, targetIP: string): void => {
+    (targetUser: string, targetIP: string, port: number): void => {
+      const fingerprint = computeKeyFingerprint(targetUser, targetIP, port);
+      if (!fingerprint) return;
+
       const homePath = getDefaultHomePath(session.machine, session.username);
       const keysPath = `${homePath}/.ssh_keys`;
-      const entry = `${targetUser}@${targetIP}`;
+      const entry = `${targetUser}@${targetIP}:${fingerprint}`;
       const existing = readFile(keysPath, session.userType);
 
       if (existing !== null) {
@@ -97,6 +129,7 @@ export const useAuthentication = ({
       }
     },
     [
+      computeKeyFingerprint,
       getDefaultHomePath,
       readFile,
       writeFile,
@@ -141,7 +174,7 @@ export const useAuthentication = ({
 
   const startSshPrompt = useCallback(
     (user: string, targetIP: string, targetPort: number) => {
-      if (hasAuthorizedKey(user, targetIP)) {
+      if (hasAuthorizedKey(user, targetIP, targetPort)) {
         addLine('result', 'Authenticated with saved key.');
         connectSsh(user, targetIP, targetPort);
         return;
@@ -167,7 +200,7 @@ export const useAuthentication = ({
 
   const startScpPrompt = useCallback(
     (user: string, ip: string, performTransfer: () => AsyncOutput): AsyncOutput | undefined => {
-      if (hasAuthorizedKey(user, ip)) {
+      if (hasAuthorizedKey(user, ip, 22)) {
         addLine('result', 'Authenticated with saved key.');
         return performTransfer();
       }
@@ -307,7 +340,7 @@ export const useAuthentication = ({
         if (!targetUser) return undefined;
 
         if (scpTargetIP) {
-          saveAuthorizedKey(targetUser, scpTargetIP);
+          saveAuthorizedKey(targetUser, scpTargetIP, 22);
           if (scpPerformTransfer) {
             scpTransferAsync = scpPerformTransfer();
           }
@@ -332,7 +365,7 @@ export const useAuthentication = ({
           enterFtpMode(newFtpSession);
           addLine('result', '230 Login successful.');
         } else if (sshTargetIP) {
-          saveAuthorizedKey(targetUser, sshTargetIP);
+          saveAuthorizedKey(targetUser, sshTargetIP, sshTargetPort ?? 22);
           connectSsh(targetUser, sshTargetIP, sshTargetPort ?? 22);
         } else {
           // su (local user switch) — look up user type from the machine's user list.
