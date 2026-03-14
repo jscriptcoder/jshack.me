@@ -52,17 +52,24 @@ describe('generateTopology', () => {
     });
   });
 
-  it('assigns internal IPs on the same subnet starting from .10', () => {
+  it('assigns unique internal IPs on the same subnet with valid last octets', () => {
     const result = generateTopology(createPrng('ip-test'), 'medium');
     const ips = result.machines.map((m) => m.ip);
     const parts = ips.map((ip) => ip.split('.'));
-    parts.forEach((p, i) => {
-      expect(p[3]).toBe(String(10 + i));
-    });
+
+    // All IPs share the same subnet prefix
     const subnet = `${parts[0]?.[0]}.${parts[0]?.[1]}.${parts[0]?.[2]}`;
     parts.forEach((p) => {
       expect(`${p[0]}.${p[1]}.${p[2]}`).toBe(subnet);
     });
+
+    // Last octets are unique and in valid range (2-254)
+    const lastOctets = parts.map((p) => Number(p[3]));
+    lastOctets.forEach((o) => {
+      expect(o).toBeGreaterThanOrEqual(2);
+      expect(o).toBeLessThanOrEqual(254);
+    });
+    expect(new Set(lastOctets).size).toBe(lastOctets.length);
   });
 
   it('entry point is a webserver or workstation', () => {

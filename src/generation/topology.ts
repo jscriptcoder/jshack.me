@@ -236,8 +236,19 @@ export const generateTopology = (
     return hostname;
   };
 
+  // Generate unique random last octets for internal machine IPs (2-254, avoiding .1 gateway)
+  const usedOctets = new Set<number>();
+  const lastOctets = roles.map(() => {
+    let octet: number;
+    do {
+      octet = prng.nextInt(2, 254);
+    } while (usedOctets.has(octet));
+    usedOctets.add(octet);
+    return octet;
+  });
+
   const machines: readonly GeneratedMachine[] = roles.map((role, i) => {
-    const ip = `${subnet}.${10 + i}`;
+    const ip = `${subnet}.${lastOctets[i]}`;
     const hostname = pickUniqueHostname(role);
     const isEntry = i === 0;
     // Entry machine gets the internal entry variant; non-entry machines get PRNG-picked variants
