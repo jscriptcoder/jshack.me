@@ -127,9 +127,14 @@ See `architecture.md` for integration details, `mission-variations.md` for all g
 - Five objectives: exfiltrate, tamper, credential_theft, script_fix, sabotage
 - NAT resolution via `resolveNat(ip, port)` using iptables rules on router filesystem
 
-### Node Execution Circular Dependency
+### Node Execution
 
-`node(path)` needs the execution context which includes `node` itself. Resolved via a lazy getter pattern: mutable `let resolvedExecutionContext` in `useCommands.ts` is set after building the full command map, and node's factory captures a getter that's only called at execution time.
+`node(path)` executes JavaScript files with access to all terminal commands. Two execution modes:
+
+- **Sync mode** (default): Uses `new Function()`. Expression-first, falls back to statement mode. Echo calls are buffered and joined.
+- **Async mode** (when script contains `await`): Uses `AsyncFunction` constructor. Returns `AsyncOutput` to Terminal for streaming. Commands returning `AsyncOutput` (hydra, nmap, etc.) are auto-wrapped so `await hydra(...)` resolves to `string[]`. Provides `console.log()`, `sleep(ms)`, and cancellation via Ctrl+C.
+
+**Circular dependency**: `node(path)` needs the execution context which includes `node` itself. Resolved via a lazy getter pattern: mutable `let resolvedExecutionContext` in `useCommands.ts` is set after building the full command map, and node's factory captures a getter that's only called at execution time.
 
 ## Styling
 

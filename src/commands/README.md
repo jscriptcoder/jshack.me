@@ -55,22 +55,22 @@ FTP and NC modes have their own separate command sets and are not restricted.
 
 ## File System
 
-| Command | File         | Signature                | Description                                             |
-| ------- | ------------ | ------------------------ | ------------------------------------------------------- |
-| pwd     | `pwd.ts`     | `pwd()`                  | Print current working directory                         |
-| ls      | `ls.ts`      | `ls([path], [flags])`    | List directory contents (`-a` hidden, `-l` long format) |
-| cd      | `cd.ts`      | `cd([path])`             | Change current directory                                |
-| cat     | `cat.ts`     | `cat(path)`              | Display file contents                                   |
-| rm      | `rm.ts`      | `rm([flags], path, ...)` | Remove files or directories (-r recursive, -f force)    |
-| whoami  | `whoami.ts`  | `whoami()`               | Display current username                                |
-| gpg     | `gpg.ts`     | `gpg(file, key)`         | Decrypt file using AES-256 (async, root-only)           |
-| output  | `output.ts`  | `output(cmd, [file])`    | Capture command output to variable or file              |
-| strings | `strings.ts` | `strings(file, [min])`   | Extract printable strings from binary files             |
-| nano    | `nano.ts`    | `nano(path)`             | Open file in nano-style text editor overlay             |
-| node    | `node.ts`    | `node(path)`             | Execute a JavaScript file (requires execute permission) |
-| john    | `john.ts`    | `john(file)`             | Crack password hashes using dictionary attack (async)   |
-| chmod   | `chmod.ts`   | `chmod(mode, path)`      | Change file permissions (symbolic: `o+x`, `u-w`, etc.)  |
-| reboot  | `reboot.ts`  | `reboot()`               | Reboot current machine; bricks if boot files missing    |
+| Command | File         | Signature                | Description                                                     |
+| ------- | ------------ | ------------------------ | --------------------------------------------------------------- |
+| pwd     | `pwd.ts`     | `pwd()`                  | Print current working directory                                 |
+| ls      | `ls.ts`      | `ls([path], [flags])`    | List directory contents (`-a` hidden, `-l` long format)         |
+| cd      | `cd.ts`      | `cd([path])`             | Change current directory                                        |
+| cat     | `cat.ts`     | `cat(path)`              | Display file contents                                           |
+| rm      | `rm.ts`      | `rm([flags], path, ...)` | Remove files or directories (-r recursive, -f force)            |
+| whoami  | `whoami.ts`  | `whoami()`               | Display current username                                        |
+| gpg     | `gpg.ts`     | `gpg(file, key)`         | Decrypt file using AES-256 (async, root-only)                   |
+| output  | `output.ts`  | `output(cmd, [file])`    | Capture command output to variable or file                      |
+| strings | `strings.ts` | `strings(file, [min])`   | Extract printable strings from binary files                     |
+| nano    | `nano.ts`    | `nano(path)`             | Open file in nano-style text editor overlay                     |
+| node    | `node.ts`    | `node(path)`             | Execute a JavaScript file — supports `await` for async commands |
+| john    | `john.ts`    | `john(file)`             | Crack password hashes using dictionary attack (async)           |
+| chmod   | `chmod.ts`   | `chmod(mode, path)`      | Change file permissions (symbolic: `o+x`, `u-w`, etc.)          |
+| reboot  | `reboot.ts`  | `reboot()`               | Reboot current machine; bricks if boot files missing            |
 
 ## User Management
 
