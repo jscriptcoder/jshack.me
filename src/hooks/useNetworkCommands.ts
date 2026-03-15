@@ -14,6 +14,7 @@ import { createExploitCommand } from '../commands/exploit';
 import { createHydraCommand } from '../commands/hydra';
 import { createGobusterCommand } from '../commands/gobuster';
 import { createScpCommand } from '../commands/scp';
+import { createSnmpwalkCommand } from '../commands/snmpwalk';
 import { wrapWithWifiCheck, wrapWithBrickedCheck } from '../commands/networkGuards';
 import type { Command } from '../components/Terminal/types';
 
@@ -147,6 +148,17 @@ export const useNetworkCommands = (): Map<string, Command> => {
       wrapWithBrickedCheck(
         wrapWithWifiCheck(
           createGobusterCommand({ getMachine, resolveDomain, resolveNat, getNodeFromMachine }),
+          isWifiRequired,
+        ),
+        isMachineBricked,
+      ),
+    );
+
+    commands.set(
+      'snmpwalk',
+      wrapWithBrickedCheck(
+        wrapWithWifiCheck(
+          createSnmpwalkCommand({ getMachine, getLocalIP, resolveDomain, getNodeFromMachine }),
           isWifiRequired,
         ),
         isMachineBricked,
