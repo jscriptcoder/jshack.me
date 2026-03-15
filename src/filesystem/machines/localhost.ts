@@ -15,16 +15,21 @@ const jshackerHome: Readonly<Record<string, FileNode>> = {
     content: `=== WELCOME TO JSHACK.ME ===
 
 You are jshacker, a freelance hacker-for-hire.
-Your terminal is your weapon. Contracts are your income.
+This is a JavaScript terminal — commands are function calls:
 
-GETTING STARTED:
-1. Explore this machine: ls(), cd(), cat()
-2. Gain root access: su("root") — check /var/log for clues
-3. Connect to the network: crack the WiFi (see downloads/wifi_tools.txt)
-4. Browse contracts: missions()
-5. Accept a job: accept("<seed>")
+  ls()          not  ls
+  cat("file")   not  cat file
+  cd("/etc")    not  cd /etc
 
-Type help() for available commands.
+Type help() to see all commands. Use man("cmd") for details.
+
+ROOT ACCESS
+  This is your machine. Root password: sup3rus3r
+  Switch with: su("root")
+  You'll need root to install tools and crack WiFi.
+
+NEXT STEPS
+  Read .mission for your full roadmap:  cat(".mission")
 `,
   },
   '.mission': {
@@ -34,13 +39,42 @@ Type help() for available commands.
     permissions: { read: ['root', 'user'], write: ['root', 'user'], execute: ['root'] },
     content: `HACKER NOTES
 ============
-Got this rig set up. WiFi card installed but not connected yet.
-Need to crack into the local network before I can take on jobs.
 
-TODO:
-1. Get root on this box (password is around here somewhere...)
-2. Crack the WiFi — tools are in ~/downloads/wifi_tools.txt
-3. Once online, check the darknet marketplace: missions()
+PHASE 1 — GET ROOT
+  su("root") with password from README.txt
+  Need root to install tools and manage the system.
+
+PHASE 2 — CRACK THE WIFI
+  WiFi card is installed but not connected yet.
+  Aircrack suite is pre-installed. Steps:
+    1. airmon("start", "wlan0")
+    2. airdump()
+    3. aircrack("<BSSID>")       — copies password to clipboard
+    4. nmcli("connect", "<ESSID>", "<password>")
+  Full cheatsheet: cat("downloads/wifi_tools.txt")
+
+PHASE 3 — INSTALL YOUR TOOLKIT
+  Once online, install hacking tools with apt:
+    apt("install", "nmap")
+    apt("install", "hydra")
+    apt("install", "john")
+  Run apt("list") to see all available packages.
+
+PHASE 4 — TAKE CONTRACTS
+  Browse the darknet marketplace:  missions()
+  Accept a contract:               accept("<seed>")
+  Each contract gives you a target network to hack into.
+
+PHASE 5 — COMPLETE THE JOB
+  Follow the mission briefing — hack the target, find what
+  the client wants, then deliver proof:
+    mail("<recipient>", "<proof>")
+  The briefing tells you who to mail and what to send.
+
+USEFUL TOOLS
+  nmap("target")            — scan for open ports
+  ssh("user@host")          — remote access
+  cat("downloads/nmap_cheatsheet.txt") — port reference
 `,
   },
   '.bash_history': {
@@ -48,14 +82,13 @@ TODO:
     type: 'file',
     owner: 'user',
     permissions: { read: ['root', 'user'], write: ['root', 'user'], execute: ['root'] },
-    content: `ls
-cd /etc
-cat passwd
-cd ~
-ifconfig
-cat /var/log/auth.log
-cat downloads/wifi_tools.txt
-missions
+    content: `ls()
+cat("README.txt")
+cat(".mission")
+su("root")
+ifconfig()
+cat("downloads/wifi_tools.txt")
+airmon("start", "wlan0")
 `,
   },
   '.bashrc': {
@@ -100,20 +133,6 @@ Tips:
   - Always start with a subnet scan to find live hosts
   - Check for non-standard ports (4444, 31337, etc.)
   - FTP servers sometimes allow anonymous access
-`,
-      },
-      'todo.txt': {
-        name: 'todo.txt',
-        type: 'file',
-        owner: 'user',
-        permissions: { read: ['root', 'user'], write: ['root', 'user'], execute: ['root'] },
-        content: `TODO
-====
-[x] Set up dev environment
-[x] Configure network interfaces
-[ ] Crack WiFi and get online
-[ ] Check darknet marketplace for contracts
-[ ] Start taking on missions
 `,
       },
       'wifi_tools.txt': {
@@ -200,9 +219,10 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
       type: 'file',
       owner: 'root',
       permissions: { read: ['root'], write: ['root'], execute: ['root'] },
-      content: `You have root access. Next step: get online.
-Crack the WiFi to connect to the network.
-Once connected, run missions() to browse available contracts.
+      content: `Root access acquired. Next steps:
+1. Crack WiFi: see /home/jshacker/downloads/wifi_tools.txt
+2. Install tools: apt("install", "nmap"), apt("list") to see all
+3. Browse contracts: missions()
 `,
     },
   },
@@ -215,7 +235,6 @@ Once connected, run missions() to browse available contracts.
       content: `Mar 15 08:30:00 localhost sshd[2341]: Starting OpenSSH server
 Mar 15 09:15:22 localhost sshd[2345]: Connection from 192.168.1.1 port 22
 Mar 15 09:15:25 localhost sshd[2345]: Accepted password for jshacker
-Mar 15 10:00:00 localhost sudo[2400]: jshacker : command not found
 Mar 16 02:00:00 localhost cron[2500]: Running scheduled backup
 Mar 16 08:30:00 localhost sshd[2510]: Connection from 192.168.1.1 port 22
 `,
