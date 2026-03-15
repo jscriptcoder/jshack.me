@@ -116,13 +116,14 @@ describe('formatMissionBriefing', () => {
     expect(briefing).toContain('Objective:');
   });
 
-  it('SNMP variant includes hint about legacy management protocols', () => {
+  it('SNMP variant does not include entry hints in briefing', () => {
     const mission = generateMissionNetwork('test-snmp-hard-router-first');
     expect(mission.entryVariant).toBe('snmp');
     const briefing = formatMissionBriefing(mission);
 
-    expect(briefing).toContain('legacy management');
-    expect(briefing).toContain('community');
+    expect(briefing).not.toContain('Intel:');
+    expect(briefing).not.toContain('legacy management');
+    expect(briefing).not.toContain('community');
   });
 
   it('does not contain command hints like nmap() or nslookup()', () => {

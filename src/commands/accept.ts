@@ -62,18 +62,8 @@ export const formatObjectiveHint = (mission: MissionNetwork): string => {
   ].join('\n');
 };
 
-const formatEntryHint = (mission: MissionNetwork): string | null => {
-  if (mission.entryVariant !== 'snmp') return null;
-  return [
-    '  Intel: Perimeter is locked down — no exposed services.',
-    '  However, legacy management protocols may still be',
-    '  enabled with default community credentials.',
-  ].join('\n');
-};
-
 export const formatMissionBriefing = (mission: MissionNetwork): string => {
   const target = mission.domainEntry ? mission.routerDomain : mission.routerPublicIp;
-  const entryHint = formatEntryHint(mission);
 
   return [
     '============================================',
@@ -86,7 +76,6 @@ export const formatMissionBriefing = (mission: MissionNetwork): string => {
     `  Reply to: ${mission.clientEmail}`,
     '',
     formatObjectiveHint(mission),
-    ...(entryHint ? ['', entryHint] : []),
     '',
     `  Target: ${target}`,
     '',

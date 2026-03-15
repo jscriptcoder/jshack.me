@@ -75,7 +75,7 @@ The mission briefing includes an `Intel:` section with variant-specific hints. N
 | NC      | "Our scanner picked up a suspicious backdoor service. Run a port scan to find it."                       |
 | Exploit | "The target is running outdated software with known vulnerabilities."                                    |
 | HTTP    | "There's a web server running on the target."                                                            |
-| SNMP    | "Perimeter locked down — legacy management protocols may be enabled with default community credentials." |
+| SNMP    | No hint — player must discover SNMP independently via UDP scanning                                       |
 
 ### SSH Credential Reveal (`briefingRevealsCredentials`)
 
