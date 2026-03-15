@@ -18,7 +18,7 @@ import {
 } from './pools';
 import { vulnerabilityTemplates } from './pools';
 
-const allVariants: readonly EntryVariant[] = ['ssh', 'ftp', 'nc', 'exploit', 'http'];
+const allVariants: readonly EntryVariant[] = ['ssh', 'ftp', 'nc', 'exploit', 'http', 'snmp'];
 
 // Builds ports for a machine by combining role-based ports with access variant extras.
 // SSH variant: role ports unchanged. FTP: ensures port 21 open. NC: adds backdoor port.
@@ -33,7 +33,8 @@ const buildVariantPorts = (
   // Always consume one PRNG call for NC backdoor port selection (sequence stability)
   const backdoorPort = prng.pick(backdoorPorts);
 
-  if (variant === 'ssh') return rolePorts;
+  // SNMP variant on internal machines behaves like SSH (no extra ports)
+  if (variant === 'ssh' || variant === 'snmp') return rolePorts;
 
   if (variant === 'ftp') {
     const hasFtp = rolePorts.some((p) => p.port === 21);
@@ -123,12 +124,18 @@ const buildPorts = (role: MachineRole): readonly Port[] =>
   }));
 
 const buildPortsFromTemplate = (
-  template: readonly { readonly port: number; readonly service: string; readonly open: boolean }[],
+  template: readonly {
+    readonly port: number;
+    readonly service: string;
+    readonly open: boolean;
+    readonly protocol?: 'tcp' | 'udp';
+  }[],
 ): readonly Port[] =>
   template.map((t) => ({
     port: t.port,
     service: t.service,
     open: t.open,
+    ...(t.protocol ? { protocol: t.protocol } : {}),
   }));
 
 // Generates a private subnet prefix from RFC 1918 ranges.
@@ -174,7 +181,7 @@ const isForwardedMode = (
 };
 
 export type TopologyOverrides = {
-  readonly entryVariantOverride?: import('./types').EntryVariant;
+  readonly entryVariantOverride?: EntryVariant;
   readonly forwardedOverride?: boolean;
 };
 

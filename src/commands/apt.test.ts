@@ -196,6 +196,34 @@ describe('apt command', () => {
       vi.advanceTimersByTime(3000);
       expect(completed).toBe(true);
     });
+
+    it('multi-binary package creates all binaries (snmp → snmpwalk + snmpset)', () => {
+      const { context, createdFiles } = createMockAptContext();
+      const apt = createAptCommand(context);
+      const result = apt.fn('install', 'snmp');
+
+      expect(isAsyncOutput(result)).toBe(true);
+      if (!isAsyncOutput(result)) return;
+
+      result.start(
+        () => {},
+        () => {},
+      );
+
+      vi.advanceTimersByTime(3000);
+
+      expect(createdFiles.some((f) => f.path === '/usr/bin/snmpwalk')).toBe(true);
+      expect(createdFiles.some((f) => f.path === '/usr/bin/snmpset')).toBe(true);
+      // Should NOT create /usr/bin/snmp (that's the package name, not a binary)
+      expect(createdFiles.some((f) => f.path === '/usr/bin/snmp')).toBe(false);
+    });
+
+    it('multi-binary package reports already installed if first binary exists', () => {
+      const { context } = createMockAptContext({ installedTools: ['snmpwalk'] });
+      const apt = createAptCommand(context);
+      const result = apt.fn('install', 'snmp') as string;
+      expect(result).toContain('already the newest version');
+    });
   });
 
   describe('apt list', () => {

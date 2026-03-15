@@ -1,5 +1,11 @@
 import type { Prng } from './prng';
-import type { CredentialMap, GeneratedMachine, MissionObjective, NatForwarding } from './types';
+import type {
+  CredentialMap,
+  EntryVariant,
+  GeneratedMachine,
+  MissionObjective,
+  NatForwarding,
+} from './types';
 import type { FileNode } from '../filesystem/types';
 import type { RemoteUser } from '../network/types';
 import {
@@ -13,6 +19,7 @@ import {
   logTemplates,
   noiseFiles,
   redHerringFiles,
+  snmpRwCommunities,
   webContentTemplates,
 } from './pools';
 import { wrapInBinaryNoise } from './binary';
@@ -26,6 +33,7 @@ type FilesystemInput = {
   readonly objective: MissionObjective;
   readonly routerMachine?: GeneratedMachine;
   readonly natForwarding?: NatForwarding;
+  readonly entryVariant?: EntryVariant;
 };
 
 const mkFile = (
@@ -259,6 +267,48 @@ const generateIptablesContent = (natForwarding?: NatForwarding): string => {
   return lines.join('\n');
 };
 
+// Generates /etc/snmp/snmpd.conf content for SNMP-variant routers.
+// Contains community strings, system OIDs, interface data, extend script args
+// with leaked credentials, and firewall OIDs (initially deny).
+const generateSnmpConfig = (
+  prng: Prng,
+  machine: GeneratedMachine,
+  machineCreds: readonly { readonly username: string; readonly password: string }[],
+): string => {
+  const rwCommunity = prng.pick(snmpRwCommunities);
+  const userCred = machineCreds.find((c) => c.username !== 'root') ?? machineCreds[0];
+
+  const lines = [
+    '# SNMP Daemon Configuration',
+    '# net-snmp 5.9.1',
+    '',
+    '# Community strings',
+    'rocommunity public',
+    `rwcommunity ${rwCommunity}`,
+    '',
+    '# System information',
+    `sysDescr Linux ${machine.hostname} 5.4.0-generic #1 SMP`,
+    `sysName ${machine.hostname}`,
+    `sysContact netops@corp.local`,
+    '',
+    '# Interfaces',
+    'ifDescr.1 eth0',
+    'ifDescr.2 eth1',
+    `ifAddr.1 ${machine.ip}`,
+    '',
+    '# Extend scripts',
+    ...(userCred
+      ? [`nsExtendArgs.backup --user ${userCred.username} --pass ${userCred.password}`]
+      : []),
+    '',
+    '# Firewall OIDs',
+    'firewallSSH deny',
+    'firewallHTTP deny',
+  ];
+
+  return lines.join('\n');
+};
+
 const buildMachineConfig = (
   prng: Prng,
   machine: GeneratedMachine,
@@ -474,8 +524,16 @@ const mergeKeyPlacement = (
 };
 
 export const generateFileSystems = (input: FilesystemInput): Readonly<Record<string, FileNode>> => {
-  const { prng, machines, usersByMachine, credentials, objective, routerMachine, natForwarding } =
-    input;
+  const {
+    prng,
+    machines,
+    usersByMachine,
+    credentials,
+    objective,
+    routerMachine,
+    natForwarding,
+    entryVariant,
+  } = input;
 
   const entries = machines.map((machine) => {
     const users = usersByMachine[machine.ip] ?? [];
@@ -515,7 +573,29 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
       objective.keyPlacement?.machineIp === routerMachine.ip
         ? buildKeyFileTree(prng, objective)
         : null;
-    const routerConfig = mergeKeyPlacement(baseRouterConfig, routerKeyTree);
+    const routerConfigWithKey = mergeKeyPlacement(baseRouterConfig, routerKeyTree);
+
+    // SNMP variant: add /etc/snmp/snmpd.conf with community strings, OIDs, credentials
+    const routerConfig =
+      entryVariant === 'snmp'
+        ? {
+            ...routerConfigWithKey,
+            etcExtraContent: {
+              ...routerConfigWithKey.etcExtraContent,
+              snmp: mkDir(
+                'snmp',
+                {
+                  'snmpd.conf': mkFile(
+                    'snmpd.conf',
+                    generateSnmpConfig(prng, routerMachine, routerCreds),
+                  ),
+                },
+                'root',
+                true,
+              ),
+            },
+          }
+        : routerConfigWithKey;
 
     const routerFs = createFileSystem(routerConfig);
     return Object.fromEntries([...entries, [routerMachine.ip, routerFs]]);

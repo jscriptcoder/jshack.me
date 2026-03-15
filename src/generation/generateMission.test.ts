@@ -16,6 +16,11 @@ describe('parseSeedOverrides', () => {
     expect(parseSeedOverrides('test-sabotage').objectiveType).toBe('sabotage');
     expect(parseSeedOverrides('SABOTAGE-MISSION').objectiveType).toBe('sabotage');
   });
+
+  it('parses snmp keyword as entry variant', () => {
+    expect(parseSeedOverrides('test-snmp').entryVariant).toBe('snmp');
+    expect(parseSeedOverrides('SNMP-MISSION').entryVariant).toBe('snmp');
+  });
 });
 
 describe('generateMissionNetwork', () => {
@@ -400,6 +405,8 @@ describe('generateMissionNetwork', () => {
     it('router ports are never modified by closures', () => {
       for (let i = 0; i < 200; i++) {
         const result = generateMissionNetwork(`router-protect-${i}`);
+        // SNMP variant intentionally has SSH closed (by design, not by closure)
+        if (result.entryVariant === 'snmp') continue;
         const routerSsh = result.routerMachine.remoteMachine.ports.find((p) => p.port === 22);
         if (routerSsh) {
           expect(routerSsh.open).toBe(true);

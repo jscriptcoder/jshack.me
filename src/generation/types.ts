@@ -54,7 +54,7 @@ export type CredentialMap = Readonly<
   Record<string, readonly { readonly username: string; readonly password: string }[]>
 >;
 
-export type EntryVariant = 'ssh' | 'ftp' | 'nc' | 'exploit' | 'http';
+export type EntryVariant = 'ssh' | 'ftp' | 'nc' | 'exploit' | 'http' | 'snmp';
 
 export type MissionNetwork = {
   readonly seed: string;

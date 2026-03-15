@@ -375,6 +375,25 @@ describe('generateTopology', () => {
     expect(a.routerMachine.accessVariant).toBe(b.routerMachine.accessVariant);
   });
 
+  it('SNMP entry variant produces router with filtered TCP and open UDP 161', () => {
+    const result = generateTopology(createPrng('snmp-test'), 'hard', {
+      entryVariantOverride: 'snmp',
+    });
+
+    // Router-first mode (hard = always router-first)
+    expect(result.natForwarding).toBeUndefined();
+    expect(result.entryVariant).toBe('snmp');
+    expect(result.routerMachine.accessVariant).toBe('snmp');
+
+    // Router should have SSH closed and SNMP UDP 161 open
+    const sshPort = result.routerMachine.remoteMachine.ports.find((p) => p.port === 22);
+    const snmpPort = result.routerMachine.remoteMachine.ports.find((p) => p.port === 161);
+    expect(sshPort?.open).toBe(false);
+    expect(snmpPort?.open).toBe(true);
+    expect(snmpPort?.protocol).toBe('udp');
+    expect(snmpPort?.service).toBe('snmp');
+  });
+
   it('non-entry machines have varied accessVariants across seeds', () => {
     const variants = new Set<string>();
     Array.from({ length: 30 }, (_, i) => {

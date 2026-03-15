@@ -252,6 +252,82 @@ describe('generateFileSystems', () => {
     });
   });
 
+  describe('SNMP config file on router', () => {
+    const buildWithSnmpRouter = (seed: string) => {
+      const prng = createPrng(seed);
+      const topology = generateTopology(prng, 'hard', { entryVariantOverride: 'snmp' });
+      const { usersByMachine, credentials } = generateUsers(
+        prng,
+        topology.machines,
+        topology.entryPoint,
+      );
+      // Generate router users separately (same pattern as generateMissionNetwork)
+      const { usersByMachine: routerUsersByMachine, credentials: routerCredentials } =
+        generateUsers(prng, [topology.routerMachine], '');
+      const allCredentials = { ...credentials, ...routerCredentials };
+      const allUsersByMachine = { ...usersByMachine, ...routerUsersByMachine };
+      const { objective } = buildMissionObjective({
+        prng,
+        machines: topology.machines,
+        credentials: allCredentials,
+        entryPoint: topology.entryPoint,
+        difficulty: 'hard',
+      });
+      const fileSystems = generateFileSystems({
+        prng,
+        machines: topology.machines,
+        usersByMachine: allUsersByMachine,
+        credentials: allCredentials,
+        objective,
+        routerMachine: topology.routerMachine,
+        natForwarding: topology.natForwarding,
+        entryVariant: 'snmp',
+      });
+      return { topology, fileSystems, credentials: allCredentials };
+    };
+
+    it('SNMP router has /etc/snmp/snmpd.conf with community strings and OID data', () => {
+      const { topology, fileSystems, credentials } = buildWithSnmpRouter('snmp-fs-test');
+      const routerFs = fileSystems[topology.routerMachine.ip];
+      const snmpConf = resolveNode(routerFs as FileNode, '/etc/snmp/snmpd.conf');
+
+      expect(snmpConf).toBeDefined();
+      expect(snmpConf?.type).toBe('file');
+      expect(snmpConf?.owner).toBe('root');
+
+      const content = snmpConf?.content ?? '';
+      // Must have read-only and read-write community strings
+      expect(content).toContain('rocommunity public');
+      expect(content).toMatch(/rwcommunity \w+/);
+      // Must have system OIDs
+      expect(content).toContain('sysName');
+      expect(content).toContain(topology.routerMachine.hostname);
+      // Must have firewall OIDs
+      expect(content).toContain('firewallSSH deny');
+      // Must have credentials leaked via extend script args
+      const routerCreds = credentials[topology.routerMachine.ip];
+      const userCred = routerCreds?.find((c) => c.username !== 'root');
+      if (userCred) {
+        expect(content).toContain(userCred.username);
+        expect(content).toContain(userCred.password);
+      }
+    });
+
+    it('snmpd.conf is deterministic for the same seed', () => {
+      const a = buildWithSnmpRouter('snmp-determ');
+      const b = buildWithSnmpRouter('snmp-determ');
+      const confA = resolveNode(
+        a.fileSystems[a.topology.routerMachine.ip] as FileNode,
+        '/etc/snmp/snmpd.conf',
+      );
+      const confB = resolveNode(
+        b.fileSystems[b.topology.routerMachine.ip] as FileNode,
+        '/etc/snmp/snmpd.conf',
+      );
+      expect(confA?.content).toBe(confB?.content);
+    });
+  });
+
   describe('credential leak placement', () => {
     it('templates all have path and content with {{username}} and {{password}}', () => {
       credentialLeakTemplates.forEach((t) => {

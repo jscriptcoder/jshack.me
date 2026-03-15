@@ -116,6 +116,15 @@ describe('formatMissionBriefing', () => {
     expect(briefing).toContain('Objective:');
   });
 
+  it('SNMP variant includes hint about legacy management protocols', () => {
+    const mission = generateMissionNetwork('test-snmp-hard-router-first');
+    expect(mission.entryVariant).toBe('snmp');
+    const briefing = formatMissionBriefing(mission);
+
+    expect(briefing).toContain('legacy management');
+    expect(briefing).toContain('community');
+  });
+
   it('does not contain command hints like nmap() or nslookup()', () => {
     const seeds = [
       'test-ssh-easy',

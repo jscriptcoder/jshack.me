@@ -67,13 +67,14 @@ const handleInstall = (packageName: string, context: AptContext): AsyncOutput | 
     throw new Error(`E: Unable to locate package ${packageName}`);
   }
 
-  if (getNode(`/usr/bin/${packageName}`) !== null) {
-    const pkg = APT_PACKAGES.find((p) => p.name === packageName);
+  const pkg = APT_PACKAGES.find((p) => p.name === packageName);
+  const binaries = pkg?.binaries ?? [packageName];
+
+  // Check if already installed by checking the first binary
+  if (getNode(`/usr/bin/${binaries[0]}`) !== null) {
     const version = pkg?.version ?? '1.0.0';
     return `${packageName} is already the newest version (${version}).\n0 upgraded, 0 newly installed, 0 to remove.`;
   }
-
-  const pkg = APT_PACKAGES.find((p) => p.name === packageName);
   const version = pkg?.version ?? '1.0.0';
   const sizeKb = Math.floor(Math.random() * 3000) + 500;
 
@@ -103,12 +104,14 @@ const handleInstall = (packageName: string, context: AptContext): AsyncOutput | 
           onLine(line);
 
           if (i === lines.length - 1) {
-            const binaryPermissions: FilePermissions = {
-              read: ['root', 'user', 'guest'],
-              write: ['root'],
-              execute: RESTRICTED_EXECUTE[packageName] ?? ['root', 'user', 'guest'],
-            };
-            createFile(`/usr/bin/${packageName}`, BINARY_STUB, 'root', binaryPermissions);
+            for (const binary of binaries) {
+              const binaryPermissions: FilePermissions = {
+                read: ['root', 'user', 'guest'],
+                write: ['root'],
+                execute: RESTRICTED_EXECUTE[binary] ?? ['root', 'user', 'guest'],
+              };
+              createFile(`/usr/bin/${binary}`, BINARY_STUB, 'root', binaryPermissions);
+            }
             onComplete();
           }
         }, delay);

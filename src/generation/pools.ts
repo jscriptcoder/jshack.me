@@ -19,6 +19,7 @@ export type PortTemplate = {
   readonly port: number;
   readonly service: string;
   readonly open: boolean;
+  readonly protocol?: 'tcp' | 'udp';
 };
 
 export const usernamesByRole: Readonly<Record<MachineRole, readonly string[]>> = {
@@ -73,6 +74,15 @@ export const portTemplatesByRole: Readonly<Record<MachineRole, readonly PortTemp
 };
 
 export const backdoorPorts: readonly number[] = [4444, 31337, 8888, 1337];
+
+// SNMP read-write community strings — common misconfigurations and vendor defaults
+export const snmpRwCommunities: readonly string[] = [
+  'private',
+  'ADMIN',
+  'C1sc0',
+  'write',
+  'secret',
+];
 
 export type EntryPortTemplate = {
   readonly variant: EntryVariant;
@@ -173,6 +183,13 @@ export const routerEntryPortTemplates: readonly EntryPortTemplate[] = [
     ports: [
       { port: 22, service: 'ssh', open: true },
       { port: 80, service: 'http', open: true },
+    ],
+  },
+  {
+    variant: 'snmp',
+    ports: [
+      { port: 22, service: 'ssh', open: false },
+      { port: 161, service: 'snmp', open: true, protocol: 'udp' },
     ],
   },
 ];

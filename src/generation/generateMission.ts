@@ -6,6 +6,7 @@ import { buildMissionObjective } from './attackChain';
 import { generateFileSystems } from './filesystem';
 import type {
   Difficulty,
+  EntryVariant,
   GeneratedMachine,
   MissionNetwork,
   MissionObjectiveType,
@@ -30,15 +31,17 @@ export const parseSeedOverrides = (seed: string): SeedOverrides => {
 
   const entryVariant = lower.includes('exploit')
     ? 'exploit'
-    : lower.includes('http')
-      ? 'http'
-      : lower.includes('ftp')
-        ? 'ftp'
-        : lower.includes('nc')
-          ? 'nc'
-          : lower.includes('ssh')
-            ? 'ssh'
-            : undefined;
+    : lower.includes('snmp')
+      ? 'snmp'
+      : lower.includes('http')
+        ? 'http'
+        : lower.includes('ftp')
+          ? 'ftp'
+          : lower.includes('nc')
+            ? 'nc'
+            : lower.includes('ssh')
+              ? 'ssh'
+              : undefined;
 
   const forwarded = lower.includes('forwarded')
     ? true
@@ -196,7 +199,7 @@ const addExploitVulnerability = (
 // Derives the enrichment flag from a machine's access variant.
 // NC, exploit, and FTP variants need port owners/vulnerabilities attached.
 const variantEnrichmentFlag = (
-  variant: import('./types').EntryVariant,
+  variant: EntryVariant,
 ): 'nc' | 'exploit' | 'ftp' | null =>
   variant === 'nc' || variant === 'exploit' || variant === 'ftp' ? variant : null;
 
@@ -405,6 +408,7 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
     objective,
     routerMachine: routerWithUsers,
     natForwarding: topology.natForwarding,
+    entryVariant: topology.entryVariant,
   });
 
   // Domain entry: when active, briefing shows router domain instead of IP.

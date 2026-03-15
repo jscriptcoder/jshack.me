@@ -34,12 +34,14 @@ export const APT_INSTALLABLE = new Set([
   'node',
   'hydra',
   'gobuster',
+  'snmp',
 ]);
 
 export type AptPackageInfo = {
   readonly name: string;
   readonly description: string;
   readonly version: string;
+  readonly binaries?: readonly string[]; // defaults to [name] if omitted
 };
 
 export const APT_PACKAGES: readonly AptPackageInfo[] = [
@@ -59,6 +61,12 @@ export const APT_PACKAGES: readonly AptPackageInfo[] = [
   { name: 'node', description: 'Node.js JavaScript runtime', version: '20.11.0' },
   { name: 'hydra', description: 'Network login brute-force tool', version: '9.4' },
   { name: 'gobuster', description: 'Directory/file enumeration tool', version: '3.6' },
+  {
+    name: 'snmp',
+    description: 'SNMP tools for network management',
+    version: '5.9.1',
+    binaries: ['snmpwalk', 'snmpset'],
+  },
 ];
 
 // Binary stub content — looks like an ELF binary header
@@ -100,6 +108,8 @@ export const APT_TOOL_NAMES = [
   'node',
   'hydra',
   'gobuster',
+  'snmpwalk',
+  'snmpset',
 ] as const;
 
 // Binaries with restricted execute permissions (root-only).
