@@ -66,7 +66,7 @@ The entry machine's initial access method varies per seed:
 - **ssh** — classic SSH with user credentials
 - **ftp** — player FTPs in, finds SSH credentials in accessible files, then SSHes for full access
 - **nc** — player connects via netcat backdoor, finds SSH credentials, then SSHes
-- **exploit** — player scans with `nmap("-sV")`, exploits a vulnerable service, finds SSH credentials, then SSHes
+- **exploit** — player scans with `nmap("-sV")`, runs `msfconsole(host, port)` to exploit a vulnerable service, finds SSH credentials, then SSHes
 - **http** — player discovers port 80 via nmap, uses curl to find SSH credentials
 
 SSH is always available on the entry machine; other variants just change the _initial foothold_.

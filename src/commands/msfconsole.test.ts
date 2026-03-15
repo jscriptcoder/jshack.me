@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { RemoteMachine, DnsRecord } from '../network/types';
 import type { AsyncOutput, NcPromptData } from '../components/Terminal/types';
-import { createExploitCommand } from './exploit';
+import { createMsfconsoleCommand } from './msfconsole';
 
 // --- Factory Functions ---
 
@@ -29,13 +29,13 @@ const getMockRemoteMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine
   ...overrides,
 });
 
-type ExploitContextConfig = {
+type MsfconsoleContextConfig = {
   readonly machines?: readonly RemoteMachine[];
   readonly localIP?: string;
   readonly dnsRecords?: readonly DnsRecord[];
 };
 
-const createMockExploitContext = (config: ExploitContextConfig = {}) => {
+const createMockMsfconsoleContext = (config: MsfconsoleContextConfig = {}) => {
   const { machines = [], localIP = '192.168.1.100', dnsRecords = [] } = config;
 
   return {
@@ -59,7 +59,7 @@ const isNcPrompt = (value: unknown): value is NcPromptData =>
 
 // --- Tests ---
 
-describe('exploit command', () => {
+describe('msfconsole command', () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -70,126 +70,130 @@ describe('exploit command', () => {
 
   describe('argument validation', () => {
     it('should throw error when no host given', () => {
-      const context = createMockExploitContext();
-      const exploit = createExploitCommand(context);
+      const context = createMockMsfconsoleContext();
+      const msfconsole = createMsfconsoleCommand(context);
 
-      expect(() => exploit.fn()).toThrow('exploit: missing host');
+      expect(() => msfconsole.fn()).toThrow('msfconsole: missing host');
     });
 
     it('should throw error when no port given', () => {
-      const context = createMockExploitContext();
-      const exploit = createExploitCommand(context);
+      const context = createMockMsfconsoleContext();
+      const msfconsole = createMsfconsoleCommand(context);
 
-      expect(() => exploit.fn('10.50.100.10')).toThrow('exploit: missing or invalid port');
+      expect(() => msfconsole.fn('10.50.100.10')).toThrow('msfconsole: missing or invalid port');
     });
 
     it('should throw error when port is not a number', () => {
-      const context = createMockExploitContext();
-      const exploit = createExploitCommand(context);
+      const context = createMockMsfconsoleContext();
+      const msfconsole = createMsfconsoleCommand(context);
 
-      expect(() => exploit.fn('10.50.100.10', 'abc')).toThrow('exploit: missing or invalid port');
+      expect(() => msfconsole.fn('10.50.100.10', 'abc')).toThrow(
+        'msfconsole: missing or invalid port',
+      );
     });
 
     it('should throw error when port is out of range', () => {
-      const context = createMockExploitContext();
-      const exploit = createExploitCommand(context);
+      const context = createMockMsfconsoleContext();
+      const msfconsole = createMsfconsoleCommand(context);
 
-      expect(() => exploit.fn('10.50.100.10', 0)).toThrow(
-        'exploit: port must be between 1 and 65535',
+      expect(() => msfconsole.fn('10.50.100.10', 0)).toThrow(
+        'msfconsole: port must be between 1 and 65535',
       );
-      expect(() => exploit.fn('10.50.100.10', 70000)).toThrow(
-        'exploit: port must be between 1 and 65535',
+      expect(() => msfconsole.fn('10.50.100.10', 70000)).toThrow(
+        'msfconsole: port must be between 1 and 65535',
       );
     });
   });
 
   describe('DNS resolution', () => {
     it('should resolve hostname to IP', () => {
-      const context = createMockExploitContext({
+      const context = createMockMsfconsoleContext({
         machines: [getMockRemoteMachine()],
         dnsRecords: [{ domain: 'web01.mission', ip: '10.50.100.10', type: 'A' }],
       });
-      const exploit = createExploitCommand(context);
+      const msfconsole = createMsfconsoleCommand(context);
 
-      const result = exploit.fn('web01.mission', 80);
+      const result = msfconsole.fn('web01.mission', 80);
 
       expect(isAsyncOutput(result)).toBe(true);
     });
 
     it('should throw error when hostname cannot be resolved', () => {
-      const context = createMockExploitContext({ dnsRecords: [] });
-      const exploit = createExploitCommand(context);
+      const context = createMockMsfconsoleContext({ dnsRecords: [] });
+      const msfconsole = createMsfconsoleCommand(context);
 
-      expect(() => exploit.fn('unknown.host', 80)).toThrow(
-        'exploit: unknown.host: Name or service not known',
+      expect(() => msfconsole.fn('unknown.host', 80)).toThrow(
+        'msfconsole: unknown.host: Name or service not known',
       );
     });
   });
 
   describe('connection validation', () => {
     it('should throw error when targeting localhost', () => {
-      const context = createMockExploitContext({ localIP: '192.168.1.100' });
-      const exploit = createExploitCommand(context);
+      const context = createMockMsfconsoleContext({ localIP: '192.168.1.100' });
+      const msfconsole = createMsfconsoleCommand(context);
 
-      expect(() => exploit.fn('192.168.1.100', 80)).toThrow('exploit: cannot exploit localhost');
+      expect(() => msfconsole.fn('192.168.1.100', 80)).toThrow(
+        'msfconsole: cannot exploit localhost',
+      );
     });
 
     it('should throw error when targeting 127.0.0.1', () => {
-      const context = createMockExploitContext();
-      const exploit = createExploitCommand(context);
+      const context = createMockMsfconsoleContext();
+      const msfconsole = createMsfconsoleCommand(context);
 
-      expect(() => exploit.fn('127.0.0.1', 80)).toThrow('exploit: cannot exploit localhost');
+      expect(() => msfconsole.fn('127.0.0.1', 80)).toThrow('msfconsole: cannot exploit localhost');
     });
 
     it('should throw error when machine does not exist', () => {
-      const context = createMockExploitContext({ machines: [] });
-      const exploit = createExploitCommand(context);
+      const context = createMockMsfconsoleContext({ machines: [] });
+      const msfconsole = createMsfconsoleCommand(context);
 
-      expect(() => exploit.fn('10.0.0.1', 80)).toThrow(
-        'exploit: connect to 10.0.0.1: Connection timed out',
+      expect(() => msfconsole.fn('10.0.0.1', 80)).toThrow(
+        'msfconsole: connect to 10.0.0.1: Connection timed out',
       );
     });
 
     it('should throw error when port is closed', () => {
-      const context = createMockExploitContext({
+      const context = createMockMsfconsoleContext({
         machines: [
           getMockRemoteMachine({
             ports: [{ port: 80, service: 'http', open: false }],
           }),
         ],
       });
-      const exploit = createExploitCommand(context);
+      const msfconsole = createMsfconsoleCommand(context);
 
-      expect(() => exploit.fn('10.50.100.10', 80)).toThrow(
-        'exploit: 10.50.100.10:80: Connection refused',
+      expect(() => msfconsole.fn('10.50.100.10', 80)).toThrow(
+        'msfconsole: 10.50.100.10:80: Connection refused',
       );
     });
 
     it('should throw error when port does not exist', () => {
-      const context = createMockExploitContext({
+      const context = createMockMsfconsoleContext({
         machines: [getMockRemoteMachine()],
       });
-      const exploit = createExploitCommand(context);
+      const msfconsole = createMsfconsoleCommand(context);
 
-      expect(() => exploit.fn('10.50.100.10', 9999)).toThrow(
-        'exploit: 10.50.100.10:9999: Connection refused',
+      expect(() => msfconsole.fn('10.50.100.10', 9999)).toThrow(
+        'msfconsole: 10.50.100.10:9999: Connection refused',
       );
     });
 
     it('should throw error when port has no vulnerability', () => {
-      const context = createMockExploitContext({
+      const context = createMockMsfconsoleContext({
         machines: [getMockRemoteMachine()],
       });
-      const exploit = createExploitCommand(context);
+      const msfconsole = createMsfconsoleCommand(context);
 
       // Port 22 (ssh) has no vulnerability
-      expect(() => exploit.fn('10.50.100.10', 22)).toThrow(
-        'exploit: no known vulnerability on 10.50.100.10:22',
+      expect(() => msfconsole.fn('10.50.100.10', 22)).toThrow(
+        'msfconsole: no known vulnerability on 10.50.100.10:22',
       );
     });
 
     it('should throw error when port has vulnerability but no owner', () => {
-      const context = createMockExploitContext({
+      const context = createMockMsfconsoleContext({
         machines: [
           getMockRemoteMachine({
             ports: [
@@ -208,32 +212,32 @@ describe('exploit command', () => {
           }),
         ],
       });
-      const exploit = createExploitCommand(context);
+      const msfconsole = createMsfconsoleCommand(context);
 
-      expect(() => exploit.fn('10.50.100.10', 80)).toThrow(
-        'exploit: exploit failed — service not exploitable',
+      expect(() => msfconsole.fn('10.50.100.10', 80)).toThrow(
+        'msfconsole: exploit failed — service not exploitable',
       );
     });
   });
 
   describe('successful exploitation', () => {
     it('should return AsyncOutput', () => {
-      const context = createMockExploitContext({
+      const context = createMockMsfconsoleContext({
         machines: [getMockRemoteMachine()],
       });
-      const exploit = createExploitCommand(context);
+      const msfconsole = createMsfconsoleCommand(context);
 
-      const result = exploit.fn('10.50.100.10', 80);
+      const result = msfconsole.fn('10.50.100.10', 80);
 
       expect(isAsyncOutput(result)).toBe(true);
     });
 
     it('should output exploitation phases', () => {
-      const context = createMockExploitContext({
+      const context = createMockMsfconsoleContext({
         machines: [getMockRemoteMachine()],
       });
-      const exploit = createExploitCommand(context);
-      const result = exploit.fn('10.50.100.10', 80);
+      const msfconsole = createMsfconsoleCommand(context);
+      const result = msfconsole.fn('10.50.100.10', 80);
 
       const lines: string[] = [];
       if (isAsyncOutput(result)) {
@@ -254,11 +258,11 @@ describe('exploit command', () => {
     });
 
     it('should complete with NcPromptData for restricted shell', () => {
-      const context = createMockExploitContext({
+      const context = createMockMsfconsoleContext({
         machines: [getMockRemoteMachine()],
       });
-      const exploit = createExploitCommand(context);
-      const result = exploit.fn('10.50.100.10', 80);
+      const msfconsole = createMsfconsoleCommand(context);
+      const result = msfconsole.fn('10.50.100.10', 80);
 
       let followUp: unknown = null;
       if (isAsyncOutput(result)) {
@@ -286,11 +290,11 @@ describe('exploit command', () => {
 
   describe('cancellation', () => {
     it('should not output after cancellation', () => {
-      const context = createMockExploitContext({
+      const context = createMockMsfconsoleContext({
         machines: [getMockRemoteMachine()],
       });
-      const exploit = createExploitCommand(context);
-      const result = exploit.fn('10.50.100.10', 80);
+      const msfconsole = createMsfconsoleCommand(context);
+      const result = msfconsole.fn('10.50.100.10', 80);
 
       const lines: string[] = [];
       let completed = false;

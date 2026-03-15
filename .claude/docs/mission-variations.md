@@ -29,14 +29,14 @@ Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `tes
 
 How the player gains initial access to the entry machine.
 
-| Variant | Flow                                                                                |
-| ------- | ----------------------------------------------------------------------------------- |
-| SSH     | Direct SSH login as regular user (credentials shown in briefing)                    |
-| FTP     | Explore via FTP, find SSH credentials in a file                                     |
-| NC      | Connect via netcat backdoor (port 4444), find SSH credentials                       |
-| Exploit | `nmap -sV` → find vulnerable service → `exploit(host, port)` → find SSH credentials |
-| HTTP    | `nmap` → discover port 80 → `curl` to explore web content → find SSH credentials    |
-| SNMP    | `nmap -sU` → find UDP 161 → `snmpwalk` with RW community → `snmpset` to open SSH    |
+| Variant | Flow                                                                                   |
+| ------- | -------------------------------------------------------------------------------------- |
+| SSH     | Direct SSH login as regular user (credentials shown in briefing)                       |
+| FTP     | Explore via FTP, find SSH credentials in a file                                        |
+| NC      | Connect via netcat backdoor (port 4444), find SSH credentials                          |
+| Exploit | `nmap -sV` → find vulnerable service → `msfconsole(host, port)` → find SSH credentials |
+| HTTP    | `nmap` → discover port 80 → `curl` to explore web content → find SSH credentials       |
+| SNMP    | `nmap -sU` → find UDP 161 → `snmpwalk` with RW community → `snmpset` to open SSH       |
 
 ## FTP/NC/Exploit Owner Types (3)
 
@@ -233,7 +233,7 @@ Router is always the border device between localhost and the mission network.
 
 ## Router Entry Port Templates (4)
 
-Used when the router itself is the entry point (router-first mode). In router-first mode, entry credential hints (web content for HTTP, NC hints, exploit vulnerabilities) are placed on the router's filesystem, not on the internal entry machine. This ensures `curl`, `nc`, `exploit`, etc. work against the router.
+Used when the router itself is the entry point (router-first mode). In router-first mode, entry credential hints (web content for HTTP, NC hints, exploit vulnerabilities) are placed on the router's filesystem, not on the internal entry machine. This ensures `curl`, `nc`, `msfconsole`, etc. work against the router.
 
 | Variant | Ports                         |
 | ------- | ----------------------------- |
@@ -339,7 +339,7 @@ Where next-hop credentials are hidden on the current machine.
 
 ## Entry Credential Hint Templates (3)
 
-Used by FTP/NC/exploit/HTTP variants to place SSH credentials on the entry machine.
+Used by FTP/NC/msfconsole/HTTP variants to place SSH credentials on the entry machine.
 
 | FTP Path                          | NC/Exploit Path                  | HTTP Path                        | Style                      |
 | --------------------------------- | -------------------------------- | -------------------------------- | -------------------------- |

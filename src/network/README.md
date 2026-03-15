@@ -104,7 +104,7 @@ type Port = {
   readonly open: boolean;
   readonly protocol?: 'tcp' | 'udp'; // defaults to 'tcp'; used by nmap -sU for UDP scanning
   readonly owner?: ServiceOwner; // username, userType, homePath
-  readonly vulnerability?: Vulnerability; // CVE info for nmap -sV / exploit
+  readonly vulnerability?: Vulnerability; // CVE info for nmap -sV / msfconsole
 };
 ```
 

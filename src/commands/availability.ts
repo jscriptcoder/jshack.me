@@ -37,7 +37,7 @@ export const APT_INSTALLABLE = new Set([
   'john',
   'nc',
   'ftp',
-  'exploit',
+  'metasploit',
   'airmon',
   'airdump',
   'aircrack',
@@ -60,7 +60,12 @@ export const APT_PACKAGES: readonly AptPackageInfo[] = [
   { name: 'john', description: 'John the Ripper password cracker', version: '1.9.0' },
   { name: 'nc', description: 'Netcat — TCP/UDP connection utility', version: '1.10' },
   { name: 'ftp', description: 'FTP client for file transfers', version: '0.17' },
-  { name: 'exploit', description: 'Vulnerability exploitation framework', version: '2.1.0' },
+  {
+    name: 'metasploit',
+    description: 'Metasploit Framework — vulnerability exploitation',
+    version: '6.3.0',
+    binaries: ['msfconsole'],
+  },
   { name: 'airmon', description: 'Wireless monitor mode manager', version: '1.7' },
   { name: 'airdump', description: 'Wireless network scanner', version: '1.7' },
   { name: 'aircrack', description: 'Wireless key cracker', version: '1.7' },
@@ -111,7 +116,7 @@ export const APT_TOOL_NAMES = [
   'john',
   'nc',
   'ftp',
-  'exploit',
+  'msfconsole',
   'airmon',
   'airdump',
   'aircrack',
@@ -202,6 +207,15 @@ export const checkCommandAccess = (
   };
 };
 
+// Maps binary names to their apt package name for install hints.
+// Derived from APT_PACKAGES: packages with explicit binaries map each binary
+// to the package name; packages without binaries use the package name itself.
+const binaryToPackage = new Map<string, string>(
+  APT_PACKAGES.flatMap((pkg) =>
+    (pkg.binaries ?? [pkg.name]).map((bin) => [bin, pkg.name] as const),
+  ),
+);
+
 // Higher-order function that wraps a command with a unified access check.
 // Checks binary existence and execute permissions at execution time.
 export const wrapWithAccessCheck = (
@@ -213,9 +227,10 @@ export const wrapWithAccessCheck = (
   fn: (...args: unknown[]) => {
     const { found, permitted } = getAccess();
     if (!found) {
-      if (APT_INSTALLABLE.has(name)) {
+      const packageName = binaryToPackage.get(name);
+      if (packageName) {
         throw new Error(
-          `bash: ${name}: command not found. Install with: apt('install', '${name}')`,
+          `bash: ${name}: command not found. Install with: apt('install', '${packageName}')`,
         );
       }
       throw new Error(`bash: ${name}: command not found`);

@@ -49,7 +49,7 @@ e2e/
 
 ## Terminal Features
 
-- ASCII banner on startup ("JSHACK.ME v0.25.0")
+- ASCII banner on startup ("JSHACK.ME v0.26.0")
 - Dynamic prompt: `username@machine>` (managed via SessionContext)
 - Command history (up/down arrows)
 - Tab autocompletion for commands and variables
@@ -175,7 +175,7 @@ Network access from localhost requires cracking a WiFi network first. See `infra
 
 **State**: `brickedMachines: ReadonlySet<string>` in `SessionContext` (initialized from `storageCache`). Persisted to IndexedDB (`brickedMachines` key in session store), synced across tabs via `bricked-changed` BroadcastChannel message.
 
-**Connection gating**: `wrapWithBrickedCheck` HOF in `useNetworkCommands.ts` (outermost wrapper — checked before WiFi) blocks ssh, ftp, nc, ping, nmap, curl, exploit, hydra, gobuster to bricked machines. Error: `"Connection timed out — host <ip> appears to be down"`. nslookup is not gated (DNS doesn't require the target to be up).
+**Connection gating**: `wrapWithBrickedCheck` HOF in `useNetworkCommands.ts` (outermost wrapper — checked before WiFi) blocks ssh, ftp, nc, ping, nmap, curl, msfconsole, hydra, gobuster to bricked machines. Error: `"Connection timed out — host <ip> appears to be down"`. nslookup is not gated (DNS doesn't require the target to be up).
 
 **Localhost bricking**: Terminal.tsx checks `isMachineBricked('localhost')` at the top of render. If true, renders a frozen kernel panic screen with no input. Only recovery: `reset("confirm")` (which clears IndexedDB) or clearing browser site data.
 
@@ -187,7 +187,7 @@ Network access from localhost requires cracking a WiFi network first. See `infra
 
 See `src/commands/` for implementations and `src/hooks/useCommands.ts` for the registry.
 
-Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, rm, su, whoami, airmon, airdump, aircrack, nmcli, ifconfig, ping, nmap, nslookup, ssh, exit, ftp, nc, curl, exploit, gobuster, hydra, gpg, reboot, output, resolve, strings, nano, node, missions, accept, abort, mail, apt, theme, reset, xterm, snmpwalk, snmpset.
+Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, rm, su, whoami, airmon, airdump, aircrack, nmcli, ifconfig, ping, nmap, nslookup, ssh, exit, ftp, nc, curl, msfconsole, gobuster, hydra, gpg, reboot, output, resolve, strings, nano, node, missions, accept, abort, mail, apt, theme, reset, xterm, snmpwalk, snmpset.
 
 FTP mode (when connected via ftp): pwd, lpwd, cd, lcd, ls, lls, get, put, quit/bye.
 

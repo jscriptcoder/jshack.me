@@ -143,7 +143,7 @@ describe('formatMissionBriefing', () => {
       expect(briefing).not.toContain('nslookup(');
       expect(briefing).not.toContain('ftp(');
       expect(briefing).not.toContain('nc(');
-      expect(briefing).not.toContain('exploit(');
+      expect(briefing).not.toContain('msfconsole(');
       expect(briefing).not.toContain('curl(');
     }
   });

@@ -10,7 +10,7 @@ import { createSshCommand } from '../commands/ssh';
 import { createFtpCommand } from '../commands/ftp';
 import { createNcCommand } from '../commands/nc';
 import { createCurlCommand } from '../commands/curl';
-import { createExploitCommand } from '../commands/exploit';
+import { createMsfconsoleCommand } from '../commands/msfconsole';
 import { createHydraCommand } from '../commands/hydra';
 import { createGobusterCommand } from '../commands/gobuster';
 import { createScpCommand } from '../commands/scp';
@@ -123,10 +123,10 @@ export const useNetworkCommands = (): Map<string, Command> => {
     );
 
     commands.set(
-      'exploit',
+      'msfconsole',
       wrapWithBrickedCheck(
         wrapWithWifiCheck(
-          createExploitCommand({ getMachine, getLocalIP, resolveDomain }),
+          createMsfconsoleCommand({ getMachine, getLocalIP, resolveDomain }),
           isWifiRequired,
         ),
         isMachineBricked,
