@@ -68,14 +68,14 @@ With the `domain` seed keyword, domain entry is always active. Without it, PRNG 
 
 The mission briefing includes an `Intel:` section with variant-specific hints. No command names appear — hints use natural language so the player must figure out which tools to use.
 
-| Variant | Intel Text                                                                                               |
-| ------- | -------------------------------------------------------------------------------------------------------- |
-| SSH     | ~50% shows credentials + `ssh()` command; ~50% hints at default credentials                              |
-| FTP     | "Our recon shows an FTP service running on the target."                                                  |
-| NC      | "Our scanner picked up a suspicious backdoor service. Run a port scan to find it."                       |
-| Exploit | "The target is running outdated software with known vulnerabilities."                                    |
-| HTTP    | "There's a web server running on the target."                                                            |
-| SNMP    | No hint — player must discover SNMP independently via UDP scanning                                       |
+| Variant | Intel Text                                                                         |
+| ------- | ---------------------------------------------------------------------------------- |
+| SSH     | ~50% shows credentials + `ssh()` command; ~50% hints at default credentials        |
+| FTP     | "Our recon shows an FTP service running on the target."                            |
+| NC      | "Our scanner picked up a suspicious backdoor service. Run a port scan to find it." |
+| Exploit | "The target is running outdated software with known vulnerabilities."              |
+| HTTP    | "There's a web server running on the target."                                      |
+| SNMP    | No hint — player must discover SNMP independently via UDP scanning                 |
 
 ### SSH Credential Reveal (`briefingRevealsCredentials`)
 

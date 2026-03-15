@@ -19,8 +19,19 @@ const GAME_COMMANDS = new Set([
   'xterm',
 ]);
 
-// Commands that require `apt install` on remote machines.
-// On localhost these are pre-installed (/usr/bin/<name> exists).
+// Tools pre-installed on localhost — WiFi cracking tools (needed before
+// network access), node (scripting runtime), and gpg (ships with most distros).
+// All other apt tools must be installed via `apt install` after connecting to WiFi.
+export const LOCALHOST_PREINSTALLED_TOOLS = [
+  'airmon',
+  'airdump',
+  'aircrack',
+  'node',
+  'gpg',
+] as const;
+
+// Commands that require `apt install` before use.
+// On localhost, only LOCALHOST_PREINSTALLED_TOOLS are pre-installed.
 export const APT_INSTALLABLE = new Set([
   'nmap',
   'john',

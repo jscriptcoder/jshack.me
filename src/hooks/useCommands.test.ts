@@ -65,12 +65,14 @@ describe('useCommands', () => {
     expect(names).toContain('help');
     expect(names).toContain('ls');
     expect(names).toContain('cat');
-    expect(names).toContain('nmap');
+    expect(names).toContain('airmon');
     expect(names).toContain('ssh');
     expect(names).toContain('echo');
     expect(names).toContain('missions');
     expect(names).toContain('gpg');
     expect(names).toContain('reboot');
+    // nmap is NOT pre-installed on localhost — requires apt install
+    expect(names).not.toContain('nmap');
   });
 
   it('shows all commands to guest on localhost', async () => {
@@ -91,15 +93,17 @@ describe('useCommands', () => {
     const { result } = renderHook(() => useCommands(), { wrapper: createWrapper() });
     const names = result.current.commandNames;
 
-    // Guest sees ALL commands on localhost — visibility is not user-type filtered
+    // Guest sees ALL pre-installed commands on localhost — visibility is not user-type filtered
     expect(names).toContain('help');
     expect(names).toContain('ls');
-    expect(names).toContain('nmap');
+    expect(names).toContain('airmon');
     expect(names).toContain('missions');
     expect(names).toContain('gpg');
     expect(names).toContain('reboot');
     expect(names).toContain('apt');
     expect(names).toContain('ifconfig');
+    // nmap is NOT pre-installed on localhost — requires apt install
+    expect(names).not.toContain('nmap');
 
     vi.mocked(getCachedSessionState).mockReturnValue(null);
   });

@@ -25,6 +25,7 @@ type MockAptConfig = {
   readonly machine?: string;
   readonly userType?: 'root' | 'user' | 'guest';
   readonly installedTools?: readonly string[];
+  readonly wifiConnected?: boolean;
 };
 
 type CreatedFile = {
@@ -34,7 +35,12 @@ type CreatedFile = {
 };
 
 const createMockAptContext = (config: MockAptConfig = {}) => {
-  const { machine = '10.0.0.1', userType = 'root', installedTools = [] } = config;
+  const {
+    machine = '10.0.0.1',
+    userType = 'root',
+    installedTools = [],
+    wifiConnected = true,
+  } = config;
   const createdFiles: CreatedFile[] = [];
 
   return {
@@ -56,6 +62,7 @@ const createMockAptContext = (config: MockAptConfig = {}) => {
         return { allowed: true };
       },
       getUserType: () => userType,
+      isWifiConnected: () => wifiConnected,
     },
     createdFiles,
   };
@@ -88,11 +95,23 @@ describe('apt command', () => {
       expect(() => apt.fn('install')).toThrow('No package name specified');
     });
 
-    it('returns message when on localhost', () => {
-      const { context } = createMockAptContext({ machine: 'localhost' });
+    it('throws network error on localhost when WiFi is not connected', () => {
+      const { context } = createMockAptContext({
+        machine: 'localhost',
+        wifiConnected: false,
+      });
       const apt = createAptCommand(context);
-      const result = apt.fn('install', 'nmap') as string;
-      expect(result).toBe('All packages are pre-installed on localhost.');
+      expect(() => apt.fn('install', 'nmap')).toThrow('network is unreachable');
+    });
+
+    it('installs on localhost when WiFi is connected', () => {
+      const { context } = createMockAptContext({
+        machine: 'localhost',
+        wifiConnected: true,
+      });
+      const apt = createAptCommand(context);
+      const result = apt.fn('install', 'nmap');
+      expect(isAsyncOutput(result)).toBe(true);
     });
 
     it('throws when not root on remote machine', () => {
@@ -237,14 +256,14 @@ describe('apt command', () => {
       expect(result).toContain('nc');
     });
 
-    it('shows installed status on localhost', () => {
-      const { context } = createMockAptContext({ machine: 'localhost' });
+    it('shows installed status for tools with binaries present', () => {
+      const { context } = createMockAptContext({ installedTools: ['nmap'] });
       const apt = createAptCommand(context);
       const result = apt.fn('list') as string;
       expect(result).toContain('[installed]');
     });
 
-    it('shows not installed status on remote without binaries', () => {
+    it('shows not installed status when binaries are absent', () => {
       const { context } = createMockAptContext();
       const apt = createAptCommand(context);
       const result = apt.fn('list') as string;

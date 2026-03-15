@@ -74,6 +74,7 @@ export const useCommands = (): UseCommandsResult => {
     canReturn,
     markMachineBricked,
     isMachineBricked,
+    wifiConnected,
   } = useSession();
   const { findMachineUsers } = useNetwork();
   const { resolvePath, getNode, readFileFromMachine, createFile, getNodeFromMachine, canTraverse } =
@@ -157,6 +158,7 @@ export const useCommands = (): UseCommandsResult => {
         getNode,
         createFile,
         getUserType: () => session.userType,
+        isWifiConnected: () => wifiConnected,
       }),
     );
 
@@ -250,5 +252,6 @@ export const useCommands = (): UseCommandsResult => {
     canReturn,
     markMachineBricked,
     isMachineBricked,
+    wifiConnected,
   ]);
 };

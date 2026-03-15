@@ -3,7 +3,7 @@ import { createFileSystem, type MachineFileSystemConfig } from '../fileSystemFac
 import {
   createBinaryEntries,
   SYSTEM_UTILITY_NAMES,
-  APT_TOOL_NAMES,
+  LOCALHOST_PREINSTALLED_TOOLS,
 } from '../../commands/availability';
 
 const jshackerHome: Readonly<Record<string, FileNode>> = {
@@ -158,7 +158,7 @@ const localhostConfig: MachineFileSystemConfig = {
     }, // guestpass
   ],
   binContent: createBinaryEntries(SYSTEM_UTILITY_NAMES),
-  usrBinContent: createBinaryEntries(APT_TOOL_NAMES),
+  usrBinContent: createBinaryEntries(LOCALHOST_PREINSTALLED_TOOLS),
   passwdReadableBy: ['root', 'user'],
   etcExtraContent: {
     hostname: {

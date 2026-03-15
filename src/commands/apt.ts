@@ -15,32 +15,32 @@ type AptContext = {
     permissions?: FilePermissions,
   ) => PermissionResult;
   readonly getUserType: () => UserType;
+  readonly isWifiConnected: () => boolean;
 };
 
 const formatInstalledStatus = (
   name: string,
   getNode: (path: string) => FileNode | null,
-  machine: string,
 ): string => {
-  if (machine === 'localhost') return '[installed]';
-  return getNode(`/usr/bin/${name}`) !== null ? '[installed]' : '[not installed]';
+  const pkg = APT_PACKAGES.find((p) => p.name === name);
+  const firstBinary = pkg?.binaries?.[0] ?? name;
+  return getNode(`/usr/bin/${firstBinary}`) !== null ? '[installed]' : '[not installed]';
 };
 
 const handleList = (
   getNode: (path: string) => FileNode | null,
-  machine: string,
   args: readonly unknown[],
 ): string => {
   const showInstalled = args[0] === '--installed' || args[0] === '-i';
 
   const lines = APT_PACKAGES.map((pkg) => {
-    const status = formatInstalledStatus(pkg.name, getNode, machine);
+    const status = formatInstalledStatus(pkg.name, getNode);
     return `  ${pkg.name.padEnd(12)} ${pkg.version.padEnd(10)} ${status.padEnd(16)} ${pkg.description}`;
   });
 
   if (showInstalled) {
     const installedLines = APT_PACKAGES.filter(
-      (pkg) => formatInstalledStatus(pkg.name, getNode, machine) === '[installed]',
+      (pkg) => formatInstalledStatus(pkg.name, getNode) === '[installed]',
     ).map(
       (pkg) =>
         `  ${pkg.name.padEnd(12)} ${pkg.version.padEnd(10)} ${'[installed]'.padEnd(16)} ${pkg.description}`,
@@ -52,11 +52,11 @@ const handleList = (
 };
 
 const handleInstall = (packageName: string, context: AptContext): AsyncOutput | string => {
-  const { getMachine, getNode, createFile, getUserType } = context;
+  const { getMachine, getNode, createFile, getUserType, isWifiConnected } = context;
   const machine = getMachine();
 
-  if (machine === 'localhost') {
-    return 'All packages are pre-installed on localhost.';
+  if (machine === 'localhost' && !isWifiConnected()) {
+    throw new Error('E: Failed to fetch http://archive.ubuntu.com — network is unreachable');
   }
 
   if (getUserType() !== 'root') {
@@ -124,13 +124,13 @@ const handleInstall = (packageName: string, context: AptContext): AsyncOutput | 
 export const createAptCommand = (context: AptContext): Command => ({
   name: 'apt',
   category: 'general',
-  description: 'Package manager — install tools on remote machines',
+  description: 'Package manager — install hacking tools',
   manual: {
     synopsis: "apt('install', packageName) | apt('list', ['-i'])",
     description:
-      'Advanced package tool for installing hacking utilities on remote machines. ' +
-      'On localhost, all tools are pre-installed. On remote machines, tools like nmap, ' +
-      'john, nc, and ftp must be installed before use. Requires root privileges to install.',
+      'Advanced package tool for installing hacking utilities. ' +
+      'Tools like nmap, john, hydra, and nc must be installed before use. ' +
+      'Requires root privileges and network connectivity to install.',
     arguments: [
       { name: 'subcommand', description: "'install' or 'list'", required: true },
       {
@@ -163,7 +163,7 @@ export const createAptCommand = (context: AptContext): Command => ({
     }
 
     if (subcommand === 'list') {
-      return handleList(context.getNode, context.getMachine(), args.slice(1));
+      return handleList(context.getNode, args.slice(1));
     }
 
     if (subcommand === 'install') {

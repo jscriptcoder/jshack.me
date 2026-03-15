@@ -198,9 +198,7 @@ const addExploitVulnerability = (
 
 // Derives the enrichment flag from a machine's access variant.
 // NC, exploit, and FTP variants need port owners/vulnerabilities attached.
-const variantEnrichmentFlag = (
-  variant: EntryVariant,
-): 'nc' | 'exploit' | 'ftp' | null =>
+const variantEnrichmentFlag = (variant: EntryVariant): 'nc' | 'exploit' | 'ftp' | null =>
   variant === 'nc' || variant === 'exploit' || variant === 'ftp' ? variant : null;
 
 const enrichMachineWithUsers = (

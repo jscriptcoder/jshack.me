@@ -68,7 +68,7 @@ Commands use a unified filesystem-based access model (`src/commands/availability
 - **Shell builtins** (cd, exit, clear, echo, pwd, help, whoami) — always available, no binary needed
 - **Game commands** (missions, accept, abort, mail, output, resolve, author, theme, reset, xterm) — always available
 - **System utilities** in `/bin/` — always present, world-executable (except `reboot`: root-only)
-- **Apt-installable tools** in `/usr/bin/` — require `apt install` as root; world-executable once installed (except `gpg`: root-only)
+- **Apt-installable tools** in `/usr/bin/` — require `apt install` as root (needs network); only WiFi tools (airmon, airdump, aircrack), node, and gpg are pre-installed on localhost; world-executable once installed (except `gpg`: root-only)
 - **Root-only binaries**: `reboot` and `gpg` have `execute: ['root']`
 
 ### Filesystem Permissions
@@ -77,7 +77,7 @@ Unix-realistic permission model with owner-scoped access and directory traversal
 
 ### Tool Availability (apt install)
 
-On remote/mission machines, hacking tools must be installed via `apt('install', '<tool>')` as root. The availability system (`src/commands/availability.ts`) wraps commands with `wrapWithAccessCheck` which checks binary existence and execute permissions at execution time.
+Hacking tools must be installed via `apt('install', '<tool>')` as root. On localhost, only WiFi tools (airmon, airdump, aircrack), node, and gpg are pre-installed; all other tools require `apt install` after connecting to WiFi. `apt install` requires network connectivity — on localhost, WiFi must be connected first. The availability system (`src/commands/availability.ts`) wraps commands with `wrapWithAccessCheck` which checks binary existence and execute permissions at execution time.
 
 The filesystem factory (`fileSystemFactory.ts`) creates `/boot/`, `/bin/`, and `/usr/bin/` directories on all machines. `mergeExtraDirectories()` handles one-level-deep merging to prevent mission generation's `extraDirectories` from overwriting factory directories.
 
