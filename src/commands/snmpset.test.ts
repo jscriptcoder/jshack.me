@@ -58,8 +58,11 @@ type SnmpsetContextConfig = {
 };
 
 const createMockSnmpsetContext = (config: SnmpsetContextConfig = {}) => {
-  const { machines = [getMockRouter()], localIP = '192.168.1.100', snmpConf = mkSnmpConf() } =
-    config;
+  const {
+    machines = [getMockRouter()],
+    localIP = '192.168.1.100',
+    snmpConf = mkSnmpConf(),
+  } = config;
   const createdFiles: CreatedFile[] = [];
 
   return {
@@ -125,9 +128,7 @@ describe('snmpset command', () => {
     it('throws when community is read-only', () => {
       const { context } = createMockSnmpsetContext();
       const snmpset = createSnmpsetCommand(context);
-      expect(() => snmpset.fn('91.234.56.78', 'public', 'firewallSSH=permit')).toThrow(
-        'read-only',
-      );
+      expect(() => snmpset.fn('91.234.56.78', 'public', 'firewallSSH=permit')).toThrow('read-only');
     });
 
     it('throws when community is wrong', () => {
@@ -141,9 +142,7 @@ describe('snmpset command', () => {
     it('throws when OID is not writable', () => {
       const { context } = createMockSnmpsetContext();
       const snmpset = createSnmpsetCommand(context);
-      expect(() => snmpset.fn('91.234.56.78', 'private', 'sysName=hacked')).toThrow(
-        'not writable',
-      );
+      expect(() => snmpset.fn('91.234.56.78', 'private', 'sysName=hacked')).toThrow('not writable');
     });
 
     it('throws when value is invalid', () => {
@@ -157,9 +156,7 @@ describe('snmpset command', () => {
     it('throws when assignment format is wrong', () => {
       const { context } = createMockSnmpsetContext();
       const snmpset = createSnmpsetCommand(context);
-      expect(() => snmpset.fn('91.234.56.78', 'private', 'firewallSSH')).toThrow(
-        'expected format',
-      );
+      expect(() => snmpset.fn('91.234.56.78', 'private', 'firewallSSH')).toThrow('expected format');
     });
 
     it('throws when machine not found', () => {

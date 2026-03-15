@@ -67,9 +67,7 @@ const parseNmapArgs = (args: readonly unknown[]): NmapParsedArgs => {
 
 // Filters ports by protocol: -sU shows only UDP, default shows only TCP (including unset)
 const filterPortsByProtocol = (ports: readonly Port[], udpScan: boolean): readonly Port[] =>
-  udpScan
-    ? ports.filter((p) => p.protocol === 'udp')
-    : ports.filter((p) => p.protocol !== 'udp');
+  udpScan ? ports.filter((p) => p.protocol === 'udp') : ports.filter((p) => p.protocol !== 'udp');
 
 // Builds the scan mode label for output lines
 const scanModeLabel = (versionScan: boolean, udpScan: boolean): string => {

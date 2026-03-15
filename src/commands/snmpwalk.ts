@@ -136,7 +136,9 @@ export const createSnmpwalkCommand = (context: SnmpwalkContext): Command => ({
     const isReadOnly = community === roCommunity;
 
     if (!isReadWrite && !isReadOnly) {
-      throw new Error(`snmpwalk: ${targetIP}: Authentication failure (unknown community "${community}")`);
+      throw new Error(
+        `snmpwalk: ${targetIP}: Authentication failure (unknown community "${community}")`,
+      );
     }
 
     // Collect OID lines to display
@@ -145,9 +147,7 @@ export const createSnmpwalkCommand = (context: SnmpwalkContext): Command => ({
       .filter(isOidLine)
       .map((line) => line.trim());
 
-    const visibleLines = isReadWrite
-      ? allOidLines
-      : allOidLines.filter(isPublicOid);
+    const visibleLines = isReadWrite ? allOidLines : allOidLines.filter(isPublicOid);
 
     const formattedLines = visibleLines.map(formatOidLine);
 
@@ -162,9 +162,7 @@ export const createSnmpwalkCommand = (context: SnmpwalkContext): Command => ({
         delay += jitter(OID_DELAY_MS);
         token.schedule(() => {
           if (token.isCancelled()) return;
-          onLine(
-            `Querying ${targetIP} with community string "${community}"...`,
-          );
+          onLine(`Querying ${targetIP} with community string "${community}"...`);
         }, delay);
 
         // Access level banner

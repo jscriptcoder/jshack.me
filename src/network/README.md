@@ -4,13 +4,14 @@ Simulated network environment for hacking missions. Defines the topology, machin
 
 ## Files
 
-| File                 | Description                                                                                                                    |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `types.ts`           | Core types: `NetworkInterface`, `RemoteMachine`, `Port`, `Vulnerability`, `DnsRecord`, `MachineNetworkConfig`, `NetworkConfig` |
-| `initialNetwork.ts`  | `createInitialNetwork()` — defines per-machine network configs (interfaces, reachable machines, DNS) for all 8 machines        |
-| `NetworkContext.tsx` | React context — imports `useSession`, resolves config per `session.machine`, provides `getMachine`, `getLocalIP`, etc.         |
-| `iptablesParser.ts`  | Pure parser for router's `/etc/iptables/rules.v4` — extracts `forward <port> to <ip>:<port>` rules into `NatForwardingRule[]`  |
-| `index.ts`           | Module exports                                                                                                                 |
+| File                    | Description                                                                                                                        |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `types.ts`              | Core types: `NetworkInterface`, `RemoteMachine`, `Port`, `Vulnerability`, `DnsRecord`, `MachineNetworkConfig`, `NetworkConfig`     |
+| `initialNetwork.ts`     | `createInitialNetwork()` — defines per-machine network configs (interfaces, reachable machines, DNS) for all 8 machines            |
+| `NetworkContext.tsx`    | React context — imports `useSession`, resolves config per `session.machine`, provides `getMachine`, `getLocalIP`, etc.             |
+| `iptablesParser.ts`     | Pure parser for router's `/etc/iptables/rules.v4` — extracts `forward <port> to <ip>:<port>` rules into `NatForwardingRule[]`      |
+| `snmpFirewallParser.ts` | Pure parser for SNMP firewall OIDs in `/etc/snmp/snmpd.conf` — maps `firewallSSH`/`firewallHTTP` `permit`/`deny` to port overrides |
+| `index.ts`              | Module exports                                                                                                                     |
 
 ## Network Topology
 
@@ -101,6 +102,7 @@ type Port = {
   readonly port: number;
   readonly service: string;
   readonly open: boolean;
+  readonly protocol?: 'tcp' | 'udp'; // defaults to 'tcp'; used by nmap -sU for UDP scanning
   readonly owner?: ServiceOwner; // username, userType, homePath
   readonly vulnerability?: Vulnerability; // CVE info for nmap -sV / exploit
 };
@@ -148,3 +150,7 @@ NAT forwarding rules are parsed on-demand from `/etc/iptables/rules.v4` on the r
 - **Forwarded mode**: file is pre-populated with forwarding rules matching the generated topology
 - **Router-first mode**: file has only comment headers (empty template for the player)
 - Format: `forward <public_port> to <internal_ip>:<port>` — comments (`#`) and blank lines are ignored
+
+## Dynamic SNMP Firewall
+
+For the SNMP entry variant, `NetworkProvider` also reads `/etc/snmp/snmpd.conf` from the router's filesystem. `snmpFirewallParser.ts` extracts `firewallSSH`/`firewallHTTP` OID values (`permit`/`deny`). When `snmpset` modifies the file, port state updates dynamically — `firewallSSH permit` opens port 22 on the router. `applySnmpFirewallOverrides()` overlays these changes onto the router's `RemoteMachine` view visible from localhost.

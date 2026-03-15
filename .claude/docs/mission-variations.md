@@ -9,7 +9,7 @@ All six major generation axes can be controlled by embedding keywords in the see
 | Axis          | Keywords                                                             | Notes                                                     |
 | ------------- | -------------------------------------------------------------------- | --------------------------------------------------------- |
 | Difficulty    | `easy`, `medium`, `hard`                                             | Falls back to hash-based derivation without keyword       |
-| Entry variant | `ssh`, `ftp`, `nc`, `exploit`, `http`                                | Falls back if template unavailable (e.g. nc+router-first) |
+| Entry variant | `ssh`, `ftp`, `nc`, `exploit`, `http`, `snmp`                        | Falls back if template unavailable (e.g. nc+router-first) |
 | Network mode  | `forwarded`, `router-first`                                          | Hyphenated to avoid false matches                         |
 | Objective     | `exfiltrate`, `tamper`, `credential-theft`, `script-fix`, `sabotage` | Hyphen variant for credential_theft / script_fix          |
 | Domain entry  | `domain`                                                             | Forces domain-based briefing (nslookup required)          |
@@ -25,7 +25,7 @@ Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `tes
 | Medium | 3–4               | 1      | up to 2       | 50% forwarded, 50% router-first     |
 | Hard   | 4–6               | 1      | all non-entry | Always router-first (no forwarding) |
 
-## Entry Variants (5)
+## Entry Variants (6)
 
 How the player gains initial access to the entry machine.
 
@@ -36,6 +36,7 @@ How the player gains initial access to the entry machine.
 | NC      | Connect via netcat backdoor (port 4444), find SSH credentials                       |
 | Exploit | `nmap -sV` → find vulnerable service → `exploit(host, port)` → find SSH credentials |
 | HTTP    | `nmap` → discover port 80 → `curl` to explore web content → find SSH credentials    |
+| SNMP    | `nmap -sU` → find UDP 161 → `snmpwalk` with RW community → `snmpset` to open SSH    |
 
 ## FTP/NC/Exploit Owner Types (3)
 
@@ -67,13 +68,14 @@ With the `domain` seed keyword, domain entry is always active. Without it, PRNG 
 
 The mission briefing includes an `Intel:` section with variant-specific hints. No command names appear — hints use natural language so the player must figure out which tools to use.
 
-| Variant | Intel Text                                                                         |
-| ------- | ---------------------------------------------------------------------------------- |
-| SSH     | ~50% shows credentials + `ssh()` command; ~50% hints at default credentials        |
-| FTP     | "Our recon shows an FTP service running on the target."                            |
-| NC      | "Our scanner picked up a suspicious backdoor service. Run a port scan to find it." |
-| Exploit | "The target is running outdated software with known vulnerabilities."              |
-| HTTP    | "There's a web server running on the target."                                      |
+| Variant | Intel Text                                                                                               |
+| ------- | -------------------------------------------------------------------------------------------------------- |
+| SSH     | ~50% shows credentials + `ssh()` command; ~50% hints at default credentials                              |
+| FTP     | "Our recon shows an FTP service running on the target."                                                  |
+| NC      | "Our scanner picked up a suspicious backdoor service. Run a port scan to find it."                       |
+| Exploit | "The target is running outdated software with known vulnerabilities."                                    |
+| HTTP    | "There's a web server running on the target."                                                            |
+| SNMP    | "Perimeter locked down — legacy management protocols may be enabled with default community credentials." |
 
 ### SSH Credential Reveal (`briefingRevealsCredentials`)
 
@@ -229,15 +231,16 @@ Router is always the border device between localhost and the mission network.
 | Exploit | 22/ssh, 6379/redis  |
 | HTTP    | 22/ssh, 80/http     |
 
-## Router Entry Port Templates (3)
+## Router Entry Port Templates (4)
 
 Used when the router itself is the entry point (router-first mode). In router-first mode, entry credential hints (web content for HTTP, NC hints, exploit vulnerabilities) are placed on the router's filesystem, not on the internal entry machine. This ensures `curl`, `nc`, `exploit`, etc. work against the router.
 
-| Variant | Ports              |
-| ------- | ------------------ |
-| SSH     | 22/ssh, 80/http    |
-| Exploit | 22/ssh, 8443/https |
-| HTTP    | 22/ssh, 80/http    |
+| Variant | Ports                         |
+| ------- | ----------------------------- |
+| SSH     | 22/ssh, 80/http               |
+| Exploit | 22/ssh, 8443/https            |
+| HTTP    | 22/ssh, 80/http               |
+| SNMP    | 22/ssh (closed), 161/udp snmp |
 
 ## Exploit Vulnerabilities (6)
 
@@ -473,6 +476,38 @@ Wrapped in binary noise — `cat` shows garbled output, `strings` extracts crede
 ### Permissions
 
 All credential leak files are guest-owned (world-readable), placed in system directories with `worldReadable` traversal. Guest can always discover and read them.
+
+## SNMP Entry Variant
+
+Router-first mode only. The router has all TCP ports filtered and SNMP (UDP 161) open. The player must discover SNMP via UDP scanning, enumerate the MIB tree to find credentials, and use SNMP SET to open the SSH firewall.
+
+### Attack Chain
+
+1. `nmap(routerIP)` — all TCP ports filtered (dead end)
+2. `nmap("-sU", routerIP)` — discovers UDP 161 (snmp)
+3. `apt("install", "snmp")` — installs `snmpwalk` and `snmpset` binaries
+4. `snmpwalk(routerIP)` — public community shows basic system info (hostname, interfaces)
+5. `snmpwalk(routerIP, rwCommunity)` — RW community reveals leaked SSH credentials in extend script args + firewall OIDs (`firewallSSH deny`)
+6. `snmpset(routerIP, rwCommunity, "firewallSSH=permit")` — opens SSH through the firewall
+7. `ssh(user, routerIP)` — connects with leaked credentials
+
+### SNMP Config File
+
+Router filesystem contains `/etc/snmp/snmpd.conf` with:
+
+- `rocommunity public` — read-only community (always "public")
+- `rwcommunity <string>` — read-write community (PRNG-picked from: `private`, `ADMIN`, `C1sc0`, `write`, `secret`)
+- System OIDs: `sysDescr`, `sysName`, `sysContact`, `ifDescr`, `ifAddr`
+- Extend scripts: `nsExtendArgs.backup --user <username> --pass <password>` (leaked credentials)
+- Firewall OIDs: `firewallSSH deny`, `firewallHTTP deny`
+
+### Dynamic Firewall State
+
+`NetworkContext` reads SNMP firewall OIDs from `/etc/snmp/snmpd.conf` (same pattern as iptables rules). When `snmpset` changes `firewallSSH` from `deny` to `permit`, port 22 dynamically becomes open on the router. Parser: `src/network/snmpFirewallParser.ts`.
+
+### Apt Multi-Binary Package
+
+`apt("install", "snmp")` installs both `/usr/bin/snmpwalk` and `/usr/bin/snmpset`. The `AptPackageInfo` type supports a `binaries` field for packages that install multiple commands.
 
 ## Ideas for More Variety
 

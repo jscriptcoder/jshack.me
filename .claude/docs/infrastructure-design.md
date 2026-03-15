@@ -108,6 +108,7 @@ Internal (<private>.x.x.11, <private>.x.x.12)
 
 - **Forwarded** (easier): Router NATs entry machine ports to its public IP. Player connects to public IP and transparently lands on internal machine. Easy difficulty has 70% chance, medium 50%.
 - **Router-first** (harder): No forwarding. Player must hack the router to reach internal machines. Hard difficulty always uses this mode. A credential placement on the router filesystem contains SSH credentials for the internal entry machine (so the player can reach it after hacking the router).
+- **SNMP variant** (router-first only): Router has all TCP ports filtered and SNMP (UDP 161) open. Player discovers SNMP via `nmap -sU`, uses `snmpwalk` with the RW community string to find leaked credentials and firewall OIDs, then `snmpset` to open the SSH port. See `mission-variations.md` for full SNMP attack chain details.
 
 ### Port Closures
 
@@ -118,3 +119,7 @@ PRNG-driven SSH/FTP port closures (~30% each, independent rolls) add lateral mov
 `NetworkContext.resolveNat(ip, port)` handles port-level translation from public IP + port to internal machine IP + port. Rules are parsed dynamically from `/etc/iptables/rules.v4` on the router's filesystem (`src/network/iptablesParser.ts`). Applied at three connection boundaries in `Terminal.tsx`: SSH login, FTP session, NC session.
 
 In forwarded mode, the iptables file is pre-populated with forwarding rules. In router-first mode, it starts as an empty template — the player can add rules with `nano` after hacking the router. Changes take effect immediately on the next `nmap` scan or connection attempt. Format: `forward <public_port> to <internal_ip>:<port>`.
+
+### SNMP Firewall State
+
+For the SNMP entry variant, `NetworkContext` also reads `/etc/snmp/snmpd.conf` from the router's filesystem (same dynamic pattern as iptables). The `parseSnmpFirewallConfig()` parser (`src/network/snmpFirewallParser.ts`) extracts `firewallSSH` and `firewallHTTP` OID values. When `snmpset` changes `firewallSSH` from `deny` to `permit`, port 22 dynamically opens on the router. The `applySnmpFirewallOverrides()` function overlays these port state changes onto the router's `RemoteMachine` view.

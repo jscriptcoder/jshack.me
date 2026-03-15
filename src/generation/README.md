@@ -20,10 +20,10 @@ const mission = generateMissionNetwork('HEIST-7734');
 `generateMissionNetwork(seed)` runs these steps sequentially, each consuming from the same PRNG stream:
 
 1. **PRNG** (`prng.ts`) — Mulberry32 seeded via FNV-1a hash of the seed string
-2. **Topology** (`topology.ts`) — Flat subnet, machine count by difficulty, roles, IPs, interfaces, DNS, entry variant selection (ssh/ftp/nc/exploit/http)
+2. **Topology** (`topology.ts`) — Flat subnet, machine count by difficulty, roles, IPs, interfaces, DNS, entry variant selection (ssh/ftp/nc/exploit/http/snmp)
 3. **Users** (`users.ts`) — Root + 1-2 role-appropriate users per machine, md5-hashed passwords. Guest passwords picked from `guestPasswords` pool (not hardcoded).
 4. **Objective** (`attackChain.ts`) — Objective generation (exfiltrate with ACCESS-KEY, tamper with old/new values, credential_theft with root password, script_fix with broken script + bug type, sabotage with machine bricking), client email generation
-5. **Filesystems** (`filesystem.ts`) — FileNode trees with role configs, noise, target file at dynamic path with thematic content. Web content generation for webserver-role machines. `/bin/` is populated with system utility binaries; `/usr/bin/` is left empty (players must `apt install` tools). Router gets `/etc/iptables/rules.v4` — pre-populated with forwarding rules in forwarded mode, empty template in router-first mode.
+5. **Filesystems** (`filesystem.ts`) — FileNode trees with role configs, noise, target file at dynamic path with thematic content. Web content generation for webserver-role machines. `/bin/` is populated with system utility binaries; `/usr/bin/` is left empty (players must `apt install` tools). Router gets `/etc/iptables/rules.v4` — pre-populated with forwarding rules in forwarded mode, empty template in router-first mode. SNMP variant routers get `/etc/snmp/snmpd.conf` with community strings, system OIDs, leaked credentials, and firewall OIDs.
 
 ## Files
 

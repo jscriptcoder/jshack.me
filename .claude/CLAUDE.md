@@ -122,7 +122,7 @@ See `architecture.md` for full details. Key points:
 
 See `architecture.md` for integration details, `mission-variations.md` for all generation axes.
 
-- `generateMissionNetwork(seed)` deterministically produces a full network. Seeds embed keywords for overrides (difficulty, entry variant, network mode, objective, domain, gpg).
+- `generateMissionNetwork(seed)` deterministically produces a full network. Seeds embed keywords for overrides (difficulty, entry variant, network mode, objective, domain, gpg, snmp).
 - Provider hierarchy: `SessionProvider → MissionProvider → FileSystemProvider → NetworkProvider → Terminal`
 - Commands: `missions()`, `accept(seed)`, `abort()`, `mail(recipient, content)`
 - Five objectives: exfiltrate, tamper, credential_theft, script_fix, sabotage

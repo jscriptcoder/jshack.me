@@ -149,9 +149,7 @@ export const createSnmpsetCommand = (context: SnmpsetContext): Command => ({
     // Parse assignment
     const parsed = parseAssignment(assignment);
     if (!parsed) {
-      throw new Error(
-        `snmpset: expected format "oid=value" (e.g., "firewallSSH=permit")`,
-      );
+      throw new Error(`snmpset: expected format "oid=value" (e.g., "firewallSSH=permit")`);
     }
 
     const { oid, value } = parsed;
@@ -163,9 +161,7 @@ export const createSnmpsetCommand = (context: SnmpsetContext): Command => ({
 
     // Validate value
     if (!VALID_FIREWALL_VALUES.has(value)) {
-      throw new Error(
-        `snmpset: invalid value "${value}" for ${oid} — expected "permit" or "deny"`,
-      );
+      throw new Error(`snmpset: invalid value "${value}" for ${oid} — expected "permit" or "deny"`);
     }
 
     // Read current value

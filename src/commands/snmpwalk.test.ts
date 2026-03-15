@@ -6,7 +6,10 @@ import { createSnmpwalkCommand } from './snmpwalk';
 
 // --- Factory Functions ---
 
-const mkSnmpConf = (overrides?: { readonly rwCommunity?: string; readonly creds?: string }): string =>
+const mkSnmpConf = (overrides?: {
+  readonly rwCommunity?: string;
+  readonly creds?: string;
+}): string =>
   [
     '# SNMP Daemon Configuration',
     '# net-snmp 5.9.1',
@@ -58,8 +61,11 @@ type SnmpwalkContextConfig = {
 };
 
 const createMockSnmpwalkContext = (config: SnmpwalkContextConfig = {}) => {
-  const { machines = [getMockRouter()], localIP = '192.168.1.100', snmpConf = mkSnmpConf() } =
-    config;
+  const {
+    machines = [getMockRouter()],
+    localIP = '192.168.1.100',
+    snmpConf = mkSnmpConf(),
+  } = config;
 
   return {
     getMachine: (ip: string) => machines.find((m) => m.ip === ip),
@@ -197,9 +203,7 @@ describe('snmpwalk command', () => {
     it('rejects wrong community string', () => {
       const context = createMockSnmpwalkContext();
       const snmpwalk = createSnmpwalkCommand(context);
-      expect(() => snmpwalk.fn('91.234.56.78', 'wrongpass')).toThrow(
-        'Authentication failure',
-      );
+      expect(() => snmpwalk.fn('91.234.56.78', 'wrongpass')).toThrow('Authentication failure');
     });
 
     it('works with non-default RW community', () => {
