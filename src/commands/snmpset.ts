@@ -8,7 +8,7 @@ type SnmpsetContext = {
   readonly getLocalIP: () => string;
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
   readonly getNodeFromMachine: (machineIp: string, path: string, cwd: string) => FileNode | null;
-  readonly createFileOnMachine: (
+  readonly writeFileToMachine: (
     machineIp: string,
     path: string,
     cwd: string,
@@ -79,7 +79,7 @@ export const createSnmpsetCommand = (context: SnmpsetContext): Command => ({
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {
-    const { getMachine, getLocalIP, resolveDomain, getNodeFromMachine, createFileOnMachine } =
+    const { getMachine, getLocalIP, resolveDomain, getNodeFromMachine, writeFileToMachine } =
       context;
 
     const host = args[0] as string | undefined;
@@ -203,7 +203,7 @@ export const createSnmpsetCommand = (context: SnmpsetContext): Command => ({
         token.schedule(() => {
           if (token.isCancelled()) return;
           // Write the updated config back to the filesystem
-          createFileOnMachine(targetIP, '/etc/snmp/snmpd.conf', '/', updatedContent, 'root');
+          writeFileToMachine(targetIP, '/etc/snmp/snmpd.conf', '/', updatedContent, 'root');
           onLine('Value updated successfully.');
           onComplete();
         }, delay);

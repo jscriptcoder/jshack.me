@@ -31,8 +31,14 @@ export const useNetworkCommands = (): Map<string, Command> => {
     resolveNat,
     findMachineUsers,
   } = useNetwork();
-  const { resolvePath, getNode, readFileFromMachine, getNodeFromMachine, createFileOnMachine } =
-    useFileSystem();
+  const {
+    resolvePath,
+    getNode,
+    readFileFromMachine,
+    getNodeFromMachine,
+    createFileOnMachine,
+    writeFileToMachine,
+  } = useFileSystem();
   const { session, wifiConnected, isMachineBricked } = useSession();
 
   return useMemo(() => {
@@ -175,7 +181,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
             getLocalIP,
             resolveDomain,
             getNodeFromMachine,
-            createFileOnMachine,
+            writeFileToMachine,
           }),
           isWifiRequired,
         ),
@@ -220,6 +226,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
     readFileFromMachine,
     getNodeFromMachine,
     createFileOnMachine,
+    writeFileToMachine,
     session.machine,
     session.currentPath,
     wifiConnected,
