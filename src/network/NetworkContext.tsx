@@ -12,6 +12,8 @@ import { createInitialNetwork, localhostDisconnectedInterfaces } from './initial
 import { useSession } from '../session/SessionContext';
 import { useFileSystem } from '../filesystem';
 import { parseIptablesRules } from './iptablesParser';
+import { parseSnmpFirewallConfig } from './snmpFirewallParser';
+import type { SnmpFirewallOverride } from './snmpFirewallParser';
 
 type NetworkContextType = {
   readonly config: NetworkConfig;
@@ -64,6 +66,16 @@ export const NetworkProvider = ({
     return parseIptablesRules(node.content);
   }, [missionRouterMachine, getNodeFromMachine]);
 
+  // Dynamic SNMP firewall rules: read and parse /etc/snmp/snmpd.conf from the
+  // router's filesystem. When the player runs snmpset to modify firewall OIDs,
+  // the filesystem state updates, triggering re-render and re-parse.
+  const snmpFirewallOverrides = useMemo((): readonly SnmpFirewallOverride[] => {
+    if (!missionRouterMachine) return [];
+    const node = getNodeFromMachine(missionRouterMachine.ip, '/etc/snmp/snmpd.conf', '/');
+    if (!node || node.type !== 'file' || !node.content) return [];
+    return parseSnmpFirewallConfig(node.content);
+  }, [missionRouterMachine, getNodeFromMachine]);
+
   // Multi-tier network config resolution for the current machine:
   // 1. Mission config (if on a mission-generated machine)
   // 2. Static config (tutorial machines)
@@ -89,10 +101,16 @@ export const NetworkProvider = ({
       // When iptables has forwarding rules, the router shows its own ports +
       // forwarded ports and merged users (so SSH user check works before NAT).
       // Rules come from the filesystem dynamically — player edits with nano.
-      const routerRemote: RemoteMachine =
+      const baseRouterRemote: RemoteMachine =
         iptablesRules.length > 0
           ? buildMergedRouterView(missionRouterMachine, missionMachines ?? [], iptablesRules)
           : missionRouterMachine.remoteMachine;
+
+      // Apply SNMP firewall overrides (snmpset changes port open/closed state)
+      const routerRemote: RemoteMachine =
+        snmpFirewallOverrides.length > 0
+          ? applySnmpFirewallOverrides(baseRouterRemote, snmpFirewallOverrides)
+          : baseRouterRemote;
 
       // External DNS: only router's public IP
       const externalDns: readonly DnsRecord[] = [
@@ -118,6 +136,7 @@ export const NetworkProvider = ({
     missionNetworkConfig,
     missionMachines,
     iptablesRules,
+    snmpFirewallOverrides,
     missionRouterMachine,
   ]);
 
@@ -287,6 +306,23 @@ const buildMergedRouterView = (
     hostname: routerMachine.hostname,
     ports: [...routerOnlyPorts, ...forwardedPorts],
     users: uniqueUsers,
+  };
+};
+
+// Applies SNMP firewall overrides to the router's ports.
+// When snmpset changes firewallSSH to "permit", port 22 opens dynamically.
+const applySnmpFirewallOverrides = (
+  machine: RemoteMachine,
+  overrides: readonly SnmpFirewallOverride[],
+): RemoteMachine => {
+  const overrideMap = new Map(overrides.map((o) => [o.port, o.open]));
+  return {
+    ...machine,
+    ports: machine.ports.map((p) => {
+      const overrideOpen = overrideMap.get(p.port);
+      if (overrideOpen === undefined) return p;
+      return { ...p, open: overrideOpen };
+    }),
   };
 };
 
