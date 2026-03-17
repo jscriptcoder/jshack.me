@@ -1,17 +1,39 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createSuCommand, type PasswordPromptData } from './su';
+import { md5 } from '../utils/md5';
+import type { UserType } from '../session/SessionContext';
 
 // --- Factory Functions ---
 
+type MockRemoteUser = {
+  readonly username: string;
+  readonly passwordHash: string;
+  readonly userType: 'root' | 'user' | 'guest';
+};
+
 type SuContextConfig = {
   readonly users?: readonly string[];
+  readonly passwdContent?: string | null;
+  readonly machineUsers?: readonly MockRemoteUser[];
+  readonly setUsername?: (username: string, userType: UserType) => void;
+  readonly setCurrentPath?: (path: string) => void;
 };
 
 const createMockSuContext = (config: SuContextConfig = {}) => {
-  const { users = ['root', 'jshacker', 'guest'] } = config;
+  const {
+    users = ['root', 'jshacker', 'guest'],
+    passwdContent = null,
+    machineUsers = [],
+    setUsername = () => {},
+    setCurrentPath = () => {},
+  } = config;
 
   return {
     getUsers: () => users,
+    readFile: () => passwdContent ?? null,
+    findMachineUsers: () => machineUsers,
+    setUsername,
+    setCurrentPath,
   };
 };
 
@@ -128,6 +150,156 @@ describe('su command', () => {
 
       expect(() => su.fn('ftpuser')).not.toThrow();
       expect(() => su.fn('jshacker')).toThrow('does not exist');
+    });
+  });
+
+  describe('programmatic authentication (with password)', () => {
+    it('should return success message with correct password', () => {
+      const context = createMockSuContext({
+        users: ['root'],
+        passwdContent: `root:${md5('toor')}`,
+        machineUsers: [{ username: 'root', passwordHash: md5('toor'), userType: 'root' }],
+      });
+
+      const su = createSuCommand(context);
+      const result = su.fn('root', 'toor');
+
+      expect(result).toBe('Switched to user: root');
+    });
+
+    it('should throw Authentication failure with wrong password', () => {
+      const context = createMockSuContext({
+        users: ['root'],
+        passwdContent: `root:${md5('toor')}`,
+      });
+
+      const su = createSuCommand(context);
+
+      expect(() => su.fn('root', 'wrongpass')).toThrow('su: Authentication failure');
+    });
+
+    it('should call setUsername with correct userType from machineUsers', () => {
+      const setUsername = vi.fn();
+      const context = createMockSuContext({
+        users: ['root'],
+        passwdContent: `root:${md5('toor')}`,
+        machineUsers: [{ username: 'root', passwordHash: md5('toor'), userType: 'root' }],
+        setUsername,
+      });
+
+      const su = createSuCommand(context);
+      su.fn('root', 'toor');
+
+      expect(setUsername).toHaveBeenCalledWith('root', 'root');
+    });
+
+    it('should call setCurrentPath with /root for root user', () => {
+      const setCurrentPath = vi.fn();
+      const context = createMockSuContext({
+        users: ['root'],
+        passwdContent: `root:${md5('toor')}`,
+        machineUsers: [{ username: 'root', passwordHash: md5('toor'), userType: 'root' }],
+        setCurrentPath,
+      });
+
+      const su = createSuCommand(context);
+      su.fn('root', 'toor');
+
+      expect(setCurrentPath).toHaveBeenCalledWith('/root');
+    });
+
+    it('should call setCurrentPath with /home/username for non-root users', () => {
+      const setCurrentPath = vi.fn();
+      const context = createMockSuContext({
+        users: ['guest'],
+        passwdContent: `guest:${md5('guestpw')}`,
+        machineUsers: [{ username: 'guest', passwordHash: md5('guestpw'), userType: 'guest' }],
+        setCurrentPath,
+      });
+
+      const su = createSuCommand(context);
+      su.fn('guest', 'guestpw');
+
+      expect(setCurrentPath).toHaveBeenCalledWith('/home/guest');
+    });
+
+    it('should throw Authentication failure when /etc/passwd is unreadable', () => {
+      const context = createMockSuContext({
+        users: ['root'],
+        passwdContent: null,
+      });
+
+      const su = createSuCommand(context);
+
+      expect(() => su.fn('root', 'toor')).toThrow('su: Authentication failure');
+    });
+
+    it('should still validate username exists before attempting auth', () => {
+      const context = createMockSuContext({
+        users: ['root'],
+        passwdContent: `root:${md5('toor')}`,
+      });
+
+      const su = createSuCommand(context);
+
+      expect(() => su.fn('nobody', 'password')).toThrow('su: user nobody does not exist');
+    });
+
+    it('should fallback to name-based userType when user not in machineUsers', () => {
+      const setUsername = vi.fn();
+      const context = createMockSuContext({
+        users: ['root'],
+        passwdContent: `root:${md5('toor')}`,
+        machineUsers: [],
+        setUsername,
+      });
+
+      const su = createSuCommand(context);
+      su.fn('root', 'toor');
+
+      expect(setUsername).toHaveBeenCalledWith('root', 'root');
+    });
+
+    it('should fallback guest userType by name when not in machineUsers', () => {
+      const setUsername = vi.fn();
+      const context = createMockSuContext({
+        users: ['guest'],
+        passwdContent: `guest:${md5('pw')}`,
+        machineUsers: [],
+        setUsername,
+      });
+
+      const su = createSuCommand(context);
+      su.fn('guest', 'pw');
+
+      expect(setUsername).toHaveBeenCalledWith('guest', 'guest');
+    });
+
+    it('should fallback to user userType for unknown names not in machineUsers', () => {
+      const setUsername = vi.fn();
+      const context = createMockSuContext({
+        users: ['alice'],
+        passwdContent: `alice:${md5('pw')}`,
+        machineUsers: [],
+        setUsername,
+      });
+
+      const su = createSuCommand(context);
+      su.fn('alice', 'pw');
+
+      expect(setUsername).toHaveBeenCalledWith('alice', 'user');
+    });
+
+    it('should still return password prompt when no password given', () => {
+      const context = createMockSuContext({
+        users: ['root'],
+        passwdContent: `root:${md5('toor')}`,
+      });
+
+      const su = createSuCommand(context);
+      const result = su.fn('root');
+
+      expect(isPasswordPromptData(result)).toBe(true);
     });
   });
 });

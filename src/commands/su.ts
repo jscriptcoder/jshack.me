@@ -1,12 +1,48 @@
 import type { Command } from '../components/Terminal/types';
+import type { UserType } from '../session/SessionContext';
+import { md5 } from '../utils/md5';
 
 export type PasswordPromptData = {
   readonly __type: 'password_prompt';
   readonly targetUser: string;
 };
 
+type RemoteUserInfo = {
+  readonly username: string;
+  readonly userType: UserType;
+};
+
 type SuContext = {
   readonly getUsers: () => readonly string[];
+  readonly readFile: (path: string, userType: UserType) => string | null;
+  readonly findMachineUsers: () => readonly RemoteUserInfo[];
+  readonly setUsername: (username: string, userType: UserType) => void;
+  readonly setCurrentPath: (path: string) => void;
+};
+
+// Validates password against /etc/passwd MD5 hash
+const validatePassword = (
+  username: string,
+  password: string,
+  readFile: SuContext['readFile'],
+): boolean => {
+  const passwdContent = readFile('/etc/passwd', 'root');
+  if (!passwdContent) return false;
+
+  const entry = passwdContent.split('\n').find((line) => line.split(':')[0] === username);
+  if (!entry) return false;
+
+  const storedHash = entry.split(':')[1];
+  if (!storedHash) return false;
+
+  return storedHash === md5(password);
+};
+
+// Infers userType from machineUsers list, with name-based fallback
+const resolveUserType = (username: string, machineUsers: readonly RemoteUserInfo[]): UserType => {
+  const machineUser = machineUsers.find((u) => u.username === username);
+  if (machineUser) return machineUser.userType;
+  return username === 'root' ? 'root' : username === 'guest' ? 'guest' : 'user';
 };
 
 export const createSuCommand = (context: SuContext): Command => ({
@@ -14,23 +50,30 @@ export const createSuCommand = (context: SuContext): Command => ({
   category: 'general',
   description: 'Switch user',
   manual: {
-    synopsis: 'su(username)',
+    synopsis: 'su(username[, password])',
     description:
-      'Switch to another user account. You will be prompted for the password. The password is validated against MD5 hashes stored in /etc/passwd.',
+      'Switch to another user account. Without a password, you will be prompted interactively. ' +
+      'With a password, authentication happens inline — useful in scripts via node().',
     arguments: [
       {
         name: 'username',
         description: 'The username to switch to (e.g., "root", "guest")',
         required: true,
       },
+      {
+        name: 'password',
+        description: 'Optional password for programmatic authentication',
+        required: false,
+      },
     ],
     examples: [
-      { command: 'su("root")', description: 'Switch to root user' },
-      { command: 'su("guest")', description: 'Switch to guest user' },
+      { command: 'su("root")', description: 'Switch to root user (interactive prompt)' },
+      { command: 'su("root", "toor")', description: 'Switch to root with password (scripting)' },
     ],
   },
-  fn: (...args: unknown[]): PasswordPromptData => {
+  fn: (...args: unknown[]): PasswordPromptData | string => {
     const username = args[0] as string | undefined;
+    const password = args[1] as string | undefined;
 
     if (!username) {
       throw new Error('su: missing username\nUsage: su("username")');
@@ -41,6 +84,22 @@ export const createSuCommand = (context: SuContext): Command => ({
       throw new Error(`su: user ${username} does not exist`);
     }
 
+    // Programmatic auth: validate and switch inline
+    if (password !== undefined) {
+      if (!validatePassword(username, password, context.readFile)) {
+        throw new Error('su: Authentication failure');
+      }
+
+      const userType = resolveUserType(username, context.findMachineUsers());
+      const homePath = userType === 'root' ? '/root' : `/home/${username}`;
+
+      context.setUsername(username, userType);
+      context.setCurrentPath(homePath);
+
+      return `Switched to user: ${username}`;
+    }
+
+    // Interactive: return prompt data for Terminal to handle
     return {
       __type: 'password_prompt',
       targetUser: username,

@@ -69,6 +69,8 @@ export const useCommands = (): UseCommandsResult => {
   const {
     session,
     setTheme,
+    setUsername,
+    setCurrentPath,
     popAllSessions,
     popSession,
     canReturn,
@@ -113,7 +115,14 @@ export const useCommands = (): UseCommandsResult => {
       }),
     );
 
-    const suCommand = createSuCommand({ getUsers });
+    const suCommand = createSuCommand({
+      getUsers,
+      readFile: (path: string, userType: 'root' | 'user' | 'guest') =>
+        readFileFromMachine(session.machine, path, '/', userType),
+      findMachineUsers: () => findMachineUsers(session.machine),
+      setUsername,
+      setCurrentPath,
+    });
     commands.set('su', suCommand);
 
     commands.set(
@@ -247,6 +256,9 @@ export const useCommands = (): UseCommandsResult => {
     completeMission,
     activeMission,
     readFileFromMachine,
+    setUsername,
+    setCurrentPath,
+    findMachineUsers,
     popAllSessions,
     popSession,
     canReturn,
