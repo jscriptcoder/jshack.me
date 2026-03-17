@@ -230,6 +230,31 @@ export const useAuthentication = ({
     [addLine],
   );
 
+  // Inline SCP auth: validates password, saves key, and returns transfer AsyncOutput (or undefined on failure)
+  const authenticateScpInline = useCallback(
+    (
+      user: string,
+      ip: string,
+      port: number,
+      password: string,
+      performTransfer: () => AsyncOutput,
+    ): AsyncOutput | undefined => {
+      if (hasAuthorizedKey(user, ip, port)) {
+        addLine('result', 'Authenticated with saved key.');
+        return performTransfer();
+      }
+
+      if (validateRemotePassword(user, ip, port, password)) {
+        saveAuthorizedKey(user, ip, port);
+        return performTransfer();
+      } else {
+        addLine('error', 'Permission denied, please try again.');
+        return undefined;
+      }
+    },
+    [hasAuthorizedKey, validateRemotePassword, addLine, saveAuthorizedKey],
+  );
+
   const startScpPrompt = useCallback(
     (
       user: string,
@@ -478,6 +503,7 @@ export const useAuthentication = ({
     authenticateSshInline,
     startFtpPrompt,
     startScpPrompt,
+    authenticateScpInline,
     resetAuthState,
   };
 };

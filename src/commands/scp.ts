@@ -39,12 +39,13 @@ export const createScpCommand = (context: ScpContext): Command => ({
   category: 'network',
   description: 'Secure copy files between machines',
   manual: {
-    synopsis: 'scp(source, destination[, port])',
+    synopsis: 'scp(source, destination[, port][, password])',
     description:
       'Copy a file from the current machine to a remote machine via SSH. ' +
       'The destination uses user@host:path format. Preserves file permissions from the source. ' +
       'Requires an open SSH port on the target machine. ' +
-      'An optional third argument overrides the SSH port (default: auto-detect).',
+      'An optional port argument overrides the SSH port (default: auto-detect). ' +
+      'With a password, authentication happens automatically — useful in scripts via node().',
     arguments: [
       { name: 'source', description: 'Path to the file on the current machine', required: true },
       {
@@ -57,6 +58,11 @@ export const createScpCommand = (context: ScpContext): Command => ({
         description: 'SSH port to connect on (default: auto-detect)',
         required: false,
       },
+      {
+        name: 'password',
+        description: 'Optional password for programmatic authentication',
+        required: false,
+      },
     ],
     examples: [
       {
@@ -66,6 +72,10 @@ export const createScpCommand = (context: ScpContext): Command => ({
       {
         command: 'scp("/usr/bin/node", "guest@185.13.117.85:/home/guest", 25)',
         description: 'Copy via forwarded SSH port',
+      },
+      {
+        command: 'scp("/usr/bin/nmap", "guest@192.168.1.50:/home/guest", "secret")',
+        description: 'Copy with password (scripting)',
       },
     ],
   },
@@ -86,7 +96,10 @@ export const createScpCommand = (context: ScpContext): Command => ({
 
     const sourcePath = args[0];
     const destStr = args[1];
-    const portArg = args[2];
+
+    // Overloaded args: scp(src, dst, password?) or scp(src, dst, port, password?)
+    const thirdArg = args[2];
+    const fourthArg = args[3];
 
     const dest = parseDestination(destStr);
     if (!dest) {
@@ -112,16 +125,20 @@ export const createScpCommand = (context: ScpContext): Command => ({
 
     // Parse optional port argument; when omitted, auto-detect SSH service
     const explicitPort =
-      portArg === undefined
-        ? undefined
-        : typeof portArg === 'number' &&
-            Number.isInteger(portArg) &&
-            portArg >= 1 &&
-            portArg <= 65535
-          ? portArg
+      typeof thirdArg === 'number'
+        ? Number.isInteger(thirdArg) && thirdArg >= 1 && thirdArg <= 65535
+          ? thirdArg
           : (() => {
-              throw new Error(`scp: invalid port '${String(portArg)}'`);
-            })();
+              throw new Error(`scp: invalid port '${String(thirdArg)}'`);
+            })()
+        : undefined;
+
+    const password =
+      typeof thirdArg === 'string'
+        ? thirdArg
+        : typeof fourthArg === 'string'
+          ? fourthArg
+          : undefined;
 
     // Validate remote machine SSH access
     const machine = getMachine(dest.host);
@@ -245,6 +262,7 @@ export const createScpCommand = (context: ScpContext): Command => ({
               targetIP: dest.host,
               targetPort: port,
               performTransfer,
+              ...(password !== undefined && { password }),
             };
 
             onComplete(scpPrompt);

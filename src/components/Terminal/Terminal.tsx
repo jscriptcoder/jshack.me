@@ -142,6 +142,7 @@ export const Terminal = () => {
     authenticateSshInline,
     startFtpPrompt,
     startScpPrompt,
+    authenticateScpInline,
   } = useAuthentication({
     addLine,
     session,
@@ -289,12 +290,21 @@ export const Terminal = () => {
                 }
 
                 if (isScpPrompt(followUp)) {
-                  const transferAsync = startScpPrompt(
-                    followUp.targetUser,
-                    followUp.targetIP,
-                    followUp.targetPort,
-                    followUp.performTransfer,
-                  );
+                  const transferAsync =
+                    followUp.password !== undefined
+                      ? authenticateScpInline(
+                          followUp.targetUser,
+                          followUp.targetIP,
+                          followUp.targetPort,
+                          followUp.password,
+                          followUp.performTransfer,
+                        )
+                      : startScpPrompt(
+                          followUp.targetUser,
+                          followUp.targetIP,
+                          followUp.targetPort,
+                          followUp.performTransfer,
+                        );
                   if (transferAsync) {
                     setAsyncRunning(true);
                     asyncCancelRef.current = transferAsync.cancel ?? null;
@@ -371,6 +381,7 @@ export const Terminal = () => {
       startSshPrompt,
       authenticateSshInline,
       startScpPrompt,
+      authenticateScpInline,
       startFtpPrompt,
     ],
   );

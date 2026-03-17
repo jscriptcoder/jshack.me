@@ -320,7 +320,10 @@ describe('scp', () => {
 
   it('throws when explicit port is invalid', () => {
     const scp = createContext();
-    expect(() => scp.fn('/usr/bin/nmap', 'guest@192.168.1.50:/home/guest/nmap', 'abc')).toThrow(
+    expect(() => scp.fn('/usr/bin/nmap', 'guest@192.168.1.50:/home/guest/nmap', 0)).toThrow(
+      'invalid port',
+    );
+    expect(() => scp.fn('/usr/bin/nmap', 'guest@192.168.1.50:/home/guest/nmap', 99999)).toThrow(
       'invalid port',
     );
   });
@@ -356,5 +359,77 @@ describe('scp', () => {
     // File is created on the internal machine, not the router
     expect(createdFiles).toHaveLength(1);
     expect(createdFiles[0]?.machineId).toBe('10.0.0.10');
+  });
+
+  describe('programmatic authentication (with password)', () => {
+    it('should include password in ScpPromptData when 3rd arg is string', () => {
+      const scp = createContext();
+      const result = scp.fn(
+        '/usr/bin/nmap',
+        'guest@192.168.1.50:/home/guest/nmap',
+        'secret',
+      ) as AsyncOutput;
+      const { followUp } = runAsync(result);
+
+      expect(followUp).toBeDefined();
+      expect(followUp?.targetUser).toBe('guest');
+      expect((followUp as ScpPromptData & { readonly password?: string }).password).toBe('secret');
+    });
+
+    it('should include password in ScpPromptData when 4th arg after port', () => {
+      const scp = createContext();
+      const result = scp.fn(
+        '/usr/bin/nmap',
+        'guest@192.168.1.50:/home/guest/nmap',
+        22,
+        'secret',
+      ) as AsyncOutput;
+      const { followUp } = runAsync(result);
+
+      expect(followUp).toBeDefined();
+      expect(followUp?.targetPort).toBe(22);
+      expect((followUp as ScpPromptData & { readonly password?: string }).password).toBe('secret');
+    });
+
+    it('should auto-detect port when 3rd arg is password string', () => {
+      const scp = createContext();
+      const result = scp.fn(
+        '/usr/bin/nmap',
+        'guest@192.168.1.50:/home/guest/nmap',
+        'secret',
+      ) as AsyncOutput;
+      const { followUp } = runAsync(result);
+
+      expect(followUp?.targetPort).toBe(22);
+    });
+
+    it('should not include password when no password given', () => {
+      const scp = createContext();
+      const result = scp.fn(
+        '/usr/bin/nmap',
+        'guest@192.168.1.50:/home/guest/nmap',
+      ) as AsyncOutput;
+      const { followUp } = runAsync(result);
+
+      expect(followUp).toBeDefined();
+      expect(
+        (followUp as ScpPromptData & { readonly password?: string }).password,
+      ).toBeUndefined();
+    });
+
+    it('should not include password when only port is given', () => {
+      const scp = createContext();
+      const result = scp.fn(
+        '/usr/bin/nmap',
+        'guest@192.168.1.50:/home/guest/nmap',
+        22,
+      ) as AsyncOutput;
+      const { followUp } = runAsync(result);
+
+      expect(followUp).toBeDefined();
+      expect(
+        (followUp as ScpPromptData & { readonly password?: string }).password,
+      ).toBeUndefined();
+    });
   });
 });

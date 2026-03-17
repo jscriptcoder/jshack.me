@@ -66,6 +66,7 @@ export type ScpPromptData = {
   readonly targetIP: string;
   readonly targetPort: number;
   readonly performTransfer: () => AsyncOutput;
+  readonly password?: string;
 };
 
 export type AsyncFollowUp = SshPromptData | FtpPromptData | NcPromptData | ScpPromptData;
