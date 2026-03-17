@@ -20,7 +20,7 @@ import {
   noiseFiles,
   redHerringFiles,
   snmpRwCommunities,
-  webContentTemplates,
+  webContentTemplatesByRole,
 } from './pools';
 import { wrapInBinaryNoise } from './binary';
 import { createBinaryEntries, SYSTEM_UTILITY_NAMES } from '../commands/availability';
@@ -450,9 +450,15 @@ const buildMachineConfig = (
   // ~30% chance to place a careless user's credentials in a guest-readable location
   placeCredentialLeak(prng, machineCreds, extraDirectories, etcExtraContent);
 
-  // Generate web content for webserver machines
-  if (machine.role === 'webserver') {
-    const webTemplate = prng.pick(webContentTemplates);
+  // Generate web content for any machine with an open HTTP port.
+  // Uses role-appropriate templates: webservers get corporate portals,
+  // routers get admin panels, others get default server pages.
+  const hasOpenHttpPort = machine.remoteMachine.ports.some(
+    (p) => p.open && (p.service === 'http' || p.service === 'https' || p.service === 'http-alt'),
+  );
+  if (hasOpenHttpPort) {
+    const templates = webContentTemplatesByRole[machine.role];
+    const webTemplate = prng.pick(templates);
     const indexContent = fillTemplate(webTemplate.content, {
       hostname: machine.hostname,
       ip: machine.ip,

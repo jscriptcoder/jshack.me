@@ -148,6 +148,119 @@ describe('generateFileSystems', () => {
     });
   });
 
+  describe('web content for machines with HTTP ports', () => {
+    const buildWithRouter = (seed: string) => {
+      const prng = createPrng(seed);
+      const topology = generateTopology(prng, 'medium');
+      const { usersByMachine, credentials } = generateUsers(
+        prng,
+        topology.machines,
+        topology.entryPoint,
+      );
+      const { objective } = buildMissionObjective({
+        prng,
+        machines: topology.machines,
+        credentials,
+        entryPoint: topology.entryPoint,
+        difficulty: 'medium',
+      });
+      const fileSystems = generateFileSystems({
+        prng,
+        machines: topology.machines,
+        usersByMachine,
+        credentials,
+        objective,
+        routerMachine: topology.routerMachine,
+        natForwarding: topology.natForwarding,
+      });
+      return { topology, fileSystems };
+    };
+
+    const HTTP_SERVICES = ['http', 'https', 'http-alt'];
+
+    const hasOpenHttpPort = (machine: {
+      readonly remoteMachine: {
+        readonly ports: readonly {
+          readonly port: number;
+          readonly service: string;
+          readonly open: boolean;
+        }[];
+      };
+    }) => machine.remoteMachine.ports.some((p) => p.open && HTTP_SERVICES.includes(p.service));
+
+    it('every machine with an open HTTP port has /var/www/html/index.html', () => {
+      for (let i = 0; i < 50; i++) {
+        const { topology, fileSystems } = buildWithRouter(`web-content-${i}`);
+
+        // Check all internal machines
+        topology.machines.filter(hasOpenHttpPort).forEach((m) => {
+          const root = fileSystems[m.ip];
+          const indexHtml = resolveNode(root as FileNode, '/var/www/html/index.html');
+          expect(
+            indexHtml,
+            `Missing index.html on ${m.hostname} (${m.role}, seed web-content-${i})`,
+          ).toBeDefined();
+          expect(indexHtml?.type).toBe('file');
+          expect(indexHtml?.content).toBeTruthy();
+        });
+
+        // Check router
+        if (hasOpenHttpPort(topology.routerMachine)) {
+          const routerFs = fileSystems[topology.routerMachine.ip];
+          const indexHtml = resolveNode(routerFs as FileNode, '/var/www/html/index.html');
+          expect(
+            indexHtml,
+            `Missing index.html on router ${topology.routerMachine.hostname}`,
+          ).toBeDefined();
+          expect(indexHtml?.type).toBe('file');
+          expect(indexHtml?.content).toBeTruthy();
+        }
+      }
+    });
+
+    it('router web content looks like an admin panel', () => {
+      for (let i = 0; i < 50; i++) {
+        const { topology, fileSystems } = buildWithRouter(`router-web-${i}`);
+        if (!hasOpenHttpPort(topology.routerMachine)) continue;
+
+        const routerFs = fileSystems[topology.routerMachine.ip];
+        const indexHtml = resolveNode(routerFs as FileNode, '/var/www/html/index.html');
+        if (!indexHtml?.content) continue;
+
+        // Router pages should reference the hostname and look like admin/management content
+        expect(indexHtml.content).toContain(topology.routerMachine.hostname);
+        return;
+      }
+      throw new Error('No router with HTTP port found in 50 seeds');
+    });
+
+    it('web content includes the machine hostname', () => {
+      for (let i = 0; i < 50; i++) {
+        const { topology, fileSystems } = buildWithRouter(`web-hostname-${i}`);
+        const httpMachines = topology.machines.filter(hasOpenHttpPort);
+        httpMachines.forEach((m) => {
+          const root = fileSystems[m.ip];
+          const indexHtml = resolveNode(root as FileNode, '/var/www/html/index.html');
+          expect(indexHtml?.content).toContain(m.hostname);
+        });
+      }
+    });
+
+    it('web content is guest-readable', () => {
+      for (let i = 0; i < 50; i++) {
+        const { topology, fileSystems } = buildWithRouter(`web-perms-${i}`);
+        const httpMachines = topology.machines.filter(hasOpenHttpPort);
+        httpMachines.forEach((m) => {
+          const root = fileSystems[m.ip];
+          const indexHtml = resolveNode(root as FileNode, '/var/www/html/index.html');
+          if (indexHtml) {
+            expect(indexHtml.permissions.read).toContain('guest');
+          }
+        });
+      }
+    });
+  });
+
   describe('iptables rules file on router', () => {
     const buildWithRouter = (seed: string) => {
       const prng = createPrng(seed);

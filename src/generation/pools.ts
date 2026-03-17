@@ -528,11 +528,13 @@ export const keyPlacementTemplates: readonly KeyPlacementTemplate[] = [
   },
 ];
 
-// Web page templates for webserver machines. {{hostname}} and {{ip}} are filled in at generation.
-export const webContentTemplates: readonly {
+type WebContentTemplate = {
   readonly path: string;
   readonly content: string;
-}[] = [
+};
+
+// Web page templates for webserver machines. {{hostname}} and {{ip}} are filled in at generation.
+export const webContentTemplates: readonly WebContentTemplate[] = [
   {
     path: '/var/www/html/index.html',
     content:
@@ -544,6 +546,46 @@ export const webContentTemplates: readonly {
       '<html>\n<head><title>Welcome — {{hostname}}</title></head>\n<body>\n<h1>Welcome to {{hostname}}</h1>\n<p>Internal corporate portal v3.1.0</p>\n<ul>\n<li><a href="/status">System Status</a></li>\n<li><a href="/admin/">Administration</a></li>\n</ul>\n<!-- TODO: remove debug endpoints before release -->\n</body>\n</html>',
   },
 ];
+
+// Router admin panel templates — realistic management interfaces.
+const routerWebContentTemplates: readonly WebContentTemplate[] = [
+  {
+    path: '/var/www/html/index.html',
+    content:
+      '<html>\n<head><title>{{hostname}} — Management Console</title></head>\n<body>\n<h1>{{hostname}} Admin Panel</h1>\n<p>Network Gateway Management Interface</p>\n<form action="/login" method="POST">\n<label>Username: <input type="text" name="user"></label><br>\n<label>Password: <input type="password" name="pass"></label><br>\n<input type="submit" value="Login">\n</form>\n<!-- firmware: v2.4.1-stable -->\n</body>\n</html>',
+  },
+  {
+    path: '/var/www/html/index.html',
+    content:
+      '<html>\n<head><title>{{hostname}} — Network Controller</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>Firewall &amp; Routing Management v1.8.3</p>\n<p><a href="/admin/">Dashboard</a> | <a href="/status">System Status</a></p>\n<!-- contact: netops@corp.local for access -->\n</body>\n</html>',
+  },
+];
+
+// Default web page templates for non-webserver machines that happen to have HTTP ports open.
+const defaultWebContentTemplates: readonly WebContentTemplate[] = [
+  {
+    path: '/var/www/html/index.html',
+    content:
+      '<html>\n<head><title>{{hostname}}</title></head>\n<body>\n<h1>It works!</h1>\n<p>This is the default web page for {{hostname}}.</p>\n<!-- Apache/2.4.41 (Ubuntu) Server at {{ip}} -->\n</body>\n</html>',
+  },
+  {
+    path: '/var/www/html/index.html',
+    content:
+      '<html>\n<head><title>{{hostname}} — Service Portal</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>Application server running. Service healthy.</p>\n<p><a href="/status">Health Check</a></p>\n<!-- nginx/1.18.0 -->\n</body>\n</html>',
+  },
+];
+
+// Role-based web content template lookup. Every role has templates so any machine
+// with an open HTTP port gets realistic web content.
+export const webContentTemplatesByRole: Readonly<
+  Record<MachineRole, readonly WebContentTemplate[]>
+> = {
+  webserver: webContentTemplates,
+  router: routerWebContentTemplates,
+  database: defaultWebContentTemplates,
+  fileserver: defaultWebContentTemplates,
+  workstation: defaultWebContentTemplates,
+};
 
 export const redHerringFiles: readonly { readonly name: string; readonly content: string }[] = [
   { name: 'notes.txt', content: 'TODO: update server configs\nRemember to rotate credentials' },
