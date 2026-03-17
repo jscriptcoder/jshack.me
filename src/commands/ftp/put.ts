@@ -122,63 +122,58 @@ export const createFtpPutCommand = (context: FtpPutContext): Command => ({
     return {
       __type: 'async',
       start: (onLine, onComplete) => {
-        let phase = 0;
+        let delay = 0;
 
         onLine(`200 PORT command successful.`);
 
-        token.schedule(
-          () => {
-            if (token.isCancelled()) return;
-            onLine(`150 Opening BINARY mode data connection for ${fileName} (${bytes} bytes).`);
-          },
-          jitter(++phase * STEP_MS),
-        );
+        delay += jitter(STEP_MS);
+        token.schedule(() => {
+          if (token.isCancelled()) return;
+          onLine(`150 Opening BINARY mode data connection for ${fileName} (${bytes} bytes).`);
+        }, delay);
 
         const steps = [0, 25, 50, 75, 100];
         steps.forEach((pct) => {
-          token.schedule(
-            () => {
-              if (token.isCancelled()) return;
-              const transferred = Math.floor((bytes * pct) / 100);
-              const bar = '#'.repeat(Math.floor(pct / 5)).padEnd(20, ' ');
-              onLine(`${fileName}  ${pct}% [${bar}]  ${transferred}/${bytes} bytes`);
-            },
-            jitter(++phase * STEP_MS),
-          );
+          delay += jitter(STEP_MS);
+          token.schedule(() => {
+            if (token.isCancelled()) return;
+            const transferred = Math.floor((bytes * pct) / 100);
+            const bar = '#'.repeat(Math.floor(pct / 5)).padEnd(20, ' ');
+            onLine(`${fileName}  ${pct}% [${bar}]  ${transferred}/${bytes} bytes`);
+          }, delay);
         });
 
-        token.schedule(
-          () => {
-            if (token.isCancelled()) return;
+        // Actual transfer + completion
+        delay += jitter(STEP_MS);
+        token.schedule(() => {
+          if (token.isCancelled()) return;
 
-            // Perform the actual file write
-            const result = remoteNode
-              ? context.writeFileToMachine(
-                  remoteMachine,
-                  resolvedRemotePath,
-                  '/',
-                  content,
-                  remoteUserType,
-                )
-              : context.createFileOnMachine(
-                  remoteMachine,
-                  resolvedRemotePath,
-                  '/',
-                  content,
-                  remoteUserType,
-                );
+          // Perform the actual file write
+          const result = remoteNode
+            ? context.writeFileToMachine(
+                remoteMachine,
+                resolvedRemotePath,
+                '/',
+                content,
+                remoteUserType,
+              )
+            : context.createFileOnMachine(
+                remoteMachine,
+                resolvedRemotePath,
+                '/',
+                content,
+                remoteUserType,
+              );
 
-            if (!result.allowed) {
-              onLine(`put: remote path ${remoteDestination}: ${result.error}`);
-            } else {
-              onLine(`226 Transfer complete.`);
-              onLine(`${bytes} bytes sent`);
-            }
+          if (!result.allowed) {
+            onLine(`put: remote path ${remoteDestination}: ${result.error}`);
+          } else {
+            onLine(`226 Transfer complete.`);
+            onLine(`${bytes} bytes sent`);
+          }
 
-            onComplete();
-          },
-          jitter(++phase * STEP_MS),
-        );
+          onComplete();
+        }, delay);
       },
       cancel: token.cancel,
     };
