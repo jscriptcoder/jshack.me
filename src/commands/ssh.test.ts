@@ -417,7 +417,8 @@ describe('ssh command', () => {
       });
       const ssh = createSshCommand(context);
 
-      expect(() => ssh.fn('admin@192.168.1.50', 'abc')).toThrow('ssh: invalid port');
+      expect(() => ssh.fn('admin@192.168.1.50', 0)).toThrow('ssh: invalid port');
+      expect(() => ssh.fn('admin@192.168.1.50', 99999)).toThrow('ssh: invalid port');
     });
 
     it('should include specified port in SshPromptData', () => {
@@ -545,6 +546,173 @@ describe('ssh command', () => {
       // Should have connecting and SSH version, but not authentication
       expect(lines.some((l) => l.includes('Authenticating'))).toBe(false);
       expect(completed).toBe(false);
+    });
+  });
+
+  describe('programmatic authentication (with password)', () => {
+    it('should include password in SshPromptData when 2nd arg is string', () => {
+      const context = createMockSshContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.50',
+            ports: [{ port: 22, service: 'ssh', open: true }],
+            users: [{ username: 'admin', passwordHash: 'abc', userType: 'user' }],
+          }),
+        ],
+      });
+      const ssh = createSshCommand(context);
+      const result = ssh.fn('admin@192.168.1.50', 'secret');
+
+      let followUp: unknown = null;
+      if (isAsyncOutput(result)) {
+        result.start(
+          () => {},
+          (data) => {
+            followUp = data;
+          },
+        );
+      }
+
+      vi.advanceTimersByTime(2100);
+
+      expect(isSshPrompt(followUp)).toBe(true);
+      if (isSshPrompt(followUp)) {
+        expect(followUp.targetUser).toBe('admin');
+        expect(followUp.targetPort).toBe(22);
+        expect((followUp as SshPromptData & { readonly password?: string }).password).toBe(
+          'secret',
+        );
+      }
+    });
+
+    it('should include password in SshPromptData when 3rd arg after port', () => {
+      const context = createMockSshContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.50',
+            ports: [{ port: 2222, service: 'ssh', open: true }],
+            users: [{ username: 'admin', passwordHash: 'abc', userType: 'user' }],
+          }),
+        ],
+      });
+      const ssh = createSshCommand(context);
+      const result = ssh.fn('admin@192.168.1.50', 2222, 'secret');
+
+      let followUp: unknown = null;
+      if (isAsyncOutput(result)) {
+        result.start(
+          () => {},
+          (data) => {
+            followUp = data;
+          },
+        );
+      }
+
+      vi.advanceTimersByTime(2100);
+
+      expect(isSshPrompt(followUp)).toBe(true);
+      if (isSshPrompt(followUp)) {
+        expect(followUp.targetPort).toBe(2222);
+        expect((followUp as SshPromptData & { readonly password?: string }).password).toBe(
+          'secret',
+        );
+      }
+    });
+
+    it('should default to port 22 when 2nd arg is password string', () => {
+      const context = createMockSshContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.50',
+            ports: [{ port: 22, service: 'ssh', open: true }],
+            users: [{ username: 'admin', passwordHash: 'abc', userType: 'user' }],
+          }),
+        ],
+      });
+      const ssh = createSshCommand(context);
+      const result = ssh.fn('admin@192.168.1.50', 'secret');
+
+      let followUp: unknown = null;
+      if (isAsyncOutput(result)) {
+        result.start(
+          () => {},
+          (data) => {
+            followUp = data;
+          },
+        );
+      }
+
+      vi.advanceTimersByTime(2100);
+
+      if (isSshPrompt(followUp)) {
+        expect(followUp.targetPort).toBe(22);
+      }
+    });
+
+    it('should not include password in SshPromptData when no password given', () => {
+      const context = createMockSshContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.50',
+            ports: [{ port: 22, service: 'ssh', open: true }],
+            users: [{ username: 'admin', passwordHash: 'abc', userType: 'user' }],
+          }),
+        ],
+      });
+      const ssh = createSshCommand(context);
+      const result = ssh.fn('admin@192.168.1.50');
+
+      let followUp: unknown = null;
+      if (isAsyncOutput(result)) {
+        result.start(
+          () => {},
+          (data) => {
+            followUp = data;
+          },
+        );
+      }
+
+      vi.advanceTimersByTime(2100);
+
+      expect(isSshPrompt(followUp)).toBe(true);
+      if (isSshPrompt(followUp)) {
+        expect(
+          (followUp as SshPromptData & { readonly password?: string }).password,
+        ).toBeUndefined();
+      }
+    });
+
+    it('should not include password when only port is given', () => {
+      const context = createMockSshContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.50',
+            ports: [{ port: 2222, service: 'ssh', open: true }],
+            users: [{ username: 'admin', passwordHash: 'abc', userType: 'user' }],
+          }),
+        ],
+      });
+      const ssh = createSshCommand(context);
+      const result = ssh.fn('admin@192.168.1.50', 2222);
+
+      let followUp: unknown = null;
+      if (isAsyncOutput(result)) {
+        result.start(
+          () => {},
+          (data) => {
+            followUp = data;
+          },
+        );
+      }
+
+      vi.advanceTimersByTime(2100);
+
+      expect(isSshPrompt(followUp)).toBe(true);
+      if (isSshPrompt(followUp)) {
+        expect(
+          (followUp as SshPromptData & { readonly password?: string }).password,
+        ).toBeUndefined();
+      }
     });
   });
 });

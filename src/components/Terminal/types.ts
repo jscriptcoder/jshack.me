@@ -21,6 +21,7 @@ export type SshPromptData = {
   readonly targetUser: string;
   readonly targetIP: string;
   readonly targetPort: number;
+  readonly password?: string;
 };
 
 export type ClearOutput = {

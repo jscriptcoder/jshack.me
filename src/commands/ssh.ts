@@ -25,9 +25,11 @@ export const createSshCommand = (context: SshContext): Command => ({
   category: 'network',
   description: 'Secure shell connection to remote host',
   manual: {
-    synopsis: 'ssh("user@host"[, port])',
+    synopsis: 'ssh("user@host"[, port][, password])',
     description:
-      'Connect to a remote machine via SSH. You will be prompted for the password. The connection will only succeed if the remote machine has the specified port open and the credentials are valid. Default port is 22.',
+      'Connect to a remote machine via SSH. Without a password, you will be prompted interactively. ' +
+      'With a password, authentication happens automatically after the connection animation — useful in scripts via node(). ' +
+      'Default port is 22.',
     arguments: [
       {
         name: 'target',
@@ -39,12 +41,21 @@ export const createSshCommand = (context: SshContext): Command => ({
         description: 'Port to connect on (default: 22)',
         required: false,
       },
+      {
+        name: 'password',
+        description: 'Optional password for programmatic authentication',
+        required: false,
+      },
     ],
     examples: [
       { command: 'ssh("admin@192.168.1.1")', description: 'Connect to gateway as admin' },
       {
         command: 'ssh("root@10.0.0.5", 2222)',
         description: 'Connect on port 2222',
+      },
+      {
+        command: 'ssh("admin@192.168.1.1", "secret")',
+        description: 'Connect with password (scripting)',
       },
     ],
   },
@@ -62,18 +73,26 @@ export const createSshCommand = (context: SshContext): Command => ({
     }
 
     const { user, host } = parsed;
-    const portArg = args[1];
+
+    // Overloaded args: ssh(target, password?) or ssh(target, port, password?)
+    const secondArg = args[1];
+    const thirdArg = args[2];
+
     const port =
-      portArg === undefined
-        ? 22
-        : typeof portArg === 'number' &&
-            Number.isInteger(portArg) &&
-            portArg >= 1 &&
-            portArg <= 65535
-          ? portArg
+      typeof secondArg === 'number'
+        ? Number.isInteger(secondArg) && secondArg >= 1 && secondArg <= 65535
+          ? secondArg
           : (() => {
-              throw new Error(`ssh: invalid port '${String(portArg)}'`);
-            })();
+              throw new Error(`ssh: invalid port '${String(secondArg)}'`);
+            })()
+        : 22;
+
+    const password =
+      typeof secondArg === 'string'
+        ? secondArg
+        : typeof thirdArg === 'string'
+          ? thirdArg
+          : undefined;
 
     const localIP = getLocalIP();
     if (host === localIP || host === '127.0.0.1' || host === 'localhost') {
@@ -117,6 +136,7 @@ export const createSshCommand = (context: SshContext): Command => ({
               targetUser: user,
               targetIP: host,
               targetPort: port,
+              ...(password !== undefined && { password }),
             };
 
             onComplete(sshPrompt);

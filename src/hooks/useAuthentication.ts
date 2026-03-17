@@ -173,6 +173,37 @@ export const useAuthentication = ({
     ],
   );
 
+  // Validates a remote user's password against their stored hash
+  const validateRemotePassword = useCallback(
+    (user: string, ip: string, port: number, password: string): boolean => {
+      const resolvedIp = resolveNat(ip, port).ip;
+      const users = findMachineUsers(resolvedIp);
+      const remoteUser = users.find((u) => u.username === user);
+      if (!remoteUser) return false;
+      return remoteUser.passwordHash === md5(password);
+    },
+    [resolveNat, findMachineUsers],
+  );
+
+  // Inline SSH auth: validates password, saves key, and connects without interactive prompt
+  const authenticateSshInline = useCallback(
+    (user: string, targetIP: string, targetPort: number, password: string) => {
+      if (hasAuthorizedKey(user, targetIP, targetPort)) {
+        addLine('result', 'Authenticated with saved key.');
+        connectSsh(user, targetIP, targetPort);
+        return;
+      }
+
+      if (validateRemotePassword(user, targetIP, targetPort, password)) {
+        saveAuthorizedKey(user, targetIP, targetPort);
+        connectSsh(user, targetIP, targetPort);
+      } else {
+        addLine('error', 'Permission denied, please try again.');
+      }
+    },
+    [hasAuthorizedKey, validateRemotePassword, addLine, connectSsh, saveAuthorizedKey],
+  );
+
   const startSshPrompt = useCallback(
     (user: string, targetIP: string, targetPort: number) => {
       if (hasAuthorizedKey(user, targetIP, targetPort)) {
@@ -444,6 +475,7 @@ export const useAuthentication = ({
     handleFtpUsernameSubmit,
     startPasswordPrompt,
     startSshPrompt,
+    authenticateSshInline,
     startFtpPrompt,
     startScpPrompt,
     resetAuthState,

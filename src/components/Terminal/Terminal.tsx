@@ -139,6 +139,7 @@ export const Terminal = () => {
     handleFtpUsernameSubmit,
     startPasswordPrompt,
     startSshPrompt,
+    authenticateSshInline,
     startFtpPrompt,
     startScpPrompt,
   } = useAuthentication({
@@ -275,7 +276,16 @@ export const Terminal = () => {
                 asyncCancelRef.current = null;
 
                 if (isSshPrompt(followUp)) {
-                  startSshPrompt(followUp.targetUser, followUp.targetIP, followUp.targetPort);
+                  if (followUp.password !== undefined) {
+                    authenticateSshInline(
+                      followUp.targetUser,
+                      followUp.targetIP,
+                      followUp.targetPort,
+                      followUp.password,
+                    );
+                  } else {
+                    startSshPrompt(followUp.targetUser, followUp.targetIP, followUp.targetPort);
+                  }
                 }
 
                 if (isScpPrompt(followUp)) {
@@ -359,6 +369,7 @@ export const Terminal = () => {
       resolveNat,
       startPasswordPrompt,
       startSshPrompt,
+      authenticateSshInline,
       startScpPrompt,
       startFtpPrompt,
     ],
