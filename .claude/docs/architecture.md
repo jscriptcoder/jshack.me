@@ -141,6 +141,15 @@ Unix-realistic permission model with owner-scoped access and directory traversal
 
 Terminal.tsx triggers auth flows via `startPasswordPrompt()` (from `su` command), `startSshPrompt()` (from SSH async follow-up), `startFtpPrompt()` (from FTP async follow-up), and `startScpPrompt()` (from SCP command). `startSshPrompt` and `startScpPrompt` check for saved keys before entering password mode — if a key exists, they auto-authenticate (SSH: connects immediately; SCP: returns transfer `AsyncOutput` for Terminal to start). Submit handlers receive the current `input` and a `clearInput` callback (state ownership stays in Terminal.tsx).
 
+**Programmatic authentication**: All four commands accept optional credential arguments that bypass interactive prompts, enabling scripting via `node()`:
+
+- `su('root', 'password')` — validates and switches user inline (synchronous, returns success string)
+- `ssh('user@host', 'password')` / `ssh('user@host', port, 'password')` — auto-authenticates after connection animation via `authenticateSshInline`
+- `scp(src, dst, 'password')` / `scp(src, dst, port, 'password')` — auto-authenticates and starts transfer via `authenticateScpInline`
+- `ftp('host', 'user', 'password')` — auto-authenticates both username and password via `authenticateFtpInline`
+
+For SSH/SCP, string args are disambiguated from port numbers by type: a string 2nd/3rd arg is a password, a number is a port. SSH keys are saved on programmatic auth just like interactive auth. `su` is unique in that it performs auth synchronously within `fn()` so subsequent script lines run as the new user; the others embed credentials in their async follow-up prompt data for Terminal.tsx to handle.
+
 ## Async Output Pattern
 
 Network commands (ping, nmap, ssh, nslookup) and WiFi commands (airdump, aircrack) return `AsyncOutput` with `start(onLine, onComplete)` and optional `cancel()`. Terminal disables input during execution. The `onComplete` callback can trigger a password prompt (used by SSH/FTP via `useAuthentication`).

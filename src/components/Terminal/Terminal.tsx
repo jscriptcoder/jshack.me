@@ -321,11 +321,7 @@ export const Terminal = () => {
 
                 if (isFtpPrompt(followUp)) {
                   if (followUp.username !== undefined && followUp.password !== undefined) {
-                    authenticateFtpInline(
-                      followUp.targetIP,
-                      followUp.username,
-                      followUp.password,
-                    );
+                    authenticateFtpInline(followUp.targetIP, followUp.username, followUp.password);
                   } else {
                     startFtpPrompt(followUp.targetIP);
                   }

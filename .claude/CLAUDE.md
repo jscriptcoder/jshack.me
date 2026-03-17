@@ -135,6 +135,8 @@ See `architecture.md` for integration details, `mission-variations.md` for all g
 - **Sync mode** (default): Uses `new Function()`. Expression-first, falls back to statement mode. Echo calls are buffered and joined.
 - **Async mode** (when script contains `await`): Uses `AsyncFunction` constructor. Returns `AsyncOutput` to Terminal for streaming. Commands returning `AsyncOutput` (hydra, nmap, etc.) are auto-wrapped so `await hydra(...)` resolves to `string[]`. Provides `console.log()`, `sleep(ms)`, and cancellation via Ctrl+C.
 
+**Programmatic auth in scripts**: Interactive commands accept optional credentials for scripting: `su('root', 'pw')` (sync inline auth), `await ssh('user@ip', 'pw')`, `await scp(src, dst, 'pw')`, `await ftp('ip', 'user', 'pw')`. `su` is synchronous so subsequent lines run as the new user. SSH/SCP/FTP embed credentials in their async follow-up data.
+
 **Circular dependency**: `node(path)` needs the execution context which includes `node` itself. Resolved via a lazy getter pattern: mutable `let resolvedExecutionContext` in `useCommands.ts` is set after building the full command map, and node's factory captures a getter that's only called at execution time.
 
 ## Styling

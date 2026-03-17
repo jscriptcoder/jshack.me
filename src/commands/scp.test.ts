@@ -405,16 +405,11 @@ describe('scp', () => {
 
     it('should not include password when no password given', () => {
       const scp = createContext();
-      const result = scp.fn(
-        '/usr/bin/nmap',
-        'guest@192.168.1.50:/home/guest/nmap',
-      ) as AsyncOutput;
+      const result = scp.fn('/usr/bin/nmap', 'guest@192.168.1.50:/home/guest/nmap') as AsyncOutput;
       const { followUp } = runAsync(result);
 
       expect(followUp).toBeDefined();
-      expect(
-        (followUp as ScpPromptData & { readonly password?: string }).password,
-      ).toBeUndefined();
+      expect((followUp as ScpPromptData & { readonly password?: string }).password).toBeUndefined();
     });
 
     it('should not include password when only port is given', () => {
@@ -427,9 +422,7 @@ describe('scp', () => {
       const { followUp } = runAsync(result);
 
       expect(followUp).toBeDefined();
-      expect(
-        (followUp as ScpPromptData & { readonly password?: string }).password,
-      ).toBeUndefined();
+      expect((followUp as ScpPromptData & { readonly password?: string }).password).toBeUndefined();
     });
   });
 });

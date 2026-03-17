@@ -74,9 +74,9 @@ FTP and NC modes have their own separate command sets and are not restricted.
 
 ## User Management
 
-| Command | File    | Signature  | Description                        |
-| ------- | ------- | ---------- | ---------------------------------- |
-| su      | `su.ts` | `su(user)` | Switch user (prompts for password) |
+| Command | File    | Signature          | Description                                        |
+| ------- | ------- | ------------------ | -------------------------------------------------- |
+| su      | `su.ts` | `su(user[, pass])` | Switch user (prompts or inline auth with password) |
 
 ## Network
 
@@ -86,10 +86,10 @@ FTP and NC modes have their own separate command sets and are not restricted.
 | ping       | `ping.ts`       | `ping(host, [count])`            | Send ICMP echo request to network host (async)                                |
 | nmap       | `nmap.ts`       | `nmap(target[, "-sV"][, "-sU"])` | Port scanning; -sV version detection, -sU UDP scan (async)                    |
 | nslookup   | `nslookup.ts`   | `nslookup(domain)`               | Query DNS to resolve domain to IP address (async)                             |
-| ssh        | `ssh.ts`        | `ssh("user@host"[, port])`       | Connect to remote machine via SSH, optional port (async)                      |
-| scp        | `scp.ts`        | `scp(source, dest[, port])`      | Copy file to remote machine preserving permissions, optional SSH port         |
+| ssh        | `ssh.ts`        | `ssh("user@host"[, port][, pw])` | Connect to remote machine via SSH (async, optional inline auth)               |
+| scp        | `scp.ts`        | `scp(src, dest[, port][, pw])`   | Copy file to remote machine (async, optional inline auth)                     |
 | curl       | `curl.ts`       | `curl(url, [flags])`             | HTTP client for GET/POST requests (async, `-i` for headers, `-X POST`)        |
-| ftp        | `ftp.ts`        | `ftp(host)`                      | Connect to remote machine via FTP (async)                                     |
+| ftp        | `ftp.ts`        | `ftp(host[, user, pw])`          | Connect to remote machine via FTP (async, optional inline auth)               |
 | nc         | `nc.ts`         | `nc(host, port)`                 | Netcat - connect to arbitrary port (async, interactive for special services)  |
 | msfconsole | `msfconsole.ts` | `msfconsole(host, port)`         | Exploit a vulnerable service for RCE (async, drops into restricted shell)     |
 | hydra      | `hydra.ts`      | `hydra(host[, svc[, user]])`     | Brute-force SSH/FTP login credentials (async, probability-based)              |

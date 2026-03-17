@@ -490,12 +490,10 @@ describe('ftp command', () => {
       expect(isFtpPrompt(followUp)).toBe(true);
       if (isFtpPrompt(followUp)) {
         expect(followUp.targetIP).toBe('192.168.1.50');
-        expect(
-          (followUp as FtpPromptData & { readonly username?: string }).username,
-        ).toBe('admin');
-        expect(
-          (followUp as FtpPromptData & { readonly password?: string }).password,
-        ).toBe('secret');
+        expect((followUp as FtpPromptData & { readonly username?: string }).username).toBe('admin');
+        expect((followUp as FtpPromptData & { readonly password?: string }).password).toBe(
+          'secret',
+        );
       }
     });
 
@@ -562,9 +560,7 @@ describe('ftp command', () => {
       expect(isFtpPrompt(followUp)).toBe(true);
       if (isFtpPrompt(followUp)) {
         expect(followUp.targetIP).toBe('192.168.1.50');
-        expect(
-          (followUp as FtpPromptData & { readonly username?: string }).username,
-        ).toBe('admin');
+        expect((followUp as FtpPromptData & { readonly username?: string }).username).toBe('admin');
       }
     });
   });
