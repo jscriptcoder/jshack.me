@@ -16,23 +16,39 @@ export const createFtpCommand = (context: FtpContext): Command => ({
   category: 'network',
   description: 'File Transfer Protocol connection to remote host',
   manual: {
-    synopsis: 'ftp(host)',
+    synopsis: 'ftp(host[, username, password])',
     description:
-      'Connect to a remote machine via FTP. You will be prompted for username and password. ' +
-      'The connection will only succeed if the remote machine has FTP (port 21) open and the credentials are valid. ' +
+      'Connect to a remote machine via FTP. Without credentials, you will be prompted for username and password. ' +
+      'With credentials, authentication happens automatically after the connection animation — useful in scripts via node(). ' +
       'Once connected, you can use FTP commands: ls(), cd(), pwd(), lpwd(), lcd(), get(), put(), quit().',
     arguments: [
       { name: 'host', description: 'IP address or hostname of the remote machine', required: true },
+      {
+        name: 'username',
+        description: 'Optional username for programmatic authentication',
+        required: false,
+      },
+      {
+        name: 'password',
+        description: 'Optional password for programmatic authentication',
+        required: false,
+      },
     ],
     examples: [
       { command: 'ftp("10.0.0.5")', description: 'Connect to a remote host via FTP' },
       { command: 'ftp("target.local")', description: 'Connect using hostname' },
+      {
+        command: 'ftp("10.0.0.5", "admin", "secret")',
+        description: 'Connect with credentials (scripting)',
+      },
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {
     const { getMachine, getLocalIP, resolveDomain } = context;
 
     const host = args[0] as string | undefined;
+    const usernameArg = args[1] as string | undefined;
+    const passwordArg = args[2] as string | undefined;
 
     if (!host) {
       throw new Error('ftp: missing host\nUsage: ftp("host")');
@@ -82,6 +98,8 @@ export const createFtpCommand = (context: FtpContext): Command => ({
             const ftpPrompt: FtpPromptData = {
               __type: 'ftp_prompt',
               targetIP,
+              ...(usernameArg !== undefined && { username: usernameArg }),
+              ...(passwordArg !== undefined && { password: passwordArg }),
             };
 
             onComplete(ftpPrompt);

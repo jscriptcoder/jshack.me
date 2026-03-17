@@ -141,6 +141,7 @@ export const Terminal = () => {
     startSshPrompt,
     authenticateSshInline,
     startFtpPrompt,
+    authenticateFtpInline,
     startScpPrompt,
     authenticateScpInline,
   } = useAuthentication({
@@ -319,7 +320,15 @@ export const Terminal = () => {
                 }
 
                 if (isFtpPrompt(followUp)) {
-                  startFtpPrompt(followUp.targetIP);
+                  if (followUp.username !== undefined && followUp.password !== undefined) {
+                    authenticateFtpInline(
+                      followUp.targetIP,
+                      followUp.username,
+                      followUp.password,
+                    );
+                  } else {
+                    startFtpPrompt(followUp.targetIP);
+                  }
                 }
 
                 if (isNcPrompt(followUp)) {
@@ -383,6 +392,7 @@ export const Terminal = () => {
       startScpPrompt,
       authenticateScpInline,
       startFtpPrompt,
+      authenticateFtpInline,
     ],
   );
 

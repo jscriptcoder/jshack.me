@@ -461,4 +461,111 @@ describe('ftp command', () => {
       expect(completed).toBe(false);
     });
   });
+
+  describe('programmatic authentication (with username and password)', () => {
+    it('should include username and password in FtpPromptData', () => {
+      const context = createMockFtpContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.50',
+            ports: [{ port: 21, service: 'ftp', open: true }],
+          }),
+        ],
+      });
+      const ftp = createFtpCommand(context);
+      const result = ftp.fn('192.168.1.50', 'admin', 'secret');
+
+      let followUp: unknown = null;
+      if (isAsyncOutput(result)) {
+        result.start(
+          () => {},
+          (data) => {
+            followUp = data;
+          },
+        );
+      }
+
+      vi.advanceTimersByTime(1500);
+
+      expect(isFtpPrompt(followUp)).toBe(true);
+      if (isFtpPrompt(followUp)) {
+        expect(followUp.targetIP).toBe('192.168.1.50');
+        expect(
+          (followUp as FtpPromptData & { readonly username?: string }).username,
+        ).toBe('admin');
+        expect(
+          (followUp as FtpPromptData & { readonly password?: string }).password,
+        ).toBe('secret');
+      }
+    });
+
+    it('should not include credentials when no username/password given', () => {
+      const context = createMockFtpContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.50',
+            ports: [{ port: 21, service: 'ftp', open: true }],
+          }),
+        ],
+      });
+      const ftp = createFtpCommand(context);
+      const result = ftp.fn('192.168.1.50');
+
+      let followUp: unknown = null;
+      if (isAsyncOutput(result)) {
+        result.start(
+          () => {},
+          (data) => {
+            followUp = data;
+          },
+        );
+      }
+
+      vi.advanceTimersByTime(1500);
+
+      expect(isFtpPrompt(followUp)).toBe(true);
+      if (isFtpPrompt(followUp)) {
+        expect(
+          (followUp as FtpPromptData & { readonly username?: string }).username,
+        ).toBeUndefined();
+        expect(
+          (followUp as FtpPromptData & { readonly password?: string }).password,
+        ).toBeUndefined();
+      }
+    });
+
+    it('should work with hostname resolution and credentials', () => {
+      const context = createMockFtpContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.50',
+            ports: [{ port: 21, service: 'ftp', open: true }],
+          }),
+        ],
+        dnsRecords: [getMockDnsRecord({ domain: 'fileserver.local', ip: '192.168.1.50' })],
+      });
+      const ftp = createFtpCommand(context);
+      const result = ftp.fn('fileserver.local', 'admin', 'secret');
+
+      let followUp: unknown = null;
+      if (isAsyncOutput(result)) {
+        result.start(
+          () => {},
+          (data) => {
+            followUp = data;
+          },
+        );
+      }
+
+      vi.advanceTimersByTime(1500);
+
+      expect(isFtpPrompt(followUp)).toBe(true);
+      if (isFtpPrompt(followUp)) {
+        expect(followUp.targetIP).toBe('192.168.1.50');
+        expect(
+          (followUp as FtpPromptData & { readonly username?: string }).username,
+        ).toBe('admin');
+      }
+    });
+  });
 });

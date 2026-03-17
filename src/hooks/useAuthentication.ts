@@ -221,6 +221,43 @@ export const useAuthentication = ({
     [hasAuthorizedKey, addLine, connectSsh],
   );
 
+  // Inline FTP auth: validates username + password and enters FTP mode without interactive prompts
+  const authenticateFtpInline = useCallback(
+    (targetIP: string, username: string, password: string) => {
+      const resolvedIp = resolveNat(targetIP, 21).ip;
+      const users = findMachineUsers(resolvedIp);
+      const remoteUser = users.find((u) => u.username === username);
+
+      if (!remoteUser) {
+        addLine('error', '530 Login incorrect.');
+        return;
+      }
+
+      if (remoteUser.passwordHash !== md5(password)) {
+        addLine('error', '530 Login incorrect.');
+        return;
+      }
+
+      const userType: UserType = remoteUser.userType;
+      const remoteHomePath = getDefaultHomePath(resolvedIp, username);
+
+      const newFtpSession: FtpSession = {
+        remoteMachine: resolvedIp,
+        remoteUsername: username,
+        remoteUserType: userType,
+        remoteCwd: remoteHomePath,
+        originMachine: session.machine,
+        originUsername: session.username,
+        originUserType: session.userType,
+        originCwd: session.currentPath,
+      };
+
+      enterFtpMode(newFtpSession);
+      addLine('result', '230 Login successful.');
+    },
+    [resolveNat, findMachineUsers, addLine, getDefaultHomePath, session, enterFtpMode],
+  );
+
   const startFtpPrompt = useCallback(
     (targetIP: string) => {
       setFtpTargetIP(targetIP);
@@ -504,6 +541,7 @@ export const useAuthentication = ({
     startFtpPrompt,
     startScpPrompt,
     authenticateScpInline,
+    authenticateFtpInline,
     resetAuthState,
   };
 };

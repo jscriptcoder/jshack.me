@@ -35,6 +35,8 @@ export type ExitOutput = {
 export type FtpPromptData = {
   readonly __type: 'ftp_prompt';
   readonly targetIP: string;
+  readonly username?: string;
+  readonly password?: string;
 };
 
 export type FtpQuitOutput = {
