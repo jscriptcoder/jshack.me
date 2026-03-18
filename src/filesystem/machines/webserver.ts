@@ -1,6 +1,7 @@
 import type { FileNode } from '../types';
 import { createFileSystem, type MachineFileSystemConfig } from '../fileSystemFactory';
 import { createBinaryEntries, SYSTEM_UTILITY_NAMES, SBIN_UTILITY_NAMES } from '../../commands/availability';
+import { PID_FILE_NAME, createSshdPidFileNode } from '../../commands/sshd';
 
 // Scanner binary — ELF-style tool with embedded strings
 const scannerBinary =
@@ -387,6 +388,7 @@ Last activity: 2024-03-11 03:15:00 UTC
   },
   binContent: createBinaryEntries(SYSTEM_UTILITY_NAMES),
   usrSbinContent: createBinaryEntries(SBIN_UTILITY_NAMES),
+  varRunContent: { [PID_FILE_NAME]: createSshdPidFileNode() },
   passwdReadableBy: ['root'],
 };
 

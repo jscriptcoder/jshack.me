@@ -14,6 +14,9 @@ import { useFileSystem } from '../filesystem';
 import { parseIptablesRules } from './iptablesParser';
 import { parseSnmpFirewallConfig } from './snmpFirewallParser';
 import type { SnmpFirewallOverride } from './snmpFirewallParser';
+import { parseSshdState } from './sshdStateParser';
+import type { SshdPortOverride } from './sshdStateParser';
+import { PID_FILE_PATH } from '../commands/sshd';
 
 type NetworkContextType = {
   readonly config: NetworkConfig;
@@ -82,7 +85,7 @@ export const NetworkProvider = ({
   // 3. WiFi gating (localhost with WiFi off → disconnected interfaces, no machines)
   // 4. Localhost with active mission → only router is visible from localhost
   //    (internal machines are behind the router)
-  const currentConfig = useMemo((): MachineNetworkConfig => {
+  const baseConfig = useMemo((): MachineNetworkConfig => {
     const missionConfig = missionNetworkConfig?.machineConfigs[session.machine];
     if (missionConfig) return missionConfig;
 
@@ -139,6 +142,19 @@ export const NetworkProvider = ({
     snmpFirewallOverrides,
     missionRouterMachine,
   ]);
+
+  // Dynamic sshd state: for each machine in the config, check if /var/run/sshd.pid
+  // exists and apply port overrides. This enables dynamic SSH port opening when the
+  // player runs `sshd` from an NC shell (same pattern as SNMP firewall overrides).
+  const currentConfig = useMemo((): MachineNetworkConfig => {
+    const machines = baseConfig.machines.map((machine) => {
+      const node = getNodeFromMachine(machine.ip, PID_FILE_PATH, '/');
+      if (!node || node.type !== 'file' || !node.content) return machine;
+      const overrides = parseSshdState(node.content);
+      return overrides.length > 0 ? applySshdOverrides(machine, overrides) : machine;
+    });
+    return machines === baseConfig.machines ? baseConfig : { ...baseConfig, machines };
+  }, [baseConfig, getNodeFromMachine]);
 
   const getInterface = useCallback(
     (name: string): NetworkInterface | undefined => {
@@ -324,6 +340,29 @@ const applySnmpFirewallOverrides = (
       return { ...p, open: overrideOpen };
     }),
   };
+};
+
+// Applies sshd port overrides to a machine. When the player starts sshd
+// via NC shell, it writes /var/run/sshd.pid with the port. This function
+// either opens an existing closed port or adds a new SSH port entry.
+const applySshdOverrides = (
+  machine: RemoteMachine,
+  overrides: readonly SshdPortOverride[],
+): RemoteMachine => {
+  const overrideMap = new Map(overrides.map((o) => [o.port, o]));
+  const existingPorts = machine.ports.map((p) => {
+    const override = overrideMap.get(p.port);
+    if (!override) return p;
+    overrideMap.delete(p.port);
+    return { ...p, open: true, service: override.service };
+  });
+  // Add new ports that didn't exist in the machine's port list
+  const newPorts = [...overrideMap.values()].map((o) => ({
+    port: o.port,
+    service: o.service,
+    open: true as const,
+  }));
+  return { ...machine, ports: [...existingPorts, ...newPorts] };
 };
 
 export const useNetwork = (): NetworkContextType => {

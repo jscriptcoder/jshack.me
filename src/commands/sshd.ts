@@ -48,6 +48,22 @@ export const startSshd = (adapter: SshdAdapter, args: readonly unknown[]): strin
 };
 
 export const PID_FILE_PATH = '/var/run/sshd.pid';
+export const PID_FILE_NAME = 'sshd.pid';
+
+export const createPidFileContent = (port: number = 22): string => `sshd:port=${port}`;
+
+// FileNode for a pre-existing sshd.pid on machines where SSH is already running
+export const createSshdPidFileNode = (port: number = 22): FileNode => ({
+  name: PID_FILE_NAME,
+  type: 'file',
+  owner: 'root',
+  permissions: {
+    read: ['root', 'user', 'guest'],
+    write: ['root'],
+    execute: [],
+  },
+  content: createPidFileContent(port),
+});
 
 export const createSshdCommand = (context: SshdContext): Command => ({
   name: 'sshd',

@@ -1,6 +1,7 @@
 import type { FileNode } from '../types';
 import { createFileSystem, type MachineFileSystemConfig } from '../fileSystemFactory';
 import { createBinaryEntries, SYSTEM_UTILITY_NAMES, SBIN_UTILITY_NAMES } from '../../commands/availability';
+import { PID_FILE_NAME, createSshdPidFileNode } from '../../commands/sshd';
 
 const ftpuserHome: Readonly<Record<string, FileNode>> = {
   '.bash_history': {
@@ -274,6 +275,7 @@ Mar 15 08:30:05 fileserver kernel: [  120.5] eth0: link up
   extraDirectories: { srv: srvFtp },
   binContent: createBinaryEntries(SYSTEM_UTILITY_NAMES),
   usrSbinContent: createBinaryEntries(SBIN_UTILITY_NAMES),
+  varRunContent: { [PID_FILE_NAME]: createSshdPidFileNode() },
   passwdReadableBy: ['root'],
 };
 

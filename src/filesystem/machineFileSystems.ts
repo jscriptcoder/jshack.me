@@ -1,6 +1,7 @@
 import type { FileNode } from './types';
 import { localhost, fileserver, webserver } from './machines/__encoded';
 import { createBinaryEntries, SYSTEM_UTILITY_NAMES, SBIN_UTILITY_NAMES } from '../commands/availability';
+import { PID_FILE_NAME, createSshdPidFileNode } from '../commands/sshd';
 
 const BIN_DIR_PERMISSIONS = {
   read: ['root', 'user', 'guest'] as const,
@@ -218,6 +219,17 @@ Mar 15 08:15:44 gateway kernel: [iptables] IN=eth0 OUT= SRC=192.168.1.75 DST=192
 `,
             },
           },
+        },
+        run: {
+          name: 'run',
+          type: 'directory',
+          owner: 'root',
+          permissions: {
+            read: ['root', 'user', 'guest'] as const,
+            write: ['root'] as const,
+            execute: ['root', 'user', 'guest'] as const,
+          },
+          children: { [PID_FILE_NAME]: createSshdPidFileNode() },
         },
       },
     },
