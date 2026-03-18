@@ -491,18 +491,31 @@ describe('generateMissionNetwork', () => {
       expect(dualClosureCount).toBeGreaterThan(0);
     });
 
-    it('lateral NC backdoor from dual closure is always root-owned', () => {
+    it('NC backdoor on SSH-closed machine is always root-owned', () => {
       for (let i = 0; i < 500; i++) {
-        const result = generateMissionNetwork(`dual-owner-${i}`);
+        const result = generateMissionNetwork(`ssh-backdoor-owner-${i}`);
         result.machines.forEach((m) => {
           if (m.ip === result.entryPoint || m.role === 'router') return;
           const sshClosed = m.remoteMachine.ports.some((p) => p.port === 22 && !p.open);
-          const ftpClosed = !m.remoteMachine.ports.some((p) => p.port === 21 && p.open);
-          if (sshClosed && ftpClosed) {
+          if (sshClosed) {
             const backdoors = m.remoteMachine.ports.filter((p) => p.service === 'elite' && p.open);
             backdoors.forEach((b) => {
               expect(b.owner?.userType).toBe('root');
             });
+          }
+        });
+      }
+    });
+
+    it('SSH-closed non-entry machines always have an NC backdoor', () => {
+      for (let i = 0; i < 500; i++) {
+        const result = generateMissionNetwork(`ssh-needs-backdoor-${i}`);
+        result.machines.forEach((m) => {
+          if (m.ip === result.entryPoint || m.role === 'router') return;
+          const sshClosed = m.remoteMachine.ports.some((p) => p.port === 22 && !p.open);
+          if (sshClosed) {
+            const hasBackdoor = m.remoteMachine.ports.some((p) => p.service === 'elite' && p.open);
+            expect(hasBackdoor).toBe(true);
           }
         });
       }
