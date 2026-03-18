@@ -18,6 +18,7 @@ import { createMailCommand } from '../commands/mail';
 import { createAptCommand } from '../commands/apt';
 import { createRebootCommand } from '../commands/reboot';
 import { createSshdCommand } from '../commands/sshd';
+import { createFtpdCommand } from '../commands/ftpd';
 import { createBashCommand } from '../commands/bash';
 import { xtermCommand } from '../commands/xterm';
 import { useMission } from '../mission';
@@ -189,6 +190,16 @@ export const useCommands = (): UseCommandsResult => {
     commands.set(
       'sshd',
       createSshdCommand({
+        getMachine: () => session.machine,
+        getMachineInfo,
+        getNodeFromMachine,
+        createFileOnMachine: createFile,
+      }),
+    );
+
+    commands.set(
+      'ftpd',
+      createFtpdCommand({
         getMachine: () => session.machine,
         getMachineInfo,
         getNodeFromMachine,

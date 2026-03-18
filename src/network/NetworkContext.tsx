@@ -16,7 +16,10 @@ import { parseSnmpFirewallConfig } from './snmpFirewallParser';
 import type { SnmpFirewallOverride } from './snmpFirewallParser';
 import { parseSshdState } from './sshdStateParser';
 import type { SshdPortOverride } from './sshdStateParser';
+import { parseFtpdState } from './ftpdStateParser';
+import type { FtpdPortOverride } from './ftpdStateParser';
 import { PID_FILE_PATH } from '../commands/sshd';
+import { FTP_PID_FILE_PATH } from '../commands/ftpd';
 import { ipToMachineId } from '../filesystem/machineFileSystems';
 
 type NetworkContextType = {
@@ -144,17 +147,31 @@ export const NetworkProvider = ({
     missionRouterMachine,
   ]);
 
-  // Dynamic sshd state: for each machine in the config, check if /var/run/sshd.pid
-  // exists and apply port overrides. This enables dynamic SSH port opening when the
-  // player runs `sshd` from an NC shell (same pattern as SNMP firewall overrides).
+  // Dynamic daemon state: for each machine, check if sshd/ftpd pid files exist
+  // and apply port overrides. This enables dynamic port opening when the player
+  // starts daemons from an NC shell (same pattern as SNMP firewall overrides).
   const currentConfig = useMemo((): MachineNetworkConfig => {
     const machines = baseConfig.machines.map((machine) => {
       // Resolve IP to filesystem machine ID (localhost uses "localhost" as ID, not its IP)
       const fsId = ipToMachineId[machine.ip] ?? machine.ip;
-      const node = getNodeFromMachine(fsId, PID_FILE_PATH, '/');
-      if (!node || node.type !== 'file' || !node.content) return machine;
-      const overrides = parseSshdState(node.content);
-      return overrides.length > 0 ? applySshdOverrides(machine, overrides) : machine;
+
+      let result = machine;
+
+      // sshd state
+      const sshdNode = getNodeFromMachine(fsId, PID_FILE_PATH, '/');
+      if (sshdNode?.type === 'file' && sshdNode.content) {
+        const overrides = parseSshdState(sshdNode.content);
+        if (overrides.length > 0) result = applyDaemonOverrides(result, overrides);
+      }
+
+      // ftpd state
+      const ftpdNode = getNodeFromMachine(fsId, FTP_PID_FILE_PATH, '/');
+      if (ftpdNode?.type === 'file' && ftpdNode.content) {
+        const overrides = parseFtpdState(ftpdNode.content);
+        if (overrides.length > 0) result = applyDaemonOverrides(result, overrides);
+      }
+
+      return result;
     });
     return machines === baseConfig.machines ? baseConfig : { ...baseConfig, machines };
   }, [baseConfig, getNodeFromMachine]);
@@ -345,12 +362,12 @@ const applySnmpFirewallOverrides = (
   };
 };
 
-// Applies sshd port overrides to a machine. When the player starts sshd
-// via NC shell, it writes /var/run/sshd.pid with the port. This function
-// either opens an existing closed port or adds a new SSH port entry.
-const applySshdOverrides = (
+// Applies daemon port overrides to a machine. When the player starts a daemon
+// (sshd/ftpd) from an NC shell, it writes a pid file. This function either
+// opens an existing closed port or adds a new port entry.
+const applyDaemonOverrides = (
   machine: RemoteMachine,
-  overrides: readonly SshdPortOverride[],
+  overrides: readonly (SshdPortOverride | FtpdPortOverride)[],
 ): RemoteMachine => {
   const overrideMap = new Map(overrides.map((o) => [o.port, o]));
   const existingPorts = machine.ports.map((p) => {

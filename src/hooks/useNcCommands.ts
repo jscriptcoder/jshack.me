@@ -12,6 +12,7 @@ import {
   createNcBashCommand,
 } from '../commands/nc/index';
 import { startSshd, PID_FILE_PATH, type SshdAdapter } from '../commands/sshd';
+import { startFtpd, FTP_PID_FILE_PATH, type FtpdAdapter } from '../commands/ftpd';
 import { useNetwork } from '../network';
 import type { Command } from '../components/Terminal/types';
 import type { MachineId } from '../filesystem/machineFileSystems';
@@ -93,13 +94,30 @@ export const useNcCommands = (): Map<string, Command> | null => {
           const node = getNodeFromMachine(machine, PID_FILE_PATH, '/');
           return node?.type === 'file' ? (node.content ?? undefined) : undefined;
         },
-        writePidFile: (content) => createFileOnMachine(machine, PID_FILE_PATH, '/', content, 'root'),
+        writePidFile: (content) =>
+          createFileOnMachine(machine, PID_FILE_PATH, '/', content, 'root'),
       };
       return startSshd(adapter, args);
+    };
+    const ftpdFn = (...args: unknown[]): string => {
+      const machine = getMachine();
+      const machineInfo = getMachineInfo(machine);
+      const adapter: FtpdAdapter = {
+        isPortOpen: (port) =>
+          machineInfo?.ports.some((p) => p.port === port && p.service === 'ftp' && p.open) ?? false,
+        readPidFile: () => {
+          const node = getNodeFromMachine(machine, FTP_PID_FILE_PATH, '/');
+          return node?.type === 'file' ? (node.content ?? undefined) : undefined;
+        },
+        writePidFile: (content) =>
+          createFileOnMachine(machine, FTP_PID_FILE_PATH, '/', content, 'root'),
+      };
+      return startFtpd(adapter, args);
     };
     const bashCommands = new Map<string, (...args: unknown[]) => unknown>();
     commands.forEach((cmd, name) => bashCommands.set(name, cmd.fn));
     bashCommands.set('sshd', sshdFn);
+    bashCommands.set('ftpd', ftpdFn);
     commands.set(
       'bash',
       createNcBashCommand({

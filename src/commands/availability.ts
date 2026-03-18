@@ -130,7 +130,7 @@ export const APT_TOOL_NAMES = [
 ] as const;
 
 // System admin utilities in /usr/sbin/ — root-only services
-export const SBIN_UTILITY_NAMES = ['sshd'] as const;
+export const SBIN_UTILITY_NAMES = ['sshd', 'ftpd'] as const;
 
 // Binaries with restricted execute permissions (root-only).
 // All other binaries default to world-executable ['root', 'user', 'guest'].
@@ -138,6 +138,7 @@ export const RESTRICTED_EXECUTE: Readonly<Record<string, readonly UserType[]>> =
   reboot: ['root'],
   gpg: ['root'],
   sshd: ['root'],
+  ftpd: ['root'],
 };
 
 // Creates binary stub FileNode entries for populating /bin/ or /usr/bin/
