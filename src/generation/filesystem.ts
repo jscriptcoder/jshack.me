@@ -23,7 +23,11 @@ import {
   webContentTemplatesByRole,
 } from './pools';
 import { wrapInBinaryNoise } from './binary';
-import { createBinaryEntries, SYSTEM_UTILITY_NAMES, SBIN_UTILITY_NAMES } from '../commands/availability';
+import {
+  createBinaryEntries,
+  SYSTEM_UTILITY_NAMES,
+  SBIN_UTILITY_NAMES,
+} from '../commands/availability';
 import { PID_FILE_NAME, createSshdPidFileNode } from '../commands/sshd';
 
 type FilesystemInput = {
@@ -487,9 +491,7 @@ const buildMachineConfig = (
   }
 
   // Machines with SSH port open have sshd already running — include pid file
-  const hasSshOpen = machine.remoteMachine.ports.some(
-    (p) => p.service === 'ssh' && p.open,
-  );
+  const hasSshOpen = machine.remoteMachine.ports.some((p) => p.service === 'ssh' && p.open);
   const varRunContent = hasSshOpen ? { [PID_FILE_NAME]: createSshdPidFileNode() } : undefined;
 
   return {

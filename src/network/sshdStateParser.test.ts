@@ -11,15 +11,11 @@ describe('parseSshdState', () => {
   });
 
   it('returns port 22 override for default sshd pid file', () => {
-    expect(parseSshdState('sshd:port=22')).toEqual([
-      { port: 22, service: 'ssh', open: true },
-    ]);
+    expect(parseSshdState('sshd:port=22')).toEqual([{ port: 22, service: 'ssh', open: true }]);
   });
 
   it('returns custom port override', () => {
-    expect(parseSshdState('sshd:port=2222')).toEqual([
-      { port: 2222, service: 'ssh', open: true },
-    ]);
+    expect(parseSshdState('sshd:port=2222')).toEqual([{ port: 2222, service: 'ssh', open: true }]);
   });
 
   it('returns empty array for malformed content', () => {

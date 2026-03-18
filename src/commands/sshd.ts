@@ -75,9 +75,7 @@ export const createSshdCommand = (context: SshdContext): Command => ({
       'Start the OpenSSH server daemon. ' +
       'Listens for SSH connections on the specified port (default 22). ' +
       'Must be run as root.',
-    arguments: [
-      { name: 'port', description: 'Port to listen on (default: 22)', required: false },
-    ],
+    arguments: [{ name: 'port', description: 'Port to listen on (default: 22)', required: false }],
     examples: [
       { command: 'sshd()', description: 'Start SSH server on default port 22' },
       { command: 'sshd(2222)', description: 'Start SSH server on port 2222' },
@@ -90,10 +88,8 @@ export const createSshdCommand = (context: SshdContext): Command => ({
     const adapter: SshdAdapter = {
       isPortOpen: (port) =>
         machineInfo?.ports.some((p) => p.port === port && p.service === 'ssh' && p.open) ?? false,
-      pidFileExists: () =>
-        context.getNodeFromMachine(machine, PID_FILE_PATH, '/') !== null,
-      writePidFile: (content) =>
-        context.createFileOnMachine(PID_FILE_PATH, content, 'root'),
+      pidFileExists: () => context.getNodeFromMachine(machine, PID_FILE_PATH, '/') !== null,
+      writePidFile: (content) => context.createFileOnMachine(PID_FILE_PATH, content, 'root'),
     };
 
     return startSshd(adapter, args);

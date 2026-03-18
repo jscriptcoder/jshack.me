@@ -1,6 +1,10 @@
 import type { FileNode } from '../types';
 import { createFileSystem, type MachineFileSystemConfig } from '../fileSystemFactory';
-import { createBinaryEntries, SYSTEM_UTILITY_NAMES, SBIN_UTILITY_NAMES } from '../../commands/availability';
+import {
+  createBinaryEntries,
+  SYSTEM_UTILITY_NAMES,
+  SBIN_UTILITY_NAMES,
+} from '../../commands/availability';
 import { PID_FILE_NAME, createSshdPidFileNode } from '../../commands/sshd';
 
 const ftpuserHome: Readonly<Record<string, FileNode>> = {

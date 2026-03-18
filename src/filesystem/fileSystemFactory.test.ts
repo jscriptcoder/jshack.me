@@ -44,7 +44,15 @@ describe('createFileSystem', () => {
     it('creates /usr/sbin/ under /usr/ with correct permissions', () => {
       const fs = createFileSystem({
         ...minimalConfig,
-        usrSbinContent: { sshd: { name: 'sshd', type: 'file', owner: 'root', permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] }, content: '\x7fELF' } },
+        usrSbinContent: {
+          sshd: {
+            name: 'sshd',
+            type: 'file',
+            owner: 'root',
+            permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] },
+            content: '\x7fELF',
+          },
+        },
       });
       const usr = fs.children?.['usr'];
       const sbin = usr?.children?.['sbin'];

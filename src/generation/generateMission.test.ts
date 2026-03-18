@@ -385,9 +385,7 @@ describe('generateMissionNetwork', () => {
           const sshClosed = m.remoteMachine.ports.some((p) => p.port === 22 && !p.open);
           if (sshClosed) {
             const ftpOpen = m.remoteMachine.ports.some((p) => p.port === 21 && p.open);
-            const hasBackdoor = m.remoteMachine.ports.some(
-              (p) => p.service === 'elite' && p.open,
-            );
+            const hasBackdoor = m.remoteMachine.ports.some((p) => p.service === 'elite' && p.open);
             // Either FTP is open (single closure) or there's a backdoor (dual closure)
             expect(ftpOpen || hasBackdoor).toBe(true);
           }
@@ -485,9 +483,7 @@ describe('generateMissionNetwork', () => {
           if (m.ip === result.entryPoint || m.role === 'router') return false;
           const sshClosed = m.remoteMachine.ports.some((p) => p.port === 22 && !p.open);
           const ftpClosed = !m.remoteMachine.ports.some((p) => p.port === 21 && p.open);
-          const hasBackdoor = m.remoteMachine.ports.some(
-            (p) => p.service === 'elite' && p.open,
-          );
+          const hasBackdoor = m.remoteMachine.ports.some((p) => p.service === 'elite' && p.open);
           return sshClosed && ftpClosed && hasBackdoor;
         });
         if (hasDualClosure) dualClosureCount++;
@@ -503,9 +499,7 @@ describe('generateMissionNetwork', () => {
           const sshClosed = m.remoteMachine.ports.some((p) => p.port === 22 && !p.open);
           const ftpClosed = !m.remoteMachine.ports.some((p) => p.port === 21 && p.open);
           if (sshClosed && ftpClosed) {
-            const backdoors = m.remoteMachine.ports.filter(
-              (p) => p.service === 'elite' && p.open,
-            );
+            const backdoors = m.remoteMachine.ports.filter((p) => p.service === 'elite' && p.open);
             backdoors.forEach((b) => {
               expect(b.owner?.userType).toBe('root');
             });
