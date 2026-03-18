@@ -11,6 +11,8 @@ Simulated network environment for hacking missions. Defines the topology, machin
 | `NetworkContext.tsx`    | React context — imports `useSession`, resolves config per `session.machine`, provides `getMachine`, `getLocalIP`, etc.             |
 | `iptablesParser.ts`     | Pure parser for router's `/etc/iptables/rules.v4` — extracts `forward <port> to <ip>:<port>` rules into `NatForwardingRule[]`      |
 | `snmpFirewallParser.ts` | Pure parser for SNMP firewall OIDs in `/etc/snmp/snmpd.conf` — maps `firewallSSH`/`firewallHTTP` `permit`/`deny` to port overrides |
+| `sshdStateParser.ts`    | Pure parser for `/var/run/sshd.pid` — extracts `sshd:port=N` into SSH port override                                                |
+| `ftpdStateParser.ts`    | Pure parser for `/var/run/ftpd.pid` — extracts `ftpd:port=N` into FTP port override                                                |
 | `index.ts`              | Module exports                                                                                                                     |
 
 ## Network Topology
@@ -154,3 +156,7 @@ NAT forwarding rules are parsed on-demand from `/etc/iptables/rules.v4` on the r
 ## Dynamic SNMP Firewall
 
 For the SNMP entry variant, `NetworkProvider` also reads `/etc/snmp/snmpd.conf` from the router's filesystem. `snmpFirewallParser.ts` extracts `firewallSSH`/`firewallHTTP` OID values (`permit`/`deny`). When `snmpset` modifies the file, port state updates dynamically — `firewallSSH permit` opens port 22 on the router. `applySnmpFirewallOverrides()` overlays these changes onto the router's `RemoteMachine` view visible from localhost.
+
+## Dynamic Daemon Ports
+
+`NetworkProvider` reads PID files (`/var/run/sshd.pid`, `/var/run/ftpd.pid`) from each machine's filesystem. When the player starts a daemon (e.g., `sshd(2222)` or `bash('/usr/sbin/ftpd')`), the command writes a PID file. `parseSshdState()` and `parseFtpdState()` extract port overrides, and `applyDaemonOverrides()` opens the corresponding port on the machine's `RemoteMachine` view. This enables dynamic SSH/FTP port opening from NC shells during lateral movement.

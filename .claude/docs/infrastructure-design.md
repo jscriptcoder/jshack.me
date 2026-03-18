@@ -112,7 +112,7 @@ Internal (<private>.x.x.11, <private>.x.x.12)
 
 ### Port Closures
 
-PRNG-driven SSH/FTP port closures (~30% each, independent rolls) add lateral movement variety. At most one SSH and one FTP closure per network. Entry machine, router, and script_fix objectives are protected. When SSH is closed on a machine, FTP port 21 is ensured open, forcing FTP file transfers instead of shell access. The attack chain's `getMethodForMachine` checks SSH availability before routing.
+PRNG-driven SSH/FTP port closures (~30% each, independent rolls) add lateral movement variety. At most one SSH and one FTP closure per network. Entry machine, router, and script_fix/sabotage objectives are protected. When SSH is closed on a non-entry machine, FTP port 21 is ensured open and a root-owned NC backdoor is guaranteed (existing backdoor upgraded or new one added). The player connects via `nc`, then uses `bash('/usr/sbin/sshd')` to start SSH or `bash('/usr/sbin/ftpd')` to start FTP. A dual closure (~15%) closes both SSH and FTP, adding an NC backdoor with root owner.
 
 ### NAT Resolution
 
@@ -123,3 +123,7 @@ In forwarded mode, the iptables file is pre-populated with forwarding rules. In 
 ### SNMP Firewall State
 
 For the SNMP entry variant, `NetworkContext` also reads `/etc/snmp/snmpd.conf` from the router's filesystem (same dynamic pattern as iptables). The `parseSnmpFirewallConfig()` parser (`src/network/snmpFirewallParser.ts`) extracts `firewallSSH` and `firewallHTTP` OID values. When `snmpset` changes `firewallSSH` from `deny` to `permit`, port 22 dynamically opens on the router. The `applySnmpFirewallOverrides()` function overlays these port state changes onto the router's `RemoteMachine` view.
+
+### Dynamic Daemon Ports
+
+`NetworkContext` reads PID files (`/var/run/sshd.pid`, `/var/run/ftpd.pid`) from each machine's filesystem. When the player runs `sshd(port)` or `ftpd(port)` (or via `bash('/usr/sbin/sshd')` from an NC shell), the command writes a PID file. `parseSshdState()` and `parseFtpdState()` parse these into port overrides, and `applyDaemonOverrides()` opens the corresponding port on the machine's `RemoteMachine` view. Both daemons are root-only (`/usr/sbin/`, `execute: ['root']`).

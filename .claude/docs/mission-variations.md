@@ -181,16 +181,18 @@ PRNG-driven SSH/FTP port closures increase lateral movement variety. At most one
 ### Rules
 
 - ~30% chance to close one SSH port; ~30% chance to close one FTP port (independent rolls)
+- ~15% chance of dual closure (both SSH and FTP closed) — adds NC backdoor with root owner
 - **Entry machine**: never closed (protected)
 - **Router**: never closed (infrastructure)
 - **script_fix objective**: never close SSH (player needs `node()` shell access on target)
 - **sabotage objective**: never close SSH (player needs shell access to `rm` boot files and `reboot`)
 - **Same-machine collision**: FTP closure skipped if it targets the same machine as SSH closure
-- When SSH is closed, FTP port 21 is added/opened on that machine
+- When SSH is closed, FTP port 21 is added/opened and a root-owned NC backdoor is guaranteed
+- Root backdoor enables `bash('/usr/sbin/sshd')` or `bash('/usr/sbin/ftpd')` to restart services
 
 ### PRNG Consumption
 
-Always consumes 4 PRNG calls (2× `next` + 2× `nextInt`) for sequence stability, even when no closures apply (e.g., script_fix or no eligible machines).
+Always consumes 8 PRNG calls for sequence stability, even when no closures apply (e.g., script_fix or no eligible machines).
 
 ### Lateral Movement Impact
 

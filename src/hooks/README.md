@@ -4,20 +4,20 @@ Custom React hooks that wire together commands, context, and terminal features. 
 
 ## Files
 
-| File                           | Description                                                                                                                                                   |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `useCommands.ts`               | Master command registry — combines all command sources into a single execution context and command name list                                                  |
-| `useFileSystemCommands.ts`     | Creates filesystem commands (pwd, ls, cd, cat, whoami, gpg, output, strings, nano) with context from `useFileSystem` and `useSession`                         |
-| `useNetworkCommands.ts`        | Creates network commands (ifconfig, ping, nmap, nslookup, ssh, curl, ftp, nc, msfconsole, gobuster) with context from `useNetwork` and `useFileSystem`        |
-| `useFtpCommands.ts`            | Creates FTP-mode commands (pwd, lpwd, cd, lcd, ls, lls, get, put, quit/bye) — returns `null` when not in FTP mode                                             |
-| `useNcCommands.ts`             | Creates NC-mode commands (pwd, cd, ls, cat, whoami, help, exit) — returns `null` when not in NC mode                                                          |
-| `useWifiCommands.ts`           | Creates WiFi commands (airmon, airdump, aircrack, nmcli) — manages monitor mode state via `useRef`                                                            |
-| `useCommandHistory.ts`         | Up/down arrow navigation through previous commands                                                                                                            |
-| `useAutoComplete.ts`           | Tab completion for command names and variable names                                                                                                           |
-| `usePathAutoComplete.ts`       | Tab completion for file/directory paths inside string arguments — resolves paths via filesystem context                                                       |
-| `usePathCompletionAdapters.ts` | Adapts filesystem APIs for NC/FTP mode path completion — wraps three `usePathAutoComplete` instances (default, FTP remote, FTP local) with mode-aware routing |
-| `useAuthentication.ts`         | Password/SSH/FTP/su authentication state and logic — manages password prompts, credential validation, and session transitions on successful login             |
-| `useVariables.ts`              | `const`/`let` variable declarations, reassignment, and immutability enforcement                                                                               |
+| File                           | Description                                                                                                                                                      |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `useCommands.ts`               | Master command registry — combines all command sources into a single execution context and command name list                                                     |
+| `useFileSystemCommands.ts`     | Creates filesystem commands (pwd, ls, cd, cat, whoami, gpg, output, strings, nano) with context from `useFileSystem` and `useSession`                            |
+| `useNetworkCommands.ts`        | Creates network commands (ifconfig, ping, nmap, nslookup, ssh, curl, ftp, nc, msfconsole, gobuster) with context from `useNetwork` and `useFileSystem`           |
+| `useFtpCommands.ts`            | Creates FTP-mode commands (pwd, lpwd, cd, lcd, ls, lls, get, put, quit/bye) — returns `null` when not in FTP mode                                                |
+| `useNcCommands.ts`             | Creates NC-mode commands (pwd, cd, ls, cat, whoami, bash, help, exit) — returns `null` when not in NC mode. Daemon commands (sshd, ftpd) are hidden behind bash. |
+| `useWifiCommands.ts`           | Creates WiFi commands (airmon, airdump, aircrack, nmcli) — manages monitor mode state via `useRef`                                                               |
+| `useCommandHistory.ts`         | Up/down arrow navigation through previous commands                                                                                                               |
+| `useAutoComplete.ts`           | Tab completion for command names and variable names                                                                                                              |
+| `usePathAutoComplete.ts`       | Tab completion for file/directory paths inside string arguments — resolves paths via filesystem context                                                          |
+| `usePathCompletionAdapters.ts` | Adapts filesystem APIs for NC/FTP mode path completion — wraps three `usePathAutoComplete` instances (default, FTP remote, FTP local) with mode-aware routing    |
+| `useAuthentication.ts`         | Password/SSH/FTP/su authentication state and logic — manages password prompts, credential validation, and session transitions on successful login                |
+| `useVariables.ts`              | `const`/`let` variable declarations, reassignment, and immutability enforcement                                                                                  |
 
 ## How Commands Are Assembled
 
@@ -34,6 +34,8 @@ useCommands()
 ├── useNetworkCommands()    → ifconfig, ping, nmap, nslookup, ssh, curl, ftp, nc, msfconsole, gobuster
 ├── useWifiCommands()       → airmon, airdump, aircrack, nmcli
 ├── su (depends on current machine's user list)
+├── sshd, ftpd (daemon commands — root-only, write PID files for dynamic port opening)
+├── bash (execute binary by path — lazy getter for execution context, same as node)
 └── help, man (created last, with access to all commands above)
 ```
 
