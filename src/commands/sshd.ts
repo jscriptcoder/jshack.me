@@ -98,7 +98,7 @@ export const createSshdCommand = (context: SshdContext): Command => ({
         machineInfo?.ports.some((p) => p.port === port && p.service === 'ssh' && p.open) ?? false,
       readPidFile: () => {
         const node = context.getNodeFromMachine(machine, PID_FILE_PATH, '/');
-        return node?.type === 'file' ? node.content ?? undefined : undefined;
+        return node?.type === 'file' ? (node.content ?? undefined) : undefined;
       },
       writePidFile: (content) => context.createFileOnMachine(PID_FILE_PATH, content, 'root'),
     };

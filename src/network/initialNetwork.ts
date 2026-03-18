@@ -38,9 +38,7 @@ const localhostMachine: RemoteMachine = {
 const fileserverMachine: RemoteMachine = {
   ip: '192.168.1.50',
   hostname: 'fileserver',
-  ports: [
-    { port: 21, service: 'ftp', open: true },
-  ],
+  ports: [{ port: 21, service: 'ftp', open: true }],
   users: [
     { username: 'root', passwordHash: '4a080e0e088d55294ab894a02b5c8e3f', userType: 'root' }, // b4ckup2024
     { username: 'ftpuser', passwordHash: 'be7a9d8e813210208cb7fba28717cda7', userType: 'user' }, // tr4nsf3r
