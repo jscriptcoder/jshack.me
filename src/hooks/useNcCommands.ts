@@ -9,9 +9,9 @@ import {
   createNcWhoamiCommand,
   ncHelpCommand,
   ncExitCommand,
-  createNcSshdCommand,
   createNcBashCommand,
 } from '../commands/nc/index';
+import { startSshd, PID_FILE_PATH, type SshdAdapter } from '../commands/sshd';
 import { useNetwork } from '../network';
 import type { Command } from '../components/Terminal/types';
 import type { MachineId } from '../filesystem/machineFileSystems';
@@ -80,18 +80,26 @@ export const useNcCommands = (): Map<string, Command> | null => {
     // whoami - show current user
     commands.set('whoami', createNcWhoamiCommand({ getUsername }));
 
-    // bash - execute binary by filesystem path (no PATH in raw nc shell)
-    // sshd is not exposed directly — the player must discover and run it via bash()
-    const sshdCommand = createNcSshdCommand({
-      getMachine,
-      getUserType,
-      getMachineInfo,
-      getNodeFromMachine,
-      createFileOnMachine,
-    });
-    const bashCommands = new Map<string, (...args: unknown[]) => unknown>([
-      ['sshd', sshdCommand.fn],
-    ]);
+    // bash - execute binary by filesystem path (no PATH in raw nc shell).
+    // Collects all registered NC commands plus hidden ones (sshd) so that
+    // bash('/bin/cat', '/etc/passwd') works just like cat('/etc/passwd').
+    const sshdFn = (...args: unknown[]): string => {
+      const machine = getMachine();
+      const machineInfo = getMachineInfo(machine);
+      const adapter: SshdAdapter = {
+        isPortOpen: (port) =>
+          machineInfo?.ports.some((p) => p.port === port && p.service === 'ssh' && p.open) ?? false,
+        readPidFile: () => {
+          const node = getNodeFromMachine(machine, PID_FILE_PATH, '/');
+          return node?.type === 'file' ? (node.content ?? undefined) : undefined;
+        },
+        writePidFile: (content) => createFileOnMachine(machine, PID_FILE_PATH, '/', content, 'root'),
+      };
+      return startSshd(adapter, args);
+    };
+    const bashCommands = new Map<string, (...args: unknown[]) => unknown>();
+    commands.forEach((cmd, name) => bashCommands.set(name, cmd.fn));
+    bashCommands.set('sshd', sshdFn);
     commands.set(
       'bash',
       createNcBashCommand({

@@ -5,5 +5,4 @@ export { createNcCatCommand } from './cat';
 export { createNcWhoamiCommand } from './whoami';
 export { ncHelpCommand } from './help';
 export { ncExitCommand } from './exit';
-export { createNcSshdCommand } from './sshd';
 export { createNcBashCommand } from './bash';
