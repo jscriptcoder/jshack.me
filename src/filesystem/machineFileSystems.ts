@@ -289,6 +289,13 @@ export const machineFileSystems: Readonly<Record<string, FileNode>> = {
   '192.168.1.75': webserver,
 };
 
+// Localhost uses "localhost" as its machine ID in the session/filesystem,
+// but "192.168.1.100" as its IP in the network. This map resolves the
+// mismatch so NetworkContext can read localhost's filesystem by IP.
+export const ipToMachineId: Readonly<Record<string, string>> = {
+  '192.168.1.100': 'localhost',
+};
+
 // _machineId is unused today (all machines use the same /home/username convention)
 // but kept in the signature so callers pass it — allows per-machine home paths later
 // without changing every call site

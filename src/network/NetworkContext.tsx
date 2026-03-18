@@ -17,6 +17,7 @@ import type { SnmpFirewallOverride } from './snmpFirewallParser';
 import { parseSshdState } from './sshdStateParser';
 import type { SshdPortOverride } from './sshdStateParser';
 import { PID_FILE_PATH } from '../commands/sshd';
+import { ipToMachineId } from '../filesystem/machineFileSystems';
 
 type NetworkContextType = {
   readonly config: NetworkConfig;
@@ -148,7 +149,9 @@ export const NetworkProvider = ({
   // player runs `sshd` from an NC shell (same pattern as SNMP firewall overrides).
   const currentConfig = useMemo((): MachineNetworkConfig => {
     const machines = baseConfig.machines.map((machine) => {
-      const node = getNodeFromMachine(machine.ip, PID_FILE_PATH, '/');
+      // Resolve IP to filesystem machine ID (localhost uses "localhost" as ID, not its IP)
+      const fsId = ipToMachineId[machine.ip] ?? machine.ip;
+      const node = getNodeFromMachine(fsId, PID_FILE_PATH, '/');
       if (!node || node.type !== 'file' || !node.content) return machine;
       const overrides = parseSshdState(node.content);
       return overrides.length > 0 ? applySshdOverrides(machine, overrides) : machine;
