@@ -9,14 +9,18 @@ import {
   createNcWhoamiCommand,
   ncHelpCommand,
   ncExitCommand,
+  createNcSshdCommand,
 } from '../commands/nc/index';
+import { useNetwork } from '../network';
 import type { Command } from '../components/Terminal/types';
 import type { MachineId } from '../filesystem/machineFileSystems';
 
 export const useNcCommands = (): Map<string, Command> | null => {
   const { ncSession, updateNcCwd } = useSession();
 
-  const { resolvePathForMachine, getNodeFromMachine, canTraverseOnMachine } = useFileSystem();
+  const { resolvePathForMachine, getNodeFromMachine, canTraverseOnMachine, createFileOnMachine } =
+    useFileSystem();
+  const { getMachine: getMachineInfo } = useNetwork();
 
   return useMemo(() => {
     if (!ncSession) return null;
@@ -75,6 +79,18 @@ export const useNcCommands = (): Map<string, Command> | null => {
     // whoami - show current user
     commands.set('whoami', createNcWhoamiCommand({ getUsername }));
 
+    // sshd - start SSH server
+    commands.set(
+      'sshd',
+      createNcSshdCommand({
+        getMachine,
+        getUserType,
+        getMachineInfo,
+        getNodeFromMachine,
+        createFileOnMachine,
+      }),
+    );
+
     // help - show available commands
     commands.set('help', ncHelpCommand);
 
@@ -82,5 +98,13 @@ export const useNcCommands = (): Map<string, Command> | null => {
     commands.set('exit', ncExitCommand);
 
     return commands;
-  }, [ncSession, updateNcCwd, resolvePathForMachine, getNodeFromMachine, canTraverseOnMachine]);
+  }, [
+    ncSession,
+    updateNcCwd,
+    resolvePathForMachine,
+    getNodeFromMachine,
+    canTraverseOnMachine,
+    createFileOnMachine,
+    getMachineInfo,
+  ]);
 };
