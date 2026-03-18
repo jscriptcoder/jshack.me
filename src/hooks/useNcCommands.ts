@@ -11,7 +11,7 @@ import {
   ncExitCommand,
   createNcBashCommand,
 } from '../commands/nc/index';
-import { startSshd, PID_FILE_PATH, type SshdAdapter } from '../commands/sshd';
+import { startSshd, SSH_PID_FILE_PATH, type SshdAdapter } from '../commands/sshd';
 import { startFtpd, FTP_PID_FILE_PATH, type FtpdAdapter } from '../commands/ftpd';
 import { useNetwork } from '../network';
 import type { Command } from '../components/Terminal/types';
@@ -91,11 +91,11 @@ export const useNcCommands = (): Map<string, Command> | null => {
         isPortOpen: (port) =>
           machineInfo?.ports.some((p) => p.port === port && p.service === 'ssh' && p.open) ?? false,
         readPidFile: () => {
-          const node = getNodeFromMachine(machine, PID_FILE_PATH, '/');
+          const node = getNodeFromMachine(machine, SSH_PID_FILE_PATH, '/');
           return node?.type === 'file' ? (node.content ?? undefined) : undefined;
         },
         writePidFile: (content) =>
-          createFileOnMachine(machine, PID_FILE_PATH, '/', content, 'root'),
+          createFileOnMachine(machine, SSH_PID_FILE_PATH, '/', content, 'root'),
       };
       return startSshd(adapter, args);
     };

@@ -28,7 +28,7 @@ import {
   SYSTEM_UTILITY_NAMES,
   SBIN_UTILITY_NAMES,
 } from '../commands/availability';
-import { PID_FILE_NAME, createSshdPidFileNode } from '../commands/sshd';
+import { SSH_PID_FILE_NAME, createSshdPidFileNode } from '../commands/sshd';
 
 type FilesystemInput = {
   readonly prng: Prng;
@@ -492,7 +492,7 @@ const buildMachineConfig = (
 
   // Machines with SSH port open have sshd already running — include pid file
   const hasSshOpen = machine.remoteMachine.ports.some((p) => p.service === 'ssh' && p.open);
-  const varRunContent = hasSshOpen ? { [PID_FILE_NAME]: createSshdPidFileNode() } : undefined;
+  const varRunContent = hasSshOpen ? { [SSH_PID_FILE_NAME]: createSshdPidFileNode() } : undefined;
 
   return {
     users: userConfigs,

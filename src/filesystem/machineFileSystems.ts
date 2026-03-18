@@ -5,7 +5,7 @@ import {
   SYSTEM_UTILITY_NAMES,
   SBIN_UTILITY_NAMES,
 } from '../commands/availability';
-import { PID_FILE_NAME, createSshdPidFileNode } from '../commands/sshd';
+import { SSH_PID_FILE_NAME, createSshdPidFileNode } from '../commands/sshd';
 
 const BIN_DIR_PERMISSIONS = {
   read: ['root', 'user', 'guest'] as const,
@@ -233,7 +233,7 @@ Mar 15 08:15:44 gateway kernel: [iptables] IN=eth0 OUT= SRC=192.168.1.75 DST=192
             write: ['root'] as const,
             execute: ['root', 'user', 'guest'] as const,
           },
-          children: { [PID_FILE_NAME]: createSshdPidFileNode() },
+          children: { [SSH_PID_FILE_NAME]: createSshdPidFileNode() },
         },
       },
     },

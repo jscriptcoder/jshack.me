@@ -18,7 +18,7 @@ import { parseSshdState } from './sshdStateParser';
 import type { SshdPortOverride } from './sshdStateParser';
 import { parseFtpdState } from './ftpdStateParser';
 import type { FtpdPortOverride } from './ftpdStateParser';
-import { PID_FILE_PATH } from '../commands/sshd';
+import { SSH_PID_FILE_PATH } from '../commands/sshd';
 import { FTP_PID_FILE_PATH } from '../commands/ftpd';
 import { ipToMachineId } from '../filesystem/machineFileSystems';
 
@@ -158,7 +158,7 @@ export const NetworkProvider = ({
       let result = machine;
 
       // sshd state
-      const sshdNode = getNodeFromMachine(fsId, PID_FILE_PATH, '/');
+      const sshdNode = getNodeFromMachine(fsId, SSH_PID_FILE_PATH, '/');
       if (sshdNode?.type === 'file' && sshdNode.content) {
         const overrides = parseSshdState(sshdNode.content);
         if (overrides.length > 0) result = applyDaemonOverrides(result, overrides);
