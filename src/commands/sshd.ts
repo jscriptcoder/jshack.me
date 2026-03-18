@@ -5,7 +5,7 @@ import type { RemoteMachine } from '../network/types';
 
 export type SshdAdapter = {
   readonly isPortOpen: (port: number) => boolean;
-  readonly pidFileExists: () => boolean;
+  readonly readPidFile: () => string | undefined;
   readonly writePidFile: (content: string) => void;
 };
 
@@ -35,7 +35,15 @@ const parsePort = (args: readonly unknown[]): number => {
 export const startSshd = (adapter: SshdAdapter, args: readonly unknown[]): string => {
   const port = parsePort(args);
 
-  if (adapter.isPortOpen(port) || adapter.pidFileExists()) {
+  // Check if sshd is already running via pid file
+  const pidContent = adapter.readPidFile();
+  if (pidContent) {
+    const match = pidContent.match(/^sshd:port=(\d+)$/);
+    const runningPort = match ? Number(match[1]) : port;
+    return `sshd is already running on port ${runningPort}`;
+  }
+
+  if (adapter.isPortOpen(port)) {
     return `sshd is already running on port ${port}`;
   }
 
@@ -88,7 +96,10 @@ export const createSshdCommand = (context: SshdContext): Command => ({
     const adapter: SshdAdapter = {
       isPortOpen: (port) =>
         machineInfo?.ports.some((p) => p.port === port && p.service === 'ssh' && p.open) ?? false,
-      pidFileExists: () => context.getNodeFromMachine(machine, PID_FILE_PATH, '/') !== null,
+      readPidFile: () => {
+        const node = context.getNodeFromMachine(machine, PID_FILE_PATH, '/');
+        return node?.type === 'file' ? node.content ?? undefined : undefined;
+      },
       writePidFile: (content) => context.createFileOnMachine(PID_FILE_PATH, content, 'root'),
     };
 

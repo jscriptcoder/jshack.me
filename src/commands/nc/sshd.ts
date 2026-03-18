@@ -35,7 +35,10 @@ export const createNcSshdCommand = (context: NcSshdContext): Command => ({
     const adapter: SshdAdapter = {
       isPortOpen: (port) =>
         machineInfo?.ports.some((p) => p.port === port && p.service === 'ssh' && p.open) ?? false,
-      pidFileExists: () => context.getNodeFromMachine(machine, PID_FILE_PATH, '/') !== null,
+      readPidFile: () => {
+        const node = context.getNodeFromMachine(machine, PID_FILE_PATH, '/');
+        return node?.type === 'file' ? node.content ?? undefined : undefined;
+      },
       writePidFile: (content) =>
         context.createFileOnMachine(machine, PID_FILE_PATH, '/', content, 'root'),
     };

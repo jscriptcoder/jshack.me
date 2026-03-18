@@ -3,7 +3,7 @@ import { startSshd, type SshdAdapter } from './sshd';
 
 const createAdapter = (overrides: Partial<SshdAdapter> = {}): SshdAdapter => ({
   isPortOpen: overrides.isPortOpen ?? (() => false),
-  pidFileExists: overrides.pidFileExists ?? (() => false),
+  readPidFile: overrides.readPidFile ?? (() => undefined),
   writePidFile: overrides.writePidFile ?? vi.fn(),
 });
 
@@ -15,9 +15,16 @@ describe('startSshd', () => {
   });
 
   it('returns already-running message when pid file exists', () => {
-    const adapter = createAdapter({ pidFileExists: () => true });
+    const adapter = createAdapter({ readPidFile: () => 'sshd:port=22' });
     const result = startSshd(adapter, []);
     expect(result).toContain('already running');
+  });
+
+  it('shows actual running port from pid file, not requested port', () => {
+    const adapter = createAdapter({ readPidFile: () => 'sshd:port=22' });
+    const result = startSshd(adapter, [2222]);
+    expect(result).toContain('port 22');
+    expect(result).not.toContain('port 2222');
   });
 
   it('starts sshd on default port 22 when no args given', () => {
