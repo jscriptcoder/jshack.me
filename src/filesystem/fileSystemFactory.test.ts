@@ -39,4 +39,23 @@ describe('createFileSystem', () => {
       expect(initrd?.permissions.write).toEqual(['root']);
     });
   });
+
+  describe('/usr/sbin/ directory', () => {
+    it('creates /usr/sbin/ under /usr/ with correct permissions', () => {
+      const fs = createFileSystem({
+        ...minimalConfig,
+        usrSbinContent: { sshd: { name: 'sshd', type: 'file', owner: 'root', permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] }, content: '\x7fELF' } },
+      });
+      const usr = fs.children?.['usr'];
+      const sbin = usr?.children?.['sbin'];
+
+      expect(sbin).toBeDefined();
+      expect(sbin?.type).toBe('directory');
+      expect(sbin?.owner).toBe('root');
+      expect(sbin?.permissions.read).toEqual(['root', 'user', 'guest']);
+      expect(sbin?.permissions.write).toEqual(['root']);
+      expect(sbin?.permissions.execute).toEqual(['root', 'user', 'guest']);
+      expect(sbin?.children?.['sshd']).toBeDefined();
+    });
+  });
 });

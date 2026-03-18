@@ -17,6 +17,7 @@ export type MachineFileSystemConfig = {
   readonly extraDirectories?: Readonly<Record<string, FileNode>>;
   readonly binContent?: Readonly<Record<string, FileNode>>;
   readonly usrBinContent?: Readonly<Record<string, FileNode>>;
+  readonly usrSbinContent?: Readonly<Record<string, FileNode>>;
   readonly passwdReadableBy?: readonly UserType[];
 };
 
@@ -215,6 +216,13 @@ export const createFileSystem = (config: MachineFileSystemConfig): FileNode => {
           owner: 'root',
           permissions: BIN_DIR_PERMISSIONS,
           children: config.usrBinContent ?? {},
+        },
+        sbin: {
+          name: 'sbin',
+          type: 'directory',
+          owner: 'root',
+          permissions: BIN_DIR_PERMISSIONS,
+          children: config.usrSbinContent ?? {},
         },
       },
     },

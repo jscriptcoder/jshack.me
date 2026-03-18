@@ -129,11 +129,15 @@ export const APT_TOOL_NAMES = [
   'snmpset',
 ] as const;
 
+// System admin utilities in /usr/sbin/ — root-only services
+export const SBIN_UTILITY_NAMES = ['sshd'] as const;
+
 // Binaries with restricted execute permissions (root-only).
 // All other binaries default to world-executable ['root', 'user', 'guest'].
 export const RESTRICTED_EXECUTE: Readonly<Record<string, readonly UserType[]>> = {
   reboot: ['root'],
   gpg: ['root'],
+  sshd: ['root'],
 };
 
 // Creates binary stub FileNode entries for populating /bin/ or /usr/bin/
@@ -172,7 +176,9 @@ const findBinary = (
   }
   const binBinary = getNode(machine, `/bin/${name}`, '/');
   if (binBinary) return binBinary;
-  return getNode(machine, `/usr/bin/${name}`, '/');
+  const usrBinBinary = getNode(machine, `/usr/bin/${name}`, '/');
+  if (usrBinBinary) return usrBinBinary;
+  return getNode(machine, `/usr/sbin/${name}`, '/');
 };
 
 // Checks whether a command is visible on the current machine (for help/tab-complete).

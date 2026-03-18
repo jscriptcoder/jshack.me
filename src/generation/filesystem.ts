@@ -23,7 +23,7 @@ import {
   webContentTemplatesByRole,
 } from './pools';
 import { wrapInBinaryNoise } from './binary';
-import { createBinaryEntries, SYSTEM_UTILITY_NAMES } from '../commands/availability';
+import { createBinaryEntries, SYSTEM_UTILITY_NAMES, SBIN_UTILITY_NAMES } from '../commands/availability';
 
 type FilesystemInput = {
   readonly prng: Prng;
@@ -492,6 +492,7 @@ const buildMachineConfig = (
     etcExtraContent,
     extraDirectories: Object.keys(extraDirectories).length > 0 ? extraDirectories : undefined,
     binContent: createBinaryEntries(SYSTEM_UTILITY_NAMES),
+    usrSbinContent: createBinaryEntries(SBIN_UTILITY_NAMES),
     passwdReadableBy: ['root', 'user'],
   };
 };

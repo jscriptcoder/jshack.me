@@ -7,6 +7,7 @@ import {
   checkCommandAccess,
   wrapWithAccessCheck,
   createBinaryEntries,
+  SBIN_UTILITY_NAMES,
 } from './availability';
 
 const mkBinaryNode = (
@@ -32,8 +33,13 @@ const createMockGetNode =
     if (extraFiles[path]) return extraFiles[path];
     if (binaries[path]) return binaries[path];
     const usrBinName = path.replace('/usr/bin/', '');
-    if (path.startsWith('/usr/bin/') && installedTools.includes(usrBinName)) {
+    if (path.startsWith('/usr/bin/') && !path.startsWith('/usr/bin/../') && installedTools.includes(usrBinName)) {
       return mkBinaryNode(usrBinName);
+    }
+    // Sbin utilities in /usr/sbin/ — root-only execute
+    const usrSbinName = path.replace('/usr/sbin/', '');
+    if (path.startsWith('/usr/sbin/') && [...SBIN_UTILITY_NAMES].includes(usrSbinName)) {
+      return mkBinaryNode(usrSbinName, ['root']);
     }
     // System utilities in /bin/ are always present
     const binName = path.replace('/bin/', '');
@@ -112,6 +118,11 @@ describe('isCommandVisible', () => {
     };
     const getNode = createMockGetNode([], extraFiles);
     expect(isCommandVisible('nmap', '10.0.0.1', getNode, '/home/guest')).toBe(true);
+  });
+
+  it('returns true for sbin utilities with binaries in /usr/sbin/', () => {
+    const getNode = createMockGetNode([]);
+    expect(isCommandVisible('sshd', '10.0.0.1', getNode)).toBe(true);
   });
 });
 
@@ -220,6 +231,26 @@ describe('checkCommandAccess', () => {
       permitted: true,
     });
   });
+
+  it('finds sshd in /usr/sbin/ and denies non-root users', () => {
+    const getNode = createMockGetNode([]);
+    expect(checkCommandAccess('sshd', '10.0.0.1', getNode, '/', 'user')).toEqual({
+      found: true,
+      permitted: false,
+    });
+    expect(checkCommandAccess('sshd', '10.0.0.1', getNode, '/', 'guest')).toEqual({
+      found: true,
+      permitted: false,
+    });
+  });
+
+  it('permits sshd for root', () => {
+    const getNode = createMockGetNode([]);
+    expect(checkCommandAccess('sshd', '10.0.0.1', getNode, '/', 'root')).toEqual({
+      found: true,
+      permitted: true,
+    });
+  });
 });
 
 describe('wrapWithAccessCheck', () => {
@@ -305,5 +336,10 @@ describe('createBinaryEntries', () => {
     expect(entries['ls']?.owner).toBe('root');
     expect(entries['ls']?.permissions.read).toEqual(['root', 'user', 'guest']);
     expect(entries['ls']?.permissions.write).toEqual(['root']);
+  });
+
+  it('creates root-only execute for sshd', () => {
+    const entries = createBinaryEntries(['sshd']);
+    expect(entries['sshd']?.permissions.execute).toEqual(['root']);
   });
 });

@@ -1,6 +1,6 @@
 import type { FileNode } from './types';
 import { localhost, fileserver, webserver } from './machines/__encoded';
-import { createBinaryEntries, SYSTEM_UTILITY_NAMES } from '../commands/availability';
+import { createBinaryEntries, SYSTEM_UTILITY_NAMES, SBIN_UTILITY_NAMES } from '../commands/availability';
 
 const BIN_DIR_PERMISSIONS = {
   read: ['root', 'user', 'guest'] as const,
@@ -251,6 +251,13 @@ Mar 15 08:15:44 gateway kernel: [iptables] IN=eth0 OUT= SRC=192.168.1.75 DST=192
           owner: 'root',
           permissions: BIN_DIR_PERMISSIONS,
           children: {},
+        },
+        sbin: {
+          name: 'sbin',
+          type: 'directory',
+          owner: 'root',
+          permissions: BIN_DIR_PERMISSIONS,
+          children: createBinaryEntries(SBIN_UTILITY_NAMES),
         },
       },
     },
