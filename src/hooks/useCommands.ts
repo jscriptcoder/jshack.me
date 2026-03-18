@@ -17,6 +17,7 @@ import { createAbortCommand } from '../commands/abort';
 import { createMailCommand } from '../commands/mail';
 import { createAptCommand } from '../commands/apt';
 import { createRebootCommand } from '../commands/reboot';
+import { createSshdCommand } from '../commands/sshd';
 import { xtermCommand } from '../commands/xterm';
 import { useMission } from '../mission';
 import {
@@ -78,7 +79,7 @@ export const useCommands = (): UseCommandsResult => {
     isMachineBricked,
     wifiConnected,
   } = useSession();
-  const { findMachineUsers } = useNetwork();
+  const { findMachineUsers, getMachine: getMachineInfo } = useNetwork();
   const { resolvePath, getNode, readFileFromMachine, createFile, getNodeFromMachine, canTraverse } =
     useFileSystem();
   const { isMissionActive, startMission, abortMission, completeMission, activeMission } =
@@ -183,6 +184,16 @@ export const useCommands = (): UseCommandsResult => {
       }),
     );
 
+    commands.set(
+      'sshd',
+      createSshdCommand({
+        getMachine: () => session.machine,
+        getMachineInfo,
+        getNodeFromMachine,
+        createFileOnMachine: createFile,
+      }),
+    );
+
     fileSystemCommands.forEach((cmd, name) => commands.set(name, cmd));
     networkCommands.forEach((cmd, name) => commands.set(name, cmd));
     wifiCommands.forEach((cmd, name) => commands.set(name, cmd));
@@ -265,5 +276,6 @@ export const useCommands = (): UseCommandsResult => {
     markMachineBricked,
     isMachineBricked,
     wifiConnected,
+    getMachineInfo,
   ]);
 };

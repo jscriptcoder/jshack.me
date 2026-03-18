@@ -38,7 +38,7 @@ const createMockGetNode =
     }
     // Sbin utilities in /usr/sbin/ — root-only execute
     const usrSbinName = path.replace('/usr/sbin/', '');
-    if (path.startsWith('/usr/sbin/') && [...SBIN_UTILITY_NAMES].includes(usrSbinName)) {
+    if (path.startsWith('/usr/sbin/') && (SBIN_UTILITY_NAMES as readonly string[]).includes(usrSbinName)) {
       return mkBinaryNode(usrSbinName, ['root']);
     }
     // System utilities in /bin/ are always present
