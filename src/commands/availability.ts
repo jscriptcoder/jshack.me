@@ -3,7 +3,7 @@ import type { FileNode } from '../filesystem/types';
 import type { UserType } from '../session/SessionContext';
 
 // Shell builtins — always available, no binary needed
-const SHELL_BUILTINS = new Set(['cd', 'exit', 'clear', 'echo', 'pwd', 'help', 'whoami']);
+const SHELL_BUILTINS = new Set(['cd', 'exit', 'clear', 'echo', 'pwd', 'help', 'whoami', 'bash']);
 
 // Game-specific commands — always available, not real Linux tools
 const GAME_COMMANDS = new Set([

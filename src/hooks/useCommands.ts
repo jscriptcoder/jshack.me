@@ -18,6 +18,7 @@ import { createMailCommand } from '../commands/mail';
 import { createAptCommand } from '../commands/apt';
 import { createRebootCommand } from '../commands/reboot';
 import { createSshdCommand } from '../commands/sshd';
+import { createBashCommand } from '../commands/bash';
 import { xtermCommand } from '../commands/xterm';
 import { useMission } from '../mission';
 import {
@@ -46,6 +47,7 @@ const SKIP_ACCESS_CHECK = new Set([
   'pwd',
   'help',
   'whoami',
+  'bash',
   'missions',
   'accept',
   'abort',
@@ -191,6 +193,15 @@ export const useCommands = (): UseCommandsResult => {
         getMachineInfo,
         getNodeFromMachine,
         createFileOnMachine: createFile,
+      }),
+    );
+
+    commands.set(
+      'bash',
+      createBashCommand({
+        getNode: (path) => getNodeFromMachine(session.machine, path, '/'),
+        getUserType: () => session.userType,
+        getExecutionContext: () => resolvedExecutionContext,
       }),
     );
 

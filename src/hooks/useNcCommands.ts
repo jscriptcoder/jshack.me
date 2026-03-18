@@ -10,6 +10,7 @@ import {
   ncHelpCommand,
   ncExitCommand,
   createNcSshdCommand,
+  createNcBashCommand,
 } from '../commands/nc/index';
 import { useNetwork } from '../network';
 import type { Command } from '../components/Terminal/types';
@@ -79,15 +80,25 @@ export const useNcCommands = (): Map<string, Command> | null => {
     // whoami - show current user
     commands.set('whoami', createNcWhoamiCommand({ getUsername }));
 
-    // sshd - start SSH server
+    // bash - execute binary by filesystem path (no PATH in raw nc shell)
+    // sshd is not exposed directly — the player must discover and run it via bash()
+    const sshdCommand = createNcSshdCommand({
+      getMachine,
+      getUserType,
+      getMachineInfo,
+      getNodeFromMachine,
+      createFileOnMachine,
+    });
+    const bashCommands = new Map<string, (...args: unknown[]) => unknown>([
+      ['sshd', sshdCommand.fn],
+    ]);
     commands.set(
-      'sshd',
-      createNcSshdCommand({
+      'bash',
+      createNcBashCommand({
         getMachine,
         getUserType,
-        getMachineInfo,
         getNodeFromMachine,
-        createFileOnMachine,
+        findCommand: (name) => bashCommands.get(name),
       }),
     );
 
