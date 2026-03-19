@@ -23,7 +23,6 @@ const SERVICE_TO_PROCESS: Readonly<
   'http-alt': { binary: '/usr/sbin/nginx', user: 'www-data' },
   mysql: { binary: '/usr/sbin/mysqld', user: 'mysql' },
   postgresql: { binary: '/usr/sbin/postgres', user: 'postgres' },
-  elite: { binary: '/usr/sbin/elite', user: 'root' },
 };
 
 // Derives running processes from PID files and open ports.
@@ -55,6 +54,17 @@ export const listProcesses = (adapter: PsAdapter): readonly Process[] => {
   if (machineInfo) {
     for (const port of machineInfo.ports) {
       if (!port.open) continue;
+
+      // Backdoor ports are netcat listeners — show actual port and owner
+      if (port.service === 'elite') {
+        processes.push({
+          pid: nextPid++,
+          user: port.owner?.username ?? 'root',
+          command: `/usr/bin/ncat -lvnp ${port.port}`,
+        });
+        continue;
+      }
+
       const process = SERVICE_TO_PROCESS[port.service];
       if (!process || seenBinaries.has(process.binary)) continue;
       seenBinaries.add(process.binary);

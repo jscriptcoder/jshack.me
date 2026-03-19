@@ -96,6 +96,38 @@ describe('listProcesses', () => {
     );
   });
 
+  it('shows ncat listener for backdoor port with owner', () => {
+    const adapter = createAdapter({
+      getMachineInfo: () =>
+        makeMachine([
+          {
+            port: 4444,
+            service: 'elite',
+            open: true,
+            owner: { username: 'webadmin', userType: 'user', homePath: '/home/webadmin' },
+          },
+        ]),
+    });
+    const processes = listProcesses(adapter);
+    expect(processes).toContainEqual({
+      pid: 100,
+      user: 'webadmin',
+      command: '/usr/bin/ncat -lvnp 4444',
+    });
+  });
+
+  it('shows ncat listener as root when backdoor has no owner', () => {
+    const adapter = createAdapter({
+      getMachineInfo: () => makeMachine([{ port: 31337, service: 'elite', open: true }]),
+    });
+    const processes = listProcesses(adapter);
+    expect(processes).toContainEqual({
+      pid: 100,
+      user: 'root',
+      command: '/usr/bin/ncat -lvnp 31337',
+    });
+  });
+
   it('skips closed ports', () => {
     const adapter = createAdapter({
       getMachineInfo: () => makeMachine([{ port: 80, service: 'http', open: false }]),
