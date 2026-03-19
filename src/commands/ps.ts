@@ -15,7 +15,9 @@ export type PsAdapter = {
 
 // Maps open port services to their daemon process entries.
 // Only includes services that represent long-running daemons.
-const SERVICE_TO_PROCESS: Readonly<Record<string, { readonly binary: string; readonly user: string }>> = {
+const SERVICE_TO_PROCESS: Readonly<
+  Record<string, { readonly binary: string; readonly user: string }>
+> = {
   http: { binary: '/usr/sbin/nginx', user: 'www-data' },
   https: { binary: '/usr/sbin/nginx', user: 'www-data' },
   'http-alt': { binary: '/usr/sbin/nginx', user: 'www-data' },
@@ -65,10 +67,7 @@ export const listProcesses = (adapter: PsAdapter): readonly Process[] => {
 
 const formatProcessTable = (processes: readonly Process[]): string => {
   const header = 'PID     USER       COMMAND';
-  const rows = processes.map(
-    (p) =>
-      `${String(p.pid).padEnd(8)}${p.user.padEnd(11)}${p.command}`,
-  );
+  const rows = processes.map((p) => `${String(p.pid).padEnd(8)}${p.user.padEnd(11)}${p.command}`);
   return [header, ...rows].join('\n');
 };
 

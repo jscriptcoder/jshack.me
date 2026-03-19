@@ -7,9 +7,7 @@ const createAdapter = (overrides: Partial<PsAdapter> = {}): PsAdapter => ({
   readPidFile: overrides.readPidFile ?? (() => undefined),
 });
 
-const makeMachine = (
-  ports: RemoteMachine['ports'] = [],
-): RemoteMachine => ({
+const makeMachine = (ports: RemoteMachine['ports'] = []): RemoteMachine => ({
   ip: '10.0.0.1',
   hostname: 'test',
   ports,
