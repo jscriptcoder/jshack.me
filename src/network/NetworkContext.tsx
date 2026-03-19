@@ -15,12 +15,15 @@ import { parseIptablesRules } from './iptablesParser';
 import { parseSnmpFirewallConfig } from './snmpFirewallParser';
 import type { SnmpFirewallOverride } from './snmpFirewallParser';
 import { parseSshdState } from './sshdStateParser';
-import type { SshdPortOverride } from './sshdStateParser';
 import { parseFtpdState } from './ftpdStateParser';
-import type { FtpdPortOverride } from './ftpdStateParser';
 import { SSH_PID_FILE_PATH } from '../commands/sshd';
 import { FTP_PID_FILE_PATH } from '../commands/ftpd';
 import { ipToMachineId } from '../filesystem/machineFileSystems';
+import {
+  buildMergedRouterView,
+  applySnmpFirewallOverrides,
+  applyDaemonOverrides,
+} from './networkUtils';
 
 type NetworkContextType = {
   readonly config: NetworkConfig;
@@ -292,97 +295,6 @@ export const NetworkProvider = ({
       {children}
     </NetworkContext.Provider>
   );
-};
-
-// When iptables has forwarding rules, the router appears from localhost with
-// its own ports plus forwarded ports and merged users from forwarded machines.
-// This lets SSH user verification work against the visible machine before NAT.
-// Rules come from the filesystem dynamically — player can edit with nano.
-const buildMergedRouterView = (
-  routerMachine: GeneratedMachine,
-  missionMachines: readonly GeneratedMachine[],
-  rules: readonly NatForwardingRule[],
-): RemoteMachine => {
-  // Collect internal machines referenced by forwarding rules
-  const forwardedIps = new Set(rules.map((r) => r.internalIp));
-  const forwardedMachines = missionMachines.filter((m) => forwardedIps.has(m.ip));
-
-  // Forwarded ports mapped to their public port numbers
-  const forwardedPorts = rules
-    .map((rule) => {
-      const machine = forwardedMachines.find((m) => m.ip === rule.internalIp);
-      const internalPort = machine?.remoteMachine.ports.find(
-        (p) => p.port === rule.internalPort && p.open,
-      );
-      if (!internalPort) return undefined;
-      return { ...internalPort, port: rule.publicPort };
-    })
-    .filter((p) => p !== undefined);
-
-  // Deduplicate: forwarded ports override router ports on collision
-  const forwardedPortNumbers = new Set(forwardedPorts.map((p) => p.port));
-  const routerOnlyPorts = routerMachine.remoteMachine.ports.filter(
-    (p) => !forwardedPortNumbers.has(p.port),
-  );
-
-  // Merge users: router's own + forwarded machines', deduplicated by username
-  const allUsers = [
-    ...routerMachine.remoteMachine.users,
-    ...forwardedMachines.flatMap((m) => m.remoteMachine.users),
-  ];
-  const seenUsernames = new Set<string>();
-  const uniqueUsers = allUsers.filter((u) => {
-    if (seenUsernames.has(u.username)) return false;
-    seenUsernames.add(u.username);
-    return true;
-  });
-
-  return {
-    ip: routerMachine.ip,
-    hostname: routerMachine.hostname,
-    ports: [...routerOnlyPorts, ...forwardedPorts],
-    users: uniqueUsers,
-  };
-};
-
-// Applies SNMP firewall overrides to the router's ports.
-// When snmpset changes firewallSSH to "permit", port 22 opens dynamically.
-const applySnmpFirewallOverrides = (
-  machine: RemoteMachine,
-  overrides: readonly SnmpFirewallOverride[],
-): RemoteMachine => {
-  const overrideMap = new Map(overrides.map((o) => [o.port, o.open]));
-  return {
-    ...machine,
-    ports: machine.ports.map((p) => {
-      const overrideOpen = overrideMap.get(p.port);
-      if (overrideOpen === undefined) return p;
-      return { ...p, open: overrideOpen };
-    }),
-  };
-};
-
-// Applies daemon port overrides to a machine. When the player starts a daemon
-// (sshd/ftpd) from an NC shell, it writes a pid file. This function either
-// opens an existing closed port or adds a new port entry.
-const applyDaemonOverrides = (
-  machine: RemoteMachine,
-  overrides: readonly (SshdPortOverride | FtpdPortOverride)[],
-): RemoteMachine => {
-  const overrideMap = new Map(overrides.map((o) => [o.port, o]));
-  const existingPorts = machine.ports.map((p) => {
-    const override = overrideMap.get(p.port);
-    if (!override) return p;
-    overrideMap.delete(p.port);
-    return { ...p, open: true, service: override.service };
-  });
-  // Add new ports that didn't exist in the machine's port list
-  const newPorts = [...overrideMap.values()].map((o) => ({
-    port: o.port,
-    service: o.service,
-    open: true as const,
-  }));
-  return { ...machine, ports: [...existingPorts, ...newPorts] };
 };
 
 export const useNetwork = (): NetworkContextType => {

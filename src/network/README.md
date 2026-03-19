@@ -9,6 +9,7 @@ Simulated network environment for hacking missions. Defines the topology, machin
 | `types.ts`              | Core types: `NetworkInterface`, `RemoteMachine`, `Port`, `Vulnerability`, `DnsRecord`, `MachineNetworkConfig`, `NetworkConfig`     |
 | `initialNetwork.ts`     | `createInitialNetwork()` — defines per-machine network configs (interfaces, reachable machines, DNS) for all 8 machines            |
 | `NetworkContext.tsx`    | React context — imports `useSession`, resolves config per `session.machine`, provides `getMachine`, `getLocalIP`, etc.             |
+| `networkUtils.ts`       | Pure functions extracted from context: `buildMergedRouterView`, `applySnmpFirewallOverrides`, `applyDaemonOverrides`               |
 | `iptablesParser.ts`     | Pure parser for router's `/etc/iptables/rules.v4` — extracts `forward <port> to <ip>:<port>` rules into `NatForwardingRule[]`      |
 | `snmpFirewallParser.ts` | Pure parser for SNMP firewall OIDs in `/etc/snmp/snmpd.conf` — maps `firewallSSH`/`firewallHTTP` `permit`/`deny` to port overrides |
 | `sshdStateParser.ts`    | Pure parser for `/var/run/sshd.pid` — extracts `sshd:port=N` into SSH port override                                                |
