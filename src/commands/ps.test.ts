@@ -5,6 +5,7 @@ import type { RemoteMachine } from '../network/types';
 const createAdapter = (overrides: Partial<PsAdapter> = {}): PsAdapter => ({
   getMachineInfo: overrides.getMachineInfo ?? (() => undefined),
   readPidFile: overrides.readPidFile ?? (() => undefined),
+  readDirectory: overrides.readDirectory ?? (() => undefined),
 });
 
 const makeMachine = (ports: RemoteMachine['ports'] = []): RemoteMachine => ({
@@ -126,6 +127,43 @@ describe('listProcesses', () => {
       user: 'root',
       command: '/usr/bin/ncat -lvnp 31337',
     });
+  });
+
+  it('shows ncat listener from PID file when machineInfo is unavailable', () => {
+    const adapter = createAdapter({
+      readDirectory: (path) =>
+        path === '/var/run'
+          ? {
+              'ncat-8888.pid': 'ncat:port=8888,user=webadmin,userType=user,home=/home/webadmin',
+            }
+          : undefined,
+    });
+    const processes = listProcesses(adapter);
+    expect(processes).toContainEqual({
+      pid: 100,
+      user: 'webadmin',
+      command: '/usr/bin/ncat -lvnp 8888',
+    });
+  });
+
+  it('shows multiple ncat listeners from PID files', () => {
+    const adapter = createAdapter({
+      readDirectory: (path) =>
+        path === '/var/run'
+          ? {
+              'ncat-4444.pid': 'ncat:port=4444,user=root,userType=root,home=/root',
+              'ncat-8888.pid': 'ncat:port=8888,user=ftpuser,userType=guest,home=/home/ftpuser',
+              'sshd.pid': 'sshd:port=22',
+            }
+          : undefined,
+    });
+    const processes = listProcesses(adapter);
+    expect(processes).toContainEqual(
+      expect.objectContaining({ user: 'root', command: '/usr/bin/ncat -lvnp 4444' }),
+    );
+    expect(processes).toContainEqual(
+      expect.objectContaining({ user: 'ftpuser', command: '/usr/bin/ncat -lvnp 8888' }),
+    );
   });
 
   it('skips closed ports', () => {

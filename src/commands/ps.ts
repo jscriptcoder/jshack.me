@@ -1,6 +1,7 @@
 import type { Command } from '../components/Terminal/types';
 import type { FileNode } from '../filesystem/types';
 import type { RemoteMachine } from '../network/types';
+import { parseNcatPidContent } from '../network/ncatStateParser';
 
 type Process = {
   readonly pid: number;
@@ -11,6 +12,7 @@ type Process = {
 export type PsAdapter = {
   readonly getMachineInfo: () => RemoteMachine | undefined;
   readonly readPidFile: (path: string) => string | undefined;
+  readonly readDirectory: (path: string) => Readonly<Record<string, string>> | undefined;
 };
 
 // Maps open port services to their daemon process entries.
@@ -48,6 +50,24 @@ export const listProcesses = (adapter: PsAdapter): readonly Process[] => {
     processes.push({ pid: nextPid++, user: 'root', command: `/usr/sbin/ftpd -p ${port}` });
   }
 
+  // ncat listeners from PID files in /var/run/ncat-*.pid
+  const ncatPorts = new Set<number>();
+  const varRunEntries = adapter.readDirectory('/var/run');
+  if (varRunEntries) {
+    for (const [name, content] of Object.entries(varRunEntries)) {
+      if (!name.startsWith('ncat-') || !name.endsWith('.pid')) continue;
+      const overrides = parseNcatPidContent(content);
+      for (const override of overrides) {
+        ncatPorts.add(override.port);
+        processes.push({
+          pid: nextPid++,
+          user: override.owner.username,
+          command: `/usr/bin/ncat -lvnp ${override.port}`,
+        });
+      }
+    }
+  }
+
   // Other daemons from open ports (deduplicate by binary path)
   const machineInfo = adapter.getMachineInfo();
   const seenBinaries = new Set<string>();
@@ -55,13 +75,15 @@ export const listProcesses = (adapter: PsAdapter): readonly Process[] => {
     for (const port of machineInfo.ports) {
       if (!port.open) continue;
 
-      // Backdoor ports are netcat listeners — show actual port and owner
+      // Backdoor ports are netcat listeners — skip if already added from PID file
       if (port.service === 'elite') {
-        processes.push({
-          pid: nextPid++,
-          user: port.owner?.username ?? 'root',
-          command: `/usr/bin/ncat -lvnp ${port.port}`,
-        });
+        if (!ncatPorts.has(port.port)) {
+          processes.push({
+            pid: nextPid++,
+            user: port.owner?.username ?? 'root',
+            command: `/usr/bin/ncat -lvnp ${port.port}`,
+          });
+        }
         continue;
       }
 
@@ -106,6 +128,15 @@ export const createPsCommand = (context: PsContext): Command => ({
       readPidFile: (path) => {
         const node = context.getNodeFromMachine(machine, path, '/');
         return node?.type === 'file' ? (node.content ?? undefined) : undefined;
+      },
+      readDirectory: (path) => {
+        const node = context.getNodeFromMachine(machine, path, '/');
+        if (node?.type !== 'directory' || !node.children) return undefined;
+        const entries: Record<string, string> = {};
+        for (const [name, child] of Object.entries(node.children)) {
+          if (child.type === 'file' && child.content) entries[name] = child.content;
+        }
+        return entries;
       },
     };
 

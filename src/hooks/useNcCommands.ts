@@ -124,6 +124,15 @@ export const useNcCommands = (): Map<string, Command> | null => {
           const node = getNodeFromMachine(machine, path, '/');
           return node?.type === 'file' ? (node.content ?? undefined) : undefined;
         },
+        readDirectory: (path) => {
+          const node = getNodeFromMachine(machine, path, '/');
+          if (node?.type !== 'directory' || !node.children) return undefined;
+          const entries: Record<string, string> = {};
+          for (const [name, child] of Object.entries(node.children)) {
+            if (child.type === 'file' && child.content) entries[name] = child.content;
+          }
+          return entries;
+        },
       };
       const header = 'PID     USER       COMMAND';
       const rows = listProcesses(adapter).map(
