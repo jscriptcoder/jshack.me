@@ -68,10 +68,12 @@ const handleInstall = (packageName: string, context: AptContext): AsyncOutput | 
   }
 
   const pkg = APT_PACKAGES.find((p) => p.name === packageName);
-  const binaries = pkg?.binaries ?? [packageName];
+  const allBinaries = pkg?.binaries ?? [packageName];
 
-  // Check if already installed by checking the first binary
-  if (getNode(`/usr/bin/${binaries[0]}`) !== null) {
+  // Only install binaries that don't already exist
+  const binaries = allBinaries.filter((b) => getNode(`/usr/bin/${b}`) === null);
+
+  if (binaries.length === 0) {
     const version = pkg?.version ?? '1.0.0';
     return `${packageName} is already the newest version (${version}).\n0 upgraded, 0 newly installed, 0 to remove.`;
   }

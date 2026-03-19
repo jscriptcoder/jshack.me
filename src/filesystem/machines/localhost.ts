@@ -3,6 +3,7 @@ import { createFileSystem, type MachineFileSystemConfig } from '../fileSystemFac
 import {
   createBinaryEntries,
   SYSTEM_UTILITY_NAMES,
+  SBIN_UTILITY_NAMES,
   LOCALHOST_PREINSTALLED_TOOLS,
 } from '../../commands/availability';
 
@@ -178,6 +179,7 @@ const localhostConfig: MachineFileSystemConfig = {
   ],
   binContent: createBinaryEntries(SYSTEM_UTILITY_NAMES),
   usrBinContent: createBinaryEntries(LOCALHOST_PREINSTALLED_TOOLS),
+  usrSbinContent: createBinaryEntries(SBIN_UTILITY_NAMES),
   passwdReadableBy: ['root', 'user'],
   etcExtraContent: {
     hostname: {

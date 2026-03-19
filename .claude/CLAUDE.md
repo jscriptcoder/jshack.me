@@ -65,11 +65,13 @@ User input flows through `Terminal.tsx`:
 
 Commands use a unified filesystem-based access model (`src/commands/availability.ts`). All commands are visible to all users in `help()` and tab-complete. Execution is gated by binary file permissions:
 
-- **Shell builtins** (cd, exit, clear, echo, pwd, help, whoami) — always available, no binary needed
+- **Shell builtins** (cd, exit, clear, echo, pwd, help, whoami, bash) — always available, no binary needed
 - **Game commands** (missions, accept, abort, mail, output, resolve, author, theme, reset, xterm) — always available
 - **System utilities** in `/bin/` — always present, world-executable (except `reboot`: root-only)
 - **Apt-installable tools** in `/usr/bin/` — require `apt install` as root (needs network); only WiFi tools (airmon, airdump, aircrack), node, and gpg are pre-installed on localhost; world-executable once installed (except `gpg`: root-only)
-- **Root-only binaries**: `reboot` and `gpg` have `execute: ['root']`
+- **Admin utilities** in `/usr/sbin/` — root-only daemon management (`sshd`, `ftpd`); write PID files to `/var/run/` for dynamic port opening via `NetworkContext`
+- **Backdoor listener** — `ncat(port)` opens a listener on any machine; part of `nc` apt package (`/usr/bin/ncat`); any user can run it but ports < 1024 require root; writes `/var/run/ncat-<port>.pid` with owner info
+- **Root-only binaries**: `reboot`, `gpg`, `sshd`, and `ftpd` have `execute: ['root']`
 
 ### Filesystem Permissions
 

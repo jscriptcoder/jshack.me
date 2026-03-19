@@ -3,7 +3,7 @@ import type { FileNode } from '../filesystem/types';
 import type { UserType } from '../session/SessionContext';
 
 // Shell builtins — always available, no binary needed
-const SHELL_BUILTINS = new Set(['cd', 'exit', 'clear', 'echo', 'pwd', 'help', 'whoami']);
+const SHELL_BUILTINS = new Set(['cd', 'exit', 'clear', 'echo', 'pwd', 'help', 'whoami', 'bash']);
 
 // Game-specific commands — always available, not real Linux tools
 const GAME_COMMANDS = new Set([
@@ -56,7 +56,12 @@ export type AptPackageInfo = {
 export const APT_PACKAGES: readonly AptPackageInfo[] = [
   { name: 'nmap', description: 'Network exploration and port scanner', version: '7.93' },
   { name: 'john', description: 'John the Ripper password cracker', version: '1.9.0' },
-  { name: 'nc', description: 'Netcat — TCP/UDP connection utility', version: '1.10' },
+  {
+    name: 'nc',
+    description: 'Netcat — TCP/UDP connection utility',
+    version: '1.10',
+    binaries: ['nc', 'ncat'],
+  },
   { name: 'ftp', description: 'FTP client for file transfers', version: '0.17' },
   {
     name: 'metasploit',
@@ -109,6 +114,7 @@ export const SYSTEM_UTILITY_NAMES = [
   'chmod',
   'scp',
   'reboot',
+  'ps',
 ] as const;
 
 // Apt-installable tool names for /usr/bin/
@@ -116,6 +122,7 @@ export const APT_TOOL_NAMES = [
   'nmap',
   'john',
   'nc',
+  'ncat',
   'ftp',
   'msfconsole',
   'airmon',
@@ -129,11 +136,16 @@ export const APT_TOOL_NAMES = [
   'snmpset',
 ] as const;
 
+// System admin utilities in /usr/sbin/ — root-only services
+export const SBIN_UTILITY_NAMES = ['sshd', 'ftpd'] as const;
+
 // Binaries with restricted execute permissions (root-only).
 // All other binaries default to world-executable ['root', 'user', 'guest'].
 export const RESTRICTED_EXECUTE: Readonly<Record<string, readonly UserType[]>> = {
   reboot: ['root'],
   gpg: ['root'],
+  sshd: ['root'],
+  ftpd: ['root'],
 };
 
 // Creates binary stub FileNode entries for populating /bin/ or /usr/bin/
@@ -172,7 +184,9 @@ const findBinary = (
   }
   const binBinary = getNode(machine, `/bin/${name}`, '/');
   if (binBinary) return binBinary;
-  return getNode(machine, `/usr/bin/${name}`, '/');
+  const usrBinBinary = getNode(machine, `/usr/bin/${name}`, '/');
+  if (usrBinBinary) return usrBinBinary;
+  return getNode(machine, `/usr/sbin/${name}`, '/');
 };
 
 // Checks whether a command is visible on the current machine (for help/tab-complete).

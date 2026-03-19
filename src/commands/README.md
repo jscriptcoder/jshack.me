@@ -8,41 +8,54 @@ Commands use a factory pattern with context injection: `createXCommand(context) 
 
 Commands use a unified filesystem-based access model. All commands are visible to all users — execution is gated by binary file permissions.
 
-- **Shell builtins** (cd, exit, clear, echo, pwd, help, whoami) — always available, no binary needed
+- **Shell builtins** (cd, exit, clear, echo, pwd, help, whoami, bash) — always available, no binary needed
 - **Game commands** (missions, accept, abort, mail, output, resolve, author, theme, reset, xterm) — always available
 - **System utilities** in `/bin/` — always present on all machines; most are world-executable
 - **Apt-installable tools** in `/usr/bin/` — must be installed via `apt('install', '<tool>')` as root (requires network); only WiFi tools (airmon, airdump, aircrack), node, and gpg are pre-installed on localhost
-- **Restricted binaries** — `reboot` and `gpg` have `execute: ['root']`; all others are world-executable
+- **Admin utilities** in `/usr/sbin/` — root-only daemon management (`sshd`, `ftpd`); write PID files to `/var/run/` for dynamic port opening
+- **Restricted binaries** — `reboot`, `gpg`, `sshd`, and `ftpd` have `execute: ['root']`; all others are world-executable
 
 At execution time, `wrapWithAccessCheck` checks binary existence and execute permissions:
 
 - Binary missing → `"bash: name: command not found"` (with apt install hint for apt-installable tools)
 - Binary exists but no execute permission → `"bash: name: Permission denied"`
 
-| Category         | Location    | Availability                                                             |
-| ---------------- | ----------- | ------------------------------------------------------------------------ |
-| Shell builtins   | N/A         | Always (cd, exit, clear, echo, pwd, help, whoami)                        |
-| System utilities | `/bin/`     | Always (ls, cat, rm, chmod, scp, su, man, nano, strings, ssh, etc.)      |
-| Apt-installable  | `/usr/bin/` | After `apt install` (WiFi tools + node + gpg pre-installed on localhost) |
-| Game-specific    | N/A         | Always (missions, accept, abort, mail, output, etc.)                     |
+| Category         | Location     | Availability                                                             |
+| ---------------- | ------------ | ------------------------------------------------------------------------ |
+| Shell builtins   | N/A          | Always (cd, exit, clear, echo, pwd, help, whoami, bash)                  |
+| System utilities | `/bin/`      | Always (ls, cat, rm, chmod, scp, su, man, nano, strings, ssh, etc.)      |
+| Admin utilities  | `/usr/sbin/` | Always present, root-only (sshd, ftpd)                                   |
+| Apt-installable  | `/usr/bin/`  | After `apt install` (WiFi tools + node + gpg pre-installed on localhost) |
+| Game-specific    | N/A          | Always (missions, accept, abort, mail, output, etc.)                     |
 
 FTP and NC modes have their own separate command sets and are not restricted.
 
 ## General
 
-| Command | File         | Signature            | Description                                                |
-| ------- | ------------ | -------------------- | ---------------------------------------------------------- |
-| help    | `help.ts`    | `help()`             | List all available commands                                |
-| man     | `man.ts`     | `man(cmd)`           | Display detailed manual for a command                      |
-| echo    | `echo.ts`    | `echo(value)`        | Output a stringified value                                 |
-| author  | `author.ts`  | `author()`           | Display author profile card                                |
-| clear   | `clear.ts`   | `clear()`            | Clear the terminal screen                                  |
-| exit    | `exit.ts`    | `exit()`             | Close SSH/nc connection and return to previous machine     |
-| resolve | `resolve.ts` | `resolve(promise)`   | Unwrap a Promise and display its resolved value            |
-| reset   | `reset.ts`   | `reset(["confirm"])` | Reset game to factory defaults (clears all saved progress) |
-| theme   | `theme.ts`   | `theme([name])`      | List or switch terminal color themes (persists)            |
-| apt     | `apt.ts`     | `apt(sub, [pkg])`    | Package manager — install hacking tools (requires network) |
-| xterm   | `xterm.ts`   | `xterm()`            | Open a new terminal session in a separate browser tab      |
+| Command | File         | Signature             | Description                                                |
+| ------- | ------------ | --------------------- | ---------------------------------------------------------- |
+| help    | `help.ts`    | `help()`              | List all available commands                                |
+| man     | `man.ts`     | `man(cmd)`            | Display detailed manual for a command                      |
+| echo    | `echo.ts`    | `echo(value)`         | Output a stringified value                                 |
+| author  | `author.ts`  | `author()`            | Display author profile card                                |
+| clear   | `clear.ts`   | `clear()`             | Clear the terminal screen                                  |
+| exit    | `exit.ts`    | `exit()`              | Close SSH/nc connection and return to previous machine     |
+| resolve | `resolve.ts` | `resolve(promise)`    | Unwrap a Promise and display its resolved value            |
+| reset   | `reset.ts`   | `reset(["confirm"])`  | Reset game to factory defaults (clears all saved progress) |
+| theme   | `theme.ts`   | `theme([name])`       | List or switch terminal color themes (persists)            |
+| apt     | `apt.ts`     | `apt(sub, [pkg])`     | Package manager — install hacking tools (requires network) |
+| xterm   | `xterm.ts`   | `xterm()`             | Open a new terminal session in a separate browser tab      |
+| bash    | `bash.ts`    | `bash(path, ...args)` | Execute binary by filesystem path (shell builtin)          |
+
+## Daemon
+
+Admin utilities that write PID files to `/var/run/` — `NetworkContext` reads these to dynamically open ports.
+
+| Command | File      | Signature      | Description                                                          |
+| ------- | --------- | -------------- | -------------------------------------------------------------------- |
+| sshd    | `sshd.ts` | `sshd([port])` | Start SSH daemon (root-only, writes `/var/run/sshd.pid`)             |
+| ftpd    | `ftpd.ts` | `ftpd([port])` | Start FTP daemon (root-only, writes `/var/run/ftpd.pid`)             |
+| ncat    | `ncat.ts` | `ncat(port)`   | Open backdoor listener (any user, writes `/var/run/ncat-<port>.pid`) |
 
 ## Mission
 
@@ -91,6 +104,7 @@ FTP and NC modes have their own separate command sets and are not restricted.
 | curl       | `curl.ts`       | `curl(url, [flags])`             | HTTP client for GET/POST requests (async, `-i` for headers, `-X POST`)        |
 | ftp        | `ftp.ts`        | `ftp(host[, user, pw])`          | Connect to remote machine via FTP (async, optional inline auth)               |
 | nc         | `nc.ts`         | `nc(host, port)`                 | Netcat - connect to arbitrary port (async, interactive for special services)  |
+| ncat       | `ncat.ts`       | `ncat(port)`                     | Open backdoor listener on a port (writes PID file, any user)                  |
 | msfconsole | `msfconsole.ts` | `msfconsole(host, port)`         | Exploit a vulnerable service for RCE (async, drops into restricted shell)     |
 | hydra      | `hydra.ts`      | `hydra(host[, svc[, user]])`     | Brute-force SSH/FTP login credentials (async, probability-based)              |
 | gobuster   | `gobuster.ts`   | `gobuster("dir", url)`           | Enumerate directories/files on web servers (async, walks /var/www/html/ tree) |
@@ -126,14 +140,15 @@ Available only when connected via FTP. Registered in `src/hooks/useFtpCommands.t
 
 ## NC Mode (`nc/`)
 
-Available when connected to interactive services via nc. Registered in `src/hooks/useNcCommands.ts`.
+Available when connected to interactive services via nc. Registered in `src/hooks/useNcCommands.ts`. Like a real netcat shell, there is no PATH — admin binaries (sshd, ftpd) must be run via `bash('/usr/sbin/sshd')`.
 
-| Command | File           | Signature    | Description                |
-| ------- | -------------- | ------------ | -------------------------- |
-| pwd     | `nc/pwd.ts`    | `pwd()`      | Print working directory    |
-| cd      | `nc/cd.ts`     | `cd(path)`   | Change directory           |
-| ls      | `nc/ls.ts`     | `ls([path])` | List directory contents    |
-| cat     | `nc/cat.ts`    | `cat(path)`  | Display file contents      |
-| whoami  | `nc/whoami.ts` | `whoami()`   | Display current user       |
-| help    | (inline)       | `help()`     | List available nc commands |
-| exit    | (inline)       | `exit()`     | Close connection           |
+| Command | File           | Signature             | Description                       |
+| ------- | -------------- | --------------------- | --------------------------------- |
+| pwd     | `nc/pwd.ts`    | `pwd()`               | Print working directory           |
+| cd      | `nc/cd.ts`     | `cd(path)`            | Change directory                  |
+| ls      | `nc/ls.ts`     | `ls([path])`          | List directory contents           |
+| cat     | `nc/cat.ts`    | `cat(path)`           | Display file contents             |
+| whoami  | `nc/whoami.ts` | `whoami()`            | Display current user              |
+| bash    | `nc/bash.ts`   | `bash(path, ...args)` | Execute binary by filesystem path |
+| help    | (inline)       | `help()`              | List available nc commands        |
+| exit    | (inline)       | `exit()`              | Close connection                  |

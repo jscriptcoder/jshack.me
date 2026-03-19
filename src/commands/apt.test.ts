@@ -237,11 +237,31 @@ describe('apt command', () => {
       expect(createdFiles.some((f) => f.path === '/usr/bin/snmp')).toBe(false);
     });
 
-    it('multi-binary package reports already installed if first binary exists', () => {
-      const { context } = createMockAptContext({ installedTools: ['snmpwalk'] });
+    it('multi-binary package reports already installed when all binaries exist', () => {
+      const { context } = createMockAptContext({ installedTools: ['snmpwalk', 'snmpset'] });
       const apt = createAptCommand(context);
       const result = apt.fn('install', 'snmp') as string;
       expect(result).toContain('already the newest version');
+    });
+
+    it('multi-binary package installs missing binaries when some already exist', () => {
+      const { context, createdFiles } = createMockAptContext({ installedTools: ['nc'] });
+      const apt = createAptCommand(context);
+      const result = apt.fn('install', 'nc');
+
+      expect(isAsyncOutput(result)).toBe(true);
+      if (!isAsyncOutput(result)) return;
+
+      result.start(
+        () => {},
+        () => {},
+      );
+
+      vi.advanceTimersByTime(3000);
+
+      // Should only create the missing binary, not the existing one
+      expect(createdFiles.some((f) => f.path === '/usr/bin/ncat')).toBe(true);
+      expect(createdFiles.some((f) => f.path === '/usr/bin/nc')).toBe(false);
     });
   });
 

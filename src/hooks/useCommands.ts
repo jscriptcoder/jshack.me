@@ -17,6 +17,11 @@ import { createAbortCommand } from '../commands/abort';
 import { createMailCommand } from '../commands/mail';
 import { createAptCommand } from '../commands/apt';
 import { createRebootCommand } from '../commands/reboot';
+import { createSshdCommand } from '../commands/sshd';
+import { createFtpdCommand } from '../commands/ftpd';
+import { createNcatCommand } from '../commands/ncat';
+import { createBashCommand } from '../commands/bash';
+import { createPsCommand } from '../commands/ps';
 import { xtermCommand } from '../commands/xterm';
 import { useMission } from '../mission';
 import {
@@ -45,6 +50,7 @@ const SKIP_ACCESS_CHECK = new Set([
   'pwd',
   'help',
   'whoami',
+  'bash',
   'missions',
   'accept',
   'abort',
@@ -78,7 +84,7 @@ export const useCommands = (): UseCommandsResult => {
     isMachineBricked,
     wifiConnected,
   } = useSession();
-  const { findMachineUsers } = useNetwork();
+  const { findMachineUsers, getMachine: getMachineInfo } = useNetwork();
   const { resolvePath, getNode, readFileFromMachine, createFile, getNodeFromMachine, canTraverse } =
     useFileSystem();
   const { isMissionActive, startMission, abortMission, completeMission, activeMission } =
@@ -183,6 +189,56 @@ export const useCommands = (): UseCommandsResult => {
       }),
     );
 
+    commands.set(
+      'sshd',
+      createSshdCommand({
+        getMachine: () => session.machine,
+        getMachineInfo,
+        getNodeFromMachine,
+        createFileOnMachine: createFile,
+      }),
+    );
+
+    commands.set(
+      'ftpd',
+      createFtpdCommand({
+        getMachine: () => session.machine,
+        getMachineInfo,
+        getNodeFromMachine,
+        createFileOnMachine: createFile,
+      }),
+    );
+
+    commands.set(
+      'ncat',
+      createNcatCommand({
+        getMachine: () => session.machine,
+        getMachineInfo,
+        getNodeFromMachine,
+        createFileOnMachine: createFile,
+        getUser: () => session.username,
+        getUserType: () => session.userType,
+      }),
+    );
+
+    commands.set(
+      'ps',
+      createPsCommand({
+        getMachine: () => session.machine,
+        getMachineInfo,
+        getNodeFromMachine,
+      }),
+    );
+
+    commands.set(
+      'bash',
+      createBashCommand({
+        getNode: (path) => getNodeFromMachine(session.machine, path, '/'),
+        getUserType: () => session.userType,
+        getExecutionContext: () => resolvedExecutionContext,
+      }),
+    );
+
     fileSystemCommands.forEach((cmd, name) => commands.set(name, cmd));
     networkCommands.forEach((cmd, name) => commands.set(name, cmd));
     wifiCommands.forEach((cmd, name) => commands.set(name, cmd));
@@ -240,6 +296,7 @@ export const useCommands = (): UseCommandsResult => {
     networkCommands,
     wifiCommands,
     getUsers,
+    session.username,
     session.userType,
     session.machine,
     session.currentPath,
@@ -265,5 +322,6 @@ export const useCommands = (): UseCommandsResult => {
     markMachineBricked,
     isMachineBricked,
     wifiConnected,
+    getMachineInfo,
   ]);
 };

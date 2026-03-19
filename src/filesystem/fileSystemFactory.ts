@@ -17,6 +17,8 @@ export type MachineFileSystemConfig = {
   readonly extraDirectories?: Readonly<Record<string, FileNode>>;
   readonly binContent?: Readonly<Record<string, FileNode>>;
   readonly usrBinContent?: Readonly<Record<string, FileNode>>;
+  readonly usrSbinContent?: Readonly<Record<string, FileNode>>;
+  readonly varRunContent?: Readonly<Record<string, FileNode>>;
   readonly passwdReadableBy?: readonly UserType[];
 };
 
@@ -149,6 +151,17 @@ export const createFileSystem = (config: MachineFileSystemConfig): FileNode => {
           },
           children: config.varLogContent ?? {},
         },
+        run: {
+          name: 'run',
+          type: 'directory',
+          owner: 'root',
+          permissions: {
+            read: ['root', 'user', 'guest'],
+            write: ['root'],
+            execute: ['root', 'user', 'guest'],
+          },
+          children: config.varRunContent ?? {},
+        },
       },
     },
     tmp: {
@@ -215,6 +228,13 @@ export const createFileSystem = (config: MachineFileSystemConfig): FileNode => {
           owner: 'root',
           permissions: BIN_DIR_PERMISSIONS,
           children: config.usrBinContent ?? {},
+        },
+        sbin: {
+          name: 'sbin',
+          type: 'directory',
+          owner: 'root',
+          permissions: BIN_DIR_PERMISSIONS,
+          children: config.usrSbinContent ?? {},
         },
       },
     },

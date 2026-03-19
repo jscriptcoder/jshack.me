@@ -14,6 +14,17 @@ import { useFileSystem } from '../filesystem';
 import { parseIptablesRules } from './iptablesParser';
 import { parseSnmpFirewallConfig } from './snmpFirewallParser';
 import type { SnmpFirewallOverride } from './snmpFirewallParser';
+import { parseSshdState } from './sshdStateParser';
+import { parseFtpdState } from './ftpdStateParser';
+import { parseNcatPidFiles } from './ncatStateParser';
+import { SSH_PID_FILE_PATH } from '../commands/sshd';
+import { FTP_PID_FILE_PATH } from '../commands/ftpd';
+import { ipToMachineId } from '../filesystem/machineFileSystems';
+import {
+  buildMergedRouterView,
+  applySnmpFirewallOverrides,
+  applyDaemonOverrides,
+} from './networkUtils';
 
 type NetworkContextType = {
   readonly config: NetworkConfig;
@@ -82,7 +93,7 @@ export const NetworkProvider = ({
   // 3. WiFi gating (localhost with WiFi off → disconnected interfaces, no machines)
   // 4. Localhost with active mission → only router is visible from localhost
   //    (internal machines are behind the router)
-  const currentConfig = useMemo((): MachineNetworkConfig => {
+  const baseConfig = useMemo((): MachineNetworkConfig => {
     const missionConfig = missionNetworkConfig?.machineConfigs[session.machine];
     if (missionConfig) return missionConfig;
 
@@ -139,6 +150,40 @@ export const NetworkProvider = ({
     snmpFirewallOverrides,
     missionRouterMachine,
   ]);
+
+  // Dynamic daemon state: for each machine, check if sshd/ftpd pid files exist
+  // and apply port overrides. This enables dynamic port opening when the player
+  // starts daemons from an NC shell (same pattern as SNMP firewall overrides).
+  const currentConfig = useMemo((): MachineNetworkConfig => {
+    const machines = baseConfig.machines.map((machine) => {
+      // Resolve IP to filesystem machine ID (localhost uses "localhost" as ID, not its IP)
+      const fsId = ipToMachineId[machine.ip] ?? machine.ip;
+
+      let result = machine;
+
+      // sshd state
+      const sshdNode = getNodeFromMachine(fsId, SSH_PID_FILE_PATH, '/');
+      if (sshdNode?.type === 'file' && sshdNode.content) {
+        const overrides = parseSshdState(sshdNode.content);
+        if (overrides.length > 0) result = applyDaemonOverrides(result, overrides);
+      }
+
+      // ftpd state
+      const ftpdNode = getNodeFromMachine(fsId, FTP_PID_FILE_PATH, '/');
+      if (ftpdNode?.type === 'file' && ftpdNode.content) {
+        const overrides = parseFtpdState(ftpdNode.content);
+        if (overrides.length > 0) result = applyDaemonOverrides(result, overrides);
+      }
+
+      // ncat state — scan /var/run/ for ncat-*.pid files
+      const varRunNode = getNodeFromMachine(fsId, '/var/run', '/');
+      const ncatOverrides = parseNcatPidFiles(varRunNode);
+      if (ncatOverrides.length > 0) result = applyDaemonOverrides(result, ncatOverrides);
+
+      return result;
+    });
+    return machines === baseConfig.machines ? baseConfig : { ...baseConfig, machines };
+  }, [baseConfig, getNodeFromMachine]);
 
   const getInterface = useCallback(
     (name: string): NetworkInterface | undefined => {
@@ -256,74 +301,6 @@ export const NetworkProvider = ({
       {children}
     </NetworkContext.Provider>
   );
-};
-
-// When iptables has forwarding rules, the router appears from localhost with
-// its own ports plus forwarded ports and merged users from forwarded machines.
-// This lets SSH user verification work against the visible machine before NAT.
-// Rules come from the filesystem dynamically — player can edit with nano.
-const buildMergedRouterView = (
-  routerMachine: GeneratedMachine,
-  missionMachines: readonly GeneratedMachine[],
-  rules: readonly NatForwardingRule[],
-): RemoteMachine => {
-  // Collect internal machines referenced by forwarding rules
-  const forwardedIps = new Set(rules.map((r) => r.internalIp));
-  const forwardedMachines = missionMachines.filter((m) => forwardedIps.has(m.ip));
-
-  // Forwarded ports mapped to their public port numbers
-  const forwardedPorts = rules
-    .map((rule) => {
-      const machine = forwardedMachines.find((m) => m.ip === rule.internalIp);
-      const internalPort = machine?.remoteMachine.ports.find(
-        (p) => p.port === rule.internalPort && p.open,
-      );
-      if (!internalPort) return undefined;
-      return { ...internalPort, port: rule.publicPort };
-    })
-    .filter((p) => p !== undefined);
-
-  // Deduplicate: forwarded ports override router ports on collision
-  const forwardedPortNumbers = new Set(forwardedPorts.map((p) => p.port));
-  const routerOnlyPorts = routerMachine.remoteMachine.ports.filter(
-    (p) => !forwardedPortNumbers.has(p.port),
-  );
-
-  // Merge users: router's own + forwarded machines', deduplicated by username
-  const allUsers = [
-    ...routerMachine.remoteMachine.users,
-    ...forwardedMachines.flatMap((m) => m.remoteMachine.users),
-  ];
-  const seenUsernames = new Set<string>();
-  const uniqueUsers = allUsers.filter((u) => {
-    if (seenUsernames.has(u.username)) return false;
-    seenUsernames.add(u.username);
-    return true;
-  });
-
-  return {
-    ip: routerMachine.ip,
-    hostname: routerMachine.hostname,
-    ports: [...routerOnlyPorts, ...forwardedPorts],
-    users: uniqueUsers,
-  };
-};
-
-// Applies SNMP firewall overrides to the router's ports.
-// When snmpset changes firewallSSH to "permit", port 22 opens dynamically.
-const applySnmpFirewallOverrides = (
-  machine: RemoteMachine,
-  overrides: readonly SnmpFirewallOverride[],
-): RemoteMachine => {
-  const overrideMap = new Map(overrides.map((o) => [o.port, o.open]));
-  return {
-    ...machine,
-    ports: machine.ports.map((p) => {
-      const overrideOpen = overrideMap.get(p.port);
-      if (overrideOpen === undefined) return p;
-      return { ...p, open: overrideOpen };
-    }),
-  };
 };
 
 export const useNetwork = (): NetworkContextType => {

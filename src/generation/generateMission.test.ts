@@ -378,14 +378,16 @@ describe('generateMissionNetwork', () => {
       expect(sshClosureCount).toBeGreaterThan(0);
     });
 
-    it('FTP port 21 is always open when SSH is closed on a machine', () => {
+    it('FTP port 21 is open when SSH is closed unless dual closure with NC backdoor', () => {
       for (let i = 0; i < 200; i++) {
         const result = generateMissionNetwork(`ftp-guarantee-${i}`);
         result.machines.forEach((m) => {
           const sshClosed = m.remoteMachine.ports.some((p) => p.port === 22 && !p.open);
           if (sshClosed) {
             const ftpOpen = m.remoteMachine.ports.some((p) => p.port === 21 && p.open);
-            expect(ftpOpen).toBe(true);
+            const hasBackdoor = m.remoteMachine.ports.some((p) => p.service === 'elite' && p.open);
+            // Either FTP is open (single closure) or there's a backdoor (dual closure)
+            expect(ftpOpen || hasBackdoor).toBe(true);
           }
         });
       }
@@ -456,13 +458,65 @@ describe('generateMissionNetwork', () => {
       }
     });
 
-    it('never both SSH and FTP closed on the same machine', () => {
+    it('never both SSH and FTP closed without NC backdoor', () => {
       for (let i = 0; i < 200; i++) {
         const result = generateMissionNetwork(`no-double-close-${i}`);
         result.machines.forEach((m) => {
           const sshClosed = m.remoteMachine.ports.some((p) => p.port === 22 && !p.open);
           const ftpClosed = m.remoteMachine.ports.some((p) => p.port === 21 && !p.open);
-          expect(sshClosed && ftpClosed).toBe(false);
+          if (sshClosed && ftpClosed) {
+            // Dual closure — must have an NC backdoor with root owner
+            const hasBackdoor = m.remoteMachine.ports.some(
+              (p) => p.service === 'elite' && p.open && p.owner?.userType === 'root',
+            );
+            expect(hasBackdoor).toBe(true);
+          }
+        });
+      }
+    });
+
+    it('dual SSH+FTP closure with NC backdoor occurs on non-entry machines (statistical)', () => {
+      let dualClosureCount = 0;
+      for (let i = 0; i < 500; i++) {
+        const result = generateMissionNetwork(`dual-closure-${i}`);
+        const hasDualClosure = result.machines.some((m) => {
+          if (m.ip === result.entryPoint || m.role === 'router') return false;
+          const sshClosed = m.remoteMachine.ports.some((p) => p.port === 22 && !p.open);
+          const ftpClosed = !m.remoteMachine.ports.some((p) => p.port === 21 && p.open);
+          const hasBackdoor = m.remoteMachine.ports.some((p) => p.service === 'elite' && p.open);
+          return sshClosed && ftpClosed && hasBackdoor;
+        });
+        if (hasDualClosure) dualClosureCount++;
+      }
+      expect(dualClosureCount).toBeGreaterThan(0);
+    });
+
+    it('NC backdoor on SSH-closed machine is always root-owned', () => {
+      for (let i = 0; i < 500; i++) {
+        const result = generateMissionNetwork(`ssh-backdoor-owner-${i}`);
+        result.machines.forEach((m) => {
+          if (m.ip === result.entryPoint || m.role === 'router') return;
+          const sshClosed = m.remoteMachine.ports.some((p) => p.port === 22 && !p.open);
+          if (sshClosed) {
+            const backdoors = m.remoteMachine.ports.filter((p) => p.service === 'elite' && p.open);
+            backdoors.forEach((b) => {
+              expect(b.owner?.userType).toBe('root');
+            });
+          }
+        });
+      }
+    });
+
+    it('SSH-closed non-entry machines always have an NC backdoor', () => {
+      for (let i = 0; i < 500; i++) {
+        const result = generateMissionNetwork(`ssh-needs-backdoor-${i}`);
+        result.machines.forEach((m) => {
+          if (m.ip === result.entryPoint || m.role === 'router') return;
+          const sshClosed = m.remoteMachine.ports.some((p) => p.port === 22 && !p.open);
+          if (sshClosed) {
+            const hasBackdoor = m.remoteMachine.ports.some((p) => p.service === 'elite' && p.open);
+            expect(hasBackdoor).toBe(true);
+          }
         });
       }
     });

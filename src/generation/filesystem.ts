@@ -23,7 +23,13 @@ import {
   webContentTemplatesByRole,
 } from './pools';
 import { wrapInBinaryNoise } from './binary';
-import { createBinaryEntries, SYSTEM_UTILITY_NAMES } from '../commands/availability';
+import {
+  createBinaryEntries,
+  SYSTEM_UTILITY_NAMES,
+  SBIN_UTILITY_NAMES,
+} from '../commands/availability';
+import { SSH_PID_FILE_NAME, createSshdPidFileNode } from '../commands/sshd';
+import { FTP_PID_FILE_NAME, createFtpdPidFileNode } from '../commands/ftpd';
 
 type FilesystemInput = {
   readonly prng: Prng;
@@ -485,13 +491,26 @@ const buildMachineConfig = (
     );
   }
 
+  // Machines with SSH/FTP ports open have daemons already running — include pid files
+  const hasSshOpen = machine.remoteMachine.ports.some((p) => p.service === 'ssh' && p.open);
+  const hasFtpOpen = machine.remoteMachine.ports.some((p) => p.service === 'ftp' && p.open);
+  const varRunContent =
+    hasSshOpen || hasFtpOpen
+      ? {
+          ...(hasSshOpen ? { [SSH_PID_FILE_NAME]: createSshdPidFileNode() } : {}),
+          ...(hasFtpOpen ? { [FTP_PID_FILE_NAME]: createFtpdPidFileNode() } : {}),
+        }
+      : undefined;
+
   return {
     users: userConfigs,
     rootContent,
     varLogContent,
+    varRunContent,
     etcExtraContent,
     extraDirectories: Object.keys(extraDirectories).length > 0 ? extraDirectories : undefined,
     binContent: createBinaryEntries(SYSTEM_UTILITY_NAMES),
+    usrSbinContent: createBinaryEntries(SBIN_UTILITY_NAMES),
     passwdReadableBy: ['root', 'user'],
   };
 };

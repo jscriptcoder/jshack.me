@@ -1,6 +1,11 @@
 import type { FileNode } from './types';
 import { localhost, fileserver, webserver } from './machines/__encoded';
-import { createBinaryEntries, SYSTEM_UTILITY_NAMES } from '../commands/availability';
+import {
+  createBinaryEntries,
+  SYSTEM_UTILITY_NAMES,
+  SBIN_UTILITY_NAMES,
+} from '../commands/availability';
+import { SSH_PID_FILE_NAME, createSshdPidFileNode } from '../commands/sshd';
 
 const BIN_DIR_PERMISSIONS = {
   read: ['root', 'user', 'guest'] as const,
@@ -219,6 +224,17 @@ Mar 15 08:15:44 gateway kernel: [iptables] IN=eth0 OUT= SRC=192.168.1.75 DST=192
             },
           },
         },
+        run: {
+          name: 'run',
+          type: 'directory',
+          owner: 'root',
+          permissions: {
+            read: ['root', 'user', 'guest'] as const,
+            write: ['root'] as const,
+            execute: ['root', 'user', 'guest'] as const,
+          },
+          children: { [SSH_PID_FILE_NAME]: createSshdPidFileNode() },
+        },
       },
     },
     tmp: {
@@ -252,6 +268,13 @@ Mar 15 08:15:44 gateway kernel: [iptables] IN=eth0 OUT= SRC=192.168.1.75 DST=192
           permissions: BIN_DIR_PERMISSIONS,
           children: {},
         },
+        sbin: {
+          name: 'sbin',
+          type: 'directory',
+          owner: 'root',
+          permissions: BIN_DIR_PERMISSIONS,
+          children: createBinaryEntries(SBIN_UTILITY_NAMES),
+        },
       },
     },
   },
@@ -264,6 +287,13 @@ export const machineFileSystems: Readonly<Record<string, FileNode>> = {
   '192.168.1.1': gatewayFs,
   '192.168.1.50': fileserver,
   '192.168.1.75': webserver,
+};
+
+// Localhost uses "localhost" as its machine ID in the session/filesystem,
+// but "192.168.1.100" as its IP in the network. This map resolves the
+// mismatch so NetworkContext can read localhost's filesystem by IP.
+export const ipToMachineId: Readonly<Record<string, string>> = {
+  '192.168.1.100': 'localhost',
 };
 
 // _machineId is unused today (all machines use the same /home/username convention)

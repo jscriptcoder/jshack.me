@@ -6,7 +6,6 @@ const gatewayMachine: RemoteMachine = {
   ip: '192.168.1.1',
   hostname: 'gateway',
   ports: [
-    { port: 22, service: 'ssh', open: true },
     {
       port: 8443,
       service: 'https',
@@ -28,7 +27,7 @@ const gatewayMachine: RemoteMachine = {
 const localhostMachine: RemoteMachine = {
   ip: '192.168.1.100',
   hostname: 'localhost',
-  ports: [{ port: 22, service: 'ssh', open: true }],
+  ports: [],
   users: [
     { username: 'root', passwordHash: 'a0ff67e77425eb3cea40ecb60941aea4', userType: 'root' }, // sup3rus3r
     { username: 'jshacker', passwordHash: '25cd52d0d5975297e6c28700caa9dd72', userType: 'user' }, // h4ckth3pl4n3t
@@ -39,10 +38,7 @@ const localhostMachine: RemoteMachine = {
 const fileserverMachine: RemoteMachine = {
   ip: '192.168.1.50',
   hostname: 'fileserver',
-  ports: [
-    { port: 21, service: 'ftp', open: true },
-    { port: 22, service: 'ssh', open: true },
-  ],
+  ports: [],
   users: [
     { username: 'root', passwordHash: '4a080e0e088d55294ab894a02b5c8e3f', userType: 'root' }, // b4ckup2024
     { username: 'ftpuser', passwordHash: 'be7a9d8e813210208cb7fba28717cda7', userType: 'user' }, // tr4nsf3r
@@ -54,7 +50,6 @@ const webserverMachine: RemoteMachine = {
   ip: '192.168.1.75',
   hostname: 'webserver',
   ports: [
-    { port: 22, service: 'ssh', open: true },
     { port: 80, service: 'http', open: true },
     { port: 3306, service: 'mysql', open: true },
     {

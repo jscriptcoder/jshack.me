@@ -12,7 +12,8 @@ import type {
   MissionObjectiveType,
   SeedOverrides,
 } from './types';
-import type { Port, RemoteMachine, RemoteUser } from '../network/types';
+import type { Port, RemoteMachine, RemoteUser, ServiceOwner } from '../network/types';
+import { backdoorPorts } from './pools';
 import { vulnerabilityTemplates } from './pools';
 
 // Parses keyword overrides from the seed string. Keywords are case-insensitive
@@ -226,19 +227,25 @@ const enrichMachineWithUsers = (
 
 // Applies PRNG-driven port closures to increase lateral movement variety.
 // At most one SSH closure and one FTP closure per network. When SSH is closed
-// on a machine, FTP port 21 is ensured open so the player can still transfer
-// files. Always consumes 4 PRNG calls for sequence stability.
+// on a machine, FTP port 21 is ensured open and an NC backdoor with root owner
+// is guaranteed (existing backdoor upgraded, or new one added). A dual closure
+// (~15%) closes both SSH and FTP, adding an NC backdoor with root owner.
+// Always consumes 8 PRNG calls for sequence stability.
 const applyPortClosures = (
   prng: Prng,
   machines: readonly GeneratedMachine[],
   entryPoint: string,
   objectiveType: MissionObjectiveType,
 ): readonly GeneratedMachine[] => {
-  // Always consume 4 PRNG calls regardless of whether closures apply
+  // Always consume 8 PRNG calls regardless of whether closures apply
   const sshRoll = prng.next();
   const sshTargetIdx = prng.nextInt(0, Math.max(0, machines.length - 1));
   const ftpRoll = prng.next();
   const ftpTargetIdx = prng.nextInt(0, Math.max(0, machines.length - 1));
+  const dualRoll = prng.next();
+  const dualTargetIdx = prng.nextInt(0, Math.max(0, machines.length - 1));
+  const dualBackdoorPort = prng.pick(backdoorPorts);
+  const sshBackdoorPort = prng.pick(backdoorPorts);
 
   // script_fix and sabotage need SSH shell access on target — skip all closures
   if (objectiveType === 'script_fix' || objectiveType === 'sabotage') return machines;
@@ -247,29 +254,85 @@ const applyPortClosures = (
   const eligible = machines.filter((m) => m.role !== 'router' && m.ip !== entryPoint);
   if (eligible.length === 0) return machines;
 
+  // Dual closure: ~15% chance to close both SSH and FTP, adding an NC backdoor.
+  // Skip machines that need specific ports (ssh/ftp variants) or already have
+  // a backdoor (nc variant).
+  const dualTarget = eligible[dualTargetIdx % eligible.length];
+  const dualTargetVariant = dualTarget?.accessVariant;
+  const dualVariantBlocked =
+    dualTargetVariant === 'ssh' || dualTargetVariant === 'ftp' || dualTargetVariant === 'nc';
+  const dualClosureIp = dualRoll < 0.15 && !dualVariantBlocked ? dualTarget?.ip : undefined;
+
   const sshTarget = eligible[sshTargetIdx % eligible.length];
   const sshClosureIp =
-    sshRoll < 0.3 && sshTarget?.accessVariant !== 'ssh' ? sshTarget?.ip : undefined;
+    sshRoll < 0.3 && sshTarget?.accessVariant !== 'ssh' && sshTarget?.ip !== dualClosureIp
+      ? sshTarget?.ip
+      : undefined;
   const ftpTarget = eligible[ftpTargetIdx % eligible.length];
   const ftpClosureIp =
-    ftpRoll < 0.3 && ftpTarget?.accessVariant !== 'ftp' ? ftpTarget?.ip : undefined;
+    ftpRoll < 0.3 && ftpTarget?.accessVariant !== 'ftp' && ftpTarget?.ip !== dualClosureIp
+      ? ftpTarget?.ip
+      : undefined;
 
-  // Never close both SSH and FTP on the same machine
+  // Never close both SSH and FTP on the same machine (unless dual closure)
   const effectiveFtpClosureIp =
     ftpClosureIp !== undefined && ftpClosureIp === sshClosureIp ? undefined : ftpClosureIp;
 
-  if (sshClosureIp === undefined && effectiveFtpClosureIp === undefined) return machines;
+  if (
+    sshClosureIp === undefined &&
+    effectiveFtpClosureIp === undefined &&
+    dualClosureIp === undefined
+  )
+    return machines;
 
   return machines.map((m) => {
+    if (m.ip === dualClosureIp) {
+      // Dual closure: close SSH and FTP, add NC backdoor with root owner
+      const rootUser = m.remoteMachine.users.find((u) => u.userType === 'root');
+      const ports: readonly Port[] = [
+        ...m.remoteMachine.ports.map((p) =>
+          p.port === 22 || p.port === 21 ? { ...p, open: false } : p,
+        ),
+        {
+          port: dualBackdoorPort,
+          service: 'elite',
+          open: true,
+          owner: rootUser
+            ? { username: rootUser.username, userType: 'root', homePath: '/root' }
+            : undefined,
+        },
+      ];
+      return { ...m, remoteMachine: { ...m.remoteMachine, ports } };
+    }
+
     if (m.ip === sshClosureIp) {
-      // Close SSH, ensure FTP port 21 is open
+      // Close SSH, ensure FTP port 21 is open, ensure NC backdoor with root owner.
+      // Root is required so the player can run `sshd` to re-enable SSH access.
+      const rootUser = m.remoteMachine.users.find((u) => u.userType === 'root');
+      const rootOwner: ServiceOwner | undefined = rootUser
+        ? { username: rootUser.username, userType: 'root', homePath: '/root' }
+        : undefined;
+      const hasElite = m.remoteMachine.ports.some((p) => p.service === 'elite' && p.open);
       const hasFtp = m.remoteMachine.ports.some((p) => p.port === 21);
+
+      // Close SSH and upgrade any existing backdoor owner to root
       const portsWithClosedSsh = m.remoteMachine.ports.map((p) =>
-        p.port === 22 ? { ...p, open: false } : p,
+        p.port === 22
+          ? { ...p, open: false }
+          : p.service === 'elite' && p.open
+            ? { ...p, owner: rootOwner }
+            : p,
       );
-      const ports = hasFtp
+
+      // Ensure FTP port 21 is open
+      const withFtp = hasFtp
         ? portsWithClosedSsh.map((p) => (p.port === 21 ? { ...p, open: true } : p))
         : [...portsWithClosedSsh, { port: 21, service: 'ftp', open: true }];
+
+      // Add NC backdoor with root owner if none exists
+      const ports = hasElite
+        ? withFtp
+        : [...withFtp, { port: sshBackdoorPort, service: 'elite', open: true, owner: rootOwner }];
 
       return {
         ...m,
