@@ -20,6 +20,7 @@ import { createRebootCommand } from '../commands/reboot';
 import { createSshdCommand } from '../commands/sshd';
 import { createFtpdCommand } from '../commands/ftpd';
 import { createBashCommand } from '../commands/bash';
+import { createPsCommand } from '../commands/ps';
 import { xtermCommand } from '../commands/xterm';
 import { useMission } from '../mission';
 import {
@@ -204,6 +205,15 @@ export const useCommands = (): UseCommandsResult => {
         getMachineInfo,
         getNodeFromMachine,
         createFileOnMachine: createFile,
+      }),
+    );
+
+    commands.set(
+      'ps',
+      createPsCommand({
+        getMachine: () => session.machine,
+        getMachineInfo,
+        getNodeFromMachine,
       }),
     );
 

@@ -13,6 +13,7 @@ import {
 } from '../commands/nc/index';
 import { startSshd, SSH_PID_FILE_PATH, type SshdAdapter } from '../commands/sshd';
 import { startFtpd, FTP_PID_FILE_PATH, type FtpdAdapter } from '../commands/ftpd';
+import { listProcesses, type PsAdapter } from '../commands/ps';
 import { useNetwork } from '../network';
 import type { Command } from '../components/Terminal/types';
 import type { MachineId } from '../filesystem/machineFileSystems';
@@ -114,10 +115,27 @@ export const useNcCommands = (): Map<string, Command> | null => {
       };
       return startFtpd(adapter, args);
     };
+    const psFn = (): string => {
+      const machine = getMachine();
+      const machineInfo = getMachineInfo(machine);
+      const adapter: PsAdapter = {
+        getMachineInfo: () => machineInfo,
+        readPidFile: (path) => {
+          const node = getNodeFromMachine(machine, path, '/');
+          return node?.type === 'file' ? (node.content ?? undefined) : undefined;
+        },
+      };
+      const header = 'PID     USER       COMMAND';
+      const rows = listProcesses(adapter).map(
+        (p) => `${String(p.pid).padEnd(8)}${p.user.padEnd(11)}${p.command}`,
+      );
+      return [header, ...rows].join('\n');
+    };
     const bashCommands = new Map<string, (...args: unknown[]) => unknown>();
     commands.forEach((cmd, name) => bashCommands.set(name, cmd.fn));
     bashCommands.set('sshd', sshdFn);
     bashCommands.set('ftpd', ftpdFn);
+    bashCommands.set('ps', psFn);
     commands.set(
       'bash',
       createNcBashCommand({
