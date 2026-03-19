@@ -68,7 +68,8 @@ The entry machine's initial access method varies per seed:
 - **nc** — player connects via netcat backdoor, finds SSH credentials, then SSHes
 - **exploit** — player scans with `nmap("-sV")`, runs `msfconsole(host, port)` to exploit a vulnerable service, finds SSH credentials, then SSHes
 - **http** — player discovers port 80 via nmap, uses curl to find SSH credentials
+- **snmp** — router-first only; all TCP ports filtered, player must UDP scan to find SNMP (161), enumerate with `snmpwalk`, and `snmpset` to open SSH through the firewall
 
-SSH is always available on the entry machine; other variants just change the _initial foothold_.
+SSH is always available on the entry machine (or opened via SNMP on the router); other variants just change the _initial foothold_.
 
 The mission briefing only shows the target (IP or domain) — the player must figure out how to connect.
