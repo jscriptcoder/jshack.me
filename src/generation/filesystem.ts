@@ -29,6 +29,7 @@ import {
   SBIN_UTILITY_NAMES,
 } from '../commands/availability';
 import { SSH_PID_FILE_NAME, createSshdPidFileNode } from '../commands/sshd';
+import { FTP_PID_FILE_NAME, createFtpdPidFileNode } from '../commands/ftpd';
 
 type FilesystemInput = {
   readonly prng: Prng;
@@ -490,9 +491,16 @@ const buildMachineConfig = (
     );
   }
 
-  // Machines with SSH port open have sshd already running — include pid file
+  // Machines with SSH/FTP ports open have daemons already running — include pid files
   const hasSshOpen = machine.remoteMachine.ports.some((p) => p.service === 'ssh' && p.open);
-  const varRunContent = hasSshOpen ? { [SSH_PID_FILE_NAME]: createSshdPidFileNode() } : undefined;
+  const hasFtpOpen = machine.remoteMachine.ports.some((p) => p.service === 'ftp' && p.open);
+  const varRunContent =
+    hasSshOpen || hasFtpOpen
+      ? {
+          ...(hasSshOpen ? { [SSH_PID_FILE_NAME]: createSshdPidFileNode() } : {}),
+          ...(hasFtpOpen ? { [FTP_PID_FILE_NAME]: createFtpdPidFileNode() } : {}),
+        }
+      : undefined;
 
   return {
     users: userConfigs,
