@@ -638,7 +638,8 @@ describe('nmap command', () => {
         );
       }
 
-      vi.advanceTimersByTime(600);
+      // jitter(500) can produce up to 625ms (500 * 1.25)
+      vi.advanceTimersByTime(650);
 
       expect(lines.some((l) => l.includes('All scanned ports are closed'))).toBe(true);
       expect(completed).toBe(true);
