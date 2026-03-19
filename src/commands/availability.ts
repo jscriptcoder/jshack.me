@@ -56,7 +56,12 @@ export type AptPackageInfo = {
 export const APT_PACKAGES: readonly AptPackageInfo[] = [
   { name: 'nmap', description: 'Network exploration and port scanner', version: '7.93' },
   { name: 'john', description: 'John the Ripper password cracker', version: '1.9.0' },
-  { name: 'nc', description: 'Netcat — TCP/UDP connection utility', version: '1.10' },
+  {
+    name: 'nc',
+    description: 'Netcat — TCP/UDP connection utility',
+    version: '1.10',
+    binaries: ['nc', 'ncat'],
+  },
   { name: 'ftp', description: 'FTP client for file transfers', version: '0.17' },
   {
     name: 'metasploit',
@@ -117,6 +122,7 @@ export const APT_TOOL_NAMES = [
   'nmap',
   'john',
   'nc',
+  'ncat',
   'ftp',
   'msfconsole',
   'airmon',

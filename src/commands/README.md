@@ -49,12 +49,13 @@ FTP and NC modes have their own separate command sets and are not restricted.
 
 ## Daemon
 
-Root-only admin utilities in `/usr/sbin/`. Write PID files to `/var/run/` — `NetworkContext` reads these to dynamically open ports.
+Admin utilities that write PID files to `/var/run/` — `NetworkContext` reads these to dynamically open ports.
 
-| Command | File      | Signature      | Description                                   |
-| ------- | --------- | -------------- | --------------------------------------------- |
-| sshd    | `sshd.ts` | `sshd([port])` | Start SSH daemon (writes `/var/run/sshd.pid`) |
-| ftpd    | `ftpd.ts` | `ftpd([port])` | Start FTP daemon (writes `/var/run/ftpd.pid`) |
+| Command | File      | Signature      | Description                                                          |
+| ------- | --------- | -------------- | -------------------------------------------------------------------- |
+| sshd    | `sshd.ts` | `sshd([port])` | Start SSH daemon (root-only, writes `/var/run/sshd.pid`)             |
+| ftpd    | `ftpd.ts` | `ftpd([port])` | Start FTP daemon (root-only, writes `/var/run/ftpd.pid`)             |
+| ncat    | `ncat.ts` | `ncat(port)`   | Open backdoor listener (any user, writes `/var/run/ncat-<port>.pid`) |
 
 ## Mission
 
@@ -103,6 +104,7 @@ Root-only admin utilities in `/usr/sbin/`. Write PID files to `/var/run/` — `N
 | curl       | `curl.ts`       | `curl(url, [flags])`             | HTTP client for GET/POST requests (async, `-i` for headers, `-X POST`)        |
 | ftp        | `ftp.ts`        | `ftp(host[, user, pw])`          | Connect to remote machine via FTP (async, optional inline auth)               |
 | nc         | `nc.ts`         | `nc(host, port)`                 | Netcat - connect to arbitrary port (async, interactive for special services)  |
+| ncat       | `ncat.ts`       | `ncat(port)`                     | Open backdoor listener on a port (writes PID file, any user)                  |
 | msfconsole | `msfconsole.ts` | `msfconsole(host, port)`         | Exploit a vulnerable service for RCE (async, drops into restricted shell)     |
 | hydra      | `hydra.ts`      | `hydra(host[, svc[, user]])`     | Brute-force SSH/FTP login credentials (async, probability-based)              |
 | gobuster   | `gobuster.ts`   | `gobuster("dir", url)`           | Enumerate directories/files on web servers (async, walks /var/www/html/ tree) |

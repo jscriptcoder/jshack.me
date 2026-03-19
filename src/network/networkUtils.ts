@@ -3,6 +3,7 @@ import type { GeneratedMachine, NatForwardingRule } from '../generation/types';
 import type { SnmpFirewallOverride } from './snmpFirewallParser';
 import type { SshdPortOverride } from './sshdStateParser';
 import type { FtpdPortOverride } from './ftpdStateParser';
+import type { NcatPortOverride } from './ncatStateParser';
 
 // Builds a merged view of the router that includes NAT-forwarded ports from
 // internal machines, remapped to their public port numbers.
@@ -75,9 +76,11 @@ export const applySnmpFirewallOverrides = (
 // opens an existing closed port or adds a new port entry. Closed ports whose
 // service is already handled by a daemon on a different port are removed to
 // avoid showing duplicate services (e.g. closed port 22 + open port 2223).
+type DaemonOverride = SshdPortOverride | FtpdPortOverride | NcatPortOverride;
+
 export const applyDaemonOverrides = (
   machine: RemoteMachine,
-  overrides: readonly (SshdPortOverride | FtpdPortOverride)[],
+  overrides: readonly DaemonOverride[],
 ): RemoteMachine => {
   const overrideMap = new Map(overrides.map((o) => [o.port, o]));
   const overrideServices: ReadonlySet<string> = new Set(overrides.map((o) => o.service));
@@ -91,13 +94,19 @@ export const applyDaemonOverrides = (
       const override = overrideMap.get(p.port);
       if (!override) return p;
       overrideMap.delete(p.port);
-      return { ...p, open: true, service: override.service };
+      return {
+        ...p,
+        open: true,
+        service: override.service,
+        ...('owner' in override ? { owner: override.owner } : {}),
+      };
     });
   // Add new ports that didn't exist in the machine's port list
   const newPorts = [...overrideMap.values()].map((o) => ({
     port: o.port,
     service: o.service,
     open: true as const,
+    ...('owner' in o ? { owner: o.owner } : {}),
   }));
   return { ...machine, ports: [...existingPorts, ...newPorts] };
 };

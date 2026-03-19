@@ -19,6 +19,7 @@ import { createAptCommand } from '../commands/apt';
 import { createRebootCommand } from '../commands/reboot';
 import { createSshdCommand } from '../commands/sshd';
 import { createFtpdCommand } from '../commands/ftpd';
+import { createNcatCommand } from '../commands/ncat';
 import { createBashCommand } from '../commands/bash';
 import { createPsCommand } from '../commands/ps';
 import { xtermCommand } from '../commands/xterm';
@@ -209,6 +210,18 @@ export const useCommands = (): UseCommandsResult => {
     );
 
     commands.set(
+      'ncat',
+      createNcatCommand({
+        getMachine: () => session.machine,
+        getMachineInfo,
+        getNodeFromMachine,
+        createFileOnMachine: createFile,
+        getUser: () => session.username,
+        getUserType: () => session.userType,
+      }),
+    );
+
+    commands.set(
       'ps',
       createPsCommand({
         getMachine: () => session.machine,
@@ -283,6 +296,7 @@ export const useCommands = (): UseCommandsResult => {
     networkCommands,
     wifiCommands,
     getUsers,
+    session.username,
     session.userType,
     session.machine,
     session.currentPath,

@@ -16,6 +16,7 @@ import { parseSnmpFirewallConfig } from './snmpFirewallParser';
 import type { SnmpFirewallOverride } from './snmpFirewallParser';
 import { parseSshdState } from './sshdStateParser';
 import { parseFtpdState } from './ftpdStateParser';
+import { parseNcatPidFiles } from './ncatStateParser';
 import { SSH_PID_FILE_PATH } from '../commands/sshd';
 import { FTP_PID_FILE_PATH } from '../commands/ftpd';
 import { ipToMachineId } from '../filesystem/machineFileSystems';
@@ -173,6 +174,11 @@ export const NetworkProvider = ({
         const overrides = parseFtpdState(ftpdNode.content);
         if (overrides.length > 0) result = applyDaemonOverrides(result, overrides);
       }
+
+      // ncat state — scan /var/run/ for ncat-*.pid files
+      const varRunNode = getNodeFromMachine(fsId, '/var/run', '/');
+      const ncatOverrides = parseNcatPidFiles(varRunNode);
+      if (ncatOverrides.length > 0) result = applyDaemonOverrides(result, ncatOverrides);
 
       return result;
     });
