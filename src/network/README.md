@@ -14,7 +14,7 @@ Simulated network environment for hacking missions. Defines the topology, machin
 | `snmpFirewallParser.ts` | Pure parser for SNMP firewall OIDs in `/etc/snmp/snmpd.conf` — maps `firewallSSH`/`firewallHTTP` `permit`/`deny` to port overrides |
 | `sshdStateParser.ts`    | Pure parser for `/var/run/sshd.pid` — extracts `sshd:port=N` into SSH port override                                                |
 | `ftpdStateParser.ts`    | Pure parser for `/var/run/ftpd.pid` — extracts `ftpd:port=N` into FTP port override                                                |
-| `ncatStateParser.ts`    | Pure parser for `/var/run/ncat-*.pid` — extracts `ncat:port=N,user=X,userType=T,home=P` into elite port overrides with owner       |
+| `ncStateParser.ts`      | Pure parser for `/var/run/nc-*.pid` — extracts `nc:port=N,user=X,userType=T,home=P` into elite port overrides with owner           |
 | `index.ts`              | Module exports                                                                                                                     |
 
 ## Network Topology
@@ -161,6 +161,6 @@ For the SNMP entry variant, `NetworkProvider` also reads `/etc/snmp/snmpd.conf` 
 
 ## Dynamic Daemon Ports
 
-`NetworkProvider` reads PID files (`/var/run/sshd.pid`, `/var/run/ftpd.pid`, `/var/run/ncat-*.pid`) from each machine's filesystem. When the player starts a daemon (e.g., `sshd(2222)`, `bash('/usr/sbin/ftpd')`, or `ncat(4444)`), the command writes a PID file. `parseSshdState()`, `parseFtpdState()`, and `parseNcatPidFiles()` extract port overrides, and `applyDaemonOverrides()` opens the corresponding port on the machine's `RemoteMachine` view. This enables dynamic SSH/FTP/backdoor port opening from NC shells during lateral movement.
+`NetworkProvider` reads PID files (`/var/run/sshd.pid`, `/var/run/ftpd.pid`, `/var/run/nc-*.pid`) from each machine's filesystem. When the player starts a daemon (e.g., `sshd(2222)`, `bash('/usr/sbin/ftpd')`, or `nc("-l", 4444)`), the command writes a PID file. `parseSshdState()`, `parseFtpdState()`, and `parseNcPidFiles()` extract port overrides, and `applyDaemonOverrides()` opens the corresponding port on the machine's `RemoteMachine` view. This enables dynamic SSH/FTP/backdoor port opening from NC shells during lateral movement.
 
-`ncat` PID files include owner metadata (`user`, `userType`, `home`) so that when another player connects via `nc()`, they land as the user who opened the listener. Port binding follows Unix rules: ports below 1024 require root.
+`nc` listener PID files include owner metadata (`user`, `userType`, `home`) so that when another player connects via `nc()`, they land as the user who opened the listener. Port binding follows Unix rules: ports below 1024 require root.

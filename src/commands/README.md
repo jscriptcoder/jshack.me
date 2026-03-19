@@ -51,11 +51,11 @@ FTP and NC modes have their own separate command sets and are not restricted.
 
 Admin utilities that write PID files to `/var/run/` — `NetworkContext` reads these to dynamically open ports.
 
-| Command | File      | Signature      | Description                                                          |
-| ------- | --------- | -------------- | -------------------------------------------------------------------- |
-| sshd    | `sshd.ts` | `sshd([port])` | Start SSH daemon (root-only, writes `/var/run/sshd.pid`)             |
-| ftpd    | `ftpd.ts` | `ftpd([port])` | Start FTP daemon (root-only, writes `/var/run/ftpd.pid`)             |
-| ncat    | `ncat.ts` | `ncat(port)`   | Open backdoor listener (any user, writes `/var/run/ncat-<port>.pid`) |
+| Command | File      | Signature        | Description                                                        |
+| ------- | --------- | ---------------- | ------------------------------------------------------------------ |
+| sshd    | `sshd.ts` | `sshd([port])`   | Start SSH daemon (root-only, writes `/var/run/sshd.pid`)           |
+| ftpd    | `ftpd.ts` | `ftpd([port])`   | Start FTP daemon (root-only, writes `/var/run/ftpd.pid`)           |
+| nc -l   | `nc.ts`   | `nc("-l", port)` | Open backdoor listener (any user, writes `/var/run/nc-<port>.pid`) |
 
 ## Mission
 
@@ -93,23 +93,22 @@ Admin utilities that write PID files to `/var/run/` — `NetworkContext` reads t
 
 ## Network
 
-| Command    | File            | Signature                        | Description                                                                   |
-| ---------- | --------------- | -------------------------------- | ----------------------------------------------------------------------------- |
-| ifconfig   | `ifconfig.ts`   | `ifconfig([iface])`              | Display network interface configuration                                       |
-| ping       | `ping.ts`       | `ping(host, [count])`            | Send ICMP echo request to network host (async)                                |
-| nmap       | `nmap.ts`       | `nmap(target[, "-sV"][, "-sU"])` | Port scanning; -sV version detection, -sU UDP scan (async)                    |
-| nslookup   | `nslookup.ts`   | `nslookup(domain)`               | Query DNS to resolve domain to IP address (async)                             |
-| ssh        | `ssh.ts`        | `ssh("user@host"[, port][, pw])` | Connect to remote machine via SSH (async, optional inline auth)               |
-| scp        | `scp.ts`        | `scp(src, dest[, port][, pw])`   | Copy file to remote machine (async, optional inline auth)                     |
-| curl       | `curl.ts`       | `curl(url, [flags])`             | HTTP client for GET/POST requests (async, `-i` for headers, `-X POST`)        |
-| ftp        | `ftp.ts`        | `ftp(host[, user, pw])`          | Connect to remote machine via FTP (async, optional inline auth)               |
-| nc         | `nc.ts`         | `nc(host, port)`                 | Netcat - connect to arbitrary port (async, interactive for special services)  |
-| ncat       | `ncat.ts`       | `ncat(port)`                     | Open backdoor listener on a port (writes PID file, any user)                  |
-| msfconsole | `msfconsole.ts` | `msfconsole(host, port)`         | Exploit a vulnerable service for RCE (async, drops into restricted shell)     |
-| hydra      | `hydra.ts`      | `hydra(host[, svc[, user]])`     | Brute-force SSH/FTP login credentials (async, probability-based)              |
-| gobuster   | `gobuster.ts`   | `gobuster("dir", url)`           | Enumerate directories/files on web servers (async, walks /var/www/html/ tree) |
-| snmpwalk   | `snmpwalk.ts`   | `snmpwalk(host[, community])`    | Walk SNMP MIB tree; public=basic info, RW=full data with creds (async)        |
-| snmpset    | `snmpset.ts`    | `snmpset(host, comm, "k=v")`     | Set writable SNMP OID (firewall rules); requires RW community (async)         |
+| Command    | File            | Signature                          | Description                                                                   |
+| ---------- | --------------- | ---------------------------------- | ----------------------------------------------------------------------------- |
+| ifconfig   | `ifconfig.ts`   | `ifconfig([iface])`                | Display network interface configuration                                       |
+| ping       | `ping.ts`       | `ping(host, [count])`              | Send ICMP echo request to network host (async)                                |
+| nmap       | `nmap.ts`       | `nmap(target[, "-sV"][, "-sU"])`   | Port scanning; -sV version detection, -sU UDP scan (async)                    |
+| nslookup   | `nslookup.ts`   | `nslookup(domain)`                 | Query DNS to resolve domain to IP address (async)                             |
+| ssh        | `ssh.ts`        | `ssh("user@host"[, port][, pw])`   | Connect to remote machine via SSH (async, optional inline auth)               |
+| scp        | `scp.ts`        | `scp(src, dest[, port][, pw])`     | Copy file to remote machine (async, optional inline auth)                     |
+| curl       | `curl.ts`       | `curl(url, [flags])`               | HTTP client for GET/POST requests (async, `-i` for headers, `-X POST`)        |
+| ftp        | `ftp.ts`        | `ftp(host[, user, pw])`            | Connect to remote machine via FTP (async, optional inline auth)               |
+| nc         | `nc.ts`         | `nc(host, port) \| nc("-l", port)` | Netcat - connect to port or open backdoor listener with -l (async/sync)       |
+| msfconsole | `msfconsole.ts` | `msfconsole(host, port)`           | Exploit a vulnerable service for RCE (async, drops into restricted shell)     |
+| hydra      | `hydra.ts`      | `hydra(host[, svc[, user]])`       | Brute-force SSH/FTP login credentials (async, probability-based)              |
+| gobuster   | `gobuster.ts`   | `gobuster("dir", url)`             | Enumerate directories/files on web servers (async, walks /var/www/html/ tree) |
+| snmpwalk   | `snmpwalk.ts`   | `snmpwalk(host[, community])`      | Walk SNMP MIB tree; public=basic info, RW=full data with creds (async)        |
+| snmpset    | `snmpset.ts`    | `snmpset(host, comm, "k=v")`       | Set writable SNMP OID (firewall rules); requires RW community (async)         |
 
 ## WiFi
 

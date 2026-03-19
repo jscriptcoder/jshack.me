@@ -70,7 +70,7 @@ Commands use a unified filesystem-based access model (`src/commands/availability
 - **System utilities** in `/bin/` — always present, world-executable (except `reboot`: root-only)
 - **Apt-installable tools** in `/usr/bin/` — require `apt install` as root (needs network); only WiFi tools (airmon, airdump, aircrack), node, and gpg are pre-installed on localhost; world-executable once installed (except `gpg`: root-only)
 - **Admin utilities** in `/usr/sbin/` — root-only daemon management (`sshd`, `ftpd`); write PID files to `/var/run/` for dynamic port opening via `NetworkContext`
-- **Backdoor listener** — `ncat(port)` opens a listener on any machine; part of `nc` apt package (`/usr/bin/ncat`); any user can run it but ports < 1024 require root; writes `/var/run/ncat-<port>.pid` with owner info
+- **Backdoor listener** — `nc("-l", port)` opens a listener on any machine; part of `netcat` apt package (`/usr/bin/nc`); any user can run it but ports < 1024 require root; writes `/var/run/nc-<port>.pid` with owner info
 - **Root-only binaries**: `reboot`, `gpg`, `sshd`, and `ftpd` have `execute: ['root']`
 
 ### Filesystem Permissions
