@@ -13,6 +13,7 @@ import { useNcCommands } from '../../hooks/useNcCommands';
 import { useSession } from '../../session/SessionContext';
 import type { NcSession } from '../../session/SessionContext';
 import { useFileSystem } from '../../filesystem/FileSystemContext';
+import { ipToMachineId } from '../../filesystem/machineFileSystems';
 import { useNetwork } from '../../network';
 import type { OutputLine, AuthorData } from './types';
 import {
@@ -328,13 +329,15 @@ export const Terminal = () => {
                 }
 
                 if (isNcPrompt(followUp)) {
+                  const resolvedIP = resolveNat(followUp.targetIP, followUp.targetPort).ip;
                   const newNcSession: NcSession = {
-                    targetIP: resolveNat(followUp.targetIP, followUp.targetPort).ip,
+                    targetIP: resolvedIP,
                     targetPort: followUp.targetPort,
                     service: followUp.service,
                     username: followUp.username,
                     userType: followUp.userType,
                     currentPath: followUp.homePath,
+                    machineId: ipToMachineId[resolvedIP] ?? resolvedIP,
                   };
                   enterNcMode(newNcSession);
                 }

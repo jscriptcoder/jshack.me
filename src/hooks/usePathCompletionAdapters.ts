@@ -51,13 +51,13 @@ export const usePathCompletionAdapters = ({
   const ncListDirectory = useCallback(
     (path: string, ut: UserType): string[] | null =>
       ncSession
-        ? listDirectoryFromMachine(ncSession.targetIP, path, ncSession.currentPath, ut)
+        ? listDirectoryFromMachine(ncSession.machineId, path, ncSession.currentPath, ut)
         : null,
     [ncSession, listDirectoryFromMachine],
   );
   const ncGetNode = useCallback(
     (path: string): FileNode | null =>
-      ncSession ? getNodeFromMachine(ncSession.targetIP, path, ncSession.currentPath) : null,
+      ncSession ? getNodeFromMachine(ncSession.machineId, path, ncSession.currentPath) : null,
     [ncSession, getNodeFromMachine],
   );
   const ncResolvePath = useCallback(

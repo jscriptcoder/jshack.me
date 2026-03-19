@@ -59,6 +59,9 @@ export type NcSession = {
   readonly username: string;
   readonly userType: UserType;
   readonly currentPath: string;
+  // Filesystem key for the target machine. Usually equals targetIP, but
+  // localhost uses "localhost" as its filesystem key rather than its network IP.
+  readonly machineId: string;
 };
 
 export type PersistedState = {
@@ -107,7 +110,12 @@ const getInitialState = (): PersistedState => {
       ...persisted,
       session: normalizeSession(persisted.session),
       sessionStack: persisted.sessionStack.map(normalizeSnapshot),
-      ncSession: persisted.ncSession ?? null,
+      ncSession: persisted.ncSession
+        ? {
+            ...persisted.ncSession,
+            machineId: persisted.ncSession.machineId ?? persisted.ncSession.targetIP,
+          }
+        : null,
     };
   }
   return {
