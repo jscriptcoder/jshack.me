@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { RemoteMachine, DnsRecord } from '../network/types';
 import type { AsyncOutput, NcPromptData } from '../components/Terminal/types';
-import { createNcCommand } from './nc';
+import { createNcCommand, startNcListener, createNcPidContent, type NcListenAdapter } from './nc';
 
 // --- Factory Functions ---
 
@@ -26,6 +26,13 @@ const createMockNcContext = (config: NcContextConfig = {}) => {
     getMachine: (ip: string) => machines.find((m) => m.ip === ip),
     getLocalIP: () => localIP,
     resolveDomain: (domain: string) => dnsRecords.find((r) => r.domain === domain),
+    getListenAdapter: () => ({
+      isPortOpen: () => false,
+      pidFileExists: () => false,
+      writePidFile: vi.fn(),
+      username: 'user',
+      userType: 'user' as const,
+    }),
   };
 };
 
@@ -459,5 +466,133 @@ describe('nc command', () => {
       expect(lines.length).toBe(1);
       expect(lines[0]).toBe('Connecting to 192.168.1.50:21...');
     });
+  });
+});
+
+// --- Listen mode (nc -l) ---
+
+const createListenAdapter = (overrides: Partial<NcListenAdapter> = {}): NcListenAdapter => ({
+  isPortOpen: overrides.isPortOpen ?? (() => false),
+  pidFileExists: overrides.pidFileExists ?? (() => false),
+  writePidFile: overrides.writePidFile ?? vi.fn(),
+  username: overrides.username ?? 'webadmin',
+  userType: overrides.userType ?? 'user',
+});
+
+describe('startNcListener', () => {
+  it('starts listener on valid high port for non-root user', () => {
+    const writePidFile = vi.fn();
+    const adapter = createListenAdapter({ writePidFile });
+
+    const result = startNcListener(adapter, ['-l', 4444]);
+
+    expect(result).toContain('Listening on 0.0.0.0 4444');
+    expect(writePidFile).toHaveBeenCalledWith(
+      4444,
+      'nc:port=4444,user=webadmin,userType=user,home=/home/webadmin',
+    );
+  });
+
+  it('accepts -l flag after port number', () => {
+    const writePidFile = vi.fn();
+    const adapter = createListenAdapter({ writePidFile });
+
+    const result = startNcListener(adapter, [4444, '-l']);
+
+    expect(result).toContain('Listening on 0.0.0.0 4444');
+    expect(writePidFile).toHaveBeenCalledWith(
+      4444,
+      'nc:port=4444,user=webadmin,userType=user,home=/home/webadmin',
+    );
+  });
+
+  it('starts listener on privileged port for root', () => {
+    const writePidFile = vi.fn();
+    const adapter = createListenAdapter({ writePidFile, username: 'root', userType: 'root' });
+
+    const result = startNcListener(adapter, ['-l', 443]);
+
+    expect(result).toContain('Listening on 0.0.0.0 443');
+    expect(writePidFile).toHaveBeenCalledWith(
+      443,
+      'nc:port=443,user=root,userType=root,home=/root',
+    );
+  });
+
+  it('rejects privileged port for non-root user', () => {
+    const adapter = createListenAdapter({ userType: 'user' });
+
+    expect(() => startNcListener(adapter, ['-l', 80])).toThrow('permission denied');
+  });
+
+  it('rejects privileged port for guest user', () => {
+    const adapter = createListenAdapter({ username: 'ftpuser', userType: 'guest' });
+
+    expect(() => startNcListener(adapter, ['-l', 443])).toThrow('permission denied');
+  });
+
+  it('allows high port for guest user', () => {
+    const writePidFile = vi.fn();
+    const adapter = createListenAdapter({
+      writePidFile,
+      username: 'ftpuser',
+      userType: 'guest',
+    });
+
+    const result = startNcListener(adapter, ['-l', 8888]);
+
+    expect(result).toContain('Listening on 0.0.0.0 8888');
+    expect(writePidFile).toHaveBeenCalled();
+  });
+
+  it('rejects port already open on machine', () => {
+    const adapter = createListenAdapter({ isPortOpen: (port) => port === 4444 });
+
+    expect(() => startNcListener(adapter, ['-l', 4444])).toThrow('already in use');
+  });
+
+  it('rejects port with existing pid file', () => {
+    const adapter = createListenAdapter({ pidFileExists: (port) => port === 4444 });
+
+    expect(() => startNcListener(adapter, ['-l', 4444])).toThrow('already listening');
+  });
+
+  it('rejects missing -l flag', () => {
+    const adapter = createListenAdapter();
+
+    expect(() => startNcListener(adapter, [4444])).toThrow('usage');
+  });
+
+  it('rejects missing port argument', () => {
+    const adapter = createListenAdapter();
+
+    expect(() => startNcListener(adapter, ['-l'])).toThrow('usage');
+  });
+
+  it('rejects non-numeric port', () => {
+    const adapter = createListenAdapter();
+
+    expect(() => startNcListener(adapter, ['-l', 'abc'])).toThrow('invalid port');
+  });
+
+  it('rejects port out of range', () => {
+    const adapter = createListenAdapter({ userType: 'root' });
+
+    expect(() => startNcListener(adapter, ['-l', 0])).toThrow('invalid port');
+    expect(() => startNcListener(adapter, ['-l', 70000])).toThrow('invalid port');
+  });
+});
+
+describe('createNcPidContent', () => {
+  it('creates pid content with nc: prefix for regular user', () => {
+    expect(createNcPidContent(4444, 'webadmin', 'user')).toBe(
+      'nc:port=4444,user=webadmin,userType=user,home=/home/webadmin',
+    );
+  });
+
+  it('creates pid content with /root home for root user', () => {
+    expect(createNcPidContent(443, 'root', 'root')).toBe(
+      'nc:port=443,user=root,userType=root,home=/root',
+    );
   });
 });

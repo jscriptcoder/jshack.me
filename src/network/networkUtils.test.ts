@@ -4,7 +4,7 @@ import type { GeneratedMachine, NatForwardingRule } from '../generation/types';
 import type { SnmpFirewallOverride } from './snmpFirewallParser';
 import type { SshdPortOverride } from './sshdStateParser';
 import type { FtpdPortOverride } from './ftpdStateParser';
-import type { NcatPortOverride } from './ncatStateParser';
+import type { NcPortOverride } from './ncStateParser';
 import {
   applyDaemonOverrides,
   applySnmpFirewallOverrides,
@@ -160,10 +160,10 @@ describe('applyDaemonOverrides', () => {
     });
   });
 
-  describe('ncat overrides with owner', () => {
-    it('should add new port with owner when ncat override has owner', () => {
+  describe('nc listener overrides with owner', () => {
+    it('should add new port with owner when nc listener override has owner', () => {
       const machine = createMachine({ ports: [] });
-      const overrides: readonly NcatPortOverride[] = [
+      const overrides: readonly NcPortOverride[] = [
         {
           port: 4444,
           service: 'elite',
@@ -188,7 +188,7 @@ describe('applyDaemonOverrides', () => {
       const machine = createMachine({
         ports: [createPort({ port: 4444, service: 'elite', open: false })],
       });
-      const overrides: readonly NcatPortOverride[] = [
+      const overrides: readonly NcPortOverride[] = [
         {
           port: 4444,
           service: 'elite',
@@ -209,11 +209,11 @@ describe('applyDaemonOverrides', () => {
       ]);
     });
 
-    it('should handle ncat override alongside sshd override', () => {
+    it('should handle nc listener override alongside sshd override', () => {
       const machine = createMachine({
         ports: [createPort({ port: 22, service: 'ssh', open: false })],
       });
-      const overrides: readonly (SshdPortOverride | NcatPortOverride)[] = [
+      const overrides: readonly (SshdPortOverride | NcPortOverride)[] = [
         { port: 22, service: 'ssh', open: true },
         {
           port: 4444,

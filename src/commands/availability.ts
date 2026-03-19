@@ -35,7 +35,7 @@ export const LOCALHOST_PREINSTALLED_TOOLS = [
 export const APT_INSTALLABLE = new Set([
   'nmap',
   'john',
-  'nc',
+  'netcat',
   'ftp',
   'metasploit',
   'aircrack',
@@ -57,10 +57,10 @@ export const APT_PACKAGES: readonly AptPackageInfo[] = [
   { name: 'nmap', description: 'Network exploration and port scanner', version: '7.93' },
   { name: 'john', description: 'John the Ripper password cracker', version: '1.9.0' },
   {
-    name: 'nc',
+    name: 'netcat',
     description: 'Netcat — TCP/UDP connection utility',
     version: '1.10',
-    binaries: ['nc', 'ncat'],
+    binaries: ['nc'],
   },
   { name: 'ftp', description: 'FTP client for file transfers', version: '0.17' },
   {
@@ -122,7 +122,6 @@ export const APT_TOOL_NAMES = [
   'nmap',
   'john',
   'nc',
-  'ncat',
   'ftp',
   'msfconsole',
   'airmon',

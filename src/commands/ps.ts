@@ -1,7 +1,8 @@
 import type { Command } from '../components/Terminal/types';
 import type { FileNode } from '../filesystem/types';
 import type { RemoteMachine } from '../network/types';
-import { parseNcatPidContent } from '../network/ncatStateParser';
+import { parseNcPidContent } from '../network/ncStateParser';
+import { NC_PID_FILE_PREFIX } from './nc';
 
 type Process = {
   readonly pid: number;
@@ -50,19 +51,19 @@ export const listProcesses = (adapter: PsAdapter): readonly Process[] => {
     processes.push({ pid: nextPid++, user: 'root', command: `/usr/sbin/ftpd -p ${port}` });
   }
 
-  // ncat listeners from PID files in /var/run/ncat-*.pid
-  const ncatPorts = new Set<number>();
+  // nc listeners from PID files in /var/run/nc-*.pid
+  const ncListenerPorts = new Set<number>();
   const varRunEntries = adapter.readDirectory('/var/run');
   if (varRunEntries) {
     for (const [name, content] of Object.entries(varRunEntries)) {
-      if (!name.startsWith('ncat-') || !name.endsWith('.pid')) continue;
-      const overrides = parseNcatPidContent(content);
+      if (!name.startsWith(NC_PID_FILE_PREFIX) || !name.endsWith('.pid')) continue;
+      const overrides = parseNcPidContent(content);
       for (const override of overrides) {
-        ncatPorts.add(override.port);
+        ncListenerPorts.add(override.port);
         processes.push({
           pid: nextPid++,
           user: override.owner.username,
-          command: `/usr/bin/ncat -lvnp ${override.port}`,
+          command: `/usr/bin/nc -lvnp ${override.port}`,
         });
       }
     }
@@ -75,13 +76,13 @@ export const listProcesses = (adapter: PsAdapter): readonly Process[] => {
     for (const port of machineInfo.ports) {
       if (!port.open) continue;
 
-      // Backdoor ports are netcat listeners — skip if already added from PID file
+      // Backdoor ports are nc listeners — skip if already added from PID file
       if (port.service === 'elite') {
-        if (!ncatPorts.has(port.port)) {
+        if (!ncListenerPorts.has(port.port)) {
           processes.push({
             pid: nextPid++,
             user: port.owner?.username ?? 'root',
-            command: `/usr/bin/ncat -lvnp ${port.port}`,
+            command: `/usr/bin/nc -lvnp ${port.port}`,
           });
         }
         continue;

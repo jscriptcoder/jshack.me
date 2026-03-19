@@ -8,7 +8,7 @@ import { createNmapCommand } from '../commands/nmap';
 import { createNslookupCommand } from '../commands/nslookup';
 import { createSshCommand } from '../commands/ssh';
 import { createFtpCommand } from '../commands/ftp';
-import { createNcCommand } from '../commands/nc';
+import { createNcCommand, ncPidFilePath } from '../commands/nc';
 import { createCurlCommand } from '../commands/curl';
 import { createMsfconsoleCommand } from '../commands/msfconsole';
 import { createHydraCommand } from '../commands/hydra';
@@ -102,13 +102,25 @@ export const useNetworkCommands = (): Map<string, Command> => {
 
     commands.set(
       'nc',
-      wrapWithBrickedCheck(
-        wrapWithWifiCheck(
-          createNcCommand({ getMachine, getLocalIP, resolveDomain }),
-          isWifiRequired,
-        ),
+      createNcCommand({
+        getMachine,
+        getLocalIP,
+        resolveDomain,
+        isWifiRequired,
         isMachineBricked,
-      ),
+        getListenAdapter: () => ({
+          isPortOpen: (port) =>
+            getMachine(session.machine)?.ports.some((p) => p.port === port && p.open) ?? false,
+          pidFileExists: (port) => {
+            const node = getNodeFromMachine(session.machine, ncPidFilePath(port), '/');
+            return node !== null && node.type === 'file';
+          },
+          writePidFile: (port, content) =>
+            createFileOnMachine(session.machine, ncPidFilePath(port), '/', content, 'root'),
+          username: session.username,
+          userType: session.userType,
+        }),
+      }),
     );
 
     commands.set(
@@ -229,6 +241,8 @@ export const useNetworkCommands = (): Map<string, Command> => {
     writeFileToMachine,
     session.machine,
     session.currentPath,
+    session.username,
+    session.userType,
     wifiConnected,
     isMachineBricked,
   ]);

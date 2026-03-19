@@ -97,7 +97,7 @@ describe('listProcesses', () => {
     );
   });
 
-  it('shows ncat listener for backdoor port with owner', () => {
+  it('shows nc listener for backdoor port with owner', () => {
     const adapter = createAdapter({
       getMachineInfo: () =>
         makeMachine([
@@ -113,11 +113,11 @@ describe('listProcesses', () => {
     expect(processes).toContainEqual({
       pid: 100,
       user: 'webadmin',
-      command: '/usr/bin/ncat -lvnp 4444',
+      command: '/usr/bin/nc -lvnp 4444',
     });
   });
 
-  it('shows ncat listener as root when backdoor has no owner', () => {
+  it('shows nc listener as root when backdoor has no owner', () => {
     const adapter = createAdapter({
       getMachineInfo: () => makeMachine([{ port: 31337, service: 'elite', open: true }]),
     });
@@ -125,16 +125,16 @@ describe('listProcesses', () => {
     expect(processes).toContainEqual({
       pid: 100,
       user: 'root',
-      command: '/usr/bin/ncat -lvnp 31337',
+      command: '/usr/bin/nc -lvnp 31337',
     });
   });
 
-  it('shows ncat listener from PID file when machineInfo is unavailable', () => {
+  it('shows nc listener from PID file when machineInfo is unavailable', () => {
     const adapter = createAdapter({
       readDirectory: (path) =>
         path === '/var/run'
           ? {
-              'ncat-8888.pid': 'ncat:port=8888,user=webadmin,userType=user,home=/home/webadmin',
+              'nc-8888.pid': 'nc:port=8888,user=webadmin,userType=user,home=/home/webadmin',
             }
           : undefined,
     });
@@ -142,27 +142,27 @@ describe('listProcesses', () => {
     expect(processes).toContainEqual({
       pid: 100,
       user: 'webadmin',
-      command: '/usr/bin/ncat -lvnp 8888',
+      command: '/usr/bin/nc -lvnp 8888',
     });
   });
 
-  it('shows multiple ncat listeners from PID files', () => {
+  it('shows multiple nc listeners from PID files', () => {
     const adapter = createAdapter({
       readDirectory: (path) =>
         path === '/var/run'
           ? {
-              'ncat-4444.pid': 'ncat:port=4444,user=root,userType=root,home=/root',
-              'ncat-8888.pid': 'ncat:port=8888,user=ftpuser,userType=guest,home=/home/ftpuser',
+              'nc-4444.pid': 'nc:port=4444,user=root,userType=root,home=/root',
+              'nc-8888.pid': 'nc:port=8888,user=ftpuser,userType=guest,home=/home/ftpuser',
               'sshd.pid': 'sshd:port=22',
             }
           : undefined,
     });
     const processes = listProcesses(adapter);
     expect(processes).toContainEqual(
-      expect.objectContaining({ user: 'root', command: '/usr/bin/ncat -lvnp 4444' }),
+      expect.objectContaining({ user: 'root', command: '/usr/bin/nc -lvnp 4444' }),
     );
     expect(processes).toContainEqual(
-      expect.objectContaining({ user: 'ftpuser', command: '/usr/bin/ncat -lvnp 8888' }),
+      expect.objectContaining({ user: 'ftpuser', command: '/usr/bin/nc -lvnp 8888' }),
     );
   });
 

@@ -245,9 +245,9 @@ describe('apt command', () => {
     });
 
     it('multi-binary package installs missing binaries when some already exist', () => {
-      const { context, createdFiles } = createMockAptContext({ installedTools: ['nc'] });
+      const { context, createdFiles } = createMockAptContext({ installedTools: ['airmon'] });
       const apt = createAptCommand(context);
-      const result = apt.fn('install', 'nc');
+      const result = apt.fn('install', 'aircrack');
 
       expect(isAsyncOutput(result)).toBe(true);
       if (!isAsyncOutput(result)) return;
@@ -259,9 +259,10 @@ describe('apt command', () => {
 
       vi.advanceTimersByTime(3000);
 
-      // Should only create the missing binary, not the existing one
-      expect(createdFiles.some((f) => f.path === '/usr/bin/ncat')).toBe(true);
-      expect(createdFiles.some((f) => f.path === '/usr/bin/nc')).toBe(false);
+      // Should only create missing binaries, not the existing one
+      expect(createdFiles.some((f) => f.path === '/usr/bin/airdump')).toBe(true);
+      expect(createdFiles.some((f) => f.path === '/usr/bin/aircrack')).toBe(true);
+      expect(createdFiles.some((f) => f.path === '/usr/bin/airmon')).toBe(false);
     });
   });
 
@@ -273,7 +274,7 @@ describe('apt command', () => {
       expect(result).toContain('nmap');
       expect(result).toContain('john');
       expect(result).toContain('ftp');
-      expect(result).toContain('nc');
+      expect(result).toContain('netcat');
     });
 
     it('shows installed status for tools with binaries present', () => {

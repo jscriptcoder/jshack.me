@@ -19,7 +19,6 @@ import { createAptCommand } from '../commands/apt';
 import { createRebootCommand } from '../commands/reboot';
 import { createSshdCommand } from '../commands/sshd';
 import { createFtpdCommand } from '../commands/ftpd';
-import { createNcatCommand } from '../commands/ncat';
 import { createBashCommand } from '../commands/bash';
 import { createPsCommand } from '../commands/ps';
 import { xtermCommand } from '../commands/xterm';
@@ -206,18 +205,6 @@ export const useCommands = (): UseCommandsResult => {
         getMachineInfo,
         getNodeFromMachine,
         createFileOnMachine: createFile,
-      }),
-    );
-
-    commands.set(
-      'ncat',
-      createNcatCommand({
-        getMachine: () => session.machine,
-        getMachineInfo,
-        getNodeFromMachine,
-        createFileOnMachine: createFile,
-        getUser: () => session.username,
-        getUserType: () => session.userType,
       }),
     );
 

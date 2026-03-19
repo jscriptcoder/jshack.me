@@ -3,7 +3,7 @@ import type { GeneratedMachine, NatForwardingRule } from '../generation/types';
 import type { SnmpFirewallOverride } from './snmpFirewallParser';
 import type { SshdPortOverride } from './sshdStateParser';
 import type { FtpdPortOverride } from './ftpdStateParser';
-import type { NcatPortOverride } from './ncatStateParser';
+import type { NcPortOverride } from './ncStateParser';
 
 // Builds a merged view of the router that includes NAT-forwarded ports from
 // internal machines, remapped to their public port numbers.
@@ -76,7 +76,7 @@ export const applySnmpFirewallOverrides = (
 // opens an existing closed port or adds a new port entry. Closed ports whose
 // service is already handled by a daemon on a different port are removed to
 // avoid showing duplicate services (e.g. closed port 22 + open port 2223).
-type DaemonOverride = SshdPortOverride | FtpdPortOverride | NcatPortOverride;
+type DaemonOverride = SshdPortOverride | FtpdPortOverride | NcPortOverride;
 
 export const applyDaemonOverrides = (
   machine: RemoteMachine,

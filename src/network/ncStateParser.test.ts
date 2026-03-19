@@ -1,19 +1,19 @@
 import { describe, it, expect } from 'vitest';
-import { parseNcatPidContent, parseNcatPidFiles } from './ncatStateParser';
+import { parseNcPidContent, parseNcPidFiles } from './ncStateParser';
 import type { FileNode } from '../filesystem/types';
 
-describe('parseNcatPidContent', () => {
+describe('parseNcPidContent', () => {
   it('returns empty array for undefined content', () => {
-    expect(parseNcatPidContent(undefined)).toEqual([]);
+    expect(parseNcPidContent(undefined)).toEqual([]);
   });
 
   it('returns empty array for empty string', () => {
-    expect(parseNcatPidContent('')).toEqual([]);
+    expect(parseNcPidContent('')).toEqual([]);
   });
 
   it('parses valid pid file content with user owner', () => {
     expect(
-      parseNcatPidContent('ncat:port=4444,user=webadmin,userType=user,home=/home/webadmin'),
+      parseNcPidContent('nc:port=4444,user=webadmin,userType=user,home=/home/webadmin'),
     ).toEqual([
       {
         port: 4444,
@@ -25,7 +25,7 @@ describe('parseNcatPidContent', () => {
   });
 
   it('parses valid pid file content with root owner', () => {
-    expect(parseNcatPidContent('ncat:port=8888,user=root,userType=root,home=/root')).toEqual([
+    expect(parseNcPidContent('nc:port=8888,user=root,userType=root,home=/root')).toEqual([
       {
         port: 8888,
         service: 'elite',
@@ -37,7 +37,7 @@ describe('parseNcatPidContent', () => {
 
   it('parses valid pid file content with guest owner', () => {
     expect(
-      parseNcatPidContent('ncat:port=1337,user=ftpuser,userType=guest,home=/home/ftpuser'),
+      parseNcPidContent('nc:port=1337,user=ftpuser,userType=guest,home=/home/ftpuser'),
     ).toEqual([
       {
         port: 1337,
@@ -49,25 +49,25 @@ describe('parseNcatPidContent', () => {
   });
 
   it('returns empty array for malformed content', () => {
-    expect(parseNcatPidContent('garbage')).toEqual([]);
-    expect(parseNcatPidContent('ncat:port=')).toEqual([]);
-    expect(parseNcatPidContent('ncat:port=abc,user=x,userType=user,home=/home/x')).toEqual([]);
-    expect(parseNcatPidContent('sshd:port=22')).toEqual([]);
+    expect(parseNcPidContent('garbage')).toEqual([]);
+    expect(parseNcPidContent('nc:port=')).toEqual([]);
+    expect(parseNcPidContent('nc:port=abc,user=x,userType=user,home=/home/x')).toEqual([]);
+    expect(parseNcPidContent('sshd:port=22')).toEqual([]);
   });
 
   it('returns empty array for invalid port number', () => {
-    expect(parseNcatPidContent('ncat:port=0,user=root,userType=root,home=/root')).toEqual([]);
-    expect(parseNcatPidContent('ncat:port=70000,user=root,userType=root,home=/root')).toEqual([]);
+    expect(parseNcPidContent('nc:port=0,user=root,userType=root,home=/root')).toEqual([]);
+    expect(parseNcPidContent('nc:port=70000,user=root,userType=root,home=/root')).toEqual([]);
   });
 
   it('returns empty array for invalid userType', () => {
-    expect(
-      parseNcatPidContent('ncat:port=4444,user=hacker,userType=admin,home=/home/hacker'),
-    ).toEqual([]);
+    expect(parseNcPidContent('nc:port=4444,user=hacker,userType=admin,home=/home/hacker')).toEqual(
+      [],
+    );
   });
 });
 
-describe('parseNcatPidFiles', () => {
+describe('parseNcPidFiles', () => {
   const mkFile = (content: string): FileNode => ({
     name: 'test',
     type: 'file',
@@ -85,16 +85,16 @@ describe('parseNcatPidFiles', () => {
   });
 
   it('returns empty array for null node', () => {
-    expect(parseNcatPidFiles(null)).toEqual([]);
+    expect(parseNcPidFiles(null)).toEqual([]);
   });
 
   it('returns empty array for file node instead of directory', () => {
-    expect(parseNcatPidFiles(mkFile('content'))).toEqual([]);
+    expect(parseNcPidFiles(mkFile('content'))).toEqual([]);
   });
 
-  it('returns empty array for directory with no ncat pid files', () => {
+  it('returns empty array for directory with no nc pid files', () => {
     expect(
-      parseNcatPidFiles(
+      parseNcPidFiles(
         mkDir({
           'sshd.pid': mkFile('sshd:port=22'),
           'ftpd.pid': mkFile('ftpd:port=21'),
@@ -103,10 +103,10 @@ describe('parseNcatPidFiles', () => {
     ).toEqual([]);
   });
 
-  it('parses single ncat pid file from directory', () => {
-    const result = parseNcatPidFiles(
+  it('parses single nc pid file from directory', () => {
+    const result = parseNcPidFiles(
       mkDir({
-        'ncat-4444.pid': mkFile('ncat:port=4444,user=webadmin,userType=user,home=/home/webadmin'),
+        'nc-4444.pid': mkFile('nc:port=4444,user=webadmin,userType=user,home=/home/webadmin'),
       }),
     );
     expect(result).toEqual([
@@ -119,12 +119,12 @@ describe('parseNcatPidFiles', () => {
     ]);
   });
 
-  it('parses multiple ncat pid files from directory', () => {
-    const result = parseNcatPidFiles(
+  it('parses multiple nc pid files from directory', () => {
+    const result = parseNcPidFiles(
       mkDir({
         'sshd.pid': mkFile('sshd:port=22'),
-        'ncat-4444.pid': mkFile('ncat:port=4444,user=webadmin,userType=user,home=/home/webadmin'),
-        'ncat-8888.pid': mkFile('ncat:port=8888,user=root,userType=root,home=/root'),
+        'nc-4444.pid': mkFile('nc:port=4444,user=webadmin,userType=user,home=/home/webadmin'),
+        'nc-8888.pid': mkFile('nc:port=8888,user=root,userType=root,home=/root'),
       }),
     );
     expect(result).toHaveLength(2);
@@ -139,11 +139,11 @@ describe('parseNcatPidFiles', () => {
     );
   });
 
-  it('skips ncat pid files with invalid content', () => {
-    const result = parseNcatPidFiles(
+  it('skips nc pid files with invalid content', () => {
+    const result = parseNcPidFiles(
       mkDir({
-        'ncat-4444.pid': mkFile('ncat:port=4444,user=webadmin,userType=user,home=/home/webadmin'),
-        'ncat-9999.pid': mkFile('garbage'),
+        'nc-4444.pid': mkFile('nc:port=4444,user=webadmin,userType=user,home=/home/webadmin'),
+        'nc-9999.pid': mkFile('garbage'),
       }),
     );
     expect(result).toHaveLength(1);
