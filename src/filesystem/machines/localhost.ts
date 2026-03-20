@@ -45,13 +45,15 @@ PHASE 1 — GET ROOT
   su("root") with password from README.txt
   Need root to install tools and manage the system.
 
-PHASE 2 — CRACK THE WIFI
+PHASE 2 — CRACK A WIFI NETWORK
   WiFi card is installed but not connected yet.
-  Aircrack suite is pre-installed. Steps:
+  Multiple networks are in range — each gives access to
+  a different network of machines. Steps:
     1. airmon("start", "wlan0")
-    2. airdump()
-    3. aircrack("<BSSID>")       — copies password to clipboard
+    2. airdump()                 — scan for networks
+    3. aircrack("<BSSID>")       — crack WPA2 key
     4. nmcli("connect", "<ESSID>", "<password>")
+  Switch networks anytime: just nmcli("connect", ...) again.
   Full cheatsheet: cat("downloads/wifi_tools.txt")
 
 PHASE 3 — INSTALL YOUR TOOLKIT
@@ -123,8 +125,8 @@ PS1='\\u@\\h:\\w\\$ '
         content: `=== NMAP QUICK REFERENCE ===
 
 Host Discovery:
-  nmap 192.168.1.0/24     Scan entire subnet
-  nmap 192.168.1.1        Scan single host
+  nmap <subnet>/24        Scan entire subnet (check ifconfig for IP)
+  nmap <ip>               Scan single host
 
 Common Ports:
   21  FTP       22  SSH       80  HTTP
@@ -195,8 +197,6 @@ const localhostConfig: MachineFileSystemConfig = {
       owner: 'root',
       permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] },
       content: `127.0.0.1       localhost
-192.168.1.1     gateway.local
-192.168.1.100   jshack-dev
 `,
     },
     crontab: {
@@ -235,10 +235,9 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
       owner: 'root',
       permissions: { read: ['root', 'user'], write: ['root'], execute: ['root'] },
       content: `Mar 15 08:30:00 localhost sshd[2341]: Starting OpenSSH server
-Mar 15 09:15:22 localhost sshd[2345]: Connection from 192.168.1.1 port 22
-Mar 15 09:15:25 localhost sshd[2345]: Accepted password for jshacker
+Mar 15 09:15:22 localhost sshd[2345]: Accepted password for jshacker
 Mar 16 02:00:00 localhost cron[2500]: Running scheduled backup
-Mar 16 08:30:00 localhost sshd[2510]: Connection from 192.168.1.1 port 22
+Mar 16 14:22:10 localhost kernel: [42891.33] wlan0: link is not ready
 `,
     },
     syslog: {
