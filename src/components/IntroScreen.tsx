@@ -97,7 +97,7 @@ export const IntroScreen = ({ existingGame, onStart }: IntroScreenProps) => {
       {/* Logo */}
       <div className="mb-2 text-center">
         <h1
-          className="text-3xl font-bold tracking-widest sm:text-4xl"
+          className="text-4xl font-bold tracking-widest sm:text-5xl"
           style={{ color: 'var(--theme-text-bright)' }}
         >
           JSHACK.ME
@@ -109,14 +109,14 @@ export const IntroScreen = ({ existingGame, onStart }: IntroScreenProps) => {
       </div>
 
       {/* Tagline */}
-      <p className="mb-6 text-xs tracking-wide" style={{ color: 'var(--theme-text-dim)' }}>
+      <p className="mb-6 text-sm tracking-wide" style={{ color: 'var(--theme-text-dim)' }}>
         hack the network. complete the contract. get paid.
       </p>
 
       {/* Intro text — only on menu screen */}
       {screen === 'menu' && (
         <div
-          className="mb-8 max-w-md text-center text-xs leading-relaxed sm:text-sm"
+          className="mb-8 max-w-md text-center text-sm leading-relaxed"
           style={{ color: 'var(--theme-text-dim)' }}
         >
           <p className="mb-3">
@@ -136,7 +136,7 @@ export const IntroScreen = ({ existingGame, onStart }: IntroScreenProps) => {
         <div className="flex flex-col items-center gap-3">
           <MenuButton onClick={handleNewGame}>NEW GAME</MenuButton>
           {existingGame && <MenuButton onClick={handleContinue}>CONTINUE</MenuButton>}
-          <p className="mt-2 text-xs" style={{ color: 'var(--theme-border)' }}>
+          <p className="mt-3 text-xs" style={{ color: 'var(--theme-text-dim)' }}>
             everything runs in your browser. no server, no tracking.
           </p>
         </div>
