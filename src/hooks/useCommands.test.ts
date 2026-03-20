@@ -10,10 +10,11 @@ import type { MissionState } from '../mission/useMissionState';
 
 vi.mock('../utils/storageCache', () => ({
   getCachedSessionState: vi.fn(() => null),
-  getCachedWifiState: vi.fn(() => true),
+  getCachedWifiState: vi.fn(() => null),
   getCachedBrickedMachines: vi.fn(() => []),
   getCachedFilesystemPatches: vi.fn(() => []),
   getCachedMissionSeed: vi.fn(() => null),
+  getCachedGameState: vi.fn(() => null),
   getDatabase: vi.fn(() => null),
 }));
 

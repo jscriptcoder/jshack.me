@@ -1,10 +1,13 @@
 import type { FileSystemPatch } from '../filesystem/types';
+import type { WifiConnection } from '../network/wifiTypes';
+import type { GameState } from '../game/types';
 import {
   openDatabase,
   loadFilesystemPatches,
   loadMissionSeed,
   loadWifiState,
   loadBrickedMachines,
+  loadGameState,
 } from './storage';
 import { loadSessionFromTab } from './storage';
 import type { PersistedState } from '../session/SessionContext';
@@ -13,10 +16,11 @@ import { applyTheme } from '../theme/applyTheme';
 
 type StorageCache = {
   readonly sessionState: PersistedState | null;
-  readonly wifiConnected: boolean;
+  readonly connectedWifi: WifiConnection | null;
   readonly brickedMachines: readonly string[];
   readonly filesystemPatches: readonly FileSystemPatch[];
   readonly missionSeed: string | null;
+  readonly gameState: GameState | null;
   readonly db: IDBDatabase | null;
 };
 
@@ -26,10 +30,11 @@ type StorageCache = {
 // inside useState(() => ...) initializer functions. After that, it's read-only.
 let cache: StorageCache = {
   sessionState: null,
-  wifiConnected: false,
+  connectedWifi: null,
   brickedMachines: [],
   filesystemPatches: [],
   missionSeed: null,
+  gameState: null,
   db: null,
 };
 
@@ -51,16 +56,18 @@ export const initializeStorage = async (): Promise<void> => {
     const filesystemPatches = await loadFilesystemPatches(db);
     const missionSeed = await loadMissionSeed(db);
 
-    // WiFi and bricked state are shared across tabs (IndexedDB)
-    const wifiFromDb = await loadWifiState(db);
+    // WiFi, bricked, and game state are shared across tabs (IndexedDB)
+    const connectedWifi = await loadWifiState(db);
     const brickedFromDb = await loadBrickedMachines(db);
+    const gameState = await loadGameState(db);
 
     cache = {
       sessionState,
-      wifiConnected: wifiFromDb ?? false,
+      connectedWifi,
       brickedMachines: brickedFromDb ?? [],
       filesystemPatches: filesystemPatches ?? [],
       missionSeed,
+      gameState,
       db,
     };
 
@@ -70,10 +77,11 @@ export const initializeStorage = async (): Promise<void> => {
     // IndexedDB unavailable — session from sessionStorage still works
     cache = {
       sessionState,
-      wifiConnected: false,
+      connectedWifi: null,
       brickedMachines: [],
       filesystemPatches: [],
       missionSeed: null,
+      gameState: null,
       db: null,
     };
 
@@ -84,7 +92,7 @@ export const initializeStorage = async (): Promise<void> => {
 
 export const getCachedSessionState = (): PersistedState | null => cache.sessionState;
 
-export const getCachedWifiState = (): boolean => cache.wifiConnected;
+export const getCachedWifiState = (): WifiConnection | null => cache.connectedWifi;
 
 export const getCachedBrickedMachines = (): readonly string[] => cache.brickedMachines;
 
@@ -92,7 +100,22 @@ export const getCachedFilesystemPatches = (): readonly FileSystemPatch[] => cach
 
 export const getCachedMissionSeed = (): string | null => cache.missionSeed;
 
+export const getCachedGameState = (): GameState | null => cache.gameState;
+
 export const getDatabase = (): IDBDatabase | null => cache.db;
+
+// Resets cached session and sets the new game state so all hooks see fresh values.
+// Called when starting a new game to prevent stale session (e.g., root user) from persisting.
+export const resetSessionCache = (newGameState: GameState): void => {
+  cache = {
+    ...cache,
+    sessionState: null,
+    connectedWifi: null,
+    filesystemPatches: [],
+    missionSeed: null,
+    gameState: newGameState,
+  };
+};
 
 // Exposed for testing only
 export const resetCache = (): void => {
@@ -101,10 +124,11 @@ export const resetCache = (): void => {
   }
   cache = {
     sessionState: null,
-    wifiConnected: false,
+    connectedWifi: null,
     brickedMachines: [],
     filesystemPatches: [],
     missionSeed: null,
+    gameState: null,
     db: null,
   };
 };

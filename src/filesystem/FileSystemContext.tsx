@@ -122,11 +122,50 @@ const initializeFileSystems = (): FileSystemsState =>
 type FileSystemProviderProps = {
   readonly children: ReactNode;
   readonly missionFileSystems?: Readonly<Record<string, FileNode>>;
+  readonly homeFileSystems?: Readonly<Record<string, FileNode>>;
+  readonly workstationName?: string;
 };
 
-export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemProviderProps) => {
+// Apply workstation name to localhost /etc/hostname if provided
+const applyWorkstationName = (
+  state: FileSystemsState,
+  name: string | undefined,
+): FileSystemsState => {
+  if (!name) return state;
+  const localhost = state.localhost;
+  if (!localhost || localhost.type !== 'directory') return state;
+  const etc = localhost.children?.etc;
+  if (!etc || etc.type !== 'directory') return state;
+  const hostname = etc.children?.hostname;
+  if (!hostname || hostname.type !== 'file') return state;
+  return {
+    ...state,
+    localhost: {
+      ...localhost,
+      children: {
+        ...localhost.children,
+        etc: {
+          ...etc,
+          children: {
+            ...etc.children,
+            hostname: { ...hostname, content: `${name}\n` },
+          },
+        },
+      },
+    },
+  };
+};
+
+export const FileSystemProvider = ({
+  children,
+  missionFileSystems,
+  homeFileSystems,
+  workstationName,
+}: FileSystemProviderProps) => {
   const { session } = useSession();
-  const [fileSystems, setFileSystems] = useState<FileSystemsState>(initializeFileSystems);
+  const [fileSystems, setFileSystems] = useState<FileSystemsState>(() =>
+    applyWorkstationName(initializeFileSystems(), workstationName),
+  );
   const [patches, setPatches] = useState<readonly FileSystemPatch[]>(getCachedFilesystemPatches);
   // Create channel inside effect so StrictMode's cleanup + re-run cycle gets
   // a fresh (open) channel. The ref is updated so broadcastAndRecordPatch always
@@ -195,28 +234,31 @@ export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemP
       const staticOnly = Object.fromEntries(
         Object.entries(prev).filter(([key]) => STATIC_MACHINE_KEYS.has(key)),
       );
-      if (!missionFileSystems) {
+
+      // Layer: static (localhost) + home network + mission network
+      const withHome = homeFileSystems ? { ...staticOnly, ...homeFileSystems } : staticOnly;
+      const merged = missionFileSystems ? { ...withHome, ...missionFileSystems } : withHome;
+
+      if (!missionFileSystems && !homeFileSystems) {
         isInitialMissionMount.current = false;
         return staticOnly;
       }
 
-      const merged = { ...staticOnly, ...missionFileSystems };
-
-      // On initial mount, replay persisted mission patches on top of regenerated
+      // On initial mount, replay persisted non-static patches on top of regenerated
       // filesystems so the user's in-progress changes survive page reload.
       if (isInitialMissionMount.current) {
         isInitialMissionMount.current = false;
-        const missionPatches = cachedPatchesAtMount.filter(
+        const dynamicPatches = cachedPatchesAtMount.filter(
           (p) => !STATIC_MACHINE_KEYS.has(p.machineId),
         );
-        if (missionPatches.length > 0) {
-          return applyPatches(merged, missionPatches);
+        if (dynamicPatches.length > 0) {
+          return applyPatches(merged, dynamicPatches);
         }
       }
 
       return merged;
     });
-  }, [missionFileSystems, cachedPatchesAtMount]);
+  }, [missionFileSystems, homeFileSystems, cachedPatchesAtMount]);
 
   // session.machine is typed as string but always holds a valid MachineId at runtime
   // (set by SSH/session logic). The assertion avoids threading MachineId through SessionContext.

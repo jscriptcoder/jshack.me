@@ -11,7 +11,7 @@ Custom React hooks that wire together commands, context, and terminal features. 
 | `useNetworkCommands.ts`        | Creates network commands (ifconfig, ping, nmap, nslookup, ssh, curl, ftp, nc, msfconsole, gobuster) with context from `useNetwork` and `useFileSystem`           |
 | `useFtpCommands.ts`            | Creates FTP-mode commands (pwd, lpwd, cd, lcd, ls, lls, get, put, quit/bye) — returns `null` when not in FTP mode                                                |
 | `useNcCommands.ts`             | Creates NC-mode commands (pwd, cd, ls, cat, whoami, bash, help, exit) — returns `null` when not in NC mode. Daemon commands (sshd, ftpd) are hidden behind bash. |
-| `useWifiCommands.ts`           | Creates WiFi commands (airmon, airdump, aircrack, nmcli) — manages monitor mode state via `useRef`                                                               |
+| `useWifiCommands.ts`           | Creates WiFi commands (airmon, airdump, aircrack, nmcli) — generates WiFi networks from game seed, manages monitor mode state via `useRef`                       |
 | `useCommandHistory.ts`         | Up/down arrow navigation through previous commands                                                                                                               |
 | `useAutoComplete.ts`           | Tab completion for command names and variable names                                                                                                              |
 | `usePathAutoComplete.ts`       | Tab completion for file/directory paths inside string arguments — resolves paths via filesystem context                                                          |

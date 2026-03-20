@@ -1,6 +1,6 @@
 # JSHACK.ME
 
-A web-based JavaScript terminal emulator with a retro amber-on-black CRT aesthetic. Execute JavaScript expressions and custom commands in a terminal-like interface, featuring a virtual Unix-like file system and network simulation for a mission-based hacking game with procedurally generated contracts.
+A web-based JavaScript terminal emulator with a retro amber-on-black CRT aesthetic. Execute JavaScript expressions and custom commands in a terminal-like interface, featuring a virtual Unix-like file system and network simulation for a mission-based hacking game with procedurally generated contracts. Name your workstation, crack multiple WiFi networks to access different subnets, and take darknet contracts.
 
 **Live Demo:** [jshack.me](https://jshack.me)
 
@@ -10,7 +10,7 @@ A web-based JavaScript terminal emulator with a retro amber-on-black CRT aesthet
 
 ## The Challenge
 
-You start as a hacker on a local machine. Crack the WiFi, get online, browse the darknet marketplace for contracts, and hack into procedurally generated networks to complete missions.
+You are **jshacker**, a freelance operator working from a personal workstation. Name your machine, boot up, and crack WiFi networks — each one gives access to a different subnet of machines to explore. When you're ready, browse the darknet marketplace for contracts and hack into procedurally generated networks to complete missions.
 
 Each mission drops you into a unique network topology with routers, servers, and hidden flags. Use your knowledge of Linux commands, networking, and creative thinking to infiltrate targets and complete contracts.
 
@@ -24,8 +24,10 @@ Start with `help()` to see available commands. Good luck, hacker.
 - **Variable Support** - Create variables with `const` and `let` declarations
 - **Virtual Environment** - Explore a simulated system with secrets to uncover
 - **Command Restrictions** - Commands are tiered by privilege level; escalate from guest to root to unlock tools
-- **WiFi Hacking Gate** - Crack a WiFi network using aircrack-ng-style commands before accessing the network
-- **Network Simulation** - Discover and hack into remote machines
+- **Intro & Boot Screen** - Name your workstation, start a new game with a Linux-style boot sequence
+- **Multi-WiFi Networks** - Multiple seeded WiFi networks per game; each provides a different subnet of machines
+- **WiFi Hacking Gate** - Crack WPA2 networks using aircrack-ng-style commands; switch networks anytime
+- **Network Simulation** - Discover and hack into remote machines; per-WiFi subnets with routers, servers, and databases
 - **SSH Key Persistence** - After first successful SSH/SCP login, the key is saved; subsequent connections auto-authenticate
 - **Multi-Tab Support** - Open multiple browser tabs as independent terminals with shared filesystem, WiFi, mission, and theme state
 - **Session Persistence** - Your location and files are saved; return where you left off after refresh

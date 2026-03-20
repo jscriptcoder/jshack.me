@@ -8,20 +8,20 @@ type ResetContext = {
 const RELOAD_DELAY_MS = 500;
 
 const WARNING_MESSAGE =
-  '⚠ This will reset ALL game progress (session, filesystem changes).\n' +
+  '\u26a0 This will wipe ALL progress and return to the start screen.\n' +
   'Type reset("confirm") to proceed.';
 
 export const createResetCommand = (context: ResetContext): Command => ({
   name: 'reset',
   category: 'general',
-  description: 'Reset game to factory defaults (clears all saved progress)',
+  description: 'Wipe all progress and return to the start screen',
   manual: {
     synopsis: 'reset(["confirm"])',
     description:
-      'Reset the game to factory defaults by clearing all saved state from IndexedDB. ' +
-      'This removes session data (current user, machine, path) and all filesystem changes ' +
-      '(files created or modified during gameplay). The page reloads after clearing. ' +
-      'Requires passing "confirm" as argument to prevent accidental resets.',
+      'Wipe all game progress and return to the start screen. ' +
+      'Clears session, filesystem changes, mission state, and game seed. ' +
+      'You will choose a new workstation name and get fresh WiFi networks. ' +
+      'Requires passing "confirm" to prevent accidental resets.',
     arguments: [
       {
         name: 'confirm',

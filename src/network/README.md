@@ -7,7 +7,8 @@ Simulated network environment for hacking missions. Defines the topology, machin
 | File                    | Description                                                                                                                        |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `types.ts`              | Core types: `NetworkInterface`, `RemoteMachine`, `Port`, `Vulnerability`, `DnsRecord`, `MachineNetworkConfig`, `NetworkConfig`     |
-| `initialNetwork.ts`     | `createInitialNetwork()` — defines per-machine network configs (interfaces, reachable machines, DNS) for all 8 machines            |
+| `wifiTypes.ts`          | `WifiConnection` type (`{ essid, bssid }`) and validator — replaces boolean WiFi state                                             |
+| `initialNetwork.ts`     | `createInitialNetwork()` — legacy static network configs (fallback); localhost interface templates (wlan0 up/down, loopback)       |
 | `NetworkContext.tsx`    | React context — imports `useSession`, resolves config per `session.machine`, provides `getMachine`, `getLocalIP`, etc.             |
 | `networkUtils.ts`       | Pure functions extracted from context: `buildMergedRouterView`, `applySnmpFirewallOverrides`, `applyDaemonOverrides`               |
 | `iptablesParser.ts`     | Pure parser for router's `/etc/iptables/rules.v4` — extracts `forward <port> to <ip>:<port>` rules into `NatForwardingRule[]`      |
@@ -125,11 +126,13 @@ type RemoteMachine = {
 
 ## Mission Network Integration
 
-`NetworkProvider` accepts optional `missionNetworkConfig` and `missionMachines` props. When a mission is active, the provider merges mission machines into the network view:
+`NetworkProvider` accepts `homeNetwork` (active WiFi subnet), `missionNetworkConfig`, and `missionMachines` props. Network config resolution priority:
 
 1. **Mission machines** — if the player is SSH'd into a mission machine, its config is returned directly from `missionNetworkConfig`
-2. **Localhost merge** — when on localhost with an active mission, `missionMachines` (array of `GeneratedMachine`) provides full `RemoteMachine` records (with ports and users) that are appended to localhost's reachable machines. Mission DNS records are also merged in. This lets `nmap`, `ping`, `ssh`, etc. discover and reach mission machines.
-3. **No mission** — when `missionNetworkConfig` is undefined, behavior is unchanged (static tutorial network only)
+2. **Home network machines** — if SSH'd into a home network machine, its config comes from `homeNetwork.networkConfig`
+3. **Localhost + WiFi connected** — shows home network machines with dynamic wlan0 IP from the subnet. If mission also active, mission router is appended to visible machines.
+4. **Localhost + WiFi disconnected** — disconnected interfaces, empty machines, empty DNS
+5. **Fallback** — legacy static network config (unused in normal gameplay)
 
 Mission machines live on dynamically generated subnets (e.g., `10.x.x.0/24`) and only see each other. The entry point is the bridge — reachable from localhost, with the rest of the mission network accessible from there.
 

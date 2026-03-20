@@ -1,10 +1,11 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
-import { WIFI_NETWORKS, type WifiNetwork } from '../network/wifiNetworks';
+import type { WifiNetwork } from '../network/wifiNetworks';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 type AirdumpContext = {
   readonly isOnLocalhost: () => boolean;
   readonly isMonitorMode: () => boolean;
+  readonly getWifiNetworks: () => readonly WifiNetwork[];
 };
 
 const padRight = (str: string, len: number): string =>
@@ -48,7 +49,7 @@ export const createAirdumpCommand = (context: AirdumpContext): Command => ({
     examples: [{ command: 'airdump()', description: 'Scan for WiFi networks' }],
   },
   fn: (): AsyncOutput => {
-    const { isOnLocalhost, isMonitorMode } = context;
+    const { isOnLocalhost, isMonitorMode, getWifiNetworks } = context;
 
     if (!isOnLocalhost()) {
       throw new Error('airdump: command not available on this machine');
@@ -58,6 +59,7 @@ export const createAirdumpCommand = (context: AirdumpContext): Command => ({
       throw new Error('airdump: monitor mode not enabled — run airmon("start", "wlan0") first');
     }
 
+    const networks = getWifiNetworks();
     const token = createCancellationToken();
 
     return {
@@ -68,17 +70,17 @@ export const createAirdumpCommand = (context: AirdumpContext): Command => ({
 
         let delay = 0;
 
-        WIFI_NETWORKS.forEach((network, index) => {
+        networks.forEach((network, index) => {
           delay += jitter(SCAN_DELAY_MS);
           token.schedule(() => {
             if (token.isCancelled()) return;
             onLine(formatNetworkRow(network));
 
-            if (index === WIFI_NETWORKS.length - 1) {
+            if (index === networks.length - 1) {
               token.schedule(() => {
                 if (token.isCancelled()) return;
                 onLine('');
-                onLine(`Scan complete — ${WIFI_NETWORKS.length} networks found`);
+                onLine(`Scan complete — ${networks.length} networks found`);
                 onComplete();
               }, jitter(SCAN_DELAY_MS));
             }
