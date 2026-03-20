@@ -32,7 +32,7 @@ describe('IntroScreen', () => {
 
     fireEvent.click(screen.getByText('CONTINUE'));
 
-    expect(onStart).toHaveBeenCalledWith(game);
+    expect(onStart).toHaveBeenCalledWith(game, false);
   });
 
   it('should show name input when NEW GAME clicked', () => {

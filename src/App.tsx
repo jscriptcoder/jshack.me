@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { Terminal } from './components/Terminal';
 import { IntroScreen } from './components/IntroScreen';
+import { BootScreen } from './components/BootScreen';
 import { SessionProvider, useSession } from './session/SessionContext';
 import { FileSystemProvider } from './filesystem';
 import { NetworkProvider } from './network';
@@ -37,24 +38,38 @@ function GameSession({ gameState }: { readonly gameState: GameState }) {
   );
 }
 
-function App() {
-  const [gameState, setGameState] = useState<GameState | null>(getCachedGameState);
+type AppScreen = 'intro' | 'booting' | 'game';
 
-  const handleStart = useCallback(async (state: GameState) => {
-    const db = getDatabase();
-    if (db) {
-      // Wipe all previous data before starting (fresh slate)
-      await clearAllData(db);
-      await saveGameState(db, state);
+function App() {
+  const cachedGame = getCachedGameState();
+  const [gameState, setGameState] = useState<GameState | null>(cachedGame);
+  const [screen, setScreen] = useState<AppScreen>(cachedGame ? 'game' : 'intro');
+
+  const handleStart = useCallback(async (state: GameState, isNewGame: boolean) => {
+    if (isNewGame) {
+      const db = getDatabase();
+      if (db) {
+        await clearAllData(db);
+        await saveGameState(db, state);
+      }
+      resetSessionCache(state);
     }
-    // Clear cached session so SessionProvider starts as jshacker/user, not stale root.
-    // Also sets the new game state so useWifiCommands sees the seed immediately.
-    resetSessionCache(state);
     setGameState(state);
+    setScreen(isNewGame ? 'booting' : 'game');
   }, []);
 
-  if (!gameState) {
-    return <IntroScreen existingGame={getCachedGameState()} onStart={handleStart} />;
+  const handleBootComplete = useCallback(() => {
+    setScreen('game');
+  }, []);
+
+  if (screen === 'intro' || !gameState) {
+    return <IntroScreen existingGame={cachedGame} onStart={handleStart} />;
+  }
+
+  if (screen === 'booting') {
+    return (
+      <BootScreen workstationName={gameState.workstationName} onComplete={handleBootComplete} />
+    );
   }
 
   return (

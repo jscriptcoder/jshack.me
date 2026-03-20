@@ -4,7 +4,7 @@ import { generateGameSeed } from '../game/gameSeed';
 
 type IntroScreenProps = {
   readonly existingGame: GameState | null;
-  readonly onStart: (gameState: GameState) => void;
+  readonly onStart: (gameState: GameState, isNewGame: boolean) => void;
 };
 
 type Screen = 'menu' | 'new-game';
@@ -59,7 +59,7 @@ export const IntroScreen = ({ existingGame, onStart }: IntroScreenProps) => {
 
   const handleContinue = useCallback(() => {
     if (existingGame) {
-      onStart(existingGame);
+      onStart(existingGame, false);
     }
   }, [existingGame, onStart]);
 
@@ -77,7 +77,7 @@ export const IntroScreen = ({ existingGame, onStart }: IntroScreenProps) => {
       setError('Use letters, numbers, and hyphens only');
       return;
     }
-    onStart({ seed: generateGameSeed(), workstationName: trimmed });
+    onStart({ seed: generateGameSeed(), workstationName: trimmed }, true);
   }, [name, onStart]);
 
   const handleKeyDown = useCallback(
