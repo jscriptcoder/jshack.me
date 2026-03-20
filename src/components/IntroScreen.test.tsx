@@ -3,6 +3,12 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { IntroScreen } from './IntroScreen';
 
 describe('IntroScreen', () => {
+  it('should show game title and intro text', () => {
+    render(<IntroScreen existingGame={null} onStart={vi.fn()} />);
+    expect(screen.getByText('JSHACK.ME')).toBeDefined();
+    expect(screen.getByText(/freelance operator/)).toBeDefined();
+  });
+
   it('should show NEW GAME button', () => {
     render(<IntroScreen existingGame={null} onStart={vi.fn()} />);
     expect(screen.getByText('NEW GAME')).toBeDefined();
