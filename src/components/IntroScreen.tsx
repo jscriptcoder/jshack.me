@@ -95,56 +95,50 @@ export const IntroScreen = ({ existingGame, onStart }: IntroScreenProps) => {
   return (
     <div className="flex h-full flex-col items-center justify-center p-4 font-mono">
       {/* Logo */}
-      <div className="mb-2 text-center">
+      <div className="mb-3 text-center">
         <h1
-          className="text-4xl font-bold tracking-widest sm:text-5xl"
+          className="text-5xl font-bold tracking-widest sm:text-6xl"
           style={{ color: 'var(--theme-text-bright)' }}
         >
           JSHACK.ME
         </h1>
-        <div
-          className="mx-auto mt-1 h-px w-48"
-          style={{ backgroundColor: 'var(--theme-text-dim)' }}
-        />
+        <div className="mt-2 h-px w-full" style={{ backgroundColor: 'var(--theme-text-dim)' }} />
       </div>
 
       {/* Tagline */}
-      <p className="mb-6 text-sm tracking-wide" style={{ color: 'var(--theme-text-dim)' }}>
+      <p className="mb-8 text-base tracking-wide" style={{ color: 'var(--theme-text-dim)' }}>
         hack the network. complete the contract. get paid.
       </p>
 
-      {/* Intro text — only on menu screen */}
+      {/* Intro text + buttons — only on menu screen */}
       {screen === 'menu' && (
-        <div
-          className="mb-8 max-w-md text-center text-sm leading-relaxed"
-          style={{ color: 'var(--theme-text-dim)' }}
-        >
-          <p className="mb-3">
-            You are <span style={{ color: 'var(--theme-text)' }}>jshacker</span> — a freelance
-            operator working from a personal workstation. Your WiFi card can reach several networks,
-            each hiding its own machines. Crack in, explore, and install your toolkit.
-          </p>
-          <p>
-            When you are ready, browse the darknet marketplace for contracts. Every job is a new
-            target network. Find what the client wants, deliver the proof, and move on to the next
-            one.
-          </p>
-        </div>
-      )}
-
-      {screen === 'menu' && (
-        <div className="flex flex-col items-center gap-3">
-          <MenuButton onClick={handleNewGame}>NEW GAME</MenuButton>
-          {existingGame && <MenuButton onClick={handleContinue}>CONTINUE</MenuButton>}
-          <p className="mt-3 text-xs" style={{ color: 'var(--theme-text-dim)' }}>
-            everything runs in your browser. no server, no tracking.
-          </p>
+        <div className="flex max-w-lg flex-col items-center">
+          <div
+            className="mb-8 text-center text-base leading-relaxed"
+            style={{ color: 'var(--theme-text-dim)' }}
+          >
+            <p className="mb-4">
+              You are <span style={{ color: 'var(--theme-text)' }}>jshacker</span> — a freelance
+              operator working from a personal workstation. Your WiFi card can reach several
+              networks, each hiding its own machines. Crack in, explore, and install your toolkit.
+            </p>
+            <p className="mb-4">
+              When you are ready, browse the darknet marketplace for contracts. Every job is a new
+              target network. Find what the client wants, deliver the proof, and move on to the next
+              one.
+            </p>
+            <p>Everything runs in your browser. No server, no tracking.</p>
+          </div>
+          <div className="flex flex-col items-center gap-3">
+            <MenuButton onClick={handleNewGame}>NEW GAME</MenuButton>
+            {existingGame && <MenuButton onClick={handleContinue}>CONTINUE</MenuButton>}
+          </div>
         </div>
       )}
 
       {screen === 'new-game' && (
         <div className="flex flex-col items-center gap-4">
-          <label className="text-sm" style={{ color: 'var(--theme-text-dim)' }}>
+          <label className="text-base" style={{ color: 'var(--theme-text-dim)' }}>
             Name your workstation:
           </label>
           <div className="flex items-center gap-2">
