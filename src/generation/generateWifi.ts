@@ -1,5 +1,8 @@
 import type { WifiNetwork } from '../network/wifiNetworks';
 import { createPrng } from './prng';
+import { secrets } from '../secrets/__encoded';
+
+const wifiPasswords: readonly string[] = JSON.parse(secrets.WIFI_PASSWORDS) as readonly string[];
 
 const crackableEssids: readonly string[] = [
   'ACME-CORP',
@@ -32,26 +35,6 @@ const noiseEssids: readonly string[] = [
   'TP-LINK_GUEST',
   'HOME-WIFI-2.4G',
   'CenturyLink4521',
-];
-
-// Password pool for crackable networks — short, dictionary-style words
-// that feel realistic for WPA2 cracking with a wordlist
-const wifiPasswords: readonly string[] = [
-  'sunshine2024',
-  'football99',
-  'iloveyou!',
-  'princess01',
-  'trustno1',
-  'letmein123',
-  'welcome1',
-  'shadow2024',
-  'master2024',
-  'dragon123',
-  'qwerty2024',
-  'monkey123',
-  'passw0rd!',
-  'batman2024',
-  'access2024',
 ];
 
 const generateMac = (prng: ReturnType<typeof createPrng>): string => {
