@@ -5,7 +5,7 @@ import { SessionProvider, useSession } from './session/SessionContext';
 import { FileSystemProvider } from './filesystem';
 import { NetworkProvider } from './network';
 import { MissionProvider, useMissionState } from './mission';
-import { getCachedGameState, getDatabase } from './utils/storageCache';
+import { getCachedGameState, getDatabase, resetSessionCache } from './utils/storageCache';
 import { saveGameState, clearAllData } from './utils/storage';
 import { useHomeNetworks } from './game/useHomeNetworks';
 import type { GameState } from './game/types';
@@ -47,6 +47,8 @@ function App() {
       await clearAllData(db);
       await saveGameState(db, state);
     }
+    // Clear cached session so SessionProvider starts as jshacker/user, not stale root
+    resetSessionCache();
     setGameState(state);
   }, []);
 
