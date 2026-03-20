@@ -8,7 +8,7 @@ type ResetContext = {
 const RELOAD_DELAY_MS = 500;
 
 const WARNING_MESSAGE =
-  'This will wipe ALL progress and return to the start screen.\n' +
+  '\u26a0 This will wipe ALL progress and return to the start screen.\n' +
   'Type reset("confirm") to proceed.';
 
 export const createResetCommand = (context: ResetContext): Command => ({
