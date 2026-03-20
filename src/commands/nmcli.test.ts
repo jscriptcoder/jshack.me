@@ -56,13 +56,34 @@ describe('nmcli command', () => {
       );
     });
 
-    it('should throw when already connected', () => {
-      const context = createMockContext({ isWifiConnected: true });
+    it('should return no-op when connecting to same network', () => {
+      const context = createMockContext({
+        isWifiConnected: true,
+        connectedEssid: 'JSHACK-CORP',
+      });
       const nmcli = createNmcliCommand(context);
 
-      expect(() => nmcli.fn('connect', 'JSHACK-CORP', secrets.WIFI_PASSWORD)).toThrow(
-        'already connected',
-      );
+      const result = nmcli.fn('connect', 'JSHACK-CORP', secrets.WIFI_PASSWORD) as string;
+
+      expect(result).toContain('Already connected');
+      expect(context.setWifiConnected).not.toHaveBeenCalled();
+    });
+
+    it('should auto-disconnect when switching to different network', () => {
+      const context = createMockContext({
+        isWifiConnected: true,
+        connectedEssid: 'OLD-NETWORK',
+      });
+      const nmcli = createNmcliCommand(context);
+
+      const result = nmcli.fn('connect', 'JSHACK-CORP', secrets.WIFI_PASSWORD) as string;
+
+      expect(result).toContain('Disconnected from OLD-NETWORK');
+      expect(result).toContain('Connected to JSHACK-CORP');
+      expect(context.setWifiConnected).toHaveBeenCalledWith({
+        essid: 'JSHACK-CORP',
+        bssid: 'A4:CF:12:D3:8B:7A',
+      });
     });
 
     it('should throw when ESSID is missing', () => {
@@ -102,7 +123,6 @@ describe('nmcli command', () => {
       const result = nmcli.fn('connect', 'JSHACK-CORP', secrets.WIFI_PASSWORD) as string;
 
       expect(result).toContain('Connected to JSHACK-CORP');
-      expect(result).toContain('192.168.1.100');
       expect(context.setWifiConnected).toHaveBeenCalledWith({
         essid: 'JSHACK-CORP',
         bssid: 'A4:CF:12:D3:8B:7A',

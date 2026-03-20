@@ -27,9 +27,9 @@ const handleConnect = (
     throw new Error('nmcli: WiFi management is only available on localhost');
   }
 
-  if (context.isWifiConnected()) {
-    const current = context.connectedEssid() ?? 'unknown';
-    throw new Error(`nmcli: already connected to ${current}`);
+  // Already connected to the same network — no-op
+  if (context.isWifiConnected() && context.connectedEssid() === essid) {
+    return `Already connected to ${essid}`;
   }
 
   if (!essid || !password) {
@@ -47,12 +47,15 @@ const handleConnect = (
     throw new Error(`nmcli: authentication failed for "${essid}"`);
   }
 
+  const previousEssid = context.connectedEssid();
   context.setWifiConnected({ essid: network.essid, bssid: network.bssid });
-  return [
-    `Connecting to ${essid}...`,
-    `Connected to ${essid}`,
-    'wlan0: DHCP assigned 192.168.1.100/24 via 192.168.1.1',
-  ].join('\n');
+
+  const lines: string[] = [];
+  if (previousEssid) {
+    lines.push(`Disconnected from ${previousEssid}`);
+  }
+  lines.push(`Connecting to ${essid}...`, `Connected to ${essid}`);
+  return lines.join('\n');
 };
 
 const handleDisconnect = (context: NmcliContext): string => {
