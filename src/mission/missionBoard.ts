@@ -55,6 +55,15 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     difficulty: 'EASY',
     seed: 'BRIGHTSTAR-exploit-easy-sabotage',
   },
+  {
+    id: 'DKC-018',
+    client: 'v0id_agent',
+    clientEmail: 'v0id_agent@darkmail.onion',
+    target: 'Apex Courier Services — fleet tracking server',
+    objective: 'Plant a backdoor on their tracking server for persistent access',
+    difficulty: 'EASY',
+    seed: 'APEX-ssh-easy-backdoor',
+  },
   // --- MEDIUM (one per entry variant: ssh, ftp, nc, exploit, http, snmp) ---
   {
     id: 'DKC-006',
@@ -110,6 +119,15 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     difficulty: 'MEDIUM',
     seed: 'COBALT-snmp-medium-exfiltrate',
   },
+  {
+    id: 'DKC-019',
+    client: 'silkr0ad',
+    clientEmail: 'silkr0ad@darkmail.onion',
+    target: 'Prism Analytics — data processing cluster',
+    objective: 'Plant a root backdoor on their analytics engine',
+    difficulty: 'MEDIUM',
+    seed: 'PRISM-ftp-medium-backdoor',
+  },
   // --- HARD (one per entry variant: ssh, ftp, nc, exploit, http, snmp) ---
   {
     id: 'DKC-012',
@@ -164,6 +182,15 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     objective: 'Breach their SNMP gateway and steal root credentials',
     difficulty: 'HARD',
     seed: 'ZENITH-snmp-hard-credential-theft-domain',
+  },
+  {
+    id: 'DKC-020',
+    client: 'ph4nt0m',
+    clientEmail: 'ph4nt0m@darkmail.onion',
+    target: 'Titan Defense — weapons research network',
+    objective: 'Plant a root backdoor deep in their research cluster',
+    difficulty: 'HARD',
+    seed: 'TITAN-exploit-hard-backdoor-domain',
   },
 ];
 

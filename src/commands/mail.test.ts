@@ -303,4 +303,78 @@ describe('mail command', () => {
 
     expect(() => mail.fn('xR0gu3x@darkmail.onion', 'done')).toThrow('still operational');
   });
+
+  it('completes a backdoor mission when PID file exists with correct user', () => {
+    const completeMission = vi.fn();
+    const mission = makeMission({
+      type: 'backdoor',
+      expectedProof: '',
+      targetPath: '',
+      targetContent: '',
+      backdoorPort: 4444,
+      backdoorUser: 'root',
+    });
+    const readFileFromMachine = vi
+      .fn()
+      .mockReturnValue('nc:port=4444,user=root,userType=root,home=/root');
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission,
+      readFileFromMachine,
+      isMachineBricked: () => false,
+    });
+
+    const result = mail.fn('xR0gu3x@darkmail.onion', 'done') as AsyncOutput;
+    const lines = runAsync(result);
+    expect(completeMission).toHaveBeenCalled();
+    expect(lines.join('\n')).toContain('MISSION COMPLETE');
+    expect(readFileFromMachine).toHaveBeenCalledWith(
+      '10.0.0.10',
+      '/var/run/nc-4444.pid',
+      '/',
+      'root',
+    );
+  });
+
+  it('rejects backdoor mission when PID file is missing', () => {
+    const mission = makeMission({
+      type: 'backdoor',
+      expectedProof: '',
+      targetPath: '',
+      targetContent: '',
+      backdoorPort: 4444,
+      backdoorUser: 'root',
+    });
+    const readFileFromMachine = vi.fn().mockReturnValue(null);
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission: vi.fn(),
+      readFileFromMachine,
+      isMachineBricked: () => false,
+    });
+
+    expect(() => mail.fn('xR0gu3x@darkmail.onion', 'done')).toThrow('No listener');
+  });
+
+  it('rejects backdoor mission when opened as wrong user', () => {
+    const mission = makeMission({
+      type: 'backdoor',
+      expectedProof: '',
+      targetPath: '',
+      targetContent: '',
+      backdoorPort: 4444,
+      backdoorUser: 'root',
+    });
+    const readFileFromMachine = vi
+      .fn()
+      .mockReturnValue('nc:port=4444,user=guest,userType=guest,home=/home/guest');
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission: vi.fn(),
+      readFileFromMachine,
+      isMachineBricked: () => false,
+    });
+
+    expect(() => mail.fn('xR0gu3x@darkmail.onion', 'done')).toThrow('must be opened as root');
+  });
 });

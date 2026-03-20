@@ -29,6 +29,7 @@ Integrates the seeded network generator (`src/generation/`) with React contexts 
 - **tamper** — Modify a specific value in a target file (e.g., change a grade from "F" to "A"), then mail the client to confirm
 - **credential_theft** — Discover the root password on the target machine, mail it to the client
 - **sabotage** — Gain root on the target machine, delete critical boot files (`/boot/vmlinuz`), reboot to brick it, then mail the client to confirm
+- **backdoor** — Open a netcat listener (`nc -l`) on a specific port on the target machine as a specific user, then mail the client to confirm
 
 ### Completion via `mail()`
 
@@ -38,6 +39,7 @@ The `mail(recipient, content)` command is the universal completion mechanism:
 - For exfiltrate/credential_theft: content must match `objective.expectedProof`
 - For tamper: `mail` reads the target file from the target machine and verifies the old value is gone and new value is present
 - For sabotage: `mail` checks `isMachineBricked(targetIP)` — target must be bricked before confirming
+- For backdoor: `mail` reads `/var/run/nc-<port>.pid` on the target machine and verifies the listener exists with the correct user type
 
 ### State Management
 

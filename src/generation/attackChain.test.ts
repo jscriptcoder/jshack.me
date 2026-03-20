@@ -3,8 +3,13 @@ import { createPrng } from './prng';
 import { generateTopology } from './topology';
 import { generateUsers } from './users';
 import { buildMissionObjective } from './attackChain';
+import type { MissionObjectiveType } from './types';
 
-const buildTestData = (seed: string, difficulty: 'easy' | 'medium' | 'hard' = 'medium') => {
+const buildTestData = (
+  seed: string,
+  difficulty: 'easy' | 'medium' | 'hard' = 'medium',
+  objectiveTypeOverride?: MissionObjectiveType,
+) => {
   const prng = createPrng(seed);
   const topology = generateTopology(prng, difficulty);
   const { credentials } = generateUsers(prng, topology.machines, topology.entryPoint);
@@ -14,6 +19,7 @@ const buildTestData = (seed: string, difficulty: 'easy' | 'medium' | 'hard' = 'm
     credentials,
     entryPoint: topology.entryPoint,
     difficulty,
+    objectiveTypeOverride,
   });
   return { topology, result };
 };
@@ -33,9 +39,14 @@ describe('buildMissionObjective', () => {
 
   it('objective has a valid type', () => {
     const { result } = buildTestData('type-test');
-    expect(['exfiltrate', 'tamper', 'credential_theft', 'script_fix', 'sabotage']).toContain(
-      result.objective.type,
-    );
+    expect([
+      'exfiltrate',
+      'tamper',
+      'credential_theft',
+      'script_fix',
+      'sabotage',
+      'backdoor',
+    ]).toContain(result.objective.type);
   });
 
   it('exfiltrate objective has ACCESS-KEY format expectedProof', () => {
@@ -97,5 +108,36 @@ describe('buildMissionObjective', () => {
       return;
     }
     throw new Error('No sabotage objective found in 100 seeds');
+  });
+
+  it('backdoor objective has port and user', () => {
+    const { result } = buildTestData('test-backdoor-easy', 'easy', 'backdoor');
+
+    expect(result.objective.type).toBe('backdoor');
+    expect(result.objective.backdoorPort).toBeDefined();
+    expect([4444, 31337, 8888, 1337]).toContain(result.objective.backdoorPort);
+    expect(result.objective.backdoorUser).toBeDefined();
+    expect(['guest', 'user', 'root']).toContain(result.objective.backdoorUser);
+    expect(result.objective.targetPath).toBe('');
+    expect(result.objective.targetContent).toBe('');
+    expect(result.objective.expectedProof).toBe('');
+    expect(result.objective.description).toContain('backdoor');
+  });
+
+  it('easy backdoor picks guest or user', () => {
+    const users = new Set<string>();
+    for (let i = 0; i < 200; i++) {
+      const { result } = buildTestData(`backdoor-easy-user-${i}`, 'easy', 'backdoor');
+      if (result.objective.backdoorUser) users.add(result.objective.backdoorUser);
+    }
+    expect(users.has('guest') || users.has('user')).toBe(true);
+    expect(users.has('root')).toBe(false);
+  });
+
+  it('hard backdoor always picks root', () => {
+    for (let i = 0; i < 100; i++) {
+      const { result } = buildTestData(`backdoor-hard-user-${i}`, 'hard', 'backdoor');
+      expect(result.objective.backdoorUser).toBe('root');
+    }
   });
 });

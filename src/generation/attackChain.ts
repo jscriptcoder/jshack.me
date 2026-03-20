@@ -9,6 +9,7 @@ import type {
   ScriptBugType,
 } from './types';
 import {
+  backdoorPorts,
   clientHandles,
   keyPlacementTemplates,
   scriptFixTemplatesByRole,
@@ -189,6 +190,7 @@ const buildObjective = (
   targetMachine: GeneratedMachine,
   credentials: CredentialMap,
   clientEmail: string,
+  difficulty: Difficulty,
   encryptionConfig?: {
     readonly encrypted: boolean;
     readonly machines: readonly GeneratedMachine[];
@@ -312,6 +314,30 @@ const buildObjective = (
     };
   }
 
+  if (objectiveType === 'backdoor') {
+    const port = prng.pick(backdoorPorts);
+    // Easy: guest (60%) or user (40%). Medium/Hard: always root.
+    const userRoll = prng.next();
+    const backdoorUser: 'root' | 'user' | 'guest' =
+      difficulty === 'easy' ? (userRoll < 0.6 ? 'guest' : 'user') : 'root';
+
+    // Consume dummy PRNG rolls for binary + encrypt to preserve sequence alignment
+    prng.next();
+    prng.next();
+
+    return {
+      type: 'backdoor',
+      description: `Open a backdoor on port ${port} on ${targetMachine.hostname}`,
+      targetMachine: targetMachine.ip,
+      targetPath: '',
+      targetContent: '',
+      clientEmail,
+      expectedProof: '',
+      backdoorPort: port,
+      backdoorUser,
+    };
+  }
+
   // credential_theft — target is the root password on the target machine
   const targetCreds = credentials[targetMachine.ip] ?? [];
   const rootCred = targetCreds.find((c) => c.username === 'root');
@@ -346,6 +372,7 @@ export const buildMissionObjective = (input: BuildObjectiveInput): BuildObjectiv
     'credential_theft',
     'script_fix',
     'sabotage',
+    'backdoor',
   ];
 
   const path = buildPath(prng, machines, entryPoint, difficulty);
@@ -356,11 +383,19 @@ export const buildMissionObjective = (input: BuildObjectiveInput): BuildObjectiv
   // Always consume PRNG pick to preserve sequence, then apply override
   const prngObjectiveType = prng.pick(objectiveTypes);
   const objectiveType = objectiveTypeOverride ?? prngObjectiveType;
-  const objective = buildObjective(prng, objectiveType, targetMachine, credentials, clientEmail, {
-    encrypted: encryptedOverride ?? false,
-    machines: path,
-    entryPoint,
-  });
+  const objective = buildObjective(
+    prng,
+    objectiveType,
+    targetMachine,
+    credentials,
+    clientEmail,
+    difficulty,
+    {
+      encrypted: encryptedOverride ?? false,
+      machines: path,
+      entryPoint,
+    },
+  );
 
   return { objective, clientEmail };
 };

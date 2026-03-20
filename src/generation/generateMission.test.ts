@@ -21,6 +21,15 @@ describe('parseSeedOverrides', () => {
     expect(parseSeedOverrides('test-snmp').entryVariant).toBe('snmp');
     expect(parseSeedOverrides('SNMP-MISSION').entryVariant).toBe('snmp');
   });
+
+  it('parses backdoor keyword as objective type', () => {
+    expect(parseSeedOverrides('test-backdoor').objectiveType).toBe('backdoor');
+    expect(parseSeedOverrides('BACKDOOR-MISSION').objectiveType).toBe('backdoor');
+  });
+
+  it('returns undefined objectiveType without backdoor keyword', () => {
+    expect(parseSeedOverrides('test-mission').objectiveType).toBeUndefined();
+  });
 });
 
 describe('generateMissionNetwork', () => {
@@ -92,7 +101,11 @@ describe('generateMissionNetwork', () => {
   it('target machine filesystem contains the target file for exfiltrate/tamper/script_fix', () => {
     for (let i = 0; i < 50; i++) {
       const result = generateMissionNetwork(`TARGET-FILE-${i}`);
-      if (result.objective.type === 'credential_theft' || result.objective.type === 'sabotage')
+      if (
+        result.objective.type === 'credential_theft' ||
+        result.objective.type === 'sabotage' ||
+        result.objective.type === 'backdoor'
+      )
         continue;
 
       const targetFs = result.fileSystems[result.objective.targetMachine];
@@ -117,9 +130,14 @@ describe('generateMissionNetwork', () => {
 
   it('objective has a valid type', () => {
     const result = generateMissionNetwork('FORMAT-TEST');
-    expect(['exfiltrate', 'tamper', 'credential_theft', 'script_fix', 'sabotage']).toContain(
-      result.objective.type,
-    );
+    expect([
+      'exfiltrate',
+      'tamper',
+      'credential_theft',
+      'script_fix',
+      'sabotage',
+      'backdoor',
+    ]).toContain(result.objective.type);
   });
 
   it('clientEmail is set with darkmail.onion domain', () => {
@@ -528,6 +546,29 @@ describe('generateMissionNetwork', () => {
     expect(result.objective.targetPath).toBe('');
     expect(result.objective.targetContent).toBe('');
     expect(result.objective.description).toContain('Destroy');
+  });
+
+  it('backdoor keyword forces backdoor objective', () => {
+    const result = generateMissionNetwork('test-backdoor-easy');
+    expect(result.objective.type).toBe('backdoor');
+    expect(result.objective.backdoorPort).toBeDefined();
+    expect([4444, 31337, 8888, 1337]).toContain(result.objective.backdoorPort);
+    expect(result.objective.backdoorUser).toBeDefined();
+    expect(result.objective.description).toContain('backdoor');
+  });
+
+  it('backdoor seeds never have SSH closures', () => {
+    for (let i = 0; i < 50; i++) {
+      const result = generateMissionNetwork(`backdoor-noclose-${i}`);
+      if (result.objective.type !== 'backdoor') continue;
+
+      result.machines.forEach((m) => {
+        const sshPort = m.remoteMachine.ports.find((p) => p.port === 22);
+        if (sshPort) {
+          expect(sshPort.open).toBe(true);
+        }
+      });
+    }
   });
 
   it('sabotage seeds never have SSH closures', () => {

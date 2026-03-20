@@ -10,7 +10,8 @@ export type MissionObjectiveType =
   | 'tamper'
   | 'credential_theft'
   | 'script_fix'
-  | 'sabotage';
+  | 'sabotage'
+  | 'backdoor';
 
 export type ScriptBugType = 'syntax' | 'logic' | 'corrupted';
 
@@ -40,6 +41,8 @@ export type MissionObjective = {
   readonly scriptHintContent?: string;
   readonly scriptOwner?: 'root' | 'user';
   readonly expectedChecksum?: string;
+  readonly backdoorPort?: number;
+  readonly backdoorUser?: 'root' | 'user' | 'guest';
 };
 
 export type GeneratedMachine = {

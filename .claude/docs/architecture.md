@@ -239,7 +239,7 @@ SessionProvider → MissionProvider → FileSystemProvider → NetworkProvider �
 
 **Mission commands:** `missions()` (browse contracts), `accept(seed)` (generate + start), `abort()` (pop all sessions, clear state), `mail(recipient, content)` (submit proof, verify by objective type, calls `completeMission()`).
 
-**Objective types:** exfiltrate, tamper, credential_theft, script_fix, sabotage. See `mission-variations.md` for details and completion criteria.
+**Objective types:** exfiltrate, tamper, credential_theft, script_fix, sabotage, backdoor. See `mission-variations.md` for details and completion criteria.
 
 ## SEO & Open Graph
 

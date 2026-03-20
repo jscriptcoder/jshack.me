@@ -55,6 +55,21 @@ export const formatObjectiveHint = (mission: MissionNetwork): string => {
     ].join('\n');
   }
 
+  if (objective.type === 'backdoor') {
+    const port = objective.backdoorPort ?? 0;
+    const userHint =
+      objective.backdoorUser === 'root'
+        ? ' as root'
+        : objective.backdoorUser === 'guest'
+          ? ' as guest'
+          : '';
+    return [
+      `  Open a backdoor listener on port ${port}${userHint} on the target machine.`,
+      `  Install netcat and run nc("-l", ${port}). Then confirm to the client.`,
+      `  Example: mail("${email}", "done")`,
+    ].join('\n');
+  }
+
   // credential_theft
   return [
     '  Discover the root password on the target machine and mail it to the client.',

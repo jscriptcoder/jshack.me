@@ -95,6 +95,17 @@ describe('accept command', () => {
     expect(() => accept.fn('SOME-SEED')).toThrow('A mission is already active');
   });
 
+  it('shows backdoor briefing with port and nc instructions', () => {
+    const startMission = vi.fn();
+    const accept = createAcceptCommand({ startMission, isMissionActive: () => false });
+    const result = accept.fn('test-backdoor-easy') as string;
+
+    expect(result).toContain('mail(');
+    expect(result).toContain('backdoor');
+    expect(result).toContain('nc(');
+    expect(result).toContain('done');
+  });
+
   it('shows sabotage briefing with boot file instructions', () => {
     const startMission = vi.fn();
     const accept = createAcceptCommand({ startMission, isMissionActive: () => false });

@@ -54,13 +54,15 @@ export const parseSeedOverrides = (seed: string): SeedOverrides => {
     ? 'script_fix'
     : lower.includes('sabotage')
       ? 'sabotage'
-      : lower.includes('exfiltrate')
-        ? 'exfiltrate'
-        : lower.includes('tamper')
-          ? 'tamper'
-          : lower.includes('credential-theft')
-            ? 'credential_theft'
-            : undefined;
+      : lower.includes('backdoor')
+        ? 'backdoor'
+        : lower.includes('exfiltrate')
+          ? 'exfiltrate'
+          : lower.includes('tamper')
+            ? 'tamper'
+            : lower.includes('credential-theft')
+              ? 'credential_theft'
+              : undefined;
 
   const domainEntry = lower.includes('domain') ? true : undefined;
 
@@ -247,8 +249,13 @@ const applyPortClosures = (
   const dualBackdoorPort = prng.pick(backdoorPorts);
   const sshBackdoorPort = prng.pick(backdoorPorts);
 
-  // script_fix and sabotage need SSH shell access on target — skip all closures
-  if (objectiveType === 'script_fix' || objectiveType === 'sabotage') return machines;
+  // script_fix, sabotage, and backdoor need SSH shell access on target — skip all closures
+  if (
+    objectiveType === 'script_fix' ||
+    objectiveType === 'sabotage' ||
+    objectiveType === 'backdoor'
+  )
+    return machines;
 
   // Eligible machines: internal (non-router), non-entry
   const eligible = machines.filter((m) => m.role !== 'router' && m.ip !== entryPoint);
@@ -420,6 +427,7 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
     'credential_theft',
     'script_fix',
     'sabotage',
+    'backdoor',
   ];
   const prngObjectiveType = prng.pick(objectiveTypes);
   const resolvedObjectiveType = effectiveObjectiveOverride ?? prngObjectiveType;

@@ -6,14 +6,14 @@ Comprehensive catalog of all procedural generation variation axes. Use this to t
 
 All six major generation axes can be controlled by embedding keywords in the seed string (case-insensitive, matched via `includes()`). `parseSeedOverrides(seed)` in `generateMission.ts` extracts overrides. PRNG sequence is preserved — calls are consumed but results discarded in favor of overrides.
 
-| Axis          | Keywords                                                             | Notes                                                     |
-| ------------- | -------------------------------------------------------------------- | --------------------------------------------------------- |
-| Difficulty    | `easy`, `medium`, `hard`                                             | Falls back to hash-based derivation without keyword       |
-| Entry variant | `ssh`, `ftp`, `nc`, `exploit`, `http`, `snmp`                        | Falls back if template unavailable (e.g. nc+router-first) |
-| Network mode  | `forwarded`, `router-first`                                          | Hyphenated to avoid false matches                         |
-| Objective     | `exfiltrate`, `tamper`, `credential-theft`, `script-fix`, `sabotage` | Hyphen variant for credential_theft / script_fix          |
-| Domain entry  | `domain`                                                             | Forces domain-based briefing (nslookup required)          |
-| Encryption    | `gpg`                                                                | Forces exfiltrate + encrypted target file                 |
+| Axis          | Keywords                                                                         | Notes                                                     |
+| ------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| Difficulty    | `easy`, `medium`, `hard`                                                         | Falls back to hash-based derivation without keyword       |
+| Entry variant | `ssh`, `ftp`, `nc`, `exploit`, `http`, `snmp`                                    | Falls back if template unavailable (e.g. nc+router-first) |
+| Network mode  | `forwarded`, `router-first`                                                      | Hyphenated to avoid false matches                         |
+| Objective     | `exfiltrate`, `tamper`, `credential-theft`, `script-fix`, `sabotage`, `backdoor` | Hyphen variant for credential_theft / script_fix          |
+| Domain entry  | `domain`                                                                         | Forces domain-based briefing (nslookup required)          |
+| Encryption    | `gpg`                                                                            | Forces exfiltrate + encrypted target file                 |
 
 Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`
 
@@ -139,6 +139,36 @@ Each template is a short script that filters/counts array data and conditionally
 - ACCESS-KEY never appears in script source (anti-cheat: can't `cat` to find it)
 - `_decode()` only exists in `node()`'s execution context, not the terminal
 
+## Backdoor Objective
+
+A 6th objective type where the player must open a netcat listener (`nc -l`) on a target machine at a specific port as a specific user. The player must install netcat on the target machine first (via `apt install netcat` as root or `scp` the binary). Seed keyword: `backdoor`.
+
+### Port Selection
+
+Port is PRNG-picked from `backdoorPorts` pool: 4444, 31337, 8888, 1337 (all above 1024, so no root-for-port requirement).
+
+### User Requirement (by difficulty)
+
+| Difficulty | Required User            | Notes                                              |
+| ---------- | ------------------------ | -------------------------------------------------- |
+| Easy       | guest (60%) / user (40%) | No privilege escalation needed for the listener    |
+| Medium     | root                     | Must escalate privileges before opening listener   |
+| Hard       | root                     | Must escalate privileges + traverse longer network |
+
+### Verification
+
+`mail(client, "done")` reads `/var/run/nc-<port>.pid` on the target machine (as root) and verifies:
+
+1. PID file exists (listener was started)
+2. `userType` field matches the required user
+
+### Key Design Decisions
+
+- No target file (like sabotage/credential_theft)
+- Dummy PRNG rolls consumed for binary + encrypt to preserve sequence alignment
+- SSH port closures skipped for backdoor (player needs shell access on target)
+- Player can install netcat via `apt install netcat` (needs root for apt) or copy the binary via `scp`
+
 ## Binary File Wrapping
 
 Some credential breadcrumbs, exfiltrate target files, entry credential hints, and encryption keys are wrapped in "binary noise" — non-printable characters interspersed with readable content. `cat` shows garbled output; `strings` extracts the readable data. This adds a discovery mechanic requiring the `strings` command.
@@ -186,6 +216,7 @@ PRNG-driven SSH/FTP port closures increase lateral movement variety. At most one
 - **Router**: never closed (infrastructure)
 - **script_fix objective**: never close SSH (player needs `node()` shell access on target)
 - **sabotage objective**: never close SSH (player needs shell access to `rm` boot files and `reboot`)
+- **backdoor objective**: never close SSH (player needs shell access to run `nc -l` on target)
 - **Same-machine collision**: FTP closure skipped if it targets the same machine as SSH closure
 - When SSH is closed, FTP port 21 is added/opened and a root-owned NC backdoor is guaranteed
 - Root backdoor enables `bash('/usr/sbin/sshd')` or `bash('/usr/sbin/ftpd')` to restart services
@@ -257,7 +288,7 @@ Used when entry variant is `exploit`. Matched by port/service.
 | CVE-2015-1427  | Elasticsearch 1.4.2 | 9200 | Groovy sandbox bypass            |
 | CVE-2019-11510 | PulseSecure/9.0R1   | 8443 | Arbitrary file read (router VPN) |
 
-## Objective Types (5)
+## Objective Types (6)
 
 | Type             | Description                                         | Completion                             |
 | ---------------- | --------------------------------------------------- | -------------------------------------- |
@@ -266,6 +297,7 @@ Used when entry variant is `exploit`. Matched by port/service.
 | credential_theft | Discover root password, mail to client              | `mail(email, "<password>")`            |
 | script_fix       | Fix broken script, run with node(), mail ACCESS-KEY | `mail(email, "ACCESS-XXXX-XXXX-XXXX")` |
 | sabotage         | Destroy target machine, confirm the kill            | `mail(email, "done")`                  |
+| backdoor         | Open nc listener on target machine, confirm         | `mail(email, "done")`                  |
 
 ## Exfiltrate Target File Templates (15 — 3 per role)
 

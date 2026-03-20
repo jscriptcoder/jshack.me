@@ -127,7 +127,7 @@ See `architecture.md` for integration details, `mission-variations.md` for all g
 - `generateMissionNetwork(seed)` deterministically produces a full network. Seeds embed keywords for overrides (difficulty, entry variant, network mode, objective, domain, gpg, snmp).
 - Provider hierarchy: `SessionProvider → MissionProvider → FileSystemProvider → NetworkProvider → Terminal`
 - Commands: `missions()`, `accept(seed)`, `abort()`, `mail(recipient, content)`
-- Five objectives: exfiltrate, tamper, credential_theft, script_fix, sabotage
+- Six objectives: exfiltrate, tamper, credential_theft, script_fix, sabotage, backdoor
 - NAT resolution via `resolveNat(ip, port)` using iptables rules on router filesystem
 
 ### Node Execution

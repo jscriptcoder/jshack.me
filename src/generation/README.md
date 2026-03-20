@@ -22,7 +22,7 @@ const mission = generateMissionNetwork('HEIST-7734');
 1. **PRNG** (`prng.ts`) — Mulberry32 seeded via FNV-1a hash of the seed string
 2. **Topology** (`topology.ts`) — Flat subnet, machine count by difficulty, roles, IPs, interfaces, DNS, entry variant selection (ssh/ftp/nc/exploit/http/snmp)
 3. **Users** (`users.ts`) — Root + 1-2 role-appropriate users per machine, md5-hashed passwords. Guest passwords picked from `guestPasswords` pool (not hardcoded).
-4. **Objective** (`attackChain.ts`) — Objective generation (exfiltrate with ACCESS-KEY, tamper with old/new values, credential_theft with root password, script_fix with broken script + bug type, sabotage with machine bricking), client email generation
+4. **Objective** (`attackChain.ts`) — Objective generation (exfiltrate with ACCESS-KEY, tamper with old/new values, credential_theft with root password, script_fix with broken script + bug type, sabotage with machine bricking, backdoor with nc listener), client email generation
 5. **Filesystems** (`filesystem.ts`) — FileNode trees with role configs, noise, target file at dynamic path with thematic content. Web content generation for webserver-role machines. `/bin/` is populated with system utility binaries; `/usr/bin/` is left empty (players must `apt install` tools). Router gets `/etc/iptables/rules.v4` — pre-populated with forwarding rules in forwarded mode, empty template in router-first mode. SNMP variant routers get `/etc/snmp/snmpd.conf` with community strings, system OIDs, leaked credentials, and firewall OIDs.
 
 ## Files
@@ -34,7 +34,7 @@ const mission = generateMissionNetwork('HEIST-7734');
 | `pools.ts`           | Static data: usernames, passwords, guest passwords, hostnames, client handles, vulnerability/port/entry templates, target/tamper/script-fix file templates by role, web content templates |
 | `topology.ts`        | Subnet generation, machine roles, entry variant selection, NetworkConfig                                                                                                                  |
 | `users.ts`           | Per-machine users + plaintext credential map                                                                                                                                              |
-| `attackChain.ts`     | Objective generation (exfiltrate/tamper/credential_theft/script_fix/sabotage), client email                                                                                               |
+| `attackChain.ts`     | Objective generation (exfiltrate/tamper/credential_theft/script_fix/sabotage/backdoor), client email                                                                                      |
 | `binary.ts`          | Binary noise wrapping for target files, binary file path pools                                                                                                                            |
 | `filesystem.ts`      | FileNode trees via createFileSystem(), noise, dynamic target file placement, router iptables rules                                                                                        |
 | `generateMission.ts` | Orchestrator composing all steps                                                                                                                                                          |
@@ -83,13 +83,13 @@ NC, exploit, and FTP variants select a variable owner type via PRNG: guest (60%)
 
 Players and developers can embed keywords in the seed string to control generation axes. Keywords are case-insensitive and matched via `includes()`. `parseSeedOverrides(seed)` extracts all overrides in one pass.
 
-| Axis          | Keywords                                                             | Notes                                                     |
-| ------------- | -------------------------------------------------------------------- | --------------------------------------------------------- |
-| Difficulty    | `easy`, `medium`, `hard`                                             | Same as before, now unified in parser                     |
-| Entry variant | `ssh`, `ftp`, `nc`, `exploit`, `http`                                | Falls back if template unavailable (e.g. nc+router-first) |
-| Network mode  | `forwarded`, `router-first`                                          | Hyphenated to avoid false matches                         |
-| Objective     | `exfiltrate`, `tamper`, `credential-theft`, `script-fix`, `sabotage` | Hyphen variant for credential_theft / script_fix          |
-| Encryption    | `gpg`                                                                | Forces exfiltrate + encrypted target file                 |
+| Axis          | Keywords                                                                         | Notes                                                     |
+| ------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| Difficulty    | `easy`, `medium`, `hard`                                                         | Same as before, now unified in parser                     |
+| Entry variant | `ssh`, `ftp`, `nc`, `exploit`, `http`                                            | Falls back if template unavailable (e.g. nc+router-first) |
+| Network mode  | `forwarded`, `router-first`                                                      | Hyphenated to avoid false matches                         |
+| Objective     | `exfiltrate`, `tamper`, `credential-theft`, `script-fix`, `sabotage`, `backdoor` | Hyphen variant for credential_theft / script_fix          |
+| Encryption    | `gpg`                                                                            | Forces exfiltrate + encrypted target file                 |
 
 Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`, `IRONGATE-nc-gpg-22`
 

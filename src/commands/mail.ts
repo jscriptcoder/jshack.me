@@ -80,6 +80,32 @@ const verifySabotage = (
   return 'Target machine is still operational. Delete critical boot files and reboot it.';
 };
 
+const verifyBackdoor = (
+  mission: MissionNetwork,
+  readFileFromMachine: MailCommandContext['readFileFromMachine'],
+): string | null => {
+  const { objective } = mission;
+  const port = objective.backdoorPort;
+  if (port === undefined) return 'Invalid backdoor mission configuration.';
+
+  const pidPath = `/var/run/nc-${port}.pid`;
+  const pidContent = readFileFromMachine(objective.targetMachine, pidPath, '/', 'root');
+
+  if (!pidContent) {
+    return `No listener detected on port ${port}. Run nc("-l", ${port}) on the target machine.`;
+  }
+
+  if (objective.backdoorUser) {
+    const userTypeMatch = pidContent.match(/userType=(\w+)/);
+    const actualUserType = userTypeMatch?.[1];
+    if (actualUserType !== objective.backdoorUser) {
+      return `Backdoor must be opened as ${objective.backdoorUser}. Currently opened as ${actualUserType}.`;
+    }
+  }
+
+  return null;
+};
+
 const verifyProof = (
   proof: string,
   mission: MissionNetwork,
@@ -92,6 +118,7 @@ const verifyProof = (
   if (type === 'tamper') return verifyTamper(mission, readFileFromMachine);
   if (type === 'script_fix') return verifyScriptFix(proof, mission);
   if (type === 'sabotage') return verifySabotage(mission, isMachineBricked);
+  if (type === 'backdoor') return verifyBackdoor(mission, readFileFromMachine);
   return null;
 };
 
