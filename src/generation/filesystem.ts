@@ -16,6 +16,7 @@ import {
 import {
   configTemplatesByRole,
   credentialLeakTemplates,
+  httpEntryCredentialTemplates,
   logTemplates,
   noiseFiles,
   redHerringFiles,
@@ -40,6 +41,7 @@ type FilesystemInput = {
   readonly routerMachine?: GeneratedMachine;
   readonly natForwarding?: NatForwarding;
   readonly entryVariant?: EntryVariant;
+  readonly entryPoint?: string;
 };
 
 const mkFile = (
@@ -154,6 +156,68 @@ const placeCredentialLeak = (
     }
   } else {
     extraDirectories[topDir] = buildNestedDirs(segments, file);
+  }
+};
+
+// Places SSH credentials in /var/www/html/ for HTTP entry variant missions.
+// PRNG picks a template: body-based (creds in file content) or header-based
+// (creds in .headers sidecar, discoverable via curl -i).
+// Files are root-owned — curl serves them (reads as root), but users can't cat them locally.
+const placeHttpEntryCredentials = (
+  prng: Prng,
+  machineCreds: readonly { readonly username: string; readonly password: string }[],
+  htmlChildren: Record<string, FileNode>,
+): void => {
+  const userCred = machineCreds.find((c) => c.username !== 'root' && c.username !== 'guest');
+  if (!userCred) return;
+
+  const template = prng.pick(httpEntryCredentialTemplates);
+  const credString = `${userCred.username}:${userCred.password}`;
+
+  if (template.sidecarHeader) {
+    // Header-based: create .headers sidecar file with credential header.
+    // For 'index.html', the body already exists — only add the sidecar.
+    // For other paths, create both the body file and its sidecar.
+    const sidecarContent = `${template.sidecarHeader}: ${credString}`;
+    const segments = template.webPath.split('/');
+    const fileName = segments[segments.length - 1] as string;
+    const sidecarName = `${fileName}.headers`;
+
+    if (segments.length === 1) {
+      // Top-level path (e.g., 'index.html', 'status')
+      if (template.content) {
+        htmlChildren[fileName] = mkFile(fileName, template.content);
+      }
+      htmlChildren[sidecarName] = mkFile(sidecarName, sidecarContent);
+    } else {
+      // Nested path (e.g., 'admin/debug.html')
+      const dirName = segments[0] as string;
+      const dirChildren: Record<string, FileNode> = {
+        ...(template.content ? { [fileName]: mkFile(fileName, template.content) } : {}),
+        [sidecarName]: mkFile(sidecarName, sidecarContent),
+      };
+      htmlChildren[dirName] = mkDir(dirName, dirChildren, 'root', true);
+    }
+  } else {
+    // Body-based: credentials are in the file content itself
+    const content = fillTemplate(template.content, {
+      username: userCred.username,
+      password: userCred.password,
+    });
+    const segments = template.webPath.split('/');
+    const fileName = segments[segments.length - 1] as string;
+
+    if (segments.length === 1) {
+      htmlChildren[fileName] = mkFile(fileName, content);
+    } else {
+      const dirName = segments[0] as string;
+      htmlChildren[dirName] = mkDir(
+        dirName,
+        { [fileName]: mkFile(fileName, content) },
+        'root',
+        true,
+      );
+    }
   }
 };
 
@@ -324,6 +388,7 @@ const buildMachineConfig = (
   objective: MissionObjective,
   internalMachines?: readonly GeneratedMachine[],
   natForwarding?: NatForwarding,
+  isHttpEntry?: boolean,
 ): MachineFileSystemConfig => {
   const userConfigs: readonly UserConfig[] = users.map((u, i) => ({
     username: u.username,
@@ -474,6 +539,11 @@ const buildMachineConfig = (
       'index.html': mkFile('index.html', indexContent, 'guest'),
     };
 
+    // HTTP entry variant: place credential files in /var/www/html/ for discovery via curl.
+    if (isHttpEntry) {
+      placeHttpEntryCredentials(prng, machineCreds, htmlChildren);
+    }
+
     extraDirectories['var'] = mkDir(
       'var',
       {
@@ -558,14 +628,26 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
     routerMachine,
     natForwarding,
     entryVariant,
+    entryPoint,
   } = input;
 
   const entries = machines.map((machine) => {
     const users = usersByMachine[machine.ip] ?? [];
     const machineCreds = credentials[machine.ip] ?? [];
     const isTarget = machine.ip === objective.targetMachine;
+    const isHttpEntry = entryVariant === 'http' && machine.ip === entryPoint;
 
-    const baseConfig = buildMachineConfig(prng, machine, users, machineCreds, isTarget, objective);
+    const baseConfig = buildMachineConfig(
+      prng,
+      machine,
+      users,
+      machineCreds,
+      isTarget,
+      objective,
+      undefined,
+      undefined,
+      isHttpEntry,
+    );
 
     // Place encryption key file on the key machine (if this is that machine)
     const keyTree =

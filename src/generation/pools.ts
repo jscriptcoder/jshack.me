@@ -807,6 +807,108 @@ export const credentialLeakTemplates: readonly CredentialLeakTemplate[] = [
   },
 ];
 
+// HTTP entry credential templates — placed in /var/www/html/ on the entry machine
+// when the entry variant is 'http'. Players discover these via gobuster + curl.
+// Body-based: credentials visible in file content via regular curl.
+// Header-based (sidecarHeader set): credentials in .headers sidecar, requires curl -i.
+export type HttpEntryCredentialTemplate = {
+  readonly webPath: string; // Path relative to /var/www/html/, e.g., '.env', 'admin/config.json'
+  readonly content: string; // File body (with {{username}}/{{password}} for body-based)
+  readonly sidecarHeader?: string; // If set, credential goes in .headers sidecar with this header name
+};
+
+export const httpEntryCredentialTemplates: readonly HttpEntryCredentialTemplate[] = [
+  // Body-based: credentials in file content
+  {
+    webPath: '.env',
+    content: [
+      'APP_ENV=production',
+      'APP_DEBUG=false',
+      'APP_KEY=base64:Rk9PQkFSQkFaUVVYQ09SR0U=',
+      '',
+      'DB_CONNECTION=mysql',
+      'DB_HOST=127.0.0.1',
+      'DB_PORT=3306',
+      'DB_DATABASE=webapp',
+      '',
+      '# SSH tunnel for remote DB access',
+      'SSH_USER={{username}}',
+      'SSH_PASS={{password}}',
+      'SSH_HOST=localhost',
+    ].join('\n'),
+  },
+  {
+    webPath: 'admin/config.json',
+    content: [
+      '{',
+      '  "admin": {',
+      '    "panel": "/admin/",',
+      '    "debug": false',
+      '  },',
+      '  "ssh": {',
+      '    "host": "localhost",',
+      '    "user": "{{username}}",',
+      '    "password": "{{password}}"',
+      '  },',
+      '  "backup": {',
+      '    "enabled": true,',
+      '    "schedule": "daily"',
+      '  }',
+      '}',
+    ].join('\n'),
+  },
+  {
+    webPath: 'api/health',
+    content: [
+      '{',
+      '  "status": "healthy",',
+      '  "uptime": "14d 6h 23m",',
+      '  "version": "4.2.1",',
+      '  "services": {',
+      '    "ssh": {',
+      '      "user": "{{username}}",',
+      '      "pass": "{{password}}",',
+      '      "status": "active"',
+      '    },',
+      '    "http": "running",',
+      '    "db": "connected"',
+      '  }',
+      '}',
+    ].join('\n'),
+  },
+  // Header-based: credentials in .headers sidecar (requires curl -i)
+  {
+    webPath: 'index.html',
+    content: '', // Uses the existing index.html body (no new file created for this path)
+    sidecarHeader: 'X-Debug-Token',
+  },
+  {
+    webPath: 'status',
+    content: [
+      'System Status: OK',
+      'Uptime: 14 days, 6 hours',
+      'Load: 0.42',
+      'Services: ssh(active) http(active) db(active)',
+    ].join('\n'),
+    sidecarHeader: 'X-Session-Token',
+  },
+  {
+    webPath: 'admin/debug.html',
+    content: [
+      '<html>',
+      '<head><title>Debug Console</title></head>',
+      '<body>',
+      '<h1>Debug Console</h1>',
+      '<p>Debug mode: disabled</p>',
+      '<p>Environment: production</p>',
+      '<!-- enable debug: ?debug=1 -->',
+      '</body>',
+      '</html>',
+    ].join('\n'),
+    sidecarHeader: 'X-Internal-Auth',
+  },
+];
+
 export type ScriptFixTemplate = {
   readonly path: string;
   readonly bugVariants: Readonly<Record<ScriptBugType, string>>;

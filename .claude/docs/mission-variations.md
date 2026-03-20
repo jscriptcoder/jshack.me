@@ -371,17 +371,27 @@ Where next-hop credentials are hidden on the current machine.
 | `/home/{{user}}/notes.txt`     | Server access notes                      |
 | `/etc/maintenance.conf`        | Config with embedded remote credentials  |
 
-## Entry Credential Hint Templates (3)
+## HTTP Entry Credential Placement (6)
 
-Used by FTP/NC/msfconsole/HTTP variants to place SSH credentials on the entry machine.
+HTTP entry variant places SSH credentials in `/var/www/html/` on the entry machine, discoverable via `gobuster` + `curl`. Other entry variants (FTP/NC/exploit) do not place hint files — players use tools like `hydra` to crack credentials.
 
-| FTP Path                          | NC/Exploit Path                  | HTTP Path                        | Style                      |
-| --------------------------------- | -------------------------------- | -------------------------------- | -------------------------- |
-| `/home/{{owner}}/.ssh_backup`     | `/home/{{owner}}/ssh_backup.txt` | `/var/www/html/status` (header)  | SSH credentials backup     |
-| `/home/{{owner}}/notes.txt`       | `/home/{{owner}}/notes.txt`      | `/var/www/html/admin/debug.html` | Server notes with creds    |
-| `/home/{{owner}}/credentials.bak` | `/home/{{owner}}/.credentials`   | `/var/www/html/.env` (header)    | Auto-generated credentials |
+PRNG picks one template per mission. Files are root-owned (curl serves them since it reads as root, but a user who SSHs in cannot `cat` them locally). Only user-type credentials are leaked (not root, not guest).
 
-HTTP entry variant places credentials either in the page body or in a `.headers` sidecar file (visible via `curl -i`). The `httpInHeader` flag on each template controls the placement: header-based secrets require `curl -i` to discover, while body-based secrets are visible with regular `curl`.
+### Body-based (credentials in file content, visible via `curl`)
+
+| Web Path            | Content Style                               |
+| ------------------- | ------------------------------------------- |
+| `.env`              | App environment file with SSH_USER/SSH_PASS |
+| `admin/config.json` | JSON config with SSH credentials object     |
+| `api/health`        | Health endpoint with debug credentials      |
+
+### Header-based (credentials in `.headers` sidecar, requires `curl -i`)
+
+| Web Path           | Body Content           | Sidecar Header    |
+| ------------------ | ---------------------- | ----------------- |
+| `index.html`       | (existing page)        | `X-Debug-Token`   |
+| `status`           | Plain text status page | `X-Session-Token` |
+| `admin/debug.html` | HTML debug console     | `X-Internal-Auth` |
 
 ## Name Pools
 
@@ -447,32 +457,25 @@ Each hint is paired with its credential placement template so the hint always de
 - Check {{localUser}}'s home directory on {{machine}} for notes → `/home/{{localUser}}/notes.txt`
 - Look in /etc/maintenance.conf on {{machine}} for hardcoded credentials → `/etc/maintenance.conf`
 
-## HTTP Lateral Movement
-
-When the next-hop machine has port 80 open, the attack chain can select `http` as the lateral movement method (alongside existing SSH/FTP). Credentials are placed in web-accessible files on the current machine, discoverable via `curl`. PRNG picks between HTTP and other available methods (FTP, SSH).
-
-### HTTP Credential Placement Templates (4)
-
-| Path                              | Secret Location | Hint                                                     |
-| --------------------------------- | --------------- | -------------------------------------------------------- |
-| `/var/www/html/admin/config.json` | Header sidecar  | "The webserver may be leaking credentials — try curl -i" |
-| `/var/www/html/status`            | Page body       | "Check the status page with curl"                        |
-| `/var/www/html/.env`              | Header sidecar  | "The .env file is web-accessible — try curl -i"          |
-| `/var/www/html/api/health`        | Page body       | "The API has a health endpoint — try curl"               |
-
 ### `.headers` Sidecar Convention
 
-A file at `/var/www/html/page.html.headers` injects custom HTTP response headers when curl serves `/var/www/html/page.html`. Format: one `Key: Value` per line. The curl command reads these sidecar files transparently.
+A file at `/var/www/html/page.html.headers` injects custom HTTP response headers when curl serves `/var/www/html/page.html`. Format: one `Key: Value` per line. The curl command reads these sidecar files transparently. Gobuster filters out `.headers` files from enumeration results.
 
-Secret header names: `X-Api-Key`, `X-Session-Token`, `Authorization`, `X-Internal-Auth`, `X-Access-Token`.
+Header names used: `X-Debug-Token`, `X-Session-Token`, `X-Internal-Auth`.
 
 ### Web Content Generation
 
-Webserver-role machines (and any machine with web credential placements) get `/var/www/html/` populated with:
+Any machine with an open HTTP port gets `/var/www/html/` populated with:
 
-- An `index.html` page from `webContentTemplates` pool
-- Credential placement files at their designated web paths
-- `.headers` sidecar files for header-based secrets
+- An `index.html` page from role-appropriate `webContentTemplates` pool
+- HTTP entry machines additionally get credential files from `httpEntryCredentialTemplates`
+- `.headers` sidecar files for header-based credential templates
+
+<!--
+## HTTP Lateral Movement (not yet implemented)
+
+When the next-hop machine has port 80 open, the attack chain could select `http` as a lateral movement method (alongside existing SSH/FTP). Credentials would be placed in web-accessible files on the current machine, discoverable via `curl`.
+-->
 
 ## Credential Leak Placement
 

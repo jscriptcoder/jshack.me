@@ -344,6 +344,43 @@ describe('generateMissionNetwork', () => {
     expect(result.entryVariant).toBe('http');
   });
 
+  it('HTTP entry variant places credential files in /var/www/html/ on entry machine', () => {
+    for (let i = 0; i < 50; i++) {
+      const result = generateMissionNetwork(`http-integration-${i}-http`);
+      expect(result.entryVariant).toBe('http');
+
+      const entryFs = result.fileSystems[result.entryPoint];
+      expect(entryFs).toBeDefined();
+
+      // Navigate to /var/www/html/
+      const varDir = entryFs?.type === 'directory' ? entryFs.children?.['var'] : undefined;
+      const wwwDir = varDir?.type === 'directory' ? varDir.children?.['www'] : undefined;
+      const htmlDir = wwwDir?.type === 'directory' ? wwwDir.children?.['html'] : undefined;
+      expect(htmlDir?.type).toBe('directory');
+
+      // Should have more than just index.html (credential files or sidecar)
+      const childNames = Object.keys(htmlDir?.children ?? {});
+      expect(childNames.length).toBeGreaterThan(1);
+
+      // Credentials should belong to a user on the entry machine
+      const entryCreds = result.machines
+        .filter((m) => m.ip === result.entryPoint)
+        .flatMap((m) => m.remoteMachine.users ?? [])
+        .filter((u) => u.userType === 'user');
+      if (entryCreds.length === 0) continue;
+
+      const username = entryCreds[0]?.username;
+      if (!username) continue;
+
+      // Collect all file content from /var/www/html/ tree
+      const allContent = collectAllContent(htmlDir);
+      const hasCreds = allContent.some((c) => c.includes(username));
+      expect(hasCreds).toBe(true);
+      return;
+    }
+    throw new Error('No HTTP entry with user credentials found in 50 seeds');
+  });
+
   it('router filesystem contains hints about internal machines', () => {
     const result = generateMissionNetwork('ROUTER-FS-TEST');
     const routerFs = result.fileSystems[result.routerPublicIp];
@@ -585,3 +622,10 @@ describe('generateMissionNetwork', () => {
     }
   });
 });
+
+// Recursively collects all text content from a FileNode tree.
+const collectAllContent = (node: FileNode | undefined): readonly string[] => {
+  if (!node) return [];
+  if (node.type === 'file') return node.content ? [node.content] : [];
+  return Object.values(node.children ?? {}).flatMap((child) => collectAllContent(child));
+};

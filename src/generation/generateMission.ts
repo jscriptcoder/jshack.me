@@ -478,6 +478,7 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
     routerMachine: routerWithUsers,
     natForwarding: topology.natForwarding,
     entryVariant: topology.entryVariant,
+    entryPoint: topology.entryPoint,
   });
 
   // Domain entry: when active, briefing shows router domain instead of IP.

@@ -567,4 +567,155 @@ describe('generateFileSystems', () => {
       expect(a.fileSystems).toEqual(b.fileSystems);
     });
   });
+
+  describe('HTTP entry credential placement', () => {
+    const buildWithHttpEntry = (seed: string) => {
+      const prng = createPrng(seed);
+      const topology = generateTopology(prng, 'medium', { entryVariantOverride: 'http' });
+      const { usersByMachine, credentials } = generateUsers(
+        prng,
+        topology.machines,
+        topology.entryPoint,
+      );
+      const { objective } = buildMissionObjective({
+        prng,
+        machines: topology.machines,
+        credentials,
+        entryPoint: topology.entryPoint,
+        difficulty: 'medium',
+      });
+      const fileSystems = generateFileSystems({
+        prng,
+        machines: topology.machines,
+        usersByMachine,
+        credentials,
+        objective,
+        routerMachine: topology.routerMachine,
+        natForwarding: topology.natForwarding,
+        entryVariant: 'http',
+        entryPoint: topology.entryPoint,
+      });
+      return { topology, fileSystems, credentials, usersByMachine };
+    };
+
+    it('entry machine has credential content in /var/www/html/ beyond index.html', () => {
+      for (let i = 0; i < 50; i++) {
+        const { topology, fileSystems } = buildWithHttpEntry(`http-entry-cred-${i}`);
+        const entryFs = fileSystems[topology.entryPoint];
+        const htmlDir = resolveNode(entryFs as FileNode, '/var/www/html');
+
+        expect(htmlDir).toBeDefined();
+        expect(htmlDir?.type).toBe('directory');
+
+        // Should have more than just index.html
+        const childNames = Object.keys(htmlDir?.children ?? {});
+        expect(
+          childNames.length,
+          `seed http-entry-cred-${i}: expected >1 children in /var/www/html/, got ${childNames.join(', ')}`,
+        ).toBeGreaterThan(1);
+      }
+    });
+
+    it('credential files contain SSH credentials for a user-type account', () => {
+      for (let i = 0; i < 50; i++) {
+        const { topology, fileSystems, credentials } = buildWithHttpEntry(
+          `http-entry-usercred-${i}`,
+        );
+        const entryFs = fileSystems[topology.entryPoint];
+        const entryCreds = credentials[topology.entryPoint] ?? [];
+        const userCred = entryCreds.find((c) => c.username !== 'root' && c.username !== 'guest');
+        if (!userCred) continue;
+
+        // Collect all text content from /var/www/html/ (files + .headers sidecars)
+        const htmlDir = resolveNode(entryFs as FileNode, '/var/www/html');
+        const allContent = collectAllContent(htmlDir);
+
+        // At least one file (body or sidecar) must contain the user's credentials
+        const hasCredentials = allContent.some(
+          (c) => c.includes(userCred.username) && c.includes(userCred.password),
+        );
+        expect(
+          hasCredentials,
+          `seed http-entry-usercred-${i}: no file in /var/www/html/ contains ${userCred.username}:${userCred.password}`,
+        ).toBe(true);
+      }
+    });
+
+    it('header-based templates produce .headers sidecar files', () => {
+      let foundSidecar = false;
+      for (let i = 0; i < 100; i++) {
+        const { topology, fileSystems } = buildWithHttpEntry(`http-entry-sidecar-${i}`);
+        const entryFs = fileSystems[topology.entryPoint];
+        const htmlDir = resolveNode(entryFs as FileNode, '/var/www/html');
+        if (!htmlDir?.children) continue;
+
+        const allFiles = collectAllFileNames(htmlDir);
+        if (allFiles.some((name) => name.endsWith('.headers'))) {
+          foundSidecar = true;
+          break;
+        }
+      }
+      expect(foundSidecar).toBe(true);
+    });
+
+    it('credential files are root-owned (not guest-readable)', () => {
+      for (let i = 0; i < 50; i++) {
+        const { topology, fileSystems } = buildWithHttpEntry(`http-entry-perms-${i}`);
+        const entryFs = fileSystems[topology.entryPoint];
+        const htmlDir = resolveNode(entryFs as FileNode, '/var/www/html');
+        if (!htmlDir?.children) continue;
+
+        // All non-index.html files placed by HTTP entry should be root-owned
+        const credFiles = collectAllFiles(htmlDir).filter((f) => f.name !== 'index.html');
+        credFiles.forEach((f) => {
+          expect(f.owner).toBe('root');
+          expect(f.permissions.read).not.toContain('guest');
+        });
+      }
+    });
+
+    it('non-entry machines do not get HTTP credential files', () => {
+      for (let i = 0; i < 20; i++) {
+        const { topology, fileSystems } = buildWithHttpEntry(`http-entry-nonentry-${i}`);
+        topology.machines
+          .filter((m) => m.ip !== topology.entryPoint)
+          .forEach((m) => {
+            const fs = fileSystems[m.ip];
+            const htmlDir = resolveNode(fs as FileNode, '/var/www/html');
+            if (!htmlDir?.children) return;
+
+            // Non-entry machines should only have index.html (no extra credential files)
+            const childNames = Object.keys(htmlDir.children).filter((n) => !n.endsWith('.headers'));
+            expect(childNames).toEqual(['index.html']);
+          });
+      }
+    });
+
+    it('produces deterministic output for the same seed', () => {
+      const a = buildWithHttpEntry('http-entry-deterministic');
+      const b = buildWithHttpEntry('http-entry-deterministic');
+      expect(a.fileSystems).toEqual(b.fileSystems);
+    });
+  });
 });
+
+// Recursively collects all text content from a FileNode tree.
+const collectAllContent = (node: FileNode | undefined): readonly string[] => {
+  if (!node) return [];
+  if (node.type === 'file') return node.content ? [node.content] : [];
+  return Object.values(node.children ?? {}).flatMap((child) => collectAllContent(child));
+};
+
+// Recursively collects all file names from a FileNode tree.
+const collectAllFileNames = (node: FileNode | undefined): readonly string[] => {
+  if (!node) return [];
+  if (node.type === 'file') return [node.name];
+  return Object.values(node.children ?? {}).flatMap((child) => collectAllFileNames(child));
+};
+
+// Recursively collects all file nodes from a FileNode tree.
+const collectAllFiles = (node: FileNode | undefined): readonly FileNode[] => {
+  if (!node) return [];
+  if (node.type === 'file') return [node];
+  return Object.values(node.children ?? {}).flatMap((child) => collectAllFiles(child));
+};
