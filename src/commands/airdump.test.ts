@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { AsyncOutput } from '../components/Terminal/types';
+import { WIFI_NETWORKS } from '../network/wifiNetworks';
 import { createAirdumpCommand } from './airdump';
 
 type AirdumpContextConfig = {
@@ -13,6 +14,7 @@ const createMockContext = (config: AirdumpContextConfig = {}) => {
   return {
     isOnLocalhost: () => isOnLocalhost,
     isMonitorMode: () => isMonitorMode,
+    getWifiNetworks: () => WIFI_NETWORKS,
   };
 };
 

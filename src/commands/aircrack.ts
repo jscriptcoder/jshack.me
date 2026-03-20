@@ -1,10 +1,11 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
-import { findWifiNetwork } from '../network/wifiNetworks';
+import type { WifiNetwork } from '../network/wifiNetworks';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 type AircrackContext = {
   readonly isOnLocalhost: () => boolean;
   readonly isMonitorMode: () => boolean;
+  readonly getWifiNetworks: () => readonly WifiNetwork[];
 };
 
 const TOTAL_KEYS = 14344;
@@ -47,7 +48,8 @@ export const createAircrackCommand = (context: AircrackContext): Command => ({
       throw new Error('aircrack: missing BSSID — usage: aircrack("AA:BB:CC:DD:EE:FF")');
     }
 
-    const network = findWifiNetwork(bssid);
+    const networks = context.getWifiNetworks();
+    const network = networks.find((n: WifiNetwork) => n.bssid === bssid);
 
     if (!network) {
       throw new Error(`aircrack: BSSID ${bssid} not found — run airdump() to scan for networks`);

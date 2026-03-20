@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { AsyncOutput } from '../components/Terminal/types';
 import { secrets } from '../secrets/secrets';
+import { WIFI_NETWORKS } from '../network/wifiNetworks';
 import { createAircrackCommand } from './aircrack';
 
 type AircrackContextConfig = {
@@ -14,6 +15,7 @@ const createMockContext = (config: AircrackContextConfig = {}) => {
   return {
     isOnLocalhost: () => isOnLocalhost,
     isMonitorMode: () => isMonitorMode,
+    getWifiNetworks: () => WIFI_NETWORKS,
   };
 };
 

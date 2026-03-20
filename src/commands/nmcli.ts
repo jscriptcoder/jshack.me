@@ -1,6 +1,6 @@
 import type { Command } from '../components/Terminal/types';
 import type { WifiConnection } from '../network/wifiTypes';
-import { findWifiNetworkByEssid } from '../network/wifiNetworks';
+import type { WifiNetwork } from '../network/wifiNetworks';
 
 type NmcliContext = {
   readonly isOnLocalhost: () => boolean;
@@ -8,6 +8,7 @@ type NmcliContext = {
   readonly connectedEssid: () => string | null;
   readonly setWifiConnected: (connection: WifiConnection | null) => void;
   readonly disconnectWifi: () => void;
+  readonly getWifiNetworks: () => readonly WifiNetwork[];
 };
 
 const USAGE = [
@@ -35,7 +36,8 @@ const handleConnect = (
     throw new Error('nmcli: usage: nmcli("connect", "<ESSID>", "<password>")');
   }
 
-  const network = findWifiNetworkByEssid(essid);
+  const networks = context.getWifiNetworks();
+  const network = networks.find((n: WifiNetwork) => n.essid === essid);
 
   if (!network) {
     throw new Error(`nmcli: network "${essid}" not found`);

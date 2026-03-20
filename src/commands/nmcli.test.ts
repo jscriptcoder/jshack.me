@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { secrets } from '../secrets/secrets';
+import { WIFI_NETWORKS } from '../network/wifiNetworks';
 import { createNmcliCommand } from './nmcli';
 
 type MockContextConfig = {
@@ -17,6 +18,7 @@ const createMockContext = (config: MockContextConfig = {}) => {
     connectedEssid: () => connectedEssid,
     setWifiConnected: vi.fn(),
     disconnectWifi: vi.fn(),
+    getWifiNetworks: () => WIFI_NETWORKS,
   };
 };
 
