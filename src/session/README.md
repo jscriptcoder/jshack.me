@@ -80,7 +80,7 @@ type NcSession = {
 Session state uses a split storage model:
 
 - **sessionStorage** (per-tab): Session (machine, username, userType, currentPath, theme), session stack (SSH history), FTP session, NC session. Each browser tab gets an independent session — new tabs start fresh at `localhost /home/jshacker`.
-- **IndexedDB** (shared): WiFi connected state (`wifiConnected` key in `session` store). Shared across all tabs so cracking WiFi in one tab enables network access everywhere. WiFi state is a standalone `useState<boolean>` in `SessionProvider`, not part of the `Session` type.
+- **IndexedDB** (shared): WiFi connection (`wifiConnected` key — stores `WifiConnection | null`, i.e., `{ essid, bssid }` or `null`), game state (`gameState` key — stores `{ seed, workstationName }`). Shared across all tabs so cracking WiFi in one tab enables network access everywhere. WiFi state is a standalone `useState<WifiConnection | null>` in `SessionProvider`, not part of the `Session` type. `wifiConnected` boolean is derived as `connectedWifi !== null`.
 
 Validated with type guards on restore. Falls back to defaults if invalid or corrupted.
 
@@ -88,22 +88,23 @@ Validated with type guards on restore. Falls back to defaults if invalid or corr
 
 `useSession()` provides:
 
-| Method                    | Description                                               |
-| ------------------------- | --------------------------------------------------------- |
-| `session`                 | Current session state (per-tab)                           |
-| `wifiConnected`           | WiFi connection state (shared across tabs)                |
-| `setUsername(name, type)` | Change current user                                       |
-| `setMachine(name)`        | Change current machine                                    |
-| `setCurrentPath(path)`    | Change working directory                                  |
-| `getPrompt()`             | Formatted prompt string (`user@machine>`, `ftp>`, or `$`) |
-| `pushSession()`           | Save session to stack (before SSH)                        |
-| `popSession()`            | Restore previous session (on exit)                        |
-| `popAllSessions()`        | Reset to bottom of stack (mission abort)                  |
-| `canReturn()`             | Check if session stack has entries                        |
-| `enterFtpMode(session)`   | Enter FTP mode                                            |
-| `exitFtpMode()`           | Exit FTP mode                                             |
-| `enterNcMode(session)`    | Enter NC mode                                             |
-| `exitNcMode()`            | Exit NC mode                                              |
-| `setWifiConnected(bool)`  | Set WiFi connection state                                 |
-| `disconnectWifi()`        | Disconnect WiFi and reset to localhost (preserves theme)  |
-| `setTheme(themeId)`       | Switch terminal color theme (persists across sessions)    |
+| Method                    | Description                                                        |
+| ------------------------- | ------------------------------------------------------------------ |
+| `session`                 | Current session state (per-tab)                                    |
+| `connectedWifi`           | `WifiConnection \| null` — which WiFi network (shared)             |
+| `wifiConnected`           | Derived boolean (`connectedWifi !== null`)                         |
+| `setUsername(name, type)` | Change current user                                                |
+| `setMachine(name)`        | Change current machine                                             |
+| `setCurrentPath(path)`    | Change working directory                                           |
+| `getPrompt()`             | Formatted prompt (`user@workstation>`, `user@ip>`, `ftp>`, or `$`) |
+| `pushSession()`           | Save session to stack (before SSH)                                 |
+| `popSession()`            | Restore previous session (on exit)                                 |
+| `popAllSessions()`        | Reset to bottom of stack (mission abort)                           |
+| `canReturn()`             | Check if session stack has entries                                 |
+| `enterFtpMode(session)`   | Enter FTP mode                                                     |
+| `exitFtpMode()`           | Exit FTP mode                                                      |
+| `enterNcMode(session)`    | Enter NC mode                                                      |
+| `exitNcMode()`            | Exit NC mode                                                       |
+| `setWifiConnected(conn)`  | Set WiFi connection (`WifiConnection \| null`)                     |
+| `disconnectWifi()`        | Disconnect WiFi and reset to localhost (preserves theme)           |
+| `setTheme(themeId)`       | Switch terminal color theme (persists across sessions)             |

@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**JSHACK.ME** is a web-based JavaScript terminal emulator with a retro amber-on-black CRT aesthetic. Features a virtual filesystem with Unix-like permissions for mission-based hacking challenges with procedurally generated contracts. Deployed on Vercel at jshack.me.
+**JSHACK.ME** is a web-based JavaScript terminal emulator with a retro amber-on-black CRT aesthetic. Features a virtual filesystem with Unix-like permissions for mission-based hacking challenges with procedurally generated contracts. Players start via an intro screen, name their workstation, boot into a Linux-style terminal, crack WiFi networks (each providing access to a different subnet of machines), and take contracts from a darknet marketplace. Deployed on Vercel at jshack.me.
 
 ## Code Style
 
@@ -91,6 +91,7 @@ Sensitive content is XOR+Base64 encoded at build time to prevent finding flag st
 - `predev`/`prebuild`/`pretest`/`pretest:run`/`pretest:coverage` hooks auto-run encode
 - `machineFileSystems.ts` imports from filesystem `__encoded.ts`, not source machine files
 - `wifiNetworks.ts` imports from secrets `__encoded.ts`, not the plaintext `src/secrets/secrets.ts`
+- `generateWifi.ts` imports WiFi passwords from secrets `__encoded.ts`
 - `pools.ts` imports mission passwords from secrets `__encoded.ts` (not hardcoded in source)
 - Unit tests import source files directly (unaffected by encoding)
 - Verify: `grep -r "FLAG{" dist/` and `grep -r "cr4ck3d_w1f1" dist/` after build should return zero matches (mission flags are generated at runtime, not embedded in the bundle)
@@ -99,7 +100,7 @@ Sensitive content is XOR+Base64 encoded at build time to prevent finding flag st
 
 `src/secrets/secrets.ts` defines sensitive non-filesystem strings (e.g., WiFi password, mission passwords) as key-value pairs. The `encode` script encodes them into `src/secrets/__encoded.ts`. App code imports from `__encoded`, tests import from the source file directly.
 
-Current secrets: `WIFI_PASSWORD` (WiFi cracking gate), `MISSION_PASSWORDS` (JSON-stringified array of 60 passwords used by mission generator), `GUEST_PASSWORDS` (JSON-stringified array of 7 guest passwords used by mission generator).
+Current secrets: `WIFI_PASSWORD` (legacy static WiFi password), `WIFI_PASSWORDS` (JSON-stringified array of 15 passwords for seeded WiFi generation), `MISSION_PASSWORDS` (JSON-stringified array of 60 passwords used by mission generator), `GUEST_PASSWORDS` (JSON-stringified array of 7 guest passwords used by mission generator).
 
 To add a new secret: add the key-value pair to `src/secrets/secrets.ts`, then run `npm run encode`.
 
@@ -110,14 +111,25 @@ Commands return objects with `__type` for custom rendering (see `src/components/
 - `'clear'`, `'author'`, `'password_prompt'`, `'nano_open'`, `'async'`
 - `AsyncOutput` streams lines with delays for network commands (ping, nmap, ssh, nslookup)
 
+### Game State, Intro Screen, Boot Screen
+
+The game starts with an intro screen (`src/components/IntroScreen.tsx`) where the player chooses "New Game" (enters workstation name, generates seed) or "Continue" (loads existing game). New games show a Linux boot sequence (`src/components/BootScreen.tsx`) before the terminal.
+
+- `GameState = { seed, workstationName }` persisted in IndexedDB (`src/game/types.ts`)
+- Game seed drives WiFi network generation and home network generation (deterministic)
+- Workstation name appears in the terminal prompt and `/etc/hostname` (replaces "localhost" cosmetically)
+- `reset("confirm")` wipes all data and returns to the intro screen
+- App screen flow: `IntroScreen → BootScreen (new game only) → Terminal`
+
 ### Persistence, Cross-Tab Sync, Bricked Machines, WiFi Gate
 
 See `architecture.md` for full details. Key points:
 
-- **sessionStorage** (per-tab): session state. **IndexedDB** (shared): filesystem patches, WiFi, mission seed, bricked machines.
+- **sessionStorage** (per-tab): session state. **IndexedDB** (shared): filesystem patches, WiFi connection, mission seed, bricked machines, game state.
 - `BroadcastChannel` syncs filesystem patches, WiFi, missions, bricked machines, and theme across tabs.
+- WiFi state is `WifiConnection | null` (tracks `{ essid, bssid }`, not a boolean). Stored in IndexedDB, synced via BroadcastChannel.
 - `reboot()` bricks machines missing `/boot/vmlinuz` or `/boot/initrd.img`. Bricked machines are unreachable.
-- WiFi must be cracked before network access on localhost. See `infrastructure-design.md` for networks/flow.
+- Multiple WiFi networks are generated per game seed. Each provides access to a different subnet of machines. See `infrastructure-design.md`.
 - SSH key persistence: after first SSH/SCP password auth, `~/.ssh_keys` on the source machine stores `user@ip` entries. Subsequent connections auto-authenticate.
 
 ### Mission System
@@ -125,7 +137,7 @@ See `architecture.md` for full details. Key points:
 See `architecture.md` for integration details, `mission-variations.md` for all generation axes.
 
 - `generateMissionNetwork(seed)` deterministically produces a full network. Seeds embed keywords for overrides (difficulty, entry variant, network mode, objective, domain, gpg, snmp).
-- Provider hierarchy: `SessionProvider → MissionProvider → FileSystemProvider → NetworkProvider → Terminal`
+- Provider hierarchy: `SessionProvider → GameSession (useHomeNetworks) → MissionProvider → FileSystemProvider → NetworkProvider → Terminal`
 - Commands: `missions()`, `accept(seed)`, `abort()`, `mail(recipient, content)`
 - Six objectives: exfiltrate, tamper, credential_theft, script_fix, sabotage, backdoor
 - NAT resolution via `resolveNat(ip, port)` using iptables rules on router filesystem

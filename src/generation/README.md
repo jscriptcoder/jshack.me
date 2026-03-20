@@ -1,6 +1,6 @@
-# Seeded Mission Network Generator
+# Seeded Network Generators
 
-Deterministic engine that generates a complete hackable network from a seed string. Same seed always produces identical output. Pure generation pipeline — React integration lives in `src/mission/`.
+Deterministic engines that generate networks from seed strings. Same seed always produces identical output. Pure generation pipelines — React integration lives in `src/mission/` (missions) and `src/game/` (home networks).
 
 ## Usage
 
@@ -27,17 +27,19 @@ const mission = generateMissionNetwork('HEIST-7734');
 
 ## Files
 
-| File                 | Purpose                                                                                                                                                                                   |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `prng.ts`            | Mulberry32 PRNG: next, nextInt, pick, pickN, shuffle                                                                                                                                      |
-| `types.ts`           | MissionNetwork, GeneratedMachine, EntryVariant, MissionObjective                                                                                                                          |
-| `pools.ts`           | Static data: usernames, passwords, guest passwords, hostnames, client handles, vulnerability/port/entry templates, target/tamper/script-fix file templates by role, web content templates |
-| `topology.ts`        | Subnet generation, machine roles, entry variant selection, NetworkConfig                                                                                                                  |
-| `users.ts`           | Per-machine users + plaintext credential map                                                                                                                                              |
-| `attackChain.ts`     | Objective generation (exfiltrate/tamper/credential_theft/script_fix/sabotage/backdoor), client email                                                                                      |
-| `binary.ts`          | Binary noise wrapping for target files, binary file path pools                                                                                                                            |
-| `filesystem.ts`      | FileNode trees via createFileSystem(), noise, dynamic target file placement, router iptables rules                                                                                        |
-| `generateMission.ts` | Orchestrator composing all steps                                                                                                                                                          |
+| File                     | Purpose                                                                                                                                                                                   |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prng.ts`                | Mulberry32 PRNG: next, nextInt, pick, pickN, shuffle                                                                                                                                      |
+| `types.ts`               | MissionNetwork, GeneratedMachine, EntryVariant, MissionObjective                                                                                                                          |
+| `pools.ts`               | Static data: usernames, passwords, guest passwords, hostnames, client handles, vulnerability/port/entry templates, target/tamper/script-fix file templates by role, web content templates |
+| `topology.ts`            | Subnet generation, machine roles, entry variant selection, NetworkConfig                                                                                                                  |
+| `users.ts`               | Per-machine users + plaintext credential map                                                                                                                                              |
+| `attackChain.ts`         | Objective generation (exfiltrate/tamper/credential_theft/script_fix/sabotage/backdoor), client email                                                                                      |
+| `binary.ts`              | Binary noise wrapping for target files, binary file path pools                                                                                                                            |
+| `filesystem.ts`          | FileNode trees via createFileSystem(), noise, dynamic target file placement, router iptables rules                                                                                        |
+| `generateMission.ts`     | Orchestrator composing all mission generation steps                                                                                                                                       |
+| `generateWifi.ts`        | WiFi network generation from game seed — 2-3 crackable WPA2 + 3-5 noise (WPA3/weak/hidden). Passwords from encoded secrets.                                                               |
+| `generateHomeNetwork.ts` | Home network generation from game seed + WiFi index — router (public IP) + 2-4 machines with roles, users, ports, filesystems                                                             |
 
 ## Difficulty
 
