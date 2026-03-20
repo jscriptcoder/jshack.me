@@ -1,9 +1,11 @@
 import type { PersistedState } from '../session/SessionContext';
 import type { FileSystemPatch } from '../filesystem/types';
 import type { WifiConnection } from '../network/wifiTypes';
+import type { GameState } from '../game/types';
 import { isValidPersistedState } from '../session/SessionContext';
 import { isValidPatch } from '../filesystem/fileSystemUtils';
 import { isValidWifiConnection } from '../network/wifiTypes';
+import { isValidGameState } from '../game/types';
 
 const DB_NAME = 'jshack-db';
 const DB_VERSION = 1;
@@ -13,6 +15,7 @@ const FILESYSTEM_KEY = 'patches';
 const MISSION_KEY = 'activeMissionSeed';
 const WIFI_KEY = 'wifiConnected';
 const BRICKED_KEY = 'brickedMachines';
+const GAME_STATE_KEY = 'gameState';
 const TAB_SESSION_KEY = 'jshack-tab-session';
 
 export const openDatabase = (): Promise<IDBDatabase> =>
@@ -171,6 +174,26 @@ export const loadWifiState = async (db: IDBDatabase): Promise<WifiConnection | n
     const data = await getValue<unknown>(db, SESSION_STORE, WIFI_KEY);
     if (isValidWifiConnection(data)) return data;
     // Legacy boolean or invalid data — treat as disconnected
+    return null;
+  } catch {
+    return null;
+  }
+};
+
+// --- Game state in IndexedDB (shared across tabs) ---
+
+export const saveGameState = async (db: IDBDatabase, state: GameState): Promise<void> => {
+  try {
+    await setValue(db, SESSION_STORE, GAME_STATE_KEY, state);
+  } catch {
+    // Non-critical — game state still works in-memory
+  }
+};
+
+export const loadGameState = async (db: IDBDatabase): Promise<GameState | null> => {
+  try {
+    const data = await getValue<unknown>(db, SESSION_STORE, GAME_STATE_KEY);
+    if (isValidGameState(data)) return data;
     return null;
   } catch {
     return null;

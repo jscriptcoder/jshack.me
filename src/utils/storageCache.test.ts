@@ -5,6 +5,7 @@ import {
   getCachedWifiState,
   getCachedFilesystemPatches,
   getCachedMissionSeed,
+  getCachedGameState,
   getDatabase,
   resetCache,
 } from './storageCache';
@@ -16,6 +17,7 @@ import {
   saveMissionSeed,
   saveSessionToTab,
   saveWifiState,
+  saveGameState,
 } from './storage';
 
 const validSession: PersistedState = {
@@ -136,6 +138,23 @@ describe('storageCache', () => {
     });
   });
 
+  describe('game state (shared via IndexedDB)', () => {
+    it('should default game state to null when no state exists', async () => {
+      await initializeStorage();
+      expect(getCachedGameState()).toBeNull();
+    });
+
+    it('should load game state from IndexedDB', async () => {
+      const db = await openDatabase();
+      const state = { seed: 'test-seed', workstationName: 'my-box' };
+      await saveGameState(db, state);
+      db.close();
+
+      await initializeStorage();
+      expect(getCachedGameState()).toEqual(state);
+    });
+  });
+
   describe('resetCache', () => {
     it('should clear all cached values', async () => {
       saveSessionToTab(validSession);
@@ -150,6 +169,7 @@ describe('storageCache', () => {
       resetCache();
       expect(getCachedSessionState()).toBeNull();
       expect(getCachedWifiState()).toBeNull();
+      expect(getCachedGameState()).toBeNull();
       expect(getCachedFilesystemPatches()).toEqual([]);
       expect(getCachedMissionSeed()).toBeNull();
       expect(getDatabase()).toBeNull();

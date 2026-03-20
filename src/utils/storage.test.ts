@@ -10,6 +10,8 @@ import {
   clearSessionFromTab,
   saveWifiState,
   loadWifiState,
+  saveGameState,
+  loadGameState,
   clearAllData,
 } from './storage';
 import type { PersistedState } from '../session/SessionContext';
@@ -321,6 +323,47 @@ describe('storage', () => {
       await saveMissionSeed(db, 'SEED-B');
       const result = await loadMissionSeed(db);
       expect(result).toBe('SEED-B');
+      db.close();
+    });
+  });
+
+  describe('game state (IndexedDB shared)', () => {
+    it('should return null when no game state exists', async () => {
+      const db = await openDatabase();
+      const result = await loadGameState(db);
+      expect(result).toBeNull();
+      db.close();
+    });
+
+    it('should save and load game state', async () => {
+      const db = await openDatabase();
+      const state = { seed: 'abc123', workstationName: 'hacker-box' };
+      await saveGameState(db, state);
+      const result = await loadGameState(db);
+      expect(result).toEqual(state);
+      db.close();
+    });
+
+    it('should overwrite previous game state', async () => {
+      const db = await openDatabase();
+      await saveGameState(db, { seed: 'old', workstationName: 'old-box' });
+      const updated = { seed: 'new', workstationName: 'new-box' };
+      await saveGameState(db, updated);
+      const result = await loadGameState(db);
+      expect(result).toEqual(updated);
+      db.close();
+    });
+
+    it('should return null for invalid stored data', async () => {
+      const db = await openDatabase();
+      const transaction = db.transaction('session', 'readwrite');
+      const store = transaction.objectStore('session');
+      store.put('not-valid', 'gameState');
+      await new Promise<void>((resolve) => {
+        transaction.oncomplete = () => resolve();
+      });
+      const result = await loadGameState(db);
+      expect(result).toBeNull();
       db.close();
     });
   });

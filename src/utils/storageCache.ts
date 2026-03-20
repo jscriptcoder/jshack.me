@@ -1,11 +1,13 @@
 import type { FileSystemPatch } from '../filesystem/types';
 import type { WifiConnection } from '../network/wifiTypes';
+import type { GameState } from '../game/types';
 import {
   openDatabase,
   loadFilesystemPatches,
   loadMissionSeed,
   loadWifiState,
   loadBrickedMachines,
+  loadGameState,
 } from './storage';
 import { loadSessionFromTab } from './storage';
 import type { PersistedState } from '../session/SessionContext';
@@ -18,6 +20,7 @@ type StorageCache = {
   readonly brickedMachines: readonly string[];
   readonly filesystemPatches: readonly FileSystemPatch[];
   readonly missionSeed: string | null;
+  readonly gameState: GameState | null;
   readonly db: IDBDatabase | null;
 };
 
@@ -31,6 +34,7 @@ let cache: StorageCache = {
   brickedMachines: [],
   filesystemPatches: [],
   missionSeed: null,
+  gameState: null,
   db: null,
 };
 
@@ -52,9 +56,10 @@ export const initializeStorage = async (): Promise<void> => {
     const filesystemPatches = await loadFilesystemPatches(db);
     const missionSeed = await loadMissionSeed(db);
 
-    // WiFi and bricked state are shared across tabs (IndexedDB)
+    // WiFi, bricked, and game state are shared across tabs (IndexedDB)
     const connectedWifi = await loadWifiState(db);
     const brickedFromDb = await loadBrickedMachines(db);
+    const gameState = await loadGameState(db);
 
     cache = {
       sessionState,
@@ -62,6 +67,7 @@ export const initializeStorage = async (): Promise<void> => {
       brickedMachines: brickedFromDb ?? [],
       filesystemPatches: filesystemPatches ?? [],
       missionSeed,
+      gameState,
       db,
     };
 
@@ -75,6 +81,7 @@ export const initializeStorage = async (): Promise<void> => {
       brickedMachines: [],
       filesystemPatches: [],
       missionSeed: null,
+      gameState: null,
       db: null,
     };
 
@@ -93,6 +100,8 @@ export const getCachedFilesystemPatches = (): readonly FileSystemPatch[] => cach
 
 export const getCachedMissionSeed = (): string | null => cache.missionSeed;
 
+export const getCachedGameState = (): GameState | null => cache.gameState;
+
 export const getDatabase = (): IDBDatabase | null => cache.db;
 
 // Exposed for testing only
@@ -106,6 +115,7 @@ export const resetCache = (): void => {
     brickedMachines: [],
     filesystemPatches: [],
     missionSeed: null,
+    gameState: null,
     db: null,
   };
 };
