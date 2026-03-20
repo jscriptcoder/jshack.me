@@ -303,15 +303,17 @@ Pure refactor. No new features. All existing behavior preserved.
 
 ---
 
-## Open Questions
+## Resolved Questions
 
-1. **WiFi passwords encoding**: Static passwords can be XOR-encoded at build time. Seeded passwords generated at runtime from the game seed are inherently protected (the seed is the secret). Do we need to add generated passwords to the secrets registry, or is runtime generation sufficient?
+1. **WiFi passwords encoding**: Runtime generation from seed is sufficient. No need for build-time encoding — the seed itself is the secret.
 
-2. **Localhost filesystem persistence**: Currently localhost has a static filesystem + patches. The workstation name in `/etc/hostname` needs to be dynamic per game. Should this be a patch applied at game start, or a factory parameter?
+2. **Localhost filesystem persistence**: Factory parameter. The localhost filesystem factory accepts `workstationName` and produces `/etc/hostname` with the correct value. Patches represent player actions only, not system initialization. Future DB stores `{ seed, workstationName }` and reconstructs.
 
-3. **Reset command**: Currently `reset` clears session data. Should it also clear game state (back to intro screen), or should that be a separate `newgame` command?
+3. **Reset command**: Soft reset — clears session state (SSH stack, path, filesystem patches, SSH keys, bricked machines) but preserves game state (seed + workstation name). "New Game" from intro screen handles full wipe.
 
-4. **Home network machine content**: Generated machines need realistic filesystems. Should they have the same depth as mission machines (target files, credential leaks, etc.), or simpler content (configs, logs, noise files only)?
+4. **Home network machine content**: Simpler content — configs, logs, noise files. Not mission-level depth (no target files, credential leaks, scripts).
+
+5. **Existing save migration**: Not needed. No active players. "New Game" calls `clearAllData()` to wipe all IndexedDB state before creating fresh game state.
 
 ## Pre-PR Quality Gate
 
