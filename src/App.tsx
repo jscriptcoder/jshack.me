@@ -9,12 +9,15 @@ import { getCachedGameState, getDatabase } from './utils/storageCache';
 import { saveGameState, clearAllData } from './utils/storage';
 import type { GameState } from './game/types';
 
-function GameSession() {
+function GameSession({ workstationName }: { readonly workstationName: string }) {
   const missionState = useMissionState();
 
   return (
     <MissionProvider state={missionState}>
-      <FileSystemProvider missionFileSystems={missionState.activeMission?.fileSystems}>
+      <FileSystemProvider
+        missionFileSystems={missionState.activeMission?.fileSystems}
+        workstationName={workstationName}
+      >
         <NetworkProvider
           missionNetworkConfig={missionState.activeMission?.networkConfig}
           missionMachines={missionState.activeMission?.machines}
@@ -47,8 +50,8 @@ function App() {
   }
 
   return (
-    <SessionProvider>
-      <GameSession />
+    <SessionProvider workstationName={gameState.workstationName}>
+      <GameSession workstationName={gameState.workstationName} />
     </SessionProvider>
   );
 }

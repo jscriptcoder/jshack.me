@@ -122,11 +122,48 @@ const initializeFileSystems = (): FileSystemsState =>
 type FileSystemProviderProps = {
   readonly children: ReactNode;
   readonly missionFileSystems?: Readonly<Record<string, FileNode>>;
+  readonly workstationName?: string;
 };
 
-export const FileSystemProvider = ({ children, missionFileSystems }: FileSystemProviderProps) => {
+// Apply workstation name to localhost /etc/hostname if provided
+const applyWorkstationName = (
+  state: FileSystemsState,
+  name: string | undefined,
+): FileSystemsState => {
+  if (!name) return state;
+  const localhost = state.localhost;
+  if (!localhost || localhost.type !== 'directory') return state;
+  const etc = localhost.children?.etc;
+  if (!etc || etc.type !== 'directory') return state;
+  const hostname = etc.children?.hostname;
+  if (!hostname || hostname.type !== 'file') return state;
+  return {
+    ...state,
+    localhost: {
+      ...localhost,
+      children: {
+        ...localhost.children,
+        etc: {
+          ...etc,
+          children: {
+            ...etc.children,
+            hostname: { ...hostname, content: `${name}\n` },
+          },
+        },
+      },
+    },
+  };
+};
+
+export const FileSystemProvider = ({
+  children,
+  missionFileSystems,
+  workstationName,
+}: FileSystemProviderProps) => {
   const { session } = useSession();
-  const [fileSystems, setFileSystems] = useState<FileSystemsState>(initializeFileSystems);
+  const [fileSystems, setFileSystems] = useState<FileSystemsState>(() =>
+    applyWorkstationName(initializeFileSystems(), workstationName),
+  );
   const [patches, setPatches] = useState<readonly FileSystemPatch[]>(getCachedFilesystemPatches);
   // Create channel inside effect so StrictMode's cleanup + re-run cycle gets
   // a fresh (open) channel. The ref is updated so broadcastAndRecordPatch always

@@ -128,7 +128,12 @@ const getInitialState = (): PersistedState => {
   };
 };
 
-export const SessionProvider = ({ children }: { children: ReactNode }) => {
+type SessionProviderProps = {
+  readonly children: ReactNode;
+  readonly workstationName?: string;
+};
+
+export const SessionProvider = ({ children, workstationName }: SessionProviderProps) => {
   const [initialState] = useState(getInitialState);
   const [session, setSession] = useState<Session>(initialState.session);
   const [connectedWifi, setConnectedWifiState] = useState<WifiConnection | null>(
@@ -200,8 +205,10 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
   const getPrompt = useCallback(() => {
     if (ftpSession) return 'ftp>';
     if (ncSession) return '$';
-    return `${session.username}@${session.machine}>`;
-  }, [session.username, session.machine, ftpSession, ncSession]);
+    const displayMachine =
+      session.machine === 'localhost' && workstationName ? workstationName : session.machine;
+    return `${session.username}@${displayMachine}>`;
+  }, [session.username, session.machine, workstationName, ftpSession, ncSession]);
 
   const pushSession = useCallback(() => {
     const snapshot: SessionSnapshot = {
@@ -307,11 +314,13 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
 
   // Dynamic browser tab title so users can identify tabs at a glance
   useEffect(() => {
+    const displayMachine =
+      session.machine === 'localhost' && workstationName ? workstationName : session.machine;
     const title = ftpSession
       ? `ftp> \u2014 JSHACK.ME`
       : ncSession
         ? `nc shell \u2014 JSHACK.ME`
-        : `${session.username}@${session.machine} \u2014 JSHACK.ME`;
+        : `${session.username}@${displayMachine} \u2014 JSHACK.ME`;
     document.title = title;
   }, [session.username, session.machine, ftpSession, ncSession]);
 
