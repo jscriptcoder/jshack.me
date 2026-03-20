@@ -1,22 +1,26 @@
 import { useState, useCallback } from 'react';
 import { Terminal } from './components/Terminal';
 import { IntroScreen } from './components/IntroScreen';
-import { SessionProvider } from './session/SessionContext';
+import { SessionProvider, useSession } from './session/SessionContext';
 import { FileSystemProvider } from './filesystem';
 import { NetworkProvider } from './network';
 import { MissionProvider, useMissionState } from './mission';
 import { getCachedGameState, getDatabase } from './utils/storageCache';
 import { saveGameState, clearAllData } from './utils/storage';
+import { useHomeNetworks } from './game/useHomeNetworks';
 import type { GameState } from './game/types';
 
-function GameSession({ workstationName }: { readonly workstationName: string }) {
+function GameSession({ gameState }: { readonly gameState: GameState }) {
+  const { connectedWifi } = useSession();
   const missionState = useMissionState();
+  const { activeNetwork } = useHomeNetworks(gameState.seed, connectedWifi);
 
   return (
     <MissionProvider state={missionState}>
       <FileSystemProvider
         missionFileSystems={missionState.activeMission?.fileSystems}
-        workstationName={workstationName}
+        homeFileSystems={activeNetwork?.fileSystems}
+        workstationName={gameState.workstationName}
       >
         <NetworkProvider
           missionNetworkConfig={missionState.activeMission?.networkConfig}
@@ -24,6 +28,7 @@ function GameSession({ workstationName }: { readonly workstationName: string }) 
           missionRouterMachine={
             missionState.activeMission ? missionState.activeMission.routerMachine : undefined
           }
+          homeNetwork={activeNetwork}
         >
           <Terminal />
         </NetworkProvider>
@@ -51,7 +56,7 @@ function App() {
 
   return (
     <SessionProvider workstationName={gameState.workstationName}>
-      <GameSession workstationName={gameState.workstationName} />
+      <GameSession gameState={gameState} />
     </SessionProvider>
   );
 }

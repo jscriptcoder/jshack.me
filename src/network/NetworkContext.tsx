@@ -8,7 +8,12 @@ import type {
   DnsRecord,
 } from './types';
 import type { GeneratedMachine, NatForwardingRule } from '../generation/types';
-import { createInitialNetwork, localhostDisconnectedInterfaces } from './initialNetwork';
+import {
+  createInitialNetwork,
+  localhostDisconnectedInterfaces,
+  localhostWlan0Down,
+} from './initialNetwork';
+import type { HomeNetwork } from '../generation/generateHomeNetwork';
 import { useSession } from '../session/SessionContext';
 import { useFileSystem } from '../filesystem';
 import { parseIptablesRules } from './iptablesParser';
@@ -53,6 +58,7 @@ type NetworkProviderProps = {
   readonly missionNetworkConfig?: NetworkConfig;
   readonly missionMachines?: readonly GeneratedMachine[];
   readonly missionRouterMachine?: GeneratedMachine;
+  readonly homeNetwork?: HomeNetwork | null;
 };
 
 export const NetworkProvider = ({
@@ -60,6 +66,7 @@ export const NetworkProvider = ({
   missionNetworkConfig,
   missionMachines,
   missionRouterMachine,
+  homeNetwork,
 }: NetworkProviderProps) => {
   const [config] = useState<NetworkConfig>(createInitialNetwork);
   const { session, wifiConnected } = useSession();
@@ -87,15 +94,41 @@ export const NetworkProvider = ({
     return parseSnmpFirewallConfig(node.content);
   }, [missionRouterMachine, getNodeFromMachine]);
 
+  // Dynamic localhost wlan0 interface based on home network subnet
+  const localhostHomeInterfaces = useMemo((): readonly NetworkInterface[] | null => {
+    if (!homeNetwork) return null;
+    const loopback: NetworkInterface = {
+      name: 'lo',
+      flags: ['UP', 'LOOPBACK', 'RUNNING'],
+      inet: '127.0.0.1',
+      netmask: '255.0.0.0',
+      gateway: '0.0.0.0',
+      mac: '00:00:00:00:00:00',
+    };
+    const wlan0: NetworkInterface = {
+      name: 'wlan0',
+      flags: ['UP', 'BROADCAST', 'RUNNING', 'MULTICAST'],
+      inet: homeNetwork.localhostIp,
+      netmask: '255.255.255.0',
+      gateway: homeNetwork.router.internalIp,
+      mac: localhostWlan0Down.mac,
+    };
+    return [loopback, wlan0];
+  }, [homeNetwork]);
+
   // Multi-tier network config resolution for the current machine:
   // 1. Mission config (if on a mission-generated machine)
-  // 2. Static config (tutorial machines)
-  // 3. WiFi gating (localhost with WiFi off → disconnected interfaces, no machines)
-  // 4. Localhost with active mission → only router is visible from localhost
-  //    (internal machines are behind the router)
+  // 2. Home network config (if on a home network machine)
+  // 3. Static config (tutorial/fallback machines)
+  // 4. WiFi gating (localhost with WiFi off → disconnected interfaces, no machines)
+  // 5. Localhost with active mission → mission router visible from localhost
   const baseConfig = useMemo((): MachineNetworkConfig => {
     const missionConfig = missionNetworkConfig?.machineConfigs[session.machine];
     if (missionConfig) return missionConfig;
+
+    // Home network machine (SSH'd into a generated machine)
+    const homeConfig = homeNetwork?.networkConfig.machineConfigs[session.machine];
+    if (homeConfig) return homeConfig;
 
     const base = config.machineConfigs[session.machine] ?? defaultMachineConfig;
 
@@ -105,6 +138,54 @@ export const NetworkProvider = ({
         machines: [],
         dnsRecords: [],
       };
+    }
+
+    // Localhost with home network connected — show home network machines
+    if (session.machine === 'localhost' && homeNetwork && localhostHomeInterfaces) {
+      const homeMachines = homeNetwork.machines.map((m) => m.remoteMachine);
+      // Include the router as a reachable machine from localhost
+      const routerRemote: RemoteMachine = {
+        ip: homeNetwork.router.internalIp,
+        hostname: homeNetwork.router.hostname,
+        ports: [
+          { port: 22, service: 'ssh', open: true },
+          { port: 80, service: 'http', open: true },
+        ],
+        users: [],
+      };
+      const homeBase: MachineNetworkConfig = {
+        interfaces: localhostHomeInterfaces,
+        machines: [...homeMachines, routerRemote],
+        dnsRecords:
+          homeNetwork.networkConfig.machineConfigs[homeNetwork.machines[0]?.ip ?? '']?.dnsRecords ??
+          [],
+      };
+
+      // If mission is active, also make mission router visible from localhost
+      if (missionNetworkConfig && missionRouterMachine) {
+        const baseRouterRemote: RemoteMachine =
+          iptablesRules.length > 0
+            ? buildMergedRouterView(missionRouterMachine, missionMachines ?? [], iptablesRules)
+            : missionRouterMachine.remoteMachine;
+        const routerRemoteFinal: RemoteMachine =
+          snmpFirewallOverrides.length > 0
+            ? applySnmpFirewallOverrides(baseRouterRemote, snmpFirewallOverrides)
+            : baseRouterRemote;
+        const externalDns: readonly DnsRecord[] = [
+          {
+            domain: `${missionRouterMachine.hostname}.mission`,
+            ip: missionRouterMachine.ip,
+            type: 'A' as const,
+          },
+        ];
+        return {
+          ...homeBase,
+          machines: [...homeBase.machines, routerRemoteFinal],
+          dnsRecords: [...homeBase.dnsRecords, ...externalDns],
+        };
+      }
+
+      return homeBase;
     }
 
     if (session.machine === 'localhost' && missionNetworkConfig && missionRouterMachine) {
@@ -149,6 +230,8 @@ export const NetworkProvider = ({
     iptablesRules,
     snmpFirewallOverrides,
     missionRouterMachine,
+    homeNetwork,
+    localhostHomeInterfaces,
   ]);
 
   // Dynamic daemon state: for each machine, check if sshd/ftpd pid files exist
@@ -251,6 +334,11 @@ export const NetworkProvider = ({
       const staticUsers = searchConfigs(config);
       if (staticUsers.length > 0) return staticUsers;
 
+      if (homeNetwork) {
+        const homeUsers = searchConfigs(homeNetwork.networkConfig);
+        if (homeUsers.length > 0) return homeUsers;
+      }
+
       if (missionNetworkConfig) {
         const missionUsers = searchConfigs(missionNetworkConfig);
         if (missionUsers.length > 0) return missionUsers;
@@ -264,7 +352,7 @@ export const NetworkProvider = ({
 
       return [];
     },
-    [config, missionNetworkConfig, missionRouterMachine],
+    [config, homeNetwork, missionNetworkConfig, missionRouterMachine],
   );
 
   // Port-aware NAT resolution: translates the router's public IP + port to the
