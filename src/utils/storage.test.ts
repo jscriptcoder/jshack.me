@@ -148,36 +148,65 @@ describe('storage', () => {
       db.close();
     });
 
-    it('should save and load WiFi connected state', async () => {
+    it('should save and load WiFi connection object', async () => {
       const db = await openDatabase();
-      await saveWifiState(db, true);
+      const connection = { essid: 'JSHACK-CORP', bssid: 'A4:CF:12:D3:8B:7A' };
+      await saveWifiState(db, connection);
       const result = await loadWifiState(db);
-      expect(result).toBe(true);
+      expect(result).toEqual(connection);
       db.close();
     });
 
-    it('should save and load WiFi disconnected state', async () => {
+    it('should save and load null (disconnected)', async () => {
       const db = await openDatabase();
-      await saveWifiState(db, false);
+      await saveWifiState(db, { essid: 'JSHACK-CORP', bssid: 'A4:CF:12:D3:8B:7A' });
+      await saveWifiState(db, null);
       const result = await loadWifiState(db);
-      expect(result).toBe(false);
+      expect(result).toBeNull();
       db.close();
     });
 
     it('should overwrite previous WiFi state', async () => {
       const db = await openDatabase();
-      await saveWifiState(db, true);
-      await saveWifiState(db, false);
+      await saveWifiState(db, { essid: 'NETWORK-A', bssid: 'AA:BB:CC:DD:EE:01' });
+      const updated = { essid: 'NETWORK-B', bssid: 'AA:BB:CC:DD:EE:02' };
+      await saveWifiState(db, updated);
       const result = await loadWifiState(db);
-      expect(result).toBe(false);
+      expect(result).toEqual(updated);
       db.close();
     });
 
-    it('should return null for non-boolean stored data', async () => {
+    it('should migrate legacy boolean true to null', async () => {
       const db = await openDatabase();
       const transaction = db.transaction('session', 'readwrite');
       const store = transaction.objectStore('session');
-      store.put('not-a-boolean', 'wifiConnected');
+      store.put(true, 'wifiConnected');
+      await new Promise<void>((resolve) => {
+        transaction.oncomplete = () => resolve();
+      });
+      const result = await loadWifiState(db);
+      expect(result).toBeNull();
+      db.close();
+    });
+
+    it('should migrate legacy boolean false to null', async () => {
+      const db = await openDatabase();
+      const transaction = db.transaction('session', 'readwrite');
+      const store = transaction.objectStore('session');
+      store.put(false, 'wifiConnected');
+      await new Promise<void>((resolve) => {
+        transaction.oncomplete = () => resolve();
+      });
+      const result = await loadWifiState(db);
+      expect(result).toBeNull();
+      db.close();
+    });
+
+    it('should return null for invalid stored data', async () => {
+      const db = await openDatabase();
+      const transaction = db.transaction('session', 'readwrite');
+      const store = transaction.objectStore('session');
+      store.put('not-valid', 'wifiConnected');
       await new Promise<void>((resolve) => {
         transaction.oncomplete = () => resolve();
       });
@@ -301,7 +330,7 @@ describe('storage', () => {
       const db = await openDatabase();
       await saveFilesystemPatches(db, validPatches);
       await saveMissionSeed(db, 'TEST-SEED');
-      await saveWifiState(db, true);
+      await saveWifiState(db, { essid: 'TEST-NET', bssid: 'AA:BB:CC:DD:EE:FF' });
       saveSessionToTab(validSession);
 
       await clearAllData(db);

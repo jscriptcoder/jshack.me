@@ -1,7 +1,9 @@
 import type { PersistedState } from '../session/SessionContext';
 import type { FileSystemPatch } from '../filesystem/types';
+import type { WifiConnection } from '../network/wifiTypes';
 import { isValidPersistedState } from '../session/SessionContext';
 import { isValidPatch } from '../filesystem/fileSystemUtils';
+import { isValidWifiConnection } from '../network/wifiTypes';
 
 const DB_NAME = 'jshack-db';
 const DB_VERSION = 1;
@@ -147,18 +149,28 @@ export const clearSessionFromTab = (): void => {
 
 // --- WiFi state in IndexedDB (shared across tabs) ---
 
-export const saveWifiState = async (db: IDBDatabase, connected: boolean): Promise<void> => {
+export const saveWifiState = async (
+  db: IDBDatabase,
+  connection: WifiConnection | null,
+): Promise<void> => {
   try {
-    await setValue(db, SESSION_STORE, WIFI_KEY, connected);
+    if (connection === null) {
+      const transaction = db.transaction(SESSION_STORE, 'readwrite');
+      const store = transaction.objectStore(SESSION_STORE);
+      store.delete(WIFI_KEY);
+    } else {
+      await setValue(db, SESSION_STORE, WIFI_KEY, connection);
+    }
   } catch {
     // Non-critical — WiFi state still works in-memory
   }
 };
 
-export const loadWifiState = async (db: IDBDatabase): Promise<boolean | null> => {
+export const loadWifiState = async (db: IDBDatabase): Promise<WifiConnection | null> => {
   try {
     const data = await getValue<unknown>(db, SESSION_STORE, WIFI_KEY);
-    if (typeof data === 'boolean') return data;
+    if (isValidWifiConnection(data)) return data;
+    // Legacy boolean or invalid data — treat as disconnected
     return null;
   } catch {
     return null;

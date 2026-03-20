@@ -7,6 +7,7 @@ import {
   useRef,
   type ReactNode,
 } from 'react';
+import type { WifiConnection } from '../network/wifiTypes';
 import {
   getCachedSessionState,
   getCachedWifiState,
@@ -73,6 +74,7 @@ export type PersistedState = {
 
 type SessionContextValue = {
   readonly session: Session;
+  readonly connectedWifi: WifiConnection | null;
   readonly wifiConnected: boolean;
   readonly sessionStack: readonly SessionSnapshot[];
   readonly ftpSession: FtpSession | null;
@@ -93,7 +95,7 @@ type SessionContextValue = {
   readonly exitNcMode: () => NcSession | null;
   readonly isInNcMode: () => boolean;
   readonly updateNcCwd: (cwd: string) => void;
-  readonly setWifiConnected: (connected: boolean) => void;
+  readonly setWifiConnected: (connection: WifiConnection | null) => void;
   readonly disconnectWifi: () => void;
   readonly popAllSessions: () => void;
   readonly setTheme: (theme: ThemeId) => void;
@@ -129,7 +131,10 @@ const getInitialState = (): PersistedState => {
 export const SessionProvider = ({ children }: { children: ReactNode }) => {
   const [initialState] = useState(getInitialState);
   const [session, setSession] = useState<Session>(initialState.session);
-  const [wifiConnected, setWifiConnectedState] = useState<boolean>(getCachedWifiState);
+  const [connectedWifi, setConnectedWifiState] = useState<WifiConnection | null>(
+    getCachedWifiState,
+  );
+  const wifiConnected = connectedWifi !== null;
   const [sessionStack, setSessionStack] = useState<readonly SessionSnapshot[]>(
     initialState.sessionStack,
   );
@@ -150,8 +155,8 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
     syncChannelRef.current = channel;
     channel.onMessage((message: SyncMessage) => {
       if (message.type === 'wifi-changed') {
-        setWifiConnectedState(message.connected);
-        if (!message.connected) {
+        setConnectedWifiState(message.connection);
+        if (!message.connection) {
           // When another tab disconnects WiFi, reset this tab to localhost too
           setSession((prev) => ({
             username: 'jshacker',
@@ -262,14 +267,14 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
     setNcSession((prev) => (prev ? { ...prev, currentPath: cwd } : null));
   }, []);
 
-  const setWifiConnected = useCallback((connected: boolean) => {
-    setWifiConnectedState(connected);
+  const setWifiConnected = useCallback((connection: WifiConnection | null) => {
+    setConnectedWifiState(connection);
     // WiFi state is shared across tabs — persist to IndexedDB
     const db = getDatabase();
     if (db) {
-      saveWifiState(db, connected);
+      saveWifiState(db, connection);
     }
-    syncChannelRef.current?.broadcast({ type: 'wifi-changed', connected });
+    syncChannelRef.current?.broadcast({ type: 'wifi-changed', connection });
   }, []);
 
   const markMachineBricked = useCallback((machine: string) => {
@@ -333,7 +338,7 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
   // machine — finds the original localhost path from the bottom of the session stack
   // (the state before the first SSH), or uses the current path if already on localhost.
   const disconnectWifi = useCallback(() => {
-    setWifiConnectedState(false);
+    setConnectedWifiState(null);
     setSession((prev) => {
       const localhostPath =
         sessionStack.length > 0
@@ -355,15 +360,16 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
     // WiFi state is shared across tabs — persist to IndexedDB
     const db = getDatabase();
     if (db) {
-      saveWifiState(db, false);
+      saveWifiState(db, null);
     }
-    syncChannelRef.current?.broadcast({ type: 'wifi-changed', connected: false });
+    syncChannelRef.current?.broadcast({ type: 'wifi-changed', connection: null });
   }, [sessionStack]);
 
   return (
     <SessionContext.Provider
       value={{
         session,
+        connectedWifi,
         wifiConnected,
         sessionStack,
         ftpSession,

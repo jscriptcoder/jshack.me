@@ -10,12 +10,17 @@ describe('createSyncChannel', () => {
 
       receiver.onMessage((msg) => received.push(msg));
 
-      sender.broadcast({ type: 'wifi-changed', connected: true });
+      sender.broadcast({
+        type: 'wifi-changed',
+        connection: { essid: 'TEST', bssid: 'AA:BB:CC:DD:EE:FF' },
+      });
 
       // BroadcastChannel delivers asynchronously
       await new Promise((resolve) => setTimeout(resolve, 50));
 
-      expect(received).toEqual([{ type: 'wifi-changed', connected: true }]);
+      expect(received).toEqual([
+        { type: 'wifi-changed', connection: { essid: 'TEST', bssid: 'AA:BB:CC:DD:EE:FF' } },
+      ]);
 
       sender.close();
       receiver.close();
@@ -97,7 +102,12 @@ describe('createSyncChannel', () => {
       const channel = createSyncChannel();
       channel.close();
 
-      expect(() => channel.broadcast({ type: 'wifi-changed', connected: true })).not.toThrow();
+      expect(() =>
+        channel.broadcast({
+          type: 'wifi-changed',
+          connection: { essid: 'TEST', bssid: 'AA:BB:CC:DD:EE:FF' },
+        }),
+      ).not.toThrow();
     });
 
     it('stops receiving after close', async () => {
@@ -108,7 +118,10 @@ describe('createSyncChannel', () => {
       receiver.onMessage((msg) => received.push(msg));
       receiver.close();
 
-      sender.broadcast({ type: 'wifi-changed', connected: true });
+      sender.broadcast({
+        type: 'wifi-changed',
+        connection: { essid: 'TEST', bssid: 'AA:BB:CC:DD:EE:FF' },
+      });
 
       await new Promise((resolve) => setTimeout(resolve, 50));
 
@@ -134,7 +147,12 @@ describe('createSyncChannel', () => {
     it('returns no-op stubs that do not throw', () => {
       const channel = createSyncChannel();
 
-      expect(() => channel.broadcast({ type: 'wifi-changed', connected: true })).not.toThrow();
+      expect(() =>
+        channel.broadcast({
+          type: 'wifi-changed',
+          connection: { essid: 'TEST', bssid: 'AA:BB:CC:DD:EE:FF' },
+        }),
+      ).not.toThrow();
       expect(() => channel.onMessage(vi.fn())).not.toThrow();
       expect(() => channel.close()).not.toThrow();
     });

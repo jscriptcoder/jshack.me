@@ -1,9 +1,10 @@
 import type { FileSystemPatch } from '../filesystem/types';
 import type { ThemeId } from '../theme/themes';
+import type { WifiConnection } from '../network/wifiTypes';
 
 type SyncMessage =
   | { readonly type: 'filesystem-patch'; readonly patch: FileSystemPatch }
-  | { readonly type: 'wifi-changed'; readonly connected: boolean }
+  | { readonly type: 'wifi-changed'; readonly connection: WifiConnection | null }
   | { readonly type: 'mission-changed'; readonly seed: string | null }
   | { readonly type: 'theme-changed'; readonly theme: ThemeId }
   | { readonly type: 'bricked-changed'; readonly machine: string };

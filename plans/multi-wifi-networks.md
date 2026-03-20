@@ -41,6 +41,7 @@ Pure refactor. No new features. All existing behavior preserved.
 **Test**: Write test for `saveWifiState` / `loadWifiState` accepting `WifiConnection | null` instead of `boolean`. Verify round-trip: save `{ essid: 'X', bssid: 'Y' }`, load it back, get same object. Save `null`, load back `null`.
 
 **Implementation**:
+
 - Define `WifiConnection = { readonly essid: string; readonly bssid: string }`
 - Change `storage.ts`: `saveWifiState(db, connection: WifiConnection | null)`, `loadWifiState(db): WifiConnection | null`
 - Change `storageCache.ts`: `getCachedWifiState(): WifiConnection | null`
@@ -53,6 +54,7 @@ Pure refactor. No new features. All existing behavior preserved.
 **Test**: Test that `setWifiConnected` accepts a `WifiConnection` object and that `disconnectWifi` sets state to `null`. Test that `wifiConnected` (boolean convenience getter) returns `true` when `connectedWifi` is non-null.
 
 **Implementation**:
+
 - `SessionContext`: rename internal state from `wifiConnected: boolean` to `connectedWifi: WifiConnection | null`
 - Add `wifiConnected` derived boolean for backward compat: `connectedWifi !== null`
 - Update `setWifiConnected` to accept `WifiConnection | null`
@@ -66,6 +68,7 @@ Pure refactor. No new features. All existing behavior preserved.
 **Test**: Test that `wifi-changed` messages carry `WifiConnection | null` instead of boolean.
 
 **Implementation**:
+
 - Update `crossTabSync.ts` message type: `{ type: 'wifi-changed'; connection: WifiConnection | null }`
 - Update SessionContext broadcast/receive logic
 
@@ -76,6 +79,7 @@ Pure refactor. No new features. All existing behavior preserved.
 **Test**: Existing WiFi command tests pass. `nmcli("connect", ...)` stores the essid/bssid in WiFi state.
 
 **Implementation**:
+
 - `nmcli`: on connect, call `setWifiConnected({ essid, bssid })` instead of `setWifiConnected(true)`
 - `nmcli("status")`: show connected network name
 - No changes to airmon/airdump/aircrack (they don't touch WiFi state)
@@ -91,6 +95,7 @@ Pure refactor. No new features. All existing behavior preserved.
 **Test**: Write tests for `saveGameState` / `loadGameState`. Verify round-trip of `{ seed: string; workstationName: string }`.
 
 **Implementation**:
+
 - Define `GameState = { readonly seed: string; readonly workstationName: string }`
 - Add to `storage.ts`: `saveGameState(db, state)`, `loadGameState(db): GameState | null`
 - Add to `storageCache.ts`: `getCachedGameState(): GameState | null`
@@ -105,6 +110,7 @@ Pure refactor. No new features. All existing behavior preserved.
 **Test**: Test that `generateGameSeed()` produces a string. Test that same seed always produces same WiFi networks (determinism verified later, but seed format test here).
 
 **Implementation**:
+
 - Add `src/generation/gameSeed.ts`
 - `generateGameSeed(): string` — uses `crypto.getRandomValues` to create a hex string (e.g., 16 chars)
 - Export for use in intro screen
@@ -116,6 +122,7 @@ Pure refactor. No new features. All existing behavior preserved.
 **Test**: Component test: renders "New Game" and "Continue" options. "Continue" only shown when game state exists. Entering name and clicking "Start" calls `onStart({ seed, workstationName })`. Submitting empty name shows validation.
 
 **Implementation**:
+
 - Create `src/components/IntroScreen.tsx`
 - Two paths: "New Game" (shows name input → generates seed → saves to IndexedDB → callback) and "Continue" (loads game state → callback)
 - Minimalist CRT aesthetic (consistent with terminal theme)
@@ -130,6 +137,7 @@ Pure refactor. No new features. All existing behavior preserved.
 **Test**: Integration test: when no game state, intro screen shows. After starting game, terminal shows. On refresh with saved state, terminal shows directly (or intro with "Continue" highlighted).
 
 **Implementation**:
+
 - `App.tsx`: check `getCachedGameState()` on mount
 - If no game state → show `<IntroScreen onStart={...} />`
 - If game state exists → show `<SessionProvider>...<Terminal />`
@@ -147,6 +155,7 @@ Pure refactor. No new features. All existing behavior preserved.
 **Test**: Test that `getPrompt()` returns `jshacker@my-machine>` when `session.machine === 'localhost'` and workstation name is `'my-machine'`. Returns `jshacker@192.168.1.50>` when on remote machine (unchanged).
 
 **Implementation**:
+
 - Add `workstationName: string` to SessionContext (read from game state)
 - Update `getPrompt()`: when `session.machine === 'localhost'`, use workstation name instead of `'localhost'`
 - Terminal prompt rendering uses this automatically
@@ -158,6 +167,7 @@ Pure refactor. No new features. All existing behavior preserved.
 **Test**: Test that localhost filesystem's `/etc/hostname` content matches the workstation name from game state.
 
 **Implementation**:
+
 - `machineFileSystems.ts` or `FileSystemProvider`: when building localhost filesystem, replace `/etc/hostname` content with workstation name
 - Could be done as a dynamic patch applied at provider level, or by making localhost filesystem factory accept a name parameter
 
@@ -172,6 +182,7 @@ Pure refactor. No new features. All existing behavior preserved.
 **Test**: Test `generateWifiNetworks(seed)` produces deterministic output. Same seed → same networks. Different seeds → different networks. Always 2-3 crackable + 2-4 noise networks. Each crackable network has unique essid, bssid, password.
 
 **Implementation**:
+
 - Create `src/generation/generateWifi.ts`
 - `generateWifiNetworks(seed: string): readonly WifiNetwork[]`
 - Use PRNG from seed (reuse existing `createPrng`)
@@ -190,6 +201,7 @@ Pure refactor. No new features. All existing behavior preserved.
 **Test**: Test that `airdump` displays generated networks (not static). Test that `aircrack` can crack each generated crackable network. Test that `nmcli connect` accepts any generated crackable network.
 
 **Implementation**:
+
 - Replace static `WIFI_NETWORKS` import with generated networks from game state seed
 - WiFi commands receive generated networks via context (or module-level generated from seed)
 - `findWifiNetwork(bssid)` and `findWifiNetworkByEssid(essid)` search generated list
@@ -206,6 +218,7 @@ Pure refactor. No new features. All existing behavior preserved.
 **Test**: Test `generateHomeNetwork(seed, wifiIndex)` produces deterministic subnet. Contains 1 router + 2-4 machines. Router has public IP. Machine roles are varied. All machines have hostnames, IPs, ports, users, filesystems.
 
 **Implementation**:
+
 - Create `src/generation/generateHomeNetwork.ts`
 - Reuse patterns from `topology.ts` and `generateMission.ts`:
   - `generatePrivateSubnet(prng)` for subnet
@@ -224,6 +237,7 @@ Pure refactor. No new features. All existing behavior preserved.
 **Test**: Test that when `connectedWifi.essid` is 'NETWORK-A', NetworkContext provides machines from Network A's subnet. When disconnected, provides no machines. When switched to 'NETWORK-B', provides Network B's machines.
 
 **Implementation**:
+
 - Generate all home networks on game start (or lazily on first connect)
 - Store generated home networks in a new context or provider
 - `NetworkContext`: instead of reading from static `createInitialNetwork()`, read from the home network matching `connectedWifi.essid`
@@ -238,6 +252,7 @@ Pure refactor. No new features. All existing behavior preserved.
 **Test**: Test that filesystem includes home network machines' filesystems when connected. Switching WiFi changes available machine filesystems.
 
 **Implementation**:
+
 - `FileSystemProvider`: merge home network filesystems alongside localhost filesystem
 - When WiFi switches, the available machine filesystems change
 - Filesystem patches are keyed by machine IP — patches to machines in Network A persist even when on Network B (they just aren't visible until you reconnect to A)
@@ -254,6 +269,7 @@ Pure refactor. No new features. All existing behavior preserved.
 **Test**: Test that `nmcli("connect", "NETWORK-B", password)` when already on "NETWORK-A" auto-disconnects A and connects B. Test that if `session.machine !== 'localhost'`, nmcli connect refuses with "must disconnect from remote machine first."
 
 **Implementation**:
+
 - `nmcli`: before connecting, check if already on different WiFi
   - If on localhost: auto-disconnect current → connect new
   - If SSH'd into remote machine: return error "Disconnect from remote machine first"
@@ -271,6 +287,7 @@ Pure refactor. No new features. All existing behavior preserved.
 **Test**: Verify that `initialNetwork.ts` static machines (gateway, fileserver, webserver) are no longer referenced. All network access goes through generated home networks.
 
 **Implementation**:
+
 - Remove static machine definitions from `initialNetwork.ts` (gateway, fileserver, webserver, their RemoteMachine/DNS)
 - Keep localhost interface templates (wlan0 up/down, loopback) — these are still used
 - Remove static machine filesystems from `machineFileSystems.ts` (192.168.1.1, 192.168.1.50, 192.168.1.75)
@@ -284,6 +301,7 @@ Pure refactor. No new features. All existing behavior preserved.
 **Test**: Test that WiFi tutorial hint file references reflect the new flow (multiple networks).
 
 **Implementation**:
+
 - Update `/home/jshacker/downloads/wifi_tools.txt` to reference multiple networks
 - Update any other hint files that reference specific IPs or network names
 - Update `.bash_history` if it contains static references
@@ -295,6 +313,7 @@ Pure refactor. No new features. All existing behavior preserved.
 **Test**: E2E test (Playwright) works with intro screen + multi-WiFi flow.
 
 **Implementation**:
+
 - Update E2E test to handle intro screen (enter name, start game)
 - Update WiFi cracking steps to use generated network
 - Mission flow should still work (missions are independent)

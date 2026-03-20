@@ -111,27 +111,28 @@ describe('storageCache', () => {
   });
 
   describe('WiFi state (shared via IndexedDB)', () => {
-    it('should default WiFi to false when no state exists', async () => {
+    it('should default WiFi to null when no state exists', async () => {
       await initializeStorage();
-      expect(getCachedWifiState()).toBe(false);
+      expect(getCachedWifiState()).toBeNull();
     });
 
-    it('should load WiFi state from IndexedDB', async () => {
+    it('should load WiFi connection from IndexedDB', async () => {
       const db = await openDatabase();
-      await saveWifiState(db, true);
+      const connection = { essid: 'JSHACK-CORP', bssid: 'A4:CF:12:D3:8B:7A' };
+      await saveWifiState(db, connection);
       db.close();
 
       await initializeStorage();
-      expect(getCachedWifiState()).toBe(true);
+      expect(getCachedWifiState()).toEqual(connection);
     });
 
-    it('should load WiFi=false from IndexedDB', async () => {
+    it('should load null when WiFi disconnected in IndexedDB', async () => {
       const db = await openDatabase();
-      await saveWifiState(db, false);
+      await saveWifiState(db, null);
       db.close();
 
       await initializeStorage();
-      expect(getCachedWifiState()).toBe(false);
+      expect(getCachedWifiState()).toBeNull();
     });
   });
 
@@ -140,7 +141,7 @@ describe('storageCache', () => {
       saveSessionToTab(validSession);
       const db = await openDatabase();
       await saveFilesystemPatches(db, validPatches);
-      await saveWifiState(db, true);
+      await saveWifiState(db, { essid: 'TEST', bssid: 'AA:BB:CC:DD:EE:FF' });
       db.close();
 
       await initializeStorage();
@@ -148,7 +149,7 @@ describe('storageCache', () => {
 
       resetCache();
       expect(getCachedSessionState()).toBeNull();
-      expect(getCachedWifiState()).toBe(false);
+      expect(getCachedWifiState()).toBeNull();
       expect(getCachedFilesystemPatches()).toEqual([]);
       expect(getCachedMissionSeed()).toBeNull();
       expect(getDatabase()).toBeNull();

@@ -5,14 +5,16 @@ import { createNmcliCommand } from './nmcli';
 type MockContextConfig = {
   readonly isOnLocalhost?: boolean;
   readonly isWifiConnected?: boolean;
+  readonly connectedEssid?: string | null;
 };
 
 const createMockContext = (config: MockContextConfig = {}) => {
-  const { isOnLocalhost = true, isWifiConnected = false } = config;
+  const { isOnLocalhost = true, isWifiConnected = false, connectedEssid = null } = config;
 
   return {
     isOnLocalhost: () => isOnLocalhost,
     isWifiConnected: () => isWifiConnected,
+    connectedEssid: () => connectedEssid,
     setWifiConnected: vi.fn(),
     disconnectWifi: vi.fn(),
   };
@@ -99,7 +101,10 @@ describe('nmcli command', () => {
 
       expect(result).toContain('Connected to JSHACK-CORP');
       expect(result).toContain('192.168.1.100');
-      expect(context.setWifiConnected).toHaveBeenCalledWith(true);
+      expect(context.setWifiConnected).toHaveBeenCalledWith({
+        essid: 'JSHACK-CORP',
+        bssid: 'A4:CF:12:D3:8B:7A',
+      });
     });
   });
 
@@ -112,13 +117,16 @@ describe('nmcli command', () => {
     });
 
     it('should disconnect when on localhost', () => {
-      const context = createMockContext({ isWifiConnected: true });
+      const context = createMockContext({
+        isWifiConnected: true,
+        connectedEssid: 'JSHACK-CORP',
+      });
       const nmcli = createNmcliCommand(context);
 
       const result = nmcli.fn('disconnect') as string;
 
       expect(result).toContain('Disconnected from JSHACK-CORP');
-      expect(context.setWifiConnected).toHaveBeenCalledWith(false);
+      expect(context.setWifiConnected).toHaveBeenCalledWith(null);
       expect(context.disconnectWifi).not.toHaveBeenCalled();
     });
 
@@ -135,8 +143,11 @@ describe('nmcli command', () => {
   });
 
   describe('status', () => {
-    it('should show connected status', () => {
-      const context = createMockContext({ isWifiConnected: true });
+    it('should show connected status with network name', () => {
+      const context = createMockContext({
+        isWifiConnected: true,
+        connectedEssid: 'JSHACK-CORP',
+      });
       const nmcli = createNmcliCommand(context);
 
       const result = nmcli.fn('status') as string;

@@ -1,4 +1,5 @@
 import type { FileSystemPatch } from '../filesystem/types';
+import type { WifiConnection } from '../network/wifiTypes';
 import {
   openDatabase,
   loadFilesystemPatches,
@@ -13,7 +14,7 @@ import { applyTheme } from '../theme/applyTheme';
 
 type StorageCache = {
   readonly sessionState: PersistedState | null;
-  readonly wifiConnected: boolean;
+  readonly connectedWifi: WifiConnection | null;
   readonly brickedMachines: readonly string[];
   readonly filesystemPatches: readonly FileSystemPatch[];
   readonly missionSeed: string | null;
@@ -26,7 +27,7 @@ type StorageCache = {
 // inside useState(() => ...) initializer functions. After that, it's read-only.
 let cache: StorageCache = {
   sessionState: null,
-  wifiConnected: false,
+  connectedWifi: null,
   brickedMachines: [],
   filesystemPatches: [],
   missionSeed: null,
@@ -52,12 +53,12 @@ export const initializeStorage = async (): Promise<void> => {
     const missionSeed = await loadMissionSeed(db);
 
     // WiFi and bricked state are shared across tabs (IndexedDB)
-    const wifiFromDb = await loadWifiState(db);
+    const connectedWifi = await loadWifiState(db);
     const brickedFromDb = await loadBrickedMachines(db);
 
     cache = {
       sessionState,
-      wifiConnected: wifiFromDb ?? false,
+      connectedWifi,
       brickedMachines: brickedFromDb ?? [],
       filesystemPatches: filesystemPatches ?? [],
       missionSeed,
@@ -70,7 +71,7 @@ export const initializeStorage = async (): Promise<void> => {
     // IndexedDB unavailable — session from sessionStorage still works
     cache = {
       sessionState,
-      wifiConnected: false,
+      connectedWifi: null,
       brickedMachines: [],
       filesystemPatches: [],
       missionSeed: null,
@@ -84,7 +85,7 @@ export const initializeStorage = async (): Promise<void> => {
 
 export const getCachedSessionState = (): PersistedState | null => cache.sessionState;
 
-export const getCachedWifiState = (): boolean => cache.wifiConnected;
+export const getCachedWifiState = (): WifiConnection | null => cache.connectedWifi;
 
 export const getCachedBrickedMachines = (): readonly string[] => cache.brickedMachines;
 
@@ -101,7 +102,7 @@ export const resetCache = (): void => {
   }
   cache = {
     sessionState: null,
-    wifiConnected: false,
+    connectedWifi: null,
     brickedMachines: [],
     filesystemPatches: [],
     missionSeed: null,

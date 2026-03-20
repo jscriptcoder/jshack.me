@@ -1,10 +1,12 @@
 import type { Command } from '../components/Terminal/types';
+import type { WifiConnection } from '../network/wifiTypes';
 import { findWifiNetworkByEssid } from '../network/wifiNetworks';
 
 type NmcliContext = {
   readonly isOnLocalhost: () => boolean;
   readonly isWifiConnected: () => boolean;
-  readonly setWifiConnected: (connected: boolean) => void;
+  readonly connectedEssid: () => string | null;
+  readonly setWifiConnected: (connection: WifiConnection | null) => void;
   readonly disconnectWifi: () => void;
 };
 
@@ -25,7 +27,8 @@ const handleConnect = (
   }
 
   if (context.isWifiConnected()) {
-    throw new Error('nmcli: already connected to JSHACK-CORP');
+    const current = context.connectedEssid() ?? 'unknown';
+    throw new Error(`nmcli: already connected to ${current}`);
   }
 
   if (!essid || !password) {
@@ -42,7 +45,7 @@ const handleConnect = (
     throw new Error(`nmcli: authentication failed for "${essid}"`);
   }
 
-  context.setWifiConnected(true);
+  context.setWifiConnected({ essid: network.essid, bssid: network.bssid });
   return [
     `Connecting to ${essid}...`,
     `Connected to ${essid}`,
@@ -64,8 +67,9 @@ const handleDisconnect = (context: NmcliContext): string => {
     ].join('\n');
   }
 
-  context.setWifiConnected(false);
-  return 'Disconnected from JSHACK-CORP';
+  const current = context.connectedEssid() ?? 'unknown';
+  context.setWifiConnected(null);
+  return `Disconnected from ${current}`;
 };
 
 const handleStatus = (context: NmcliContext): string => {
@@ -74,7 +78,8 @@ const handleStatus = (context: NmcliContext): string => {
   }
 
   if (context.isWifiConnected()) {
-    return 'wlan0: connected to JSHACK-CORP (192.168.1.100/24)';
+    const current = context.connectedEssid() ?? 'unknown';
+    return `wlan0: connected to ${current} (192.168.1.100/24)`;
   }
 
   return 'wlan0: disconnected';
