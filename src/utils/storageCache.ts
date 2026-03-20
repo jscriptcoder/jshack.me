@@ -104,15 +104,16 @@ export const getCachedGameState = (): GameState | null => cache.gameState;
 
 export const getDatabase = (): IDBDatabase | null => cache.db;
 
-// Clears cached session so SessionProvider initializes with defaults on next mount.
+// Resets cached session and sets the new game state so all hooks see fresh values.
 // Called when starting a new game to prevent stale session (e.g., root user) from persisting.
-export const resetSessionCache = (): void => {
+export const resetSessionCache = (newGameState: GameState): void => {
   cache = {
     ...cache,
     sessionState: null,
     connectedWifi: null,
     filesystemPatches: [],
     missionSeed: null,
+    gameState: newGameState,
   };
 };
 

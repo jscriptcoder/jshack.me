@@ -47,8 +47,9 @@ function App() {
       await clearAllData(db);
       await saveGameState(db, state);
     }
-    // Clear cached session so SessionProvider starts as jshacker/user, not stale root
-    resetSessionCache();
+    // Clear cached session so SessionProvider starts as jshacker/user, not stale root.
+    // Also sets the new game state so useWifiCommands sees the seed immediately.
+    resetSessionCache(state);
     setGameState(state);
   }, []);
 
