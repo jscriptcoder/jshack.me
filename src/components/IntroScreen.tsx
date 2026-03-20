@@ -107,7 +107,7 @@ export const IntroScreen = ({ existingGame, onStart }: IntroScreenProps) => {
 
       {/* Tagline */}
       <p className="mb-8 text-base tracking-wide" style={{ color: 'var(--theme-text-dim)' }}>
-        hack the network. complete the contract. get paid.
+        Hack the network. Complete the contract. Get paid.
       </p>
 
       {/* Intro text + buttons — only on menu screen */}
@@ -118,7 +118,7 @@ export const IntroScreen = ({ existingGame, onStart }: IntroScreenProps) => {
             style={{ color: 'var(--theme-text-dim)' }}
           >
             <p className="mb-4">
-              You are <span style={{ color: 'var(--theme-text)' }}>jshacker</span> — a freelance
+              You are <span style={{ color: 'var(--theme-text)' }}>jshacker</span>, a freelance
               operator working from a personal workstation. Your WiFi card can reach several
               networks, each hiding its own machines. Crack in, explore, and install your toolkit.
             </p>
