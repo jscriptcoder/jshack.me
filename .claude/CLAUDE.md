@@ -104,6 +104,14 @@ Current secrets: `WIFI_PASSWORD` (legacy static WiFi password), `WIFI_PASSWORDS`
 
 To add a new secret: add the key-value pair to `src/secrets/secrets.ts`, then run `npm run encode`.
 
+### Connection Logging
+
+`src/logging/` records SSH, FTP, SCP, su, and HTTP auth events to target machine log files in realistic Linux formats. Terminal.tsx defines logging callbacks (`onSuAuth`, `onSshAuth`, `onFtpAuth`) passed into `useCommands`. Log entries persist via IndexedDB patches and sync across tabs. See `src/logging/README.md` for full details and `architecture.md` for integration.
+
+- `/var/log/auth.log` — SSH, SCP, su (syslog format)
+- `/var/log/vsftpd.log` — FTP (vsftpd format)
+- `/var/log/access.log` — curl HTTP requests (Apache Combined format)
+
 ### Special Output Types
 
 Commands return objects with `__type` for custom rendering (see `src/components/Terminal/types.ts`):

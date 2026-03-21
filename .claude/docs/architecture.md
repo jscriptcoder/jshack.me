@@ -18,6 +18,7 @@ src/
 │   ├── secrets.ts              # Plaintext source (used by encode script + tests)
 │   └── __encoded.ts            # GENERATED (gitignored) — encoded secrets for production
 ├── hooks/                 # React hooks (commands, history, autocomplete, variables)
+├── logging/               # Connection logging (auth.log, vsftpd.log, access.log formatters + append utility)
 ├── network/               # Per-machine network simulation (interfaces, DNS, machines)
 ├── commands/              # Command implementations (colocated with .test.ts files)
 │   ├── ftp/               # FTP mode commands (pwd, ls, cd, get, put, quit)
@@ -126,14 +127,30 @@ Unix-realistic permission model with owner-scoped access and directory traversal
 
 `nano(path)` returns `{ __type: 'nano_open', filePath }`. Terminal.tsx renders `NanoEditor` as a fixed overlay. Ctrl+S saves (creates or updates file via FileSystemContext), Ctrl+X/Escape exits (prompts if unsaved changes). Tab inserts 2 spaces.
 
+## Connection Logging
+
+`src/logging/` records authentication events to target machine log files in realistic Linux formats. See `src/logging/README.md` for full details.
+
+**Log files written:**
+
+- `/var/log/auth.log` — SSH, SCP, su events (syslog format: `MMM DD HH:MM:SS hostname sshd[pid]: Accepted password for user from IP port PORT ssh2`)
+- `/var/log/vsftpd.log` — FTP events (vsftpd format: `[YYYY-MM-DD HH:MM:SS] OK LOGIN: Client "IP", user "name"`)
+- `/var/log/access.log` — HTTP requests via curl (Apache Combined format)
+
+**Integration:** Terminal.tsx defines three logging callbacks (`onSuAuth`, `onSshAuth`, `onFtpAuth`) that are passed into `useCommands`. The `su` command calls `onSuAuth` directly; SSH/SCP/FTP trigger their callbacks via `useAuthentication`. Each callback uses formatters from `src/logging/formatters.ts` and `appendToMachineLog` to write to the target machine's filesystem. The curl command logs HTTP requests directly.
+
+**Source IP:** The `session.machine` value is passed as the source IP in log entries. For su, it's the current machine hostname. For SSH/SCP/FTP, it identifies where the connection came from.
+
+**Persistence:** Log entries are standard filesystem writes — they persist via IndexedDB patches and sync across tabs via BroadcastChannel. Dynamically created log files use world-readable permissions (`read: ['root', 'user', 'guest']`), matching real Linux `/var/log/` behavior.
+
 ## Authentication
 
 `useAuthentication` (`src/hooks/useAuthentication.ts`) encapsulates all password-related state and login logic, extracted from Terminal.tsx. Manages four authentication flows:
 
-- **su** — validates password against `/etc/passwd` hashes on the current machine, switches user type and home path
-- **SSH** — resolves NAT, validates against target machine user list via `findMachineUsers`, pushes session stack, switches to remote machine
-- **FTP** — two-stage login (username prompt → password prompt), resolves NAT, validates against target machine via `findMachineUsers`, creates FTP session
-- **SCP** — resolves NAT, validates against target machine via `findMachineUsers`, triggers file transfer animation
+- **su** — validates password against `/etc/passwd` hashes on the current machine, switches user type and home path; triggers `onSuAuth` callback for logging
+- **SSH** — resolves NAT, validates against target machine user list via `findMachineUsers`, pushes session stack, switches to remote machine; triggers `onSshAuth` callback for logging
+- **FTP** — two-stage login (username prompt → password prompt), resolves NAT, validates against target machine via `findMachineUsers`, creates FTP session; triggers `onFtpAuth` callback for logging
+- **SCP** — resolves NAT, validates against target machine via `findMachineUsers`, triggers file transfer animation; triggers `onSshAuth` callback for logging (SCP uses SSH auth)
 
 **SSH key persistence**: After the first successful SSH or SCP password authentication, a fingerprint-signed entry (`user@ip:fingerprint`) is saved to `~/.ssh_keys` on the source machine's filesystem. The fingerprint is `md5(user:ip:passwordHash)`, tying each entry to the actual credential — manually crafted entries without the correct fingerprint are rejected. On subsequent SSH/SCP connections, `hasAuthorizedKey` recomputes the expected fingerprint from the remote user's password hash and checks for a match, skipping the password prompt on success. Keys are stored per-user (each user's home directory has its own `.ssh_keys` file), persist via the filesystem patch system (IndexedDB), and sync across tabs via BroadcastChannel. The shared `connectSsh` helper extracts the SSH session setup used by both auto-auth and password-auth paths.
 

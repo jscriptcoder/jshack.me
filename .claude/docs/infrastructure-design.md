@@ -62,6 +62,18 @@ Connecting to a different WiFi switches which machines are visible from localhos
 
 Machine filesystems are defined in `src/filesystem/machines/` and built via `fileSystemFactory.ts` with users, directories, and content. Common structure per machine: `/root/`, `/home/[users]/`, `/etc/` (passwd with MD5 hashes, hostname, hosts, configs), `/var/log/`, `/tmp/`. See `architecture.md` for the full filesystem permission model.
 
+### Dynamic Connection Logs
+
+When players connect to machines via SSH, FTP, or SCP, authentication events are logged to the target machine's filesystem in realistic Linux formats. `su` events are logged on the current machine. HTTP requests via `curl` log to the target's `/var/log/access.log`.
+
+| Log File              | Events                      | Format          |
+| --------------------- | --------------------------- | --------------- |
+| `/var/log/auth.log`   | SSH, SCP, su (success/fail) | Syslog          |
+| `/var/log/vsftpd.log` | FTP connect/login           | vsftpd          |
+| `/var/log/access.log` | HTTP requests (curl)        | Apache Combined |
+
+Log files are created dynamically on first event (not pre-populated). They persist via IndexedDB patches and are world-readable. See `src/logging/README.md` for implementation details and `architecture.md` for integration.
+
 ## Network Topology
 
 ```

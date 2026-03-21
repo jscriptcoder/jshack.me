@@ -439,7 +439,9 @@ Encoded in `src/secrets/__encoded.ts` — used for machine user passwords.
 
 `notes.txt`, `old_passwords.txt`, `.env.bak`, `maintenance_log.txt`
 
-### Log Templates (7)
+### Log Templates (7) — Static Filler
+
+Pre-generated filler content for `/var/log/` noise files during mission generation. These are **not** the dynamic connection logging system — see `src/logging/README.md` for the dynamic logging that records real player auth events.
 
 sshd accepted, sshd failed, sshd closed, CRON, systemd started, kernel link up, sudo
 

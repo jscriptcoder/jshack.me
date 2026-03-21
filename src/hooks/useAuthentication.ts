@@ -515,13 +515,15 @@ export const useAuthentication = ({
       } else {
         if (scpTargetIP) {
           addLine('error', `Permission denied, please try again.`);
-          if (targetUser) onSshAuth?.(false, targetUser, scpTargetIP, scpTargetPort ?? 22, 'password');
+          if (targetUser)
+            onSshAuth?.(false, targetUser, scpTargetIP, scpTargetPort ?? 22, 'password');
         } else if (ftpTargetIP) {
           addLine('error', '530 Login incorrect.');
           if (targetUser) onFtpAuth?.(false, targetUser, ftpTargetIP);
         } else if (sshTargetIP) {
           addLine('error', `Permission denied, please try again.`);
-          if (targetUser) onSshAuth?.(false, targetUser, sshTargetIP, sshTargetPort ?? 22, 'password');
+          if (targetUser)
+            onSshAuth?.(false, targetUser, sshTargetIP, sshTargetPort ?? 22, 'password');
         } else {
           addLine('error', 'su: Authentication failure');
           if (targetUser) onSuAuth?.(false, targetUser);

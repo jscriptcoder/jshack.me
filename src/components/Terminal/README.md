@@ -63,6 +63,7 @@ Terminal.tsx handleSubmit()
 - Holds all state: output lines, input value, mode flags (password, FTP username, async running), editor state
 - Wires hooks together: `useCommands`, `useFtpCommands`, `useNcCommands`, `useCommandHistory`, `useAutoComplete`, `useVariables`
 - Handles password validation (local `su` via `/etc/passwd`, remote SSH via machine users)
+- Defines logging callbacks (`onSuAuth`, `onSshAuth`, `onFtpAuth`) that write auth events to target machine log files (`/var/log/auth.log`, `/var/log/vsftpd.log`) via `src/logging/`
 - Manages NanoEditor overlay lifecycle (open on `nano_open`, close on editor exit)
 - Shows ASCII banner on startup
 - Scans command output for mission flag — triggers completion banner when detected

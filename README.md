@@ -28,6 +28,7 @@ Start with `help()` to see available commands. Good luck, hacker.
 - **Multi-WiFi Networks** - Multiple seeded WiFi networks per game; each provides a different subnet of machines
 - **WiFi Hacking Gate** - Crack WPA2 networks using aircrack-ng-style commands; switch networks anytime
 - **Network Simulation** - Discover and hack into remote machines; per-WiFi subnets with routers, servers, and databases
+- **Connection Logging** - SSH, FTP, SCP, su, and HTTP events are logged to target machine log files in realistic Linux formats (`auth.log`, `vsftpd.log`, `access.log`)
 - **SSH Key Persistence** - After first successful SSH/SCP login, the key is saved; subsequent connections auto-authenticate
 - **Multi-Tab Support** - Open multiple browser tabs as independent terminals with shared filesystem, WiFi, mission, and theme state
 - **Session Persistence** - Your location and files are saved; return where you left off after refresh
@@ -179,6 +180,7 @@ src/
 ├── filesystem/             # Virtual file system with IndexedDB persistence
 ├── network/                # Per-machine network simulation
 ├── hooks/                  # Custom React hooks
+├── logging/                # Connection logging (auth.log, vsftpd.log, access.log)
 ├── commands/               # Terminal commands (colocated with tests)
 ├── generation/             # Seeded mission network generator
 ├── theme/                  # Terminal color themes

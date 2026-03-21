@@ -74,10 +74,12 @@ Returns `{ executionContext, commandNames }` where:
 
 `useAuthentication` encapsulates four authentication flows:
 
-- **su** — validates password against `/etc/passwd` hashes on the current machine, switches user type
-- **SSH** — validates against remote machine user list, pushes session stack, resolves NAT, switches to remote machine. Saves SSH key on success; auto-authenticates on subsequent connections.
-- **SCP** — validates against remote machine user list, triggers file transfer. Saves SSH key on success; auto-authenticates on subsequent connections.
-- **FTP** — two-stage login (username → password), validates against remote machine, enters FTP mode session
+- **su** — validates password against `/etc/passwd` hashes on the current machine, switches user type; triggers `onSuAuth` callback
+- **SSH** — validates against remote machine user list, pushes session stack, resolves NAT, switches to remote machine. Saves SSH key on success; auto-authenticates on subsequent connections. Triggers `onSshAuth` callback
+- **SCP** — validates against remote machine user list, triggers file transfer. Saves SSH key on success; auto-authenticates on subsequent connections. Triggers `onSshAuth` callback (SCP uses SSH auth)
+- **FTP** — two-stage login (username → password), validates against remote machine, enters FTP mode session; triggers `onFtpAuth` callback
+
+**Logging integration:** All four flows call auth callbacks (`onSuAuth`, `onSshAuth`, `onFtpAuth`) on both success and failure. These callbacks are defined in Terminal.tsx and write log entries to target machine log files via `src/logging/`. See `src/logging/README.md` for log formats and details.
 
 **SSH key persistence**: After first successful SSH/SCP password auth, saves a fingerprint-signed entry (`user@ip:md5(user:ip:passwordHash)`) to `~/.ssh_keys` on the source machine. On subsequent connections, `hasAuthorizedKey()` recomputes the fingerprint from the remote user's password hash and verifies it — manually crafted entries are rejected. The `connectSsh()` helper extracts the shared session setup logic used by both auto-auth and password-auth paths.
 

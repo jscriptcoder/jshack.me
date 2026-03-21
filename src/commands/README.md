@@ -87,28 +87,28 @@ Admin utilities that write PID files to `/var/run/` — `NetworkContext` reads t
 
 ## User Management
 
-| Command | File    | Signature          | Description                                        |
-| ------- | ------- | ------------------ | -------------------------------------------------- |
-| su      | `su.ts` | `su(user[, pass])` | Switch user (prompts or inline auth with password) |
+| Command | File    | Signature          | Description                                                                     |
+| ------- | ------- | ------------------ | ------------------------------------------------------------------------------- |
+| su      | `su.ts` | `su(user[, pass])` | Switch user (prompts or inline auth with password); logs to `/var/log/auth.log` |
 
 ## Network
 
-| Command    | File            | Signature                          | Description                                                                   |
-| ---------- | --------------- | ---------------------------------- | ----------------------------------------------------------------------------- |
-| ifconfig   | `ifconfig.ts`   | `ifconfig([iface])`                | Display network interface configuration                                       |
-| ping       | `ping.ts`       | `ping(host, [count])`              | Send ICMP echo request to network host (async)                                |
-| nmap       | `nmap.ts`       | `nmap(target[, "-sV"][, "-sU"])`   | Port scanning; -sV version detection, -sU UDP scan (async)                    |
-| nslookup   | `nslookup.ts`   | `nslookup(domain)`                 | Query DNS to resolve domain to IP address (async)                             |
-| ssh        | `ssh.ts`        | `ssh("user@host"[, port][, pw])`   | Connect to remote machine via SSH (async, optional inline auth)               |
-| scp        | `scp.ts`        | `scp(src, dest[, port][, pw])`     | Copy file to remote machine (async, optional inline auth)                     |
-| curl       | `curl.ts`       | `curl(url, [flags])`               | HTTP client for GET/POST requests (async, `-i` for headers, `-X POST`)        |
-| ftp        | `ftp.ts`        | `ftp(host[, user, pw])`            | Connect to remote machine via FTP (async, optional inline auth)               |
-| nc         | `nc.ts`         | `nc(host, port) \| nc("-l", port)` | Netcat - connect to port or open backdoor listener with -l (async/sync)       |
-| msfconsole | `msfconsole.ts` | `msfconsole(host, port)`           | Exploit a vulnerable service for RCE (async, drops into restricted shell)     |
-| hydra      | `hydra.ts`      | `hydra(host[, svc[, user]])`       | Brute-force SSH/FTP login credentials (async, probability-based)              |
-| gobuster   | `gobuster.ts`   | `gobuster("dir", url)`             | Enumerate directories/files on web servers (async, walks /var/www/html/ tree) |
-| snmpwalk   | `snmpwalk.ts`   | `snmpwalk(host[, community])`      | Walk SNMP MIB tree; public=basic info, RW=full data with creds (async)        |
-| snmpset    | `snmpset.ts`    | `snmpset(host, comm, "k=v")`       | Set writable SNMP OID (firewall rules); requires RW community (async)         |
+| Command    | File            | Signature                          | Description                                                                                                    |
+| ---------- | --------------- | ---------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| ifconfig   | `ifconfig.ts`   | `ifconfig([iface])`                | Display network interface configuration                                                                        |
+| ping       | `ping.ts`       | `ping(host, [count])`              | Send ICMP echo request to network host (async)                                                                 |
+| nmap       | `nmap.ts`       | `nmap(target[, "-sV"][, "-sU"])`   | Port scanning; -sV version detection, -sU UDP scan (async)                                                     |
+| nslookup   | `nslookup.ts`   | `nslookup(domain)`                 | Query DNS to resolve domain to IP address (async)                                                              |
+| ssh        | `ssh.ts`        | `ssh("user@host"[, port][, pw])`   | Connect to remote machine via SSH (async, optional inline auth); logs to target's `/var/log/auth.log`          |
+| scp        | `scp.ts`        | `scp(src, dest[, port][, pw])`     | Copy file to remote machine (async, optional inline auth); logs to target's `/var/log/auth.log`                |
+| curl       | `curl.ts`       | `curl(url, [flags])`               | HTTP client for GET/POST requests (async, `-i` for headers, `-X POST`); logs to target's `/var/log/access.log` |
+| ftp        | `ftp.ts`        | `ftp(host[, user, pw])`            | Connect to remote machine via FTP (async, optional inline auth); logs to target's `/var/log/vsftpd.log`        |
+| nc         | `nc.ts`         | `nc(host, port) \| nc("-l", port)` | Netcat - connect to port or open backdoor listener with -l (async/sync)                                        |
+| msfconsole | `msfconsole.ts` | `msfconsole(host, port)`           | Exploit a vulnerable service for RCE (async, drops into restricted shell)                                      |
+| hydra      | `hydra.ts`      | `hydra(host[, svc[, user]])`       | Brute-force SSH/FTP login credentials (async, probability-based)                                               |
+| gobuster   | `gobuster.ts`   | `gobuster("dir", url)`             | Enumerate directories/files on web servers (async, walks /var/www/html/ tree)                                  |
+| snmpwalk   | `snmpwalk.ts`   | `snmpwalk(host[, community])`      | Walk SNMP MIB tree; public=basic info, RW=full data with creds (async)                                         |
+| snmpset    | `snmpset.ts`    | `snmpset(host, comm, "k=v")`       | Set writable SNMP OID (firewall rules); requires RW community (async)                                          |
 
 ## WiFi
 
