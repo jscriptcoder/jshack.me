@@ -8,7 +8,7 @@ Dynamic connection logging — records SSH, FTP, SCP, su, and HTTP authenticatio
 | ----------------------- | -------------------------------------------------------------------------------- |
 | `appendToMachineLog.ts` | Core utility — appends log lines to any machine's filesystem, creates if missing |
 | `formatters.ts`         | Log line formatters (syslog, vsftpd, Apache Combined)                            |
-| `utils.ts`              | Helpers — `generatePid()` (random 1000-9999), `resolveHostname()` (IP→hostname)  |
+| `utils.ts`              | Helpers — `generatePid()`, `resolveHostname()`, `resolveLogSourceIP()`           |
 
 ## Log Formats
 
@@ -34,11 +34,22 @@ Dynamic connection logging — records SSH, FTP, SCP, su, and HTTP authenticatio
 | FTP login failure | `formatFtpLoginFailed` | `/var/log/vsftpd.log` | Target machine  |
 | HTTP request      | `formatAccessLog`      | `/var/log/access.log` | Target machine  |
 
+## Source IP Resolution
+
+`resolveLogSourceIP()` determines the correct source IP for log entries:
+
+- **From a remote machine** (not localhost) — uses the machine's IP directly (already correct)
+- **From localhost → same /24 subnet** (home network machine) — uses the LAN IP (e.g., `10.45.12.100`)
+- **From localhost → different network** (mission machine) — uses the home router's public IP (e.g., `203.45.67.89`), since traffic is NAT'd through the gateway
+- **Fallback** (no home network) — uses the LAN IP
+
+`NetworkContext.getPublicIP()` provides the home router's public IP for cross-network resolution.
+
 ## How It Works
 
 1. **Terminal.tsx** defines logging callbacks (`onSuAuth`, `onSshAuth`, `onFtpAuth`) that are passed to `useCommands`
 2. Commands trigger callbacks on auth events (su inline, SSH/SCP/FTP via `useAuthentication`)
-3. Callbacks use formatters to build log lines, then `appendToMachineLog` to write them
+3. Callbacks resolve the source IP via `resolveLogSourceIP()`, then use formatters to build log lines
 4. `appendToMachineLog` reads the existing log file (as root), appends the new line, and writes back
 5. If the log file doesn't exist, it's created with world-readable permissions
 

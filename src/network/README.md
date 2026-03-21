@@ -145,6 +145,7 @@ Mission machines live on dynamically generated subnets (e.g., `10.x.x.0/24`) and
 - `getInterface(name)` — get a network interface (e.g., `eth0`, `eth1`)
 - `getInterfaces()` — list all interfaces on current machine
 - `getLocalIP()` — current machine's eth0 IP address
+- `getPublicIP()` — home router's public IP (for NAT'd source IP in cross-network logs); `null` if no home network
 - `getGateway()` — current machine's gateway IP
 - `resolveDomain(domain)` — DNS lookup (per-machine DNS records)
 - `getDnsRecords()` — all DNS records visible from current machine

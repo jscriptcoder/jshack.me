@@ -139,7 +139,7 @@ Unix-realistic permission model with owner-scoped access and directory traversal
 
 **Integration:** Terminal.tsx defines three logging callbacks (`onSuAuth`, `onSshAuth`, `onFtpAuth`) that are passed into `useCommands`. The `su` command calls `onSuAuth` directly; SSH/SCP/FTP trigger their callbacks via `useAuthentication`. Each callback uses formatters from `src/logging/formatters.ts` and `appendToMachineLog` to write to the target machine's filesystem. The curl command logs HTTP requests directly.
 
-**Source IP:** The `session.machine` value is passed as the source IP in log entries. For su, it's the current machine hostname. For SSH/SCP/FTP, it identifies where the connection came from.
+**Source IP:** `resolveLogSourceIP()` in `src/logging/utils.ts` determines the correct source IP for log entries. When on a remote machine, its IP is used directly. When on localhost, same-subnet targets see the LAN IP (e.g., `10.45.12.100`), while cross-network targets (missions) see the home router's public IP (NAT'd through the gateway). `NetworkContext.getPublicIP()` provides the router's public IP.
 
 **Persistence:** Log entries are standard filesystem writes — they persist via IndexedDB patches and sync across tabs via BroadcastChannel. Dynamically created log files use world-readable permissions (`read: ['root', 'user', 'guest']`), matching real Linux `/var/log/` behavior.
 
