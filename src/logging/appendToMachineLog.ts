@@ -1,21 +1,21 @@
-import type { FilePermissions, MachineId, PermissionResult } from '../filesystem/types';
+import type { FilePermissions, PermissionResult } from '../filesystem/types';
 
 export type LogFileSystemDeps = {
   readonly readFileFromMachine: (
-    machineId: MachineId,
+    machineId: string,
     path: string,
     cwd: string,
     userType: 'root',
   ) => string | null;
   readonly writeFileToMachine: (
-    machineId: MachineId,
+    machineId: string,
     path: string,
     cwd: string,
     content: string,
     userType: 'root',
   ) => PermissionResult;
   readonly createFileOnMachine: (
-    machineId: MachineId,
+    machineId: string,
     path: string,
     cwd: string,
     content: string,

@@ -183,7 +183,7 @@ export const Terminal = () => {
       const logLine = formatter(new Date(), hostname, generatePid(), targetUser, session.username);
       appendToMachineLog(session.machine, '/var/log/auth.log', logLine, logFs);
     },
-    onSshAuth: (success, user, targetIP, port, method) => {
+    onSshAuth: (success, user, targetIP, _port, method) => {
       const hostname = resolveHostname(targetIP, getMachine);
       const pid = generatePid();
       const srcPort = Math.floor(Math.random() * 25536) + 40000;
