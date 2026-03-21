@@ -17,6 +17,7 @@ type SuContextConfig = {
   readonly machineUsers?: readonly MockRemoteUser[];
   readonly setUsername?: (username: string, userType: UserType) => void;
   readonly setCurrentPath?: (path: string) => void;
+  readonly onAuthResult?: (success: boolean, targetUser: string) => void;
 };
 
 const createMockSuContext = (config: SuContextConfig = {}) => {
@@ -26,6 +27,7 @@ const createMockSuContext = (config: SuContextConfig = {}) => {
     machineUsers = [],
     setUsername = () => {},
     setCurrentPath = () => {},
+    onAuthResult,
   } = config;
 
   return {
@@ -34,6 +36,7 @@ const createMockSuContext = (config: SuContextConfig = {}) => {
     findMachineUsers: () => machineUsers,
     setUsername,
     setCurrentPath,
+    onAuthResult,
   };
 };
 
@@ -300,6 +303,50 @@ describe('su command', () => {
       const result = su.fn('root');
 
       expect(isPasswordPromptData(result)).toBe(true);
+    });
+  });
+
+  describe('auth logging callback', () => {
+    it('should call onAuthResult with true on successful inline auth', () => {
+      const onAuthResult = vi.fn();
+      const context = createMockSuContext({
+        users: ['root'],
+        passwdContent: `root:${md5('toor')}`,
+        machineUsers: [{ username: 'root', passwordHash: md5('toor'), userType: 'root' }],
+        onAuthResult,
+      });
+
+      const su = createSuCommand(context);
+      su.fn('root', 'toor');
+
+      expect(onAuthResult).toHaveBeenCalledWith(true, 'root');
+    });
+
+    it('should call onAuthResult with false on failed inline auth', () => {
+      const onAuthResult = vi.fn();
+      const context = createMockSuContext({
+        users: ['root'],
+        passwdContent: `root:${md5('toor')}`,
+        onAuthResult,
+      });
+
+      const su = createSuCommand(context);
+
+      expect(() => su.fn('root', 'wrong')).toThrow('su: Authentication failure');
+      expect(onAuthResult).toHaveBeenCalledWith(false, 'root');
+    });
+
+    it('should not call onAuthResult for interactive prompt path', () => {
+      const onAuthResult = vi.fn();
+      const context = createMockSuContext({
+        users: ['root'],
+        onAuthResult,
+      });
+
+      const su = createSuCommand(context);
+      su.fn('root');
+
+      expect(onAuthResult).not.toHaveBeenCalled();
     });
   });
 });

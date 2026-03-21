@@ -18,6 +18,7 @@ type SuContext = {
   readonly findMachineUsers: () => readonly RemoteUserInfo[];
   readonly setUsername: (username: string, userType: UserType) => void;
   readonly setCurrentPath: (path: string) => void;
+  readonly onAuthResult?: (success: boolean, targetUser: string) => void;
 };
 
 // Validates password against /etc/passwd MD5 hash
@@ -87,6 +88,7 @@ export const createSuCommand = (context: SuContext): Command => ({
     // Programmatic auth: validate and switch inline
     if (password !== undefined) {
       if (!validatePassword(username, password, context.readFile)) {
+        context.onAuthResult?.(false, username);
         throw new Error('su: Authentication failure');
       }
 
@@ -95,6 +97,7 @@ export const createSuCommand = (context: SuContext): Command => ({
 
       context.setUsername(username, userType);
       context.setCurrentPath(homePath);
+      context.onAuthResult?.(true, username);
 
       return `Switched to user: ${username}`;
     }
