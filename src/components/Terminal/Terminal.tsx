@@ -24,7 +24,7 @@ import {
   formatFtpLoginOk,
   formatFtpLoginFailed,
 } from '../../logging/formatters';
-import { generatePid, resolveHostname } from '../../logging/utils';
+import { generatePid, resolveHostname, resolveLogSourceIP } from '../../logging/utils';
 import { ipToMachineId } from '../../filesystem/machineFileSystems';
 import { useNetwork } from '../../network';
 import type { OutputLine, AuthorData } from './types';
@@ -123,7 +123,7 @@ export const Terminal = () => {
     writeFileToMachine,
     createFileOnMachine,
   } = useFileSystem();
-  const { getMachine, findMachineUsers, resolveNat } = useNetwork();
+  const { getMachine, findMachineUsers, resolveNat, getLocalIP, getPublicIP } = useNetwork();
 
   const activeCommandNames =
     isInFtpMode() && ftpCommands
@@ -187,19 +187,21 @@ export const Terminal = () => {
       const hostname = resolveHostname(targetIP, getMachine);
       const pid = generatePid();
       const srcPort = Math.floor(Math.random() * 25536) + 40000;
+      const sourceIP = resolveLogSourceIP(session.machine, targetIP, getLocalIP(), getPublicIP());
       const logLine = !success
-        ? formatSshFailed(new Date(), hostname, pid, user, session.machine, srcPort)
+        ? formatSshFailed(new Date(), hostname, pid, user, sourceIP, srcPort)
         : method === 'publickey'
-          ? formatSshAcceptedKey(new Date(), hostname, pid, user, session.machine, srcPort)
-          : formatSshAccepted(new Date(), hostname, pid, user, session.machine, srcPort);
+          ? formatSshAcceptedKey(new Date(), hostname, pid, user, sourceIP, srcPort)
+          : formatSshAccepted(new Date(), hostname, pid, user, sourceIP, srcPort);
       appendToMachineLog(targetIP, '/var/log/auth.log', logLine, logFs);
     },
     onFtpAuth: (success, user, targetIP) => {
       const now = new Date();
-      const connectLine = formatFtpConnect(now, session.machine);
+      const sourceIP = resolveLogSourceIP(session.machine, targetIP, getLocalIP(), getPublicIP());
+      const connectLine = formatFtpConnect(now, sourceIP);
       const authLine = success
-        ? formatFtpLoginOk(now, session.machine, user)
-        : formatFtpLoginFailed(now, session.machine, user);
+        ? formatFtpLoginOk(now, sourceIP, user)
+        : formatFtpLoginFailed(now, sourceIP, user);
       appendToMachineLog(targetIP, '/var/log/vsftpd.log', `${connectLine}\n${authLine}`, logFs);
     },
   });

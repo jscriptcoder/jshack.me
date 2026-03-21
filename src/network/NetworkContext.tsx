@@ -42,6 +42,7 @@ type NetworkContextType = {
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
   readonly getDnsRecords: () => readonly DnsRecord[];
   readonly findMachineUsers: (ip: string) => readonly RemoteUser[];
+  readonly getPublicIP: () => string | null;
   readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
 };
 
@@ -304,6 +305,13 @@ export const NetworkProvider = ({
     return primary?.inet ?? '0.0.0.0';
   }, [currentConfig.interfaces]);
 
+  // Public IP: the home router's public-facing IP, used as the source address
+  // when connecting from localhost to machines outside the home subnet (NAT).
+  const getPublicIP = useCallback((): string | null => {
+    if (!homeNetwork) return null;
+    return homeNetwork.router.publicIp;
+  }, [homeNetwork]);
+
   const resolveDomain = useCallback(
     (domain: string): DnsRecord | undefined => {
       const normalizedDomain = domain.toLowerCase();
@@ -380,6 +388,7 @@ export const NetworkProvider = ({
         getMachines,
         getGateway,
         getLocalIP,
+        getPublicIP,
         resolveDomain,
         getDnsRecords,
         findMachineUsers,

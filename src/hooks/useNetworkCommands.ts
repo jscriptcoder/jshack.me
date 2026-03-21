@@ -20,6 +20,7 @@ import { wrapWithWifiCheck, wrapWithBrickedCheck } from '../commands/networkGuar
 import type { Command } from '../components/Terminal/types';
 import { appendToMachineLog } from '../logging/appendToMachineLog';
 import { formatAccessLog } from '../logging/formatters';
+import { resolveLogSourceIP } from '../logging/utils';
 
 export const useNetworkCommands = (): Map<string, Command> => {
   const {
@@ -28,6 +29,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
     getMachine,
     getMachines,
     getLocalIP,
+    getPublicIP,
     resolveDomain,
     getGateway,
     resolveNat,
@@ -53,7 +55,8 @@ export const useNetworkCommands = (): Map<string, Command> => {
       status: number,
       size: number,
     ) => {
-      const logLine = formatAccessLog(new Date(), session.machine, method, path, status, size);
+      const sourceIP = resolveLogSourceIP(session.machine, targetIP, getLocalIP(), getPublicIP());
+      const logLine = formatAccessLog(new Date(), sourceIP, method, path, status, size);
       appendToMachineLog(targetIP, '/var/log/access.log', logLine, logFs);
     };
 
