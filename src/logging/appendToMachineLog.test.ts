@@ -46,6 +46,7 @@ describe('appendToMachineLog', () => {
       '/',
       'first entry',
       'root',
+      { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] },
     );
     expect(fs.writeFileToMachine).not.toHaveBeenCalled();
   });

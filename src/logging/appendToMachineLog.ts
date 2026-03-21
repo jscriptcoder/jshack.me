@@ -1,4 +1,4 @@
-import type { MachineId, PermissionResult } from '../filesystem/types';
+import type { FilePermissions, MachineId, PermissionResult } from '../filesystem/types';
 
 export type LogFileSystemDeps = {
   readonly readFileFromMachine: (
@@ -20,7 +20,15 @@ export type LogFileSystemDeps = {
     cwd: string,
     content: string,
     userType: 'root',
+    permissions?: FilePermissions,
   ) => PermissionResult;
+};
+
+// Log files should be world-readable, like real Linux /var/log/ files
+const LOG_FILE_PERMISSIONS: FilePermissions = {
+  read: ['root', 'user', 'guest'],
+  write: ['root'],
+  execute: ['root'],
 };
 
 /** Append a log line to a file on a remote machine, creating it if missing. */
@@ -33,7 +41,7 @@ export const appendToMachineLog = (
   const existing = fs.readFileFromMachine(machineId, logPath, '/', 'root');
 
   if (existing === null) {
-    fs.createFileOnMachine(machineId, logPath, '/', logLine, 'root');
+    fs.createFileOnMachine(machineId, logPath, '/', logLine, 'root', LOG_FILE_PERMISSIONS);
     return;
   }
 
