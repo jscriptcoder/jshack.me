@@ -1,9 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { FileNode } from '../filesystem/types';
+import type { RemoteMachine } from '../network/types';
 import type { AsyncOutput } from '../components/Terminal/types';
 import { createRebootCommand } from './reboot';
 
-const makeMockFile = (name: string): FileNode => ({
+const makeMockFile = (name: string, content?: string): FileNode => ({
   name,
   type: 'file',
   owner: 'root',
@@ -12,7 +13,19 @@ const makeMockFile = (name: string): FileNode => ({
     write: ['root'],
     execute: ['root'],
   },
-  content: 'binary',
+  content: content ?? 'binary',
+});
+
+const makeMockDir = (name: string, children: Record<string, FileNode> = {}): FileNode => ({
+  name,
+  type: 'directory',
+  owner: 'root',
+  permissions: {
+    read: ['root', 'user', 'guest'],
+    write: ['root'],
+    execute: ['root', 'user', 'guest'],
+  },
+  children,
 });
 
 type MockConfig = {
@@ -20,6 +33,8 @@ type MockConfig = {
   readonly hostname?: string;
   readonly bootFiles?: Record<string, FileNode | null>;
   readonly canReturn?: boolean;
+  readonly machineInfo?: RemoteMachine | undefined;
+  readonly varRunDir?: FileNode | null;
 };
 
 const createMockContext = (config: MockConfig = {}) => {
@@ -31,11 +46,22 @@ const createMockContext = (config: MockConfig = {}) => {
       '/boot/initrd.img': makeMockFile('initrd.img'),
     },
     canReturn = true,
+    machineInfo = undefined,
+    varRunDir = null,
   } = config;
 
   return {
     getMachine: () => machine,
-    getNodeFromMachine: (_machineId: string, path: string, _cwd: string) => bootFiles[path] ?? null,
+    getMachineInfo: () => machineInfo,
+    getNodeFromMachine: (_machineId: string, path: string, _cwd: string): FileNode | null => {
+      if (path === '/var/run') return varRunDir;
+      // Resolve PID files from within /var/run directory
+      if (path.startsWith('/var/run/') && varRunDir?.type === 'directory' && varRunDir.children) {
+        const fileName = path.slice('/var/run/'.length);
+        return varRunDir.children[fileName] ?? null;
+      }
+      return bootFiles[path] ?? null;
+    },
     readFileFromMachine: (_machineId: string, path: string, _cwd: string, _userType: string) =>
       path === '/etc/hostname' ? hostname : null,
     popSession: vi.fn(),
@@ -172,6 +198,108 @@ describe('reboot command', () => {
       expect(lines).toContain('System halted.');
       expect(context.markMachineBricked).toHaveBeenCalledWith('localhost');
       expect(context.popSession).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('dynamic service stopping', () => {
+    it('should show no service stop messages when no services are running', async () => {
+      const context = createMockContext();
+      const reboot = createRebootCommand(context);
+      const result = reboot.fn() as AsyncOutput;
+
+      const { lines } = await runWithTimers(result);
+
+      const stopLines = lines.filter((l) => l.startsWith('[ OK ] Stopping'));
+      // Only "Stopping system logging..." (always present)
+      expect(stopLines).toEqual(['[ OK ] Stopping system logging...']);
+    });
+
+    it('should show SSH stop message when sshd PID file exists', async () => {
+      const context = createMockContext({
+        varRunDir: makeMockDir('run', {
+          'sshd.pid': makeMockFile('sshd.pid', 'sshd:port=22'),
+        }),
+      });
+      const reboot = createRebootCommand(context);
+      const result = reboot.fn() as AsyncOutput;
+
+      const { lines } = await runWithTimers(result);
+
+      expect(lines).toContain('[ OK ] Stopping OpenSSH server...');
+    });
+
+    it('should show FTP stop message when ftpd PID file exists', async () => {
+      const context = createMockContext({
+        varRunDir: makeMockDir('run', {
+          'ftpd.pid': makeMockFile('ftpd.pid', 'ftpd:port=21'),
+        }),
+      });
+      const reboot = createRebootCommand(context);
+      const result = reboot.fn() as AsyncOutput;
+
+      const { lines } = await runWithTimers(result);
+
+      expect(lines).toContain('[ OK ] Stopping vsftpd FTP server...');
+    });
+
+    it('should show nginx stop message when HTTP port is open', async () => {
+      const context = createMockContext({
+        machineInfo: {
+          ip: '192.168.1.50',
+          hostname: 'fileserver',
+          ports: [{ port: 80, service: 'http', open: true }],
+          users: [],
+        } as RemoteMachine,
+      });
+      const reboot = createRebootCommand(context);
+      const result = reboot.fn() as AsyncOutput;
+
+      const { lines } = await runWithTimers(result);
+
+      expect(lines).toContain('[ OK ] Stopping nginx web server...');
+    });
+
+    it('should show multiple service stop messages', async () => {
+      const context = createMockContext({
+        machineInfo: {
+          ip: '192.168.1.50',
+          hostname: 'fileserver',
+          ports: [
+            { port: 80, service: 'http', open: true },
+            { port: 3306, service: 'mysql', open: true },
+          ],
+          users: [],
+        } as RemoteMachine,
+        varRunDir: makeMockDir('run', {
+          'sshd.pid': makeMockFile('sshd.pid', 'sshd:port=22'),
+        }),
+      });
+      const reboot = createRebootCommand(context);
+      const result = reboot.fn() as AsyncOutput;
+
+      const { lines } = await runWithTimers(result);
+
+      expect(lines).toContain('[ OK ] Stopping OpenSSH server...');
+      expect(lines).toContain('[ OK ] Stopping nginx web server...');
+      expect(lines).toContain('[ OK ] Stopping MySQL database server...');
+      expect(lines).toContain('[ OK ] Stopping system logging...');
+    });
+
+    it('should show netcat listener stop message with port', async () => {
+      const context = createMockContext({
+        varRunDir: makeMockDir('run', {
+          'nc-4444.pid': makeMockFile(
+            'nc-4444.pid',
+            'nc:port=4444,user=hacker,userType=user,home=/home/hacker',
+          ),
+        }),
+      });
+      const reboot = createRebootCommand(context);
+      const result = reboot.fn() as AsyncOutput;
+
+      const { lines } = await runWithTimers(result);
+
+      expect(lines).toContain('[ OK ] Stopping netcat listener on port 4444...');
     });
   });
 

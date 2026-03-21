@@ -1,10 +1,13 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
 import type { FileNode } from '../filesystem/types';
+import type { RemoteMachine } from '../network/types';
 import type { UserType } from '../session/SessionContext';
 import { createCancellationToken } from '../utils/asyncCommand';
+import { type PsAdapter, listProcesses } from './ps';
 
 type RebootContext = {
   readonly getMachine: () => string;
+  readonly getMachineInfo: (ip: string) => RemoteMachine | undefined;
   readonly getNodeFromMachine: (machineId: string, path: string, cwd: string) => FileNode | null;
   readonly readFileFromMachine: (
     machineId: string,
@@ -15,6 +18,38 @@ type RebootContext = {
   readonly popSession: () => unknown;
   readonly canReturn: () => boolean;
   readonly markMachineBricked: (machine: string) => void;
+};
+
+// Maps process binary paths to human-readable service names for shutdown messages
+const PROCESS_TO_SERVICE_NAME: Readonly<Record<string, string>> = {
+  '/usr/sbin/sshd': 'OpenSSH server',
+  '/usr/sbin/ftpd': 'vsftpd FTP server',
+  '/usr/sbin/nginx': 'nginx web server',
+  '/usr/sbin/mysqld': 'MySQL database server',
+  '/usr/sbin/postgres': 'PostgreSQL database server',
+};
+
+const buildStopMessages = (adapter: PsAdapter): readonly string[] => {
+  const processes = listProcesses(adapter);
+
+  return processes.flatMap((proc) => {
+    // Skip init — not a stoppable service
+    if (proc.command === '/sbin/init') return [];
+
+    // Netcat listeners: extract port from command
+    if (proc.command.startsWith('/usr/bin/nc')) {
+      const portMatch = proc.command.match(/-(?:lvnp|p)\s+(\d+)/);
+      const port = portMatch ? portMatch[1] : 'unknown';
+      return [`[ OK ] Stopping netcat listener on port ${port}...`];
+    }
+
+    // Known daemon binaries
+    const binary = proc.command.split(' ')[0];
+    const serviceName = PROCESS_TO_SERVICE_NAME[binary];
+    if (serviceName) return [`[ OK ] Stopping ${serviceName}...`];
+
+    return [];
+  });
 };
 
 const DELAY = {
@@ -43,6 +78,7 @@ export const createRebootCommand = (context: RebootContext): Command => ({
   fn: (): AsyncOutput => {
     const {
       getMachine,
+      getMachineInfo,
       getNodeFromMachine,
       readFileFromMachine,
       popSession,
@@ -62,6 +98,25 @@ export const createRebootCommand = (context: RebootContext): Command => ({
         const hasVmlinuz = getNodeFromMachine(machine, '/boot/vmlinuz', '/') !== null;
         const hasInitrd = getNodeFromMachine(machine, '/boot/initrd.img', '/') !== null;
 
+        // Detect running services for realistic shutdown messages
+        const adapter: PsAdapter = {
+          getMachineInfo: () => getMachineInfo(machine),
+          readPidFile: (path) => {
+            const node = getNodeFromMachine(machine, path, '/');
+            return node?.type === 'file' ? (node.content ?? undefined) : undefined;
+          },
+          readDirectory: (path) => {
+            const node = getNodeFromMachine(machine, path, '/');
+            if (node?.type !== 'directory' || !node.children) return undefined;
+            const entries: Record<string, string> = {};
+            for (const [name, child] of Object.entries(node.children)) {
+              if (child.type === 'file' && child.content) entries[name] = child.content;
+            }
+            return entries;
+          },
+        };
+        const stopMessages = buildStopMessages(adapter);
+
         // Shutdown sequence
         token.schedule(() => {
           if (token.isCancelled()) return;
@@ -71,7 +126,9 @@ export const createRebootCommand = (context: RebootContext): Command => ({
 
         token.schedule(() => {
           if (token.isCancelled()) return;
-          onLine('[ OK ] Stopping OpenSSH server...');
+          for (const msg of stopMessages) {
+            onLine(msg);
+          }
         }, DELAY.stopServices);
 
         token.schedule(() => {

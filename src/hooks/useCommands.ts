@@ -205,6 +205,7 @@ export const useCommands = (): UseCommandsResult => {
       'reboot',
       createRebootCommand({
         getMachine: () => session.machine,
+        getMachineInfo,
         getNodeFromMachine,
         readFileFromMachine,
         popSession,
