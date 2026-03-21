@@ -34,12 +34,15 @@ export type Session = {
   readonly theme: ThemeId;
 };
 
+export type SessionReason = 'ssh' | 'su';
+
 export type SessionSnapshot = {
   readonly username: string;
   readonly userType: UserType;
   readonly machine: string;
   readonly currentPath: string;
   readonly theme: ThemeId;
+  readonly reason: SessionReason;
 };
 
 export type FtpSession = {
@@ -83,7 +86,7 @@ type SessionContextValue = {
   readonly setMachine: (machine: string) => void;
   readonly setCurrentPath: (path: string) => void;
   readonly getPrompt: () => string;
-  readonly pushSession: () => void;
+  readonly pushSession: (reason: SessionReason) => void;
   readonly popSession: () => SessionSnapshot | null;
   readonly canReturn: () => boolean;
   readonly enterFtpMode: (ftpSession: FtpSession) => void;
@@ -210,16 +213,20 @@ export const SessionProvider = ({ children, workstationName }: SessionProviderPr
     return `${session.username}@${displayMachine}>`;
   }, [session.username, session.machine, workstationName, ftpSession, ncSession]);
 
-  const pushSession = useCallback(() => {
-    const snapshot: SessionSnapshot = {
-      username: session.username,
-      userType: session.userType,
-      machine: session.machine,
-      currentPath: session.currentPath,
-      theme: session.theme,
-    };
-    setSessionStack((prev) => [...prev, snapshot]);
-  }, [session.username, session.userType, session.machine, session.currentPath, session.theme]);
+  const pushSession = useCallback(
+    (reason: SessionReason) => {
+      const snapshot: SessionSnapshot = {
+        username: session.username,
+        userType: session.userType,
+        machine: session.machine,
+        currentPath: session.currentPath,
+        theme: session.theme,
+        reason,
+      };
+      setSessionStack((prev) => [...prev, snapshot]);
+    },
+    [session.username, session.userType, session.machine, session.currentPath, session.theme],
+  );
 
   const popSession = useCallback((): SessionSnapshot | null => {
     if (sessionStack.length === 0) return null;

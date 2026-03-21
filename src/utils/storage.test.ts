@@ -89,6 +89,7 @@ describe('storage', () => {
             machine: '192.168.1.1',
             currentPath: '/home/admin',
             theme: 'amber',
+            reason: 'ssh',
           },
         ],
       };

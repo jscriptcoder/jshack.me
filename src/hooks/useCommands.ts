@@ -79,6 +79,7 @@ export const useCommands = (): UseCommandsResult => {
     setTheme,
     setUsername,
     setCurrentPath,
+    pushSession,
     popAllSessions,
     popSession,
     canReturn,
@@ -140,6 +141,7 @@ export const useCommands = (): UseCommandsResult => {
       findMachineUsers: () => findMachineUsers(session.machine),
       setUsername,
       setCurrentPath,
+      pushSession: () => pushSession('su'),
       onAuthResult: (success, targetUser) => {
         const hostname = resolveHostname(session.machine, getMachineInfo);
         const formatter = success ? formatSuSuccess : formatSuFailed;
@@ -328,6 +330,7 @@ export const useCommands = (): UseCommandsResult => {
     readFileFromMachine,
     setUsername,
     setCurrentPath,
+    pushSession,
     findMachineUsers,
     popAllSessions,
     popSession,

@@ -18,6 +18,7 @@ type SuContext = {
   readonly findMachineUsers: () => readonly RemoteUserInfo[];
   readonly setUsername: (username: string, userType: UserType) => void;
   readonly setCurrentPath: (path: string) => void;
+  readonly pushSession: () => void;
   readonly onAuthResult?: (success: boolean, targetUser: string) => void;
 };
 
@@ -95,6 +96,7 @@ export const createSuCommand = (context: SuContext): Command => ({
       const userType = resolveUserType(username, context.findMachineUsers());
       const homePath = userType === 'root' ? '/root' : `/home/${username}`;
 
+      context.pushSession();
       context.setUsername(username, userType);
       context.setCurrentPath(homePath);
       context.onAuthResult?.(true, username);

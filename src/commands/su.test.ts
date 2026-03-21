@@ -17,6 +17,7 @@ type SuContextConfig = {
   readonly machineUsers?: readonly MockRemoteUser[];
   readonly setUsername?: (username: string, userType: UserType) => void;
   readonly setCurrentPath?: (path: string) => void;
+  readonly pushSession?: () => void;
   readonly onAuthResult?: (success: boolean, targetUser: string) => void;
 };
 
@@ -27,6 +28,7 @@ const createMockSuContext = (config: SuContextConfig = {}) => {
     machineUsers = [],
     setUsername = () => {},
     setCurrentPath = () => {},
+    pushSession = () => {},
     onAuthResult,
   } = config;
 
@@ -36,6 +38,7 @@ const createMockSuContext = (config: SuContextConfig = {}) => {
     findMachineUsers: () => machineUsers,
     setUsername,
     setCurrentPath,
+    pushSession,
     onAuthResult,
   };
 };
@@ -303,6 +306,52 @@ describe('su command', () => {
       const result = su.fn('root');
 
       expect(isPasswordPromptData(result)).toBe(true);
+    });
+  });
+
+  describe('session stack (pushSession)', () => {
+    it('should call pushSession before switching user with inline auth', () => {
+      const callOrder: string[] = [];
+      const context = createMockSuContext({
+        users: ['root'],
+        passwdContent: `root:${md5('toor')}`,
+        machineUsers: [{ username: 'root', passwordHash: md5('toor'), userType: 'root' }],
+        pushSession: () => callOrder.push('push'),
+        setUsername: () => callOrder.push('setUser'),
+        setCurrentPath: () => callOrder.push('setPath'),
+      });
+
+      const su = createSuCommand(context);
+      su.fn('root', 'toor');
+
+      expect(callOrder).toEqual(['push', 'setUser', 'setPath']);
+    });
+
+    it('should not call pushSession on auth failure', () => {
+      const pushSession = vi.fn();
+      const context = createMockSuContext({
+        users: ['root'],
+        passwdContent: `root:${md5('toor')}`,
+        pushSession,
+      });
+
+      const su = createSuCommand(context);
+
+      expect(() => su.fn('root', 'wrong')).toThrow('su: Authentication failure');
+      expect(pushSession).not.toHaveBeenCalled();
+    });
+
+    it('should not call pushSession for interactive prompt path', () => {
+      const pushSession = vi.fn();
+      const context = createMockSuContext({
+        users: ['root'],
+        pushSession,
+      });
+
+      const su = createSuCommand(context);
+      su.fn('root');
+
+      expect(pushSession).not.toHaveBeenCalled();
     });
   });
 

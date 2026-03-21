@@ -240,14 +240,31 @@ describe('normalizeSession', () => {
 
 describe('normalizeSnapshot', () => {
   it('passes through a valid theme', () => {
-    const snapshot: SessionSnapshot = validSession;
+    const snapshot: SessionSnapshot = { ...validSession, reason: 'ssh' };
     const result = normalizeSnapshot(snapshot);
     expect(result.theme).toBe('amber');
   });
 
   it('falls back to default theme for invalid theme', () => {
-    const bad = { ...validSession, theme: 'bogus' as SessionSnapshot['theme'] };
+    const bad = {
+      ...validSession,
+      theme: 'bogus' as SessionSnapshot['theme'],
+      reason: 'ssh' as const,
+    };
     const result = normalizeSnapshot(bad);
     expect(result.theme).toBe('amber');
+  });
+
+  it('defaults reason to ssh for old snapshots without reason', () => {
+    // Old persisted snapshots won't have a reason field
+    const oldSnapshot = { ...validSession } as SessionSnapshot;
+    const result = normalizeSnapshot(oldSnapshot);
+    expect(result.reason).toBe('ssh');
+  });
+
+  it('preserves su reason', () => {
+    const snapshot: SessionSnapshot = { ...validSession, reason: 'su' };
+    const result = normalizeSnapshot(snapshot);
+    expect(result.reason).toBe('su');
   });
 });

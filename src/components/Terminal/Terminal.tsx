@@ -276,12 +276,12 @@ export const Terminal = () => {
           }
           if (isExitOutput(result)) {
             if (!canReturn()) {
-              addLine('error', 'exit: not connected to a remote machine');
+              addLine('error', 'exit: no active session to return to');
               return;
             }
             const snapshot = popSession();
             if (snapshot) {
-              addLine('result', 'Connection closed.');
+              addLine('result', snapshot.reason === 'su' ? 'logout' : 'Connection closed.');
             }
             return;
           }

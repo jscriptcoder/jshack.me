@@ -35,6 +35,7 @@ const validSession: PersistedState = {
       machine: 'localhost',
       currentPath: '/home/jshacker',
       theme: 'amber',
+      reason: 'ssh',
     },
   ],
   ftpSession: null,

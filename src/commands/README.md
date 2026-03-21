@@ -39,7 +39,7 @@ FTP and NC modes have their own separate command sets and are not restricted.
 | echo    | `echo.ts`    | `echo(value)`         | Output a stringified value                                 |
 | author  | `author.ts`  | `author()`            | Display author profile card                                |
 | clear   | `clear.ts`   | `clear()`             | Clear the terminal screen                                  |
-| exit    | `exit.ts`    | `exit()`              | Close SSH/nc connection and return to previous machine     |
+| exit    | `exit.ts`    | `exit()`              | Return to previous session (SSH connection or user via su) |
 | resolve | `resolve.ts` | `resolve(promise)`    | Unwrap a Promise and display its resolved value            |
 | reset   | `reset.ts`   | `reset(["confirm"])`  | Reset game to factory defaults (clears all saved progress) |
 | theme   | `theme.ts`   | `theme([name])`       | List or switch terminal color themes (persists)            |

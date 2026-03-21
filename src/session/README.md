@@ -26,14 +26,15 @@ Default session: `jshacker@localhost:/home/jshacker` (user type: `user`, theme: 
 
 ## Connection Modes
 
-### SSH — Session Stack
+### Session Stack (SSH + su)
 
-When SSH-ing into a remote machine, the current session is pushed onto a stack. `exit()` pops the stack to restore the previous session.
+When SSH-ing into a remote machine or switching users via `su()`, the current session is pushed onto a stack with a `reason` field (`'ssh'` or `'su'`). `exit()` pops the stack to restore the previous session, showing context-appropriate messages ("Connection closed." for SSH, "logout" for su).
 
-- `pushSession()` — save current state before SSH
+- `pushSession('ssh')` — save current state before SSH
+- `pushSession('su')` — save current state before user switch
 - `popSession()` — restore previous state on exit
 - `canReturn()` — check if stack has entries
-- Supports nested SSH (machine A -> B -> C)
+- Supports nested SSH (machine A -> B -> C) and mixed stacking (SSH -> su -> exit -> exit)
 
 ### FTP Mode
 
@@ -97,7 +98,7 @@ Validated with type guards on restore. Falls back to defaults if invalid or corr
 | `setMachine(name)`        | Change current machine                                             |
 | `setCurrentPath(path)`    | Change working directory                                           |
 | `getPrompt()`             | Formatted prompt (`user@workstation>`, `user@ip>`, `ftp>`, or `$`) |
-| `pushSession()`           | Save session to stack (before SSH)                                 |
+| `pushSession(reason)`     | Save session to stack (before SSH or su)                           |
 | `popSession()`            | Restore previous session (on exit)                                 |
 | `popAllSessions()`        | Reset to bottom of stack (mission abort)                           |
 | `canReturn()`             | Check if session stack has entries                                 |

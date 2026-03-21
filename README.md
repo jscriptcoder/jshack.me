@@ -109,7 +109,7 @@ ping('localhost'); // Test connectivity
 
 // SSH to remote machine
 ssh('admin', '45.33.32.100'); // Connect to remote host
-exit(); // Return to previous machine
+exit(); // Return to previous machine (or previous user after su)
 
 // HTTP requests
 curl('http://45.33.32.100/'); // Fetch web page

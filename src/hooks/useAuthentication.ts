@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import type { UserType, FtpSession } from '../session/SessionContext';
+import type { UserType, FtpSession, SessionReason } from '../session/SessionContext';
 import type { RemoteUser } from '../network/types';
 import type { AsyncOutput } from '../components/Terminal/types';
 import type { PermissionResult } from '../filesystem/types';
@@ -27,7 +27,7 @@ type AuthenticationOptions = {
   readonly setUsername: (username: string, userType: UserType) => void;
   readonly setMachine: (machine: string) => void;
   readonly setCurrentPath: (path: string) => void;
-  readonly pushSession: () => void;
+  readonly pushSession: (reason: SessionReason) => void;
   readonly enterFtpMode: (session: FtpSession) => void;
   readonly createFile: (path: string, content: string, userType: UserType) => PermissionResult;
   readonly writeFile: (path: string, content: string, userType: UserType) => PermissionResult;
@@ -156,7 +156,7 @@ export const useAuthentication = ({
   // Shared SSH session setup: pushes session stack and switches to remote machine
   const connectSsh = useCallback(
     (user: string, ip: string, port: number) => {
-      pushSession();
+      pushSession('ssh');
 
       const resolved = resolveNat(ip, port);
       const resolvedIp = resolved.ip;
@@ -507,6 +507,7 @@ export const useAuthentication = ({
             (targetUser === 'root' ? 'root' : targetUser === 'guest' ? 'guest' : 'user');
           const homePath = userType === 'root' ? '/root' : `/home/${targetUser}`;
 
+          pushSession('su');
           setUsername(targetUser, userType);
           setCurrentPath(homePath);
           addLine('result', `Switched to user: ${targetUser}`);
@@ -553,6 +554,7 @@ export const useAuthentication = ({
       validatePassword,
       saveAuthorizedKey,
       connectSsh,
+      pushSession,
       setUsername,
       setCurrentPath,
       session,

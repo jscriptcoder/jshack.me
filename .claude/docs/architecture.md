@@ -61,9 +61,9 @@ e2e/
 
 `SessionContext` (`src/session/SessionContext.tsx`) is the single source of truth for session state: username, userType, machine, currentPath, theme. WiFi state (`wifiConnected`) is a standalone `useState<boolean>` in `SessionProvider` — not part of the `Session` type — because it's global shared state (persisted to IndexedDB, synced across tabs) rather than per-tab session state.
 
-Key methods: `setUsername()`, `setMachine()`, `setCurrentPath()`, `setWifiConnected()`, `disconnectWifi()`, `pushSession()` (before SSH), `popSession()` (exit), `popAllSessions()` (mission abort — resets to bottom of stack), `canReturn()`.
+Key methods: `setUsername()`, `setMachine()`, `setCurrentPath()`, `setWifiConnected()`, `disconnectWifi()`, `pushSession(reason)` (before SSH or su), `popSession()` (exit), `popAllSessions()` (mission abort — resets to bottom of stack), `canReturn()`.
 
-Session stack enables SSH nesting — `pushSession()` saves state before connecting, `popSession()` restores it on `exit()`. WiFi state is not included in snapshots (it doesn't change per SSH hop).
+Session stack enables SSH and su nesting — `pushSession('ssh')` saves state before connecting to a remote machine, `pushSession('su')` saves state before switching users. `popSession()` restores the most recent snapshot on `exit()`. Each `SessionSnapshot` has a `reason` field (`'ssh' | 'su'`) so `exit()` shows context-appropriate messages ("Connection closed." vs "logout"). WiFi state is not included in snapshots (it doesn't change per SSH hop). Mixed stacking works naturally: SSH → su → exit (returns to previous user) → exit (returns to previous machine).
 
 ## Persistence Architecture
 
