@@ -322,4 +322,48 @@ describe('gobuster command', () => {
       expect(lines).toHaveLength(0);
     });
   });
+
+  describe('access logging callback', () => {
+    it('calls onHttpRequest for each discovered entry', () => {
+      const onHttpRequest = vi.fn();
+      const context = { ...createMockContext(), onHttpRequest };
+      const gobuster = createGobusterCommand(context);
+      collectAsyncLines(gobuster.fn('dir', 'http://192.168.1.75'));
+
+      // defaultWebRoot has: /index.html, /status, /admin (dir), /admin/config.json
+      expect(onHttpRequest).toHaveBeenCalledWith(
+        '192.168.1.75',
+        'GET',
+        '/index.html',
+        200,
+        expect.any(Number),
+      );
+      expect(onHttpRequest).toHaveBeenCalledWith(
+        '192.168.1.75',
+        'GET',
+        '/status',
+        200,
+        expect.any(Number),
+      );
+      expect(onHttpRequest).toHaveBeenCalledWith('192.168.1.75', 'GET', '/admin', 301, 0);
+      expect(onHttpRequest).toHaveBeenCalledWith(
+        '192.168.1.75',
+        'GET',
+        '/admin/config.json',
+        200,
+        expect.any(Number),
+      );
+      expect(onHttpRequest).toHaveBeenCalledTimes(4);
+    });
+
+    it('does not call onHttpRequest when no entries found', () => {
+      const onHttpRequest = vi.fn();
+      const emptyRoot = makeDir('html', {});
+      const context = { ...createMockContext({ webRoot: emptyRoot }), onHttpRequest };
+      const gobuster = createGobusterCommand(context);
+      collectAsyncLines(gobuster.fn('dir', 'http://192.168.1.75'));
+
+      expect(onHttpRequest).not.toHaveBeenCalled();
+    });
+  });
 });

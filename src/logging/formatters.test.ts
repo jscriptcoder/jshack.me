@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  formatAccessLog,
+  formatFtpConnect,
+  formatFtpLoginFailed,
+  formatFtpLoginOk,
   formatScpAccepted,
   formatScpFailed,
   formatSshAccepted,
@@ -93,6 +97,54 @@ describe('formatScpFailed', () => {
     const result = formatScpFailed(date, 'fileserver', 2500, 'admin', '10.0.0.5', 49152);
     expect(result).toBe(
       'Mar 21 14:30:15 fileserver sshd[2500]: Failed password for admin from 10.0.0.5 port 49152 ssh2',
+    );
+  });
+});
+
+describe('formatFtpConnect', () => {
+  it('formats FTP connect entry', () => {
+    const date = new Date('2026-03-21T14:30:15Z');
+    const result = formatFtpConnect(date, '192.168.1.100');
+    expect(result).toBe('[2026-03-21 14:30:15] CONNECT: Client "192.168.1.100"');
+  });
+});
+
+describe('formatFtpLoginOk', () => {
+  it('formats FTP successful login entry', () => {
+    const date = new Date('2026-03-21T14:30:15Z');
+    const result = formatFtpLoginOk(date, '192.168.1.100', 'ftpuser');
+    expect(result).toBe('[2026-03-21 14:30:15] OK LOGIN: Client "192.168.1.100", user "ftpuser"');
+  });
+});
+
+describe('formatFtpLoginFailed', () => {
+  it('formats FTP failed login entry', () => {
+    const date = new Date('2026-03-21T14:30:15Z');
+    const result = formatFtpLoginFailed(date, '192.168.1.100', 'baduser');
+    expect(result).toBe('[2026-03-21 14:30:15] FAIL LOGIN: Client "192.168.1.100", user "baduser"');
+  });
+});
+
+describe('formatAccessLog', () => {
+  it('formats Apache Combined Log Format entry', () => {
+    const date = new Date('2026-03-21T14:30:15Z');
+    const result = formatAccessLog(date, '192.168.1.100', 'GET', '/index.html', 200, 1234);
+    expect(result).toBe(
+      '192.168.1.100 - - [21/Mar/2026:14:30:15 +0000] "GET /index.html HTTP/1.1" 200 1234',
+    );
+  });
+
+  it('formats 404 response', () => {
+    const date = new Date('2026-03-21T14:30:15Z');
+    const result = formatAccessLog(date, '10.0.0.5', 'GET', '/secret', 404, 48);
+    expect(result).toBe('10.0.0.5 - - [21/Mar/2026:14:30:15 +0000] "GET /secret HTTP/1.1" 404 48');
+  });
+
+  it('formats POST request', () => {
+    const date = new Date('2026-03-21T14:30:15Z');
+    const result = formatAccessLog(date, '10.0.0.5', 'POST', '/api/login', 200, 89);
+    expect(result).toBe(
+      '10.0.0.5 - - [21/Mar/2026:14:30:15 +0000] "POST /api/login HTTP/1.1" 200 89',
     );
   });
 });

@@ -335,5 +335,7 @@ export const useCommands = (): UseCommandsResult => {
     isMachineBricked,
     wifiConnected,
     getMachineInfo,
+    writeFileToMachine,
+    createFileOnMachine,
   ]);
 };

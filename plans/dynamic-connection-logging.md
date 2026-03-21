@@ -39,9 +39,9 @@ No native append — the utility will:
 - [x] SSH login (success/fail) appends to `/var/log/auth.log` on target machine
 - [x] SCP auth (success/fail) appends to `/var/log/auth.log` on target machine
 - [x] su (success/fail) appends to `/var/log/auth.log` on current machine
-- [ ] FTP login (success/fail) appends to `/var/log/vsftpd.log` on target machine
-- [ ] curl request appends to `/var/log/access.log` on target machine
-- [ ] gobuster scan appends to `/var/log/access.log` on target machine
+- [x] FTP login (success/fail) appends to `/var/log/vsftpd.log` on target machine
+- [x] curl request appends to `/var/log/access.log` on target machine
+- [x] gobuster scan appends to `/var/log/access.log` on target machine
 - [x] Existing static log content is preserved (new entries appended after)
 - [x] Logs persist across page reloads (IndexedDB patches)
 - [x] Logs sync across tabs (BroadcastChannel)

@@ -15,6 +15,13 @@ type CurlContext = {
     cwd: string,
     userType: UserType,
   ) => string | null;
+  readonly onHttpRequest?: (
+    targetIP: string,
+    method: string,
+    path: string,
+    status: number,
+    size: number,
+  ) => void;
 };
 
 type ParsedUrl = {
@@ -288,6 +295,14 @@ export const createCurlCommand = (context: CurlContext): Command => ({
           const response = isPost
             ? handlePost(context, filesystemIP, parsed.path)
             : handleGet(context, filesystemIP, parsed.path);
+
+          context.onHttpRequest?.(
+            targetIP,
+            isPost ? 'POST' : 'GET',
+            parsed.path,
+            response.statusCode,
+            response.body.length,
+          );
 
           const output = formatResponse(response, includeHeaders);
           output.split('\n').forEach((line) => onLine(line));

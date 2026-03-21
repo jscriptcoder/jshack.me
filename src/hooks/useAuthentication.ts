@@ -39,6 +39,7 @@ type AuthenticationOptions = {
     port: number,
     method: 'password' | 'publickey',
   ) => void;
+  readonly onFtpAuth?: (success: boolean, user: string, targetIP: string) => void;
 };
 
 export const useAuthentication = ({
@@ -58,6 +59,7 @@ export const useAuthentication = ({
   writeFile,
   onSuAuth,
   onSshAuth,
+  onFtpAuth,
 }: AuthenticationOptions) => {
   const [passwordMode, setPasswordMode] = useState(false);
   const [targetUser, setTargetUser] = useState<string | null>(null);
@@ -244,11 +246,13 @@ export const useAuthentication = ({
 
       if (!remoteUser) {
         addLine('error', '530 Login incorrect.');
+        onFtpAuth?.(false, username, targetIP);
         return;
       }
 
       if (remoteUser.passwordHash !== md5(password)) {
         addLine('error', '530 Login incorrect.');
+        onFtpAuth?.(false, username, targetIP);
         return;
       }
 
@@ -268,8 +272,9 @@ export const useAuthentication = ({
 
       enterFtpMode(newFtpSession);
       addLine('result', '230 Login successful.');
+      onFtpAuth?.(true, username, targetIP);
     },
-    [resolveNat, findMachineUsers, addLine, getDefaultHomePath, session, enterFtpMode],
+    [resolveNat, findMachineUsers, addLine, getDefaultHomePath, session, enterFtpMode, onFtpAuth],
   );
 
   const startFtpPrompt = useCallback(
@@ -426,6 +431,7 @@ export const useAuthentication = ({
       const remoteUser = users.find((u) => u.username === username);
       if (!remoteUser) {
         addLine('error', '530 Login incorrect.');
+        onFtpAuth?.(false, username, ftpTargetIP);
         setFtpTargetIP(null);
         setFtpUsernameMode(false);
         clearInput();
@@ -438,7 +444,7 @@ export const useAuthentication = ({
       setPasswordMode(true);
       clearInput();
     },
-    [ftpTargetIP, findMachineUsers, addLine, resolveNat],
+    [ftpTargetIP, findMachineUsers, addLine, resolveNat, onFtpAuth],
   );
 
   // Returns an optional AsyncOutput for SCP transfer animation
@@ -485,6 +491,7 @@ export const useAuthentication = ({
 
           enterFtpMode(newFtpSession);
           addLine('result', '230 Login successful.');
+          onFtpAuth?.(true, targetUser, ftpTargetIP);
         } else if (sshTargetIP) {
           saveAuthorizedKey(targetUser, sshTargetIP, sshTargetPort ?? 22);
           connectSsh(targetUser, sshTargetIP, sshTargetPort ?? 22);
@@ -511,6 +518,7 @@ export const useAuthentication = ({
           onSshAuth?.(false, targetUser, scpTargetIP, scpTargetPort ?? 22, 'password');
         } else if (ftpTargetIP) {
           addLine('error', '530 Login incorrect.');
+          onFtpAuth?.(false, targetUser, ftpTargetIP);
         } else if (sshTargetIP) {
           addLine('error', `Permission denied, please try again.`);
           onSshAuth?.(false, targetUser, sshTargetIP, sshTargetPort ?? 22, 'password');
@@ -553,6 +561,7 @@ export const useAuthentication = ({
       resolveNat,
       onSuAuth,
       onSshAuth,
+      onFtpAuth,
     ],
   );
 

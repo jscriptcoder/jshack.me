@@ -20,6 +20,9 @@ import {
   formatSshAccepted,
   formatSshAcceptedKey,
   formatSshFailed,
+  formatFtpConnect,
+  formatFtpLoginOk,
+  formatFtpLoginFailed,
 } from '../../logging/formatters';
 import { generatePid, resolveHostname } from '../../logging/utils';
 import { ipToMachineId } from '../../filesystem/machineFileSystems';
@@ -190,6 +193,14 @@ export const Terminal = () => {
           ? formatSshAcceptedKey(new Date(), hostname, pid, user, session.machine, srcPort)
           : formatSshAccepted(new Date(), hostname, pid, user, session.machine, srcPort);
       appendToMachineLog(targetIP, '/var/log/auth.log', logLine, logFs);
+    },
+    onFtpAuth: (success, user, targetIP) => {
+      const now = new Date();
+      const connectLine = formatFtpConnect(now, session.machine);
+      const authLine = success
+        ? formatFtpLoginOk(now, session.machine, user)
+        : formatFtpLoginFailed(now, session.machine, user);
+      appendToMachineLog(targetIP, '/var/log/vsftpd.log', `${connectLine}\n${authLine}`, logFs);
     },
   });
 
