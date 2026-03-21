@@ -482,4 +482,45 @@ describe('curl command', () => {
       expect(output).toContain('X-Credentials: admin:secret');
     });
   });
+
+  describe('access logging callback', () => {
+    it('calls onHttpRequest with GET details on success', () => {
+      const onHttpRequest = vi.fn();
+      const context = { ...createMockCurlContext(), onHttpRequest };
+      const curl = createCurlCommand(context);
+      collectAsyncLines(curl.fn('http://192.168.1.75/index.html'));
+
+      expect(onHttpRequest).toHaveBeenCalledWith(
+        '192.168.1.75',
+        'GET',
+        '/index.html',
+        200,
+        expect.any(Number),
+      );
+    });
+
+    it('calls onHttpRequest with 404 on missing file', () => {
+      const onHttpRequest = vi.fn();
+      const context = { ...createMockCurlContext(), onHttpRequest };
+      const curl = createCurlCommand(context);
+      collectAsyncLines(curl.fn('http://192.168.1.75/missing'));
+
+      expect(onHttpRequest).toHaveBeenCalledWith('192.168.1.75', 'GET', '/missing', 404, 48);
+    });
+
+    it('calls onHttpRequest with POST method', () => {
+      const onHttpRequest = vi.fn();
+      const context = { ...createMockCurlContext(), onHttpRequest };
+      const curl = createCurlCommand(context);
+      collectAsyncLines(curl.fn('-X POST', 'http://192.168.1.75/api/users'));
+
+      expect(onHttpRequest).toHaveBeenCalledWith(
+        '192.168.1.75',
+        'POST',
+        '/api/users',
+        200,
+        expect.any(Number),
+      );
+    });
+  });
 });

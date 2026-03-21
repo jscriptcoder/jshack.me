@@ -154,6 +154,39 @@ describe('useAuthentication', () => {
       expect(opts.setUsername).toHaveBeenCalledWith('guest', 'guest');
       expect(opts.setCurrentPath).toHaveBeenCalledWith('/home/guest');
     });
+
+    it('calls onSuAuth with true on successful interactive auth', () => {
+      const opts = makeOptions();
+      const onSuAuth = vi.fn();
+      opts.readFile.mockImplementation((path: string) =>
+        path === '/etc/passwd' ? `root:${md5('rootpass')}` : null,
+      );
+      opts.findMachineUsers.mockReturnValue([
+        makeRemoteUser({ username: 'root', password: 'rootpass', userType: 'root' }),
+      ]);
+
+      const { result } = renderHook(() => useAuthentication({ ...opts, onSuAuth }));
+
+      act(() => result.current.startPasswordPrompt('root'));
+      act(() => result.current.handlePasswordSubmit('rootpass', vi.fn()));
+
+      expect(onSuAuth).toHaveBeenCalledWith(true, 'root');
+    });
+
+    it('calls onSuAuth with false on failed interactive auth', () => {
+      const opts = makeOptions();
+      const onSuAuth = vi.fn();
+      opts.readFile.mockImplementation((path: string) =>
+        path === '/etc/passwd' ? `root:${md5('rootpass')}` : null,
+      );
+
+      const { result } = renderHook(() => useAuthentication({ ...opts, onSuAuth }));
+
+      act(() => result.current.startPasswordPrompt('root'));
+      act(() => result.current.handlePasswordSubmit('wrong', vi.fn()));
+
+      expect(onSuAuth).toHaveBeenCalledWith(false, 'root');
+    });
   });
 
   describe('SSH interactive authentication', () => {
@@ -269,6 +302,96 @@ describe('useAuthentication', () => {
 
       expect(opts.pushSession).not.toHaveBeenCalled();
       expect(opts.addLine).toHaveBeenCalledWith('error', 'Permission denied, please try again.');
+    });
+  });
+
+  describe('SSH auth logging', () => {
+    it('calls onSshAuth on inline key auth', () => {
+      const remoteUser = makeRemoteUser();
+      const keyEntry = makeKeyEntry('bob', TARGET_IP, PASSWORD_HASH);
+      const onSshAuth = vi.fn();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFile.mockImplementation((path: string) =>
+        path === '/home/alice/.ssh_keys' ? keyEntry : null,
+      );
+
+      const { result } = renderHook(() => useAuthentication({ ...opts, onSshAuth }));
+
+      act(() => result.current.authenticateSshInline('bob', TARGET_IP, 22, 'irrelevant'));
+
+      expect(onSshAuth).toHaveBeenCalledWith(true, 'bob', TARGET_IP, 22, 'publickey');
+    });
+
+    it('calls onSshAuth on inline password success', () => {
+      const remoteUser = makeRemoteUser();
+      const onSshAuth = vi.fn();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+
+      const { result } = renderHook(() => useAuthentication({ ...opts, onSshAuth }));
+
+      act(() => result.current.authenticateSshInline('bob', TARGET_IP, 22, PASSWORD));
+
+      expect(onSshAuth).toHaveBeenCalledWith(true, 'bob', TARGET_IP, 22, 'password');
+    });
+
+    it('calls onSshAuth on inline password failure', () => {
+      const remoteUser = makeRemoteUser();
+      const onSshAuth = vi.fn();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+
+      const { result } = renderHook(() => useAuthentication({ ...opts, onSshAuth }));
+
+      act(() => result.current.authenticateSshInline('bob', TARGET_IP, 22, 'wrong'));
+
+      expect(onSshAuth).toHaveBeenCalledWith(false, 'bob', TARGET_IP, 22, 'password');
+    });
+
+    it('calls onSshAuth on interactive key auth', () => {
+      const remoteUser = makeRemoteUser();
+      const keyEntry = makeKeyEntry('bob', TARGET_IP, PASSWORD_HASH);
+      const onSshAuth = vi.fn();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFile.mockImplementation((path: string) =>
+        path === '/home/alice/.ssh_keys' ? keyEntry : null,
+      );
+
+      const { result } = renderHook(() => useAuthentication({ ...opts, onSshAuth }));
+
+      act(() => result.current.startSshPrompt('bob', TARGET_IP, 22));
+
+      expect(onSshAuth).toHaveBeenCalledWith(true, 'bob', TARGET_IP, 22, 'publickey');
+    });
+
+    it('calls onSshAuth on interactive password success', () => {
+      const remoteUser = makeRemoteUser();
+      const onSshAuth = vi.fn();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+
+      const { result } = renderHook(() => useAuthentication({ ...opts, onSshAuth }));
+
+      act(() => result.current.startSshPrompt('bob', TARGET_IP, 22));
+      act(() => result.current.handlePasswordSubmit(PASSWORD, vi.fn()));
+
+      expect(onSshAuth).toHaveBeenCalledWith(true, 'bob', TARGET_IP, 22, 'password');
+    });
+
+    it('calls onSshAuth on interactive password failure', () => {
+      const remoteUser = makeRemoteUser();
+      const onSshAuth = vi.fn();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+
+      const { result } = renderHook(() => useAuthentication({ ...opts, onSshAuth }));
+
+      act(() => result.current.startSshPrompt('bob', TARGET_IP, 22));
+      act(() => result.current.handlePasswordSubmit('wrong', vi.fn()));
+
+      expect(onSshAuth).toHaveBeenCalledWith(false, 'bob', TARGET_IP, 22, 'password');
     });
   });
 
@@ -399,6 +522,87 @@ describe('useAuthentication', () => {
 
       expect(opts.enterFtpMode).not.toHaveBeenCalled();
       expect(opts.addLine).toHaveBeenCalledWith('error', '530 Login incorrect.');
+    });
+  });
+
+  describe('FTP auth logging', () => {
+    it('calls onFtpAuth on inline login success', () => {
+      const remoteUser = makeRemoteUser();
+      const onFtpAuth = vi.fn();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+
+      const { result } = renderHook(() => useAuthentication({ ...opts, onFtpAuth }));
+
+      act(() => result.current.authenticateFtpInline(TARGET_IP, 'bob', PASSWORD));
+
+      expect(onFtpAuth).toHaveBeenCalledWith(true, 'bob', TARGET_IP);
+    });
+
+    it('calls onFtpAuth on inline user-not-found failure', () => {
+      const onFtpAuth = vi.fn();
+      const opts = makeOptions();
+
+      const { result } = renderHook(() => useAuthentication({ ...opts, onFtpAuth }));
+
+      act(() => result.current.authenticateFtpInline(TARGET_IP, 'nobody', PASSWORD));
+
+      expect(onFtpAuth).toHaveBeenCalledWith(false, 'nobody', TARGET_IP);
+    });
+
+    it('calls onFtpAuth on inline wrong-password failure', () => {
+      const remoteUser = makeRemoteUser();
+      const onFtpAuth = vi.fn();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+
+      const { result } = renderHook(() => useAuthentication({ ...opts, onFtpAuth }));
+
+      act(() => result.current.authenticateFtpInline(TARGET_IP, 'bob', 'wrong'));
+
+      expect(onFtpAuth).toHaveBeenCalledWith(false, 'bob', TARGET_IP);
+    });
+
+    it('calls onFtpAuth on interactive login success', () => {
+      const remoteUser = makeRemoteUser();
+      const onFtpAuth = vi.fn();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+
+      const { result } = renderHook(() => useAuthentication({ ...opts, onFtpAuth }));
+
+      act(() => result.current.startFtpPrompt(TARGET_IP));
+      act(() => result.current.handleFtpUsernameSubmit('bob', vi.fn()));
+      act(() => result.current.handlePasswordSubmit(PASSWORD, vi.fn()));
+
+      expect(onFtpAuth).toHaveBeenCalledWith(true, 'bob', TARGET_IP);
+    });
+
+    it('calls onFtpAuth on interactive username failure', () => {
+      const onFtpAuth = vi.fn();
+      const opts = makeOptions();
+
+      const { result } = renderHook(() => useAuthentication({ ...opts, onFtpAuth }));
+
+      act(() => result.current.startFtpPrompt(TARGET_IP));
+      act(() => result.current.handleFtpUsernameSubmit('nobody', vi.fn()));
+
+      expect(onFtpAuth).toHaveBeenCalledWith(false, 'nobody', TARGET_IP);
+    });
+
+    it('calls onFtpAuth on interactive password failure', () => {
+      const remoteUser = makeRemoteUser();
+      const onFtpAuth = vi.fn();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+
+      const { result } = renderHook(() => useAuthentication({ ...opts, onFtpAuth }));
+
+      act(() => result.current.startFtpPrompt(TARGET_IP));
+      act(() => result.current.handleFtpUsernameSubmit('bob', vi.fn()));
+      act(() => result.current.handlePasswordSubmit('wrong', vi.fn()));
+
+      expect(onFtpAuth).toHaveBeenCalledWith(false, 'bob', TARGET_IP);
     });
   });
 
@@ -550,6 +754,96 @@ describe('useAuthentication', () => {
 
       expect(output).toBeUndefined();
       expect(performTransfer).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('SCP auth logging', () => {
+    it('calls onSshAuth on inline key auth for SCP', () => {
+      const remoteUser = makeRemoteUser();
+      const keyEntry = makeKeyEntry('bob', TARGET_IP, PASSWORD_HASH);
+      const onSshAuth = vi.fn();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFile.mockImplementation((path: string) =>
+        path === '/home/alice/.ssh_keys' ? keyEntry : null,
+      );
+
+      const { result } = renderHook(() => useAuthentication({ ...opts, onSshAuth }));
+
+      act(() => result.current.authenticateScpInline('bob', TARGET_IP, 22, 'any', vi.fn()));
+
+      expect(onSshAuth).toHaveBeenCalledWith(true, 'bob', TARGET_IP, 22, 'publickey');
+    });
+
+    it('calls onSshAuth on inline password success for SCP', () => {
+      const remoteUser = makeRemoteUser();
+      const onSshAuth = vi.fn();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+
+      const { result } = renderHook(() => useAuthentication({ ...opts, onSshAuth }));
+
+      act(() => result.current.authenticateScpInline('bob', TARGET_IP, 22, PASSWORD, vi.fn()));
+
+      expect(onSshAuth).toHaveBeenCalledWith(true, 'bob', TARGET_IP, 22, 'password');
+    });
+
+    it('calls onSshAuth on inline password failure for SCP', () => {
+      const remoteUser = makeRemoteUser();
+      const onSshAuth = vi.fn();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+
+      const { result } = renderHook(() => useAuthentication({ ...opts, onSshAuth }));
+
+      act(() => result.current.authenticateScpInline('bob', TARGET_IP, 22, 'wrong', vi.fn()));
+
+      expect(onSshAuth).toHaveBeenCalledWith(false, 'bob', TARGET_IP, 22, 'password');
+    });
+
+    it('calls onSshAuth on interactive key auth for SCP', () => {
+      const remoteUser = makeRemoteUser();
+      const keyEntry = makeKeyEntry('bob', TARGET_IP, PASSWORD_HASH);
+      const onSshAuth = vi.fn();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFile.mockImplementation((path: string) =>
+        path === '/home/alice/.ssh_keys' ? keyEntry : null,
+      );
+
+      const { result } = renderHook(() => useAuthentication({ ...opts, onSshAuth }));
+
+      act(() => result.current.startScpPrompt('bob', TARGET_IP, 22, vi.fn()));
+
+      expect(onSshAuth).toHaveBeenCalledWith(true, 'bob', TARGET_IP, 22, 'publickey');
+    });
+
+    it('calls onSshAuth on interactive password success for SCP', () => {
+      const remoteUser = makeRemoteUser();
+      const onSshAuth = vi.fn();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+
+      const { result } = renderHook(() => useAuthentication({ ...opts, onSshAuth }));
+
+      act(() => result.current.startScpPrompt('bob', TARGET_IP, 22, vi.fn()));
+      act(() => result.current.handlePasswordSubmit(PASSWORD, vi.fn()));
+
+      expect(onSshAuth).toHaveBeenCalledWith(true, 'bob', TARGET_IP, 22, 'password');
+    });
+
+    it('calls onSshAuth on interactive password failure for SCP', () => {
+      const remoteUser = makeRemoteUser();
+      const onSshAuth = vi.fn();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+
+      const { result } = renderHook(() => useAuthentication({ ...opts, onSshAuth }));
+
+      act(() => result.current.startScpPrompt('bob', TARGET_IP, 22, vi.fn()));
+      act(() => result.current.handlePasswordSubmit('wrong', vi.fn()));
+
+      expect(onSshAuth).toHaveBeenCalledWith(false, 'bob', TARGET_IP, 22, 'password');
     });
   });
 

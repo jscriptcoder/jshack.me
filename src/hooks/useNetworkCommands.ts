@@ -18,6 +18,8 @@ import { createSnmpwalkCommand } from '../commands/snmpwalk';
 import { createSnmpsetCommand } from '../commands/snmpset';
 import { wrapWithWifiCheck, wrapWithBrickedCheck } from '../commands/networkGuards';
 import type { Command } from '../components/Terminal/types';
+import { appendToMachineLog } from '../logging/appendToMachineLog';
+import { formatAccessLog } from '../logging/formatters';
 
 export const useNetworkCommands = (): Map<string, Command> => {
   const {
@@ -43,6 +45,17 @@ export const useNetworkCommands = (): Map<string, Command> => {
 
   return useMemo(() => {
     const isWifiRequired = () => session.machine === 'localhost' && !wifiConnected;
+    const logFs = { readFileFromMachine, writeFileToMachine, createFileOnMachine };
+    const onHttpRequest = (
+      targetIP: string,
+      method: string,
+      path: string,
+      status: number,
+      size: number,
+    ) => {
+      const logLine = formatAccessLog(new Date(), session.machine, method, path, status, size);
+      appendToMachineLog(targetIP, '/var/log/access.log', logLine, logFs);
+    };
 
     const commands = new Map<string, Command>();
 
@@ -127,7 +140,13 @@ export const useNetworkCommands = (): Map<string, Command> => {
       'curl',
       wrapWithBrickedCheck(
         wrapWithWifiCheck(
-          createCurlCommand({ getMachine, resolveDomain, resolveNat, readFileFromMachine }),
+          createCurlCommand({
+            getMachine,
+            resolveDomain,
+            resolveNat,
+            readFileFromMachine,
+            onHttpRequest,
+          }),
           isWifiRequired,
         ),
         isMachineBricked,
@@ -166,7 +185,13 @@ export const useNetworkCommands = (): Map<string, Command> => {
       'gobuster',
       wrapWithBrickedCheck(
         wrapWithWifiCheck(
-          createGobusterCommand({ getMachine, resolveDomain, resolveNat, getNodeFromMachine }),
+          createGobusterCommand({
+            getMachine,
+            resolveDomain,
+            resolveNat,
+            getNodeFromMachine,
+            onHttpRequest,
+          }),
           isWifiRequired,
         ),
         isMachineBricked,

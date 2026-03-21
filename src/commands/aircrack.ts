@@ -87,9 +87,6 @@ export const createAircrackCommand = (context: AircrackContext): Command => ({
               return;
             }
 
-            onLine('Launching aircrack with /usr/share/wordlists/rockyou.txt...');
-            onLine('');
-
             const steps = 6;
             const keysPerStep = Math.floor(TOTAL_KEYS / steps);
 

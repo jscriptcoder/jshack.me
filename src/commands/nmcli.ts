@@ -1,6 +1,7 @@
-import type { Command } from '../components/Terminal/types';
+import type { Command, AsyncOutput } from '../components/Terminal/types';
 import type { WifiConnection } from '../network/wifiTypes';
 import type { WifiNetwork } from '../network/wifiNetworks';
+import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 type NmcliContext = {
   readonly isOnLocalhost: () => boolean;
@@ -22,7 +23,7 @@ const handleConnect = (
   context: NmcliContext,
   essid: string | undefined,
   password: string | undefined,
-): string => {
+): string | AsyncOutput => {
   if (!context.isOnLocalhost()) {
     throw new Error('nmcli: WiFi management is only available on localhost');
   }
@@ -48,14 +49,37 @@ const handleConnect = (
   }
 
   const previousEssid = context.connectedEssid();
-  context.setWifiConnected({ essid: network.essid, bssid: network.bssid });
+  const token = createCancellationToken();
 
-  const lines: string[] = [];
-  if (previousEssid) {
-    lines.push(`Disconnected from ${previousEssid}`);
-  }
-  lines.push(`Connecting to ${essid}...`, `Connected to ${essid}`);
-  return lines.join('\n');
+  return {
+    __type: 'async',
+    start: (onLine, onComplete) => {
+      let delay = 0;
+
+      if (previousEssid) {
+        delay += jitter(300);
+        token.schedule(() => {
+          if (token.isCancelled()) return;
+          onLine(`Disconnected from ${previousEssid}`);
+        }, delay);
+      }
+
+      delay += jitter(400);
+      token.schedule(() => {
+        if (token.isCancelled()) return;
+        onLine(`Connecting to ${essid}...`);
+      }, delay);
+
+      delay += jitter(1500);
+      token.schedule(() => {
+        if (token.isCancelled()) return;
+        context.setWifiConnected({ essid: network.essid, bssid: network.bssid });
+        onLine(`Connected to ${essid}`);
+        onComplete();
+      }, delay);
+    },
+    cancel: token.cancel,
+  };
 };
 
 const handleDisconnect = (context: NmcliContext): string => {
@@ -114,7 +138,7 @@ export const createNmcliCommand = (context: NmcliContext): Command => ({
       { command: 'nmcli("status")', description: 'Show connection status' },
     ],
   },
-  fn: (...args: readonly unknown[]): string => {
+  fn: (...args: readonly unknown[]): string | AsyncOutput => {
     const subcommand = args[0] as string | undefined;
 
     if (!subcommand) return USAGE;

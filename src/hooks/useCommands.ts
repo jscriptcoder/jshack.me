@@ -35,6 +35,9 @@ import { useSession } from '../session/SessionContext';
 import { useNetwork } from '../network';
 import { useFileSystem } from '../filesystem';
 import { getDatabase } from '../utils/storageCache';
+import { appendToMachineLog } from '../logging/appendToMachineLog';
+import { formatSuSuccess, formatSuFailed } from '../logging/formatters';
+import { generatePid, resolveHostname } from '../logging/utils';
 
 // Hardcoded localhost users — localhost doesn't exist in the network config like remote
 // machines do, so its users can't be dynamically looked up via getMachine()
@@ -84,8 +87,16 @@ export const useCommands = (): UseCommandsResult => {
     wifiConnected,
   } = useSession();
   const { findMachineUsers, getMachine: getMachineInfo } = useNetwork();
-  const { resolvePath, getNode, readFileFromMachine, createFile, getNodeFromMachine, canTraverse } =
-    useFileSystem();
+  const {
+    resolvePath,
+    getNode,
+    readFileFromMachine,
+    writeFileToMachine,
+    createFileOnMachine,
+    createFile,
+    getNodeFromMachine,
+    canTraverse,
+  } = useFileSystem();
   const { isMissionActive, startMission, abortMission, completeMission, activeMission } =
     useMission();
 
@@ -120,6 +131,8 @@ export const useCommands = (): UseCommandsResult => {
       }),
     );
 
+    const logFs = { readFileFromMachine, writeFileToMachine, createFileOnMachine };
+
     const suCommand = createSuCommand({
       getUsers,
       readFile: (path: string, userType: 'root' | 'user' | 'guest') =>
@@ -127,6 +140,18 @@ export const useCommands = (): UseCommandsResult => {
       findMachineUsers: () => findMachineUsers(session.machine),
       setUsername,
       setCurrentPath,
+      onAuthResult: (success, targetUser) => {
+        const hostname = resolveHostname(session.machine, getMachineInfo);
+        const formatter = success ? formatSuSuccess : formatSuFailed;
+        const logLine = formatter(
+          new Date(),
+          hostname,
+          generatePid(),
+          targetUser,
+          session.username,
+        );
+        appendToMachineLog(session.machine, '/var/log/auth.log', logLine, logFs);
+      },
     });
     commands.set('su', suCommand);
 
@@ -310,5 +335,7 @@ export const useCommands = (): UseCommandsResult => {
     isMachineBricked,
     wifiConnected,
     getMachineInfo,
+    writeFileToMachine,
+    createFileOnMachine,
   ]);
 };

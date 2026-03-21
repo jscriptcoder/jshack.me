@@ -9,6 +9,13 @@ type GobusterContext = {
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
   readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
   readonly getNodeFromMachine: (machineId: string, path: string, cwd: string) => FileNode | null;
+  readonly onHttpRequest?: (
+    targetIP: string,
+    method: string,
+    path: string,
+    status: number,
+    size: number,
+  ) => void;
 };
 
 const HTTP_SERVICES = ['http', 'https', 'http-alt'] as const;
@@ -196,6 +203,8 @@ export const createGobusterCommand = (context: GobusterContext): Command => ({
           token.schedule(() => {
             if (token.isCancelled()) return;
             onLine(formatEntry(entry));
+            const status = entry.isDirectory ? 301 : 200;
+            context.onHttpRequest?.(targetIP, 'GET', entry.path, status, entry.size);
           }, delay);
         });
 

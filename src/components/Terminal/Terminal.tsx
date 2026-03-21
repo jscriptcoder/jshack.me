@@ -13,6 +13,18 @@ import { useNcCommands } from '../../hooks/useNcCommands';
 import { useSession } from '../../session/SessionContext';
 import type { NcSession } from '../../session/SessionContext';
 import { useFileSystem } from '../../filesystem/FileSystemContext';
+import { appendToMachineLog } from '../../logging/appendToMachineLog';
+import {
+  formatSuSuccess,
+  formatSuFailed,
+  formatSshAccepted,
+  formatSshAcceptedKey,
+  formatSshFailed,
+  formatFtpConnect,
+  formatFtpLoginOk,
+  formatFtpLoginFailed,
+} from '../../logging/formatters';
+import { generatePid, resolveHostname } from '../../logging/utils';
 import { ipToMachineId } from '../../filesystem/machineFileSystems';
 import { useNetwork } from '../../network';
 import type { OutputLine, AuthorData } from './types';
@@ -107,6 +119,9 @@ export const Terminal = () => {
     resolvePathForMachine,
     getNodeFromMachine,
     listDirectoryFromMachine,
+    readFileFromMachine,
+    writeFileToMachine,
+    createFileOnMachine,
   } = useFileSystem();
   const { getMachine, findMachineUsers, resolveNat } = useNetwork();
 
@@ -132,6 +147,8 @@ export const Terminal = () => {
   const clearLines = useCallback(() => {
     setLines([]);
   }, []);
+
+  const logFs = { readFileFromMachine, writeFileToMachine, createFileOnMachine };
 
   const {
     passwordMode,
@@ -160,6 +177,31 @@ export const Terminal = () => {
     findMachineUsers,
     createFile,
     writeFile,
+    onSuAuth: (success, targetUser) => {
+      const hostname = resolveHostname(session.machine, getMachine);
+      const formatter = success ? formatSuSuccess : formatSuFailed;
+      const logLine = formatter(new Date(), hostname, generatePid(), targetUser, session.username);
+      appendToMachineLog(session.machine, '/var/log/auth.log', logLine, logFs);
+    },
+    onSshAuth: (success, user, targetIP, port, method) => {
+      const hostname = resolveHostname(targetIP, getMachine);
+      const pid = generatePid();
+      const srcPort = Math.floor(Math.random() * 25536) + 40000;
+      const logLine = !success
+        ? formatSshFailed(new Date(), hostname, pid, user, session.machine, srcPort)
+        : method === 'publickey'
+          ? formatSshAcceptedKey(new Date(), hostname, pid, user, session.machine, srcPort)
+          : formatSshAccepted(new Date(), hostname, pid, user, session.machine, srcPort);
+      appendToMachineLog(targetIP, '/var/log/auth.log', logLine, logFs);
+    },
+    onFtpAuth: (success, user, targetIP) => {
+      const now = new Date();
+      const connectLine = formatFtpConnect(now, session.machine);
+      const authLine = success
+        ? formatFtpLoginOk(now, session.machine, user)
+        : formatFtpLoginFailed(now, session.machine, user);
+      appendToMachineLog(targetIP, '/var/log/vsftpd.log', `${connectLine}\n${authLine}`, logFs);
+    },
   });
 
   const { getPathCompletions } = usePathCompletionAdapters({

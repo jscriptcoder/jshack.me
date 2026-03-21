@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { secrets } from '../secrets/secrets';
 import { WIFI_NETWORKS } from '../network/wifiNetworks';
+import type { AsyncOutput } from '../components/Terminal/types';
 import { createNmcliCommand } from './nmcli';
 
 type MockContextConfig = {
@@ -22,7 +23,33 @@ const createMockContext = (config: MockContextConfig = {}) => {
   };
 };
 
+const isAsyncOutput = (value: unknown): value is AsyncOutput =>
+  typeof value === 'object' &&
+  value !== null &&
+  '__type' in value &&
+  (value as AsyncOutput).__type === 'async';
+
+const collectAsyncLines = (result: unknown): readonly string[] => {
+  const lines: string[] = [];
+  if (isAsyncOutput(result)) {
+    result.start(
+      (line) => lines.push(line),
+      () => {},
+    );
+  }
+  vi.advanceTimersByTime(5000);
+  return lines;
+};
+
 describe('nmcli command', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   describe('no args', () => {
     it('should show usage when called with no arguments', () => {
       const context = createMockContext();
@@ -76,10 +103,11 @@ describe('nmcli command', () => {
       });
       const nmcli = createNmcliCommand(context);
 
-      const result = nmcli.fn('connect', 'JSHACK-CORP', secrets.WIFI_PASSWORD) as string;
+      const result = nmcli.fn('connect', 'JSHACK-CORP', secrets.WIFI_PASSWORD);
+      const lines = collectAsyncLines(result);
 
-      expect(result).toContain('Disconnected from OLD-NETWORK');
-      expect(result).toContain('Connected to JSHACK-CORP');
+      expect(lines.join('\n')).toContain('Disconnected from OLD-NETWORK');
+      expect(lines.join('\n')).toContain('Connected to JSHACK-CORP');
       expect(context.setWifiConnected).toHaveBeenCalledWith({
         essid: 'JSHACK-CORP',
         bssid: 'A4:CF:12:D3:8B:7A',
@@ -120,9 +148,35 @@ describe('nmcli command', () => {
       const context = createMockContext();
       const nmcli = createNmcliCommand(context);
 
-      const result = nmcli.fn('connect', 'JSHACK-CORP', secrets.WIFI_PASSWORD) as string;
+      const result = nmcli.fn('connect', 'JSHACK-CORP', secrets.WIFI_PASSWORD);
+      const lines = collectAsyncLines(result);
 
-      expect(result).toContain('Connected to JSHACK-CORP');
+      expect(lines.join('\n')).toContain('Connecting to JSHACK-CORP...');
+      expect(lines.join('\n')).toContain('Connected to JSHACK-CORP');
+      expect(context.setWifiConnected).toHaveBeenCalledWith({
+        essid: 'JSHACK-CORP',
+        bssid: 'A4:CF:12:D3:8B:7A',
+      });
+    });
+
+    it('should not set wifi connected until after delay', () => {
+      const context = createMockContext();
+      const nmcli = createNmcliCommand(context);
+
+      const result = nmcli.fn('connect', 'JSHACK-CORP', secrets.WIFI_PASSWORD);
+
+      if (isAsyncOutput(result)) {
+        result.start(
+          () => {},
+          () => {},
+        );
+      }
+
+      // Before the connect delay fires
+      expect(context.setWifiConnected).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(5000);
+
       expect(context.setWifiConnected).toHaveBeenCalledWith({
         essid: 'JSHACK-CORP',
         bssid: 'A4:CF:12:D3:8B:7A',
