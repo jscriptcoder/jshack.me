@@ -43,7 +43,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
     createFileOnMachine,
     writeFileToMachine,
   } = useFileSystem();
-  const { session, wifiConnected, isMachineBricked } = useSession();
+  const { session, workstationName, wifiConnected, isMachineBricked } = useSession();
 
   return useMemo(() => {
     const isWifiRequired = () => session.machine === 'localhost' && !wifiConnected;
@@ -85,7 +85,15 @@ export const useNetworkCommands = (): Map<string, Command> => {
       'nmap',
       wrapWithBrickedCheck(
         wrapWithWifiCheck(
-          createNmapCommand({ getMachine, getMachines, getLocalIP }),
+          createNmapCommand({
+            getMachine,
+            getMachines,
+            getLocalIP,
+            getLocalHostname: () =>
+              session.machine === 'localhost' && workstationName
+                ? workstationName
+                : session.machine,
+          }),
           isWifiRequired,
         ),
         isMachineBricked,
@@ -271,6 +279,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
     session.currentPath,
     session.username,
     session.userType,
+    workstationName,
     wifiConnected,
     isMachineBricked,
   ]);

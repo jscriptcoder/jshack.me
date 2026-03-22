@@ -77,6 +77,7 @@ export type PersistedState = {
 
 type SessionContextValue = {
   readonly session: Session;
+  readonly workstationName: string | undefined;
   readonly connectedWifi: WifiConnection | null;
   readonly wifiConnected: boolean;
   readonly sessionStack: readonly SessionSnapshot[];
@@ -385,6 +386,7 @@ export const SessionProvider = ({ children, workstationName }: SessionProviderPr
     <SessionContext.Provider
       value={{
         session,
+        workstationName,
         connectedWifi,
         wifiConnected,
         sessionStack,

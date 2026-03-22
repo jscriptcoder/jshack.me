@@ -16,15 +16,17 @@ const getMockRemoteMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine
 type NmapContextConfig = {
   readonly machines?: readonly RemoteMachine[];
   readonly localIP?: string;
+  readonly localHostname?: string;
 };
 
 const createMockNmapContext = (config: NmapContextConfig = {}) => {
-  const { machines = [], localIP = '192.168.1.100' } = config;
+  const { machines = [], localIP = '192.168.1.100', localHostname = 'localhost' } = config;
 
   return {
     getMachine: (ip: string) => machines.find((m) => m.ip === ip),
     getMachines: () => machines,
     getLocalIP: () => localIP,
+    getLocalHostname: () => localHostname,
   };
 };
 
@@ -124,6 +126,27 @@ describe('nmap command', () => {
 
       expect(lines[0]).toBe('Starting Nmap scan on 192.168.1.1-10');
       expect(lines[1]).toBe('Scanning 10 hosts...');
+    });
+
+    it('should use workstation name for local machine in range', () => {
+      const context = createMockNmapContext({
+        localIP: '192.168.1.100',
+        localHostname: 'myworkstation',
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('192.168.1.99-101');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(500);
+
+      expect(lines.some((l) => l.includes('192.168.1.100 (myworkstation)'))).toBe(true);
     });
 
     it('should discover localhost in range', () => {
@@ -622,6 +645,27 @@ describe('nmap command', () => {
   });
 
   describe('single IP port scan', () => {
+    it('should use workstation name for local machine scan', () => {
+      const context = createMockNmapContext({
+        localIP: '192.168.1.100',
+        localHostname: 'myworkstation',
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('192.168.1.100');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(650);
+
+      expect(lines.some((l) => l.includes('myworkstation (192.168.1.100)'))).toBe(true);
+    });
+
     it('should show localhost ports as closed', () => {
       const context = createMockNmapContext({ localIP: '192.168.1.100' });
       const nmap = createNmapCommand(context);
@@ -928,6 +972,36 @@ describe('nmap command', () => {
       expect(
         lines.some((l) => l.includes('\u251C\u2500\u2500') || l.includes('\u2514\u2500\u2500')),
       ).toBe(false);
+    });
+
+    it('should use workstation name in tree', () => {
+      const context = createMockNmapContext({
+        localIP: '192.168.1.5',
+        localHostname: 'hackerbox',
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.1',
+            hostname: 'router',
+            ports: [{ port: 22, service: 'ssh', open: true }],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('192.168.1.1-10', '--tree');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(5000);
+
+      expect(lines.some((l) => l.includes('hackerbox (192.168.1.5)') && !l.includes('['))).toBe(
+        true,
+      );
     });
 
     it('should show localhost without ports in tree', () => {

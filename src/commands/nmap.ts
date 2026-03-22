@@ -7,6 +7,7 @@ type NmapContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
   readonly getMachines: () => readonly RemoteMachine[];
   readonly getLocalIP: () => string;
+  readonly getLocalHostname: () => string;
 };
 
 const SCAN_DELAY_MS = 150;
@@ -84,7 +85,7 @@ const filterPortsByProtocol = (ports: readonly Port[], udpScan: boolean): readon
 
 // Formats a single host line for tree output: "hostname (ip) [:port1 :port2]"
 const formatTreeHostLine = (host: DiscoveredHost, udpScan: boolean): string => {
-  if (host.isLocal) return `localhost (${host.ip})`;
+  if (host.isLocal) return `${host.hostname} (${host.ip})`;
   const filtered = filterPortsByProtocol(host.ports, udpScan);
   const openPorts = filtered.filter((p) => p.open);
   const portSuffix =
@@ -210,7 +211,7 @@ export const createNmapCommand = (context: NmapContext): Command => ({
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {
-    const { getMachine, getMachines, getLocalIP } = context;
+    const { getMachine, getMachines, getLocalIP, getLocalHostname } = context;
     const { target, versionScan, udpScan, treeScan } = parseNmapArgs(args);
 
     if (!target) {
@@ -246,8 +247,9 @@ export const createNmapCommand = (context: NmapContext): Command => ({
               scannedCount++;
 
               if (ip === localIP) {
-                discoveredHosts.push({ ip, hostname: 'localhost', isLocal: true, ports: [] });
-                onLine(`Host discovered: ${ip} (localhost)`);
+                const localHostname = getLocalHostname();
+                discoveredHosts.push({ ip, hostname: localHostname, isLocal: true, ports: [] });
+                onLine(`Host discovered: ${ip} (${localHostname})`);
               } else {
                 const machine = machines.find((m) => m.ip === ip);
                 if (machine) {
@@ -277,7 +279,7 @@ export const createNmapCommand = (context: NmapContext): Command => ({
                     onLine('Scan complete. Summary:');
                     discoveredHosts.forEach((host) => {
                       if (host.isLocal) {
-                        onLine(`  ${host.ip} - localhost (this machine)`);
+                        onLine(`  ${host.ip} - ${host.hostname} (this machine)`);
                       } else {
                         const openPorts = host.ports.filter((p) => p.open);
                         const services = versionScan
@@ -326,7 +328,7 @@ export const createNmapCommand = (context: NmapContext): Command => ({
           token.schedule(() => {
             if (token.isCancelled()) return;
             onLine('');
-            onLine(`Nmap scan report for localhost (${target})`);
+            onLine(`Nmap scan report for ${getLocalHostname()} (${target})`);
             onLine('Host is up.');
             onLine('');
             onLine('All scanned ports are closed on this machine.');
