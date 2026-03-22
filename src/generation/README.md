@@ -1,6 +1,6 @@
 # Seeded Network Generators
 
-Deterministic engines that generate networks from seed strings. Same seed always produces identical output. Pure generation pipelines — React integration lives in `src/mission/` (missions) and `src/game/` (home networks).
+Deterministic engines that generate all game content from seed strings and game state. Same seed always produces identical output. Pure generation pipelines — React integration lives in `src/mission/` (missions) and `src/game/` (home networks). Localhost is also generated at runtime via `generateLocalhost(gameState)`.
 
 ## Usage
 
@@ -38,6 +38,7 @@ const mission = generateMissionNetwork('HEIST-7734');
 | `binary.ts`              | Binary noise wrapping for target files, binary file path pools                                                                                                                            |
 | `filesystem.ts`          | FileNode trees via createFileSystem(), noise, dynamic target file placement, router iptables rules                                                                                        |
 | `generateMission.ts`     | Orchestrator composing all mission generation steps                                                                                                                                       |
+| `generateLocalhost.ts`   | Localhost filesystem generation from `GameState` — player username, root password, seed-derived guest password, `README.txt` guide, hint files, pre-installed tools                       |
 | `generateWifi.ts`        | WiFi network generation from game seed — 2-3 crackable WPA2 + 3-5 noise (WPA3/weak/hidden). Passwords from encoded secrets.                                                               |
 | `generateHomeNetwork.ts` | Home network generation from game seed + WiFi index — router (public IP) + 2-4 machines with roles, users, ports, filesystems                                                             |
 

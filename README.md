@@ -1,6 +1,6 @@
 # JSHACK.ME
 
-A web-based JavaScript terminal emulator with a retro amber-on-black CRT aesthetic. Execute JavaScript expressions and custom commands in a terminal-like interface, featuring a virtual Unix-like file system and network simulation for a mission-based hacking game with procedurally generated contracts. Name your workstation, crack multiple WiFi networks to access different subnets, and take darknet contracts.
+A web-based JavaScript terminal emulator with a retro amber-on-black CRT aesthetic. Execute JavaScript expressions and custom commands in a terminal-like interface, featuring a virtual Unix-like file system and network simulation for a mission-based hacking game with procedurally generated contracts. Choose your username, name your workstation, set your root password, crack multiple WiFi networks to access different subnets, and take darknet contracts.
 
 **Live Demo:** [jshack.me](https://jshack.me)
 
@@ -10,7 +10,7 @@ A web-based JavaScript terminal emulator with a retro amber-on-black CRT aesthet
 
 ## The Challenge
 
-You are **jshacker**, a freelance operator working from a personal workstation. Name your machine, boot up, and crack WiFi networks — each one gives access to a different subnet of machines to explore. When you're ready, browse the darknet marketplace for contracts and hack into procedurally generated networks to complete missions.
+You are a freelance operator working from a personal workstation. Choose your username, name your machine, set your root password, boot up, and crack WiFi networks — each one gives access to a different subnet of machines to explore. When you're ready, browse the darknet marketplace for contracts and hack into procedurally generated networks to complete missions.
 
 Each mission drops you into a unique network topology with routers, servers, and hidden flags. Use your knowledge of Linux commands, networking, and creative thinking to infiltrate targets and complete contracts.
 
@@ -24,7 +24,7 @@ Start with `help()` to see available commands. Good luck, hacker.
 - **Variable Support** - Create variables with `const` and `let` declarations
 - **Virtual Environment** - Explore a simulated system with secrets to uncover
 - **Command Restrictions** - Commands are tiered by privilege level; escalate from guest to root to unlock tools
-- **Intro & Boot Screen** - Name your workstation, start a new game with a Linux-style boot sequence
+- **Intro & Boot Screen** - Choose your username, name your workstation, set your root password, start a new game with a Linux-style boot sequence
 - **Multi-WiFi Networks** - Multiple seeded WiFi networks per game; each provides a different subnet of machines
 - **WiFi Hacking Gate** - Crack WPA2 networks using aircrack-ng-style commands; switch networks anytime
 - **Network Simulation** - Discover and hack into remote machines; per-WiFi subnets with routers, servers, and databases
@@ -150,7 +150,7 @@ Each machine has its own network view - interfaces, reachable hosts, and DNS cha
 ```bash
 npm run dev           # Start development server (auto-encodes first)
 npm run build         # Production build (auto-encodes first)
-npm run encode        # Generate encoded filesystems + secrets
+npm run encode        # Generate encoded secrets
 npm run lint          # Run ESLint
 npm run format        # Format code with Prettier
 npm run format:check  # Check formatting (CI)
@@ -187,7 +187,7 @@ src/
 ├── utils/                  # Utilities (crypto, storage, network, content codec)
 └── App.tsx                 # Root component
 scripts/
-└── encode.ts               # Pre-build: encodes filesystems + secrets (anti-cheat)
+└── encode.ts               # Pre-build: encodes secrets (anti-cheat)
 e2e/
 └── mission-playthrough.spec.ts # Playwright E2E (mission playthroughs — all entry variants)
 ```

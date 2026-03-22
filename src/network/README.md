@@ -4,79 +4,28 @@ Simulated network environment for hacking missions. Defines the topology, machin
 
 ## Files
 
-| File                    | Description                                                                                                                        |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `types.ts`              | Core types: `NetworkInterface`, `RemoteMachine`, `Port`, `Vulnerability`, `DnsRecord`, `MachineNetworkConfig`, `NetworkConfig`     |
-| `wifiTypes.ts`          | `WifiConnection` type (`{ essid, bssid }`) and validator — replaces boolean WiFi state                                             |
-| `initialNetwork.ts`     | `createInitialNetwork()` — legacy static network configs (fallback); localhost interface templates (wlan0 up/down, loopback)       |
-| `NetworkContext.tsx`    | React context — imports `useSession`, resolves config per `session.machine`, provides `getMachine`, `getLocalIP`, etc.             |
-| `networkUtils.ts`       | Pure functions extracted from context: `buildMergedRouterView`, `applySnmpFirewallOverrides`, `applyDaemonOverrides`               |
-| `iptablesParser.ts`     | Pure parser for router's `/etc/iptables/rules.v4` — extracts `forward <port> to <ip>:<port>` rules into `NatForwardingRule[]`      |
-| `snmpFirewallParser.ts` | Pure parser for SNMP firewall OIDs in `/etc/snmp/snmpd.conf` — maps `firewallSSH`/`firewallHTTP` `permit`/`deny` to port overrides |
-| `sshdStateParser.ts`    | Pure parser for `/var/run/sshd.pid` — extracts `sshd:port=N` into SSH port override                                                |
-| `ftpdStateParser.ts`    | Pure parser for `/var/run/ftpd.pid` — extracts `ftpd:port=N` into FTP port override                                                |
-| `ncStateParser.ts`      | Pure parser for `/var/run/nc-*.pid` — extracts `nc:port=N,user=X,userType=T,home=P` into elite port overrides with owner           |
-| `index.ts`              | Module exports                                                                                                                     |
+| File                    | Description                                                                                                                            |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `types.ts`              | Core types: `NetworkInterface`, `RemoteMachine`, `Port`, `Vulnerability`, `DnsRecord`, `MachineNetworkConfig`, `NetworkConfig`         |
+| `wifiTypes.ts`          | `WifiConnection` type (`{ essid, bssid }`) and validator — replaces boolean WiFi state                                                 |
+| `initialNetwork.ts`     | Localhost interface constants: `localhostWlan0Down` (disconnected wlan0) and `localhostDisconnectedInterfaces` (loopback + wlan0 down) |
+| `NetworkContext.tsx`    | React context — imports `useSession`, resolves config per `session.machine`, provides `getMachine`, `getLocalIP`, etc.                 |
+| `networkUtils.ts`       | Pure functions extracted from context: `buildMergedRouterView`, `applySnmpFirewallOverrides`, `applyDaemonOverrides`                   |
+| `iptablesParser.ts`     | Pure parser for router's `/etc/iptables/rules.v4` — extracts `forward <port> to <ip>:<port>` rules into `NatForwardingRule[]`          |
+| `snmpFirewallParser.ts` | Pure parser for SNMP firewall OIDs in `/etc/snmp/snmpd.conf` — maps `firewallSSH`/`firewallHTTP` `permit`/`deny` to port overrides     |
+| `sshdStateParser.ts`    | Pure parser for `/var/run/sshd.pid` — extracts `sshd:port=N` into SSH port override                                                    |
+| `ftpdStateParser.ts`    | Pure parser for `/var/run/ftpd.pid` — extracts `ftpd:port=N` into FTP port override                                                    |
+| `ncStateParser.ts`      | Pure parser for `/var/run/nc-*.pid` — extracts `nc:port=N,user=X,userType=T,home=P` into elite port overrides with owner               |
+| `index.ts`              | Module exports                                                                                                                         |
 
 ## Network Topology
 
-```
-198.51.100.0/24 (Internet)
-│
-├── 198.51.100.10 ─── gateway eth0 (WAN)
-│                     gateway eth1 (LAN) ─── 192.168.1.1
-│                                             │
-│                                        192.168.1.0/24 (Local LAN)
-│                                             ├── 192.168.1.50  fileserver
-│                                             ├── 192.168.1.75  webserver
-│                                             └── 192.168.1.100 localhost (player)
-│
-└── 203.0.113.42 ─── darknet eth0 (Public)
-                      darknet eth1 ─── 10.66.66.100
-                                        │
-                                   10.66.66.0/24 (Hidden Network)
-                                        ├── 10.66.66.1  shadow
-                                        ├── 10.66.66.2  void
-                                        └── 10.66.66.3  abyss
-```
+There is no static network topology. All network machines are procedurally generated:
 
-### Reachability Rules
+- **Home networks** — generated per WiFi connection via `generateHomeNetwork()`. Each provides a private subnet with a router (public IP + internal gateway) and 2-4 machines with varied roles.
+- **Mission networks** — generated per mission seed via `generateMissionNetwork()`. Independent subnets with routers and internal machines.
 
-- **LAN machines** (localhost, gateway, fileserver, webserver) reach each other + darknet via gateway NAT
-- **Darknet** sees only gateway's WAN IP (198.51.100.10) + hidden network — cannot route to 192.168.1.x
-- **Hidden machines** (shadow, void, abyss) only reach each other + darknet's eth1 (10.66.66.100)
-
-## Machines & Services
-
-| Machine    | IP           | Open Ports         | Services                           |
-| ---------- | ------------ | ------------------ | ---------------------------------- |
-| gateway    | 192.168.1.1  | 22, 80, 443        | ssh, http, https                   |
-| fileserver | 192.168.1.50 | 21, 22             | ftp, ssh                           |
-| webserver  | 192.168.1.75 | 22, 80, 3306, 4444 | ssh, http, mysql, elite (backdoor) |
-| darknet    | 203.0.113.42 | 22, 8080, 31337    | ssh, http-alt, elite (backdoor)    |
-| shadow     | 10.66.66.1   | 21, 22             | ftp, ssh                           |
-| void       | 10.66.66.2   | 22                 | ssh                                |
-| abyss      | 10.66.66.3   | 22                 | ssh                                |
-
-## DNS Records (Per-Machine)
-
-**LAN + Darknet DNS** (available to localhost, gateway, fileserver, webserver):
-
-| Domain           | IP           | Type |
-| ---------------- | ------------ | ---- |
-| gateway.local    | 192.168.1.1  | A    |
-| fileserver.local | 192.168.1.50 | A    |
-| webserver.local  | 192.168.1.75 | A    |
-| darknet.ctf      | 203.0.113.42 | A    |
-| www.darknet.ctf  | 203.0.113.42 | A    |
-
-**Hidden DNS** (available to darknet, shadow, void, abyss):
-
-| Domain        | IP         | Type |
-| ------------- | ---------- | ---- |
-| shadow.hidden | 10.66.66.1 | A    |
-| void.hidden   | 10.66.66.2 | A    |
-| abyss.hidden  | 10.66.66.3 | A    |
+Localhost starts disconnected (wlan0 DOWN, no IP). After cracking a WiFi network and connecting, localhost gets a dynamic IP from the home network's subnet and can see that network's machines.
 
 ## Key Types
 
@@ -124,15 +73,14 @@ type RemoteMachine = {
 };
 ```
 
-## Mission Network Integration
+## Network Resolution
 
-`NetworkProvider` accepts `homeNetwork` (active WiFi subnet), `missionNetworkConfig`, and `missionMachines` props. Network config resolution priority:
+`NetworkProvider` accepts `homeNetwork` (active WiFi subnet), `missionNetworkConfig`, `missionMachines`, and `missionRouterMachine` props. Network config resolution priority:
 
 1. **Mission machines** — if the player is SSH'd into a mission machine, its config is returned directly from `missionNetworkConfig`
 2. **Home network machines** — if SSH'd into a home network machine, its config comes from `homeNetwork.networkConfig`
 3. **Localhost + WiFi connected** — shows home network machines with dynamic wlan0 IP from the subnet. If mission also active, mission router is appended to visible machines.
 4. **Localhost + WiFi disconnected** — disconnected interfaces, empty machines, empty DNS
-5. **Fallback** — legacy static network config (unused in normal gameplay)
 
 Mission machines live on dynamically generated subnets (e.g., `10.x.x.0/24`) and only see each other. The entry point is the bridge — reachable from localhost, with the rest of the mission network accessible from there.
 

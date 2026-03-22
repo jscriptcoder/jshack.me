@@ -10,9 +10,7 @@ src/
 │   ├── FileSystemContext.tsx   # React context provider for filesystem operations + patch persistence
 │   ├── fileSystemUtils.ts      # Pure utility functions (path resolution, tree ops, patches, traversal checks)
 │   ├── fileSystemFactory.ts    # Factory for generating machine filesystems
-│   ├── machineFileSystems.ts   # Imports from __encoded.ts, exports Record + MachineId
-│   ├── machines/               # Per-machine filesystem definitions (localhost, fileserver, webserver + gateway)
-│   │   └── __encoded.ts        # GENERATED (gitignored) — encoded trees for production
+│   ├── machineFileSystems.ts   # Exports MachineId type and getDefaultHomePath utility
 │   └── types.ts                # FileNode, FilePermissions, FileSystemPatch types
 ├── secrets/               # Sensitive non-filesystem strings (WiFi password, etc.)
 │   ├── secrets.ts              # Plaintext source (used by encode script + tests)
@@ -42,7 +40,7 @@ src/
 └── App.tsx                # Root component (mission state + wraps Terminal with providers)
 
 scripts/
-└── encode.ts              # Pre-build: encodes filesystems + secrets into __encoded.ts files
+└── encode.ts              # Pre-build: encodes secrets into __encoded.ts file
 
 e2e/
 └── mission-playthrough.spec.ts # Playwright E2E (mission system — SSH/FTP/NC variants + lifecycle)
@@ -84,11 +82,11 @@ Three-layer system:
 | Bricked machines                                        | IndexedDB (`brickedMachines` key)   | Shared  |
 | SSH keys (`~/.ssh_keys`)                                | Filesystem patches (IndexedDB)      | Shared  |
 
-Filesystem persistence uses patches (diffs from base filesystem). Each write/create operation records a `FileSystemPatch` with machineId, path, content, owner, and optional `isNew` flag. Patches are replayed on initialization via `applyPatches()`. Both static and mission filesystem patches are persisted to IndexedDB. On reload with an active mission, mission patches are replayed on top of regenerated filesystems. Mission patches are cleaned up on mission end/transition.
+Filesystem persistence uses patches (diffs from base filesystem). Each write/create operation records a `FileSystemPatch` with machineId, path, content, owner, and optional `isNew` flag. Patches are replayed on initialization via `applyPatches()`. All filesystem patches (localhost, home network, mission) are persisted to IndexedDB. On reload with an active mission, mission patches are replayed on top of regenerated filesystems. Mission patches are cleaned up on mission end/transition.
 
 **Patch-aware deletion**: File creation patches are tagged with `isNew: true`. When deleting a file, if the existing patch has `isNew`, the patch is simply removed (the file never existed in the base filesystem, so no null-content tombstone is needed). Deleting a base filesystem file records a `content: null` patch. The `isNew` flag is preserved through write-after-create sequences by `upsertPatch`.
 
-Mission seed persistence: the active mission seed string is stored in IndexedDB (session store). On reload, the full `MissionNetwork` is regenerated from the seed (deterministic), then any persisted mission patches (apt installs, nano edits, etc.) are replayed on top. Session state (machine, path, stack) persists per-tab via sessionStorage; all filesystem patches (static + mission) persist via IndexedDB.
+Mission seed persistence: the active mission seed string is stored in IndexedDB (session store). On reload, the full `MissionNetwork` is regenerated from the seed (deterministic), then any persisted mission patches (apt installs, nano edits, etc.) are replayed on top. Session state (machine, path, stack) persists per-tab via sessionStorage; all filesystem patches (localhost + home network + mission) persist via IndexedDB.
 
 ## Cross-Tab Sync
 
@@ -154,7 +152,7 @@ Unix-realistic permission model with owner-scoped access and directory traversal
 
 **SSH key persistence**: After the first successful SSH or SCP password authentication, a fingerprint-signed entry (`user@ip:fingerprint`) is saved to `~/.ssh_keys` on the source machine's filesystem. The fingerprint is `md5(user:ip:passwordHash)`, tying each entry to the actual credential — manually crafted entries without the correct fingerprint are rejected. On subsequent SSH/SCP connections, `hasAuthorizedKey` recomputes the expected fingerprint from the remote user's password hash and checks for a match, skipping the password prompt on success. Keys are stored per-user (each user's home directory has its own `.ssh_keys` file), persist via the filesystem patch system (IndexedDB), and sync across tabs via BroadcastChannel. The shared `connectSsh` helper extracts the SSH session setup used by both auto-auth and password-auth paths.
 
-**NAT-aware auth**: For SSH/FTP/SCP, credentials are validated against the NAT-resolved target machine (not the router's merged view). `findMachineUsers(ip)` from `NetworkContext` searches both static and mission network configs, finding internal machines not directly visible from localhost. This prevents router-only users from authenticating on forwarded services. `hydra` also resolves NAT per port before cracking.
+**NAT-aware auth**: For SSH/FTP/SCP, credentials are validated against the NAT-resolved target machine (not the router's merged view). `findMachineUsers(ip)` from `NetworkContext` searches both home network and mission network configs, finding internal machines not directly visible from localhost. This prevents router-only users from authenticating on forwarded services. `hydra` also resolves NAT per port before cracking.
 
 Terminal.tsx triggers auth flows via `startPasswordPrompt()` (from `su` command), `startSshPrompt()` (from SSH async follow-up), `startFtpPrompt()` (from FTP async follow-up), and `startScpPrompt()` (from SCP command). `startSshPrompt` and `startScpPrompt` check for saved keys before entering password mode — if a key exists, they auto-authenticate (SSH: connects immediately; SCP: returns transfer `AsyncOutput` for Terminal to start). Submit handlers receive the current `input` and a `clearInput` callback (state ownership stays in Terminal.tsx).
 
@@ -244,15 +242,15 @@ Unified filesystem-based access model (`src/commands/availability.ts`). All comm
 **Provider hierarchy:**
 
 ```
-SessionProvider → MissionProvider → FileSystemProvider → NetworkProvider → Terminal
+SessionProvider → GameSession (useHomeNetworks, generateLocalhost) → MissionProvider → FileSystemProvider → NetworkProvider → Terminal
 ```
 
-**App.tsx orchestration:** Holds `activeMission` state + `startMission`/`abortMission`/`completeMission` callbacks. Passes mission filesystems, network config, machines, and router machine to their respective providers. On init: checks `storageCache` for persisted seed, regenerates mission if present.
+**App.tsx orchestration:** `GameSession` component generates the localhost filesystem via `generateLocalhost(gameState)` and resolves the active home network via `useHomeNetworks`. Holds `activeMission` state + `startMission`/`abortMission`/`completeMission` callbacks. Passes localhost filesystem, home network filesystems, mission filesystems, network config, machines, and router machine to their respective providers. On init: checks `storageCache` for persisted seed, regenerates mission if present.
 
 **Context integration:**
 
-- `FileSystemContext` accepts optional `missionFileSystems` prop — merges on mission start, removes on end. All patches (static + mission) are persisted to IndexedDB. On initial mount with a persisted mission, cached mission patches are replayed on top of regenerated filesystems. On mission end/transition, mission patches are cleaned up from state.
-- `NetworkContext` accepts optional `missionNetworkConfig`, `missionMachines`, `missionRouterMachine` props. Checks mission config first, then static. `resolveNat(ip, port)` translates router public IP + port to internal machine IP + port based on iptables rules parsed dynamically from the router's filesystem. `findMachineUsers(ip)` searches both configs.
+- `FileSystemContext` accepts a `localhostFileSystem` prop (generated at runtime) and optional `missionFileSystems` and `homeFileSystems` props — merges on mission/WiFi start, removes on end. All patches (localhost + home network + mission) are persisted to IndexedDB. On initial mount with a persisted mission, cached mission patches are replayed on top of regenerated filesystems. On mission end/transition, mission patches are cleaned up from state.
+- `NetworkContext` accepts optional `missionNetworkConfig`, `missionMachines`, `missionRouterMachine`, and `homeNetwork` props. Checks mission config first, then home network. No static network config exists — everything comes from home networks or missions. `resolveNat(ip, port)` translates router public IP + port to internal machine IP + port based on iptables rules parsed dynamically from the router's filesystem. `findMachineUsers(ip)` searches both configs.
 
 **Mission commands:** `missions()` (browse contracts), `accept(seed)` (generate + start), `abort()` (pop all sessions, clear state), `mail(recipient, content)` (submit proof, verify by objective type, calls `completeMission()`).
 

@@ -2,11 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { IntroScreen } from './IntroScreen';
 
-const fillForm = (
-  hostname: string,
-  username: string,
-  password: string,
-) => {
+const fillForm = (hostname: string, username: string, password: string) => {
   fireEvent.click(screen.getByText('NEW GAME'));
   fireEvent.change(screen.getByPlaceholderText('my-machine'), { target: { value: hostname } });
   fireEvent.change(screen.getByPlaceholderText('hacker'), { target: { value: username } });

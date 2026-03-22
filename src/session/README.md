@@ -14,15 +14,15 @@ Single source of truth for all terminal session state. Manages the current user,
 
 ```typescript
 type Session = {
-  readonly username: string; // Current user (e.g., "jshacker")
+  readonly username: string; // Current user (player-chosen, e.g., "jshacker")
   readonly userType: UserType; // 'root' | 'user' | 'guest'
   readonly machine: string; // Current machine (e.g., "localhost", "192.168.1.75")
-  readonly currentPath: string; // Working directory (e.g., "/home/jshacker")
+  readonly currentPath: string; // Working directory (e.g., "/home/<username>")
   readonly theme: ThemeId; // Terminal color theme ('amber' | 'green' | 'cyan' | 'light')
 };
 ```
 
-Default session: `jshacker@localhost:/home/jshacker` (user type: `user`, theme: `amber`).
+Default session: `<username>@localhost:/home/<username>` (user type: `user`, theme: `amber`). Username is player-chosen via the intro screen.
 
 ## Connection Modes
 
@@ -80,8 +80,8 @@ type NcSession = {
 
 Session state uses a split storage model:
 
-- **sessionStorage** (per-tab): Session (machine, username, userType, currentPath, theme), session stack (SSH history), FTP session, NC session. Each browser tab gets an independent session — new tabs start fresh at `localhost /home/jshacker`.
-- **IndexedDB** (shared): WiFi connection (`wifiConnected` key — stores `WifiConnection | null`, i.e., `{ essid, bssid }` or `null`), game state (`gameState` key — stores `{ seed, workstationName }`). Shared across all tabs so cracking WiFi in one tab enables network access everywhere. WiFi state is a standalone `useState<WifiConnection | null>` in `SessionProvider`, not part of the `Session` type. `wifiConnected` boolean is derived as `connectedWifi !== null`.
+- **sessionStorage** (per-tab): Session (machine, username, userType, currentPath, theme), session stack (SSH history), FTP session, NC session. Each browser tab gets an independent session — new tabs start fresh at `localhost /home/<username>`.
+- **IndexedDB** (shared): WiFi connection (`wifiConnected` key — stores `WifiConnection | null`, i.e., `{ essid, bssid }` or `null`), game state (`gameState` key — stores `{ seed, workstationName, username, rootPassword }`). Shared across all tabs so cracking WiFi in one tab enables network access everywhere. WiFi state is a standalone `useState<WifiConnection | null>` in `SessionProvider`, not part of the `Session` type. `wifiConnected` boolean is derived as `connectedWifi !== null`.
 
 Validated with type guards on restore. Falls back to defaults if invalid or corrupted.
 

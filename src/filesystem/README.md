@@ -8,8 +8,7 @@ Virtual Unix-like filesystem for the hacking terminal. Each machine (localhost a
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `types.ts`              | Core types: `FileNode`, `FilePermissions`, `FileSystemPatch`                                                                                                                                                                                                            |
 | `fileSystemFactory.ts`  | `createFileSystem(config)` — generates a standard directory tree (`/root`, `/home`, `/etc`, `/var`, `/tmp`, `/boot`, `/bin`, `/usr/bin`) from a `MachineFileSystemConfig`. Uses `mergeExtraDirectories()` to safely merge `extraDirectories` with factory-created dirs. |
-| `machineFileSystems.ts` | Thin assembly — imports from `machines/`, exports `machineFileSystems` Record, `MachineId` type, and `getDefaultHomePath`. Gateway filesystem defined inline with `/bin/` (system utilities) and empty `/usr/bin/`.                                                     |
-| `machines/`             | Per-machine filesystem definitions: `localhost.ts`, `fileserver.ts`, `webserver.ts` (each exports a `FileNode`). Localhost includes `/bin/` (system utilities) and `/usr/bin/` (apt-installable tools) via binary stubs.                                                |
+| `machineFileSystems.ts` | Lightweight utility — exports `MachineId` type and `getDefaultHomePath` helper. No static machine filesystems (all generated at runtime).                                                                                                                               |
 | `fileSystemUtils.ts`    | Pure utility functions: path resolution (`normalizePath`, `resolvePath`), immutable tree operations (`getNodeAtPath`, `updateNodeAtPath`, `addChildAtPath`, `removeChildAtPath`), patch helpers (`upsertPatch`, `applyPatches`, `isValidPatch`)                         |
 | `FileSystemContext.tsx` | React context provider wiring `fileSystemUtils` with React state, IndexedDB persistence, and cross-tab sync                                                                                                                                                             |
 | `index.ts`              | Module exports                                                                                                                                                                                                                                                          |
@@ -47,20 +46,19 @@ type FileNode = {
 
 ### Machines
 
-| Machine    | IP            | Key Content                                                                 |
-| ---------- | ------------- | --------------------------------------------------------------------------- |
-| localhost  | 192.168.1.100 | Starting machine, all tools pre-installed in `/bin/` and `/usr/bin/`        |
-| gateway    | 192.168.1.1   | Static border router, system utilities in `/bin/`, empty `/usr/bin/`        |
-| fileserver | 192.168.1.50  | FTP/SSH file server (ports 21, 22), `/srv/ftp/` content tree                |
-| webserver  | 192.168.1.75  | Web server with NC backdoor (ports 22, 80, 3306, 4444), `/var/www/` content |
+All machine filesystems are generated at runtime — there are no static machine definitions:
 
-### Mission Filesystem Integration
+- **localhost** — generated via `generateLocalhost(gameState)` in `src/generation/generateLocalhost.ts`. Users, home directory, and root password derived from the player's game state. Pre-installed tools in `/bin/` and `/usr/bin/`.
+- **Home network machines** — generated per WiFi connection via `generateHomeNetwork()`. Roles: webserver, database, fileserver, workstation.
+- **Mission machines** — generated per mission seed via `generateMissionNetwork()`.
 
-`FileSystemProvider` accepts an optional `missionFileSystems` prop. When a mission is active, mission machine filesystems are merged into state alongside static machines. When the mission ends, they're removed. `MachineId` is typed as `string` to accommodate both static IPs and dynamically generated mission IPs.
+### Filesystem Integration
+
+`FileSystemProvider` accepts a `localhostFileSystem` prop (generated at runtime) and optional `missionFileSystems` and `homeFileSystems` props. When a mission or home network is active, their machine filesystems are merged into state alongside localhost. When they end, they're removed. `MachineId` is typed as `string` to accommodate dynamically generated IPs.
 
 ### Persistence
 
-User-created/modified files are persisted as patches in IndexedDB (`jshack-db` database, `filesystem` store). On init, patches are replayed on top of the base filesystem. Only the diff is stored — clearing the database resets to factory state. Both static and mission filesystem patches are persisted. On reload with an active mission, the mission is regenerated from its seed and mission patches are replayed on top. Mission patches are cleaned up on mission end/transition.
+User-created/modified files are persisted as patches in IndexedDB (`jshack-db` database, `filesystem` store). On init, patches are replayed on top of the base filesystem. Only the diff is stored — clearing the database resets to factory state. All filesystem patches (localhost, home network, mission) are persisted. On reload with an active mission, the mission is regenerated from its seed and mission patches are replayed on top. Mission patches are cleaned up on mission end/transition.
 
 ### Permission System
 
