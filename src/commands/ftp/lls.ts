@@ -41,7 +41,7 @@ export const createFtpLlsCommand = (context: FtpLlsContext): Command => ({
       { command: 'lls()', description: 'List current local directory' },
       { command: 'lls("-a")', description: 'List all files including hidden ones' },
       { command: 'lls("-l")', description: 'Long listing with permissions and owner' },
-      { command: 'lls("/home/jshacker")', description: 'List /home/jshacker on local machine' },
+      { command: 'lls("/home")', description: 'List /home on local machine' },
     ],
   },
   fn: (...args: unknown[]): string => {

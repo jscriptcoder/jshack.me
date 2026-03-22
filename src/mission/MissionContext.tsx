@@ -3,9 +3,10 @@ import type { MissionNetwork } from '../generation/types';
 import type { MissionState } from './useMissionState';
 import { useSession } from '../session/SessionContext';
 
-// Static machines that exist outside of missions — used to detect if the
+// Persistent machines that exist outside of missions — used to detect if the
 // session is on a mission machine when a cross-tab mission abort arrives.
-const STATIC_MACHINES = new Set(['localhost', '192.168.1.100', '192.168.1.1']);
+// Only localhost persists; home network machines are dynamic per WiFi connection.
+const PERSISTENT_MACHINES = new Set(['localhost']);
 
 type MissionContextValue = {
   readonly activeMission: MissionNetwork | null;
@@ -36,7 +37,7 @@ export const MissionProvider = ({ children, state }: MissionProviderProps) => {
     const isMissionNowInactive = state.activeMission === null;
     prevMissionRef.current = state.activeMission;
 
-    if (wasMissionActive && isMissionNowInactive && !STATIC_MACHINES.has(session.machine)) {
+    if (wasMissionActive && isMissionNowInactive && !PERSISTENT_MACHINES.has(session.machine)) {
       popAllSessions();
     }
   }, [state.activeMission, session.machine, popAllSessions]);

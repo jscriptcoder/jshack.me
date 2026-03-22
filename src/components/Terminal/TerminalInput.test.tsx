@@ -7,7 +7,7 @@ import { SessionProvider } from '../../session/SessionContext';
 // --- Test Wrapper ---
 
 const renderWithSession = (ui: React.ReactElement) => {
-  return render(<SessionProvider>{ui}</SessionProvider>);
+  return render(<SessionProvider username="testuser">{ui}</SessionProvider>);
 };
 
 // --- Factory Functions ---
@@ -31,7 +31,7 @@ describe('TerminalInput', () => {
 
       renderWithSession(<TerminalInput {...props} />);
 
-      expect(screen.getByText('jshacker@localhost>')).toBeInTheDocument();
+      expect(screen.getByText('testuser@localhost>')).toBeInTheDocument();
     });
 
     it('should hide prompt in username prompt mode', () => {
@@ -39,7 +39,7 @@ describe('TerminalInput', () => {
 
       renderWithSession(<TerminalInput {...props} />);
 
-      expect(screen.queryByText('jshacker@localhost>')).not.toBeInTheDocument();
+      expect(screen.queryByText('testuser@localhost>')).not.toBeInTheDocument();
     });
 
     it('should hide prompt in password prompt mode', () => {
@@ -47,7 +47,7 @@ describe('TerminalInput', () => {
 
       renderWithSession(<TerminalInput {...props} />);
 
-      expect(screen.queryByText('jshacker@localhost>')).not.toBeInTheDocument();
+      expect(screen.queryByText('testuser@localhost>')).not.toBeInTheDocument();
     });
 
     it('should style prompt with theme dim color', () => {
@@ -55,7 +55,7 @@ describe('TerminalInput', () => {
 
       renderWithSession(<TerminalInput {...props} />);
 
-      const prompt = screen.getByText('jshacker@localhost>');
+      const prompt = screen.getByText('testuser@localhost>');
       expect(prompt).toHaveStyle({ color: 'var(--theme-text-dim)' });
     });
   });

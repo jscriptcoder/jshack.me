@@ -10,7 +10,7 @@ import {
 } from 'react';
 import type { FileNode, FilePermissions, FileSystemPatch, PermissionResult } from './types';
 import { useSession, type UserType } from '../session/SessionContext';
-import { machineFileSystems, getDefaultHomePath, type MachineId } from './machineFileSystems';
+import { getDefaultHomePath, type MachineId } from './machineFileSystems';
 import { getCachedFilesystemPatches, getDatabase } from '../utils/storageCache';
 import { saveFilesystemPatches } from '../utils/storage';
 import { createSyncChannel, type SyncMessage } from '../utils/crossTabSync';
@@ -114,57 +114,25 @@ type FileSystemContextValue = {
 
 const FileSystemContext = createContext<FileSystemContextValue | null>(null);
 
-const STATIC_MACHINE_KEYS = new Set(Object.keys(machineFileSystems));
-
-const initializeFileSystems = (): FileSystemsState =>
-  applyPatches({ ...machineFileSystems }, getCachedFilesystemPatches());
+// Only localhost persists across WiFi/mission transitions
+const PERSISTENT_MACHINE_KEYS = new Set(['localhost']);
 
 type FileSystemProviderProps = {
   readonly children: ReactNode;
+  readonly localhostFileSystem: FileNode;
   readonly missionFileSystems?: Readonly<Record<string, FileNode>>;
   readonly homeFileSystems?: Readonly<Record<string, FileNode>>;
-  readonly workstationName?: string;
-};
-
-// Apply workstation name to localhost /etc/hostname if provided
-const applyWorkstationName = (
-  state: FileSystemsState,
-  name: string | undefined,
-): FileSystemsState => {
-  if (!name) return state;
-  const localhost = state.localhost;
-  if (!localhost || localhost.type !== 'directory') return state;
-  const etc = localhost.children?.etc;
-  if (!etc || etc.type !== 'directory') return state;
-  const hostname = etc.children?.hostname;
-  if (!hostname || hostname.type !== 'file') return state;
-  return {
-    ...state,
-    localhost: {
-      ...localhost,
-      children: {
-        ...localhost.children,
-        etc: {
-          ...etc,
-          children: {
-            ...etc.children,
-            hostname: { ...hostname, content: `${name}\n` },
-          },
-        },
-      },
-    },
-  };
 };
 
 export const FileSystemProvider = ({
   children,
+  localhostFileSystem,
   missionFileSystems,
   homeFileSystems,
-  workstationName,
 }: FileSystemProviderProps) => {
   const { session } = useSession();
   const [fileSystems, setFileSystems] = useState<FileSystemsState>(() =>
-    applyWorkstationName(initializeFileSystems(), workstationName),
+    applyPatches({ localhost: localhostFileSystem }, getCachedFilesystemPatches()),
   );
   const [patches, setPatches] = useState<readonly FileSystemPatch[]>(getCachedFilesystemPatches);
   // Create channel inside effect so StrictMode's cleanup + re-run cycle gets
@@ -227,12 +195,12 @@ export const FileSystemProvider = ({
     // On runtime mission transitions (not initial mount), clean up old mission
     // patches — they belong to the previous mission and shouldn't carry over.
     if (!isInitialMissionMount.current) {
-      setPatches((prev) => prev.filter((p) => STATIC_MACHINE_KEYS.has(p.machineId)));
+      setPatches((prev) => prev.filter((p) => PERSISTENT_MACHINE_KEYS.has(p.machineId)));
     }
 
     setFileSystems((prev) => {
       const staticOnly = Object.fromEntries(
-        Object.entries(prev).filter(([key]) => STATIC_MACHINE_KEYS.has(key)),
+        Object.entries(prev).filter(([key]) => PERSISTENT_MACHINE_KEYS.has(key)),
       );
 
       // Layer: static (localhost) + home network + mission network
@@ -249,7 +217,7 @@ export const FileSystemProvider = ({
       if (isInitialMissionMount.current) {
         isInitialMissionMount.current = false;
         const dynamicPatches = cachedPatchesAtMount.filter(
-          (p) => !STATIC_MACHINE_KEYS.has(p.machineId),
+          (p) => !PERSISTENT_MACHINE_KEYS.has(p.machineId),
         );
         if (dynamicPatches.length > 0) {
           return applyPatches(merged, dynamicPatches);

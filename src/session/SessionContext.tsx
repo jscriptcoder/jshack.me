@@ -19,7 +19,7 @@ import { THEMES } from '../theme/themes';
 import type { ThemeId } from '../theme/themes';
 import { applyTheme } from '../theme/applyTheme';
 import { createSyncChannel, type SyncMessage } from '../utils/crossTabSync';
-import { defaultSession, normalizeSession, normalizeSnapshot } from './sessionUtils';
+import { createDefaultSession, normalizeSession, normalizeSnapshot } from './sessionUtils';
 
 // Re-export for backward compatibility — consumed by storage.ts
 export { isValidPersistedState } from './sessionUtils';
@@ -109,7 +109,7 @@ type SessionContextValue = {
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
-const getInitialState = (): PersistedState => {
+const getInitialState = (username: string): PersistedState => {
   const persisted = getCachedSessionState();
   if (persisted) {
     return {
@@ -125,7 +125,7 @@ const getInitialState = (): PersistedState => {
     };
   }
   return {
-    session: defaultSession,
+    session: createDefaultSession(username),
     sessionStack: [],
     ftpSession: null,
     ncSession: null,
@@ -135,10 +135,11 @@ const getInitialState = (): PersistedState => {
 type SessionProviderProps = {
   readonly children: ReactNode;
   readonly workstationName?: string;
+  readonly username: string;
 };
 
-export const SessionProvider = ({ children, workstationName }: SessionProviderProps) => {
-  const [initialState] = useState(getInitialState);
+export const SessionProvider = ({ children, workstationName, username }: SessionProviderProps) => {
+  const [initialState] = useState(() => getInitialState(username));
   const [session, setSession] = useState<Session>(initialState.session);
   const [connectedWifi, setConnectedWifiState] = useState<WifiConnection | null>(
     getCachedWifiState,
@@ -156,6 +157,9 @@ export const SessionProvider = ({ children, workstationName }: SessionProviderPr
   // a fresh (open) channel. The ref is updated so broadcast calls always use
   // the currently-active channel.
   const syncChannelRef = useRef<ReturnType<typeof createSyncChannel> | null>(null);
+  // Stable ref for username — avoids re-creating the BroadcastChannel effect
+  const usernameRef = useRef(username);
+  usernameRef.current = username;
 
   // Subscribe to WiFi and theme changes from other tabs.
   // BroadcastChannel does not deliver messages to the posting tab, so no echo guard needed.
@@ -167,11 +171,12 @@ export const SessionProvider = ({ children, workstationName }: SessionProviderPr
         setConnectedWifiState(message.connection);
         if (!message.connection) {
           // When another tab disconnects WiFi, reset this tab to localhost too
+          const u = usernameRef.current;
           setSession((prev) => ({
-            username: 'jshacker',
+            username: u,
             userType: 'user' as const,
             machine: 'localhost',
-            currentPath: prev.machine === 'localhost' ? prev.currentPath : '/home/jshacker',
+            currentPath: prev.machine === 'localhost' ? prev.currentPath : `/home/${u}`,
             theme: prev.theme,
           }));
           setSessionStack([]);
@@ -356,15 +361,16 @@ export const SessionProvider = ({ children, workstationName }: SessionProviderPr
   // (the state before the first SSH), or uses the current path if already on localhost.
   const disconnectWifi = useCallback(() => {
     setConnectedWifiState(null);
+    const defaultHome = `/home/${username}`;
     setSession((prev) => {
       const localhostPath =
         sessionStack.length > 0
-          ? (sessionStack[0]?.currentPath ?? defaultSession.currentPath)
+          ? (sessionStack[0]?.currentPath ?? defaultHome)
           : prev.machine === 'localhost'
             ? prev.currentPath
-            : defaultSession.currentPath;
+            : defaultHome;
       return {
-        username: 'jshacker',
+        username,
         userType: 'user' as const,
         machine: 'localhost',
         currentPath: localhostPath,
@@ -380,7 +386,7 @@ export const SessionProvider = ({ children, workstationName }: SessionProviderPr
       saveWifiState(db, null);
     }
     syncChannelRef.current?.broadcast({ type: 'wifi-changed', connection: null });
-  }, [sessionStack]);
+  }, [sessionStack, username]);
 
   return (
     <SessionContext.Provider

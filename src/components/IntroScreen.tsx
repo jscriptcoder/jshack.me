@@ -9,6 +9,9 @@ type IntroScreenProps = {
 
 type Screen = 'menu' | 'new-game';
 
+const RESERVED_USERNAMES = new Set(['root', 'guest', 'admin', 'daemon', 'bin', 'sys', 'nobody']);
+const HOSTNAME_REGEX = /^[a-z0-9][-a-z0-9]*[a-z0-9]$|^[a-z0-9]$/;
+
 const MenuButton = ({
   onClick,
   children,
@@ -39,21 +42,46 @@ const MenuButton = ({
   </button>
 );
 
+const validateHostname = (value: string): string | null => {
+  if (!value) return 'Enter a name for your workstation';
+  if (value.length > 24) return 'Name must be 24 characters or less';
+  if (!HOSTNAME_REGEX.test(value)) return 'Use letters, numbers, and hyphens only';
+  return null;
+};
+
+const validateUsername = (value: string): string | null => {
+  if (!value) return 'Enter a username';
+  if (value.length > 24) return 'Username must be 24 characters or less';
+  if (!/^[a-z][a-z0-9_-]*$/.test(value))
+    return 'Start with a letter, then letters, numbers, hyphens, or underscores';
+  if (RESERVED_USERNAMES.has(value)) return `"${value}" is a reserved system name`;
+  return null;
+};
+
+const validatePassword = (value: string): string | null => {
+  if (value.length < 4) return 'Password must be at least 4 characters';
+  return null;
+};
+
 export const IntroScreen = ({ existingGame, onStart }: IntroScreenProps) => {
   const [screen, setScreen] = useState<Screen>('menu');
-  const [name, setName] = useState('');
+  const [hostname, setHostname] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
+  const firstInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (screen === 'new-game') {
-      inputRef.current?.focus();
+      firstInputRef.current?.focus();
     }
   }, [screen]);
 
   const handleNewGame = useCallback(() => {
     setScreen('new-game');
-    setName('');
+    setHostname('');
+    setUsername('');
+    setPassword('');
     setError('');
   }, []);
 
@@ -64,33 +92,51 @@ export const IntroScreen = ({ existingGame, onStart }: IntroScreenProps) => {
   }, [existingGame, onStart]);
 
   const handleSubmit = useCallback(() => {
-    const trimmed = name.trim().toLowerCase().replace(/\s+/g, '-');
-    if (!trimmed) {
-      setError('Enter a name for your workstation');
+    const trimmedHostname = hostname.trim().toLowerCase().replace(/\s+/g, '-');
+    const trimmedUsername = username.trim().toLowerCase().replace(/\s+/g, '');
+
+    const hostnameError = validateHostname(trimmedHostname);
+    if (hostnameError) {
+      setError(hostnameError);
       return;
     }
-    if (trimmed.length > 24) {
-      setError('Name must be 24 characters or less');
+
+    const usernameError = validateUsername(trimmedUsername);
+    if (usernameError) {
+      setError(usernameError);
       return;
     }
-    if (!/^[a-z0-9][-a-z0-9]*[a-z0-9]$|^[a-z0-9]$/.test(trimmed)) {
-      setError('Use letters, numbers, and hyphens only');
+
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      setError(passwordError);
       return;
     }
-    onStart({ seed: generateGameSeed(), workstationName: trimmed }, true);
-  }, [name, onStart]);
+
+    onStart(
+      {
+        seed: generateGameSeed(),
+        workstationName: trimmedHostname,
+        username: trimmedUsername,
+        rootPassword: password,
+      },
+      true,
+    );
+  }, [hostname, username, password, onStart]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter') {
-        handleSubmit();
-      }
-      if (e.key === 'Escape') {
-        setScreen('menu');
-      }
+      if (e.key === 'Enter') handleSubmit();
+      if (e.key === 'Escape') setScreen('menu');
     },
     [handleSubmit],
   );
+
+  const inputStyle = {
+    borderColor: 'var(--theme-text-dim)',
+    color: 'var(--theme-text-bright)',
+    caretColor: 'var(--theme-caret)',
+  };
 
   return (
     <div className="flex h-full flex-col items-center justify-center p-4 font-mono">
@@ -105,12 +151,14 @@ export const IntroScreen = ({ existingGame, onStart }: IntroScreenProps) => {
         <div className="mt-2 h-px w-full" style={{ backgroundColor: 'var(--theme-text-dim)' }} />
       </div>
 
-      {/* Tagline */}
+      {/* Tagline — contextual per screen */}
       <p className="mb-8 text-base tracking-wide" style={{ color: 'var(--theme-text-dim)' }}>
-        Hack the network. Complete the contract. Get paid.
+        {screen === 'menu'
+          ? 'Hack the network. Complete the contract. Get paid.'
+          : 'Configure your workstation.'}
       </p>
 
-      {/* Intro text + buttons — only on menu screen */}
+      {/* Menu screen */}
       {screen === 'menu' && (
         <div className="flex max-w-lg flex-col items-center">
           <div
@@ -118,9 +166,9 @@ export const IntroScreen = ({ existingGame, onStart }: IntroScreenProps) => {
             style={{ color: 'var(--theme-text-dim)' }}
           >
             <p className="mb-4">
-              You are <span style={{ color: 'var(--theme-text)' }}>jshacker</span>, a freelance
-              operator working from a personal workstation. Your WiFi card can reach several
-              networks, each hiding its own machines. Crack in, explore, and install your toolkit.
+              You are a freelance operator working from a personal workstation. Your WiFi card can
+              reach several networks, each hiding its own machines. Crack in, explore, and install
+              your toolkit.
             </p>
             <p className="mb-4">
               When you are ready, browse the darknet marketplace for contracts. Every job is a new
@@ -136,45 +184,90 @@ export const IntroScreen = ({ existingGame, onStart }: IntroScreenProps) => {
         </div>
       )}
 
+      {/* New game form — all fields on one screen */}
       {screen === 'new-game' && (
-        <div className="flex flex-col items-center gap-4">
-          <label className="text-base" style={{ color: 'var(--theme-text-dim)' }}>
-            Name your workstation:
-          </label>
-          <div className="flex items-center gap-2">
-            <span className="text-sm" style={{ color: 'var(--theme-text-dim)' }}>
-              jshacker@
-            </span>
+        <div className="flex flex-col items-center gap-5">
+          <div
+            className="grid items-center gap-x-4 gap-y-3"
+            style={{ gridTemplateColumns: 'auto 1fr' }}
+          >
+            {/* Hostname */}
+            <label className="text-right text-sm" style={{ color: 'var(--theme-text-dim)' }}>
+              Workstation
+            </label>
             <input
-              ref={inputRef}
+              ref={firstInputRef}
               type="text"
-              value={name}
+              value={hostname}
               onChange={(e) => {
-                setName(e.target.value);
+                setHostname(e.target.value);
                 setError('');
               }}
               onKeyDown={handleKeyDown}
               placeholder="my-machine"
               maxLength={24}
-              className="border-b bg-transparent px-1 py-0.5 font-mono text-sm outline-none"
-              style={{
-                borderColor: 'var(--theme-text-dim)',
-                color: 'var(--theme-text-bright)',
-                caretColor: 'var(--theme-caret)',
-              }}
+              className="w-48 border-b bg-transparent px-1 py-0.5 font-mono text-sm outline-none"
+              style={inputStyle}
               autoComplete="off"
               spellCheck={false}
             />
-            <span className="text-sm" style={{ color: 'var(--theme-text-dim)' }}>
-              &gt;
-            </span>
+
+            {/* Username */}
+            <label className="text-right text-sm" style={{ color: 'var(--theme-text-dim)' }}>
+              Username
+            </label>
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => {
+                setUsername(e.target.value);
+                setError('');
+              }}
+              onKeyDown={handleKeyDown}
+              placeholder="hacker"
+              maxLength={24}
+              className="w-48 border-b bg-transparent px-1 py-0.5 font-mono text-sm outline-none"
+              style={inputStyle}
+              autoComplete="off"
+              spellCheck={false}
+            />
+
+            {/* Root password */}
+            <label className="text-right text-sm" style={{ color: 'var(--theme-text-dim)' }}>
+              Root password
+            </label>
+            <input
+              type="text"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setError('');
+              }}
+              onKeyDown={handleKeyDown}
+              placeholder="password"
+              className="w-48 border-b bg-transparent px-1 py-0.5 font-mono text-sm outline-none"
+              style={inputStyle}
+              autoComplete="off"
+              spellCheck={false}
+            />
           </div>
+
+          {/* Preview */}
+          {hostname.trim() && username.trim() && (
+            <p className="text-sm" style={{ color: 'var(--theme-text-dim)' }}>
+              <span style={{ color: 'var(--theme-text)' }}>
+                {username.trim().toLowerCase()}@{hostname.trim().toLowerCase().replace(/\s+/g, '-')}
+              </span>
+              &gt;
+            </p>
+          )}
+
           {error && (
             <p className="text-xs" style={{ color: 'var(--theme-error)' }}>
               {error}
             </p>
           )}
-          <div className="mt-2 flex gap-4">
+          <div className="mt-1 flex gap-4">
             <MenuButton onClick={() => setScreen('menu')} dim>
               BACK
             </MenuButton>

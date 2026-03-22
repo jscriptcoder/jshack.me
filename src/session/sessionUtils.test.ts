@@ -7,7 +7,7 @@ import {
   isValidFtpSession,
   isValidNcSession,
   isValidPersistedState,
-  defaultSession,
+  createDefaultSession,
   normalizeSession,
   normalizeSnapshot,
 } from './sessionUtils';
@@ -205,15 +205,21 @@ describe('isValidPersistedState', () => {
   });
 });
 
-describe('defaultSession', () => {
+describe('createDefaultSession', () => {
   it('has the expected default values', () => {
-    expect(defaultSession).toEqual({
+    expect(createDefaultSession('jshacker')).toEqual({
       username: 'jshacker',
       userType: 'user',
       machine: 'localhost',
       currentPath: '/home/jshacker',
       theme: 'amber',
     });
+  });
+
+  it('uses the provided username', () => {
+    const session = createDefaultSession('testuser');
+    expect(session.username).toBe('testuser');
+    expect(session.currentPath).toBe('/home/testuser');
   });
 });
 

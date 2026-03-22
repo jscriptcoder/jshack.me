@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { Terminal } from './components/Terminal';
 import { IntroScreen } from './components/IntroScreen';
 import { BootScreen } from './components/BootScreen';
@@ -9,19 +9,21 @@ import { MissionProvider, useMissionState } from './mission';
 import { getCachedGameState, getDatabase, resetSessionCache } from './utils/storageCache';
 import { saveGameState, clearAllData } from './utils/storage';
 import { useHomeNetworks } from './game/useHomeNetworks';
+import { generateLocalhost } from './generation/generateLocalhost';
 import type { GameState } from './game/types';
 
 function GameSession({ gameState }: { readonly gameState: GameState }) {
   const { connectedWifi } = useSession();
   const missionState = useMissionState();
   const { activeNetwork } = useHomeNetworks(gameState.seed, connectedWifi);
+  const localhostResult = useMemo(() => generateLocalhost(gameState), [gameState]);
 
   return (
     <MissionProvider state={missionState}>
       <FileSystemProvider
+        localhostFileSystem={localhostResult.fileSystem}
         missionFileSystems={missionState.activeMission?.fileSystems}
         homeFileSystems={activeNetwork?.fileSystems}
-        workstationName={gameState.workstationName}
       >
         <NetworkProvider
           missionNetworkConfig={missionState.activeMission?.networkConfig}
@@ -68,12 +70,16 @@ function App() {
 
   if (screen === 'booting') {
     return (
-      <BootScreen workstationName={gameState.workstationName} onComplete={handleBootComplete} />
+      <BootScreen
+        workstationName={gameState.workstationName}
+        username={gameState.username}
+        onComplete={handleBootComplete}
+      />
     );
   }
 
   return (
-    <SessionProvider workstationName={gameState.workstationName}>
+    <SessionProvider workstationName={gameState.workstationName} username={gameState.username}>
       <GameSession gameState={gameState} />
     </SessionProvider>
   );
