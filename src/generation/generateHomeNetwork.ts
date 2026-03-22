@@ -22,6 +22,7 @@ import {
   logTemplates,
   noiseFiles,
   passwords,
+  webContentTemplatesByRole,
 } from './pools';
 import {
   createBinaryEntries,
@@ -143,6 +144,70 @@ const buildMachineFilesystem = (
     u.userType === 'user' ? { ...u, homeContent: userHomeContent } : u,
   );
 
+  // Generate web content for machines with open HTTP ports
+  const ports = portTemplatesByRole[role];
+  const hasOpenHttpPort = ports.some(
+    (p) => p.open && (p.service === 'http' || p.service === 'https' || p.service === 'http-alt'),
+  );
+
+  const webDirectory: Readonly<Record<string, FileNode>> = hasOpenHttpPort
+    ? (() => {
+        const template = prng.pick(webContentTemplatesByRole[role]);
+        const indexContent = template.content
+          .replace(/\{\{hostname\}\}/g, hostname)
+          .replace(/\{\{ip\}\}/g, ip);
+        return {
+          var: {
+            name: 'var',
+            type: 'directory' as const,
+            owner: 'root' as const,
+            permissions: {
+              read: ['root' as const, 'user' as const, 'guest' as const],
+              write: ['root' as const],
+              execute: ['root' as const, 'user' as const, 'guest' as const],
+            },
+            children: {
+              www: {
+                name: 'www',
+                type: 'directory' as const,
+                owner: 'root' as const,
+                permissions: {
+                  read: ['root' as const, 'user' as const, 'guest' as const],
+                  write: ['root' as const],
+                  execute: ['root' as const, 'user' as const, 'guest' as const],
+                },
+                children: {
+                  html: {
+                    name: 'html',
+                    type: 'directory' as const,
+                    owner: 'root' as const,
+                    permissions: {
+                      read: ['root' as const, 'user' as const, 'guest' as const],
+                      write: ['root' as const],
+                      execute: ['root' as const, 'user' as const, 'guest' as const],
+                    },
+                    children: {
+                      'index.html': {
+                        name: 'index.html',
+                        type: 'file' as const,
+                        owner: 'root' as const,
+                        permissions: {
+                          read: ['root' as const, 'user' as const, 'guest' as const],
+                          write: ['root' as const],
+                          execute: ['root' as const],
+                        },
+                        content: indexContent,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        };
+      })()
+    : {};
+
   const config: MachineFileSystemConfig = {
     users: usersWithHome,
     etcExtraContent: {
@@ -168,6 +233,7 @@ const buildMachineFilesystem = (
       },
     },
     extraDirectories: {
+      ...webDirectory,
       opt: {
         name: 'opt',
         type: 'directory',
