@@ -78,7 +78,7 @@ export const createVsftpdCommand = (context: VsftpdContext): Command => ({
   category: 'network',
   description: 'vsftpd FTP server daemon',
   manual: {
-    synopsis: 'vsftpd(`[port])',
+    synopsis: 'vsftpd([port])',
     description:
       'Start the vsftpd FTP server daemon. ' +
       'Listens for FTP connections on the specified port (default 21). ' +

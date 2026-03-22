@@ -78,7 +78,7 @@ export const createSshdCommand = (context: SshdContext): Command => ({
   category: 'network',
   description: 'OpenSSH server daemon',
   manual: {
-    synopsis: 'sshd(port?)',
+    synopsis: 'sshd([port])',
     description:
       'Start the OpenSSH server daemon. ' +
       'Listens for SSH connections on the specified port (default 22). ' +
