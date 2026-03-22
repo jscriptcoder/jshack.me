@@ -89,7 +89,14 @@ describe('wrapInBinaryNoise', () => {
 
 describe('binary path pools', () => {
   it('binaryTargetPaths has entries for all roles', () => {
-    const roles = ['webserver', 'database', 'fileserver', 'workstation', 'router'] as const;
+    const roles = [
+      'webserver',
+      'database',
+      'fileserver',
+      'workstation',
+      'mailserver',
+      'router',
+    ] as const;
     roles.forEach((role) => {
       expect(binaryTargetPaths[role].length).toBeGreaterThan(0);
     });

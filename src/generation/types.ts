@@ -1,7 +1,13 @@
 import type { FileNode } from '../filesystem/types';
 import type { NetworkConfig, RemoteMachine } from '../network/types';
 
-export type MachineRole = 'webserver' | 'database' | 'fileserver' | 'workstation' | 'router';
+export type MachineRole =
+  | 'webserver'
+  | 'database'
+  | 'fileserver'
+  | 'workstation'
+  | 'mailserver'
+  | 'router';
 
 export type Difficulty = 'easy' | 'medium' | 'hard';
 

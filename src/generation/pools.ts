@@ -27,6 +27,7 @@ export const usernamesByRole: Readonly<Record<MachineRole, readonly string[]>> =
   database: ['dbadmin', 'postgres', 'mysql', 'dba', 'dataops'],
   fileserver: ['ftpuser', 'backup', 'storage', 'sysadmin', 'fileadm'],
   workstation: ['jsmith', 'admin', 'developer', 'analyst', 'operator'],
+  mailserver: ['postmaster', 'mailadm', 'dovecot', 'smtp-svc', 'mailops'],
   router: ['netops', 'routeadm', 'admin', 'fwadmin', 'operator'],
 };
 
@@ -43,6 +44,7 @@ export const hostnamesByRole: Readonly<Record<MachineRole, readonly string[]>> =
   database: ['db-primary', 'db01', 'mysql-prod', 'postgres01', 'datastore'],
   fileserver: ['files01', 'nas', 'backup-srv', 'storage01', 'ftp-main'],
   workstation: ['ws-admin', 'dev-box', 'ops-station', 'analyst-pc', 'jump-box'],
+  mailserver: ['mail01', 'mx-primary', 'smtp-relay', 'postfix-srv', 'exchange01'],
   router: ['router01', 'gw-main', 'border-gw', 'core-rtr', 'firewall01'],
 };
 
@@ -65,6 +67,12 @@ export const portTemplatesByRole: Readonly<Record<MachineRole, readonly PortTemp
   workstation: [
     { port: 22, service: 'ssh', open: true },
     { port: 8080, service: 'http-alt', open: false },
+  ],
+  mailserver: [
+    { port: 22, service: 'ssh', open: true },
+    { port: 25, service: 'smtp', open: true },
+    { port: 143, service: 'imap', open: true },
+    { port: 993, service: 'imaps', open: false },
   ],
   router: [
     { port: 22, service: 'ssh', open: true },
@@ -284,6 +292,10 @@ export const configTemplatesByRole: Readonly<Record<MachineRole, readonly string
     'Host *\n  ServerAliveInterval 60\n  ServerAliveCountMax 3',
     'export PS1="\\u@\\h:\\w\\$ "\nexport EDITOR=nano\nexport PATH=$PATH:/usr/local/bin',
   ],
+  mailserver: [
+    'smtpd_banner = $myhostname ESMTP $mail_name\nsmtpd_tls_cert_file=/etc/ssl/certs/ssl-cert.pem\nsmtpd_tls_key_file=/etc/ssl/private/ssl-cert.key\nmyhostname = {{hostname}}\nmydestination = $myhostname, localhost\ninet_interfaces = all',
+    'protocols = imap\nlisten = *, ::\nmail_location = mbox:~/mail:INBOX=/var/mail/%u\nssl = required\nssl_cert = </etc/ssl/certs/dovecot.pem\nssl_key = </etc/ssl/private/dovecot.pem',
+  ],
   router: [
     '*filter\n:INPUT DROP [0:0]\n:FORWARD ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n-A INPUT -i lo -j ACCEPT\n-A INPUT -p tcp --dport 22 -j ACCEPT\n-A INPUT -p tcp --dport {{port}} -j ACCEPT\n-A FORWARD -i eth1 -o eth0 -j ACCEPT\n-A FORWARD -i eth0 -o eth1 -m state --state RELATED,ESTABLISHED -j ACCEPT\nCOMMIT',
     'auto eth0\niface eth0 inet static\n  address {{hostname}}\n  netmask 255.255.255.0\n  gateway 0.0.0.0\n\nauto eth1\niface eth1 inet static\n  address 10.0.0.1\n  netmask 255.255.255.0',
@@ -372,6 +384,23 @@ export const targetFileTemplatesByRole: Readonly<
       path: '/opt/local/secret_notes.txt',
       contentTemplate:
         'Personal notes — DO NOT SHARE\n\nVPN config: vpn.corp.local:1194\nEmergency access code: {{access_key}}\nBackup server: 10.0.0.50 (ask Dave for creds)',
+    },
+  ],
+  mailserver: [
+    {
+      path: '/var/mail/ceo',
+      contentTemplate:
+        'From: finance@corp.local\nTo: ceo@corp.local\nSubject: Q4 Authorization Token\nDate: Mon, 15 Jan 2024 09:23:41 -0500\n\nAs requested, the emergency authorization token for\nthe offshore account transfer:\n\n{{access_key}}\n\nPlease confirm receipt. This token expires in 72 hours.\n\n— Finance Dept',
+    },
+    {
+      path: '/var/spool/mail/admin',
+      contentTemplate:
+        'From: noreply@internal.corp.local\nTo: admin@corp.local\nSubject: Wire Transfer Confirmation #8847\nDate: Tue, 16 Jan 2024 14:05:12 -0500\n\nTransaction ID: TXN-2024-8847\nAmount: $2,450,000.00\nVerification code: {{access_key}}\nStatus: PENDING APPROVAL\n\nThis is an automated message. Do not reply.',
+    },
+    {
+      path: '/srv/mail/archive/confidential.eml',
+      contentTemplate:
+        'From: security@corp.local\nTo: sysadmin@corp.local\nSubject: Re: Emergency Access Credentials\nDate: Wed, 17 Jan 2024 22:17:33 -0500\n\nHere are the emergency access credentials you requested.\nKeep these secure — do not forward.\n\nAccess key: {{access_key}}\n\nRotation scheduled for end of quarter.',
     },
   ],
   // Router is infrastructure-only (never the mission target), but the type system
@@ -476,6 +505,24 @@ export const tamperFileTemplatesByRole: Readonly<
       tamperField: 'rating',
       tamperOldValue: 'needs_improvement',
       tamperNewValue: 'exceeds_expectations',
+    },
+  ],
+  mailserver: [
+    {
+      path: '/var/mail/hr',
+      contentTemplate:
+        'From: legal@corp.local\nTo: hr@corp.local\nSubject: Employee Termination — Case #4471\nDate: Fri, 19 Jan 2024 11:30:00 -0500\n\nEmployee: Marcus Webb\nDepartment: Engineering\nTermination status: {{tamperOldValue}}\n\nPlease process accordingly.\n— Legal',
+      tamperField: 'termination_status',
+      tamperOldValue: 'approved',
+      tamperNewValue: 'denied',
+    },
+    {
+      path: '/etc/aliases',
+      contentTemplate:
+        '# Mail aliases\npostmaster: root\nabuse: postmaster\nwebmaster: postmaster\n{{tamperOldValue}}: admin@corp.local\nsecurity: admin@corp.local',
+      tamperField: 'alias_target',
+      tamperOldValue: 'billing: finance@corp.local',
+      tamperNewValue: 'billing: devnull@corp.local',
     },
   ],
   router: [
@@ -584,6 +631,7 @@ export const webContentTemplatesByRole: Readonly<
   router: routerWebContentTemplates,
   database: defaultWebContentTemplates,
   fileserver: defaultWebContentTemplates,
+  mailserver: defaultWebContentTemplates,
   workstation: defaultWebContentTemplates,
 };
 
@@ -1235,6 +1283,90 @@ export const scriptFixTemplatesByRole: Readonly<Record<MachineRole, readonly Scr
         corruptedHintPath: '/opt/scripts/.project_data',
         corruptedHintContent: 'beta_priority="low"',
         expectedChecksum: 'alpha-gamma',
+      },
+    ],
+    mailserver: [
+      {
+        path: '/opt/scripts/filter_spam.js',
+        bugVariants: {
+          syntax: [
+            'const messages = ["inbox", "spam", "inbox", "spam", "spam"]',
+            'const spam = messages.filter(m => m === "spam")',
+            'if (spam.length === 3) {',
+            '  echo(_decode(spam.join("-"))',
+            '} else {',
+            '  echo("ERROR: spam filter check failed")',
+            '}',
+          ].join('\n'),
+          logic: [
+            'const messages = ["inbox", "spam", "inbox", "spam", "spam"]',
+            'const spam = messages.filter(m => m === "spam")',
+            'if (spam.length === 2) {',
+            '  echo(_decode(spam.join("-")))',
+            '} else {',
+            '  echo("ERROR: spam filter check failed")',
+            '}',
+          ].join('\n'),
+          corrupted: [
+            'const messages = ["inbox", ???, "inbox", "spam", "spam"]',
+            'const spam = messages.filter(m => m === "spam")',
+            'if (spam.length === 3) {',
+            '  echo(_decode(spam.join("-")))',
+            '} else {',
+            '  echo("ERROR: spam filter check failed")',
+            '}',
+          ].join('\n'),
+        },
+        corruptedHintPath: '/opt/scripts/.message_log',
+        corruptedHintContent: 'message_2="spam"',
+        expectedChecksum: 'spam-spam-spam',
+      },
+      {
+        path: '/opt/scripts/validate_mailboxes.js',
+        bugVariants: {
+          syntax: [
+            'const mailboxes = [',
+            '  { user: "admin", quota: "full" },',
+            '  { user: "ceo", quota: "ok" },',
+            '  { user: "hr", quota: "full" }',
+            ']',
+            'const overQuota = mailboxes.filter(m => m.quota === "full")',
+            'if (overQuota.length === 2) {',
+            '  echo(_decode(overQuota.map(m => m.user).join("-")))',
+            '} else {',
+            '  echo("ERROR: mailbox validation failed")',
+            '',
+          ].join('\n'),
+          logic: [
+            'const mailboxes = [',
+            '  { user: "admin", quota: "full" },',
+            '  { user: "ceo", quota: "ok" },',
+            '  { user: "hr", quota: "full" }',
+            ']',
+            'const overQuota = mailboxes.filter(m => m.quota === "ok")',
+            'if (overQuota.length === 2) {',
+            '  echo(_decode(overQuota.map(m => m.user).join("-")))',
+            '} else {',
+            '  echo("ERROR: mailbox validation failed")',
+            '}',
+          ].join('\n'),
+          corrupted: [
+            'const mailboxes = [',
+            '  { user: "admin", quota: "full" },',
+            '  { user: "ceo", quota: ??? },',
+            '  { user: "hr", quota: "full" }',
+            ']',
+            'const overQuota = mailboxes.filter(m => m.quota === "full")',
+            'if (overQuota.length === 2) {',
+            '  echo(_decode(overQuota.map(m => m.user).join("-")))',
+            '} else {',
+            '  echo("ERROR: mailbox validation failed")',
+            '}',
+          ].join('\n'),
+        },
+        corruptedHintPath: '/opt/scripts/.mailbox_status',
+        corruptedHintContent: 'ceo_quota="ok"',
+        expectedChecksum: 'admin-hr',
       },
     ],
     // Router is infrastructure-only (never the mission target), but the type system

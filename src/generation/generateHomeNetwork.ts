@@ -52,7 +52,13 @@ type HomeNetworkMachine = {
   readonly remoteMachine: RemoteMachine;
 };
 
-const allRoles: readonly MachineRole[] = ['webserver', 'database', 'fileserver', 'workstation'];
+const allRoles: readonly MachineRole[] = [
+  'webserver',
+  'database',
+  'fileserver',
+  'workstation',
+  'mailserver',
+];
 
 const generateMac = (prng: Prng): string => {
   const hex = () => prng.nextInt(0, 255).toString(16).padStart(2, '0');

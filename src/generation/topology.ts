@@ -92,7 +92,13 @@ const machineCountByDifficulty: Readonly<Record<Difficulty, readonly [number, nu
   hard: [4, 6],
 };
 
-const allRoles: readonly MachineRole[] = ['webserver', 'database', 'fileserver', 'workstation'];
+const allRoles: readonly MachineRole[] = [
+  'webserver',
+  'database',
+  'fileserver',
+  'workstation',
+  'mailserver',
+];
 
 const entryRoles: readonly MachineRole[] = ['webserver', 'workstation'];
 

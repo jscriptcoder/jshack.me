@@ -53,6 +53,7 @@ export const binaryTargetPaths: Readonly<Record<MachineRole, readonly string[]>>
   database: ['/opt/app/data.bin', '/var/lib/dbdump.dat', '/srv/cache/accounts.db'],
   webserver: ['/opt/app/webapp.bin', '/var/lib/sessions.dat', '/srv/cache/api_keys.db'],
   workstation: ['/opt/app/report.bin', '/var/lib/project.dat', '/srv/cache/notes.db'],
+  mailserver: ['/opt/app/mailstore.bin', '/var/lib/mailindex.dat', '/srv/cache/mbox.db'],
   router: ['/opt/app/config.bin', '/var/lib/routes.dat', '/srv/cache/firewall.db'],
 };
 
@@ -62,5 +63,6 @@ export const binaryKeyPaths: Readonly<Record<MachineRole, readonly string[]>> = 
   database: ['/usr/local/lib/db_keyring.db', '/opt/lib/libencrypt.so'],
   fileserver: ['/usr/local/lib/backup_keystore.db', '/opt/lib/libcrypt_store.so'],
   workstation: ['/usr/local/lib/user_keyring.db', '/opt/lib/libvault.so'],
+  mailserver: ['/usr/local/lib/mail_keyring.db', '/opt/lib/libsmtp_keys.so'],
   router: ['/usr/local/lib/vpn_keystore.db', '/opt/lib/libipsec_keys.so'],
 };
