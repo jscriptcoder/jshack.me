@@ -18,7 +18,8 @@ import { createMailCommand } from '../commands/mail';
 import { createAptCommand } from '../commands/apt';
 import { createRebootCommand } from '../commands/reboot';
 import { createSshdCommand } from '../commands/sshd';
-import { createFtpdCommand } from '../commands/ftpd';
+import { createVsftpdCommand } from '../commands/vsftpd';
+import { createSystemctlCommand } from '../commands/systemctl';
 import { createBashCommand } from '../commands/bash';
 import { createPsCommand } from '../commands/ps';
 import { xtermCommand } from '../commands/xterm';
@@ -92,6 +93,7 @@ export const useCommands = (): UseCommandsResult => {
     createFileOnMachine,
     createFile,
     getNodeFromMachine,
+    deleteNodeFromMachine,
     canTraverse,
   } = useFileSystem();
   const { isMissionActive, startMission, abortMission, completeMission, activeMission } =
@@ -231,12 +233,23 @@ export const useCommands = (): UseCommandsResult => {
     );
 
     commands.set(
-      'ftpd',
-      createFtpdCommand({
+      'vsftpd',
+      createVsftpdCommand({
         getMachine: () => session.machine,
         getMachineInfo,
         getNodeFromMachine,
         createFileOnMachine: createFile,
+      }),
+    );
+
+    commands.set(
+      'systemctl',
+      createSystemctlCommand({
+        getMachine: () => session.machine,
+        getMachineInfo,
+        getNodeFromMachine,
+        createFileOnMachine: createFile,
+        deleteFileOnMachine: deleteNodeFromMachine,
       }),
     );
 
@@ -345,5 +358,6 @@ export const useCommands = (): UseCommandsResult => {
     getMachineInfo,
     writeFileToMachine,
     createFileOnMachine,
+    deleteNodeFromMachine,
   ]);
 };

@@ -12,8 +12,8 @@ Commands use a unified filesystem-based access model. All commands are visible t
 - **Game commands** (missions, accept, abort, mail, output, resolve, author, theme, reset, xterm) — always available
 - **System utilities** in `/bin/` — always present on all machines; most are world-executable
 - **Apt-installable tools** in `/usr/bin/` — must be installed via `apt('install', '<tool>')` as root (requires network); only WiFi tools (airmon, airdump, aircrack), node, and gpg are pre-installed on localhost
-- **Admin utilities** in `/usr/sbin/` — root-only daemon management (`sshd`, `ftpd`); write PID files to `/var/run/` for dynamic port opening
-- **Restricted binaries** — `reboot`, `gpg`, `sshd`, and `ftpd` have `execute: ['root']`; all others are world-executable
+- **Admin utilities** in `/usr/sbin/` — root-only daemon management (`sshd`, `vsftpd`, `systemctl`); write PID files to `/var/run/` for dynamic port opening
+- **Restricted binaries** — `reboot`, `gpg`, `sshd`, `vsftpd`, and `systemctl` have `execute: ['root']`; all others are world-executable
 
 At execution time, `wrapWithAccessCheck` checks binary existence and execute permissions:
 
@@ -24,7 +24,7 @@ At execution time, `wrapWithAccessCheck` checks binary existence and execute per
 | ---------------- | ------------ | ------------------------------------------------------------------------ |
 | Shell builtins   | N/A          | Always (cd, exit, clear, echo, pwd, help, whoami, bash)                  |
 | System utilities | `/bin/`      | Always (ls, cat, rm, chmod, scp, su, man, nano, strings, ssh, etc.)      |
-| Admin utilities  | `/usr/sbin/` | Always present, root-only (sshd, ftpd)                                   |
+| Admin utilities  | `/usr/sbin/` | Always present, root-only (sshd, vsftpd, systemctl)                      |
 | Apt-installable  | `/usr/bin/`  | After `apt install` (WiFi tools + node + gpg pre-installed on localhost) |
 | Game-specific    | N/A          | Always (missions, accept, abort, mail, output, etc.)                     |
 
@@ -51,11 +51,12 @@ FTP and NC modes have their own separate command sets and are not restricted.
 
 Admin utilities that write PID files to `/var/run/` — `NetworkContext` reads these to dynamically open ports.
 
-| Command | File      | Signature        | Description                                                        |
-| ------- | --------- | ---------------- | ------------------------------------------------------------------ |
-| sshd    | `sshd.ts` | `sshd([port])`   | Start SSH daemon (root-only, writes `/var/run/sshd.pid`)           |
-| ftpd    | `ftpd.ts` | `ftpd([port])`   | Start FTP daemon (root-only, writes `/var/run/ftpd.pid`)           |
-| nc -l   | `nc.ts`   | `nc("-l", port)` | Open backdoor listener (any user, writes `/var/run/nc-<port>.pid`) |
+| Command   | File           | Signature                    | Description                                                        |
+| --------- | -------------- | ---------------------------- | ------------------------------------------------------------------ |
+| sshd      | `sshd.ts`      | `sshd([port])`               | Start SSH daemon (root-only, writes `/var/run/sshd.pid`)           |
+| vsftpd    | `vsftpd.ts`    | `vsftpd([port])`             | Start FTP daemon (root-only, writes `/var/run/vsftpd.pid`)         |
+| systemctl | `systemctl.ts` | `systemctl(action, service)` | Control services: start, stop, status (root-only)                  |
+| nc -l     | `nc.ts`        | `nc("-l", port)`             | Open backdoor listener (any user, writes `/var/run/nc-<port>.pid`) |
 
 ## Mission
 
@@ -139,7 +140,7 @@ Available only when connected via FTP. Registered in `src/hooks/useFtpCommands.t
 
 ## NC Mode (`nc/`)
 
-Available when connected to interactive services via nc. Registered in `src/hooks/useNcCommands.ts`. Like a real netcat shell, there is no PATH — admin binaries (sshd, ftpd) must be run via `bash('/usr/sbin/sshd')`.
+Available when connected to interactive services via nc. Registered in `src/hooks/useNcCommands.ts`. Like a real netcat shell, there is no PATH — admin binaries (sshd, vsftpd, systemctl) must be run via `bash('/usr/sbin/sshd')`.
 
 | Command | File           | Signature             | Description                       |
 | ------- | -------------- | --------------------- | --------------------------------- |

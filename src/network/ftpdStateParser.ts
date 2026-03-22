@@ -1,5 +1,5 @@
-// Parses ftpd pid file content to determine the FTP port to open.
-// Pid file format: "ftpd:port=21" or "ftpd:port=2121"
+// Parses vsftpd pid file content to determine the FTP port to open.
+// Pid file format: "vsftpd:port=21" or "vsftpd:port=2121"
 
 export type FtpdPortOverride = {
   readonly port: number;
@@ -10,7 +10,7 @@ export type FtpdPortOverride = {
 export const parseFtpdState = (content: string | undefined): readonly FtpdPortOverride[] => {
   if (!content) return [];
 
-  const match = content.match(/^ftpd:port=(\d+)$/);
+  const match = content.match(/^vsftpd:port=(\d+)$/);
   if (!match) return [];
 
   const port = Number(match[1]);

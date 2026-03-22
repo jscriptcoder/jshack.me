@@ -3,13 +3,13 @@ import type { FileNode, PermissionResult } from '../filesystem/types';
 import type { UserType } from '../session/SessionContext';
 import type { RemoteMachine } from '../network/types';
 
-export type FtpdAdapter = {
+export type VsftpdAdapter = {
   readonly isPortOpen: (port: number) => boolean;
   readonly readPidFile: () => string | undefined;
   readonly writePidFile: (content: string) => void;
 };
 
-export type FtpdContext = {
+export type VsftpdContext = {
   readonly getMachine: () => string;
   readonly getMachineInfo: (ip: string) => RemoteMachine | undefined;
   readonly getNodeFromMachine: (machineId: string, path: string, cwd: string) => FileNode | null;
@@ -27,41 +27,41 @@ const parsePort = (args: readonly unknown[]): number => {
 
   const port = Number(args[0]);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error('ftpd: invalid port number');
+    throw new Error('vsftpd: invalid port number');
   }
   return port;
 };
 
-export const startFtpd = (adapter: FtpdAdapter, args: readonly unknown[]): string => {
+export const startVsftpd = (adapter: VsftpdAdapter, args: readonly unknown[]): string => {
   const port = parsePort(args);
 
-  // Check if ftpd is already running via pid file
+  // Check if vsftpd is already running via pid file
   const pidContent = adapter.readPidFile();
   if (pidContent) {
-    const match = pidContent.match(/^ftpd:port=(\d+)$/);
+    const match = pidContent.match(/^vsftpd:port=(\d+)$/);
     const runningPort = match ? Number(match[1]) : port;
-    return `ftpd is already running on port ${runningPort}`;
+    return `vsftpd is already running on port ${runningPort}`;
   }
 
   if (adapter.isPortOpen(port)) {
-    return `ftpd is already running on port ${port}`;
+    return `vsftpd is already running on port ${port}`;
   }
 
-  adapter.writePidFile(`ftpd:port=${port}`);
+  adapter.writePidFile(`vsftpd:port=${port}`);
   return [
     `Starting FTP server...`,
-    `ftpd is running on port ${port}`,
+    `vsftpd is running on port ${port}`,
     `Server listening on 0.0.0.0 port ${port}.`,
   ].join('\n');
 };
 
-export const FTP_PID_FILE_PATH = '/var/run/ftpd.pid';
-export const FTP_PID_FILE_NAME = 'ftpd.pid';
+export const FTP_PID_FILE_PATH = '/var/run/vsftpd.pid';
+export const FTP_PID_FILE_NAME = 'vsftpd.pid';
 
-export const createFtpPidFileContent = (port: number = 21): string => `ftpd:port=${port}`;
+export const createVsftpdPidFileContent = (port: number = 21): string => `vsftpd:port=${port}`;
 
-// FileNode for a pre-existing ftpd.pid on machines where FTP is already running
-export const createFtpdPidFileNode = (port: number = 21): FileNode => ({
+// FileNode for a pre-existing vsftpd.pid on machines where FTP is already running
+export const createVsftpdPidFileNode = (port: number = 21): FileNode => ({
   name: FTP_PID_FILE_NAME,
   type: 'file',
   owner: 'root',
@@ -70,30 +70,30 @@ export const createFtpdPidFileNode = (port: number = 21): FileNode => ({
     write: ['root'],
     execute: [],
   },
-  content: createFtpPidFileContent(port),
+  content: createVsftpdPidFileContent(port),
 });
 
-export const createFtpdCommand = (context: FtpdContext): Command => ({
-  name: 'ftpd',
+export const createVsftpdCommand = (context: VsftpdContext): Command => ({
+  name: 'vsftpd',
   category: 'network',
-  description: 'FTP server daemon',
+  description: 'vsftpd FTP server daemon',
   manual: {
-    synopsis: 'ftpd(port?)',
+    synopsis: 'vsftpd(port?)',
     description:
-      'Start the FTP server daemon. ' +
+      'Start the vsftpd FTP server daemon. ' +
       'Listens for FTP connections on the specified port (default 21). ' +
       'Must be run as root.',
     arguments: [{ name: 'port', description: 'Port to listen on (default: 21)', required: false }],
     examples: [
-      { command: 'ftpd()', description: 'Start FTP server on default port 21' },
-      { command: 'ftpd(2121)', description: 'Start FTP server on port 2121' },
+      { command: 'vsftpd()', description: 'Start FTP server on default port 21' },
+      { command: 'vsftpd(2121)', description: 'Start FTP server on port 2121' },
     ],
   },
   fn: (...args: unknown[]): string => {
     const machine = context.getMachine();
     const machineInfo = context.getMachineInfo(machine);
 
-    const adapter: FtpdAdapter = {
+    const adapter: VsftpdAdapter = {
       isPortOpen: (port) =>
         machineInfo?.ports.some((p) => p.port === port && p.service === 'ftp' && p.open) ?? false,
       readPidFile: () => {
@@ -103,6 +103,6 @@ export const createFtpdCommand = (context: FtpdContext): Command => ({
       writePidFile: (content) => context.createFileOnMachine(FTP_PID_FILE_PATH, content, 'root'),
     };
 
-    return startFtpd(adapter, args);
+    return startVsftpd(adapter, args);
   },
 });

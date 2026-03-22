@@ -211,11 +211,11 @@ Network access from localhost requires cracking a WiFi network first. See `infra
 
 See `src/commands/` for implementations and `src/hooks/useCommands.ts` for the registry.
 
-Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, rm, su, whoami, bash, airmon, airdump, aircrack, nmcli, ifconfig, ping, nmap, nslookup, ssh, exit, ftp, nc, curl, msfconsole, gobuster, hydra, gpg, reboot, sshd, ftpd, output, resolve, strings, nano, node, missions, accept, abort, mail, apt, theme, reset, xterm, snmpwalk, snmpset.
+Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, rm, su, whoami, bash, airmon, airdump, aircrack, nmcli, ifconfig, ping, nmap, nslookup, ssh, exit, ftp, nc, curl, msfconsole, gobuster, hydra, gpg, reboot, sshd, vsftpd, systemctl, output, resolve, strings, nano, node, missions, accept, abort, mail, apt, theme, reset, xterm, snmpwalk, snmpset.
 
 FTP mode (when connected via ftp): pwd, lpwd, cd, lcd, ls, lls, get, put, quit/bye.
 
-NC mode (when connected via nc): pwd, cd, ls, cat, whoami, bash, help, exit — restricted shell access. Admin binaries (sshd, ftpd) must be run via `bash('/usr/sbin/sshd')` (no PATH in raw nc shell).
+NC mode (when connected via nc): pwd, cd, ls, cat, whoami, bash, help, exit — restricted shell access. Admin binaries (sshd, vsftpd, systemctl) must be run via `bash('/usr/sbin/sshd')` (no PATH in raw nc shell).
 
 ## Command Access Control
 

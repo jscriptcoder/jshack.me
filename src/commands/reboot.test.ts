@@ -228,10 +228,10 @@ describe('reboot command', () => {
       expect(lines).toContain('[ OK ] Stopping OpenSSH server...');
     });
 
-    it('should show FTP stop message when ftpd PID file exists', async () => {
+    it('should show FTP stop message when vsftpd PID file exists', async () => {
       const context = createMockContext({
         varRunDir: makeMockDir('run', {
-          'ftpd.pid': makeMockFile('ftpd.pid', 'ftpd:port=21'),
+          'vsftpd.pid': makeMockFile('vsftpd.pid', 'vsftpd:port=21'),
         }),
       });
       const reboot = createRebootCommand(context);

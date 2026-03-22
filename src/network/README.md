@@ -14,7 +14,7 @@ Simulated network environment for hacking missions. Defines the topology, machin
 | `iptablesParser.ts`     | Pure parser for router's `/etc/iptables/rules.v4` — extracts `forward <port> to <ip>:<port>` rules into `NatForwardingRule[]`          |
 | `snmpFirewallParser.ts` | Pure parser for SNMP firewall OIDs in `/etc/snmp/snmpd.conf` — maps `firewallSSH`/`firewallHTTP` `permit`/`deny` to port overrides     |
 | `sshdStateParser.ts`    | Pure parser for `/var/run/sshd.pid` — extracts `sshd:port=N` into SSH port override                                                    |
-| `ftpdStateParser.ts`    | Pure parser for `/var/run/ftpd.pid` — extracts `ftpd:port=N` into FTP port override                                                    |
+| `ftpdStateParser.ts`    | Pure parser for `/var/run/vsftpd.pid` — extracts `vsftpd:port=N` into FTP port override                                                |
 | `ncStateParser.ts`      | Pure parser for `/var/run/nc-*.pid` — extracts `nc:port=N,user=X,userType=T,home=P` into elite port overrides with owner               |
 | `index.ts`              | Module exports                                                                                                                         |
 
@@ -113,6 +113,6 @@ For the SNMP entry variant, `NetworkProvider` also reads `/etc/snmp/snmpd.conf` 
 
 ## Dynamic Daemon Ports
 
-`NetworkProvider` reads PID files (`/var/run/sshd.pid`, `/var/run/ftpd.pid`, `/var/run/nc-*.pid`) from each machine's filesystem. When the player starts a daemon (e.g., `sshd(2222)`, `bash('/usr/sbin/ftpd')`, or `nc("-l", 4444)`), the command writes a PID file. `parseSshdState()`, `parseFtpdState()`, and `parseNcPidFiles()` extract port overrides, and `applyDaemonOverrides()` opens the corresponding port on the machine's `RemoteMachine` view. This enables dynamic SSH/FTP/backdoor port opening from NC shells during lateral movement.
+`NetworkProvider` reads PID files (`/var/run/sshd.pid`, `/var/run/vsftpd.pid`, `/var/run/nc-*.pid`) from each machine's filesystem. When the player starts a daemon (e.g., `sshd(2222)`, `bash('/usr/sbin/vsftpd')`, `systemctl('start', 'sshd')`, or `nc("-l", 4444)`), the command writes a PID file. `systemctl('stop', service)` deletes the PID file to close the port. `parseSshdState()`, `parseFtpdState()`, and `parseNcPidFiles()` extract port overrides, and `applyDaemonOverrides()` opens the corresponding port on the machine's `RemoteMachine` view. This enables dynamic SSH/FTP/backdoor port opening from NC shells during lateral movement.
 
 `nc` listener PID files include owner metadata (`user`, `userType`, `home`) so that when another player connects via `nc()`, they land as the user who opened the listener. Port binding follows Unix rules: ports below 1024 require root.

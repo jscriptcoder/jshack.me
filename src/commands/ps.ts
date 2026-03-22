@@ -43,12 +43,12 @@ export const listProcesses = (adapter: PsAdapter): readonly Process[] => {
     processes.push({ pid: nextPid++, user: 'root', command: `/usr/sbin/sshd -p ${port}` });
   }
 
-  // ftpd from PID file
-  const ftpdContent = adapter.readPidFile('/var/run/ftpd.pid');
-  if (ftpdContent) {
-    const match = ftpdContent.match(/^ftpd:port=(\d+)$/);
+  // vsftpd from PID file
+  const vsftpdContent = adapter.readPidFile('/var/run/vsftpd.pid');
+  if (vsftpdContent) {
+    const match = vsftpdContent.match(/^vsftpd:port=(\d+)$/);
     const port = match ? Number(match[1]) : 21;
-    processes.push({ pid: nextPid++, user: 'root', command: `/usr/sbin/ftpd -p ${port}` });
+    processes.push({ pid: nextPid++, user: 'root', command: `/usr/sbin/vsftpd -p ${port}` });
   }
 
   // nc listeners from PID files in /var/run/nc-*.pid

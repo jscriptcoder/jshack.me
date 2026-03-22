@@ -43,13 +43,13 @@ describe('listProcesses', () => {
     );
   });
 
-  it('shows ftpd when ftpd.pid exists', () => {
+  it('shows vsftpd when vsftpd.pid exists', () => {
     const adapter = createAdapter({
-      readPidFile: (path) => (path === '/var/run/ftpd.pid' ? 'ftpd:port=21' : undefined),
+      readPidFile: (path) => (path === '/var/run/vsftpd.pid' ? 'vsftpd:port=21' : undefined),
     });
     const processes = listProcesses(adapter);
     expect(processes).toContainEqual(
-      expect.objectContaining({ user: 'root', command: '/usr/sbin/ftpd -p 21' }),
+      expect.objectContaining({ user: 'root', command: '/usr/sbin/vsftpd -p 21' }),
     );
   });
 
@@ -187,7 +187,7 @@ describe('listProcesses', () => {
     const adapter = createAdapter({
       readPidFile: (path) => {
         if (path === '/var/run/sshd.pid') return 'sshd:port=22';
-        if (path === '/var/run/ftpd.pid') return 'ftpd:port=21';
+        if (path === '/var/run/vsftpd.pid') return 'vsftpd:port=21';
         return undefined;
       },
       getMachineInfo: () =>
@@ -197,6 +197,6 @@ describe('listProcesses', () => {
         ]),
     });
     const processes = listProcesses(adapter);
-    expect(processes).toHaveLength(5); // init + sshd + ftpd + nginx + mysqld
+    expect(processes).toHaveLength(5); // init + sshd + vsftpd + nginx + mysqld
   });
 });

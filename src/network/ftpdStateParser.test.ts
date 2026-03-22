@@ -10,17 +10,19 @@ describe('parseFtpdState', () => {
     expect(parseFtpdState('')).toEqual([]);
   });
 
-  it('returns port 21 override for default ftpd pid file', () => {
-    expect(parseFtpdState('ftpd:port=21')).toEqual([{ port: 21, service: 'ftp', open: true }]);
+  it('returns port 21 override for default vsftpd pid file', () => {
+    expect(parseFtpdState('vsftpd:port=21')).toEqual([{ port: 21, service: 'ftp', open: true }]);
   });
 
   it('returns custom port override', () => {
-    expect(parseFtpdState('ftpd:port=2121')).toEqual([{ port: 2121, service: 'ftp', open: true }]);
+    expect(parseFtpdState('vsftpd:port=2121')).toEqual([
+      { port: 2121, service: 'ftp', open: true },
+    ]);
   });
 
   it('returns empty array for malformed content', () => {
     expect(parseFtpdState('garbage')).toEqual([]);
-    expect(parseFtpdState('ftpd:port=')).toEqual([]);
-    expect(parseFtpdState('ftpd:port=abc')).toEqual([]);
+    expect(parseFtpdState('vsftpd:port=')).toEqual([]);
+    expect(parseFtpdState('vsftpd:port=abc')).toEqual([]);
   });
 });

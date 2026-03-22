@@ -97,7 +97,7 @@ describe('parseNcPidFiles', () => {
       parseNcPidFiles(
         mkDir({
           'sshd.pid': mkFile('sshd:port=22'),
-          'ftpd.pid': mkFile('ftpd:port=21'),
+          'vsftpd.pid': mkFile('vsftpd:port=21'),
         }),
       ),
     ).toEqual([]);

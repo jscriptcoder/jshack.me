@@ -12,7 +12,8 @@ import {
   createNcBashCommand,
 } from '../commands/nc/index';
 import { startSshd, SSH_PID_FILE_PATH, type SshdAdapter } from '../commands/sshd';
-import { startFtpd, FTP_PID_FILE_PATH, type FtpdAdapter } from '../commands/ftpd';
+import { startVsftpd, FTP_PID_FILE_PATH, type VsftpdAdapter } from '../commands/vsftpd';
+import { executeSystemctl, type SystemctlContext } from '../commands/systemctl';
 import { listProcesses, type PsAdapter } from '../commands/ps';
 import { useNetwork } from '../network';
 import type { Command } from '../components/Terminal/types';
@@ -21,8 +22,13 @@ import type { MachineId } from '../filesystem/machineFileSystems';
 export const useNcCommands = (): Map<string, Command> | null => {
   const { ncSession, updateNcCwd } = useSession();
 
-  const { resolvePathForMachine, getNodeFromMachine, canTraverseOnMachine, createFileOnMachine } =
-    useFileSystem();
+  const {
+    resolvePathForMachine,
+    getNodeFromMachine,
+    canTraverseOnMachine,
+    createFileOnMachine,
+    deleteNodeFromMachine,
+  } = useFileSystem();
   const { getMachine: getMachineInfo } = useNetwork();
 
   return useMemo(() => {
@@ -100,10 +106,10 @@ export const useNcCommands = (): Map<string, Command> | null => {
       };
       return startSshd(adapter, args);
     };
-    const ftpdFn = (...args: unknown[]): string => {
+    const vsftpdFn = (...args: unknown[]): string => {
       const machine = getMachine();
       const machineInfo = getMachineInfo(machine);
-      const adapter: FtpdAdapter = {
+      const adapter: VsftpdAdapter = {
         isPortOpen: (port) =>
           machineInfo?.ports.some((p) => p.port === port && p.service === 'ftp' && p.open) ?? false,
         readPidFile: () => {
@@ -113,7 +119,19 @@ export const useNcCommands = (): Map<string, Command> | null => {
         writePidFile: (content) =>
           createFileOnMachine(machine, FTP_PID_FILE_PATH, '/', content, 'root'),
       };
-      return startFtpd(adapter, args);
+      return startVsftpd(adapter, args);
+    };
+    const systemctlFn = (...args: unknown[]): string => {
+      const machine = getMachine();
+      const context: SystemctlContext = {
+        getMachine,
+        getMachineInfo: (ip) => getMachineInfo(ip),
+        getNodeFromMachine,
+        createFileOnMachine: (path, content, userType) =>
+          createFileOnMachine(machine, path, '/', content, userType),
+        deleteFileOnMachine: deleteNodeFromMachine,
+      };
+      return executeSystemctl(context, args);
     };
     const psFn = (): string => {
       const machine = getMachine();
@@ -143,7 +161,8 @@ export const useNcCommands = (): Map<string, Command> | null => {
     const bashCommands = new Map<string, (...args: unknown[]) => unknown>();
     commands.forEach((cmd, name) => bashCommands.set(name, cmd.fn));
     bashCommands.set('sshd', sshdFn);
-    bashCommands.set('ftpd', ftpdFn);
+    bashCommands.set('vsftpd', vsftpdFn);
+    bashCommands.set('systemctl', systemctlFn);
     bashCommands.set('ps', psFn);
     commands.set(
       'bash',
@@ -169,6 +188,7 @@ export const useNcCommands = (): Map<string, Command> | null => {
     getNodeFromMachine,
     canTraverseOnMachine,
     createFileOnMachine,
+    deleteNodeFromMachine,
     getMachineInfo,
   ]);
 };

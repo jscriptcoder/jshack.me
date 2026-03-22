@@ -23,7 +23,7 @@ type RebootContext = {
 // Maps process binary paths to human-readable service names for shutdown messages
 const PROCESS_TO_SERVICE_NAME: Readonly<Record<string, string>> = {
   '/usr/sbin/sshd': 'OpenSSH server',
-  '/usr/sbin/ftpd': 'vsftpd FTP server',
+  '/usr/sbin/vsftpd': 'vsftpd FTP server',
   '/usr/sbin/nginx': 'nginx web server',
   '/usr/sbin/mysqld': 'MySQL database server',
   '/usr/sbin/postgres': 'PostgreSQL database server',

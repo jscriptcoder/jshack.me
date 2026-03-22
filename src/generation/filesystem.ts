@@ -30,7 +30,7 @@ import {
   SBIN_UTILITY_NAMES,
 } from '../commands/availability';
 import { SSH_PID_FILE_NAME, createSshdPidFileNode } from '../commands/sshd';
-import { FTP_PID_FILE_NAME, createFtpdPidFileNode } from '../commands/ftpd';
+import { FTP_PID_FILE_NAME, createVsftpdPidFileNode } from '../commands/vsftpd';
 
 type FilesystemInput = {
   readonly prng: Prng;
@@ -568,7 +568,7 @@ const buildMachineConfig = (
     hasSshOpen || hasFtpOpen
       ? {
           ...(hasSshOpen ? { [SSH_PID_FILE_NAME]: createSshdPidFileNode() } : {}),
-          ...(hasFtpOpen ? { [FTP_PID_FILE_NAME]: createFtpdPidFileNode() } : {}),
+          ...(hasFtpOpen ? { [FTP_PID_FILE_NAME]: createVsftpdPidFileNode() } : {}),
         }
       : undefined;
 

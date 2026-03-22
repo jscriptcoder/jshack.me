@@ -19,7 +19,7 @@ import { parseSshdState } from './sshdStateParser';
 import { parseFtpdState } from './ftpdStateParser';
 import { parseNcPidFiles } from './ncStateParser';
 import { SSH_PID_FILE_PATH } from '../commands/sshd';
-import { FTP_PID_FILE_PATH } from '../commands/ftpd';
+import { FTP_PID_FILE_PATH } from '../commands/vsftpd';
 import {
   buildMergedRouterView,
   applySnmpFirewallOverrides,

@@ -219,7 +219,7 @@ PRNG-driven SSH/FTP port closures increase lateral movement variety. At most one
 - **backdoor objective**: never close SSH (player needs shell access to run `nc -l` on target)
 - **Same-machine collision**: FTP closure skipped if it targets the same machine as SSH closure
 - When SSH is closed, FTP port 21 is added/opened and a root-owned NC backdoor is guaranteed
-- Root backdoor enables `bash('/usr/sbin/sshd')` or `bash('/usr/sbin/ftpd')` to restart services
+- Root backdoor enables `bash('/usr/sbin/sshd')` or `bash('/usr/sbin/vsftpd')` to restart services
 
 ### PRNG Consumption
 
