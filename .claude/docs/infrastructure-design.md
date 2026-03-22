@@ -25,12 +25,12 @@ Connecting to a different WiFi switches which machines are visible from localhos
 
 ### Player Flow
 
-1. Intro screen: player enters workstation name, starts new game (seed generated)
-2. Boot screen: Linux-style boot sequence with hostname and wlan0 detection
+1. Intro screen: player fills a single-screen 3-field form (workstation name, username, root password), starts new game (seed generated)
+2. Boot screen: Linux-style boot sequence with hostname, username, and wlan0 detection
 3. After gaining root access, the player explores — `ifconfig()` and `help()` reveal next steps
 4. `ifconfig()` shows `wlan0` is DOWN (no IP assigned)
 5. Network commands (ping, nmap, ssh, etc.) fail with `"Network is unreachable"`
-6. Player discovers aircrack commands via `help()` or `~/downloads/wifi_tools.txt`
+6. Player discovers aircrack commands via `help()` or `~/downloads/wifi_tools.txt` and `~/README.txt`
 7. `airmon("start", "wlan0")` — enables monitor mode
 8. `airdump()` — scans and displays nearby WiFi networks (seeded, async output)
 9. `aircrack("<BSSID>")` — cracks a WPA2 network, shows `KEY FOUND!` + nmcli hint
@@ -51,16 +51,16 @@ Connecting to a different WiFi switches which machines are visible from localhos
 - `FileSystemProvider` accepts `homeFileSystems` prop; merges home network machine filesystems
 - `nmcli("connect")` to same network is a no-op; to different network auto-disconnects and reconnects
 - `nmcli("disconnect")` while SSH'd calls `SessionContext.disconnectWifi()` to atomically reset to localhost
-- Hint file at `/home/jshacker/downloads/wifi_tools.txt` provides the aircrack + nmcli cheatsheet
+- Hint file at `/home/<username>/downloads/wifi_tools.txt` provides the aircrack + nmcli cheatsheet
+- `~/README.txt` is the single guide file for new players (replaces the old `.mission` file)
 
 ## Machines
 
-- **localhost** — the player's starting machine (users: jshacker, guest, root). Workstation name is customizable via the intro screen and shows in the prompt/hostname.
+- **localhost** — the player's starting machine (users: `<username>`, guest, root). Generated at runtime via `generateLocalhost(gameState)` in `src/generation/generateLocalhost.ts`. Workstation name, username, and root password are configurable via the intro screen. The player's own user has no password (empty hash); guest password is seed-derived from the guest passwords pool.
 - **Home network machines** — procedurally generated per WiFi network from the game seed. Each WiFi provides 2-4 machines plus a router. Roles: webserver, database, fileserver, workstation.
 - **Mission machines** — procedurally generated per mission seed (independent of home networks).
-- **Legacy static machines** (192.168.1.x) — gateway, fileserver, webserver. Kept as fallback for tests but unused in gameplay (home networks replace them).
 
-Machine filesystems are defined in `src/filesystem/machines/` and built via `fileSystemFactory.ts` with users, directories, and content. Common structure per machine: `/root/`, `/home/[users]/`, `/etc/` (passwd with MD5 hashes, hostname, hosts, configs), `/var/log/`, `/tmp/`. See `architecture.md` for the full filesystem permission model.
+All machine filesystems are generated at runtime and built via `fileSystemFactory.ts` with users, directories, and content. Common structure per machine: `/root/`, `/home/[users]/`, `/etc/` (passwd with MD5 hashes, hostname, hosts, configs), `/var/log/`, `/tmp/`. See `architecture.md` for the full filesystem permission model.
 
 ### Dynamic Connection Logs
 
@@ -76,25 +76,13 @@ Log files are created dynamically on first event (not pre-populated). They persi
 
 ## Network Topology
 
-```
-192.168.1.0/24 (Local LAN)
-├── 192.168.1.1   gateway (eth0 LAN, SSH + HTTPS/VPN:8443)
-├── 192.168.1.50  fileserver (eth0 LAN, FTP + SSH)
-├── 192.168.1.75  webserver (eth0 LAN, SSH + HTTP + MySQL + backdoor:4444)
-└── 192.168.1.100 localhost (wlan0, requires WiFi crack)
-```
+There is no static LAN. All network machines come from procedurally generated home networks (per WiFi connection) and mission networks. Localhost starts disconnected (wlan0 DOWN) until the player cracks a WiFi network.
 
-Mission networks extend beyond the gateway — see "Mission Network Topology" below.
-
-## DNS Records
-
-- gateway.local → 192.168.1.1
-- fileserver.local → 192.168.1.50
-- webserver.local → 192.168.1.75
+Each home network generates a private subnet with a router and 2-4 machines. Mission networks generate their own independent subnets with routers and internal machines.
 
 ## Network Implementation
 
-Network is per-machine — `NetworkContext` uses `session.machine` to resolve the active config. Each machine has its own interfaces, reachable machines, and DNS records. Types are in `src/network/types.ts`. Network resolution priority: mission config → home network config → static config → WiFi gate (disconnected).
+Network is per-machine — `NetworkContext` uses `session.machine` to resolve the active config. Each machine has its own interfaces, reachable machines, and DNS records. Types are in `src/network/types.ts`. Network resolution priority: mission config → home network config → WiFi gate (disconnected).
 
 `NetworkContext` accepts a `homeNetwork` prop from `useHomeNetworks`. When connected to a WiFi, localhost sees that network's machines with a dynamic wlan0 IP from the subnet. When disconnected (`connectedWifi === null`), localhost gets disconnected interfaces, empty machines, and empty DNS. WiFi commands in `src/hooks/useWifiCommands.ts` manage the connection flow; WiFi networks are generated from the game seed via `src/generation/generateWifi.ts`.
 
@@ -103,7 +91,7 @@ Network is per-machine — `NetworkContext` uses `session.machine` to resolve th
 Mission networks use a realistic router topology. Every mission generates a border router between localhost and the internal mission network.
 
 ```
-localhost (192.168.1.100)
+localhost (<dynamic IP from home network subnet>)
   can see --> <public>.x.x.x (router public IP only)
 
 Router (<public>.x.x.x public / <private>.x.x.1 internal) — real machine with filesystem

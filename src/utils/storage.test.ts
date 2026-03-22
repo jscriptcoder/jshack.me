@@ -338,7 +338,12 @@ describe('storage', () => {
 
     it('should save and load game state', async () => {
       const db = await openDatabase();
-      const state = { seed: 'abc123', workstationName: 'hacker-box' };
+      const state = {
+        seed: 'abc123',
+        workstationName: 'hacker-box',
+        username: 'testuser',
+        rootPassword: 'testpass',
+      };
       await saveGameState(db, state);
       const result = await loadGameState(db);
       expect(result).toEqual(state);
@@ -347,8 +352,18 @@ describe('storage', () => {
 
     it('should overwrite previous game state', async () => {
       const db = await openDatabase();
-      await saveGameState(db, { seed: 'old', workstationName: 'old-box' });
-      const updated = { seed: 'new', workstationName: 'new-box' };
+      await saveGameState(db, {
+        seed: 'old',
+        workstationName: 'old-box',
+        username: 'testuser',
+        rootPassword: 'testpass',
+      });
+      const updated = {
+        seed: 'new',
+        workstationName: 'new-box',
+        username: 'testuser2',
+        rootPassword: 'testpass2',
+      };
       await saveGameState(db, updated);
       const result = await loadGameState(db);
       expect(result).toEqual(updated);

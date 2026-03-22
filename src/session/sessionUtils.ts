@@ -70,13 +70,13 @@ export const isValidPersistedState = (value: unknown): value is PersistedState =
   );
 };
 
-export const defaultSession: Session = {
-  username: 'jshacker',
+export const createDefaultSession = (username: string): Session => ({
+  username,
   userType: 'user',
   machine: 'localhost',
-  currentPath: '/home/jshacker',
+  currentPath: `/home/${username}`,
   theme: DEFAULT_THEME_ID as ThemeId,
-};
+});
 
 export const normalizeSession = (session: Session): Session => ({
   ...session,

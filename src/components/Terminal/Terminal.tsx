@@ -25,7 +25,6 @@ import {
   formatFtpLoginFailed,
 } from '../../logging/formatters';
 import { generatePid, resolveHostname, resolveLogSourceIP } from '../../logging/utils';
-import { ipToMachineId } from '../../filesystem/machineFileSystems';
 import { useNetwork } from '../../network';
 import type { OutputLine, AuthorData } from './types';
 import {
@@ -381,7 +380,7 @@ export const Terminal = () => {
                     username: followUp.username,
                     userType: followUp.userType,
                     currentPath: followUp.homePath,
-                    machineId: ipToMachineId[resolvedIP] ?? resolvedIP,
+                    machineId: resolvedIP,
                   };
                   enterNcMode(newNcSession);
                 }

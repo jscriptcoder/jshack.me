@@ -39,10 +39,6 @@ import { appendToMachineLog } from '../logging/appendToMachineLog';
 import { formatSuSuccess, formatSuFailed } from '../logging/formatters';
 import { generatePid, resolveHostname } from '../logging/utils';
 
-// Hardcoded localhost users — localhost doesn't exist in the network config like remote
-// machines do, so its users can't be dynamically looked up via getMachine()
-const LOCAL_USERS = ['root', 'jshacker', 'guest'] as const;
-
 // Shell builtins and game commands don't need binary checks
 const SKIP_ACCESS_CHECK = new Set([
   'cd',
@@ -103,10 +99,18 @@ export const useCommands = (): UseCommandsResult => {
 
   const getUsers = useCallback((): readonly string[] => {
     if (session.machine === 'localhost') {
-      return LOCAL_USERS;
+      // Parse usernames from /etc/passwd on the localhost filesystem
+      const passwdContent = readFileFromMachine('localhost', '/etc/passwd', '/', 'root');
+      if (passwdContent) {
+        return passwdContent
+          .split('\n')
+          .filter((line) => line.includes(':'))
+          .map((line) => line.split(':')[0]);
+      }
+      return ['root', session.username, 'guest'];
     }
     return findMachineUsers(session.machine).map((u) => u.username);
-  }, [session.machine, findMachineUsers]);
+  }, [session.machine, session.username, findMachineUsers, readFileFromMachine]);
 
   return useMemo(() => {
     // Circular dependency workaround: node(path) needs the full execution context

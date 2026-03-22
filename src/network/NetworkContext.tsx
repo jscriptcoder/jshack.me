@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useState, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useMemo, useCallback, type ReactNode } from 'react';
 import type {
   NetworkConfig,
   MachineNetworkConfig,
@@ -8,11 +8,7 @@ import type {
   DnsRecord,
 } from './types';
 import type { GeneratedMachine, NatForwardingRule } from '../generation/types';
-import {
-  createInitialNetwork,
-  localhostDisconnectedInterfaces,
-  localhostWlan0Down,
-} from './initialNetwork';
+import { localhostDisconnectedInterfaces, localhostWlan0Down } from './initialNetwork';
 import type { HomeNetwork } from '../generation/generateHomeNetwork';
 import { useSession } from '../session/SessionContext';
 import { useFileSystem } from '../filesystem';
@@ -24,7 +20,6 @@ import { parseFtpdState } from './ftpdStateParser';
 import { parseNcPidFiles } from './ncStateParser';
 import { SSH_PID_FILE_PATH } from '../commands/sshd';
 import { FTP_PID_FILE_PATH } from '../commands/ftpd';
-import { ipToMachineId } from '../filesystem/machineFileSystems';
 import {
   buildMergedRouterView,
   applySnmpFirewallOverrides,
@@ -32,7 +27,6 @@ import {
 } from './networkUtils';
 
 type NetworkContextType = {
-  readonly config: NetworkConfig;
   readonly getInterface: (name: string) => NetworkInterface | undefined;
   readonly getInterfaces: () => readonly NetworkInterface[];
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
@@ -69,7 +63,6 @@ export const NetworkProvider = ({
   missionRouterMachine,
   homeNetwork,
 }: NetworkProviderProps) => {
-  const [config] = useState<NetworkConfig>(createInitialNetwork);
   const { session, wifiConnected } = useSession();
   const { getNodeFromMachine } = useFileSystem();
 
@@ -120,9 +113,8 @@ export const NetworkProvider = ({
   // Multi-tier network config resolution for the current machine:
   // 1. Mission config (if on a mission-generated machine)
   // 2. Home network config (if on a home network machine)
-  // 3. Static config (tutorial/fallback machines)
-  // 4. WiFi gating (localhost with WiFi off → disconnected interfaces, no machines)
-  // 5. Localhost with active mission → mission router visible from localhost
+  // 3. Localhost with home network → home network machines + optional mission router
+  // 4. Localhost disconnected → disconnected interfaces, no machines
   const baseConfig = useMemo((): MachineNetworkConfig => {
     const missionConfig = missionNetworkConfig?.machineConfigs[session.machine];
     if (missionConfig) return missionConfig;
@@ -130,8 +122,6 @@ export const NetworkProvider = ({
     // Home network machine (SSH'd into a generated machine)
     const homeConfig = homeNetwork?.networkConfig.machineConfigs[session.machine];
     if (homeConfig) return homeConfig;
-
-    const base = config.machineConfigs[session.machine] ?? defaultMachineConfig;
 
     if (isLocalhostDisconnected) {
       return {
@@ -189,23 +179,16 @@ export const NetworkProvider = ({
       return homeBase;
     }
 
+    // Localhost with mission but no WiFi — mission router visible
     if (session.machine === 'localhost' && missionNetworkConfig && missionRouterMachine) {
-      // From localhost, only the router's public IP is reachable.
-      // When iptables has forwarding rules, the router shows its own ports +
-      // forwarded ports and merged users (so SSH user check works before NAT).
-      // Rules come from the filesystem dynamically — player edits with nano.
       const baseRouterRemote: RemoteMachine =
         iptablesRules.length > 0
           ? buildMergedRouterView(missionRouterMachine, missionMachines ?? [], iptablesRules)
           : missionRouterMachine.remoteMachine;
-
-      // Apply SNMP firewall overrides (snmpset changes port open/closed state)
       const routerRemote: RemoteMachine =
         snmpFirewallOverrides.length > 0
           ? applySnmpFirewallOverrides(baseRouterRemote, snmpFirewallOverrides)
           : baseRouterRemote;
-
-      // External DNS: only router's public IP
       const externalDns: readonly DnsRecord[] = [
         {
           domain: `${missionRouterMachine.hostname}.mission`,
@@ -213,17 +196,15 @@ export const NetworkProvider = ({
           type: 'A' as const,
         },
       ];
-
       return {
-        ...base,
-        machines: [...base.machines, routerRemote],
-        dnsRecords: [...base.dnsRecords, ...externalDns],
+        interfaces: localhostDisconnectedInterfaces,
+        machines: [routerRemote],
+        dnsRecords: externalDns,
       };
     }
 
-    return base;
+    return defaultMachineConfig;
   }, [
-    config.machineConfigs,
     session.machine,
     isLocalhostDisconnected,
     missionNetworkConfig,
@@ -240,8 +221,8 @@ export const NetworkProvider = ({
   // starts daemons from an NC shell (same pattern as SNMP firewall overrides).
   const currentConfig = useMemo((): MachineNetworkConfig => {
     const machines = baseConfig.machines.map((machine) => {
-      // Resolve IP to filesystem machine ID (localhost uses "localhost" as ID, not its IP)
-      const fsId = ipToMachineId[machine.ip] ?? machine.ip;
+      // Machines use their IP as the filesystem key — no special mapping needed
+      const fsId = machine.ip;
 
       let result = machine;
 
@@ -339,9 +320,6 @@ export const NetworkProvider = ({
         return found ? found.users : [];
       };
 
-      const staticUsers = searchConfigs(config);
-      if (staticUsers.length > 0) return staticUsers;
-
       if (homeNetwork) {
         const homeUsers = searchConfigs(homeNetwork.networkConfig);
         if (homeUsers.length > 0) return homeUsers;
@@ -360,7 +338,7 @@ export const NetworkProvider = ({
 
       return [];
     },
-    [config, homeNetwork, missionNetworkConfig, missionRouterMachine],
+    [homeNetwork, missionNetworkConfig, missionRouterMachine],
   );
 
   // Port-aware NAT resolution: translates the router's public IP + port to the
@@ -381,7 +359,6 @@ export const NetworkProvider = ({
   return (
     <NetworkContext.Provider
       value={{
-        config,
         getInterface,
         getInterfaces,
         getMachine,

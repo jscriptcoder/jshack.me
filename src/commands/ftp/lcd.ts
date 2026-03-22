@@ -30,7 +30,7 @@ export const createFtpLcdCommand = (context: FtpLcdContext): Command => ({
     ],
     examples: [
       {
-        command: 'lcd("/home/jshacker")',
+        command: 'lcd("/home")',
         description: 'Change to home directory on local machine',
       },
       { command: 'lcd("/tmp")', description: 'Change to /tmp on local machine' },

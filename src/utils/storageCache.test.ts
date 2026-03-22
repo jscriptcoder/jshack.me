@@ -147,7 +147,12 @@ describe('storageCache', () => {
 
     it('should load game state from IndexedDB', async () => {
       const db = await openDatabase();
-      const state = { seed: 'test-seed', workstationName: 'my-box' };
+      const state = {
+        seed: 'test-seed',
+        workstationName: 'my-box',
+        username: 'testuser',
+        rootPassword: 'testpass',
+      };
       await saveGameState(db, state);
       db.close();
 

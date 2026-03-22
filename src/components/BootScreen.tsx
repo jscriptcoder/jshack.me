@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 
 type BootScreenProps = {
   readonly workstationName: string;
+  readonly username: string;
   readonly onComplete: () => void;
 };
 
@@ -11,7 +12,7 @@ type BootLine = {
   readonly color?: string;
 };
 
-const buildBootSequence = (hostname: string): readonly BootLine[] => [
+const buildBootSequence = (hostname: string, username: string): readonly BootLine[] => [
   { text: 'BIOS: Initializing system...', delay: 200, color: 'var(--theme-text-dim)' },
   { text: 'BIOS: Memory test... 4096 MB OK', delay: 150, color: 'var(--theme-text-dim)' },
   { text: '', delay: 100 },
@@ -57,20 +58,20 @@ const buildBootSequence = (hostname: string): readonly BootLine[] => [
   { text: '[  OK  ] Reached target Multi-User System.', delay: 100 },
   { text: '', delay: 150 },
   {
-    text: `${hostname} login: jshacker (automatic login)`,
+    text: `${hostname} login: ${username} (automatic login)`,
     delay: 300,
     color: 'var(--theme-text)',
   },
   { text: '', delay: 200 },
 ];
 
-export const BootScreen = ({ workstationName, onComplete }: BootScreenProps) => {
+export const BootScreen = ({ workstationName, username, onComplete }: BootScreenProps) => {
   const [lines, setLines] = useState<readonly string[]>([]);
   const [colors, setColors] = useState<readonly (string | undefined)[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const sequence = buildBootSequence(workstationName);
+    const sequence = buildBootSequence(workstationName, username);
     let currentDelay = 0;
     const timeouts: ReturnType<typeof setTimeout>[] = [];
 
@@ -90,7 +91,7 @@ export const BootScreen = ({ workstationName, onComplete }: BootScreenProps) => 
     });
 
     return () => timeouts.forEach(clearTimeout);
-  }, [workstationName, onComplete]);
+  }, [workstationName, username, onComplete]);
 
   // Auto-scroll to bottom
   useEffect(() => {

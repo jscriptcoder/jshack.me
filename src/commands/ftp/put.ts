@@ -54,7 +54,7 @@ export const createFtpPutCommand = (context: FtpPutContext): Command => ({
     ],
     examples: [
       {
-        command: 'put("/home/jshacker/payload.sh")',
+        command: 'put("/tmp/payload.sh")',
         description: 'Upload to current remote directory',
       },
       {

@@ -7,6 +7,7 @@ import { MissionProvider } from '../mission/MissionContext';
 import { FileSystemProvider } from '../filesystem/FileSystemContext';
 import { NetworkProvider } from '../network/NetworkContext';
 import type { MissionState } from '../mission/useMissionState';
+import { generateLocalhost } from '../generation/generateLocalhost';
 
 vi.mock('../utils/storageCache', () => ({
   getCachedSessionState: vi.fn(() => null),
@@ -32,16 +33,29 @@ const mockMissionState: MissionState = {
   completeMission: vi.fn(),
 };
 
+const testGameState = {
+  seed: 'test-seed',
+  workstationName: 'testbox',
+  username: 'testuser',
+  rootPassword: 'testpass',
+};
+
+const testLocalhost = generateLocalhost(testGameState);
+
 const createWrapper =
   () =>
   ({ children }: { readonly children: ReactNode }) =>
     createElement(
       SessionProvider,
-      null,
+      { username: 'testuser', children: null },
       createElement(
         MissionProvider,
         { state: mockMissionState, children: null },
-        createElement(FileSystemProvider, null, createElement(NetworkProvider, null, children)),
+        createElement(
+          FileSystemProvider,
+          { localhostFileSystem: testLocalhost.fileSystem, children: null },
+          createElement(NetworkProvider, null, children),
+        ),
       ),
     );
 

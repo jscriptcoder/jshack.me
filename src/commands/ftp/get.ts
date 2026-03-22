@@ -58,7 +58,7 @@ export const createFtpGetCommand = (context: FtpGetContext): Command => ({
         description: 'Download secret.txt to current local directory',
       },
       {
-        command: 'get("data.txt", "/home/jshacker/downloads/data.txt")',
+        command: 'get("data.txt", "/tmp/data.txt")',
         description: 'Download to specific local path',
       },
     ],
