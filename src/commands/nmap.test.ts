@@ -792,4 +792,522 @@ describe('nmap command', () => {
       expect(completed).toBe(false);
     });
   });
+
+  describe('--tree topology view', () => {
+    it('should throw when --tree is used with single IP', () => {
+      const context = createMockNmapContext({
+        machines: [getMockRemoteMachine()],
+      });
+      const nmap = createNmapCommand(context);
+
+      expect(() => nmap.fn('192.168.1.50', '--tree')).toThrow(
+        'nmap: --tree requires an IP range target',
+      );
+    });
+
+    it('should still throw missing target when only --tree is passed', () => {
+      const context = createMockNmapContext();
+      const nmap = createNmapCommand(context);
+
+      expect(() => nmap.fn('--tree')).toThrow('nmap: missing target specification');
+    });
+
+    it('should show router as root when gateway is in range', () => {
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.1',
+            hostname: 'router',
+            ports: [{ port: 22, service: 'ssh', open: true }],
+          }),
+          getMockRemoteMachine({
+            ip: '192.168.1.10',
+            hostname: 'webserver',
+            ports: [
+              { port: 22, service: 'ssh', open: true },
+              { port: 80, service: 'http', open: true },
+            ],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('192.168.1.1-20', '--tree');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(5000);
+
+      // Router is root (no connector prefix)
+      expect(lines.some((l) => l === 'router (192.168.1.1) [:22]')).toBe(true);
+      // Single child uses └──
+      expect(lines.some((l) => l === '\u2514\u2500\u2500 webserver (192.168.1.10) [:22 :80]')).toBe(
+        true,
+      );
+    });
+
+    it('should use correct connectors for multiple children', () => {
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.1',
+            hostname: 'router',
+            ports: [{ port: 22, service: 'ssh', open: true }],
+          }),
+          getMockRemoteMachine({
+            ip: '192.168.1.10',
+            hostname: 'webserver',
+            ports: [{ port: 80, service: 'http', open: true }],
+          }),
+          getMockRemoteMachine({
+            ip: '192.168.1.20',
+            hostname: 'dbserver',
+            ports: [{ port: 3306, service: 'mysql', open: true }],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('192.168.1.1-30', '--tree');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(10000);
+
+      // Non-last child uses ├──
+      expect(lines.some((l) => l === '\u251C\u2500\u2500 webserver (192.168.1.10) [:80]')).toBe(
+        true,
+      );
+      // Last child uses └──
+      expect(lines.some((l) => l === '\u2514\u2500\u2500 dbserver (192.168.1.20) [:3306]')).toBe(
+        true,
+      );
+    });
+
+    it('should show flat list when no router in scan range', () => {
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.10',
+            hostname: 'webserver',
+            ports: [{ port: 80, service: 'http', open: true }],
+          }),
+          getMockRemoteMachine({
+            ip: '192.168.1.20',
+            hostname: 'dbserver',
+            ports: [{ port: 22, service: 'ssh', open: true }],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('192.168.1.10-25', '--tree');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(5000);
+
+      expect(lines.some((l) => l === 'webserver (192.168.1.10) [:80]')).toBe(true);
+      expect(lines.some((l) => l === 'dbserver (192.168.1.20) [:22]')).toBe(true);
+      // No tree connectors
+      expect(
+        lines.some((l) => l.includes('\u251C\u2500\u2500') || l.includes('\u2514\u2500\u2500')),
+      ).toBe(false);
+    });
+
+    it('should show localhost without ports in tree', () => {
+      const context = createMockNmapContext({
+        localIP: '192.168.1.5',
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.1',
+            hostname: 'router',
+            ports: [{ port: 22, service: 'ssh', open: true }],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('192.168.1.1-10', '--tree');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(5000);
+
+      // Localhost has no port brackets
+      expect(lines.some((l) => l.includes('localhost (192.168.1.5)') && !l.includes('['))).toBe(
+        true,
+      );
+    });
+
+    it('should show CVEs with -sV and --tree', () => {
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.1',
+            hostname: 'router',
+            ports: [{ port: 22, service: 'ssh', open: true }],
+          }),
+          getMockRemoteMachine({
+            ip: '192.168.1.10',
+            hostname: 'webserver',
+            ports: [
+              {
+                port: 80,
+                service: 'http',
+                open: true,
+                vulnerability: {
+                  cve: 'CVE-2021-41773',
+                  description: 'Apache path traversal',
+                  serviceVersion: 'Apache/2.4.49',
+                },
+              },
+            ],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('192.168.1.1-20', '--tree', '-sV');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(5000);
+
+      expect(
+        lines.some(
+          (l) => l.includes('\u26A0') && l.includes('CVE-2021-41773') && l.includes('http:80'),
+        ),
+      ).toBe(true);
+    });
+
+    it('should not show CVEs without -sV', () => {
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.1',
+            hostname: 'router',
+            ports: [{ port: 22, service: 'ssh', open: true }],
+          }),
+          getMockRemoteMachine({
+            ip: '192.168.1.10',
+            hostname: 'webserver',
+            ports: [
+              {
+                port: 80,
+                service: 'http',
+                open: true,
+                vulnerability: {
+                  cve: 'CVE-2021-41773',
+                  description: 'Apache path traversal',
+                  serviceVersion: 'Apache/2.4.49',
+                },
+              },
+            ],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('192.168.1.1-20', '--tree');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(5000);
+
+      expect(lines.some((l) => l.includes('CVE'))).toBe(false);
+    });
+
+    it('should filter ports by protocol with --tree and -sU', () => {
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.1',
+            hostname: 'router',
+            ports: [
+              { port: 22, service: 'ssh', open: true },
+              { port: 161, service: 'snmp', open: true, protocol: 'udp' },
+            ],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('192.168.1.1-5', '--tree', '-sU');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(2000);
+
+      const routerLine = lines.find((l) => l.includes('router (192.168.1.1)'));
+      expect(routerLine).toContain(':161');
+      expect(routerLine).not.toContain(':22');
+    });
+
+    it('should show no hosts message with --tree when range is empty', () => {
+      const context = createMockNmapContext({ machines: [] });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('192.168.1.200-202', '--tree');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(1000);
+
+      expect(lines.some((l) => l.includes('No hosts found in range.'))).toBe(true);
+    });
+
+    it('should still show Nmap done footer with --tree', () => {
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.1',
+            hostname: 'router',
+            ports: [{ port: 22, service: 'ssh', open: true }],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('192.168.1.1-5', '--tree');
+
+      const lines: string[] = [];
+      let completed = false;
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {
+            completed = true;
+          },
+        );
+      }
+
+      vi.advanceTimersByTime(2000);
+
+      expect(lines.some((l) => l.includes('Nmap done:'))).toBe(true);
+      expect(completed).toBe(true);
+    });
+
+    it('should show only gateway when no other hosts found', () => {
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.1',
+            hostname: 'router',
+            ports: [
+              { port: 22, service: 'ssh', open: true },
+              { port: 80, service: 'http', open: true },
+            ],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('192.168.1.1-5', '--tree');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(2000);
+
+      expect(lines.some((l) => l === 'router (192.168.1.1) [:22 :80]')).toBe(true);
+      // No tree connectors since no children
+      expect(
+        lines.some((l) => l.includes('\u251C\u2500\u2500') || l.includes('\u2514\u2500\u2500')),
+      ).toBe(false);
+    });
+
+    it('should show CVE with correct indentation under non-last child', () => {
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.1',
+            hostname: 'router',
+            ports: [{ port: 22, service: 'ssh', open: true }],
+          }),
+          getMockRemoteMachine({
+            ip: '192.168.1.10',
+            hostname: 'webserver',
+            ports: [
+              {
+                port: 80,
+                service: 'http',
+                open: true,
+                vulnerability: {
+                  cve: 'CVE-2021-41773',
+                  description: 'Apache path traversal',
+                  serviceVersion: 'Apache/2.4.49',
+                },
+              },
+            ],
+          }),
+          getMockRemoteMachine({
+            ip: '192.168.1.20',
+            hostname: 'dbserver',
+            ports: [{ port: 3306, service: 'mysql', open: true }],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('192.168.1.1-25', '--tree', '-sV');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(10000);
+
+      // CVE under non-last child should use │   └── prefix
+      expect(
+        lines.some(
+          (l) => l.startsWith('\u2502   \u2514\u2500\u2500') && l.includes('CVE-2021-41773'),
+        ),
+      ).toBe(true);
+    });
+
+    it('should show CVE with correct indentation under last child', () => {
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.1',
+            hostname: 'router',
+            ports: [{ port: 22, service: 'ssh', open: true }],
+          }),
+          getMockRemoteMachine({
+            ip: '192.168.1.10',
+            hostname: 'webserver',
+            ports: [
+              {
+                port: 80,
+                service: 'http',
+                open: true,
+                vulnerability: {
+                  cve: 'CVE-2021-41773',
+                  description: 'Apache path traversal',
+                  serviceVersion: 'Apache/2.4.49',
+                },
+              },
+            ],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('192.168.1.1-15', '--tree', '-sV');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(5000);
+
+      // CVE under last child should use spaces + └── prefix
+      expect(
+        lines.some((l) => l.startsWith('    \u2514\u2500\u2500') && l.includes('CVE-2021-41773')),
+      ).toBe(true);
+    });
+
+    it('should parse --tree in any argument position', () => {
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.1',
+            hostname: 'router',
+            ports: [{ port: 22, service: 'ssh', open: true }],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('--tree', '192.168.1.1-5');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(2000);
+
+      expect(lines.some((l) => l === 'router (192.168.1.1) [:22]')).toBe(true);
+    });
+
+    it('should omit port brackets for machine with no open ports', () => {
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.10',
+            hostname: 'closedserver',
+            ports: [{ port: 22, service: 'ssh', open: false }],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('192.168.1.10-15', '--tree');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(2000);
+
+      // Tree output line (not the "Host discovered:" line)
+      expect(lines.some((l) => l === 'closedserver (192.168.1.10)')).toBe(true);
+    });
+  });
 });
