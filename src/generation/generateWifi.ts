@@ -35,6 +35,14 @@ const noiseEssids: readonly string[] = [
   'TP-LINK_GUEST',
   'HOME-WIFI-2.4G',
   'CenturyLink4521',
+  'ORBI-MESH-5G',
+  'Google_Fiber_AX',
+  'Spectrum-WiFi-62',
+  'ASUS_RT_AC68U',
+  'Pretty_Fly_WiFi',
+  'T-Mobile_Home_3B',
+  'Eero-Living-Room',
+  'DIRECT-hp-print',
 ];
 
 const generateMac = (prng: ReturnType<typeof createPrng>): string => {

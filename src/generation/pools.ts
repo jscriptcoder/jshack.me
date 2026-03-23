@@ -13,6 +13,16 @@ export const clientHandles: readonly string[] = [
   'darkfl0w',
   'v0id_agent',
   'ph4nt0m',
+  'sh4d0w_',
+  'n1ghtcr4wl',
+  'd34dc0de',
+  'r00tk1t_',
+  'bytefl00d',
+  'cr4sh_0v3r',
+  'nullp0int3r',
+  'w1r3sh4rk',
+  'sp00f3r',
+  'h4ckb0x',
 ];
 
 export type PortTemplate = {
@@ -23,13 +33,90 @@ export type PortTemplate = {
 };
 
 export const usernamesByRole: Readonly<Record<MachineRole, readonly string[]>> = {
-  webserver: ['www-data', 'webadmin', 'apache', 'nginx', 'deploy'],
-  database: ['dbadmin', 'postgres', 'mysql', 'dba', 'dataops'],
-  fileserver: ['ftpuser', 'backup', 'storage', 'sysadmin', 'fileadm'],
-  workstation: ['jsmith', 'admin', 'developer', 'analyst', 'operator'],
-  mailserver: ['postmaster', 'mailadm', 'dovecot', 'smtp-svc', 'mailops'],
-  iot: ['admin', 'device', 'iotuser', 'sensor', 'operator'],
-  router: ['netops', 'routeadm', 'admin', 'fwadmin', 'operator'],
+  webserver: [
+    'www-data',
+    'webadmin',
+    'apache',
+    'nginx',
+    'deploy',
+    'devops',
+    'httpd',
+    'proxy',
+    'caddy',
+    'webops',
+  ],
+  database: [
+    'dbadmin',
+    'postgres',
+    'mysql',
+    'dba',
+    'dataops',
+    'dbuser',
+    'replication',
+    'analytics',
+    'etl',
+    'sqldev',
+  ],
+  fileserver: [
+    'ftpuser',
+    'backup',
+    'storage',
+    'sysadmin',
+    'fileadm',
+    'archive',
+    'nfs',
+    'rsync',
+    'datamgr',
+    'shareuser',
+  ],
+  workstation: [
+    'jsmith',
+    'admin',
+    'developer',
+    'analyst',
+    'operator',
+    'mrodriguez',
+    'pwilson',
+    'sthompson',
+    'klee',
+    'rjohnson',
+  ],
+  mailserver: [
+    'postmaster',
+    'mailadm',
+    'dovecot',
+    'smtp-svc',
+    'mailops',
+    'listadm',
+    'relay',
+    'quarantine',
+    'mxops',
+    'imapuser',
+  ],
+  iot: [
+    'admin',
+    'device',
+    'iotuser',
+    'sensor',
+    'operator',
+    'mqtt',
+    'telemetry',
+    'gateway',
+    'controller',
+    'monitor',
+  ],
+  router: [
+    'netops',
+    'routeadm',
+    'admin',
+    'fwadmin',
+    'operator',
+    'bgpuser',
+    'snmpadm',
+    'vpnuser',
+    'natadm',
+    'core',
+  ],
 };
 
 export const guestPasswords: readonly string[] = JSON.parse(
@@ -41,13 +128,90 @@ export const passwords: readonly string[] = JSON.parse(
 ) as readonly string[];
 
 export const hostnamesByRole: Readonly<Record<MachineRole, readonly string[]>> = {
-  webserver: ['web01', 'web-prod', 'www', 'frontend', 'apache01'],
-  database: ['db-primary', 'db01', 'mysql-prod', 'postgres01', 'datastore'],
-  fileserver: ['files01', 'nas', 'backup-srv', 'storage01', 'ftp-main'],
-  workstation: ['ws-admin', 'dev-box', 'ops-station', 'analyst-pc', 'jump-box'],
-  mailserver: ['mail01', 'mx-primary', 'smtp-relay', 'postfix-srv', 'exchange01'],
-  iot: ['cam-01', 'thermostat', 'smart-lock', 'iot-hub', 'sensor-gw'],
-  router: ['router01', 'gw-main', 'border-gw', 'core-rtr', 'firewall01'],
+  webserver: [
+    'web01',
+    'web-prod',
+    'www',
+    'frontend',
+    'apache01',
+    'webnode-1',
+    'http-srv',
+    'proxy01',
+    'lb-web',
+    'cdn-edge',
+  ],
+  database: [
+    'db-primary',
+    'db01',
+    'mysql-prod',
+    'postgres01',
+    'datastore',
+    'replica-01',
+    'db-analytics',
+    'redis-cache',
+    'mongo-srv',
+    'data-node',
+  ],
+  fileserver: [
+    'files01',
+    'nas',
+    'backup-srv',
+    'storage01',
+    'ftp-main',
+    'nfs-share',
+    'archive01',
+    'rsync-srv',
+    'samba-dc',
+    'backup-nas',
+  ],
+  workstation: [
+    'ws-admin',
+    'dev-box',
+    'ops-station',
+    'analyst-pc',
+    'jump-box',
+    'workbench',
+    'admin-ws',
+    'lab-pc',
+    'bastion',
+    'deploy-box',
+  ],
+  mailserver: [
+    'mail01',
+    'mx-primary',
+    'smtp-relay',
+    'postfix-srv',
+    'exchange01',
+    'relay-01',
+    'imap-srv',
+    'mail-gw',
+    'mx-backup',
+    'mailer01',
+  ],
+  iot: [
+    'cam-01',
+    'thermostat',
+    'smart-lock',
+    'iot-hub',
+    'sensor-gw',
+    'doorbell',
+    'hvac-ctrl',
+    'pir-sensor',
+    'weather-stn',
+    'ip-cam-02',
+  ],
+  router: [
+    'router01',
+    'gw-main',
+    'border-gw',
+    'core-rtr',
+    'firewall01',
+    'edge-rtr',
+    'fw-dmz',
+    'switch-core',
+    'vpn-gw',
+    'net-gateway',
+  ],
 };
 
 export const portTemplatesByRole: Readonly<Record<MachineRole, readonly PortTemplate[]>> = {
@@ -102,6 +266,11 @@ export const snmpRwCommunities: readonly string[] = [
   'C1sc0',
   'write',
   'secret',
+  'network',
+  'rw_comm',
+  'cisco',
+  'SNMP_RW',
+  'manager',
 ];
 
 export type EntryPortTemplate = {
@@ -350,6 +519,60 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'PostgreSQL 9.3',
     },
   },
+  {
+    port: 80,
+    service: 'http',
+    vulnerability: {
+      cve: 'CVE-2017-7679',
+      description: 'Apache mod_mime buffer overread / RCE',
+      serviceVersion: 'Apache/2.4.25',
+    },
+  },
+  {
+    port: 3306,
+    service: 'mysql',
+    vulnerability: {
+      cve: 'CVE-2016-6662',
+      description: 'MySQL remote root code execution via config manipulation',
+      serviceVersion: 'MySQL 5.5.52',
+    },
+  },
+  {
+    port: 6379,
+    service: 'redis',
+    vulnerability: {
+      cve: 'CVE-2015-4335',
+      description: 'Redis Lua sandbox escape via eval',
+      serviceVersion: 'Redis 2.8.19',
+    },
+  },
+  {
+    port: 21,
+    service: 'ftp',
+    vulnerability: {
+      cve: 'CVE-2015-3306',
+      description: 'ProFTPD mod_copy unauthenticated file copy / RCE',
+      serviceVersion: 'ProFTPD 1.3.5',
+    },
+  },
+  {
+    port: 25,
+    service: 'smtp',
+    vulnerability: {
+      cve: 'CVE-2010-4344',
+      description: 'Exim heap overflow remote code execution',
+      serviceVersion: 'Exim 4.69',
+    },
+  },
+  {
+    port: 1883,
+    service: 'mqtt',
+    vulnerability: {
+      cve: 'CVE-2017-7650',
+      description: 'Mosquitto pattern-based ACL bypass',
+      serviceVersion: 'Mosquitto 1.4.12',
+    },
+  },
 ];
 
 export const logTemplates: readonly string[] = [
@@ -360,36 +583,58 @@ export const logTemplates: readonly string[] = [
   '{{date}} systemd[1]: Started {{service}}.service',
   '{{date}} kernel: [{{uptime}}] eth0: link up',
   '{{date}} sudo: {{user}} : TTY=pts/0 ; PWD=/home/{{user}} ; COMMAND=/bin/cat /etc/shadow',
+  '{{date}} sshd[{{pid}}]: Accepted publickey for {{user}} from {{ip}} port {{srcport}}',
+  '{{date}} sshd[{{pid}}]: Invalid user admin from {{ip}} port {{srcport}}',
+  '{{date}} systemd[1]: Stopping {{service}}.service',
+  '{{date}} kernel: [{{uptime}}] TCP: request_sock_TCP: Possible SYN flooding on port 22',
+  '{{date}} su[{{pid}}]: pam_unix(su:session): session opened for user root by {{user}}(uid=1000)',
+  '{{date}} CRON[{{pid}}]: (root) CMD (/usr/local/bin/certbot renew --quiet)',
+  '{{date}} postfix/smtpd[{{pid}}]: connect from unknown[{{ip}}]',
+  '{{date}} sshd[{{pid}}]: Received disconnect from {{ip}} port {{srcport}}: 11: disconnected by user',
 ];
 
 export const configTemplatesByRole: Readonly<Record<MachineRole, readonly string[]>> = {
   webserver: [
     'ServerRoot "/etc/httpd"\nListen {{port}}\nDocumentRoot "/var/www/html"\nServerName {{hostname}}',
     'server {\n  listen {{port}};\n  server_name {{hostname}};\n  root /var/www/html;\n}',
+    '<VirtualHost *:{{port}}>\n  ServerName {{hostname}}\n  DocumentRoot /var/www/html\n  ErrorLog /var/log/apache2/error.log\n  CustomLog /var/log/apache2/access.log combined\n  SSLEngine on\n  SSLCertificateFile /etc/ssl/certs/{{hostname}}.pem\n</VirtualHost>',
+    'upstream backend {\n  server 127.0.0.1:8080;\n}\nserver {\n  listen {{port}};\n  server_name {{hostname}};\n  location / {\n    proxy_pass http://backend;\n    proxy_set_header Host $host;\n  }\n}',
   ],
   database: [
     '[mysqld]\nport={{port}}\ndatadir=/var/lib/mysql\nuser={{user}}\nbind-address=0.0.0.0',
     "listen_addresses = '*'\nport = {{port}}\nmax_connections = 100",
+    '[mysqld]\nserver-id=1\nlog_bin=mysql-bin\nbinlog_do_db=app_prod\nport={{port}}\nmax_connections=200\ninnodb_buffer_pool_size=256M',
+    'shared_buffers = 128MB\nwork_mem = 4MB\nwal_level = replica\nmax_wal_senders = 3\narchive_mode = on\narchive_command = cp %p /var/lib/postgresql/archive/%f',
   ],
   fileserver: [
     '[global]\nworkgroup = MISSION\nsecurity = user\n\n[share]\npath = /srv/ftp\nwritable = yes',
     'anonymous_enable=NO\nlocal_enable=YES\nwrite_enable=YES\nchroot_local_user=YES',
+    '[global]\nworkgroup = CORP\nserver string = {{hostname}}\nsecurity = user\nmap to guest = Bad Password\n\n[public]\npath = /srv/share\nbrowseable = yes\nread only = no\nguest ok = yes',
+    'listen=YES\nlocal_enable=YES\nwrite_enable=YES\npasv_min_port=30000\npasv_max_port=31000\nuserlist_enable=YES\nuserlist_file=/etc/vsftpd.userlist\nuserlist_deny=NO\nssl_enable=NO',
   ],
   workstation: [
     'Host *\n  ServerAliveInterval 60\n  ServerAliveCountMax 3',
     'export PS1="\\u@\\h:\\w\\$ "\nexport EDITOR=nano\nexport PATH=$PATH:/usr/local/bin',
+    'Host bastion\n  HostName 10.0.0.10\n  User {{user}}\n  IdentityFile ~/.ssh/id_rsa\n  ProxyJump none\n  ForwardAgent yes',
+    '# ~/.tmux.conf\nset -g mouse on\nset -g history-limit 10000\nset -g default-terminal "screen-256color"\nbind r source-file ~/.tmux.conf',
   ],
   mailserver: [
     'smtpd_banner = $myhostname ESMTP $mail_name\nsmtpd_tls_cert_file=/etc/ssl/certs/ssl-cert.pem\nsmtpd_tls_key_file=/etc/ssl/private/ssl-cert.key\nmyhostname = {{hostname}}\nmydestination = $myhostname, localhost\ninet_interfaces = all',
     'protocols = imap\nlisten = *, ::\nmail_location = mbox:~/mail:INBOX=/var/mail/%u\nssl = required\nssl_cert = </etc/ssl/certs/dovecot.pem\nssl_key = </etc/ssl/private/dovecot.pem',
+    'smtpd_relay_restrictions = permit_mynetworks permit_sasl_authenticated defer_unauth_destination\nmyhostname = {{hostname}}\nalias_maps = hash:/etc/aliases\nmailbox_size_limit = 51200000\nrecipient_delimiter = +\ninet_interfaces = all\ninet_protocols = ipv4',
+    'service imap-login {\n  inet_listener imap {\n    port = 143\n  }\n  inet_listener imaps {\n    port = 993\n    ssl = yes\n  }\n}\nmail_location = maildir:~/Maildir\nauth_mechanisms = plain login',
   ],
   iot: [
     '# BusyBox v1.31.1\nhostname={{hostname}}\ndevice_type=sensor_gateway\nfirmware=v2.1.4\nmqtt_broker=127.0.0.1\nmqtt_port=1883\nlog_level=warn',
     '# Device configuration\n[network]\ndhcp=yes\nhostname={{hostname}}\n[mqtt]\nbroker=localhost\nport=1883\ntopic_prefix=devices/{{hostname}}\n[sensor]\ninterval=60\nthreshold=25.0',
+    '# Zigbee coordinator config\nserial_port=/dev/ttyUSB0\nbaud_rate=115200\npan_id=0x1A62\nchannel=15\nnetwork_key=01030507090B0D0F00020406080A0C0E\nhostname={{hostname}}',
+    '# OTA update manifest\n[firmware]\ncurrent=2.1.4\nchannel=stable\ncheck_url=https://ota.vendor.io/{{hostname}}\nverify_sig=true\nauto_install=false\nrollback_slot=A',
   ],
   router: [
     '*filter\n:INPUT DROP [0:0]\n:FORWARD ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n-A INPUT -i lo -j ACCEPT\n-A INPUT -p tcp --dport 22 -j ACCEPT\n-A INPUT -p tcp --dport {{port}} -j ACCEPT\n-A FORWARD -i eth1 -o eth0 -j ACCEPT\n-A FORWARD -i eth0 -o eth1 -m state --state RELATED,ESTABLISHED -j ACCEPT\nCOMMIT',
     'auto eth0\niface eth0 inet static\n  address {{hostname}}\n  netmask 255.255.255.0\n  gateway 0.0.0.0\n\nauto eth1\niface eth1 inet static\n  address 10.0.0.1\n  netmask 255.255.255.0',
+    '# OSPF configuration\nrouter ospf\n  router-id {{hostname}}\n  network 10.0.0.0/24 area 0\n  passive-interface eth0\n  default-information originate\n  log-adjacency-changes',
+    '# NAT configuration\n*nat\n:PREROUTING ACCEPT [0:0]\n:POSTROUTING ACCEPT [0:0]\n-A POSTROUTING -s 10.0.0.0/24 -o eth0 -j MASQUERADE\nCOMMIT\n# Sysctl\nnet.ipv4.ip_forward=1',
   ],
 };
 
@@ -399,6 +644,29 @@ export const noiseFiles: readonly { readonly name: string; readonly content: str
   { name: '.vimrc', content: 'set number\nset tabstop=2\nset shiftwidth=2\nsyntax on' },
   { name: '.profile', content: '# ~/.profile\nif [ -n "$BASH_VERSION" ]; then\n  . ~/.bashrc\nfi' },
   { name: '.ssh_known_hosts', content: '# known hosts\n192.168.1.1 ssh-rsa AAAAB3NzaC1yc2E...' },
+  {
+    name: '.gitconfig',
+    content: '[user]\n  name = Admin\n  email = admin@corp.local\n[core]\n  editor = vim',
+  },
+  { name: '.wget-hsts', content: '# HSTS 1.0 Known Hosts database\nlocalhost\t0\t0\t443\t1' },
+  {
+    name: '.lesshst',
+    content: '.less-history-file:\n/var/log/syslog\n/etc/passwd\n/var/log/auth.log',
+  },
+  {
+    name: '.bash_history',
+    content:
+      'sudo systemctl restart sshd\ncat /etc/passwd\nnmap -sV 10.0.0.1\nssh root@10.0.0.10\nhistory -c',
+  },
+  { name: '.nanorc', content: 'set autoindent\nset tabsize 4\nset linenumbers\nset mouse' },
+  {
+    name: '.screenrc',
+    content: 'startup_message off\ndefscrollback 10000\nhardstatus alwayslastline "%H | %w"',
+  },
+  {
+    name: '.curlrc',
+    content: '# Default curl options\nconnect-timeout = 10\nmax-time = 30\nsilent',
+  },
 ];
 
 export type TargetFileTemplate = {
@@ -699,6 +967,34 @@ export const keyPlacementTemplates: readonly KeyPlacementTemplate[] = [
       '{\n  "vault_key": "{{key}}",\n  "algorithm": "AES-256",\n  "created": "2024-01-15"\n}',
     hint: 'The security vault on {{machine}} stores an encryption key at /opt/security/',
   },
+  {
+    path: '/tmp/.cache/decrypt.key',
+    template: '# Temporary decryption key — cleanup pending\nDECRYPT_KEY={{key}}\nEXPIRES=never',
+    hint: 'A temporary decryption key was left in /tmp/.cache/ on {{machine}}',
+  },
+  {
+    path: '/srv/backup/.encryption.conf',
+    template:
+      '[backup_encryption]\ncipher=aes-256-cbc\nkey={{key}}\niv_mode=random\ncreated=2024-02-01',
+    hint: 'Backup encryption config on {{machine}} contains the key at /srv/backup/',
+  },
+  {
+    path: '/etc/docker/.registry.key',
+    template: '# Docker registry signing key\nREGISTRY=registry.corp.local:5000\nSIGN_KEY={{key}}',
+    hint: 'A registry signing key exists in /etc/docker/ on {{machine}}',
+  },
+  {
+    path: '/home/{{user}}/.config/keyfile.pem',
+    template:
+      '-----BEGIN ENCRYPTED PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-256-CBC\n\n{{key}}\n-----END ENCRYPTED PRIVATE KEY-----',
+    hint: "Check {{user}}'s .config directory on {{machine}} for a key file",
+  },
+  {
+    path: '/usr/share/keys/archive-master.key',
+    template:
+      'KEY_ID=archive-master\nKEY_TYPE=symmetric\nALGORITHM=AES-256\nKEY_DATA={{key}}\nCREATED=2024-01-20\nROTATION=quarterly',
+    hint: 'An archive master key is stored in /usr/share/keys/ on {{machine}}',
+  },
 ];
 
 type WebContentTemplate = {
@@ -748,17 +1044,59 @@ const iotWebContentTemplates: readonly WebContentTemplate[] = [
   },
 ];
 
-// Default web page templates for non-webserver machines that happen to have HTTP ports open.
-const defaultWebContentTemplates: readonly WebContentTemplate[] = [
+// Database admin panel templates — phpMyAdmin/pgAdmin-style interfaces.
+const databaseWebContentTemplates: readonly WebContentTemplate[] = [
   {
     path: '/var/www/html/index.html',
     content:
-      '<html>\n<head><title>{{hostname}}</title></head>\n<body>\n<h1>It works!</h1>\n<p>This is the default web page for {{hostname}}.</p>\n<!-- Apache/2.4.41 (Ubuntu) Server at {{ip}} -->\n</body>\n</html>',
+      '<html>\n<head><title>phpMyAdmin — {{hostname}}</title></head>\n<body>\n<h1>phpMyAdmin</h1>\n<p>Welcome to phpMyAdmin 5.2.1</p>\n<form action="/index.php" method="POST">\n<label>Username: <input type="text" name="pma_username"></label><br>\n<label>Password: <input type="password" name="pma_password"></label><br>\n<input type="submit" value="Go">\n</form>\n<!-- phpMyAdmin 5.2.1 / MySQL {{hostname}} -->\n</body>\n</html>',
   },
   {
     path: '/var/www/html/index.html',
     content:
-      '<html>\n<head><title>{{hostname}} — Service Portal</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>Application server running. Service healthy.</p>\n<p><a href="/status">Health Check</a></p>\n<!-- nginx/1.18.0 -->\n</body>\n</html>',
+      '<html>\n<head><title>{{hostname}} — Database Status</title></head>\n<body>\n<h1>{{hostname}} Database Server</h1>\n<p>Engine: MySQL 5.7 | Status: <span style="color:green">Running</span></p>\n<p>Connections: 14/100 | Uptime: 23d 8h</p>\n<p><a href="/admin/">Admin Console</a> | <a href="/status">Replication Status</a></p>\n<!-- Adminer 4.8.1 -->\n</body>\n</html>',
+  },
+];
+
+// Fileserver web panel templates — web-based file manager interfaces.
+const fileserverWebContentTemplates: readonly WebContentTemplate[] = [
+  {
+    path: '/var/www/html/index.html',
+    content:
+      '<html>\n<head><title>{{hostname}} — File Manager</title></head>\n<body>\n<h1>{{hostname}} File Manager</h1>\n<p>Web File Browser v1.4.2</p>\n<form action="/login" method="POST">\n<label>User: <input type="text" name="user"></label><br>\n<label>Pass: <input type="password" name="pass"></label><br>\n<input type="submit" value="Login">\n</form>\n<!-- FileBrowser/2.23.0 -->\n</body>\n</html>',
+  },
+  {
+    path: '/var/www/html/index.html',
+    content:
+      '<html>\n<head><title>{{hostname}} — Storage</title></head>\n<body>\n<h1>{{hostname}} NAS Portal</h1>\n<p>Storage: 847GB / 2TB (42% used)</p>\n<p>Shares: public, backup, archive</p>\n<p><a href="/files/">Browse Files</a> | <a href="/admin/">Admin</a></p>\n<!-- Synology DSM 7.1 -->\n</body>\n</html>',
+  },
+];
+
+// Mailserver web panel templates — webmail/admin interfaces.
+const mailserverWebContentTemplates: readonly WebContentTemplate[] = [
+  {
+    path: '/var/www/html/index.html',
+    content:
+      '<html>\n<head><title>Roundcube Webmail — {{hostname}}</title></head>\n<body>\n<h1>Roundcube Webmail</h1>\n<p>{{hostname}} Mail Server</p>\n<form action="/login" method="POST">\n<label>Email: <input type="text" name="user"></label><br>\n<label>Password: <input type="password" name="pass"></label><br>\n<input type="submit" value="Login">\n</form>\n<!-- Roundcube 1.6.3 | Postfix/Dovecot -->\n</body>\n</html>',
+  },
+  {
+    path: '/var/www/html/index.html',
+    content:
+      '<html>\n<head><title>{{hostname}} — Mail Administration</title></head>\n<body>\n<h1>{{hostname}} Mail Admin</h1>\n<p>Postfix Admin 3.3.11</p>\n<p>Domains: 2 | Mailboxes: 14 | Aliases: 8</p>\n<p><a href="/admin/">Domain Admin</a> | <a href="/status">Queue Status</a></p>\n<!-- Postfix 3.5.6 -->\n</body>\n</html>',
+  },
+];
+
+// Workstation web panel templates — development/internal tool interfaces.
+const workstationWebContentTemplates: readonly WebContentTemplate[] = [
+  {
+    path: '/var/www/html/index.html',
+    content:
+      '<html>\n<head><title>{{hostname}} — Dev Tools</title></head>\n<body>\n<h1>{{hostname}} Developer Portal</h1>\n<p>Internal tooling dashboard v2.0.1</p>\n<p><a href="/jenkins/">CI/CD</a> | <a href="/grafana/">Monitoring</a> | <a href="/docs/">API Docs</a></p>\n<!-- nginx/1.20.1 -->\n</body>\n</html>',
+  },
+  {
+    path: '/var/www/html/index.html',
+    content:
+      '<html>\n<head><title>{{hostname}} — Workstation</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>Code Server — VS Code in the browser</p>\n<form action="/login" method="POST">\n<label>Password: <input type="password" name="password"></label><br>\n<input type="submit" value="Login">\n</form>\n<!-- code-server 4.16.1 -->\n</body>\n</html>',
   },
 ];
 
@@ -769,11 +1107,11 @@ export const webContentTemplatesByRole: Readonly<
 > = {
   webserver: webContentTemplates,
   router: routerWebContentTemplates,
-  database: defaultWebContentTemplates,
-  fileserver: defaultWebContentTemplates,
-  mailserver: defaultWebContentTemplates,
+  database: databaseWebContentTemplates,
+  fileserver: fileserverWebContentTemplates,
+  mailserver: mailserverWebContentTemplates,
   iot: iotWebContentTemplates,
-  workstation: defaultWebContentTemplates,
+  workstation: workstationWebContentTemplates,
 };
 
 export const redHerringFiles: readonly { readonly name: string; readonly content: string }[] = [
@@ -791,6 +1129,35 @@ export const redHerringFiles: readonly { readonly name: string; readonly content
     name: 'maintenance_log.txt',
     content:
       'Jan 15: Patched OpenSSH\nJan 20: Rotated all passwords\nFeb 01: Updated firewall rules',
+  },
+  {
+    name: 'credentials.old',
+    content:
+      '# DEPRECATED — migrated to vault\nservice_user=deploy\nservice_pass=d3pl0y_2023\n# DO NOT USE — accounts disabled 2024-01-10',
+  },
+  {
+    name: '.secret_key',
+    content: 'aGVsbG8gd29ybGQ=\n# Base64 test key — not used in production',
+  },
+  {
+    name: 'todo.md',
+    content:
+      '- [x] Migrate DB to new subnet\n- [x] Rotate SSH keys\n- [ ] Disable guest accounts\n- [ ] Audit /tmp for leftover scripts',
+  },
+  {
+    name: 'recovery_codes.txt',
+    content:
+      'MFA Recovery Codes (USED)\n========================\n4821-7739 (used 2024-01-05)\n9103-2847 (used 2024-01-12)\n6650-1183 (used 2024-01-19)\nAll codes exhausted. Generate new set.',
+  },
+  {
+    name: 'access_log.old',
+    content:
+      '10.0.0.5 - admin [15/Jan/2024:03:14:22] "GET /admin/ HTTP/1.1" 401\n10.0.0.5 - admin [15/Jan/2024:03:14:25] "GET /admin/ HTTP/1.1" 401\n# IP blocked after brute force detection',
+  },
+  {
+    name: '.docker-compose.yml.bak',
+    content:
+      'version: "3"\nservices:\n  app:\n    image: corp/webapp:2.1.0\n    environment:\n      - DB_PASS=changeme  # placeholder\n    # DECOMISSIONED — moved to k8s',
   },
 ];
 
@@ -994,6 +1361,99 @@ export const credentialLeakTemplates: readonly CredentialLeakTemplate[] = [
     ].join('\n'),
     binary: true,
   },
+  // Ansible/automation credential files
+  {
+    path: '/opt/ansible/host_vars/localhost.yml',
+    content: [
+      '---',
+      '# Ansible host variables',
+      'ansible_user: {{username}}',
+      'ansible_password: {{password}}',
+      'ansible_become: true',
+      'ansible_become_method: sudo',
+      'http_proxy: ""',
+    ].join('\n'),
+  },
+  {
+    path: '/srv/www/wp-config.php.save',
+    content: [
+      '<?php',
+      "define('DB_NAME', 'wordpress');",
+      "define('DB_USER', '{{username}}');",
+      "define('DB_PASSWORD', '{{password}}');",
+      "define('DB_HOST', 'localhost');",
+      "define('DB_CHARSET', 'utf8mb4');",
+      '',
+      "define('AUTH_KEY', 'put-your-unique-phrase-here');",
+      '?>',
+    ].join('\n'),
+  },
+  {
+    path: '/etc/supervisor/conf.d/app.conf',
+    content: [
+      '[program:app-worker]',
+      'command=/opt/app/worker --db-user={{username}} --db-pass={{password}}',
+      'autostart=true',
+      'autorestart=true',
+      'user=nobody',
+      'stdout_logfile=/var/log/worker.log',
+      'stderr_logfile=/var/log/worker_err.log',
+    ].join('\n'),
+  },
+  {
+    path: '/tmp/.migration_rollback.sql',
+    content: [
+      '-- Emergency rollback script',
+      '-- Created during failed migration on 2024-03-10',
+      `-- Credentials: {{username}} / {{password}}`,
+      '',
+      'BEGIN;',
+      'ALTER TABLE users DROP COLUMN mfa_token;',
+      'UPDATE schema_version SET version = 41;',
+      'COMMIT;',
+      '-- TODO: delete this file after rollback',
+    ].join('\n'),
+  },
+  {
+    path: '/opt/scripts/sync_remote.sh',
+    content: [
+      '#!/bin/bash',
+      '# Sync files to backup server nightly',
+      `RSYNC_USER="{{username}}"`,
+      `RSYNC_PASS="{{password}}"`,
+      '',
+      'export RSYNC_PASSWORD=$RSYNC_PASS',
+      'rsync -avz /srv/data/ $RSYNC_USER@10.0.0.50::backup/',
+      'echo "$(date): sync completed" >> /var/log/sync.log',
+    ].join('\n'),
+  },
+  {
+    path: '/var/www/.git/config',
+    content: [
+      '[core]',
+      '  repositoryformatversion = 0',
+      '  filemode = true',
+      '[remote "origin"]',
+      '  url = https://{{username}}:{{password}}@git.corp.local/webapp.git',
+      '  fetch = +refs/heads/*:refs/remotes/origin/*',
+      '[branch "main"]',
+      '  remote = origin',
+      '  merge = refs/heads/main',
+    ].join('\n'),
+  },
+  // Binary files (require `strings` to read cleanly)
+  {
+    path: '/opt/bin/db_connector',
+    content: [
+      'db_connector v1.4.0 — database connection pool manager',
+      'driver: mysql',
+      'host: 127.0.0.1:3306',
+      `auth: {{username}}:{{password}}`,
+      'pool_size: 25',
+      'timeout: 30s',
+    ].join('\n'),
+    binary: true,
+  },
 ];
 
 // HTTP entry credential templates — placed in /var/www/html/ on the entry machine
@@ -1095,6 +1555,64 @@ export const httpEntryCredentialTemplates: readonly HttpEntryCredentialTemplate[
       '</html>',
     ].join('\n'),
     sidecarHeader: 'X-Internal-Auth',
+  },
+  // Body-based: credentials in file content
+  {
+    webPath: 'backup/credentials.txt',
+    content: [
+      '# Emergency access credentials',
+      '# Created: 2024-03-10 during migration',
+      '',
+      'SSH_HOST=localhost',
+      'SSH_PORT=22',
+      'SSH_USER={{username}}',
+      'SSH_PASS={{password}}',
+      '',
+      '# TODO: delete this file after migration completes',
+    ].join('\n'),
+  },
+  {
+    webPath: 'api/debug/config',
+    content: [
+      '{',
+      '  "debug": true,',
+      '  "env": "staging",',
+      '  "build": "4.2.1-rc3",',
+      '  "ssh_tunnel": {',
+      '    "enabled": true,',
+      '    "username": "{{username}}",',
+      '    "password": "{{password}}",',
+      '    "forward": "localhost:3306"',
+      '  }',
+      '}',
+    ].join('\n'),
+  },
+  // Header-based: credentials in .headers sidecar (requires curl -i)
+  {
+    webPath: 'api/v1/health',
+    content: [
+      '{',
+      '  "status": "ok",',
+      '  "checks": {',
+      '    "database": "connected",',
+      '    "cache": "hit_rate_94",',
+      '    "queue": "0_pending"',
+      '  },',
+      '  "version": "3.8.2"',
+      '}',
+    ].join('\n'),
+    sidecarHeader: 'X-Service-Token',
+  },
+  {
+    webPath: 'server-status',
+    content: [
+      'Server Status for {{hostname}}',
+      'Server uptime: 31 days 4 hours 22 minutes',
+      'Total accesses: 148203',
+      'CPU Usage: u12.3 s4.1',
+      '2 requests currently being processed, 8 idle workers',
+    ].join('\n'),
+    sidecarHeader: 'X-Admin-Credential',
   },
 ];
 
