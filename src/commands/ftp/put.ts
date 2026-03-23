@@ -1,5 +1,11 @@
 import type { Command, AsyncOutput } from '../../components/Terminal/types';
-import type { FileNode, PermissionResult } from '../../filesystem/types';
+import type {
+  FileNode,
+  MachineCreateOp,
+  MachineFileOp,
+  MachineWriteOp,
+  PermissionResult,
+} from '../../filesystem/types';
 import type { UserType } from '../../session/SessionContext';
 import type { MachineId } from '../../filesystem/machineFileSystems';
 import { createCancellationToken, jitter } from '../../utils/asyncCommand';
@@ -13,26 +19,9 @@ type FtpPutContext = {
   readonly getOriginUserType: () => UserType;
   readonly resolvePathForMachine: (path: string, cwd: string) => string;
   readonly getNodeFromMachine: (machineId: MachineId, path: string, cwd: string) => FileNode | null;
-  readonly readFileFromMachine: (
-    machineId: MachineId,
-    path: string,
-    cwd: string,
-    userType: UserType,
-  ) => string | null;
-  readonly createFileOnMachine: (
-    machineId: MachineId,
-    path: string,
-    cwd: string,
-    content: string,
-    userType: UserType,
-  ) => PermissionResult;
-  readonly writeFileToMachine: (
-    machineId: MachineId,
-    path: string,
-    cwd: string,
-    content: string,
-    userType: UserType,
-  ) => PermissionResult;
+  readonly readFileFromMachine: (op: MachineFileOp) => string | null;
+  readonly createFileOnMachine: (op: MachineCreateOp) => PermissionResult;
+  readonly writeFileToMachine: (op: MachineWriteOp) => PermissionResult;
 };
 
 export const createFtpPutCommand = (context: FtpPutContext): Command => ({
@@ -89,12 +78,12 @@ export const createFtpPutCommand = (context: FtpPutContext): Command => ({
     }
 
     // Read local file content
-    const content = context.readFileFromMachine(
-      originMachine,
-      resolvedLocalPath,
-      '/',
-      originUserType,
-    );
+    const content = context.readFileFromMachine({
+      machineId: originMachine,
+      path: resolvedLocalPath,
+      cwd: '/',
+      userType: originUserType,
+    });
     if (content === null) {
       throw new Error(`put: ${localFile}: Permission denied`);
     }
@@ -149,21 +138,16 @@ export const createFtpPutCommand = (context: FtpPutContext): Command => ({
           if (token.isCancelled()) return;
 
           // Perform the actual file write
+          const writeOp = {
+            machineId: remoteMachine,
+            path: resolvedRemotePath,
+            cwd: '/',
+            content,
+            userType: remoteUserType,
+          };
           const result = remoteNode
-            ? context.writeFileToMachine(
-                remoteMachine,
-                resolvedRemotePath,
-                '/',
-                content,
-                remoteUserType,
-              )
-            : context.createFileOnMachine(
-                remoteMachine,
-                resolvedRemotePath,
-                '/',
-                content,
-                remoteUserType,
-              );
+            ? context.writeFileToMachine(writeOp)
+            : context.createFileOnMachine(writeOp);
 
           if (!result.allowed) {
             onLine(`put: remote path ${remoteDestination}: ${result.error}`);

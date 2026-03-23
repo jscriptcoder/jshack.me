@@ -1,18 +1,13 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
 import type { MissionNetwork } from '../generation/types';
-import type { UserType } from '../session/SessionContext';
+import type { MachineFileOp } from '../filesystem/types';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 import { parseIptablesRules } from '../network/iptablesParser';
 
 type MailCommandContext = {
   readonly getActiveMission: () => MissionNetwork | null;
   readonly completeMission: () => void;
-  readonly readFileFromMachine: (
-    machineId: string,
-    path: string,
-    cwd: string,
-    userType: UserType,
-  ) => string | null;
+  readonly readFileFromMachine: (op: MachineFileOp) => string | null;
   readonly isMachineBricked: (machine: string) => boolean;
 };
 
@@ -46,12 +41,12 @@ const verifyTamper = (
   readFileFromMachine: MailCommandContext['readFileFromMachine'],
 ): string | null => {
   const { objective } = mission;
-  const fileContent = readFileFromMachine(
-    objective.targetMachine,
-    objective.targetPath,
-    '/',
-    'root',
-  );
+  const fileContent = readFileFromMachine({
+    machineId: objective.targetMachine,
+    path: objective.targetPath,
+    cwd: '/',
+    userType: 'root',
+  });
 
   if (fileContent === null) {
     return 'Target file not found. The file may have been deleted.';
@@ -90,7 +85,12 @@ const verifyBackdoor = (
   if (port === undefined) return 'Invalid backdoor mission configuration.';
 
   const pidPath = `/var/run/nc-${port}.pid`;
-  const pidContent = readFileFromMachine(objective.targetMachine, pidPath, '/', 'root');
+  const pidContent = readFileFromMachine({
+    machineId: objective.targetMachine,
+    path: pidPath,
+    cwd: '/',
+    userType: 'root',
+  });
 
   if (!pidContent) {
     return `No listener detected on port ${port}. Run nc("-l", ${port}) on the target machine.`;
@@ -120,12 +120,12 @@ const verifyPortforward = (
     return 'Invalid portforward mission configuration.';
   }
 
-  const iptablesContent = readFileFromMachine(
-    mission.routerPublicIp,
-    '/etc/iptables/rules.v4',
-    '/',
-    'root',
-  );
+  const iptablesContent = readFileFromMachine({
+    machineId: mission.routerPublicIp,
+    path: '/etc/iptables/rules.v4',
+    cwd: '/',
+    userType: 'root',
+  });
 
   if (!iptablesContent) {
     return 'Cannot read iptables rules on the router. Edit /etc/iptables/rules.v4 on the router.';

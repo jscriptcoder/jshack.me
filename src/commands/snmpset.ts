@@ -1,6 +1,6 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
 import type { RemoteMachine, DnsRecord } from '../network/types';
-import type { FileNode } from '../filesystem/types';
+import type { FileNode, MachineWriteOp } from '../filesystem/types';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 type SnmpsetContext = {
@@ -8,13 +8,7 @@ type SnmpsetContext = {
   readonly getLocalIP: () => string;
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
   readonly getNodeFromMachine: (machineIp: string, path: string, cwd: string) => FileNode | null;
-  readonly writeFileToMachine: (
-    machineIp: string,
-    path: string,
-    cwd: string,
-    content: string,
-    userType: 'root' | 'user' | 'guest',
-  ) => void;
+  readonly writeFileToMachine: (op: MachineWriteOp) => void;
 };
 
 const VALID_FIREWALL_VALUES = new Set(['permit', 'deny']);
@@ -203,7 +197,13 @@ export const createSnmpsetCommand = (context: SnmpsetContext): Command => ({
         token.schedule(() => {
           if (token.isCancelled()) return;
           // Write the updated config back to the filesystem
-          writeFileToMachine(targetIP, '/etc/snmp/snmpd.conf', '/', updatedContent, 'root');
+          writeFileToMachine({
+            machineId: targetIP,
+            path: '/etc/snmp/snmpd.conf',
+            cwd: '/',
+            content: updatedContent,
+            userType: 'root',
+          });
           onLine('Value updated successfully.');
           onComplete();
         }, delay);

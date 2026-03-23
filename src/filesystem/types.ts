@@ -32,3 +32,23 @@ export type FileSystemPatch = {
   readonly permissions?: FilePermissions;
   readonly isNew?: true;
 };
+
+// Options objects for machine-targeted filesystem operations (4+ params)
+export type MachineFileOp = {
+  readonly machineId: string;
+  readonly path: string;
+  readonly cwd: string;
+  readonly userType: UserType;
+};
+
+export type MachineWriteOp = MachineFileOp & {
+  readonly content: string;
+};
+
+export type MachineCreateOp = MachineWriteOp & {
+  readonly permissions?: FilePermissions;
+};
+
+export type MachineDeleteOp = MachineFileOp & {
+  readonly recursive?: boolean;
+};

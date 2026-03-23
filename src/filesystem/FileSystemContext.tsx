@@ -8,7 +8,16 @@ import {
   useMemo,
   type ReactNode,
 } from 'react';
-import type { FileNode, FilePermissions, FileSystemPatch, PermissionResult } from './types';
+import type {
+  FileNode,
+  FilePermissions,
+  FileSystemPatch,
+  MachineCreateOp,
+  MachineDeleteOp,
+  MachineFileOp,
+  MachineWriteOp,
+  PermissionResult,
+} from './types';
 import { useSession, type UserType } from '../session/SessionContext';
 import { getDefaultHomePath, type MachineId } from './machineFileSystems';
 import { getCachedFilesystemPatches, getDatabase } from '../utils/storageCache';
@@ -25,10 +34,6 @@ import {
   applyPatches,
   type FileSystemsState,
 } from './fileSystemUtils';
-
-type DeleteOptions = {
-  readonly recursive?: boolean;
-};
 
 type FileSystemContextValue = {
   readonly fileSystem: FileNode;
@@ -48,57 +53,18 @@ type FileSystemContextValue = {
   readonly deleteNode: (
     path: string,
     userType: UserType,
-    options?: DeleteOptions,
+    options?: { readonly recursive?: boolean },
   ) => PermissionResult;
   readonly getDefaultHomePath: (machineId: string, username: string) => string;
   readonly resolvePathForMachine: (path: string, cwd: string) => string;
   readonly getNodeFromMachine: (machineId: MachineId, path: string, cwd: string) => FileNode | null;
-  readonly canReadFromMachine: (
-    machineId: MachineId,
-    path: string,
-    cwd: string,
-    userType: UserType,
-  ) => PermissionResult;
-  readonly canWriteFromMachine: (
-    machineId: MachineId,
-    path: string,
-    cwd: string,
-    userType: UserType,
-  ) => PermissionResult;
-  readonly listDirectoryFromMachine: (
-    machineId: MachineId,
-    path: string,
-    cwd: string,
-    userType: UserType,
-  ) => string[] | null;
-  readonly readFileFromMachine: (
-    machineId: MachineId,
-    path: string,
-    cwd: string,
-    userType: UserType,
-  ) => string | null;
-  readonly writeFileToMachine: (
-    machineId: MachineId,
-    path: string,
-    cwd: string,
-    content: string,
-    userType: UserType,
-  ) => PermissionResult;
-  readonly createFileOnMachine: (
-    machineId: MachineId,
-    path: string,
-    cwd: string,
-    content: string,
-    userType: UserType,
-    permissions?: FilePermissions,
-  ) => PermissionResult;
-  readonly deleteNodeFromMachine: (
-    machineId: MachineId,
-    path: string,
-    cwd: string,
-    userType: UserType,
-    options?: DeleteOptions,
-  ) => PermissionResult;
+  readonly canReadFromMachine: (op: MachineFileOp) => PermissionResult;
+  readonly canWriteFromMachine: (op: MachineFileOp) => PermissionResult;
+  readonly listDirectoryFromMachine: (op: MachineFileOp) => string[] | null;
+  readonly readFileFromMachine: (op: MachineFileOp) => string | null;
+  readonly writeFileToMachine: (op: MachineWriteOp) => PermissionResult;
+  readonly createFileOnMachine: (op: MachineCreateOp) => PermissionResult;
+  readonly deleteNodeFromMachine: (op: MachineDeleteOp) => PermissionResult;
   readonly updatePermissions: (
     path: string,
     permissions: FilePermissions,
@@ -265,7 +231,7 @@ export const FileSystemProvider = ({
   );
 
   const canReadFromMachine = useCallback(
-    (machineId: MachineId, path: string, cwd: string, userType: UserType): PermissionResult => {
+    ({ machineId, path, cwd, userType }: MachineFileOp): PermissionResult => {
       const fs = fileSystems[machineId];
       if (!fs) return { allowed: false, error: `No such file or directory: ${path}` };
       const resolvedPath = resolvePathUtil(path, cwd);
@@ -281,7 +247,7 @@ export const FileSystemProvider = ({
   );
 
   const canWriteFromMachine = useCallback(
-    (machineId: MachineId, path: string, cwd: string, userType: UserType): PermissionResult => {
+    ({ machineId, path, cwd, userType }: MachineFileOp): PermissionResult => {
       const fs = fileSystems[machineId];
       if (!fs) return { allowed: false, error: `No such file or directory: ${path}` };
       const resolvedPath = resolvePathUtil(path, cwd);
@@ -298,24 +264,24 @@ export const FileSystemProvider = ({
 
   const canRead = useCallback(
     (path: string, userType: UserType): PermissionResult => {
-      return canReadFromMachine(currentMachine, path, currentPath, userType);
+      return canReadFromMachine({ machineId: currentMachine, path, cwd: currentPath, userType });
     },
     [canReadFromMachine, currentMachine, currentPath],
   );
 
   const canWrite = useCallback(
     (path: string, userType: UserType): PermissionResult => {
-      return canWriteFromMachine(currentMachine, path, currentPath, userType);
+      return canWriteFromMachine({ machineId: currentMachine, path, cwd: currentPath, userType });
     },
     [canWriteFromMachine, currentMachine, currentPath],
   );
 
   const listDirectoryFromMachine = useCallback(
-    (machineId: MachineId, path: string, cwd: string, userType: UserType): string[] | null => {
-      const permission = canReadFromMachine(machineId, path, cwd, userType);
+    (op: MachineFileOp): string[] | null => {
+      const permission = canReadFromMachine(op);
       if (!permission.allowed) return null;
 
-      const node = getNodeFromMachine(machineId, path, cwd);
+      const node = getNodeFromMachine(op.machineId, op.path, op.cwd);
       if (!node || node.type !== 'directory' || !node.children) return null;
 
       return Object.keys(node.children).sort();
@@ -324,11 +290,11 @@ export const FileSystemProvider = ({
   );
 
   const readFileFromMachine = useCallback(
-    (machineId: MachineId, path: string, cwd: string, userType: UserType): string | null => {
-      const permission = canReadFromMachine(machineId, path, cwd, userType);
+    (op: MachineFileOp): string | null => {
+      const permission = canReadFromMachine(op);
       if (!permission.allowed) return null;
 
-      const node = getNodeFromMachine(machineId, path, cwd);
+      const node = getNodeFromMachine(op.machineId, op.path, op.cwd);
       if (!node || node.type !== 'file') return null;
 
       return node.content ?? '';
@@ -338,14 +304,19 @@ export const FileSystemProvider = ({
 
   const listDirectory = useCallback(
     (path: string, userType: UserType): string[] | null => {
-      return listDirectoryFromMachine(currentMachine, path, currentPath, userType);
+      return listDirectoryFromMachine({
+        machineId: currentMachine,
+        path,
+        cwd: currentPath,
+        userType,
+      });
     },
     [listDirectoryFromMachine, currentMachine, currentPath],
   );
 
   const readFile = useCallback(
     (path: string, userType: UserType): string | null => {
-      return readFileFromMachine(currentMachine, path, currentPath, userType);
+      return readFileFromMachine({ machineId: currentMachine, path, cwd: currentPath, userType });
     },
     [readFileFromMachine, currentMachine, currentPath],
   );
@@ -379,14 +350,8 @@ export const FileSystemProvider = ({
   }, []);
 
   const writeFileToMachine = useCallback(
-    (
-      machineId: MachineId,
-      path: string,
-      cwd: string,
-      content: string,
-      userType: UserType,
-    ): PermissionResult => {
-      const permission = canWriteFromMachine(machineId, path, cwd, userType);
+    ({ machineId, path, cwd, content, userType }: MachineWriteOp): PermissionResult => {
+      const permission = canWriteFromMachine({ machineId, path, cwd, userType });
       if (!permission.allowed) return permission;
 
       const node = getNodeFromMachine(machineId, path, cwd);
@@ -416,21 +381,26 @@ export const FileSystemProvider = ({
   );
 
   const createFileOnMachine = useCallback(
-    (
-      machineId: MachineId,
-      path: string,
-      cwd: string,
-      content: string,
-      userType: UserType,
-      permissions?: FilePermissions,
-    ): PermissionResult => {
+    ({
+      machineId,
+      path,
+      cwd,
+      content,
+      userType,
+      permissions,
+    }: MachineCreateOp): PermissionResult => {
       const resolvedPath = resolvePathForMachine(path, cwd);
       const parts = resolvedPath.split('/').filter(Boolean);
       const fileName = parts[parts.length - 1];
       const dirParts = parts.slice(0, -1);
       const dirPath = '/' + dirParts.join('/') || '/';
 
-      const parentPermission = canWriteFromMachine(machineId, dirPath, '/', userType);
+      const parentPermission = canWriteFromMachine({
+        machineId,
+        path: dirPath,
+        cwd: '/',
+        userType,
+      });
       if (!parentPermission.allowed) return parentPermission;
 
       const parentNode = getNodeFromMachine(machineId, dirPath, '/');
@@ -472,13 +442,7 @@ export const FileSystemProvider = ({
   );
 
   const deleteNodeFromMachine = useCallback(
-    (
-      machineId: MachineId,
-      path: string,
-      cwd: string,
-      userType: UserType,
-      options?: DeleteOptions,
-    ): PermissionResult => {
+    ({ machineId, path, cwd, userType, recursive }: MachineDeleteOp): PermissionResult => {
       const resolvedPath = resolvePathForMachine(path, cwd);
       if (resolvedPath === '/')
         return { allowed: false, error: 'rm: cannot remove root directory' };
@@ -488,7 +452,12 @@ export const FileSystemProvider = ({
       const dirParts = parts.slice(0, -1);
       const dirPath = '/' + dirParts.join('/') || '/';
 
-      const parentPermission = canWriteFromMachine(machineId, dirPath, '/', userType);
+      const parentPermission = canWriteFromMachine({
+        machineId,
+        path: dirPath,
+        cwd: '/',
+        userType,
+      });
       if (!parentPermission.allowed)
         return { allowed: false, error: `rm: cannot remove '${path}': Permission denied` };
 
@@ -496,7 +465,7 @@ export const FileSystemProvider = ({
       if (!node)
         return { allowed: false, error: `rm: cannot remove '${path}': No such file or directory` };
 
-      if (node.type === 'directory' && !options?.recursive)
+      if (node.type === 'directory' && !recursive)
         return { allowed: false, error: `rm: cannot remove '${path}': Is a directory` };
 
       setFileSystems((prev) => ({
@@ -512,15 +481,31 @@ export const FileSystemProvider = ({
   );
 
   const deleteNode = useCallback(
-    (path: string, userType: UserType, options?: DeleteOptions): PermissionResult => {
-      return deleteNodeFromMachine(currentMachine, path, currentPath, userType, options);
+    (
+      path: string,
+      userType: UserType,
+      options?: { readonly recursive?: boolean },
+    ): PermissionResult => {
+      return deleteNodeFromMachine({
+        machineId: currentMachine,
+        path,
+        cwd: currentPath,
+        userType,
+        recursive: options?.recursive,
+      });
     },
     [deleteNodeFromMachine, currentMachine, currentPath],
   );
 
   const writeFile = useCallback(
     (path: string, content: string, userType: UserType): PermissionResult => {
-      return writeFileToMachine(currentMachine, path, currentPath, content, userType);
+      return writeFileToMachine({
+        machineId: currentMachine,
+        path,
+        cwd: currentPath,
+        content,
+        userType,
+      });
     },
     [writeFileToMachine, currentMachine, currentPath],
   );
@@ -532,7 +517,14 @@ export const FileSystemProvider = ({
       userType: UserType,
       permissions?: FilePermissions,
     ): PermissionResult => {
-      return createFileOnMachine(currentMachine, path, currentPath, content, userType, permissions);
+      return createFileOnMachine({
+        machineId: currentMachine,
+        path,
+        cwd: currentPath,
+        content,
+        userType,
+        permissions,
+      });
     },
     [createFileOnMachine, currentMachine, currentPath],
   );

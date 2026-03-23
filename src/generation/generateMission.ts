@@ -22,27 +22,18 @@ import { vulnerabilityTemplates } from './pools';
 export const parseSeedOverrides = (seed: string): SeedOverrides => {
   const lower = seed.toLowerCase();
 
-  const difficulty = lower.includes('easy')
-    ? 'easy'
-    : lower.includes('medium')
-      ? 'medium'
-      : lower.includes('hard')
-        ? 'hard'
-        : undefined;
+  const difficulties: readonly Difficulty[] = ['easy', 'medium', 'hard'];
+  const difficulty = difficulties.find((d) => lower.includes(d));
 
-  const entryVariant = lower.includes('exploit')
-    ? 'exploit'
-    : lower.includes('snmp')
-      ? 'snmp'
-      : lower.includes('http')
-        ? 'http'
-        : lower.includes('ftp')
-          ? 'ftp'
-          : lower.includes('nc')
-            ? 'nc'
-            : lower.includes('ssh')
-              ? 'ssh'
-              : undefined;
+  const entryVariants: readonly (readonly [string, EntryVariant])[] = [
+    ['exploit', 'exploit'],
+    ['snmp', 'snmp'],
+    ['http', 'http'],
+    ['ftp', 'ftp'],
+    ['nc', 'nc'],
+    ['ssh', 'ssh'],
+  ];
+  const entryVariant = entryVariants.find(([keyword]) => lower.includes(keyword))?.[1];
 
   const forwarded = lower.includes('forwarded')
     ? true
@@ -50,21 +41,16 @@ export const parseSeedOverrides = (seed: string): SeedOverrides => {
       ? false
       : undefined;
 
-  const objectiveType = lower.includes('portforward')
-    ? 'portforward'
-    : lower.includes('script-fix')
-      ? 'script_fix'
-      : lower.includes('sabotage')
-        ? 'sabotage'
-        : lower.includes('backdoor')
-          ? 'backdoor'
-          : lower.includes('exfiltrate')
-            ? 'exfiltrate'
-            : lower.includes('tamper')
-              ? 'tamper'
-              : lower.includes('credential-theft')
-                ? 'credential_theft'
-                : undefined;
+  const objectiveKeywords: readonly (readonly [string, MissionObjectiveType])[] = [
+    ['portforward', 'portforward'],
+    ['script-fix', 'script_fix'],
+    ['sabotage', 'sabotage'],
+    ['backdoor', 'backdoor'],
+    ['exfiltrate', 'exfiltrate'],
+    ['tamper', 'tamper'],
+    ['credential-theft', 'credential_theft'],
+  ];
+  const objectiveType = objectiveKeywords.find(([keyword]) => lower.includes(keyword))?.[1];
 
   const domainEntry = lower.includes('domain') ? true : undefined;
 
@@ -104,12 +90,12 @@ const findUserByType = (
 ): RemoteUser | undefined => {
   const found = users.find((u) => u.userType === preferredType);
   if (found) return found;
-  const fallbacks: readonly ('root' | 'user' | 'guest')[] =
-    preferredType === 'guest'
-      ? ['user', 'root']
-      : preferredType === 'user'
-        ? ['guest', 'root']
-        : ['user', 'guest'];
+  const fallbacksByType: Record<string, readonly ('root' | 'user' | 'guest')[]> = {
+    guest: ['user', 'root'],
+    user: ['guest', 'root'],
+    root: ['user', 'guest'],
+  };
+  const fallbacks = fallbacksByType[preferredType];
   for (const fb of fallbacks) {
     const fallback = users.find((u) => u.userType === fb);
     if (fallback) return fallback;

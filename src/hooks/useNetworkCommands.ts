@@ -140,7 +140,13 @@ export const useNetworkCommands = (): Map<string, Command> => {
             return node !== null && node.type === 'file';
           },
           writePidFile: (port, content) =>
-            createFileOnMachine(session.machine, ncPidFilePath(port), '/', content, 'root'),
+            createFileOnMachine({
+              machineId: session.machine,
+              path: ncPidFilePath(port),
+              cwd: '/',
+              content,
+              userType: 'root',
+            }),
           username: session.username,
           userType: session.userType,
         }),

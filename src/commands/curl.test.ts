@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { RemoteMachine, DnsRecord } from '../network/types';
 import type { AsyncOutput } from '../components/Terminal/types';
-import type { MachineId } from '../filesystem/machineFileSystems';
-import type { UserType } from '../session/SessionContext';
 import { createCurlCommand } from './curl';
 
 // --- Factory Functions ---
@@ -46,12 +44,8 @@ const createMockCurlContext = (config: CurlContextConfig = {}) => {
     getMachine: (ip: string) => machines.find((m) => m.ip === ip),
     resolveDomain: (domain: string) => dnsRecords.find((r) => r.domain === domain),
     resolveNat: (ip: string, port: number) => ({ ip, port }),
-    readFileFromMachine: (
-      _machineId: MachineId,
-      path: string,
-      _cwd: string,
-      _userType: UserType,
-    ): string | null => files[path] ?? null,
+    readFileFromMachine: ({ path }: { readonly path: string }): string | null =>
+      files[path] ?? null,
   };
 };
 
@@ -434,12 +428,13 @@ describe('curl command', () => {
         resolveDomain: () => undefined,
         resolveNat: (ip: string, port: number) =>
           ip === routerIP ? { ip: internalIP, port } : { ip, port },
-        readFileFromMachine: (
-          machineId: MachineId,
-          path: string,
-          _cwd: string,
-          _userType: UserType,
-        ): string | null => {
+        readFileFromMachine: ({
+          machineId,
+          path,
+        }: {
+          readonly machineId: string;
+          readonly path: string;
+        }): string | null => {
           // Only the internal machine has web content
           if (machineId === internalIP && path === '/var/www/html/index.html') {
             return '<html>Internal Web Server</html>';
@@ -463,12 +458,13 @@ describe('curl command', () => {
         resolveDomain: () => undefined,
         resolveNat: (ip: string, port: number) =>
           ip === routerIP ? { ip: internalIP, port } : { ip, port },
-        readFileFromMachine: (
-          machineId: MachineId,
-          path: string,
-          _cwd: string,
-          _userType: UserType,
-        ): string | null => {
+        readFileFromMachine: ({
+          machineId,
+          path,
+        }: {
+          readonly machineId: string;
+          readonly path: string;
+        }): string | null => {
           if (machineId !== internalIP) return null;
           if (path === '/var/www/html/status') return 'Status OK';
           if (path === '/var/www/html/status.headers') return 'X-Credentials: admin:secret';

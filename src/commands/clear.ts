@@ -1,8 +1,8 @@
 import type { Command } from '../components/Terminal/types';
 
-export interface ClearAction {
-  __type: 'clear';
-}
+export type ClearAction = {
+  readonly __type: 'clear';
+};
 
 export const clearCommand: Command = {
   name: 'clear',

@@ -153,12 +153,12 @@ describe('mail command', () => {
     const lines = runAsync(result);
     expect(completeMission).toHaveBeenCalled();
     expect(lines.join('\n')).toContain('MISSION COMPLETE');
-    expect(readFileFromMachine).toHaveBeenCalledWith(
-      '10.0.0.10',
-      '/opt/mysql/dumps/students.sql',
-      '/',
-      'root',
-    );
+    expect(readFileFromMachine).toHaveBeenCalledWith({
+      machineId: '10.0.0.10',
+      path: '/opt/mysql/dumps/students.sql',
+      cwd: '/',
+      userType: 'root',
+    });
   });
 
   it('rejects tamper mission when file still has old value', () => {
@@ -328,12 +328,12 @@ describe('mail command', () => {
     const lines = runAsync(result);
     expect(completeMission).toHaveBeenCalled();
     expect(lines.join('\n')).toContain('MISSION COMPLETE');
-    expect(readFileFromMachine).toHaveBeenCalledWith(
-      '10.0.0.10',
-      '/var/run/nc-4444.pid',
-      '/',
-      'root',
-    );
+    expect(readFileFromMachine).toHaveBeenCalledWith({
+      machineId: '10.0.0.10',
+      path: '/var/run/nc-4444.pid',
+      cwd: '/',
+      userType: 'root',
+    });
   });
 
   it('rejects backdoor mission when PID file is missing', () => {
@@ -406,12 +406,12 @@ describe('mail command', () => {
     const lines = runAsync(result);
     expect(completeMission).toHaveBeenCalled();
     expect(lines.join('\n')).toContain('MISSION COMPLETE');
-    expect(readFileFromMachine).toHaveBeenCalledWith(
-      '198.51.100.1',
-      '/etc/iptables/rules.v4',
-      '/',
-      'root',
-    );
+    expect(readFileFromMachine).toHaveBeenCalledWith({
+      machineId: '198.51.100.1',
+      path: '/etc/iptables/rules.v4',
+      cwd: '/',
+      userType: 'root',
+    });
   });
 
   it('rejects portforward mission when no matching rule', () => {

@@ -77,14 +77,16 @@ const createMockSnmpsetContext = (config: SnmpsetContextConfig = {}) => {
         if (path === '/etc/snmp/snmpd.conf' && snmpConf !== null) return mkFileNode(snmpConf);
         return null;
       },
-      writeFileToMachine: (
-        machineIp: string,
-        path: string,
-        _cwd: string,
-        content: string,
-        _userType: string,
-      ) => {
-        createdFiles.push({ machineIp, path, content });
+      writeFileToMachine: ({
+        machineId,
+        path,
+        content,
+      }: {
+        readonly machineId: string;
+        readonly path: string;
+        readonly content: string;
+      }) => {
+        createdFiles.push({ machineIp: machineId, path, content });
       },
     },
     createdFiles,

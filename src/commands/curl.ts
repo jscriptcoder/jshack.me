@@ -1,7 +1,7 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
 import type { RemoteMachine, DnsRecord } from '../network/types';
 import type { MachineId } from '../filesystem/machineFileSystems';
-import type { UserType } from '../session/SessionContext';
+import type { MachineFileOp } from '../filesystem/types';
 import { isValidIP } from '../utils/network';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
@@ -9,12 +9,7 @@ type CurlContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
   readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
-  readonly readFileFromMachine: (
-    machineId: MachineId,
-    path: string,
-    cwd: string,
-    userType: UserType,
-  ) => string | null;
+  readonly readFileFromMachine: (op: MachineFileOp) => string | null;
   readonly onHttpRequest?: (
     targetIP: string,
     method: string,
@@ -114,7 +109,12 @@ const readSidecarHeaders = (
   webPath: string,
 ): readonly (readonly [string, string])[] => {
   const sidecarPath = `${webPath}.headers`;
-  const sidecarContent = context.readFileFromMachine(machineId, sidecarPath, '/', 'root');
+  const sidecarContent = context.readFileFromMachine({
+    machineId,
+    path: sidecarPath,
+    cwd: '/',
+    userType: 'root',
+  });
   if (!sidecarContent) return [];
   return sidecarContent
     .split('\n')
@@ -128,7 +128,12 @@ const readSidecarHeaders = (
 
 const handleGet = (context: CurlContext, machineId: MachineId, path: string): HttpResponse => {
   const webPath = path === '/' ? '/var/www/html/index.html' : `/var/www/html${path}`;
-  const content = context.readFileFromMachine(machineId, webPath, '/', 'root');
+  const content = context.readFileFromMachine({
+    machineId,
+    path: webPath,
+    cwd: '/',
+    userType: 'root',
+  });
 
   if (content === null) {
     const body = '<html><body><h1>404 Not Found</h1></body></html>';
@@ -164,7 +169,12 @@ const handlePost = (context: CurlContext, machineId: MachineId, path: string): H
 
   const endpoint = endpointMatch[1];
   const apiPath = `/var/www/api/${endpoint}.json`;
-  const content = context.readFileFromMachine(machineId, apiPath, '/', 'root');
+  const content = context.readFileFromMachine({
+    machineId,
+    path: apiPath,
+    cwd: '/',
+    userType: 'root',
+  });
 
   if (content === null) {
     const body = '{"error": "Not Found"}';

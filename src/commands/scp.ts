@@ -1,6 +1,5 @@
 import type { Command, AsyncOutput, ScpPromptData } from '../components/Terminal/types';
-import type { FileNode, FilePermissions, PermissionResult } from '../filesystem/types';
-import type { UserType } from '../session/SessionContext';
+import type { FileNode, MachineCreateOp, PermissionResult } from '../filesystem/types';
 import type { RemoteMachine } from '../network/types';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
@@ -12,14 +11,7 @@ type ScpContext = {
   readonly resolvePath: (path: string) => string;
   readonly getNode: (path: string) => FileNode | null;
   readonly getNodeFromMachine: (machineId: string, path: string, cwd: string) => FileNode | null;
-  readonly createFileOnMachine: (
-    machineId: string,
-    path: string,
-    cwd: string,
-    content: string,
-    userType: UserType,
-    permissions?: FilePermissions,
-  ) => PermissionResult;
+  readonly createFileOnMachine: (op: MachineCreateOp) => PermissionResult;
   readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
 };
 
@@ -217,14 +209,14 @@ export const createScpCommand = (context: ScpContext): Command => ({
           transferToken.schedule(() => {
             if (transferToken.isCancelled()) return;
 
-            const result = createFileOnMachine(
-              resolvedHost,
-              destPath,
-              '/',
+            const result = createFileOnMachine({
+              machineId: resolvedHost,
+              path: destPath,
+              cwd: '/',
               content,
-              remoteUser.userType,
-              sourceNode.permissions,
-            );
+              userType: remoteUser.userType,
+              permissions: sourceNode.permissions,
+            });
 
             if (!result.allowed) {
               onLine(`scp: ${destPath}: ${result.error}`);

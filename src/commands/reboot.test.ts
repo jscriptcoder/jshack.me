@@ -62,7 +62,7 @@ const createMockContext = (config: MockConfig = {}) => {
       }
       return bootFiles[path] ?? null;
     },
-    readFileFromMachine: (_machineId: string, path: string, _cwd: string, _userType: string) =>
+    readFileFromMachine: ({ path }: { readonly path: string }) =>
       path === '/etc/hostname' ? hostname : null,
     popSession: vi.fn(),
     canReturn: () => canReturn,

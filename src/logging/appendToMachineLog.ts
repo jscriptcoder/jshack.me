@@ -1,27 +1,15 @@
-import type { FilePermissions, PermissionResult } from '../filesystem/types';
+import type {
+  FilePermissions,
+  MachineCreateOp,
+  MachineFileOp,
+  MachineWriteOp,
+  PermissionResult,
+} from '../filesystem/types';
 
 export type LogFileSystemDeps = {
-  readonly readFileFromMachine: (
-    machineId: string,
-    path: string,
-    cwd: string,
-    userType: 'root',
-  ) => string | null;
-  readonly writeFileToMachine: (
-    machineId: string,
-    path: string,
-    cwd: string,
-    content: string,
-    userType: 'root',
-  ) => PermissionResult;
-  readonly createFileOnMachine: (
-    machineId: string,
-    path: string,
-    cwd: string,
-    content: string,
-    userType: 'root',
-    permissions?: FilePermissions,
-  ) => PermissionResult;
+  readonly readFileFromMachine: (op: MachineFileOp) => string | null;
+  readonly writeFileToMachine: (op: MachineWriteOp) => PermissionResult;
+  readonly createFileOnMachine: (op: MachineCreateOp) => PermissionResult;
 };
 
 // Log files should be world-readable, like real Linux /var/log/ files
@@ -38,14 +26,27 @@ export const appendToMachineLog = (
   logLine: string,
   fs: LogFileSystemDeps,
 ): void => {
-  const existing = fs.readFileFromMachine(machineId, logPath, '/', 'root');
+  const existing = fs.readFileFromMachine({ machineId, path: logPath, cwd: '/', userType: 'root' });
 
   if (existing === null) {
-    fs.createFileOnMachine(machineId, logPath, '/', logLine, 'root', LOG_FILE_PERMISSIONS);
+    fs.createFileOnMachine({
+      machineId,
+      path: logPath,
+      cwd: '/',
+      content: logLine,
+      userType: 'root',
+      permissions: LOG_FILE_PERMISSIONS,
+    });
     return;
   }
 
   const base = existing.replace(/\n$/, '');
   const newContent = base === '' ? logLine : `${base}\n${logLine}`;
-  fs.writeFileToMachine(machineId, logPath, '/', newContent, 'root');
+  fs.writeFileToMachine({
+    machineId,
+    path: logPath,
+    cwd: '/',
+    content: newContent,
+    userType: 'root',
+  });
 };

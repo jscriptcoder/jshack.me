@@ -93,12 +93,12 @@ describe('executeSystemctl', () => {
       const result = executeSystemctl(context, ['stop', 'sshd']);
       expect(result).toContain('Stopping OpenSSH server');
       expect(result).toContain('port 2222');
-      expect(deleteFileOnMachine).toHaveBeenCalledWith(
-        '10.0.0.1',
-        '/var/run/sshd.pid',
-        '/',
-        'root',
-      );
+      expect(deleteFileOnMachine).toHaveBeenCalledWith({
+        machineId: '10.0.0.1',
+        path: '/var/run/sshd.pid',
+        cwd: '/',
+        userType: 'root',
+      });
     });
 
     it('stops running vsftpd and deletes pid file', () => {
@@ -111,12 +111,12 @@ describe('executeSystemctl', () => {
       const result = executeSystemctl(context, ['stop', 'vsftpd']);
       expect(result).toContain('Stopping vsftpd FTP server');
       expect(result).toContain('port 21');
-      expect(deleteFileOnMachine).toHaveBeenCalledWith(
-        '10.0.0.1',
-        '/var/run/vsftpd.pid',
-        '/',
-        'root',
-      );
+      expect(deleteFileOnMachine).toHaveBeenCalledWith({
+        machineId: '10.0.0.1',
+        path: '/var/run/vsftpd.pid',
+        cwd: '/',
+        userType: 'root',
+      });
     });
 
     it('reports not running when no pid file exists', () => {

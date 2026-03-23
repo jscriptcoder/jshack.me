@@ -102,7 +102,13 @@ export const useNcCommands = (): Map<string, Command> | null => {
           return node?.type === 'file' ? (node.content ?? undefined) : undefined;
         },
         writePidFile: (content) =>
-          createFileOnMachine(machine, SSH_PID_FILE_PATH, '/', content, 'root'),
+          createFileOnMachine({
+            machineId: machine,
+            path: SSH_PID_FILE_PATH,
+            cwd: '/',
+            content,
+            userType: 'root',
+          }),
       };
       return startSshd(adapter, args);
     };
@@ -117,7 +123,13 @@ export const useNcCommands = (): Map<string, Command> | null => {
           return node?.type === 'file' ? (node.content ?? undefined) : undefined;
         },
         writePidFile: (content) =>
-          createFileOnMachine(machine, FTP_PID_FILE_PATH, '/', content, 'root'),
+          createFileOnMachine({
+            machineId: machine,
+            path: FTP_PID_FILE_PATH,
+            cwd: '/',
+            content,
+            userType: 'root',
+          }),
       };
       return startVsftpd(adapter, args);
     };
@@ -128,7 +140,7 @@ export const useNcCommands = (): Map<string, Command> | null => {
         getMachineInfo: (ip) => getMachineInfo(ip),
         getNodeFromMachine,
         createFileOnMachine: (path, content, userType) =>
-          createFileOnMachine(machine, path, '/', content, userType),
+          createFileOnMachine({ machineId: machine, path, cwd: '/', content, userType }),
         deleteFileOnMachine: deleteNodeFromMachine,
       };
       return executeSystemctl(context, args);

@@ -102,7 +102,12 @@ export const useCommands = (): UseCommandsResult => {
   const getUsers = useCallback((): readonly string[] => {
     if (session.machine === 'localhost') {
       // Parse usernames from /etc/passwd on the localhost filesystem
-      const passwdContent = readFileFromMachine('localhost', '/etc/passwd', '/', 'root');
+      const passwdContent = readFileFromMachine({
+        machineId: 'localhost',
+        path: '/etc/passwd',
+        cwd: '/',
+        userType: 'root',
+      });
       if (passwdContent) {
         return passwdContent
           .split('\n')
@@ -143,7 +148,7 @@ export const useCommands = (): UseCommandsResult => {
     const suCommand = createSuCommand({
       getUsers,
       readFile: (path: string, userType: 'root' | 'user' | 'guest') =>
-        readFileFromMachine(session.machine, path, '/', userType),
+        readFileFromMachine({ machineId: session.machine, path, cwd: '/', userType }),
       findMachineUsers: () => findMachineUsers(session.machine),
       setUsername,
       setCurrentPath,

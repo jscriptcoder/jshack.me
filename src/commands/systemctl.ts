@@ -1,5 +1,5 @@
 import type { Command } from '../components/Terminal/types';
-import type { FileNode, PermissionResult } from '../filesystem/types';
+import type { FileNode, MachineDeleteOp, PermissionResult } from '../filesystem/types';
 import type { UserType } from '../session/SessionContext';
 import type { RemoteMachine } from '../network/types';
 import { startSshd, SSH_PID_FILE_PATH, type SshdAdapter } from './sshd';
@@ -47,12 +47,7 @@ export type SystemctlContext = {
     content: string,
     userType: UserType,
   ) => PermissionResult;
-  readonly deleteFileOnMachine: (
-    machineId: string,
-    path: string,
-    cwd: string,
-    userType: UserType,
-  ) => PermissionResult;
+  readonly deleteFileOnMachine: (op: MachineDeleteOp) => PermissionResult;
 };
 
 const readPidFile = (
@@ -94,7 +89,12 @@ const handleStop = (context: SystemctlContext, service: ServiceConfig): string =
   }
 
   const port = getRunningPort(pidContent, service);
-  context.deleteFileOnMachine(machine, service.pidFilePath, '/', 'root');
+  context.deleteFileOnMachine({
+    machineId: machine,
+    path: service.pidFilePath,
+    cwd: '/',
+    userType: 'root',
+  });
 
   return [
     `Stopping ${service.displayName}...`,

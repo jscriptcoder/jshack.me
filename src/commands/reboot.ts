@@ -1,7 +1,6 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
-import type { FileNode } from '../filesystem/types';
+import type { FileNode, MachineFileOp } from '../filesystem/types';
 import type { RemoteMachine } from '../network/types';
-import type { UserType } from '../session/SessionContext';
 import { createCancellationToken } from '../utils/asyncCommand';
 import { type PsAdapter, listProcesses } from './ps';
 
@@ -9,12 +8,7 @@ type RebootContext = {
   readonly getMachine: () => string;
   readonly getMachineInfo: (ip: string) => RemoteMachine | undefined;
   readonly getNodeFromMachine: (machineId: string, path: string, cwd: string) => FileNode | null;
-  readonly readFileFromMachine: (
-    machineId: string,
-    path: string,
-    cwd: string,
-    userType: UserType,
-  ) => string | null;
+  readonly readFileFromMachine: (op: MachineFileOp) => string | null;
   readonly popSession: () => unknown;
   readonly canReturn: () => boolean;
   readonly markMachineBricked: (machine: string) => void;
@@ -88,7 +82,13 @@ export const createRebootCommand = (context: RebootContext): Command => ({
 
     const machine = getMachine();
     // Read hostname as root to bypass permission checks — reboot already requires root
-    const hostname = readFileFromMachine(machine, '/etc/hostname', '/', 'root')?.trim() ?? machine;
+    const hostname =
+      readFileFromMachine({
+        machineId: machine,
+        path: '/etc/hostname',
+        cwd: '/',
+        userType: 'root',
+      })?.trim() ?? machine;
     const token = createCancellationToken();
 
     return {

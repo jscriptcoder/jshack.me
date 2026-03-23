@@ -1,5 +1,11 @@
 import type { Command, AsyncOutput } from '../../components/Terminal/types';
-import type { FileNode, PermissionResult } from '../../filesystem/types';
+import type {
+  FileNode,
+  MachineCreateOp,
+  MachineFileOp,
+  MachineWriteOp,
+  PermissionResult,
+} from '../../filesystem/types';
 import type { UserType } from '../../session/SessionContext';
 import type { MachineId } from '../../filesystem/machineFileSystems';
 import { createCancellationToken, jitter } from '../../utils/asyncCommand';
@@ -13,26 +19,9 @@ type FtpGetContext = {
   readonly getOriginUserType: () => UserType;
   readonly resolvePathForMachine: (path: string, cwd: string) => string;
   readonly getNodeFromMachine: (machineId: MachineId, path: string, cwd: string) => FileNode | null;
-  readonly readFileFromMachine: (
-    machineId: MachineId,
-    path: string,
-    cwd: string,
-    userType: UserType,
-  ) => string | null;
-  readonly createFileOnMachine: (
-    machineId: MachineId,
-    path: string,
-    cwd: string,
-    content: string,
-    userType: UserType,
-  ) => PermissionResult;
-  readonly writeFileToMachine: (
-    machineId: MachineId,
-    path: string,
-    cwd: string,
-    content: string,
-    userType: UserType,
-  ) => PermissionResult;
+  readonly readFileFromMachine: (op: MachineFileOp) => string | null;
+  readonly createFileOnMachine: (op: MachineCreateOp) => PermissionResult;
+  readonly writeFileToMachine: (op: MachineWriteOp) => PermissionResult;
 };
 
 export const createFtpGetCommand = (context: FtpGetContext): Command => ({
@@ -89,12 +78,12 @@ export const createFtpGetCommand = (context: FtpGetContext): Command => ({
     }
 
     // Read remote file content
-    const content = context.readFileFromMachine(
-      remoteMachine,
-      resolvedRemotePath,
-      '/',
-      remoteUserType,
-    );
+    const content = context.readFileFromMachine({
+      machineId: remoteMachine,
+      path: resolvedRemotePath,
+      cwd: '/',
+      userType: remoteUserType,
+    });
     if (content === null) {
       throw new Error(`get: ${remoteFile}: Permission denied`);
     }
@@ -149,21 +138,16 @@ export const createFtpGetCommand = (context: FtpGetContext): Command => ({
           if (token.isCancelled()) return;
 
           // Perform the actual file write
+          const writeOp = {
+            machineId: originMachine,
+            path: resolvedLocalPath,
+            cwd: '/',
+            content,
+            userType: originUserType,
+          };
           const result = localNode
-            ? context.writeFileToMachine(
-                originMachine,
-                resolvedLocalPath,
-                '/',
-                content,
-                originUserType,
-              )
-            : context.createFileOnMachine(
-                originMachine,
-                resolvedLocalPath,
-                '/',
-                content,
-                originUserType,
-              );
+            ? context.writeFileToMachine(writeOp)
+            : context.createFileOnMachine(writeOp);
 
           if (!result.allowed) {
             onLine(`get: local path ${localDestination}: ${result.error}`);

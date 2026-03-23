@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { usePathAutoComplete } from './usePathAutoComplete';
 import type { UserType, FtpSession, NcSession } from '../session/SessionContext';
-import type { FileNode } from '../filesystem/types';
+import type { FileNode, MachineFileOp } from '../filesystem/types';
 
 type PathCompletionResult = {
   readonly matches: readonly string[];
@@ -19,12 +19,7 @@ type PathCompletionAdaptersOptions = {
   readonly listDirectory: (path: string, userType: UserType) => string[] | null;
   readonly getNode: (path: string) => FileNode | null;
   readonly resolvePath: (path: string) => string;
-  readonly listDirectoryFromMachine: (
-    machineIp: string,
-    path: string,
-    currentPath: string,
-    userType: UserType,
-  ) => string[] | null;
+  readonly listDirectoryFromMachine: (op: MachineFileOp) => string[] | null;
   readonly getNodeFromMachine: (
     machineIp: string,
     path: string,
@@ -51,7 +46,12 @@ export const usePathCompletionAdapters = ({
   const ncListDirectory = useCallback(
     (path: string, ut: UserType): string[] | null =>
       ncSession
-        ? listDirectoryFromMachine(ncSession.machineId, path, ncSession.currentPath, ut)
+        ? listDirectoryFromMachine({
+            machineId: ncSession.machineId,
+            path,
+            cwd: ncSession.currentPath,
+            userType: ut,
+          })
         : null,
     [ncSession, listDirectoryFromMachine],
   );
@@ -70,7 +70,12 @@ export const usePathCompletionAdapters = ({
   const ftpRemoteListDirectory = useCallback(
     (path: string, ut: UserType): string[] | null =>
       ftpSession
-        ? listDirectoryFromMachine(ftpSession.remoteMachine, path, ftpSession.remoteCwd, ut)
+        ? listDirectoryFromMachine({
+            machineId: ftpSession.remoteMachine,
+            path,
+            cwd: ftpSession.remoteCwd,
+            userType: ut,
+          })
         : null,
     [ftpSession, listDirectoryFromMachine],
   );
@@ -88,7 +93,12 @@ export const usePathCompletionAdapters = ({
   const ftpLocalListDirectory = useCallback(
     (path: string, ut: UserType): string[] | null =>
       ftpSession
-        ? listDirectoryFromMachine(ftpSession.originMachine, path, ftpSession.originCwd, ut)
+        ? listDirectoryFromMachine({
+            machineId: ftpSession.originMachine,
+            path,
+            cwd: ftpSession.originCwd,
+            userType: ut,
+          })
         : null,
     [ftpSession, listDirectoryFromMachine],
   );

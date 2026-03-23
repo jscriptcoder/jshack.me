@@ -98,14 +98,17 @@ const createContext = (
     },
     getNode: (path: string) => localFs[path] ?? null,
     getNodeFromMachine: (_machineId: string, path: string) => remoteFs[path] ?? null,
-    createFileOnMachine: (
-      machineId: string,
-      path: string,
-      _cwd: string,
-      content: string,
-      _userType: UserType,
-      permissions?: FilePermissions,
-    ): PermissionResult => {
+    createFileOnMachine: ({
+      machineId,
+      path,
+      content,
+      permissions,
+    }: {
+      readonly machineId: string;
+      readonly path: string;
+      readonly content: string;
+      readonly permissions?: FilePermissions;
+    }): PermissionResult => {
       createdFiles.push({ machineId, path, content, permissions });
       return { allowed: true };
     },
