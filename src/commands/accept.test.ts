@@ -117,14 +117,13 @@ describe('accept command', () => {
     expect(result).toContain('done');
   });
 
-  it('shows portforward briefing with iptables instructions', () => {
+  it('shows portforward briefing with NAT forwarding hint', () => {
     const startMission = vi.fn();
     const accept = createAcceptCommand({ startMission, isMissionActive: () => false });
     const result = accept.fn('test-snmp-easy-portforward') as string;
 
     expect(result).toContain('mail(');
-    expect(result).toContain('iptables');
-    expect(result).toContain('forward');
+    expect(result).toContain('NAT port forwarding');
     expect(result).toContain('done');
   });
 });

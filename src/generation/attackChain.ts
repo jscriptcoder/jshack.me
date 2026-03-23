@@ -355,7 +355,7 @@ const buildObjective = (
 
     return {
       type: 'portforward',
-      description: `Set up port forwarding to ${targetMachine.hostname} on the border router`,
+      description: `Set up NAT forwarding: expose ${targetMachine.hostname} port ${servicePort.port} on public port ${publicPort}`,
       targetMachine: targetMachine.ip,
       targetPath: '',
       targetContent: '',

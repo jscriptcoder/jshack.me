@@ -153,7 +153,7 @@ describe('buildMissionObjective', () => {
     expect(result.objective.targetPath).toBe('');
     expect(result.objective.targetContent).toBe('');
     expect(result.objective.expectedProof).toBe('');
-    expect(result.objective.description).toContain('port forwarding');
+    expect(result.objective.description).toContain('NAT forwarding');
   });
 
   it('portforward objective targets a non-router machine', () => {

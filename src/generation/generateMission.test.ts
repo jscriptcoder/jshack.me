@@ -634,7 +634,7 @@ describe('generateMissionNetwork', () => {
     expect(result.objective.forwardPublicPort).toBeDefined();
     expect(result.objective.forwardInternalIp).toBeDefined();
     expect(result.objective.forwardInternalPort).toBeDefined();
-    expect(result.objective.description).toContain('port forwarding');
+    expect(result.objective.description).toContain('NAT forwarding');
   });
 
   it('portforward forces router-first mode (no natForwarding)', () => {
