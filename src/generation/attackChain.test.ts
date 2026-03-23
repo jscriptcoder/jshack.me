@@ -46,6 +46,7 @@ describe('buildMissionObjective', () => {
       'script_fix',
       'sabotage',
       'backdoor',
+      'portforward',
     ]).toContain(result.objective.type);
   });
 
@@ -138,6 +139,28 @@ describe('buildMissionObjective', () => {
     for (let i = 0; i < 100; i++) {
       const { result } = buildTestData(`backdoor-hard-user-${i}`, 'hard', 'backdoor');
       expect(result.objective.backdoorUser).toBe('root');
+    }
+  });
+
+  it('portforward objective has forward fields and empty targetPath/content', () => {
+    const { result } = buildTestData('test-portforward', 'medium', 'portforward');
+
+    expect(result.objective.type).toBe('portforward');
+    expect(result.objective.forwardPublicPort).toBeDefined();
+    expect([8080, 8443, 9090, 8888, 3000, 4443]).toContain(result.objective.forwardPublicPort);
+    expect(result.objective.forwardInternalIp).toBeDefined();
+    expect(result.objective.forwardInternalPort).toBeDefined();
+    expect(result.objective.targetPath).toBe('');
+    expect(result.objective.targetContent).toBe('');
+    expect(result.objective.expectedProof).toBe('');
+    expect(result.objective.description).toContain('port forwarding');
+  });
+
+  it('portforward objective targets a non-router machine', () => {
+    for (let i = 0; i < 50; i++) {
+      const { topology, result } = buildTestData(`pf-target-${i}`, 'medium', 'portforward');
+      const routerIp = topology.routerPublicIp;
+      expect(result.objective.forwardInternalIp).not.toBe(routerIp);
     }
   });
 });

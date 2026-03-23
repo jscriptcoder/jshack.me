@@ -116,6 +116,17 @@ describe('accept command', () => {
     expect(result).toContain('reboot');
     expect(result).toContain('done');
   });
+
+  it('shows portforward briefing with iptables instructions', () => {
+    const startMission = vi.fn();
+    const accept = createAcceptCommand({ startMission, isMissionActive: () => false });
+    const result = accept.fn('test-snmp-easy-portforward') as string;
+
+    expect(result).toContain('mail(');
+    expect(result).toContain('iptables');
+    expect(result).toContain('forward');
+    expect(result).toContain('done');
+  });
 });
 
 describe('formatMissionBriefing', () => {

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { generateMissionNetwork, parseSeedOverrides } from './generateMission';
 import type { FileNode } from '../filesystem/types';
+import { parseIptablesRules } from '../network/iptablesParser';
 
 describe('parseSeedOverrides', () => {
   it('parses domain keyword', () => {
@@ -25,6 +26,11 @@ describe('parseSeedOverrides', () => {
   it('parses backdoor keyword as objective type', () => {
     expect(parseSeedOverrides('test-backdoor').objectiveType).toBe('backdoor');
     expect(parseSeedOverrides('BACKDOOR-MISSION').objectiveType).toBe('backdoor');
+  });
+
+  it('parses portforward keyword as objective type', () => {
+    expect(parseSeedOverrides('test-portforward').objectiveType).toBe('portforward');
+    expect(parseSeedOverrides('PORTFORWARD-MISSION').objectiveType).toBe('portforward');
   });
 
   it('returns undefined objectiveType without backdoor keyword', () => {
@@ -620,6 +626,61 @@ describe('generateMissionNetwork', () => {
         }
       });
     }
+  });
+
+  it('portforward keyword forces portforward objective', () => {
+    const result = generateMissionNetwork('test-snmp-easy-portforward');
+    expect(result.objective.type).toBe('portforward');
+    expect(result.objective.forwardPublicPort).toBeDefined();
+    expect(result.objective.forwardInternalIp).toBeDefined();
+    expect(result.objective.forwardInternalPort).toBeDefined();
+    expect(result.objective.description).toContain('port forwarding');
+  });
+
+  it('portforward forces router-first mode (no natForwarding)', () => {
+    const result = generateMissionNetwork('test-snmp-easy-portforward');
+    expect(result.natForwarding).toBeUndefined();
+  });
+
+  it('portforward seeds never have SSH closures', () => {
+    for (let i = 0; i < 50; i++) {
+      const result = generateMissionNetwork(`portforward-noclose-${i}`);
+      if (result.objective.type !== 'portforward') continue;
+
+      result.machines.forEach((m) => {
+        const sshPort = m.remoteMachine.ports.find((p) => p.port === 22);
+        if (sshPort) {
+          expect(sshPort.open).toBe(true);
+        }
+      });
+    }
+  });
+
+  it('portforward is deterministic', () => {
+    const a = generateMissionNetwork('SOLARIS-snmp-easy-portforward');
+    const b = generateMissionNetwork('SOLARIS-snmp-easy-portforward');
+    expect(a.objective).toEqual(b.objective);
+  });
+
+  it('portforward target IP matches an internal machine', () => {
+    const result = generateMissionNetwork('test-snmp-medium-portforward');
+    const internalIps = result.machines.map((m) => m.ip);
+    expect(internalIps).toContain(result.objective.forwardInternalIp);
+  });
+
+  it('router iptables file exists with empty rules for portforward', () => {
+    const result = generateMissionNetwork('test-snmp-easy-portforward');
+    const routerFs = result.fileSystems[result.routerPublicIp];
+    expect(routerFs).toBeDefined();
+    // Navigate to /etc/iptables/rules.v4
+    const etc = routerFs?.children?.['etc'];
+    const iptables = etc?.children?.['iptables'];
+    const rulesFile = iptables?.children?.['rules.v4'];
+    expect(rulesFile).toBeDefined();
+    expect(rulesFile?.type).toBe('file');
+    // Router-first mode: no pre-populated forwarding rules (only comment template)
+    const rules = parseIptablesRules(rulesFile?.content ?? '');
+    expect(rules).toHaveLength(0);
   });
 });
 

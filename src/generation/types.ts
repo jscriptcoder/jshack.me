@@ -18,7 +18,8 @@ export type MissionObjectiveType =
   | 'credential_theft'
   | 'script_fix'
   | 'sabotage'
-  | 'backdoor';
+  | 'backdoor'
+  | 'portforward';
 
 export type ScriptBugType = 'syntax' | 'logic' | 'corrupted';
 
@@ -50,6 +51,9 @@ export type MissionObjective = {
   readonly expectedChecksum?: string;
   readonly backdoorPort?: number;
   readonly backdoorUser?: 'root' | 'user' | 'guest';
+  readonly forwardPublicPort?: number;
+  readonly forwardInternalIp?: string;
+  readonly forwardInternalPort?: number;
 };
 
 export type GeneratedMachine = {

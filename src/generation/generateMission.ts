@@ -50,19 +50,21 @@ export const parseSeedOverrides = (seed: string): SeedOverrides => {
       ? false
       : undefined;
 
-  const objectiveType = lower.includes('script-fix')
-    ? 'script_fix'
-    : lower.includes('sabotage')
-      ? 'sabotage'
-      : lower.includes('backdoor')
-        ? 'backdoor'
-        : lower.includes('exfiltrate')
-          ? 'exfiltrate'
-          : lower.includes('tamper')
-            ? 'tamper'
-            : lower.includes('credential-theft')
-              ? 'credential_theft'
-              : undefined;
+  const objectiveType = lower.includes('portforward')
+    ? 'portforward'
+    : lower.includes('script-fix')
+      ? 'script_fix'
+      : lower.includes('sabotage')
+        ? 'sabotage'
+        : lower.includes('backdoor')
+          ? 'backdoor'
+          : lower.includes('exfiltrate')
+            ? 'exfiltrate'
+            : lower.includes('tamper')
+              ? 'tamper'
+              : lower.includes('credential-theft')
+                ? 'credential_theft'
+                : undefined;
 
   const domainEntry = lower.includes('domain') ? true : undefined;
 
@@ -249,11 +251,12 @@ const applyPortClosures = (
   const dualBackdoorPort = prng.pick(backdoorPorts);
   const sshBackdoorPort = prng.pick(backdoorPorts);
 
-  // script_fix, sabotage, and backdoor need SSH shell access on target — skip all closures
+  // script_fix, sabotage, backdoor, and portforward need SSH shell access — skip all closures
   if (
     objectiveType === 'script_fix' ||
     objectiveType === 'sabotage' ||
-    objectiveType === 'backdoor'
+    objectiveType === 'backdoor' ||
+    objectiveType === 'portforward'
   )
     return machines;
 
@@ -370,9 +373,13 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
   const overrides = parseSeedOverrides(seed);
   const difficulty = deriveDifficulty(seed, overrides);
 
+  // portforward requires router-first mode (no pre-populated NAT rules)
+  const effectiveForwarded =
+    overrides.objectiveType === 'portforward' ? false : overrides.forwarded;
+
   const topology = generateTopology(prng, difficulty, {
     entryVariantOverride: overrides.entryVariant,
-    forwardedOverride: overrides.forwarded,
+    forwardedOverride: effectiveForwarded,
   });
 
   // Generate users for internal machines

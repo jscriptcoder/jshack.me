@@ -6,14 +6,14 @@ Comprehensive catalog of all procedural generation variation axes. Use this to t
 
 All six major generation axes can be controlled by embedding keywords in the seed string (case-insensitive, matched via `includes()`). `parseSeedOverrides(seed)` in `generateMission.ts` extracts overrides. PRNG sequence is preserved — calls are consumed but results discarded in favor of overrides.
 
-| Axis          | Keywords                                                                         | Notes                                                     |
-| ------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| Difficulty    | `easy`, `medium`, `hard`                                                         | Falls back to hash-based derivation without keyword       |
-| Entry variant | `ssh`, `ftp`, `nc`, `exploit`, `http`, `snmp`                                    | Falls back if template unavailable (e.g. nc+router-first) |
-| Network mode  | `forwarded`, `router-first`                                                      | Hyphenated to avoid false matches                         |
-| Objective     | `exfiltrate`, `tamper`, `credential-theft`, `script-fix`, `sabotage`, `backdoor` | Hyphen variant for credential_theft / script_fix          |
-| Domain entry  | `domain`                                                                         | Forces domain-based briefing (nslookup required)          |
-| Encryption    | `gpg`                                                                            | Forces exfiltrate + encrypted target file                 |
+| Axis          | Keywords                                                                                        | Notes                                                                             |
+| ------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Difficulty    | `easy`, `medium`, `hard`                                                                        | Falls back to hash-based derivation without keyword                               |
+| Entry variant | `ssh`, `ftp`, `nc`, `exploit`, `http`, `snmp`                                                   | Falls back if template unavailable (e.g. nc+router-first)                         |
+| Network mode  | `forwarded`, `router-first`                                                                     | Hyphenated to avoid false matches                                                 |
+| Objective     | `exfiltrate`, `tamper`, `credential-theft`, `script-fix`, `sabotage`, `backdoor`, `portforward` | Hyphen variant for credential_theft / script_fix; portforward forces router-first |
+| Domain entry  | `domain`                                                                                        | Forces domain-based briefing (nslookup required)                                  |
+| Encryption    | `gpg`                                                                                           | Forces exfiltrate + encrypted target file                                         |
 
 Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`
 
@@ -169,6 +169,31 @@ Port is PRNG-picked from `backdoorPorts` pool: 4444, 31337, 8888, 1337 (all abov
 - SSH port closures skipped for backdoor (player needs shell access on target)
 - Player can install netcat via `apt install netcat` (needs root for apt) or copy the binary via `scp`
 
+## Portforward Objective
+
+A 7th objective type where the player must hack the border router and set up port forwarding to expose an internal machine's service. The player edits `/etc/iptables/rules.v4` on the router to add a forwarding rule. Seed keyword: `portforward`. Always forces router-first mode (no pre-populated NAT rules). SNMP is the most natural entry variant for this objective.
+
+### Port Selection
+
+- **Public port**: PRNG-picked from `forwardPublicPorts` pool: 8080, 8443, 9090, 8888, 3000, 4443
+- **Internal port**: Picked from the target machine's open ports (prefers non-SSH services; falls back to SSH port 22)
+- **Target machine**: The last machine in the attack path (same as other objectives)
+
+### Verification
+
+`mail(client, "done")` reads `/etc/iptables/rules.v4` from the router filesystem and verifies:
+
+1. File exists and is readable
+2. Parsed rules contain a matching entry: `forward <publicPort> to <internalIp>:<internalPort>`
+
+### Key Design Decisions
+
+- Always router-first (forwarded mode would have pre-existing rules, defeating the purpose)
+- No target file (like sabotage/backdoor/credential_theft)
+- SSH port closures skipped (player needs shell access through the network)
+- Dummy PRNG rolls consumed for binary + encrypt to preserve sequence alignment
+- Keyword-only objective (not in the PRNG random pool) — seeds without `portforward` keyword never generate this type
+
 ## Binary File Wrapping
 
 Some credential breadcrumbs, exfiltrate target files, entry credential hints, and encryption keys are wrapped in "binary noise" — non-printable characters interspersed with readable content. `cat` shows garbled output; `strings` extracts the readable data. This adds a discovery mechanic requiring the `strings` command.
@@ -219,6 +244,7 @@ PRNG-driven SSH/FTP port closures increase lateral movement variety. At most one
 - **script_fix objective**: never close SSH (player needs `node()` shell access on target)
 - **sabotage objective**: never close SSH (player needs shell access to `rm` boot files and `reboot`)
 - **backdoor objective**: never close SSH (player needs shell access to run `nc -l` on target)
+- **portforward objective**: never close SSH (player needs shell access through the network)
 - **Same-machine collision**: FTP closure skipped if it targets the same machine as SSH closure
 - When SSH is closed, FTP port 21 is added/opened and a root-owned NC backdoor is guaranteed
 - Root backdoor enables `bash('/usr/sbin/sshd')` or `bash('/usr/sbin/vsftpd')` to restart services

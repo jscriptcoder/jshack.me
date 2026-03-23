@@ -91,6 +91,10 @@ export const portTemplatesByRole: Readonly<Record<MachineRole, readonly PortTemp
 
 export const backdoorPorts: readonly number[] = [4444, 31337, 8888, 1337];
 
+// Public-facing ports the client wants exposed via port forwarding on the router.
+// Non-standard ports that wouldn't normally be forwarded.
+export const forwardPublicPorts: readonly number[] = [8080, 8443, 9090, 8888, 3000, 4443];
+
 // SNMP read-write community strings — common misconfigurations and vendor defaults
 export const snmpRwCommunities: readonly string[] = [
   'private',

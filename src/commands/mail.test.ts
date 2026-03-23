@@ -377,4 +377,89 @@ describe('mail command', () => {
 
     expect(() => mail.fn('xR0gu3x@darkmail.onion', 'done')).toThrow('must be opened as root');
   });
+
+  it('completes a portforward mission when iptables rule matches', () => {
+    const completeMission = vi.fn();
+    const mission = {
+      ...makeMission({
+        type: 'portforward',
+        expectedProof: '',
+        targetPath: '',
+        targetContent: '',
+        forwardPublicPort: 8080,
+        forwardInternalIp: '10.0.0.10',
+        forwardInternalPort: 22,
+      }),
+      routerPublicIp: '198.51.100.1',
+    } as unknown as MissionNetwork;
+    const iptablesContent =
+      '# Port Forwarding Rules\n# forward <public_port> to <internal_ip>:<port>\nforward 8080 to 10.0.0.10:22';
+    const readFileFromMachine = vi.fn().mockReturnValue(iptablesContent);
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission,
+      readFileFromMachine,
+      isMachineBricked: () => false,
+    });
+
+    const result = mail.fn('xR0gu3x@darkmail.onion', 'done') as AsyncOutput;
+    const lines = runAsync(result);
+    expect(completeMission).toHaveBeenCalled();
+    expect(lines.join('\n')).toContain('MISSION COMPLETE');
+    expect(readFileFromMachine).toHaveBeenCalledWith(
+      '198.51.100.1',
+      '/etc/iptables/rules.v4',
+      '/',
+      'root',
+    );
+  });
+
+  it('rejects portforward mission when no matching rule', () => {
+    const mission = {
+      ...makeMission({
+        type: 'portforward',
+        expectedProof: '',
+        targetPath: '',
+        targetContent: '',
+        forwardPublicPort: 8080,
+        forwardInternalIp: '10.0.0.10',
+        forwardInternalPort: 22,
+      }),
+      routerPublicIp: '198.51.100.1',
+    } as unknown as MissionNetwork;
+    const iptablesContent = '# Port Forwarding Rules\nforward 9999 to 10.0.0.99:80';
+    const readFileFromMachine = vi.fn().mockReturnValue(iptablesContent);
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission: vi.fn(),
+      readFileFromMachine,
+      isMachineBricked: () => false,
+    });
+
+    expect(() => mail.fn('xR0gu3x@darkmail.onion', 'done')).toThrow('No matching forwarding rule');
+  });
+
+  it('rejects portforward mission when iptables file is missing', () => {
+    const mission = {
+      ...makeMission({
+        type: 'portforward',
+        expectedProof: '',
+        targetPath: '',
+        targetContent: '',
+        forwardPublicPort: 8080,
+        forwardInternalIp: '10.0.0.10',
+        forwardInternalPort: 22,
+      }),
+      routerPublicIp: '198.51.100.1',
+    } as unknown as MissionNetwork;
+    const readFileFromMachine = vi.fn().mockReturnValue(null);
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission: vi.fn(),
+      readFileFromMachine,
+      isMachineBricked: () => false,
+    });
+
+    expect(() => mail.fn('xR0gu3x@darkmail.onion', 'done')).toThrow('Cannot read iptables rules');
+  });
 });

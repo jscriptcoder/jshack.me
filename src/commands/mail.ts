@@ -2,6 +2,7 @@ import type { Command, AsyncOutput } from '../components/Terminal/types';
 import type { MissionNetwork } from '../generation/types';
 import type { UserType } from '../session/SessionContext';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
+import { parseIptablesRules } from '../network/iptablesParser';
 
 type MailCommandContext = {
   readonly getActiveMission: () => MissionNetwork | null;
@@ -106,6 +107,43 @@ const verifyBackdoor = (
   return null;
 };
 
+const verifyPortforward = (
+  mission: MissionNetwork,
+  readFileFromMachine: MailCommandContext['readFileFromMachine'],
+): string | null => {
+  const { objective } = mission;
+  const publicPort = objective.forwardPublicPort;
+  const internalIp = objective.forwardInternalIp;
+  const internalPort = objective.forwardInternalPort;
+
+  if (publicPort === undefined || !internalIp || internalPort === undefined) {
+    return 'Invalid portforward mission configuration.';
+  }
+
+  const iptablesContent = readFileFromMachine(
+    mission.routerPublicIp,
+    '/etc/iptables/rules.v4',
+    '/',
+    'root',
+  );
+
+  if (!iptablesContent) {
+    return 'Cannot read iptables rules on the router. Edit /etc/iptables/rules.v4 on the router.';
+  }
+
+  const rules = parseIptablesRules(iptablesContent);
+  const match = rules.some(
+    (r) =>
+      r.publicPort === publicPort && r.internalIp === internalIp && r.internalPort === internalPort,
+  );
+
+  if (!match) {
+    return `No matching forwarding rule found. Add: forward ${publicPort} to ${internalIp}:${internalPort}`;
+  }
+
+  return null;
+};
+
 const verifyProof = (
   proof: string,
   mission: MissionNetwork,
@@ -119,6 +157,7 @@ const verifyProof = (
   if (type === 'script_fix') return verifyScriptFix(proof, mission);
   if (type === 'sabotage') return verifySabotage(mission, isMachineBricked);
   if (type === 'backdoor') return verifyBackdoor(mission, readFileFromMachine);
+  if (type === 'portforward') return verifyPortforward(mission, readFileFromMachine);
   return null;
 };
 

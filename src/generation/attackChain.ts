@@ -11,6 +11,7 @@ import type {
 import {
   backdoorPorts,
   clientHandles,
+  forwardPublicPorts,
   keyPlacementTemplates,
   scriptFixTemplatesByRole,
   targetFileTemplatesByRole,
@@ -335,6 +336,34 @@ const buildObjective = (
       expectedProof: '',
       backdoorPort: port,
       backdoorUser,
+    };
+  }
+
+  if (objectiveType === 'portforward') {
+    // Pick an internal machine (non-router) to expose via port forwarding.
+    // The targetMachine from buildPath is the machine to expose.
+    // Find a service port on it to forward.
+    const openPorts = targetMachine.remoteMachine.ports.filter(
+      (p) => p.open && p.service !== 'elite',
+    );
+    const servicePort = openPorts.length > 0 ? prng.pick(openPorts) : { port: 22, service: 'ssh' };
+    const publicPort = prng.pick(forwardPublicPorts);
+
+    // Consume dummy PRNG rolls for binary + encrypt to preserve sequence alignment
+    prng.next();
+    prng.next();
+
+    return {
+      type: 'portforward',
+      description: `Set up port forwarding to ${targetMachine.hostname} on the border router`,
+      targetMachine: targetMachine.ip,
+      targetPath: '',
+      targetContent: '',
+      clientEmail,
+      expectedProof: '',
+      forwardPublicPort: publicPort,
+      forwardInternalIp: targetMachine.ip,
+      forwardInternalPort: servicePort.port,
     };
   }
 

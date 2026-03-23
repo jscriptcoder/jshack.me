@@ -70,6 +70,19 @@ export const formatObjectiveHint = (mission: MissionNetwork): string => {
     ].join('\n');
   }
 
+  if (objective.type === 'portforward') {
+    const pubPort = objective.forwardPublicPort ?? 0;
+    const intIp = objective.forwardInternalIp ?? '?';
+    const intPort = objective.forwardInternalPort ?? 0;
+    return [
+      '  Hack the border router and set up port forwarding.',
+      `  Edit /etc/iptables/rules.v4 on the router to add:`,
+      `  forward ${pubPort} to ${intIp}:${intPort}`,
+      `  Then confirm to the client.`,
+      `  Example: mail("${email}", "done")`,
+    ].join('\n');
+  }
+
   // credential_theft
   return [
     '  Discover the root password on the target machine and mail it to the client.',

@@ -192,6 +192,34 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     difficulty: 'HARD',
     seed: 'TITAN-exploit-hard-backdoor-domain',
   },
+  // --- PORTFORWARD (router hacking + NAT forwarding) ---
+  {
+    id: 'DKC-021',
+    client: 'n3twr4ith',
+    clientEmail: 'n3twr4ith@darkmail.onion',
+    target: 'Solaris Telecom — border gateway router',
+    objective: 'Hack the router and expose an internal service via port forwarding',
+    difficulty: 'EASY',
+    seed: 'SOLARIS-snmp-easy-portforward',
+  },
+  {
+    id: 'DKC-022',
+    client: 'darkfl0w',
+    clientEmail: 'darkfl0w@darkmail.onion',
+    target: 'Apex Industrial — network perimeter router',
+    objective: 'Breach the gateway and set up port forwarding to an internal machine',
+    difficulty: 'MEDIUM',
+    seed: 'APEXIND-snmp-medium-portforward',
+  },
+  {
+    id: 'DKC-023',
+    client: 'zer0day_',
+    clientEmail: 'zer0day_@darkmail.onion',
+    target: 'Bastion Federal — classified network gateway',
+    objective: 'Penetrate the gateway and forward a port to expose their internal infrastructure',
+    difficulty: 'HARD',
+    seed: 'BASTION-snmp-hard-portforward-domain',
+  },
 ];
 
 export const formatMissionBoard = (listings: readonly MissionListing[]): string => {
