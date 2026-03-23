@@ -253,7 +253,7 @@ Always consumes 8 PRNG calls for sequence stability, even when no closures apply
 Entry machines always use the entry port template instead of the role's default ports.
 Router is always the border device between localhost and the mission network.
 
-## Entry Port Templates (10)
+## Entry Port Templates (13)
 
 | Variant | Ports               |
 | ------- | ------------------- |
@@ -266,6 +266,9 @@ Router is always the border device between localhost and the mission network.
 | Exploit | 22/ssh, 80/http     |
 | Exploit | 22/ssh, 3306/mysql  |
 | Exploit | 22/ssh, 6379/redis  |
+| Exploit | 22/ssh, 21/ftp      |
+| Exploit | 22/ssh, 25/smtp     |
+| Exploit | 22/ssh, 1883/mqtt   |
 | HTTP    | 22/ssh, 80/http     |
 
 ## Router Entry Port Templates (4)
@@ -279,7 +282,7 @@ Used when the router itself is the entry point (router-first mode). In router-fi
 | HTTP    | 22/ssh, 80/http               |
 | SNMP    | 22/ssh (closed), 161/udp snmp |
 
-## Exploit Vulnerabilities (6)
+## Exploit Vulnerabilities (12)
 
 Used when entry variant is `exploit`. Matched by port/service.
 
@@ -291,6 +294,12 @@ Used when entry variant is `exploit`. Matched by port/service.
 | CVE-2017-5638  | Struts/2.3.31       | 8080 | RCE via Content-Type             |
 | CVE-2015-1427  | Elasticsearch 1.4.2 | 9200 | Groovy sandbox bypass            |
 | CVE-2019-11510 | PulseSecure/9.0R1   | 8443 | Arbitrary file read (router VPN) |
+| CVE-2011-2523  | vsftpd 2.3.4        | 21   | Backdoor command execution       |
+| CVE-2019-10149 | Exim 4.87           | 25   | RCE (The Return of WIZard)       |
+| CVE-2019-11500 | Dovecot 2.3.7       | 143  | IMAP/POP3 buffer overflow        |
+| CVE-2023-3028  | Mosquitto 2.0.14    | 1883 | MQTT broker auth bypass          |
+| CVE-2017-0144  | Samba 4.5.9         | 445  | SMB RCE (EternalBlue)            |
+| CVE-2019-9193  | PostgreSQL 9.3      | 5432 | COPY TO/FROM PROGRAM RCE         |
 
 ## Objective Types (6)
 

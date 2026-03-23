@@ -305,7 +305,7 @@ describe('generateTopology', () => {
   });
 
   it('exploit variant machines have a port matching a vulnerability template', () => {
-    const vulnerablePorts = [80, 3306, 6379, 8080, 9200, 8443];
+    const vulnerablePorts = [21, 25, 80, 143, 445, 1883, 3306, 5432, 6379, 8080, 8443, 9200];
     const results = Array.from({ length: 30 }, (_, i) =>
       generateTopology(createPrng(`exploit-port-${i}`), 'hard'),
     );
