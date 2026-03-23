@@ -88,4 +88,16 @@ export const secrets = {
     'batman2024',
     'access2024',
   ]),
+  SNMP_COMMUNITIES: JSON.stringify([
+    'private',
+    'ADMIN',
+    'C1sc0',
+    'write',
+    'secret',
+    'network',
+    'rw_comm',
+    'cisco',
+    'SNMP_RW',
+    'manager',
+  ]),
 } as const;

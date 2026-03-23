@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { RemoteMachine, DnsRecord } from '../network/types';
 import type { AsyncOutput } from '../components/Terminal/types';
+import type { FileNode } from '../filesystem/types';
 import { createHydraCommand } from './hydra';
 
 // --- Factory Functions ---
@@ -24,16 +25,19 @@ type HydraContextConfig = {
   readonly machines?: readonly RemoteMachine[];
   readonly localIP?: string;
   readonly dnsRecords?: readonly DnsRecord[];
+  readonly machineFiles?: Readonly<Record<string, Record<string, FileNode>>>;
 };
 
 const createMockContext = (config: HydraContextConfig = {}) => {
-  const { machines = [], localIP = '192.168.1.100', dnsRecords = [] } = config;
+  const { machines = [], localIP = '192.168.1.100', dnsRecords = [], machineFiles = {} } = config;
   return {
     getMachine: (ip: string) => machines.find((m) => m.ip === ip),
     getLocalIP: () => localIP,
     resolveDomain: (domain: string) => dnsRecords.find((r) => r.domain === domain),
     resolveNat: (ip: string, _port: number) => ({ ip, port: _port }),
     findMachineUsers: (ip: string) => machines.find((m) => m.ip === ip)?.users ?? [],
+    getNodeFromMachine: (ip: string, path: string) =>
+      (machineFiles[ip]?.[path] as FileNode | undefined) ?? null,
   };
 };
 
@@ -76,6 +80,27 @@ describe('hydra command', () => {
       expect(() => hydra.fn('192.168.1.50', 'telnet')).toThrow(
         'hydra: unsupported service "telnet"',
       );
+    });
+
+    it('should accept "snmp" as valid service', () => {
+      const machine = getMockRemoteMachine({
+        ports: [{ port: 161, service: 'snmp', open: true, protocol: 'udp' }],
+      });
+      const snmpdConf: FileNode = {
+        name: 'snmpd.conf',
+        type: 'file',
+        owner: 'root',
+        permissions: { read: ['root'], write: ['root'], execute: [] },
+        content: 'rocommunity public\nrwcommunity private\nsysDescr Router',
+      };
+      const hydra = createHydraCommand(
+        createMockContext({
+          machines: [machine],
+          machineFiles: { '192.168.1.50': { '/etc/snmp/snmpd.conf': snmpdConf } },
+        }),
+      );
+      const result = hydra.fn('192.168.1.50', 'snmp');
+      expect(isAsyncOutput(result)).toBe(true);
     });
 
     it('should accept "ssh" as valid service', () => {
@@ -147,12 +172,14 @@ describe('hydra command', () => {
   });
 
   describe('service validation', () => {
-    it('should throw when no SSH/FTP services are open', () => {
+    it('should throw when no attackable services are open', () => {
       const machine = getMockRemoteMachine({
         ports: [{ port: 80, service: 'http', open: true }],
       });
       const hydra = createHydraCommand(createMockContext({ machines: [machine] }));
-      expect(() => hydra.fn('192.168.1.50')).toThrow('no open SSH/FTP services on 192.168.1.50');
+      expect(() => hydra.fn('192.168.1.50')).toThrow(
+        'no open SSH/FTP/SNMP services on 192.168.1.50',
+      );
     });
 
     it('should throw when requested service is not open', () => {
@@ -393,6 +420,126 @@ describe('hydra command', () => {
       const result = hydra.fn('192.168.1.50');
       if (!isAsyncOutput(result)) throw new Error('Expected async output');
       expect(result.cancel).toBeDefined();
+    });
+  });
+
+  describe('SNMP community string brute-force', () => {
+    const snmpdConf = (rwCommunity: string): FileNode => ({
+      name: 'snmpd.conf',
+      type: 'file',
+      owner: 'root',
+      permissions: { read: ['root'], write: ['root'], execute: [] },
+      content: `rocommunity public\nrwcommunity ${rwCommunity}\nsysDescr Router v1.0`,
+    });
+
+    const snmpMachine = (_rwCommunity?: string): RemoteMachine =>
+      getMockRemoteMachine({
+        ip: '10.0.0.1',
+        hostname: 'router01',
+        ports: [
+          { port: 22, service: 'ssh', open: true },
+          { port: 161, service: 'snmp', open: true, protocol: 'udp' },
+        ],
+      });
+
+    const snmpContext = (rwCommunity: string) =>
+      createMockContext({
+        machines: [snmpMachine(rwCommunity)],
+        machineFiles: { '10.0.0.1': { '/etc/snmp/snmpd.conf': snmpdConf(rwCommunity) } },
+      });
+
+    it('should find RW community string from the wordlist', async () => {
+      const hydra = createHydraCommand(snmpContext('private'));
+      const result = hydra.fn('10.0.0.1', 'snmp');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      const lines = await collectAsyncLines(result);
+      expect(lines.some((l) => l.includes('community: private'))).toBe(true);
+      expect(lines.some((l) => l.includes('access: read-write'))).toBe(true);
+    });
+
+    it('should find community string regardless of pool position', async () => {
+      const hydra = createHydraCommand(snmpContext('C1sc0'));
+      const result = hydra.fn('10.0.0.1', 'snmp');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      const lines = await collectAsyncLines(result);
+      expect(lines.some((l) => l.includes('community: C1sc0'))).toBe(true);
+    });
+
+    it('should show DATA line targeting snmp', async () => {
+      const hydra = createHydraCommand(snmpContext('private'));
+      const result = hydra.fn('10.0.0.1', 'snmp');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      const lines = await collectAsyncLines(result);
+      expect(lines.some((l) => l.includes('[DATA] attacking snmp://10.0.0.1:161'))).toBe(true);
+    });
+
+    it('should show STATUS progress lines', async () => {
+      const hydra = createHydraCommand(snmpContext('private'));
+      const result = hydra.fn('10.0.0.1', 'snmp');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      const lines = await collectAsyncLines(result);
+      const statusLines = lines.filter((l) => l.includes('[STATUS]'));
+      expect(statusLines.length).toBeGreaterThan(0);
+    });
+
+    it('should show summary with 1 valid community string found', async () => {
+      const hydra = createHydraCommand(snmpContext('private'));
+      const result = hydra.fn('10.0.0.1', 'snmp');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      const lines = await collectAsyncLines(result);
+      expect(lines.some((l) => l.includes('1 valid community string found'))).toBe(true);
+    });
+
+    it('should throw when SNMP port is not open', () => {
+      const machine = getMockRemoteMachine({
+        ip: '10.0.0.1',
+        ports: [{ port: 22, service: 'ssh', open: true }],
+      });
+      const hydra = createHydraCommand(createMockContext({ machines: [machine] }));
+      expect(() => hydra.fn('10.0.0.1', 'snmp')).toThrow('no open snmp service on 10.0.0.1');
+    });
+
+    it('should throw when no snmpd.conf exists on the machine', () => {
+      const machine = getMockRemoteMachine({
+        ip: '10.0.0.1',
+        ports: [{ port: 161, service: 'snmp', open: true, protocol: 'udp' }],
+      });
+      // No machineFiles provided — getNodeFromMachine returns null
+      const hydra = createHydraCommand(createMockContext({ machines: [machine] }));
+      expect(() => hydra.fn('10.0.0.1', 'snmp')).toThrow('no SNMP agent responding');
+    });
+
+    it('should report 0 found when RW community is not in wordlist', async () => {
+      const hydra = createHydraCommand(snmpContext('super_obscure_string'));
+      const result = hydra.fn('10.0.0.1', 'snmp');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      const lines = await collectAsyncLines(result);
+      expect(lines.some((l) => l.includes('community:'))).toBe(false);
+      expect(lines.some((l) => l.includes('0 valid community strings found'))).toBe(true);
+    });
+
+    it('should not include SNMP when attacking all services without filter', async () => {
+      // SNMP requires explicit service filter — auto-discovery only includes SSH/FTP
+      const machine = getMockRemoteMachine({
+        ip: '10.0.0.1',
+        ports: [
+          { port: 22, service: 'ssh', open: true },
+          { port: 161, service: 'snmp', open: true, protocol: 'udp' },
+        ],
+      });
+      const hydra = createHydraCommand(
+        createMockContext({
+          machines: [machine],
+          machineFiles: { '10.0.0.1': { '/etc/snmp/snmpd.conf': snmpdConf('private') } },
+        }),
+      );
+      vi.spyOn(Math, 'random').mockReturnValue(0.5);
+      const result = hydra.fn('10.0.0.1');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      const lines = await collectAsyncLines(result);
+      // Should only attack SSH, not SNMP
+      expect(lines.some((l) => l.includes('attacking ssh://'))).toBe(true);
+      expect(lines.some((l) => l.includes('attacking snmp://'))).toBe(false);
     });
   });
 });

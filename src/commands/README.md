@@ -106,7 +106,7 @@ Admin utilities that write PID files to `/var/run/` — `NetworkContext` reads t
 | ftp        | `ftp.ts`        | `ftp(host[, user, pw])`                      | Connect to remote machine via FTP (async, optional inline auth); logs to target's `/var/log/vsftpd.log`        |
 | nc         | `nc.ts`         | `nc(host, port) \| nc("-l", port)`           | Netcat - connect to port or open backdoor listener with -l (async/sync)                                        |
 | msfconsole | `msfconsole.ts` | `msfconsole(host, port)`                     | Exploit a vulnerable service for RCE (async, drops into restricted shell)                                      |
-| hydra      | `hydra.ts`      | `hydra(host[, svc[, user]])`                 | Brute-force SSH/FTP login credentials (async, probability-based)                                               |
+| hydra      | `hydra.ts`      | `hydra(host[, svc[, user]])`                 | Brute-force SSH/FTP logins or SNMP community strings (async)                                                   |
 | gobuster   | `gobuster.ts`   | `gobuster("dir", url)`                       | Enumerate directories/files on web servers (async, walks /var/www/html/ tree)                                  |
 | snmpwalk   | `snmpwalk.ts`   | `snmpwalk(host[, community])`                | Walk SNMP MIB tree; public=basic info, RW=full data with creds (async)                                         |
 | snmpset    | `snmpset.ts`    | `snmpset(host, comm, "k=v")`                 | Set writable SNMP OID (firewall rules); requires RW community (async)                                          |

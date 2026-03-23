@@ -259,19 +259,11 @@ export const backdoorPorts: readonly number[] = [4444, 31337, 8888, 1337];
 // Non-standard ports that wouldn't normally be forwarded.
 export const forwardPublicPorts: readonly number[] = [8080, 8443, 9090, 8888, 3000, 4443];
 
-// SNMP read-write community strings — common misconfigurations and vendor defaults
-export const snmpRwCommunities: readonly string[] = [
-  'private',
-  'ADMIN',
-  'C1sc0',
-  'write',
-  'secret',
-  'network',
-  'rw_comm',
-  'cisco',
-  'SNMP_RW',
-  'manager',
-];
+// SNMP read-write community strings — common misconfigurations and vendor defaults.
+// Encoded at build time to prevent finding them in the JS bundle.
+export const snmpRwCommunities: readonly string[] = JSON.parse(
+  secrets.SNMP_COMMUNITIES,
+) as readonly string[];
 
 export type EntryPortTemplate = {
   readonly variant: EntryVariant;

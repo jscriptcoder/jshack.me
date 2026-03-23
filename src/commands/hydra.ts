@@ -1,6 +1,7 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
 import type { RemoteMachine, RemoteUser, DnsRecord } from '../network/types';
-import { passwords, guestPasswords } from '../generation/pools';
+import type { FileNode } from '../filesystem/types';
+import { passwords, guestPasswords, snmpRwCommunities } from '../generation/pools';
 import { md5 } from '../utils/md5';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
@@ -10,6 +11,7 @@ type HydraContext = {
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
   readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
   readonly findMachineUsers: (ip: string) => readonly RemoteUser[];
+  readonly getNodeFromMachine: (machineIp: string, path: string, cwd: string) => FileNode | null;
 };
 
 type CrackResult = {
@@ -20,7 +22,9 @@ type CrackResult = {
 };
 
 const STATUS_DELAY_MS = 400;
-const VALID_SERVICES = new Set(['ssh', 'ftp']);
+// Services attacked during auto-discovery (no filter). SNMP requires explicit filter.
+const LOGIN_SERVICES = new Set(['ssh', 'ftp']);
+const VALID_SERVICES = new Set(['ssh', 'ftp', 'snmp']);
 const ATTEMPTS_PER_USER = 128;
 
 // Crack probability by user type — guest passwords are weak (always crackable),
@@ -50,12 +54,98 @@ const getTargetServices = (
   serviceFilter: string | undefined,
 ): readonly { readonly port: number; readonly service: string }[] => {
   const openServices = machine.ports
-    .filter((p) => p.open && VALID_SERVICES.has(p.service))
+    .filter((p) => p.open && LOGIN_SERVICES.has(p.service))
     .map((p) => ({ port: p.port, service: p.service }));
 
   if (!serviceFilter) return openServices;
 
   return openServices.filter((s) => s.service === serviceFilter);
+};
+
+// Parse rwcommunity from snmpd.conf content
+const parseRwCommunity = (content: string): string => {
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('rwcommunity ')) return trimmed.slice('rwcommunity '.length);
+  }
+  return '';
+};
+
+// SNMP community string brute-force — tries all known community strings
+const createSnmpAttack = (
+  targetIP: string,
+  machine: RemoteMachine,
+  getNodeFromMachine: HydraContext['getNodeFromMachine'],
+): AsyncOutput => {
+  const snmpPort = machine.ports.find(
+    (p) => p.service === 'snmp' && p.open && p.protocol === 'udp',
+  );
+  if (!snmpPort) {
+    throw new Error(`hydra: no open snmp service on ${targetIP}`);
+  }
+
+  const confNode = getNodeFromMachine(targetIP, '/etc/snmp/snmpd.conf', '/');
+  if (!confNode || confNode.type !== 'file' || !confNode.content) {
+    throw new Error(`hydra: ${targetIP}: no SNMP agent responding`);
+  }
+
+  const rwCommunity = parseRwCommunity(confNode.content);
+
+  const token = createCancellationToken();
+
+  return {
+    __type: 'async',
+    start: (onLine, onComplete) => {
+      onLine('Hydra v9.4 — Network Login Cracker');
+      onLine('');
+
+      let delay = 0;
+      let found = '';
+
+      // DATA line
+      delay += jitter(STATUS_DELAY_MS);
+      token.schedule(() => {
+        if (token.isCancelled()) return;
+        onLine(`[DATA] attacking snmp://${targetIP}:${snmpPort.port}`);
+      }, delay);
+
+      // STATUS progress lines (4 evenly spaced)
+      const total = snmpRwCommunities.length;
+      const statusSteps = 4;
+      for (let i = 1; i <= statusSteps; i++) {
+        const completed = Math.floor((total / statusSteps) * i);
+        delay += jitter(STATUS_DELAY_MS);
+        token.schedule(() => {
+          if (token.isCancelled()) return;
+          onLine(`[STATUS] ${completed}/${total} community strings tested`);
+        }, delay);
+      }
+
+      // Try each community string
+      snmpRwCommunities.forEach((cs) => {
+        delay += jitter(STATUS_DELAY_MS);
+        token.schedule(() => {
+          if (token.isCancelled()) return;
+          if (cs === rwCommunity) {
+            found = cs;
+            onLine(
+              `[${snmpPort.port}][snmp] host: ${targetIP}   community: ${cs}   access: read-write`,
+            );
+          }
+        }, delay);
+      });
+
+      // Summary
+      delay += jitter(STATUS_DELAY_MS);
+      token.schedule(() => {
+        if (token.isCancelled()) return;
+        onLine('');
+        onLine(`${found ? 1 : 0} valid community string${found ? '' : 's'} found`);
+        onComplete();
+      }, delay);
+    },
+    cancel: token.cancel,
+  };
 };
 
 export const createHydraCommand = (context: HydraContext): Command => ({
@@ -67,10 +157,14 @@ export const createHydraCommand = (context: HydraContext): Command => ({
     description:
       'Perform a dictionary attack against network login services on a remote host. ' +
       'Attacks SSH and FTP services by default. Optionally specify a service ' +
-      '("ssh" or "ftp") and/or a specific username to target.',
+      '("ssh", "ftp", or "snmp") and/or a specific username to target. ' +
+      'For SNMP, brute-forces community strings against the SNMP agent.',
     arguments: [
       { name: 'host', description: 'IP address or hostname of the target machine', required: true },
-      { name: 'service', description: 'Service to attack: "ssh" or "ftp" (default: all)' },
+      {
+        name: 'service',
+        description: 'Service to attack: "ssh", "ftp", or "snmp" (default: ssh+ftp)',
+      },
       { name: 'user', description: 'Specific username to target (default: all users)' },
     ],
     examples: [
@@ -86,10 +180,21 @@ export const createHydraCommand = (context: HydraContext): Command => ({
         command: 'hydra("192.168.1.50", "ssh", "ftpuser")',
         description: 'Attack a specific user on SSH',
       },
+      {
+        command: 'hydra("10.0.0.1", "snmp")',
+        description: 'Brute-force SNMP community strings',
+      },
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {
-    const { getMachine, getLocalIP, resolveDomain, resolveNat, findMachineUsers } = context;
+    const {
+      getMachine,
+      getLocalIP,
+      resolveDomain,
+      resolveNat,
+      findMachineUsers,
+      getNodeFromMachine,
+    } = context;
 
     const host = args[0] as string | undefined;
     const serviceFilter = args[1] as string | undefined;
@@ -100,7 +205,9 @@ export const createHydraCommand = (context: HydraContext): Command => ({
     }
 
     if (serviceFilter !== undefined && !VALID_SERVICES.has(serviceFilter)) {
-      throw new Error(`hydra: unsupported service "${serviceFilter}" — use "ssh" or "ftp"`);
+      throw new Error(
+        `hydra: unsupported service "${serviceFilter}" — use "ssh", "ftp", or "snmp"`,
+      );
     }
 
     if (host === 'localhost' || host === '127.0.0.1') {
@@ -119,11 +226,16 @@ export const createHydraCommand = (context: HydraContext): Command => ({
       throw new Error(`hydra: connect to ${targetIP}: Connection timed out`);
     }
 
+    // SNMP mode — separate flow, no users involved
+    if (serviceFilter === 'snmp') {
+      return createSnmpAttack(targetIP, machine, getNodeFromMachine);
+    }
+
     const services = getTargetServices(machine, serviceFilter);
     if (services.length === 0) {
       const detail = serviceFilter
         ? `no open ${serviceFilter} service on ${targetIP}`
-        : `no open SSH/FTP services on ${targetIP}`;
+        : `no open SSH/FTP/SNMP services on ${targetIP}`;
       throw new Error(`hydra: ${detail}`);
     }
 

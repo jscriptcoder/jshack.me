@@ -191,6 +191,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
             resolveDomain,
             resolveNat,
             findMachineUsers,
+            getNodeFromMachine,
           }),
           isWifiRequired,
         ),
