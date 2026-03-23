@@ -98,6 +98,7 @@ const allRoles: readonly MachineRole[] = [
   'fileserver',
   'workstation',
   'mailserver',
+  'iot',
 ];
 
 const entryRoles: readonly MachineRole[] = ['webserver', 'workstation'];

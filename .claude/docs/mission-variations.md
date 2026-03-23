@@ -123,9 +123,9 @@ A 4th objective type where the player finds a broken JavaScript script on the ta
 | user  | 60%    | Anyone can read/write/execute — no privilege escalation needed   |
 | root  | 40%    | Anyone can read, but only root can write/execute — must su first |
 
-### Script Fix Templates (10 + 2 router)
+### Script Fix Templates (12 + 2 router)
 
-2 templates per main role (fileserver, database, webserver, mailserver, workstation) + 2 for router (unused).
+2 templates per main role (fileserver, database, webserver, mailserver, iot, workstation) + 2 for router (unused).
 
 Each template is a short script that filters/counts array data and conditionally calls `echo(_decode(<checksum-expr>))` on success. `_decode(checksum)` is injected into `node()`'s execution context only during script_fix missions — it compares the checksum against the expected value and returns the ACCESS-KEY on match (or an error string otherwise). Each template has an `expectedChecksum` field. Bug variants introduce syntax errors, logic errors, or corrupted data lines. Corrupted variants have a hint file at a nearby path on the same machine containing the correct value.
 
@@ -192,6 +192,7 @@ Binary credential placements use deep paths that look like compiled binaries or 
 | database    | `/usr/local/bin/db_healthcheck`, `/opt/lib/libmysqlclient.so`, `/var/cache/query.db` |
 | fileserver  | `/usr/local/bin/sync_agent`, `/opt/lib/libstorage.so`, `/var/cache/ftp_sessions.db`  |
 | mailserver  | `/opt/app/mailstore.bin`, `/var/lib/mailindex.dat`, `/srv/cache/mbox.db`             |
+| iot         | `/opt/app/firmware.bin`, `/var/lib/sensor.dat`, `/srv/cache/telemetry.db`            |
 | workstation | `/usr/local/bin/monitor_agent`, `/opt/lib/libauth.so`, `/var/cache/user_sessions.db` |
 | router      | `/usr/local/bin/fw_monitor`, `/opt/lib/libnetfilter.so`, `/var/cache/routing.db`     |
 
@@ -237,16 +238,17 @@ Always consumes 8 PRNG calls for sequence stability, even when no closures apply
 | Forwarded    | Router NATs entry ports to the DMZ/entry machine. Player connects transparently.                                                                |
 | Router-first | No forwarding. Player must hack the router first, then pivot to internal network. Router filesystem contains SSH credentials for entry machine. |
 
-## Machine Roles (6)
+## Machine Roles (7)
 
-| Role        | Default Ports            | Entry-eligible? | Notes                             |
-| ----------- | ------------------------ | --------------- | --------------------------------- |
-| webserver   | 22, 80, 443              | Yes             |                                   |
-| database    | 22, 3306 (5432 closed)   | No              |                                   |
-| fileserver  | 21, 22 (445 closed)      | No              |                                   |
-| mailserver  | 22, 25, 143 (993 closed) | No              |                                   |
-| workstation | 22 (8080 closed)         | Yes             |                                   |
-| router      | 22, 80 (8443 closed)     | No              | Infrastructure only, never target |
+| Role        | Default Ports              | Entry-eligible? | Notes                             |
+| ----------- | -------------------------- | --------------- | --------------------------------- |
+| webserver   | 22, 80, 443                | Yes             |                                   |
+| database    | 22, 3306 (5432 closed)     | No              |                                   |
+| fileserver  | 21, 22 (445 closed)        | No              |                                   |
+| mailserver  | 22, 25, 143 (993 closed)   | No              |                                   |
+| iot         | 22, 80, 1883 (8443 closed) | No              | Minimal BusyBox-style filesystem  |
+| workstation | 22 (8080 closed)           | Yes             |                                   |
+| router      | 22, 80 (8443 closed)       | No              | Infrastructure only, never target |
 
 Entry machines always use the entry port template instead of the role's default ports.
 Router is always the border device between localhost and the mission network.
@@ -301,7 +303,7 @@ Used when entry variant is `exploit`. Matched by port/service.
 | sabotage         | Destroy target machine, confirm the kill            | `mail(email, "done")`                  |
 | backdoor         | Open nc listener on target machine, confirm         | `mail(email, "done")`                  |
 
-## Exfiltrate Target File Templates (18 — 3 per role)
+## Exfiltrate Target File Templates (21 — 3 per role)
 
 Used for `exfiltrate` objectives. Contain `{{access_key}}` placeholder filled with `ACCESS-XXXX-XXXX-XXXX`.
 
@@ -337,6 +339,14 @@ Used for `exfiltrate` objectives. Contain `{{access_key}}` placeholder filled wi
 | `/var/spool/mail/admin`              | ACCESS-KEY as wire transfer code   |
 | `/srv/mail/archive/confidential.eml` | ACCESS-KEY as emergency access key |
 
+### iot
+
+| Path                            | Content Style                    |
+| ------------------------------- | -------------------------------- |
+| `/opt/firmware/config_dump.bin` | ACCESS-KEY as API key in config  |
+| `/var/log/mqtt_export.csv`      | ACCESS-KEY in MQTT topic payload |
+| `/tmp/device_backup.tar.log`    | ACCESS-KEY as master token       |
+
 ### workstation
 
 | Path                                | Content Style                        |
@@ -353,7 +363,7 @@ Used for `exfiltrate` objectives. Contain `{{access_key}}` placeholder filled wi
 | `/opt/router/vpn_keys.txt`      | ACCESS-KEY as VPN pre-shared key   |
 | `/opt/router/backup_config.txt` | ACCESS-KEY in router backup config |
 
-## Tamper File Templates (11 — 2 per main role + 1 for router)
+## Tamper File Templates (13 — 2 per main role + 1 for router)
 
 Used for `tamper` objectives. Player must change `tamperOldValue` to `tamperNewValue` in the file.
 
@@ -367,6 +377,8 @@ Used for `tamper` objectives. Player must change `tamperOldValue` to `tamperNewV
 | webserver   | `/srv/www/private/access_control.conf` | "restricted" → "privileged"                  |
 | mailserver  | `/var/mail/hr`                         | "approved" → "denied" (termination)          |
 | mailserver  | `/etc/aliases`                         | mail routing redirect                        |
+| iot         | `/etc/config/device.conf`              | "armed" → "disarmed" (alarm)                 |
+| iot         | `/etc/config/update.conf`              | firmware update URL redirect                 |
 | workstation | `/opt/projects/payroll.csv`            | "$45,000" → "$145,000" (salary)              |
 | workstation | `/opt/local/performance_review.txt`    | "needs_improvement" → "exceeds_expectations" |
 | router      | `/opt/router/firewall_policy.conf`     | "DENY" → "ALLOW"                             |
@@ -407,7 +419,7 @@ PRNG picks one template per mission. Files are root-owned (curl serves them sinc
 
 ## Name Pools
 
-### Usernames (5 per role, 30 total)
+### Usernames (5 per role, 35 total)
 
 | Role        | Names                                           |
 | ----------- | ----------------------------------------------- |
@@ -415,10 +427,11 @@ PRNG picks one template per mission. Files are root-owned (curl serves them sinc
 | database    | dbadmin, postgres, mysql, dba, dataops          |
 | fileserver  | ftpuser, backup, storage, sysadmin, fileadm     |
 | mailserver  | postmaster, mailadm, dovecot, smtp-svc, mailops |
+| iot         | admin, device, iotuser, sensor, operator        |
 | workstation | jsmith, admin, developer, analyst, operator     |
 | router      | netops, routeadm, admin, fwadmin, operator      |
 
-### Hostnames (5 per role, 30 total)
+### Hostnames (5 per role, 35 total)
 
 | Role        | Names                                                   |
 | ----------- | ------------------------------------------------------- |
@@ -426,6 +439,7 @@ PRNG picks one template per mission. Files are root-owned (curl serves them sinc
 | database    | db-primary, db01, mysql-prod, postgres01, datastore     |
 | fileserver  | files01, nas, backup-srv, storage01, ftp-main           |
 | mailserver  | mail01, mx-primary, smtp-relay, postfix-srv, exchange01 |
+| iot         | cam-01, thermostat, smart-lock, iot-hub, sensor-gw      |
 | workstation | ws-admin, dev-box, ops-station, analyst-pc, jump-box    |
 | router      | router01, gw-main, border-gw, core-rtr, firewall01      |
 
@@ -459,9 +473,9 @@ Pre-generated filler content for `/var/log/` noise files during mission generati
 
 sshd accepted, sshd failed, sshd closed, CRON, systemd started, kernel link up, sudo
 
-### Config Templates (2 per role, 12 total)
+### Config Templates (2 per role, 14 total)
 
-Role-appropriate server configs (Apache/nginx, MySQL/Postgres, Samba/vsftpd, Postfix/Dovecot, SSH/bashrc, iptables/interfaces).
+Role-appropriate server configs (Apache/nginx, MySQL/Postgres, Samba/vsftpd, Postfix/Dovecot, BusyBox/MQTT, SSH/bashrc, iptables/interfaces).
 
 ## Hint Templates (5)
 

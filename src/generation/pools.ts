@@ -28,6 +28,7 @@ export const usernamesByRole: Readonly<Record<MachineRole, readonly string[]>> =
   fileserver: ['ftpuser', 'backup', 'storage', 'sysadmin', 'fileadm'],
   workstation: ['jsmith', 'admin', 'developer', 'analyst', 'operator'],
   mailserver: ['postmaster', 'mailadm', 'dovecot', 'smtp-svc', 'mailops'],
+  iot: ['admin', 'device', 'iotuser', 'sensor', 'operator'],
   router: ['netops', 'routeadm', 'admin', 'fwadmin', 'operator'],
 };
 
@@ -45,6 +46,7 @@ export const hostnamesByRole: Readonly<Record<MachineRole, readonly string[]>> =
   fileserver: ['files01', 'nas', 'backup-srv', 'storage01', 'ftp-main'],
   workstation: ['ws-admin', 'dev-box', 'ops-station', 'analyst-pc', 'jump-box'],
   mailserver: ['mail01', 'mx-primary', 'smtp-relay', 'postfix-srv', 'exchange01'],
+  iot: ['cam-01', 'thermostat', 'smart-lock', 'iot-hub', 'sensor-gw'],
   router: ['router01', 'gw-main', 'border-gw', 'core-rtr', 'firewall01'],
 };
 
@@ -73,6 +75,12 @@ export const portTemplatesByRole: Readonly<Record<MachineRole, readonly PortTemp
     { port: 25, service: 'smtp', open: true },
     { port: 143, service: 'imap', open: true },
     { port: 993, service: 'imaps', open: false },
+  ],
+  iot: [
+    { port: 22, service: 'ssh', open: true },
+    { port: 80, service: 'http', open: true },
+    { port: 1883, service: 'mqtt', open: true },
+    { port: 8443, service: 'https', open: false },
   ],
   router: [
     { port: 22, service: 'ssh', open: true },
@@ -296,6 +304,10 @@ export const configTemplatesByRole: Readonly<Record<MachineRole, readonly string
     'smtpd_banner = $myhostname ESMTP $mail_name\nsmtpd_tls_cert_file=/etc/ssl/certs/ssl-cert.pem\nsmtpd_tls_key_file=/etc/ssl/private/ssl-cert.key\nmyhostname = {{hostname}}\nmydestination = $myhostname, localhost\ninet_interfaces = all',
     'protocols = imap\nlisten = *, ::\nmail_location = mbox:~/mail:INBOX=/var/mail/%u\nssl = required\nssl_cert = </etc/ssl/certs/dovecot.pem\nssl_key = </etc/ssl/private/dovecot.pem',
   ],
+  iot: [
+    '# BusyBox v1.31.1\nhostname={{hostname}}\ndevice_type=sensor_gateway\nfirmware=v2.1.4\nmqtt_broker=127.0.0.1\nmqtt_port=1883\nlog_level=warn',
+    '# Device configuration\n[network]\ndhcp=yes\nhostname={{hostname}}\n[mqtt]\nbroker=localhost\nport=1883\ntopic_prefix=devices/{{hostname}}\n[sensor]\ninterval=60\nthreshold=25.0',
+  ],
   router: [
     '*filter\n:INPUT DROP [0:0]\n:FORWARD ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n-A INPUT -i lo -j ACCEPT\n-A INPUT -p tcp --dport 22 -j ACCEPT\n-A INPUT -p tcp --dport {{port}} -j ACCEPT\n-A FORWARD -i eth1 -o eth0 -j ACCEPT\n-A FORWARD -i eth0 -o eth1 -m state --state RELATED,ESTABLISHED -j ACCEPT\nCOMMIT',
     'auto eth0\niface eth0 inet static\n  address {{hostname}}\n  netmask 255.255.255.0\n  gateway 0.0.0.0\n\nauto eth1\niface eth1 inet static\n  address 10.0.0.1\n  netmask 255.255.255.0',
@@ -384,6 +396,23 @@ export const targetFileTemplatesByRole: Readonly<
       path: '/opt/local/secret_notes.txt',
       contentTemplate:
         'Personal notes — DO NOT SHARE\n\nVPN config: vpn.corp.local:1194\nEmergency access code: {{access_key}}\nBackup server: 10.0.0.50 (ask Dave for creds)',
+    },
+  ],
+  iot: [
+    {
+      path: '/opt/firmware/config_dump.bin',
+      contentTemplate:
+        '# Firmware config export — {{hostname}}\ndevice_id=IOT-4812\napi_endpoint=https://cloud.vendor.io/v2\napi_key={{access_key}}\nfirmware_version=2.1.4\nlast_checkin=2024-01-15T08:30:00Z',
+    },
+    {
+      path: '/var/log/mqtt_export.csv',
+      contentTemplate:
+        'timestamp,topic,payload\n2024-01-15T08:30:12Z,devices/status,online\n2024-01-15T08:30:13Z,devices/auth,{{access_key}}\n2024-01-15T08:30:14Z,devices/temp,22.5\n2024-01-15T08:30:15Z,devices/status,heartbeat',
+    },
+    {
+      path: '/tmp/device_backup.tar.log',
+      contentTemplate:
+        'Backup manifest — {{hostname}}\nCreated: 2024-01-15 02:00:01\nFiles: 847\nSize: 12.4MB\nEncryption: none\nMaster token: {{access_key}}\nNext backup: 2024-01-16 02:00:00',
     },
   ],
   mailserver: [
@@ -507,6 +536,24 @@ export const tamperFileTemplatesByRole: Readonly<
       tamperNewValue: 'exceeds_expectations',
     },
   ],
+  iot: [
+    {
+      path: '/etc/config/device.conf',
+      contentTemplate:
+        '# Device security settings\ndevice_id=IOT-4812\nalarm_status={{tamperOldValue}}\nmotion_sensitivity=high\nauto_lock=enabled\nnotify=admin@corp.local',
+      tamperField: 'alarm_status',
+      tamperOldValue: 'armed',
+      tamperNewValue: 'disarmed',
+    },
+    {
+      path: '/etc/config/update.conf',
+      contentTemplate:
+        '# Firmware update configuration\ncurrent_version=2.1.4\nupdate_url={{tamperOldValue}}\nverify_signature=true\nauto_update=enabled\ncheck_interval=3600',
+      tamperField: 'update_url',
+      tamperOldValue: 'https://updates.vendor.io/stable',
+      tamperNewValue: 'https://evil.hacker.net/firmware',
+    },
+  ],
   mailserver: [
     {
       path: '/var/mail/hr',
@@ -608,6 +655,20 @@ const routerWebContentTemplates: readonly WebContentTemplate[] = [
   },
 ];
 
+// IoT device admin panel templates — minimal embedded web interfaces.
+const iotWebContentTemplates: readonly WebContentTemplate[] = [
+  {
+    path: '/var/www/html/index.html',
+    content:
+      '<html>\n<head><title>{{hostname}} — Device Portal</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>IoT Gateway — Firmware v2.1.4</p>\n<p>Status: <span style="color:green">ONLINE</span></p>\n<form action="/login" method="POST">\n<label>User: <input type="text" name="user" value="admin"></label><br>\n<label>Pass: <input type="password" name="pass"></label><br>\n<input type="submit" value="Login">\n</form>\n<!-- GoAhead/3.6.5 -->\n</body>\n</html>',
+  },
+  {
+    path: '/var/www/html/index.html',
+    content:
+      '<html>\n<head><title>{{hostname}} — Sensor Hub</title></head>\n<body>\n<h1>{{hostname}} Control Panel</h1>\n<p>BusyBox httpd — Device Management</p>\n<p>Uptime: 47d 12h | MQTT: connected | Sensors: 3/3</p>\n<p><a href="/status">Status</a> | <a href="/config">Config</a> | <a href="/api/v1/data">API</a></p>\n<!-- default credentials: admin/admin -->\n</body>\n</html>',
+  },
+];
+
 // Default web page templates for non-webserver machines that happen to have HTTP ports open.
 const defaultWebContentTemplates: readonly WebContentTemplate[] = [
   {
@@ -632,6 +693,7 @@ export const webContentTemplatesByRole: Readonly<
   database: defaultWebContentTemplates,
   fileserver: defaultWebContentTemplates,
   mailserver: defaultWebContentTemplates,
+  iot: iotWebContentTemplates,
   workstation: defaultWebContentTemplates,
 };
 
@@ -1283,6 +1345,90 @@ export const scriptFixTemplatesByRole: Readonly<Record<MachineRole, readonly Scr
         corruptedHintPath: '/opt/scripts/.project_data',
         corruptedHintContent: 'beta_priority="low"',
         expectedChecksum: 'alpha-gamma',
+      },
+    ],
+    iot: [
+      {
+        path: '/opt/scripts/check_sensors.js',
+        bugVariants: {
+          syntax: [
+            'const readings = [22.5, 25.1, 18.3, 24.7, 19.8]',
+            'const normal = readings.filter(r => r >= 18 && r <= 25)',
+            'if (normal.length === 4) {',
+            '  echo(_decode(normal.join("-"))',
+            '} else {',
+            '  echo("ERROR: sensor check failed")',
+            '}',
+          ].join('\n'),
+          logic: [
+            'const readings = [22.5, 25.1, 18.3, 24.7, 19.8]',
+            'const normal = readings.filter(r => r >= 18 && r <= 25)',
+            'if (normal.length === 5) {',
+            '  echo(_decode(normal.join("-")))',
+            '} else {',
+            '  echo("ERROR: sensor check failed")',
+            '}',
+          ].join('\n'),
+          corrupted: [
+            'const readings = [22.5, ???, 18.3, 24.7, 19.8]',
+            'const normal = readings.filter(r => r >= 18 && r <= 25)',
+            'if (normal.length === 4) {',
+            '  echo(_decode(normal.join("-")))',
+            '} else {',
+            '  echo("ERROR: sensor check failed")',
+            '}',
+          ].join('\n'),
+        },
+        corruptedHintPath: '/opt/scripts/.sensor_log',
+        corruptedHintContent: 'reading_2=25.1',
+        expectedChecksum: '22.5-18.3-24.7-19.8',
+      },
+      {
+        path: '/opt/scripts/device_health.js',
+        bugVariants: {
+          syntax: [
+            'const devices = [',
+            '  { name: "cam-01", status: "online" },',
+            '  { name: "cam-02", status: "offline" },',
+            '  { name: "cam-03", status: "online" }',
+            ']',
+            'const active = devices.filter(d => d.status === "online")',
+            'if (active.length === 2) {',
+            '  echo(_decode(active.map(d => d.name).join("-")))',
+            '} else {',
+            '  echo("ERROR: device health check failed")',
+            '',
+          ].join('\n'),
+          logic: [
+            'const devices = [',
+            '  { name: "cam-01", status: "online" },',
+            '  { name: "cam-02", status: "offline" },',
+            '  { name: "cam-03", status: "online" }',
+            ']',
+            'const active = devices.filter(d => d.status === "offline")',
+            'if (active.length === 2) {',
+            '  echo(_decode(active.map(d => d.name).join("-")))',
+            '} else {',
+            '  echo("ERROR: device health check failed")',
+            '}',
+          ].join('\n'),
+          corrupted: [
+            'const devices = [',
+            '  { name: "cam-01", status: "online" },',
+            '  { name: "cam-02", status: ??? },',
+            '  { name: "cam-03", status: "online" }',
+            ']',
+            'const active = devices.filter(d => d.status === "online")',
+            'if (active.length === 2) {',
+            '  echo(_decode(active.map(d => d.name).join("-")))',
+            '} else {',
+            '  echo("ERROR: device health check failed")',
+            '}',
+          ].join('\n'),
+        },
+        corruptedHintPath: '/opt/scripts/.device_status',
+        corruptedHintContent: 'cam-02_status="offline"',
+        expectedChecksum: 'cam-01-cam-03',
       },
     ],
     mailserver: [

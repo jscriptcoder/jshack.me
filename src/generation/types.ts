@@ -7,6 +7,7 @@ export type MachineRole =
   | 'fileserver'
   | 'workstation'
   | 'mailserver'
+  | 'iot'
   | 'router';
 
 export type Difficulty = 'easy' | 'medium' | 'hard';

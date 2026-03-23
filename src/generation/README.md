@@ -54,13 +54,14 @@ Seeds containing "easy", "medium", or "hard" force that difficulty; otherwise de
 
 ## Machine Roles
 
-| Role        | Ports       | Typical users       |
-| ----------- | ----------- | ------------------- |
-| webserver   | 22, 80, 443 | www-data, webadmin  |
-| database    | 22, 3306    | dbadmin, mysql      |
-| fileserver  | 21, 22      | ftpuser, backup     |
-| mailserver  | 22, 25, 143 | postmaster, mailadm |
-| workstation | 22          | jsmith, developer   |
+| Role        | Ports        | Typical users       |
+| ----------- | ------------ | ------------------- |
+| webserver   | 22, 80, 443  | www-data, webadmin  |
+| database    | 22, 3306     | dbadmin, mysql      |
+| fileserver  | 21, 22       | ftpuser, backup     |
+| mailserver  | 22, 25, 143  | postmaster, mailadm |
+| iot         | 22, 80, 1883 | admin, device       |
+| workstation | 22           | jsmith, developer   |
 
 ## Output Types
 

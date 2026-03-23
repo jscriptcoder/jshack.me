@@ -422,9 +422,11 @@ const buildMachineConfig = (
           ? 'vsftpd.conf'
           : machine.role === 'mailserver'
             ? 'postfix.conf'
-            : machine.role === 'router'
-              ? 'iptables.conf'
-              : 'ssh_config';
+            : machine.role === 'iot'
+              ? 'device.conf'
+              : machine.role === 'router'
+                ? 'iptables.conf'
+                : 'ssh_config';
 
   // System config files in /etc/ are world-readable (guest-owned)
   etcExtraContent[serviceConfigName] = mkFile(serviceConfigName, configContent, 'guest');

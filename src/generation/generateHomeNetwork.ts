@@ -58,6 +58,7 @@ const allRoles: readonly MachineRole[] = [
   'fileserver',
   'workstation',
   'mailserver',
+  'iot',
 ];
 
 const generateMac = (prng: Prng): string => {

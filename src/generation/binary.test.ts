@@ -95,6 +95,7 @@ describe('binary path pools', () => {
       'fileserver',
       'workstation',
       'mailserver',
+      'iot',
       'router',
     ] as const;
     roles.forEach((role) => {
