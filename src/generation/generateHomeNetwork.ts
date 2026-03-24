@@ -264,13 +264,14 @@ export const generateHomeNetwork = (
   gameSeed: string,
   wifiIndex: number,
   essid: string,
+  usedIps?: ReadonlySet<string>,
 ): HomeNetwork => {
   const prng = createPrng(`home-${gameSeed}-${wifiIndex}`);
 
   const subnet = generatePrivateSubnet(prng);
   const gateway = `${subnet}.1`;
   const localhostIp = `${subnet}.100`;
-  const routerPublicIp = generatePublicIp(prng);
+  const routerPublicIp = generatePublicIp(prng, usedIps);
 
   // 2-4 machines per network
   const machineCount = prng.nextInt(2, 4);

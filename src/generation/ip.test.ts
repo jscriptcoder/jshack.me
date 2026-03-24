@@ -54,7 +54,6 @@ describe('generatePublicIp', () => {
 
   it('skips multiple collisions until finding a unique IP', () => {
     const seed = 'multi-collision';
-    const prng1 = createPrng(seed);
     // Generate several IPs from this seed's sequence and block them all
     const blocked = new Set<string>();
     for (let i = 0; i < 5; i++) {

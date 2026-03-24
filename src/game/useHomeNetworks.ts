@@ -16,7 +16,12 @@ export const useHomeNetworks = (
     if (!gameSeed) return [];
     const wifiNetworks = generateWifiNetworks(gameSeed);
     const crackable = wifiNetworks.filter((n) => n.crackable);
-    return crackable.map((wifi, i) => generateHomeNetwork(gameSeed, i, wifi.essid));
+    const usedIps = new Set<string>();
+    return crackable.map((wifi, i) => {
+      const network = generateHomeNetwork(gameSeed, i, wifi.essid, usedIps);
+      usedIps.add(network.router.publicIp);
+      return network;
+    });
   }, [gameSeed]);
 
   const activeNetwork = useMemo((): HomeNetwork | null => {
