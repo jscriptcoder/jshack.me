@@ -154,14 +154,17 @@ export const createAptCommand = (context: AptContext): Command => ({
     const subcommand = args[0] as string | undefined;
 
     if (!subcommand) {
-      return [
-        'Usage: apt(subcommand, [args])',
-        '',
-        'Subcommands:',
-        "  apt('install', '<package>')   Install a package",
-        "  apt('list')                   List available packages",
-        "  apt('list', '-i')             List installed packages",
-      ].join('\n');
+      throw new Error(
+        [
+          'apt: missing subcommand',
+          'Usage: apt(subcommand, [args])',
+          '',
+          'Subcommands:',
+          "  apt('install', '<package>')  Install a package",
+          "  apt('list')                  List available packages",
+          "  apt('list', '-i')            List installed packages",
+        ].join('\n'),
+      );
     }
 
     if (subcommand === 'list') {

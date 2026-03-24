@@ -74,19 +74,19 @@ describe('accept command', () => {
   it('throws for empty seed', () => {
     const accept = createAcceptCommand({ startMission: vi.fn(), isMissionActive: () => false });
 
-    expect(() => accept.fn('')).toThrow('Usage: accept("SEED-CODE")');
+    expect(() => accept.fn('')).toThrow('accept: missing seed');
   });
 
   it('throws for non-string seed', () => {
     const accept = createAcceptCommand({ startMission: vi.fn(), isMissionActive: () => false });
 
-    expect(() => accept.fn(42)).toThrow('Usage: accept("SEED-CODE")');
+    expect(() => accept.fn(42)).toThrow('accept: missing seed');
   });
 
   it('throws for undefined seed', () => {
     const accept = createAcceptCommand({ startMission: vi.fn(), isMissionActive: () => false });
 
-    expect(() => accept.fn()).toThrow('Usage: accept("SEED-CODE")');
+    expect(() => accept.fn()).toThrow('accept: missing seed');
   });
 
   it('throws when a mission is already active', () => {

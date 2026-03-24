@@ -121,7 +121,7 @@ export const createAcceptCommand = (context: AcceptCommandContext): Command => (
   },
   fn: (seed: unknown): string => {
     if (typeof seed !== 'string' || !seed.trim()) {
-      throw new Error('Usage: accept("SEED-CODE")');
+      throw new Error('accept: missing seed\nUsage: accept("SEED-CODE")');
     }
     if (context.isMissionActive()) {
       throw new Error('A mission is already active. Use abort() to cancel it first.');

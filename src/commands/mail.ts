@@ -190,10 +190,10 @@ export const createMailCommand = (context: MailCommandContext): Command => ({
   },
   fn: (recipient: unknown, content: unknown): AsyncOutput => {
     if (typeof recipient !== 'string' || !recipient.trim()) {
-      throw new Error('Usage: mail("recipient@darkmail.onion", "proof")');
+      throw new Error('mail: missing recipient\nUsage: mail("recipient@darkmail.onion", "proof")');
     }
     if (typeof content !== 'string') {
-      throw new Error('Usage: mail("recipient@darkmail.onion", "proof")');
+      throw new Error('mail: missing content\nUsage: mail("recipient@darkmail.onion", "proof")');
     }
 
     const mission = context.getActiveMission();

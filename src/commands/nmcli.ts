@@ -15,8 +15,8 @@ type NmcliContext = {
 const USAGE = [
   'Usage:',
   '  nmcli("connect", "<ESSID>", "<password>")  Connect to a WiFi network',
-  '  nmcli("disconnect")                         Disconnect from WiFi',
-  '  nmcli("status")                             Show connection status',
+  '  nmcli("disconnect")                        Disconnect from WiFi',
+  '  nmcli("status")                            Show connection status',
 ].join('\n');
 
 const handleConnect = (
@@ -141,7 +141,7 @@ export const createNmcliCommand = (context: NmcliContext): Command => ({
   fn: (...args: readonly unknown[]): string | AsyncOutput => {
     const subcommand = args[0] as string | undefined;
 
-    if (!subcommand) return USAGE;
+    if (!subcommand) throw new Error(`nmcli: missing subcommand\n${USAGE}`);
 
     switch (subcommand) {
       case 'connect':

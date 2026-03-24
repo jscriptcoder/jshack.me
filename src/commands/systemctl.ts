@@ -124,22 +124,28 @@ const VALID_ACTIONS = new Set<Action>(['start', 'stop', 'status']);
 
 export const executeSystemctl = (context: SystemctlContext, args: readonly unknown[]): string => {
   if (args.length === 0) {
-    return 'Usage: systemctl(action, service)\nActions: start, stop, status\nServices: sshd, vsftpd';
+    throw new Error(
+      'systemctl: missing action\nUsage: systemctl(action, service)\nActions: start, stop, status\nServices: sshd, vsftpd',
+    );
   }
 
   const action = String(args[0]);
   if (!VALID_ACTIONS.has(action as Action)) {
-    return `systemctl: unknown action '${action}'\nValid actions: start, stop, status`;
+    throw new Error(`systemctl: unknown action '${action}'\nValid actions: start, stop, status`);
   }
 
   if (args.length < 2) {
-    return `systemctl: missing service name\nAvailable services: ${KNOWN_SERVICE_NAMES.join(', ')}`;
+    throw new Error(
+      `systemctl: missing service name\nAvailable services: ${KNOWN_SERVICE_NAMES.join(', ')}`,
+    );
   }
 
   const serviceName = String(args[1]);
   const service = SERVICES[serviceName];
   if (!service) {
-    return `systemctl: unknown service '${serviceName}'\nAvailable services: ${KNOWN_SERVICE_NAMES.join(', ')}`;
+    throw new Error(
+      `systemctl: unknown service '${serviceName}'\nAvailable services: ${KNOWN_SERVICE_NAMES.join(', ')}`,
+    );
   }
 
   switch (action as Action) {

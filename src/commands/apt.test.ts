@@ -78,13 +78,10 @@ describe('apt command', () => {
   });
 
   describe('no arguments', () => {
-    it('shows usage when called without arguments', () => {
+    it('throws when called without arguments', () => {
       const { context } = createMockAptContext();
       const apt = createAptCommand(context);
-      const result = apt.fn() as string;
-      expect(result).toContain('Usage:');
-      expect(result).toContain('install');
-      expect(result).toContain('list');
+      expect(() => apt.fn()).toThrow('apt: missing subcommand');
     });
   });
 

@@ -51,16 +51,11 @@ describe('nmcli command', () => {
   });
 
   describe('no args', () => {
-    it('should show usage when called with no arguments', () => {
+    it('should throw when called with no arguments', () => {
       const context = createMockContext();
       const nmcli = createNmcliCommand(context);
 
-      const result = nmcli.fn();
-
-      expect(result).toContain('Usage:');
-      expect(result).toContain('connect');
-      expect(result).toContain('disconnect');
-      expect(result).toContain('status');
+      expect(() => nmcli.fn()).toThrow('nmcli: missing subcommand');
     });
   });
 

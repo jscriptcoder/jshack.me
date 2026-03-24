@@ -20,25 +20,26 @@ const makePidFileNode = (name: string, content: string): FileNode => ({
 
 describe('executeSystemctl', () => {
   describe('argument validation', () => {
-    it('shows usage when called with no args', () => {
-      const result = executeSystemctl(createContext(), []);
-      expect(result).toContain('Usage');
-      expect(result).toContain('start, stop, status');
+    it('throws when called with no args', () => {
+      expect(() => executeSystemctl(createContext(), [])).toThrow('systemctl: missing action');
     });
 
     it('rejects unknown action', () => {
-      const result = executeSystemctl(createContext(), ['restart', 'sshd']);
-      expect(result).toContain("unknown action 'restart'");
+      expect(() => executeSystemctl(createContext(), ['restart', 'sshd'])).toThrow(
+        "systemctl: unknown action 'restart'",
+      );
     });
 
     it('requires service name', () => {
-      const result = executeSystemctl(createContext(), ['start']);
-      expect(result).toContain('missing service name');
+      expect(() => executeSystemctl(createContext(), ['start'])).toThrow(
+        'systemctl: missing service name',
+      );
     });
 
     it('rejects unknown service', () => {
-      const result = executeSystemctl(createContext(), ['start', 'nginx']);
-      expect(result).toContain("unknown service 'nginx'");
+      expect(() => executeSystemctl(createContext(), ['start', 'nginx'])).toThrow(
+        "systemctl: unknown service 'nginx'",
+      );
     });
   });
 
