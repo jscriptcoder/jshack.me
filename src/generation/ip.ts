@@ -5,13 +5,20 @@ export const publicFirstOctets: readonly number[] = [
   45, 51, 62, 78, 91, 103, 138, 162, 185, 198, 203, 212,
 ];
 
-// Generates a public IP with a PRNG-picked first octet from realistic prefixes
-export const generatePublicIp = (prng: Prng): string => {
-  const o1 = prng.pick(publicFirstOctets);
-  const o2 = prng.nextInt(1, 254);
-  const o3 = prng.nextInt(1, 254);
-  const o4 = prng.nextInt(2, 254);
-  return `${o1}.${o2}.${o3}.${o4}`;
+const MAX_IP_ATTEMPTS = 100;
+
+// Generates a public IP with a PRNG-picked first octet from realistic prefixes.
+// When usedIps is provided, re-rolls until a unique IP is found.
+export const generatePublicIp = (prng: Prng, usedIps?: ReadonlySet<string>): string => {
+  for (let attempt = 0; attempt < MAX_IP_ATTEMPTS; attempt++) {
+    const o1 = prng.pick(publicFirstOctets);
+    const o2 = prng.nextInt(1, 254);
+    const o3 = prng.nextInt(1, 254);
+    const o4 = prng.nextInt(2, 254);
+    const ip = `${o1}.${o2}.${o3}.${o4}`;
+    if (!usedIps?.has(ip)) return ip;
+  }
+  throw new Error(`Failed to generate unique public IP after ${MAX_IP_ATTEMPTS} attempts`);
 };
 
 // Generates a private subnet prefix from RFC 1918 ranges.

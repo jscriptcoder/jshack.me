@@ -41,6 +41,51 @@ describe('generatePublicIp', () => {
     expect(ip1).toBe(ip2);
   });
 
+  it('returns a different IP when the first result is in usedIps', () => {
+    const seed = 'collision-test';
+    const firstIp = generatePublicIp(createPrng(seed));
+    // Same seed but with the first result already taken — must produce a different IP
+    const secondIp = generatePublicIp(createPrng(seed), new Set([firstIp]));
+    expect(secondIp).not.toBe(firstIp);
+    // Still a valid IP
+    expect(secondIp).toMatch(/^\d+\.\d+\.\d+\.\d+$/);
+    expect(publicFirstOctets).toContain(Number(secondIp.split('.')[0]));
+  });
+
+  it('skips multiple collisions until finding a unique IP', () => {
+    const seed = 'multi-collision';
+    const prng1 = createPrng(seed);
+    // Generate several IPs from this seed's sequence and block them all
+    const blocked = new Set<string>();
+    for (let i = 0; i < 5; i++) {
+      blocked.add(generatePublicIp(createPrng(seed + '-sub-' + i)));
+    }
+    // The first IP from this seed
+    const firstIp = generatePublicIp(createPrng(seed));
+    blocked.add(firstIp);
+    // Should still find a unique one
+    const result = generatePublicIp(createPrng(seed), blocked);
+    expect(blocked).not.toContain(result);
+    expect(result).toMatch(/^\d+\.\d+\.\d+\.\d+$/);
+  });
+
+  it('behaves identically when usedIps is empty', () => {
+    const withoutUsedIps = generatePublicIp(createPrng('empty-set'));
+    const withEmptySet = generatePublicIp(createPrng('empty-set'), new Set());
+    expect(withEmptySet).toBe(withoutUsedIps);
+  });
+
+  it('generates many unique IPs when feeding results back into usedIps', () => {
+    const prng = createPrng('bulk-unique');
+    const usedIps = new Set<string>();
+    for (let i = 0; i < 100; i++) {
+      const ip = generatePublicIp(prng, usedIps);
+      expect(usedIps).not.toContain(ip);
+      usedIps.add(ip);
+    }
+    expect(usedIps.size).toBe(100);
+  });
+
   it('produces varied first octets across seeds', () => {
     const firstOctets = new Set(
       Array.from({ length: 30 }, (_, i) => {
