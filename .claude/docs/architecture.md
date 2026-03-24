@@ -25,7 +25,8 @@ src/
 │   ├── prng.ts                # Mulberry32 PRNG seeded via FNV-1a hash
 │   ├── types.ts               # MissionNetwork, GeneratedMachine, AttackStep, EntryVariant, etc.
 │   ├── pools.ts               # Data pools (usernames, hostnames, entry/port templates); passwords from encoded secrets
-│   ├── topology.ts            # Network topology generator (machines, IPs, DNS, entry variant)
+│   ├── ip.ts                  # Shared IP utilities: generatePublicIp (collision-aware), generatePrivateSubnet
+│   ├── topology.ts            # Network topology generator (machines, roles, entry variant, NetworkConfig)
 │   ├── users.ts               # User generator (per-machine users + credential map)
 │   ├── attackChain.ts         # Attack chain generator (path, methods, credential placements)
 │   ├── binary.ts              # Binary noise wrapping for credential/target files; binary path pools
@@ -231,7 +232,7 @@ Unified filesystem-based access model (`src/commands/availability.ts`). All comm
 
 `src/generation/` contains the engine for procedurally generating mission networks from a seed string. See `mission-variations.md` for the complete catalog of all generation axes, templates, and pools.
 
-**Pipeline**: `generateMissionNetwork(seed)` composes 7 steps: PRNG (`prng.ts`) → Topology (`topology.ts`) → Users (`users.ts`) → Port Closures (`generateMission.ts: applyPortClosures`) → Attack Chain (`attackChain.ts`) → Filesystems (`filesystem.ts`) → Binary Wrapping (`binary.ts`). Seeds can embed keywords to override generation axes — see `parseSeedOverrides()` in `generateMission.ts`.
+**Pipeline**: `generateMissionNetwork(seed, usedIps?)` composes 7 steps: PRNG (`prng.ts`) → Topology (`topology.ts`) → Users (`users.ts`) → Port Closures (`generateMission.ts: applyPortClosures`) → Attack Chain (`attackChain.ts`) → Filesystems (`filesystem.ts`) → Binary Wrapping (`binary.ts`). Seeds can embed keywords to override generation axes — see `parseSeedOverrides()` in `generateMission.ts`. Shared IP utilities (`ip.ts`) provide `generatePublicIp(prng, usedIps?)` and `generatePrivateSubnet(prng)` — used by both mission and home network generation. When `usedIps` is provided, public IP generation re-rolls to avoid collisions.
 
 **Key properties**: Deterministic (same seed → identical network). 5 machine roles, 3 difficulty tiers, 6 entry variants (ssh, ftp, nc, exploit, http, snmp), 2 network modes, 5 objective types. Output types match existing `NetworkConfig`, `RemoteMachine`, `FileNode`. Mission passwords imported from `src/secrets/__encoded.ts`.
 

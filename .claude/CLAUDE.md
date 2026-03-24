@@ -140,14 +140,14 @@ See `architecture.md` for full details. Key points:
 - `BroadcastChannel` syncs filesystem patches, WiFi, missions, bricked machines, and theme across tabs.
 - WiFi state is `WifiConnection | null` (tracks `{ essid, bssid }`, not a boolean). Stored in IndexedDB, synced via BroadcastChannel.
 - `reboot()` bricks machines missing `/boot/vmlinuz` or `/boot/initrd.img`. Bricked machines are unreachable.
-- Multiple WiFi networks are generated per game seed. Each provides access to a different subnet of machines. Home LAN machines (gateway, fileserver, webserver at 192.168.1.x) no longer exist — all network machines come from `generateHomeNetwork()` per WiFi connection. See `infrastructure-design.md`.
+- Multiple WiFi networks are generated per game seed. Each provides access to a different subnet of machines. Home LAN machines (gateway, fileserver, webserver at 192.168.1.x) no longer exist — all network machines come from `generateHomeNetwork()` per WiFi connection. `useHomeNetworks` accumulates `usedIps` across WiFi networks to guarantee unique public IPs. See `infrastructure-design.md`.
 - SSH key persistence: after first SSH/SCP password auth, `~/.ssh_keys` on the source machine stores `user@ip` entries. Subsequent connections auto-authenticate.
 
 ### Mission System
 
 See `architecture.md` for integration details, `mission-variations.md` for all generation axes.
 
-- `generateMissionNetwork(seed)` deterministically produces a full network. Seeds embed keywords for overrides (difficulty, entry variant, network mode, objective, domain, gpg, snmp).
+- `generateMissionNetwork(seed, usedIps?)` deterministically produces a full network. Seeds embed keywords for overrides (difficulty, entry variant, network mode, objective, domain, gpg, snmp). When `usedIps` is provided, the router's public IP is guaranteed unique (re-rolls on collision). Shared IP utilities in `src/generation/ip.ts` provide `generatePublicIp` and `generatePrivateSubnet` — used by both mission and home network generation.
 - Provider hierarchy: `SessionProvider → GameSession (useHomeNetworks, generateLocalhost) → MissionProvider → FileSystemProvider → NetworkProvider → Terminal`
 - Commands: `missions()`, `accept(seed)`, `abort()`, `mail(recipient, content)`
 - Seven objectives: exfiltrate, tamper, credential_theft, script_fix, sabotage, backdoor, portforward

@@ -14,6 +14,7 @@ type MissionContextValue = {
   readonly abortMission: () => void;
   readonly completeMission: () => void;
   readonly isMissionActive: () => boolean;
+  readonly usedPublicIps: ReadonlySet<string>;
 };
 
 const MissionContext = createContext<MissionContextValue | null>(null);
@@ -21,9 +22,10 @@ const MissionContext = createContext<MissionContextValue | null>(null);
 type MissionProviderProps = {
   readonly children: ReactNode;
   readonly state: MissionState;
+  readonly usedPublicIps: ReadonlySet<string>;
 };
 
-export const MissionProvider = ({ children, state }: MissionProviderProps) => {
+export const MissionProvider = ({ children, state, usedPublicIps }: MissionProviderProps) => {
   const { session, popAllSessions } = useSession();
   const prevMissionRef = useRef(state.activeMission);
   const isMissionActive = () => state.activeMission !== null;
@@ -50,6 +52,7 @@ export const MissionProvider = ({ children, state }: MissionProviderProps) => {
         abortMission: state.abortMission,
         completeMission: state.completeMission,
         isMissionActive,
+        usedPublicIps,
       }}
     >
       {children}

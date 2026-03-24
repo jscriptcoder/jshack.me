@@ -405,4 +405,12 @@ describe('generateTopology', () => {
     // With 5 possible variants and 30 seeds (hard = 4-6 machines each), expect at least 3
     expect(variants.size).toBeGreaterThanOrEqual(3);
   });
+
+  it('avoids public IPs in the usedIps override', () => {
+    const seed = 'used-ips-test';
+    const result1 = generateTopology(createPrng(seed), 'medium');
+    const blocked = new Set([result1.routerPublicIp]);
+    const result2 = generateTopology(createPrng(seed), 'medium', { usedIps: blocked });
+    expect(result2.routerPublicIp).not.toBe(result1.routerPublicIp);
+  });
 });

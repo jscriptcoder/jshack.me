@@ -85,6 +85,23 @@ describe('generateHomeNetwork', () => {
     }
   });
 
+  it('should avoid public IPs in the usedIps set', () => {
+    const network = generateHomeNetwork('collision-seed', 0, 'NET-0');
+    const blocked = new Set([network.router.publicIp]);
+    const network2 = generateHomeNetwork('collision-seed', 0, 'NET-0', blocked);
+    expect(network2.router.publicIp).not.toBe(network.router.publicIp);
+  });
+
+  it('should produce unique public IPs across multiple WiFi indices', () => {
+    const publicIps = new Set<string>();
+    for (let i = 0; i < 10; i++) {
+      const network = generateHomeNetwork('multi-wifi', i, `NET-${i}`, publicIps);
+      expect(publicIps).not.toContain(network.router.publicIp);
+      publicIps.add(network.router.publicIp);
+    }
+    expect(publicIps.size).toBe(10);
+  });
+
   it('should have DNS records for all machines', () => {
     const network = generateHomeNetwork('dns-test', 0, 'TEST');
     const firstMachineConfig = Object.values(network.networkConfig.machineConfigs)[0];

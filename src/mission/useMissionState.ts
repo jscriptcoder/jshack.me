@@ -8,10 +8,10 @@ import { createSyncChannel, type SyncMessage } from '../utils/crossTabSync';
 // On reload, regenerate the full mission network from the persisted seed string.
 // Only the seed is stored in IndexedDB — the deterministic PRNG ensures the same
 // seed always produces an identical network, so we don't need to store the full state.
-const initializeMission = (): MissionNetwork | null => {
+const initializeMission = (usedPublicIps: ReadonlySet<string>): MissionNetwork | null => {
   const cachedSeed = getCachedMissionSeed();
   if (!cachedSeed) return null;
-  return generateMissionNetwork(cachedSeed);
+  return generateMissionNetwork(cachedSeed, usedPublicIps);
 };
 
 export type MissionState = {
@@ -21,8 +21,10 @@ export type MissionState = {
   readonly completeMission: () => void;
 };
 
-export const useMissionState = (): MissionState => {
-  const [activeMission, setActiveMission] = useState<MissionNetwork | null>(initializeMission);
+export const useMissionState = (usedPublicIps: ReadonlySet<string>): MissionState => {
+  const [activeMission, setActiveMission] = useState<MissionNetwork | null>(() =>
+    initializeMission(usedPublicIps),
+  );
   // Create channel inside effect so StrictMode's cleanup + re-run cycle gets
   // a fresh (open) channel. The ref is updated so broadcast calls always use
   // the currently-active channel.
@@ -36,7 +38,7 @@ export const useMissionState = (): MissionState => {
       if (message.type !== 'mission-changed') return;
 
       if (message.seed) {
-        const mission = generateMissionNetwork(message.seed);
+        const mission = generateMissionNetwork(message.seed, usedPublicIps);
         setActiveMission(mission);
         const db = getDatabase();
         if (db) saveMissionSeed(db, message.seed);
