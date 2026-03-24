@@ -1,5 +1,6 @@
 import type { Prng } from './prng';
 import { createPrng } from './prng';
+import { generatePrivateSubnet, generatePublicIp } from './ip';
 import type { FileNode } from '../filesystem/types';
 import type {
   DnsRecord,
@@ -81,21 +82,6 @@ const createInterface = (
   mac,
 });
 
-const generatePrivateSubnet = (prng: Prng): string => {
-  const rangeType = prng.nextInt(0, 2);
-  if (rangeType === 0) return `10.${prng.nextInt(1, 254)}.${prng.nextInt(1, 254)}`;
-  if (rangeType === 1) return `172.${prng.nextInt(16, 31)}.${prng.nextInt(1, 254)}`;
-  return `192.168.${prng.nextInt(2, 254)}`;
-};
-
-const publicFirstOctets: readonly number[] = [
-  45, 51, 62, 78, 91, 103, 138, 162, 185, 198, 203, 212,
-];
-
-const generatePublicIp = (prng: Prng): string => {
-  const o1 = prng.pick(publicFirstOctets);
-  return `${o1}.${prng.nextInt(1, 254)}.${prng.nextInt(1, 254)}.${prng.nextInt(2, 254)}`;
-};
 
 const buildPorts = (role: MachineRole): readonly Port[] =>
   portTemplatesByRole[role].map((t) => ({ port: t.port, service: t.service, open: t.open }));
