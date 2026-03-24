@@ -50,7 +50,7 @@ const createWrapper =
       { username: 'testuser', children: null },
       createElement(
         MissionProvider,
-        { state: mockMissionState, children: null },
+        { state: mockMissionState, usedPublicIps: new Set<string>(), children: null },
         createElement(
           FileSystemProvider,
           { localhostFileSystem: testLocalhost.fileSystem, children: null },

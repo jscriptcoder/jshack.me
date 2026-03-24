@@ -354,7 +354,10 @@ const applyPortClosures = (
   });
 };
 
-export const generateMissionNetwork = (seed: string): MissionNetwork => {
+export const generateMissionNetwork = (
+  seed: string,
+  usedIps?: ReadonlySet<string>,
+): MissionNetwork => {
   const prng = createPrng(seed);
   const overrides = parseSeedOverrides(seed);
   const difficulty = deriveDifficulty(seed, overrides);
@@ -366,6 +369,7 @@ export const generateMissionNetwork = (seed: string): MissionNetwork => {
   const topology = generateTopology(prng, difficulty, {
     entryVariantOverride: overrides.entryVariant,
     forwardedOverride: effectiveForwarded,
+    usedIps,
   });
 
   // Generate users for internal machines

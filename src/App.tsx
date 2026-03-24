@@ -14,12 +14,16 @@ import type { GameState } from './game/types';
 
 function GameSession({ gameState }: { readonly gameState: GameState }) {
   const { connectedWifi } = useSession();
-  const missionState = useMissionState();
-  const { activeNetwork } = useHomeNetworks(gameState.seed, connectedWifi);
+  const { activeNetwork, allNetworks } = useHomeNetworks(gameState.seed, connectedWifi);
+  const usedPublicIps = useMemo(
+    () => new Set(allNetworks.map((n) => n.router.publicIp)),
+    [allNetworks],
+  );
+  const missionState = useMissionState(usedPublicIps);
   const localhostResult = useMemo(() => generateLocalhost(gameState), [gameState]);
 
   return (
-    <MissionProvider state={missionState}>
+    <MissionProvider state={missionState} usedPublicIps={usedPublicIps}>
       <FileSystemProvider
         localhostFileSystem={localhostResult.fileSystem}
         missionFileSystems={missionState.activeMission?.fileSystems}

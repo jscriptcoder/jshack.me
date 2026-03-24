@@ -29,14 +29,14 @@ describe('useMissionState', () => {
   });
 
   it('starts with null mission when no cached seed', () => {
-    const { result } = renderHook(() => useMissionState());
+    const { result } = renderHook(() => useMissionState(new Set()));
     expect(result.current.activeMission).toBeNull();
   });
 
   it('restores mission from cached seed on init', () => {
     mockGetCachedMissionSeed.mockReturnValue('MEDTECH-4A7F-easy');
 
-    const { result } = renderHook(() => useMissionState());
+    const { result } = renderHook(() => useMissionState(new Set()));
 
     expect(result.current.activeMission).not.toBeNull();
     expect(result.current.activeMission?.seed).toBe('MEDTECH-4A7F-easy');
@@ -44,7 +44,7 @@ describe('useMissionState', () => {
 
   it('startMission sets network and persists seed', () => {
     mockGetDatabase.mockReturnValue(fakeDb);
-    const { result } = renderHook(() => useMissionState());
+    const { result } = renderHook(() => useMissionState(new Set()));
     const mission = generateMissionNetwork('TEST-SEED');
 
     act(() => {
@@ -58,7 +58,7 @@ describe('useMissionState', () => {
 
   it('abortMission clears state and persists null', () => {
     mockGetDatabase.mockReturnValue(fakeDb);
-    const { result } = renderHook(() => useMissionState());
+    const { result } = renderHook(() => useMissionState(new Set()));
     const mission = generateMissionNetwork('TEST-SEED');
 
     act(() => {
@@ -76,7 +76,7 @@ describe('useMissionState', () => {
 
   it('completeMission clears state and persists null', () => {
     mockGetDatabase.mockReturnValue(fakeDb);
-    const { result } = renderHook(() => useMissionState());
+    const { result } = renderHook(() => useMissionState(new Set()));
     const mission = generateMissionNetwork('TEST-SEED');
 
     act(() => {
@@ -93,7 +93,7 @@ describe('useMissionState', () => {
 
   it('skips persistence when database is unavailable', () => {
     mockGetDatabase.mockReturnValue(null);
-    const { result } = renderHook(() => useMissionState());
+    const { result } = renderHook(() => useMissionState(new Set()));
     const mission = generateMissionNetwork('TEST-SEED');
 
     act(() => {
@@ -105,7 +105,7 @@ describe('useMissionState', () => {
   });
 
   it('preserves the exact network passed to startMission', () => {
-    const { result } = renderHook(() => useMissionState());
+    const { result } = renderHook(() => useMissionState(new Set()));
     const mission = generateMissionNetwork('DETERMINISM-TEST');
 
     act(() => {

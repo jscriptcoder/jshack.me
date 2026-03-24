@@ -164,6 +164,7 @@ const isForwardedMode = (
 export type TopologyOverrides = {
   readonly entryVariantOverride?: EntryVariant;
   readonly forwardedOverride?: boolean;
+  readonly usedIps?: ReadonlySet<string>;
 };
 
 export const generateTopology = (
@@ -179,7 +180,7 @@ export const generateTopology = (
   const subnet = generatePrivateSubnet(prng);
   const internalGateway = `${subnet}.1`;
 
-  const routerPublicIp = generatePublicIp(prng);
+  const routerPublicIp = generatePublicIp(prng, overrides.usedIps);
 
   // Forwarding mode decision
   const forwarded = isForwardedMode(prng, difficulty, overrides.forwardedOverride);

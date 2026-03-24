@@ -684,6 +684,23 @@ describe('generateMissionNetwork', () => {
   });
 });
 
+describe('generateMissionNetwork usedIps', () => {
+  it('avoids public IPs in the usedIps set', () => {
+    const seed = 'collision-mission';
+    const mission1 = generateMissionNetwork(seed);
+    const blocked = new Set([mission1.routerPublicIp]);
+    const mission2 = generateMissionNetwork(seed, blocked);
+    expect(mission2.routerPublicIp).not.toBe(mission1.routerPublicIp);
+  });
+
+  it('behaves identically when usedIps is omitted', () => {
+    const seed = 'no-used-ips';
+    const mission1 = generateMissionNetwork(seed);
+    const mission2 = generateMissionNetwork(seed, new Set());
+    expect(mission2.routerPublicIp).toBe(mission1.routerPublicIp);
+  });
+});
+
 // Recursively collects all text content from a FileNode tree.
 const collectAllContent = (node: FileNode | undefined): readonly string[] => {
   if (!node) return [];

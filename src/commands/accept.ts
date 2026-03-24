@@ -5,6 +5,7 @@ import type { MissionNetwork } from '../generation/types';
 type AcceptCommandContext = {
   readonly startMission: (mission: MissionNetwork) => void;
   readonly isMissionActive: () => boolean;
+  readonly getUsedPublicIps?: () => ReadonlySet<string>;
 };
 
 export const formatObjectiveHint = (mission: MissionNetwork): string => {
@@ -127,7 +128,7 @@ export const createAcceptCommand = (context: AcceptCommandContext): Command => (
       throw new Error('A mission is already active. Use abort() to cancel it first.');
     }
     const trimmed = seed.trim();
-    const mission = generateMissionNetwork(trimmed);
+    const mission = generateMissionNetwork(trimmed, context.getUsedPublicIps?.());
     context.startMission(mission);
     return formatMissionBriefing(mission);
   },

@@ -96,8 +96,14 @@ export const useCommands = (): UseCommandsResult => {
     deleteNodeFromMachine,
     canTraverse,
   } = useFileSystem();
-  const { isMissionActive, startMission, abortMission, completeMission, activeMission } =
-    useMission();
+  const {
+    isMissionActive,
+    startMission,
+    abortMission,
+    completeMission,
+    activeMission,
+    usedPublicIps,
+  } = useMission();
 
   const getUsers = useCallback((): readonly string[] => {
     if (session.machine === 'localhost') {
@@ -191,7 +197,14 @@ export const useCommands = (): UseCommandsResult => {
       'missions',
       createMissionsCommand({ isMissionActive, getActiveMission: () => activeMission }),
     );
-    commands.set('accept', createAcceptCommand({ startMission, isMissionActive }));
+    commands.set(
+      'accept',
+      createAcceptCommand({
+        startMission,
+        isMissionActive,
+        getUsedPublicIps: () => usedPublicIps,
+      }),
+    );
     commands.set('abort', createAbortCommand({ abortMission, isMissionActive, popAllSessions }));
     commands.set(
       'mail',
