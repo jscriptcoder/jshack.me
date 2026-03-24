@@ -17,7 +17,7 @@ const mission = generateMissionNetwork('HEIST-7734');
 
 ## Pipeline
 
-`generateMissionNetwork(seed)` runs these steps sequentially, each consuming from the same PRNG stream:
+`generateMissionNetwork(seed, usedIps?)` runs these steps sequentially, each consuming from the same PRNG stream:
 
 1. **PRNG** (`prng.ts`) — Mulberry32 seeded via FNV-1a hash of the seed string
 2. **Topology** (`topology.ts`) — Flat subnet, machine count by difficulty, roles, IPs, interfaces, DNS, entry variant selection (ssh/ftp/nc/exploit/http/snmp)
@@ -32,7 +32,8 @@ const mission = generateMissionNetwork('HEIST-7734');
 | `prng.ts`                | Mulberry32 PRNG: next, nextInt, pick, pickN, shuffle                                                                                                                                      |
 | `types.ts`               | MissionNetwork, GeneratedMachine, EntryVariant, MissionObjective                                                                                                                          |
 | `pools.ts`               | Static data: usernames, passwords, guest passwords, hostnames, client handles, vulnerability/port/entry templates, target/tamper/script-fix file templates by role, web content templates |
-| `topology.ts`            | Subnet generation, machine roles, entry variant selection, NetworkConfig                                                                                                                  |
+| `ip.ts`                  | Shared IP utilities: `generatePublicIp(prng, usedIps?)`, `generatePrivateSubnet(prng)`, `publicFirstOctets`                                                                               |
+| `topology.ts`            | Network topology generator (machines, roles, entry variant, NetworkConfig); uses `ip.ts` for IP generation                                                                                |
 | `users.ts`               | Per-machine users + plaintext credential map                                                                                                                                              |
 | `attackChain.ts`         | Objective generation (exfiltrate/tamper/credential_theft/script_fix/sabotage/backdoor/portforward), client email                                                                          |
 | `binary.ts`              | Binary noise wrapping for target files, binary file path pools                                                                                                                            |
@@ -40,7 +41,7 @@ const mission = generateMissionNetwork('HEIST-7734');
 | `generateMission.ts`     | Orchestrator composing all mission generation steps                                                                                                                                       |
 | `generateLocalhost.ts`   | Localhost filesystem generation from `GameState` — player username, root password, seed-derived guest password, `README.txt` guide, hint files, pre-installed tools                       |
 | `generateWifi.ts`        | WiFi network generation from game seed — 2-3 crackable WPA2 + 3-5 noise (WPA3/weak/hidden). Passwords from encoded secrets.                                                               |
-| `generateHomeNetwork.ts` | Home network generation from game seed + WiFi index — router (public IP) + 2-4 machines with roles, users, ports, filesystems                                                             |
+| `generateHomeNetwork.ts` | Home network generation from game seed + WiFi index — router (unique public IP via `usedIps`) + 2-4 machines with roles, users, ports, filesystems                                        |
 
 ## Difficulty
 

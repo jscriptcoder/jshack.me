@@ -146,7 +146,6 @@ const buildPortsFromTemplate = (
     ...(t.protocol ? { protocol: t.protocol } : {}),
   }));
 
-
 // Determines whether the mission uses port forwarding (easier) or router-first (harder).
 // Easy: 70% chance of forwarding. Medium: 50%. Hard: always router-first.
 // Always consumes one PRNG call to preserve sequence regardless of override.

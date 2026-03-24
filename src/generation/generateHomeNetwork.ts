@@ -82,7 +82,6 @@ const createInterface = (
   mac,
 });
 
-
 const buildPorts = (role: MachineRole): readonly Port[] =>
   portTemplatesByRole[role].map((t) => ({ port: t.port, service: t.service, open: t.open }));
 
