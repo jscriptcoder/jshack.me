@@ -202,11 +202,6 @@ To regenerate the OG image after edits to `public/og-image.html`:
 npx playwright screenshot --viewport-size="1200,630" --full-page public/og-image.html public/og-image.png
 ```
 
-## Documentation
-
-- **[WIP.md](WIP.md)** — Work-in-progress log: session-by-session implementation history, current status, and future ideas
-- **[LEARNINGS.md](LEARNINGS.md)** — Gotchas, patterns that worked, architectural decisions, and testing insights
-
 ## Deployment
 
 The project is configured for Vercel deployment. Push to the `main` branch to trigger automatic deployment.
