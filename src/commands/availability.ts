@@ -100,6 +100,7 @@ export const SYSTEM_UTILITY_NAMES = [
   'ls',
   'cat',
   'find',
+  'grep',
   'su',
   'man',
   'nano',

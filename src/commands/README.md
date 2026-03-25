@@ -76,6 +76,7 @@ Admin utilities that write PID files to `/var/run/` — `NetworkContext` reads t
 | cd      | `cd.ts`      | `cd([path])`                  | Change current directory                                        |
 | cat     | `cat.ts`     | `cat(path)`                   | Display file contents                                           |
 | find    | `find.ts`    | `find(path, pattern, [user])` | Recursively search for files/directories by glob pattern        |
+| grep    | `grep.ts`    | `grep(pattern, path, ["-l"])` | Search file contents for a pattern (case-insensitive)           |
 | rm      | `rm.ts`      | `rm([flags], path, ...)`      | Remove files or directories (-r recursive, -f force)            |
 | whoami  | `whoami.ts`  | `whoami()`                    | Display current username                                        |
 | gpg     | `gpg.ts`     | `gpg(file, key)`              | Decrypt file using AES-256 (async, root-only)                   |

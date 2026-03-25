@@ -14,6 +14,7 @@ import { createJohnCommand } from '../commands/john';
 import { createRmCommand } from '../commands/rm';
 import { createChmodCommand } from '../commands/chmod';
 import { createFindCommand } from '../commands/find';
+import { createGrepCommand } from '../commands/grep';
 import type { Command } from '../components/Terminal/types';
 
 export const useFileSystemCommands = (): Map<string, Command> => {
@@ -169,6 +170,18 @@ export const useFileSystemCommands = (): Map<string, Command> => {
     commands.set(
       'find',
       createFindCommand({
+        getCurrentPath,
+        resolvePath,
+        getNode,
+        getUserType,
+        canTraverse: canTraverseFn,
+      }),
+    );
+
+    // grep command
+    commands.set(
+      'grep',
+      createGrepCommand({
         getCurrentPath,
         resolvePath,
         getNode,
