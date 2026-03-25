@@ -99,6 +99,7 @@ export const BINARY_STUB =
 export const SYSTEM_UTILITY_NAMES = [
   'ls',
   'cat',
+  'find',
   'su',
   'man',
   'nano',

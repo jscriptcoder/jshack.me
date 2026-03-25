@@ -13,6 +13,7 @@ import { createNanoCommand } from '../commands/nano';
 import { createJohnCommand } from '../commands/john';
 import { createRmCommand } from '../commands/rm';
 import { createChmodCommand } from '../commands/chmod';
+import { createFindCommand } from '../commands/find';
 import type { Command } from '../components/Terminal/types';
 
 export const useFileSystemCommands = (): Map<string, Command> => {
@@ -160,6 +161,18 @@ export const useFileSystemCommands = (): Map<string, Command> => {
         getUserType,
         updatePermissions: (path: string, permissions) =>
           updatePermissions(path, permissions, session.userType),
+        canTraverse: canTraverseFn,
+      }),
+    );
+
+    // find command
+    commands.set(
+      'find',
+      createFindCommand({
+        getCurrentPath,
+        resolvePath,
+        getNode,
+        getUserType,
         canTraverse: canTraverseFn,
       }),
     );
