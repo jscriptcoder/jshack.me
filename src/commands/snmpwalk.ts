@@ -43,16 +43,17 @@ const formatOidLine = (line: string): string => {
 const parseCommunityStrings = (
   content: string,
 ): { readonly roCommunity: string; readonly rwCommunity: string } => {
-  let roCommunity = 'public';
-  let rwCommunity = '';
-
-  for (const line of content.split('\n')) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith('rocommunity ')) roCommunity = trimmed.slice('rocommunity '.length);
-    if (trimmed.startsWith('rwcommunity ')) rwCommunity = trimmed.slice('rwcommunity '.length);
-  }
-
-  return { roCommunity, rwCommunity };
+  return content.split('\n').reduce(
+    (acc, line) => {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('rocommunity '))
+        return { ...acc, roCommunity: trimmed.slice('rocommunity '.length) };
+      if (trimmed.startsWith('rwcommunity '))
+        return { ...acc, rwCommunity: trimmed.slice('rwcommunity '.length) };
+      return acc;
+    },
+    { roCommunity: 'public', rwCommunity: '' },
+  );
 };
 
 const OID_DELAY_MS = 200;

@@ -66,10 +66,7 @@ export const parseSeedOverrides = (seed: string): SeedOverrides => {
 // from the bitwise `|0` coercion.
 const deriveDifficulty = (seed: string, overrides: SeedOverrides): Difficulty => {
   if (overrides.difficulty) return overrides.difficulty;
-  let hash = 0;
-  for (let i = 0; i < seed.length; i++) {
-    hash = (hash + seed.charCodeAt(i)) | 0;
-  }
+  const hash = [...seed].reduce((h, ch) => (h + ch.charCodeAt(0)) | 0, 0);
   const mod = ((hash % 3) + 3) % 3;
   return mod === 0 ? 'easy' : mod === 1 ? 'medium' : 'hard';
 };
@@ -89,19 +86,16 @@ const findUserByType = (
   users: readonly RemoteUser[],
   preferredType: 'root' | 'user' | 'guest',
 ): RemoteUser | undefined => {
-  const found = users.find((u) => u.userType === preferredType);
-  if (found) return found;
   const fallbacksByType: Record<string, readonly ('root' | 'user' | 'guest')[]> = {
     guest: ['user', 'root'],
     user: ['guest', 'root'],
     root: ['user', 'guest'],
   };
-  const fallbacks = fallbacksByType[preferredType];
-  for (const fb of fallbacks) {
-    const fallback = users.find((u) => u.userType === fb);
-    if (fallback) return fallback;
-  }
-  return undefined;
+  const typeOrder = [preferredType, ...(fallbacksByType[preferredType] ?? [])];
+  return typeOrder.reduce<RemoteUser | undefined>(
+    (found, type) => found ?? users.find((u) => u.userType === type),
+    undefined,
+  );
 };
 
 // For NC entry variant: assigns a user as owner of the backdoor port ('elite' service).
@@ -401,15 +395,13 @@ export const generateMissionNetwork = (
   // Map inner gateways' downstream .1 IPs to their users. Inner gateways live in
   // topology.machines and already have users, but downstream machines reference them
   // by their .1 IP (the gateway address on the downstream subnet).
-  const gatewayInternalIpMap: Record<string, typeof routerUsers> = {};
-  const gatewayInternalCredMap: Record<string, typeof routerCreds> = {};
-  for (let i = 1; i < topology.layers.length; i++) {
-    const gateway = topology.layers[i]!.gateway;
-    const downstreamSubnet = topology.layers[i]!.subnet;
-    const gatewayInternalIp = `${downstreamSubnet}.1`;
-    gatewayInternalIpMap[gatewayInternalIp] = usersByMachine[gateway.ip] ?? [];
-    gatewayInternalCredMap[gatewayInternalIp] = credentials[gateway.ip] ?? [];
-  }
+  const gatewayLayers = topology.layers.slice(1);
+  const gatewayInternalIpMap: Record<string, typeof routerUsers> = Object.fromEntries(
+    gatewayLayers.map((layer) => [`${layer.subnet}.1`, usersByMachine[layer.gateway.ip] ?? []]),
+  );
+  const gatewayInternalCredMap: Record<string, typeof routerCreds> = Object.fromEntries(
+    gatewayLayers.map((layer) => [`${layer.subnet}.1`, credentials[layer.gateway.ip] ?? []]),
+  );
 
   const allUsersByMachine = {
     ...usersByMachine,

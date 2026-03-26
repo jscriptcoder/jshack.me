@@ -40,35 +40,26 @@ const walkAndSearch = (
   options: WalkOptions,
 ): readonly GrepMatch[] => {
   const { pattern, userType, canTraverse } = options;
-  const results: GrepMatch[] = [];
-
-  if (node.type !== 'directory' || !node.children) return results;
+  if (node.type !== 'directory' || !node.children) return [];
 
   // Check read permission on directory (root bypasses)
-  if (userType !== 'root' && !node.permissions.read.includes(userType)) return results;
+  if (userType !== 'root' && !node.permissions.read.includes(userType)) return [];
 
   const sortedChildren = Object.values(node.children).sort((a, b) => a.name.localeCompare(b.name));
 
-  for (const child of sortedChildren) {
+  return sortedChildren.flatMap((child) => {
     const childPath = currentPath === '/' ? `/${child.name}` : `${currentPath}/${child.name}`;
 
     if (child.type === 'file') {
       const content = child.content ?? '';
-      if (canReadFile(child, userType) && !isBinary(content)) {
-        const matches = searchFile(content, pattern);
-        for (const line of matches) {
-          results.push({ filepath: childPath, line });
-        }
-      }
-    } else {
-      const traversal = canTraverse(childPath);
-      if (traversal.allowed) {
-        results.push(...walkAndSearch(child, childPath, options));
-      }
+      if (!canReadFile(child, userType) || isBinary(content)) return [];
+      return searchFile(content, pattern).map((line) => ({ filepath: childPath, line }));
     }
-  }
 
-  return results;
+    const traversal = canTraverse(childPath);
+    if (!traversal.allowed) return [];
+    return walkAndSearch(child, childPath, options);
+  });
 };
 
 export const createGrepCommand = (context: GrepContext): Command => ({

@@ -27,33 +27,30 @@ type WalkOptions = {
 // Recursively walk the filesystem tree, collecting matching paths
 const walkTree = (node: FileNode, currentPath: string, options: WalkOptions): readonly string[] => {
   const { pattern, userType, ownerFilter, canTraverse } = options;
-  const results: string[] = [];
-
-  if (node.type !== 'directory' || !node.children) return results;
+  if (node.type !== 'directory' || !node.children) return [];
 
   // Check read permission on this directory (root bypasses)
-  if (userType !== 'root' && !node.permissions.read.includes(userType)) return results;
+  if (userType !== 'root' && !node.permissions.read.includes(userType)) return [];
 
   const sortedChildren = Object.values(node.children).sort((a, b) => a.name.localeCompare(b.name));
 
-  for (const child of sortedChildren) {
+  return sortedChildren.flatMap((child) => {
     const childPath = currentPath === '/' ? `/${child.name}` : `${currentPath}/${child.name}`;
     const matchesPattern = pattern.test(child.name);
     const matchesOwner = ownerFilter === undefined || child.owner === ownerFilter;
 
-    if (matchesPattern && matchesOwner) {
-      results.push(child.type === 'directory' ? `${childPath}/` : childPath);
-    }
+    const match =
+      matchesPattern && matchesOwner
+        ? [child.type === 'directory' ? `${childPath}/` : childPath]
+        : [];
 
-    if (child.type === 'directory') {
-      const traversal = canTraverse(childPath);
-      if (traversal.allowed) {
-        results.push(...walkTree(child, childPath, options));
-      }
-    }
-  }
+    const recurse =
+      child.type === 'directory' && canTraverse(childPath).allowed
+        ? walkTree(child, childPath, options)
+        : [];
 
-  return results;
+    return [...match, ...recurse];
+  });
 };
 
 export const createFindCommand = (context: FindContext): Command => ({

@@ -64,11 +64,11 @@ const getTargetServices = (
 
 // Parse rwcommunity from snmpd.conf content
 const parseRwCommunity = (content: string): string => {
-  for (const line of content.split('\n')) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith('rwcommunity ')) return trimmed.slice('rwcommunity '.length);
-  }
-  return '';
+  const match = content
+    .split('\n')
+    .map((line) => line.trim())
+    .find((trimmed) => trimmed.startsWith('rwcommunity '));
+  return match ? match.slice('rwcommunity '.length) : '';
 };
 
 // SNMP community string brute-force — tries all known community strings

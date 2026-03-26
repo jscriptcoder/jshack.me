@@ -348,13 +348,15 @@ const buildNestedDirs = (segments: readonly string[], file: FileNode): FileNode 
 // Forwarded mode: pre-populated with forward rules matching NAT config.
 // Router-first mode (no NAT): only comments and an empty template.
 const generateIptablesContent = (natForwarding?: NatForwarding): string => {
-  const lines = ['# Port Forwarding Rules', '# forward <public_port> to <internal_ip>:<port>'];
-
-  if (natForwarding) {
-    for (const rule of natForwarding.rules) {
-      lines.push(`forward ${rule.publicPort} to ${rule.internalIp}:${rule.internalPort}`);
-    }
-  }
+  const lines = [
+    '# Port Forwarding Rules',
+    '# forward <public_port> to <internal_ip>:<port>',
+    ...(natForwarding
+      ? natForwarding.rules.map(
+          (rule) => `forward ${rule.publicPort} to ${rule.internalIp}:${rule.internalPort}`,
+        )
+      : []),
+  ];
 
   return lines.join('\n');
 };
@@ -657,12 +659,13 @@ const generateSshLogLines = (
   let offset = 0;
 
   const failedAttempts = prng.nextInt(1, 3);
-  for (let f = 0; f < failedAttempts; f++) {
-    const date = new Date(baseDate.getTime() + (minuteOffset + offset) * 60000);
+  const failedLines = Array.from({ length: failedAttempts }, (_, f) => {
+    const date = new Date(baseDate.getTime() + (minuteOffset + offset + f) * 60000);
     const port = prng.nextInt(30000, 60000);
-    lines.push(formatSshFailed(date, hostname, pid, 'root', sourceIp, port));
-    offset += 1;
-  }
+    return formatSshFailed(date, hostname, pid, 'root', sourceIp, port);
+  });
+  lines.push(...failedLines);
+  offset += failedAttempts;
 
   const successDate = new Date(baseDate.getTime() + (minuteOffset + offset) * 60000);
   const successPort = prng.nextInt(30000, 60000);
@@ -687,11 +690,12 @@ const generateFtpLogLines = (
   offset += 1;
 
   const failedAttempts = prng.nextInt(1, 2);
-  for (let f = 0; f < failedAttempts; f++) {
-    const date = new Date(baseDate.getTime() + (minuteOffset + offset) * 60000);
-    lines.push(formatFtpLoginFailed(date, sourceIp, 'admin'));
-    offset += 1;
-  }
+  const failedLines = Array.from({ length: failedAttempts }, (_, f) => {
+    const date = new Date(baseDate.getTime() + (minuteOffset + offset + f) * 60000);
+    return formatFtpLoginFailed(date, sourceIp, 'admin');
+  });
+  lines.push(...failedLines);
+  offset += failedAttempts;
 
   const successDate = new Date(baseDate.getTime() + (minuteOffset + offset) * 60000);
   lines.push(formatFtpLoginOk(successDate, sourceIp, 'root'));
@@ -713,13 +717,14 @@ const generateHttpLogLines = (
   // Reconnaissance requests
   const recon = ['/robots.txt', '/admin', '/login', '/.env', '/api/config'];
   const reconCount = prng.nextInt(2, 4);
-  for (let r = 0; r < reconCount; r++) {
-    const date = new Date(baseDate.getTime() + (minuteOffset + offset) * 60000);
+  const reconLines = Array.from({ length: reconCount }, (_, r) => {
+    const date = new Date(baseDate.getTime() + (minuteOffset + offset + r) * 60000);
     const path = prng.pick(recon);
     const status = path === '/admin' || path === '/login' ? 200 : 404;
-    lines.push(formatAccessLog(date, sourceIp, 'GET', path, status, prng.nextInt(200, 5000)));
-    offset += 1;
-  }
+    return formatAccessLog(date, sourceIp, 'GET', path, status, prng.nextInt(200, 5000));
+  });
+  lines.push(...reconLines);
+  offset += reconCount;
 
   // Successful exploit/auth
   const successDate = new Date(baseDate.getTime() + (minuteOffset + offset) * 60000);
@@ -777,9 +782,8 @@ const generateNoiseLines = (
 ): readonly string[] => {
   const [min, max] = forensicsNoiseCount[difficulty];
   const count = prng.nextInt(min, max);
-  const lines: string[] = [];
 
-  for (let n = 0; n < count; n++) {
+  return Array.from({ length: count }, () => {
     // Noise happens at random times before/around the attack
     const offsetMinutes = prng.nextInt(-60, 120);
     const date = new Date(baseDate.getTime() + (minuteOffset + offsetMinutes) * 60000);
@@ -789,24 +793,18 @@ const generateNoiseLines = (
     if (logType === 'ssh') {
       const port = prng.nextInt(30000, 60000);
       const pid = prng.nextInt(1000, 9999);
-      lines.push(
-        prng.next() < 0.7
-          ? formatSshAccepted(date, hostname, pid, noiseUser, noiseIp, port)
-          : formatSshFailed(date, hostname, pid, noiseUser, noiseIp, port),
-      );
-    } else if (logType === 'ftp') {
-      lines.push(
-        prng.next() < 0.7
-          ? formatFtpLoginOk(date, noiseIp, noiseUser)
-          : formatFtpLoginFailed(date, noiseIp, noiseUser),
-      );
-    } else {
-      const path = prng.pick(forensicsNoiseHttpPaths);
-      lines.push(formatAccessLog(date, noiseIp, 'GET', path, 200, prng.nextInt(200, 5000)));
+      return prng.next() < 0.7
+        ? formatSshAccepted(date, hostname, pid, noiseUser, noiseIp, port)
+        : formatSshFailed(date, hostname, pid, noiseUser, noiseIp, port);
     }
-  }
-
-  return lines;
+    if (logType === 'ftp') {
+      return prng.next() < 0.7
+        ? formatFtpLoginOk(date, noiseIp, noiseUser)
+        : formatFtpLoginFailed(date, noiseIp, noiseUser);
+    }
+    const path = prng.pick(forensicsNoiseHttpPaths);
+    return formatAccessLog(date, noiseIp, 'GET', path, 200, prng.nextInt(200, 5000));
+  });
 };
 
 // Generates pre-populated log entries and calling card for forensics objectives.
@@ -921,13 +919,12 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
   const gatewayDownstreamMap = new Map<string, readonly GeneratedMachine[]>();
   const gatewayNatMap = new Map<string, NatForwarding | undefined>();
   if (layers && layers.length > 1) {
-    for (let i = 1; i < layers.length; i++) {
-      const gateway = layers[i]!.gateway;
-      const downstreamIps = new Set(layers[i]!.machines.map((m) => m.ip));
+    layers.slice(1).forEach((layer) => {
+      const downstreamIps = new Set(layer.machines.map((m) => m.ip));
       const downstreamMachines = machines.filter((m) => downstreamIps.has(m.ip));
-      gatewayDownstreamMap.set(gateway.ip, downstreamMachines);
-      gatewayNatMap.set(gateway.ip, layers[i]!.natForwarding);
-    }
+      gatewayDownstreamMap.set(layer.gateway.ip, downstreamMachines);
+      gatewayNatMap.set(layer.gateway.ip, layer.natForwarding);
+    });
   }
 
   // Pre-generate forensics evidence (log files + calling card) before machine loop

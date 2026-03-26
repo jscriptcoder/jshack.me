@@ -36,11 +36,11 @@ const replaceFirewallOid = (content: string, oid: string, newValue: string): str
 
 // Reads the current value of a firewall OID from snmpd.conf
 const readFirewallValue = (content: string, oid: string): string | undefined => {
-  for (const line of content.split('\n')) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith(`${oid} `)) return trimmed.slice(oid.length + 1);
-  }
-  return undefined;
+  const match = content
+    .split('\n')
+    .map((line) => line.trim())
+    .find((trimmed) => trimmed.startsWith(`${oid} `));
+  return match ? match.slice(oid.length + 1) : undefined;
 };
 
 export const createSnmpsetCommand = (context: SnmpsetContext): Command => ({
@@ -121,13 +121,17 @@ export const createSnmpsetCommand = (context: SnmpsetContext): Command => ({
     const confContent = confNode.content;
 
     // Validate community string
-    let rwCommunity = '';
-    let roCommunity = '';
-    for (const line of confContent.split('\n')) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith('rwcommunity ')) rwCommunity = trimmed.slice('rwcommunity '.length);
-      if (trimmed.startsWith('rocommunity ')) roCommunity = trimmed.slice('rocommunity '.length);
-    }
+    const { rwCommunity, roCommunity } = confContent.split('\n').reduce(
+      (acc, line) => {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('rwcommunity '))
+          return { ...acc, rwCommunity: trimmed.slice('rwcommunity '.length) };
+        if (trimmed.startsWith('rocommunity '))
+          return { ...acc, roCommunity: trimmed.slice('rocommunity '.length) };
+        return acc;
+      },
+      { rwCommunity: '', roCommunity: '' },
+    );
 
     if (community === roCommunity) {
       throw new Error(

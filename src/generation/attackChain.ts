@@ -127,10 +127,7 @@ const generateClientEmail = (prng: Prng): string => {
 
 // Generates a deterministic 64-char hex key (32 bytes) from PRNG.
 const generateEncryptionKey = (prng: Prng): string => {
-  const bytes = new Uint8Array(32);
-  for (let i = 0; i < 32; i++) {
-    bytes[i] = prng.nextInt(0, 255);
-  }
+  const bytes = new Uint8Array(Array.from({ length: 32 }, () => prng.nextInt(0, 255)));
   return bytesToHex(bytes);
 };
 
