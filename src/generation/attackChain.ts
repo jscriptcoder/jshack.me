@@ -7,6 +7,7 @@ import type {
   MissionObjective,
   MissionObjectiveType,
   ScriptBugType,
+  SubnetLayer,
 } from './types';
 import {
   backdoorPorts,
@@ -29,6 +30,7 @@ type BuildObjectiveInput = {
   readonly difficulty: Difficulty;
   readonly objectiveTypeOverride?: MissionObjectiveType;
   readonly encryptedOverride?: boolean;
+  readonly layers?: readonly SubnetLayer[];
 };
 
 type BuildObjectiveResult = {
@@ -159,28 +161,35 @@ const buildKeyPlacement = (
   };
 };
 
-// Builds the path of machines from entry to target based on difficulty.
-const buildPath = (
+// Picks the target machine. With multi-layer subnets, the target is always in the
+// deepest layer. For portforward, the target must be in layer 0 (reachable from
+// the outer router). Gateway machines are never targets.
+const pickTarget = (
   prng: Prng,
   machines: readonly GeneratedMachine[],
   entryPoint: string,
-  difficulty: Difficulty,
-): readonly GeneratedMachine[] => {
-  const entry = machines.find((m) => m.ip === entryPoint);
-  if (!entry) return [];
+  objectiveType: MissionObjectiveType,
+  layers?: readonly SubnetLayer[],
+): GeneratedMachine => {
+  // With layer info: pick from the appropriate layer
+  if (layers && layers.length > 1) {
+    // portforward needs a layer 0 machine (reachable from outer router)
+    const targetLayerIdx = objectiveType === 'portforward' ? 0 : layers.length - 1;
+    const targetLayer = layers[targetLayerIdx]!;
+    const layerIps = new Set(targetLayer.machines.map((m) => m.ip));
+    const candidates = machines.filter((m) => layerIps.has(m.ip) && m.role !== 'router');
 
-  const nonEntry = machines.filter((m) => m.ip !== entryPoint);
-  if (nonEntry.length === 0) return [entry];
+    // Always consume PRNG to preserve sequence
+    return candidates.length > 0 ? prng.pick(candidates) : prng.pick(machines);
+  }
 
-  const hopCount =
-    difficulty === 'easy'
-      ? 1
-      : difficulty === 'medium'
-        ? Math.min(2, nonEntry.length)
-        : nonEntry.length;
-
-  const shuffled = prng.pickN(nonEntry, hopCount);
-  return [entry, ...shuffled];
+  // Single layer or no layer info: legacy behavior
+  const nonEntry = machines.filter((m) => m.ip !== entryPoint && m.role !== 'router');
+  if (nonEntry.length === 0) {
+    const entry = machines.find((m) => m.ip === entryPoint);
+    return entry ?? machines[0]!;
+  }
+  return prng.pick(nonEntry);
 };
 
 // Builds the objective for a given type, target machine, and credentials.
@@ -422,6 +431,7 @@ export const buildMissionObjective = (input: BuildObjectiveInput): BuildObjectiv
     difficulty,
     objectiveTypeOverride,
     encryptedOverride,
+    layers,
   } = input;
 
   const clientEmail = generateClientEmail(prng);
@@ -434,14 +444,14 @@ export const buildMissionObjective = (input: BuildObjectiveInput): BuildObjectiv
     'backdoor',
   ];
 
-  const path = buildPath(prng, machines, entryPoint, difficulty);
-
-  const targetMachine =
-    path.length >= 2 ? (path[path.length - 1] as GeneratedMachine) : (path[0] ?? machines[0]);
-
   // Always consume PRNG pick to preserve sequence, then apply override
   const prngObjectiveType = prng.pick(objectiveTypes);
   const objectiveType = objectiveTypeOverride ?? prngObjectiveType;
+
+  // Pick target from the appropriate layer (deepest for most objectives)
+  const nonGatewayMachines = machines.filter((m) => m.role !== 'router');
+  const targetMachine = pickTarget(prng, nonGatewayMachines, entryPoint, objectiveType, layers);
+
   const objective = buildObjective(
     prng,
     objectiveType,
@@ -451,7 +461,7 @@ export const buildMissionObjective = (input: BuildObjectiveInput): BuildObjectiv
     difficulty,
     {
       encrypted: encryptedOverride ?? false,
-      machines: path,
+      machines: nonGatewayMachines,
       entryPoint,
     },
   );

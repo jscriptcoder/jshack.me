@@ -20,6 +20,7 @@ const buildTestData = (
     entryPoint: topology.entryPoint,
     difficulty,
     objectiveTypeOverride,
+    layers: topology.layers,
   });
   return { topology, result };
 };
@@ -188,5 +189,47 @@ describe('buildMissionObjective', () => {
     const a = buildTestData('forensics-determ', 'easy', 'forensics');
     const b = buildTestData('forensics-determ', 'easy', 'forensics');
     expect(a.result.objective).toEqual(b.result.objective);
+  });
+
+  it('medium target is in the deepest layer', () => {
+    for (let i = 0; i < 30; i++) {
+      const { topology, result } = buildTestData(`deep-target-med-${i}`, 'medium', 'exfiltrate');
+      const deepestLayer = topology.layers[topology.layers.length - 1]!;
+      const deepestIps = deepestLayer.machines.map((m) => m.ip);
+      expect(deepestIps).toContain(result.objective.targetMachine);
+    }
+  });
+
+  it('hard target is in the deepest layer', () => {
+    for (let i = 0; i < 30; i++) {
+      const { topology, result } = buildTestData(`deep-target-hard-${i}`, 'hard', 'tamper');
+      const deepestLayer = topology.layers[topology.layers.length - 1]!;
+      const deepestIps = deepestLayer.machines.map((m) => m.ip);
+      expect(deepestIps).toContain(result.objective.targetMachine);
+    }
+  });
+
+  it('easy target is in layer 0', () => {
+    for (let i = 0; i < 30; i++) {
+      const { topology, result } = buildTestData(`easy-target-${i}`, 'easy', 'exfiltrate');
+      const layer0Ips = topology.layers[0]!.machines.map((m) => m.ip);
+      expect(layer0Ips).toContain(result.objective.targetMachine);
+    }
+  });
+
+  it('portforward target is in layer 0 (reachable from outer router)', () => {
+    for (let i = 0; i < 30; i++) {
+      const { topology, result } = buildTestData(`pf-layer0-${i}`, 'hard', 'portforward');
+      const layer0Ips = topology.layers[0]!.machines.map((m) => m.ip);
+      expect(layer0Ips).toContain(result.objective.forwardInternalIp);
+    }
+  });
+
+  it('target is never a gateway machine', () => {
+    for (let i = 0; i < 30; i++) {
+      const { topology, result } = buildTestData(`no-gw-target-${i}`, 'hard');
+      const gatewayIps = topology.layers.slice(1).map((l) => l.gateway.ip);
+      expect(gatewayIps).not.toContain(result.objective.targetMachine);
+    }
   });
 });

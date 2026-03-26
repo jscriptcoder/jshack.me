@@ -485,6 +485,7 @@ export const generateMissionNetwork = (
     difficulty,
     objectiveTypeOverride: effectiveObjectiveOverride,
     encryptedOverride: overrides.encrypted,
+    layers: topology.layers,
   });
 
   const fileSystems = generateFileSystems({
