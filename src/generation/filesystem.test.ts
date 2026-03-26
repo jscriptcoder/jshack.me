@@ -697,6 +697,67 @@ describe('generateFileSystems', () => {
       expect(a.fileSystems).toEqual(b.fileSystems);
     });
   });
+  describe('forensics evidence placement', () => {
+    const buildForensics = (seed: string, difficulty: 'easy' | 'medium' | 'hard' = 'medium') => {
+      const prng = createPrng(seed);
+      const topology = generateTopology(prng, difficulty);
+      const { usersByMachine, credentials } = generateUsers(
+        prng,
+        topology.machines,
+        topology.entryPoint,
+      );
+      const { objective } = buildMissionObjective({
+        prng,
+        machines: topology.machines,
+        credentials,
+        entryPoint: topology.entryPoint,
+        difficulty,
+        objectiveTypeOverride: 'forensics',
+      });
+      const fileSystems = generateFileSystems({
+        prng,
+        machines: topology.machines,
+        usersByMachine,
+        credentials,
+        objective,
+        routerMachine: topology.routerMachine,
+        natForwarding: topology.natForwarding,
+        entryVariant: topology.entryVariant,
+        entryPoint: topology.entryPoint,
+      });
+      return { topology, fileSystems, objective, credentials };
+    };
+
+    it('places auth.log with attacker IP on at least one machine', () => {
+      const { fileSystems, objective } = buildForensics('forensics-logs-1');
+      const attackerIp = objective.attackerIp!;
+
+      const allAuthLogs = Object.values(fileSystems).map((fs) =>
+        resolveNode(fs, '/var/log/auth.log'),
+      );
+      const hasAttackerIp = allAuthLogs.some(
+        (node) => node?.type === 'file' && node.content?.includes(attackerIp),
+      );
+
+      expect(hasAttackerIp).toBe(true);
+    });
+
+    it('places attacker calling card file on a machine', () => {
+      const { fileSystems, objective } = buildForensics('forensics-card-1');
+      const handle = objective.attackerHandle!;
+
+      const allContent = Object.values(fileSystems).flatMap((fs) => collectAllContent(fs));
+      const hasCallingCard = allContent.some((c) => c.includes(handle));
+
+      expect(hasCallingCard).toBe(true);
+    });
+
+    it('is deterministic', () => {
+      const a = buildForensics('forensics-determ');
+      const b = buildForensics('forensics-determ');
+      expect(a.fileSystems).toEqual(b.fileSystems);
+    });
+  });
 });
 
 // Recursively collects all text content from a FileNode tree.

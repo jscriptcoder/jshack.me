@@ -31,6 +31,7 @@ import {
 } from '../commands/availability';
 import { SSH_PID_FILE_NAME, createSshdPidFileNode } from '../commands/sshd';
 import { FTP_PID_FILE_NAME, createVsftpdPidFileNode } from '../commands/vsftpd';
+import { formatSshAccepted, formatSshFailed, formatSuSuccess } from '../logging/formatters';
 
 type FilesystemInput = {
   readonly prng: Prng;
@@ -622,6 +623,77 @@ const mergeKeyPlacement = (
   };
 };
 
+// Generates pre-populated log entries and calling card for forensics objectives.
+// Returns a map of machineIp → extra files to merge into the filesystem.
+const generateForensicsEvidence = (
+  prng: Prng,
+  machines: readonly GeneratedMachine[],
+  objective: MissionObjective,
+): Readonly<Record<string, Readonly<Record<string, FileNode>>>> => {
+  if (objective.type !== 'forensics' || !objective.attackerHandle || !objective.attackerIp) {
+    return {};
+  }
+
+  const { attackerHandle, attackerIp } = objective;
+  const result: Record<string, Record<string, FileNode>> = {};
+
+  // Build the attack timeline: attacker enters from public IP on first machine,
+  // then pivots through internal IPs on subsequent machines.
+  // Base date for the attack timeline (a few days ago)
+  const baseDate = new Date('2026-03-20T02:30:00Z');
+  let minuteOffset = 0;
+
+  for (let i = 0; i < machines.length; i++) {
+    const machine = machines[i] as GeneratedMachine;
+    // Source IP: attacker's public IP on entry machine, previous machine's IP on later ones
+    const sourceIp = i === 0 ? attackerIp : (machines[i - 1] as GeneratedMachine).ip;
+    const hostname = machine.hostname;
+    const pid = prng.nextInt(1000, 9999);
+
+    const logLines: string[] = [];
+
+    // Failed login attempts before success (1-3 attempts)
+    const failedAttempts = prng.nextInt(1, 3);
+    for (let f = 0; f < failedAttempts; f++) {
+      const failDate = new Date(baseDate.getTime() + (minuteOffset + f) * 60000);
+      const port = prng.nextInt(30000, 60000);
+      logLines.push(formatSshFailed(failDate, hostname, pid, 'root', sourceIp, port));
+    }
+    minuteOffset += failedAttempts;
+
+    // Successful login
+    const successDate = new Date(baseDate.getTime() + minuteOffset * 60000);
+    const successPort = prng.nextInt(30000, 60000);
+    logLines.push(formatSshAccepted(successDate, hostname, pid, 'root', sourceIp, successPort));
+    minuteOffset += 2;
+
+    // su to root if entered as non-root (50% chance on non-entry machines)
+    if (i > 0 && prng.next() < 0.5) {
+      const suDate = new Date(baseDate.getTime() + minuteOffset * 60000);
+      const suPid = prng.nextInt(1000, 9999);
+      logLines.push(formatSuSuccess(suDate, hostname, suPid, 'root', 'operator'));
+      minuteOffset += 1;
+    }
+
+    // Create auth.log with the attack evidence
+    const authLog = mkFile('auth.log', logLines.join('\n'));
+    const varLog = mkDir('log', { 'auth.log': authLog }, 'root', true);
+    const varDir = mkDir('var', { log: varLog }, 'root', true);
+
+    result[machine.ip] = { var: varDir };
+
+    // Place calling card on the deepest machine
+    if (i === machines.length - 1) {
+      const cardContent = `# ${attackerHandle} was here\n# You'll never catch me`;
+      const cardFile = mkFile(`.${attackerHandle}`, cardContent);
+      const tmpDir = mkDir('tmp', { [`.${attackerHandle}`]: cardFile }, 'root', true);
+      result[machine.ip] = { ...result[machine.ip], tmp: tmpDir };
+    }
+  }
+
+  return result;
+};
+
 export const generateFileSystems = (input: FilesystemInput): Readonly<Record<string, FileNode>> => {
   const {
     prng,
@@ -634,6 +706,9 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
     entryVariant,
     entryPoint,
   } = input;
+
+  // Pre-generate forensics evidence (log files + calling card) before machine loop
+  const forensicsEvidence = generateForensicsEvidence(prng, machines, objective);
 
   const entries = machines.map((machine) => {
     const users = usersByMachine[machine.ip] ?? [];
@@ -656,7 +731,16 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
     // Place encryption key file on the key machine (if this is that machine)
     const keyTree =
       objective.keyPlacement?.machineIp === machine.ip ? buildKeyFileTree(prng, objective) : null;
-    const config = mergeKeyPlacement(baseConfig, keyTree);
+    const configWithKey = mergeKeyPlacement(baseConfig, keyTree);
+
+    // Merge forensics evidence (log files, calling card) if present for this machine
+    const evidence = forensicsEvidence[machine.ip];
+    const config = evidence
+      ? {
+          ...configWithKey,
+          extraDirectories: { ...(configWithKey.extraDirectories ?? {}), ...evidence },
+        }
+      : configWithKey;
 
     const fileSystem = createFileSystem(config);
 

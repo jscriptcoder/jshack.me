@@ -462,4 +462,102 @@ describe('mail command', () => {
 
     expect(() => mail.fn('xR0gu3x@darkmail.onion', 'done')).toThrow('Cannot read iptables rules');
   });
+
+  it('completes a forensics mission with handle:ip proof', () => {
+    const completeMission = vi.fn();
+    const mission = makeMission({
+      type: 'forensics',
+      attackerHandle: 'xR0gu3x',
+      attackerIp: '45.33.12.99',
+      expectedProof: 'xR0gu3x:45.33.12.99',
+    });
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission,
+      readFileFromMachine: vi.fn(),
+      isMachineBricked: () => false,
+    });
+
+    const result = mail.fn('xR0gu3x@darkmail.onion', 'xR0gu3x:45.33.12.99') as AsyncOutput;
+    runAsync(result);
+    expect(completeMission).toHaveBeenCalled();
+  });
+
+  it('accepts forensics proof with various separators', () => {
+    const separators = [':', ', ', ' ', ' - ', ','];
+    for (const sep of separators) {
+      const completeMission = vi.fn();
+      const mission = makeMission({
+        type: 'forensics',
+        attackerHandle: 'gh0st_',
+        attackerIp: '91.200.12.55',
+        expectedProof: 'gh0st_:91.200.12.55',
+      });
+      const mail = createMailCommand({
+        getActiveMission: () => mission,
+        completeMission,
+        readFileFromMachine: vi.fn(),
+        isMachineBricked: () => false,
+      });
+
+      const proof = `gh0st_${sep}91.200.12.55`;
+      const result = mail.fn('xR0gu3x@darkmail.onion', proof) as AsyncOutput;
+      runAsync(result);
+      expect(completeMission).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('accepts forensics proof in reverse order (ip first)', () => {
+    const completeMission = vi.fn();
+    const mission = makeMission({
+      type: 'forensics',
+      attackerHandle: 'ph4nt0m',
+      attackerIp: '162.44.88.12',
+      expectedProof: 'ph4nt0m:162.44.88.12',
+    });
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission,
+      readFileFromMachine: vi.fn(),
+      isMachineBricked: () => false,
+    });
+
+    const result = mail.fn('xR0gu3x@darkmail.onion', '162.44.88.12:ph4nt0m') as AsyncOutput;
+    runAsync(result);
+    expect(completeMission).toHaveBeenCalled();
+  });
+
+  it('rejects forensics proof with wrong handle', () => {
+    const mission = makeMission({
+      type: 'forensics',
+      attackerHandle: 'xR0gu3x',
+      attackerIp: '45.33.12.99',
+      expectedProof: 'xR0gu3x:45.33.12.99',
+    });
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission: vi.fn(),
+      readFileFromMachine: vi.fn(),
+      isMachineBricked: () => false,
+    });
+
+    expect(() => mail.fn('xR0gu3x@darkmail.onion', 'wrong:45.33.12.99')).toThrow('delivery failed');
+  });
+
+  it('rejects forensics proof with missing part', () => {
+    const mission = makeMission({
+      type: 'forensics',
+      attackerHandle: 'xR0gu3x',
+      attackerIp: '45.33.12.99',
+      expectedProof: 'xR0gu3x:45.33.12.99',
+    });
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission: vi.fn(),
+      readFileFromMachine: vi.fn(),
+      isMachineBricked: () => false,
+    });
+
+    expect(() => mail.fn('xR0gu3x@darkmail.onion', 'xR0gu3x')).toThrow('delivery failed');
+  });
 });

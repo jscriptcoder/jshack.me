@@ -19,7 +19,8 @@ export type MissionObjectiveType =
   | 'script_fix'
   | 'sabotage'
   | 'backdoor'
-  | 'portforward';
+  | 'portforward'
+  | 'forensics';
 
 export type ScriptBugType = 'syntax' | 'logic' | 'corrupted';
 
@@ -54,6 +55,8 @@ export type MissionObjective = {
   readonly forwardPublicPort?: number;
   readonly forwardInternalIp?: string;
   readonly forwardInternalPort?: number;
+  readonly attackerHandle?: string;
+  readonly attackerIp?: string;
 };
 
 export type GeneratedMachine = {

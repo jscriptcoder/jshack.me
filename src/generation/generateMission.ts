@@ -49,6 +49,7 @@ export const parseSeedOverrides = (seed: string): SeedOverrides => {
     ['exfiltrate', 'exfiltrate'],
     ['tamper', 'tamper'],
     ['credential-theft', 'credential_theft'],
+    ['forensics', 'forensics'],
   ];
   const objectiveType = objectiveKeywords.find(([keyword]) => lower.includes(keyword))?.[1];
 
@@ -366,8 +367,12 @@ export const generateMissionNetwork = (
   const effectiveForwarded =
     overrides.objectiveType === 'portforward' ? false : overrides.forwarded;
 
+  // forensics always uses SSH entry (player is an authorized investigator)
+  const effectiveEntryVariant =
+    overrides.objectiveType === 'forensics' ? 'ssh' : overrides.entryVariant;
+
   const topology = generateTopology(prng, difficulty, {
-    entryVariantOverride: overrides.entryVariant,
+    entryVariantOverride: effectiveEntryVariant,
     forwardedOverride: effectiveForwarded,
     usedIps,
   });

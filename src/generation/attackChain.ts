@@ -19,6 +19,7 @@ import {
 } from './pools';
 import { binaryKeyPaths, binaryTargetPaths } from './binary';
 import { encryptContent, bytesToHex } from '../utils/crypto';
+import { generatePublicIp } from './ip';
 
 type BuildObjectiveInput = {
   readonly prng: Prng;
@@ -364,6 +365,35 @@ const buildObjective = (
       forwardPublicPort: publicPort,
       forwardInternalIp: targetMachine.ip,
       forwardInternalPort: servicePort.port,
+    };
+  }
+
+  if (objectiveType === 'forensics') {
+    // Pick attacker handle — must differ from mission client
+    const clientHandle = clientEmail.split('@')[0];
+    const availableHandles = clientHandles.filter((h) => h !== clientHandle);
+    const attackerHandle = prng.pick(availableHandles);
+    const attackerIp = generatePublicIp(prng);
+
+    // Get root password for briefing (player is an authorized investigator)
+    const targetCreds = credentials[targetMachine.ip] ?? [];
+    const rootCred = targetCreds.find((c) => c.username === 'root');
+    const rootPassword = rootCred?.password ?? 'unknown';
+
+    // Consume dummy PRNG rolls to preserve sequence alignment
+    prng.next();
+    prng.next();
+
+    return {
+      type: 'forensics',
+      description: `Investigate the breach on ${targetMachine.hostname}. Send us the attacker's alias and their origin IP. Root password: ${rootPassword}`,
+      targetMachine: targetMachine.ip,
+      targetPath: '',
+      targetContent: '',
+      clientEmail,
+      expectedProof: `${attackerHandle}:${attackerIp}`,
+      attackerHandle,
+      attackerIp,
     };
   }
 

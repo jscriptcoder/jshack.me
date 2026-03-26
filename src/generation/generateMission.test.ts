@@ -36,6 +36,11 @@ describe('parseSeedOverrides', () => {
   it('returns undefined objectiveType without backdoor keyword', () => {
     expect(parseSeedOverrides('test-mission').objectiveType).toBeUndefined();
   });
+
+  it('parses forensics keyword as objective type', () => {
+    expect(parseSeedOverrides('test-forensics').objectiveType).toBe('forensics');
+    expect(parseSeedOverrides('FORENSICS-MISSION').objectiveType).toBe('forensics');
+  });
 });
 
 describe('generateMissionNetwork', () => {
@@ -698,6 +703,45 @@ describe('generateMissionNetwork usedIps', () => {
     const mission1 = generateMissionNetwork(seed);
     const mission2 = generateMissionNetwork(seed, new Set());
     expect(mission2.routerPublicIp).toBe(mission1.routerPublicIp);
+  });
+});
+
+describe('forensics mission end-to-end', () => {
+  it('generates a complete forensics mission with SSH entry', () => {
+    const mission = generateMissionNetwork('test-forensics-easy-ssh');
+    expect(mission.objective.type).toBe('forensics');
+    expect(mission.entryVariant).toBe('ssh');
+    expect(mission.objective.attackerHandle).toBeTruthy();
+    expect(mission.objective.attackerIp).toMatch(/^\d+\.\d+\.\d+\.\d+$/);
+    expect(mission.objective.description).toContain('Root password:');
+  });
+
+  it('forces SSH entry even when other entry variant is in seed', () => {
+    const mission = generateMissionNetwork('test-forensics-ftp-easy');
+    expect(mission.objective.type).toBe('forensics');
+    expect(mission.entryVariant).toBe('ssh');
+  });
+
+  it('has attacker IP in filesystem logs', () => {
+    const mission = generateMissionNetwork('forensics-e2e-logs');
+    const attackerIp = mission.objective.attackerIp!;
+    const allContent = Object.values(mission.fileSystems).flatMap((fs) => collectAllContent(fs));
+    const hasAttackerIp = allContent.some((c) => c.includes(attackerIp));
+    expect(hasAttackerIp).toBe(true);
+  });
+
+  it('has calling card in filesystem', () => {
+    const mission = generateMissionNetwork('forensics-e2e-card');
+    const handle = mission.objective.attackerHandle!;
+    const allContent = Object.values(mission.fileSystems).flatMap((fs) => collectAllContent(fs));
+    const hasCallingCard = allContent.some((c) => c.includes(handle));
+    expect(hasCallingCard).toBe(true);
+  });
+
+  it('is deterministic', () => {
+    const a = generateMissionNetwork('forensics-e2e-determ');
+    const b = generateMissionNetwork('forensics-e2e-determ');
+    expect(a).toEqual(b);
   });
 });
 

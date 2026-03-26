@@ -168,4 +168,15 @@ describe('formatMissionBriefing', () => {
       expect(briefing).not.toContain('curl(');
     }
   });
+
+  it('forensics briefing includes investigation instructions', () => {
+    const mission = generateMissionNetwork('test-forensics-easy');
+    const briefing = formatMissionBriefing(mission);
+
+    expect(mission.objective.type).toBe('forensics');
+    // The hint should mention searching logs, not stealing passwords
+    expect(briefing).toContain('Investigate');
+    expect(briefing).toContain('logs');
+    expect(briefing).not.toContain('Discover the root password');
+  });
 });

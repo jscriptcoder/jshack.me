@@ -150,7 +150,7 @@ See `architecture.md` for integration details, `mission-variations.md` for all g
 - `generateMissionNetwork(seed, usedIps?)` deterministically produces a full network. Seeds embed keywords for overrides (difficulty, entry variant, network mode, objective, domain, gpg, snmp). When `usedIps` is provided, the router's public IP is guaranteed unique (re-rolls on collision). Shared IP utilities in `src/generation/ip.ts` provide `generatePublicIp` and `generatePrivateSubnet` — used by both mission and home network generation.
 - Provider hierarchy: `SessionProvider → GameSession (useHomeNetworks, generateLocalhost) → MissionProvider → FileSystemProvider → NetworkProvider → Terminal`
 - Commands: `missions()`, `accept(seed)`, `abort()`, `mail(recipient, content)`
-- Seven objectives: exfiltrate, tamper, credential_theft, script_fix, sabotage, backdoor, portforward
+- Eight objectives: exfiltrate, tamper, credential_theft, script_fix, sabotage, backdoor, portforward, forensics
 - NAT resolution via `resolveNat(ip, port)` using iptables rules on router filesystem
 
 ### Node Execution

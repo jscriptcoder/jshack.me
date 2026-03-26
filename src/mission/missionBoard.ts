@@ -220,6 +220,34 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     difficulty: 'HARD',
     seed: 'BASTION-snmp-hard-portforward-domain',
   },
+  // --- FORENSICS (incident response — investigate a breach) ---
+  {
+    id: 'DKC-024',
+    client: 'v0id_agent',
+    clientEmail: 'v0id_agent@darkmail.onion',
+    target: 'Pinecrest Logistics — compromised shipping database',
+    objective: 'Investigate the breach: find who broke in and where they came from',
+    difficulty: 'EASY',
+    seed: 'PINECREST-easy-forensics',
+  },
+  {
+    id: 'DKC-025',
+    client: 'sh4d0w_',
+    clientEmail: 'sh4d0w_@darkmail.onion',
+    target: 'Meridian Health Systems — breached patient portal',
+    objective: 'Trace the attacker through the network and identify them',
+    difficulty: 'MEDIUM',
+    seed: 'MERIDIAN-medium-forensics',
+  },
+  {
+    id: 'DKC-026',
+    client: 'n1ghtcr4wl',
+    clientEmail: 'n1ghtcr4wl@darkmail.onion',
+    target: 'Obsidian Defense Corp — infiltrated classified network',
+    objective: 'Full incident response: trace the intrusion chain and unmask the attacker',
+    difficulty: 'HARD',
+    seed: 'OBSIDIAN-hard-forensics',
+  },
 ];
 
 export const formatMissionBoard = (listings: readonly MissionListing[]): string => {

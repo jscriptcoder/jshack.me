@@ -144,6 +144,27 @@ const verifyPortforward = (
   return null;
 };
 
+const verifyForensics = (proof: string, mission: MissionNetwork): string | null => {
+  const { attackerHandle, attackerIp } = mission.objective;
+  if (!attackerHandle || !attackerIp) return 'Invalid forensics mission configuration.';
+
+  // Split on common separators: space, comma, colon, hyphen
+  const parts = proof.split(/[\s,:-]+/).filter(Boolean);
+  if (parts.length < 2) {
+    return 'Send both the attacker alias and their origin IP.';
+  }
+
+  const expectedParts = new Set([attackerHandle.toLowerCase(), attackerIp.toLowerCase()]);
+  const providedParts = new Set(parts.map((p) => p.toLowerCase()));
+
+  const allMatch = [...expectedParts].every((e) => providedParts.has(e));
+  if (!allMatch) {
+    return 'Incorrect findings. Identify the attacker alias and their origin IP from the logs.';
+  }
+
+  return null;
+};
+
 const verifyProof = (
   proof: string,
   mission: MissionNetwork,
@@ -158,6 +179,7 @@ const verifyProof = (
   if (type === 'sabotage') return verifySabotage(mission, isMachineBricked);
   if (type === 'backdoor') return verifyBackdoor(mission, readFileFromMachine);
   if (type === 'portforward') return verifyPortforward(mission, readFileFromMachine);
+  if (type === 'forensics') return verifyForensics(proof, mission);
   return null;
 };
 

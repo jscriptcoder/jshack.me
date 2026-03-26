@@ -6,14 +6,14 @@ Comprehensive catalog of all procedural generation variation axes. Use this to t
 
 All six major generation axes can be controlled by embedding keywords in the seed string (case-insensitive, matched via `includes()`). `parseSeedOverrides(seed)` in `generateMission.ts` extracts overrides. PRNG sequence is preserved — calls are consumed but results discarded in favor of overrides.
 
-| Axis          | Keywords                                                                                        | Notes                                                                             |
-| ------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Difficulty    | `easy`, `medium`, `hard`                                                                        | Falls back to hash-based derivation without keyword                               |
-| Entry variant | `ssh`, `ftp`, `nc`, `exploit`, `http`, `snmp`                                                   | Falls back if template unavailable (e.g. nc+router-first)                         |
-| Network mode  | `forwarded`, `router-first`                                                                     | Hyphenated to avoid false matches                                                 |
-| Objective     | `exfiltrate`, `tamper`, `credential-theft`, `script-fix`, `sabotage`, `backdoor`, `portforward` | Hyphen variant for credential_theft / script_fix; portforward forces router-first |
-| Domain entry  | `domain`                                                                                        | Forces domain-based briefing (nslookup required)                                  |
-| Encryption    | `gpg`                                                                                           | Forces exfiltrate + encrypted target file                                         |
+| Axis          | Keywords                                                                                                     | Notes                                                                                                         |
+| ------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| Difficulty    | `easy`, `medium`, `hard`                                                                                     | Falls back to hash-based derivation without keyword                                                           |
+| Entry variant | `ssh`, `ftp`, `nc`, `exploit`, `http`, `snmp`                                                                | Falls back if template unavailable (e.g. nc+router-first)                                                     |
+| Network mode  | `forwarded`, `router-first`                                                                                  | Hyphenated to avoid false matches                                                                             |
+| Objective     | `exfiltrate`, `tamper`, `credential-theft`, `script-fix`, `sabotage`, `backdoor`, `portforward`, `forensics` | Hyphen variant for credential_theft / script_fix; portforward forces router-first; forensics forces SSH entry |
+| Domain entry  | `domain`                                                                                                     | Forces domain-based briefing (nslookup required)                                                              |
+| Encryption    | `gpg`                                                                                                        | Forces exfiltrate + encrypted target file                                                                     |
 
 Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`
 
@@ -230,6 +230,42 @@ Binary exfiltrate targets use paths like `/opt/app/data.bin`, `/var/lib/export.d
 - Non-printable chars: Latin-1 supplement (128-255), control chars (1-8, 14-31), null bytes
 - `strings` command's `isPrintable()` (ASCII 32-126 + tab + newline) filters these out
 - Hints for binary placements mention `strings` (e.g., "try extracting strings from it")
+
+## Forensics Objective
+
+An 8th objective type where the player investigates a breach as an authorized incident responder. Instead of breaking in, they trace an attacker's path through log files to identify the attacker's handle and origin public IP. Seed keyword: `forensics`.
+
+### Entry & Access
+
+- Always SSH entry variant (forced override regardless of seed)
+- Root credentials provided in the objective description (player is an authorized investigator)
+- No Intel section needed — credentials are part of the job
+
+### Evidence Generation
+
+- Attacker handle picked from `clientHandles` pool (guaranteed different from mission client)
+- Attacker public IP generated via `generatePublicIp`
+- Pre-populated `/var/log/auth.log` entries on each machine in the attack path:
+  - Failed login attempts (1-3) followed by successful login
+  - Entry machine logs show the attacker's public IP
+  - Deeper machines show the previous machine's internal IP
+- Calling card file (`.{handle}`) placed in `/tmp/` on the deepest machine
+
+### Proof & Verification
+
+Player mails both the attacker handle and origin IP. Proof is split on `/[\s,:\-]+/` and verified order-independently:
+
+```js
+mail('client@darkmail.onion', 'xR0gu3x:45.33.12.99');
+mail('client@darkmail.onion', '45.33.12.99 - xR0gu3x');
+mail('client@darkmail.onion', 'xR0gu3x, 45.33.12.99');
+```
+
+### Difficulty Scaling
+
+- **Easy**: 2 machines — attacker public IP visible on entry machine auth.log
+- **Medium**: 3 machines — one internal hop to trace back
+- **Hard**: 4+ machines — multiple hops through internal network
 
 ## Port Closures
 

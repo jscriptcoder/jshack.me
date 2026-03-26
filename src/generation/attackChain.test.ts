@@ -163,4 +163,30 @@ describe('buildMissionObjective', () => {
       expect(result.objective.forwardInternalIp).not.toBe(routerIp);
     }
   });
+
+  it('forensics objective has attackerHandle, attackerIp, and description with root password', () => {
+    const { result } = buildTestData('test-forensics', 'medium', 'forensics');
+
+    expect(result.objective.type).toBe('forensics');
+    expect(result.objective.attackerHandle).toBeTruthy();
+    expect(result.objective.attackerIp).toMatch(/^\d+\.\d+\.\d+\.\d+$/);
+    expect(result.objective.expectedProof).toContain(result.objective.attackerHandle);
+    expect(result.objective.expectedProof).toContain(result.objective.attackerIp);
+    expect(result.objective.description).toContain('Investigate');
+    expect(result.objective.description).toMatch(/Root password: \S+/);
+  });
+
+  it('forensics attacker handle differs from mission client handle', () => {
+    for (let i = 0; i < 50; i++) {
+      const { result } = buildTestData(`forensics-unique-${i}`, 'medium', 'forensics');
+      const clientHandle = result.clientEmail.split('@')[0];
+      expect(result.objective.attackerHandle).not.toBe(clientHandle);
+    }
+  });
+
+  it('forensics objective is deterministic', () => {
+    const a = buildTestData('forensics-determ', 'easy', 'forensics');
+    const b = buildTestData('forensics-determ', 'easy', 'forensics');
+    expect(a.result.objective).toEqual(b.result.objective);
+  });
 });

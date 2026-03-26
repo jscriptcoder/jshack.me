@@ -79,6 +79,14 @@ export const formatObjectiveHint = (mission: MissionNetwork): string => {
     ].join('\n');
   }
 
+  if (objective.type === 'forensics') {
+    return [
+      '  Investigate the breach. Search the logs across machines to trace the',
+      "  attacker's path. Find their alias and origin IP.",
+      `  Example: mail("${email}", "<alias> <ip>")`,
+    ].join('\n');
+  }
+
   // credential_theft
   return [
     '  Discover the root password on the target machine and mail it to the client.',
