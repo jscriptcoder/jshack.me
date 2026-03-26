@@ -97,6 +97,8 @@ const printOverview = (net: MissionNetwork): void => {
     console.log(`  Overrides:       ${magenta(activeOverrides.join(', '))}`);
   }
   console.log(`  Difficulty:      ${net.difficulty}`);
+  console.log(`  Subnet layers:   ${net.layers.length}`);
+  console.log(`  Total machines:  ${net.machines.length} (+ outer router)`);
   console.log(`  Entry variant:   ${cyan(net.entryVariant)}`);
   console.log(`  Entry point:     ${net.entryPoint}`);
   console.log(`  Router public:   ${net.routerPublicIp}`);
@@ -110,6 +112,21 @@ const printOverview = (net: MissionNetwork): void => {
   console.log(`  Router domain:   ${net.routerDomain}`);
   console.log(`  Domain entry:    ${net.domainEntry ? green('yes') : 'no'}`);
   console.log(`  Client email:    ${net.clientEmail}`);
+
+  // Per-layer summary
+  if (net.layers.length > 1) {
+    heading('LAYER TOPOLOGY');
+    net.layers.forEach((layer, i) => {
+      const gwLabel =
+        i === 0
+          ? `gateway=${net.routerMachine.hostname}(${net.routerPublicIp})`
+          : `gateway=${layer.gateway.hostname}(${layer.gateway.ip})`;
+      const mode = layer.isForwarded ? green('forwarded') : red('router-first');
+      console.log(
+        `  Layer ${i}: ${cyan(layer.subnet + '.0/24')}  ${dim(gwLabel)}  variant=${cyan(layer.entryVariant)}  ${mode}  machines=${layer.machines.length}`,
+      );
+    });
+  }
 };
 
 const printObjective = (obj: MissionObjective): void => {
@@ -163,38 +180,78 @@ const printMachine = (m: GeneratedMachine, label: string): void => {
 };
 
 const printMachines = (net: MissionNetwork): void => {
-  heading('ROUTER');
+  heading('OUTER ROUTER');
   printMachine(net.routerMachine, magenta('[ROUTER]'));
 
-  heading('INTERNAL MACHINES');
-  const internal = net.machines.filter((m) => m.ip !== net.routerMachine.ip);
-  internal.forEach((m) => {
-    const label = m.ip === net.entryPoint ? green('[ENTRY]') : '';
-    printMachine(m, label);
+  net.layers.forEach((layer, i) => {
+    heading(`LAYER ${i} — ${layer.subnet}.0/24`);
+
+    // Show the gateway into this layer (inner gateways only — outer router shown above)
+    if (i > 0) {
+      const isTarget = layer.gateway.ip === net.objective.targetMachine;
+      printMachine(layer.gateway, magenta('[GATEWAY]') + (isTarget ? ` ${red('[TARGET]')}` : ''));
+    }
+
+    // Show layer machines (match enriched versions from net.machines by IP)
+    const layerIps = new Set(layer.machines.map((m) => m.ip));
+    const enriched = net.machines.filter((m) => layerIps.has(m.ip));
+    enriched.forEach((m) => {
+      const tags: string[] = [];
+      if (m.ip === net.entryPoint) tags.push(green('[ENTRY]'));
+      if (m.ip === net.objective.targetMachine) tags.push(red('[TARGET]'));
+      printMachine(m, tags.join(' '));
+    });
   });
 };
 
 const printFileSystems = (net: MissionNetwork): void => {
   heading('FILESYSTEMS');
 
-  // Router filesystem
+  // Outer router filesystem
   const routerFs = net.fileSystems[net.routerMachine.ip];
   if (routerFs) {
     console.log('');
-    console.log(bold(`  ── ${net.routerMachine.hostname} (${net.routerMachine.ip}) ──`));
+    console.log(
+      bold(
+        `  ── ${net.routerMachine.hostname} (${net.routerMachine.ip}) ${magenta('[ROUTER]')} ──`,
+      ),
+    );
     printFileSystem(net.routerMachine.ip, routerFs);
   }
 
-  // Internal machines
-  const internal = net.machines.filter((m) => m.ip !== net.routerMachine.ip);
-  internal.forEach((m) => {
-    const fs = net.fileSystems[m.ip];
-    if (fs) {
+  // Per-layer filesystems
+  net.layers.forEach((layer, i) => {
+    if (net.layers.length > 1) {
       console.log('');
-      const tag = m.ip === net.entryPoint ? ` ${green('[ENTRY]')}` : '';
-      console.log(bold(`  ── ${m.hostname} (${m.ip})${tag} ──`));
-      printFileSystem(m.ip, fs);
+      console.log(dim(`  ─── Layer ${i}: ${layer.subnet}.0/24 ───`));
     }
+
+    // Inner gateway filesystem
+    if (i > 0) {
+      const gwFs = net.fileSystems[layer.gateway.ip];
+      if (gwFs) {
+        console.log('');
+        console.log(
+          bold(`  ── ${layer.gateway.hostname} (${layer.gateway.ip}) ${magenta('[GATEWAY]')} ──`),
+        );
+        printFileSystem(layer.gateway.ip, gwFs);
+      }
+    }
+
+    // Layer machine filesystems
+    const layerIps = new Set(layer.machines.map((m) => m.ip));
+    const enriched = net.machines.filter((m) => layerIps.has(m.ip));
+    enriched.forEach((m) => {
+      const fs = net.fileSystems[m.ip];
+      if (fs) {
+        console.log('');
+        const tags: string[] = [];
+        if (m.ip === net.entryPoint) tags.push(green('[ENTRY]'));
+        if (m.ip === net.objective.targetMachine) tags.push(red('[TARGET]'));
+        console.log(bold(`  ── ${m.hostname} (${m.ip}) ${tags.join(' ')} ──`));
+        printFileSystem(m.ip, fs);
+      }
+    });
   });
 };
 
