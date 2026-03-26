@@ -168,6 +168,20 @@ export const routerEntryPortTemplates: readonly EntryPortTemplate[] = [
     ],
   },
   {
+    variant: 'ftp',
+    ports: [
+      { port: 21, service: 'ftp', open: true },
+      { port: 22, service: 'ssh', open: true },
+    ],
+  },
+  {
+    variant: 'nc',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 4444, service: 'elite', open: true },
+    ],
+  },
+  {
     variant: 'exploit',
     ports: [
       { port: 22, service: 'ssh', open: true },
