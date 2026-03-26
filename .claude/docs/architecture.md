@@ -24,7 +24,7 @@ src/
 ├── generation/            # Seeded mission network generator
 │   ├── prng.ts                # Mulberry32 PRNG seeded via FNV-1a hash
 │   ├── types.ts               # MissionNetwork, GeneratedMachine, AttackStep, EntryVariant, etc.
-│   ├── pools.ts               # Data pools (usernames, hostnames, entry/port templates); passwords from encoded secrets
+│   ├── pools/                 # Data pools split by domain (machines, ports, vulnerabilities, filesystem, web, credentials, scripts, forensics); passwords from encoded secrets
 │   ├── ip.ts                  # Shared IP utilities: generatePublicIp (collision-aware), generatePrivateSubnet
 │   ├── topology.ts            # Network topology generator (machines, roles, entry variant, NetworkConfig)
 │   ├── users.ts               # User generator (per-machine users + credential map)

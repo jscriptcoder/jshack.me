@@ -91,7 +91,7 @@ Sensitive content is XOR+Base64 encoded at build time to prevent finding flag st
 - `predev`/`prebuild`/`pretest`/`pretest:run`/`pretest:coverage` hooks auto-run encode
 - `wifiNetworks.ts` imports from secrets `__encoded.ts`, not the plaintext `src/secrets/secrets.ts`
 - `generateWifi.ts` imports WiFi passwords from secrets `__encoded.ts`
-- `pools.ts` imports mission passwords from secrets `__encoded.ts` (not hardcoded in source)
+- `pools/` modules import mission passwords from secrets `__encoded.ts` (not hardcoded in source)
 - Unit tests import source files directly (unaffected by encoding)
 - Verify: `grep -r "FLAG{" dist/` and `grep -r "cr4ck3d_w1f1" dist/` after build should return zero matches (mission flags are generated at runtime, not embedded in the bundle)
 
