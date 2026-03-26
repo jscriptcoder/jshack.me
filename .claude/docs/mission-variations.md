@@ -335,14 +335,22 @@ Router is always the border device between localhost and the mission network.
 | Exploit | 22/ssh, 1883/mqtt   |
 | HTTP    | 22/ssh, 80/http     |
 
-## Router Entry Port Templates (4)
+## Router Entry Port Templates (12)
 
-Used when the router itself is the entry point (router-first mode). In router-first mode, entry credential hints (web content for HTTP, NC hints, exploit vulnerabilities) are placed on the router's filesystem, not on the internal entry machine. This ensures `curl`, `nc`, `msfconsole`, etc. work against the router.
+Used when a router/gateway is the entry point (router-first mode). Applies to both the outer border router and inner-layer gateways. In router-first mode, entry credential hints (web content for HTTP, NC hints, exploit vulnerabilities) are placed on the router's filesystem, not on the internal entry machine. This ensures `curl`, `nc`, `msfconsole`, etc. work against the router.
 
 | Variant | Ports                         |
 | ------- | ----------------------------- |
 | SSH     | 22/ssh, 80/http               |
+| FTP     | 21/ftp, 22/ssh                |
+| NC      | 22/ssh, 4444/elite            |
+| NC      | 22/ssh, 31337/elite           |
+| NC      | 22/ssh, 8888/elite            |
+| NC      | 22/ssh, 1337/elite            |
 | Exploit | 22/ssh, 8443/https            |
+| Exploit | 22/ssh, 80/http               |
+| Exploit | 22/ssh, 8080/http-alt         |
+| Exploit | 22/ssh, 1883/mqtt             |
 | HTTP    | 22/ssh, 80/http               |
 | SNMP    | 22/ssh (closed), 161/udp snmp |
 

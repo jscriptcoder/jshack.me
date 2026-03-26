@@ -210,6 +210,27 @@ export const routerEntryPortTemplates: readonly EntryPortTemplate[] = [
     ],
   },
   {
+    variant: 'exploit',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 80, service: 'http', open: true },
+    ],
+  },
+  {
+    variant: 'exploit',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 8080, service: 'http-alt', open: true },
+    ],
+  },
+  {
+    variant: 'exploit',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 1883, service: 'mqtt', open: true },
+    ],
+  },
+  {
     variant: 'http',
     ports: [
       { port: 22, service: 'ssh', open: true },
