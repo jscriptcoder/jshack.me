@@ -182,18 +182,15 @@ describe('formatMissionBriefing', () => {
     expect(briefing).not.toContain('Discover the root password');
   });
 
-  it('medium briefing includes network segmentation hint', () => {
-    const mission = generateMissionNetwork('test-medium');
-    const briefing = formatMissionBriefing(mission);
-    if (mission.layers.length > 1) {
-      expect(briefing).toContain('segmented');
+  it('briefing does not reveal network topology', () => {
+    const seeds = ['test-medium', 'test-hard-router-first', 'test-easy'];
+    for (const seed of seeds) {
+      const mission = generateMissionNetwork(seed);
+      const briefing = formatMissionBriefing(mission);
+      expect(briefing).not.toContain('segmented');
+      expect(briefing).not.toContain('gateway');
+      expect(briefing).not.toContain('subnet');
+      expect(briefing).not.toContain('layer');
     }
-  });
-
-  it('easy briefing does not include network segmentation hint', () => {
-    const mission = generateMissionNetwork('test-easy');
-    const briefing = formatMissionBriefing(mission);
-    expect(briefing).not.toContain('segmented');
-    expect(briefing).not.toContain('gateway');
   });
 });
