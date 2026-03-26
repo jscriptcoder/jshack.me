@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createPrng } from './prng';
-import { generateTopology } from './topology';
+import { generateTopology, generateSubnetLayer } from './topology';
 import type { Difficulty } from './types';
 
 // Checks if an IP falls within RFC 1918 private ranges
@@ -480,5 +480,140 @@ describe('generateTopology', () => {
       const b = generateTopology(createPrng('layer-det'), 'medium');
       expect(a.layers).toEqual(b.layers);
     });
+  });
+});
+
+describe('generateSubnetLayer', () => {
+  const makeConfig = (overrides: Partial<Parameters<typeof generateSubnetLayer>[1]> = {}) => ({
+    minMachines: 2,
+    maxMachines: 3,
+    difficulty: 'medium' as Difficulty,
+    usedSubnets: new Set<string>(),
+    usedHostnames: {} as Record<string, Set<string>>,
+    ...overrides,
+  });
+
+  it('produces deterministic output for the same seed', () => {
+    const a = generateSubnetLayer(createPrng('subnet-det'), makeConfig());
+    const b = generateSubnetLayer(createPrng('subnet-det'), makeConfig());
+    expect(a).toEqual(b);
+  });
+
+  it('produces different output for different seeds', () => {
+    const a = generateSubnetLayer(createPrng('subnet-alpha'), makeConfig());
+    const b = generateSubnetLayer(createPrng('subnet-beta'), makeConfig());
+    expect(a.subnet).not.toBe(b.subnet);
+  });
+
+  it('generates machine count within [min, max] range', () => {
+    const counts = Array.from({ length: 30 }, (_, i) => {
+      const result = generateSubnetLayer(
+        createPrng(`count-${i}`),
+        makeConfig({
+          minMachines: 2,
+          maxMachines: 4,
+        }),
+      );
+      return result.machines.length;
+    });
+    counts.forEach((c) => {
+      expect(c).toBeGreaterThanOrEqual(2);
+      expect(c).toBeLessThanOrEqual(4);
+    });
+  });
+
+  it('generates machines with IPs on the returned subnet', () => {
+    const result = generateSubnetLayer(createPrng('subnet-ips'), makeConfig());
+    result.machines.forEach((m) => {
+      expect(m.ip.startsWith(`${result.subnet}.`)).toBe(true);
+    });
+  });
+
+  it('entryPoint is the first machine IP', () => {
+    const result = generateSubnetLayer(createPrng('subnet-entry'), makeConfig());
+    expect(result.entryPoint).toBe(result.machines[0]?.ip);
+  });
+
+  it('entry machine is a webserver or workstation', () => {
+    const results = Array.from({ length: 20 }, (_, i) =>
+      generateSubnetLayer(createPrng(`entry-role-${i}`), makeConfig()),
+    );
+    results.forEach((r) => {
+      const entry = r.machines.find((m) => m.ip === r.entryPoint);
+      expect(['webserver', 'workstation']).toContain(entry?.role);
+    });
+  });
+
+  it('avoids subnets in usedSubnets set', () => {
+    const first = generateSubnetLayer(createPrng('avoid-subnet'), makeConfig());
+    const second = generateSubnetLayer(
+      createPrng('avoid-subnet'),
+      makeConfig({
+        usedSubnets: new Set([first.subnet]),
+      }),
+    );
+    expect(second.subnet).not.toBe(first.subnet);
+  });
+
+  it('shares usedHostnames across calls to prevent duplicates', () => {
+    const shared: Record<string, Set<string>> = {};
+    const a = generateSubnetLayer(
+      createPrng('host-share-a'),
+      makeConfig({
+        usedHostnames: shared,
+      }),
+    );
+    const b = generateSubnetLayer(
+      createPrng('host-share-b'),
+      makeConfig({
+        usedHostnames: shared,
+      }),
+    );
+    const allHostnames = [...a.machines, ...b.machines].map((m) => m.hostname);
+    expect(new Set(allHostnames).size).toBe(allHostnames.length);
+  });
+
+  it('returns gatewayPorts array', () => {
+    const result = generateSubnetLayer(createPrng('gw-ports'), makeConfig());
+    expect(result.gatewayPorts).toBeDefined();
+    expect(result.gatewayPorts.length).toBeGreaterThan(0);
+  });
+
+  it('returns a valid entryVariant', () => {
+    const result = generateSubnetLayer(createPrng('variant'), makeConfig());
+    expect(['ssh', 'ftp', 'nc', 'exploit', 'http', 'snmp']).toContain(result.entryVariant);
+  });
+
+  it('returns isForwarded boolean', () => {
+    const result = generateSubnetLayer(createPrng('fwd'), makeConfig());
+    expect(typeof result.isForwarded).toBe('boolean');
+  });
+
+  it('respects entryVariantOverride', () => {
+    const result = generateSubnetLayer(
+      createPrng('override'),
+      makeConfig({
+        entryVariantOverride: 'http',
+      }),
+    );
+    expect(result.entryVariant).toBe('http');
+  });
+
+  it('respects forwardedOverride', () => {
+    const forwarded = generateSubnetLayer(
+      createPrng('fwd-override'),
+      makeConfig({
+        forwardedOverride: true,
+      }),
+    );
+    expect(forwarded.isForwarded).toBe(true);
+
+    const routerFirst = generateSubnetLayer(
+      createPrng('fwd-override'),
+      makeConfig({
+        forwardedOverride: false,
+      }),
+    );
+    expect(routerFirst.isForwarded).toBe(false);
   });
 });

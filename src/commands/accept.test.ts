@@ -159,11 +159,13 @@ describe('formatMissionBriefing', () => {
     for (const seed of seeds) {
       const mission = generateMissionNetwork(seed);
       const briefing = formatMissionBriefing(mission);
+      const isBackdoor = mission.objective.type === 'backdoor';
 
       expect(briefing).not.toContain('nmap(');
       expect(briefing).not.toContain('nslookup(');
       expect(briefing).not.toContain('ftp(');
-      expect(briefing).not.toContain('nc(');
+      // backdoor objectives legitimately contain nc("-l", ...) in the hint
+      if (!isBackdoor) expect(briefing).not.toContain('nc(');
       expect(briefing).not.toContain('msfconsole(');
       expect(briefing).not.toContain('curl(');
     }

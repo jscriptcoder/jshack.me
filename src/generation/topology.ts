@@ -94,6 +94,26 @@ export type TopologyResult = {
   readonly layers: readonly SubnetLayer[];
 };
 
+export type SubnetLayerConfig = {
+  readonly minMachines: number;
+  readonly maxMachines: number;
+  readonly difficulty: Difficulty;
+  readonly usedSubnets: ReadonlySet<string>;
+  readonly usedHostnames: Record<string, Set<string>>;
+  readonly entryVariantOverride?: EntryVariant;
+  readonly forwardedOverride?: boolean;
+};
+
+export type SubnetLayerResult = {
+  readonly subnet: string;
+  readonly machines: readonly GeneratedMachine[];
+  readonly entryPoint: string;
+  readonly entryVariant: EntryVariant;
+  readonly internalEntryVariant: EntryVariant;
+  readonly isForwarded: boolean;
+  readonly gatewayPorts: readonly Port[];
+};
+
 const machineCountByDifficulty: Readonly<Record<Difficulty, readonly [number, number]>> = {
   easy: [2, 2],
   medium: [3, 4],
@@ -167,62 +187,59 @@ const isForwardedMode = (
   return prngResult;
 };
 
-export type TopologyOverrides = {
-  readonly entryVariantOverride?: EntryVariant;
-  readonly forwardedOverride?: boolean;
-  readonly usedIps?: ReadonlySet<string>;
+// Generates a unique private subnet prefix, avoiding any in usedSubnets.
+const pickSubnet = (prng: Prng, usedSubnets: ReadonlySet<string>): string => {
+  let subnet: string;
+  do {
+    subnet = generatePrivateSubnet(prng);
+  } while (usedSubnets.has(subnet));
+  return subnet;
 };
 
-export const generateTopology = (
-  prng: Prng,
-  difficulty: Difficulty,
-  overrides: TopologyOverrides = {},
-): TopologyResult => {
-  const [minMachines, maxMachines] = machineCountByDifficulty[difficulty];
+// Generates internal machines for a single subnet layer. The caller is responsible for
+// building the gateway/router machine, NAT forwarding, DNS, and network config.
+export const generateSubnetLayer = (prng: Prng, config: SubnetLayerConfig): SubnetLayerResult => {
+  const { minMachines, maxMachines, difficulty, usedHostnames } = config;
   const machineCount = prng.nextInt(minMachines, maxMachines);
 
-  // Internal subnet — PRNG picks from RFC 1918 private ranges:
-  // 10.x.x.0/24, 172.{16-31}.x.0/24, 192.168.{2-254}.0/24 (avoids 192.168.1.x static network)
-  const subnet = generatePrivateSubnet(prng);
+  const subnet = pickSubnet(prng, config.usedSubnets);
   const internalGateway = `${subnet}.1`;
 
-  const routerPublicIp = generatePublicIp(prng, overrides.usedIps);
-
-  // Forwarding mode decision
-  const forwarded = isForwardedMode(prng, difficulty, overrides.forwardedOverride);
+  const forwarded = isForwardedMode(prng, difficulty, config.forwardedOverride);
 
   // Select entry variant for the entry/DMZ machine.
   // Always consume PRNG picks to preserve sequence, then apply override if set.
   const prngEntryTemplate = prng.pick(entryPortTemplates);
-  const entryTemplate = overrides.entryVariantOverride
-    ? (entryPortTemplates.find((t) => t.variant === overrides.entryVariantOverride) ??
+  const entryTemplate = config.entryVariantOverride
+    ? (entryPortTemplates.find((t) => t.variant === config.entryVariantOverride) ??
       prngEntryTemplate)
     : prngEntryTemplate;
   const internalEntryVariant = entryTemplate.variant;
 
-  // In router-first mode, the player-facing entry variant applies to the router.
-  // Always consume PRNG pick for router template to preserve sequence.
+  // In router-first mode, the player-facing entry variant applies to the gateway.
+  // Always consume PRNG pick for router/gateway template to preserve sequence.
   const prngRouterTemplate = forwarded ? null : prng.pick(routerEntryPortTemplates);
   const routerTemplate = forwarded
     ? null
-    : overrides.entryVariantOverride
-      ? (routerEntryPortTemplates.find((t) => t.variant === overrides.entryVariantOverride) ??
+    : config.entryVariantOverride
+      ? (routerEntryPortTemplates.find((t) => t.variant === config.entryVariantOverride) ??
         prngRouterTemplate)
       : prngRouterTemplate;
   const entryVariant = forwarded ? internalEntryVariant : (routerTemplate?.variant ?? 'ssh');
+
+  // Gateway ports: router-first uses the entry template, forwarded uses default router ports
+  const gatewayPorts = routerTemplate
+    ? buildPortsFromTemplate(routerTemplate.ports)
+    : buildPorts('router');
 
   // Build internal machines (entry + others)
   const entryRole = prng.pick(entryRoles);
   const remainingRoles = Array.from({ length: machineCount - 1 }, () => prng.pick(allRoles));
   const roles: readonly MachineRole[] = [entryRole, ...remainingRoles];
 
-  // Track used hostnames to prevent duplicates across same-role machines
-  const usedHostnames: Record<string, Set<string>> = {};
-
   const pickUniqueHostname = (role: MachineRole): string => {
     const used = usedHostnames[role] ?? new Set<string>();
     const available = hostnamesByRole[role].filter((h) => !used.has(h));
-    // Always consume one PRNG call; fall back to suffix if pool exhausted
     const hostname =
       available.length > 0
         ? prng.pick(available)
@@ -231,7 +248,6 @@ export const generateTopology = (
     return hostname;
   };
 
-  // Generate unique random last octets for internal machine IPs (2-254, avoiding .1 gateway)
   const usedOctets = new Set<number>();
   const lastOctets = roles.map(() => {
     let octet: number;
@@ -246,11 +262,7 @@ export const generateTopology = (
     const ip = `${subnet}.${lastOctets[i]}`;
     const hostname = pickUniqueHostname(role);
     const isEntry = i === 0;
-    // Entry machine gets the internal entry variant; non-entry machines get PRNG-picked variants
     const accessVariant = isEntry ? internalEntryVariant : prng.pick(allVariants);
-
-    // In forwarded mode, entry machine gets the entry template ports (player connects directly).
-    // All other machines get variant-specific ports (role base + access variant extras).
     const ports =
       isEntry && forwarded
         ? buildPortsFromTemplate(entryTemplate.ports)
@@ -261,25 +273,54 @@ export const generateTopology = (
       hostname,
       role,
       accessVariant,
-      remoteMachine: {
-        ip,
-        hostname,
-        ports,
-        users: [],
-      },
+      remoteMachine: { ip, hostname, ports, users: [] },
     };
   });
 
-  const entryIp = machines[0]?.ip ?? internalGateway;
+  const entryPoint = machines[0]?.ip ?? internalGateway;
+
+  return {
+    subnet,
+    machines,
+    entryPoint,
+    entryVariant,
+    internalEntryVariant,
+    isForwarded: forwarded,
+    gatewayPorts,
+  };
+};
+
+export type TopologyOverrides = {
+  readonly entryVariantOverride?: EntryVariant;
+  readonly forwardedOverride?: boolean;
+  readonly usedIps?: ReadonlySet<string>;
+};
+
+export const generateTopology = (
+  prng: Prng,
+  difficulty: Difficulty,
+  overrides: TopologyOverrides = {},
+): TopologyResult => {
+  const [minMachines, maxMachines] = machineCountByDifficulty[difficulty];
+  const usedHostnames: Record<string, Set<string>> = {};
+
+  const layer = generateSubnetLayer(prng, {
+    minMachines,
+    maxMachines,
+    difficulty,
+    usedSubnets: new Set<string>(),
+    usedHostnames,
+    entryVariantOverride: overrides.entryVariantOverride,
+    forwardedOverride: overrides.forwardedOverride,
+  });
+
+  const { subnet, machines, entryPoint: entryIp, entryVariant, isForwarded: forwarded } = layer;
+  const internalGateway = `${subnet}.1`;
+
+  const routerPublicIp = generatePublicIp(prng, overrides.usedIps);
 
   // Build router machine
   const routerHostname = prng.pick(hostnamesByRole.router);
-  const routerPorts = routerTemplate
-    ? buildPortsFromTemplate(routerTemplate.ports)
-    : buildPorts('router');
-
-  // Router access variant: in router-first mode, uses the entry variant (player hacks router).
-  // In forwarded mode, router is accessed via SSH (player pivots through it).
   const routerAccessVariant: EntryVariant = forwarded ? 'ssh' : entryVariant;
 
   const routerMachine: GeneratedMachine = {
@@ -290,7 +331,7 @@ export const generateTopology = (
     remoteMachine: {
       ip: routerPublicIp,
       hostname: routerHostname,
-      ports: routerPorts,
+      ports: layer.gatewayPorts,
       users: [],
     },
   };
@@ -335,7 +376,7 @@ export const generateTopology = (
   const routerInternalRemote: RemoteMachine = {
     ip: internalGateway,
     hostname: routerHostname,
-    ports: routerPorts,
+    ports: layer.gatewayPorts,
     users: [],
   };
 
