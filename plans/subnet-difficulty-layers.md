@@ -306,6 +306,37 @@ Update player-facing text and documentation to reflect the layered network model
 | `forensics` evidence across isolated subnets | Player can't see all logs from one machine | Distribute evidence; briefing hints at multi-subnet investigation |
 | Forwarded-mode gateway NAT chains | Complex multi-hop resolution | Implement iterative resolveNat (resolve until stable) |
 
+## Future Work
+
+These ideas build on the subnet layering foundation and should be tackled in separate PRs:
+
+### Network Device Variety
+
+Gateways between subnets are always routers (dual-homed, routing between subnets). But
+**within** each subnet, machines could include other network device types:
+
+- **Managed Switch** — Layer 2 device with VLAN configuration, SNMP management interface,
+  web admin panel. Hackable via SNMP community strings or default web credentials. Filesystem
+  shows `show vlan`, `switch.conf` instead of routing tables. Adds realistic infrastructure
+  variety without new mechanics.
+
+- **Firewall Appliance** — Dedicated security device with firewall rule sets, IDS/IPS logs,
+  management interface. Different filesystem flavor (pf.conf, iptables-save dumps, alert logs).
+  Could gate access to specific machines within the same subnet (micro-segmentation).
+
+- **Hub** — Dumb broadcast device. Enables a **genuinely new mechanic**: passive traffic
+  sniffing. If a subnet uses a hub instead of a switch, the player can run `tcpdump` or
+  `wireshark` to capture credentials in transit between other machines — passive recon instead
+  of active brute-force. Requires new commands and a traffic simulation concept.
+
+### Implementation Notes
+
+- Extend `MachineRole` union type with `'switch'` | `'firewall'` | `'hub'`
+- Device type affects filesystem templates (config files, logs, management interfaces)
+- Hub sniffing mechanic is the most novel — design as its own feature with new commands
+  (`tcpdump`, `wireshark`) and simulated network traffic generation
+- Switches and firewalls are lower effort — mostly cosmetic variety on existing patterns
+
 ## Pre-PR Quality Gate
 
 Before each PR:
