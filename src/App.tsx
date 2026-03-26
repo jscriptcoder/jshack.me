@@ -35,6 +35,7 @@ function GameSession({ gameState }: { readonly gameState: GameState }) {
           missionRouterMachine={
             missionState.activeMission ? missionState.activeMission.routerMachine : undefined
           }
+          missionLayers={missionState.activeMission?.layers}
           homeNetwork={activeNetwork}
         >
           <Terminal />

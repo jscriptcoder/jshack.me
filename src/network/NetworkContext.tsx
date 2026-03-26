@@ -7,7 +7,7 @@ import type {
   RemoteUser,
   DnsRecord,
 } from './types';
-import type { GeneratedMachine, NatForwardingRule } from '../generation/types';
+import type { GeneratedMachine, NatForwardingRule, SubnetLayer } from '../generation/types';
 import { localhostDisconnectedInterfaces, localhostWlan0Down } from './initialNetwork';
 import type { HomeNetwork } from '../generation/generateHomeNetwork';
 import { useSession } from '../session/SessionContext';
@@ -53,6 +53,7 @@ type NetworkProviderProps = {
   readonly missionNetworkConfig?: NetworkConfig;
   readonly missionMachines?: readonly GeneratedMachine[];
   readonly missionRouterMachine?: GeneratedMachine;
+  readonly missionLayers?: readonly SubnetLayer[];
   readonly homeNetwork?: HomeNetwork | null;
 };
 
@@ -61,6 +62,7 @@ export const NetworkProvider = ({
   missionNetworkConfig,
   missionMachines,
   missionRouterMachine,
+  missionLayers,
   homeNetwork,
 }: NetworkProviderProps) => {
   const { session, wifiConnected } = useSession();
