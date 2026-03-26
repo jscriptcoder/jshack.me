@@ -70,25 +70,51 @@ export const NetworkProvider = ({
 
   const isLocalhostDisconnected = session.machine === 'localhost' && !wifiConnected;
 
-  // Dynamic iptables rules: read and parse /etc/iptables/rules.v4 from the
-  // router's filesystem on every render. When the player edits the file with
-  // nano, the filesystem state updates, triggering re-render and re-parse.
-  const iptablesRules = useMemo((): readonly NatForwardingRule[] => {
-    if (!missionRouterMachine) return [];
-    const node = getNodeFromMachine(missionRouterMachine.ip, '/etc/iptables/rules.v4', '/');
-    if (!node || node.type !== 'file' || !node.content) return [];
-    return parseIptablesRules(node.content);
-  }, [missionRouterMachine, getNodeFromMachine]);
+  // Collect all gateway IPs (border router + inner gateways) for iptables/SNMP parsing.
+  const gatewayIps = useMemo((): readonly string[] => {
+    const ips: string[] = [];
+    if (missionRouterMachine) ips.push(missionRouterMachine.ip);
+    if (missionLayers && missionLayers.length > 1) {
+      missionLayers.slice(1).forEach((layer) => ips.push(layer.gateway.ip));
+    }
+    return ips;
+  }, [missionRouterMachine, missionLayers]);
 
-  // Dynamic SNMP firewall rules: read and parse /etc/snmp/snmpd.conf from the
-  // router's filesystem. When the player runs snmpset to modify firewall OIDs,
+  // Dynamic iptables rules: read and parse /etc/iptables/rules.v4 from all
+  // gateway filesystems. When the player edits a file with nano, the filesystem
+  // state updates, triggering re-render and re-parse.
+  const allIptablesRules = useMemo((): ReadonlyMap<string, readonly NatForwardingRule[]> => {
+    const map = new Map<string, readonly NatForwardingRule[]>();
+    gatewayIps.forEach((ip) => {
+      const node = getNodeFromMachine(ip, '/etc/iptables/rules.v4', '/');
+      if (node?.type === 'file' && node.content) {
+        const rules = parseIptablesRules(node.content);
+        if (rules.length > 0) map.set(ip, rules);
+      }
+    });
+    return map;
+  }, [gatewayIps, getNodeFromMachine]);
+
+  // Backward-compatible: border router iptables rules used in baseConfig
+  const iptablesRules = allIptablesRules.get(missionRouterMachine?.ip ?? '') ?? [];
+
+  // Dynamic SNMP firewall rules: read and parse /etc/snmp/snmpd.conf from all
+  // gateway filesystems. When the player runs snmpset to modify firewall OIDs,
   // the filesystem state updates, triggering re-render and re-parse.
-  const snmpFirewallOverrides = useMemo((): readonly SnmpFirewallOverride[] => {
-    if (!missionRouterMachine) return [];
-    const node = getNodeFromMachine(missionRouterMachine.ip, '/etc/snmp/snmpd.conf', '/');
-    if (!node || node.type !== 'file' || !node.content) return [];
-    return parseSnmpFirewallConfig(node.content);
-  }, [missionRouterMachine, getNodeFromMachine]);
+  const allSnmpOverrides = useMemo((): ReadonlyMap<string, readonly SnmpFirewallOverride[]> => {
+    const map = new Map<string, readonly SnmpFirewallOverride[]>();
+    gatewayIps.forEach((ip) => {
+      const node = getNodeFromMachine(ip, '/etc/snmp/snmpd.conf', '/');
+      if (node?.type === 'file' && node.content) {
+        const overrides = parseSnmpFirewallConfig(node.content);
+        if (overrides.length > 0) map.set(ip, overrides);
+      }
+    });
+    return map;
+  }, [gatewayIps, getNodeFromMachine]);
+
+  // Backward-compatible: border router SNMP overrides used in baseConfig
+  const snmpFirewallOverrides = allSnmpOverrides.get(missionRouterMachine?.ip ?? '') ?? [];
 
   // Dynamic localhost wlan0 interface based on home network subnet
   const localhostHomeInterfaces = useMemo((): readonly NetworkInterface[] | null => {
@@ -218,15 +244,27 @@ export const NetworkProvider = ({
     localhostHomeInterfaces,
   ]);
 
-  // Dynamic daemon state: for each machine, check if sshd/ftpd pid files exist
-  // and apply port overrides. This enables dynamic port opening when the player
-  // starts daemons from an NC shell (same pattern as SNMP firewall overrides).
+  // Dynamic overrides: for each visible machine, apply gateway enhancements
+  // (NAT merged view, SNMP firewall) and daemon state (sshd, ftpd, nc).
   const currentConfig = useMemo((): MachineNetworkConfig => {
     const machines = baseConfig.machines.map((machine) => {
-      // Machines use their IP as the filesystem key — no special mapping needed
       const fsId = machine.ip;
-
       let result = machine;
+
+      // Inner gateway NAT merged view: show forwarded ports to upstream machines
+      const gatewayRules = allIptablesRules.get(machine.ip);
+      if (gatewayRules && gatewayRules.length > 0 && missionMachines) {
+        const gatewayGen = missionMachines.find((m) => m.ip === machine.ip);
+        if (gatewayGen) {
+          result = buildMergedRouterView(gatewayGen, missionMachines, gatewayRules);
+        }
+      }
+
+      // SNMP firewall overrides: dynamically open/close ports on gateways
+      const snmpOverrides = allSnmpOverrides.get(machine.ip);
+      if (snmpOverrides && snmpOverrides.length > 0) {
+        result = applySnmpFirewallOverrides(result, snmpOverrides);
+      }
 
       // sshd state
       const sshdNode = getNodeFromMachine(fsId, SSH_PID_FILE_PATH, '/');
@@ -249,8 +287,8 @@ export const NetworkProvider = ({
 
       return result;
     });
-    return machines === baseConfig.machines ? baseConfig : { ...baseConfig, machines };
-  }, [baseConfig, getNodeFromMachine]);
+    return { ...baseConfig, machines };
+  }, [baseConfig, allIptablesRules, allSnmpOverrides, missionMachines, getNodeFromMachine]);
 
   const getInterface = useCallback(
     (name: string): NetworkInterface | undefined => {
@@ -343,19 +381,21 @@ export const NetworkProvider = ({
     [homeNetwork, missionNetworkConfig, missionRouterMachine],
   );
 
-  // Port-aware NAT resolution: translates the router's public IP + port to the
-  // internal machine IP + port based on iptables rules parsed from the router's
-  // filesystem. Rules are dynamic — editing /etc/iptables/rules.v4 with nano
-  // takes effect on the next connection/scan.
+  // Port-aware NAT resolution: translates any gateway's IP + port to the
+  // internal machine IP + port based on iptables rules parsed from that
+  // gateway's filesystem. Works for both the border router and inner gateways.
+  // Rules are dynamic — editing /etc/iptables/rules.v4 with nano takes effect
+  // on the next connection/scan.
   const resolveNat = useCallback(
     (ip: string, port: number): { readonly ip: string; readonly port: number } => {
-      if (missionRouterMachine && ip === missionRouterMachine.ip) {
-        const rule = iptablesRules.find((r) => r.publicPort === port);
+      const rules = allIptablesRules.get(ip);
+      if (rules) {
+        const rule = rules.find((r) => r.publicPort === port);
         if (rule) return { ip: rule.internalIp, port: rule.internalPort };
       }
       return { ip, port };
     },
-    [missionRouterMachine, iptablesRules],
+    [allIptablesRules],
   );
 
   return (
