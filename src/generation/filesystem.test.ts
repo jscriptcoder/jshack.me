@@ -92,9 +92,16 @@ describe('generateFileSystems', () => {
   });
 
   it('target machine has the target file for exfiltrate/tamper objectives', () => {
-    for (let i = 0; i < 50; i++) {
+    for (let i = 0; i < 200; i++) {
       const { fileSystems, objective } = buildTestData(`target-file-${i}`);
-      if (objective.type === 'credential_theft' || objective.type === 'sabotage') continue;
+      if (
+        objective.type === 'credential_theft' ||
+        objective.type === 'sabotage' ||
+        objective.type === 'backdoor' ||
+        objective.type === 'portforward' ||
+        objective.type === 'forensics'
+      )
+        continue;
 
       const targetFs = fileSystems[objective.targetMachine];
       const targetFile = resolveNode(targetFs as FileNode, objective.targetPath);
@@ -108,7 +115,7 @@ describe('generateFileSystems', () => {
       expect(objective.targetPath).not.toBe('/root/flag.txt');
       return;
     }
-    throw new Error('No exfiltrate/tamper objective found in 50 seeds');
+    throw new Error('No exfiltrate/tamper objective found in 200 seeds');
   });
 
   it('credential_theft objective skips target file placement', () => {

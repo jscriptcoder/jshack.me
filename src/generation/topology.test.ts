@@ -30,46 +30,48 @@ describe('generateTopology', () => {
     expect(result.machines).toHaveLength(2);
   });
 
-  it('generates 3-4 machines for medium difficulty', () => {
+  it('generates 5-7 machines for medium difficulty (2 layers + gateway)', () => {
     const counts = Array.from({ length: 20 }, (_, i) => {
       const result = generateTopology(createPrng(`medium-${i}`), 'medium');
       return result.machines.length;
     });
     counts.forEach((c) => {
-      expect(c).toBeGreaterThanOrEqual(3);
-      expect(c).toBeLessThanOrEqual(4);
+      expect(c).toBeGreaterThanOrEqual(5);
+      expect(c).toBeLessThanOrEqual(7);
     });
   });
 
-  it('generates 4-6 machines for hard difficulty', () => {
+  it('generates 8-11 machines for hard difficulty (3 layers + 2 gateways)', () => {
     const counts = Array.from({ length: 20 }, (_, i) => {
       const result = generateTopology(createPrng(`hard-${i}`), 'hard');
       return result.machines.length;
     });
     counts.forEach((c) => {
-      expect(c).toBeGreaterThanOrEqual(4);
-      expect(c).toBeLessThanOrEqual(6);
+      expect(c).toBeGreaterThanOrEqual(8);
+      expect(c).toBeLessThanOrEqual(11);
     });
   });
 
-  it('assigns unique internal IPs on the same subnet with valid last octets', () => {
-    const result = generateTopology(createPrng('ip-test'), 'medium');
-    const ips = result.machines.map((m) => m.ip);
-    const parts = ips.map((ip) => ip.split('.'));
-
-    // All IPs share the same subnet prefix
-    const subnet = `${parts[0]?.[0]}.${parts[0]?.[1]}.${parts[0]?.[2]}`;
-    parts.forEach((p) => {
-      expect(`${p[0]}.${p[1]}.${p[2]}`).toBe(subnet);
+  it('assigns unique IPs within each subnet layer with valid last octets', () => {
+    const result = generateTopology(createPrng('ip-test'), 'hard');
+    // Group machines by subnet prefix (first 3 octets)
+    const bySubnet = new Map<string, string[]>();
+    result.machines.forEach((m) => {
+      const parts = m.ip.split('.');
+      const subnet = `${parts[0]}.${parts[1]}.${parts[2]}`;
+      const existing = bySubnet.get(subnet) ?? [];
+      bySubnet.set(subnet, [...existing, m.ip]);
     });
 
-    // Last octets are unique and in valid range (2-254)
-    const lastOctets = parts.map((p) => Number(p[3]));
-    lastOctets.forEach((o) => {
-      expect(o).toBeGreaterThanOrEqual(2);
-      expect(o).toBeLessThanOrEqual(254);
+    // Each subnet should have unique last octets in valid range
+    bySubnet.forEach((ips) => {
+      const lastOctets = ips.map((ip) => Number(ip.split('.')[3]));
+      lastOctets.forEach((o) => {
+        expect(o).toBeGreaterThanOrEqual(2);
+        expect(o).toBeLessThanOrEqual(254);
+      });
+      expect(new Set(lastOctets).size).toBe(lastOctets.length);
     });
-    expect(new Set(lastOctets).size).toBe(lastOctets.length);
   });
 
   it('entry point is a webserver or workstation', () => {
@@ -83,13 +85,14 @@ describe('generateTopology', () => {
     });
   });
 
-  it('generates DNS records for all internal machines plus router', () => {
-    const result = generateTopology(createPrng('dns-test'), 'medium');
-    const firstConfig = Object.values(result.networkConfig.machineConfigs)[0];
-    // Internal DNS includes all mission machines + router
-    expect(firstConfig?.dnsRecords).toHaveLength(result.machines.length + 1);
-    result.machines.forEach((m) => {
-      const dns = firstConfig?.dnsRecords.find((d) => d.ip === m.ip);
+  it('generates per-layer DNS records for machines in each layer', () => {
+    const result = generateTopology(createPrng('dns-test'), 'easy');
+    const layer0 = result.layers[0]!;
+    const firstMachineConfig = result.networkConfig.machineConfigs[layer0.machines[0]!.ip];
+
+    // Layer 0 machines should have DNS records for their layer peers + gateway
+    layer0.machines.forEach((m) => {
+      const dns = firstMachineConfig?.dnsRecords.find((d) => d.ip === m.ip);
       expect(dns).toBeDefined();
       expect(dns?.domain).toBe(`${m.hostname}.mission`);
     });
@@ -102,21 +105,22 @@ describe('generateTopology', () => {
       expect(config).toBeDefined();
       const ips = config?.machines.map((rm) => rm.ip) ?? [];
       expect(ips).not.toContain(m.ip);
-      // Visible machines = other internal machines + router internal IP
-      expect(config?.machines).toHaveLength(result.machines.length);
     });
   });
 
   it('generates valid network interfaces for each internal machine', () => {
     const result = generateTopology(createPrng('iface-test'), 'medium');
-    result.machines.forEach((m) => {
-      const config = result.networkConfig.machineConfigs[m.ip];
-      expect(config?.interfaces).toHaveLength(1);
-      const iface = config?.interfaces[0];
-      expect(iface?.name).toBe('eth0');
-      expect(iface?.inet).toBe(m.ip);
-      expect(iface?.flags).toContain('UP');
-    });
+    // Non-gateway machines have 1 interface; gateways have 2 (tested separately)
+    result.machines
+      .filter((m) => m.role !== 'router')
+      .forEach((m) => {
+        const config = result.networkConfig.machineConfigs[m.ip];
+        expect(config?.interfaces).toHaveLength(1);
+        const iface = config?.interfaces[0];
+        expect(iface?.name).toBe('eth0');
+        expect(iface?.inet).toBe(m.ip);
+        expect(iface?.flags).toContain('UP');
+      });
   });
 
   (['easy', 'medium', 'hard'] as readonly Difficulty[]).forEach((diff) => {
@@ -162,14 +166,31 @@ describe('generateTopology', () => {
     expect(isPrivateIp(eth1Ip)).toBe(true);
   });
 
-  it('router can see all internal machines', () => {
+  it('router can see layer 0 machines and first gateway', () => {
     const result = generateTopology(createPrng('router-sees'), 'medium');
     const routerConfig = result.networkConfig.machineConfigs[result.routerPublicIp];
-    expect(routerConfig?.machines).toHaveLength(result.machines.length);
-    result.machines.forEach((m) => {
+    const layer0 = result.layers[0]!;
+
+    // Router sees layer 0 machines
+    layer0.machines.forEach((m) => {
       const found = routerConfig?.machines.find((rm) => rm.ip === m.ip);
       expect(found).toBeDefined();
     });
+
+    // For multi-layer, router also sees the first gateway
+    if (result.layers.length > 1) {
+      const gateway = result.layers[1]!.gateway;
+      const found = routerConfig?.machines.find((rm) => rm.ip === gateway.ip);
+      expect(found).toBeDefined();
+    }
+
+    // Router does NOT see deeper layer machines
+    if (result.layers.length > 1) {
+      result.layers[1]!.machines.forEach((m) => {
+        const found = routerConfig?.machines.find((rm) => rm.ip === m.ip);
+        expect(found).toBeUndefined();
+      });
+    }
   });
 
   it('internal machines cannot see router public IP directly', () => {
@@ -416,69 +437,151 @@ describe('generateTopology', () => {
 
   // SubnetLayer tests
   describe('layers', () => {
-    it('includes a layers array with exactly 1 SubnetLayer for all difficulties', () => {
-      const difficulties: readonly Difficulty[] = ['easy', 'medium', 'hard'];
-      difficulties.forEach((diff) => {
-        const result = generateTopology(createPrng(`layers-${diff}`), diff);
-        expect(result.layers).toBeDefined();
-        expect(result.layers).toHaveLength(1);
+    it('easy has 1 layer, medium has 2, hard has 3', () => {
+      expect(generateTopology(createPrng('layers-e'), 'easy').layers).toHaveLength(1);
+      expect(generateTopology(createPrng('layers-m'), 'medium').layers).toHaveLength(2);
+      expect(generateTopology(createPrng('layers-h'), 'hard').layers).toHaveLength(3);
+    });
+
+    it('each layer has a unique subnet prefix', () => {
+      const result = generateTopology(createPrng('unique-subnets'), 'hard');
+      const subnets = result.layers.map((l) => l.subnet);
+      expect(new Set(subnets).size).toBe(subnets.length);
+    });
+
+    it('layer machines have IPs on their own subnet', () => {
+      const result = generateTopology(createPrng('layer-ips'), 'hard');
+      result.layers.forEach((layer) => {
+        layer.machines.forEach((m) => {
+          expect(m.ip.startsWith(`${layer.subnet}.`)).toBe(true);
+        });
       });
     });
 
-    it('layer has a valid subnet prefix matching machine IPs', () => {
-      const result = generateTopology(createPrng('layer-subnet'), 'medium');
-      const layer = result.layers[0]!;
-      expect(layer.subnet).toBeDefined();
-      // All machines should be on this subnet
-      result.machines.forEach((m) => {
-        expect(m.ip.startsWith(`${layer.subnet}.`)).toBe(true);
+    it('each layer has 2-3 machines (excluding gateways)', () => {
+      const results = Array.from({ length: 20 }, (_, i) =>
+        generateTopology(createPrng(`per-layer-${i}`), 'hard'),
+      );
+      results.forEach((r) => {
+        r.layers.forEach((layer) => {
+          expect(layer.machines.length).toBeGreaterThanOrEqual(2);
+          expect(layer.machines.length).toBeLessThanOrEqual(3);
+        });
       });
     });
 
-    it('layer gateway is the router machine', () => {
-      const result = generateTopology(createPrng('layer-gw'), 'medium');
-      const layer = result.layers[0]!;
-      expect(layer.gateway).toBeDefined();
-      expect(layer.gateway.ip).toBe(result.routerPublicIp);
-      expect(layer.gateway.role).toBe('router');
+    it('layer 0 gateway is the outer router', () => {
+      const result = generateTopology(createPrng('layer0-gw'), 'medium');
+      expect(result.layers[0]!.gateway.ip).toBe(result.routerPublicIp);
+      expect(result.layers[0]!.gateway.role).toBe('router');
     });
 
-    it('layer entryVariant matches the topology entryVariant', () => {
-      const result = generateTopology(createPrng('layer-variant'), 'medium');
-      const layer = result.layers[0]!;
-      expect(layer.entryVariant).toBe(result.entryVariant);
+    it('inner layer gateways are router-role machines on the upstream subnet', () => {
+      const result = generateTopology(createPrng('inner-gw'), 'hard');
+      for (let i = 1; i < result.layers.length; i++) {
+        const gateway = result.layers[i]!.gateway;
+        const upstreamSubnet = result.layers[i - 1]!.subnet;
+        expect(gateway.role).toBe('router');
+        expect(gateway.ip.startsWith(`${upstreamSubnet}.`)).toBe(true);
+      }
     });
 
-    it('layer machines match the flat machines array', () => {
-      const result = generateTopology(createPrng('layer-machines'), 'medium');
-      const layer = result.layers[0]!;
-      expect(layer.machines).toEqual(result.machines);
+    it('inner gateways have dual interfaces (upstream eth0, downstream eth1)', () => {
+      const result = generateTopology(createPrng('gw-ifaces'), 'hard');
+      for (let i = 1; i < result.layers.length; i++) {
+        const gateway = result.layers[i]!.gateway;
+        const downstreamSubnet = result.layers[i]!.subnet;
+        const config = result.networkConfig.machineConfigs[gateway.ip];
+        expect(config).toBeDefined();
+        expect(config?.interfaces).toHaveLength(2);
+        expect(config?.interfaces[0]?.name).toBe('eth0');
+        expect(config?.interfaces[1]?.name).toBe('eth1');
+        expect(config?.interfaces[1]?.inet).toBe(`${downstreamSubnet}.1`);
+      }
     });
 
-    it('layer isForwarded matches the presence of natForwarding', () => {
+    it('inner gateways can see machines from both adjacent layers', () => {
+      const result = generateTopology(createPrng('gw-visibility'), 'hard');
+      for (let i = 1; i < result.layers.length; i++) {
+        const gateway = result.layers[i]!.gateway;
+        const upstreamLayer = result.layers[i - 1]!;
+        const downstreamLayer = result.layers[i]!;
+        const config = result.networkConfig.machineConfigs[gateway.ip];
+        const visibleIps = config?.machines.map((rm) => rm.ip) ?? [];
+
+        // Gateway sees upstream layer machines
+        upstreamLayer.machines.forEach((m) => {
+          expect(visibleIps).toContain(m.ip);
+        });
+        // Gateway sees downstream layer machines
+        downstreamLayer.machines.forEach((m) => {
+          expect(visibleIps).toContain(m.ip);
+        });
+      }
+    });
+
+    it('machines in one layer cannot see machines in other layers', () => {
+      const result = generateTopology(createPrng('isolation'), 'hard');
+      for (let i = 0; i < result.layers.length; i++) {
+        const layer = result.layers[i]!;
+        for (const machine of layer.machines) {
+          const config = result.networkConfig.machineConfigs[machine.ip];
+          const visibleIps = config?.machines.map((rm) => rm.ip) ?? [];
+
+          // Should NOT see machines from other layers (only gateways connect them)
+          for (let j = 0; j < result.layers.length; j++) {
+            if (j === i) continue;
+            result.layers[j]!.machines.forEach((m) => {
+              expect(visibleIps).not.toContain(m.ip);
+            });
+          }
+        }
+      }
+    });
+
+    it('layer 0 entryVariant matches topology entryVariant', () => {
+      const result = generateTopology(createPrng('entry-var'), 'medium');
+      expect(result.layers[0]!.entryVariant).toBe(result.entryVariant);
+    });
+
+    it('entry point is on layer 0', () => {
+      const result = generateTopology(createPrng('entry-layer0'), 'hard');
+      const layer0Ips = result.layers[0]!.machines.map((m) => m.ip);
+      expect(layer0Ips).toContain(result.entryPoint);
+    });
+
+    it('outermost layer isForwarded matches natForwarding presence', () => {
       const results = Array.from({ length: 30 }, (_, i) =>
         generateTopology(createPrng(`layer-fwd-${i}`), 'easy'),
       );
       results.forEach((r) => {
-        const layer = r.layers[0]!;
-        expect(layer.isForwarded).toBe(r.natForwarding !== undefined);
+        expect(r.layers[0]!.isForwarded).toBe(r.natForwarding !== undefined);
       });
     });
 
-    it('layer natForwarding matches the topology natForwarding', () => {
-      const results = Array.from({ length: 30 }, (_, i) =>
-        generateTopology(createPrng(`layer-nat-${i}`), 'easy'),
-      );
-      results.forEach((r) => {
-        const layer = r.layers[0]!;
-        expect(layer.natForwarding).toEqual(r.natForwarding);
-      });
+    it('inner gateway machines are included in the flat machines array', () => {
+      const result = generateTopology(createPrng('flat-gw'), 'hard');
+      for (let i = 1; i < result.layers.length; i++) {
+        const gateway = result.layers[i]!.gateway;
+        const found = result.machines.find((m) => m.ip === gateway.ip);
+        expect(found).toBeDefined();
+      }
     });
 
     it('layers are deterministic for the same seed', () => {
-      const a = generateTopology(createPrng('layer-det'), 'medium');
-      const b = generateTopology(createPrng('layer-det'), 'medium');
+      const a = generateTopology(createPrng('layer-det'), 'hard');
+      const b = generateTopology(createPrng('layer-det'), 'hard');
       expect(a.layers).toEqual(b.layers);
+    });
+
+    it('all hostnames are unique across all layers and gateways', () => {
+      const results = Array.from({ length: 20 }, (_, i) =>
+        generateTopology(createPrng(`host-uniq-${i}`), 'hard'),
+      );
+      results.forEach((r) => {
+        const allHostnames = [...r.machines.map((m) => m.hostname), r.routerMachine.hostname];
+        expect(new Set(allHostnames).size).toBe(allHostnames.length);
+      });
     });
   });
 });

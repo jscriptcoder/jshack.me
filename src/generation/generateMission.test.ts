@@ -445,17 +445,21 @@ describe('generateMissionNetwork', () => {
     });
 
     it('FTP port 21 is open when SSH is closed unless dual closure with NC backdoor', () => {
-      for (let i = 0; i < 200; i++) {
+      for (let i = 0; i < 500; i++) {
         const result = generateMissionNetwork(`ftp-guarantee-${i}`);
-        result.machines.forEach((m) => {
-          const sshClosed = m.remoteMachine.ports.some((p) => p.port === 22 && !p.open);
-          if (sshClosed) {
-            const ftpOpen = m.remoteMachine.ports.some((p) => p.port === 21 && p.open);
-            const hasBackdoor = m.remoteMachine.ports.some((p) => p.service === 'elite' && p.open);
-            // Either FTP is open (single closure) or there's a backdoor (dual closure)
-            expect(ftpOpen || hasBackdoor).toBe(true);
-          }
-        });
+        result.machines
+          .filter((m) => m.role !== 'router')
+          .forEach((m) => {
+            const sshClosed = m.remoteMachine.ports.some((p) => p.port === 22 && !p.open);
+            if (sshClosed) {
+              const ftpOpen = m.remoteMachine.ports.some((p) => p.port === 21 && p.open);
+              const hasBackdoor = m.remoteMachine.ports.some(
+                (p) => p.service === 'elite' && p.open,
+              );
+              // Either FTP is open (single closure) or there's a backdoor (dual closure)
+              expect(ftpOpen || hasBackdoor).toBe(true);
+            }
+          });
       }
     });
 
@@ -487,12 +491,14 @@ describe('generateMissionNetwork', () => {
         const result = generateMissionNetwork(`script-fix-noclose-${i}`);
         if (result.objective.type !== 'script_fix') continue;
 
-        result.machines.forEach((m) => {
-          const sshPort = m.remoteMachine.ports.find((p) => p.port === 22);
-          if (sshPort) {
-            expect(sshPort.open).toBe(true);
-          }
-        });
+        result.machines
+          .filter((m) => m.role !== 'router')
+          .forEach((m) => {
+            const sshPort = m.remoteMachine.ports.find((p) => p.port === 22);
+            if (sshPort) {
+              expect(sshPort.open).toBe(true);
+            }
+          });
       }
     });
 
@@ -610,12 +616,14 @@ describe('generateMissionNetwork', () => {
       const result = generateMissionNetwork(`backdoor-noclose-${i}`);
       if (result.objective.type !== 'backdoor') continue;
 
-      result.machines.forEach((m) => {
-        const sshPort = m.remoteMachine.ports.find((p) => p.port === 22);
-        if (sshPort) {
-          expect(sshPort.open).toBe(true);
-        }
-      });
+      result.machines
+        .filter((m) => m.role !== 'router')
+        .forEach((m) => {
+          const sshPort = m.remoteMachine.ports.find((p) => p.port === 22);
+          if (sshPort) {
+            expect(sshPort.open).toBe(true);
+          }
+        });
     }
   });
 
@@ -624,12 +632,14 @@ describe('generateMissionNetwork', () => {
       const result = generateMissionNetwork(`sabotage-noclose-${i}`);
       if (result.objective.type !== 'sabotage') continue;
 
-      result.machines.forEach((m) => {
-        const sshPort = m.remoteMachine.ports.find((p) => p.port === 22);
-        if (sshPort) {
-          expect(sshPort.open).toBe(true);
-        }
-      });
+      result.machines
+        .filter((m) => m.role !== 'router')
+        .forEach((m) => {
+          const sshPort = m.remoteMachine.ports.find((p) => p.port === 22);
+          if (sshPort) {
+            expect(sshPort.open).toBe(true);
+          }
+        });
     }
   });
 
@@ -652,12 +662,14 @@ describe('generateMissionNetwork', () => {
       const result = generateMissionNetwork(`portforward-noclose-${i}`);
       if (result.objective.type !== 'portforward') continue;
 
-      result.machines.forEach((m) => {
-        const sshPort = m.remoteMachine.ports.find((p) => p.port === 22);
-        if (sshPort) {
-          expect(sshPort.open).toBe(true);
-        }
-      });
+      result.machines
+        .filter((m) => m.role !== 'router')
+        .forEach((m) => {
+          const sshPort = m.remoteMachine.ports.find((p) => p.port === 22);
+          if (sshPort) {
+            expect(sshPort.open).toBe(true);
+          }
+        });
     }
   });
 

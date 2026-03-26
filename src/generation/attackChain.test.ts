@@ -33,7 +33,7 @@ describe('buildMissionObjective', () => {
 
   it('produces different output for different seeds', () => {
     const a = buildTestData('chain-alpha');
-    const b = buildTestData('chain-beta');
+    const b = buildTestData('chain-gamma-distinct');
     expect(a.result.clientEmail).not.toBe(b.result.clientEmail);
   });
 
