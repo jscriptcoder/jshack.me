@@ -481,6 +481,7 @@ export const generateMissionNetwork = (
     natForwarding: topology.natForwarding,
     entryVariant: topology.entryVariant,
     entryPoint: topology.entryPoint,
+    difficulty,
   });
 
   // Domain entry: when active, briefing shows router domain instead of IP.

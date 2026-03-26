@@ -4,7 +4,12 @@ import { generateTopology } from './topology';
 import { generateUsers } from './users';
 import { buildMissionObjective } from './attackChain';
 import { generateFileSystems } from './filesystem';
-import { credentialLeakTemplates } from './pools';
+import {
+  credentialLeakTemplates,
+  forensicsCallingCardTemplates,
+  forensicsLogTypes,
+  forensicsNoiseIps,
+} from './pools';
 import type { FileNode } from '../filesystem/types';
 
 const buildTestData = (seed: string) => {
@@ -697,6 +702,23 @@ describe('generateFileSystems', () => {
       expect(a.fileSystems).toEqual(b.fileSystems);
     });
   });
+  describe('forensics pools', () => {
+    it('has at least 5 calling card templates with {{handle}} in content', () => {
+      expect(forensicsCallingCardTemplates.length).toBeGreaterThanOrEqual(5);
+      for (const template of forensicsCallingCardTemplates) {
+        expect(template.content).toContain('{{handle}}');
+      }
+    });
+
+    it('has 3 log types', () => {
+      expect(forensicsLogTypes).toEqual(['ssh', 'ftp', 'http']);
+    });
+
+    it('has noise IPs', () => {
+      expect(forensicsNoiseIps.length).toBeGreaterThanOrEqual(5);
+    });
+  });
+
   describe('forensics evidence placement', () => {
     const buildForensics = (seed: string, difficulty: 'easy' | 'medium' | 'hard' = 'medium') => {
       const prng = createPrng(seed);
@@ -724,22 +746,40 @@ describe('generateFileSystems', () => {
         natForwarding: topology.natForwarding,
         entryVariant: topology.entryVariant,
         entryPoint: topology.entryPoint,
+        difficulty,
       });
       return { topology, fileSystems, objective, credentials };
     };
 
-    it('places auth.log with attacker IP on at least one machine', () => {
+    it('places attacker IP in log files on at least one machine', () => {
       const { fileSystems, objective } = buildForensics('forensics-logs-1');
       const attackerIp = objective.attackerIp!;
 
-      const allAuthLogs = Object.values(fileSystems).map((fs) =>
-        resolveNode(fs, '/var/log/auth.log'),
-      );
-      const hasAttackerIp = allAuthLogs.some(
-        (node) => node?.type === 'file' && node.content?.includes(attackerIp),
-      );
+      // Check all log types (auth.log, vsftpd.log, access.log)
+      const allLogContent = Object.values(fileSystems).flatMap((fs) => {
+        const logFiles = ['auth.log', 'vsftpd.log', 'access.log'];
+        return logFiles
+          .map((name) => resolveNode(fs, `/var/log/${name}`))
+          .filter((node) => node?.type === 'file')
+          .map((node) => node!.content ?? '');
+      });
+      const hasAttackerIp = allLogContent.some((c) => c.includes(attackerIp));
 
       expect(hasAttackerIp).toBe(true);
+    });
+
+    it('uses varied log types across seeds', () => {
+      const logTypesFound = new Set<string>();
+      for (let i = 0; i < 50; i++) {
+        const { fileSystems } = buildForensics(`forensics-logtype-${i}`);
+        for (const fs of Object.values(fileSystems)) {
+          if (resolveNode(fs, '/var/log/auth.log')?.content) logTypesFound.add('ssh');
+          if (resolveNode(fs, '/var/log/vsftpd.log')?.content) logTypesFound.add('ftp');
+          if (resolveNode(fs, '/var/log/access.log')?.content) logTypesFound.add('http');
+        }
+        if (logTypesFound.size >= 3) break;
+      }
+      expect(logTypesFound.size).toBeGreaterThanOrEqual(2);
     });
 
     it('places attacker calling card file on a machine', () => {
@@ -750,6 +790,69 @@ describe('generateFileSystems', () => {
       const hasCallingCard = allContent.some((c) => c.includes(handle));
 
       expect(hasCallingCard).toBe(true);
+    });
+
+    it('uses varied calling card placements across seeds', () => {
+      const topDirs = new Set<string>();
+      for (let i = 0; i < 50; i++) {
+        const { fileSystems, objective } = buildForensics(`forensics-card-vary-${i}`);
+        const handle = objective.attackerHandle!;
+        // Find which top-level directory the calling card ended up in
+        for (const fs of Object.values(fileSystems)) {
+          for (const [dirName, child] of Object.entries(fs.children ?? {})) {
+            if (dirName === 'var') continue; // skip log directories
+            const files = collectAllFiles(child);
+            if (files.some((f) => f.content?.includes(handle))) {
+              topDirs.add(dirName);
+            }
+          }
+        }
+        if (topDirs.size >= 3) break;
+      }
+      expect(topDirs.size).toBeGreaterThanOrEqual(2);
+    });
+
+    it('includes noise log entries from non-attacker IPs', () => {
+      const { fileSystems, objective } = buildForensics('forensics-noise-1');
+      const attackerIp = objective.attackerIp!;
+
+      // Collect all log file content
+      const logContent = Object.values(fileSystems).flatMap((fs) => {
+        return ['auth.log', 'vsftpd.log', 'access.log']
+          .map((name) => resolveNode(fs, `/var/log/${name}`))
+          .filter((node) => node?.type === 'file')
+          .map((node) => node!.content ?? '');
+      });
+
+      // At least one log file should contain an IP that isn't the attacker's
+      const allLines = logContent.flatMap((c) => c.split('\n'));
+      const hasNoiseIp = allLines.some((line) => line.length > 0 && !line.includes(attackerIp));
+
+      expect(hasNoiseIp).toBe(true);
+    });
+
+    it('hard difficulty has more noise entries than easy', () => {
+      const countNoiseLines = (seed: string, difficulty: 'easy' | 'hard') => {
+        const { fileSystems, objective } = buildForensics(seed, difficulty);
+        const attackerIp = objective.attackerIp!;
+        return Object.values(fileSystems)
+          .flatMap((fs) =>
+            ['auth.log', 'vsftpd.log', 'access.log']
+              .map((name) => resolveNode(fs, `/var/log/${name}`))
+              .filter((node) => node?.type === 'file')
+              .flatMap((node) => (node!.content ?? '').split('\n')),
+          )
+          .filter((line) => line.length > 0 && !line.includes(attackerIp)).length;
+      };
+
+      // Average across several seeds to account for PRNG variance
+      let easyTotal = 0;
+      let hardTotal = 0;
+      for (let i = 0; i < 20; i++) {
+        easyTotal += countNoiseLines(`forensics-noise-easy-${i}`, 'easy');
+        hardTotal += countNoiseLines(`forensics-noise-hard-${i}`, 'hard');
+      }
+      expect(hardTotal).toBeGreaterThan(easyTotal);
     });
 
     it('is deterministic', () => {
