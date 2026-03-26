@@ -88,33 +88,51 @@ Network is per-machine — `NetworkContext` uses `session.machine` to resolve th
 
 ## Mission Network Topology
 
-Mission networks use a realistic router topology. Every mission generates a border router between localhost and the internal mission network.
+Mission networks use a multi-layer subnet topology. Every mission generates a border router between localhost and the internal mission network. Difficulty controls network depth via isolated subnet layers:
+
+- **Easy (1 layer)**: 2 machines in a single subnet behind the border router
+- **Medium (2 layers)**: 2 layers separated by a gateway machine (5-7 machines total including gateway)
+- **Hard (3 layers)**: 3 layers with 2 gateways (8-11 machines total including gateways)
+
+Each layer has its own private subnet and entry variant. Gateway machines are dual-homed router-role machines with interfaces in both adjacent subnets. Subnet isolation: machines in one layer can only see other machines in their own layer — only gateways bridge layers. The target is always in the deepest layer (except portforward, which targets layer 0).
 
 ```
 localhost (<dynamic IP from home network subnet>)
-  can see --> <public>.x.x.x (router public IP only)
+  can see --> <public>.x.x.x (border router public IP only)
 
-Router (<public>.x.x.x public / <private>.x.x.1 internal) — real machine with filesystem
+Border Router (<public>.x.x.x public / <layer0-subnet>.1 internal)
   Public IP first octet picked from: [45, 51, 62, 78, 91, 103, 138, 162, 185, 198, 203, 212]
   Internal subnet picked from RFC 1918: 10.x.x.0/24, 172.{16-31}.x.0/24, 192.168.{2-254}.0/24
-  [forwarded mode]: NAT forwards entry ports --> <private>.x.x.10 (entry/DMZ)
+  [forwarded mode]: NAT forwards entry ports --> layer 0 entry machine
   [router-first mode]: no forwarding, player hacks router first
 
-Entry/DMZ (<private>.x.x.10)
-  can see --> <private>.x.x.11, <private>.x.x.12 (internal machines)
+Layer 0 (<layer0-subnet>.10, .11, ...) — 2-3 machines
+  can see --> each other + border router internal IP
+  CANNOT see --> deeper layers
 
-Internal (<private>.x.x.11, <private>.x.x.12)
-  can see --> each other + entry + router internal IP (<private>.x.x.1)
-  CANNOT see --> router public IP or localhost
+Gateway (<layer0-subnet>.x / <layer1-subnet>.1) — dual-homed, bridges layers 0 and 1
+  [medium/hard only]
+
+Layer 1 (<layer1-subnet>.10, .11, ...) — 2-3 machines
+  can see --> each other + gateway
+  CANNOT see --> layer 0 or border router
+
+Gateway (<layer1-subnet>.x / <layer2-subnet>.1) — bridges layers 1 and 2
+  [hard only]
+
+Layer 2 (<layer2-subnet>.10, .11, ...) — 2-3 machines (target here)
+  can see --> each other + gateway
+  CANNOT see --> earlier layers
 ```
 
-### Router Details
+### Router & Gateway Details
 
-- Role: `'router'` — has its own users, filesystem, firewall rules, routing tables
+- Border router role: `'router'` — has its own users, filesystem, firewall rules, routing tables
 - Infrastructure-only: never the mission target, but contains hints about internal machines
 - Dual interfaces: `eth0` (public IP) + `eth1` (internal gateway)
 - `/etc/hosts` lists internal machine hostnames and IPs
 - `/var/log/firewall.log` shows iptables traffic logs
+- Gateway machines: dual-homed router-role machines with interfaces in both adjacent subnets; `/etc/hosts` lists downstream machines; `/etc/iptables/rules.v4` with forwarding rules
 
 ### Network Modes
 

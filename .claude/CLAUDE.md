@@ -147,7 +147,8 @@ See `architecture.md` for full details. Key points:
 
 See `architecture.md` for integration details, `mission-variations.md` for all generation axes.
 
-- `generateMissionNetwork(seed, usedIps?)` deterministically produces a full network. Seeds embed keywords for overrides (difficulty, entry variant, network mode, objective, domain, gpg, snmp). When `usedIps` is provided, the router's public IP is guaranteed unique (re-rolls on collision). Shared IP utilities in `src/generation/ip.ts` provide `generatePublicIp` and `generatePrivateSubnet` — used by both mission and home network generation.
+- `generateMissionNetwork(seed, usedIps?)` deterministically produces a multi-layer subnet topology. Seeds embed keywords for overrides (difficulty, entry variant, network mode, objective, domain, gpg, snmp). When `usedIps` is provided, the router's public IP is guaranteed unique (re-rolls on collision). Shared IP utilities in `src/generation/ip.ts` provide `generatePublicIp` and `generatePrivateSubnet` — used by both mission and home network generation.
+- Subnet layers: easy=1 layer (2 machines), medium=2 layers (5-7 machines), hard=3 layers (8-11 machines). Each layer has its own entry variant and private subnet. Gateways are dual-homed router-role machines with interfaces in both adjacent subnets. Subnet isolation enforced via NetworkConfig — machines in one layer cannot see machines in other layers. Target is always in the deepest layer (except portforward which targets layer 0). Seed keywords for entry variant and network mode apply to the outermost layer only.
 - Provider hierarchy: `SessionProvider → GameSession (useHomeNetworks, generateLocalhost) → MissionProvider → FileSystemProvider → NetworkProvider → Terminal`
 - Commands: `missions()`, `accept(seed)`, `abort()`, `mail(recipient, content)`
 - Eight objectives: exfiltrate, tamper, credential_theft, script_fix, sabotage, backdoor, portforward, forensics
