@@ -115,7 +115,11 @@ describe('generateMissionNetwork', () => {
       if (
         result.objective.type === 'credential_theft' ||
         result.objective.type === 'sabotage' ||
-        result.objective.type === 'backdoor'
+        result.objective.type === 'backdoor' ||
+        result.objective.type === 'portforward' ||
+        result.objective.type === 'forensics' ||
+        result.objective.binary ||
+        result.objective.encrypted
       )
         continue;
 

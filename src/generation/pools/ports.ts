@@ -182,6 +182,27 @@ export const routerEntryPortTemplates: readonly EntryPortTemplate[] = [
     ],
   },
   {
+    variant: 'nc',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 31337, service: 'elite', open: true },
+    ],
+  },
+  {
+    variant: 'nc',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 8888, service: 'elite', open: true },
+    ],
+  },
+  {
+    variant: 'nc',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 1337, service: 'elite', open: true },
+    ],
+  },
+  {
     variant: 'exploit',
     ports: [
       { port: 22, service: 'ssh', open: true },
