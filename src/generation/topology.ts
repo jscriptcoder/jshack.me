@@ -1,6 +1,12 @@
 import type { Prng } from './prng';
 import { generatePrivateSubnet, generatePublicIp } from './ip';
-import type { Difficulty, GeneratedMachine, MachineRole, NatForwarding } from './types';
+import type {
+  Difficulty,
+  GeneratedMachine,
+  MachineRole,
+  NatForwarding,
+  SubnetLayer,
+} from './types';
 import type {
   DnsRecord,
   MachineNetworkConfig,
@@ -85,6 +91,7 @@ export type TopologyResult = {
   readonly entryPoint: string;
   readonly entryVariant: EntryVariant;
   readonly externalDnsRecords: readonly DnsRecord[];
+  readonly layers: readonly SubnetLayer[];
 };
 
 const machineCountByDifficulty: Readonly<Record<Difficulty, readonly [number, number]>> = {
@@ -357,6 +364,17 @@ export const generateTopology = (
     dnsRecords: internalDnsRecords,
   };
 
+  const layers: readonly SubnetLayer[] = [
+    {
+      subnet,
+      gateway: routerMachine,
+      entryVariant,
+      machines,
+      isForwarded: forwarded,
+      natForwarding,
+    },
+  ];
+
   return {
     machines,
     routerMachine,
@@ -366,5 +384,6 @@ export const generateTopology = (
     entryPoint: entryIp,
     entryVariant,
     externalDnsRecords,
+    layers,
   };
 };

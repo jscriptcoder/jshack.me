@@ -413,4 +413,72 @@ describe('generateTopology', () => {
     const result2 = generateTopology(createPrng(seed), 'medium', { usedIps: blocked });
     expect(result2.routerPublicIp).not.toBe(result1.routerPublicIp);
   });
+
+  // SubnetLayer tests
+  describe('layers', () => {
+    it('includes a layers array with exactly 1 SubnetLayer for all difficulties', () => {
+      const difficulties: readonly Difficulty[] = ['easy', 'medium', 'hard'];
+      difficulties.forEach((diff) => {
+        const result = generateTopology(createPrng(`layers-${diff}`), diff);
+        expect(result.layers).toBeDefined();
+        expect(result.layers).toHaveLength(1);
+      });
+    });
+
+    it('layer has a valid subnet prefix matching machine IPs', () => {
+      const result = generateTopology(createPrng('layer-subnet'), 'medium');
+      const layer = result.layers[0]!;
+      expect(layer.subnet).toBeDefined();
+      // All machines should be on this subnet
+      result.machines.forEach((m) => {
+        expect(m.ip.startsWith(`${layer.subnet}.`)).toBe(true);
+      });
+    });
+
+    it('layer gateway is the router machine', () => {
+      const result = generateTopology(createPrng('layer-gw'), 'medium');
+      const layer = result.layers[0]!;
+      expect(layer.gateway).toBeDefined();
+      expect(layer.gateway.ip).toBe(result.routerPublicIp);
+      expect(layer.gateway.role).toBe('router');
+    });
+
+    it('layer entryVariant matches the topology entryVariant', () => {
+      const result = generateTopology(createPrng('layer-variant'), 'medium');
+      const layer = result.layers[0]!;
+      expect(layer.entryVariant).toBe(result.entryVariant);
+    });
+
+    it('layer machines match the flat machines array', () => {
+      const result = generateTopology(createPrng('layer-machines'), 'medium');
+      const layer = result.layers[0]!;
+      expect(layer.machines).toEqual(result.machines);
+    });
+
+    it('layer isForwarded matches the presence of natForwarding', () => {
+      const results = Array.from({ length: 30 }, (_, i) =>
+        generateTopology(createPrng(`layer-fwd-${i}`), 'easy'),
+      );
+      results.forEach((r) => {
+        const layer = r.layers[0]!;
+        expect(layer.isForwarded).toBe(r.natForwarding !== undefined);
+      });
+    });
+
+    it('layer natForwarding matches the topology natForwarding', () => {
+      const results = Array.from({ length: 30 }, (_, i) =>
+        generateTopology(createPrng(`layer-nat-${i}`), 'easy'),
+      );
+      results.forEach((r) => {
+        const layer = r.layers[0]!;
+        expect(layer.natForwarding).toEqual(r.natForwarding);
+      });
+    });
+
+    it('layers are deterministic for the same seed', () => {
+      const a = generateTopology(createPrng('layer-det'), 'medium');
+      const b = generateTopology(createPrng('layer-det'), 'medium');
+      expect(a.layers).toEqual(b.layers);
+    });
+  });
 });
