@@ -236,6 +236,8 @@ Unified filesystem-based access model (`src/commands/availability.ts`). All comm
 
 **Key properties**: Deterministic (same seed → identical network). 5 machine roles, 3 difficulty tiers, 6 entry variants (ssh, ftp, nc, exploit, http, snmp), 2 network modes, 8 objective types. Output types match existing `NetworkConfig`, `RemoteMachine`, `FileNode`. Mission passwords imported from `src/secrets/__encoded.ts`.
 
+**Multi-layer subnet topology**: Difficulty controls network depth via isolated subnet layers. Easy missions have 1 layer (2 machines). Medium missions have 2 layers separated by a gateway (5-7 machines total). Hard missions have 3 layers with 2 gateways (8-11 machines total). Each layer has its own private subnet, entry variant, and 2-3 machines. Gateway machines are dual-homed routers with interfaces in both adjacent subnets. Subnet isolation means machines can only see other machines in their own layer — only gateways bridge layers. The target is always in the deepest layer (except portforward, which targets layer 0). `MissionNetwork.layers` (type `readonly SubnetLayer[]`) exposes per-layer topology. `buildMissionObjective` takes the `layers` parameter for target placement.
+
 ## Mission System Integration
 
 `src/mission/` integrates the generator with React contexts. See `mission-variations.md` for entry variants, objective types, templates, and briefing intel.

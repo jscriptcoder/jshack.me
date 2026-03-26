@@ -73,6 +73,15 @@ export type CredentialMap = Readonly<
 
 export type EntryVariant = 'ssh' | 'ftp' | 'nc' | 'exploit' | 'http' | 'snmp';
 
+export type SubnetLayer = {
+  readonly subnet: string;
+  readonly gateway: GeneratedMachine;
+  readonly entryVariant: EntryVariant;
+  readonly machines: readonly GeneratedMachine[];
+  readonly isForwarded: boolean;
+  readonly natForwarding?: NatForwarding;
+};
+
 export type MissionNetwork = {
   readonly seed: string;
   readonly difficulty: Difficulty;
@@ -88,6 +97,7 @@ export type MissionNetwork = {
   readonly natForwarding?: NatForwarding;
   readonly routerDomain: string;
   readonly domainEntry: boolean;
+  readonly layers: readonly SubnetLayer[];
 };
 
 export type NatForwardingRule = {

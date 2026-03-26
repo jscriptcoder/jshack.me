@@ -137,12 +137,12 @@ describe('formatMissionBriefing', () => {
     expect(briefing).toContain('Objective:');
   });
 
-  it('SNMP variant does not include entry hints in briefing', () => {
+  it('SNMP variant does not include SNMP-specific entry hints in briefing', () => {
     const mission = generateMissionNetwork('test-snmp-hard-router-first');
     expect(mission.entryVariant).toBe('snmp');
     const briefing = formatMissionBriefing(mission);
 
-    expect(briefing).not.toContain('Intel:');
+    // SNMP entry has no hints about SNMP/community strings — player must discover independently
     expect(briefing).not.toContain('legacy management');
     expect(briefing).not.toContain('community');
   });
@@ -159,11 +159,13 @@ describe('formatMissionBriefing', () => {
     for (const seed of seeds) {
       const mission = generateMissionNetwork(seed);
       const briefing = formatMissionBriefing(mission);
+      const isBackdoor = mission.objective.type === 'backdoor';
 
       expect(briefing).not.toContain('nmap(');
       expect(briefing).not.toContain('nslookup(');
       expect(briefing).not.toContain('ftp(');
-      expect(briefing).not.toContain('nc(');
+      // backdoor objectives legitimately contain nc("-l", ...) in the hint
+      if (!isBackdoor) expect(briefing).not.toContain('nc(');
       expect(briefing).not.toContain('msfconsole(');
       expect(briefing).not.toContain('curl(');
     }
@@ -178,5 +180,17 @@ describe('formatMissionBriefing', () => {
     expect(briefing).toContain('Investigate');
     expect(briefing).toContain('logs');
     expect(briefing).not.toContain('Discover the root password');
+  });
+
+  it('briefing does not reveal network topology', () => {
+    const seeds = ['test-medium', 'test-hard-router-first', 'test-easy'];
+    for (const seed of seeds) {
+      const mission = generateMissionNetwork(seed);
+      const briefing = formatMissionBriefing(mission);
+      expect(briefing).not.toContain('segmented');
+      expect(briefing).not.toContain('gateway');
+      expect(briefing).not.toContain('subnet');
+      expect(briefing).not.toContain('layer');
+    }
   });
 });

@@ -19,11 +19,13 @@ Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `tes
 
 ## Difficulty Tiers (3)
 
-| Tier   | Internal Machines | Router | Hop Count     | Network Mode                        |
-| ------ | ----------------- | ------ | ------------- | ----------------------------------- |
-| Easy   | 2                 | 1      | 1             | 70% forwarded, 30% router-first     |
-| Medium | 3–4               | 1      | up to 2       | 50% forwarded, 50% router-first     |
-| Hard   | 4–6               | 1      | all non-entry | Always router-first (no forwarding) |
+| Tier   | Subnet Layers | Machines per Layer | Total Machines | Gateways | Router | Network Mode                        |
+| ------ | ------------- | ------------------ | -------------- | -------- | ------ | ----------------------------------- |
+| Easy   | 1             | 2                  | 2              | 0        | 1      | 70% forwarded, 30% router-first     |
+| Medium | 2             | 2–3                | 5–7            | 1        | 1      | 50/50 per layer                     |
+| Hard   | 3             | 2–3                | 8–11           | 2        | 1      | Always router-first (no forwarding) |
+
+Difficulty adds network depth via isolated subnet layers. Each layer has its own private subnet and entry variant (SSH, FTP, NC, exploit, HTTP, SNMP). Layer boundaries require hacking a dual-homed gateway machine to reach the next layer. The target is always placed in the deepest layer (except portforward, which targets layer 0). Seed keywords for entry variant and network mode apply to the outermost layer only.
 
 ## Entry Variants (6)
 

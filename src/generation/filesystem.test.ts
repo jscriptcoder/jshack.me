@@ -12,9 +12,9 @@ import {
 } from './pools';
 import type { FileNode } from '../filesystem/types';
 
-const buildTestData = (seed: string) => {
+const buildTestData = (seed: string, difficulty: 'easy' | 'medium' | 'hard' = 'medium') => {
   const prng = createPrng(seed);
-  const topology = generateTopology(prng, 'medium');
+  const topology = generateTopology(prng, difficulty);
   const { usersByMachine, credentials } = generateUsers(
     prng,
     topology.machines,
@@ -25,7 +25,8 @@ const buildTestData = (seed: string) => {
     machines: topology.machines,
     credentials,
     entryPoint: topology.entryPoint,
-    difficulty: 'medium',
+    difficulty,
+    layers: topology.layers,
   });
   const fileSystems = generateFileSystems({
     prng,
@@ -33,6 +34,7 @@ const buildTestData = (seed: string) => {
     usersByMachine,
     credentials,
     objective,
+    layers: topology.layers,
   });
   return { topology, fileSystems, objective, credentials, usersByMachine };
 };
@@ -92,9 +94,16 @@ describe('generateFileSystems', () => {
   });
 
   it('target machine has the target file for exfiltrate/tamper objectives', () => {
-    for (let i = 0; i < 50; i++) {
+    for (let i = 0; i < 200; i++) {
       const { fileSystems, objective } = buildTestData(`target-file-${i}`);
-      if (objective.type === 'credential_theft' || objective.type === 'sabotage') continue;
+      if (
+        objective.type === 'credential_theft' ||
+        objective.type === 'sabotage' ||
+        objective.type === 'backdoor' ||
+        objective.type === 'portforward' ||
+        objective.type === 'forensics'
+      )
+        continue;
 
       const targetFs = fileSystems[objective.targetMachine];
       const targetFile = resolveNode(targetFs as FileNode, objective.targetPath);
@@ -108,7 +117,7 @@ describe('generateFileSystems', () => {
       expect(objective.targetPath).not.toBe('/root/flag.txt');
       return;
     }
-    throw new Error('No exfiltrate/tamper objective found in 50 seeds');
+    throw new Error('No exfiltrate/tamper objective found in 200 seeds');
   });
 
   it('credential_theft objective skips target file placement', () => {
@@ -859,6 +868,73 @@ describe('generateFileSystems', () => {
       const a = buildForensics('forensics-determ');
       const b = buildForensics('forensics-determ');
       expect(a.fileSystems).toEqual(b.fileSystems);
+    });
+  });
+
+  describe('inner gateway filesystems', () => {
+    it('inner gateways have /etc/iptables/rules.v4', () => {
+      for (let i = 0; i < 20; i++) {
+        const { topology, fileSystems } = buildTestData(`gw-iptables-${i}`, 'hard');
+        for (let j = 1; j < topology.layers.length; j++) {
+          const gateway = topology.layers[j]!.gateway;
+          const fs = fileSystems[gateway.ip];
+          if (!fs) continue;
+          const iptables = resolveNode(fs, '/etc/iptables/rules.v4');
+          expect(iptables).toBeDefined();
+          expect(iptables?.type).toBe('file');
+        }
+      }
+    });
+
+    it('forwarded inner gateways have populated iptables rules', () => {
+      let found = false;
+      for (let i = 0; i < 100; i++) {
+        const { topology, fileSystems } = buildTestData(`gw-nat-${i}`, 'medium');
+        for (let j = 1; j < topology.layers.length; j++) {
+          const layer = topology.layers[j]!;
+          if (!layer.isForwarded) continue;
+          const gateway = layer.gateway;
+          const fs = fileSystems[gateway.ip];
+          if (!fs) continue;
+          const iptables = resolveNode(fs, '/etc/iptables/rules.v4');
+          if (!iptables || iptables.type !== 'file' || !iptables.content) continue;
+          // Forwarded gateways should have "forward" rules pointing to entry machine
+          expect(iptables.content).toContain('forward');
+          expect(iptables.content).toContain(layer.machines[0]!.ip);
+          found = true;
+          break;
+        }
+        if (found) break;
+      }
+      // Medium difficulty has 50% forwarded chance — should find at least one
+      expect(found).toBe(true);
+    });
+
+    it('inner gateway /etc/hosts lists only downstream machines', () => {
+      for (let i = 0; i < 20; i++) {
+        const { topology, fileSystems } = buildTestData(`gw-hosts-${i}`, 'hard');
+        for (let j = 1; j < topology.layers.length; j++) {
+          const gateway = topology.layers[j]!.gateway;
+          const downstreamMachines = topology.layers[j]!.machines;
+          const fs = fileSystems[gateway.ip];
+          if (!fs) continue;
+          const hosts = resolveNode(fs, '/etc/hosts');
+          if (!hosts || hosts.type !== 'file' || !hosts.content) continue;
+
+          // Downstream machines should be in /etc/hosts
+          downstreamMachines.forEach((m) => {
+            expect(hosts.content).toContain(m.hostname);
+          });
+
+          // Machines from other layers (non-downstream) should NOT be listed
+          const otherLayers = topology.layers.filter((_, idx) => idx !== j);
+          otherLayers.forEach((layer) => {
+            layer.machines.forEach((m) => {
+              expect(hosts.content).not.toContain(m.ip);
+            });
+          });
+        }
+      }
     });
   });
 });

@@ -1,6 +1,12 @@
 import type { Prng } from './prng';
 import { generatePrivateSubnet, generatePublicIp } from './ip';
-import type { Difficulty, GeneratedMachine, MachineRole, NatForwarding } from './types';
+import type {
+  Difficulty,
+  GeneratedMachine,
+  MachineRole,
+  NatForwarding,
+  SubnetLayer,
+} from './types';
 import type {
   DnsRecord,
   MachineNetworkConfig,
@@ -85,12 +91,38 @@ export type TopologyResult = {
   readonly entryPoint: string;
   readonly entryVariant: EntryVariant;
   readonly externalDnsRecords: readonly DnsRecord[];
+  readonly layers: readonly SubnetLayer[];
 };
 
-const machineCountByDifficulty: Readonly<Record<Difficulty, readonly [number, number]>> = {
-  easy: [2, 2],
-  medium: [3, 4],
-  hard: [4, 6],
+export type SubnetLayerConfig = {
+  readonly minMachines: number;
+  readonly maxMachines: number;
+  readonly difficulty: Difficulty;
+  readonly usedSubnets: ReadonlySet<string>;
+  readonly usedHostnames: Record<string, Set<string>>;
+  readonly entryVariantOverride?: EntryVariant;
+  readonly forwardedOverride?: boolean;
+};
+
+export type SubnetLayerResult = {
+  readonly subnet: string;
+  readonly machines: readonly GeneratedMachine[];
+  readonly entryPoint: string;
+  readonly entryVariant: EntryVariant;
+  readonly internalEntryVariant: EntryVariant;
+  readonly isForwarded: boolean;
+  readonly gatewayPorts: readonly Port[];
+};
+
+type DifficultyConfig = {
+  readonly layerCount: number;
+  readonly machinesPerLayer: readonly [number, number];
+};
+
+const difficultyConfig: Readonly<Record<Difficulty, DifficultyConfig>> = {
+  easy: { layerCount: 1, machinesPerLayer: [2, 2] },
+  medium: { layerCount: 2, machinesPerLayer: [2, 3] },
+  hard: { layerCount: 3, machinesPerLayer: [2, 3] },
 };
 
 const allRoles: readonly MachineRole[] = [
@@ -160,71 +192,73 @@ const isForwardedMode = (
   return prngResult;
 };
 
-export type TopologyOverrides = {
-  readonly entryVariantOverride?: EntryVariant;
-  readonly forwardedOverride?: boolean;
-  readonly usedIps?: ReadonlySet<string>;
+// Picks a unique hostname for a machine role, tracking used hostnames to prevent
+// duplicates across all layers and gateways. Mutates usedHostnames.
+const pickUniqueHostname = (
+  prng: Prng,
+  role: MachineRole,
+  usedHostnames: Record<string, Set<string>>,
+): string => {
+  const used = usedHostnames[role] ?? new Set<string>();
+  const available = hostnamesByRole[role].filter((h) => !used.has(h));
+  const hostname =
+    available.length > 0
+      ? prng.pick(available)
+      : `${prng.pick(hostnamesByRole[role])}-${used.size}`;
+  usedHostnames[role] = new Set([...used, hostname]);
+  return hostname;
 };
 
-export const generateTopology = (
-  prng: Prng,
-  difficulty: Difficulty,
-  overrides: TopologyOverrides = {},
-): TopologyResult => {
-  const [minMachines, maxMachines] = machineCountByDifficulty[difficulty];
+// Generates a unique private subnet prefix, avoiding any in usedSubnets.
+const pickSubnet = (prng: Prng, usedSubnets: ReadonlySet<string>): string => {
+  let subnet: string;
+  do {
+    subnet = generatePrivateSubnet(prng);
+  } while (usedSubnets.has(subnet));
+  return subnet;
+};
+
+// Generates internal machines for a single subnet layer. The caller is responsible for
+// building the gateway/router machine, NAT forwarding, DNS, and network config.
+export const generateSubnetLayer = (prng: Prng, config: SubnetLayerConfig): SubnetLayerResult => {
+  const { minMachines, maxMachines, difficulty, usedHostnames } = config;
   const machineCount = prng.nextInt(minMachines, maxMachines);
 
-  // Internal subnet — PRNG picks from RFC 1918 private ranges:
-  // 10.x.x.0/24, 172.{16-31}.x.0/24, 192.168.{2-254}.0/24 (avoids 192.168.1.x static network)
-  const subnet = generatePrivateSubnet(prng);
+  const subnet = pickSubnet(prng, config.usedSubnets);
   const internalGateway = `${subnet}.1`;
 
-  const routerPublicIp = generatePublicIp(prng, overrides.usedIps);
-
-  // Forwarding mode decision
-  const forwarded = isForwardedMode(prng, difficulty, overrides.forwardedOverride);
+  const forwarded = isForwardedMode(prng, difficulty, config.forwardedOverride);
 
   // Select entry variant for the entry/DMZ machine.
   // Always consume PRNG picks to preserve sequence, then apply override if set.
   const prngEntryTemplate = prng.pick(entryPortTemplates);
-  const entryTemplate = overrides.entryVariantOverride
-    ? (entryPortTemplates.find((t) => t.variant === overrides.entryVariantOverride) ??
+  const entryTemplate = config.entryVariantOverride
+    ? (entryPortTemplates.find((t) => t.variant === config.entryVariantOverride) ??
       prngEntryTemplate)
     : prngEntryTemplate;
   const internalEntryVariant = entryTemplate.variant;
 
-  // In router-first mode, the player-facing entry variant applies to the router.
-  // Always consume PRNG pick for router template to preserve sequence.
+  // In router-first mode, the player-facing entry variant applies to the gateway.
+  // Always consume PRNG pick for router/gateway template to preserve sequence.
   const prngRouterTemplate = forwarded ? null : prng.pick(routerEntryPortTemplates);
   const routerTemplate = forwarded
     ? null
-    : overrides.entryVariantOverride
-      ? (routerEntryPortTemplates.find((t) => t.variant === overrides.entryVariantOverride) ??
+    : config.entryVariantOverride
+      ? (routerEntryPortTemplates.find((t) => t.variant === config.entryVariantOverride) ??
         prngRouterTemplate)
       : prngRouterTemplate;
   const entryVariant = forwarded ? internalEntryVariant : (routerTemplate?.variant ?? 'ssh');
+
+  // Gateway ports: router-first uses the entry template, forwarded uses default router ports
+  const gatewayPorts = routerTemplate
+    ? buildPortsFromTemplate(routerTemplate.ports)
+    : buildPorts('router');
 
   // Build internal machines (entry + others)
   const entryRole = prng.pick(entryRoles);
   const remainingRoles = Array.from({ length: machineCount - 1 }, () => prng.pick(allRoles));
   const roles: readonly MachineRole[] = [entryRole, ...remainingRoles];
 
-  // Track used hostnames to prevent duplicates across same-role machines
-  const usedHostnames: Record<string, Set<string>> = {};
-
-  const pickUniqueHostname = (role: MachineRole): string => {
-    const used = usedHostnames[role] ?? new Set<string>();
-    const available = hostnamesByRole[role].filter((h) => !used.has(h));
-    // Always consume one PRNG call; fall back to suffix if pool exhausted
-    const hostname =
-      available.length > 0
-        ? prng.pick(available)
-        : `${prng.pick(hostnamesByRole[role])}-${used.size}`;
-    usedHostnames[role] = new Set([...used, hostname]);
-    return hostname;
-  };
-
-  // Generate unique random last octets for internal machine IPs (2-254, avoiding .1 gateway)
   const usedOctets = new Set<number>();
   const lastOctets = roles.map(() => {
     let octet: number;
@@ -237,13 +271,9 @@ export const generateTopology = (
 
   const machines: readonly GeneratedMachine[] = roles.map((role, i) => {
     const ip = `${subnet}.${lastOctets[i]}`;
-    const hostname = pickUniqueHostname(role);
+    const hostname = pickUniqueHostname(prng, role, usedHostnames);
     const isEntry = i === 0;
-    // Entry machine gets the internal entry variant; non-entry machines get PRNG-picked variants
     const accessVariant = isEntry ? internalEntryVariant : prng.pick(allVariants);
-
-    // In forwarded mode, entry machine gets the entry template ports (player connects directly).
-    // All other machines get variant-specific ports (role base + access variant extras).
     const ports =
       isEntry && forwarded
         ? buildPortsFromTemplate(entryTemplate.ports)
@@ -254,26 +284,63 @@ export const generateTopology = (
       hostname,
       role,
       accessVariant,
-      remoteMachine: {
-        ip,
-        hostname,
-        ports,
-        users: [],
-      },
+      remoteMachine: { ip, hostname, ports, users: [] },
     };
   });
 
-  const entryIp = machines[0]?.ip ?? internalGateway;
+  const entryPoint = machines[0]?.ip ?? internalGateway;
 
-  // Build router machine
-  const routerHostname = prng.pick(hostnamesByRole.router);
-  const routerPorts = routerTemplate
-    ? buildPortsFromTemplate(routerTemplate.ports)
-    : buildPorts('router');
+  return {
+    subnet,
+    machines,
+    entryPoint,
+    entryVariant,
+    internalEntryVariant,
+    isForwarded: forwarded,
+    gatewayPorts,
+  };
+};
 
-  // Router access variant: in router-first mode, uses the entry variant (player hacks router).
-  // In forwarded mode, router is accessed via SSH (player pivots through it).
-  const routerAccessVariant: EntryVariant = forwarded ? 'ssh' : entryVariant;
+export type TopologyOverrides = {
+  readonly entryVariantOverride?: EntryVariant;
+  readonly forwardedOverride?: boolean;
+  readonly usedIps?: ReadonlySet<string>;
+};
+
+export const generateTopology = (
+  prng: Prng,
+  difficulty: Difficulty,
+  overrides: TopologyOverrides = {},
+): TopologyResult => {
+  const { layerCount, machinesPerLayer } = difficultyConfig[difficulty];
+  const [minMachines, maxMachines] = machinesPerLayer;
+  const usedHostnames: Record<string, Set<string>> = {};
+  const usedSubnets = new Set<string>();
+
+  // 1. Generate all subnet layers
+  const layerResults: readonly SubnetLayerResult[] = Array.from({ length: layerCount }, (_, i) => {
+    const layer = generateSubnetLayer(prng, {
+      minMachines,
+      maxMachines,
+      difficulty,
+      usedSubnets,
+      usedHostnames,
+      // Only outermost layer gets user overrides
+      entryVariantOverride: i === 0 ? overrides.entryVariantOverride : undefined,
+      forwardedOverride: i === 0 ? overrides.forwardedOverride : undefined,
+    });
+    usedSubnets.add(layer.subnet);
+    return layer;
+  });
+
+  const outerLayer = layerResults[0]!;
+
+  // 2. Generate outer router
+  const routerPublicIp = generatePublicIp(prng, overrides.usedIps);
+  const routerHostname = pickUniqueHostname(prng, 'router', usedHostnames);
+  const routerAccessVariant: EntryVariant = outerLayer.isForwarded
+    ? 'ssh'
+    : outerLayer.entryVariant;
 
   const routerMachine: GeneratedMachine = {
     ip: routerPublicIp,
@@ -283,35 +350,218 @@ export const generateTopology = (
     remoteMachine: {
       ip: routerPublicIp,
       hostname: routerHostname,
-      ports: routerPorts,
+      ports: outerLayer.gatewayPorts,
       users: [],
     },
   };
 
-  // NAT forwarding config (forwarded mode only) — port-level rules from entry machine
-  const natForwarding: NatForwarding | undefined = forwarded
+  // 3. Build gateway machines between adjacent layers
+  const gatewayMachines: readonly GeneratedMachine[] = Array.from(
+    { length: layerCount - 1 },
+    (_, i) => {
+      const upstreamLayer = layerResults[i]!;
+      const downstreamLayer = layerResults[i + 1]!;
+
+      // Pick unused octet on upstream subnet for gateway IP
+      const usedOctets = new Set(upstreamLayer.machines.map((m) => Number(m.ip.split('.')[3])));
+      let gatewayOctet: number;
+      do {
+        gatewayOctet = prng.nextInt(2, 254);
+      } while (usedOctets.has(gatewayOctet));
+
+      const gatewayUpstreamIp = `${upstreamLayer.subnet}.${gatewayOctet}`;
+      const gatewayHostname = pickUniqueHostname(prng, 'router', usedHostnames);
+      const gatewayAccessVariant: EntryVariant = downstreamLayer.isForwarded
+        ? 'ssh'
+        : downstreamLayer.entryVariant;
+
+      return {
+        ip: gatewayUpstreamIp,
+        hostname: gatewayHostname,
+        role: 'router' as const,
+        accessVariant: gatewayAccessVariant,
+        remoteMachine: {
+          ip: gatewayUpstreamIp,
+          hostname: gatewayHostname,
+          ports: downstreamLayer.gatewayPorts,
+          users: [],
+        },
+      };
+    },
+  );
+
+  // 4. Flatten machines: all layer machines + inner gateway machines
+  const allMachines: readonly GeneratedMachine[] = [
+    ...layerResults.flatMap((l) => l.machines),
+    ...gatewayMachines,
+  ];
+
+  // 5. NAT forwarding (outermost layer only)
+  const natForwarding: NatForwarding | undefined = outerLayer.isForwarded
     ? {
         publicIp: routerPublicIp,
         rules:
-          machines[0]?.remoteMachine.ports
+          outerLayer.machines[0]?.remoteMachine.ports
             .filter((p) => p.open)
-            .map((p) => ({ publicPort: p.port, internalIp: entryIp, internalPort: p.port })) ?? [],
+            .map((p) => ({
+              publicPort: p.port,
+              internalIp: outerLayer.entryPoint,
+              internalPort: p.port,
+            })) ?? [],
       }
     : undefined;
 
-  // DNS: internal records for all mission machines + router internal IP
-  const internalDnsRecords: readonly DnsRecord[] = [
-    ...machines.map((m) => ({
+  // 6. Build network config per machine — subnet isolation
+  const machineConfigs: Record<string, MachineNetworkConfig> = {};
+
+  for (let layerIdx = 0; layerIdx < layerCount; layerIdx++) {
+    const layer = layerResults[layerIdx]!;
+    const { subnet, machines } = layer;
+    const internalGatewayIp = `${subnet}.1`;
+
+    // The gateway INTO this layer (at .1)
+    const upstreamGatewayHostname =
+      layerIdx === 0 ? routerHostname : gatewayMachines[layerIdx - 1]!.hostname;
+    const upstreamGatewayPorts = layer.gatewayPorts;
+    const upstreamGatewayRemote: RemoteMachine = {
+      ip: internalGatewayIp,
+      hostname: upstreamGatewayHostname,
+      ports: upstreamGatewayPorts,
+      users: [],
+    };
+
+    // The gateway OUT of this layer (to next layer), if any
+    const outboundGateway = layerIdx < layerCount - 1 ? gatewayMachines[layerIdx]! : null;
+
+    // Per-layer DNS records
+    const layerDnsRecords: readonly DnsRecord[] = [
+      ...machines.map((m) => ({
+        domain: `${m.hostname}.mission`,
+        ip: m.ip,
+        type: 'A' as const,
+      })),
+      {
+        domain: `${upstreamGatewayHostname}.mission`,
+        ip: internalGatewayIp,
+        type: 'A' as const,
+      },
+      ...(outboundGateway
+        ? [
+            {
+              domain: `${outboundGateway.hostname}.mission`,
+              ip: outboundGateway.ip,
+              type: 'A' as const,
+            },
+          ]
+        : []),
+    ];
+
+    // Each machine sees: layer peers + upstream gateway (.1) + outbound gateway (if any)
+    machines.forEach((machine) => {
+      const peers: readonly RemoteMachine[] = [
+        ...machines.filter((m) => m.ip !== machine.ip).map((m) => m.remoteMachine),
+        upstreamGatewayRemote,
+        ...(outboundGateway ? [outboundGateway.remoteMachine] : []),
+      ];
+
+      machineConfigs[machine.ip] = {
+        interfaces: [
+          createInterface(
+            'eth0',
+            machine.ip,
+            '255.255.255.0',
+            internalGatewayIp,
+            generateMac(prng),
+          ),
+        ],
+        machines: peers,
+        dnsRecords: layerDnsRecords,
+      };
+    });
+  }
+
+  // 7. Inner gateway configs — dual interfaces, see both adjacent layers
+  for (let i = 0; i < gatewayMachines.length; i++) {
+    const gateway = gatewayMachines[i]!;
+    const upstreamLayer = layerResults[i]!;
+    const downstreamLayer = layerResults[i + 1]!;
+    const upstreamGatewayIp = `${upstreamLayer.subnet}.1`;
+    const downstreamGatewayIp = `${downstreamLayer.subnet}.1`;
+
+    // Upstream: layer i machines + upstream gateway (router or previous gateway)
+    const upstreamGatewayHostname = i === 0 ? routerHostname : gatewayMachines[i - 1]!.hostname;
+    const upstreamGatewayRemote: RemoteMachine = {
+      ip: upstreamGatewayIp,
+      hostname: upstreamGatewayHostname,
+      ports: upstreamLayer.gatewayPorts,
+      users: [],
+    };
+
+    // Next gateway (if any)
+    const nextGateway = i + 1 < gatewayMachines.length ? gatewayMachines[i + 1]! : null;
+
+    const visibleMachines: readonly RemoteMachine[] = [
+      ...upstreamLayer.machines.map((m) => m.remoteMachine),
+      upstreamGatewayRemote,
+      ...downstreamLayer.machines.map((m) => m.remoteMachine),
+      ...(nextGateway ? [nextGateway.remoteMachine] : []),
+    ];
+
+    const gatewayDnsRecords: readonly DnsRecord[] = [
+      ...upstreamLayer.machines.map((m) => ({
+        domain: `${m.hostname}.mission`,
+        ip: m.ip,
+        type: 'A' as const,
+      })),
+      ...downstreamLayer.machines.map((m) => ({
+        domain: `${m.hostname}.mission`,
+        ip: m.ip,
+        type: 'A' as const,
+      })),
+    ];
+
+    machineConfigs[gateway.ip] = {
+      interfaces: [
+        createInterface('eth0', gateway.ip, '255.255.255.0', upstreamGatewayIp, generateMac(prng)),
+        createInterface('eth1', downstreamGatewayIp, '255.255.255.0', '0.0.0.0', generateMac(prng)),
+      ],
+      machines: visibleMachines,
+      dnsRecords: gatewayDnsRecords,
+    };
+  }
+
+  // 8. Outer router config — sees layer 0 machines + first gateway
+  const outerGatewayIp = `${outerLayer.subnet}.1`;
+  const routerVisibleMachines: readonly RemoteMachine[] = [
+    ...outerLayer.machines.map((m) => m.remoteMachine),
+    ...(gatewayMachines.length > 0 ? [gatewayMachines[0]!.remoteMachine] : []),
+  ];
+  const outerDnsRecords: readonly DnsRecord[] = [
+    ...outerLayer.machines.map((m) => ({
       domain: `${m.hostname}.mission`,
       ip: m.ip,
       type: 'A' as const,
     })),
     {
       domain: `${routerHostname}.mission`,
-      ip: internalGateway,
+      ip: outerGatewayIp,
       type: 'A' as const,
     },
+    ...gatewayMachines.slice(0, 1).map((gw) => ({
+      domain: `${gw.hostname}.mission`,
+      ip: gw.ip,
+      type: 'A' as const,
+    })),
   ];
+
+  machineConfigs[routerPublicIp] = {
+    interfaces: [
+      createInterface('eth0', routerPublicIp, '255.255.255.0', '0.0.0.0', generateMac(prng)),
+      createInterface('eth1', outerGatewayIp, '255.255.255.0', '0.0.0.0', generateMac(prng)),
+    ],
+    machines: routerVisibleMachines,
+    dnsRecords: outerDnsRecords,
+  };
 
   // External DNS: only the router's public IP
   const externalDnsRecords: readonly DnsRecord[] = [
@@ -322,49 +572,53 @@ export const generateTopology = (
     },
   ];
 
-  const machineConfigs: Record<string, MachineNetworkConfig> = {};
+  // 9. Build SubnetLayer objects — inner forwarded layers get NAT forwarding rules
+  const layers: readonly SubnetLayer[] = layerResults.map((l, i) => {
+    if (i === 0) {
+      return {
+        subnet: l.subnet,
+        gateway: routerMachine,
+        entryVariant: l.entryVariant,
+        machines: l.machines,
+        isForwarded: l.isForwarded,
+        natForwarding,
+      };
+    }
 
-  // Internal machines see each other + router's internal IP (not public)
-  const routerInternalRemote: RemoteMachine = {
-    ip: internalGateway,
-    hostname: routerHostname,
-    ports: routerPorts,
-    users: [],
-  };
+    const gateway = gatewayMachines[i - 1]!;
+    const innerNat: NatForwarding | undefined = l.isForwarded
+      ? {
+          publicIp: gateway.ip,
+          rules:
+            l.machines[0]?.remoteMachine.ports
+              .filter((p) => p.open)
+              .map((p) => ({
+                publicPort: p.port,
+                internalIp: l.entryPoint,
+                internalPort: p.port,
+              })) ?? [],
+        }
+      : undefined;
 
-  machines.forEach((machine) => {
-    const otherMachines: readonly RemoteMachine[] = [
-      ...machines.filter((m) => m.ip !== machine.ip).map((m) => m.remoteMachine),
-      routerInternalRemote,
-    ];
-
-    machineConfigs[machine.ip] = {
-      interfaces: [
-        createInterface('eth0', machine.ip, '255.255.255.0', internalGateway, generateMac(prng)),
-      ],
-      machines: otherMachines,
-      dnsRecords: internalDnsRecords,
+    return {
+      subnet: l.subnet,
+      gateway,
+      entryVariant: l.entryVariant,
+      machines: l.machines,
+      isForwarded: l.isForwarded,
+      natForwarding: innerNat,
     };
   });
 
-  // Router config: dual interfaces (public eth0 + internal eth1), sees all internal machines
-  machineConfigs[routerPublicIp] = {
-    interfaces: [
-      createInterface('eth0', routerPublicIp, '255.255.255.0', '0.0.0.0', generateMac(prng)),
-      createInterface('eth1', internalGateway, '255.255.255.0', '0.0.0.0', generateMac(prng)),
-    ],
-    machines: machines.map((m) => m.remoteMachine),
-    dnsRecords: internalDnsRecords,
-  };
-
   return {
-    machines,
+    machines: allMachines,
     routerMachine,
     routerPublicIp,
     natForwarding,
     networkConfig: { machineConfigs },
-    entryPoint: entryIp,
-    entryVariant,
+    entryPoint: outerLayer.entryPoint,
+    entryVariant: outerLayer.entryVariant,
     externalDnsRecords,
+    layers,
   };
 };

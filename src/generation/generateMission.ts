@@ -397,15 +397,31 @@ export const generateMissionNetwork = (
   const routerInternalIp = topology.entryPoint.replace(/\.\d+$/, '.1');
   const routerUsers = routerUsersByMachine[topology.routerPublicIp] ?? [];
   const routerCreds = routerCredentials[topology.routerPublicIp] ?? [];
+
+  // Map inner gateways' downstream .1 IPs to their users. Inner gateways live in
+  // topology.machines and already have users, but downstream machines reference them
+  // by their .1 IP (the gateway address on the downstream subnet).
+  const gatewayInternalIpMap: Record<string, typeof routerUsers> = {};
+  const gatewayInternalCredMap: Record<string, typeof routerCreds> = {};
+  for (let i = 1; i < topology.layers.length; i++) {
+    const gateway = topology.layers[i]!.gateway;
+    const downstreamSubnet = topology.layers[i]!.subnet;
+    const gatewayInternalIp = `${downstreamSubnet}.1`;
+    gatewayInternalIpMap[gatewayInternalIp] = usersByMachine[gateway.ip] ?? [];
+    gatewayInternalCredMap[gatewayInternalIp] = credentials[gateway.ip] ?? [];
+  }
+
   const allUsersByMachine = {
     ...usersByMachine,
     ...routerUsersByMachine,
     [routerInternalIp]: routerUsers,
+    ...gatewayInternalIpMap,
   };
   const allCredentials = {
     ...credentials,
     ...routerCredentials,
     [routerInternalIp]: routerCreds,
+    ...gatewayInternalCredMap,
   };
 
   // Enrich all machines with users and variant-specific port data (owners, vulnerabilities).
@@ -469,6 +485,7 @@ export const generateMissionNetwork = (
     difficulty,
     objectiveTypeOverride: effectiveObjectiveOverride,
     encryptedOverride: overrides.encrypted,
+    layers: topology.layers,
   });
 
   const fileSystems = generateFileSystems({
@@ -482,6 +499,7 @@ export const generateMissionNetwork = (
     entryVariant: topology.entryVariant,
     entryPoint: topology.entryPoint,
     difficulty,
+    layers: topology.layers,
   });
 
   // Domain entry: when active, briefing shows router domain instead of IP.
@@ -506,5 +524,6 @@ export const generateMissionNetwork = (
     natForwarding: topology.natForwarding,
     routerDomain,
     domainEntry,
+    layers: topology.layers,
   };
 };
