@@ -94,8 +94,17 @@ export const formatObjectiveHint = (mission: MissionNetwork): string => {
   ].join('\n');
 };
 
+const formatNetworkHint = (mission: MissionNetwork): string | null => {
+  const layerCount = mission.layers?.length ?? 1;
+  if (layerCount <= 1) return null;
+  return layerCount === 2
+    ? '  Intel: The target network has segmented subnets behind a gateway.'
+    : '  Intel: The target network is deeply segmented with multiple internal gateways.';
+};
+
 export const formatMissionBriefing = (mission: MissionNetwork): string => {
   const target = mission.domainEntry ? mission.routerDomain : mission.routerPublicIp;
+  const networkHint = formatNetworkHint(mission);
 
   return [
     '============================================',
@@ -110,6 +119,7 @@ export const formatMissionBriefing = (mission: MissionNetwork): string => {
     formatObjectiveHint(mission),
     '',
     `  Target: ${target}`,
+    ...(networkHint ? ['', networkHint] : []),
     '',
     '  Use abort() to cancel the mission.',
     '============================================',

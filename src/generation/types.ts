@@ -97,6 +97,7 @@ export type MissionNetwork = {
   readonly natForwarding?: NatForwarding;
   readonly routerDomain: string;
   readonly domainEntry: boolean;
+  readonly layers: readonly SubnetLayer[];
 };
 
 export type NatForwardingRule = {

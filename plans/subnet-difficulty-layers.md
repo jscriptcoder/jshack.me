@@ -1,7 +1,7 @@
 # Plan: Subnet Difficulty Layers
 
 **Branch**: feature/subnet-difficulty-layers
-**Status**: Active
+**Status**: Complete
 
 ## Goal
 
@@ -71,6 +71,7 @@ the gateway and SSHing into it, `session.machine` changes to the gateway's IP, a
 ### Gateway Visibility Model
 
 A gateway between Subnet A and Subnet B:
+
 - Has IP in subnet A (e.g., 10.45.0.3) — this is how subnet A machines reach it
 - Has gateway IP in subnet B (e.g., 172.16.5.1) — this is its eth1 interface
 - `machineConfigs[10.45.0.3]` shows: subnet B machines + subnet A machines (both directions)
@@ -297,14 +298,14 @@ Update player-facing text and documentation to reflect the layered network model
 
 ## Risks & Mitigations
 
-| Risk | Impact | Mitigation |
-| --- | --- | --- |
-| PRNG sequence changes break all seeds | In-progress missions regenerate differently | Accept as pre-1.0 breaking change; clear mission on version bump |
-| Machine count growth (up to ~11) | Slower generation, more complex for player | Cap at 2-3 per layer; keep easy identical |
-| Gateway + router-first + SNMP combo | Very complex entry sequence | Limit SNMP to outer router only (inner gateways pick from ssh/ftp/nc/exploit/http) |
-| `portforward` objective with inner gateways | Ambiguity about which router to configure | Target outermost router for portforward (no change needed) |
-| `forensics` evidence across isolated subnets | Player can't see all logs from one machine | Distribute evidence; briefing hints at multi-subnet investigation |
-| Forwarded-mode gateway NAT chains | Complex multi-hop resolution | Implement iterative resolveNat (resolve until stable) |
+| Risk                                         | Impact                                      | Mitigation                                                                         |
+| -------------------------------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------- |
+| PRNG sequence changes break all seeds        | In-progress missions regenerate differently | Accept as pre-1.0 breaking change; clear mission on version bump                   |
+| Machine count growth (up to ~11)             | Slower generation, more complex for player  | Cap at 2-3 per layer; keep easy identical                                          |
+| Gateway + router-first + SNMP combo          | Very complex entry sequence                 | Limit SNMP to outer router only (inner gateways pick from ssh/ftp/nc/exploit/http) |
+| `portforward` objective with inner gateways  | Ambiguity about which router to configure   | Target outermost router for portforward (no change needed)                         |
+| `forensics` evidence across isolated subnets | Player can't see all logs from one machine  | Distribute evidence; briefing hints at multi-subnet investigation                  |
+| Forwarded-mode gateway NAT chains            | Complex multi-hop resolution                | Implement iterative resolveNat (resolve until stable)                              |
 
 ## Future Work
 

@@ -524,5 +524,6 @@ export const generateMissionNetwork = (
     natForwarding: topology.natForwarding,
     routerDomain,
     domainEntry,
+    layers: topology.layers,
   };
 };

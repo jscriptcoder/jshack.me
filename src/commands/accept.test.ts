@@ -137,12 +137,12 @@ describe('formatMissionBriefing', () => {
     expect(briefing).toContain('Objective:');
   });
 
-  it('SNMP variant does not include entry hints in briefing', () => {
+  it('SNMP variant does not include SNMP-specific entry hints in briefing', () => {
     const mission = generateMissionNetwork('test-snmp-hard-router-first');
     expect(mission.entryVariant).toBe('snmp');
     const briefing = formatMissionBriefing(mission);
 
-    expect(briefing).not.toContain('Intel:');
+    // SNMP entry has no hints about SNMP/community strings — player must discover independently
     expect(briefing).not.toContain('legacy management');
     expect(briefing).not.toContain('community');
   });
@@ -180,5 +180,20 @@ describe('formatMissionBriefing', () => {
     expect(briefing).toContain('Investigate');
     expect(briefing).toContain('logs');
     expect(briefing).not.toContain('Discover the root password');
+  });
+
+  it('medium briefing includes network segmentation hint', () => {
+    const mission = generateMissionNetwork('test-medium');
+    const briefing = formatMissionBriefing(mission);
+    if (mission.layers.length > 1) {
+      expect(briefing).toContain('segmented');
+    }
+  });
+
+  it('easy briefing does not include network segmentation hint', () => {
+    const mission = generateMissionNetwork('test-easy');
+    const briefing = formatMissionBriefing(mission);
+    expect(briefing).not.toContain('segmented');
+    expect(briefing).not.toContain('gateway');
   });
 });
