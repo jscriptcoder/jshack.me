@@ -12,9 +12,9 @@ import {
 } from './pools';
 import type { FileNode } from '../filesystem/types';
 
-const buildTestData = (seed: string) => {
+const buildTestData = (seed: string, difficulty: 'easy' | 'medium' | 'hard' = 'medium') => {
   const prng = createPrng(seed);
-  const topology = generateTopology(prng, 'medium');
+  const topology = generateTopology(prng, difficulty);
   const { usersByMachine, credentials } = generateUsers(
     prng,
     topology.machines,
@@ -25,7 +25,8 @@ const buildTestData = (seed: string) => {
     machines: topology.machines,
     credentials,
     entryPoint: topology.entryPoint,
-    difficulty: 'medium',
+    difficulty,
+    layers: topology.layers,
   });
   const fileSystems = generateFileSystems({
     prng,
@@ -33,6 +34,7 @@ const buildTestData = (seed: string) => {
     usersByMachine,
     credentials,
     objective,
+    layers: topology.layers,
   });
   return { topology, fileSystems, objective, credentials, usersByMachine };
 };
@@ -866,6 +868,49 @@ describe('generateFileSystems', () => {
       const a = buildForensics('forensics-determ');
       const b = buildForensics('forensics-determ');
       expect(a.fileSystems).toEqual(b.fileSystems);
+    });
+  });
+
+  describe('inner gateway filesystems', () => {
+    it('inner gateways have /etc/iptables/rules.v4', () => {
+      for (let i = 0; i < 20; i++) {
+        const { topology, fileSystems } = buildTestData(`gw-iptables-${i}`, 'hard');
+        for (let j = 1; j < topology.layers.length; j++) {
+          const gateway = topology.layers[j]!.gateway;
+          const fs = fileSystems[gateway.ip];
+          if (!fs) continue;
+          const iptables = resolveNode(fs, '/etc/iptables/rules.v4');
+          expect(iptables).toBeDefined();
+          expect(iptables?.type).toBe('file');
+        }
+      }
+    });
+
+    it('inner gateway /etc/hosts lists only downstream machines', () => {
+      for (let i = 0; i < 20; i++) {
+        const { topology, fileSystems } = buildTestData(`gw-hosts-${i}`, 'hard');
+        for (let j = 1; j < topology.layers.length; j++) {
+          const gateway = topology.layers[j]!.gateway;
+          const downstreamMachines = topology.layers[j]!.machines;
+          const fs = fileSystems[gateway.ip];
+          if (!fs) continue;
+          const hosts = resolveNode(fs, '/etc/hosts');
+          if (!hosts || hosts.type !== 'file' || !hosts.content) continue;
+
+          // Downstream machines should be in /etc/hosts
+          downstreamMachines.forEach((m) => {
+            expect(hosts.content).toContain(m.hostname);
+          });
+
+          // Machines from other layers (non-downstream) should NOT be listed
+          const otherLayers = topology.layers.filter((_, idx) => idx !== j);
+          otherLayers.forEach((layer) => {
+            layer.machines.forEach((m) => {
+              expect(hosts.content).not.toContain(m.ip);
+            });
+          });
+        }
+      }
     });
   });
 });

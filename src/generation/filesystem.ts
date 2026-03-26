@@ -5,6 +5,7 @@ import type {
   GeneratedMachine,
   MissionObjective,
   NatForwarding,
+  SubnetLayer,
 } from './types';
 import type { FileNode } from '../filesystem/types';
 import type { RemoteUser } from '../network/types';
@@ -62,6 +63,7 @@ type FilesystemInput = {
   readonly entryVariant?: EntryVariant;
   readonly entryPoint?: string;
   readonly difficulty?: Difficulty;
+  readonly layers?: readonly SubnetLayer[];
 };
 
 const mkFile = (
@@ -911,7 +913,20 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
     entryVariant,
     entryPoint,
     difficulty,
+    layers,
   } = input;
+
+  // Build a map from inner gateway IP → downstream layer machines (enriched versions).
+  // Gateways need to know their downstream machines for /etc/hosts and iptables.
+  const gatewayDownstreamMap = new Map<string, readonly GeneratedMachine[]>();
+  if (layers && layers.length > 1) {
+    for (let i = 1; i < layers.length; i++) {
+      const gateway = layers[i]!.gateway;
+      const downstreamIps = new Set(layers[i]!.machines.map((m) => m.ip));
+      const downstreamMachines = machines.filter((m) => downstreamIps.has(m.ip));
+      gatewayDownstreamMap.set(gateway.ip, downstreamMachines);
+    }
+  }
 
   // Pre-generate forensics evidence (log files + calling card) before machine loop
   const forensicsEvidence = generateForensicsEvidence(prng, machines, objective, difficulty);
@@ -922,6 +937,8 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
     const isTarget = machine.ip === objective.targetMachine;
     const isHttpEntry = entryVariant === 'http' && machine.ip === entryPoint;
 
+    // Inner gateways get downstream machines for /etc/hosts and empty iptables template
+    const downstreamMachines = gatewayDownstreamMap.get(machine.ip);
     const baseConfig = buildMachineConfig(
       prng,
       machine,
@@ -929,7 +946,7 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
       machineCreds,
       isTarget,
       objective,
-      undefined,
+      downstreamMachines,
       undefined,
       isHttpEntry,
     );

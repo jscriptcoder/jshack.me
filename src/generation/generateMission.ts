@@ -499,6 +499,7 @@ export const generateMissionNetwork = (
     entryVariant: topology.entryVariant,
     entryPoint: topology.entryPoint,
     difficulty,
+    layers: topology.layers,
   });
 
   // Domain entry: when active, briefing shows router domain instead of IP.
