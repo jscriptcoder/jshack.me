@@ -886,6 +886,30 @@ describe('generateFileSystems', () => {
       }
     });
 
+    it('forwarded inner gateways have populated iptables rules', () => {
+      let found = false;
+      for (let i = 0; i < 100; i++) {
+        const { topology, fileSystems } = buildTestData(`gw-nat-${i}`, 'medium');
+        for (let j = 1; j < topology.layers.length; j++) {
+          const layer = topology.layers[j]!;
+          if (!layer.isForwarded) continue;
+          const gateway = layer.gateway;
+          const fs = fileSystems[gateway.ip];
+          if (!fs) continue;
+          const iptables = resolveNode(fs, '/etc/iptables/rules.v4');
+          if (!iptables || iptables.type !== 'file' || !iptables.content) continue;
+          // Forwarded gateways should have "forward" rules pointing to entry machine
+          expect(iptables.content).toContain('forward');
+          expect(iptables.content).toContain(layer.machines[0]!.ip);
+          found = true;
+          break;
+        }
+        if (found) break;
+      }
+      // Medium difficulty has 50% forwarded chance — should find at least one
+      expect(found).toBe(true);
+    });
+
     it('inner gateway /etc/hosts lists only downstream machines', () => {
       for (let i = 0; i < 20; i++) {
         const { topology, fileSystems } = buildTestData(`gw-hosts-${i}`, 'hard');

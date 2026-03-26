@@ -572,15 +572,43 @@ export const generateTopology = (
     },
   ];
 
-  // 9. Build SubnetLayer objects
-  const layers: readonly SubnetLayer[] = layerResults.map((l, i) => ({
-    subnet: l.subnet,
-    gateway: i === 0 ? routerMachine : gatewayMachines[i - 1]!,
-    entryVariant: l.entryVariant,
-    machines: l.machines,
-    isForwarded: l.isForwarded,
-    natForwarding: i === 0 ? natForwarding : undefined,
-  }));
+  // 9. Build SubnetLayer objects — inner forwarded layers get NAT forwarding rules
+  const layers: readonly SubnetLayer[] = layerResults.map((l, i) => {
+    if (i === 0) {
+      return {
+        subnet: l.subnet,
+        gateway: routerMachine,
+        entryVariant: l.entryVariant,
+        machines: l.machines,
+        isForwarded: l.isForwarded,
+        natForwarding,
+      };
+    }
+
+    const gateway = gatewayMachines[i - 1]!;
+    const innerNat: NatForwarding | undefined = l.isForwarded
+      ? {
+          publicIp: gateway.ip,
+          rules:
+            l.machines[0]?.remoteMachine.ports
+              .filter((p) => p.open)
+              .map((p) => ({
+                publicPort: p.port,
+                internalIp: l.entryPoint,
+                internalPort: p.port,
+              })) ?? [],
+        }
+      : undefined;
+
+    return {
+      subnet: l.subnet,
+      gateway,
+      entryVariant: l.entryVariant,
+      machines: l.machines,
+      isForwarded: l.isForwarded,
+      natForwarding: innerNat,
+    };
+  });
 
   return {
     machines: allMachines,
