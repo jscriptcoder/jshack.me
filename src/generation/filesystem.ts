@@ -927,6 +927,18 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
     });
   }
 
+  // Pre-generate SNMP configs for inner gateways with SNMP access variant.
+  // Done before the machine loop to keep PRNG sequence stable for other machines.
+  const gatewaySnmpConfigs = new Map<string, string>();
+  if (layers && layers.length > 1) {
+    layers.slice(1).forEach((layer) => {
+      if (layer.gateway.accessVariant === 'snmp') {
+        const gatewayCreds = credentials[layer.gateway.ip] ?? [];
+        gatewaySnmpConfigs.set(layer.gateway.ip, generateSnmpConfig(prng, layer.gateway, gatewayCreds));
+      }
+    });
+  }
+
   // Pre-generate forensics evidence (log files + calling card) before machine loop
   const forensicsEvidence = generateForensicsEvidence(prng, machines, objective, difficulty);
 
@@ -951,10 +963,27 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
       isHttpEntry,
     );
 
+    // SNMP variant: add /etc/snmp/snmpd.conf for inner gateways with SNMP access variant
+    const snmpContent = gatewaySnmpConfigs.get(machine.ip);
+    const configWithSnmp = snmpContent
+      ? {
+          ...baseConfig,
+          etcExtraContent: {
+            ...baseConfig.etcExtraContent,
+            snmp: mkDir(
+              'snmp',
+              { 'snmpd.conf': mkFile('snmpd.conf', snmpContent) },
+              'root',
+              true,
+            ),
+          },
+        }
+      : baseConfig;
+
     // Place encryption key file on the key machine (if this is that machine)
     const keyTree =
       objective.keyPlacement?.machineIp === machine.ip ? buildKeyFileTree(prng, objective) : null;
-    const configWithKey = mergeKeyPlacement(baseConfig, keyTree);
+    const configWithKey = mergeKeyPlacement(configWithSnmp, keyTree);
 
     // Merge forensics evidence (log files, calling card) if present for this machine
     const evidence = forensicsEvidence[machine.ip];
