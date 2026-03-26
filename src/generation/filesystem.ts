@@ -934,7 +934,10 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
     layers.slice(1).forEach((layer) => {
       if (layer.gateway.accessVariant === 'snmp') {
         const gatewayCreds = credentials[layer.gateway.ip] ?? [];
-        gatewaySnmpConfigs.set(layer.gateway.ip, generateSnmpConfig(prng, layer.gateway, gatewayCreds));
+        gatewaySnmpConfigs.set(
+          layer.gateway.ip,
+          generateSnmpConfig(prng, layer.gateway, gatewayCreds),
+        );
       }
     });
   }
@@ -970,12 +973,7 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
           ...baseConfig,
           etcExtraContent: {
             ...baseConfig.etcExtraContent,
-            snmp: mkDir(
-              'snmp',
-              { 'snmpd.conf': mkFile('snmpd.conf', snmpContent) },
-              'root',
-              true,
-            ),
+            snmp: mkDir('snmp', { 'snmpd.conf': mkFile('snmpd.conf', snmpContent) }, 'root', true),
           },
         }
       : baseConfig;

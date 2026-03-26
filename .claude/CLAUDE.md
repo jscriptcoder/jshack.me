@@ -152,7 +152,7 @@ See `architecture.md` for integration details, `mission-variations.md` for all g
 - Provider hierarchy: `SessionProvider → GameSession (useHomeNetworks, generateLocalhost) → MissionProvider → FileSystemProvider → NetworkProvider → Terminal`
 - Commands: `missions()`, `accept(seed)`, `abort()`, `mail(recipient, content)`
 - Eight objectives: exfiltrate, tamper, credential_theft, script_fix, sabotage, backdoor, portforward, forensics
-- NAT resolution via `resolveNat(ip, port)` using iptables rules on router filesystem
+- NAT resolution via `resolveNat(ip, port)` using iptables rules on any gateway's filesystem (border router and inner gateways). SNMP firewall overrides also apply to all gateways — inner gateways with SNMP access variant get `snmpd.conf` and respond to `snmpset` for dynamic port opening.
 
 ### Node Execution
 
