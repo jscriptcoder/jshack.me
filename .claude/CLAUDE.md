@@ -115,7 +115,7 @@ Sensitive content is XOR+Base64 encoded at build time to prevent finding flag st
 
 `src/secrets/secrets.ts` defines sensitive non-filesystem strings (e.g., WiFi password, mission passwords) as key-value pairs. The `encode` script encodes them into `src/secrets/__encoded.ts`. App code imports from `__encoded`, tests import from the source file directly.
 
-Current secrets: `WIFI_PASSWORD` (legacy static WiFi password), `WIFI_PASSWORDS` (JSON-stringified array of 15 passwords for seeded WiFi generation), `MISSION_PASSWORDS` (JSON-stringified array of 60 passwords used by mission generator), `GUEST_PASSWORDS` (JSON-stringified array of 7 guest passwords used by mission generator), `SNMP_COMMUNITIES` (JSON-stringified array of 10 SNMP read-write community strings used by mission generator and hydra SNMP brute-force).
+Current secrets: `WIFI_PASSWORD` (legacy static WiFi password), `WIFI_PASSWORDS` (JSON-stringified array of 40 passwords for seeded WiFi generation), `MISSION_PASSWORDS` (JSON-stringified array of 120 passwords used by mission generator), `GUEST_PASSWORDS` (JSON-stringified array of 20 guest passwords used by mission generator), `SNMP_COMMUNITIES` (JSON-stringified array of 24 SNMP read-write community strings used by mission generator and hydra SNMP brute-force).
 
 To add a new secret: add the key-value pair to `src/secrets/secrets.ts`, then run `npm run encode`.
 
