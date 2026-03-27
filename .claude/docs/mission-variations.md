@@ -6,15 +6,15 @@ Comprehensive catalog of all procedural generation variation axes. Use this to t
 
 All six major generation axes can be controlled by embedding keywords in the seed string (case-insensitive, matched via `includes()`). `parseSeedOverrides(seed)` in `generateMission.ts` extracts overrides. PRNG sequence is preserved — calls are consumed but results discarded in favor of overrides.
 
-| Axis          | Keywords                                                                                                     | Notes                                                                                                         |
-| ------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| Difficulty    | `easy`, `medium`, `hard`                                                                                     | Falls back to hash-based derivation without keyword                                                           |
-| Entry variant | `ssh`, `ftp`, `nc`, `exploit`, `http`, `snmp`                                                                | Falls back if template unavailable (e.g. nc+router-first)                                                     |
-| Network mode  | `forwarded`, `router-first`                                                                                  | Hyphenated to avoid false matches                                                                             |
-| Objective     | `exfiltrate`, `tamper`, `credential-theft`, `script-fix`, `sabotage`, `backdoor`, `portforward`, `forensics` | Hyphen variant for credential_theft / script_fix; portforward forces router-first; forensics forces SSH entry |
-| Domain entry  | `domain`                                                                                                     | Forces domain-based briefing (nslookup required)                                                              |
-| Encryption    | `gpg`                                                                                                        | Forces exfiltrate + encrypted target file                                                                     |
-| Gateway type  | `switch`                                                                                                     | Forces inner gateways to be managed L3 switches (ACLs instead of NAT)                                         |
+| Axis          | Keywords                                                                                                                    | Notes                                                                                                                       |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Difficulty    | `easy`, `medium`, `hard`                                                                                                    | Falls back to hash-based derivation without keyword                                                                         |
+| Entry variant | `ssh`, `ftp`, `nc`, `exploit`, `http`, `snmp`                                                                               | Falls back if template unavailable (e.g. nc+router-first)                                                                   |
+| Network mode  | `forwarded`, `router-first`                                                                                                 | Hyphenated to avoid false matches                                                                                           |
+| Objective     | `exfiltrate`, `tamper`, `credential-theft`, `script-fix`, `script-auto`, `sabotage`, `backdoor`, `portforward`, `forensics` | Hyphen variant for credential_theft / script_fix / script_auto; portforward forces router-first; forensics forces SSH entry |
+| Domain entry  | `domain`                                                                                                                    | Forces domain-based briefing (nslookup required)                                                                            |
+| Encryption    | `gpg`                                                                                                                       | Forces exfiltrate + encrypted target file                                                                                   |
+| Gateway type  | `switch`                                                                                                                    | Forces inner gateways to be managed L3 switches (ACLs instead of NAT)                                                       |
 
 Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`, `test-switch-snmp-hard`
 
@@ -141,6 +141,47 @@ Each template is a short script that filters/counts array data and conditionally
 - `_decode(checksum)` returns ACCESS-KEY on correct checksum — player mails it to client
 - ACCESS-KEY never appears in script source (anti-cheat: can't `cat` to find it)
 - `_decode()` only exists in `node()`'s execution context, not the terminal
+
+## Script Auto Objective
+
+A 5th objective type where the player writes an automated script from scratch based on instructions in a stub file. The stub is placed in an automation location (cron, init, or network-up hook) with comment instructions describing what data to read and extract. The player writes the script body using `nano()`, runs it with `node()`, and gets the ACCESS-KEY from `_decode()`. Same verification as script_fix. Seed keyword: `script-auto`.
+
+### Two Flavors
+
+| Flavor | Description                                                                | Script Mode |
+| ------ | -------------------------------------------------------------------------- | ----------- |
+| local  | Read a JSON file on the same machine, extract a field, pass to \_decode()  | Sync        |
+| remote | POST to an API endpoint on another machine, parse JSON, pass to \_decode() | Async       |
+
+### Script Locations (3)
+
+| Location | Path prefix             | Narrative                     |
+| -------- | ----------------------- | ----------------------------- |
+| cron.d   | `/etc/cron.d/`          | Periodic monitoring job       |
+| init.d   | `/etc/init.d/`          | Boot-time data collection     |
+| if-up.d  | `/etc/network/if-up.d/` | Network-up connectivity check |
+
+### Script Ownership
+
+Same as script_fix: ~60% user-owned, ~40% root-owned.
+
+### Templates (16 — 2 per role)
+
+Each role (fileserver, database, webserver, mailserver, iot, workstation, router, switch) has 2 templates mixing local/remote flavors and locations. Templates include comment instructions, a JSON data file with the expected value, and an `expectedChecksum` field.
+
+### Data Placement
+
+- **Local**: JSON data file placed on the target machine at a system path (e.g., `/var/lib/backup/status.json`)
+- **Remote**: JSON file placed at `/var/www/api/<endpoint>.json` on a peer machine with port 80. The stub instructions include the API machine's IP
+
+### Key Design Decisions
+
+- Same `_decode()` / ACCESS-KEY mechanism as script_fix
+- No binary wrapping, no encryption
+- Port closures skipped (needs SSH shell access)
+- Remote flavor falls back to local if no peer machine available
+- Player writes the script from scratch (not fixing bugs)
+- `_decode()` injected for both `script_fix` and `script_auto` missions
 
 ## Backdoor Objective
 
@@ -280,7 +321,7 @@ PRNG-driven SSH/FTP port closures increase lateral movement variety. At most one
 - ~15% chance of dual closure (both SSH and FTP closed) — adds NC backdoor with root owner
 - **Entry machine**: never closed (protected)
 - **Router**: never closed (infrastructure)
-- **script_fix objective**: never close SSH (player needs `node()` shell access on target)
+- **script_fix / script_auto objectives**: never close SSH (player needs `node()` shell access on target)
 - **sabotage objective**: never close SSH (player needs shell access to `rm` boot files and `reboot`)
 - **backdoor objective**: never close SSH (player needs shell access to run `nc -l` on target)
 - **portforward objective**: never close SSH (player needs shell access through the network)
@@ -399,16 +440,17 @@ Used when entry variant is `exploit`. Matched by port/service. Multiple template
 | CVE-2017-12166 | OpenVPN 2.4.3       | 1194  | Buffer overflow in key-method negotiation |
 | CVE-2020-15078 | OpenVPN 2.5.1       | 1194  | Auth bypass via deferred auth plugin      |
 
-## Objective Types (6)
+## Objective Types (7)
 
-| Type             | Description                                         | Completion                             |
-| ---------------- | --------------------------------------------------- | -------------------------------------- |
-| exfiltrate       | Find ACCESS-KEY in target file, mail to client      | `mail(email, "ACCESS-XXXX-XXXX-XXXX")` |
-| tamper           | Modify a target file, mail client to confirm        | `mail(email, "done")`                  |
-| credential_theft | Discover root password, mail to client              | `mail(email, "<password>")`            |
-| script_fix       | Fix broken script, run with node(), mail ACCESS-KEY | `mail(email, "ACCESS-XXXX-XXXX-XXXX")` |
-| sabotage         | Destroy target machine, confirm the kill            | `mail(email, "done")`                  |
-| backdoor         | Open nc listener on target machine, confirm         | `mail(email, "done")`                  |
+| Type             | Description                                                    | Completion                             |
+| ---------------- | -------------------------------------------------------------- | -------------------------------------- |
+| exfiltrate       | Find ACCESS-KEY in target file, mail to client                 | `mail(email, "ACCESS-XXXX-XXXX-XXXX")` |
+| tamper           | Modify a target file, mail client to confirm                   | `mail(email, "done")`                  |
+| credential_theft | Discover root password, mail to client                         | `mail(email, "<password>")`            |
+| script_fix       | Fix broken script, run with node(), mail ACCESS-KEY            | `mail(email, "ACCESS-XXXX-XXXX-XXXX")` |
+| script_auto      | Write automated script from scratch, run with node(), mail key | `mail(email, "ACCESS-XXXX-XXXX-XXXX")` |
+| sabotage         | Destroy target machine, confirm the kill                       | `mail(email, "done")`                  |
+| backdoor         | Open nc listener on target machine, confirm                    | `mail(email, "done")`                  |
 
 ## Exfiltrate Target File Templates (21 — 3 per role)
 
