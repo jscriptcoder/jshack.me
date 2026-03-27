@@ -6,7 +6,13 @@ import type { Prng } from './prng';
 import { generateTopology, type TopologyOverrides } from './topology';
 import { generateUsers } from './users';
 import { enrichMachineWithUsers, applyPortClosures } from './enrichment';
-import { buildMachineConfig, generateSnmpConfig, mkFile, mkDir } from './filesystem';
+import {
+  buildMachineConfig,
+  generateSnmpConfig,
+  generateSwitchSnmpConfig,
+  mkFile,
+  mkDir,
+} from './filesystem';
 import { createFileSystem, type MachineFileSystemConfig } from '../filesystem/fileSystemFactory';
 import type {
   CredentialMap,
@@ -130,15 +136,17 @@ export const generateNetwork = (options: GenerateNetworkOptions): GeneratedNetwo
   // 7. Generate base filesystems (configs, logs, credential leaks, web content, PID files)
   const fileSystems: Record<string, FileNode> = {};
   if (!skipFileSystems) {
-    // Build maps from inner gateway IP → downstream info (for /etc/hosts and iptables)
+    // Build maps from inner gateway IP → downstream info (for /etc/hosts, iptables, ACLs)
     const gatewayDownstreamMap = new Map<string, readonly GeneratedMachine[]>();
     const gatewayNatMap = new Map<string, NatForwarding | undefined>();
+    const gatewaySubnetMap = new Map<string, string>();
     if (topology.layers.length > 1) {
       topology.layers.slice(1).forEach((layer) => {
         const downstreamIps = new Set(layer.machines.map((m) => m.ip));
         const downstreamMachines = machinesAfterClosures.filter((m) => downstreamIps.has(m.ip));
         gatewayDownstreamMap.set(layer.gateway.ip, downstreamMachines);
         gatewayNatMap.set(layer.gateway.ip, layer.natForwarding);
+        gatewaySubnetMap.set(layer.gateway.ip, layer.subnet);
       });
     }
 
@@ -148,10 +156,10 @@ export const generateNetwork = (options: GenerateNetworkOptions): GeneratedNetwo
       topology.layers.slice(1).forEach((layer) => {
         if (layer.gateway.accessVariant === 'snmp') {
           const gatewayCreds = allCredentials[layer.gateway.ip] ?? [];
-          gatewaySnmpConfigs.set(
-            layer.gateway.ip,
-            generateSnmpConfig(prng, layer.gateway, gatewayCreds),
-          );
+          // Use switch-specific SNMP config (ACL OIDs) for switch gateways
+          const snmpConfigFn =
+            layer.gatewayType === 'switch' ? generateSwitchSnmpConfig : generateSnmpConfig;
+          gatewaySnmpConfigs.set(layer.gateway.ip, snmpConfigFn(prng, layer.gateway, gatewayCreds));
         }
       });
     }
@@ -164,10 +172,12 @@ export const generateNetwork = (options: GenerateNetworkOptions): GeneratedNetwo
 
       const downstreamMachines = gatewayDownstreamMap.get(machine.ip);
       const gatewayNat = gatewayNatMap.get(machine.ip);
+      const downstreamSubnet = gatewaySubnetMap.get(machine.ip);
       const baseConfig = buildMachineConfig(prng, machine, users, machineCreds, {
         internalMachines: downstreamMachines,
         natForwarding: gatewayNat,
         isHttpEntry,
+        downstreamSubnet,
       });
 
       // SNMP variant: add /etc/snmp/snmpd.conf for gateways

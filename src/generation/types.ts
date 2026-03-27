@@ -8,7 +8,10 @@ export type MachineRole =
   | 'workstation'
   | 'mailserver'
   | 'iot'
-  | 'router';
+  | 'router'
+  | 'switch';
+
+export type GatewayType = 'router' | 'switch';
 
 export type Difficulty = 'easy' | 'medium' | 'hard';
 
@@ -76,6 +79,7 @@ export type EntryVariant = 'ssh' | 'ftp' | 'nc' | 'exploit' | 'http' | 'snmp';
 export type SubnetLayer = {
   readonly subnet: string;
   readonly gateway: GeneratedMachine;
+  readonly gatewayType: GatewayType;
   readonly entryVariant: EntryVariant;
   readonly machines: readonly GeneratedMachine[];
   readonly isForwarded: boolean;
@@ -118,4 +122,5 @@ export type SeedOverrides = {
   readonly objectiveType?: MissionObjectiveType;
   readonly domainEntry?: boolean;
   readonly encrypted?: boolean;
+  readonly switchGateway?: boolean;
 };

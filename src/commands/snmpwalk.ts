@@ -11,7 +11,8 @@ type SnmpwalkContext = {
   readonly getNodeFromMachine: (machineIp: string, path: string, cwd: string) => FileNode | null;
 };
 
-// Lines from snmpd.conf that are safe for read-only (public) community access
+// Lines from snmpd.conf that are safe for read-only (public) community access.
+// Firewall OIDs (router) and ACL OIDs (switch) are hidden from public reads.
 const isPublicOid = (line: string): boolean =>
   line.startsWith('sysDescr') ||
   line.startsWith('sysName') ||
@@ -37,6 +38,7 @@ const formatOidLine = (line: string): string => {
   if (line.startsWith('nsExtendArgs'))
     return `NET-SNMP-EXTEND-MIB::${line.replace(' ', ' = STRING: ')}`;
   if (line.startsWith('firewall')) return `FIREWALL-MIB::${line.replace(' ', '.0 = STRING: ')}`;
+  if (line.startsWith('acl')) return `ACL-MIB::${line.replace(' ', '.0 = STRING: ')}`;
   return line;
 };
 

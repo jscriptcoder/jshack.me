@@ -12,6 +12,7 @@ type SnmpsetContext = {
 };
 
 const VALID_FIREWALL_VALUES = new Set(['permit', 'deny']);
+const VALID_ACL_VALUES = new Set(['allow', 'deny']);
 const SET_DELAY_MS = 300;
 
 // Parses "oid=value" format, returning the OID name and value
@@ -51,24 +52,25 @@ export const createSnmpsetCommand = (context: SnmpsetContext): Command => ({
     synopsis: 'snmpset(host, community, "oid=value")',
     description:
       'Set a writable SNMP OID on a remote host. Requires a read-write community string. ' +
-      'Only firewall OIDs (firewallSSH, firewallHTTP) are writable. Valid values: "permit" or "deny".',
+      'Writable OIDs: firewall OIDs (firewallSSH, firewallHTTP) with values "permit"/"deny", ' +
+      'and ACL OIDs (aclSSH, aclHTTP, aclFTP) with values "allow"/"deny".',
     arguments: [
       { name: 'host', description: 'IP address of the target machine', required: true },
       { name: 'community', description: 'SNMP read-write community string', required: true },
       {
         name: 'oid=value',
-        description: 'OID assignment (e.g., "firewallSSH=permit")',
+        description: 'OID assignment (e.g., "firewallSSH=permit" or "aclSSH=allow")',
         required: true,
       },
     ],
     examples: [
       {
         command: 'snmpset("192.168.1.1", "private", "firewallSSH=permit")',
-        description: 'Open SSH through the firewall',
+        description: 'Open SSH through the firewall (router)',
       },
       {
-        command: 'snmpset("192.168.1.1", "private", "firewallSSH=deny")',
-        description: 'Close SSH through the firewall',
+        command: 'snmpset("192.168.1.1", "private", "aclSSH=allow")',
+        description: 'Allow SSH through ACL (switch)',
       },
     ],
   },
@@ -152,14 +154,18 @@ export const createSnmpsetCommand = (context: SnmpsetContext): Command => ({
 
     const { oid, value } = parsed;
 
-    // Validate OID is writable (only firewall OIDs)
-    if (!oid.startsWith('firewall')) {
+    // Validate OID is writable (firewall OIDs for routers, ACL OIDs for switches)
+    const isFirewallOid = oid.startsWith('firewall');
+    const isAclOid = oid.startsWith('acl');
+    if (!isFirewallOid && !isAclOid) {
       throw new Error(`snmpset: OID "${oid}" is not writable`);
     }
 
-    // Validate value
-    if (!VALID_FIREWALL_VALUES.has(value)) {
-      throw new Error(`snmpset: invalid value "${value}" for ${oid} — expected "permit" or "deny"`);
+    // Validate value based on OID type
+    const validValues = isAclOid ? VALID_ACL_VALUES : VALID_FIREWALL_VALUES;
+    const expectedDesc = isAclOid ? '"allow" or "deny"' : '"permit" or "deny"';
+    if (!validValues.has(value)) {
+      throw new Error(`snmpset: invalid value "${value}" for ${oid} — expected ${expectedDesc}`);
     }
 
     // Read current value
@@ -167,6 +173,9 @@ export const createSnmpsetCommand = (context: SnmpsetContext): Command => ({
     if (oldValue === undefined) {
       throw new Error(`snmpset: OID "${oid}" not found on target`);
     }
+
+    // MIB prefix depends on OID type
+    const mibPrefix = isAclOid ? 'ACL-MIB' : 'FIREWALL-MIB';
 
     // Build updated config
     const updatedContent = replaceFirewallOid(confContent, oid, value);
@@ -194,7 +203,7 @@ export const createSnmpsetCommand = (context: SnmpsetContext): Command => ({
         token.schedule(() => {
           if (token.isCancelled()) return;
           onLine('');
-          onLine(`FIREWALL-MIB::${oid}.0: ${oldValue} → ${value}`);
+          onLine(`${mibPrefix}::${oid}.0: ${oldValue} → ${value}`);
         }, delay);
 
         delay += jitter(SET_DELAY_MS);

@@ -466,6 +466,7 @@ describe('buildMergedRouterView', () => {
 const createSubnetLayer = (overrides: Partial<SubnetLayer> = {}): SubnetLayer => ({
   subnet: '10.0.1',
   gateway: createGeneratedMachine({ ip: '10.0.0.50', hostname: 'gw', role: 'router' }),
+  gatewayType: 'router',
   entryVariant: 'ssh',
   machines: [],
   isForwarded: false,
@@ -629,6 +630,8 @@ describe('applyDynamicOverrides', () => {
     const ctx = {
       allIptablesRules: new Map(),
       allSnmpOverrides: new Map(),
+      allAclRules: new Map(),
+      allSnmpAclOverrides: new Map(),
       homeGatewayByAliasIp: new Map(),
       readNode: noopReader,
     };
@@ -656,6 +659,8 @@ describe('applyDynamicOverrides', () => {
     const result = applyDynamicOverrides(gateway.remoteMachine, {
       allIptablesRules: new Map([['10.0.0.50', rules]]),
       allSnmpOverrides: new Map(),
+      allAclRules: new Map(),
+      allSnmpAclOverrides: new Map(),
       missionMachines: [gateway, target],
       homeGatewayByAliasIp: new Map(),
       readNode: noopReader,
@@ -686,6 +691,8 @@ describe('applyDynamicOverrides', () => {
     const result = applyDynamicOverrides(visibleMachine, {
       allIptablesRules: new Map([['10.0.0.1', rules]]),
       allSnmpOverrides: new Map(),
+      allAclRules: new Map(),
+      allSnmpAclOverrides: new Map(),
       homeMachines: [target],
       homeGatewayByAliasIp: new Map([['10.0.0.1', gateway]]),
       readNode: noopReader,
@@ -718,6 +725,8 @@ describe('applyDynamicOverrides', () => {
     const result = applyDynamicOverrides(machine, {
       allIptablesRules: new Map(),
       allSnmpOverrides: new Map(),
+      allAclRules: new Map(),
+      allSnmpAclOverrides: new Map(),
       homeGatewayByAliasIp: new Map(),
       readNode,
     });

@@ -109,6 +109,18 @@ export const usernamesByRole: Readonly<Record<MachineRole, readonly string[]>> =
     'natadm',
     'core',
   ],
+  switch: [
+    'netadmin',
+    'switchadm',
+    'vlanadm',
+    'portadm',
+    'l3admin',
+    'acluser',
+    'switchops',
+    'trunkadm',
+    'spanadm',
+    'uplinkadm',
+  ],
 };
 
 export const guestPasswords: readonly string[] = JSON.parse(
@@ -203,5 +215,17 @@ export const hostnamesByRole: Readonly<Record<MachineRole, readonly string[]>> =
     'switch-core',
     'vpn-gw',
     'net-gateway',
+  ],
+  switch: [
+    'sw-core-01',
+    'l3-switch',
+    'dist-sw',
+    'agg-switch',
+    'sw-access',
+    'switch-mgmt',
+    'sw-dist-01',
+    'vlan-sw',
+    'trunk-sw',
+    'sw-edge',
   ],
 };

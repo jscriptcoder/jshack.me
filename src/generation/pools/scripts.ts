@@ -570,4 +570,43 @@ export const scriptFixTemplatesByRole: Readonly<Record<MachineRole, readonly Scr
         expectedChecksum: 'ACCEPT-ACCEPT-ACCEPT',
       },
     ],
+    // Switch is infrastructure-only (never the mission target), but the type system
+    // requires script fix templates for every role. These are unused in practice.
+    switch: [
+      {
+        path: '/opt/scripts/check_acls.js',
+        bugVariants: {
+          syntax: [
+            'const acls = ["allow", "deny", "allow", "allow"]',
+            'const allowed = acls.filter(a => a === "allow")',
+            'if (allowed.length === 3) {',
+            '  echo(_decode(allowed.join("-")))',
+            '} else {',
+            '  echo("ERROR: ACL verification failed)',
+            '}',
+          ].join('\n'),
+          logic: [
+            'const acls = ["allow", "deny", "allow", "allow"]',
+            'const allowed = acls.filter(a => a === "deny")',
+            'if (allowed.length === 3) {',
+            '  echo(_decode(allowed.join("-")))',
+            '} else {',
+            '  echo("ERROR: ACL verification failed")',
+            '}',
+          ].join('\n'),
+          corrupted: [
+            'const acls = ["allow", ???, "allow", "allow"]',
+            'const allowed = acls.filter(a => a === "allow")',
+            'if (allowed.length === 3) {',
+            '  echo(_decode(allowed.join("-")))',
+            '} else {',
+            '  echo("ERROR: ACL verification failed")',
+            '}',
+          ].join('\n'),
+        },
+        corruptedHintPath: '/opt/scripts/.acl_rules',
+        corruptedHintContent: 'rule_2="deny"',
+        expectedChecksum: 'allow-allow-allow',
+      },
+    ],
   };

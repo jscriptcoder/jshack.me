@@ -174,14 +174,18 @@ const pickTarget = (
     const targetLayerIdx = objectiveType === 'portforward' ? 0 : layers.length - 1;
     const targetLayer = layers[targetLayerIdx]!;
     const layerIps = new Set(targetLayer.machines.map((m) => m.ip));
-    const candidates = machines.filter((m) => layerIps.has(m.ip) && m.role !== 'router');
+    const candidates = machines.filter(
+      (m) => layerIps.has(m.ip) && m.role !== 'router' && m.role !== 'switch',
+    );
 
     // Always consume PRNG to preserve sequence
     return candidates.length > 0 ? prng.pick(candidates) : prng.pick(machines);
   }
 
   // Single layer or no layer info: legacy behavior
-  const nonEntry = machines.filter((m) => m.ip !== entryPoint && m.role !== 'router');
+  const nonEntry = machines.filter(
+    (m) => m.ip !== entryPoint && m.role !== 'router' && m.role !== 'switch',
+  );
   if (nonEntry.length === 0) {
     const entry = machines.find((m) => m.ip === entryPoint);
     return entry ?? machines[0]!;
@@ -446,7 +450,7 @@ export const buildMissionObjective = (input: BuildObjectiveInput): BuildObjectiv
   const objectiveType = objectiveTypeOverride ?? prngObjectiveType;
 
   // Pick target from the appropriate layer (deepest for most objectives)
-  const nonGatewayMachines = machines.filter((m) => m.role !== 'router');
+  const nonGatewayMachines = machines.filter((m) => m.role !== 'router' && m.role !== 'switch');
   const targetMachine = pickTarget(prng, nonGatewayMachines, entryPoint, objectiveType, layers);
 
   const objective = buildObjective(

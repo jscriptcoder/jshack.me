@@ -1,6 +1,9 @@
 import type { RemoteMachine } from './types';
 import type { GeneratedMachine, NatForwardingRule, SubnetLayer } from '../generation/types';
 import type { SnmpFirewallOverride } from './snmpFirewallParser';
+import type { AclRule } from './aclParser';
+import { isPortDeniedByAcl } from './aclParser';
+import type { SnmpAclOverride } from './snmpAclParser';
 import type { SshdPortOverride } from './sshdStateParser';
 import type { FtpdPortOverride } from './ftpdStateParser';
 import type { NcPortOverride } from './ncStateParser';
@@ -194,14 +197,84 @@ type NodeReader = (machineId: string, path: string, cwd: string) => FileNode | n
 export type DynamicOverrideContext = {
   readonly allIptablesRules: ReadonlyMap<string, readonly NatForwardingRule[]>;
   readonly allSnmpOverrides: ReadonlyMap<string, readonly SnmpFirewallOverride[]>;
+  readonly allAclRules: ReadonlyMap<string, readonly AclRule[]>;
+  readonly allSnmpAclOverrides: ReadonlyMap<string, readonly SnmpAclOverride[]>;
   readonly missionMachines?: readonly GeneratedMachine[];
+  readonly missionLayers?: readonly SubnetLayer[];
   readonly homeMachines?: readonly GeneratedMachine[];
+  readonly homeLayers?: readonly SubnetLayer[];
   readonly homeGatewayByAliasIp: ReadonlyMap<string, GeneratedMachine>;
   readonly readNode: NodeReader;
 };
 
+// Finds the switch gateway that controls access to a given machine IP.
+// Checks both mission and home network layers for a switch gateway whose
+// downstream subnet contains this machine.
+const findSwitchGatewayForMachine = (
+  machineIp: string,
+  ctx: DynamicOverrideContext,
+): string | undefined => {
+  const checkLayers = (layers: readonly SubnetLayer[] | undefined): string | undefined => {
+    if (!layers || layers.length <= 1) return undefined;
+    for (const layer of layers.slice(1)) {
+      if (layer.gatewayType !== 'switch') continue;
+      // Check if the machine IP belongs to this layer's subnet
+      if (machineIp.startsWith(`${layer.subnet}.`)) {
+        return layer.gateway.ip;
+      }
+    }
+    return undefined;
+  };
+
+  return checkLayers(ctx.missionLayers) ?? checkLayers(ctx.homeLayers);
+};
+
+// Applies ACL-based port filtering for machines behind a switch gateway.
+// When a switch has deny rules for a port to the machine's subnet, that
+// port appears closed. SNMP ACL overrides (allow) take precedence over
+// static ACL deny rules.
+const applyAclFiltering = (
+  machine: RemoteMachine,
+  switchGatewayIp: string,
+  ctx: DynamicOverrideContext,
+): RemoteMachine => {
+  const aclRules = ctx.allAclRules.get(switchGatewayIp) ?? [];
+  const snmpAclOverrides = ctx.allSnmpAclOverrides.get(switchGatewayIp) ?? [];
+
+  // Also check the .1 alias for the switch gateway (home networks use aliases)
+  const aliasAclRules =
+    aclRules.length === 0
+      ? ([...ctx.allAclRules.entries()].find(
+          ([ip]) => ctx.homeGatewayByAliasIp.get(ip)?.ip === switchGatewayIp,
+        )?.[1] ?? [])
+      : aclRules;
+  const aliasSnmpAclOverrides =
+    snmpAclOverrides.length === 0
+      ? ([...ctx.allSnmpAclOverrides.entries()].find(
+          ([ip]) => ctx.homeGatewayByAliasIp.get(ip)?.ip === switchGatewayIp,
+        )?.[1] ?? [])
+      : snmpAclOverrides;
+
+  if (aliasAclRules.length === 0 && aliasSnmpAclOverrides.length === 0) return machine;
+
+  // Build SNMP override map: port → allowed
+  const snmpAllowedMap = new Map(aliasSnmpAclOverrides.map((o) => [o.port, o.allowed]));
+
+  return {
+    ...machine,
+    ports: machine.ports.map((p) => {
+      // SNMP ACL override takes precedence
+      const snmpAllowed = snmpAllowedMap.get(p.port);
+      if (snmpAllowed !== undefined) return { ...p, open: snmpAllowed };
+      // Static ACL check
+      if (isPortDeniedByAcl(aliasAclRules, machine.ip, p.port)) return { ...p, open: false };
+      return p;
+    }),
+  };
+};
+
 // Applies all dynamic overrides to a visible machine: gateway NAT merge,
-// SNMP firewall, and daemon state (sshd, ftpd, nc listeners).
+// SNMP firewall, ACL filtering, and daemon state (sshd, ftpd, nc listeners).
 export const applyDynamicOverrides = (
   machine: RemoteMachine,
   ctx: DynamicOverrideContext,
@@ -228,10 +301,16 @@ export const applyDynamicOverrides = (
     }
   }
 
-  // SNMP firewall overrides
+  // SNMP firewall overrides (router gateways)
   const snmpOverrides = ctx.allSnmpOverrides.get(machine.ip);
   if (snmpOverrides && snmpOverrides.length > 0) {
     result = applySnmpFirewallOverrides(result, snmpOverrides);
+  }
+
+  // ACL filtering: if this machine is behind a switch gateway, apply ACL deny rules
+  const switchGatewayIp = findSwitchGatewayForMachine(machine.ip, ctx);
+  if (switchGatewayIp) {
+    result = applyAclFiltering(result, switchGatewayIp, ctx);
   }
 
   // Daemon state: sshd

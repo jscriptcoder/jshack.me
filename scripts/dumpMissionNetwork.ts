@@ -204,7 +204,9 @@ if (!seed) {
   console.log('  npx tsx scripts/dumpMissionNetwork.ts MEDTECH-4A7F-easy');
   console.log('  npx tsx scripts/dumpMissionNetwork.ts GRADE-TAMPER-74');
   console.log('  npx tsx scripts/dumpMissionNetwork.ts my-seed --cat jump-box:/etc/passwd');
-  console.log('  npx tsx scripts/dumpMissionNetwork.ts my-seed --cat 192.168.1.5:/var/log/auth.log');
+  console.log(
+    '  npx tsx scripts/dumpMissionNetwork.ts my-seed --cat 192.168.1.5:/var/log/auth.log',
+  );
   process.exit(1);
 }
 

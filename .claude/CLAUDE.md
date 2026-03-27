@@ -169,6 +169,7 @@ See `architecture.md` for integration details, `mission-variations.md` for all g
 - Commands: `missions()`, `accept(seed)`, `abort()`, `mail(recipient, content)`
 - Eight objectives: exfiltrate, tamper, credential_theft, script_fix, sabotage, backdoor, portforward, forensics
 - NAT resolution via `resolveNat(ip, port)` using iptables rules on any gateway's filesystem (border router and inner gateways). SNMP firewall overrides also apply to all gateways — inner gateways with SNMP access variant get `snmpd.conf` and respond to `snmpset` for dynamic port opening. `NetworkContext` handles layered home networks the same way — gateway iptables/SNMP parsing, layer-aware localhost visibility, and `.1` IP aliases for inner gateways.
+- **Switch gateways**: Inner gateways can be managed Layer 3 switches (`GatewayType = 'switch'`) instead of routers. Switches use ACL deny rules (`/etc/switch/acl.conf`) instead of NAT/iptables. No address translation — when ACLs are cleared, traffic reaches downstream IPs directly. SNMP on switches uses ACL OIDs (`aclSSH`, `aclHTTP` with `allow`/`deny` values) instead of firewall OIDs (`firewallSSH`/`firewallHTTP` with `permit`/`deny`). Switch gateways are activated via the `switch` seed keyword for missions or a ~40% PRNG roll for home networks. Border gateway is always a router.
 
 ### Node Execution
 

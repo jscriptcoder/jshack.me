@@ -104,6 +104,20 @@ const workstationWebContentTemplates: readonly WebContentTemplate[] = [
   },
 ];
 
+// Managed switch web management interface templates.
+const switchWebContentTemplates: readonly WebContentTemplate[] = [
+  {
+    path: '/var/www/html/index.html',
+    content:
+      '<html>\n<head><title>{{hostname}} — Switch Management</title></head>\n<body>\n<h1>{{hostname}} L3 Switch</h1>\n<p>Cisco IOS Web Interface v15.2(4)E</p>\n<form action="/login" method="POST">\n<label>Username: <input type="text" name="user"></label><br>\n<label>Password: <input type="password" name="pass"></label><br>\n<input type="submit" value="Login">\n</form>\n<!-- firmware: IOS 15.2(4)E -->\n</body>\n</html>',
+  },
+  {
+    path: '/var/www/html/index.html',
+    content:
+      '<html>\n<head><title>{{hostname}} — VLAN Manager</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>Layer 3 Switch Management v3.1.0</p>\n<p><a href="/admin/">ACL Config</a> | <a href="/vlans">VLAN Status</a></p>\n<!-- contact: netadmin@corp.local for access -->\n</body>\n</html>',
+  },
+];
+
 // Role-based web content template lookup. Every role has templates so any machine
 // with an open HTTP port gets realistic web content.
 export const webContentTemplatesByRole: Readonly<
@@ -116,4 +130,5 @@ export const webContentTemplatesByRole: Readonly<
   mailserver: mailserverWebContentTemplates,
   iot: iotWebContentTemplates,
   workstation: workstationWebContentTemplates,
+  switch: switchWebContentTemplates,
 };
