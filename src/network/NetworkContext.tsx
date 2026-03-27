@@ -15,15 +15,12 @@ import { useFileSystem } from '../filesystem';
 import { parseIptablesRules } from './iptablesParser';
 import { parseSnmpFirewallConfig } from './snmpFirewallParser';
 import type { SnmpFirewallOverride } from './snmpFirewallParser';
-import { parseSshdState } from './sshdStateParser';
-import { parseFtpdState } from './ftpdStateParser';
-import { parseNcPidFiles } from './ncStateParser';
-import { SSH_PID_FILE_PATH } from '../commands/sshd';
-import { FTP_PID_FILE_PATH } from '../commands/vsftpd';
 import {
-  buildMergedRouterView,
-  applySnmpFirewallOverrides,
-  applyDaemonOverrides,
+  collectGatewayIps,
+  buildGatewayAliasMap,
+  buildRouterRemoteView,
+  applyDynamicOverrides,
+  type DynamicOverrideContext,
 } from './networkUtils';
 
 type NetworkContextType = {
@@ -70,22 +67,12 @@ export const NetworkProvider = ({
 
   const isLocalhostDisconnected = session.machine === 'localhost' && !wifiConnected;
 
-  // Collect all gateway IPs (border router + inner gateways) for iptables/SNMP parsing.
-  // Includes both mission and home network gateways.
-  const gatewayIps = useMemo((): readonly string[] => {
-    const ips: string[] = [];
-    if (missionRouterMachine) ips.push(missionRouterMachine.ip);
-    if (missionLayers && missionLayers.length > 1) {
-      missionLayers.slice(1).forEach((layer) => ips.push(layer.gateway.ip));
-    }
-    if (homeNetwork) {
-      ips.push(homeNetwork.routerMachine.ip);
-      if (homeNetwork.layers.length > 1) {
-        homeNetwork.layers.slice(1).forEach((layer) => ips.push(layer.gateway.ip));
-      }
-    }
-    return ips;
-  }, [missionRouterMachine, missionLayers, homeNetwork]);
+  const gatewayIps = useMemo(
+    () => collectGatewayIps(missionRouterMachine, missionLayers, homeNetwork),
+    [missionRouterMachine, missionLayers, homeNetwork],
+  );
+
+  const homeGatewayByAliasIp = useMemo(() => buildGatewayAliasMap(homeNetwork), [homeNetwork]);
 
   // Dynamic iptables rules: read and parse /etc/iptables/rules.v4 from all
   // gateway filesystems. When the player edits a file with nano, the filesystem
@@ -189,14 +176,12 @@ export const NetworkProvider = ({
 
       // If mission is active, also make mission router visible from localhost
       if (missionNetworkConfig && missionRouterMachine) {
-        const baseRouterRemote: RemoteMachine =
-          iptablesRules.length > 0
-            ? buildMergedRouterView(missionRouterMachine, missionMachines ?? [], iptablesRules)
-            : missionRouterMachine.remoteMachine;
-        const routerRemoteFinal: RemoteMachine =
-          snmpFirewallOverrides.length > 0
-            ? applySnmpFirewallOverrides(baseRouterRemote, snmpFirewallOverrides)
-            : baseRouterRemote;
+        const routerRemote = buildRouterRemoteView(
+          missionRouterMachine,
+          missionMachines ?? [],
+          iptablesRules,
+          snmpFirewallOverrides,
+        );
         const externalDns: readonly DnsRecord[] = [
           {
             domain: `${missionRouterMachine.hostname}.mission`,
@@ -206,7 +191,7 @@ export const NetworkProvider = ({
         ];
         return {
           ...homeBase,
-          machines: [...homeBase.machines, routerRemoteFinal],
+          machines: [...homeBase.machines, routerRemote],
           dnsRecords: [...homeBase.dnsRecords, ...externalDns],
         };
       }
@@ -216,14 +201,12 @@ export const NetworkProvider = ({
 
     // Localhost with mission but no WiFi — mission router visible
     if (session.machine === 'localhost' && missionNetworkConfig && missionRouterMachine) {
-      const baseRouterRemote: RemoteMachine =
-        iptablesRules.length > 0
-          ? buildMergedRouterView(missionRouterMachine, missionMachines ?? [], iptablesRules)
-          : missionRouterMachine.remoteMachine;
-      const routerRemote: RemoteMachine =
-        snmpFirewallOverrides.length > 0
-          ? applySnmpFirewallOverrides(baseRouterRemote, snmpFirewallOverrides)
-          : baseRouterRemote;
+      const routerRemote = buildRouterRemoteView(
+        missionRouterMachine,
+        missionMachines ?? [],
+        iptablesRules,
+        snmpFirewallOverrides,
+      );
       const externalDns: readonly DnsRecord[] = [
         {
           domain: `${missionRouterMachine.hostname}.mission`,
@@ -253,62 +236,32 @@ export const NetworkProvider = ({
 
   // Dynamic overrides: for each visible machine, apply gateway enhancements
   // (NAT merged view, SNMP firewall) and daemon state (sshd, ftpd, nc).
-  const currentConfig = useMemo((): MachineNetworkConfig => {
-    const machines = baseConfig.machines.map((machine) => {
-      const fsId = machine.ip;
-      let result = machine;
+  const overrideCtx = useMemo(
+    (): DynamicOverrideContext => ({
+      allIptablesRules,
+      allSnmpOverrides,
+      missionMachines,
+      homeMachines: homeNetwork?.machines,
+      homeGatewayByAliasIp,
+      readNode: getNodeFromMachine,
+    }),
+    [
+      allIptablesRules,
+      allSnmpOverrides,
+      missionMachines,
+      homeNetwork,
+      homeGatewayByAliasIp,
+      getNodeFromMachine,
+    ],
+  );
 
-      // Inner gateway NAT merged view: show forwarded ports to upstream machines.
-      // Check both mission and home network gateways.
-      const gatewayRules = allIptablesRules.get(machine.ip);
-      if (gatewayRules && gatewayRules.length > 0) {
-        const missionGateway = missionMachines?.find((m) => m.ip === machine.ip);
-        if (missionGateway) {
-          result = buildMergedRouterView(missionGateway, missionMachines!, gatewayRules);
-        } else {
-          const homeGateway = homeNetwork?.machines.find((m) => m.ip === machine.ip);
-          if (homeGateway) {
-            result = buildMergedRouterView(homeGateway, [...homeNetwork!.machines], gatewayRules);
-          }
-        }
-      }
-
-      // SNMP firewall overrides: dynamically open/close ports on gateways
-      const snmpOverrides = allSnmpOverrides.get(machine.ip);
-      if (snmpOverrides && snmpOverrides.length > 0) {
-        result = applySnmpFirewallOverrides(result, snmpOverrides);
-      }
-
-      // sshd state
-      const sshdNode = getNodeFromMachine(fsId, SSH_PID_FILE_PATH, '/');
-      if (sshdNode?.type === 'file' && sshdNode.content) {
-        const overrides = parseSshdState(sshdNode.content);
-        if (overrides.length > 0) result = applyDaemonOverrides(result, overrides);
-      }
-
-      // ftpd state
-      const ftpdNode = getNodeFromMachine(fsId, FTP_PID_FILE_PATH, '/');
-      if (ftpdNode?.type === 'file' && ftpdNode.content) {
-        const overrides = parseFtpdState(ftpdNode.content);
-        if (overrides.length > 0) result = applyDaemonOverrides(result, overrides);
-      }
-
-      // nc listener state — scan /var/run/ for nc-*.pid files
-      const varRunNode = getNodeFromMachine(fsId, '/var/run', '/');
-      const ncOverrides = parseNcPidFiles(varRunNode);
-      if (ncOverrides.length > 0) result = applyDaemonOverrides(result, ncOverrides);
-
-      return result;
-    });
-    return { ...baseConfig, machines };
-  }, [
-    baseConfig,
-    allIptablesRules,
-    allSnmpOverrides,
-    missionMachines,
-    homeNetwork,
-    getNodeFromMachine,
-  ]);
+  const currentConfig = useMemo(
+    (): MachineNetworkConfig => ({
+      ...baseConfig,
+      machines: baseConfig.machines.map((m) => applyDynamicOverrides(m, overrideCtx)),
+    }),
+    [baseConfig, overrideCtx],
+  );
 
   const getInterface = useCallback(
     (name: string): NetworkInterface | undefined => {

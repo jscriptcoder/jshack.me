@@ -1,14 +1,19 @@
 import { describe, it, expect } from 'vitest';
 import type { RemoteMachine, Port } from './types';
-import type { GeneratedMachine, NatForwardingRule } from '../generation/types';
+import type { GeneratedMachine, NatForwardingRule, SubnetLayer } from '../generation/types';
 import type { SnmpFirewallOverride } from './snmpFirewallParser';
 import type { SshdPortOverride } from './sshdStateParser';
 import type { FtpdPortOverride } from './ftpdStateParser';
 import type { NcPortOverride } from './ncStateParser';
+import type { HomeNetwork } from '../generation/generateHomeNetwork';
 import {
   applyDaemonOverrides,
   applySnmpFirewallOverrides,
+  applyDynamicOverrides,
   buildMergedRouterView,
+  buildRouterRemoteView,
+  collectGatewayIps,
+  buildGatewayAliasMap,
 } from './networkUtils';
 
 // -- Factories --
@@ -453,5 +458,271 @@ describe('buildMergedRouterView', () => {
 
     expect(result.ports).toEqual([]);
     expect(result.users).toEqual([]);
+  });
+});
+
+// -- Helpers for new tests --
+
+const createSubnetLayer = (overrides: Partial<SubnetLayer> = {}): SubnetLayer => ({
+  subnet: '10.0.1',
+  gateway: createGeneratedMachine({ ip: '10.0.0.50', hostname: 'gw', role: 'router' }),
+  entryVariant: 'ssh',
+  machines: [],
+  isForwarded: false,
+  ...overrides,
+});
+
+const createHomeNetwork = (overrides: Partial<HomeNetwork> = {}): HomeNetwork => ({
+  essid: 'TEST-WIFI',
+  localhostIp: '10.0.0.100',
+  router: { publicIp: '45.0.0.1', hostname: 'router01', internalIp: '10.0.0.1' },
+  routerMachine: createGeneratedMachine({
+    ip: '45.0.0.1',
+    hostname: 'router01',
+    role: 'router',
+  }),
+  entryPoint: '10.0.0.10',
+  entryVariant: 'ssh',
+  machines: [],
+  layers: [createSubnetLayer({ subnet: '10.0.0' })],
+  networkConfig: { machineConfigs: {} },
+  fileSystems: {},
+  difficulty: 'easy',
+  ...overrides,
+});
+
+describe('collectGatewayIps', () => {
+  it('should return empty array when no networks provided', () => {
+    expect(collectGatewayIps(undefined, undefined, null)).toEqual([]);
+  });
+
+  it('should include mission router IP', () => {
+    const router = createGeneratedMachine({ ip: '203.0.113.1' });
+
+    const result = collectGatewayIps(router, undefined, null);
+
+    expect(result).toEqual(['203.0.113.1']);
+  });
+
+  it('should include mission inner gateway IPs', () => {
+    const router = createGeneratedMachine({ ip: '203.0.113.1' });
+    const layers: readonly SubnetLayer[] = [
+      createSubnetLayer({ subnet: '10.0.0' }),
+      createSubnetLayer({
+        subnet: '10.0.1',
+        gateway: createGeneratedMachine({ ip: '10.0.0.50' }),
+      }),
+    ];
+
+    const result = collectGatewayIps(router, layers, null);
+
+    expect(result).toContain('10.0.0.50');
+  });
+
+  it('should include home router public IP and internal .1 IP', () => {
+    const home = createHomeNetwork();
+
+    const result = collectGatewayIps(undefined, undefined, home);
+
+    expect(result).toContain('45.0.0.1');
+    expect(result).toContain('10.0.0.1');
+  });
+
+  it('should include home inner gateway upstream and .1 alias IPs', () => {
+    const innerGateway = createGeneratedMachine({ ip: '10.0.0.50', role: 'router' });
+    const home = createHomeNetwork({
+      layers: [
+        createSubnetLayer({ subnet: '10.0.0' }),
+        createSubnetLayer({ subnet: '10.0.1', gateway: innerGateway }),
+      ],
+    });
+
+    const result = collectGatewayIps(undefined, undefined, home);
+
+    expect(result).toContain('10.0.0.50');
+    expect(result).toContain('10.0.1.1');
+  });
+});
+
+describe('buildGatewayAliasMap', () => {
+  it('should return empty map when no home network', () => {
+    expect(buildGatewayAliasMap(null).size).toBe(0);
+  });
+
+  it('should map border router internal .1 IP to routerMachine', () => {
+    const home = createHomeNetwork();
+
+    const map = buildGatewayAliasMap(home);
+
+    expect(map.get('10.0.0.1')).toBe(home.routerMachine);
+  });
+
+  it('should map inner gateway .1 IP to gateway machine', () => {
+    const innerGateway = createGeneratedMachine({ ip: '10.0.0.50', role: 'router' });
+    const home = createHomeNetwork({
+      layers: [
+        createSubnetLayer({ subnet: '10.0.0' }),
+        createSubnetLayer({ subnet: '10.0.1', gateway: innerGateway }),
+      ],
+    });
+
+    const map = buildGatewayAliasMap(home);
+
+    expect(map.get('10.0.1.1')).toBe(innerGateway);
+  });
+});
+
+describe('buildRouterRemoteView', () => {
+  it('should return plain remoteMachine when no rules or overrides', () => {
+    const router = createGeneratedMachine({
+      ip: '203.0.113.1',
+      hostname: 'gw',
+      remoteMachine: createMachine({
+        ip: '203.0.113.1',
+        hostname: 'gw',
+        ports: [createPort({ port: 22, service: 'ssh', open: true })],
+      }),
+    });
+
+    const result = buildRouterRemoteView(router, [], [], []);
+
+    expect(result).toEqual(router.remoteMachine);
+  });
+
+  it('should apply iptables merge and SNMP overrides together', () => {
+    const router = createGeneratedMachine({
+      ip: '203.0.113.1',
+      remoteMachine: createMachine({
+        ip: '203.0.113.1',
+        ports: [createPort({ port: 22, service: 'ssh', open: false })],
+      }),
+    });
+    const target = createGeneratedMachine({
+      ip: '10.0.0.5',
+      remoteMachine: createMachine({
+        ip: '10.0.0.5',
+        ports: [createPort({ port: 80, service: 'http', open: true })],
+      }),
+    });
+    const rules: readonly NatForwardingRule[] = [
+      { publicPort: 8080, internalIp: '10.0.0.5', internalPort: 80 },
+    ];
+    const snmp: readonly SnmpFirewallOverride[] = [{ port: 22, open: true }];
+
+    const result = buildRouterRemoteView(router, [target], rules, snmp);
+
+    // SSH opened by SNMP, HTTP forwarded on 8080
+    expect(result.ports).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ port: 22, open: true }),
+        expect.objectContaining({ port: 8080, service: 'http', open: true }),
+      ]),
+    );
+  });
+});
+
+describe('applyDynamicOverrides', () => {
+  const noopReader = () => null;
+
+  it('should return machine unchanged when no overrides apply', () => {
+    const machine = createMachine({ ip: '10.0.0.5' });
+    const ctx = {
+      allIptablesRules: new Map(),
+      allSnmpOverrides: new Map(),
+      homeGatewayByAliasIp: new Map(),
+      readNode: noopReader,
+    };
+
+    expect(applyDynamicOverrides(machine, ctx)).toBe(machine);
+  });
+
+  it('should apply gateway NAT merge for mission gateways', () => {
+    const gateway = createGeneratedMachine({
+      ip: '10.0.0.50',
+      role: 'router',
+      remoteMachine: createMachine({ ip: '10.0.0.50', ports: [] }),
+    });
+    const target = createGeneratedMachine({
+      ip: '10.0.1.10',
+      remoteMachine: createMachine({
+        ip: '10.0.1.10',
+        ports: [createPort({ port: 22, service: 'ssh', open: true })],
+      }),
+    });
+    const rules: readonly NatForwardingRule[] = [
+      { publicPort: 2222, internalIp: '10.0.1.10', internalPort: 22 },
+    ];
+
+    const result = applyDynamicOverrides(gateway.remoteMachine, {
+      allIptablesRules: new Map([['10.0.0.50', rules]]),
+      allSnmpOverrides: new Map(),
+      missionMachines: [gateway, target],
+      homeGatewayByAliasIp: new Map(),
+      readNode: noopReader,
+    });
+
+    expect(result.ports).toEqual([{ port: 2222, service: 'ssh', open: true }]);
+  });
+
+  it('should find home gateway by .1 alias IP', () => {
+    const gateway = createGeneratedMachine({
+      ip: '45.0.0.1',
+      role: 'router',
+      remoteMachine: createMachine({ ip: '45.0.0.1', ports: [] }),
+    });
+    const target = createGeneratedMachine({
+      ip: '10.0.0.10',
+      remoteMachine: createMachine({
+        ip: '10.0.0.10',
+        ports: [createPort({ port: 80, service: 'http', open: true })],
+      }),
+    });
+    const rules: readonly NatForwardingRule[] = [
+      { publicPort: 80, internalIp: '10.0.0.10', internalPort: 80 },
+    ];
+    // The router is visible at .1 but its GeneratedMachine uses the public IP
+    const visibleMachine = createMachine({ ip: '10.0.0.1', hostname: 'router01' });
+
+    const result = applyDynamicOverrides(visibleMachine, {
+      allIptablesRules: new Map([['10.0.0.1', rules]]),
+      allSnmpOverrides: new Map(),
+      homeMachines: [target],
+      homeGatewayByAliasIp: new Map([['10.0.0.1', gateway]]),
+      readNode: noopReader,
+    });
+
+    expect(result.ports).toContainEqual(
+      expect.objectContaining({ port: 80, service: 'http', open: true }),
+    );
+  });
+
+  it('should apply sshd daemon override from PID file', () => {
+    const machine = createMachine({
+      ip: '10.0.0.5',
+      ports: [createPort({ port: 22, service: 'ssh', open: false })],
+    });
+    const readNode = (machineId: string, path: string) => {
+      if (machineId === '10.0.0.5' && path === '/var/run/sshd.pid') {
+        return {
+          name: 'sshd.pid',
+          type: 'file' as const,
+          content: 'sshd:port=22',
+          owner: 'root' as const,
+          permissions: { read: [], write: [], execute: [] },
+        };
+      }
+      return null;
+    };
+
+    const result = applyDynamicOverrides(machine, {
+      allIptablesRules: new Map(),
+      allSnmpOverrides: new Map(),
+      homeGatewayByAliasIp: new Map(),
+      readNode,
+    });
+
+    expect(result.ports).toContainEqual(
+      expect.objectContaining({ port: 22, service: 'ssh', open: true }),
+    );
   });
 });

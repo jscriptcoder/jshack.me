@@ -1,9 +1,16 @@
 import type { RemoteMachine } from './types';
-import type { GeneratedMachine, NatForwardingRule } from '../generation/types';
+import type { GeneratedMachine, NatForwardingRule, SubnetLayer } from '../generation/types';
 import type { SnmpFirewallOverride } from './snmpFirewallParser';
 import type { SshdPortOverride } from './sshdStateParser';
 import type { FtpdPortOverride } from './ftpdStateParser';
 import type { NcPortOverride } from './ncStateParser';
+import { parseSshdState } from './sshdStateParser';
+import { parseFtpdState } from './ftpdStateParser';
+import { parseNcPidFiles } from './ncStateParser';
+import type { FileNode } from '../filesystem/types';
+import type { HomeNetwork } from '../generation/generateHomeNetwork';
+import { SSH_PID_FILE_PATH } from '../commands/sshd';
+import { FTP_PID_FILE_PATH } from '../commands/vsftpd';
 
 // Builds a merged view of the router that includes NAT-forwarded ports from
 // internal machines, remapped to their public port numbers.
@@ -109,4 +116,138 @@ export const applyDaemonOverrides = (
     ...('owner' in o ? { owner: o.owner } : {}),
   }));
   return { ...machine, ports: [...existingPorts, ...newPorts] };
+};
+
+// ---------------------------------------------------------------------------
+// Gateway IP collection & alias mapping
+// ---------------------------------------------------------------------------
+
+// Collects all gateway IPs for iptables/SNMP parsing. Home network gateways
+// are reachable at both their primary IP and their internal .1 alias, so both
+// are included to ensure lookups work from any viewer.
+export const collectGatewayIps = (
+  missionRouterMachine: GeneratedMachine | undefined,
+  missionLayers: readonly SubnetLayer[] | undefined,
+  homeNetwork: HomeNetwork | null | undefined,
+): readonly string[] => {
+  const ips: string[] = [];
+  if (missionRouterMachine) ips.push(missionRouterMachine.ip);
+  if (missionLayers && missionLayers.length > 1) {
+    missionLayers.slice(1).forEach((layer) => ips.push(layer.gateway.ip));
+  }
+  if (homeNetwork) {
+    ips.push(homeNetwork.routerMachine.ip);
+    ips.push(homeNetwork.router.internalIp);
+    if (homeNetwork.layers.length > 1) {
+      homeNetwork.layers.slice(1).forEach((layer) => {
+        ips.push(layer.gateway.ip);
+        ips.push(`${layer.subnet}.1`);
+      });
+    }
+  }
+  return ips;
+};
+
+// Maps gateway .1 alias IPs to their GeneratedMachine. The border router and
+// inner gateways are visible at .1 IPs from inside the network, but their
+// GeneratedMachine uses the primary IP. This bridges the gap for merged views.
+export const buildGatewayAliasMap = (
+  homeNetwork: HomeNetwork | null | undefined,
+): ReadonlyMap<string, GeneratedMachine> => {
+  if (!homeNetwork) return new Map();
+  const map = new Map<string, GeneratedMachine>();
+  map.set(homeNetwork.router.internalIp, homeNetwork.routerMachine);
+  if (homeNetwork.layers.length > 1) {
+    homeNetwork.layers.slice(1).forEach((layer) => {
+      map.set(`${layer.subnet}.1`, layer.gateway);
+    });
+  }
+  return map;
+};
+
+// ---------------------------------------------------------------------------
+// Mission router view (iptables + SNMP applied)
+// ---------------------------------------------------------------------------
+
+// Builds the final RemoteMachine view for the mission router by applying
+// iptables NAT merge and SNMP firewall overrides. Used when making the
+// mission router visible from localhost.
+export const buildRouterRemoteView = (
+  routerMachine: GeneratedMachine,
+  missionMachines: readonly GeneratedMachine[],
+  iptablesRules: readonly NatForwardingRule[],
+  snmpOverrides: readonly SnmpFirewallOverride[],
+): RemoteMachine => {
+  const base =
+    iptablesRules.length > 0
+      ? buildMergedRouterView(routerMachine, missionMachines, iptablesRules)
+      : routerMachine.remoteMachine;
+  return snmpOverrides.length > 0 ? applySnmpFirewallOverrides(base, snmpOverrides) : base;
+};
+
+// ---------------------------------------------------------------------------
+// Per-machine dynamic overrides
+// ---------------------------------------------------------------------------
+
+type NodeReader = (machineId: string, path: string, cwd: string) => FileNode | null;
+
+export type DynamicOverrideContext = {
+  readonly allIptablesRules: ReadonlyMap<string, readonly NatForwardingRule[]>;
+  readonly allSnmpOverrides: ReadonlyMap<string, readonly SnmpFirewallOverride[]>;
+  readonly missionMachines?: readonly GeneratedMachine[];
+  readonly homeMachines?: readonly GeneratedMachine[];
+  readonly homeGatewayByAliasIp: ReadonlyMap<string, GeneratedMachine>;
+  readonly readNode: NodeReader;
+};
+
+// Applies all dynamic overrides to a visible machine: gateway NAT merge,
+// SNMP firewall, and daemon state (sshd, ftpd, nc listeners).
+export const applyDynamicOverrides = (
+  machine: RemoteMachine,
+  ctx: DynamicOverrideContext,
+): RemoteMachine => {
+  let result = machine;
+
+  // Gateway NAT merged view: show forwarded ports to upstream machines.
+  const gatewayRules = ctx.allIptablesRules.get(machine.ip);
+  if (gatewayRules && gatewayRules.length > 0) {
+    const missionGateway = ctx.missionMachines?.find((m) => m.ip === machine.ip);
+    if (missionGateway) {
+      result = buildMergedRouterView(missionGateway, ctx.missionMachines!, gatewayRules);
+    } else {
+      const homeGateway =
+        ctx.homeMachines?.find((m) => m.ip === machine.ip) ??
+        ctx.homeGatewayByAliasIp.get(machine.ip);
+      if (homeGateway && ctx.homeMachines) {
+        result = buildMergedRouterView(homeGateway, ctx.homeMachines, gatewayRules);
+      }
+    }
+  }
+
+  // SNMP firewall overrides
+  const snmpOverrides = ctx.allSnmpOverrides.get(machine.ip);
+  if (snmpOverrides && snmpOverrides.length > 0) {
+    result = applySnmpFirewallOverrides(result, snmpOverrides);
+  }
+
+  // Daemon state: sshd
+  const sshdNode = ctx.readNode(machine.ip, SSH_PID_FILE_PATH, '/');
+  if (sshdNode?.type === 'file' && sshdNode.content) {
+    const overrides = parseSshdState(sshdNode.content);
+    if (overrides.length > 0) result = applyDaemonOverrides(result, overrides);
+  }
+
+  // Daemon state: ftpd
+  const ftpdNode = ctx.readNode(machine.ip, FTP_PID_FILE_PATH, '/');
+  if (ftpdNode?.type === 'file' && ftpdNode.content) {
+    const overrides = parseFtpdState(ftpdNode.content);
+    if (overrides.length > 0) result = applyDaemonOverrides(result, overrides);
+  }
+
+  // Daemon state: nc listeners
+  const varRunNode = ctx.readNode(machine.ip, '/var/run', '/');
+  const ncOverrides = parseNcPidFiles(varRunNode);
+  if (ncOverrides.length > 0) result = applyDaemonOverrides(result, ncOverrides);
+
+  return result;
 };
