@@ -1,262 +1,40 @@
-import type { Prng } from './prng';
 import { createPrng } from './prng';
-import { generatePrivateSubnet, generatePublicIp } from './ip';
+import { generateNetwork } from './generateNetwork';
 import type { FileNode } from '../filesystem/types';
+import type { NetworkConfig, MachineNetworkConfig } from '../network/types';
 import type {
-  DnsRecord,
-  MachineNetworkConfig,
-  NetworkConfig,
-  NetworkInterface,
-  Port,
-  RemoteMachine,
-} from '../network/types';
-import type { MachineRole } from './types';
-import {
-  createFileSystem,
-  type MachineFileSystemConfig,
-  type UserConfig,
-} from '../filesystem/fileSystemFactory';
-import {
-  hostnamesByRole,
-  portTemplatesByRole,
-  configTemplatesByRole,
-  logTemplates,
-  noiseFiles,
-  passwords,
-  webContentTemplatesByRole,
-} from './pools';
-import {
-  createBinaryEntries,
-  SYSTEM_UTILITY_NAMES,
-  SBIN_UTILITY_NAMES,
-} from '../commands/availability';
-import { md5 } from '../utils/md5';
+  Difficulty,
+  EntryVariant,
+  GeneratedMachine,
+  NatForwarding,
+  SubnetLayer,
+} from './types';
 
 export type HomeNetwork = {
   readonly essid: string;
-  readonly subnet: string;
   readonly localhostIp: string;
   readonly router: {
     readonly publicIp: string;
     readonly hostname: string;
     readonly internalIp: string;
   };
-  readonly machines: readonly HomeNetworkMachine[];
+  readonly routerMachine: GeneratedMachine;
+  readonly entryPoint: string;
+  readonly entryVariant: EntryVariant;
+  readonly machines: readonly GeneratedMachine[];
+  readonly layers: readonly SubnetLayer[];
   readonly networkConfig: NetworkConfig;
   readonly fileSystems: Readonly<Record<string, FileNode>>;
+  readonly natForwarding?: NatForwarding;
+  readonly difficulty: Difficulty;
 };
 
-type HomeNetworkMachine = {
-  readonly ip: string;
-  readonly hostname: string;
-  readonly role: MachineRole;
-  readonly remoteMachine: RemoteMachine;
-};
-
-const allRoles: readonly MachineRole[] = [
-  'webserver',
-  'database',
-  'fileserver',
-  'workstation',
-  'mailserver',
-  'iot',
-];
-
-const generateMac = (prng: Prng): string => {
-  const hex = () => prng.nextInt(0, 255).toString(16).padStart(2, '0');
-  return `02:${hex()}:${hex()}:${hex()}:${hex()}:${hex()}`;
-};
-
-const createInterface = (
-  name: string,
-  inet: string,
-  netmask: string,
-  gateway: string,
-  mac: string,
-): NetworkInterface => ({
-  name,
-  flags: ['UP', 'BROADCAST', 'RUNNING', 'MULTICAST'],
-  inet,
-  netmask,
-  gateway,
-  mac,
-});
-
-const buildPorts = (role: MachineRole): readonly Port[] =>
-  portTemplatesByRole[role].map((t) => ({ port: t.port, service: t.service, open: t.open }));
-
-// Simple filesystem for home network machines — configs, logs, noise files
-const buildMachineFilesystem = (
-  prng: Prng,
-  hostname: string,
-  ip: string,
-  role: MachineRole,
-  users: readonly UserConfig[],
-): FileNode => {
-  const configTemplates = configTemplatesByRole[role];
-  const configContent = prng
-    .pick(configTemplates)
-    .replace(/\{\{hostname\}\}/g, hostname)
-    .replace(/\{\{port\}\}/g, String(portTemplatesByRole[role][0]?.port ?? 22))
-    .replace(/\{\{user\}\}/g, users.find((u) => u.userType === 'user')?.username ?? 'admin');
-
-  const logContent = prng
-    .pickN(logTemplates, 4)
-    .map((t) =>
-      t
-        .replace(/\{\{date\}\}/g, 'Mar 15 03:14:22')
-        .replace(/\{\{pid\}\}/g, String(prng.nextInt(1000, 9999)))
-        .replace(/\{\{user\}\}/g, users.find((u) => u.userType === 'user')?.username ?? 'admin')
-        .replace(/\{\{ip\}\}/g, ip)
-        .replace(/\{\{srcport\}\}/g, String(prng.nextInt(32768, 65535)))
-        .replace(/\{\{service\}\}/g, hostname)
-        .replace(/\{\{uptime\}\}/g, `${prng.nextInt(100, 99999)}.${prng.nextInt(10, 99)}`),
-    )
-    .join('\n');
-
-  const noise = prng.pickN(noiseFiles, 2);
-  const userHomeContent: Readonly<Record<string, FileNode>> = Object.fromEntries(
-    noise.map((f) => [
-      f.name,
-      {
-        name: f.name,
-        type: 'file' as const,
-        owner: 'user' as const,
-        permissions: {
-          read: ['root' as const, 'user' as const],
-          write: ['root' as const, 'user' as const],
-          execute: ['root' as const],
-        },
-        content: f.content,
-      },
-    ]),
-  );
-
-  const usersWithHome = users.map((u) =>
-    u.userType === 'user' ? { ...u, homeContent: userHomeContent } : u,
-  );
-
-  // Generate web content for machines with open HTTP ports
-  const ports = portTemplatesByRole[role];
-  const hasOpenHttpPort = ports.some(
-    (p) => p.open && (p.service === 'http' || p.service === 'https' || p.service === 'http-alt'),
-  );
-
-  const webDirectory: Readonly<Record<string, FileNode>> = hasOpenHttpPort
-    ? (() => {
-        const template = prng.pick(webContentTemplatesByRole[role]);
-        const indexContent = template.content
-          .replace(/\{\{hostname\}\}/g, hostname)
-          .replace(/\{\{ip\}\}/g, ip);
-        return {
-          var: {
-            name: 'var',
-            type: 'directory' as const,
-            owner: 'root' as const,
-            permissions: {
-              read: ['root' as const, 'user' as const, 'guest' as const],
-              write: ['root' as const],
-              execute: ['root' as const, 'user' as const, 'guest' as const],
-            },
-            children: {
-              www: {
-                name: 'www',
-                type: 'directory' as const,
-                owner: 'root' as const,
-                permissions: {
-                  read: ['root' as const, 'user' as const, 'guest' as const],
-                  write: ['root' as const],
-                  execute: ['root' as const, 'user' as const, 'guest' as const],
-                },
-                children: {
-                  html: {
-                    name: 'html',
-                    type: 'directory' as const,
-                    owner: 'root' as const,
-                    permissions: {
-                      read: ['root' as const, 'user' as const, 'guest' as const],
-                      write: ['root' as const],
-                      execute: ['root' as const, 'user' as const, 'guest' as const],
-                    },
-                    children: {
-                      'index.html': {
-                        name: 'index.html',
-                        type: 'file' as const,
-                        owner: 'root' as const,
-                        permissions: {
-                          read: ['root' as const, 'user' as const, 'guest' as const],
-                          write: ['root' as const],
-                          execute: ['root' as const],
-                        },
-                        content: indexContent,
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        };
-      })()
-    : {};
-
-  const config: MachineFileSystemConfig = {
-    users: usersWithHome,
-    etcExtraContent: {
-      hostname: {
-        name: 'hostname',
-        type: 'file',
-        owner: 'root',
-        permissions: {
-          read: ['root', 'user', 'guest'],
-          write: ['root'],
-          execute: ['root'],
-        },
-        content: `${hostname}\n`,
-      },
-    },
-    varLogContent: {
-      syslog: {
-        name: 'syslog',
-        type: 'file',
-        owner: 'root',
-        permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] },
-        content: logContent,
-      },
-    },
-    extraDirectories: {
-      ...webDirectory,
-      opt: {
-        name: 'opt',
-        type: 'directory',
-        owner: 'root',
-        permissions: {
-          read: ['root', 'user', 'guest'],
-          write: ['root'],
-          execute: ['root', 'user', 'guest'],
-        },
-        children: {
-          'config.txt': {
-            name: 'config.txt',
-            type: 'file',
-            owner: 'root',
-            permissions: {
-              read: ['root', 'user', 'guest'],
-              write: ['root'],
-              execute: ['root'],
-            },
-            content: configContent,
-          },
-        },
-      },
-    },
-    binContent: createBinaryEntries(SYSTEM_UTILITY_NAMES),
-    usrBinContent: {},
-    usrSbinContent: createBinaryEntries(SBIN_UTILITY_NAMES),
-    passwdReadableBy: ['root', 'user'],
-  };
-
-  return createFileSystem(config);
+// Derives difficulty from PRNG. Consumes 1 PRNG call.
+const deriveDifficulty = (prng: { readonly next: () => number }): Difficulty => {
+  const roll = prng.next();
+  if (roll < 0.33) return 'easy';
+  if (roll < 0.66) return 'medium';
+  return 'hard';
 };
 
 export const generateHomeNetwork = (
@@ -266,171 +44,67 @@ export const generateHomeNetwork = (
   usedIps?: ReadonlySet<string>,
 ): HomeNetwork => {
   const prng = createPrng(`home-${gameSeed}-${wifiIndex}`);
+  const difficulty = deriveDifficulty(prng);
 
-  const subnet = generatePrivateSubnet(prng);
-  const gateway = `${subnet}.1`;
-  const localhostIp = `${subnet}.100`;
-  const routerPublicIp = generatePublicIp(prng, usedIps);
-
-  // 2-4 machines per network
-  const machineCount = prng.nextInt(2, 4);
-  const roles = Array.from({ length: machineCount }, () => prng.pick(allRoles));
-
-  const usedHostnames: Record<string, Set<string>> = {};
-  const pickUniqueHostname = (role: MachineRole): string => {
-    const used = usedHostnames[role] ?? new Set<string>();
-    const available = hostnamesByRole[role].filter((h) => !used.has(h));
-    const hostname =
-      available.length > 0
-        ? prng.pick(available)
-        : `${prng.pick(hostnamesByRole[role])}-${used.size}`;
-    usedHostnames[role] = new Set([...used, hostname]);
-    return hostname;
-  };
-
-  // Unique IPs
-  const usedOctets = new Set<number>();
-  const lastOctets = roles.map(() => {
-    let octet: number;
-    do {
-      octet = prng.nextInt(2, 99);
-    } while (usedOctets.has(octet));
-    usedOctets.add(octet);
-    return octet;
-  });
-
-  // Build machines
-  const machines: readonly HomeNetworkMachine[] = roles.map((role, i) => {
-    const ip = `${subnet}.${lastOctets[i]}`;
-    const hostname = pickUniqueHostname(role);
-    const ports = buildPorts(role);
-
-    const rootPassword = prng.pick(passwords);
-    const userPassword = prng.pick(passwords);
-    const guestPassword = prng.pick(passwords);
-
-    const users: readonly {
-      readonly username: string;
-      readonly passwordHash: string;
-      readonly userType: 'root' | 'user' | 'guest';
-    }[] = [
-      { username: 'root', passwordHash: md5(rootPassword), userType: 'root' },
-      {
-        username: prng.pick(['admin', 'user', 'operator', 'sysadmin', 'tech']),
-        passwordHash: md5(userPassword),
-        userType: 'user',
-      },
-      { username: 'guest', passwordHash: md5(guestPassword), userType: 'guest' },
-    ];
-
-    return {
-      ip,
-      hostname,
-      role,
-      remoteMachine: {
-        ip,
-        hostname,
-        ports: [...ports],
-        users,
-      },
-    };
-  });
-
-  // Router
-  const routerHostname = prng.pick(hostnamesByRole.router);
-  const routerPorts = buildPorts('router');
-
-  // Network configs
-  const machineConfigs: Record<string, MachineNetworkConfig> = {};
-
-  const routerInternalRemote: RemoteMachine = {
-    ip: gateway,
-    hostname: routerHostname,
-    ports: [...routerPorts],
-    users: [],
-  };
-
-  // DNS records
-  const dnsRecords: readonly DnsRecord[] = [
-    ...machines.map((m) => ({ domain: `${m.hostname}.local`, ip: m.ip, type: 'A' as const })),
-    { domain: `${routerHostname}.local`, ip: gateway, type: 'A' as const },
-  ];
-
-  machines.forEach((machine) => {
-    const otherMachines: readonly RemoteMachine[] = [
-      ...machines.filter((m) => m.ip !== machine.ip).map((m) => m.remoteMachine),
-      routerInternalRemote,
-    ];
-
-    machineConfigs[machine.ip] = {
-      interfaces: [
-        createInterface('eth0', machine.ip, '255.255.255.0', gateway, generateMac(prng)),
-      ],
-      machines: otherMachines,
-      dnsRecords,
-    };
-  });
-
-  // Router config
-  machineConfigs[routerPublicIp] = {
-    interfaces: [
-      createInterface('eth0', routerPublicIp, '255.255.255.0', '0.0.0.0', generateMac(prng)),
-      createInterface('eth1', gateway, '255.255.255.0', '0.0.0.0', generateMac(prng)),
-    ],
-    machines: machines.map((m) => m.remoteMachine),
-    dnsRecords,
-  };
-
-  // Filesystems
-  const fileSystems: Record<string, FileNode> = {};
-
-  machines.forEach((machine) => {
-    const users: readonly UserConfig[] = machine.remoteMachine.users.map((u, idx) => ({
-      username: u.username,
-      passwordHash: u.passwordHash,
-      userType: u.userType,
-      uid: idx === 0 ? 0 : 1000 + idx,
-    }));
-
-    fileSystems[machine.ip] = buildMachineFilesystem(
-      prng,
-      machine.hostname,
-      machine.ip,
-      machine.role,
-      users,
-    );
-  });
-
-  // Router filesystem (minimal)
-  const routerUsers: readonly UserConfig[] = [
-    { username: 'root', passwordHash: md5(prng.pick(passwords)), userType: 'root', uid: 0 },
-    {
-      username: 'admin',
-      passwordHash: md5(prng.pick(passwords)),
-      userType: 'user',
-      uid: 1001,
-    },
-  ];
-
-  fileSystems[routerPublicIp] = buildMachineFilesystem(
+  // Shared pipeline: topology → users → enrichment → port closures → configs → filesystems
+  const network = generateNetwork({
     prng,
-    routerHostname,
-    routerPublicIp,
-    'router',
-    routerUsers,
-  );
+    difficulty,
+    topologyOverrides: { usedIps },
+  });
+
+  const { topology, machines, routerMachine } = network;
+  const layer0 = topology.layers[0]!;
+  const routerInternalIp = `${layer0.subnet}.1`;
+  const localhostIp = `${layer0.subnet}.100`;
+
+  // Alias gateway configs under their internal .1 IPs so players can SSH
+  // into gateways from inside the network (they see the .1 address, not the
+  // upstream IP or public IP).
+  const machineConfigs: Record<string, MachineNetworkConfig> = {
+    ...network.updatedNetworkConfig.machineConfigs,
+  };
+  const fileSystems: Record<string, FileNode> = { ...network.fileSystems };
+
+  // Router: alias public IP config/filesystem under internal .1 IP
+  const routerPublicConfig = machineConfigs[topology.routerPublicIp];
+  if (routerPublicConfig) {
+    machineConfigs[routerInternalIp] = routerPublicConfig;
+  }
+  const routerPublicFs = fileSystems[topology.routerPublicIp];
+  if (routerPublicFs) {
+    fileSystems[routerInternalIp] = routerPublicFs;
+  }
+
+  // Inner gateways: alias downstream .1 IPs
+  topology.layers.slice(1).forEach((layer) => {
+    const downstreamGatewayIp = `${layer.subnet}.1`;
+    const gatewayConfig = machineConfigs[layer.gateway.ip];
+    if (gatewayConfig) {
+      machineConfigs[downstreamGatewayIp] = gatewayConfig;
+    }
+    const gatewayFs = fileSystems[layer.gateway.ip];
+    if (gatewayFs) {
+      fileSystems[downstreamGatewayIp] = gatewayFs;
+    }
+  });
 
   return {
     essid,
-    subnet,
     localhostIp,
     router: {
-      publicIp: routerPublicIp,
-      hostname: routerHostname,
-      internalIp: gateway,
+      publicIp: topology.routerPublicIp,
+      hostname: routerMachine.hostname,
+      internalIp: routerInternalIp,
     },
+    routerMachine,
+    entryPoint: topology.entryPoint,
+    entryVariant: topology.entryVariant,
     machines,
+    layers: topology.layers,
     networkConfig: { machineConfigs },
     fileSystems,
+    natForwarding: topology.natForwarding,
+    difficulty,
   };
 };

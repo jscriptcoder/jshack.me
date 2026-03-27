@@ -66,7 +66,7 @@ type FilesystemInput = {
   readonly layers?: readonly SubnetLayer[];
 };
 
-const mkFile = (
+export const mkFile = (
   name: string,
   content: string,
   owner: 'root' | 'user' | 'guest' = 'root',
@@ -99,7 +99,7 @@ const mkScript = (name: string, content: string, owner: 'root' | 'user' = 'user'
 
 // worldReadable: system directories (/var, /tmp, /etc, /srv, /opt, /home, /usr) should
 // be traversable by all users. Home subdirs remain owner-scoped via the default.
-const mkDir = (
+export const mkDir = (
   name: string,
   children: Readonly<Record<string, FileNode>>,
   owner: 'root' | 'user' | 'guest' = 'root',
@@ -364,7 +364,7 @@ const generateIptablesContent = (natForwarding?: NatForwarding): string => {
 // Generates /etc/snmp/snmpd.conf content for SNMP-variant routers.
 // Contains community strings, system OIDs, interface data, extend script args
 // with leaked credentials, and firewall OIDs (initially deny).
-const generateSnmpConfig = (
+export const generateSnmpConfig = (
   prng: Prng,
   machine: GeneratedMachine,
   machineCreds: readonly { readonly username: string; readonly password: string }[],
@@ -403,17 +403,22 @@ const generateSnmpConfig = (
   return lines.join('\n');
 };
 
-const buildMachineConfig = (
+export type BuildMachineConfigOptions = {
+  readonly isTarget?: boolean;
+  readonly objective?: MissionObjective;
+  readonly internalMachines?: readonly GeneratedMachine[];
+  readonly natForwarding?: NatForwarding;
+  readonly isHttpEntry?: boolean;
+};
+
+export const buildMachineConfig = (
   prng: Prng,
   machine: GeneratedMachine,
   users: readonly RemoteUser[],
   machineCreds: readonly { readonly username: string; readonly password: string }[],
-  isTarget: boolean,
-  objective: MissionObjective,
-  internalMachines?: readonly GeneratedMachine[],
-  natForwarding?: NatForwarding,
-  isHttpEntry?: boolean,
+  options: BuildMachineConfigOptions = {},
 ): MachineFileSystemConfig => {
+  const { isTarget = false, objective, internalMachines, natForwarding, isHttpEntry } = options;
   const userConfigs: readonly UserConfig[] = users.map((u, i) => ({
     username: u.username,
     passwordHash: u.passwordHash,
@@ -512,15 +517,15 @@ const buildMachineConfig = (
   const extraDirectories: Record<string, FileNode> = {};
 
   const rootContent: Record<string, FileNode> = {};
-  if (isTarget) {
+  if (isTarget && objective) {
     placeTargetFile(prng, objective, rootContent, extraDirectories);
 
     // Place corrupted hint file on the target machine (same machine as the script)
     if (
-      objective.type === 'script_fix' &&
-      objective.scriptBugType === 'corrupted' &&
-      objective.scriptHintPath &&
-      objective.scriptHintContent
+      objective?.type === 'script_fix' &&
+      objective?.scriptBugType === 'corrupted' &&
+      objective?.scriptHintPath &&
+      objective?.scriptHintContent
     ) {
       const hintSegments = objective.scriptHintPath.split('/').filter(Boolean);
       const hintFileName = hintSegments[hintSegments.length - 1] ?? 'hint';
@@ -954,17 +959,13 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
     // Inner gateways get downstream machines for /etc/hosts and NAT rules for iptables
     const downstreamMachines = gatewayDownstreamMap.get(machine.ip);
     const gatewayNat = gatewayNatMap.get(machine.ip);
-    const baseConfig = buildMachineConfig(
-      prng,
-      machine,
-      users,
-      machineCreds,
+    const baseConfig = buildMachineConfig(prng, machine, users, machineCreds, {
       isTarget,
       objective,
-      downstreamMachines,
-      gatewayNat,
+      internalMachines: downstreamMachines,
+      natForwarding: gatewayNat,
       isHttpEntry,
-    );
+    });
 
     // SNMP variant: add /etc/snmp/snmpd.conf for inner gateways with SNMP access variant
     const snmpContent = gatewaySnmpConfigs.get(machine.ip);
@@ -1002,16 +1003,11 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
     const routerUsers = usersByMachine[routerMachine.ip] ?? [];
     const routerCreds = credentials[routerMachine.ip] ?? [];
 
-    const baseRouterConfig = buildMachineConfig(
-      prng,
-      routerMachine,
-      routerUsers,
-      routerCreds,
-      false,
+    const baseRouterConfig = buildMachineConfig(prng, routerMachine, routerUsers, routerCreds, {
       objective,
-      machines,
+      internalMachines: machines,
       natForwarding,
-    );
+    });
 
     // Place encryption key on router if it's the key machine
     const routerKeyTree =

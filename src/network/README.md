@@ -22,7 +22,7 @@ Simulated network environment for hacking missions. Defines the topology, machin
 
 There is no static network topology. All network machines are procedurally generated:
 
-- **Home networks** — generated per WiFi connection via `generateHomeNetwork()`. Each provides a private subnet with a router (public IP + internal gateway) and 2-4 machines with varied roles.
+- **Home networks** — generated per WiFi connection via `generateHomeNetwork()`. Each uses the same multi-layer topology as missions (random difficulty: easy=1 layer/2 machines, medium=2 layers/5-7 machines, hard=3 layers/8-11 machines) with a border router, optional inner gateways, and mission-quality filesystems.
 - **Mission networks** — generated per mission seed via `generateMissionNetwork()`. Independent subnets with routers and internal machines.
 
 Localhost starts disconnected (wlan0 DOWN, no IP). After cracking a WiFi network and connecting, localhost gets a dynamic IP from the home network's subnet and can see that network's machines.

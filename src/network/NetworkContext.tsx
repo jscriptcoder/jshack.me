@@ -71,14 +71,21 @@ export const NetworkProvider = ({
   const isLocalhostDisconnected = session.machine === 'localhost' && !wifiConnected;
 
   // Collect all gateway IPs (border router + inner gateways) for iptables/SNMP parsing.
+  // Includes both mission and home network gateways.
   const gatewayIps = useMemo((): readonly string[] => {
     const ips: string[] = [];
     if (missionRouterMachine) ips.push(missionRouterMachine.ip);
     if (missionLayers && missionLayers.length > 1) {
       missionLayers.slice(1).forEach((layer) => ips.push(layer.gateway.ip));
     }
+    if (homeNetwork) {
+      ips.push(homeNetwork.routerMachine.ip);
+      if (homeNetwork.layers.length > 1) {
+        homeNetwork.layers.slice(1).forEach((layer) => ips.push(layer.gateway.ip));
+      }
+    }
     return ips;
-  }, [missionRouterMachine, missionLayers]);
+  }, [missionRouterMachine, missionLayers, homeNetwork]);
 
   // Dynamic iptables rules: read and parse /etc/iptables/rules.v4 from all
   // gateway filesystems. When the player edits a file with nano, the filesystem
@@ -159,25 +166,25 @@ export const NetworkProvider = ({
       };
     }
 
-    // Localhost with home network connected — show home network machines
+    // Localhost with home network connected — show layer 0 machines only.
+    // Deeper layers are reached by pivoting through gateways.
     if (session.machine === 'localhost' && homeNetwork && localhostHomeInterfaces) {
-      const homeMachines = homeNetwork.machines.map((m) => m.remoteMachine);
-      // Include the router as a reachable machine from localhost
-      const routerRemote: RemoteMachine = {
-        ip: homeNetwork.router.internalIp,
-        hostname: homeNetwork.router.hostname,
-        ports: [
-          { port: 22, service: 'ssh', open: true },
-          { port: 80, service: 'http', open: true },
-        ],
-        users: [],
-      };
+      // Grab a layer 0 machine's config — it already has the right visibility
+      // (layer 0 peers + router at .1 + inner gateway if multi-layer).
+      const layer0 = homeNetwork.layers[0];
+      const sampleIp = layer0?.machines[0]?.ip ?? '';
+      const sampleConfig = homeNetwork.networkConfig.machineConfigs[sampleIp];
+
+      // Localhost sees everything the sample machine sees, plus the sample machine itself
+      const sampleMachine = homeNetwork.machines.find((m) => m.ip === sampleIp);
+      const visibleMachines = sampleConfig
+        ? [...sampleConfig.machines, ...(sampleMachine ? [sampleMachine.remoteMachine] : [])]
+        : [];
+
       const homeBase: MachineNetworkConfig = {
         interfaces: localhostHomeInterfaces,
-        machines: [...homeMachines, routerRemote],
-        dnsRecords:
-          homeNetwork.networkConfig.machineConfigs[homeNetwork.machines[0]?.ip ?? '']?.dnsRecords ??
-          [],
+        machines: visibleMachines,
+        dnsRecords: sampleConfig?.dnsRecords ?? [],
       };
 
       // If mission is active, also make mission router visible from localhost
@@ -251,12 +258,18 @@ export const NetworkProvider = ({
       const fsId = machine.ip;
       let result = machine;
 
-      // Inner gateway NAT merged view: show forwarded ports to upstream machines
+      // Inner gateway NAT merged view: show forwarded ports to upstream machines.
+      // Check both mission and home network gateways.
       const gatewayRules = allIptablesRules.get(machine.ip);
-      if (gatewayRules && gatewayRules.length > 0 && missionMachines) {
-        const gatewayGen = missionMachines.find((m) => m.ip === machine.ip);
-        if (gatewayGen) {
-          result = buildMergedRouterView(gatewayGen, missionMachines, gatewayRules);
+      if (gatewayRules && gatewayRules.length > 0) {
+        const missionGateway = missionMachines?.find((m) => m.ip === machine.ip);
+        if (missionGateway) {
+          result = buildMergedRouterView(missionGateway, missionMachines!, gatewayRules);
+        } else {
+          const homeGateway = homeNetwork?.machines.find((m) => m.ip === machine.ip);
+          if (homeGateway) {
+            result = buildMergedRouterView(homeGateway, [...homeNetwork!.machines], gatewayRules);
+          }
         }
       }
 
@@ -288,7 +301,14 @@ export const NetworkProvider = ({
       return result;
     });
     return { ...baseConfig, machines };
-  }, [baseConfig, allIptablesRules, allSnmpOverrides, missionMachines, getNodeFromMachine]);
+  }, [
+    baseConfig,
+    allIptablesRules,
+    allSnmpOverrides,
+    missionMachines,
+    homeNetwork,
+    getNodeFromMachine,
+  ]);
 
   const getInterface = useCallback(
     (name: string): NetworkInterface | undefined => {
@@ -374,6 +394,10 @@ export const NetworkProvider = ({
       // Check it directly so `su` works when SSH'd into the router.
       if (missionRouterMachine && missionRouterMachine.ip === ip) {
         return missionRouterMachine.remoteMachine.users;
+      }
+
+      if (homeNetwork?.routerMachine && homeNetwork.routerMachine.ip === ip) {
+        return homeNetwork.routerMachine.remoteMachine.users;
       }
 
       return [];

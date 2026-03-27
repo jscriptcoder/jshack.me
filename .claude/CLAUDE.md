@@ -140,19 +140,19 @@ See `architecture.md` for full details. Key points:
 - `BroadcastChannel` syncs filesystem patches, WiFi, missions, bricked machines, and theme across tabs.
 - WiFi state is `WifiConnection | null` (tracks `{ essid, bssid }`, not a boolean). Stored in IndexedDB, synced via BroadcastChannel.
 - `reboot()` bricks machines missing `/boot/vmlinuz` or `/boot/initrd.img`. Bricked machines are unreachable.
-- Multiple WiFi networks are generated per game seed. Each provides access to a different subnet of machines. Home LAN machines (gateway, fileserver, webserver at 192.168.1.x) no longer exist — all network machines come from `generateHomeNetwork()` per WiFi connection. `useHomeNetworks` accumulates `usedIps` across WiFi networks to guarantee unique public IPs. See `infrastructure-design.md`.
+- Multiple WiFi networks are generated per game seed. Each provides access to a layered network of machines. Home networks use the same multi-layer topology as missions (easy=1 layer, medium=2 layers, hard=3 layers) with a random difficulty per WiFi network. All network machines come from `generateHomeNetwork()` per WiFi connection, which delegates to the shared `generateNetwork()` pipeline. `useHomeNetworks` accumulates `usedIps` across WiFi networks to guarantee unique public IPs. See `infrastructure-design.md`.
 - SSH key persistence: after first SSH/SCP password auth, `~/.ssh_keys` on the source machine stores `user@ip` entries. Subsequent connections auto-authenticate.
 
 ### Mission System
 
 See `architecture.md` for integration details, `mission-variations.md` for all generation axes.
 
-- `generateMissionNetwork(seed, usedIps?)` deterministically produces a multi-layer subnet topology. Seeds embed keywords for overrides (difficulty, entry variant, network mode, objective, domain, gpg, snmp). When `usedIps` is provided, the router's public IP is guaranteed unique (re-rolls on collision). Shared IP utilities in `src/generation/ip.ts` provide `generatePublicIp` and `generatePrivateSubnet` — used by both mission and home network generation.
+- `generateMissionNetwork(seed, usedIps?)` deterministically produces a multi-layer subnet topology. Seeds embed keywords for overrides (difficulty, entry variant, network mode, objective, domain, gpg, snmp). When `usedIps` is provided, the router's public IP is guaranteed unique (re-rolls on collision). Shared IP utilities in `src/generation/ip.ts` provide `generatePublicIp` and `generatePrivateSubnet` — used by both mission and home network generation. Both missions and home networks share the `generateNetwork()` pipeline (`src/generation/generateNetwork.ts`) for topology, users, enrichment, port closures, and filesystem generation.
 - Subnet layers: easy=1 layer (2 machines), medium=2 layers (5-7 machines), hard=3 layers (8-11 machines). Each layer has its own entry variant and private subnet. Gateways are dual-homed router-role machines with interfaces in both adjacent subnets. Subnet isolation enforced via NetworkConfig — machines in one layer cannot see machines in other layers. Target is always in the deepest layer (except portforward which targets layer 0). Seed keywords for entry variant and network mode apply to the outermost layer only.
 - Provider hierarchy: `SessionProvider → GameSession (useHomeNetworks, generateLocalhost) → MissionProvider → FileSystemProvider → NetworkProvider → Terminal`
 - Commands: `missions()`, `accept(seed)`, `abort()`, `mail(recipient, content)`
 - Eight objectives: exfiltrate, tamper, credential_theft, script_fix, sabotage, backdoor, portforward, forensics
-- NAT resolution via `resolveNat(ip, port)` using iptables rules on any gateway's filesystem (border router and inner gateways). SNMP firewall overrides also apply to all gateways — inner gateways with SNMP access variant get `snmpd.conf` and respond to `snmpset` for dynamic port opening.
+- NAT resolution via `resolveNat(ip, port)` using iptables rules on any gateway's filesystem (border router and inner gateways). SNMP firewall overrides also apply to all gateways — inner gateways with SNMP access variant get `snmpd.conf` and respond to `snmpset` for dynamic port opening. `NetworkContext` handles layered home networks the same way — gateway iptables/SNMP parsing, layer-aware localhost visibility, and `.1` IP aliases for inner gateways.
 
 ### Node Execution
 
