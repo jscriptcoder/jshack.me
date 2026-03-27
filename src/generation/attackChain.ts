@@ -14,6 +14,7 @@ import {
   clientHandles,
   forwardPublicPorts,
   keyPlacementTemplates,
+  scriptAutoTemplatesByRole,
   scriptFixTemplatesByRole,
   targetFileTemplatesByRole,
   tamperFileTemplatesByRole,
@@ -117,6 +118,76 @@ const selectScriptFixFile = (
     hintPath: template.corruptedHintPath,
     hintContent: template.corruptedHintContent,
     expectedChecksum: template.expectedChecksum,
+  };
+};
+
+// Script location prefix map
+const scriptLocationPrefixes: Readonly<Record<string, string>> = {
+  'cron.d': '/etc/cron.d',
+  'init.d': '/etc/init.d',
+  'if-up.d': '/etc/network/if-up.d',
+};
+
+// Selects a role-appropriate script_auto template and builds the stub script content.
+const selectScriptAutoFile = (
+  prng: Prng,
+  targetMachine: GeneratedMachine,
+  peerMachines: readonly GeneratedMachine[],
+): {
+  readonly targetPath: string;
+  readonly targetContent: string;
+  readonly expectedChecksum: string;
+  readonly flavor: 'local' | 'remote';
+  readonly dataPath: string;
+  readonly dataContent: string;
+  readonly apiMachine?: string;
+} => {
+  const templates = scriptAutoTemplatesByRole[targetMachine.role];
+  const template = prng.pick(templates);
+
+  const locationPrefix = scriptLocationPrefixes[template.location]!;
+  const targetPath = `${locationPrefix}/${template.scriptName}`;
+
+  // For remote flavor, find a peer machine to host the API endpoint
+  const httpCandidates = peerMachines.filter(
+    (m) => m.ip !== targetMachine.ip && m.role !== 'router' && m.role !== 'switch',
+  );
+
+  // If remote but no peer available, fall back to local-style (read data locally)
+  const effectiveFlavor =
+    template.flavor === 'remote' && httpCandidates.length === 0 ? 'local' : template.flavor;
+
+  if (effectiveFlavor === 'local') {
+    const dataPath = template.flavor === 'local' ? template.dataFileName : `/var/lib/${template.dataFileName}.json`;
+    const targetContent = [
+      '#!/usr/bin/env node',
+      template.instructions,
+    ].join('\n');
+
+    return {
+      targetPath,
+      targetContent,
+      expectedChecksum: template.expectedChecksum,
+      flavor: 'local',
+      dataPath,
+      dataContent: template.dataContent,
+    };
+  }
+
+  // Remote: pick API host machine
+  const apiMachine = prng.pick(httpCandidates);
+  const apiIp = apiMachine.ip;
+  const instructions = template.instructions.replace(/\{\{apiIp\}\}/g, apiIp);
+  const targetContent = ['#!/usr/bin/env node', instructions].join('\n');
+
+  return {
+    targetPath,
+    targetContent,
+    expectedChecksum: template.expectedChecksum,
+    flavor: 'remote',
+    dataPath: template.dataFileName,
+    dataContent: template.dataContent,
+    apiMachine: apiIp,
   };
 };
 
@@ -307,6 +378,43 @@ const buildObjective = (
       scriptHintPath: bugType === 'corrupted' ? hintPath : undefined,
       scriptHintContent: bugType === 'corrupted' ? hintContent : undefined,
       expectedChecksum,
+    };
+  }
+
+  if (objectiveType === 'script_auto') {
+    const accessKey = generateAccessKey(prng);
+    const peerMachines = encryptionConfig?.machines ?? [];
+    const {
+      targetPath,
+      targetContent,
+      expectedChecksum,
+      flavor,
+      dataPath,
+      dataContent,
+      apiMachine,
+    } = selectScriptAutoFile(prng, targetMachine, peerMachines);
+
+    // ~60% user-owned (anyone can edit/run), ~40% root-owned (must su first)
+    const scriptOwner: 'root' | 'user' = prng.next() < 0.6 ? 'user' : 'root';
+
+    // Consume dummy PRNG rolls for binary + encrypt to preserve sequence alignment
+    prng.next();
+    prng.next();
+
+    return {
+      type: 'script_auto',
+      description: `Write and run the automated script on ${targetMachine.hostname}`,
+      targetMachine: targetMachine.ip,
+      targetPath,
+      targetContent,
+      clientEmail,
+      expectedProof: accessKey,
+      scriptOwner,
+      expectedChecksum,
+      scriptAutoFlavor: flavor,
+      scriptAutoDataPath: dataPath,
+      scriptAutoDataContent: dataContent,
+      scriptAutoApiMachine: apiMachine,
     };
   }
 
