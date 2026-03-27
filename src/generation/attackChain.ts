@@ -549,6 +549,7 @@ export const buildMissionObjective = (input: BuildObjectiveInput): BuildObjectiv
     'tamper',
     'credential_theft',
     'script_fix',
+    'script_auto',
     'sabotage',
     'backdoor',
   ];

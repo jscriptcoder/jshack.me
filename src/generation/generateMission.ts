@@ -40,6 +40,7 @@ export const parseSeedOverrides = (seed: string): SeedOverrides => {
 
   const objectiveKeywords: readonly (readonly [string, MissionObjectiveType])[] = [
     ['portforward', 'portforward'],
+    ['script-auto', 'script_auto'],
     ['script-fix', 'script_fix'],
     ['sabotage', 'sabotage'],
     ['backdoor', 'backdoor'],

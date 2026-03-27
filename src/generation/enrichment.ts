@@ -165,9 +165,10 @@ export const applyPortClosures = (
   const dualBackdoorPort = prng.pick(backdoorPorts);
   const sshBackdoorPort = prng.pick(backdoorPorts);
 
-  // script_fix, sabotage, backdoor, and portforward need SSH shell access — skip all closures
+  // script_fix, script_auto, sabotage, backdoor, and portforward need SSH shell access — skip all closures
   if (
     objectiveType === 'script_fix' ||
+    objectiveType === 'script_auto' ||
     objectiveType === 'sabotage' ||
     objectiveType === 'backdoor' ||
     objectiveType === 'portforward'

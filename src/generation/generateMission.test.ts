@@ -649,6 +649,38 @@ describe('generateMissionNetwork', () => {
     }
   });
 
+  it('script-auto keyword forces script_auto objective', () => {
+    const result = generateMissionNetwork('test-script-auto-easy');
+    expect(result.objective.type).toBe('script_auto');
+    expect(result.objective.targetPath).toMatch(/\/(cron\.d|init\.d|network\/if-up\.d)\//);
+    expect(result.objective.expectedProof).toMatch(/^ACCESS-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$/);
+    expect(result.objective.expectedChecksum).toBeTruthy();
+    expect(result.objective.scriptAutoFlavor).toBeDefined();
+    expect(result.objective.description).toContain('automated script');
+  });
+
+  it('script_auto seeds never have SSH closures', () => {
+    for (let i = 0; i < 50; i++) {
+      const result = generateMissionNetwork(`script-auto-noclose-${i}`);
+      if (result.objective.type !== 'script_auto') continue;
+
+      result.machines
+        .filter((m) => m.role !== 'router')
+        .forEach((m) => {
+          const sshPort = m.remoteMachine.ports.find((p) => p.port === 22);
+          if (sshPort) {
+            expect(sshPort.open).toBe(true);
+          }
+        });
+    }
+  });
+
+  it('script_auto is deterministic', () => {
+    const a = generateMissionNetwork('SOLARIS-script-auto-easy');
+    const b = generateMissionNetwork('SOLARIS-script-auto-easy');
+    expect(a.objective).toEqual(b.objective);
+  });
+
   it('portforward keyword forces portforward objective', () => {
     const result = generateMissionNetwork('test-snmp-easy-portforward');
     expect(result.objective.type).toBe('portforward');
