@@ -29,8 +29,8 @@ export {
 export { webContentTemplates, webContentTemplatesByRole } from './web';
 export type { CredentialLeakTemplate, HttpEntryCredentialTemplate } from './credentials';
 export { credentialLeakTemplates, httpEntryCredentialTemplates } from './credentials';
-export type { ScriptFixTemplate } from './scripts';
-export { scriptFixTemplatesByRole } from './scripts';
+export type { ScriptFixTemplate } from './scriptFix';
+export { scriptFixTemplatesByRole } from './scriptFix';
 export type { ScriptAutoTemplate } from './scriptAuto';
 export { scriptAutoTemplatesByRole } from './scriptAuto';
 export type { ForensicsLogType, ForensicsCallingCardTemplate } from './forensics';
