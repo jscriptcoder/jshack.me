@@ -145,7 +145,9 @@ Layer 2 (<layer2-subnet>.10, .11, ...) — 2-3 machines (target here)
 - Dual interfaces: `eth0` (public IP) + `eth1` (internal gateway)
 - `/etc/hosts` lists internal machine hostnames and IPs
 - `/var/log/firewall.log` shows iptables traffic logs
-- Gateway machines: dual-homed router-role machines with interfaces in both adjacent subnets; `/etc/hosts` lists downstream machines; `/etc/iptables/rules.v4` with forwarding rules
+- Gateway machines: dual-homed machines with interfaces in both adjacent subnets; `/etc/hosts` lists downstream machines
+- **Router gateways** (`role: 'router'`): `/etc/iptables/rules.v4` with forwarding rules; SNMP uses firewall OIDs (`firewallSSH`/`firewallHTTP`, values: `permit`/`deny`)
+- **Switch gateways** (`role: 'switch'`): Managed Layer 3 switches with `/etc/switch/acl.conf` containing deny rules. No NAT — when ACLs are cleared, traffic reaches downstream IPs directly. SNMP uses ACL OIDs (`aclSSH`/`aclHTTP`, values: `allow`/`deny`). `sysDescr` shows `Cisco IOS L3 Switch`, interfaces show `GigabitEthernet`. Switch gateways: activated via `switch` seed keyword (missions) or ~40% PRNG roll (home networks). Border gateway is always a router.
 
 ### Network Modes
 

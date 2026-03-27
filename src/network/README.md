@@ -10,9 +10,11 @@ Simulated network environment for hacking missions. Defines the topology, machin
 | `wifiTypes.ts`          | `WifiConnection` type (`{ essid, bssid }`) and validator — replaces boolean WiFi state                                                 |
 | `initialNetwork.ts`     | Localhost interface constants: `localhostWlan0Down` (disconnected wlan0) and `localhostDisconnectedInterfaces` (loopback + wlan0 down) |
 | `NetworkContext.tsx`    | React context — imports `useSession`, resolves config per `session.machine`, provides `getMachine`, `getLocalIP`, etc.                 |
-| `networkUtils.ts`       | Pure functions extracted from context: `buildMergedRouterView`, `applySnmpFirewallOverrides`, `applyDaemonOverrides`                   |
+| `networkUtils.ts`       | Pure functions extracted from context: `buildMergedRouterView`, `applySnmpFirewallOverrides`, `applyDaemonOverrides`, ACL filtering    |
 | `iptablesParser.ts`     | Pure parser for router's `/etc/iptables/rules.v4` — extracts `forward <port> to <ip>:<port>` rules into `NatForwardingRule[]`          |
 | `snmpFirewallParser.ts` | Pure parser for SNMP firewall OIDs in `/etc/snmp/snmpd.conf` — maps `firewallSSH`/`firewallHTTP` `permit`/`deny` to port overrides     |
+| `aclParser.ts`          | Pure parser for switch `/etc/switch/acl.conf` — extracts `deny`/`allow` ACL rules with subnet and port matching                        |
+| `snmpAclParser.ts`      | Pure parser for SNMP ACL OIDs in `/etc/snmp/snmpd.conf` — maps `aclSSH`/`aclHTTP`/`aclFTP` `allow`/`deny` to port overrides            |
 | `sshdStateParser.ts`    | Pure parser for `/var/run/sshd.pid` — extracts `sshd:port=N` into SSH port override                                                    |
 | `ftpdStateParser.ts`    | Pure parser for `/var/run/vsftpd.pid` — extracts `vsftpd:port=N` into FTP port override                                                |
 | `ncStateParser.ts`      | Pure parser for `/var/run/nc-*.pid` — extracts `nc:port=N,user=X,userType=T,home=P` into elite port overrides with owner               |
@@ -110,6 +112,14 @@ NAT forwarding rules are parsed on-demand from `/etc/iptables/rules.v4` on the r
 ## Dynamic SNMP Firewall
 
 For the SNMP entry variant, `NetworkProvider` also reads `/etc/snmp/snmpd.conf` from the router's filesystem. `snmpFirewallParser.ts` extracts `firewallSSH`/`firewallHTTP` OID values (`permit`/`deny`). When `snmpset` modifies the file, port state updates dynamically — `firewallSSH permit` opens port 22 on the router. `applySnmpFirewallOverrides()` overlays these changes onto the router's `RemoteMachine` view visible from localhost.
+
+## Dynamic Switch ACLs
+
+For managed Layer 3 switch gateways, `NetworkProvider` reads `/etc/switch/acl.conf` and SNMP ACL OIDs from `/etc/snmp/snmpd.conf`. Switch gateways use ACL deny rules instead of NAT/iptables — no address translation.
+
+- **ACL rules** (`aclParser.ts`): `deny tcp any 10.42.2.0/24 port 22` blocks SSH to the downstream subnet. Players clear deny rules via `nano` or `snmpset`.
+- **SNMP ACL OIDs** (`snmpAclParser.ts`): `aclSSH`/`aclHTTP`/`aclFTP` with `allow`/`deny` values. When `snmpset` changes `aclSSH` to `allow`, port 22 opens for downstream machines.
+- **Port filtering**: `applyAclFiltering()` in `networkUtils.ts` closes ports on downstream machines when ACL deny rules are active. SNMP ACL `allow` overrides take precedence over static ACL deny rules.
 
 ## Dynamic Daemon Ports
 

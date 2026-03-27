@@ -14,8 +14,9 @@ All six major generation axes can be controlled by embedding keywords in the see
 | Objective     | `exfiltrate`, `tamper`, `credential-theft`, `script-fix`, `sabotage`, `backdoor`, `portforward`, `forensics` | Hyphen variant for credential_theft / script_fix; portforward forces router-first; forensics forces SSH entry |
 | Domain entry  | `domain`                                                                                                     | Forces domain-based briefing (nslookup required)                                                              |
 | Encryption    | `gpg`                                                                                                        | Forces exfiltrate + encrypted target file                                                                     |
+| Gateway type  | `switch`                                                                                                     | Forces inner gateways to be managed L3 switches (ACLs instead of NAT)                                         |
 
-Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`
+Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`, `test-switch-snmp-hard`
 
 ## Difficulty Tiers (3)
 

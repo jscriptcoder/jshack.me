@@ -3,6 +3,7 @@ import type {
   CredentialMap,
   EntryVariant,
   GeneratedMachine,
+  MachineRole,
   MissionObjective,
   NatForwarding,
   SubnetLayer,
@@ -344,6 +345,19 @@ const buildNestedDirs = (segments: readonly string[], file: FileNode): FileNode 
   return mkDir(dirName, { [childName]: child }, 'root', true);
 };
 
+// Generates the content for /etc/switch/acl.conf on managed switches.
+// Deny rules block SSH and HTTP traffic to the downstream subnet.
+// Players must clear these rules (via nano or snmpset) to access downstream machines.
+const generateAclContent = (downstreamSubnet: string): string => {
+  const lines = [
+    '# Access Control List',
+    '# Syntax: <action> <proto> any <subnet> port <port>',
+    `deny tcp any ${downstreamSubnet}.0/24 port 22`,
+    `deny tcp any ${downstreamSubnet}.0/24 port 80`,
+  ];
+  return lines.join('\n');
+};
+
 // Generates the content for /etc/iptables/rules.v4 on the router.
 // Forwarded mode: pre-populated with forward rules matching NAT config.
 // Router-first mode (no NAT): only comments and an empty template.
@@ -403,12 +417,55 @@ export const generateSnmpConfig = (
   return lines.join('\n');
 };
 
+// Generates /etc/snmp/snmpd.conf content for SNMP-variant managed switches.
+// Contains community strings, system OIDs, interface data, extend script args
+// with leaked credentials, and ACL OIDs (initially deny).
+export const generateSwitchSnmpConfig = (
+  prng: Prng,
+  machine: GeneratedMachine,
+  machineCreds: readonly { readonly username: string; readonly password: string }[],
+): string => {
+  const rwCommunity = prng.pick(snmpRwCommunities);
+  const userCred = machineCreds.find((c) => c.username !== 'root') ?? machineCreds[0];
+
+  const lines = [
+    '# SNMP Daemon Configuration',
+    '# net-snmp 5.9.1',
+    '',
+    '# Community strings',
+    'rocommunity public',
+    `rwcommunity ${rwCommunity}`,
+    '',
+    '# System information',
+    `sysDescr Cisco IOS L3 Switch ${machine.hostname} 15.2(4)E`,
+    `sysName ${machine.hostname}`,
+    `sysContact netadmin@corp.local`,
+    '',
+    '# Interfaces',
+    'ifDescr.1 GigabitEthernet0/1',
+    'ifDescr.2 GigabitEthernet0/2',
+    `ifAddr.1 ${machine.ip}`,
+    '',
+    '# Extend scripts',
+    ...(userCred
+      ? [`nsExtendArgs.backup --user ${userCred.username} --pass ${userCred.password}`]
+      : []),
+    '',
+    '# ACL OIDs',
+    'aclSSH deny',
+    'aclHTTP deny',
+  ];
+
+  return lines.join('\n');
+};
+
 export type BuildMachineConfigOptions = {
   readonly isTarget?: boolean;
   readonly objective?: MissionObjective;
   readonly internalMachines?: readonly GeneratedMachine[];
   readonly natForwarding?: NatForwarding;
   readonly isHttpEntry?: boolean;
+  readonly downstreamSubnet?: string;
 };
 
 export const buildMachineConfig = (
@@ -442,20 +499,17 @@ export const buildMachineConfig = (
     hostname: mkFile('hostname', machine.hostname, 'guest'),
   };
 
-  const serviceConfigName =
-    machine.role === 'webserver'
-      ? 'httpd.conf'
-      : machine.role === 'database'
-        ? 'mysql.cnf'
-        : machine.role === 'fileserver'
-          ? 'vsftpd.conf'
-          : machine.role === 'mailserver'
-            ? 'postfix.conf'
-            : machine.role === 'iot'
-              ? 'device.conf'
-              : machine.role === 'router'
-                ? 'iptables.conf'
-                : 'ssh_config';
+  const serviceConfigNames: Readonly<Record<MachineRole, string>> = {
+    webserver: 'httpd.conf',
+    database: 'mysql.cnf',
+    fileserver: 'vsftpd.conf',
+    mailserver: 'postfix.conf',
+    iot: 'device.conf',
+    router: 'iptables.conf',
+    switch: 'switch.conf',
+    workstation: 'ssh_config',
+  };
+  const serviceConfigName = serviceConfigNames[machine.role];
 
   // System config files in /etc/ are world-readable (guest-owned)
   etcExtraContent[serviceConfigName] = mkFile(serviceConfigName, configContent, 'guest');
@@ -466,7 +520,7 @@ export const buildMachineConfig = (
     'auth.log': mkFile('auth.log', logContent, 'guest'),
   };
 
-  // Router machines get a firewall log with hints about internal network traffic
+  // Gateway machines (routers and switches) get traffic logs
   if (machine.role === 'router') {
     const fwLines = Array.from({ length: prng.nextInt(6, 12) }, () => {
       const srcIp = `10.${prng.nextInt(1, 254)}.${prng.nextInt(1, 254)}.${prng.nextInt(10, 20)}`;
@@ -475,6 +529,15 @@ export const buildMachineConfig = (
       return `Jan ${prng.nextInt(1, 28)} ${prng.nextInt(0, 23).toString().padStart(2, '0')}:${prng.nextInt(0, 59).toString().padStart(2, '0')}:${prng.nextInt(0, 59).toString().padStart(2, '0')} kernel: [iptables] ${action} IN=eth0 OUT=eth1 SRC=${srcIp} DST=${machine.ip} PROTO=TCP DPT=${dstPort}`;
     });
     varLogContent['firewall.log'] = mkFile('firewall.log', fwLines.join('\n'), 'guest');
+  }
+  if (machine.role === 'switch') {
+    const aclLines = Array.from({ length: prng.nextInt(6, 12) }, () => {
+      const srcIp = `10.${prng.nextInt(1, 254)}.${prng.nextInt(1, 254)}.${prng.nextInt(10, 20)}`;
+      const dstPort = prng.pick([22, 80, 443, 3306, 8080]);
+      const action = prng.pick(['ALLOW', 'ALLOW', 'DENY']);
+      return `Jan ${prng.nextInt(1, 28)} ${prng.nextInt(0, 23).toString().padStart(2, '0')}:${prng.nextInt(0, 59).toString().padStart(2, '0')}:${prng.nextInt(0, 59).toString().padStart(2, '0')} kernel: [ACL] ${action} IN=Gi0/1 OUT=Gi0/2 SRC=${srcIp} DST=${machine.ip} PROTO=TCP DPT=${dstPort}`;
+    });
+    varLogContent['acl.log'] = mkFile('acl.log', aclLines.join('\n'), 'guest');
   }
 
   // Router iptables rules file: forwarded mode has pre-populated rules,
@@ -493,8 +556,24 @@ export const buildMachineConfig = (
     }
   }
 
-  // Router /etc/hosts contains hints about internal machines
-  if (machine.role === 'router' && internalMachines && internalMachines.length > 0) {
+  // Switch ACL rules file: deny rules block traffic to the downstream subnet.
+  // Players must clear these via nano or snmpset to access downstream machines.
+  if (machine.role === 'switch' && options.downstreamSubnet) {
+    const aclContent = generateAclContent(options.downstreamSubnet);
+    etcExtraContent['switch'] = mkDir(
+      'switch',
+      { 'acl.conf': mkFile('acl.conf', aclContent) },
+      'root',
+      true,
+    );
+  }
+
+  // Gateway /etc/hosts contains hints about internal machines
+  if (
+    (machine.role === 'router' || machine.role === 'switch') &&
+    internalMachines &&
+    internalMachines.length > 0
+  ) {
     const hostsLines = [
       '127.0.0.1\tlocalhost',
       `${machine.ip}\t${machine.hostname}`,
@@ -919,30 +998,33 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
     layers,
   } = input;
 
-  // Build maps from inner gateway IP → downstream layer info (machines + NAT forwarding).
-  // Gateways need downstream machines for /etc/hosts and NAT forwarding for iptables rules.
+  // Build maps from inner gateway IP → downstream layer info (machines, NAT, subnet).
+  // Gateways need downstream machines for /etc/hosts, NAT forwarding for iptables,
+  // and downstream subnet for switch ACL rules.
   const gatewayDownstreamMap = new Map<string, readonly GeneratedMachine[]>();
   const gatewayNatMap = new Map<string, NatForwarding | undefined>();
+  const gatewaySubnetMap = new Map<string, string>();
   if (layers && layers.length > 1) {
     layers.slice(1).forEach((layer) => {
       const downstreamIps = new Set(layer.machines.map((m) => m.ip));
       const downstreamMachines = machines.filter((m) => downstreamIps.has(m.ip));
       gatewayDownstreamMap.set(layer.gateway.ip, downstreamMachines);
       gatewayNatMap.set(layer.gateway.ip, layer.natForwarding);
+      gatewaySubnetMap.set(layer.gateway.ip, layer.subnet);
     });
   }
 
   // Pre-generate SNMP configs for inner gateways with SNMP access variant.
   // Done before the machine loop to keep PRNG sequence stable for other machines.
+  // Switches use ACL OIDs (aclSSH/aclHTTP), routers use firewall OIDs (firewallSSH/firewallHTTP).
   const gatewaySnmpConfigs = new Map<string, string>();
   if (layers && layers.length > 1) {
     layers.slice(1).forEach((layer) => {
       if (layer.gateway.accessVariant === 'snmp') {
         const gatewayCreds = credentials[layer.gateway.ip] ?? [];
-        gatewaySnmpConfigs.set(
-          layer.gateway.ip,
-          generateSnmpConfig(prng, layer.gateway, gatewayCreds),
-        );
+        const snmpConfigFn =
+          layer.gatewayType === 'switch' ? generateSwitchSnmpConfig : generateSnmpConfig;
+        gatewaySnmpConfigs.set(layer.gateway.ip, snmpConfigFn(prng, layer.gateway, gatewayCreds));
       }
     });
   }
@@ -956,15 +1038,17 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
     const isTarget = machine.ip === objective.targetMachine;
     const isHttpEntry = entryVariant === 'http' && machine.ip === entryPoint;
 
-    // Inner gateways get downstream machines for /etc/hosts and NAT rules for iptables
+    // Inner gateways get downstream machines for /etc/hosts, NAT/ACL rules, and subnet info
     const downstreamMachines = gatewayDownstreamMap.get(machine.ip);
     const gatewayNat = gatewayNatMap.get(machine.ip);
+    const downstreamSubnet = gatewaySubnetMap.get(machine.ip);
     const baseConfig = buildMachineConfig(prng, machine, users, machineCreds, {
       isTarget,
       objective,
       internalMachines: downstreamMachines,
       natForwarding: gatewayNat,
       isHttpEntry,
+      downstreamSubnet,
     });
 
     // SNMP variant: add /etc/snmp/snmpd.conf for inner gateways with SNMP access variant

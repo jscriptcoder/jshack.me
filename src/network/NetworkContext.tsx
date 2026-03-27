@@ -15,6 +15,10 @@ import { useFileSystem } from '../filesystem';
 import { parseIptablesRules } from './iptablesParser';
 import { parseSnmpFirewallConfig } from './snmpFirewallParser';
 import type { SnmpFirewallOverride } from './snmpFirewallParser';
+import { parseAclRules } from './aclParser';
+import type { AclRule } from './aclParser';
+import { parseSnmpAclConfig } from './snmpAclParser';
+import type { SnmpAclOverride } from './snmpAclParser';
 import {
   collectGatewayIps,
   buildGatewayAliasMap,
@@ -109,6 +113,34 @@ export const NetworkProvider = ({
 
   // Backward-compatible: border router SNMP overrides used in baseConfig
   const snmpFirewallOverrides = allSnmpOverrides.get(missionRouterMachine?.ip ?? '') ?? [];
+
+  // Dynamic ACL rules: read and parse /etc/switch/acl.conf from switch gateways.
+  // When the player edits acl.conf with nano, ports on downstream machines open/close.
+  const allAclRules = useMemo((): ReadonlyMap<string, readonly AclRule[]> => {
+    const map = new Map<string, readonly AclRule[]>();
+    gatewayIps.forEach((ip) => {
+      const node = getNodeFromMachine(ip, '/etc/switch/acl.conf', '/');
+      if (node?.type === 'file' && node.content) {
+        const rules = parseAclRules(node.content);
+        if (rules.length > 0) map.set(ip, rules);
+      }
+    });
+    return map;
+  }, [gatewayIps, getNodeFromMachine]);
+
+  // Dynamic SNMP ACL overrides: read and parse ACL OIDs from switch snmpd.conf.
+  // When snmpset changes aclSSH to "allow", the ACL deny for port 22 is overridden.
+  const allSnmpAclOverrides = useMemo((): ReadonlyMap<string, readonly SnmpAclOverride[]> => {
+    const map = new Map<string, readonly SnmpAclOverride[]>();
+    gatewayIps.forEach((ip) => {
+      const node = getNodeFromMachine(ip, '/etc/snmp/snmpd.conf', '/');
+      if (node?.type === 'file' && node.content) {
+        const overrides = parseSnmpAclConfig(node.content);
+        if (overrides.length > 0) map.set(ip, overrides);
+      }
+    });
+    return map;
+  }, [gatewayIps, getNodeFromMachine]);
 
   // Dynamic localhost wlan0 interface based on home network subnet
   const localhostHomeInterfaces = useMemo((): readonly NetworkInterface[] | null => {
@@ -240,15 +272,22 @@ export const NetworkProvider = ({
     (): DynamicOverrideContext => ({
       allIptablesRules,
       allSnmpOverrides,
+      allAclRules,
+      allSnmpAclOverrides,
       missionMachines,
+      missionLayers,
       homeMachines: homeNetwork?.machines,
+      homeLayers: homeNetwork?.layers,
       homeGatewayByAliasIp,
       readNode: getNodeFromMachine,
     }),
     [
       allIptablesRules,
       allSnmpOverrides,
+      allAclRules,
+      allSnmpAclOverrides,
       missionMachines,
+      missionLayers,
       homeNetwork,
       homeGatewayByAliasIp,
       getNodeFromMachine,

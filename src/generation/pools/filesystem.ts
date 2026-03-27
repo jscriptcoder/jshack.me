@@ -61,6 +61,12 @@ export const configTemplatesByRole: Readonly<Record<MachineRole, readonly string
     '# OSPF configuration\nrouter ospf\n  router-id {{hostname}}\n  network 10.0.0.0/24 area 0\n  passive-interface eth0\n  default-information originate\n  log-adjacency-changes',
     '# NAT configuration\n*nat\n:PREROUTING ACCEPT [0:0]\n:POSTROUTING ACCEPT [0:0]\n-A POSTROUTING -s 10.0.0.0/24 -o eth0 -j MASQUERADE\nCOMMIT\n# Sysctl\nnet.ipv4.ip_forward=1',
   ],
+  switch: [
+    '! Cisco IOS L3 Switch Configuration\nhostname {{hostname}}\n!\nvlan 10\n  name MGMT\nvlan 20\n  name DATA\n!\ninterface GigabitEthernet0/1\n  switchport mode trunk\n  switchport trunk allowed vlan 10,20',
+    '! Spanning Tree Configuration\nspanning-tree mode rapid-pvst\nspanning-tree vlan 10,20 priority 4096\n!\ninterface GigabitEthernet0/1\n  spanning-tree portfast trunk\n  spanning-tree bpduguard enable',
+    '! Port Security Configuration\ninterface GigabitEthernet0/2\n  switchport port-security\n  switchport port-security maximum 3\n  switchport port-security violation restrict\n  switchport port-security mac-address sticky',
+    '! ACL and QoS Configuration\nhostname {{hostname}}\n!\nip access-list extended MGMT-ACCESS\n  permit tcp any host {{hostname}} eq 22\n  permit udp any host {{hostname}} eq 161\n  deny ip any any log',
+  ],
 };
 
 export const noiseFiles: readonly { readonly name: string; readonly content: string }[] = [
@@ -223,6 +229,25 @@ export const targetFileTemplatesByRole: Readonly<
         '! Router backup configuration\n! Secret: {{access_key}}\nhostname border-gw\nno ip domain-lookup',
     },
   ],
+  // Switch is infrastructure-only (never the mission target), but the type system
+  // requires target file templates for every role. These are unused in practice.
+  switch: [
+    {
+      path: '/opt/switch/acl_backup.txt',
+      contentTemplate:
+        'Switch ACL Backup\n=================\nManagement key: {{access_key}}\nLast audit: 2024-01-15',
+    },
+    {
+      path: '/opt/switch/vlan_keys.txt',
+      contentTemplate:
+        'VLAN Pre-shared Keys\n====================\nVLAN-10: {{access_key}}\nVLAN-20: psk_c3d4e5f6',
+    },
+    {
+      path: '/opt/switch/running_config.txt',
+      contentTemplate:
+        '! Switch running configuration\n! Secret: {{access_key}}\nhostname l3-switch\nno ip domain-lookup',
+    },
+  ],
 };
 
 export type TamperFileTemplate = {
@@ -349,6 +374,16 @@ export const tamperFileTemplatesByRole: Readonly<
       path: '/opt/router/firewall_policy.conf',
       contentTemplate:
         '# Firewall Policy\nrule_47_action={{tamperOldValue}}\nrule_47_src=10.0.0.0/8\nrule_47_dst=0.0.0.0/0\nrule_47_proto=tcp',
+      tamperField: 'action',
+      tamperOldValue: 'DENY',
+      tamperNewValue: 'ALLOW',
+    },
+  ],
+  switch: [
+    {
+      path: '/opt/switch/acl_policy.conf',
+      contentTemplate:
+        '# ACL Policy\nrule_12_action={{tamperOldValue}}\nrule_12_src=10.0.0.0/8\nrule_12_dst=0.0.0.0/0\nrule_12_proto=tcp',
       tamperField: 'action',
       tamperOldValue: 'DENY',
       tamperNewValue: 'ALLOW',

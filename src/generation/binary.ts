@@ -56,6 +56,7 @@ export const binaryTargetPaths: Readonly<Record<MachineRole, readonly string[]>>
   mailserver: ['/opt/app/mailstore.bin', '/var/lib/mailindex.dat', '/srv/cache/mbox.db'],
   iot: ['/opt/app/firmware.bin', '/var/lib/sensor.dat', '/srv/cache/telemetry.db'],
   router: ['/opt/app/config.bin', '/var/lib/routes.dat', '/srv/cache/firewall.db'],
+  switch: ['/opt/app/vlans.bin', '/var/lib/acl_table.dat', '/srv/cache/switch.db'],
 };
 
 // Binary-looking file paths for encryption key files.
@@ -67,4 +68,5 @@ export const binaryKeyPaths: Readonly<Record<MachineRole, readonly string[]>> = 
   mailserver: ['/usr/local/lib/mail_keyring.db', '/opt/lib/libsmtp_keys.so'],
   iot: ['/usr/local/lib/device_keystore.db', '/opt/lib/libmqtt_keys.so'],
   router: ['/usr/local/lib/vpn_keystore.db', '/opt/lib/libipsec_keys.so'],
+  switch: ['/usr/local/lib/switch_keystore.db', '/opt/lib/libacl_keys.so'],
 };

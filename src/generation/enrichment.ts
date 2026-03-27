@@ -174,8 +174,10 @@ export const applyPortClosures = (
   )
     return machines;
 
-  // Eligible machines: internal (non-router), non-entry
-  const eligible = machines.filter((m) => m.role !== 'router' && m.ip !== entryPoint);
+  // Eligible machines: internal (non-gateway), non-entry
+  const eligible = machines.filter(
+    (m) => m.role !== 'router' && m.role !== 'switch' && m.ip !== entryPoint,
+  );
   if (eligible.length === 0) return machines;
 
   // Dual closure: ~15% chance to close both SSH and FTP, adding an NC backdoor.

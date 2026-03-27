@@ -55,7 +55,18 @@ export const parseSeedOverrides = (seed: string): SeedOverrides => {
   // 'gpg' keyword forces encrypted exfiltrate mode
   const encrypted = lower.includes('gpg') ? true : undefined;
 
-  return { difficulty, entryVariant, forwarded, objectiveType, domainEntry, encrypted };
+  // 'switch' keyword forces inner gateways to be managed switches instead of routers
+  const switchGateway = lower.includes('switch') ? true : undefined;
+
+  return {
+    difficulty,
+    entryVariant,
+    forwarded,
+    objectiveType,
+    domainEntry,
+    encrypted,
+    switchGateway,
+  };
 };
 
 // Derives difficulty from seed overrides or falls back to a simple character-sum
@@ -92,6 +103,7 @@ export const generateMissionNetwork = (
     entryVariantOverride: effectiveEntryVariant,
     forwardedOverride: effectiveForwarded,
     usedIps,
+    switchGateway: overrides.switchGateway,
   });
 
   // Generate users for internal machines

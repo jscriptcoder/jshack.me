@@ -60,7 +60,7 @@ Home networks use `generateNetwork(options)`, which runs these steps (missions s
 | `generateNetwork.ts`     | Shared pipeline: topology → users → enrichment → port closures → config updates → base filesystems; used by home networks                                                                                                                                                                                          |
 | `attackChain.ts`         | Objective generation (exfiltrate/tamper/credential_theft/script_fix/sabotage/backdoor/portforward), client email                                                                                                                                                                                                   |
 | `binary.ts`              | Binary noise wrapping for target files, binary file path pools                                                                                                                                                                                                                                                     |
-| `filesystem.ts`          | FileNode trees via createFileSystem(), noise, dynamic target file placement, router iptables rules                                                                                                                                                                                                                 |
+| `filesystem.ts`          | FileNode trees via createFileSystem(), noise, dynamic target file placement, router iptables rules, switch ACL rules                                                                                                                                                                                               |
 | `generateMission.ts`     | Mission orchestrator: own pipeline (imports enrichment.ts) + objective, attack chain, custom filesystems, binary wrapping                                                                                                                                                                                          |
 | `generateLocalhost.ts`   | Localhost filesystem generation from `GameState` — player username, root password, seed-derived guest password, `README.txt` guide, hint files, pre-installed tools                                                                                                                                                |
 | `generateWifi.ts`        | WiFi network generation from game seed — 2-3 crackable WPA2 + 3-5 noise (WPA3/weak/hidden). Passwords from encoded secrets.                                                                                                                                                                                        |
@@ -86,6 +86,8 @@ Seeds containing "easy", "medium", or "hard" force that difficulty; otherwise de
 | mailserver  | 22, 25, 143  | postmaster, mailadm |
 | iot         | 22, 80, 1883 | admin, device       |
 | workstation | 22           | jsmith, developer   |
+| router      | 22, 80       | netops, routeadm    |
+| switch      | 22, 80, 161  | netadmin, switchadm |
 
 ## Output Types
 
@@ -120,8 +122,9 @@ Players and developers can embed keywords in the seed string to control generati
 | Network mode  | `forwarded`, `router-first`                                                                     | Hyphenated to avoid false matches                                                 |
 | Objective     | `exfiltrate`, `tamper`, `credential-theft`, `script-fix`, `sabotage`, `backdoor`, `portforward` | Hyphen variant for credential_theft / script_fix; portforward forces router-first |
 | Encryption    | `gpg`                                                                                           | Forces exfiltrate + encrypted target file                                         |
+| Gateway type  | `switch`                                                                                        | Forces inner gateways to be managed L3 switches (ACLs instead of NAT)             |
 
-Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`, `IRONGATE-nc-gpg-22`
+Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`, `IRONGATE-nc-gpg-22`, `test-switch-snmp-hard`
 
 PRNG sequence is preserved when overrides are active — the PRNG call is always consumed, but its result is discarded in favor of the override. Seeds without keywords produce identical networks as before.
 

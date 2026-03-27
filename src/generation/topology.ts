@@ -305,6 +305,7 @@ export type TopologyOverrides = {
   readonly entryVariantOverride?: EntryVariant;
   readonly forwardedOverride?: boolean;
   readonly usedIps?: ReadonlySet<string>;
+  readonly switchGateway?: boolean;
 };
 
 export const generateTopology = (
@@ -369,16 +370,23 @@ export const generateTopology = (
         gatewayOctet = prng.nextInt(2, 254);
       } while (usedOctets.has(gatewayOctet));
 
+      // Gateway device type: switch when override is set, router otherwise.
+      // Controlled by seed keyword ('switch') or caller override.
+      const gatewayRole: 'router' | 'switch' = overrides.switchGateway ? 'switch' : 'router';
+
       const gatewayUpstreamIp = `${upstreamLayer.subnet}.${gatewayOctet}`;
-      const gatewayHostname = pickUniqueHostname(prng, 'router', usedHostnames);
-      const gatewayAccessVariant: EntryVariant = downstreamLayer.isForwarded
-        ? 'ssh'
-        : downstreamLayer.entryVariant;
+      const gatewayHostname = pickUniqueHostname(prng, gatewayRole, usedHostnames);
+      const gatewayAccessVariant: EntryVariant =
+        gatewayRole === 'switch'
+          ? downstreamLayer.entryVariant // Switches always use ACL-deny mode (no forwarded)
+          : downstreamLayer.isForwarded
+            ? 'ssh'
+            : downstreamLayer.entryVariant;
 
       return {
         ip: gatewayUpstreamIp,
         hostname: gatewayHostname,
-        role: 'router' as const,
+        role: gatewayRole,
         accessVariant: gatewayAccessVariant,
         remoteMachine: {
           ip: gatewayUpstreamIp,
@@ -578,6 +586,7 @@ export const generateTopology = (
       return {
         subnet: l.subnet,
         gateway: routerMachine,
+        gatewayType: 'router' as const,
         entryVariant: l.entryVariant,
         machines: l.machines,
         isForwarded: l.isForwarded,
@@ -586,23 +595,26 @@ export const generateTopology = (
     }
 
     const gateway = gatewayMachines[i - 1]!;
-    const innerNat: NatForwarding | undefined = l.isForwarded
-      ? {
-          publicIp: gateway.ip,
-          rules:
-            l.machines[0]?.remoteMachine.ports
-              .filter((p) => p.open)
-              .map((p) => ({
-                publicPort: p.port,
-                internalIp: l.entryPoint,
-                internalPort: p.port,
-              })) ?? [],
-        }
-      : undefined;
+    const gwType = gateway.role === 'switch' ? ('switch' as const) : ('router' as const);
+    const innerNat: NatForwarding | undefined =
+      l.isForwarded && gwType === 'router'
+        ? {
+            publicIp: gateway.ip,
+            rules:
+              l.machines[0]?.remoteMachine.ports
+                .filter((p) => p.open)
+                .map((p) => ({
+                  publicPort: p.port,
+                  internalIp: l.entryPoint,
+                  internalPort: p.port,
+                })) ?? [],
+          }
+        : undefined;
 
     return {
       subnet: l.subnet,
       gateway,
+      gatewayType: gwType,
       entryVariant: l.entryVariant,
       machines: l.machines,
       isForwarded: l.isForwarded,

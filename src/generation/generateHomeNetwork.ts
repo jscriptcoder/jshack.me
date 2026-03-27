@@ -46,11 +46,15 @@ export const generateHomeNetwork = (
   const prng = createPrng(`home-${gameSeed}-${wifiIndex}`);
   const difficulty = deriveDifficulty(prng);
 
+  // ~40% chance inner gateways are managed switches instead of routers.
+  // Only affects multi-layer networks (medium/hard difficulty).
+  const switchGateway = prng.next() < 0.4;
+
   // Shared pipeline: topology → users → enrichment → port closures → configs → filesystems
   const network = generateNetwork({
     prng,
     difficulty,
-    topologyOverrides: { usedIps },
+    topologyOverrides: { usedIps, switchGateway },
   });
 
   const { topology, machines, routerMachine } = network;

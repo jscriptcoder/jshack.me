@@ -45,6 +45,11 @@ export const portTemplatesByRole: Readonly<Record<MachineRole, readonly PortTemp
     { port: 80, service: 'http', open: true },
     { port: 8443, service: 'https', open: false },
   ],
+  switch: [
+    { port: 22, service: 'ssh', open: true },
+    { port: 80, service: 'http', open: true },
+    { port: 161, service: 'snmp', open: true, protocol: 'udp' },
+  ],
 };
 
 export const backdoorPorts: readonly number[] = [4444, 31337, 8888, 1337];
