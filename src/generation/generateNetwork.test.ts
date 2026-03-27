@@ -193,8 +193,7 @@ describe('generateNetwork', () => {
     const net = generate('fs-router-hosts');
     const routerFs = net.fileSystems[net.routerMachine.ip];
     expect(routerFs).toBeDefined();
-    const etc =
-      routerFs?.type === 'directory' ? routerFs.children?.['etc'] : undefined;
+    const etc = routerFs?.type === 'directory' ? routerFs.children?.['etc'] : undefined;
     expect(etc?.type).toBe('directory');
     if (etc?.type === 'directory') {
       const hosts = etc.children?.['hosts'];
@@ -212,14 +211,11 @@ describe('generateNetwork', () => {
   it('machines with open SSH have sshd pid file', () => {
     const net = generate('fs-sshd-pid');
     for (const machine of net.machines) {
-      const hasSshOpen = machine.remoteMachine.ports.some(
-        (p) => p.service === 'ssh' && p.open,
-      );
+      const hasSshOpen = machine.remoteMachine.ports.some((p) => p.service === 'ssh' && p.open);
       if (!hasSshOpen) continue;
       const fs = net.fileSystems[machine.ip];
       const varDir = fs?.type === 'directory' ? fs.children?.['var'] : undefined;
-      const runDir =
-        varDir?.type === 'directory' ? varDir.children?.['run'] : undefined;
+      const runDir = varDir?.type === 'directory' ? varDir.children?.['run'] : undefined;
       if (runDir?.type === 'directory') {
         expect(runDir.children?.['sshd.pid']).toBeDefined();
       }
@@ -266,8 +262,7 @@ describe('generateNetwork', () => {
       if (net.topology.entryVariant !== 'snmp') continue;
 
       const routerFs = net.fileSystems[net.routerMachine.ip];
-      const etc =
-        routerFs?.type === 'directory' ? routerFs.children?.['etc'] : undefined;
+      const etc = routerFs?.type === 'directory' ? routerFs.children?.['etc'] : undefined;
       if (etc?.type === 'directory') {
         const snmpDir = etc.children?.['snmp'];
         expect(snmpDir).toBeDefined();

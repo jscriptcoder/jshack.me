@@ -2,7 +2,7 @@
 
 Deterministic engines that generate all game content from seed strings and game state. Same seed always produces identical output. Pure generation pipelines — React integration lives in `src/mission/` (missions) and `src/game/` (home networks). Localhost is also generated at runtime via `generateLocalhost(gameState)`.
 
-Both missions and home networks share the `generateNetwork()` pipeline (`generateNetwork.ts`) for topology, users, enrichment, port closures, and filesystem generation. Missions layer on objective-specific steps (attack chain, target file placement, binary wrapping). Home networks layer on gateway `.1` IP aliasing for internal reachability.
+Missions and home networks share building blocks: topology (`topology.ts`), users (`users.ts`), enrichment (`enrichment.ts`), and filesystem helpers (`filesystem.ts`). Home networks use the shared `generateNetwork()` pipeline (`generateNetwork.ts`) that composes these. Missions have their own orchestration for PRNG sequence stability but import enrichment functions from the shared module.
 
 ## Usage
 
@@ -21,7 +21,7 @@ const mission = generateMissionNetwork('HEIST-7734');
 
 ### Shared Pipeline (`generateNetwork.ts`)
 
-Both missions and home networks use `generateNetwork(options)`, which runs these shared steps:
+Home networks use `generateNetwork(options)`, which runs these steps (missions share the same building blocks but have their own orchestration for PRNG sequence stability):
 
 1. **PRNG** (`prng.ts`) — Mulberry32 seeded via FNV-1a hash of the seed string
 2. **Topology** (`topology.ts`) — Multi-layer subnet topology with per-difficulty layer count (easy: 1, medium: 2, hard: 3), machine roles, IPs, interfaces, DNS, per-layer entry variant selection (ssh/ftp/nc/exploit/http/snmp)
@@ -33,7 +33,7 @@ Both missions and home networks use `generateNetwork(options)`, which runs these
 
 ### Mission Pipeline (`generateMission.ts`)
 
-`generateMissionNetwork(seed, usedIps?)` calls `generateNetwork()` with `skipFileSystems: true`, then adds mission-specific steps:
+`generateMissionNetwork(seed, usedIps?)` has its own orchestration (imports `enrichMachineWithUsers` and `applyPortClosures` from `enrichment.ts`) for PRNG sequence stability, then adds mission-specific steps:
 
 - **Objective** (`attackChain.ts`) — Objective generation (exfiltrate with ACCESS-KEY, tamper with old/new values, credential_theft with root password, script_fix with broken script + bug type, sabotage with machine bricking, backdoor with nc listener, portforward with iptables rule), client email generation
 - **Filesystems** (`filesystem.ts`) — FileNode trees with role configs, noise, target file at dynamic path with thematic content. Web content generation for machines with open HTTP ports. HTTP entry variant places SSH credentials in `/var/www/html/` (body-based or `.headers` sidecar). `/bin/` is populated with system utility binaries; `/usr/bin/` is left empty (players must `apt install` tools). Router gets `/etc/iptables/rules.v4` — pre-populated with forwarding rules in forwarded mode, empty template in router-first mode. SNMP variant routers get `/etc/snmp/snmpd.conf` with community strings, system OIDs, leaked credentials, and firewall OIDs.
@@ -57,11 +57,11 @@ Both missions and home networks use `generateNetwork(options)`, which runs these
 | `topology.ts`            | Network topology generator (machines, roles, entry variant, NetworkConfig); uses `ip.ts` for IP generation                                                                                                                                                                                                         |
 | `users.ts`               | Per-machine users + plaintext credential map                                                                                                                                                                                                                                                                       |
 | `enrichment.ts`          | Machine enrichment: NC/exploit/FTP port owner assignment, port closures (~30% SSH/FTP with NC fallbacks); extracted from `generateMission.ts` for shared use                                                                                                                                                       |
-| `generateNetwork.ts`     | Shared pipeline: topology → users → enrichment → port closures → config updates → base filesystems; used by both missions and home networks                                                                                                                                                                        |
+| `generateNetwork.ts`     | Shared pipeline: topology → users → enrichment → port closures → config updates → base filesystems; used by home networks                                                                                                                                                                                          |
 | `attackChain.ts`         | Objective generation (exfiltrate/tamper/credential_theft/script_fix/sabotage/backdoor/portforward), client email                                                                                                                                                                                                   |
 | `binary.ts`              | Binary noise wrapping for target files, binary file path pools                                                                                                                                                                                                                                                     |
 | `filesystem.ts`          | FileNode trees via createFileSystem(), noise, dynamic target file placement, router iptables rules                                                                                                                                                                                                                 |
-| `generateMission.ts`     | Mission orchestrator: calls `generateNetwork()` then adds objective, attack chain, custom filesystems, binary wrapping                                                                                                                                                                                             |
+| `generateMission.ts`     | Mission orchestrator: own pipeline (imports enrichment.ts) + objective, attack chain, custom filesystems, binary wrapping                                                                                                                                                                                          |
 | `generateLocalhost.ts`   | Localhost filesystem generation from `GameState` — player username, root password, seed-derived guest password, `README.txt` guide, hint files, pre-installed tools                                                                                                                                                |
 | `generateWifi.ts`        | WiFi network generation from game seed — 2-3 crackable WPA2 + 3-5 noise (WPA3/weak/hidden). Passwords from encoded secrets.                                                                                                                                                                                        |
 | `generateHomeNetwork.ts` | Home network generation: calls `generateNetwork()` with random difficulty (easy/medium/hard per WiFi), adds gateway .1 IP aliases for internal reachability                                                                                                                                                        |
