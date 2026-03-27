@@ -168,10 +168,66 @@ export const routerEntryPortTemplates: readonly EntryPortTemplate[] = [
     ],
   },
   {
+    variant: 'ftp',
+    ports: [
+      { port: 21, service: 'ftp', open: true },
+      { port: 22, service: 'ssh', open: true },
+    ],
+  },
+  {
+    variant: 'nc',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 4444, service: 'elite', open: true },
+    ],
+  },
+  {
+    variant: 'nc',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 31337, service: 'elite', open: true },
+    ],
+  },
+  {
+    variant: 'nc',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 8888, service: 'elite', open: true },
+    ],
+  },
+  {
+    variant: 'nc',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 1337, service: 'elite', open: true },
+    ],
+  },
+  {
     variant: 'exploit',
     ports: [
       { port: 22, service: 'ssh', open: true },
       { port: 8443, service: 'https', open: true },
+    ],
+  },
+  {
+    variant: 'exploit',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 80, service: 'http', open: true },
+    ],
+  },
+  {
+    variant: 'exploit',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 8080, service: 'http-alt', open: true },
+    ],
+  },
+  {
+    variant: 'exploit',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 1883, service: 'mqtt', open: true },
     ],
   },
   {

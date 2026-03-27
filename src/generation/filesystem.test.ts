@@ -910,6 +910,49 @@ describe('generateFileSystems', () => {
       expect(found).toBe(true);
     });
 
+    it('inner gateways with SNMP access variant have /etc/snmp/snmpd.conf', () => {
+      let found = false;
+      for (let i = 0; i < 200; i++) {
+        const { topology, fileSystems, credentials } = buildTestData(`gw-snmp-${i}`, 'medium');
+        for (let j = 1; j < topology.layers.length; j++) {
+          const layer = topology.layers[j]!;
+          const gateway = layer.gateway;
+          if (gateway.accessVariant !== 'snmp') continue;
+
+          const fs = fileSystems[gateway.ip];
+          if (!fs) continue;
+          const snmpConf = resolveNode(fs, '/etc/snmp/snmpd.conf');
+
+          expect(snmpConf).toBeDefined();
+          expect(snmpConf?.type).toBe('file');
+          expect(snmpConf?.owner).toBe('root');
+
+          const content = snmpConf?.content ?? '';
+          // Must have community strings
+          expect(content).toContain('rocommunity public');
+          expect(content).toMatch(/rwcommunity \w+/);
+          // Must have system info with gateway hostname
+          expect(content).toContain('sysName');
+          expect(content).toContain(gateway.hostname);
+          // Must have firewall OIDs (initially deny)
+          expect(content).toContain('firewallSSH deny');
+          expect(content).toContain('firewallHTTP deny');
+          // Must have leaked credentials via extend script
+          const gatewayCreds = credentials[gateway.ip];
+          const userCred = gatewayCreds?.find((c) => c.username !== 'root');
+          if (userCred) {
+            expect(content).toContain(userCred.username);
+            expect(content).toContain(userCred.password);
+          }
+
+          found = true;
+          break;
+        }
+        if (found) break;
+      }
+      expect(found).toBe(true);
+    });
+
     it('inner gateway /etc/hosts lists only downstream machines', () => {
       for (let i = 0; i < 20; i++) {
         const { topology, fileSystems } = buildTestData(`gw-hosts-${i}`, 'hard');

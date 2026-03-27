@@ -21,17 +21,19 @@ src/
 ├── commands/              # Command implementations (colocated with .test.ts files)
 │   ├── ftp/               # FTP mode commands (pwd, ls, cd, get, put, quit)
 │   └── permissions.ts     # Command restrictions by user type
-├── generation/            # Seeded mission network generator
+├── generation/            # Seeded network generators (missions + home networks)
 │   ├── prng.ts                # Mulberry32 PRNG seeded via FNV-1a hash
 │   ├── types.ts               # MissionNetwork, GeneratedMachine, AttackStep, EntryVariant, etc.
 │   ├── pools/                 # Data pools split by domain (machines, ports, vulnerabilities, filesystem, web, credentials, scripts, forensics); passwords from encoded secrets
 │   ├── ip.ts                  # Shared IP utilities: generatePublicIp (collision-aware), generatePrivateSubnet
 │   ├── topology.ts            # Network topology generator (machines, roles, entry variant, NetworkConfig)
 │   ├── users.ts               # User generator (per-machine users + credential map)
+│   ├── enrichment.ts          # Machine enrichment (NC/exploit/FTP owners, port closures)
+│   ├── generateNetwork.ts     # Shared pipeline: topology → users → enrichment → port closures → filesystems
 │   ├── attackChain.ts         # Attack chain generator (path, methods, credential placements)
 │   ├── binary.ts              # Binary noise wrapping for credential/target files; binary path pools
 │   ├── filesystem.ts          # Filesystem generator (role templates, breadcrumbs, noise, entry creds)
-│   └── generateMission.ts     # Orchestrator: seed → MissionNetwork
+│   └── generateMission.ts     # Mission orchestrator: seed → MissionNetwork (uses enrichment.ts)
 ├── mission/               # Mission system integration (Phase 2)
 │   ├── MissionContext.tsx     # React context for active mission state + start/abort/complete
 │   ├── missionBoard.ts       # Hardcoded mission contracts + ASCII board formatter
@@ -232,7 +234,7 @@ Unified filesystem-based access model (`src/commands/availability.ts`). All comm
 
 `src/generation/` contains the engine for procedurally generating mission networks from a seed string. See `mission-variations.md` for the complete catalog of all generation axes, templates, and pools.
 
-**Pipeline**: `generateMissionNetwork(seed, usedIps?)` composes 7 steps: PRNG (`prng.ts`) → Topology (`topology.ts`) → Users (`users.ts`) → Port Closures (`generateMission.ts: applyPortClosures`) → Attack Chain (`attackChain.ts`) → Filesystems (`filesystem.ts`) → Binary Wrapping (`binary.ts`). Seeds can embed keywords to override generation axes — see `parseSeedOverrides()` in `generateMission.ts`. Shared IP utilities (`ip.ts`) provide `generatePublicIp(prng, usedIps?)` and `generatePrivateSubnet(prng)` — used by both mission and home network generation. When `usedIps` is provided, public IP generation re-rolls to avoid collisions.
+**Pipeline**: `generateMissionNetwork(seed, usedIps?)` has its own orchestration (for PRNG sequence stability) but shares building blocks with home networks: topology (`topology.ts`), users (`users.ts`), enrichment (`enrichment.ts`), and filesystem helpers (`filesystem.ts`). Mission-specific steps: objective type resolution → port closures → attack chain (`attackChain.ts`) → objective filesystems → binary wrapping (`binary.ts`). Home networks use the shared `generateNetwork()` pipeline (`generateNetwork.ts`) which composes the same building blocks. Seeds can embed keywords to override generation axes — see `parseSeedOverrides()` in `generateMission.ts`. Shared IP utilities (`ip.ts`) provide `generatePublicIp(prng, usedIps?)` and `generatePrivateSubnet(prng)` — used by both mission and home network generation. When `usedIps` is provided, public IP generation re-rolls to avoid collisions.
 
 **Key properties**: Deterministic (same seed → identical network). 5 machine roles, 3 difficulty tiers, 6 entry variants (ssh, ftp, nc, exploit, http, snmp), 2 network modes, 8 objective types. Output types match existing `NetworkConfig`, `RemoteMachine`, `FileNode`. Mission passwords imported from `src/secrets/__encoded.ts`.
 
@@ -253,7 +255,7 @@ SessionProvider → GameSession (useHomeNetworks, generateLocalhost) → Mission
 **Context integration:**
 
 - `FileSystemContext` accepts a `localhostFileSystem` prop (generated at runtime) and optional `missionFileSystems` and `homeFileSystems` props — merges on mission/WiFi start, removes on end. All patches (localhost + home network + mission) are persisted to IndexedDB. On initial mount with a persisted mission, cached mission patches are replayed on top of regenerated filesystems. On mission end/transition, mission patches are cleaned up from state.
-- `NetworkContext` accepts optional `missionNetworkConfig`, `missionMachines`, `missionRouterMachine`, and `homeNetwork` props. Checks mission config first, then home network. No static network config exists — everything comes from home networks or missions. `resolveNat(ip, port)` translates router public IP + port to internal machine IP + port based on iptables rules parsed dynamically from the router's filesystem. `findMachineUsers(ip)` searches both configs.
+- `NetworkContext` accepts optional `missionNetworkConfig`, `missionMachines`, `missionRouterMachine`, `missionLayers`, and `homeNetwork` props. Checks mission config first, then home network. No static network config exists — everything comes from home networks or missions. Home networks use the same layered topology as missions, so `NetworkContext` handles gateway iptables/SNMP parsing and layer-aware localhost visibility for both. `resolveNat(ip, port)` translates any gateway's IP + port to the internal machine IP + port based on iptables rules parsed dynamically from that gateway's filesystem — works for both the border router and inner-layer gateways in both mission and home networks. SNMP firewall overrides and NAT merged port views are applied to all gateways (not just the border router) in the `currentConfig` memo. `findMachineUsers(ip)` searches both configs.
 
 **Mission commands:** `missions()` (browse contracts), `accept(seed)` (generate + start), `abort()` (pop all sessions, clear state), `mail(recipient, content)` (submit proof, verify by objective type, calls `completeMission()`).
 
