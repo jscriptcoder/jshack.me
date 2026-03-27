@@ -209,6 +209,9 @@ export const applyDynamicOverrides = (
   let result = machine;
 
   // Gateway NAT merged view: show forwarded ports to upstream machines.
+  // Preserve the original visible IP — buildMergedRouterView uses the
+  // GeneratedMachine's primary IP, which may differ from the .1 alias
+  // that machines inside the network actually see.
   const gatewayRules = ctx.allIptablesRules.get(machine.ip);
   if (gatewayRules && gatewayRules.length > 0) {
     const missionGateway = ctx.missionMachines?.find((m) => m.ip === machine.ip);
@@ -219,7 +222,8 @@ export const applyDynamicOverrides = (
         ctx.homeMachines?.find((m) => m.ip === machine.ip) ??
         ctx.homeGatewayByAliasIp.get(machine.ip);
       if (homeGateway && ctx.homeMachines) {
-        result = buildMergedRouterView(homeGateway, ctx.homeMachines, gatewayRules);
+        const merged = buildMergedRouterView(homeGateway, ctx.homeMachines, gatewayRules);
+        result = { ...merged, ip: machine.ip };
       }
     }
   }

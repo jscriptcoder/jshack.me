@@ -664,7 +664,7 @@ describe('applyDynamicOverrides', () => {
     expect(result.ports).toEqual([{ port: 2222, service: 'ssh', open: true }]);
   });
 
-  it('should find home gateway by .1 alias IP', () => {
+  it('should find home gateway by .1 alias IP and preserve the visible IP', () => {
     const gateway = createGeneratedMachine({
       ip: '45.0.0.1',
       role: 'router',
@@ -691,6 +691,7 @@ describe('applyDynamicOverrides', () => {
       readNode: noopReader,
     });
 
+    expect(result.ip).toBe('10.0.0.1');
     expect(result.ports).toContainEqual(
       expect.objectContaining({ port: 80, service: 'http', open: true }),
     );
