@@ -68,6 +68,11 @@ const verifyScriptFix = (proof: string, mission: MissionNetwork): string | null 
   return 'Incorrect proof. Fix and run the script to get the ACCESS-KEY.';
 };
 
+const verifyScriptAuto = (proof: string, mission: MissionNetwork): string | null => {
+  if (proof === mission.objective.expectedProof) return null;
+  return 'Incorrect proof. Write and run the script to get the ACCESS-KEY.';
+};
+
 const verifySabotage = (
   mission: MissionNetwork,
   isMachineBricked: MailCommandContext['isMachineBricked'],
@@ -176,6 +181,7 @@ const verifyProof = (
   if (type === 'credential_theft') return verifyCredentialTheft(proof, mission);
   if (type === 'tamper') return verifyTamper(mission, readFileFromMachine);
   if (type === 'script_fix') return verifyScriptFix(proof, mission);
+  if (type === 'script_auto') return verifyScriptAuto(proof, mission);
   if (type === 'sabotage') return verifySabotage(mission, isMachineBricked);
   if (type === 'backdoor') return verifyBackdoor(mission, readFileFromMachine);
   if (type === 'portforward') return verifyPortforward(mission, readFileFromMachine);
