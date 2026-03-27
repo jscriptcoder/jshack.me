@@ -240,9 +240,7 @@ describe('buildMissionObjective', () => {
     const { result } = buildTestData('test-script-auto', 'medium', 'script_auto');
 
     expect(result.objective.type).toBe('script_auto');
-    expect(result.objective.expectedProof).toMatch(
-      /^ACCESS-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$/,
-    );
+    expect(result.objective.expectedProof).toMatch(/^ACCESS-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$/);
     expect(result.objective.targetPath).toMatch(/\/(cron\.d|init\.d|network\/if-up\.d)\//);
     expect(result.objective.targetContent).toContain('_decode');
     expect(result.objective.expectedChecksum).toBeTruthy();

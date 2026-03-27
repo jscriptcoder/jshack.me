@@ -158,11 +158,11 @@ const selectScriptAutoFile = (
     template.flavor === 'remote' && httpCandidates.length === 0 ? 'local' : template.flavor;
 
   if (effectiveFlavor === 'local') {
-    const dataPath = template.flavor === 'local' ? template.dataFileName : `/var/lib/${template.dataFileName}.json`;
-    const targetContent = [
-      '#!/usr/bin/env node',
-      template.instructions,
-    ].join('\n');
+    const dataPath =
+      template.flavor === 'local'
+        ? template.dataFileName
+        : `/var/lib/${template.dataFileName}.json`;
+    const targetContent = ['#!/usr/bin/env node', template.instructions].join('\n');
 
     return {
       targetPath,

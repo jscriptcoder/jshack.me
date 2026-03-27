@@ -183,7 +183,8 @@ export const useCommands = (): UseCommandsResult => {
         canTraverse: (path: string) => canTraverse(path, session.userType),
         getExecutionContext: () => resolvedExecutionContext,
         getDecodeFn: () => {
-          const missionType = activeMission?.objective.type;
+          if (!activeMission) return undefined;
+          const missionType = activeMission.objective.type;
           if (missionType !== 'script_fix' && missionType !== 'script_auto') return undefined;
           const { expectedChecksum, expectedProof } = activeMission.objective;
           return (value: unknown) => {

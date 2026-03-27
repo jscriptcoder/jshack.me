@@ -1001,7 +1001,7 @@ const mergeScriptAutoData = (
   if (scriptAutoFlavor === 'local' && machine.ip === objective.targetMachine) {
     const segments = scriptAutoDataPath.split('/').filter(Boolean);
     const fileName = segments[segments.length - 1] ?? 'data.json';
-    const dataFile = mkFile(fileName, scriptAutoDataContent, 'root', true);
+    const dataFile = mkFile(fileName, scriptAutoDataContent, 'guest');
     const topDir = segments[0] ?? 'root';
     const existing = config.extraDirectories ?? {};
     const newDir = buildNestedDirs(segments, dataFile);
@@ -1026,7 +1026,7 @@ const mergeScriptAutoData = (
   // Remote: place API JSON on the API machine at /var/www/api/<endpoint>.json
   if (scriptAutoFlavor === 'remote' && machine.ip === scriptAutoApiMachine) {
     const apiFileName = `${scriptAutoDataPath}.json`;
-    const apiFile = mkFile(apiFileName, scriptAutoDataContent, 'root', true);
+    const apiFile = mkFile(apiFileName, scriptAutoDataContent, 'guest');
 
     const existing = config.extraDirectories ?? {};
     const existingVar = existing['var'];
@@ -1037,12 +1037,7 @@ const mergeScriptAutoData = (
       const wwwChildren = { ...(www.children ?? {}) };
       wwwChildren['api'] = mkDir('api', { [apiFileName]: apiFile }, 'root', true);
       const newWww = mkDir('www', wwwChildren, 'root', true);
-      const newVar = mkDir(
-        'var',
-        { ...(existingVar.children ?? {}), www: newWww },
-        'root',
-        true,
-      );
+      const newVar = mkDir('var', { ...(existingVar.children ?? {}), www: newWww }, 'root', true);
       return { ...config, extraDirectories: { ...existing, var: newVar } };
     }
 

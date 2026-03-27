@@ -18,10 +18,12 @@ Add a new `script_auto` mission objective where the player writes a script from 
 ### Two Flavors
 
 **Local read**: Instructions say "Read `/path/to/file.json`, extract the `fieldName` field, pass to `_decode()`"
+
 - Player writes a sync script: `const data = JSON.parse(cat('/path/to/file.json')); echo(_decode(data.fieldName))`
 - The data file is placed on the same machine as the script
 
 **Remote fetch**: Instructions say "POST to `http://ip/api/endpoint`, extract the `fieldName` field, pass to `_decode()`"
+
 - Player writes an async script: `const r = await curl('-X', 'POST', 'http://ip/api/endpoint'); const data = JSON.parse(r.join('\n')); echo(_decode(data.fieldName))`
 - The API JSON file is placed on a different machine in the network (must have port 80 open)
 
@@ -38,11 +40,11 @@ type ScriptAutoTemplate = {
   readonly location: 'cron.d' | 'init.d' | 'if-up.d';
   readonly scriptName: string;
   readonly flavor: 'local' | 'remote';
-  readonly instructions: string;         // Comment block with instructions (has {{placeholders}})
-  readonly dataFileName: string;         // JSON file name (local: on target, remote: on API machine)
-  readonly dataContent: string;          // JSON content for the data file
-  readonly extractField: string;         // The JSON field to extract
-  readonly expectedChecksum: string;     // Value of that field (what _decode expects)
+  readonly instructions: string; // Comment block with instructions (has {{placeholders}})
+  readonly dataFileName: string; // JSON file name (local: on target, remote: on API machine)
+  readonly dataContent: string; // JSON content for the data file
+  readonly extractField: string; // The JSON field to extract
+  readonly expectedChecksum: string; // Value of that field (what _decode expects)
 };
 ```
 
@@ -66,7 +68,7 @@ Reuses existing fields: `targetPath` (script location), `targetContent` (stub wi
 
 Like `script_fix`, `script_auto` needs SSH access on the target machine. Add to the port closure skip list in `enrichment.ts`.
 
-### _decode Injection
+### \_decode Injection
 
 Extend the `getDecodeFn()` check in `useCommands.ts` to also activate for `script_auto` missions (currently only `script_fix`).
 
@@ -100,9 +102,9 @@ Extend the `getDecodeFn()` check in `useCommands.ts` to also activate for `scrip
 
 ### Step 3: Add `_decode()` injection for `script_auto` in `useCommands.ts`
 
-**Test**: Write test that `_decode` is injected when active mission is `script_auto` (extend existing `script_fix` _decode tests in `node.test.ts`).
+**Test**: Write test that `_decode` is injected when active mission is `script_auto` (extend existing `script_fix` \_decode tests in `node.test.ts`).
 **Implementation**: Change the `getDecodeFn()` guard from `type !== 'script_fix'` to `type !== 'script_fix' && type !== 'script_auto'` (or use an includes check).
-**Done when**: _decode injection tests pass for both `script_fix` and `script_auto`.
+**Done when**: \_decode injection tests pass for both `script_fix` and `script_auto`.
 
 ### Step 4: Create `script_auto` templates pool
 
@@ -126,14 +128,15 @@ Extend the `getDecodeFn()` check in `useCommands.ts` to also activate for `scrip
 
 **Test**: Write tests that `script_auto` appears in the PRNG pool, `script-auto` seed keyword triggers it, and port closures are skipped for `script_auto`.
 **Implementation**:
+
 - Add `'script_auto'` to `objectiveTypes` array in `attackChain.ts`
 - Add `['script-auto', 'script_auto']` to `objectiveKeywords` in `generateMission.ts`
 - Add `script_auto` to port closure skip list in `enrichment.ts`
-**Done when**: Integration tests pass — generating a mission with `script-auto` keyword produces correct objective.
+  **Done when**: Integration tests pass — generating a mission with `script-auto` keyword produces correct objective.
 
 ### Step 8: End-to-end integration test
 
-**Test**: Generate a full mission with `script-auto` seed keyword, verify the complete pipeline: objective generated, script stub placed in automation location, data file placed correctly, _decode would work with correct checksum, mail verification accepts correct ACCESS-KEY.
+**Test**: Generate a full mission with `script-auto` seed keyword, verify the complete pipeline: objective generated, script stub placed in automation location, data file placed correctly, \_decode would work with correct checksum, mail verification accepts correct ACCESS-KEY.
 **Implementation**: Write integration test in `generateMission.test.ts` similar to existing objective-specific tests.
 **Done when**: E2E generation test passes, all existing tests still pass.
 
