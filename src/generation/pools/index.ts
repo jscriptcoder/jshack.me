@@ -31,6 +31,8 @@ export type { CredentialLeakTemplate, HttpEntryCredentialTemplate } from './cred
 export { credentialLeakTemplates, httpEntryCredentialTemplates } from './credentials';
 export type { ScriptFixTemplate } from './scripts';
 export { scriptFixTemplatesByRole } from './scripts';
+export type { ScriptAutoTemplate } from './scriptAuto';
+export { scriptAutoTemplatesByRole } from './scriptAuto';
 export type { ForensicsLogType, ForensicsCallingCardTemplate } from './forensics';
 export {
   forensicsLogTypes,
