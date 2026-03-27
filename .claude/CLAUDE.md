@@ -32,6 +32,22 @@ npm run test:coverage # Run tests with coverage (auto-runs encode first)
 npm run test:e2e      # Run Playwright E2E test (mission playthrough)
 ```
 
+### Debug Scripts
+
+Use these scripts to inspect generated networks when debugging mission or home network issues. Prefer these over writing ad-hoc scripts.
+
+```bash
+# Dump a full mission network (machines, ports, users, objective, filesystems)
+npx tsx scripts/dumpMissionNetwork.ts <seed>
+
+# Dump home networks for a game seed (all crackable WiFi, or a specific index)
+npx tsx scripts/dumpHomeNetwork.ts <gameSeed> [wifiIndex]
+
+# View full content of a specific file on a machine (works on both scripts)
+npx tsx scripts/dumpMissionNetwork.ts <seed> --cat <ip|hostname>:<path>
+npx tsx scripts/dumpHomeNetwork.ts <gameSeed> <wifiIndex> --cat <ip|hostname>:<path>
+```
+
 ## Tech Stack
 
 - **React 19** + **TypeScript** — UI framework

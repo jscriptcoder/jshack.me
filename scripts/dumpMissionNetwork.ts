@@ -1,90 +1,34 @@
 /**
  * Debug script: dump a full mission network from a seed.
  *
- * Usage: npx tsx scripts/dumpMission.ts <seed>
+ * Usage:
+ *   npx tsx scripts/dumpMissionNetwork.ts <seed>
+ *   npx tsx scripts/dumpMissionNetwork.ts <seed> --cat <ip|hostname>:<path>
  *
  * Prints machines, ports, users, objective,
  * and full filesystem trees with ANSI colors.
  */
 
 import { generateMissionNetwork, parseSeedOverrides } from '../src/generation/generateMission';
-import type { FileNode } from '../src/filesystem/types';
-import type { GeneratedMachine, MissionNetwork, MissionObjective } from '../src/generation/types';
-import type { Port, RemoteUser } from '../src/network/types';
-
-// ---------------------------------------------------------------------------
-// ANSI helpers
-// ---------------------------------------------------------------------------
-
-const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
-const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
-const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`;
-const yellow = (s: string) => `\x1b[33m${s}\x1b[0m`;
-const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
-const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
-const magenta = (s: string) => `\x1b[35m${s}\x1b[0m`;
-
-// ---------------------------------------------------------------------------
-// Formatters
-// ---------------------------------------------------------------------------
-
-const formatPort = (p: Port): string => {
-  const state = p.open ? green('open') : red('closed');
-  let extra = '';
-  if (p.vulnerability) {
-    extra += ` ${red(`[${p.vulnerability.cve}]`)} ${dim(p.vulnerability.serviceVersion)}`;
-  }
-  if (p.owner) {
-    extra += ` ${dim(`owner=${p.owner.username}(${p.owner.userType})`)}`;
-  }
-  return `  ${p.port}/${p.service}  ${state}${extra}`;
-};
-
-const formatUser = (u: RemoteUser): string => {
-  return `  ${u.username} (${u.userType})  hash=${dim(u.passwordHash)}`;
-};
-
-// ---------------------------------------------------------------------------
-// Filesystem tree printer
-// ---------------------------------------------------------------------------
-
-const truncate = (s: string, max: number): string => (s.length <= max ? s : `${s.slice(0, max)}…`);
-
-const printTree = (node: FileNode, prefix: string, isLast: boolean): void => {
-  const connector = isLast ? '└── ' : '├── ';
-  const ownerTag = dim(`[${node.owner}]`);
-
-  if (node.type === 'file') {
-    const len = node.content?.length ?? 0;
-    const preview =
-      len > 0 ? dim(` "${truncate(node.content!.replace(/\n/g, '\\n'), 60)}"`) : dim(' (empty)');
-    console.log(`${prefix}${connector}${node.name} ${ownerTag} ${dim(`${len}b`)}${preview}`);
-  } else {
-    console.log(`${prefix}${connector}${cyan(node.name + '/')} ${ownerTag}`);
-    const children = node.children ? Object.values(node.children) : [];
-    const childPrefix = prefix + (isLast ? '    ' : '│   ');
-    children.forEach((child, i) => {
-      printTree(child, childPrefix, i === children.length - 1);
-    });
-  }
-};
-
-const printFileSystem = (_machineId: string, root: FileNode): void => {
-  console.log(`  ${cyan('/')} ${dim(`[${root.owner}]`)}`);
-  const children = root.children ? Object.values(root.children) : [];
-  children.forEach((child, i) => {
-    printTree(child, '  ', i === children.length - 1);
-  });
-};
+import type { MissionNetwork, MissionObjective } from '../src/generation/types';
+import {
+  bold,
+  cyan,
+  dim,
+  green,
+  heading,
+  magenta,
+  red,
+  yellow,
+  handleCat,
+  parseArgs,
+  printFileSystem,
+  printMachine,
+} from './lib/dumpUtils';
 
 // ---------------------------------------------------------------------------
 // Section printers
 // ---------------------------------------------------------------------------
-
-const heading = (title: string): void => {
-  console.log('');
-  console.log(bold(`═══ ${title} ═══`));
-};
 
 const printOverview = (net: MissionNetwork): void => {
   heading('OVERVIEW');
@@ -170,15 +114,6 @@ const printObjective = (obj: MissionObjective): void => {
   }
 };
 
-const printMachine = (m: GeneratedMachine, label: string): void => {
-  console.log('');
-  console.log(`  ${bold(m.hostname)} ${dim(`(${m.role})`)} ${label}  ${yellow(m.ip)}`);
-  console.log(dim('  Ports:'));
-  m.remoteMachine.ports.forEach((p) => console.log(formatPort(p)));
-  console.log(dim('  Users:'));
-  m.remoteMachine.users.forEach((u) => console.log(formatUser(u)));
-};
-
 const printMachines = (net: MissionNetwork): void => {
   heading('OUTER ROUTER');
   printMachine(net.routerMachine, magenta('[ROUTER]'));
@@ -216,7 +151,7 @@ const printFileSystems = (net: MissionNetwork): void => {
         `  ── ${net.routerMachine.hostname} (${net.routerMachine.ip}) ${magenta('[ROUTER]')} ──`,
       ),
     );
-    printFileSystem(net.routerMachine.ip, routerFs);
+    printFileSystem(routerFs);
   }
 
   // Per-layer filesystems
@@ -234,7 +169,7 @@ const printFileSystems = (net: MissionNetwork): void => {
         console.log(
           bold(`  ── ${layer.gateway.hostname} (${layer.gateway.ip}) ${magenta('[GATEWAY]')} ──`),
         );
-        printFileSystem(layer.gateway.ip, gwFs);
+        printFileSystem(gwFs);
       }
     }
 
@@ -249,7 +184,7 @@ const printFileSystems = (net: MissionNetwork): void => {
         if (m.ip === net.entryPoint) tags.push(green('[ENTRY]'));
         if (m.ip === net.objective.targetMachine) tags.push(red('[TARGET]'));
         console.log(bold(`  ── ${m.hostname} (${m.ip}) ${tags.join(' ')} ──`));
-        printFileSystem(m.ip, fs);
+        printFileSystem(fs);
       }
     });
   });
@@ -259,19 +194,27 @@ const printFileSystems = (net: MissionNetwork): void => {
 // Main
 // ---------------------------------------------------------------------------
 
-const seed = process.argv[2];
+const { positional, catTarget } = parseArgs(process.argv.slice(2));
+const seed = positional[0];
 
 if (!seed) {
-  console.log(`Usage: npx tsx scripts/dumpMission.ts <seed>`);
+  console.log(`Usage: npx tsx scripts/dumpMissionNetwork.ts <seed> [--cat <ip|hostname>:<path>]`);
   console.log('');
   console.log('Examples:');
-  console.log('  npx tsx scripts/dumpMission.ts MEDTECH-4A7F-easy');
-  console.log('  npx tsx scripts/dumpMission.ts GRADE-TAMPER-74');
-  console.log('  npx tsx scripts/dumpMission.ts my-custom-seed');
+  console.log('  npx tsx scripts/dumpMissionNetwork.ts MEDTECH-4A7F-easy');
+  console.log('  npx tsx scripts/dumpMissionNetwork.ts GRADE-TAMPER-74');
+  console.log('  npx tsx scripts/dumpMissionNetwork.ts my-seed --cat jump-box:/etc/passwd');
+  console.log('  npx tsx scripts/dumpMissionNetwork.ts my-seed --cat 192.168.1.5:/var/log/auth.log');
   process.exit(1);
 }
 
 const net = generateMissionNetwork(seed);
+
+// --cat mode: just print the file and exit
+if (catTarget) {
+  handleCat(catTarget, net.fileSystems, net.machines, net.routerMachine);
+  process.exit(0);
+}
 
 console.log(bold(magenta(`\n╔══════════════════════════════════════╗`)));
 console.log(bold(magenta(`║     MISSION NETWORK DUMP             ║`)));
