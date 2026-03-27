@@ -169,4 +169,186 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'Mosquitto 1.4.12',
     },
   },
+  // MongoDB
+  {
+    port: 27017,
+    service: 'mongodb',
+    vulnerability: {
+      cve: 'CVE-2020-7921',
+      description: 'MongoDB auth bypass via crafted roleInfo command',
+      serviceVersion: 'MongoDB 3.6.12',
+    },
+  },
+  {
+    port: 27017,
+    service: 'mongodb',
+    vulnerability: {
+      cve: 'CVE-2019-2390',
+      description: 'MongoDB BSON deserialization RCE via crafted document',
+      serviceVersion: 'MongoDB 4.0.5',
+    },
+  },
+  // rsync
+  {
+    port: 873,
+    service: 'rsync',
+    vulnerability: {
+      cve: 'CVE-2022-29154',
+      description: 'rsync arbitrary file write via path validation bypass',
+      serviceVersion: 'rsync 3.2.3',
+    },
+  },
+  {
+    port: 873,
+    service: 'rsync',
+    vulnerability: {
+      cve: 'CVE-2024-12084',
+      description: 'rsync heap buffer overflow via checksum parsing',
+      serviceVersion: 'rsync 3.2.7',
+    },
+  },
+  // VNC
+  {
+    port: 5900,
+    service: 'vnc',
+    vulnerability: {
+      cve: 'CVE-2019-15681',
+      description: 'TightVNC heap buffer overflow / info leak',
+      serviceVersion: 'TightVNC 1.3.10',
+    },
+  },
+  {
+    port: 5900,
+    service: 'vnc',
+    vulnerability: {
+      cve: 'CVE-2006-2369',
+      description: 'RealVNC authentication bypass via null auth type',
+      serviceVersion: 'RealVNC 4.1.1',
+    },
+  },
+  // POP3
+  {
+    port: 110,
+    service: 'pop3',
+    vulnerability: {
+      cve: 'CVE-2017-15130',
+      description: 'Dovecot POP3 denial-of-service via crafted RETR',
+      serviceVersion: 'Dovecot 2.2.33',
+    },
+  },
+  {
+    port: 110,
+    service: 'pop3',
+    vulnerability: {
+      cve: 'CVE-2019-3467',
+      description: 'Courier POP3 buffer overflow / privilege escalation',
+      serviceVersion: 'Courier 0.75.0',
+    },
+  },
+  // Modbus (ICS/SCADA)
+  {
+    port: 502,
+    service: 'modbus',
+    vulnerability: {
+      cve: 'CVE-2022-2003',
+      description: 'AutomationDirect Modbus unauthenticated write to PLC registers',
+      serviceVersion: 'ModbusTCP 1.0',
+    },
+  },
+  {
+    port: 502,
+    service: 'modbus',
+    vulnerability: {
+      cve: 'CVE-2019-9560',
+      description: 'Schneider Modbus gateway unauthenticated admin access',
+      serviceVersion: 'Modicon M340',
+    },
+  },
+  // OpenVPN
+  {
+    port: 1194,
+    service: 'openvpn',
+    vulnerability: {
+      cve: 'CVE-2017-12166',
+      description: 'OpenVPN buffer overflow in key-method negotiation',
+      serviceVersion: 'OpenVPN 2.4.3',
+    },
+  },
+  {
+    port: 1194,
+    service: 'openvpn',
+    vulnerability: {
+      cve: 'CVE-2020-15078',
+      description: 'OpenVPN auth bypass via deferred auth plugin',
+      serviceVersion: 'OpenVPN 2.5.1',
+    },
+  },
+  // Additional HTTP variants
+  {
+    port: 80,
+    service: 'http',
+    vulnerability: {
+      cve: 'CVE-2019-0211',
+      description: 'Apache privilege escalation via scoreboard manipulation',
+      serviceVersion: 'Apache/2.4.38',
+    },
+  },
+  {
+    port: 80,
+    service: 'http',
+    vulnerability: {
+      cve: 'CVE-2021-23017',
+      description: 'nginx DNS resolver off-by-one heap write',
+      serviceVersion: 'nginx/1.20.0',
+    },
+  },
+  // Additional SSH-adjacent
+  {
+    port: 8080,
+    service: 'http-alt',
+    vulnerability: {
+      cve: 'CVE-2021-44228',
+      description: 'Apache Log4j2 JNDI RCE (Log4Shell)',
+      serviceVersion: 'Tomcat/9.0.40',
+    },
+  },
+  // Additional database
+  {
+    port: 3306,
+    service: 'mysql',
+    vulnerability: {
+      cve: 'CVE-2021-27928',
+      description: 'MariaDB wsrep provider RCE via crafted SET GLOBAL',
+      serviceVersion: 'MariaDB 10.5.8',
+    },
+  },
+  {
+    port: 5432,
+    service: 'postgresql',
+    vulnerability: {
+      cve: 'CVE-2023-5868',
+      description: 'PostgreSQL aggregate function memory disclosure',
+      serviceVersion: 'PostgreSQL 13.10',
+    },
+  },
+  // Additional FTP
+  {
+    port: 21,
+    service: 'ftp',
+    vulnerability: {
+      cve: 'CVE-2019-12815',
+      description: 'ProFTPD mod_copy arbitrary file copy (unauthenticated)',
+      serviceVersion: 'ProFTPD 1.3.6',
+    },
+  },
+  // Additional SMTP
+  {
+    port: 25,
+    service: 'smtp',
+    vulnerability: {
+      cve: 'CVE-2021-3156',
+      description: 'Postfix SMTP baron samedit heap overflow via MAIL FROM',
+      serviceVersion: 'Postfix 3.4.8',
+    },
+  },
 ];

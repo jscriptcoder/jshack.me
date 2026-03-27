@@ -47,7 +47,7 @@ export const configTemplatesByRole: Readonly<Record<MachineRole, readonly string
     '[mysqld]\nserver-id=1\nlog_bin=mysql-bin\nbinlog_do_db=app_prod\nport={{port}}\nmax_connections=200\ninnodb_buffer_pool_size=256M',
     'shared_buffers = 128MB\nwork_mem = 4MB\nwal_level = replica\nmax_wal_senders = 3\narchive_mode = on\narchive_command = cp %p /var/lib/postgresql/archive/%f',
     '[mysqld]\nskip-name-resolve\nmax_allowed_packet=64M\nport={{port}}\nslow_query_log=1\nslow_query_log_file=/var/log/mysql/slow.log\nlong_query_time=2',
-    "host all all 0.0.0.0/0 md5\nhost replication replicator 10.0.0.0/24 md5\nlocal all all peer\n# pg_hba.conf — {{hostname}}",
+    'host all all 0.0.0.0/0 md5\nhost replication replicator 10.0.0.0/24 md5\nlocal all all peer\n# pg_hba.conf — {{hostname}}',
   ],
   fileserver: [
     '[global]\nworkgroup = MISSION\nsecurity = user\n\n[share]\npath = /srv/ftp\nwritable = yes',
@@ -146,13 +146,11 @@ export const noiseFiles: readonly { readonly name: string; readonly content: str
   },
   {
     name: '.bash_history',
-    content:
-      'df -h\nfree -m\ntop -bn1 | head -20\nsudo apt update\nsudo apt upgrade -y\nreboot',
+    content: 'df -h\nfree -m\ntop -bn1 | head -20\nsudo apt update\nsudo apt upgrade -y\nreboot',
   },
   {
     name: '.bash_history',
-    content:
-      'mysql -u root -p\nSELECT * FROM users;\nmysqldump --all-databases > dump.sql\nexit',
+    content: 'mysql -u root -p\nSELECT * FROM users;\nmysqldump --all-databases > dump.sql\nexit',
   },
   {
     name: '.psql_history',

@@ -610,7 +610,9 @@ describe('generateMissionNetwork', () => {
     const result = generateMissionNetwork('test-backdoor-easy');
     expect(result.objective.type).toBe('backdoor');
     expect(result.objective.backdoorPort).toBeDefined();
-    expect([4444, 31337, 8888, 1337]).toContain(result.objective.backdoorPort);
+    expect([4444, 31337, 8888, 1337, 9999, 5555, 6666, 1234]).toContain(
+      result.objective.backdoorPort,
+    );
     expect(result.objective.backdoorUser).toBeDefined();
     expect(result.objective.description).toContain('backdoor');
   });

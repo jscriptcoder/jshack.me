@@ -294,7 +294,7 @@ describe('generateTopology', () => {
     ncMachines.forEach((m) => {
       const backdoor = m.remoteMachine.ports.find((p) => p.service === 'elite' && p.open);
       expect(backdoor).toBeDefined();
-      expect([4444, 31337, 8888, 1337]).toContain(backdoor?.port);
+      expect([4444, 31337, 8888, 1337, 9999, 5555, 6666, 1234]).toContain(backdoor?.port);
     });
   });
 
@@ -326,7 +326,10 @@ describe('generateTopology', () => {
   });
 
   it('exploit variant machines have a port matching a vulnerability template', () => {
-    const vulnerablePorts = [21, 25, 80, 143, 445, 1883, 3306, 5432, 6379, 8080, 8443, 9200];
+    const vulnerablePorts = [
+      21, 25, 80, 110, 143, 445, 502, 873, 1194, 1883, 3306, 5432, 5900, 6379, 8080, 8443, 9200,
+      27017,
+    ];
     const results = Array.from({ length: 30 }, (_, i) =>
       generateTopology(createPrng(`exploit-port-${i}`), 'hard'),
     );

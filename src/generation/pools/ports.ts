@@ -18,31 +18,38 @@ export const portTemplatesByRole: Readonly<Record<MachineRole, readonly PortTemp
     { port: 22, service: 'ssh', open: true },
     { port: 3306, service: 'mysql', open: true },
     { port: 5432, service: 'postgresql', open: false },
+    { port: 6379, service: 'redis', open: false },
+    { port: 27017, service: 'mongodb', open: false },
   ],
   fileserver: [
     { port: 21, service: 'ftp', open: true },
     { port: 22, service: 'ssh', open: true },
     { port: 445, service: 'smb', open: false },
+    { port: 873, service: 'rsync', open: false },
   ],
   workstation: [
     { port: 22, service: 'ssh', open: true },
     { port: 8080, service: 'http-alt', open: false },
+    { port: 5900, service: 'vnc', open: false },
   ],
   mailserver: [
     { port: 22, service: 'ssh', open: true },
     { port: 25, service: 'smtp', open: true },
+    { port: 110, service: 'pop3', open: false },
     { port: 143, service: 'imap', open: true },
     { port: 993, service: 'imaps', open: false },
   ],
   iot: [
     { port: 22, service: 'ssh', open: true },
     { port: 80, service: 'http', open: true },
+    { port: 502, service: 'modbus', open: false },
     { port: 1883, service: 'mqtt', open: true },
     { port: 8443, service: 'https', open: false },
   ],
   router: [
     { port: 22, service: 'ssh', open: true },
     { port: 80, service: 'http', open: true },
+    { port: 1194, service: 'openvpn', open: false },
     { port: 8443, service: 'https', open: false },
   ],
   switch: [
@@ -52,11 +59,13 @@ export const portTemplatesByRole: Readonly<Record<MachineRole, readonly PortTemp
   ],
 };
 
-export const backdoorPorts: readonly number[] = [4444, 31337, 8888, 1337];
+export const backdoorPorts: readonly number[] = [4444, 31337, 8888, 1337, 9999, 5555, 6666, 1234];
 
 // Public-facing ports the client wants exposed via port forwarding on the router.
 // Non-standard ports that wouldn't normally be forwarded.
-export const forwardPublicPorts: readonly number[] = [8080, 8443, 9090, 8888, 3000, 4443];
+export const forwardPublicPorts: readonly number[] = [
+  8080, 8443, 9090, 8888, 3000, 4443, 9443, 8000, 3001, 5000,
+];
 
 // SNMP read-write community strings — common misconfigurations and vendor defaults.
 // Encoded at build time to prevent finding them in the JS bundle.
@@ -113,6 +122,34 @@ export const entryPortTemplates: readonly EntryPortTemplate[] = [
     ],
   },
   {
+    variant: 'nc',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 9999, service: 'elite', open: true },
+    ],
+  },
+  {
+    variant: 'nc',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 5555, service: 'elite', open: true },
+    ],
+  },
+  {
+    variant: 'nc',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 6666, service: 'elite', open: true },
+    ],
+  },
+  {
+    variant: 'nc',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 1234, service: 'elite', open: true },
+    ],
+  },
+  {
     variant: 'exploit',
     ports: [
       { port: 22, service: 'ssh', open: true },
@@ -152,6 +189,34 @@ export const entryPortTemplates: readonly EntryPortTemplate[] = [
     ports: [
       { port: 22, service: 'ssh', open: true },
       { port: 1883, service: 'mqtt', open: true },
+    ],
+  },
+  {
+    variant: 'exploit',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 5432, service: 'postgresql', open: true },
+    ],
+  },
+  {
+    variant: 'exploit',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 445, service: 'smb', open: true },
+    ],
+  },
+  {
+    variant: 'exploit',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 27017, service: 'mongodb', open: true },
+    ],
+  },
+  {
+    variant: 'exploit',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 5900, service: 'vnc', open: true },
     ],
   },
   {
@@ -208,6 +273,34 @@ export const routerEntryPortTemplates: readonly EntryPortTemplate[] = [
     ],
   },
   {
+    variant: 'nc',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 9999, service: 'elite', open: true },
+    ],
+  },
+  {
+    variant: 'nc',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 5555, service: 'elite', open: true },
+    ],
+  },
+  {
+    variant: 'nc',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 6666, service: 'elite', open: true },
+    ],
+  },
+  {
+    variant: 'nc',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 1234, service: 'elite', open: true },
+    ],
+  },
+  {
     variant: 'exploit',
     ports: [
       { port: 22, service: 'ssh', open: true },
@@ -233,6 +326,13 @@ export const routerEntryPortTemplates: readonly EntryPortTemplate[] = [
     ports: [
       { port: 22, service: 'ssh', open: true },
       { port: 1883, service: 'mqtt', open: true },
+    ],
+  },
+  {
+    variant: 'exploit',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 1194, service: 'openvpn', open: true },
     ],
   },
   {

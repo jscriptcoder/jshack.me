@@ -355,24 +355,49 @@ Used when a router/gateway is the entry point (router-first mode). Applies to bo
 | HTTP    | 22/ssh, 80/http               |
 | SNMP    | 22/ssh (closed), 161/udp snmp |
 
-## Exploit Vulnerabilities (12)
+## Exploit Vulnerabilities (36)
 
-Used when entry variant is `exploit`. Matched by port/service.
+Used when entry variant is `exploit`. Matched by port/service. Multiple templates per service for variety.
 
-| CVE            | Service             | Port | Description                      |
-| -------------- | ------------------- | ---- | -------------------------------- |
-| CVE-2021-41773 | Apache/2.4.49       | 80   | Path traversal / RCE             |
-| CVE-2012-2122  | MySQL 5.5.23        | 3306 | Auth bypass (memcmp timing)      |
-| CVE-2022-0543  | Redis 5.0.7         | 6379 | Lua sandbox escape / RCE         |
-| CVE-2017-5638  | Struts/2.3.31       | 8080 | RCE via Content-Type             |
-| CVE-2015-1427  | Elasticsearch 1.4.2 | 9200 | Groovy sandbox bypass            |
-| CVE-2019-11510 | PulseSecure/9.0R1   | 8443 | Arbitrary file read (router VPN) |
-| CVE-2011-2523  | vsftpd 2.3.4        | 21   | Backdoor command execution       |
-| CVE-2019-10149 | Exim 4.87           | 25   | RCE (The Return of WIZard)       |
-| CVE-2019-11500 | Dovecot 2.3.7       | 143  | IMAP/POP3 buffer overflow        |
-| CVE-2023-3028  | Mosquitto 2.0.14    | 1883 | MQTT broker auth bypass          |
-| CVE-2017-0144  | Samba 4.5.9         | 445  | SMB RCE (EternalBlue)            |
-| CVE-2019-9193  | PostgreSQL 9.3      | 5432 | COPY TO/FROM PROGRAM RCE         |
+| CVE            | Service             | Port  | Description                               |
+| -------------- | ------------------- | ----- | ----------------------------------------- |
+| CVE-2021-41773 | Apache/2.4.49       | 80    | Path traversal / RCE                      |
+| CVE-2017-7679  | Apache/2.4.25       | 80    | mod_mime buffer overread / RCE            |
+| CVE-2019-0211  | Apache/2.4.38       | 80    | Privilege escalation via scoreboard       |
+| CVE-2021-23017 | nginx/1.20.0        | 80    | DNS resolver off-by-one heap write        |
+| CVE-2012-2122  | MySQL 5.5.23        | 3306  | Auth bypass (memcmp timing)               |
+| CVE-2016-6662  | MySQL 5.5.52        | 3306  | Remote root via config manipulation       |
+| CVE-2021-27928 | MariaDB 10.5.8      | 3306  | wsrep provider RCE                        |
+| CVE-2022-0543  | Redis 5.0.7         | 6379  | Lua sandbox escape / RCE                  |
+| CVE-2015-4335  | Redis 2.8.19        | 6379  | Lua sandbox escape via eval               |
+| CVE-2017-5638  | Struts/2.3.31       | 8080  | RCE via Content-Type                      |
+| CVE-2021-44228 | Tomcat/9.0.40       | 8080  | Log4j2 JNDI RCE (Log4Shell)               |
+| CVE-2015-1427  | Elasticsearch 1.4.2 | 9200  | Groovy sandbox bypass                     |
+| CVE-2019-11510 | PulseSecure/9.0R1   | 8443  | Arbitrary file read (router VPN)          |
+| CVE-2011-2523  | vsftpd 2.3.4        | 21    | Backdoor command execution                |
+| CVE-2015-3306  | ProFTPD 1.3.5       | 21    | mod_copy unauthenticated file copy / RCE  |
+| CVE-2019-12815 | ProFTPD 1.3.6       | 21    | mod_copy arbitrary file copy              |
+| CVE-2019-10149 | Exim 4.87           | 25    | RCE (The Return of WIZard)                |
+| CVE-2010-4344  | Exim 4.69           | 25    | Heap overflow RCE                         |
+| CVE-2021-3156  | Postfix 3.4.8       | 25    | Heap overflow via MAIL FROM               |
+| CVE-2019-11500 | Dovecot 2.3.7       | 143   | IMAP/POP3 buffer overflow                 |
+| CVE-2023-3028  | Mosquitto 2.0.14    | 1883  | MQTT broker auth bypass                   |
+| CVE-2017-7650  | Mosquitto 1.4.12    | 1883  | Pattern-based ACL bypass                  |
+| CVE-2017-0144  | Samba 4.5.9         | 445   | SMB RCE (EternalBlue)                     |
+| CVE-2019-9193  | PostgreSQL 9.3      | 5432  | COPY TO/FROM PROGRAM RCE                  |
+| CVE-2023-5868  | PostgreSQL 13.10    | 5432  | Aggregate function memory disclosure      |
+| CVE-2020-7921  | MongoDB 3.6.12      | 27017 | Auth bypass via crafted roleInfo          |
+| CVE-2019-2390  | MongoDB 4.0.5       | 27017 | BSON deserialization RCE                  |
+| CVE-2022-29154 | rsync 3.2.3         | 873   | Arbitrary file write via path bypass      |
+| CVE-2024-12084 | rsync 3.2.7         | 873   | Heap buffer overflow via checksum parsing |
+| CVE-2019-15681 | TightVNC 1.3.10     | 5900  | Heap buffer overflow / info leak          |
+| CVE-2006-2369  | RealVNC 4.1.1       | 5900  | Auth bypass via null auth type            |
+| CVE-2017-15130 | Dovecot 2.2.33      | 110   | POP3 DoS via crafted RETR                 |
+| CVE-2019-3467  | Courier 0.75.0      | 110   | POP3 buffer overflow / priv esc           |
+| CVE-2022-2003  | ModbusTCP 1.0       | 502   | Unauthenticated PLC register write        |
+| CVE-2019-9560  | Modicon M340        | 502   | Unauthenticated admin access              |
+| CVE-2017-12166 | OpenVPN 2.4.3       | 1194  | Buffer overflow in key-method negotiation |
+| CVE-2020-15078 | OpenVPN 2.5.1       | 1194  | Auth bypass via deferred auth plugin      |
 
 ## Objective Types (6)
 
