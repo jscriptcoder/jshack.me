@@ -163,7 +163,7 @@ A 5th objective type where the player writes an automated script from scratch ba
 
 ### Script Ownership
 
-Same as script_fix: ~60% user-owned, ~40% root-owned.
+~70% root-owned, ~30% user-owned (system automation directories are normally root-owned).
 
 ### Templates (24 — 3 per role)
 

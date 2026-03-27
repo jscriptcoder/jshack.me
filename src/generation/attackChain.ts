@@ -394,8 +394,8 @@ const buildObjective = (
       apiMachine,
     } = selectScriptAutoFile(prng, targetMachine, peerMachines);
 
-    // ~60% user-owned (anyone can edit/run), ~40% root-owned (must su first)
-    const scriptOwner: 'root' | 'user' = prng.next() < 0.6 ? 'user' : 'root';
+    // ~70% root-owned (system automation dirs are normally root-owned), ~30% user-owned
+    const scriptOwner: 'root' | 'user' = prng.next() < 0.3 ? 'user' : 'root';
 
     // Consume dummy PRNG rolls for binary + encrypt to preserve sequence alignment
     prng.next();
