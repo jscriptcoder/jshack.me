@@ -192,6 +192,34 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     difficulty: 'HARD',
     seed: 'TITAN-exploit-hard-backdoor-domain',
   },
+  // --- SCRIPT_AUTO (write automated scripts from scratch) ---
+  {
+    id: 'DKC-027',
+    client: 'cyph3rpunk',
+    clientEmail: 'cyph3rpunk@darkmail.onion',
+    target: 'Coastal Freight — shipping container IoT hub',
+    objective: 'Write and deploy an automated monitoring script on their IoT gateway',
+    difficulty: 'EASY',
+    seed: 'COASTAL-ssh-easy-script-auto',
+  },
+  {
+    id: 'DKC-028',
+    client: 'sh4d0w_',
+    clientEmail: 'sh4d0w_@darkmail.onion',
+    target: 'Sterling Dynamics — internal build cluster',
+    objective: 'Write a cron job that verifies their deployment pipeline',
+    difficulty: 'MEDIUM',
+    seed: 'STERLING-ftp-medium-script-auto',
+  },
+  {
+    id: 'DKC-029',
+    client: 'bl4ckh4t',
+    clientEmail: 'bl4ckh4t@darkmail.onion',
+    target: 'Obsidian Labs — deep research network',
+    objective: 'Write an automated health-check script deep in their infrastructure',
+    difficulty: 'HARD',
+    seed: 'OBSIDIANLAB-exploit-hard-script-auto-domain',
+  },
   // --- PORTFORWARD (router hacking + NAT forwarding) ---
   {
     id: 'DKC-021',

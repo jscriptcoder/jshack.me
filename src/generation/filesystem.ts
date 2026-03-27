@@ -300,9 +300,9 @@ const placeTargetFile = (
   const segments = objective.targetPath.split('/').filter(Boolean);
   const fileName = segments[segments.length - 1] ?? 'flag.txt';
 
-  // script_fix: use mkScript with variable permissions, no binary wrapping
+  // script_fix / script_auto: use mkScript with variable permissions, no binary wrapping
   const file =
-    objective.type === 'script_fix'
+    objective.type === 'script_fix' || objective.type === 'script_auto'
       ? mkScript(fileName, objective.targetContent, objective.scriptOwner ?? 'user')
       : mkFile(
           fileName,
@@ -983,6 +983,86 @@ const generateForensicsEvidence = (
   return result;
 };
 
+// Merges script_auto data files into a machine's filesystem config.
+// Local flavor: places JSON data file on the target machine.
+// Remote flavor: places API JSON at /var/www/api/<endpoint>.json on the API machine.
+const mergeScriptAutoData = (
+  machine: GeneratedMachine,
+  objective: MissionObjective,
+  config: MachineFileSystemConfig,
+): MachineFileSystemConfig => {
+  if (objective.type !== 'script_auto') return config;
+
+  const { scriptAutoFlavor, scriptAutoDataPath, scriptAutoDataContent, scriptAutoApiMachine } =
+    objective;
+  if (!scriptAutoDataPath || !scriptAutoDataContent) return config;
+
+  // Local: place data file on the target machine
+  if (scriptAutoFlavor === 'local' && machine.ip === objective.targetMachine) {
+    const segments = scriptAutoDataPath.split('/').filter(Boolean);
+    const fileName = segments[segments.length - 1] ?? 'data.json';
+    const dataFile = mkFile(fileName, scriptAutoDataContent, 'guest');
+    const topDir = segments[0] ?? 'root';
+    const existing = config.extraDirectories ?? {};
+    const newDir = buildNestedDirs(segments, dataFile);
+
+    // Merge with existing extraDirectories entry for the same top-level dir
+    // (e.g., script at /etc/cron.d/ and data at /etc/ssl/ both share 'etc' top dir)
+    const existingDir = existing[topDir];
+    if (existingDir?.type === 'directory' && newDir.type === 'directory') {
+      const merged = {
+        ...existingDir,
+        children: { ...existingDir.children, ...newDir.children },
+      };
+      return { ...config, extraDirectories: { ...existing, [topDir]: merged } };
+    }
+
+    return {
+      ...config,
+      extraDirectories: { ...existing, [topDir]: newDir },
+    };
+  }
+
+  // Remote: place API JSON on the API machine at /var/www/api/<endpoint>.json
+  if (scriptAutoFlavor === 'remote' && machine.ip === scriptAutoApiMachine) {
+    const apiFileName = `${scriptAutoDataPath}.json`;
+    const apiFile = mkFile(apiFileName, scriptAutoDataContent, 'guest');
+
+    const existing = config.extraDirectories ?? {};
+    const existingVar = existing['var'];
+
+    // If var/www already exists (machine has HTTP port), merge the api/ dir into it
+    if (existingVar?.type === 'directory' && existingVar.children?.['www']) {
+      const www = existingVar.children['www'] as FileNode;
+      const wwwChildren = { ...(www.children ?? {}) };
+      wwwChildren['api'] = mkDir('api', { [apiFileName]: apiFile }, 'root', true);
+      const newWww = mkDir('www', wwwChildren, 'root', true);
+      const newVar = mkDir('var', { ...(existingVar.children ?? {}), www: newWww }, 'root', true);
+      return { ...config, extraDirectories: { ...existing, var: newVar } };
+    }
+
+    // No existing var/www — create the full structure
+    const varDir = mkDir(
+      'var',
+      {
+        www: mkDir(
+          'www',
+          {
+            api: mkDir('api', { [apiFileName]: apiFile }, 'root', true),
+          },
+          'root',
+          true,
+        ),
+      },
+      'root',
+      true,
+    );
+    return { ...config, extraDirectories: { ...existing, var: varDir } };
+  }
+
+  return config;
+};
+
 export const generateFileSystems = (input: FilesystemInput): Readonly<Record<string, FileNode>> => {
   const {
     prng,
@@ -1070,12 +1150,15 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
 
     // Merge forensics evidence (log files, calling card) if present for this machine
     const evidence = forensicsEvidence[machine.ip];
-    const config = evidence
+    const configWithEvidence = evidence
       ? {
           ...configWithKey,
           extraDirectories: { ...(configWithKey.extraDirectories ?? {}), ...evidence },
         }
       : configWithKey;
+
+    // script_auto: place data file on target (local) or API JSON on API machine (remote)
+    const config = mergeScriptAutoData(machine, objective, configWithEvidence);
 
     const fileSystem = createFileSystem(config);
 

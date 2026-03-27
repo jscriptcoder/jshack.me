@@ -15,11 +15,14 @@ export type GatewayType = 'router' | 'switch';
 
 export type Difficulty = 'easy' | 'medium' | 'hard';
 
+export type ScriptAutoFlavor = 'local' | 'remote';
+
 export type MissionObjectiveType =
   | 'exfiltrate'
   | 'tamper'
   | 'credential_theft'
   | 'script_fix'
+  | 'script_auto'
   | 'sabotage'
   | 'backdoor'
   | 'portforward'
@@ -60,6 +63,10 @@ export type MissionObjective = {
   readonly forwardInternalPort?: number;
   readonly attackerHandle?: string;
   readonly attackerIp?: string;
+  readonly scriptAutoFlavor?: ScriptAutoFlavor;
+  readonly scriptAutoDataPath?: string;
+  readonly scriptAutoDataContent?: string;
+  readonly scriptAutoApiMachine?: string;
 };
 
 export type GeneratedMachine = {

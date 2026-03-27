@@ -45,6 +45,7 @@ describe('buildMissionObjective', () => {
       'tamper',
       'credential_theft',
       'script_fix',
+      'script_auto',
       'sabotage',
       'backdoor',
       'portforward',
@@ -233,5 +234,52 @@ describe('buildMissionObjective', () => {
       const gatewayIps = topology.layers.slice(1).map((l) => l.gateway.ip);
       expect(gatewayIps).not.toContain(result.objective.targetMachine);
     }
+  });
+
+  it('script_auto objective has ACCESS-KEY, automation path, and script_auto fields', () => {
+    const { result } = buildTestData('test-script-auto', 'medium', 'script_auto');
+
+    expect(result.objective.type).toBe('script_auto');
+    expect(result.objective.expectedProof).toMatch(/^ACCESS-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$/);
+    expect(result.objective.targetPath).toMatch(/\/(cron\.d|init\.d|network\/if-up\.d)\//);
+    expect(result.objective.targetContent).toContain('_decode');
+    expect(result.objective.expectedChecksum).toBeTruthy();
+    expect(result.objective.scriptOwner).toBeDefined();
+    expect(['root', 'user']).toContain(result.objective.scriptOwner);
+    expect(result.objective.scriptAutoFlavor).toBeDefined();
+    expect(['local', 'remote']).toContain(result.objective.scriptAutoFlavor);
+    expect(result.objective.description).toContain('automated script');
+  });
+
+  it('script_auto is deterministic', () => {
+    const a = buildTestData('script-auto-determ', 'easy', 'script_auto');
+    const b = buildTestData('script-auto-determ', 'easy', 'script_auto');
+    expect(a.result.objective).toEqual(b.result.objective);
+  });
+
+  it('script_auto local flavor has dataPath on target machine', () => {
+    for (let i = 0; i < 100; i++) {
+      const { result } = buildTestData(`sa-local-${i}`, 'medium', 'script_auto');
+      if (result.objective.scriptAutoFlavor !== 'local') continue;
+
+      expect(result.objective.scriptAutoDataPath).toMatch(/^\//);
+      expect(result.objective.scriptAutoDataContent).toBeTruthy();
+      expect(result.objective.scriptAutoApiMachine).toBeUndefined();
+      return;
+    }
+    throw new Error('No local script_auto found in 100 seeds');
+  });
+
+  it('script_auto remote flavor has apiMachine and dataPath', () => {
+    for (let i = 0; i < 100; i++) {
+      const { result } = buildTestData(`sa-remote-${i}`, 'medium', 'script_auto');
+      if (result.objective.scriptAutoFlavor !== 'remote') continue;
+
+      expect(result.objective.scriptAutoApiMachine).toBeTruthy();
+      expect(result.objective.scriptAutoDataPath).toBeTruthy();
+      expect(result.objective.scriptAutoDataContent).toBeTruthy();
+      return;
+    }
+    throw new Error('No remote script_auto found in 100 seeds');
   });
 });

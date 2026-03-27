@@ -10,6 +10,7 @@ import {
   forensicsLogTypes,
   forensicsNoiseIps,
 } from './pools';
+import type { MissionObjectiveType } from './types';
 import type { FileNode } from '../filesystem/types';
 
 const buildTestData = (seed: string, difficulty: 'easy' | 'medium' | 'hard' = 'medium') => {
@@ -26,6 +27,38 @@ const buildTestData = (seed: string, difficulty: 'easy' | 'medium' | 'hard' = 'm
     credentials,
     entryPoint: topology.entryPoint,
     difficulty,
+    layers: topology.layers,
+  });
+  const fileSystems = generateFileSystems({
+    prng,
+    machines: topology.machines,
+    usersByMachine,
+    credentials,
+    objective,
+    layers: topology.layers,
+  });
+  return { topology, fileSystems, objective, credentials, usersByMachine };
+};
+
+const buildTestDataWithOverride = (
+  seed: string,
+  difficulty: 'easy' | 'medium' | 'hard' = 'medium',
+  objectiveTypeOverride?: MissionObjectiveType,
+) => {
+  const prng = createPrng(seed);
+  const topology = generateTopology(prng, difficulty);
+  const { usersByMachine, credentials } = generateUsers(
+    prng,
+    topology.machines,
+    topology.entryPoint,
+  );
+  const { objective } = buildMissionObjective({
+    prng,
+    machines: topology.machines,
+    credentials,
+    entryPoint: topology.entryPoint,
+    difficulty,
+    objectiveTypeOverride,
     layers: topology.layers,
   });
   const fileSystems = generateFileSystems({
@@ -978,6 +1011,60 @@ describe('generateFileSystems', () => {
           });
         }
       }
+    });
+  });
+
+  describe('script_auto data placement', () => {
+    it('places stub script in automation location on target machine', () => {
+      for (let i = 0; i < 50; i++) {
+        const { fileSystems, objective } = buildTestDataWithOverride(
+          `sa-stub-${i}`,
+          'medium',
+          'script_auto',
+        );
+        const targetFs = fileSystems[objective.targetMachine];
+        const scriptFile = resolveNode(targetFs as FileNode, objective.targetPath);
+        expect(scriptFile).toBeDefined();
+        expect(scriptFile?.content).toBe(objective.targetContent);
+        expect(objective.targetPath).toMatch(/\/(cron\.d|init\.d|network\/if-up\.d)\//);
+      }
+    });
+
+    it('local flavor places data JSON file on target machine', () => {
+      for (let i = 0; i < 100; i++) {
+        const { fileSystems, objective } = buildTestDataWithOverride(
+          `sa-local-fs-${i}`,
+          'medium',
+          'script_auto',
+        );
+        if (objective.scriptAutoFlavor !== 'local') continue;
+
+        const targetFs = fileSystems[objective.targetMachine];
+        const dataFile = resolveNode(targetFs as FileNode, objective.scriptAutoDataPath!);
+        expect(dataFile).toBeDefined();
+        expect(dataFile?.content).toBe(objective.scriptAutoDataContent);
+        return;
+      }
+      throw new Error('No local script_auto found in 100 seeds');
+    });
+
+    it('remote flavor places API JSON on API machine', () => {
+      for (let i = 0; i < 100; i++) {
+        const { fileSystems, objective } = buildTestDataWithOverride(
+          `sa-remote-fs-${i}`,
+          'medium',
+          'script_auto',
+        );
+        if (objective.scriptAutoFlavor !== 'remote') continue;
+
+        const apiFs = fileSystems[objective.scriptAutoApiMachine!];
+        const apiPath = `/var/www/api/${objective.scriptAutoDataPath}.json`;
+        const apiFile = resolveNode(apiFs as FileNode, apiPath);
+        expect(apiFile).toBeDefined();
+        expect(apiFile?.content).toBe(objective.scriptAutoDataContent);
+        return;
+      }
+      throw new Error('No remote script_auto found in 100 seeds');
     });
   });
 });

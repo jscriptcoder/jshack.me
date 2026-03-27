@@ -560,4 +560,44 @@ describe('mail command', () => {
 
     expect(() => mail.fn('xR0gu3x@darkmail.onion', 'xR0gu3x')).toThrow('delivery failed');
   });
+
+  it('completes a script_auto mission with correct ACCESS-KEY', () => {
+    const completeMission = vi.fn();
+    const mission = makeMission({
+      type: 'script_auto',
+      expectedProof: 'ACCESS-X1Y2-Z3W4-Q5R6',
+      targetPath: '/etc/cron.d/health-check.js',
+      targetContent: '#!/usr/bin/env node\n// Script stub',
+      expectedChecksum: 'svc-auth-token-42',
+    });
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission,
+      readFileFromMachine: vi.fn(),
+      isMachineBricked: () => false,
+    });
+
+    const result = mail.fn('xR0gu3x@darkmail.onion', 'ACCESS-X1Y2-Z3W4-Q5R6') as AsyncOutput;
+    const lines = runAsync(result);
+    expect(completeMission).toHaveBeenCalled();
+    expect(lines.join('\n')).toContain('MISSION COMPLETE');
+  });
+
+  it('rejects script_auto mission with wrong ACCESS-KEY', () => {
+    const mission = makeMission({
+      type: 'script_auto',
+      expectedProof: 'ACCESS-X1Y2-Z3W4-Q5R6',
+      targetPath: '/etc/cron.d/health-check.js',
+      targetContent: '#!/usr/bin/env node\n// Script stub',
+      expectedChecksum: 'svc-auth-token-42',
+    });
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission: vi.fn(),
+      readFileFromMachine: vi.fn(),
+      isMachineBricked: () => false,
+    });
+
+    expect(() => mail.fn('xR0gu3x@darkmail.onion', 'WRONG-KEY')).toThrow('delivery failed');
+  });
 });
