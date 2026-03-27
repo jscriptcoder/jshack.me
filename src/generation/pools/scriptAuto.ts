@@ -15,6 +15,29 @@ export type ScriptAutoTemplate = {
 
 const fileserverTemplates: readonly ScriptAutoTemplate[] = [
   {
+    location: 'init.d',
+    scriptName: 'raid-check.js',
+    flavor: 'remote',
+    instructions: [
+      '// Init script: RAID array health check',
+      '// Verifies RAID controller status on boot.',
+      '//',
+      '// 1. POST to http://{{apiIp}}/api/raid-status',
+      '// 2. Parse the JSON response',
+      '// 3. Extract the "array_key" field',
+      '// 4. Report: echo(_decode(array_key))',
+    ].join('\n'),
+    dataFileName: 'raid-status',
+    dataContent: JSON.stringify({
+      arrays: ['md0', 'md1'],
+      degraded: false,
+      array_key: 'raid-6c2a9f4b1e',
+      rebuild_pct: 100,
+    }),
+    extractField: 'array_key',
+    expectedChecksum: 'raid-6c2a9f4b1e',
+  },
+  {
     location: 'cron.d',
     scriptName: 'backup-verify.js',
     flavor: 'local',
@@ -65,6 +88,29 @@ const fileserverTemplates: readonly ScriptAutoTemplate[] = [
 // --- database templates ---
 
 const databaseTemplates: readonly ScriptAutoTemplate[] = [
+  {
+    location: 'if-up.d',
+    scriptName: 'db-failover-check.js',
+    flavor: 'local',
+    instructions: [
+      '// Network-up hook: database failover readiness',
+      '// Checks standby database status when network starts.',
+      '//',
+      '// 1. Read /var/lib/db/failover.json',
+      '// 2. Parse the JSON',
+      '// 3. Extract the "standby_key" field',
+      '// 4. Report: echo(_decode(standby_key))',
+    ].join('\n'),
+    dataFileName: '/var/lib/db/failover.json',
+    dataContent: JSON.stringify({
+      primary: 'db-01.internal',
+      standby: 'db-02.internal',
+      standby_key: 'stby-3e7a1c9f4b',
+      replication_slot: 'failover_slot',
+    }),
+    extractField: 'standby_key',
+    expectedChecksum: 'stby-3e7a1c9f4b',
+  },
   {
     location: 'cron.d',
     scriptName: 'db-health.js',
@@ -118,6 +164,29 @@ const databaseTemplates: readonly ScriptAutoTemplate[] = [
 
 const webserverTemplates: readonly ScriptAutoTemplate[] = [
   {
+    location: 'init.d',
+    scriptName: 'vhost-validate.js',
+    flavor: 'remote',
+    instructions: [
+      '// Init script: virtual host validator',
+      '// Checks upstream proxy status on boot.',
+      '//',
+      '// 1. POST to http://{{apiIp}}/api/proxy-health',
+      '// 2. Parse the JSON response',
+      '// 3. Extract the "proxy_token" field',
+      '// 4. Report: echo(_decode(proxy_token))',
+    ].join('\n'),
+    dataFileName: 'proxy-health',
+    dataContent: JSON.stringify({
+      upstream: 'app-pool-01',
+      healthy_backends: 4,
+      proxy_token: 'prx-8f1b2e7c4a',
+      protocol: 'http/2',
+    }),
+    extractField: 'proxy_token',
+    expectedChecksum: 'prx-8f1b2e7c4a',
+  },
+  {
     location: 'cron.d',
     scriptName: 'ssl-monitor.js',
     flavor: 'local',
@@ -168,6 +237,29 @@ const webserverTemplates: readonly ScriptAutoTemplate[] = [
 // --- mailserver templates ---
 
 const mailserverTemplates: readonly ScriptAutoTemplate[] = [
+  {
+    location: 'if-up.d',
+    scriptName: 'relay-auth.js',
+    flavor: 'remote',
+    instructions: [
+      '// Network-up hook: mail relay authentication',
+      '// Authenticates with upstream relay when network starts.',
+      '//',
+      '// 1. POST to http://{{apiIp}}/api/relay-auth',
+      '// 2. Parse the JSON response',
+      '// 3. Extract the "relay_token" field',
+      '// 4. Report: echo(_decode(relay_token))',
+    ].join('\n'),
+    dataFileName: 'relay-auth',
+    dataContent: JSON.stringify({
+      relay: 'smtp-relay.corp.local',
+      authenticated: true,
+      relay_token: 'rly-4b9c1e7a2f',
+      tls_version: 'TLSv1.3',
+    }),
+    extractField: 'relay_token',
+    expectedChecksum: 'rly-4b9c1e7a2f',
+  },
   {
     location: 'cron.d',
     scriptName: 'queue-check.js',
@@ -220,6 +312,29 @@ const mailserverTemplates: readonly ScriptAutoTemplate[] = [
 
 const iotTemplates: readonly ScriptAutoTemplate[] = [
   {
+    location: 'init.d',
+    scriptName: 'mqtt-connect.js',
+    flavor: 'remote',
+    instructions: [
+      '// Init script: MQTT broker connection',
+      '// Connects to message broker on boot.',
+      '//',
+      '// 1. POST to http://{{apiIp}}/api/mqtt-status',
+      '// 2. Parse the JSON response',
+      '// 3. Extract the "broker_key" field',
+      '// 4. Report: echo(_decode(broker_key))',
+    ].join('\n'),
+    dataFileName: 'mqtt-status',
+    dataContent: JSON.stringify({
+      broker: 'mqtt.iot.internal',
+      port: 1883,
+      broker_key: 'mqtt-7a2f4c9b1e',
+      subscriptions: 12,
+    }),
+    extractField: 'broker_key',
+    expectedChecksum: 'mqtt-7a2f4c9b1e',
+  },
+  {
     location: 'cron.d',
     scriptName: 'sensor-poll.js',
     flavor: 'local',
@@ -270,6 +385,29 @@ const iotTemplates: readonly ScriptAutoTemplate[] = [
 // --- workstation templates ---
 
 const workstationTemplates: readonly ScriptAutoTemplate[] = [
+  {
+    location: 'if-up.d',
+    scriptName: 'ntp-sync.js',
+    flavor: 'local',
+    instructions: [
+      '// Network-up hook: NTP time sync validator',
+      '// Verifies time synchronization when network starts.',
+      '//',
+      '// 1. Read /var/lib/ntp/sync-status.json',
+      '// 2. Parse the JSON',
+      '// 3. Extract the "sync_hash" field',
+      '// 4. Report: echo(_decode(sync_hash))',
+    ].join('\n'),
+    dataFileName: '/var/lib/ntp/sync-status.json',
+    dataContent: JSON.stringify({
+      server: 'ntp.corp.local',
+      stratum: 2,
+      sync_hash: 'ntp-1e9b4a7c2f',
+      offset_ms: 0.042,
+    }),
+    extractField: 'sync_hash',
+    expectedChecksum: 'ntp-1e9b4a7c2f',
+  },
   {
     location: 'cron.d',
     scriptName: 'ldap-sync.js',
@@ -322,6 +460,29 @@ const workstationTemplates: readonly ScriptAutoTemplate[] = [
 
 const routerTemplates: readonly ScriptAutoTemplate[] = [
   {
+    location: 'init.d',
+    scriptName: 'wan-failover.js',
+    flavor: 'local',
+    instructions: [
+      '// Init script: WAN failover configuration',
+      '// Loads WAN failover settings on boot.',
+      '//',
+      '// 1. Read /var/lib/routing/wan-config.json',
+      '// 2. Parse the JSON',
+      '// 3. Extract the "failover_key" field',
+      '// 4. Report: echo(_decode(failover_key))',
+    ].join('\n'),
+    dataFileName: '/var/lib/routing/wan-config.json',
+    dataContent: JSON.stringify({
+      primary_wan: 'eth0',
+      backup_wan: 'eth1',
+      failover_key: 'wan-9b1e4a7c2f',
+      check_interval: 30,
+    }),
+    extractField: 'failover_key',
+    expectedChecksum: 'wan-9b1e4a7c2f',
+  },
+  {
     location: 'cron.d',
     scriptName: 'route-monitor.js',
     flavor: 'local',
@@ -372,6 +533,29 @@ const routerTemplates: readonly ScriptAutoTemplate[] = [
 // --- switch templates ---
 
 const switchTemplates: readonly ScriptAutoTemplate[] = [
+  {
+    location: 'init.d',
+    scriptName: 'stp-validate.js',
+    flavor: 'remote',
+    instructions: [
+      '// Init script: Spanning Tree Protocol validator',
+      '// Validates STP topology on boot.',
+      '//',
+      '// 1. POST to http://{{apiIp}}/api/stp-topology',
+      '// 2. Parse the JSON response',
+      '// 3. Extract the "topology_key" field',
+      '// 4. Report: echo(_decode(topology_key))',
+    ].join('\n'),
+    dataFileName: 'stp-topology',
+    dataContent: JSON.stringify({
+      root_bridge: 'sw-core-01',
+      priority: 4096,
+      topology_key: 'stp-2f7c4a9b1e',
+      ports_blocking: 2,
+    }),
+    extractField: 'topology_key',
+    expectedChecksum: 'stp-2f7c4a9b1e',
+  },
   {
     location: 'cron.d',
     scriptName: 'port-stats.js',

@@ -165,9 +165,9 @@ A 5th objective type where the player writes an automated script from scratch ba
 
 Same as script_fix: ~60% user-owned, ~40% root-owned.
 
-### Templates (16 — 2 per role)
+### Templates (24 — 3 per role)
 
-Each role (fileserver, database, webserver, mailserver, iot, workstation, router, switch) has 2 templates mixing local/remote flavors and locations. Templates include comment instructions, a JSON data file with the expected value, and an `expectedChecksum` field.
+Each role (fileserver, database, webserver, mailserver, iot, workstation, router, switch) has 3 templates covering all 3 locations (cron.d, init.d, if-up.d) and mixing local/remote flavors. Templates include comment instructions, a JSON data file with the expected value, and an `expectedChecksum` field.
 
 ### Data Placement
 
