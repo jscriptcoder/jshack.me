@@ -139,7 +139,7 @@ Each template is a short script that filters/counts array data and conditionally
 
 ## Script Auto Objective
 
-A 5th objective type where the player writes an automated script from scratch based on instructions in a stub file. The stub is placed in an automation location (cron, init, or network-up hook) with comment instructions describing what data to read and extract. The player writes the script body using `nano()`, runs it with `node()`, and gets the ACCESS-KEY from `_decode()`. Same verification as script_fix. Seed keyword: `script-auto`.
+A 5th objective type where the player writes an automated script from scratch based on instructions in a stub file. The stub is placed in an automation location (cron, init, or network-up hook) with comment instructions describing what data to read and extract. The player writes the script body using `nano()`, runs it with `node()`, and gets the ACCESS-KEY from `_decode()`. Seed keyword: `script-auto`.
 
 ### Two Flavors
 
@@ -442,7 +442,7 @@ Used when entry variant is `exploit`. Matched by port/service. Multiple template
 | exfiltrate       | Find ACCESS-KEY in target file, mail to client                 | `mail(email, "ACCESS-XXXX-XXXX-XXXX")` |
 | tamper           | Modify a target file, mail client to confirm                   | `mail(email, "done")`                  |
 | credential_theft | Discover root password, mail to client                         | `mail(email, "<password>")`            |
-| script_fix       | Fix broken script, run with node(), mail ACCESS-KEY            | `mail(email, "ACCESS-XXXX-XXXX-XXXX")` |
+| script_fix       | Fix broken script, test with node(), confirm to client         | `mail(email, "done")`                  |
 | script_auto      | Write automated script from scratch, run with node(), mail key | `mail(email, "ACCESS-XXXX-XXXX-XXXX")` |
 | sabotage         | Destroy target machine, confirm the kill                       | `mail(email, "done")`                  |
 | backdoor         | Open nc listener on target machine, confirm                    | `mail(email, "done")`                  |
