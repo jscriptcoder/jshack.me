@@ -38,9 +38,8 @@ export const formatObjectiveHint = (mission: MissionNetwork): string => {
   if (objective.type === 'script_fix') {
     const lines = [
       '  Find the broken script on the target machine. Fix it with nano()',
-      '  and run it with node(). The script will output an ACCESS-KEY if fixed correctly.',
-      `  Mail the code to the client to complete the mission.`,
-      `  Example: mail("${email}", "<code>")`,
+      '  and test it with node(). When fixed, confirm to the client.',
+      `  Example: mail("${email}", "done")`,
     ];
     if (objective.scriptBugType === 'corrupted') {
       lines.push('  Look around the machine for the correct values.');

@@ -9,6 +9,7 @@ type NodeContext = {
   readonly getUserType: () => UserType;
   readonly getExecutionContext: () => Record<string, (...args: unknown[]) => unknown>;
   readonly getDecodeFn?: () => ((value: unknown) => string) | undefined;
+  readonly getSystemFn?: () => ((value: unknown) => string) | undefined;
   readonly canTraverse: (path: string) => PermissionResult;
 };
 
@@ -102,10 +103,12 @@ const validateAndReadFile = (path: string, context: NodeContext): string | undef
 const buildSyncContext = (
   executionContext: Record<string, (...args: unknown[]) => unknown>,
   decodeFn: ((value: unknown) => string) | undefined,
+  systemFn: ((value: unknown) => string) | undefined,
   mutableBuffer: string[],
 ): Record<string, unknown> => ({
   ...executionContext,
   ...(decodeFn ? { _decode: decodeFn } : {}),
+  ...(systemFn ? { _system: systemFn } : {}),
   ...(executionContext.echo
     ? {
         echo: (...args: readonly unknown[]): string => {
@@ -121,6 +124,7 @@ const buildSyncContext = (
 const buildAsyncContext = (
   executionContext: Record<string, (...args: unknown[]) => unknown>,
   decodeFn: ((value: unknown) => string) | undefined,
+  systemFn: ((value: unknown) => string) | undefined,
   onLine: (line: string) => void,
   cancellation: CancellationState,
 ): Record<string, unknown> => {
@@ -141,6 +145,7 @@ const buildAsyncContext = (
   return {
     ...wrapped,
     ...(decodeFn ? { _decode: decodeFn } : {}),
+    ...(systemFn ? { _system: systemFn } : {}),
     console: { log: (...args: readonly unknown[]) => onLine(args.join(' ')) },
     sleep: (ms: number) =>
       new Promise<void>((resolve, reject) => {
@@ -187,6 +192,7 @@ const executeAsyncScript = (
   content: string,
   executionContext: Record<string, (...args: unknown[]) => unknown>,
   decodeFn: ((value: unknown) => string) | undefined,
+  systemFn: ((value: unknown) => string) | undefined,
   scriptArgs: readonly unknown[],
 ): AsyncOutput => {
   const cancellation: CancellationState = {
@@ -199,7 +205,7 @@ const executeAsyncScript = (
     __type: 'async',
     start: (onLine, onComplete) => {
       const asyncContext = {
-        ...buildAsyncContext(executionContext, decodeFn, onLine, cancellation),
+        ...buildAsyncContext(executionContext, decodeFn, systemFn, onLine, cancellation),
         process: { argv: scriptArgs },
       };
       const contextKeys = Object.keys(asyncContext);
@@ -274,12 +280,13 @@ export const createNodeCommand = (context: NodeContext): Command => ({
 
     const executionContext = context.getExecutionContext();
     const decodeFn = context.getDecodeFn?.();
+    const systemFn = context.getSystemFn?.();
     const scriptArgs = args.slice(1);
 
     // Scripts with await use the async execution path — returns AsyncOutput
     // so Terminal can stream lines in real time.
     if (HAS_AWAIT.test(content)) {
-      return executeAsyncScript(content, executionContext, decodeFn, scriptArgs);
+      return executeAsyncScript(content, executionContext, decodeFn, systemFn, scriptArgs);
     }
 
     // Captures echo() output during script execution so multiple echo calls
@@ -288,7 +295,7 @@ export const createNodeCommand = (context: NodeContext): Command => ({
     // on arrays — push() mutates in place, but bracket access on a local is tolerated.
     const mutableBuffer: string[] = [];
     const wrappedContext = {
-      ...buildSyncContext(executionContext, decodeFn, mutableBuffer),
+      ...buildSyncContext(executionContext, decodeFn, systemFn, mutableBuffer),
       process: { argv: scriptArgs },
     };
 

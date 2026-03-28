@@ -28,12 +28,14 @@ Make script_fix missions white-hat (authorized contractor, like forensics): SSH 
 The `_system` function replaces `_decode` for script_fix missions. When the player runs `node(path)` to test their script, `_system(value)` prints feedback: "System check: PASS" or "System check: FAIL — script output is incorrect".
 
 **Test**: Update `node.test.ts` `_decode() injection` describe block — rename to `_system() / _decode() injection`. Add tests:
+
 - `_system(correct_value)` returns "System check: PASS"
 - `_system(wrong_value)` returns "System check: FAIL — script output is incorrect"
 - `_system` is not injected when no mission active
 - `_decode` still works for script_auto context
 
 **Implementation**:
+
 - In `node.ts`: Rename `getDecodeFn` to `getSystemFn` in `NodeContext` type. Accept `_system` alongside `_decode`. Inject `_system` into sync/async contexts.
 - In `useCommands.ts`: Change `getDecodeFn` logic — for `script_fix`, return a `_system` function that checks value against `expectedChecksum` and returns PASS/FAIL string. For `script_auto`, keep returning `_decode` (unchanged for now).
 
@@ -52,6 +54,7 @@ The `_system` function replaces `_decode` for script_fix missions. When the play
 **Test**: In `accept.test.ts`, add test for script_fix seed that verifies briefing contains "Root password:" and investigation-style hint. In a generation test, verify script_fix missions use SSH entry variant.
 
 **Implementation**:
+
 - `generateMission.ts`: Add `script_fix` to the SSH-forced check alongside `forensics`.
 - `attackChain.ts` (`buildMissionObjective`): For `script_fix`, get root password from credentials (same pattern as forensics) and include in description. Remove `generateAccessKey` call. Set `expectedProof: ''` (not used anymore). Remove `scriptOwner` field (always root access).
 - `accept.ts` (`formatObjectiveHint`): Update script_fix hint to reflect white-hat framing — remove ACCESS-KEY mention, tell player to fix script and confirm when done.
@@ -63,12 +66,14 @@ The `_system` function replaces `_decode` for script_fix missions. When the play
 This is the core change. Mail needs to execute the player's script and check `_system` was called with the correct value.
 
 **Test**: In `mail.test.ts`:
+
 - script_fix with correct script: `mail(client, "done")` succeeds (mock readFileFromMachine returns fixed script content, mock executeScript validates `_system` call)
 - script_fix with broken script: `mail(client, "done")` fails
 - script_fix with missing script: `mail(client, "done")` fails with "Script not found"
 - script_fix accepts empty/any content (just "done")
 
 **Implementation**:
+
 - Add `executeScript` callback to `MailCommandContext` — a function that takes `(machineId, scriptPath) => { systemValue: string | null }` or similar. This callback reads the script, runs it in a sandboxed context with `_system` captured, and returns what was passed to `_system`.
 - `verifyScriptFix` changes: no longer checks `proof === expectedProof`. Instead calls `executeScript` to run the script on the target machine, checks if `_system` was called with `expectedChecksum`.
 - In `useCommands.ts`: Wire up `executeScript` callback using `readFileFromMachine` + a lightweight script runner (extract from node.ts or create a utility).
@@ -108,6 +113,7 @@ Currently `mail()` requires both recipient and content args. For script_fix, the
 **Test**: Run full test suite, lint, build.
 
 **Implementation**:
+
 - Remove `scriptOwner` from script_fix objective generation (filesystem always places as root-readable)
 - Update `.claude/CLAUDE.md` architecture notes about script_fix being white-hat
 - Update `.claude/docs/mission-variations.md` to reflect script_fix changes

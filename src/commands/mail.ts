@@ -3,6 +3,7 @@ import type { MissionNetwork } from '../generation/types';
 import type { MachineFileOp } from '../filesystem/types';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 import { parseIptablesRules } from '../network/iptablesParser';
+import { runScriptWithSystem } from '../utils/scriptRunner';
 
 type MailCommandContext = {
   readonly getActiveMission: () => MissionNetwork | null;
@@ -63,9 +64,37 @@ const verifyTamper = (
   return null;
 };
 
-const verifyScriptFix = (proof: string, mission: MissionNetwork): string | null => {
-  if (proof === mission.objective.expectedProof) return null;
-  return 'Incorrect proof. Fix and run the script to get the ACCESS-KEY.';
+const verifyScriptFix = (
+  mission: MissionNetwork,
+  readFileFromMachine: MailCommandContext['readFileFromMachine'],
+): string | null => {
+  const { objective } = mission;
+  const scriptContent = readFileFromMachine({
+    machineId: objective.targetMachine,
+    path: objective.targetPath,
+    cwd: '/',
+    userType: 'root',
+  });
+
+  if (scriptContent === null) {
+    return 'Script not found. The script file may have been deleted.';
+  }
+
+  const { systemValue, error } = runScriptWithSystem(scriptContent);
+
+  if (error) {
+    return `Script execution failed: ${error}`;
+  }
+
+  if (systemValue === null) {
+    return 'Script did not call _system(). Fix the script so it produces the correct output.';
+  }
+
+  if (systemValue !== objective.expectedChecksum) {
+    return 'Script output is incorrect. Check your fix and try again.';
+  }
+
+  return null;
 };
 
 const verifyScriptAuto = (proof: string, mission: MissionNetwork): string | null => {
@@ -180,7 +209,7 @@ const verifyProof = (
   if (type === 'exfiltrate') return verifyExfiltrate(proof, mission);
   if (type === 'credential_theft') return verifyCredentialTheft(proof, mission);
   if (type === 'tamper') return verifyTamper(mission, readFileFromMachine);
-  if (type === 'script_fix') return verifyScriptFix(proof, mission);
+  if (type === 'script_fix') return verifyScriptFix(mission, readFileFromMachine);
   if (type === 'script_auto') return verifyScriptAuto(proof, mission);
   if (type === 'sabotage') return verifySabotage(mission, isMachineBricked);
   if (type === 'backdoor') return verifyBackdoor(mission, readFileFromMachine);
@@ -194,12 +223,16 @@ export const createMailCommand = (context: MailCommandContext): Command => ({
   category: 'mission',
   description: 'Send proof to a darknet client to complete a mission',
   manual: {
-    synopsis: 'mail(recipient, content)',
+    synopsis: 'mail(recipient[, content])',
     description:
-      'Send a message to a darknet client. Used to submit mission proof and complete contracts. The recipient must match the client email shown in the mission briefing.',
+      'Send a message to a darknet client. Used to submit mission proof and complete contracts. The recipient must match the client email shown in the mission briefing. Content is optional for missions that verify by inspecting machine state.',
     arguments: [
       { name: 'recipient', description: 'Client email address (e.g., "handle@darkmail.onion")' },
-      { name: 'content', description: 'Proof content (ACCESS-KEY, password, or confirmation)' },
+      {
+        name: 'content',
+        description:
+          'Proof content (ACCESS-KEY, password, or confirmation). Optional for script_fix, tamper, sabotage, backdoor, and portforward missions.',
+      },
     ],
     examples: [
       {
@@ -220,11 +253,20 @@ export const createMailCommand = (context: MailCommandContext): Command => ({
     if (typeof recipient !== 'string' || !recipient.trim()) {
       throw new Error('mail: missing recipient\nUsage: mail("recipient@darkmail.onion", "proof")');
     }
-    if (typeof content !== 'string') {
+    const mission = context.getActiveMission();
+
+    // Content is optional for objectives that verify by inspecting machine state
+    const contentOptional =
+      mission?.objective.type === 'script_fix' ||
+      mission?.objective.type === 'tamper' ||
+      mission?.objective.type === 'sabotage' ||
+      mission?.objective.type === 'backdoor' ||
+      mission?.objective.type === 'portforward';
+
+    if (typeof content !== 'string' && !contentOptional) {
       throw new Error('mail: missing content\nUsage: mail("recipient@darkmail.onion", "proof")');
     }
 
-    const mission = context.getActiveMission();
     if (!mission) {
       throw new Error('No active mission. Use accept("SEED") to start one.');
     }
@@ -236,7 +278,7 @@ export const createMailCommand = (context: MailCommandContext): Command => ({
       );
     }
 
-    const proof = content.trim();
+    const proof = typeof content === 'string' ? content.trim() : '';
 
     // Verify proof synchronously so errors throw immediately
     const error = verifyProof(

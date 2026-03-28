@@ -409,14 +409,14 @@ describe('generateMissionNetwork', () => {
     }
   });
 
-  it('script_fix objective content uses _decode() instead of ACCESS-KEY', () => {
+  it('script_fix objective content uses _system() instead of _decode()', () => {
     let found = false;
     for (let i = 0; i < 100; i++) {
-      const result = generateMissionNetwork(`script-fix-decode-${i}`);
+      const result = generateMissionNetwork(`script-fix-system-${i}`);
       if (result.objective.type !== 'script_fix') continue;
 
-      expect(result.objective.targetContent).not.toMatch(/ACCESS-/);
-      expect(result.objective.targetContent).toContain('_decode(');
+      expect(result.objective.targetContent).not.toContain('_decode(');
+      expect(result.objective.targetContent).toContain('_system(');
       expect(result.objective.expectedChecksum).toBeTruthy();
       found = true;
       break;
@@ -424,12 +424,25 @@ describe('generateMissionNetwork', () => {
     expect(found).toBe(true);
   });
 
-  it('script_fix with keyword always uses _decode()', () => {
+  it('script_fix with keyword always uses _system()', () => {
     const result = generateMissionNetwork('test-script-fix-easy');
     expect(result.objective.type).toBe('script_fix');
-    expect(result.objective.targetContent).toContain('_decode(');
-    expect(result.objective.targetContent).not.toMatch(/ACCESS-/);
+    expect(result.objective.targetContent).toContain('_system(');
+    expect(result.objective.targetContent).not.toContain('_decode(');
     expect(result.objective.expectedChecksum).toBeTruthy();
+  });
+
+  it('script_fix forces SSH entry and includes root password in description', () => {
+    const result = generateMissionNetwork('test-script-fix-easy');
+    expect(result.objective.type).toBe('script_fix');
+    expect(result.entryVariant).toBe('ssh');
+    expect(result.objective.description).toContain('Root password:');
+  });
+
+  it('script_fix does not generate expectedProof (no ACCESS-KEY)', () => {
+    const result = generateMissionNetwork('test-script-fix-easy');
+    expect(result.objective.type).toBe('script_fix');
+    expect(result.objective.expectedProof).toBe('');
   });
 
   describe('port closures', () => {

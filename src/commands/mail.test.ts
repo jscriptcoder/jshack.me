@@ -561,6 +561,142 @@ describe('mail command', () => {
     expect(() => mail.fn('xR0gu3x@darkmail.onion', 'xR0gu3x')).toThrow('delivery failed');
   });
 
+  it('completes a script_fix mission when script calls _system with correct value', () => {
+    const completeMission = vi.fn();
+    const fixedScript = [
+      'const backups = ["db_full", "db_diff", "logs", "config"]',
+      'const critical = backups.filter(b => b.startsWith("db"))',
+      'if (critical.length === 2) {',
+      '  _system(critical.join("-"))',
+      '} else {',
+      '  echo("ERROR: backup validation failed")',
+      '}',
+    ].join('\n');
+    const mission = makeMission({
+      type: 'script_fix',
+      expectedProof: '',
+      expectedChecksum: 'db_full-db_diff',
+      targetPath: '/srv/scripts/validate_backups.js',
+      targetContent: fixedScript,
+      scriptBugType: 'syntax',
+    });
+    const readFileFromMachine = vi.fn().mockReturnValue(fixedScript);
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission,
+      readFileFromMachine,
+      isMachineBricked: () => false,
+    });
+
+    const result = mail.fn('xR0gu3x@darkmail.onion', 'done') as AsyncOutput;
+    const lines = runAsync(result);
+    expect(completeMission).toHaveBeenCalled();
+    expect(lines.join('\n')).toContain('MISSION COMPLETE');
+  });
+
+  it('completes a script_fix mission when called without content', () => {
+    const completeMission = vi.fn();
+    const fixedScript = '_system("ok")';
+    const mission = makeMission({
+      type: 'script_fix',
+      expectedProof: '',
+      expectedChecksum: 'ok',
+      targetPath: '/srv/scripts/test.js',
+      targetContent: fixedScript,
+    });
+    const readFileFromMachine = vi.fn().mockReturnValue(fixedScript);
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission,
+      readFileFromMachine,
+      isMachineBricked: () => false,
+    });
+
+    const result = mail.fn('xR0gu3x@darkmail.onion') as AsyncOutput;
+    const lines = runAsync(result);
+    expect(completeMission).toHaveBeenCalled();
+    expect(lines.join('\n')).toContain('MISSION COMPLETE');
+  });
+
+  it('rejects script_fix when script output is wrong', () => {
+    const brokenScript = '_system("wrong-value")';
+    const mission = makeMission({
+      type: 'script_fix',
+      expectedProof: '',
+      expectedChecksum: 'correct-value',
+      targetPath: '/srv/scripts/test.js',
+      targetContent: brokenScript,
+    });
+    const readFileFromMachine = vi.fn().mockReturnValue(brokenScript);
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission: vi.fn(),
+      readFileFromMachine,
+      isMachineBricked: () => false,
+    });
+
+    expect(() => mail.fn('xR0gu3x@darkmail.onion', 'done')).toThrow('Script output is incorrect');
+  });
+
+  it('rejects script_fix when script does not call _system', () => {
+    const brokenScript = 'echo("hello")';
+    const mission = makeMission({
+      type: 'script_fix',
+      expectedProof: '',
+      expectedChecksum: 'expected',
+      targetPath: '/srv/scripts/test.js',
+      targetContent: brokenScript,
+    });
+    const readFileFromMachine = vi.fn().mockReturnValue(brokenScript);
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission: vi.fn(),
+      readFileFromMachine,
+      isMachineBricked: () => false,
+    });
+
+    expect(() => mail.fn('xR0gu3x@darkmail.onion', 'done')).toThrow('did not call _system');
+  });
+
+  it('rejects script_fix when script file is missing', () => {
+    const mission = makeMission({
+      type: 'script_fix',
+      expectedProof: '',
+      expectedChecksum: 'expected',
+      targetPath: '/srv/scripts/test.js',
+      targetContent: '',
+    });
+    const readFileFromMachine = vi.fn().mockReturnValue(null);
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission: vi.fn(),
+      readFileFromMachine,
+      isMachineBricked: () => false,
+    });
+
+    expect(() => mail.fn('xR0gu3x@darkmail.onion', 'done')).toThrow('Script not found');
+  });
+
+  it('rejects script_fix when script has syntax error', () => {
+    const brokenScript = 'function(';
+    const mission = makeMission({
+      type: 'script_fix',
+      expectedProof: '',
+      expectedChecksum: 'expected',
+      targetPath: '/srv/scripts/test.js',
+      targetContent: brokenScript,
+    });
+    const readFileFromMachine = vi.fn().mockReturnValue(brokenScript);
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission: vi.fn(),
+      readFileFromMachine,
+      isMachineBricked: () => false,
+    });
+
+    expect(() => mail.fn('xR0gu3x@darkmail.onion', 'done')).toThrow('Script execution failed');
+  });
+
   it('completes a script_auto mission with correct ACCESS-KEY', () => {
     const completeMission = vi.fn();
     const mission = makeMission({

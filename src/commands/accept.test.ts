@@ -51,7 +51,15 @@ describe('accept command', () => {
     expect(result).toContain('mail(');
     expect(result).toContain('nano()');
     expect(result).toContain('node()');
-    expect(result).toContain('ACCESS-KEY');
+    expect(result).toContain('done');
+  });
+
+  it('shows root password in script_fix briefing', () => {
+    const startMission = vi.fn();
+    const accept = createAcceptCommand({ startMission, isMissionActive: () => false });
+    const result = accept.fn('test-script-fix-easy') as string;
+
+    expect(result).toContain('Root password:');
   });
 
   it('shows domain instead of IP for domain entry missions', () => {
