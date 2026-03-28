@@ -47,6 +47,14 @@ export const formatObjectiveHint = (mission: MissionNetwork): string => {
     return lines.join('\n');
   }
 
+  if (objective.type === 'script_auto') {
+    return [
+      '  Write the automated script on the target machine. Follow the instructions',
+      '  in the stub file, then test it with node(). When working, confirm to the client.',
+      `  Example: mail("${email}", "done")`,
+    ].join('\n');
+  }
+
   if (objective.type === 'sabotage') {
     return [
       '  Destroy the target machine. Delete critical boot files and reboot it.',

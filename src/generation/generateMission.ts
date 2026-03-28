@@ -96,11 +96,12 @@ export const generateMissionNetwork = (
   const effectiveForwarded =
     overrides.objectiveType === 'portforward' ? false : overrides.forwarded;
 
-  // forensics and script_fix always use SSH entry (player is an authorized contractor)
-  const effectiveEntryVariant =
-    overrides.objectiveType === 'forensics' || overrides.objectiveType === 'script_fix'
-      ? 'ssh'
-      : overrides.entryVariant;
+  // White-hat missions always use SSH entry (player is an authorized contractor)
+  const whiteHatObjective =
+    overrides.objectiveType === 'forensics' ||
+    overrides.objectiveType === 'script_fix' ||
+    overrides.objectiveType === 'script_auto';
+  const effectiveEntryVariant = whiteHatObjective ? 'ssh' : overrides.entryVariant;
 
   const topology = generateTopology(prng, difficulty, {
     entryVariantOverride: effectiveEntryVariant,

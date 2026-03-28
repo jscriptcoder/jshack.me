@@ -697,43 +697,113 @@ describe('mail command', () => {
     expect(() => mail.fn('xR0gu3x@darkmail.onion', 'done')).toThrow('Script execution failed');
   });
 
-  it('completes a script_auto mission with correct ACCESS-KEY', () => {
+  it('completes a script_auto local mission when script calls _system with correct value', () => {
     const completeMission = vi.fn();
+    const dataContent = JSON.stringify({ checksum: 'f7a3c9b1e2d4', status: 'complete' });
+    const playerScript = [
+      'const data = JSON.parse(cat("/var/lib/backup/status.json"))',
+      '_system(data.checksum)',
+    ].join('\n');
     const mission = makeMission({
       type: 'script_auto',
-      expectedProof: 'ACCESS-X1Y2-Z3W4-Q5R6',
-      targetPath: '/etc/cron.d/health-check.js',
-      targetContent: '#!/usr/bin/env node\n// Script stub',
-      expectedChecksum: 'svc-auth-token-42',
+      expectedProof: '',
+      targetPath: '/etc/cron.d/backup-verify.js',
+      targetContent: playerScript,
+      expectedChecksum: 'f7a3c9b1e2d4',
+      scriptAutoFlavor: 'local',
+      scriptAutoDataPath: '/var/lib/backup/status.json',
+      scriptAutoDataContent: dataContent,
+    });
+    const readFileFromMachine = vi.fn((op: { path: string }) => {
+      if (op.path === '/etc/cron.d/backup-verify.js') return playerScript;
+      if (op.path === '/var/lib/backup/status.json') return dataContent;
+      return null;
     });
     const mail = createMailCommand({
       getActiveMission: () => mission,
       completeMission,
-      readFileFromMachine: vi.fn(),
+      readFileFromMachine,
       isMachineBricked: () => false,
     });
 
-    const result = mail.fn('xR0gu3x@darkmail.onion', 'ACCESS-X1Y2-Z3W4-Q5R6') as AsyncOutput;
+    const result = mail.fn('xR0gu3x@darkmail.onion', 'done') as AsyncOutput;
     const lines = runAsync(result);
     expect(completeMission).toHaveBeenCalled();
     expect(lines.join('\n')).toContain('MISSION COMPLETE');
   });
 
-  it('rejects script_auto mission with wrong ACCESS-KEY', () => {
+  it('completes a script_auto remote mission when script calls _system with correct value', () => {
+    const completeMission = vi.fn();
+    const dataContent = JSON.stringify({ array_key: 'raid-6c2a9f4b1e' });
+    const playerScript = [
+      'const resp = await curl("http://10.0.0.5/api/raid-status", "-X", "POST")',
+      'const data = JSON.parse(resp[0])',
+      '_system(data.array_key)',
+    ].join('\n');
     const mission = makeMission({
       type: 'script_auto',
-      expectedProof: 'ACCESS-X1Y2-Z3W4-Q5R6',
-      targetPath: '/etc/cron.d/health-check.js',
-      targetContent: '#!/usr/bin/env node\n// Script stub',
-      expectedChecksum: 'svc-auth-token-42',
+      expectedProof: '',
+      targetPath: '/etc/init.d/raid-check.js',
+      targetContent: playerScript,
+      expectedChecksum: 'raid-6c2a9f4b1e',
+      scriptAutoFlavor: 'remote',
+      scriptAutoDataContent: dataContent,
+      scriptAutoApiMachine: '10.0.0.5',
     });
+    const readFileFromMachine = vi.fn().mockReturnValue(playerScript);
     const mail = createMailCommand({
       getActiveMission: () => mission,
-      completeMission: vi.fn(),
-      readFileFromMachine: vi.fn(),
+      completeMission,
+      readFileFromMachine,
       isMachineBricked: () => false,
     });
 
-    expect(() => mail.fn('xR0gu3x@darkmail.onion', 'WRONG-KEY')).toThrow('delivery failed');
+    const result = mail.fn('xR0gu3x@darkmail.onion', 'done') as AsyncOutput;
+    const lines = runAsync(result);
+    expect(completeMission).toHaveBeenCalled();
+    expect(lines.join('\n')).toContain('MISSION COMPLETE');
+  });
+
+  it('rejects script_auto mission when script output is wrong', () => {
+    const playerScript = '_system("wrong-value")';
+    const mission = makeMission({
+      type: 'script_auto',
+      expectedProof: '',
+      targetPath: '/etc/cron.d/test.js',
+      targetContent: playerScript,
+      expectedChecksum: 'correct-value',
+      scriptAutoFlavor: 'local',
+      scriptAutoDataPath: '/var/data.json',
+      scriptAutoDataContent: '{}',
+    });
+    const readFileFromMachine = vi.fn().mockReturnValue(playerScript);
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission: vi.fn(),
+      readFileFromMachine,
+      isMachineBricked: () => false,
+    });
+
+    expect(() => mail.fn('xR0gu3x@darkmail.onion', 'done')).toThrow('Script output is incorrect');
+  });
+
+  it('rejects script_auto when script file is missing', () => {
+    const mission = makeMission({
+      type: 'script_auto',
+      expectedProof: '',
+      targetPath: '/etc/cron.d/test.js',
+      targetContent: '',
+      expectedChecksum: 'expected',
+      scriptAutoFlavor: 'local',
+    });
+    const readFileFromMachine = vi.fn().mockReturnValue(null);
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission: vi.fn(),
+      readFileFromMachine,
+      isMachineBricked: () => false,
+    });
+
+    expect(() => mail.fn('xR0gu3x@darkmail.onion', 'done')).toThrow('Script not found');
   });
 });

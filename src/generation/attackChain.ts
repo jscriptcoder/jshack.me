@@ -378,7 +378,6 @@ const buildObjective = (
   }
 
   if (objectiveType === 'script_auto') {
-    const accessKey = generateAccessKey(prng);
     const peerMachines = encryptionConfig?.machines ?? [];
     const {
       targetPath,
@@ -390,22 +389,19 @@ const buildObjective = (
       apiMachine,
     } = selectScriptAutoFile(prng, targetMachine, peerMachines);
 
-    // ~70% root-owned (system automation dirs are normally root-owned), ~30% user-owned
-    const scriptOwner: 'root' | 'user' = prng.next() < 0.3 ? 'user' : 'root';
-
-    // Consume dummy PRNG rolls for binary + encrypt to preserve sequence alignment
-    prng.next();
-    prng.next();
+    // Get root password for briefing (player is an authorized contractor)
+    const targetCreds = credentials[targetMachine.ip] ?? [];
+    const rootCred = targetCreds.find((c) => c.username === 'root');
+    const rootPassword = rootCred?.password ?? 'unknown';
 
     return {
       type: 'script_auto',
-      description: `Write and run the automated script on ${targetMachine.hostname}`,
+      description: `Write and deploy the automated script on ${targetMachine.hostname}. Root password: ${rootPassword}`,
       targetMachine: targetMachine.ip,
       targetPath,
       targetContent,
       clientEmail,
-      expectedProof: accessKey,
-      scriptOwner,
+      expectedProof: '',
       expectedChecksum,
       scriptAutoFlavor: flavor,
       scriptAutoDataPath: dataPath,

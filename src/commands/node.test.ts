@@ -93,7 +93,6 @@ type NodeContextOverrides = {
   readonly getUserType?: () => UserType;
   readonly resolvePath?: (path: string) => string;
   readonly getExecutionContext?: () => Record<string, (...args: unknown[]) => unknown>;
-  readonly getDecodeFn?: () => ((value: unknown) => string) | undefined;
   readonly getSystemFn?: () => ((value: unknown) => string) | undefined;
 };
 
@@ -103,7 +102,6 @@ const createNodeContext = (overrides: NodeContextOverrides = {}) => ({
   getNode: overrides.getNode ?? (() => null),
   getUserType: overrides.getUserType ?? (() => 'user' as UserType),
   getExecutionContext: overrides.getExecutionContext ?? (() => ({})),
-  getDecodeFn: overrides.getDecodeFn,
   getSystemFn: overrides.getSystemFn,
   canTraverse: () => ({ allowed: true }),
 });
@@ -331,80 +329,6 @@ describe('node command', () => {
       const result = node.fn('/secret.js');
 
       expect(result).toBe('secret result');
-    });
-  });
-
-  describe('_decode() injection', () => {
-    it('injects _decode into execution context when getDecodeFn returns a function', () => {
-      const decodeFn = vi.fn((value: unknown) =>
-        String(value) === 'correct' ? 'ACCESS-1234-5678-9ABC' : 'ERROR: checksum mismatch',
-      );
-      const mockEcho = vi.fn((val: unknown) => String(val));
-      const file = getMockFile({
-        content: 'echo(_decode("correct"))',
-      });
-      const context = createNodeContext({
-        getNode: () => file,
-        getExecutionContext: () => ({ echo: mockEcho }),
-        getDecodeFn: () => decodeFn,
-      });
-
-      const node = createNodeCommand(context);
-      const result = node.fn('/script.js');
-
-      expect(decodeFn).toHaveBeenCalledWith('correct');
-      expect(mockEcho).toHaveBeenCalledWith('ACCESS-1234-5678-9ABC');
-      expect(result).toBe('ACCESS-1234-5678-9ABC');
-    });
-
-    it('returns error string when checksum does not match', () => {
-      const decodeFn = vi.fn((value: unknown) =>
-        String(value) === 'correct' ? 'ACCESS-1234-5678-9ABC' : 'ERROR: checksum mismatch',
-      );
-      const mockEcho = vi.fn((val: unknown) => String(val));
-      const file = getMockFile({
-        content: 'echo(_decode("wrong"))',
-      });
-      const context = createNodeContext({
-        getNode: () => file,
-        getExecutionContext: () => ({ echo: mockEcho }),
-        getDecodeFn: () => decodeFn,
-      });
-
-      const node = createNodeCommand(context);
-      const result = node.fn('/script.js');
-
-      expect(decodeFn).toHaveBeenCalledWith('wrong');
-      expect(result).toBe('ERROR: checksum mismatch');
-    });
-
-    it('does not inject _decode when getDecodeFn returns undefined', () => {
-      const file = getMockFile({
-        content: 'typeof _decode',
-      });
-      const context = createNodeContext({
-        getNode: () => file,
-        getDecodeFn: () => undefined,
-      });
-
-      const node = createNodeCommand(context);
-      const result = node.fn('/script.js');
-
-      expect(result).toBe('undefined');
-    });
-
-    it('does not inject _decode when getDecodeFn is not provided', () => {
-      const file = getMockFile({
-        content: 'typeof _decode',
-      });
-      const context = createNodeContext({
-        getNode: () => file,
-      });
-
-      const node = createNodeCommand(context);
-      const result = node.fn('/script.js');
-
-      expect(result).toBe('undefined');
     });
   });
 

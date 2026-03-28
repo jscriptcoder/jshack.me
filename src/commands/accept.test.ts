@@ -62,6 +62,17 @@ describe('accept command', () => {
     expect(result).toContain('Root password:');
   });
 
+  it('shows script_auto briefing with instructions hint', () => {
+    const startMission = vi.fn();
+    const accept = createAcceptCommand({ startMission, isMissionActive: () => false });
+    const result = accept.fn('test-script-auto-easy') as string;
+
+    expect(result).toContain('mail(');
+    expect(result).toContain('node()');
+    expect(result).toContain('done');
+    expect(result).toContain('Root password:');
+  });
+
   it('shows domain instead of IP for domain entry missions', () => {
     const startMission = vi.fn();
     const accept = createAcceptCommand({ startMission, isMissionActive: () => false });
