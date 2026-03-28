@@ -131,7 +131,7 @@ Each template is a short script that filters/counts array data and conditionally
 - SSH entry forced, root password in briefing (no infiltration required)
 - No binary wrapping (scripts must be readable/editable with nano)
 - No encryption (scripts must be directly editable)
-- Dummy PRNG rolls consumed for accessKey + scriptOwner + binary + encrypt to preserve sequence alignment
+- No dummy PRNG rolls needed (no backwards compatibility concerns)
 - Corrupted hints placed on same target machine (not a different machine)
 - `_system(checksum)` provides PASS/FAIL feedback during `node()` testing
 - `mail()` re-executes the script to verify correctness (no ACCESS-KEY exchange)

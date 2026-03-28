@@ -354,20 +354,8 @@ const buildObjective = (
   }
 
   if (objectiveType === 'script_fix') {
-    // Consume 3 dummy PRNG rolls to replace generateAccessKey (preserves sequence alignment)
-    prng.next();
-    prng.next();
-    prng.next();
-
     const { targetPath, targetContent, bugType, hintPath, hintContent, expectedChecksum } =
       selectScriptFixFile(prng, targetMachine);
-
-    // Consume dummy PRNG roll to replace scriptOwner selection (preserves sequence alignment)
-    prng.next();
-
-    // Consume dummy PRNG rolls for binary + encrypt to preserve sequence alignment
-    prng.next();
-    prng.next();
 
     // Get root password for briefing (player is an authorized contractor)
     const targetCreds = credentials[targetMachine.ip] ?? [];
