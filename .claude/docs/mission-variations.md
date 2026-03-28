@@ -109,7 +109,7 @@ Key files have ~25% chance of binary wrapping (using `binaryKeyPaths` per role).
 
 ## Script Fix Objective
 
-A 4th objective type where the player finds a broken JavaScript script on the target machine, fixes it with `nano()`, and runs it with `node()`. The script computes a checksum from its filtered data and passes it to `_decode(checksum)` — a function only available inside `node()`'s execution context. If the checksum is correct (script was properly fixed), `_decode()` returns the ACCESS-KEY. The player then mails it to the client (consistent with exfiltrate flow). The ACCESS-KEY never appears in the script source (anti-cheat). Seed keyword: `script-fix`.
+A white-hat objective type where the player is hired as an authorized contractor to fix a broken JavaScript script on the target machine. The player SSHs in with root credentials (provided in the briefing), fixes the script with `nano()`, and tests it with `node()`. The script computes a checksum from its filtered data and passes it to `_system(checksum)` — a function available inside `node()`'s execution context during script_fix missions. When the player runs `node()` to test, `_system()` returns "System check: PASS" or "System check: FAIL". To complete the mission, the player mails "done" to the client — the `mail()` command internally re-executes the script and verifies `_system()` was called with the correct checksum. Seed keyword: `script-fix`.
 
 ### Bug Types (3, ~33% each)
 
@@ -119,32 +119,27 @@ A 4th objective type where the player finds a broken JavaScript script on the ta
 | logic     | Wrong comparison value or filter condition — script outputs "ERROR" |
 | corrupted | Data line replaced with `???` — correct value in a nearby hint file |
 
-### Script Ownership
+### Script Fix Templates (18 — 3 per main role + 2 router + 1 switch)
 
-| Owner | Chance | Effect                                                           |
-| ----- | ------ | ---------------------------------------------------------------- |
-| user  | 60%    | Anyone can read/write/execute — no privilege escalation needed   |
-| root  | 40%    | Anyone can read, but only root can write/execute — must su first |
+3 templates per main role (fileserver, database, webserver, mailserver, iot, workstation) + 2 for router + 1 for switch (unused — infrastructure-only roles).
 
-### Script Fix Templates (12 + 2 router)
-
-2 templates per main role (fileserver, database, webserver, mailserver, iot, workstation) + 2 for router (unused).
-
-Each template is a short script that filters/counts array data and conditionally calls `echo(_decode(<checksum-expr>))` on success. `_decode(checksum)` is injected into `node()`'s execution context only during script_fix missions — it compares the checksum against the expected value and returns the ACCESS-KEY on match (or an error string otherwise). Each template has an `expectedChecksum` field. Bug variants introduce syntax errors, logic errors, or corrupted data lines. Corrupted variants have a hint file at a nearby path on the same machine containing the correct value.
+Each template is a short script that filters/counts array data and conditionally calls `_system(<checksum-expr>)` on success. `_system(checksum)` is injected into `node()`'s execution context during script_fix missions — when testing, it returns "System check: PASS" or "System check: FAIL". During mail verification, the script is re-executed and the value passed to `_system()` is checked against `expectedChecksum`. Bug variants introduce syntax errors, logic errors, or corrupted data lines. Corrupted variants have a hint file at a nearby path on the same machine containing the correct value.
 
 ### Key Design Decisions
 
+- White-hat mission: player is an authorized contractor (like forensics)
+- SSH entry forced, root password in briefing (no infiltration required)
 - No binary wrapping (scripts must be readable/editable with nano)
 - No encryption (scripts must be directly editable)
-- Dummy PRNG rolls consumed for binary + encrypt to preserve sequence alignment
+- No dummy PRNG rolls needed (no backwards compatibility concerns)
 - Corrupted hints placed on same target machine (not a different machine)
-- `_decode(checksum)` returns ACCESS-KEY on correct checksum — player mails it to client
-- ACCESS-KEY never appears in script source (anti-cheat: can't `cat` to find it)
-- `_decode()` only exists in `node()`'s execution context, not the terminal
+- `_system(checksum)` provides PASS/FAIL feedback during `node()` testing
+- `mail()` re-executes the script to verify correctness (no ACCESS-KEY exchange)
+- `_system()` only exists in `node()`'s execution context, not the terminal
 
 ## Script Auto Objective
 
-A 5th objective type where the player writes an automated script from scratch based on instructions in a stub file. The stub is placed in an automation location (cron, init, or network-up hook) with comment instructions describing what data to read and extract. The player writes the script body using `nano()`, runs it with `node()`, and gets the ACCESS-KEY from `_decode()`. Same verification as script_fix. Seed keyword: `script-auto`.
+A 5th objective type where the player writes an automated script from scratch based on instructions in a stub file. The stub is placed in an automation location (cron, init, or network-up hook) with comment instructions describing what data to read and extract. The player writes the script body using `nano()`, runs it with `node()`, and gets the ACCESS-KEY from `_decode()`. Seed keyword: `script-auto`.
 
 ### Two Flavors
 
@@ -176,12 +171,12 @@ Each role (fileserver, database, webserver, mailserver, iot, workstation, router
 
 ### Key Design Decisions
 
-- Same `_decode()` / ACCESS-KEY mechanism as script_fix
+- Uses `_decode()` / ACCESS-KEY mechanism (will be migrated to `_system()` like script_fix in a future PR)
 - No binary wrapping, no encryption
 - Port closures skipped (needs SSH shell access)
 - Remote flavor falls back to local if no peer machine available
 - Player writes the script from scratch (not fixing bugs)
-- `_decode()` injected for both `script_fix` and `script_auto` missions
+- `_decode()` injected for `script_auto` missions only; `_system()` is used for `script_fix`
 
 ## Backdoor Objective
 
@@ -447,7 +442,7 @@ Used when entry variant is `exploit`. Matched by port/service. Multiple template
 | exfiltrate       | Find ACCESS-KEY in target file, mail to client                 | `mail(email, "ACCESS-XXXX-XXXX-XXXX")` |
 | tamper           | Modify a target file, mail client to confirm                   | `mail(email, "done")`                  |
 | credential_theft | Discover root password, mail to client                         | `mail(email, "<password>")`            |
-| script_fix       | Fix broken script, run with node(), mail ACCESS-KEY            | `mail(email, "ACCESS-XXXX-XXXX-XXXX")` |
+| script_fix       | Fix broken script, test with node(), confirm to client         | `mail(email, "done")`                  |
 | script_auto      | Write automated script from scratch, run with node(), mail key | `mail(email, "ACCESS-XXXX-XXXX-XXXX")` |
 | sabotage         | Destroy target machine, confirm the kill                       | `mail(email, "done")`                  |
 | backdoor         | Open nc listener on target machine, confirm                    | `mail(email, "done")`                  |

@@ -96,9 +96,11 @@ export const generateMissionNetwork = (
   const effectiveForwarded =
     overrides.objectiveType === 'portforward' ? false : overrides.forwarded;
 
-  // forensics always uses SSH entry (player is an authorized investigator)
+  // forensics and script_fix always use SSH entry (player is an authorized contractor)
   const effectiveEntryVariant =
-    overrides.objectiveType === 'forensics' ? 'ssh' : overrides.entryVariant;
+    overrides.objectiveType === 'forensics' || overrides.objectiveType === 'script_fix'
+      ? 'ssh'
+      : overrides.entryVariant;
 
   const topology = generateTopology(prng, difficulty, {
     entryVariantOverride: effectiveEntryVariant,

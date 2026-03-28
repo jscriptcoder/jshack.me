@@ -94,6 +94,7 @@ type NodeContextOverrides = {
   readonly resolvePath?: (path: string) => string;
   readonly getExecutionContext?: () => Record<string, (...args: unknown[]) => unknown>;
   readonly getDecodeFn?: () => ((value: unknown) => string) | undefined;
+  readonly getSystemFn?: () => ((value: unknown) => string) | undefined;
 };
 
 const createNodeContext = (overrides: NodeContextOverrides = {}) => ({
@@ -103,6 +104,7 @@ const createNodeContext = (overrides: NodeContextOverrides = {}) => ({
   getUserType: overrides.getUserType ?? (() => 'user' as UserType),
   getExecutionContext: overrides.getExecutionContext ?? (() => ({})),
   getDecodeFn: overrides.getDecodeFn,
+  getSystemFn: overrides.getSystemFn,
   canTraverse: () => ({ allowed: true }),
 });
 
@@ -403,6 +405,82 @@ describe('node command', () => {
       const result = node.fn('/script.js');
 
       expect(result).toBe('undefined');
+    });
+  });
+
+  describe('_system() injection', () => {
+    it('injects _system into execution context when getSystemFn returns a function', () => {
+      const systemFn = vi.fn((value: unknown) =>
+        String(value) === 'correct' ? 'System check: PASS' : 'System check: FAIL',
+      );
+      const mockEcho = vi.fn((val: unknown) => String(val));
+      const file = getMockFile({
+        content: 'echo(_system("correct"))',
+      });
+      const context = createNodeContext({
+        getNode: () => file,
+        getExecutionContext: () => ({ echo: mockEcho }),
+        getSystemFn: () => systemFn,
+      });
+
+      const node = createNodeCommand(context);
+      const result = node.fn('/script.js');
+
+      expect(systemFn).toHaveBeenCalledWith('correct');
+      expect(result).toBe('System check: PASS');
+    });
+
+    it('returns FAIL string when _system value does not match', () => {
+      const systemFn = vi.fn((value: unknown) =>
+        String(value) === 'correct' ? 'System check: PASS' : 'System check: FAIL',
+      );
+      const mockEcho = vi.fn((val: unknown) => String(val));
+      const file = getMockFile({
+        content: 'echo(_system("wrong"))',
+      });
+      const context = createNodeContext({
+        getNode: () => file,
+        getExecutionContext: () => ({ echo: mockEcho }),
+        getSystemFn: () => systemFn,
+      });
+
+      const node = createNodeCommand(context);
+      const result = node.fn('/script.js');
+
+      expect(systemFn).toHaveBeenCalledWith('wrong');
+      expect(result).toBe('System check: FAIL');
+    });
+
+    it('does not inject _system when getSystemFn returns undefined', () => {
+      const file = getMockFile({
+        content: 'typeof _system',
+      });
+      const context = createNodeContext({
+        getNode: () => file,
+        getSystemFn: () => undefined,
+      });
+
+      const node = createNodeCommand(context);
+      const result = node.fn('/script.js');
+
+      expect(result).toBe('undefined');
+    });
+
+    it('_system works standalone without echo wrapper', () => {
+      const systemFn = vi.fn(() => 'System check: PASS');
+      const file = getMockFile({
+        content: '_system("value")',
+      });
+      const context = createNodeContext({
+        getNode: () => file,
+        getSystemFn: () => systemFn,
+      });
+
+      const node = createNodeCommand(context);
+      const result = node.fn('/script.js');
+
+      expect(systemFn).toHaveBeenCalledWith('value');
+      expect(result).toBe('System check: PASS');
     });
   });
 

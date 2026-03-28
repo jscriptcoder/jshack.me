@@ -354,27 +354,23 @@ const buildObjective = (
   }
 
   if (objectiveType === 'script_fix') {
-    const accessKey = generateAccessKey(prng);
     const { targetPath, targetContent, bugType, hintPath, hintContent, expectedChecksum } =
       selectScriptFixFile(prng, targetMachine);
 
-    // ~60% user-owned (anyone can edit/run), ~40% root-owned (must su first)
-    const scriptOwner: 'root' | 'user' = prng.next() < 0.6 ? 'user' : 'root';
-
-    // Consume dummy PRNG rolls for binary + encrypt to preserve sequence alignment
-    prng.next();
-    prng.next();
+    // Get root password for briefing (player is an authorized contractor)
+    const targetCreds = credentials[targetMachine.ip] ?? [];
+    const rootCred = targetCreds.find((c) => c.username === 'root');
+    const rootPassword = rootCred?.password ?? 'unknown';
 
     return {
       type: 'script_fix',
-      description: `Fix and run the broken script on ${targetMachine.hostname}`,
+      description: `Fix the broken script on ${targetMachine.hostname}. Root password: ${rootPassword}`,
       targetMachine: targetMachine.ip,
       targetPath,
       targetContent,
       clientEmail,
-      expectedProof: accessKey,
+      expectedProof: '',
       scriptBugType: bugType,
-      scriptOwner,
       scriptHintPath: bugType === 'corrupted' ? hintPath : undefined,
       scriptHintContent: bugType === 'corrupted' ? hintContent : undefined,
       expectedChecksum,
