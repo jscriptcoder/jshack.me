@@ -53,6 +53,28 @@ import {
 } from './pools';
 import type { Difficulty } from './types';
 
+// One-level-deep directory merge for extraDirectories objects. When both base and
+// additions have the same directory key, their children are merged (not overwritten).
+// Prevents e.g. forensics evidence /var/log/ from clobbering web content /var/www/.
+const mergeExtraDirs = (
+  base: Readonly<Record<string, FileNode>>,
+  additions: Readonly<Record<string, FileNode>>,
+): Record<string, FileNode> => {
+  const result: Record<string, FileNode> = { ...base };
+  Object.entries(additions).forEach(([key, node]) => {
+    const existing = result[key];
+    if (existing && existing.type === 'directory' && node.type === 'directory') {
+      result[key] = {
+        ...existing,
+        children: { ...(existing.children ?? {}), ...(node.children ?? {}) },
+      };
+    } else {
+      result[key] = node;
+    }
+  });
+  return result;
+};
+
 type FilesystemInput = {
   readonly prng: Prng;
   readonly machines: readonly GeneratedMachine[];
@@ -765,10 +787,11 @@ const mergeKeyPlacement = (
   keyTree: { readonly topDir: string; readonly node: FileNode } | null,
 ): MachineFileSystemConfig => {
   if (!keyTree) return config;
-  const existing = config.extraDirectories ?? {};
   return {
     ...config,
-    extraDirectories: { ...existing, [keyTree.topDir]: keyTree.node },
+    extraDirectories: mergeExtraDirs(config.extraDirectories ?? {}, {
+      [keyTree.topDir]: keyTree.node,
+    }),
   };
 };
 
@@ -1215,7 +1238,7 @@ export const generateFileSystems = (input: FilesystemInput): FilesystemResult =>
     const configWithEvidence = evidence
       ? {
           ...configWithKey,
-          extraDirectories: { ...(configWithKey.extraDirectories ?? {}), ...evidence },
+          extraDirectories: mergeExtraDirs(configWithKey.extraDirectories ?? {}, evidence),
         }
       : configWithKey;
 
