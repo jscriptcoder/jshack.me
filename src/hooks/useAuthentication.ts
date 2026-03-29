@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import type { UserType, FtpSession, SessionReason } from '../session/SessionContext';
-import type { RemoteUser } from '../network/types';
+import type { RemoteMachine, RemoteUser } from '../network/types';
 import type { AsyncOutput } from '../components/Terminal/types';
 import type { PermissionResult } from '../filesystem/types';
 import { md5 } from '../utils/md5';
@@ -21,6 +21,7 @@ type AuthenticationOptions = {
     ip: string,
   ) => { readonly hostname: string; readonly users: readonly RemoteUser[] } | undefined;
   readonly findMachineUsers: (ip: string) => readonly RemoteUser[];
+  readonly findMachineByIp: (ip: string) => RemoteMachine | undefined;
   readonly readFile: (path: string, userType: UserType) => string | null;
   readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
   readonly getDefaultHomePath: (machineIp: string, username: string) => string;
@@ -47,6 +48,7 @@ export const useAuthentication = ({
   session,
   getMachine,
   findMachineUsers,
+  findMachineByIp,
   readFile,
   resolveNat,
   getDefaultHomePath,
@@ -164,18 +166,21 @@ export const useAuthentication = ({
       const remoteUser = users.find((u) => u.username === user);
       const userType: UserType = remoteUser?.userType ?? 'user';
       const homePath = getDefaultHomePath(resolvedIp, user);
-      const machine = getMachine(ip);
+      // When NAT-forwarded, resolve hostname from the actual target machine (behind gateway),
+      // not the gateway itself. findMachineByIp searches across all network configs.
+      const targetMachine = findMachineByIp(resolvedIp) ?? getMachine(ip);
 
       setUsername(user, userType);
-      setMachine(resolvedIp, machine?.hostname);
+      setMachine(resolvedIp, targetMachine?.hostname);
       setCurrentPath(homePath);
       addLine('result', `Connected to ${ip}`);
-      addLine('result', `Welcome to ${machine?.hostname ?? ip}!`);
+      addLine('result', `Welcome to ${targetMachine?.hostname ?? ip}!`);
     },
     [
       pushSession,
       resolveNat,
       findMachineUsers,
+      findMachineByIp,
       getDefaultHomePath,
       getMachine,
       setUsername,

@@ -37,6 +37,7 @@ type NetworkContextType = {
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
   readonly getDnsRecords: () => readonly DnsRecord[];
   readonly findMachineUsers: (ip: string) => readonly RemoteUser[];
+  readonly findMachineByIp: (ip: string) => RemoteMachine | undefined;
   readonly getPublicIP: () => string | null;
   readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
 };
@@ -397,6 +398,40 @@ export const NetworkProvider = ({
     [homeNetwork, missionNetworkConfig, missionRouterMachine],
   );
 
+  // Searches for a machine by IP across all network configs (home + mission).
+  // Unlike getMachine which only returns machines visible from the current position,
+  // this searches globally — needed for NAT-forwarded SSH where the resolved target
+  // is behind a gateway and not directly visible.
+  const findMachineByIp = useCallback(
+    (ip: string): RemoteMachine | undefined => {
+      const searchConfigs = (networkConfig: NetworkConfig): RemoteMachine | undefined =>
+        Object.values(networkConfig.machineConfigs)
+          .flatMap((mc) => mc.machines)
+          .find((m) => m.ip === ip);
+
+      if (homeNetwork) {
+        const found = searchConfigs(homeNetwork.networkConfig);
+        if (found) return found;
+      }
+
+      if (missionNetworkConfig) {
+        const found = searchConfigs(missionNetworkConfig);
+        if (found) return found;
+      }
+
+      if (missionRouterMachine && missionRouterMachine.ip === ip) {
+        return missionRouterMachine.remoteMachine;
+      }
+
+      if (homeNetwork?.routerMachine && homeNetwork.routerMachine.ip === ip) {
+        return homeNetwork.routerMachine.remoteMachine;
+      }
+
+      return undefined;
+    },
+    [homeNetwork, missionNetworkConfig, missionRouterMachine],
+  );
+
   // Port-aware NAT resolution: translates any gateway's IP + port to the
   // internal machine IP + port based on iptables rules parsed from that
   // gateway's filesystem. Works for both the border router and inner gateways.
@@ -427,6 +462,7 @@ export const NetworkProvider = ({
         resolveDomain,
         getDnsRecords,
         findMachineUsers,
+        findMachineByIp,
         resolveNat,
       }}
     >

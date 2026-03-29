@@ -30,6 +30,7 @@ const makeOptions = () => ({
   },
   getMachine: vi.fn((_ip: string) => ({ hostname: 'testbox', users: [] as readonly never[] })),
   findMachineUsers: vi.fn((_ip: string) => [] as ReturnType<typeof makeRemoteUser>[]),
+  findMachineByIp: vi.fn((_ip: string) => undefined),
   readFile: vi.fn((_path: string, _userType: string) => null as string | null),
   resolveNat: vi.fn((ip: string, port: number) => ({ ip, port })),
   getDefaultHomePath: vi.fn((_ip: string, username: string) => `/home/${username}`),

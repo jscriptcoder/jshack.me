@@ -122,7 +122,8 @@ export const Terminal = () => {
     writeFileToMachine,
     createFileOnMachine,
   } = useFileSystem();
-  const { getMachine, findMachineUsers, resolveNat, getLocalIP, getPublicIP } = useNetwork();
+  const { getMachine, findMachineUsers, findMachineByIp, resolveNat, getLocalIP, getPublicIP } =
+    useNetwork();
 
   const activeCommandNames =
     isInFtpMode() && ftpCommands
@@ -174,6 +175,7 @@ export const Terminal = () => {
     pushSession,
     enterFtpMode,
     findMachineUsers,
+    findMachineByIp,
     createFile,
     writeFile,
     onSuAuth: (success, targetUser) => {
