@@ -6,7 +6,7 @@ import { createCancellationToken, jitter } from '../utils/asyncCommand';
 type NmapContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
   readonly getMachines: () => readonly RemoteMachine[];
-  readonly getLocalIP: () => string;
+  readonly getLocalIPs: () => ReadonlySet<string>;
   readonly getLocalHostname: () => string;
 };
 
@@ -211,7 +211,7 @@ export const createNmapCommand = (context: NmapContext): Command => ({
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {
-    const { getMachine, getMachines, getLocalIP, getLocalHostname } = context;
+    const { getMachine, getMachines, getLocalIPs, getLocalHostname } = context;
     const { target, versionScan, udpScan, treeScan } = parseNmapArgs(args);
 
     if (!target) {
@@ -227,7 +227,7 @@ export const createNmapCommand = (context: NmapContext): Command => ({
         __type: 'async',
         start: (onLine, onComplete) => {
           const machines = getMachines();
-          const localIP = getLocalIP();
+          const localIPs = getLocalIPs();
           const totalIPs = range.end - range.start + 1;
 
           onLine(`Starting Nmap scan on ${target}${scanModeLabel(versionScan, udpScan)}`);
@@ -246,7 +246,7 @@ export const createNmapCommand = (context: NmapContext): Command => ({
               const ip = `${range.baseIP}.${i}`;
               scannedCount++;
 
-              if (ip === localIP) {
+              if (localIPs.has(ip)) {
                 const localHostname = getLocalHostname();
                 discoveredHosts.push({ ip, hostname: localHostname, isLocal: true, ports: [] });
                 onLine(`Host discovered: ${ip} (${localHostname})`);
@@ -317,13 +317,13 @@ export const createNmapCommand = (context: NmapContext): Command => ({
       throw new Error(`nmap: invalid target: ${target}`);
     }
 
-    const localIP = getLocalIP();
+    const localIPs = getLocalIPs();
     const token = createCancellationToken();
 
     return {
       __type: 'async',
       start: (onLine, onComplete) => {
-        if (target === localIP || target === '127.0.0.1') {
+        if (localIPs.has(target)) {
           onLine(`Starting Nmap scan on ${target}`);
           token.schedule(() => {
             if (token.isCancelled()) return;

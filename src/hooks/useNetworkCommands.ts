@@ -88,7 +88,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
           createNmapCommand({
             getMachine,
             getMachines,
-            getLocalIP,
+            getLocalIPs: () => new Set(getInterfaces().map((iface) => iface.inet)),
             getLocalHostname: () =>
               session.machine === 'localhost' && workstationName
                 ? workstationName

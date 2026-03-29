@@ -313,79 +313,89 @@ export const Terminal = () => {
             setAsyncRunning(true);
             asyncCancelRef.current = result.cancel ?? null;
 
-            result.start(
-              (line: string) => {
-                addLine('result', line);
-              },
-              (followUp?: AsyncFollowUp) => {
-                setAsyncRunning(false);
-                asyncCancelRef.current = null;
+            try {
+              result.start(
+                (line: string) => {
+                  addLine('result', line);
+                },
+                (followUp?: AsyncFollowUp) => {
+                  setAsyncRunning(false);
+                  asyncCancelRef.current = null;
 
-                if (isSshPrompt(followUp)) {
-                  if (followUp.password !== undefined) {
-                    authenticateSshInline(
-                      followUp.targetUser,
-                      followUp.targetIP,
-                      followUp.targetPort,
-                      followUp.password,
-                    );
-                  } else {
-                    startSshPrompt(followUp.targetUser, followUp.targetIP, followUp.targetPort);
+                  if (isSshPrompt(followUp)) {
+                    if (followUp.password !== undefined) {
+                      authenticateSshInline(
+                        followUp.targetUser,
+                        followUp.targetIP,
+                        followUp.targetPort,
+                        followUp.password,
+                      );
+                    } else {
+                      startSshPrompt(followUp.targetUser, followUp.targetIP, followUp.targetPort);
+                    }
                   }
-                }
 
-                if (isScpPrompt(followUp)) {
-                  const transferAsync =
-                    followUp.password !== undefined
-                      ? authenticateScpInline(
-                          followUp.targetUser,
-                          followUp.targetIP,
-                          followUp.targetPort,
-                          followUp.password,
-                          followUp.performTransfer,
-                        )
-                      : startScpPrompt(
-                          followUp.targetUser,
-                          followUp.targetIP,
-                          followUp.targetPort,
-                          followUp.performTransfer,
-                        );
-                  if (transferAsync) {
-                    setAsyncRunning(true);
-                    asyncCancelRef.current = transferAsync.cancel ?? null;
-                    transferAsync.start(
-                      (line: string) => addLine('result', line),
-                      () => {
-                        setAsyncRunning(false);
-                        asyncCancelRef.current = null;
-                      },
-                    );
+                  if (isScpPrompt(followUp)) {
+                    const transferAsync =
+                      followUp.password !== undefined
+                        ? authenticateScpInline(
+                            followUp.targetUser,
+                            followUp.targetIP,
+                            followUp.targetPort,
+                            followUp.password,
+                            followUp.performTransfer,
+                          )
+                        : startScpPrompt(
+                            followUp.targetUser,
+                            followUp.targetIP,
+                            followUp.targetPort,
+                            followUp.performTransfer,
+                          );
+                    if (transferAsync) {
+                      setAsyncRunning(true);
+                      asyncCancelRef.current = transferAsync.cancel ?? null;
+                      transferAsync.start(
+                        (line: string) => addLine('result', line),
+                        () => {
+                          setAsyncRunning(false);
+                          asyncCancelRef.current = null;
+                        },
+                      );
+                    }
                   }
-                }
 
-                if (isFtpPrompt(followUp)) {
-                  if (followUp.username !== undefined && followUp.password !== undefined) {
-                    authenticateFtpInline(followUp.targetIP, followUp.username, followUp.password);
-                  } else {
-                    startFtpPrompt(followUp.targetIP);
+                  if (isFtpPrompt(followUp)) {
+                    if (followUp.username !== undefined && followUp.password !== undefined) {
+                      authenticateFtpInline(
+                        followUp.targetIP,
+                        followUp.username,
+                        followUp.password,
+                      );
+                    } else {
+                      startFtpPrompt(followUp.targetIP);
+                    }
                   }
-                }
 
-                if (isNcPrompt(followUp)) {
-                  const resolvedIP = resolveNat(followUp.targetIP, followUp.targetPort).ip;
-                  const newNcSession: NcSession = {
-                    targetIP: resolvedIP,
-                    targetPort: followUp.targetPort,
-                    service: followUp.service,
-                    username: followUp.username,
-                    userType: followUp.userType,
-                    currentPath: followUp.homePath,
-                    machineId: resolvedIP,
-                  };
-                  enterNcMode(newNcSession);
-                }
-              },
-            );
+                  if (isNcPrompt(followUp)) {
+                    const resolvedIP = resolveNat(followUp.targetIP, followUp.targetPort).ip;
+                    const newNcSession: NcSession = {
+                      targetIP: resolvedIP,
+                      targetPort: followUp.targetPort,
+                      service: followUp.service,
+                      username: followUp.username,
+                      userType: followUp.userType,
+                      currentPath: followUp.homePath,
+                      machineId: resolvedIP,
+                    };
+                    enterNcMode(newNcSession);
+                  }
+                },
+              );
+            } catch (startError) {
+              setAsyncRunning(false);
+              asyncCancelRef.current = null;
+              throw startError;
+            }
             return;
           }
           if (isNanoOpen(result)) {

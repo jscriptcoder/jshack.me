@@ -25,7 +25,7 @@ const createMockNmapContext = (config: NmapContextConfig = {}) => {
   return {
     getMachine: (ip: string) => machines.find((m) => m.ip === ip),
     getMachines: () => machines,
-    getLocalIP: () => localIP,
+    getLocalIPs: () => new Set([localIP, '127.0.0.1']),
     getLocalHostname: () => localHostname,
   };
 };

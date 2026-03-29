@@ -148,7 +148,9 @@ const printFileSystems = (net: MissionNetwork): void => {
     const routerFsTags = [magenta('[ROUTER]')];
     if (!net.natForwarding) routerFsTags.push(green('[ENTRY]'));
     console.log(
-      bold(`  ── ${net.routerMachine.hostname} (${net.routerMachine.ip}) ${routerFsTags.join(' ')} ──`),
+      bold(
+        `  ── ${net.routerMachine.hostname} (${net.routerMachine.ip}) ${routerFsTags.join(' ')} ──`,
+      ),
     );
     printFileSystem(routerFs);
   }
