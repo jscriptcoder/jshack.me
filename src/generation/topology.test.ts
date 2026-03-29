@@ -635,7 +635,7 @@ describe('generateSubnetLayer', () => {
     difficulty: 'medium' as Difficulty,
     isOuterLayer: true,
     usedSubnets: new Set<string>(),
-    usedHostnames: {} as Record<string, Set<string>>,
+    usedHostnames: new Set<string>(),
     ...overrides,
   });
 
@@ -702,7 +702,7 @@ describe('generateSubnetLayer', () => {
   });
 
   it('shares usedHostnames across calls to prevent duplicates', () => {
-    const shared: Record<string, Set<string>> = {};
+    const shared = new Set<string>();
     const a = generateSubnetLayer(
       createPrng('host-share-a'),
       makeConfig({

@@ -100,7 +100,7 @@ export type SubnetLayerConfig = {
   readonly difficulty: Difficulty;
   readonly isOuterLayer: boolean;
   readonly usedSubnets: ReadonlySet<string>;
-  readonly usedHostnames: Record<string, Set<string>>;
+  readonly usedHostnames: Set<string>;
   readonly entryVariantOverride?: EntryVariant;
   readonly forwardedOverride?: boolean;
 };
@@ -197,20 +197,15 @@ const isForwardedMode = (
   return prngResult;
 };
 
-// Picks a unique hostname for a machine role, tracking used hostnames to prevent
-// duplicates across all layers and gateways. Mutates usedHostnames.
-const pickUniqueHostname = (
-  prng: Prng,
-  role: MachineRole,
-  usedHostnames: Record<string, Set<string>>,
-): string => {
-  const used = usedHostnames[role] ?? new Set<string>();
-  const available = hostnamesByRole[role].filter((h) => !used.has(h));
+// Picks a unique hostname for a machine role, tracking used hostnames globally to prevent
+// duplicates across all roles, layers, and gateways. Mutates usedHostnames.
+const pickUniqueHostname = (prng: Prng, role: MachineRole, usedHostnames: Set<string>): string => {
+  const available = hostnamesByRole[role].filter((h) => !usedHostnames.has(h));
   const hostname =
     available.length > 0
       ? prng.pick(available)
-      : `${prng.pick(hostnamesByRole[role])}-${used.size}`;
-  usedHostnames[role] = new Set([...used, hostname]);
+      : `${prng.pick(hostnamesByRole[role])}-${usedHostnames.size}`;
+  usedHostnames.add(hostname);
   return hostname;
 };
 
@@ -325,7 +320,7 @@ export const generateTopology = (
 ): TopologyResult => {
   const { layerCount, machinesPerLayer } = difficultyConfig[difficulty];
   const [minMachines, maxMachines] = machinesPerLayer;
-  const usedHostnames: Record<string, Set<string>> = {};
+  const usedHostnames = new Set<string>();
   const usedSubnets = new Set<string>();
 
   // 1. Generate all subnet layers
