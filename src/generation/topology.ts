@@ -98,6 +98,7 @@ export type SubnetLayerConfig = {
   readonly minMachines: number;
   readonly maxMachines: number;
   readonly difficulty: Difficulty;
+  readonly isOuterLayer: boolean;
   readonly usedSubnets: ReadonlySet<string>;
   readonly usedHostnames: Record<string, Set<string>>;
   readonly entryVariantOverride?: EntryVariant;
@@ -179,14 +180,18 @@ const buildPortsFromTemplate = (
   }));
 
 // Determines whether the mission uses port forwarding (easier) or router-first (harder).
-// Easy: 70% chance of forwarding. Medium: 50%. Hard: always router-first.
+// Outer layer: easy 70%, medium 50%, hard always router-first.
+// Inner layers: easy 70%, medium 50%, hard 30% (variety over repetition).
 // Always consumes one PRNG call to preserve sequence regardless of override.
 const isForwardedMode = (
   prng: Prng,
   difficulty: Difficulty,
+  isOuterLayer: boolean,
   forwardedOverride?: boolean,
 ): boolean => {
-  const threshold = difficulty === 'easy' ? 0.7 : difficulty === 'hard' ? 0 : 0.5;
+  const outerThreshold = difficulty === 'easy' ? 0.7 : difficulty === 'hard' ? 0 : 0.5;
+  const innerThreshold = difficulty === 'easy' ? 0.7 : difficulty === 'hard' ? 0.3 : 0.5;
+  const threshold = isOuterLayer ? outerThreshold : innerThreshold;
   const prngResult = prng.next() < threshold;
   if (forwardedOverride !== undefined) return forwardedOverride;
   return prngResult;
@@ -227,7 +232,12 @@ export const generateSubnetLayer = (prng: Prng, config: SubnetLayerConfig): Subn
   const subnet = pickSubnet(prng, config.usedSubnets);
   const internalGateway = `${subnet}.1`;
 
-  const forwarded = isForwardedMode(prng, difficulty, config.forwardedOverride);
+  const forwarded = isForwardedMode(
+    prng,
+    difficulty,
+    config.isOuterLayer,
+    config.forwardedOverride,
+  );
 
   // Select entry variant for the entry/DMZ machine.
   // Always consume PRNG picks to preserve sequence, then apply override if set.
@@ -324,6 +334,7 @@ export const generateTopology = (
       minMachines,
       maxMachines,
       difficulty,
+      isOuterLayer: i === 0,
       usedSubnets,
       usedHostnames,
       // Only outermost layer gets user overrides

@@ -20,11 +20,11 @@ Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `tes
 
 ## Difficulty Tiers (3)
 
-| Tier   | Subnet Layers | Machines per Layer | Total Machines | Gateways | Router | Network Mode                        |
-| ------ | ------------- | ------------------ | -------------- | -------- | ------ | ----------------------------------- |
-| Easy   | 1             | 2                  | 2              | 0        | 1      | 70% forwarded, 30% router-first     |
-| Medium | 2             | 2–3                | 5–7            | 1        | 1      | 50/50 per layer                     |
-| Hard   | 3             | 2–3                | 8–11           | 2        | 1      | Always router-first (no forwarding) |
+| Tier   | Subnet Layers | Machines per Layer | Total Machines | Gateways | Router | Network Mode                                 |
+| ------ | ------------- | ------------------ | -------------- | -------- | ------ | -------------------------------------------- |
+| Easy   | 1             | 2                  | 2              | 0        | 1      | 70% forwarded, 30% router-first              |
+| Medium | 2             | 2–3                | 5–7            | 1        | 1      | 50/50 per layer                              |
+| Hard   | 3             | 2–3                | 8–11           | 2        | 1      | Border always router-first; inner layers 30% |
 
 Difficulty adds network depth via isolated subnet layers. Each layer has its own private subnet and entry variant (SSH, FTP, NC, exploit, HTTP, SNMP). Layer boundaries require hacking a dual-homed gateway machine to reach the next layer. The target is always placed in the deepest layer (except portforward, which targets layer 0). Seed keywords for entry variant and network mode apply to the outermost layer only.
 
@@ -332,10 +332,12 @@ Always consumes 8 PRNG calls for sequence stability, even when no closures apply
 
 ## Network Modes (2)
 
-| Mode         | Description                                                                                                                                     |
-| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Forwarded    | Router NATs entry ports to the DMZ/entry machine. Player connects transparently.                                                                |
-| Router-first | No forwarding. Player must hack the router first, then pivot to internal network. Router filesystem contains SSH credentials for entry machine. |
+| Mode         | Description                                                                                                                                       |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Forwarded    | Gateway NATs entry ports to the DMZ/entry machine. Player connects transparently.                                                                 |
+| Router-first | No forwarding. Player must hack the gateway first, then pivot to internal network. Gateway filesystem contains SSH credentials for entry machine. |
+
+Each layer independently rolls its forwarding mode. Border router thresholds: easy 70%, medium 50%, hard 0% (always router-first). Inner layer thresholds: easy 70%, medium 50%, hard 30%. This keeps hard missions challenging at the border while allowing variety in inner pivoting.
 
 ## Machine Roles (7)
 

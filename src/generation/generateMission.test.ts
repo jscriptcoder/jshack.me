@@ -319,7 +319,7 @@ describe('generateMissionNetwork', () => {
     expect(falseCount).toBeGreaterThan(0);
   });
 
-  it('hard difficulty produces no natForwarding (router-first mode)', () => {
+  it('hard difficulty produces no natForwarding on border router (router-first mode)', () => {
     const results = Array.from({ length: 10 }, (_, i) => generateMissionNetwork(`hard-nat-${i}`));
     results.forEach((r) => {
       if (r.difficulty === 'hard') {

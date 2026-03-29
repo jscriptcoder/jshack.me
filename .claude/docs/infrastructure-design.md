@@ -152,7 +152,8 @@ Layer 2 (<layer2-subnet>.10, .11, ...) — 2-3 machines (target here)
 ### Network Modes
 
 - **Forwarded** (easier): Router NATs entry machine ports to its public IP. Player connects to public IP and transparently lands on internal machine. Easy difficulty has 70% chance, medium 50%.
-- **Router-first** (harder): No forwarding. Player must hack the router to reach internal machines. Hard difficulty always uses this mode. A credential placement on the router filesystem contains SSH credentials for the internal entry machine (so the player can reach it after hacking the router).
+- **Router-first** (harder): No forwarding. Player must hack the router to reach internal machines. Hard difficulty always uses this mode for the border router. A credential placement on the router filesystem contains SSH credentials for the internal entry machine (so the player can reach it after hacking the router).
+- **Inner layer thresholds**: Inner gateways roll independently per layer. Easy 70%, medium 50%, hard 30% forwarding chance. This creates variety in multi-layer pivoting — hard missions always start with a router-first border, but inner gateways may have pre-populated NAT rules.
 - **SNMP variant** (router-first only): Router has all TCP ports filtered and SNMP (UDP 161) open. Player discovers SNMP via `nmap -sU`, uses `snmpwalk` with the RW community string to find leaked credentials and firewall OIDs, then `snmpset` to open the SSH port. See `mission-variations.md` for full SNMP attack chain details.
 
 ### Port Closures

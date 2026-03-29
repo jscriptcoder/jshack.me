@@ -205,13 +205,29 @@ describe('generateTopology', () => {
     });
   });
 
-  it('hard difficulty always produces router-first mode (no forwarding)', () => {
+  it('hard difficulty always produces router-first mode for border router', () => {
     const results = Array.from({ length: 20 }, (_, i) =>
       generateTopology(createPrng(`hard-fwd-${i}`), 'hard'),
     );
     results.forEach((r) => {
       expect(r.natForwarding).toBeUndefined();
     });
+  });
+
+  it('hard difficulty inner layers can have forwarded mode', () => {
+    let foundForwarded = false;
+    for (let i = 0; i < 50; i++) {
+      const result = generateTopology(createPrng(`hard-inner-fwd-${i}`), 'hard');
+      // Border router is always router-first on hard
+      expect(result.natForwarding).toBeUndefined();
+      // Inner layers may have forwarding (30% chance on hard)
+      for (let j = 1; j < result.layers.length; j++) {
+        if (result.layers[j]!.isForwarded) {
+          foundForwarded = true;
+        }
+      }
+    }
+    expect(foundForwarded).toBe(true);
   });
 
   it('forwarded mode sets natForwarding with port-level rules', () => {
@@ -617,6 +633,7 @@ describe('generateSubnetLayer', () => {
     minMachines: 2,
     maxMachines: 3,
     difficulty: 'medium' as Difficulty,
+    isOuterLayer: true,
     usedSubnets: new Set<string>(),
     usedHostnames: {} as Record<string, Set<string>>,
     ...overrides,

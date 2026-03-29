@@ -59,7 +59,7 @@ The seed string and filesystem patches are persisted to IndexedDB. On page reloa
 
 ### Network Isolation
 
-Mission machines live on their own subnet (e.g., `10.x.x.0/24`) behind a router with a public IP (45.x.x.x). From localhost, only the router's public IP is visible. Two modes: forwarded (router NATs to internal DMZ) or router-first (hack the router to reach internal machines).
+Mission machines live on their own subnet (e.g., `10.x.x.0/24`) behind a router with a public IP (45.x.x.x). From localhost, only the router's public IP is visible. Two modes per layer: forwarded (gateway NATs to internal DMZ) or router-first (hack the gateway to reach internal machines). Border router is always router-first on hard difficulty; inner layers roll independently (30% forwarding on hard).
 
 ### Entry Variants
 
