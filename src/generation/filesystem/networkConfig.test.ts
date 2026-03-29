@@ -1,0 +1,191 @@
+import { describe, it, expect } from 'vitest';
+import { createPrng } from '../prng';
+import { generateTopology } from '../topology';
+import { generateUsers } from '../users';
+import { buildMissionObjective } from '../attackChain';
+import { generateFileSystems } from '.';
+import type { FileNode } from '../../filesystem/types';
+import { resolveNode } from './testHelpers';
+
+describe('iptables rules file on router', () => {
+  const buildWithRouter = (seed: string) => {
+    const prng = createPrng(seed);
+    const topology = generateTopology(prng, 'medium');
+    const { usersByMachine, credentials } = generateUsers(
+      prng,
+      topology.machines,
+      topology.entryPoint,
+    );
+    const { objective } = buildMissionObjective({
+      prng,
+      machines: topology.machines,
+      credentials,
+      entryPoint: topology.entryPoint,
+      difficulty: 'medium',
+    });
+    const { fileSystems } = generateFileSystems({
+      prng,
+      machines: topology.machines,
+      usersByMachine,
+      credentials,
+      objective,
+      routerMachine: topology.routerMachine,
+      natForwarding: topology.natForwarding,
+    });
+    return { topology, fileSystems, objective };
+  };
+
+  it('forwarded mode: router has /etc/iptables/rules.v4 with forward rules', () => {
+    const { topology, fileSystems } = buildWithRouter('iptables-forwarded-forwarded');
+    // Find a seed that produces forwarded mode
+    if (!topology.natForwarding) {
+      // Skip if this seed doesn't produce forwarded mode — test with explicit seed
+      return;
+    }
+
+    const routerFs = fileSystems[topology.routerMachine.ip];
+    const rulesFile = resolveNode(routerFs as FileNode, '/etc/iptables/rules.v4');
+
+    expect(rulesFile).toBeDefined();
+    expect(rulesFile?.type).toBe('file');
+    expect(rulesFile?.owner).toBe('root');
+
+    // Should contain forward rules matching NAT config
+    for (const rule of topology.natForwarding.rules) {
+      expect(rulesFile?.content).toContain(
+        `forward ${rule.publicPort} to ${rule.internalIp}:${rule.internalPort}`,
+      );
+    }
+  });
+
+  it('forwarded mode: rules match NAT forwarding exactly', () => {
+    // Use explicit forwarded seed to guarantee forwarded mode
+    for (let i = 0; i < 50; i++) {
+      const data = buildWithRouter(`iptables-fwd-exact-${i}-forwarded`);
+      if (!data.topology.natForwarding) continue;
+
+      const routerFs = data.fileSystems[data.topology.routerMachine.ip];
+      const rulesFile = resolveNode(routerFs as FileNode, '/etc/iptables/rules.v4');
+      expect(rulesFile).toBeDefined();
+
+      const content = rulesFile?.content ?? '';
+      const forwardLines = content.split('\n').filter((line) => line.startsWith('forward '));
+
+      expect(forwardLines.length).toBe(data.topology.natForwarding.rules.length);
+      return;
+    }
+    throw new Error('No forwarded mode found in 50 seeds');
+  });
+
+  it('router-first mode: rules file exists but has no forward lines', () => {
+    for (let i = 0; i < 50; i++) {
+      const data = buildWithRouter(`iptables-routerfirst-${i}-router-first`);
+      if (data.topology.natForwarding) continue; // skip forwarded seeds
+
+      const routerFs = data.fileSystems[data.topology.routerMachine.ip];
+      const rulesFile = resolveNode(routerFs as FileNode, '/etc/iptables/rules.v4');
+
+      expect(rulesFile).toBeDefined();
+      expect(rulesFile?.type).toBe('file');
+      expect(rulesFile?.owner).toBe('root');
+
+      // Should have the comment header but no forward lines
+      const content = rulesFile?.content ?? '';
+      expect(content).toContain('# Port Forwarding Rules');
+      const forwardLines = content.split('\n').filter((line) => line.startsWith('forward '));
+      expect(forwardLines.length).toBe(0);
+      return;
+    }
+    throw new Error('No router-first mode found in 50 seeds');
+  });
+
+  it('iptables file is root-owned', () => {
+    const data = buildWithRouter('iptables-owner-test-forwarded');
+    const routerFs = data.fileSystems[data.topology.routerMachine.ip];
+    const rulesFile = resolveNode(routerFs as FileNode, '/etc/iptables/rules.v4');
+
+    expect(rulesFile).toBeDefined();
+    expect(rulesFile?.owner).toBe('root');
+    // mkFile('root') produces ['root', 'root'] — only root can write
+    expect(rulesFile?.permissions.write).toEqual(['root', 'root']);
+  });
+});
+
+describe('SNMP config file on router', () => {
+  const buildWithSnmpRouter = (seed: string) => {
+    const prng = createPrng(seed);
+    const topology = generateTopology(prng, 'hard', { entryVariantOverride: 'snmp' });
+    const { usersByMachine, credentials } = generateUsers(
+      prng,
+      topology.machines,
+      topology.entryPoint,
+    );
+    // Generate router users separately (same pattern as generateMissionNetwork)
+    const { usersByMachine: routerUsersByMachine, credentials: routerCredentials } = generateUsers(
+      prng,
+      [topology.routerMachine],
+      '',
+    );
+    const allCredentials = { ...credentials, ...routerCredentials };
+    const allUsersByMachine = { ...usersByMachine, ...routerUsersByMachine };
+    const { objective } = buildMissionObjective({
+      prng,
+      machines: topology.machines,
+      credentials: allCredentials,
+      entryPoint: topology.entryPoint,
+      difficulty: 'hard',
+    });
+    const { fileSystems } = generateFileSystems({
+      prng,
+      machines: topology.machines,
+      usersByMachine: allUsersByMachine,
+      credentials: allCredentials,
+      objective,
+      routerMachine: topology.routerMachine,
+      natForwarding: topology.natForwarding,
+      entryVariant: 'snmp',
+    });
+    return { topology, fileSystems, credentials: allCredentials };
+  };
+
+  it('SNMP router has /etc/snmp/snmpd.conf with community strings and OID data', () => {
+    const { topology, fileSystems, credentials } = buildWithSnmpRouter('snmp-fs-test');
+    const routerFs = fileSystems[topology.routerMachine.ip];
+    const snmpConf = resolveNode(routerFs as FileNode, '/etc/snmp/snmpd.conf');
+
+    expect(snmpConf).toBeDefined();
+    expect(snmpConf?.type).toBe('file');
+    expect(snmpConf?.owner).toBe('root');
+
+    const content = snmpConf?.content ?? '';
+    // Must have read-only and read-write community strings
+    expect(content).toContain('rocommunity public');
+    expect(content).toMatch(/rwcommunity \w+/);
+    // Must have system OIDs
+    expect(content).toContain('sysName');
+    expect(content).toContain(topology.routerMachine.hostname);
+    // Must have firewall OIDs
+    expect(content).toContain('firewallSSH deny');
+    // Must have credentials leaked via extend script args
+    const routerCreds = credentials[topology.routerMachine.ip];
+    const userCred = routerCreds?.find((c) => c.username !== 'root');
+    if (userCred) {
+      expect(content).toContain(userCred.username);
+      expect(content).toContain(userCred.password);
+    }
+  });
+
+  it('snmpd.conf is deterministic for the same seed', () => {
+    const a = buildWithSnmpRouter('snmp-determ');
+    const b = buildWithSnmpRouter('snmp-determ');
+    const confA = resolveNode(
+      a.fileSystems[a.topology.routerMachine.ip] as FileNode,
+      '/etc/snmp/snmpd.conf',
+    );
+    const confB = resolveNode(
+      b.fileSystems[b.topology.routerMachine.ip] as FileNode,
+      '/etc/snmp/snmpd.conf',
+    );
+    expect(confA?.content).toBe(confB?.content);
+  });
+});

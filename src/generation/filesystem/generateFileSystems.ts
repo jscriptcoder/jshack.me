@@ -1,21 +1,22 @@
-import type { Prng } from './prng';
+import type { Prng } from '../prng';
 import type {
   CredentialMap,
+  Difficulty,
   EntryVariant,
   GeneratedMachine,
   MachineRole,
   MissionObjective,
   NatForwarding,
   SubnetLayer,
-} from './types';
-import type { FileNode } from '../filesystem/types';
-import type { RemoteUser } from '../network/types';
+} from '../types';
+import type { FileNode } from '../../filesystem/types';
+import type { RemoteUser } from '../../network/types';
 import {
   createFileSystem,
   mergeFileNodeChildren,
   type MachineFileSystemConfig,
   type UserConfig,
-} from '../filesystem/fileSystemFactory';
+} from '../../filesystem/fileSystemFactory';
 import {
   configTemplatesByRole,
   credentialLeakTemplates,
@@ -23,36 +24,25 @@ import {
   logTemplates,
   noiseFiles,
   redHerringFiles,
-  snmpRwCommunities,
   webContentTemplatesByRole,
-} from './pools';
-import { wrapInBinaryNoise } from './binary';
+} from '../pools';
+import { wrapInBinaryNoise } from '../binary';
 import {
   createBinaryEntries,
   SYSTEM_UTILITY_NAMES,
   SBIN_UTILITY_NAMES,
-} from '../commands/availability';
-import { SSH_PID_FILE_NAME, createSshdPidFileNode } from '../commands/sshd';
-import { FTP_PID_FILE_NAME, createVsftpdPidFileNode } from '../commands/vsftpd';
+} from '../../commands/availability';
+import { SSH_PID_FILE_NAME, createSshdPidFileNode } from '../../commands/sshd';
+import { FTP_PID_FILE_NAME, createVsftpdPidFileNode } from '../../commands/vsftpd';
+import { mkFile, mkScript, mkDir, fillTemplate, findLeafDir, buildNestedDirs } from './helpers';
 import {
-  formatSshAccepted,
-  formatSshFailed,
-  formatSuSuccess,
-  formatFtpConnect,
-  formatFtpLoginOk,
-  formatFtpLoginFailed,
-  formatAccessLog,
-} from '../logging/formatters';
-import type { ForensicsLogType } from './pools';
-import {
-  forensicsCallingCardTemplates,
-  forensicsLogTypes,
-  forensicsNoiseCount,
-  forensicsNoiseHttpPaths,
-  forensicsNoiseIps,
-  forensicsNoiseUsers,
-} from './pools';
-import type { Difficulty } from './types';
+  generateAclContent,
+  generateIptablesContent,
+  generateSnmpConfig,
+  generateSwitchSnmpConfig,
+  generateBasicSnmpConfig,
+} from './networkConfig';
+import { generateForensicsEvidence } from './forensicsEvidence';
 
 type FilesystemInput = {
   readonly prng: Prng;
@@ -67,62 +57,6 @@ type FilesystemInput = {
   readonly difficulty?: Difficulty;
   readonly layers?: readonly SubnetLayer[];
 };
-
-export const mkFile = (
-  name: string,
-  content: string,
-  owner: 'root' | 'user' | 'guest' = 'root',
-): FileNode => ({
-  name,
-  type: 'file',
-  owner,
-  permissions: {
-    read: owner === 'guest' ? ['root', 'user', 'guest'] : ['root', owner],
-    write: owner === 'guest' ? ['root', 'guest'] : ['root', owner],
-    execute: ['root'],
-  },
-  content,
-});
-
-// Script files have variable permissions based on owner:
-// user-owned: anyone can read/write/execute (easier — no privilege escalation needed)
-// root-owned: anyone can read, but only root can write/execute (must su first)
-const mkScript = (name: string, content: string, owner: 'root' | 'user' = 'user'): FileNode => ({
-  name,
-  type: 'file',
-  owner,
-  permissions: {
-    read: ['root', 'user', 'guest'],
-    write: owner === 'user' ? ['root', 'user', 'guest'] : ['root'],
-    execute: owner === 'user' ? ['root', 'user', 'guest'] : ['root'],
-  },
-  content,
-});
-
-// worldReadable: system directories (/var, /tmp, /etc, /srv, /opt, /home, /usr) should
-// be traversable by all users. Home subdirs remain owner-scoped via the default.
-export const mkDir = (
-  name: string,
-  children: Readonly<Record<string, FileNode>>,
-  owner: 'root' | 'user' | 'guest' = 'root',
-  worldReadable: boolean = false,
-): FileNode => ({
-  name,
-  type: 'directory',
-  owner,
-  permissions: {
-    read: worldReadable || owner === 'guest' ? ['root', 'user', 'guest'] : ['root', owner],
-    write: ['root', owner],
-    execute: worldReadable || owner === 'guest' ? ['root', 'user', 'guest'] : ['root', owner],
-  },
-  children,
-});
-
-const fillTemplate = (template: string, vars: Readonly<Record<string, string>>): string =>
-  Object.entries(vars).reduce(
-    (result, [key, value]) => result.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value),
-    template,
-  );
 
 const CREDENTIAL_LEAK_CHANCE = 0.3;
 
@@ -322,184 +256,6 @@ const placeTargetFile = (
 
   // /srv/, /opt/, etc. — build nested directory tree in extraDirectories
   extraDirectories[topDir] = buildNestedDirs(segments, file);
-};
-
-// Walks a nested directory tree to find the deepest directory node.
-// Used to merge sibling files into an existing directory structure
-// (e.g., adding a hint file alongside a script in /srv/scripts/).
-const findLeafDir = (node: FileNode): FileNode | undefined => {
-  if (node.type !== 'directory' || !node.children) return undefined;
-  const childDirs = Object.values(node.children).filter((c) => c.type === 'directory');
-  if (childDirs.length === 0) return node;
-  return findLeafDir(childDirs[0] as FileNode) ?? node;
-};
-
-// Builds a nested directory tree from path segments, placing the file at the leaf.
-// e.g., ['srv', 'records', 'file.csv'] → mkDir('srv', { records: mkDir('records', { 'file.csv': file }) })
-// All intermediate directories are world-readable (system paths like /srv/, /opt/, /usr/).
-const buildNestedDirs = (segments: readonly string[], file: FileNode): FileNode => {
-  if (segments.length <= 1) return file;
-
-  const dirName = segments[0] as string;
-  const child = buildNestedDirs(segments.slice(1), file);
-  const childName = segments[1] as string;
-
-  return mkDir(dirName, { [childName]: child }, 'root', true);
-};
-
-// Generates the content for /etc/switch/acl.conf on managed switches.
-// Deny rules block SSH and HTTP traffic to the downstream subnet.
-// Players must clear these rules (via nano or snmpset) to access downstream machines.
-const generateAclContent = (downstreamSubnet: string): string => {
-  const lines = [
-    '# Access Control List',
-    '# Syntax: <action> <proto> any <subnet> port <port>',
-    `deny tcp any ${downstreamSubnet}.0/24 port 22`,
-    `deny tcp any ${downstreamSubnet}.0/24 port 80`,
-  ];
-  return lines.join('\n');
-};
-
-// Generates the content for /etc/iptables/rules.v4 on the router.
-// Forwarded mode: pre-populated with forward rules matching NAT config.
-// Router-first mode (no NAT): only comments and an empty template.
-const generateIptablesContent = (natForwarding?: NatForwarding): string => {
-  const lines = [
-    '# Port Forwarding Rules',
-    '# forward <public_port> to <internal_ip>:<port>',
-    ...(natForwarding
-      ? natForwarding.rules.map(
-          (rule) => `forward ${rule.publicPort} to ${rule.internalIp}:${rule.internalPort}`,
-        )
-      : []),
-  ];
-
-  return lines.join('\n');
-};
-
-// Generates /etc/snmp/snmpd.conf content for SNMP-variant routers.
-// Contains community strings, system OIDs, interface data, extend script args
-// with leaked credentials, and firewall OIDs (initially deny).
-export const generateSnmpConfig = (
-  prng: Prng,
-  machine: GeneratedMachine,
-  machineCreds: readonly { readonly username: string; readonly password: string }[],
-  secondaryIp?: string,
-): string => {
-  const rwCommunity = prng.pick(snmpRwCommunities);
-  const userCred = machineCreds.find((c) => c.username !== 'root') ?? machineCreds[0];
-
-  const lines = [
-    '# SNMP Daemon Configuration',
-    '# net-snmp 5.9.1',
-    '',
-    '# Community strings',
-    'rocommunity public',
-    `rwcommunity ${rwCommunity}`,
-    '',
-    '# System information',
-    `sysDescr Linux ${machine.hostname} 5.4.0-generic #1 SMP`,
-    `sysName ${machine.hostname}`,
-    `sysContact netops@corp.local`,
-    '',
-    '# Interfaces',
-    'ifDescr.1 eth0',
-    'ifDescr.2 eth1',
-    `ifAddr.1 ${machine.ip}`,
-    ...(secondaryIp ? [`ifAddr.2 ${secondaryIp}`] : []),
-    '',
-    '# Extend scripts',
-    ...(userCred
-      ? [`nsExtendArgs.backup --user ${userCred.username} --pass ${userCred.password}`]
-      : []),
-    '',
-    '# Firewall OIDs',
-    'firewallSSH deny',
-    'firewallHTTP deny',
-  ];
-
-  return lines.join('\n');
-};
-
-// Generates /etc/snmp/snmpd.conf content for SNMP-variant managed switches.
-// Contains community strings, system OIDs, interface data, extend script args
-// with leaked credentials, and ACL OIDs (initially deny).
-export const generateSwitchSnmpConfig = (
-  prng: Prng,
-  machine: GeneratedMachine,
-  machineCreds: readonly { readonly username: string; readonly password: string }[],
-  secondaryIp?: string,
-): string => {
-  const rwCommunity = prng.pick(snmpRwCommunities);
-  const userCred = machineCreds.find((c) => c.username !== 'root') ?? machineCreds[0];
-
-  const lines = [
-    '# SNMP Daemon Configuration',
-    '# net-snmp 5.9.1',
-    '',
-    '# Community strings',
-    'rocommunity public',
-    `rwcommunity ${rwCommunity}`,
-    '',
-    '# System information',
-    `sysDescr Cisco IOS L3 Switch ${machine.hostname} 15.2(4)E`,
-    `sysName ${machine.hostname}`,
-    `sysContact netadmin@corp.local`,
-    '',
-    '# Interfaces',
-    'ifDescr.1 GigabitEthernet0/1',
-    'ifDescr.2 GigabitEthernet0/2',
-    `ifAddr.1 ${machine.ip}`,
-    ...(secondaryIp ? [`ifAddr.2 ${secondaryIp}`] : []),
-    '',
-    '# Extend scripts',
-    ...(userCred
-      ? [`nsExtendArgs.backup --user ${userCred.username} --pass ${userCred.password}`]
-      : []),
-    '',
-    '# ACL OIDs',
-    'aclSSH deny',
-    'aclHTTP deny',
-  ];
-
-  return lines.join('\n');
-};
-
-// Generates a lightweight /etc/snmp/snmpd.conf for non-SNMP-variant gateways.
-// Read-only public community, system info, and interface data only — no rw community,
-// no credential leaks, no firewall/ACL OIDs. Allows players to discover dual-homed
-// gateways via snmpwalk with public community.
-export const generateBasicSnmpConfig = (
-  hostname: string,
-  primaryIp: string,
-  secondaryIp: string,
-  isSwitch: boolean,
-): string => {
-  const sysDescr = isSwitch
-    ? `Cisco IOS L3 Switch ${hostname} 15.2(4)E`
-    : `Linux ${hostname} 5.4.0-generic #1 SMP`;
-  const ifNames = isSwitch ? ['GigabitEthernet0/1', 'GigabitEthernet0/2'] : ['eth0', 'eth1'];
-
-  const lines = [
-    '# SNMP Daemon Configuration',
-    '# net-snmp 5.9.1',
-    '',
-    '# Community strings',
-    'rocommunity public',
-    '',
-    '# System information',
-    `sysDescr ${sysDescr}`,
-    `sysName ${hostname}`,
-    `sysContact netops@corp.local`,
-    '',
-    '# Interfaces',
-    `ifDescr.1 ${ifNames[0]}`,
-    `ifDescr.2 ${ifNames[1]}`,
-    `ifAddr.1 ${primaryIp}`,
-    `ifAddr.2 ${secondaryIp}`,
-  ];
-
-  return lines.join('\n');
 };
 
 export type BuildMachineConfigOptions = {
@@ -772,259 +528,6 @@ const mergeKeyPlacement = (
       [keyTree.topDir]: keyTree.node,
     }),
   };
-};
-
-// Generates SSH log lines (auth.log) for a forensics attack hop
-const generateSshLogLines = (
-  prng: Prng,
-  baseDate: Date,
-  minuteOffset: number,
-  hostname: string,
-  sourceIp: string,
-): { readonly lines: readonly string[]; readonly minutesUsed: number } => {
-  const pid = prng.nextInt(1000, 9999);
-  const lines: string[] = [];
-  let offset = 0;
-
-  const failedAttempts = prng.nextInt(1, 3);
-  const failedLines = Array.from({ length: failedAttempts }, (_, f) => {
-    const date = new Date(baseDate.getTime() + (minuteOffset + offset + f) * 60000);
-    const port = prng.nextInt(30000, 60000);
-    return formatSshFailed(date, hostname, pid, 'root', sourceIp, port);
-  });
-  lines.push(...failedLines);
-  offset += failedAttempts;
-
-  const successDate = new Date(baseDate.getTime() + (minuteOffset + offset) * 60000);
-  const successPort = prng.nextInt(30000, 60000);
-  lines.push(formatSshAccepted(successDate, hostname, pid, 'root', sourceIp, successPort));
-  offset += 2;
-
-  return { lines, minutesUsed: offset };
-};
-
-// Generates FTP log lines (vsftpd.log) for a forensics attack hop
-const generateFtpLogLines = (
-  prng: Prng,
-  baseDate: Date,
-  minuteOffset: number,
-  sourceIp: string,
-): { readonly lines: readonly string[]; readonly minutesUsed: number } => {
-  const lines: string[] = [];
-  let offset = 0;
-
-  const connectDate = new Date(baseDate.getTime() + (minuteOffset + offset) * 60000);
-  lines.push(formatFtpConnect(connectDate, sourceIp));
-  offset += 1;
-
-  const failedAttempts = prng.nextInt(1, 2);
-  const failedLines = Array.from({ length: failedAttempts }, (_, f) => {
-    const date = new Date(baseDate.getTime() + (minuteOffset + offset + f) * 60000);
-    return formatFtpLoginFailed(date, sourceIp, 'admin');
-  });
-  lines.push(...failedLines);
-  offset += failedAttempts;
-
-  const successDate = new Date(baseDate.getTime() + (minuteOffset + offset) * 60000);
-  lines.push(formatFtpLoginOk(successDate, sourceIp, 'root'));
-  offset += 2;
-
-  return { lines, minutesUsed: offset };
-};
-
-// Generates HTTP log lines (access.log) for a forensics attack hop
-const generateHttpLogLines = (
-  prng: Prng,
-  baseDate: Date,
-  minuteOffset: number,
-  sourceIp: string,
-): { readonly lines: readonly string[]; readonly minutesUsed: number } => {
-  const lines: string[] = [];
-  let offset = 0;
-
-  // Reconnaissance requests
-  const recon = ['/robots.txt', '/admin', '/login', '/.env', '/api/config'];
-  const reconCount = prng.nextInt(2, 4);
-  const reconLines = Array.from({ length: reconCount }, (_, r) => {
-    const date = new Date(baseDate.getTime() + (minuteOffset + offset + r) * 60000);
-    const path = prng.pick(recon);
-    const status = path === '/admin' || path === '/login' ? 200 : 404;
-    return formatAccessLog(date, sourceIp, 'GET', path, status, prng.nextInt(200, 5000));
-  });
-  lines.push(...reconLines);
-  offset += reconCount;
-
-  // Successful exploit/auth
-  const successDate = new Date(baseDate.getTime() + (minuteOffset + offset) * 60000);
-  lines.push(formatAccessLog(successDate, sourceIp, 'POST', '/admin/login', 302, 0));
-  offset += 1;
-
-  const shellDate = new Date(baseDate.getTime() + (minuteOffset + offset) * 60000);
-  lines.push(
-    formatAccessLog(shellDate, sourceIp, 'POST', '/admin/shell', 200, prng.nextInt(100, 2000)),
-  );
-  offset += 2;
-
-  return { lines, minutesUsed: offset };
-};
-
-// Maps a log type to its filename and line generator
-const generateLogForType = (
-  logType: ForensicsLogType,
-  prng: Prng,
-  baseDate: Date,
-  minuteOffset: number,
-  hostname: string,
-  sourceIp: string,
-): {
-  readonly fileName: string;
-  readonly lines: readonly string[];
-  readonly minutesUsed: number;
-} => {
-  if (logType === 'ftp') {
-    const { lines, minutesUsed } = generateFtpLogLines(prng, baseDate, minuteOffset, sourceIp);
-    return { fileName: 'vsftpd.log', lines, minutesUsed };
-  }
-  if (logType === 'http') {
-    const { lines, minutesUsed } = generateHttpLogLines(prng, baseDate, minuteOffset, sourceIp);
-    return { fileName: 'access.log', lines, minutesUsed };
-  }
-  const { lines, minutesUsed } = generateSshLogLines(
-    prng,
-    baseDate,
-    minuteOffset,
-    hostname,
-    sourceIp,
-  );
-  return { fileName: 'auth.log', lines, minutesUsed };
-};
-
-// Generates red herring noise log lines for a given log type and difficulty
-const generateNoiseLines = (
-  prng: Prng,
-  logType: ForensicsLogType,
-  baseDate: Date,
-  minuteOffset: number,
-  hostname: string,
-  difficulty: Difficulty,
-): readonly string[] => {
-  const [min, max] = forensicsNoiseCount[difficulty];
-  const count = prng.nextInt(min, max);
-
-  return Array.from({ length: count }, () => {
-    // Noise happens at random times before/around the attack
-    const offsetMinutes = prng.nextInt(-60, 120);
-    const date = new Date(baseDate.getTime() + (minuteOffset + offsetMinutes) * 60000);
-    const noiseIp = prng.pick(forensicsNoiseIps);
-    const noiseUser = prng.pick(forensicsNoiseUsers);
-
-    if (logType === 'ssh') {
-      const port = prng.nextInt(30000, 60000);
-      const pid = prng.nextInt(1000, 9999);
-      return prng.next() < 0.7
-        ? formatSshAccepted(date, hostname, pid, noiseUser, noiseIp, port)
-        : formatSshFailed(date, hostname, pid, noiseUser, noiseIp, port);
-    }
-    if (logType === 'ftp') {
-      return prng.next() < 0.7
-        ? formatFtpLoginOk(date, noiseIp, noiseUser)
-        : formatFtpLoginFailed(date, noiseIp, noiseUser);
-    }
-    const path = prng.pick(forensicsNoiseHttpPaths);
-    return formatAccessLog(date, noiseIp, 'GET', path, 200, prng.nextInt(200, 5000));
-  });
-};
-
-// Generates pre-populated log entries and calling card for forensics objectives.
-// Returns a map of machineIp → extra files to merge into the filesystem.
-const generateForensicsEvidence = (
-  prng: Prng,
-  machines: readonly GeneratedMachine[],
-  objective: MissionObjective,
-  difficulty: Difficulty = 'medium',
-): Readonly<Record<string, Readonly<Record<string, FileNode>>>> => {
-  if (objective.type !== 'forensics' || !objective.attackerHandle || !objective.attackerIp) {
-    return {};
-  }
-
-  const { attackerHandle, attackerIp } = objective;
-  const result: Record<string, Record<string, FileNode>> = {};
-
-  // Base date for the attack timeline (a few days ago)
-  const baseDate = new Date('2026-03-20T02:30:00Z');
-  let minuteOffset = 0;
-
-  for (let i = 0; i < machines.length; i++) {
-    const machine = machines[i] as GeneratedMachine;
-    const sourceIp = i === 0 ? attackerIp : (machines[i - 1] as GeneratedMachine).ip;
-
-    // Pick a log type for this machine
-    const logType = prng.pick(forensicsLogTypes);
-    const { fileName, lines, minutesUsed } = generateLogForType(
-      logType,
-      prng,
-      baseDate,
-      minuteOffset,
-      machine.hostname,
-      sourceIp,
-    );
-    minuteOffset += minutesUsed;
-
-    // su to root on non-entry machines (50% chance, only for SSH logs)
-    const attackerLines =
-      i > 0 && logType === 'ssh' && prng.next() < 0.5
-        ? [
-            ...lines,
-            formatSuSuccess(
-              new Date(baseDate.getTime() + minuteOffset++ * 60000),
-              machine.hostname,
-              prng.nextInt(1000, 9999),
-              'root',
-              'operator',
-            ),
-          ]
-        : [...lines];
-
-    // Add red herring noise entries from other IPs
-    const noiseLines = generateNoiseLines(
-      prng,
-      logType,
-      baseDate,
-      minuteOffset,
-      machine.hostname,
-      difficulty,
-    );
-
-    // Interleave noise before and after attacker lines
-    const allLines = [
-      ...noiseLines.slice(0, Math.ceil(noiseLines.length / 2)),
-      ...attackerLines,
-      ...noiseLines.slice(Math.ceil(noiseLines.length / 2)),
-    ];
-
-    const logFile = mkFile(fileName, allLines.join('\n'));
-    const varLog = mkDir('log', { [fileName]: logFile }, 'root', true);
-    const varDir = mkDir('var', { log: varLog }, 'root', true);
-
-    result[machine.ip] = { var: varDir };
-
-    // Place calling card on the deepest machine
-    if (i === machines.length - 1) {
-      const template = prng.pick(forensicsCallingCardTemplates);
-      const cardPath = template.path.replace(/\{\{handle\}\}/g, attackerHandle);
-      const cardContent = template.content.replace(/\{\{handle\}\}/g, attackerHandle);
-      const segments = cardPath.split('/').filter(Boolean);
-      const fileName = segments[segments.length - 1] ?? `.${attackerHandle}`;
-      const cardFile = mkFile(fileName, cardContent);
-      const topDir = segments[0] ?? 'tmp';
-      result[machine.ip] = {
-        ...result[machine.ip],
-        [topDir]: buildNestedDirs(segments, cardFile),
-      };
-    }
-  }
-
-  return result;
 };
 
 // Merges script_auto data files into a machine's filesystem config.

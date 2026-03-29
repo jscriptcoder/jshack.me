@@ -32,7 +32,11 @@ src/
 │   ├── generateNetwork.ts     # Shared pipeline: topology → users → enrichment → port closures → filesystems
 │   ├── attackChain.ts         # Attack chain generator (path, methods, credential placements)
 │   ├── binary.ts              # Binary noise wrapping for credential/target files; binary path pools
-│   ├── filesystem.ts          # Filesystem generator (role templates, breadcrumbs, noise, entry creds)
+│   ├── filesystem/            # Filesystem generation (split into submodules)
+│   │   ├── helpers.ts         # mkFile, mkDir, mkScript, fillTemplate, tree utilities
+│   │   ├── networkConfig.ts   # SNMP, ACL, iptables config generators
+│   │   ├── forensicsEvidence.ts # Forensics log generation + calling cards
+│   │   └── generateFileSystems.ts # Machine config builder + orchestrator
 │   └── generateMission.ts     # Mission orchestrator: seed → MissionNetwork (uses enrichment.ts)
 ├── mission/               # Mission system integration (Phase 2)
 │   ├── MissionContext.tsx     # React context for active mission state + start/abort/complete
@@ -124,7 +128,7 @@ Unix-realistic permission model with owner-scoped access and directory traversal
 
 **`cd` checks execute, not read**: Matches real Unix — `cd` into a directory requires execute permission. `ls` requires read permission on the target but execute on all parents. This applies to main `cd`, FTP `cd`/`lcd`, and NC `cd`.
 
-**Generated mission filesystems** (`src/generation/filesystem.ts`): `mkFile` and `mkDir` helpers produce owner-scoped permissions. `mkDir` accepts an optional `worldReadable` parameter for system directories. `mkScript` has its own explicit permission logic for script_fix objectives.
+**Generated mission filesystems** (`src/generation/filesystem/`): `mkFile` and `mkDir` helpers (in `helpers.ts`) produce owner-scoped permissions. `mkDir` accepts an optional `worldReadable` parameter for system directories. `mkScript` has its own explicit permission logic for script_fix objectives.
 
 ## Nano Editor
 
@@ -236,7 +240,7 @@ Unified filesystem-based access model (`src/commands/availability.ts`). All comm
 
 `src/generation/` contains the engine for procedurally generating mission networks from a seed string. See `mission-variations.md` for the complete catalog of all generation axes, templates, and pools.
 
-**Pipeline**: `generateMissionNetwork(seed, usedIps?)` has its own orchestration (for PRNG sequence stability) but shares building blocks with home networks: topology (`topology.ts`), users (`users.ts`), enrichment (`enrichment.ts`), and filesystem helpers (`filesystem.ts`). Mission-specific steps: objective type resolution → port closures → attack chain (`attackChain.ts`) → objective filesystems → binary wrapping (`binary.ts`). Home networks use the shared `generateNetwork()` pipeline (`generateNetwork.ts`) which composes the same building blocks. Seeds can embed keywords to override generation axes — see `parseSeedOverrides()` in `generateMission.ts`. Shared IP utilities (`ip.ts`) provide `generatePublicIp(prng, usedIps?)` and `generatePrivateSubnet(prng)` — used by both mission and home network generation. When `usedIps` is provided, public IP generation re-rolls to avoid collisions.
+**Pipeline**: `generateMissionNetwork(seed, usedIps?)` has its own orchestration (for PRNG sequence stability) but shares building blocks with home networks: topology (`topology.ts`), users (`users.ts`), enrichment (`enrichment.ts`), and filesystem helpers (`filesystem/`). Mission-specific steps: objective type resolution → port closures → attack chain (`attackChain.ts`) → objective filesystems → binary wrapping (`binary.ts`). Home networks use the shared `generateNetwork()` pipeline (`generateNetwork.ts`) which composes the same building blocks. Seeds can embed keywords to override generation axes — see `parseSeedOverrides()` in `generateMission.ts`. Shared IP utilities (`ip.ts`) provide `generatePublicIp(prng, usedIps?)` and `generatePrivateSubnet(prng)` — used by both mission and home network generation. When `usedIps` is provided, public IP generation re-rolls to avoid collisions.
 
 **Key properties**: Deterministic (same seed → identical network). 5 machine roles, 3 difficulty tiers, 6 entry variants (ssh, ftp, nc, exploit, http, snmp), 2 network modes, 8 objective types. Output types match existing `NetworkConfig`, `RemoteMachine`, `FileNode`. Mission passwords imported from `src/secrets/__encoded.ts`.
 
