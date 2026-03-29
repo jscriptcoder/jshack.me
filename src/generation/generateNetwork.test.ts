@@ -189,22 +189,34 @@ describe('generateNetwork', () => {
     }
   });
 
-  it('router filesystem contains /etc/hosts with internal machine hints', () => {
-    const net = generate('fs-router-hosts');
-    const routerFs = net.fileSystems[net.routerMachine.ip];
-    expect(routerFs).toBeDefined();
-    const etc = routerFs?.type === 'directory' ? routerFs.children?.['etc'] : undefined;
-    expect(etc?.type).toBe('directory');
-    if (etc?.type === 'directory') {
+  it('router /etc/hosts lists only layer 0 machines and first gateway', () => {
+    for (const diff of ['easy', 'medium', 'hard'] as const) {
+      const net = generate(`fs-router-hosts-${diff}`, diff);
+      const routerFs = net.fileSystems[net.routerMachine.ip];
+      expect(routerFs).toBeDefined();
+      const etc = routerFs?.type === 'directory' ? routerFs.children?.['etc'] : undefined;
+      expect(etc?.type).toBe('directory');
+      if (etc?.type !== 'directory') continue;
       const hosts = etc.children?.['hosts'];
       expect(hosts).toBeDefined();
-      if (hosts?.type === 'file' && hosts.content) {
-        // Should contain at least one internal machine IP
-        const anyMachineIp = net.machines[0]?.ip;
-        if (anyMachineIp) {
-          expect(hosts.content).toContain(anyMachineIp);
-        }
+      if (hosts?.type !== 'file' || !hosts.content) continue;
+
+      // Layer 0 machines should be listed
+      net.topology.layers[0]!.machines.forEach((m) => {
+        expect(hosts.content).toContain(m.hostname);
+      });
+
+      // First inner gateway should be listed (if multi-layer)
+      if (net.topology.layers.length > 1) {
+        expect(hosts.content).toContain(net.topology.layers[1]!.gateway.hostname);
       }
+
+      // Machines from deeper layers (1+) should NOT be listed
+      net.topology.layers.slice(1).forEach((layer) => {
+        layer.machines.forEach((m) => {
+          expect(hosts.content).not.toContain(m.ip);
+        });
+      });
     }
   });
 

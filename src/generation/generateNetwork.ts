@@ -221,16 +221,21 @@ export const generateNetwork = (options: GenerateNetworkOptions): GeneratedNetwo
       fileSystems[machine.ip] = createFileSystem(config);
     });
 
-    // Router filesystem
+    // Router filesystem — border router only sees layer 0 machines + first inner gateway
     const routerUsersForFs = allUsersByMachine[routerWithUsers.ip] ?? [];
     const routerCredsForFs = allCredentials[routerWithUsers.ip] ?? [];
+    const layer0Ips = new Set(topology.layers[0]!.machines.map((m) => m.ip));
+    const firstGatewayIp = topology.layers.length > 1 ? topology.layers[1]!.gateway.ip : null;
+    const routerVisibleMachines = machinesAfterClosures.filter(
+      (m) => layer0Ips.has(m.ip) || m.ip === firstGatewayIp,
+    );
     const baseRouterConfig = buildMachineConfig(
       prng,
       routerWithUsers,
       routerUsersForFs,
       routerCredsForFs,
       {
-        internalMachines: machinesAfterClosures,
+        internalMachines: routerVisibleMachines,
         natForwarding: topology.natForwarding,
       },
     );

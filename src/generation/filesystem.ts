@@ -1228,13 +1228,22 @@ export const generateFileSystems = (input: FilesystemInput): FilesystemResult =>
   });
 
   // Generate router filesystem with hints about internal machines
+  // Border router only sees layer 0 machines + the first inner gateway (not all layers)
   if (routerMachine) {
     const routerUsers = usersByMachine[routerMachine.ip] ?? [];
     const routerCreds = credentials[routerMachine.ip] ?? [];
 
+    const routerVisibleMachines =
+      layers && layers.length > 0
+        ? [
+            ...machines.filter((m) => layers[0]!.machines.some((lm) => lm.ip === m.ip)),
+            ...(layers.length > 1 ? machines.filter((m) => m.ip === layers[1]!.gateway.ip) : []),
+          ]
+        : machines;
+
     const baseRouterConfig = buildMachineConfig(prng, routerMachine, routerUsers, routerCreds, {
       objective,
-      internalMachines: machines,
+      internalMachines: routerVisibleMachines,
       natForwarding,
     });
 

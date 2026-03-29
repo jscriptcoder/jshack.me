@@ -35,6 +35,7 @@ const buildTestData = (seed: string, difficulty: 'easy' | 'medium' | 'hard' = 'm
     usersByMachine,
     credentials,
     objective,
+    routerMachine: topology.routerMachine,
     layers: topology.layers,
   });
   return { topology, fileSystems, objective, credentials, usersByMachine };
@@ -67,6 +68,7 @@ const buildTestDataWithOverride = (
     usersByMachine,
     credentials,
     objective,
+    routerMachine: topology.routerMachine,
     layers: topology.layers,
   });
   return { topology, fileSystems, objective, credentials, usersByMachine };
@@ -1010,6 +1012,33 @@ describe('generateFileSystems', () => {
             });
           });
         }
+      }
+    });
+
+    it('border router /etc/hosts lists only layer 0 machines and first gateway', () => {
+      for (let i = 0; i < 20; i++) {
+        const { topology, fileSystems } = buildTestData(`router-hosts-${i}`, 'hard');
+        const routerFs = fileSystems[topology.routerMachine.ip];
+        if (!routerFs) continue;
+        const hosts = resolveNode(routerFs, '/etc/hosts');
+        if (!hosts || hosts.type !== 'file' || !hosts.content) continue;
+
+        // Layer 0 machines should be listed
+        topology.layers[0]!.machines.forEach((m) => {
+          expect(hosts.content).toContain(m.hostname);
+        });
+
+        // First inner gateway should be listed (if multi-layer)
+        if (topology.layers.length > 1) {
+          expect(hosts.content).toContain(topology.layers[1]!.gateway.hostname);
+        }
+
+        // Machines from deeper layers (1+) should NOT be listed
+        topology.layers.slice(1).forEach((layer) => {
+          layer.machines.forEach((m) => {
+            expect(hosts.content).not.toContain(m.ip);
+          });
+        });
       }
     });
   });
