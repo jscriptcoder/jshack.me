@@ -12,6 +12,7 @@ import type { FileNode } from '../filesystem/types';
 import type { RemoteUser } from '../network/types';
 import {
   createFileSystem,
+  mergeFileNodeChildren,
   type MachineFileSystemConfig,
   type UserConfig,
 } from '../filesystem/fileSystemFactory';
@@ -52,28 +53,6 @@ import {
   forensicsNoiseUsers,
 } from './pools';
 import type { Difficulty } from './types';
-
-// One-level-deep directory merge for extraDirectories objects. When both base and
-// additions have the same directory key, their children are merged (not overwritten).
-// Prevents e.g. forensics evidence /var/log/ from clobbering web content /var/www/.
-const mergeExtraDirs = (
-  base: Readonly<Record<string, FileNode>>,
-  additions: Readonly<Record<string, FileNode>>,
-): Record<string, FileNode> => {
-  const result: Record<string, FileNode> = { ...base };
-  Object.entries(additions).forEach(([key, node]) => {
-    const existing = result[key];
-    if (existing && existing.type === 'directory' && node.type === 'directory') {
-      result[key] = {
-        ...existing,
-        children: { ...(existing.children ?? {}), ...(node.children ?? {}) },
-      };
-    } else {
-      result[key] = node;
-    }
-  });
-  return result;
-};
 
 type FilesystemInput = {
   readonly prng: Prng;
@@ -789,7 +768,7 @@ const mergeKeyPlacement = (
   if (!keyTree) return config;
   return {
     ...config,
-    extraDirectories: mergeExtraDirs(config.extraDirectories ?? {}, {
+    extraDirectories: mergeFileNodeChildren(config.extraDirectories ?? {}, {
       [keyTree.topDir]: keyTree.node,
     }),
   };
@@ -1238,7 +1217,7 @@ export const generateFileSystems = (input: FilesystemInput): FilesystemResult =>
     const configWithEvidence = evidence
       ? {
           ...configWithKey,
-          extraDirectories: mergeExtraDirs(configWithKey.extraDirectories ?? {}, evidence),
+          extraDirectories: mergeFileNodeChildren(configWithKey.extraDirectories ?? {}, evidence),
         }
       : configWithKey;
 

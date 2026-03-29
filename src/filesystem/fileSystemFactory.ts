@@ -55,30 +55,26 @@ const BIN_DIR_PERMISSIONS = {
   execute: ['root', 'user', 'guest'] as readonly UserType[],
 };
 
-// For overlapping directory keys (e.g., both factory and extraDirectories define 'usr'),
-// merge their children one level deep instead of overwriting. Non-overlapping keys are
-// added as-is. This prevents mission generation's extraDirectories (which use /usr/local/bin/)
-// from overwriting the factory-created /usr/ directory.
-const mergeExtraDirectories = (
-  factoryChildren: Readonly<Record<string, FileNode>>,
-  extras: Readonly<Record<string, FileNode>> | undefined,
-): Readonly<Record<string, FileNode>> => {
-  if (!extras) return factoryChildren;
-
-  const result = { ...factoryChildren };
-
-  Object.entries(extras).forEach(([key, extraNode]) => {
+// Recursively merges two FileNode children records. When both sides have a directory
+// with the same key, their children are merged recursively (preserving both subtrees).
+// Non-directory conflicts or unique keys take the additions value.
+// Prevents e.g. /var/log/ from clobbering /var/www/ when both sources define /var/.
+export const mergeFileNodeChildren = (
+  base: Readonly<Record<string, FileNode>>,
+  additions: Readonly<Record<string, FileNode>>,
+): Record<string, FileNode> => {
+  const result: Record<string, FileNode> = { ...base };
+  Object.entries(additions).forEach(([key, node]) => {
     const existing = result[key];
-    if (existing && existing.type === 'directory' && extraNode.type === 'directory') {
+    if (existing && existing.type === 'directory' && node.type === 'directory') {
       result[key] = {
         ...existing,
-        children: { ...existing.children, ...extraNode.children },
+        children: mergeFileNodeChildren(existing.children ?? {}, node.children ?? {}),
       };
     } else {
-      result[key] = extraNode;
+      result[key] = node;
     }
   });
-
   return result;
 };
 
@@ -249,6 +245,8 @@ export const createFileSystem = (config: MachineFileSystemConfig): FileNode => {
       write: ['root'],
       execute: ['root', 'user', 'guest'],
     },
-    children: mergeExtraDirectories(factoryChildren, config.extraDirectories),
+    children: config.extraDirectories
+      ? mergeFileNodeChildren(factoryChildren, config.extraDirectories)
+      : factoryChildren,
   };
 };
