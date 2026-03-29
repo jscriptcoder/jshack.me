@@ -207,7 +207,7 @@ describe('useAuthentication', () => {
       expect(opts.addLine).toHaveBeenCalledWith('result', 'Authenticated with saved key.');
       expect(opts.pushSession).toHaveBeenCalled();
       expect(opts.setUsername).toHaveBeenCalledWith('bob', 'user');
-      expect(opts.setMachine).toHaveBeenCalledWith(TARGET_IP);
+      expect(opts.setMachine).toHaveBeenCalledWith(TARGET_IP, 'testbox');
     });
 
     it('prompts for password when no authorized key', () => {
@@ -236,7 +236,7 @@ describe('useAuthentication', () => {
 
       expect(opts.pushSession).toHaveBeenCalled();
       expect(opts.setUsername).toHaveBeenCalledWith('bob', 'user');
-      expect(opts.setMachine).toHaveBeenCalledWith(TARGET_IP);
+      expect(opts.setMachine).toHaveBeenCalledWith(TARGET_IP, 'testbox');
       expect(opts.createFile).toHaveBeenCalled();
       expect(result.current.passwordMode).toBe(false);
     });

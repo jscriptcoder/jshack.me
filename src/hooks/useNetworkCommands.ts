@@ -92,7 +92,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
             getLocalHostname: () =>
               session.machine === 'localhost' && workstationName
                 ? workstationName
-                : session.machine,
+                : (session.hostname ?? session.machine),
           }),
           isWifiRequired,
         ),
@@ -283,6 +283,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
     createFileOnMachine,
     writeFileToMachine,
     session.machine,
+    session.hostname,
     session.currentPath,
     session.username,
     session.userType,

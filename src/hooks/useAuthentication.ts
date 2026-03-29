@@ -25,7 +25,7 @@ type AuthenticationOptions = {
   readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
   readonly getDefaultHomePath: (machineIp: string, username: string) => string;
   readonly setUsername: (username: string, userType: UserType) => void;
-  readonly setMachine: (machine: string) => void;
+  readonly setMachine: (machine: string, hostname?: string) => void;
   readonly setCurrentPath: (path: string) => void;
   readonly pushSession: (reason: SessionReason) => void;
   readonly enterFtpMode: (session: FtpSession) => void;
@@ -167,7 +167,7 @@ export const useAuthentication = ({
       const machine = getMachine(ip);
 
       setUsername(user, userType);
-      setMachine(resolvedIp);
+      setMachine(resolvedIp, machine?.hostname);
       setCurrentPath(homePath);
       addLine('result', `Connected to ${ip}`);
       addLine('result', `Welcome to ${machine?.hostname ?? ip}!`);

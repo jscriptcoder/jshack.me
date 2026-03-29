@@ -30,6 +30,7 @@ export type Session = {
   readonly username: string;
   readonly userType: UserType;
   readonly machine: string;
+  readonly hostname?: string;
   readonly currentPath: string;
   readonly theme: ThemeId;
 };
@@ -40,6 +41,7 @@ export type SessionSnapshot = {
   readonly username: string;
   readonly userType: UserType;
   readonly machine: string;
+  readonly hostname?: string;
   readonly currentPath: string;
   readonly theme: ThemeId;
   readonly reason: SessionReason;
@@ -84,7 +86,7 @@ type SessionContextValue = {
   readonly ftpSession: FtpSession | null;
   readonly ncSession: NcSession | null;
   readonly setUsername: (username: string, userType?: UserType) => void;
-  readonly setMachine: (machine: string) => void;
+  readonly setMachine: (machine: string, hostname?: string) => void;
   readonly setCurrentPath: (path: string) => void;
   readonly getPrompt: () => string;
   readonly pushSession: (reason: SessionReason) => void;
@@ -203,8 +205,8 @@ export const SessionProvider = ({ children, workstationName, username }: Session
     setSession((prev) => ({ ...prev, username, userType }));
   }, []);
 
-  const setMachine = useCallback((machine: string) => {
-    setSession((prev) => ({ ...prev, machine }));
+  const setMachine = useCallback((machine: string, hostname?: string) => {
+    setSession((prev) => ({ ...prev, machine, hostname }));
   }, []);
 
   const setCurrentPath = useCallback((currentPath: string) => {
@@ -215,9 +217,11 @@ export const SessionProvider = ({ children, workstationName, username }: Session
     if (ftpSession) return 'ftp>';
     if (ncSession) return '$';
     const displayMachine =
-      session.machine === 'localhost' && workstationName ? workstationName : session.machine;
+      session.machine === 'localhost' && workstationName
+        ? workstationName
+        : (session.hostname ?? session.machine);
     return `${session.username}@${displayMachine}>`;
-  }, [session.username, session.machine, workstationName, ftpSession, ncSession]);
+  }, [session.username, session.machine, session.hostname, workstationName, ftpSession, ncSession]);
 
   const pushSession = useCallback(
     (reason: SessionReason) => {
@@ -225,13 +229,21 @@ export const SessionProvider = ({ children, workstationName, username }: Session
         username: session.username,
         userType: session.userType,
         machine: session.machine,
+        hostname: session.hostname,
         currentPath: session.currentPath,
         theme: session.theme,
         reason,
       };
       setSessionStack((prev) => [...prev, snapshot]);
     },
-    [session.username, session.userType, session.machine, session.currentPath, session.theme],
+    [
+      session.username,
+      session.userType,
+      session.machine,
+      session.hostname,
+      session.currentPath,
+      session.theme,
+    ],
   );
 
   const popSession = useCallback((): SessionSnapshot | null => {
@@ -243,6 +255,7 @@ export const SessionProvider = ({ children, workstationName, username }: Session
       username: snapshot.username,
       userType: snapshot.userType,
       machine: snapshot.machine,
+      hostname: snapshot.hostname,
       currentPath: snapshot.currentPath,
       theme: snapshot.theme,
     });
