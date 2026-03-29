@@ -904,6 +904,40 @@ describe('generateFileSystems', () => {
       const b = buildForensics('forensics-determ');
       expect(a.fileSystems).toEqual(b.fileSystems);
     });
+
+    it('forensics evidence does not clobber web content on machines with HTTP ports', () => {
+      const HTTP_SERVICES = ['http', 'https', 'http-alt'];
+      let foundMachineWithBoth = false;
+
+      for (let i = 0; i < 30; i++) {
+        const { topology, fileSystems } = buildForensics(`forensics-web-${i}`);
+        const machinesWithHttp = topology.machines.filter((m) =>
+          m.remoteMachine.ports.some((p) => p.open && HTTP_SERVICES.includes(p.service)),
+        );
+
+        for (const machine of machinesWithHttp) {
+          const fs = fileSystems[machine.ip];
+          if (!fs) continue;
+          const hasWebContent = resolveNode(fs, '/var/www/html/index.html')?.type === 'file';
+          const hasForensicsLog = ['auth.log', 'vsftpd.log', 'access.log'].some(
+            (name) => resolveNode(fs, `/var/log/${name}`)?.type === 'file',
+          );
+
+          if (hasWebContent && hasForensicsLog) {
+            foundMachineWithBoth = true;
+            break;
+          }
+
+          // If machine has HTTP open, web content must exist (even when forensics evidence is present)
+          if (hasForensicsLog) {
+            expect(hasWebContent).toBe(true);
+          }
+        }
+        if (foundMachineWithBoth) break;
+      }
+
+      expect(foundMachineWithBoth).toBe(true);
+    });
   });
 
   describe('inner gateway filesystems', () => {
@@ -1039,6 +1073,27 @@ describe('generateFileSystems', () => {
             expect(hosts.content).not.toContain(m.ip);
           });
         });
+      }
+    });
+
+    it('gateway .1 alias IPs have filesystems matching their upstream IP', () => {
+      for (let i = 0; i < 20; i++) {
+        const { topology, fileSystems } = buildTestData(`gw-alias-${i}`, 'hard');
+
+        // Border router: layer 0's .1 should alias the router filesystem
+        const routerAliasIp = `${topology.layers[0]!.subnet}.1`;
+        const routerFs = fileSystems[topology.routerMachine.ip];
+        expect(fileSystems[routerAliasIp]).toBeDefined();
+        expect(fileSystems[routerAliasIp]).toBe(routerFs);
+
+        // Inner gateways: each layer's .1 should alias that gateway's filesystem
+        for (let j = 1; j < topology.layers.length; j++) {
+          const layer = topology.layers[j]!;
+          const gatewayAliasIp = `${layer.subnet}.1`;
+          const gatewayFs = fileSystems[layer.gateway.ip];
+          expect(fileSystems[gatewayAliasIp]).toBeDefined();
+          expect(fileSystems[gatewayAliasIp]).toBe(gatewayFs);
+        }
       }
     });
   });
