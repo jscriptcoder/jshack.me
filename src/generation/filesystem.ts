@@ -1280,8 +1280,26 @@ export const generateFileSystems = (input: FilesystemInput): FilesystemResult =>
         : routerConfigWithKey;
 
     const routerFs = createFileSystem(routerConfig);
+    const allEntries: (readonly [string, FileNode])[] = [...entries, [routerMachine.ip, routerFs]];
+
+    // Alias gateway filesystems under their downstream .1 IPs so commands like
+    // curl can read from gateways when addressed by their internal subnet IP.
+    // Border router: layer 0's .1 → router filesystem.
+    // Inner gateways: each layer's .1 → that layer's gateway filesystem.
+    if (layers && layers.length > 0) {
+      const routerAliasIp = `${layers[0]!.subnet}.1`;
+      allEntries.push([routerAliasIp, routerFs]);
+
+      layers.slice(1).forEach((layer) => {
+        const gatewayFs = allEntries.find(([ip]) => ip === layer.gateway.ip)?.[1];
+        if (gatewayFs) {
+          allEntries.push([`${layer.subnet}.1`, gatewayFs]);
+        }
+      });
+    }
+
     return {
-      fileSystems: Object.fromEntries([...entries, [routerMachine.ip, routerFs]]),
+      fileSystems: Object.fromEntries(allEntries),
       basicSnmpGatewayIps,
     };
   }
