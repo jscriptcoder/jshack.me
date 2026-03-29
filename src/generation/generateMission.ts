@@ -219,7 +219,7 @@ export const generateMissionNetwork = (
     layers: topology.layers,
   });
 
-  const fileSystems = generateFileSystems({
+  const { fileSystems, basicSnmpGatewayIps } = generateFileSystems({
     prng,
     machines: machinesAfterClosures,
     usersByMachine: allUsersByMachine,
@@ -232,6 +232,24 @@ export const generateMissionNetwork = (
     difficulty,
     layers: topology.layers,
   });
+
+  // Add UDP port 161 to non-SNMP-variant gateways that got basic SNMP via PRNG roll.
+  // This makes them discoverable via snmpwalk from neighboring machines.
+  const snmpPort = { port: 161, service: 'snmp', open: true, protocol: 'udp' as const };
+  const finalMachineConfigs =
+    basicSnmpGatewayIps.size > 0
+      ? Object.fromEntries(
+          Object.entries(updatedMachineConfigs).map(([ip, config]) => [
+            ip,
+            {
+              ...config,
+              machines: config.machines.map((rm) =>
+                basicSnmpGatewayIps.has(rm.ip) ? { ...rm, ports: [...rm.ports, snmpPort] } : rm,
+              ),
+            },
+          ]),
+        )
+      : updatedMachineConfigs;
 
   // Domain entry: when active, briefing shows router domain instead of IP.
   // Always consume a PRNG call to preserve sequence regardless of override.
@@ -247,7 +265,7 @@ export const generateMissionNetwork = (
     entryVariant: topology.entryVariant,
     machines: machinesAfterClosures,
     fileSystems,
-    networkConfig: { machineConfigs: updatedMachineConfigs },
+    networkConfig: { machineConfigs: finalMachineConfigs },
     objective,
     clientEmail,
     routerPublicIp: topology.routerPublicIp,

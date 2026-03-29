@@ -8,6 +8,7 @@ import { generateUsers } from './users';
 import { enrichMachineWithUsers, applyPortClosures } from './enrichment';
 import {
   buildMachineConfig,
+  generateBasicSnmpConfig,
   generateSnmpConfig,
   generateSwitchSnmpConfig,
   mkFile,
@@ -150,16 +151,36 @@ export const generateNetwork = (options: GenerateNetworkOptions): GeneratedNetwo
       });
     }
 
-    // Pre-generate SNMP configs for inner gateways with SNMP access variant
+    // Pre-generate SNMP configs for inner gateways. SNMP-variant gateways get full configs.
+    // Non-SNMP gateways get a PRNG roll for basic read-only SNMP (interface discovery).
+    // Roll is always consumed per gateway to keep PRNG sequence stable.
+    const basicSnmpThreshold = difficulty === 'easy' ? 0.7 : difficulty === 'medium' ? 0.4 : 0.2;
     const gatewaySnmpConfigs = new Map<string, string>();
+    const basicSnmpGatewayIps = new Set<string>();
     if (topology.layers.length > 1) {
       topology.layers.slice(1).forEach((layer) => {
+        const basicSnmpRoll = prng.next();
+        const secondaryIp = `${layer.subnet}.1`;
         if (layer.gateway.accessVariant === 'snmp') {
           const gatewayCreds = allCredentials[layer.gateway.ip] ?? [];
-          // Use switch-specific SNMP config (ACL OIDs) for switch gateways
           const snmpConfigFn =
             layer.gatewayType === 'switch' ? generateSwitchSnmpConfig : generateSnmpConfig;
-          gatewaySnmpConfigs.set(layer.gateway.ip, snmpConfigFn(prng, layer.gateway, gatewayCreds));
+          gatewaySnmpConfigs.set(
+            layer.gateway.ip,
+            snmpConfigFn(prng, layer.gateway, gatewayCreds, secondaryIp),
+          );
+        } else if (basicSnmpRoll < basicSnmpThreshold) {
+          const isSwitch = layer.gatewayType === 'switch';
+          gatewaySnmpConfigs.set(
+            layer.gateway.ip,
+            generateBasicSnmpConfig(
+              layer.gateway.hostname,
+              layer.gateway.ip,
+              secondaryIp,
+              isSwitch,
+            ),
+          );
+          basicSnmpGatewayIps.add(layer.gateway.ip);
         }
       });
     }
@@ -215,6 +236,7 @@ export const generateNetwork = (options: GenerateNetworkOptions): GeneratedNetwo
     );
 
     // SNMP variant: add /etc/snmp/snmpd.conf for the border router
+    const routerSecondaryIp = `${topology.layers[0]!.subnet}.1`;
     const routerConfig: MachineFileSystemConfig =
       topology.entryVariant === 'snmp'
         ? {
@@ -226,7 +248,7 @@ export const generateNetwork = (options: GenerateNetworkOptions): GeneratedNetwo
                 {
                   'snmpd.conf': mkFile(
                     'snmpd.conf',
-                    generateSnmpConfig(prng, routerWithUsers, routerCredsForFs),
+                    generateSnmpConfig(prng, routerWithUsers, routerCredsForFs, routerSecondaryIp),
                   ),
                 },
                 'root',
@@ -237,6 +259,19 @@ export const generateNetwork = (options: GenerateNetworkOptions): GeneratedNetwo
         : baseRouterConfig;
 
     fileSystems[routerWithUsers.ip] = createFileSystem(routerConfig);
+
+    // Add UDP port 161 to non-SNMP-variant gateways that got basic SNMP via PRNG roll
+    if (basicSnmpGatewayIps.size > 0) {
+      const snmpPort = { port: 161, service: 'snmp', open: true, protocol: 'udp' as const };
+      for (const [ip, config] of Object.entries(updatedMachineConfigs)) {
+        updatedMachineConfigs[ip] = {
+          ...config,
+          machines: config.machines.map((rm) =>
+            basicSnmpGatewayIps.has(rm.ip) ? { ...rm, ports: [...rm.ports, snmpPort] } : rm,
+          ),
+        };
+      }
+    }
   }
 
   return {

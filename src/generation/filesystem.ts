@@ -383,6 +383,7 @@ export const generateSnmpConfig = (
   prng: Prng,
   machine: GeneratedMachine,
   machineCreds: readonly { readonly username: string; readonly password: string }[],
+  secondaryIp?: string,
 ): string => {
   const rwCommunity = prng.pick(snmpRwCommunities);
   const userCred = machineCreds.find((c) => c.username !== 'root') ?? machineCreds[0];
@@ -404,6 +405,7 @@ export const generateSnmpConfig = (
     'ifDescr.1 eth0',
     'ifDescr.2 eth1',
     `ifAddr.1 ${machine.ip}`,
+    ...(secondaryIp ? [`ifAddr.2 ${secondaryIp}`] : []),
     '',
     '# Extend scripts',
     ...(userCred
@@ -425,6 +427,7 @@ export const generateSwitchSnmpConfig = (
   prng: Prng,
   machine: GeneratedMachine,
   machineCreds: readonly { readonly username: string; readonly password: string }[],
+  secondaryIp?: string,
 ): string => {
   const rwCommunity = prng.pick(snmpRwCommunities);
   const userCred = machineCreds.find((c) => c.username !== 'root') ?? machineCreds[0];
@@ -446,6 +449,7 @@ export const generateSwitchSnmpConfig = (
     'ifDescr.1 GigabitEthernet0/1',
     'ifDescr.2 GigabitEthernet0/2',
     `ifAddr.1 ${machine.ip}`,
+    ...(secondaryIp ? [`ifAddr.2 ${secondaryIp}`] : []),
     '',
     '# Extend scripts',
     ...(userCred
@@ -455,6 +459,43 @@ export const generateSwitchSnmpConfig = (
     '# ACL OIDs',
     'aclSSH deny',
     'aclHTTP deny',
+  ];
+
+  return lines.join('\n');
+};
+
+// Generates a lightweight /etc/snmp/snmpd.conf for non-SNMP-variant gateways.
+// Read-only public community, system info, and interface data only — no rw community,
+// no credential leaks, no firewall/ACL OIDs. Allows players to discover dual-homed
+// gateways via snmpwalk with public community.
+export const generateBasicSnmpConfig = (
+  hostname: string,
+  primaryIp: string,
+  secondaryIp: string,
+  isSwitch: boolean,
+): string => {
+  const sysDescr = isSwitch
+    ? `Cisco IOS L3 Switch ${hostname} 15.2(4)E`
+    : `Linux ${hostname} 5.4.0-generic #1 SMP`;
+  const ifNames = isSwitch ? ['GigabitEthernet0/1', 'GigabitEthernet0/2'] : ['eth0', 'eth1'];
+
+  const lines = [
+    '# SNMP Daemon Configuration',
+    '# net-snmp 5.9.1',
+    '',
+    '# Community strings',
+    'rocommunity public',
+    '',
+    '# System information',
+    `sysDescr ${sysDescr}`,
+    `sysName ${hostname}`,
+    `sysContact netops@corp.local`,
+    '',
+    '# Interfaces',
+    `ifDescr.1 ${ifNames[0]}`,
+    `ifDescr.2 ${ifNames[1]}`,
+    `ifAddr.1 ${primaryIp}`,
+    `ifAddr.2 ${secondaryIp}`,
   ];
 
   return lines.join('\n');
@@ -1064,7 +1105,12 @@ const mergeScriptAutoData = (
   return config;
 };
 
-export const generateFileSystems = (input: FilesystemInput): Readonly<Record<string, FileNode>> => {
+type FilesystemResult = {
+  readonly fileSystems: Readonly<Record<string, FileNode>>;
+  readonly basicSnmpGatewayIps: ReadonlySet<string>;
+};
+
+export const generateFileSystems = (input: FilesystemInput): FilesystemResult => {
   const {
     prng,
     machines,
@@ -1095,17 +1141,32 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
     });
   }
 
-  // Pre-generate SNMP configs for inner gateways with SNMP access variant.
-  // Done before the machine loop to keep PRNG sequence stable for other machines.
-  // Switches use ACL OIDs (aclSSH/aclHTTP), routers use firewall OIDs (firewallSSH/firewallHTTP).
+  // Pre-generate SNMP configs for inner gateways. SNMP-variant gateways get full configs
+  // (rw community, credential leaks, firewall/ACL OIDs). Non-SNMP gateways get a PRNG roll
+  // for basic read-only SNMP (system + interface OIDs only), enabling subnet discovery via
+  // snmpwalk. Roll is always consumed per gateway to keep PRNG sequence stable.
+  const basicSnmpThreshold = difficulty === 'easy' ? 0.7 : difficulty === 'medium' ? 0.4 : 0.2;
   const gatewaySnmpConfigs = new Map<string, string>();
+  const basicSnmpGatewayIps = new Set<string>();
   if (layers && layers.length > 1) {
     layers.slice(1).forEach((layer) => {
+      const basicSnmpRoll = prng.next();
+      const secondaryIp = `${layer.subnet}.1`;
       if (layer.gateway.accessVariant === 'snmp') {
         const gatewayCreds = credentials[layer.gateway.ip] ?? [];
         const snmpConfigFn =
           layer.gatewayType === 'switch' ? generateSwitchSnmpConfig : generateSnmpConfig;
-        gatewaySnmpConfigs.set(layer.gateway.ip, snmpConfigFn(prng, layer.gateway, gatewayCreds));
+        gatewaySnmpConfigs.set(
+          layer.gateway.ip,
+          snmpConfigFn(prng, layer.gateway, gatewayCreds, secondaryIp),
+        );
+      } else if (basicSnmpRoll < basicSnmpThreshold) {
+        const isSwitch = layer.gatewayType === 'switch';
+        gatewaySnmpConfigs.set(
+          layer.gateway.ip,
+          generateBasicSnmpConfig(layer.gateway.hostname, layer.gateway.ip, secondaryIp, isSwitch),
+        );
+        basicSnmpGatewayIps.add(layer.gateway.ip);
       }
     });
   }
@@ -1185,6 +1246,7 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
     const routerConfigWithKey = mergeKeyPlacement(baseRouterConfig, routerKeyTree);
 
     // SNMP variant: add /etc/snmp/snmpd.conf with community strings, OIDs, credentials
+    const routerSecondaryIp = layers?.[0] ? `${layers[0].subnet}.1` : undefined;
     const routerConfig =
       entryVariant === 'snmp'
         ? {
@@ -1196,7 +1258,7 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
                 {
                   'snmpd.conf': mkFile(
                     'snmpd.conf',
-                    generateSnmpConfig(prng, routerMachine, routerCreds),
+                    generateSnmpConfig(prng, routerMachine, routerCreds, routerSecondaryIp),
                   ),
                 },
                 'root',
@@ -1207,8 +1269,11 @@ export const generateFileSystems = (input: FilesystemInput): Readonly<Record<str
         : routerConfigWithKey;
 
     const routerFs = createFileSystem(routerConfig);
-    return Object.fromEntries([...entries, [routerMachine.ip, routerFs]]);
+    return {
+      fileSystems: Object.fromEntries([...entries, [routerMachine.ip, routerFs]]),
+      basicSnmpGatewayIps,
+    };
   }
 
-  return Object.fromEntries(entries);
+  return { fileSystems: Object.fromEntries(entries), basicSnmpGatewayIps };
 };

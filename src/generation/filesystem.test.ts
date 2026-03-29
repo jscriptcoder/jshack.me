@@ -29,7 +29,7 @@ const buildTestData = (seed: string, difficulty: 'easy' | 'medium' | 'hard' = 'm
     difficulty,
     layers: topology.layers,
   });
-  const fileSystems = generateFileSystems({
+  const { fileSystems } = generateFileSystems({
     prng,
     machines: topology.machines,
     usersByMachine,
@@ -61,7 +61,7 @@ const buildTestDataWithOverride = (
     objectiveTypeOverride,
     layers: topology.layers,
   });
-  const fileSystems = generateFileSystems({
+  const { fileSystems } = generateFileSystems({
     prng,
     machines: topology.machines,
     usersByMachine,
@@ -211,7 +211,7 @@ describe('generateFileSystems', () => {
         entryPoint: topology.entryPoint,
         difficulty: 'medium',
       });
-      const fileSystems = generateFileSystems({
+      const { fileSystems } = generateFileSystems({
         prng,
         machines: topology.machines,
         usersByMachine,
@@ -324,7 +324,7 @@ describe('generateFileSystems', () => {
         entryPoint: topology.entryPoint,
         difficulty: 'medium',
       });
-      const fileSystems = generateFileSystems({
+      const { fileSystems } = generateFileSystems({
         prng,
         machines: topology.machines,
         usersByMachine,
@@ -433,7 +433,7 @@ describe('generateFileSystems', () => {
         entryPoint: topology.entryPoint,
         difficulty: 'hard',
       });
-      const fileSystems = generateFileSystems({
+      const { fileSystems } = generateFileSystems({
         prng,
         machines: topology.machines,
         usersByMachine: allUsersByMachine,
@@ -631,7 +631,7 @@ describe('generateFileSystems', () => {
         entryPoint: topology.entryPoint,
         difficulty: 'medium',
       });
-      const fileSystems = generateFileSystems({
+      const { fileSystems } = generateFileSystems({
         prng,
         machines: topology.machines,
         usersByMachine,
@@ -778,7 +778,7 @@ describe('generateFileSystems', () => {
         difficulty,
         objectiveTypeOverride: 'forensics',
       });
-      const fileSystems = generateFileSystems({
+      const { fileSystems } = generateFileSystems({
         prng,
         machines: topology.machines,
         usersByMachine,
