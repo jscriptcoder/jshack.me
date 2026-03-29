@@ -113,7 +113,9 @@ const printObjective = (obj: MissionObjective): void => {
 
 const printMachines = (net: MissionNetwork): void => {
   heading('OUTER ROUTER');
-  printMachine(net.routerMachine, magenta('[ROUTER]'));
+  const routerTags = [magenta('[ROUTER]')];
+  if (!net.natForwarding) routerTags.push(green('[ENTRY]'));
+  printMachine(net.routerMachine, routerTags.join(' '));
 
   net.layers.forEach((layer, i) => {
     heading(`LAYER ${i} — ${layer.subnet}.0/24`);
@@ -129,7 +131,7 @@ const printMachines = (net: MissionNetwork): void => {
     const enriched = net.machines.filter((m) => layerIps.has(m.ip));
     enriched.forEach((m) => {
       const tags: string[] = [];
-      if (m.ip === net.entryPoint) tags.push(green('[ENTRY]'));
+      if (m.ip === net.entryPoint) tags.push(green(net.natForwarding ? '[ENTRY]' : '[PIVOT]'));
       if (m.ip === net.objective.targetMachine) tags.push(red('[TARGET]'));
       printMachine(m, tags.join(' '));
     });
@@ -143,10 +145,10 @@ const printFileSystems = (net: MissionNetwork): void => {
   const routerFs = net.fileSystems[net.routerMachine.ip];
   if (routerFs) {
     console.log('');
+    const routerFsTags = [magenta('[ROUTER]')];
+    if (!net.natForwarding) routerFsTags.push(green('[ENTRY]'));
     console.log(
-      bold(
-        `  ── ${net.routerMachine.hostname} (${net.routerMachine.ip}) ${magenta('[ROUTER]')} ──`,
-      ),
+      bold(`  ── ${net.routerMachine.hostname} (${net.routerMachine.ip}) ${routerFsTags.join(' ')} ──`),
     );
     printFileSystem(routerFs);
   }
@@ -178,7 +180,7 @@ const printFileSystems = (net: MissionNetwork): void => {
       if (fs) {
         console.log('');
         const tags: string[] = [];
-        if (m.ip === net.entryPoint) tags.push(green('[ENTRY]'));
+        if (m.ip === net.entryPoint) tags.push(green(net.natForwarding ? '[ENTRY]' : '[PIVOT]'));
         if (m.ip === net.objective.targetMachine) tags.push(red('[TARGET]'));
         console.log(bold(`  ── ${m.hostname} (${m.ip}) ${tags.join(' ')} ──`));
         printFileSystem(fs);
