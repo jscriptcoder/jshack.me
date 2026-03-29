@@ -54,7 +54,6 @@ export type MissionObjective = {
   readonly scriptBugType?: ScriptBugType;
   readonly scriptHintPath?: string;
   readonly scriptHintContent?: string;
-  readonly scriptOwner?: 'root' | 'user';
   readonly expectedChecksum?: string;
   readonly backdoorPort?: number;
   readonly backdoorUser?: 'root' | 'user' | 'guest';

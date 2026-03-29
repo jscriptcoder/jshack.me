@@ -300,10 +300,11 @@ const placeTargetFile = (
   const segments = objective.targetPath.split('/').filter(Boolean);
   const fileName = segments[segments.length - 1] ?? 'flag.txt';
 
-  // script_fix / script_auto: use mkScript with variable permissions, no binary wrapping
+  // script_fix / script_auto: use mkScript with user permissions, no binary wrapping
+  // (player has root access via briefing, so user-owned scripts are always accessible)
   const file =
     objective.type === 'script_fix' || objective.type === 'script_auto'
-      ? mkScript(fileName, objective.targetContent, objective.scriptOwner ?? 'user')
+      ? mkScript(fileName, objective.targetContent, 'user')
       : mkFile(
           fileName,
           objective.binary
