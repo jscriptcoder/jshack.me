@@ -162,7 +162,7 @@ const selectScriptAutoFile = (
       template.flavor === 'local'
         ? template.dataFileName
         : `/var/lib/${template.dataFileName}.json`;
-    const targetContent = ['#!/usr/bin/env node', template.instructions].join('\n');
+    const targetContent = template.instructions;
 
     return {
       targetPath,
@@ -177,8 +177,7 @@ const selectScriptAutoFile = (
   // Remote: pick API host machine
   const apiMachine = prng.pick(httpCandidates);
   const apiIp = apiMachine.ip;
-  const instructions = template.instructions.replace(/\{\{apiIp\}\}/g, apiIp);
-  const targetContent = ['#!/usr/bin/env node', instructions].join('\n');
+  const targetContent = template.instructions.replace(/\{\{apiIp\}\}/g, apiIp);
 
   return {
     targetPath,

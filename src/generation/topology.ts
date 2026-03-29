@@ -552,7 +552,7 @@ export const generateTopology = (
     })),
     {
       domain: `${routerHostname}.mission`,
-      ip: outerGatewayIp,
+      ip: routerPublicIp,
       type: 'A' as const,
     },
     ...gatewayMachines.slice(0, 1).map((gw) => ({

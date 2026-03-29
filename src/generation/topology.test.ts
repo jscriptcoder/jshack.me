@@ -238,6 +238,29 @@ describe('generateTopology', () => {
     expect(result.externalDnsRecords[0]?.ip).toBe(result.routerPublicIp);
   });
 
+  it('router DNS record in network config uses public IP, not internal gateway IP', () => {
+    const result = generateTopology(createPrng('router-dns'), 'medium');
+    const routerConfig = result.networkConfig.machineConfigs[result.routerPublicIp];
+    const routerDns = routerConfig?.dnsRecords.find((r) =>
+      r.domain.includes(result.routerMachine.hostname),
+    );
+    expect(routerDns?.ip).toBe(result.routerPublicIp);
+  });
+
+  it('layer 0 machines resolve router hostname to internal gateway IP', () => {
+    const result = generateTopology(createPrng('layer0-dns'), 'hard');
+    const layer0Subnet = result.layers[0]!.subnet;
+    const internalGatewayIp = `${layer0Subnet}.1`;
+    const layer0Machines = result.layers[0]!.machines;
+    for (const machine of layer0Machines) {
+      const config = result.networkConfig.machineConfigs[machine.ip];
+      const routerDns = config?.dnsRecords.find((r) =>
+        r.domain.includes(result.routerMachine.hostname),
+      );
+      expect(routerDns?.ip).toBe(internalGatewayIp);
+    }
+  });
+
   it('generates varied public IP first octets across seeds', () => {
     const firstOctets = new Set(
       Array.from({ length: 30 }, (_, i) => {

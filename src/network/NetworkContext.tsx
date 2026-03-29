@@ -224,7 +224,7 @@ export const NetworkProvider = ({
         return {
           ...homeBase,
           machines: [...homeBase.machines, routerRemote],
-          dnsRecords: [...homeBase.dnsRecords, ...externalDns],
+          dnsRecords: [...externalDns, ...homeBase.dnsRecords],
         };
       }
 
