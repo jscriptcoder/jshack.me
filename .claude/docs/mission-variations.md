@@ -139,14 +139,14 @@ Each template is a short script that filters/counts array data and conditionally
 
 ## Script Auto Objective
 
-A 5th objective type where the player writes an automated script from scratch based on instructions in a stub file. The stub is placed in an automation location (cron, init, or network-up hook) with comment instructions describing what data to read and extract. The player writes the script body using `nano()`, runs it with `node()`, and gets the ACCESS-KEY from `_decode()`. Seed keyword: `script-auto`.
+A white-hat objective type where the player is hired as an authorized contractor to write an automated script from scratch. The player SSHs in with root credentials (provided in the briefing), finds the stub file in an automation location (cron, init, or network-up hook) with comment instructions describing what data to read and extract. The player writes the script body using `nano()`, tests it with `node()`, and confirms to the client via `mail("done")`. The `mail()` command re-executes the script and verifies `_system()` was called with the correct value. Seed keyword: `script-auto`.
 
 ### Two Flavors
 
 | Flavor | Description                                                                | Script Mode |
 | ------ | -------------------------------------------------------------------------- | ----------- |
-| local  | Read a JSON file on the same machine, extract a field, pass to \_decode()  | Sync        |
-| remote | POST to an API endpoint on another machine, parse JSON, pass to \_decode() | Async       |
+| local  | Read a JSON file on the same machine, extract a field, pass to \_system()  | Sync        |
+| remote | POST to an API endpoint on another machine, parse JSON, pass to \_system() | Async       |
 
 ### Script Locations (3)
 
@@ -155,10 +155,6 @@ A 5th objective type where the player writes an automated script from scratch ba
 | cron.d   | `/etc/cron.d/`          | Periodic monitoring job       |
 | init.d   | `/etc/init.d/`          | Boot-time data collection     |
 | if-up.d  | `/etc/network/if-up.d/` | Network-up connectivity check |
-
-### Script Ownership
-
-~70% root-owned, ~30% user-owned (system automation directories are normally root-owned).
 
 ### Templates (24 — 3 per role)
 
@@ -171,12 +167,14 @@ Each role (fileserver, database, webserver, mailserver, iot, workstation, router
 
 ### Key Design Decisions
 
-- Uses `_decode()` / ACCESS-KEY mechanism (will be migrated to `_system()` like script_fix in a future PR)
+- White-hat mission: player is an authorized contractor (like forensics and script_fix)
+- SSH entry forced, root password in briefing
+- Uses `_system()` verification (same mechanism as script_fix)
+- `mail()` re-executes the script to verify correctness (no ACCESS-KEY exchange)
 - No binary wrapping, no encryption
 - Port closures skipped (needs SSH shell access)
 - Remote flavor falls back to local if no peer machine available
 - Player writes the script from scratch (not fixing bugs)
-- `_decode()` injected for `script_auto` missions only; `_system()` is used for `script_fix`
 
 ## Backdoor Objective
 
@@ -443,7 +441,7 @@ Used when entry variant is `exploit`. Matched by port/service. Multiple template
 | tamper           | Modify a target file, mail client to confirm                   | `mail(email, "done")`                  |
 | credential_theft | Discover root password, mail to client                         | `mail(email, "<password>")`            |
 | script_fix       | Fix broken script, test with node(), confirm to client         | `mail(email, "done")`                  |
-| script_auto      | Write automated script from scratch, run with node(), mail key | `mail(email, "ACCESS-XXXX-XXXX-XXXX")` |
+| script_auto      | Write automated script from scratch, test with node(), confirm | `mail(email, "done")`                  |
 | sabotage         | Destroy target machine, confirm the kill                       | `mail(email, "done")`                  |
 | backdoor         | Open nc listener on target machine, confirm                    | `mail(email, "done")`                  |
 

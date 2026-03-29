@@ -25,7 +25,7 @@ const fileserverTemplates: readonly ScriptAutoTemplate[] = [
       '// 1. POST to http://{{apiIp}}/api/raid-status',
       '// 2. Parse the JSON response',
       '// 3. Extract the "array_key" field',
-      '// 4. Report: echo(_decode(array_key))',
+      '// 4. Report: _system(array_key)',
     ].join('\n'),
     dataFileName: 'raid-status',
     dataContent: JSON.stringify({
@@ -48,7 +48,7 @@ const fileserverTemplates: readonly ScriptAutoTemplate[] = [
       '// 1. Read /var/lib/backup/status.json',
       '// 2. Parse the JSON',
       '// 3. Extract the "checksum" field',
-      '// 4. Report: echo(_decode(checksum))',
+      '// 4. Report: _system(checksum)',
     ].join('\n'),
     dataFileName: '/var/lib/backup/status.json',
     dataContent: JSON.stringify({
@@ -71,7 +71,7 @@ const fileserverTemplates: readonly ScriptAutoTemplate[] = [
       '// 1. POST to http://{{apiIp}}/api/nfs-status',
       '// 2. Parse the JSON response',
       '// 3. Extract the "share_token" field',
-      '// 4. Report: echo(_decode(share_token))',
+      '// 4. Report: _system(share_token)',
     ].join('\n'),
     dataFileName: 'nfs-status',
     dataContent: JSON.stringify({
@@ -99,7 +99,7 @@ const databaseTemplates: readonly ScriptAutoTemplate[] = [
       '// 1. Read /var/lib/db/failover.json',
       '// 2. Parse the JSON',
       '// 3. Extract the "standby_key" field',
-      '// 4. Report: echo(_decode(standby_key))',
+      '// 4. Report: _system(standby_key)',
     ].join('\n'),
     dataFileName: '/var/lib/db/failover.json',
     dataContent: JSON.stringify({
@@ -122,7 +122,7 @@ const databaseTemplates: readonly ScriptAutoTemplate[] = [
       '// 1. POST to http://{{apiIp}}/api/replication',
       '// 2. Parse the JSON response',
       '// 3. Extract the "sync_key" field',
-      '// 4. Report: echo(_decode(sync_key))',
+      '// 4. Report: _system(sync_key)',
     ].join('\n'),
     dataFileName: 'replication',
     dataContent: JSON.stringify({
@@ -146,7 +146,7 @@ const databaseTemplates: readonly ScriptAutoTemplate[] = [
       '// 1. Read /etc/db/cluster.json',
       '// 2. Parse the JSON',
       '// 3. Extract the "auth_token" field',
-      '// 4. Report: echo(_decode(auth_token))',
+      '// 4. Report: _system(auth_token)',
     ].join('\n'),
     dataFileName: '/etc/db/cluster.json',
     dataContent: JSON.stringify({
@@ -174,7 +174,7 @@ const webserverTemplates: readonly ScriptAutoTemplate[] = [
       '// 1. POST to http://{{apiIp}}/api/proxy-health',
       '// 2. Parse the JSON response',
       '// 3. Extract the "proxy_token" field',
-      '// 4. Report: echo(_decode(proxy_token))',
+      '// 4. Report: _system(proxy_token)',
     ].join('\n'),
     dataFileName: 'proxy-health',
     dataContent: JSON.stringify({
@@ -197,7 +197,7 @@ const webserverTemplates: readonly ScriptAutoTemplate[] = [
       '// 1. Read /etc/ssl/cert-status.json',
       '// 2. Parse the JSON',
       '// 3. Extract the "fingerprint" field',
-      '// 4. Report: echo(_decode(fingerprint))',
+      '// 4. Report: _system(fingerprint)',
     ].join('\n'),
     dataFileName: '/etc/ssl/cert-status.json',
     dataContent: JSON.stringify({
@@ -220,7 +220,7 @@ const webserverTemplates: readonly ScriptAutoTemplate[] = [
       '// 1. POST to http://{{apiIp}}/api/cdn-health',
       '// 2. Parse the JSON response',
       '// 3. Extract the "origin_key" field',
-      '// 4. Report: echo(_decode(origin_key))',
+      '// 4. Report: _system(origin_key)',
     ].join('\n'),
     dataFileName: 'cdn-health',
     dataContent: JSON.stringify({
@@ -248,7 +248,7 @@ const mailserverTemplates: readonly ScriptAutoTemplate[] = [
       '// 1. POST to http://{{apiIp}}/api/relay-auth',
       '// 2. Parse the JSON response',
       '// 3. Extract the "relay_token" field',
-      '// 4. Report: echo(_decode(relay_token))',
+      '// 4. Report: _system(relay_token)',
     ].join('\n'),
     dataFileName: 'relay-auth',
     dataContent: JSON.stringify({
@@ -271,7 +271,7 @@ const mailserverTemplates: readonly ScriptAutoTemplate[] = [
       '// 1. POST to http://{{apiIp}}/api/mail-queue',
       '// 2. Parse the JSON response',
       '// 3. Extract the "queue_token" field',
-      '// 4. Report: echo(_decode(queue_token))',
+      '// 4. Report: _system(queue_token)',
     ].join('\n'),
     dataFileName: 'mail-queue',
     dataContent: JSON.stringify({
@@ -294,7 +294,7 @@ const mailserverTemplates: readonly ScriptAutoTemplate[] = [
       '// 1. Read /etc/mail/filter-config.json',
       '// 2. Parse the JSON',
       '// 3. Extract the "ruleset_hash" field',
-      '// 4. Report: echo(_decode(ruleset_hash))',
+      '// 4. Report: _system(ruleset_hash)',
     ].join('\n'),
     dataFileName: '/etc/mail/filter-config.json',
     dataContent: JSON.stringify({
@@ -322,7 +322,7 @@ const iotTemplates: readonly ScriptAutoTemplate[] = [
       '// 1. POST to http://{{apiIp}}/api/mqtt-status',
       '// 2. Parse the JSON response',
       '// 3. Extract the "broker_key" field',
-      '// 4. Report: echo(_decode(broker_key))',
+      '// 4. Report: _system(broker_key)',
     ].join('\n'),
     dataFileName: 'mqtt-status',
     dataContent: JSON.stringify({
@@ -345,7 +345,7 @@ const iotTemplates: readonly ScriptAutoTemplate[] = [
       '// 1. Read /var/lib/sensor/latest.json',
       '// 2. Parse the JSON',
       '// 3. Extract the "device_key" field',
-      '// 4. Report: echo(_decode(device_key))',
+      '// 4. Report: _system(device_key)',
     ].join('\n'),
     dataFileName: '/var/lib/sensor/latest.json',
     dataContent: JSON.stringify({
@@ -368,7 +368,7 @@ const iotTemplates: readonly ScriptAutoTemplate[] = [
       '// 1. POST to http://{{apiIp}}/api/gateway-register',
       '// 2. Parse the JSON response',
       '// 3. Extract the "registration_id" field',
-      '// 4. Report: echo(_decode(registration_id))',
+      '// 4. Report: _system(registration_id)',
     ].join('\n'),
     dataFileName: 'gateway-register',
     dataContent: JSON.stringify({
@@ -396,7 +396,7 @@ const workstationTemplates: readonly ScriptAutoTemplate[] = [
       '// 1. Read /var/lib/ntp/sync-status.json',
       '// 2. Parse the JSON',
       '// 3. Extract the "sync_hash" field',
-      '// 4. Report: echo(_decode(sync_hash))',
+      '// 4. Report: _system(sync_hash)',
     ].join('\n'),
     dataFileName: '/var/lib/ntp/sync-status.json',
     dataContent: JSON.stringify({
@@ -419,7 +419,7 @@ const workstationTemplates: readonly ScriptAutoTemplate[] = [
       '// 1. POST to http://{{apiIp}}/api/ldap-sync',
       '// 2. Parse the JSON response',
       '// 3. Extract the "sync_token" field',
-      '// 4. Report: echo(_decode(sync_token))',
+      '// 4. Report: _system(sync_token)',
     ].join('\n'),
     dataFileName: 'ldap-sync',
     dataContent: JSON.stringify({
@@ -442,7 +442,7 @@ const workstationTemplates: readonly ScriptAutoTemplate[] = [
       '// 1. Read /etc/vpn/tunnel.json',
       '// 2. Parse the JSON',
       '// 3. Extract the "psk_hash" field',
-      '// 4. Report: echo(_decode(psk_hash))',
+      '// 4. Report: _system(psk_hash)',
     ].join('\n'),
     dataFileName: '/etc/vpn/tunnel.json',
     dataContent: JSON.stringify({
@@ -470,7 +470,7 @@ const routerTemplates: readonly ScriptAutoTemplate[] = [
       '// 1. Read /var/lib/routing/wan-config.json',
       '// 2. Parse the JSON',
       '// 3. Extract the "failover_key" field',
-      '// 4. Report: echo(_decode(failover_key))',
+      '// 4. Report: _system(failover_key)',
     ].join('\n'),
     dataFileName: '/var/lib/routing/wan-config.json',
     dataContent: JSON.stringify({
@@ -493,7 +493,7 @@ const routerTemplates: readonly ScriptAutoTemplate[] = [
       '// 1. Read /var/lib/routing/state.json',
       '// 2. Parse the JSON',
       '// 3. Extract the "route_hash" field',
-      '// 4. Report: echo(_decode(route_hash))',
+      '// 4. Report: _system(route_hash)',
     ].join('\n'),
     dataFileName: '/var/lib/routing/state.json',
     dataContent: JSON.stringify({
@@ -516,7 +516,7 @@ const routerTemplates: readonly ScriptAutoTemplate[] = [
       '// 1. POST to http://{{apiIp}}/api/upstream-status',
       '// 2. Parse the JSON response',
       '// 3. Extract the "peer_key" field',
-      '// 4. Report: echo(_decode(peer_key))',
+      '// 4. Report: _system(peer_key)',
     ].join('\n'),
     dataFileName: 'upstream-status',
     dataContent: JSON.stringify({
@@ -544,7 +544,7 @@ const switchTemplates: readonly ScriptAutoTemplate[] = [
       '// 1. POST to http://{{apiIp}}/api/stp-topology',
       '// 2. Parse the JSON response',
       '// 3. Extract the "topology_key" field',
-      '// 4. Report: echo(_decode(topology_key))',
+      '// 4. Report: _system(topology_key)',
     ].join('\n'),
     dataFileName: 'stp-topology',
     dataContent: JSON.stringify({
@@ -567,7 +567,7 @@ const switchTemplates: readonly ScriptAutoTemplate[] = [
       '// 1. Read /var/lib/switch/port-stats.json',
       '// 2. Parse the JSON',
       '// 3. Extract the "stats_hash" field',
-      '// 4. Report: echo(_decode(stats_hash))',
+      '// 4. Report: _system(stats_hash)',
     ].join('\n'),
     dataFileName: '/var/lib/switch/port-stats.json',
     dataContent: JSON.stringify({
@@ -590,7 +590,7 @@ const switchTemplates: readonly ScriptAutoTemplate[] = [
       '// 1. POST to http://{{apiIp}}/api/vlan-db',
       '// 2. Parse the JSON response',
       '// 3. Extract the "vlan_token" field',
-      '// 4. Report: echo(_decode(vlan_token))',
+      '// 4. Report: _system(vlan_token)',
     ].join('\n'),
     dataFileName: 'vlan-db',
     dataContent: JSON.stringify({

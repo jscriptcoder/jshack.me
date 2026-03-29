@@ -80,26 +80,86 @@ const verifyScriptFix = (
     return 'Script not found. The script file may have been deleted.';
   }
 
-  const { systemValue, error } = runScriptWithSystem(scriptContent);
-
-  if (error) {
-    return `Script execution failed: ${error}`;
+  // script_fix scripts are always sync (no await)
+  const result = runScriptWithSystem(scriptContent);
+  if (result instanceof Promise) {
+    return 'Script verification error: unexpected async execution.';
   }
 
-  if (systemValue === null) {
+  if (result.error) {
+    return `Script execution failed: ${result.error}`;
+  }
+
+  if (result.systemValue === null) {
     return 'Script did not call _system(). Fix the script so it produces the correct output.';
   }
 
-  if (systemValue !== objective.expectedChecksum) {
+  if (result.systemValue !== objective.expectedChecksum) {
     return 'Script output is incorrect. Check your fix and try again.';
   }
 
   return null;
 };
 
-const verifyScriptAuto = (proof: string, mission: MissionNetwork): string | null => {
-  if (proof === mission.objective.expectedProof) return null;
-  return 'Incorrect proof. Write and run the script to get the ACCESS-KEY.';
+const verifyScriptAuto = (
+  mission: MissionNetwork,
+  readFileFromMachine: MailCommandContext['readFileFromMachine'],
+): string | null => {
+  const { objective } = mission;
+  const scriptContent = readFileFromMachine({
+    machineId: objective.targetMachine,
+    path: objective.targetPath,
+    cwd: '/',
+    userType: 'root',
+  });
+
+  if (scriptContent === null) {
+    return 'Script not found. The script file may have been deleted.';
+  }
+
+  // Build mock data access for the script runner.
+  // Local: cat() returns the data file content from the target machine.
+  // Remote: curl() returns an array where the last element is the API response JSON.
+  const extraContext: Record<string, (...args: readonly unknown[]) => unknown> = {};
+
+  if (objective.scriptAutoFlavor === 'local' && objective.scriptAutoDataPath) {
+    const dataContent = readFileFromMachine({
+      machineId: objective.targetMachine,
+      path: objective.scriptAutoDataPath,
+      cwd: '/',
+      userType: 'root',
+    });
+    extraContext.cat = () => dataContent ?? '';
+  }
+
+  if (objective.scriptAutoFlavor === 'remote' && objective.scriptAutoDataContent) {
+    extraContext.curl = () => [objective.scriptAutoDataContent];
+  }
+
+  // Strip `await` — mock functions are synchronous, so the script runs in sync mode
+  const syncScript = scriptContent.replace(/\bawait\s+/g, '');
+  const result = runScriptWithSystem(syncScript, extraContext);
+
+  // runScriptWithSystem is sync here (we stripped await)
+  if (result instanceof Promise) {
+    return 'Script verification error: unexpected async execution.';
+  }
+
+  const { systemValue, error } = result;
+
+  if (error) {
+    return `Script execution failed: ${error}`;
+  }
+
+  if (systemValue === null) {
+    return 'Script did not call _system(). Follow the instructions to produce the correct output.';
+  }
+
+  if (systemValue !== objective.expectedChecksum) {
+    return 'Script output is incorrect. Check the instructions and try again.';
+  }
+
+  return null;
 };
 
 const verifySabotage = (
@@ -210,7 +270,7 @@ const verifyProof = (
   if (type === 'credential_theft') return verifyCredentialTheft(proof, mission);
   if (type === 'tamper') return verifyTamper(mission, readFileFromMachine);
   if (type === 'script_fix') return verifyScriptFix(mission, readFileFromMachine);
-  if (type === 'script_auto') return verifyScriptAuto(proof, mission);
+  if (type === 'script_auto') return verifyScriptAuto(mission, readFileFromMachine);
   if (type === 'sabotage') return verifySabotage(mission, isMachineBricked);
   if (type === 'backdoor') return verifyBackdoor(mission, readFileFromMachine);
   if (type === 'portforward') return verifyPortforward(mission, readFileFromMachine);
@@ -258,6 +318,7 @@ export const createMailCommand = (context: MailCommandContext): Command => ({
     // Content is optional for objectives that verify by inspecting machine state
     const contentOptional =
       mission?.objective.type === 'script_fix' ||
+      mission?.objective.type === 'script_auto' ||
       mission?.objective.type === 'tamper' ||
       mission?.objective.type === 'sabotage' ||
       mission?.objective.type === 'backdoor' ||

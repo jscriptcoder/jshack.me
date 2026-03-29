@@ -102,9 +102,6 @@ const printObjective = (obj: MissionObjective): void => {
   }
   if (obj.scriptBugType) {
     console.log(`  Script bug:      ${magenta(obj.scriptBugType)}`);
-    if (obj.scriptOwner) {
-      console.log(`  Script owner:    ${obj.scriptOwner}`);
-    }
     if (obj.scriptHintPath) {
       console.log(`  Script hint:     ${obj.scriptHintPath}`);
     }

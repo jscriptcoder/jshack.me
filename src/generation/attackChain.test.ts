@@ -236,19 +236,19 @@ describe('buildMissionObjective', () => {
     }
   });
 
-  it('script_auto objective has ACCESS-KEY, automation path, and script_auto fields', () => {
+  it('script_auto objective has automation path, _system instructions, and script_auto fields', () => {
     const { result } = buildTestData('test-script-auto', 'medium', 'script_auto');
 
     expect(result.objective.type).toBe('script_auto');
-    expect(result.objective.expectedProof).toMatch(/^ACCESS-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$/);
+    expect(result.objective.expectedProof).toBe('');
     expect(result.objective.targetPath).toMatch(/\/(cron\.d|init\.d|network\/if-up\.d)\//);
-    expect(result.objective.targetContent).toContain('_decode');
+    expect(result.objective.targetContent).toContain('_system');
+    expect(result.objective.targetContent).not.toContain('_decode');
     expect(result.objective.expectedChecksum).toBeTruthy();
-    expect(result.objective.scriptOwner).toBeDefined();
-    expect(['root', 'user']).toContain(result.objective.scriptOwner);
     expect(result.objective.scriptAutoFlavor).toBeDefined();
     expect(['local', 'remote']).toContain(result.objective.scriptAutoFlavor);
     expect(result.objective.description).toContain('automated script');
+    expect(result.objective.description).toContain('Root password:');
   });
 
   it('script_auto is deterministic', () => {

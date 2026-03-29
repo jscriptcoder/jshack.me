@@ -182,20 +182,10 @@ export const useCommands = (): UseCommandsResult => {
         getUserType: () => session.userType,
         canTraverse: (path: string) => canTraverse(path, session.userType),
         getExecutionContext: () => resolvedExecutionContext,
-        getDecodeFn: () => {
-          if (!activeMission) return undefined;
-          const missionType = activeMission.objective.type;
-          if (missionType !== 'script_auto') return undefined;
-          const { expectedChecksum, expectedProof } = activeMission.objective;
-          return (value: unknown) => {
-            if (String(value) === expectedChecksum) return expectedProof;
-            return 'ERROR: checksum mismatch — script output is incorrect';
-          };
-        },
         getSystemFn: () => {
           if (!activeMission) return undefined;
           const missionType = activeMission.objective.type;
-          if (missionType !== 'script_fix') return undefined;
+          if (missionType !== 'script_fix' && missionType !== 'script_auto') return undefined;
           const { expectedChecksum } = activeMission.objective;
           return (value: unknown) => {
             if (String(value) === expectedChecksum) return 'System check: PASS';

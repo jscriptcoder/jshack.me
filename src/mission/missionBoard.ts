@@ -209,7 +209,7 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     target: 'Sterling Dynamics — internal build cluster',
     objective: 'Write a cron job that verifies their deployment pipeline',
     difficulty: 'MEDIUM',
-    seed: 'STERLING-ftp-medium-script-auto',
+    seed: 'STERLING-ssh-medium-script-auto',
   },
   {
     id: 'DKC-029',
@@ -218,7 +218,7 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     target: 'Obsidian Labs — deep research network',
     objective: 'Write an automated health-check script deep in their infrastructure',
     difficulty: 'HARD',
-    seed: 'OBSIDIANLAB-exploit-hard-script-auto-domain',
+    seed: 'OBSIDIANLAB-ssh-hard-script-auto-domain',
   },
   // --- PORTFORWARD (router hacking + NAT forwarding) ---
   {

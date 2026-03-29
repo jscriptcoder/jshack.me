@@ -666,10 +666,24 @@ describe('generateMissionNetwork', () => {
     const result = generateMissionNetwork('test-script-auto-easy');
     expect(result.objective.type).toBe('script_auto');
     expect(result.objective.targetPath).toMatch(/\/(cron\.d|init\.d|network\/if-up\.d)\//);
-    expect(result.objective.expectedProof).toMatch(/^ACCESS-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$/);
+    expect(result.objective.expectedProof).toBe('');
     expect(result.objective.expectedChecksum).toBeTruthy();
     expect(result.objective.scriptAutoFlavor).toBeDefined();
     expect(result.objective.description).toContain('automated script');
+  });
+
+  it('script_auto forces SSH entry and includes root password in description', () => {
+    const result = generateMissionNetwork('test-script-auto-easy');
+    expect(result.objective.type).toBe('script_auto');
+    expect(result.entryVariant).toBe('ssh');
+    expect(result.objective.description).toContain('Root password:');
+  });
+
+  it('script_auto instructions use _system() not _decode()', () => {
+    const result = generateMissionNetwork('test-script-auto-easy');
+    expect(result.objective.type).toBe('script_auto');
+    expect(result.objective.targetContent).toContain('_system(');
+    expect(result.objective.targetContent).not.toContain('_decode(');
   });
 
   it('script_auto seeds never have SSH closures', () => {
