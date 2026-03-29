@@ -60,9 +60,11 @@ e2e/
 
 ## Session Context
 
-`SessionContext` (`src/session/SessionContext.tsx`) is the single source of truth for session state: username, userType, machine, currentPath, theme. WiFi state (`wifiConnected`) is a standalone `useState<boolean>` in `SessionProvider` — not part of the `Session` type — because it's global shared state (persisted to IndexedDB, synced across tabs) rather than per-tab session state.
+`SessionContext` (`src/session/SessionContext.tsx`) is the single source of truth for session state: username, userType, machine, hostname, currentPath, theme. WiFi state (`wifiConnected`) is a standalone `useState<boolean>` in `SessionProvider` — not part of the `Session` type — because it's global shared state (persisted to IndexedDB, synced across tabs) rather than per-tab session state.
 
-Key methods: `setUsername()`, `setMachine()`, `setCurrentPath()`, `setWifiConnected()`, `disconnectWifi()`, `pushSession(reason)` (before SSH or su), `popSession()` (exit), `popAllSessions()` (mission abort — resets to bottom of stack), `canReturn()`.
+The `hostname` field enables showing machine hostnames instead of IPs in the prompt (e.g., `user@dist-rtr>` vs `user@91.159.219.62>`). For localhost, an effect syncs `workstationName` into `session.hostname`. For SSH'd machines, `connectSsh` sets it from the remote machine's network config. The prompt, tab title, and nmap hostname all use the same unified path: `session.hostname ?? session.machine`.
+
+Key methods: `setUsername()`, `setMachine(ip, hostname?)`, `setCurrentPath()`, `setWifiConnected()`, `disconnectWifi()`, `pushSession(reason)` (before SSH or su), `popSession()` (exit), `popAllSessions()` (mission abort — resets to bottom of stack), `canReturn()`.
 
 Session stack enables SSH and su nesting — `pushSession('ssh')` saves state before connecting to a remote machine, `pushSession('su')` saves state before switching users. `popSession()` restores the most recent snapshot on `exit()`. Each `SessionSnapshot` has a `reason` field (`'ssh' | 'su'`) so `exit()` shows context-appropriate messages ("Connection closed." vs "logout"). WiFi state is not included in snapshots (it doesn't change per SSH hop). Mixed stacking works naturally: SSH → su → exit (returns to previous user) → exit (returns to previous machine).
 

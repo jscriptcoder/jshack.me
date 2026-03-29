@@ -29,14 +29,14 @@ Home networks use `generateNetwork(options)`, which runs these steps (missions s
 4. **Enrichment** (`enrichment.ts`) — NC/exploit/FTP port owner assignment with weighted PRNG distribution
 5. **Port Closures** (`enrichment.ts: applyPortClosures`) — ~30% SSH/FTP closures with NC backdoor fallbacks
 6. **Config Updates** — Merge users and port closures into network configs
-7. **Base Filesystems** — Role configs, credential leaks, web content, SNMP configs, iptables rules, PID files
+7. **Base Filesystems** — Role configs, credential leaks, web content, SNMP configs (full for SNMP-variant, basic read-only via difficulty-based PRNG roll for others), iptables rules, PID files
 
 ### Mission Pipeline (`generateMission.ts`)
 
 `generateMissionNetwork(seed, usedIps?)` has its own orchestration (imports `enrichMachineWithUsers` and `applyPortClosures` from `enrichment.ts`) for PRNG sequence stability, then adds mission-specific steps:
 
 - **Objective** (`attackChain.ts`) — Objective generation (exfiltrate with ACCESS-KEY, tamper with old/new values, credential_theft with root password, script_fix with broken script + bug type, script_auto with write-from-scratch automation script, sabotage with machine bricking, backdoor with nc listener, portforward with iptables rule), client email generation
-- **Filesystems** (`filesystem.ts`) — FileNode trees with role configs, noise, target file at dynamic path with thematic content. Web content generation for machines with open HTTP ports. HTTP entry variant places SSH credentials in `/var/www/html/` (body-based or `.headers` sidecar). `/bin/` is populated with system utility binaries; `/usr/bin/` is left empty (players must `apt install` tools). Router gets `/etc/iptables/rules.v4` — pre-populated with forwarding rules in forwarded mode, empty template in router-first mode. SNMP variant routers get `/etc/snmp/snmpd.conf` with community strings, system OIDs, leaked credentials, and firewall OIDs.
+- **Filesystems** (`filesystem.ts`) — FileNode trees with role configs, noise, target file at dynamic path with thematic content. Web content generation for machines with open HTTP ports. HTTP entry variant places SSH credentials in `/var/www/html/` (body-based or `.headers` sidecar). `/bin/` is populated with system utility binaries; `/usr/bin/` is left empty (players must `apt install` tools). Router gets `/etc/iptables/rules.v4` — pre-populated with forwarding rules in forwarded mode, empty template in router-first mode. SNMP variant routers get `/etc/snmp/snmpd.conf` with community strings, system OIDs, leaked credentials, and firewall OIDs. Non-SNMP-variant inner gateways have a difficulty-based chance (easy 70%, medium 40%, hard 20%) of basic read-only SNMP (`rocommunity public` only, `ifAddr.1`/`ifAddr.2` for subnet discovery, no credential leaks or firewall OIDs). All SNMP configs include `ifAddr.2` to reveal dual-homed subnets.
 - **Binary Wrapping** (`binary.ts`) — Optional binary noise wrapping for target/key files
 
 ### Home Network Pipeline (`generateHomeNetwork.ts`)

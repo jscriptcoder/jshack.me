@@ -169,6 +169,10 @@ In forwarded mode, the iptables file is pre-populated with forwarding rules. In 
 
 For the SNMP entry variant, `NetworkContext` also reads `/etc/snmp/snmpd.conf` from the router's filesystem (same dynamic pattern as iptables). The `parseSnmpFirewallConfig()` parser (`src/network/snmpFirewallParser.ts`) extracts `firewallSSH` and `firewallHTTP` OID values. When `snmpset` changes `firewallSSH` from `deny` to `permit`, port 22 dynamically opens on the router. The `applySnmpFirewallOverrides()` function overlays these port state changes onto the router's `RemoteMachine` view.
 
+### Basic SNMP on Non-SNMP-Variant Gateways
+
+Inner gateways without the SNMP access variant have a difficulty-based PRNG chance of basic read-only SNMP: easy 70%, medium 40%, hard 20%. Basic configs contain `rocommunity public` only (no rw community, no credential leaks, no firewall/ACL OIDs). The key reconnaissance value is `ifAddr.1`/`ifAddr.2` — interface IPs that reveal the gateway is dual-homed across two subnets. Players who run `snmpwalk` with the public community can discover gateways and hidden subnets. Full SNMP configs (SNMP-variant gateways and border routers) also include `ifAddr.2`. UDP port 161 is dynamically added to the network config for basic-SNMP gateways so `snmpwalk` can reach them.
+
 ### Dynamic Daemon Ports
 
 `NetworkContext` reads PID files (`/var/run/sshd.pid`, `/var/run/vsftpd.pid`) from each machine's filesystem. When the player runs `sshd(port)` or `vsftpd(port)` (or via `bash('/usr/sbin/sshd')` from an NC shell, or `systemctl('start', 'sshd')`), the command writes a PID file. `parseSshdState()` and `parseFtpdState()` parse these into port overrides, and `applyDaemonOverrides()` opens the corresponding port on the machine's `RemoteMachine` view. All daemon commands are root-only (`/usr/sbin/`, `execute: ['root']`). `systemctl('stop', service)` deletes the PID file to close the port.

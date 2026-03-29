@@ -140,7 +140,7 @@ The game starts with an intro screen (`src/components/IntroScreen.tsx`) where th
 
 - `GameState = { seed, workstationName, username, rootPassword }` persisted in IndexedDB (`src/game/types.ts`)
 - Game seed drives WiFi network generation and home network generation (deterministic)
-- Workstation name appears in the terminal prompt and `/etc/hostname` (replaces "localhost" cosmetically)
+- Terminal prompt shows hostname: `session.hostname ?? session.machine`. On localhost, an effect syncs `workstationName` into `session.hostname`. On SSH'd machines, hostname is set from the remote machine's network config during connection.
 - Player username is configurable (no longer hardcoded); appears in prompt, home directory, and `/etc/passwd`
 - Root password is player-chosen; guest password is seed-derived from the guest passwords pool
 - Player's own user has no password (empty hash in `/etc/passwd`)
@@ -170,6 +170,7 @@ See `architecture.md` for integration details, `mission-variations.md` for all g
 - Nine objectives: exfiltrate, tamper, credential_theft, script_fix, script_auto, sabotage, backdoor, portforward, forensics
 - NAT resolution via `resolveNat(ip, port)` using iptables rules on any gateway's filesystem (border router and inner gateways). SNMP firewall overrides also apply to all gateways — inner gateways with SNMP access variant get `snmpd.conf` and respond to `snmpset` for dynamic port opening. `NetworkContext` handles layered home networks the same way — gateway iptables/SNMP parsing, layer-aware localhost visibility, and `.1` IP aliases for inner gateways.
 - **Switch gateways**: Inner gateways can be managed Layer 3 switches (`GatewayType = 'switch'`) instead of routers. Switches use ACL deny rules (`/etc/switch/acl.conf`) instead of NAT/iptables. No address translation — when ACLs are cleared, traffic reaches downstream IPs directly. SNMP on switches uses ACL OIDs (`aclSSH`, `aclHTTP` with `allow`/`deny` values) instead of firewall OIDs (`firewallSSH`/`firewallHTTP` with `permit`/`deny`). Switch gateways are activated via the `switch` seed keyword for missions or a ~40% PRNG roll for home networks. Border gateway is always a router.
+- **Basic SNMP on gateways**: Non-SNMP-variant inner gateways have a difficulty-based PRNG chance (easy 70%, medium 40%, hard 20%) of having basic read-only SNMP enabled. Basic configs have `rocommunity public` only — no rw community, no credential leaks, no firewall/ACL OIDs. `ifAddr.1`/`ifAddr.2` OIDs reveal both subnet IPs, letting players discover dual-homed gateways via `snmpwalk`. Full SNMP configs (SNMP-variant gateways) also include `ifAddr.2`. The PRNG roll is always consumed per gateway to maintain sequence stability.
 
 ### Node Execution
 

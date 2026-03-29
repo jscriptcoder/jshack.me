@@ -17,12 +17,15 @@ type Session = {
   readonly username: string; // Current user (player-chosen, e.g., "jshacker")
   readonly userType: UserType; // 'root' | 'user' | 'guest'
   readonly machine: string; // Current machine (e.g., "localhost", "192.168.1.75")
+  readonly hostname?: string; // Display name for prompt (e.g., "dist-rtr", "myworkstation")
   readonly currentPath: string; // Working directory (e.g., "/home/<username>")
   readonly theme: ThemeId; // Terminal color theme ('amber' | 'green' | 'cyan' | 'light')
 };
 ```
 
 Default session: `<username>@localhost:/home/<username>` (user type: `user`, theme: `amber`). Username is player-chosen via the intro screen.
+
+The `hostname` field provides display names for the prompt (`session.hostname ?? session.machine`). On localhost, an effect syncs `workstationName` into `session.hostname`. On SSH'd machines, `setMachine(ip, hostname)` sets it from the remote machine's network config.
 
 ## Connection Modes
 
@@ -89,23 +92,23 @@ Validated with type guards on restore. Falls back to defaults if invalid or corr
 
 `useSession()` provides:
 
-| Method                    | Description                                                        |
-| ------------------------- | ------------------------------------------------------------------ |
-| `session`                 | Current session state (per-tab)                                    |
-| `connectedWifi`           | `WifiConnection \| null` — which WiFi network (shared)             |
-| `wifiConnected`           | Derived boolean (`connectedWifi !== null`)                         |
-| `setUsername(name, type)` | Change current user                                                |
-| `setMachine(name)`        | Change current machine                                             |
-| `setCurrentPath(path)`    | Change working directory                                           |
-| `getPrompt()`             | Formatted prompt (`user@workstation>`, `user@ip>`, `ftp>`, or `$`) |
-| `pushSession(reason)`     | Save session to stack (before SSH or su)                           |
-| `popSession()`            | Restore previous session (on exit)                                 |
-| `popAllSessions()`        | Reset to bottom of stack (mission abort)                           |
-| `canReturn()`             | Check if session stack has entries                                 |
-| `enterFtpMode(session)`   | Enter FTP mode                                                     |
-| `exitFtpMode()`           | Exit FTP mode                                                      |
-| `enterNcMode(session)`    | Enter NC mode                                                      |
-| `exitNcMode()`            | Exit NC mode                                                       |
-| `setWifiConnected(conn)`  | Set WiFi connection (`WifiConnection \| null`)                     |
-| `disconnectWifi()`        | Disconnect WiFi and reset to localhost (preserves theme)           |
-| `setTheme(themeId)`       | Switch terminal color theme (persists across sessions)             |
+| Method                      | Description                                                        |
+| --------------------------- | ------------------------------------------------------------------ |
+| `session`                   | Current session state (per-tab)                                    |
+| `connectedWifi`             | `WifiConnection \| null` — which WiFi network (shared)             |
+| `wifiConnected`             | Derived boolean (`connectedWifi !== null`)                         |
+| `setUsername(name, type)`   | Change current user                                                |
+| `setMachine(ip, hostname?)` | Change current machine and optional display hostname               |
+| `setCurrentPath(path)`      | Change working directory                                           |
+| `getPrompt()`               | Formatted prompt (`user@workstation>`, `user@ip>`, `ftp>`, or `$`) |
+| `pushSession(reason)`       | Save session to stack (before SSH or su)                           |
+| `popSession()`              | Restore previous session (on exit)                                 |
+| `popAllSessions()`          | Reset to bottom of stack (mission abort)                           |
+| `canReturn()`               | Check if session stack has entries                                 |
+| `enterFtpMode(session)`     | Enter FTP mode                                                     |
+| `exitFtpMode()`             | Exit FTP mode                                                      |
+| `enterNcMode(session)`      | Enter NC mode                                                      |
+| `exitNcMode()`              | Exit NC mode                                                       |
+| `setWifiConnected(conn)`    | Set WiFi connection (`WifiConnection \| null`)                     |
+| `disconnectWifi()`          | Disconnect WiFi and reset to localhost (preserves theme)           |
+| `setTheme(themeId)`         | Switch terminal color theme (persists across sessions)             |
