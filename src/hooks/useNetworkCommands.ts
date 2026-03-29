@@ -43,7 +43,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
     createFileOnMachine,
     writeFileToMachine,
   } = useFileSystem();
-  const { session, workstationName, wifiConnected, isMachineBricked } = useSession();
+  const { session, wifiConnected, isMachineBricked } = useSession();
 
   return useMemo(() => {
     const isWifiRequired = () => session.machine === 'localhost' && !wifiConnected;
@@ -89,10 +89,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
             getMachine,
             getMachines,
             getLocalIPs: () => new Set(getInterfaces().map((iface) => iface.inet)),
-            getLocalHostname: () =>
-              session.machine === 'localhost' && workstationName
-                ? workstationName
-                : (session.hostname ?? session.machine),
+            getLocalHostname: () => session.hostname ?? session.machine,
           }),
           isWifiRequired,
         ),
@@ -287,7 +284,6 @@ export const useNetworkCommands = (): Map<string, Command> => {
     session.currentPath,
     session.username,
     session.userType,
-    workstationName,
     wifiConnected,
     isMachineBricked,
   ]);

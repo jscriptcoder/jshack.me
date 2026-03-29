@@ -196,6 +196,18 @@ export const SessionProvider = ({ children, workstationName, username }: Session
     return () => channel.close();
   }, []);
 
+  // Sync workstationName into session.hostname when on localhost.
+  // Handles all reset paths (WiFi disconnect, session pop, initial load).
+  useEffect(() => {
+    if (
+      session.machine === 'localhost' &&
+      workstationName &&
+      session.hostname !== workstationName
+    ) {
+      setSession((prev) => ({ ...prev, hostname: workstationName }));
+    }
+  }, [session.machine, session.hostname, workstationName]);
+
   // Session state persists to sessionStorage (per-tab)
   useEffect(() => {
     saveSessionToTab({ session, sessionStack, ftpSession, ncSession });
@@ -216,12 +228,8 @@ export const SessionProvider = ({ children, workstationName, username }: Session
   const getPrompt = useCallback(() => {
     if (ftpSession) return 'ftp>';
     if (ncSession) return '$';
-    const displayMachine =
-      session.machine === 'localhost' && workstationName
-        ? workstationName
-        : (session.hostname ?? session.machine);
-    return `${session.username}@${displayMachine}>`;
-  }, [session.username, session.machine, session.hostname, workstationName, ftpSession, ncSession]);
+    return `${session.username}@${session.hostname ?? session.machine}>`;
+  }, [session.username, session.machine, session.hostname, ftpSession, ncSession]);
 
   const pushSession = useCallback(
     (reason: SessionReason) => {
@@ -340,15 +348,14 @@ export const SessionProvider = ({ children, workstationName, username }: Session
 
   // Dynamic browser tab title so users can identify tabs at a glance
   useEffect(() => {
-    const displayMachine =
-      session.machine === 'localhost' && workstationName ? workstationName : session.machine;
+    const displayMachine = session.hostname ?? session.machine;
     const title = ftpSession
       ? `ftp> \u2014 JSHACK.ME`
       : ncSession
         ? `nc shell \u2014 JSHACK.ME`
         : `${session.username}@${displayMachine} \u2014 JSHACK.ME`;
     document.title = title;
-  }, [session.username, session.machine, ftpSession, ncSession]);
+  }, [session.username, session.machine, session.hostname, ftpSession, ncSession]);
 
   // Resets to the bottom of the session stack (the original state before any SSH).
   // Used by mission abort to return to localhost regardless of SSH nesting depth.
