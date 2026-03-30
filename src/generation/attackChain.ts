@@ -577,6 +577,7 @@ const buildObjective = (
       targetContent: template.content,
       clientEmail,
       expectedProof: '',
+      binary: template.binary || undefined,
       malwarePidPath,
       malwarePidName: pidName,
     };

@@ -281,13 +281,15 @@ const placeTargetFile = (
   const segments = objective.targetPath.split('/').filter(Boolean);
   const fileName = segments[segments.length - 1] ?? 'flag.txt';
 
-  // script_fix / script_auto / malware: use mkScript (these are JS files)
-  // malware uses root owner since it was planted by an attacker with root access
+  // script_fix / script_auto: JS files with user permissions
+  // malware: JS script (mkScript) or binary (wrapInBinaryNoise), root-owned
   const file =
     objective.type === 'script_fix' || objective.type === 'script_auto'
       ? mkScript(fileName, objective.targetContent, 'user')
       : objective.type === 'malware'
-        ? mkScript(fileName, objective.targetContent, 'root')
+        ? objective.binary
+          ? mkScript(fileName, wrapInBinaryNoise(prng, objective.targetContent), 'root')
+          : mkScript(fileName, objective.targetContent, 'root')
         : mkFile(
             fileName,
             objective.binary
