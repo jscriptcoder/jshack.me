@@ -117,6 +117,7 @@ export const SYSTEM_UTILITY_NAMES = [
   'scp',
   'reboot',
   'ps',
+  'kill',
 ] as const;
 
 // Apt-installable tool names for /usr/bin/
