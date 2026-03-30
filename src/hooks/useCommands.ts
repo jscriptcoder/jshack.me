@@ -22,6 +22,7 @@ import { createVsftpdCommand } from '../commands/vsftpd';
 import { createSystemctlCommand } from '../commands/systemctl';
 import { createBashCommand } from '../commands/bash';
 import { createPsCommand } from '../commands/ps';
+import { createKillCommand } from '../commands/kill';
 import { xtermCommand } from '../commands/xterm';
 import { useMission } from '../mission';
 import {
@@ -279,6 +280,18 @@ export const useCommands = (): UseCommandsResult => {
         getMachine: () => session.machine,
         getMachineInfo,
         getNodeFromMachine,
+      }),
+    );
+
+    commands.set(
+      'kill',
+      createKillCommand({
+        getMachine: () => session.machine,
+        getMachineInfo,
+        getNodeFromMachine,
+        deleteNodeFromMachine,
+        getUserType: () => session.userType,
+        getUsername: () => session.username,
       }),
     );
 

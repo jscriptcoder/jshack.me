@@ -828,3 +828,56 @@ const collectAllContent = (node: FileNode | undefined): readonly string[] => {
   if (node.type === 'file') return node.content ? [node.content] : [];
   return Object.values(node.children ?? {}).flatMap((child) => collectAllContent(child));
 };
+
+describe('parseSeedOverrides — malware', () => {
+  it('parses malware keyword as objective type', () => {
+    expect(parseSeedOverrides('test-malware').objectiveType).toBe('malware');
+    expect(parseSeedOverrides('MALWARE-MISSION').objectiveType).toBe('malware');
+  });
+});
+
+describe('malware mission end-to-end', () => {
+  it('generates a complete malware mission with SSH entry', () => {
+    const mission = generateMissionNetwork('test-malware-easy');
+    expect(mission.objective.type).toBe('malware');
+    expect(mission.entryVariant).toBe('ssh');
+    expect(mission.objective.targetPath).toMatch(/^\//);
+    expect(mission.objective.targetContent).toBeTruthy();
+    expect(mission.objective.malwarePidPath).toMatch(/^\/var\/run\/.+\.pid$/);
+    expect(mission.objective.description).toMatch(/Root password: \S+/);
+  });
+
+  it('forces SSH entry even when other entry variant is in seed', () => {
+    const mission = generateMissionNetwork('test-malware-ftp-easy');
+    expect(mission.objective.type).toBe('malware');
+    expect(mission.entryVariant).toBe('ssh');
+  });
+
+  it('places malware file on target machine filesystem', () => {
+    const mission = generateMissionNetwork('malware-fs-test-easy');
+    const targetFs = mission.fileSystems[mission.objective.targetMachine];
+    expect(targetFs).toBeDefined();
+    const allContent = collectAllContent(targetFs);
+    // Binary malware wraps content in noise — check that a key line is present
+    const firstLine = mission.objective.targetContent.split('\n')[0];
+    expect(allContent.some((c) => c.includes(firstLine))).toBe(true);
+  });
+
+  it('places PID file in /var/run/ on target machine', () => {
+    const mission = generateMissionNetwork('malware-pid-test-easy');
+    const targetFs = mission.fileSystems[mission.objective.targetMachine];
+    const varRun = targetFs?.children?.['var']?.children?.['run'];
+    expect(varRun).toBeDefined();
+    const pidName = mission.objective.malwarePidName!;
+    const pidFile = varRun?.children?.[pidName];
+    expect(pidFile).toBeDefined();
+    expect(pidFile?.type).toBe('file');
+    expect(pidFile?.content).toContain(mission.objective.targetPath);
+  });
+
+  it('is deterministic', () => {
+    const a = generateMissionNetwork('malware-determ');
+    const b = generateMissionNetwork('malware-determ');
+    expect(a).toEqual(b);
+  });
+});

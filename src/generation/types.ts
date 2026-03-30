@@ -26,7 +26,8 @@ export type MissionObjectiveType =
   | 'sabotage'
   | 'backdoor'
   | 'portforward'
-  | 'forensics';
+  | 'forensics'
+  | 'malware';
 
 export type ScriptBugType = 'syntax' | 'logic' | 'corrupted';
 
@@ -66,6 +67,8 @@ export type MissionObjective = {
   readonly scriptAutoDataPath?: string;
   readonly scriptAutoDataContent?: string;
   readonly scriptAutoApiMachine?: string;
+  readonly malwarePidPath?: string;
+  readonly malwarePidName?: string;
 };
 
 export type GeneratedMachine = {

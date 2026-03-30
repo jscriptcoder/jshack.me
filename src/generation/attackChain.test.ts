@@ -49,6 +49,7 @@ describe('buildMissionObjective', () => {
       'sabotage',
       'backdoor',
       'portforward',
+      'malware',
     ]).toContain(result.objective.type);
   });
 
@@ -281,5 +282,33 @@ describe('buildMissionObjective', () => {
       return;
     }
     throw new Error('No remote script_auto found in 100 seeds');
+  });
+
+  it('malware objective has targetPath, content, PID path, and root password in description', () => {
+    const { result } = buildTestData('test-malware', 'medium', 'malware');
+
+    expect(result.objective.type).toBe('malware');
+    expect(result.objective.targetPath).toMatch(/^\//);
+    expect(result.objective.targetContent).toBeTruthy();
+    expect(result.objective.malwarePidPath).toMatch(/^\/var\/run\/.+\.pid$/);
+    expect(result.objective.malwarePidName).toMatch(/\.pid$/);
+    expect(result.objective.expectedProof).toBe('');
+    expect(result.objective.description).toMatch(/Root password: \S+/);
+  });
+
+  it('malware objective is deterministic', () => {
+    const a = buildTestData('malware-determ', 'easy', 'malware');
+    const b = buildTestData('malware-determ', 'easy', 'malware');
+    expect(a.result.objective).toEqual(b.result.objective);
+  });
+
+  it('hard malware may use hidden dot-prefix in path', () => {
+    const hidden = new Set<boolean>();
+    for (let i = 0; i < 100; i++) {
+      const { result } = buildTestData(`malware-hard-${i}`, 'hard', 'malware');
+      const fileName = result.objective.targetPath.split('/').pop() ?? '';
+      hidden.add(fileName.startsWith('.'));
+    }
+    expect(hidden.has(true)).toBe(true);
   });
 });

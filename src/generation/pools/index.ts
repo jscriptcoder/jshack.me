@@ -33,6 +33,8 @@ export type { ScriptFixTemplate } from './scriptFix';
 export { scriptFixTemplatesByRole } from './scriptFix';
 export type { ScriptAutoTemplate } from './scriptAuto';
 export { scriptAutoTemplatesByRole } from './scriptAuto';
+export type { MalwareTemplate, MalwareType, MalwareLocation } from './malware';
+export { malwareTemplatesByRole } from './malware';
 export type { ForensicsLogType, ForensicsCallingCardTemplate } from './forensics';
 export {
   forensicsLogTypes,

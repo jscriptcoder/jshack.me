@@ -201,6 +201,16 @@ describe('formatMissionBriefing', () => {
     expect(briefing).not.toContain('Discover the root password');
   });
 
+  it('malware briefing includes neutralization instructions', () => {
+    const mission = generateMissionNetwork('test-malware-easy');
+    const briefing = formatMissionBriefing(mission);
+
+    expect(mission.objective.type).toBe('malware');
+    expect(briefing).toContain('compromised');
+    expect(briefing).toContain('kill');
+    expect(briefing).toContain('Root password:');
+  });
+
   it('briefing does not reveal network topology', () => {
     const seeds = ['test-medium', 'test-hard-router-first', 'test-easy'];
     for (const seed of seeds) {

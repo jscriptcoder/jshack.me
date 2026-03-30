@@ -806,4 +806,72 @@ describe('mail command', () => {
 
     expect(() => mail.fn('xR0gu3x@darkmail.onion', 'done')).toThrow('Script not found');
   });
+
+  it('completes malware mission when both malware file and PID file are deleted', () => {
+    const completeMission = vi.fn();
+    const mission = makeMission({
+      type: 'malware',
+      expectedProof: '',
+      targetPath: '/etc/cron.d/cache-warmer.js',
+      targetContent: 'malware content',
+      malwarePidPath: '/var/run/cache-warmer.pid',
+      malwarePidName: 'cache-warmer.pid',
+    });
+    const readFileFromMachine = vi.fn().mockReturnValue(null); // both files deleted
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission,
+      readFileFromMachine,
+      isMachineBricked: () => false,
+    });
+
+    const result = mail.fn('xR0gu3x@darkmail.onion', 'done') as AsyncOutput;
+    const lines = runAsync(result);
+    expect(completeMission).toHaveBeenCalled();
+    expect(lines.some((l) => l.includes('MISSION COMPLETE'))).toBe(true);
+  });
+
+  it('rejects malware mission when malware file still exists', () => {
+    const mission = makeMission({
+      type: 'malware',
+      expectedProof: '',
+      targetPath: '/etc/cron.d/cache-warmer.js',
+      targetContent: 'malware content',
+      malwarePidPath: '/var/run/cache-warmer.pid',
+      malwarePidName: 'cache-warmer.pid',
+    });
+    const readFileFromMachine = vi.fn((op) =>
+      op.path === '/etc/cron.d/cache-warmer.js' ? 'malware content' : null,
+    );
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission: vi.fn(),
+      readFileFromMachine,
+      isMachineBricked: () => false,
+    });
+
+    expect(() => mail.fn('xR0gu3x@darkmail.onion', 'done')).toThrow('still on disk');
+  });
+
+  it('rejects malware mission when PID file still exists', () => {
+    const mission = makeMission({
+      type: 'malware',
+      expectedProof: '',
+      targetPath: '/etc/cron.d/cache-warmer.js',
+      targetContent: 'malware content',
+      malwarePidPath: '/var/run/cache-warmer.pid',
+      malwarePidName: 'cache-warmer.pid',
+    });
+    const readFileFromMachine = vi.fn((op) =>
+      op.path === '/var/run/cache-warmer.pid' ? '/etc/cron.d/cache-warmer.js:port=1' : null,
+    );
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission: vi.fn(),
+      readFileFromMachine,
+      isMachineBricked: () => false,
+    });
+
+    expect(() => mail.fn('xR0gu3x@darkmail.onion', 'done')).toThrow('still running');
+  });
 });

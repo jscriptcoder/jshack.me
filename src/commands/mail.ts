@@ -259,6 +259,39 @@ const verifyForensics = (proof: string, mission: MissionNetwork): string | null 
   return null;
 };
 
+const verifyMalware = (
+  mission: MissionNetwork,
+  readFileFromMachine: MailCommandContext['readFileFromMachine'],
+): string | null => {
+  const { objective } = mission;
+
+  // Check malware file has been deleted
+  const malwareContent = readFileFromMachine({
+    machineId: objective.targetMachine,
+    path: objective.targetPath,
+    cwd: '/',
+    userType: 'root',
+  });
+  if (malwareContent !== null) {
+    return `Malware is still on disk at ${objective.targetPath}. Find and delete it.`;
+  }
+
+  // Check PID file has been deleted (process killed)
+  if (objective.malwarePidPath) {
+    const pidContent = readFileFromMachine({
+      machineId: objective.targetMachine,
+      path: objective.malwarePidPath,
+      cwd: '/',
+      userType: 'root',
+    });
+    if (pidContent !== null) {
+      return 'Malware process is still running. Use ps() to find it and kill() to stop it.';
+    }
+  }
+
+  return null;
+};
+
 const verifyProof = (
   proof: string,
   mission: MissionNetwork,
@@ -275,6 +308,7 @@ const verifyProof = (
   if (type === 'backdoor') return verifyBackdoor(mission, readFileFromMachine);
   if (type === 'portforward') return verifyPortforward(mission, readFileFromMachine);
   if (type === 'forensics') return verifyForensics(proof, mission);
+  if (type === 'malware') return verifyMalware(mission, readFileFromMachine);
   return null;
 };
 
@@ -291,7 +325,7 @@ export const createMailCommand = (context: MailCommandContext): Command => ({
       {
         name: 'content',
         description:
-          'Proof content (ACCESS-KEY, password, or confirmation). Optional for script_fix, tamper, sabotage, backdoor, and portforward missions.',
+          'Proof content (ACCESS-KEY, password, or confirmation). Optional for script_fix, tamper, sabotage, backdoor, portforward, and malware missions.',
       },
     ],
     examples: [

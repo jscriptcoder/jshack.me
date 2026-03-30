@@ -14,11 +14,13 @@ import {
   clientHandles,
   forwardPublicPorts,
   keyPlacementTemplates,
+  malwareTemplatesByRole,
   scriptAutoTemplatesByRole,
   scriptFixTemplatesByRole,
   targetFileTemplatesByRole,
   tamperFileTemplatesByRole,
 } from './pools';
+import type { MalwareLocation } from './pools';
 import { binaryKeyPaths, binaryTargetPaths } from './binary';
 import { encryptContent, bytesToHex } from '../utils/crypto';
 import { generatePublicIp } from './ip';
@@ -126,6 +128,51 @@ const scriptLocationPrefixes: Readonly<Record<string, string>> = {
   'cron.d': '/etc/cron.d',
   'init.d': '/etc/init.d',
   'if-up.d': '/etc/network/if-up.d',
+};
+
+// Malware persistence location prefix map
+const malwareLocationPrefixes: Readonly<Record<MalwareLocation, string>> = {
+  'cron.d': '/etc/cron.d',
+  'init.d': '/etc/init.d',
+  'if-up.d': '/etc/network/if-up.d',
+  'cron.daily': '/etc/cron.daily',
+  'cron.hourly': '/etc/cron.hourly',
+  'rc.local': '/etc',
+  systemd: '/etc/systemd/system',
+  manual: '/tmp',
+};
+
+// Deep paths for hard difficulty malware (manual location)
+const malwareDeepPaths: readonly string[] = [
+  '/var/lib/dpkg/.cache',
+  '/var/tmp/.update',
+  '/usr/local/share/.config',
+  '/opt/.service',
+  '/var/cache/apt/.tmp',
+];
+
+// Selects malware file path based on template and difficulty.
+// Easy: standard location, obvious name. Medium: possibly hidden. Hard: hidden + deep path.
+const selectMalwarePath = (
+  prng: Prng,
+  location: MalwareLocation,
+  scriptName: string,
+  difficulty: Difficulty,
+): string => {
+  const hiddenRoll = prng.next();
+  const isHidden = difficulty === 'hard' || (difficulty === 'medium' && hiddenRoll < 0.5);
+  const fileName = isHidden ? `.${scriptName}` : scriptName;
+
+  if (difficulty === 'hard' && location === 'manual') {
+    const deepPath = prng.pick(malwareDeepPaths);
+    return `${deepPath}/${fileName}`;
+  }
+
+  // Always consume a PRNG roll for deep path to preserve sequence
+  prng.next();
+
+  const prefix = malwareLocationPrefixes[location];
+  return `${prefix}/${fileName}`;
 };
 
 // Selects a role-appropriate script_auto template and builds the stub script content.
@@ -506,6 +553,36 @@ const buildObjective = (
     };
   }
 
+  if (objectiveType === 'malware') {
+    const templates = malwareTemplatesByRole[targetMachine.role];
+    const template = prng.pick(templates);
+    const targetPath = selectMalwarePath(prng, template.location, template.scriptName, difficulty);
+    const pidName = `${template.pidName}.pid`;
+    const malwarePidPath = `/var/run/${pidName}`;
+
+    // Get root password for briefing (player is an authorized contractor)
+    const malwareCreds = credentials[targetMachine.ip] ?? [];
+    const malwareRootCred = malwareCreds.find((c) => c.username === 'root');
+    const malwareRootPassword = malwareRootCred?.password ?? 'unknown';
+
+    // Consume dummy PRNG rolls for binary + encrypt to preserve sequence alignment
+    prng.next();
+    prng.next();
+
+    return {
+      type: 'malware',
+      description: `${template.briefingHint} Root password: ${malwareRootPassword}`,
+      targetMachine: targetMachine.ip,
+      targetPath,
+      targetContent: template.content,
+      clientEmail,
+      expectedProof: '',
+      binary: template.binary || undefined,
+      malwarePidPath,
+      malwarePidName: pidName,
+    };
+  }
+
   // credential_theft — target is the root password on the target machine
   const targetCreds = credentials[targetMachine.ip] ?? [];
   const rootCred = targetCreds.find((c) => c.username === 'root');
@@ -543,6 +620,7 @@ export const buildMissionObjective = (input: BuildObjectiveInput): BuildObjectiv
     'script_auto',
     'sabotage',
     'backdoor',
+    'malware',
   ];
 
   // Always consume PRNG pick to preserve sequence, then apply override

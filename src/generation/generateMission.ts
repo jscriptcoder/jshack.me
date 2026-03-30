@@ -48,6 +48,7 @@ export const parseSeedOverrides = (seed: string): SeedOverrides => {
     ['tamper', 'tamper'],
     ['credential-theft', 'credential_theft'],
     ['forensics', 'forensics'],
+    ['malware', 'malware'],
   ];
   const objectiveType = objectiveKeywords.find(([keyword]) => lower.includes(keyword))?.[1];
 
@@ -100,7 +101,8 @@ export const generateMissionNetwork = (
   const whiteHatObjective =
     overrides.objectiveType === 'forensics' ||
     overrides.objectiveType === 'script_fix' ||
-    overrides.objectiveType === 'script_auto';
+    overrides.objectiveType === 'script_auto' ||
+    overrides.objectiveType === 'malware';
   const effectiveEntryVariant = whiteHatObjective ? 'ssh' : overrides.entryVariant;
 
   const topology = generateTopology(prng, difficulty, {

@@ -16,7 +16,7 @@ export type PsAdapter = {
 };
 
 // Parses infrastructure PID file content: "binary:port=N" → { binary, port }
-const parseInfraPid = (
+export const parseInfraPid = (
   content: string,
 ): { readonly binary: string; readonly port: number } | null => {
   const match = content.match(/^(.+):port=(\d+)$/);
@@ -27,7 +27,7 @@ const parseInfraPid = (
 };
 
 // Maps PID file names to the user that runs the daemon.
-const PID_FILE_USERS: Readonly<Record<string, string>> = {
+export const PID_FILE_USERS: Readonly<Record<string, string>> = {
   'sshd.pid': 'root',
   'vsftpd.pid': 'root',
   'nginx.pid': 'www-data',
