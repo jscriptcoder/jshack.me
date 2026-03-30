@@ -150,10 +150,6 @@ export const useNcCommands = (): Map<string, Command> | null => {
       const machineInfo = getMachineInfo(machine);
       const adapter: PsAdapter = {
         getMachineInfo: () => machineInfo,
-        readPidFile: (path) => {
-          const node = getNodeFromMachine(machine, path, '/');
-          return node?.type === 'file' ? (node.content ?? undefined) : undefined;
-        },
         readDirectory: (path) => {
           const node = getNodeFromMachine(machine, path, '/');
           if (node?.type !== 'directory' || !node.children) return undefined;

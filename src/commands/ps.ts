@@ -12,86 +12,103 @@ type Process = {
 
 export type PsAdapter = {
   readonly getMachineInfo: () => RemoteMachine | undefined;
-  readonly readPidFile: (path: string) => string | undefined;
   readonly readDirectory: (path: string) => Readonly<Record<string, string>> | undefined;
 };
 
-// Maps open port services to their daemon process entries.
-// Only includes services that represent long-running daemons.
-const SERVICE_TO_PROCESS: Readonly<
-  Record<string, { readonly binary: string; readonly user: string }>
-> = {
-  http: { binary: '/usr/sbin/nginx', user: 'www-data' },
-  https: { binary: '/usr/sbin/nginx', user: 'www-data' },
-  'http-alt': { binary: '/usr/sbin/nginx', user: 'www-data' },
-  mysql: { binary: '/usr/sbin/mysqld', user: 'mysql' },
-  postgresql: { binary: '/usr/sbin/postgres', user: 'postgres' },
+// Parses infrastructure PID file content: "binary:port=N" → { binary, port }
+const parseInfraPid = (
+  content: string,
+): { readonly binary: string; readonly port: number } | null => {
+  const match = content.match(/^(.+):port=(\d+)$/);
+  if (!match) return null;
+  const port = Number(match[2]);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+  return { binary: match[1]!, port };
 };
 
-// Derives running processes from PID files and open ports.
-// PID files are the source of truth for sshd/ftpd. Open ports
-// determine other daemon processes (nginx, mysqld, etc.).
+// Maps PID file names to the user that runs the daemon.
+const PID_FILE_USERS: Readonly<Record<string, string>> = {
+  'sshd.pid': 'root',
+  'vsftpd.pid': 'root',
+  'nginx.pid': 'www-data',
+  'mysqld.pid': 'mysql',
+  'postgres.pid': 'postgres',
+  'redis.pid': 'redis',
+  'mongod.pid': 'mongodb',
+  'postfix.pid': 'postfix',
+  'dovecot.pid': 'dovecot',
+  'mosquitto.pid': 'mosquitto',
+  'snmpd.pid': 'snmp',
+  'smbd.pid': 'root',
+  'modbusd.pid': 'root',
+  'openvpn.pid': 'root',
+  'vncserver.pid': 'root',
+  'rsyncd.pid': 'root',
+};
+
+// Derives running processes entirely from PID files in /var/run/.
+// All daemons (sshd, vsftpd, nginx, mysql, nc listeners, etc.) are discovered
+// by scanning PID files — no open-port-based heuristics.
 export const listProcesses = (adapter: PsAdapter): readonly Process[] => {
   const processes: Process[] = [{ pid: 1, user: 'root', command: '/sbin/init' }];
   let nextPid = 100;
 
-  // sshd from PID file
-  const sshdContent = adapter.readPidFile('/var/run/sshd.pid');
-  if (sshdContent) {
-    const match = sshdContent.match(/^sshd:port=(\d+)$/);
-    const port = match ? Number(match[1]) : 22;
-    processes.push({ pid: nextPid++, user: 'root', command: `/usr/sbin/sshd -p ${port}` });
-  }
-
-  // vsftpd from PID file
-  const vsftpdContent = adapter.readPidFile('/var/run/vsftpd.pid');
-  if (vsftpdContent) {
-    const match = vsftpdContent.match(/^vsftpd:port=(\d+)$/);
-    const port = match ? Number(match[1]) : 21;
-    processes.push({ pid: nextPid++, user: 'root', command: `/usr/sbin/vsftpd -p ${port}` });
-  }
-
-  // nc listeners from PID files in /var/run/nc-*.pid
-  const ncListenerPorts = new Set<number>();
   const varRunEntries = adapter.readDirectory('/var/run');
   if (varRunEntries) {
     for (const [name, content] of Object.entries(varRunEntries)) {
-      if (!name.startsWith(NC_PID_FILE_PREFIX) || !name.endsWith('.pid')) continue;
-      const overrides = parseNcPidContent(content);
-      for (const override of overrides) {
-        ncListenerPorts.add(override.port);
-        processes.push({
-          pid: nextPid++,
-          user: override.owner.username,
-          command: `/usr/bin/nc -lvnp ${override.port}`,
-        });
-      }
-    }
-  }
+      if (!name.endsWith('.pid')) continue;
 
-  // Other daemons from open ports (deduplicate by binary path)
-  const machineInfo = adapter.getMachineInfo();
-  const seenBinaries = new Set<string>();
-  if (machineInfo) {
-    for (const port of machineInfo.ports) {
-      if (!port.open) continue;
-
-      // Backdoor ports are nc listeners — skip if already added from PID file
-      if (port.service === 'elite') {
-        if (!ncListenerPorts.has(port.port)) {
+      // NC listeners: nc-PORT.pid with owner info
+      if (name.startsWith(NC_PID_FILE_PREFIX)) {
+        const overrides = parseNcPidContent(content);
+        for (const override of overrides) {
           processes.push({
             pid: nextPid++,
-            user: port.owner?.username ?? 'root',
-            command: `/usr/bin/nc -lvnp ${port.port}`,
+            user: override.owner.username,
+            command: `/usr/bin/nc -lvnp ${override.port}`,
           });
         }
         continue;
       }
 
-      const process = SERVICE_TO_PROCESS[port.service];
-      if (!process || seenBinaries.has(process.binary)) continue;
-      seenBinaries.add(process.binary);
-      processes.push({ pid: nextPid++, user: process.user, command: process.binary });
+      // sshd/vsftpd: short name format (sshd:port=22, vsftpd:port=21)
+      if (name === 'sshd.pid') {
+        const match = content.match(/^sshd:port=(\d+)$/);
+        const port = match ? Number(match[1]) : 22;
+        processes.push({ pid: nextPid++, user: 'root', command: `/usr/sbin/sshd -p ${port}` });
+        continue;
+      }
+      if (name === 'vsftpd.pid') {
+        const match = content.match(/^vsftpd:port=(\d+)$/);
+        const port = match ? Number(match[1]) : 21;
+        processes.push({ pid: nextPid++, user: 'root', command: `/usr/sbin/vsftpd -p ${port}` });
+        continue;
+      }
+
+      // Infrastructure daemons: binary:port=N format
+      const parsed = parseInfraPid(content);
+      if (!parsed) continue;
+      const user = PID_FILE_USERS[name] ?? 'root';
+      processes.push({ pid: nextPid++, user, command: parsed.binary });
+    }
+  }
+
+  // Backdoor NC ports from open port list (pre-existing backdoors without PID files)
+  const machineInfo = adapter.getMachineInfo();
+  if (machineInfo) {
+    const ncPidPorts = new Set(
+      processes.filter((p) => p.command.includes('/usr/bin/nc')).map((p) => {
+        const match = p.command.match(/(\d+)$/);
+        return match ? Number(match[1]) : 0;
+      }),
+    );
+    for (const port of machineInfo.ports) {
+      if (port.service !== 'elite' || !port.open || ncPidPorts.has(port.port)) continue;
+      processes.push({
+        pid: nextPid++,
+        user: port.owner?.username ?? 'root',
+        command: `/usr/bin/nc -lvnp ${port.port}`,
+      });
     }
   }
 
@@ -126,10 +143,6 @@ export const createPsCommand = (context: PsContext): Command => ({
 
     const adapter: PsAdapter = {
       getMachineInfo: () => machineInfo,
-      readPidFile: (path) => {
-        const node = context.getNodeFromMachine(machine, path, '/');
-        return node?.type === 'file' ? (node.content ?? undefined) : undefined;
-      },
       readDirectory: (path) => {
         const node = context.getNodeFromMachine(machine, path, '/');
         if (node?.type !== 'directory' || !node.children) return undefined;
