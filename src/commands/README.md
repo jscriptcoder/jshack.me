@@ -87,6 +87,8 @@ Admin utilities that write PID files to `/var/run/` — `NetworkContext` reads t
 | john    | `john.ts`    | `john(file)`                  | Crack password hashes using dictionary attack (async)           |
 | chmod   | `chmod.ts`   | `chmod(mode, path)`           | Change file permissions (symbolic: `o+x`, `u-w`, etc.)          |
 | reboot  | `reboot.ts`  | `reboot()`                    | Reboot current machine; bricks if boot files missing            |
+| ps      | `ps.ts`      | `ps()`                        | Report running processes (reads PID files from `/var/run/`)     |
+| kill    | `kill.ts`    | `kill(pid)`                   | Terminate a process by PID (deletes PID file)                   |
 
 ## User Management
 
