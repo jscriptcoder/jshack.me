@@ -281,17 +281,19 @@ const placeTargetFile = (
   const segments = objective.targetPath.split('/').filter(Boolean);
   const fileName = segments[segments.length - 1] ?? 'flag.txt';
 
-  // script_fix / script_auto: use mkScript with user permissions, no binary wrapping
-  // (player has root access via briefing, so user-owned scripts are always accessible)
+  // script_fix / script_auto / malware: use mkScript (these are JS files)
+  // malware uses root owner since it was planted by an attacker with root access
   const file =
     objective.type === 'script_fix' || objective.type === 'script_auto'
       ? mkScript(fileName, objective.targetContent, 'user')
-      : mkFile(
-          fileName,
-          objective.binary
-            ? wrapInBinaryNoise(prng, objective.targetContent)
-            : objective.targetContent,
-        );
+      : objective.type === 'malware'
+        ? mkScript(fileName, objective.targetContent, 'root')
+        : mkFile(
+            fileName,
+            objective.binary
+              ? wrapInBinaryNoise(prng, objective.targetContent)
+              : objective.targetContent,
+          );
 
   const topDir = segments[0] ?? 'root';
 
@@ -524,14 +526,32 @@ export const buildMachineConfig = (
   const hasSshPort = machine.remoteMachine.ports.some((p) => p.service === 'ssh');
   const hasFtpPort = machine.remoteMachine.ports.some((p) => p.service === 'ftp');
   const infraPidFiles = buildInfrastructurePidFiles(machine.remoteMachine.ports);
-  const varRunContent =
-    hasSshPort || hasFtpPort || Object.keys(infraPidFiles).length > 0
+
+  // Malware PID file: placed on target machine so `ps` shows the malware process
+  const malwarePidFile =
+    isTarget && objective?.type === 'malware' && objective.malwarePidName && objective.targetPath
       ? {
-          ...(hasSshPort ? { [SSH_PID_FILE_NAME]: createSshdPidFileNode() } : {}),
-          ...(hasFtpPort ? { [FTP_PID_FILE_NAME]: createVsftpdPidFileNode() } : {}),
-          ...infraPidFiles,
+          [objective.malwarePidName]: mkFile(
+            objective.malwarePidName,
+            `${objective.targetPath}:port=1`,
+            'root',
+          ),
         }
-      : undefined;
+      : {};
+
+  const hasPidFiles =
+    hasSshPort ||
+    hasFtpPort ||
+    Object.keys(infraPidFiles).length > 0 ||
+    Object.keys(malwarePidFile).length > 0;
+  const varRunContent = hasPidFiles
+    ? {
+        ...(hasSshPort ? { [SSH_PID_FILE_NAME]: createSshdPidFileNode() } : {}),
+        ...(hasFtpPort ? { [FTP_PID_FILE_NAME]: createVsftpdPidFileNode() } : {}),
+        ...infraPidFiles,
+        ...malwarePidFile,
+      }
+    : undefined;
 
   return {
     users: userConfigs,
