@@ -735,4 +735,107 @@ describe('applyDynamicOverrides', () => {
       expect.objectContaining({ port: 22, service: 'ssh', open: true }),
     );
   });
+
+  it('should let SNMP firewall deny override a running daemon (firewall wins)', () => {
+    const machine = createMachine({
+      ip: '10.0.0.5',
+      ports: [createPort({ port: 22, service: 'ssh', open: false })],
+    });
+    // sshd is running (PID file exists)
+    const readNode = (machineId: string, path: string) => {
+      if (machineId === '10.0.0.5' && path === '/var/run/sshd.pid') {
+        return {
+          name: 'sshd.pid',
+          type: 'file' as const,
+          content: 'sshd:port=22',
+          owner: 'root' as const,
+          permissions: { read: [], write: [], execute: [] },
+        };
+      }
+      return null;
+    };
+    // But SNMP firewall denies SSH
+    const snmpOverrides: readonly SnmpFirewallOverride[] = [{ port: 22, open: false }];
+
+    const result = applyDynamicOverrides(machine, {
+      allIptablesRules: new Map(),
+      allSnmpOverrides: new Map([['10.0.0.5', snmpOverrides]]),
+      allAclRules: new Map(),
+      allSnmpAclOverrides: new Map(),
+      homeGatewayByAliasIp: new Map(),
+      readNode,
+    });
+
+    // Firewall should win: port 22 closed despite daemon running
+    expect(result.ports).toContainEqual(
+      expect.objectContaining({ port: 22, service: 'ssh', open: false }),
+    );
+  });
+
+  it('should close SSH port when no sshd.pid exists (daemon not running)', () => {
+    const machine = createMachine({
+      ip: '10.0.0.5',
+      ports: [createPort({ port: 22, service: 'ssh', open: true })],
+    });
+
+    const result = applyDynamicOverrides(machine, {
+      allIptablesRules: new Map(),
+      allSnmpOverrides: new Map(),
+      allAclRules: new Map(),
+      allSnmpAclOverrides: new Map(),
+      homeGatewayByAliasIp: new Map(),
+      readNode: () => null, // no PID files
+    });
+
+    expect(result.ports).toContainEqual(
+      expect.objectContaining({ port: 22, service: 'ssh', open: false }),
+    );
+  });
+
+  it('should close FTP port when no vsftpd.pid exists (daemon not running)', () => {
+    const machine = createMachine({
+      ip: '10.0.0.5',
+      ports: [createPort({ port: 21, service: 'ftp', open: true })],
+    });
+
+    const result = applyDynamicOverrides(machine, {
+      allIptablesRules: new Map(),
+      allSnmpOverrides: new Map(),
+      allAclRules: new Map(),
+      allSnmpAclOverrides: new Map(),
+      homeGatewayByAliasIp: new Map(),
+      readNode: () => null, // no PID files
+    });
+
+    expect(result.ports).toContainEqual(
+      expect.objectContaining({ port: 21, service: 'ftp', open: false }),
+    );
+  });
+
+  it('should not close non-daemon ports when no PID files exist', () => {
+    const machine = createMachine({
+      ip: '10.0.0.5',
+      ports: [
+        createPort({ port: 80, service: 'http', open: true }),
+        createPort({ port: 3306, service: 'mysql', open: true }),
+      ],
+    });
+
+    const result = applyDynamicOverrides(machine, {
+      allIptablesRules: new Map(),
+      allSnmpOverrides: new Map(),
+      allAclRules: new Map(),
+      allSnmpAclOverrides: new Map(),
+      homeGatewayByAliasIp: new Map(),
+      readNode: () => null, // no PID files
+    });
+
+    // Infrastructure services stay open — they're not daemon-backed
+    expect(result.ports).toContainEqual(
+      expect.objectContaining({ port: 80, service: 'http', open: true }),
+    );
+    expect(result.ports).toContainEqual(
+      expect.objectContaining({ port: 3306, service: 'mysql', open: true }),
+    );
+  });
 });

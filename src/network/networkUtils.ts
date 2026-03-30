@@ -273,15 +273,19 @@ const applyAclFiltering = (
   };
 };
 
-// Applies all dynamic overrides to a visible machine: gateway NAT merge,
-// SNMP firewall, ACL filtering, and daemon state (sshd, ftpd, nc listeners).
+// Applies all dynamic overrides to a visible machine. Pipeline order:
+// 1. Gateway NAT merge (topology — show forwarded ports to upstream machines)
+// 2. Daemon state (what's running — sshd, ftpd, nc listeners from PID files)
+// 3. SNMP firewall overrides (can block running daemons)
+// 4. ACL filtering (switch gateways can block running daemons)
+// Firewall/ACL rules apply AFTER daemon state so they can block a running daemon.
 export const applyDynamicOverrides = (
   machine: RemoteMachine,
   ctx: DynamicOverrideContext,
 ): RemoteMachine => {
   let result = machine;
 
-  // Gateway NAT merged view: show forwarded ports to upstream machines.
+  // 1. Gateway NAT merged view: show forwarded ports to upstream machines.
   // Preserve the original visible IP — buildMergedRouterView uses the
   // GeneratedMachine's primary IP, which may differ from the .1 alias
   // that machines inside the network actually see.
@@ -301,36 +305,62 @@ export const applyDynamicOverrides = (
     }
   }
 
-  // SNMP firewall overrides (router gateways)
+  // 2. Daemon state: PID files determine what services are running.
+  // Applied before firewall/ACL so that firewalls can block running daemons.
+  // For daemon-backed services (ssh, ftp), absence of PID file = port closed.
+  // Only applies to the machine's own ports (not NAT-forwarded ports from step 1).
+  const ownPorts: ReadonlySet<number> = new Set(machine.ports.map((p) => p.port));
+
+  const sshdNode = ctx.readNode(machine.ip, SSH_PID_FILE_PATH, '/');
+  const sshdRunning = sshdNode?.type === 'file' && !!sshdNode.content;
+  if (sshdRunning) {
+    const overrides = parseSshdState(sshdNode.content!);
+    if (overrides.length > 0) result = applyDaemonOverrides(result, overrides);
+  }
+
+  const ftpdNode = ctx.readNode(machine.ip, FTP_PID_FILE_PATH, '/');
+  const ftpdRunning = ftpdNode?.type === 'file' && !!ftpdNode.content;
+  if (ftpdRunning) {
+    const overrides = parseFtpdState(ftpdNode.content!);
+    if (overrides.length > 0) result = applyDaemonOverrides(result, overrides);
+  }
+
+  const varRunNode = ctx.readNode(machine.ip, '/var/run', '/');
+  const ncOverrides = parseNcPidFiles(varRunNode);
+  if (ncOverrides.length > 0) result = applyDaemonOverrides(result, ncOverrides);
+
+  // Close daemon-backed ports when their PID file is absent (daemon not running).
+  // Only close ports that were in the machine's original port list — NAT-forwarded
+  // ports from gateways are controlled by the internal machine's daemon state.
+  const daemonClosures: ReadonlySet<string> = new Set([
+    ...(sshdRunning ? [] : ['ssh']),
+    ...(ftpdRunning ? [] : ['ftp']),
+  ]);
+  if (daemonClosures.size > 0) {
+    const hasPortsToClose = result.ports.some(
+      (p) => daemonClosures.has(p.service) && ownPorts.has(p.port),
+    );
+    if (hasPortsToClose) {
+      result = {
+        ...result,
+        ports: result.ports.map((p) =>
+          daemonClosures.has(p.service) && ownPorts.has(p.port) ? { ...p, open: false } : p,
+        ),
+      };
+    }
+  }
+
+  // 3. SNMP firewall overrides (can block ports opened by daemons)
   const snmpOverrides = ctx.allSnmpOverrides.get(machine.ip);
   if (snmpOverrides && snmpOverrides.length > 0) {
     result = applySnmpFirewallOverrides(result, snmpOverrides);
   }
 
-  // ACL filtering: if this machine is behind a switch gateway, apply ACL deny rules
+  // 4. ACL filtering: switch gateway deny rules (can block ports opened by daemons)
   const switchGatewayIp = findSwitchGatewayForMachine(machine.ip, ctx);
   if (switchGatewayIp) {
     result = applyAclFiltering(result, switchGatewayIp, ctx);
   }
-
-  // Daemon state: sshd
-  const sshdNode = ctx.readNode(machine.ip, SSH_PID_FILE_PATH, '/');
-  if (sshdNode?.type === 'file' && sshdNode.content) {
-    const overrides = parseSshdState(sshdNode.content);
-    if (overrides.length > 0) result = applyDaemonOverrides(result, overrides);
-  }
-
-  // Daemon state: ftpd
-  const ftpdNode = ctx.readNode(machine.ip, FTP_PID_FILE_PATH, '/');
-  if (ftpdNode?.type === 'file' && ftpdNode.content) {
-    const overrides = parseFtpdState(ftpdNode.content);
-    if (overrides.length > 0) result = applyDaemonOverrides(result, overrides);
-  }
-
-  // Daemon state: nc listeners
-  const varRunNode = ctx.readNode(machine.ip, '/var/run', '/');
-  const ncOverrides = parseNcPidFiles(varRunNode);
-  if (ncOverrides.length > 0) result = applyDaemonOverrides(result, ncOverrides);
 
   return result;
 };
