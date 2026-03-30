@@ -177,6 +177,16 @@ Inner gateways without the SNMP access variant have a difficulty-based PRNG chan
 - **Basic read-only** (~70% of basic): `rocommunity public` only — no rw community, no credential leaks, no firewall/ACL OIDs. Reconnaissance value is `ifAddr.1`/`ifAddr.2` (dual-homed gateway discovery).
 - **Basic read-write** (~30% of basic): Has `rwcommunity` + firewall/ACL OIDs (like full SNMP-variant) but NO credential leaks. Players can `snmpset` to open firewalled ports on the gateway. SSH daemon is running but firewalled — `snmpset` unblocks access.
 
+Combined probability of each SNMP tier per non-SNMP-variant inner gateway:
+
+| Difficulty | No SNMP | Read-only | Read-write |
+| ---------- | ------- | --------- | ---------- |
+| Easy       | 30%     | 49%       | 21%        |
+| Medium     | 60%     | 28%       | 12%        |
+| Hard       | 80%     | 14%       | 6%         |
+
+Note: easy missions have no inner gateways (single layer). Medium has 1, hard has 2.
+
 Full SNMP configs (SNMP-variant gateways and border routers) also include `ifAddr.2` and have credential leaks via `nsExtendArgs`. UDP port 161 is dynamically added to the network config for all basic-SNMP gateways so `snmpwalk` can reach them.
 
 ### Dynamic Daemon Ports
