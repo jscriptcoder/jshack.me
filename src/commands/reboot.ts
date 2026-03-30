@@ -101,10 +101,6 @@ export const createRebootCommand = (context: RebootContext): Command => ({
         // Detect running services for realistic shutdown messages
         const adapter: PsAdapter = {
           getMachineInfo: () => getMachineInfo(machine),
-          readPidFile: (path) => {
-            const node = getNodeFromMachine(machine, path, '/');
-            return node?.type === 'file' ? (node.content ?? undefined) : undefined;
-          },
           readDirectory: (path) => {
             const node = getNodeFromMachine(machine, path, '/');
             if (node?.type !== 'directory' || !node.children) return undefined;

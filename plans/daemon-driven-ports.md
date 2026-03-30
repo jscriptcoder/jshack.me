@@ -52,23 +52,15 @@ For infrastructure services:
 **Implementation**: Change daemon override logic: instead of only force-opening ports, daemon overrides REPLACE the open state — if PID exists, port is open; if PID is absent, port is closed (for daemon-backed services only). Add a concept of "daemon-backed service" to distinguish SSH/FTP from infrastructure ports.
 **Done when**: Removing a PID file causes the port to show as closed.
 
-### Step 3: Remove static open flag dependency for SSH ports at generation time
+### Step 3: Decouple PID file creation from static open flag
 
-**Test**: Test that machines with sshd.pid get SSH open, machines without get SSH closed, regardless of static port `open` value.
-**Implementation**: Generate SSH ports with `open: false` in static templates (the PID file is what makes them open). Update `generateFileSystems.ts` to always create sshd.pid when SSH should be running (decouple from static open flag). SNMP entry variant: SSH port has `open: false` in template AND sshd.pid exists (daemon running but firewalled). Firewall blocks access until snmpset permits it. Pipeline order (daemon first, then firewall) makes this work: daemon sets open=true, firewall overrides to closed, snmpset re-opens.
-**Done when**: SSH port visibility is fully PID-driven.
+**Test**: Test that machines with SSH/FTP ports get PID files regardless of static open flag (e.g., SNMP variant with SSH `open: false` still gets sshd.pid for the firewalled-but-running daemon).
+**Implementation**: Change `generateFileSystems.ts` to check port existence, not `open` flag, when creating PID files. This makes PID files represent "daemon installed/running" rather than "port reachable".
+**Done when**: PID files are created for all SSH/FTP ports regardless of open flag. SNMP variant gets sshd.pid (daemon running behind firewall).
 
-### Step 4: Same treatment for FTP ports
+### ~~Step 4-5: Flip static flags + port closures (DEFERRED)~~
 
-**Test**: Test that machines with vsftpd.pid get FTP open, machines without get FTP closed.
-**Implementation**: Same as step 3 but for FTP service. Generate FTP ports with `open: false`, let PID file drive state.
-**Done when**: FTP port visibility is fully PID-driven.
-
-### Step 5: Update port closure system to remove PID files instead of toggling static flag
-
-**Test**: Test that `applyPortClosures` removes sshd.pid / vsftpd.pid instead of setting `open: false`.
-**Implementation**: `applyPortClosures` currently sets `open: false` on ports. Change it to work with PID files instead — SSH closure means no sshd.pid (daemon not running). This may require `applyPortClosures` to return PID file removal info alongside machine data, or it operates on filesystem configs.
-**Done when**: Port closures work through PID file absence, not static flags.
+**Note**: Originally planned to flip all SSH/FTP static `open` to `false` and make port closures remove PID files. After investigation, the static `open` flag has a dual role: it signals both "create PID file" and "port closure target". Changing this requires reworking `applyPortClosures` to operate on filesystem configs rather than port data — a significant change that doesn't add gameplay value. The current model (static `open` = daemon running, dynamic pipeline enforces PID-based visibility) is correct and realistic. Port closures already work: they set `open: false` → no PID file → daemon not running → port closed at runtime.
 
 ### Step 6: Add PID files for infrastructure services (HTTP, databases, etc.)
 

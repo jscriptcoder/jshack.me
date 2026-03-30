@@ -242,14 +242,11 @@ describe('reboot command', () => {
       expect(lines).toContain('[ OK ] Stopping vsftpd FTP server...');
     });
 
-    it('should show nginx stop message when HTTP port is open', async () => {
+    it('should show nginx stop message when nginx PID file exists', async () => {
       const context = createMockContext({
-        machineInfo: {
-          ip: '192.168.1.50',
-          hostname: 'fileserver',
-          ports: [{ port: 80, service: 'http', open: true }],
-          users: [],
-        } as RemoteMachine,
+        varRunDir: makeMockDir('run', {
+          'nginx.pid': makeMockFile('nginx.pid', '/usr/sbin/nginx:port=80'),
+        }),
       });
       const reboot = createRebootCommand(context);
       const result = reboot.fn() as AsyncOutput;
@@ -261,17 +258,10 @@ describe('reboot command', () => {
 
     it('should show multiple service stop messages', async () => {
       const context = createMockContext({
-        machineInfo: {
-          ip: '192.168.1.50',
-          hostname: 'fileserver',
-          ports: [
-            { port: 80, service: 'http', open: true },
-            { port: 3306, service: 'mysql', open: true },
-          ],
-          users: [],
-        } as RemoteMachine,
         varRunDir: makeMockDir('run', {
           'sshd.pid': makeMockFile('sshd.pid', 'sshd:port=22'),
+          'nginx.pid': makeMockFile('nginx.pid', '/usr/sbin/nginx:port=80'),
+          'mysqld.pid': makeMockFile('mysqld.pid', '/usr/sbin/mysqld:port=3306'),
         }),
       });
       const reboot = createRebootCommand(context);

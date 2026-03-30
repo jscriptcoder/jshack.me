@@ -58,6 +58,51 @@ type FilesystemInput = {
   readonly layers?: readonly SubnetLayer[];
 };
 
+// Infrastructure service PID file definitions. Maps service names to their
+// daemon binary, PID file name, and run user. SSH/FTP are handled separately
+// by their own PID file factories; NC backdoors are dynamic (player-created).
+type InfraPidConfig = {
+  readonly pidFile: string;
+  readonly binary: string;
+  readonly user: string;
+};
+
+const INFRA_PID_CONFIGS: Readonly<Record<string, InfraPidConfig>> = {
+  http: { pidFile: 'nginx.pid', binary: '/usr/sbin/nginx', user: 'www-data' },
+  https: { pidFile: 'nginx.pid', binary: '/usr/sbin/nginx', user: 'www-data' },
+  'http-alt': { pidFile: 'nginx.pid', binary: '/usr/sbin/nginx', user: 'www-data' },
+  mysql: { pidFile: 'mysqld.pid', binary: '/usr/sbin/mysqld', user: 'mysql' },
+  postgresql: { pidFile: 'postgres.pid', binary: '/usr/sbin/postgres', user: 'postgres' },
+  redis: { pidFile: 'redis.pid', binary: '/usr/sbin/redis-server', user: 'redis' },
+  mongodb: { pidFile: 'mongod.pid', binary: '/usr/sbin/mongod', user: 'mongodb' },
+  smtp: { pidFile: 'postfix.pid', binary: '/usr/sbin/postfix', user: 'postfix' },
+  imap: { pidFile: 'dovecot.pid', binary: '/usr/sbin/dovecot', user: 'dovecot' },
+  imaps: { pidFile: 'dovecot.pid', binary: '/usr/sbin/dovecot', user: 'dovecot' },
+  pop3: { pidFile: 'dovecot.pid', binary: '/usr/sbin/dovecot', user: 'dovecot' },
+  mqtt: { pidFile: 'mosquitto.pid', binary: '/usr/sbin/mosquitto', user: 'mosquitto' },
+  snmp: { pidFile: 'snmpd.pid', binary: '/usr/sbin/snmpd', user: 'snmp' },
+  smb: { pidFile: 'smbd.pid', binary: '/usr/sbin/smbd', user: 'root' },
+  modbus: { pidFile: 'modbusd.pid', binary: '/usr/sbin/modbusd', user: 'root' },
+  openvpn: { pidFile: 'openvpn.pid', binary: '/usr/sbin/openvpn', user: 'root' },
+  vnc: { pidFile: 'vncserver.pid', binary: '/usr/sbin/Xvnc', user: 'root' },
+  rsync: { pidFile: 'rsyncd.pid', binary: '/usr/sbin/rsyncd', user: 'root' },
+};
+
+// Builds PID files for open infrastructure ports. Deduplicates by pidFile name
+// (e.g., http/https/http-alt all share nginx.pid; imap/imaps/pop3 share dovecot.pid).
+const buildInfrastructurePidFiles = (
+  ports: readonly { readonly port: number; readonly service: string; readonly open: boolean }[],
+): Readonly<Record<string, FileNode>> => {
+  const result: Record<string, FileNode> = {};
+  for (const p of ports) {
+    if (!p.open) continue;
+    const config = INFRA_PID_CONFIGS[p.service];
+    if (!config || result[config.pidFile]) continue;
+    result[config.pidFile] = mkFile(config.pidFile, `${config.binary}:port=${p.port}`, 'guest');
+  }
+  return result;
+};
+
 const CREDENTIAL_LEAK_CHANCE = 0.3;
 
 // Places a credential leak file on a machine ~30% of the time.
@@ -472,14 +517,18 @@ export const buildMachineConfig = (
     );
   }
 
-  // Machines with SSH/FTP ports open have daemons already running — include pid files
-  const hasSshOpen = machine.remoteMachine.ports.some((p) => p.service === 'ssh' && p.open);
-  const hasFtpOpen = machine.remoteMachine.ports.some((p) => p.service === 'ftp' && p.open);
+  // Daemon PID files for all services with ports on this machine.
+  // SSH/FTP use their existing PID file factories. Infrastructure services
+  // (nginx, mysql, etc.) get simple PID files so `ps` can show them as running.
+  const hasSshPort = machine.remoteMachine.ports.some((p) => p.service === 'ssh');
+  const hasFtpPort = machine.remoteMachine.ports.some((p) => p.service === 'ftp');
+  const infraPidFiles = buildInfrastructurePidFiles(machine.remoteMachine.ports);
   const varRunContent =
-    hasSshOpen || hasFtpOpen
+    hasSshPort || hasFtpPort || Object.keys(infraPidFiles).length > 0
       ? {
-          ...(hasSshOpen ? { [SSH_PID_FILE_NAME]: createSshdPidFileNode() } : {}),
-          ...(hasFtpOpen ? { [FTP_PID_FILE_NAME]: createVsftpdPidFileNode() } : {}),
+          ...(hasSshPort ? { [SSH_PID_FILE_NAME]: createSshdPidFileNode() } : {}),
+          ...(hasFtpPort ? { [FTP_PID_FILE_NAME]: createVsftpdPidFileNode() } : {}),
+          ...infraPidFiles,
         }
       : undefined;
 

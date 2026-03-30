@@ -4,7 +4,6 @@ import type { RemoteMachine } from '../network/types';
 
 const createAdapter = (overrides: Partial<PsAdapter> = {}): PsAdapter => ({
   getMachineInfo: overrides.getMachineInfo ?? (() => undefined),
-  readPidFile: overrides.readPidFile ?? (() => undefined),
   readDirectory: overrides.readDirectory ?? (() => undefined),
 });
 
@@ -15,6 +14,12 @@ const makeMachine = (ports: RemoteMachine['ports'] = []): RemoteMachine => ({
   users: [],
 });
 
+// Helper to build a /var/run directory with PID files
+const varRun =
+  (entries: Readonly<Record<string, string>>) =>
+  (path: string): Readonly<Record<string, string>> | undefined =>
+    path === '/var/run' ? entries : undefined;
+
 describe('listProcesses', () => {
   it('always includes init as PID 1', () => {
     const processes = listProcesses(createAdapter());
@@ -23,7 +28,7 @@ describe('listProcesses', () => {
 
   it('shows sshd when sshd.pid exists', () => {
     const adapter = createAdapter({
-      readPidFile: (path) => (path === '/var/run/sshd.pid' ? 'sshd:port=22' : undefined),
+      readDirectory: varRun({ 'sshd.pid': 'sshd:port=22' }),
     });
     const processes = listProcesses(adapter);
     expect(processes).toContainEqual({
@@ -35,7 +40,7 @@ describe('listProcesses', () => {
 
   it('shows sshd with custom port', () => {
     const adapter = createAdapter({
-      readPidFile: (path) => (path === '/var/run/sshd.pid' ? 'sshd:port=2222' : undefined),
+      readDirectory: varRun({ 'sshd.pid': 'sshd:port=2222' }),
     });
     const processes = listProcesses(adapter);
     expect(processes).toContainEqual(
@@ -45,7 +50,7 @@ describe('listProcesses', () => {
 
   it('shows vsftpd when vsftpd.pid exists', () => {
     const adapter = createAdapter({
-      readPidFile: (path) => (path === '/var/run/vsftpd.pid' ? 'vsftpd:port=21' : undefined),
+      readDirectory: varRun({ 'vsftpd.pid': 'vsftpd:port=21' }),
     });
     const processes = listProcesses(adapter);
     expect(processes).toContainEqual(
@@ -53,9 +58,9 @@ describe('listProcesses', () => {
     );
   });
 
-  it('shows nginx for open HTTP port', () => {
+  it('shows nginx when nginx.pid exists', () => {
     const adapter = createAdapter({
-      getMachineInfo: () => makeMachine([{ port: 80, service: 'http', open: true }]),
+      readDirectory: varRun({ 'nginx.pid': '/usr/sbin/nginx:port=80' }),
     });
     const processes = listProcesses(adapter);
     expect(processes).toContainEqual(
@@ -63,23 +68,19 @@ describe('listProcesses', () => {
     );
   });
 
-  it('deduplicates nginx for multiple HTTP ports', () => {
+  it('deduplicates nginx via single PID file even with multiple HTTP ports', () => {
+    // nginx.pid is only written once regardless of how many HTTP ports exist
     const adapter = createAdapter({
-      getMachineInfo: () =>
-        makeMachine([
-          { port: 80, service: 'http', open: true },
-          { port: 443, service: 'https', open: true },
-          { port: 8080, service: 'http-alt', open: true },
-        ]),
+      readDirectory: varRun({ 'nginx.pid': '/usr/sbin/nginx:port=80' }),
     });
     const processes = listProcesses(adapter);
     const nginxProcesses = processes.filter((p) => p.command.includes('nginx'));
     expect(nginxProcesses).toHaveLength(1);
   });
 
-  it('shows mysqld for open MySQL port', () => {
+  it('shows mysqld when mysqld.pid exists', () => {
     const adapter = createAdapter({
-      getMachineInfo: () => makeMachine([{ port: 3306, service: 'mysql', open: true }]),
+      readDirectory: varRun({ 'mysqld.pid': '/usr/sbin/mysqld:port=3306' }),
     });
     const processes = listProcesses(adapter);
     expect(processes).toContainEqual(
@@ -87,9 +88,9 @@ describe('listProcesses', () => {
     );
   });
 
-  it('shows postgres for open PostgreSQL port', () => {
+  it('shows postgres when postgres.pid exists', () => {
     const adapter = createAdapter({
-      getMachineInfo: () => makeMachine([{ port: 5432, service: 'postgresql', open: true }]),
+      readDirectory: varRun({ 'postgres.pid': '/usr/sbin/postgres:port=5432' }),
     });
     const processes = listProcesses(adapter);
     expect(processes).toContainEqual(
@@ -131,12 +132,9 @@ describe('listProcesses', () => {
 
   it('shows nc listener from PID file when machineInfo is unavailable', () => {
     const adapter = createAdapter({
-      readDirectory: (path) =>
-        path === '/var/run'
-          ? {
-              'nc-8888.pid': 'nc:port=8888,user=webadmin,userType=user,home=/home/webadmin',
-            }
-          : undefined,
+      readDirectory: varRun({
+        'nc-8888.pid': 'nc:port=8888,user=webadmin,userType=user,home=/home/webadmin',
+      }),
     });
     const processes = listProcesses(adapter);
     expect(processes).toContainEqual({
@@ -148,14 +146,11 @@ describe('listProcesses', () => {
 
   it('shows multiple nc listeners from PID files', () => {
     const adapter = createAdapter({
-      readDirectory: (path) =>
-        path === '/var/run'
-          ? {
-              'nc-4444.pid': 'nc:port=4444,user=root,userType=root,home=/root',
-              'nc-8888.pid': 'nc:port=8888,user=ftpuser,userType=guest,home=/home/ftpuser',
-              'sshd.pid': 'sshd:port=22',
-            }
-          : undefined,
+      readDirectory: varRun({
+        'nc-4444.pid': 'nc:port=4444,user=root,userType=root,home=/root',
+        'nc-8888.pid': 'nc:port=8888,user=ftpuser,userType=guest,home=/home/ftpuser',
+        'sshd.pid': 'sshd:port=22',
+      }),
     });
     const processes = listProcesses(adapter);
     expect(processes).toContainEqual(
@@ -166,35 +161,30 @@ describe('listProcesses', () => {
     );
   });
 
-  it('skips closed ports', () => {
+  it('shows no daemons when /var/run has no PID files', () => {
     const adapter = createAdapter({
-      getMachineInfo: () => makeMachine([{ port: 80, service: 'http', open: false }]),
+      getMachineInfo: () => makeMachine([{ port: 80, service: 'http', open: true }]),
     });
     const processes = listProcesses(adapter);
     expect(processes).toHaveLength(1); // only init
   });
 
-  it('skips unknown services', () => {
+  it('skips non-.pid files in /var/run', () => {
     const adapter = createAdapter({
-      getMachineInfo: () => makeMachine([{ port: 22, service: 'ssh', open: true }]),
+      readDirectory: varRun({ 'sshd.log': 'sshd:port=22', 'status.txt': 'running' }),
     });
-    // ssh is handled via PID file, not port mapping
     const processes = listProcesses(adapter);
     expect(processes).toHaveLength(1); // only init
   });
 
-  it('shows all processes together', () => {
+  it('shows all processes together from PID files', () => {
     const adapter = createAdapter({
-      readPidFile: (path) => {
-        if (path === '/var/run/sshd.pid') return 'sshd:port=22';
-        if (path === '/var/run/vsftpd.pid') return 'vsftpd:port=21';
-        return undefined;
-      },
-      getMachineInfo: () =>
-        makeMachine([
-          { port: 80, service: 'http', open: true },
-          { port: 3306, service: 'mysql', open: true },
-        ]),
+      readDirectory: varRun({
+        'sshd.pid': 'sshd:port=22',
+        'vsftpd.pid': 'vsftpd:port=21',
+        'nginx.pid': '/usr/sbin/nginx:port=80',
+        'mysqld.pid': '/usr/sbin/mysqld:port=3306',
+      }),
     });
     const processes = listProcesses(adapter);
     expect(processes).toHaveLength(5); // init + sshd + vsftpd + nginx + mysqld

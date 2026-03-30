@@ -48,6 +48,38 @@ describe('generateFileSystems', () => {
     });
   });
 
+  it('machines with SSH port have sshd.pid regardless of static open flag', () => {
+    for (let i = 0; i < 20; i++) {
+      const { topology, fileSystems } = buildTestData(`sshd-pid-${i}`);
+      const allMachines = [...topology.machines, topology.routerMachine];
+      allMachines.forEach((m) => {
+        const hasSshPort = m.remoteMachine.ports.some((p) => p.service === 'ssh');
+        const fs = fileSystems[m.ip];
+        const pidFile = resolveNode(fs as FileNode, '/var/run/sshd.pid');
+        if (hasSshPort) {
+          expect(pidFile, `${m.ip} has SSH port but no sshd.pid`).toBeDefined();
+          expect(pidFile?.content).toMatch(/^sshd:port=\d+$/);
+        }
+      });
+    }
+  });
+
+  it('machines with FTP port have vsftpd.pid regardless of static open flag', () => {
+    for (let i = 0; i < 20; i++) {
+      const { topology, fileSystems } = buildTestData(`ftpd-pid-${i}`);
+      const allMachines = [...topology.machines, topology.routerMachine];
+      allMachines.forEach((m) => {
+        const hasFtpPort = m.remoteMachine.ports.some((p) => p.service === 'ftp');
+        const fs = fileSystems[m.ip];
+        const pidFile = resolveNode(fs as FileNode, '/var/run/vsftpd.pid');
+        if (hasFtpPort) {
+          expect(pidFile, `${m.ip} has FTP port but no vsftpd.pid`).toBeDefined();
+          expect(pidFile?.content).toMatch(/^vsftpd:port=\d+$/);
+        }
+      });
+    }
+  });
+
   it('each filesystem has /etc/passwd', () => {
     const { topology, fileSystems } = buildTestData('passwd-test');
     topology.machines.forEach((m) => {
