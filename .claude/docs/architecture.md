@@ -242,7 +242,7 @@ Unified filesystem-based access model (`src/commands/availability.ts`). All comm
 
 **Pipeline**: `generateMissionNetwork(seed, usedIps?)` has its own orchestration (for PRNG sequence stability) but shares building blocks with home networks: topology (`topology.ts`), users (`users.ts`), enrichment (`enrichment.ts`), and filesystem helpers (`filesystem/`). Mission-specific steps: objective type resolution → port closures → attack chain (`attackChain.ts`) → objective filesystems → binary wrapping (`binary.ts`). Home networks use the shared `generateNetwork()` pipeline (`generateNetwork.ts`) which composes the same building blocks. Seeds can embed keywords to override generation axes — see `parseSeedOverrides()` in `generateMission.ts`. Shared IP utilities (`ip.ts`) provide `generatePublicIp(prng, usedIps?)` and `generatePrivateSubnet(prng)` — used by both mission and home network generation. When `usedIps` is provided, public IP generation re-rolls to avoid collisions.
 
-**Key properties**: Deterministic (same seed → identical network). 5 machine roles, 3 difficulty tiers, 6 entry variants (ssh, ftp, nc, exploit, http, snmp), 2 network modes, 8 objective types. Output types match existing `NetworkConfig`, `RemoteMachine`, `FileNode`. Mission passwords imported from `src/secrets/__encoded.ts`.
+**Key properties**: Deterministic (same seed → identical network). 5 machine roles, 3 difficulty tiers, 6 entry variants (ssh, ftp, nc, exploit, http, snmp), 2 network modes, 10 objective types. Output types match existing `NetworkConfig`, `RemoteMachine`, `FileNode`. Mission passwords imported from `src/secrets/__encoded.ts`.
 
 **Multi-layer subnet topology**: Difficulty controls network depth via isolated subnet layers. Easy missions have 1 layer (2 machines). Medium missions have 2 layers separated by a gateway (5-7 machines total). Hard missions have 3 layers with 2 gateways (8-11 machines total). Each layer has its own private subnet, entry variant, and 2-3 machines. Gateway machines are dual-homed routers with interfaces in both adjacent subnets. Subnet isolation means machines can only see other machines in their own layer — only gateways bridge layers. The target is always in the deepest layer (except portforward, which targets layer 0). `MissionNetwork.layers` (type `readonly SubnetLayer[]`) exposes per-layer topology. `buildMissionObjective` takes the `layers` parameter for target placement.
 
@@ -265,7 +265,7 @@ SessionProvider → GameSession (useHomeNetworks, generateLocalhost) → Mission
 
 **Mission commands:** `missions()` (browse contracts), `accept(seed)` (generate + start), `abort()` (pop all sessions, clear state), `mail(recipient, content)` (submit proof, verify by objective type, calls `completeMission()`).
 
-**Objective types:** exfiltrate, tamper, credential_theft, script_fix, sabotage, backdoor, portforward, forensics. See `mission-variations.md` for details and completion criteria.
+**Objective types:** exfiltrate, tamper, credential_theft, script_fix, script_auto, sabotage, backdoor, portforward, forensics, malware. See `mission-variations.md` for details and completion criteria.
 
 ## SEO & Open Graph
 
