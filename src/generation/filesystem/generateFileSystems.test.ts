@@ -80,6 +80,31 @@ describe('generateFileSystems', () => {
     }
   });
 
+  it('some inner gateways get basic rw SNMP config (statistical)', () => {
+    let rwSnmpCount = 0;
+    for (let i = 0; i < 200; i++) {
+      const { topology, fileSystems } = buildTestData(`rw-snmp-gw-${i}`, 'hard');
+      // Check inner gateways (non-SNMP-variant) for rw SNMP configs
+      const innerGateways = topology.machines.filter(
+        (m) => (m.role === 'router' || m.role === 'switch') && m.accessVariant !== 'snmp',
+      );
+      innerGateways.forEach((gw) => {
+        const fs = fileSystems[gw.ip];
+        if (!fs) return;
+        const snmpConf = resolveNode(fs as FileNode, '/etc/snmp/snmpd.conf');
+        if (snmpConf?.type === 'file' && snmpConf.content) {
+          const hasRw = snmpConf.content.includes('rwcommunity');
+          const hasFirewall =
+            snmpConf.content.includes('firewallSSH') || snmpConf.content.includes('aclSSH');
+          const hasCredLeak = snmpConf.content.includes('nsExtendArgs');
+          // Basic rw: has rw community + firewall OIDs but no credential leaks
+          if (hasRw && hasFirewall && !hasCredLeak) rwSnmpCount++;
+        }
+      });
+    }
+    expect(rwSnmpCount).toBeGreaterThan(0);
+  });
+
   it('each filesystem has /etc/passwd', () => {
     const { topology, fileSystems } = buildTestData('passwd-test');
     topology.machines.forEach((m) => {

@@ -41,6 +41,7 @@ import {
   generateSnmpConfig,
   generateSwitchSnmpConfig,
   generateBasicSnmpConfig,
+  generateBasicRwSnmpConfig,
 } from './networkConfig';
 import { generateForensicsEvidence } from './forensicsEvidence';
 
@@ -695,16 +696,20 @@ export const generateFileSystems = (input: FilesystemInput): FilesystemResult =>
     });
   }
 
-  // Pre-generate SNMP configs for inner gateways. SNMP-variant gateways get full configs
-  // (rw community, credential leaks, firewall/ACL OIDs). Non-SNMP gateways get a PRNG roll
-  // for basic read-only SNMP (system + interface OIDs only), enabling subnet discovery via
-  // snmpwalk. Roll is always consumed per gateway to keep PRNG sequence stable.
+  // Pre-generate SNMP configs for inner gateways. Three tiers:
+  // 1. Full SNMP-variant: rw community, credential leaks, firewall/ACL OIDs
+  // 2. Basic read-write: rw community + firewall/ACL OIDs, no credential leaks (~30% of basic)
+  // 3. Basic read-only: rocommunity public, interface OIDs only (~70% of basic)
+  // Non-SNMP gateways get a PRNG roll for basic SNMP. Within basic, a second roll
+  // decides read-only vs read-write. All rolls are always consumed for PRNG stability.
   const basicSnmpThreshold = difficulty === 'easy' ? 0.7 : difficulty === 'medium' ? 0.4 : 0.2;
+  const BASIC_RW_CHANCE = 0.3;
   const gatewaySnmpConfigs = new Map<string, string>();
   const basicSnmpGatewayIps = new Set<string>();
   if (layers && layers.length > 1) {
     layers.slice(1).forEach((layer) => {
       const basicSnmpRoll = prng.next();
+      const basicRwRoll = prng.next();
       const secondaryIp = `${layer.subnet}.1`;
       if (layer.gateway.accessVariant === 'snmp') {
         const gatewayCreds = credentials[layer.gateway.ip] ?? [];
@@ -716,10 +721,30 @@ export const generateFileSystems = (input: FilesystemInput): FilesystemResult =>
         );
       } else if (basicSnmpRoll < basicSnmpThreshold) {
         const isSwitch = layer.gatewayType === 'switch';
-        gatewaySnmpConfigs.set(
-          layer.gateway.ip,
-          generateBasicSnmpConfig(layer.gateway.hostname, layer.gateway.ip, secondaryIp, isSwitch),
-        );
+        if (basicRwRoll < BASIC_RW_CHANCE) {
+          // Basic read-write: rw community + firewall/ACL OIDs, no credential leaks
+          gatewaySnmpConfigs.set(
+            layer.gateway.ip,
+            generateBasicRwSnmpConfig(
+              prng,
+              layer.gateway.hostname,
+              layer.gateway.ip,
+              secondaryIp,
+              isSwitch,
+            ),
+          );
+        } else {
+          // Basic read-only: interface discovery only
+          gatewaySnmpConfigs.set(
+            layer.gateway.ip,
+            generateBasicSnmpConfig(
+              layer.gateway.hostname,
+              layer.gateway.ip,
+              secondaryIp,
+              isSwitch,
+            ),
+          );
+        }
         basicSnmpGatewayIps.add(layer.gateway.ip);
       }
     });

@@ -120,6 +120,51 @@ export const generateSwitchSnmpConfig = (
   return lines.join('\n');
 };
 
+// Generates a basic read-write /etc/snmp/snmpd.conf for non-SNMP-variant gateways.
+// Has rw community + firewall/ACL OIDs (like full SNMP-variant) but NO credential leaks.
+// Players can discover the gateway via snmpwalk, find the rw community, and use snmpset
+// to open firewalled ports. A middle tier between read-only and full SNMP-variant.
+export const generateBasicRwSnmpConfig = (
+  prng: Prng,
+  hostname: string,
+  primaryIp: string,
+  secondaryIp: string,
+  isSwitch: boolean,
+): string => {
+  const rwCommunity = prng.pick(snmpRwCommunities);
+  const sysDescr = isSwitch
+    ? `Cisco IOS L3 Switch ${hostname} 15.2(4)E`
+    : `Linux ${hostname} 5.4.0-generic #1 SMP`;
+  const ifNames = isSwitch ? ['GigabitEthernet0/1', 'GigabitEthernet0/2'] : ['eth0', 'eth1'];
+  const oidSection = isSwitch
+    ? ['# ACL OIDs', 'aclSSH deny', 'aclHTTP deny']
+    : ['# Firewall OIDs', 'firewallSSH deny', 'firewallHTTP deny'];
+
+  const lines = [
+    '# SNMP Daemon Configuration',
+    '# net-snmp 5.9.1',
+    '',
+    '# Community strings',
+    'rocommunity public',
+    `rwcommunity ${rwCommunity}`,
+    '',
+    '# System information',
+    `sysDescr ${sysDescr}`,
+    `sysName ${hostname}`,
+    `sysContact netops@corp.local`,
+    '',
+    '# Interfaces',
+    `ifDescr.1 ${ifNames[0]}`,
+    `ifDescr.2 ${ifNames[1]}`,
+    `ifAddr.1 ${primaryIp}`,
+    `ifAddr.2 ${secondaryIp}`,
+    '',
+    ...oidSection,
+  ];
+
+  return lines.join('\n');
+};
+
 // Generates a lightweight /etc/snmp/snmpd.conf for non-SNMP-variant gateways.
 // Read-only public community, system info, and interface data only — no rw community,
 // no credential leaks, no firewall/ACL OIDs. Allows players to discover dual-homed

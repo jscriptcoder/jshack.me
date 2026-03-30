@@ -172,7 +172,12 @@ For the SNMP entry variant, `NetworkContext` also reads `/etc/snmp/snmpd.conf` f
 
 ### Basic SNMP on Non-SNMP-Variant Gateways
 
-Inner gateways without the SNMP access variant have a difficulty-based PRNG chance of basic read-only SNMP: easy 70%, medium 40%, hard 20%. Basic configs contain `rocommunity public` only (no rw community, no credential leaks, no firewall/ACL OIDs). The key reconnaissance value is `ifAddr.1`/`ifAddr.2` — interface IPs that reveal the gateway is dual-homed across two subnets. Players who run `snmpwalk` with the public community can discover gateways and hidden subnets. Full SNMP configs (SNMP-variant gateways and border routers) also include `ifAddr.2`. UDP port 161 is dynamically added to the network config for basic-SNMP gateways so `snmpwalk` can reach them.
+Inner gateways without the SNMP access variant have a difficulty-based PRNG chance of basic SNMP: easy 70%, medium 40%, hard 20%. Within basic SNMP gateways, a second PRNG roll (~30%) determines the tier:
+
+- **Basic read-only** (~70% of basic): `rocommunity public` only — no rw community, no credential leaks, no firewall/ACL OIDs. Reconnaissance value is `ifAddr.1`/`ifAddr.2` (dual-homed gateway discovery).
+- **Basic read-write** (~30% of basic): Has `rwcommunity` + firewall/ACL OIDs (like full SNMP-variant) but NO credential leaks. Players can `snmpset` to open firewalled ports on the gateway. SSH daemon is running but firewalled — `snmpset` unblocks access.
+
+Full SNMP configs (SNMP-variant gateways and border routers) also include `ifAddr.2` and have credential leaks via `nsExtendArgs`. UDP port 161 is dynamically added to the network config for all basic-SNMP gateways so `snmpwalk` can reach them.
 
 ### Dynamic Daemon Ports
 

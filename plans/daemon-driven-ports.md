@@ -1,7 +1,7 @@
 # Plan: Daemon-Driven Port State
 
 **Branch**: refactor/daemon-driven-ports
-**Status**: Active
+**Status**: Complete
 
 ## Goal
 
@@ -19,10 +19,12 @@ Currently, ports have a static `open: boolean` set at generation time. PID files
 ### Target model
 
 For daemon-backed services:
+
 - Port is open = PID file exists AND not blocked by firewall/ACL
 - `applyDynamicOverrides` pipeline: daemon state FIRST, then firewall/ACL on top
 
 For infrastructure services:
+
 - Keep static `open` flag — these represent always-running services with no player interaction
 - Still subject to firewall/ACL filtering
 
@@ -30,7 +32,7 @@ For infrastructure services:
 
 - [ ] SSH port open/closed is derived from sshd.pid existence, not static flag
 - [ ] FTP port open/closed is derived from vsftpd.pid existence, not static flag
-- [ ] NC ports derived from nc-*.pid files (already works this way)
+- [ ] NC ports derived from nc-\*.pid files (already works this way)
 - [ ] Firewall/ACL rules apply AFTER daemon state (can block a running daemon)
 - [ ] A daemon override cannot "undo" a firewall/ACL block
 - [ ] Generation still creates PID files for machines that should have SSH/FTP running
