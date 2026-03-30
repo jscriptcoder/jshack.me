@@ -97,10 +97,12 @@ export const listProcesses = (adapter: PsAdapter): readonly Process[] => {
   const machineInfo = adapter.getMachineInfo();
   if (machineInfo) {
     const ncPidPorts = new Set(
-      processes.filter((p) => p.command.includes('/usr/bin/nc')).map((p) => {
-        const match = p.command.match(/(\d+)$/);
-        return match ? Number(match[1]) : 0;
-      }),
+      processes
+        .filter((p) => p.command.includes('/usr/bin/nc'))
+        .map((p) => {
+          const match = p.command.match(/(\d+)$/);
+          return match ? Number(match[1]) : 0;
+        }),
     );
     for (const port of machineInfo.ports) {
       if (port.service !== 'elite' || !port.open || ncPidPorts.has(port.port)) continue;

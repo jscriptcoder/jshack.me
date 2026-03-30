@@ -4,6 +4,7 @@ import { generateTopology } from '../topology';
 import { generateUsers } from '../users';
 import { buildMissionObjective } from '../attackChain';
 import { generateFileSystems } from '.';
+import { generateBasicRwSnmpConfig } from './networkConfig';
 import type { FileNode } from '../../filesystem/types';
 import { resolveNode } from './testHelpers';
 
@@ -187,5 +188,50 @@ describe('SNMP config file on router', () => {
       '/etc/snmp/snmpd.conf',
     );
     expect(confA?.content).toBe(confB?.content);
+  });
+});
+
+describe('basic read-write SNMP config on inner gateways', () => {
+  it('has rw community, firewall/ACL OIDs, but no credential leaks', () => {
+    const config = generateBasicRwSnmpConfig(
+      createPrng('rw-snmp-test'),
+      'gateway01',
+      '10.0.0.50',
+      '10.0.1.1',
+      false,
+    );
+    expect(config).toContain('rocommunity public');
+    expect(config).toMatch(/rwcommunity \w+/);
+    expect(config).toContain('firewallSSH deny');
+    expect(config).toContain('firewallHTTP deny');
+    expect(config).toContain('ifAddr.1 10.0.0.50');
+    expect(config).toContain('ifAddr.2 10.0.1.1');
+    // No credential leaks
+    expect(config).not.toContain('nsExtendArgs');
+  });
+
+  it('uses ACL OIDs for switch gateways', () => {
+    const config = generateBasicRwSnmpConfig(
+      createPrng('rw-snmp-switch'),
+      'switch01',
+      '10.0.0.50',
+      '10.0.1.1',
+      true,
+    );
+    expect(config).toContain('aclSSH deny');
+    expect(config).toContain('aclHTTP deny');
+    expect(config).not.toContain('firewallSSH');
+  });
+
+  it('uses Cisco sysDescr for switch gateways', () => {
+    const config = generateBasicRwSnmpConfig(
+      createPrng('rw-snmp-switch-desc'),
+      'switch01',
+      '10.0.0.50',
+      '10.0.1.1',
+      true,
+    );
+    expect(config).toContain('Cisco IOS L3 Switch');
+    expect(config).toContain('GigabitEthernet0/1');
   });
 });
