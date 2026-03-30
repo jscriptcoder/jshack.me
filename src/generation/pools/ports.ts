@@ -226,6 +226,20 @@ export const entryPortTemplates: readonly EntryPortTemplate[] = [
       { port: 80, service: 'http', open: true },
     ],
   },
+  {
+    variant: 'http',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 443, service: 'https', open: true },
+    ],
+  },
+  {
+    variant: 'http',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 8080, service: 'http-alt', open: true },
+    ],
+  },
 ];
 
 // Entry port templates when the router itself is the entry point (router-first mode)
@@ -340,6 +354,20 @@ export const routerEntryPortTemplates: readonly EntryPortTemplate[] = [
     ports: [
       { port: 22, service: 'ssh', open: true },
       { port: 80, service: 'http', open: true },
+    ],
+  },
+  {
+    variant: 'http',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 443, service: 'https', open: true },
+    ],
+  },
+  {
+    variant: 'http',
+    ports: [
+      { port: 22, service: 'ssh', open: true },
+      { port: 8080, service: 'http-alt', open: true },
     ],
   },
   {

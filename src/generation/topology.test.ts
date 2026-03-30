@@ -350,7 +350,7 @@ describe('generateTopology', () => {
     });
   });
 
-  it('HTTP variant machines have port 80 open', () => {
+  it('HTTP variant machines have an HTTP-like port open', () => {
     const results = Array.from({ length: 30 }, (_, i) =>
       generateTopology(createPrng(`http-port-${i}`), 'hard'),
     );
@@ -359,7 +359,10 @@ describe('generateTopology', () => {
       .filter((m) => m.accessVariant === 'http');
     expect(httpMachines.length).toBeGreaterThan(0);
     httpMachines.forEach((m) => {
-      const httpPort = m.remoteMachine.ports.find((p) => p.port === 80 && p.open);
+      const httpPort = m.remoteMachine.ports.find(
+        (p) =>
+          p.open && (p.service === 'http' || p.service === 'https' || p.service === 'http-alt'),
+      );
       expect(httpPort).toBeDefined();
     });
   });

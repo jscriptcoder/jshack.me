@@ -32,18 +32,18 @@ Difficulty adds network depth via isolated subnet layers. Each layer has its own
 
 How the player gains initial access to the entry machine.
 
-| Variant | Flow                                                                                   |
-| ------- | -------------------------------------------------------------------------------------- |
-| SSH     | Direct SSH login as regular user (credentials shown in briefing)                       |
-| FTP     | Explore via FTP, find SSH credentials in a file                                        |
-| NC      | Connect via netcat backdoor (port 4444), find SSH credentials                          |
-| Exploit | `nmap -sV` → find vulnerable service → `msfconsole(host, port)` → find SSH credentials |
-| HTTP    | `nmap` → discover port 80 → `curl` to explore web content → find SSH credentials       |
-| SNMP    | `nmap -sU` → find UDP 161 → `snmpwalk` with RW community → `snmpset` to open SSH       |
+| Variant | Flow                                                                                                                                                                                 |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| SSH     | `nmap` → find port 22 → `hydra` brute-force to find credentials                                                                                                                      |
+| FTP     | `nmap` → find port 21 → FTP in, explore files; ~30% credential leak chance, otherwise `hydra` for SSH                                                                                |
+| NC      | `nmap` → find suspicious high port → `nc` to get a restricted shell as port owner; explore files, use `bash` to run binaries; ~30% credential leak chance, otherwise `hydra` for SSH |
+| Exploit | `nmap -sV` → find vulnerable service → `msfconsole(host, port)` → same restricted shell as NC                                                                                        |
+| HTTP    | `nmap` → find HTTP port (80, 443, or 8080) → `curl` to explore web content → find SSH credentials in web files                                                                       |
+| SNMP    | `nmap -sU` → find UDP 161 → `snmpwalk` with RW community → `snmpset` to open SSH port → `hydra` or cred leak                                                                         |
 
 ## FTP/NC/Exploit Owner Types (3)
 
-Owner type for FTP, NC backdoor, and exploit port owners varies per seed, adding difficulty variety. The FTP login user, NC shell user, and exploit shell user are all determined by the port owner.
+Owner type for NC backdoor and exploit port owners varies per seed, adding difficulty variety. The NC shell user and exploit shell user are determined by the port owner. FTP also gets a port owner via PRNG (preserving sequence stability), but FTP authentication is independent — any valid user on the machine can log in via FTP with correct credentials.
 
 | Type  | Weight | Effect                                                   |
 | ----- | ------ | -------------------------------------------------------- |
@@ -65,31 +65,11 @@ When domain entry is active, the mission briefing shows the router's `.mission` 
 | Medium     | 50%                      |
 | Hard       | 70%                      |
 
-With the `domain` seed keyword, domain entry is always active. Without it, PRNG decides based on difficulty. Domain mode appends "Resolve the target domain first" to the intel hint but still shows variant-specific intel. SSH variant with credentials shown omits the `ssh()` command (player must nslookup to find IP first).
+With the `domain` seed keyword, domain entry is always active. Without it, PRNG decides based on difficulty.
 
-## Briefing Intel Variation
+## Mission Briefing
 
-The mission briefing includes an `Intel:` section with variant-specific hints. No command names appear — hints use natural language so the player must figure out which tools to use.
-
-| Variant | Intel Text                                                                         |
-| ------- | ---------------------------------------------------------------------------------- |
-| SSH     | ~50% shows credentials + `ssh()` command; ~50% hints at default credentials        |
-| FTP     | "Our recon shows an FTP service running on the target."                            |
-| NC      | "Our scanner picked up a suspicious backdoor service. Run a port scan to find it." |
-| Exploit | "The target is running outdated software with known vulnerabilities."              |
-| HTTP    | "There's a web server running on the target."                                      |
-| SNMP    | No hint — player must discover SNMP independently via UDP scanning                 |
-
-### SSH Credential Reveal (`briefingRevealsCredentials`)
-
-A PRNG-determined boolean (~50/50) on `MissionNetwork` controls whether the SSH variant briefing shows credentials. Only affects SSH variant — other variants never reveal credentials.
-
-| Value | Briefing Behavior                                                            |
-| ----- | ---------------------------------------------------------------------------- |
-| true  | Shows username, password, and `ssh()` command (or just creds in domain mode) |
-| false | "Our intel suggests default credentials may still be active"                 |
-
-When credentials are hidden, the player must guess from the `guestPasswords` pool (guest, guest123, password, letmein, welcome, changeme). Entry machines always have a guest account.
+The briefing (shown by `accept()` and `missions()`) contains only: seed, difficulty, objective description, client email, objective-specific instructions (what to do / what to mail), and the target IP or domain. No entry-variant-specific hints or credentials are revealed — the player must always figure out how to gain access independently.
 
 ## Encrypted Exfiltrate
 
