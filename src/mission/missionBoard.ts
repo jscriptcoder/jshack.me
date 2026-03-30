@@ -1,5 +1,4 @@
 export type MissionListing = {
-  readonly id: string;
   readonly client: string;
   readonly clientEmail: string;
   readonly target: string;
@@ -11,7 +10,6 @@ export type MissionListing = {
 export const MISSION_BOARD: readonly MissionListing[] = [
   // --- EASY ---
   {
-    id: 'DKC-001',
     client: 'xR0gu3x',
     clientEmail: 'xR0gu3x@darkmail.onion',
     target: 'Greenleaf Medical Group — patient records server',
@@ -20,7 +18,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'GREENLEAF-ssh-easy-exfiltrate',
   },
   {
-    id: 'DKC-002',
     client: 'gh0st_',
     clientEmail: 'gh0st_@darkmail.onion',
     target: 'Ridgemont University — student database',
@@ -29,7 +26,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'RIDGEMONT-ftp-easy-tamper',
   },
   {
-    id: 'DKC-003',
     client: 'cyph3rpunk',
     clientEmail: 'cyph3rpunk@darkmail.onion',
     target: 'QuickShip Logistics — warehouse workstation',
@@ -38,7 +34,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'QUICKSHIP-ssh-easy-script-fix',
   },
   {
-    id: 'DKC-004',
     client: 'darkfl0w',
     clientEmail: 'darkfl0w@darkmail.onion',
     target: 'Pinnacle HR Solutions — payroll server',
@@ -47,7 +42,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'PINNACLE-http-easy-credential-theft',
   },
   {
-    id: 'DKC-005',
     client: 'zer0day_',
     clientEmail: 'zer0day_@darkmail.onion',
     target: 'BrightStar Energy — grid monitoring station',
@@ -56,7 +50,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'BRIGHTSTAR-exploit-easy-sabotage',
   },
   {
-    id: 'DKC-018',
     client: 'v0id_agent',
     clientEmail: 'v0id_agent@darkmail.onion',
     target: 'Apex Courier Services — fleet tracking server',
@@ -65,7 +58,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'APEX-ssh-easy-backdoor',
   },
   {
-    id: 'DKC-021',
     client: 'n3twr4ith',
     clientEmail: 'n3twr4ith@darkmail.onion',
     target: 'Solaris Telecom — border gateway router',
@@ -74,7 +66,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'SOLARIS-snmp-easy-portforward',
   },
   {
-    id: 'DKC-024',
     client: 'v0id_agent',
     clientEmail: 'v0id_agent@darkmail.onion',
     target: 'Pinecrest Logistics — compromised shipping database',
@@ -83,7 +74,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'PINECREST-easy-forensics',
   },
   {
-    id: 'DKC-027',
     client: 'cyph3rpunk',
     clientEmail: 'cyph3rpunk@darkmail.onion',
     target: 'Coastal Freight — shipping container IoT hub',
@@ -92,7 +82,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'COASTAL-ssh-easy-script-auto',
   },
   {
-    id: 'DKC-030',
     client: 'sh4d0w_',
     clientEmail: 'sh4d0w_@darkmail.onion',
     target: 'Redstone Mining Corp — operations data server',
@@ -101,7 +90,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'REDSTONE-nc-easy-exfiltrate',
   },
   {
-    id: 'DKC-031',
     client: 'n1ghtcr4wl',
     clientEmail: 'n1ghtcr4wl@darkmail.onion',
     target: 'Silverline Transit Authority — fare management server',
@@ -110,7 +98,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'SILVERLINE-snmp-easy-credential-theft',
   },
   {
-    id: 'DKC-032',
     client: 'gh0st_',
     clientEmail: 'gh0st_@darkmail.onion',
     target: 'Crestview Academy — enrollment database',
@@ -120,7 +107,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
   },
   // --- MEDIUM ---
   {
-    id: 'DKC-006',
     client: 'n3twr4ith',
     clientEmail: 'n3twr4ith@darkmail.onion',
     target: 'Obsidian Financial — trading platform backend',
@@ -129,7 +115,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'OBSIDIAN-ssh-medium-tamper',
   },
   {
-    id: 'DKC-007',
     client: 'silkr0ad',
     clientEmail: 'silkr0ad@darkmail.onion',
     target: 'NovaTech Labs — research file server',
@@ -138,7 +123,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'NOVATECH-ftp-medium-credential-theft',
   },
   {
-    id: 'DKC-008',
     client: 'bl4ckh4t',
     clientEmail: 'bl4ckh4t@darkmail.onion',
     target: 'Meridian Defense Corp — encrypted data vault',
@@ -147,7 +131,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'MERIDIAN-nc-medium-exfiltrate-gpg',
   },
   {
-    id: 'DKC-009',
     client: 'v0id_agent',
     clientEmail: 'v0id_agent@darkmail.onion',
     target: 'Sentinel Security — surveillance server cluster',
@@ -156,7 +139,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'SENTINEL-ssh-medium-script-fix',
   },
   {
-    id: 'DKC-010',
     client: 'ph4nt0m',
     clientEmail: 'ph4nt0m@darkmail.onion',
     target: 'Axiom Biotech — gene sequencing lab server',
@@ -165,7 +147,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'AXIOM-http-medium-sabotage',
   },
   {
-    id: 'DKC-011',
     client: 'darkfl0w',
     clientEmail: 'darkfl0w@darkmail.onion',
     target: 'Cobalt Dynamics — network gateway infrastructure',
@@ -174,7 +155,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'COBALT-snmp-medium-exfiltrate',
   },
   {
-    id: 'DKC-019',
     client: 'silkr0ad',
     clientEmail: 'silkr0ad@darkmail.onion',
     target: 'Prism Analytics — data processing cluster',
@@ -183,7 +163,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'PRISM-ftp-medium-backdoor',
   },
   {
-    id: 'DKC-022',
     client: 'darkfl0w',
     clientEmail: 'darkfl0w@darkmail.onion',
     target: 'Apex Industrial — network perimeter router',
@@ -192,7 +171,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'APEXIND-snmp-medium-portforward',
   },
   {
-    id: 'DKC-025',
     client: 'sh4d0w_',
     clientEmail: 'sh4d0w_@darkmail.onion',
     target: 'Meridian Health Systems — breached patient portal',
@@ -201,7 +179,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'MERIDIAN-medium-forensics',
   },
   {
-    id: 'DKC-028',
     client: 'sh4d0w_',
     clientEmail: 'sh4d0w_@darkmail.onion',
     target: 'Sterling Dynamics — internal build cluster',
@@ -210,7 +187,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'STERLING-ssh-medium-script-auto',
   },
   {
-    id: 'DKC-033',
     client: 'n1ghtcr4wl',
     clientEmail: 'n1ghtcr4wl@darkmail.onion',
     target: 'Vertex Logistics — shipment tracking platform',
@@ -219,7 +195,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'VERTEX-exploit-medium-tamper',
   },
   {
-    id: 'DKC-034',
     client: 'zer0day_',
     clientEmail: 'zer0day_@darkmail.onion',
     target: 'Cascade Power Systems — grid monitoring cluster',
@@ -228,7 +203,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'CASCADE-nc-medium-sabotage',
   },
   {
-    id: 'DKC-035',
     client: 'ph4nt0m',
     clientEmail: 'ph4nt0m@darkmail.onion',
     target: 'Irongate Manufacturing — production control network',
@@ -237,7 +211,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'IRONGATE-snmp-medium-tamper-switch',
   },
   {
-    id: 'DKC-036',
     client: 'darkfl0w',
     clientEmail: 'darkfl0w@darkmail.onion',
     target: 'Helix Genomics — research authentication server',
@@ -247,7 +220,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
   },
   // --- HARD ---
   {
-    id: 'DKC-012',
     client: 'zer0day_',
     clientEmail: 'zer0day_@darkmail.onion',
     target: 'Vanguard Gov Systems — classified document server',
@@ -256,7 +228,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'VANGUARD-ssh-hard-sabotage',
   },
   {
-    id: 'DKC-013',
     client: 'cyph3rpunk',
     clientEmail: 'cyph3rpunk@darkmail.onion',
     target: 'Nexus Pharma — drug trial data processing cluster',
@@ -265,7 +236,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'NEXUS-ssh-hard-script-fix',
   },
   {
-    id: 'DKC-014',
     client: 'xR0gu3x',
     clientEmail: 'xR0gu3x@darkmail.onion',
     target: 'IronClad Insurance — claims database cluster',
@@ -274,7 +244,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'IRONCLAD-nc-hard-credential-theft',
   },
   {
-    id: 'DKC-015',
     client: 'n3twr4ith',
     clientEmail: 'n3twr4ith@darkmail.onion',
     target: 'Cerberus Bank — core transaction network',
@@ -283,7 +252,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'CERBERUS-exploit-hard-exfiltrate-gpg-domain',
   },
   {
-    id: 'DKC-016',
     client: 'bl4ckh4t',
     clientEmail: 'bl4ckh4t@darkmail.onion',
     target: 'Helios Aerospace — mission control infrastructure',
@@ -292,7 +260,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'HELIOS-http-hard-tamper-domain',
   },
   {
-    id: 'DKC-017',
     client: 'gh0st_',
     clientEmail: 'gh0st_@darkmail.onion',
     target: 'Zenith Federal — core banking router network',
@@ -301,7 +268,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'ZENITH-snmp-hard-credential-theft-domain',
   },
   {
-    id: 'DKC-020',
     client: 'ph4nt0m',
     clientEmail: 'ph4nt0m@darkmail.onion',
     target: 'Titan Defense — weapons research network',
@@ -310,7 +276,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'TITAN-exploit-hard-backdoor-domain',
   },
   {
-    id: 'DKC-023',
     client: 'zer0day_',
     clientEmail: 'zer0day_@darkmail.onion',
     target: 'Bastion Federal — classified network gateway',
@@ -319,7 +284,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'BASTION-snmp-hard-portforward-domain',
   },
   {
-    id: 'DKC-026',
     client: 'n1ghtcr4wl',
     clientEmail: 'n1ghtcr4wl@darkmail.onion',
     target: 'Obsidian Defense Corp — infiltrated classified network',
@@ -328,7 +292,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'OBSIDIAN-hard-forensics',
   },
   {
-    id: 'DKC-029',
     client: 'bl4ckh4t',
     clientEmail: 'bl4ckh4t@darkmail.onion',
     target: 'Obsidian Labs — deep research network',
@@ -337,7 +300,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'OBSIDIANLAB-ssh-hard-script-auto-domain',
   },
   {
-    id: 'DKC-037',
     client: 'xR0gu3x',
     clientEmail: 'xR0gu3x@darkmail.onion',
     target: 'Polaris Satellite Corp — orbital control network',
@@ -346,7 +308,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'POLARIS-ftp-hard-sabotage',
   },
   {
-    id: 'DKC-038',
     client: 'silkr0ad',
     clientEmail: 'silkr0ad@darkmail.onion',
     target: 'Onyx Intelligence Group — encrypted signals archive',
@@ -355,7 +316,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'ONYX-nc-hard-exfiltrate-gpg-switch',
   },
   {
-    id: 'DKC-039',
     client: 'cyph3rpunk',
     clientEmail: 'cyph3rpunk@darkmail.onion',
     target: 'Aurora Pharmaceuticals — clinical trial network',
@@ -364,7 +324,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     seed: 'AURORA-ftp-hard-tamper-switch',
   },
   {
-    id: 'DKC-040',
     client: 'darkfl0w',
     clientEmail: 'darkfl0w@darkmail.onion',
     target: 'Sovereign Systems — classified communications network',
@@ -374,25 +333,51 @@ export const MISSION_BOARD: readonly MissionListing[] = [
   },
 ];
 
+const WHITE_HAT_KEYWORDS = ['script-fix', 'script-auto', 'forensics'] as const;
+
+const isWhiteHat = (seed: string): boolean => {
+  const lower = seed.toLowerCase();
+  return WHITE_HAT_KEYWORDS.some((keyword) => lower.includes(keyword));
+};
+
+const SEPARATOR = '  │  ';
+
+const formatEntry = (listing: MissionListing): readonly string[] => [
+  `[${listing.difficulty}]`,
+  `  ${listing.target}`,
+  `  ${listing.objective}`,
+  `  SEED: ${listing.seed}`,
+  '',
+];
+
+const buildColumn = (title: string, missions: readonly MissionListing[]): readonly string[] => {
+  const entries = missions.flatMap(formatEntry);
+  const width = Math.max(title.length + 4, ...entries.map((l) => l.length));
+  const rule = '='.repeat(width);
+  return [rule, `  ${title}`, rule, '', ...entries];
+};
+
+const mergeColumns = (
+  leftLines: readonly string[],
+  rightLines: readonly string[],
+): readonly string[] => {
+  const leftWidth = Math.max(...leftLines.map((l) => l.length));
+  const maxLines = Math.max(leftLines.length, rightLines.length);
+  return Array.from({ length: maxLines }, (_, i) => {
+    const left = (leftLines[i] ?? '').padEnd(leftWidth);
+    const right = rightLines[i] ?? '';
+    return right ? `${left}${SEPARATOR}${right}` : (leftLines[i] ?? '');
+  });
+};
+
 export const formatMissionBoard = (listings: readonly MissionListing[]): string => {
-  const header = [
-    '============================================',
-    '  DARKNET CONTRACTS — AVAILABLE JOBS',
-    '============================================',
-    '',
-  ];
+  const blackHat = listings.filter((l) => !isWhiteHat(l.seed));
+  const whiteHat = listings.filter((l) => isWhiteHat(l.seed));
 
-  const entries = listings.flatMap((listing) => [
-    `[${listing.id}] CLIENT: ${listing.client}`,
-    `      TARGET: ${listing.target}`,
-    `      OBJECTIVE: ${listing.objective}`,
-    `      REPLY TO: ${listing.clientEmail}`,
-    `      DIFFICULTY: ${listing.difficulty}`,
-    `      SEED: ${listing.seed}`,
-    '',
-  ]);
+  const leftLines = buildColumn('DARKNET CONTRACTS', blackHat);
+  const rightLines = buildColumn('SECURITY CONTRACTS', whiteHat);
 
-  const footer = ['> Type accept("SEED") to start a mission'];
+  const footer = ['', '> Type accept("SEED") to start a mission'];
 
-  return [...header, ...entries, ...footer].join('\n');
+  return [...mergeColumns(leftLines, rightLines), ...footer].join('\n');
 };

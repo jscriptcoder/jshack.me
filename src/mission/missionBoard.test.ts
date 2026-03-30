@@ -4,18 +4,12 @@ import { MISSION_BOARD, formatMissionBoard, type MissionListing } from './missio
 describe('missionBoard', () => {
   it('each listing has required fields when populated', () => {
     MISSION_BOARD.forEach((listing) => {
-      expect(listing.id).toBeTruthy();
       expect(listing.client).toBeTruthy();
       expect(listing.target).toBeTruthy();
       expect(listing.objective).toBeTruthy();
       expect(listing.difficulty).toBeTruthy();
       expect(listing.seed).toBeTruthy();
     });
-  });
-
-  it('each listing has a unique id', () => {
-    const ids = MISSION_BOARD.map((l) => l.id);
-    expect(new Set(ids).size).toBe(ids.length);
   });
 
   it('each listing has a unique seed', () => {
@@ -33,7 +27,6 @@ describe('formatMissionBoard', () => {
   it('includes all listing details', () => {
     const listings: readonly MissionListing[] = [
       {
-        id: '001',
         client: 'testclient',
         clientEmail: 'testclient@darkmail.onion',
         target: 'Test Corp',
@@ -43,7 +36,8 @@ describe('formatMissionBoard', () => {
       },
     ];
     const output = formatMissionBoard(listings);
-    expect(output).toContain('testclient');
+    expect(output).toContain('Test Corp');
+    expect(output).toContain('Test objective');
     expect(output).toContain('TEST-SEED');
   });
 
