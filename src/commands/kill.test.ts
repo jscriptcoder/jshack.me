@@ -65,7 +65,7 @@ describe('kill command', () => {
   describe('argument parsing', () => {
     it('throws usage error with no arguments', () => {
       const cmd = createKillCommand(createContext());
-      expect(() => cmd.fn()).toThrow('kill: usage: kill [-signal] pid');
+      expect(() => cmd.fn()).toThrow('kill: usage: kill(pid)');
     });
 
     it('throws error for non-numeric PID', () => {
@@ -73,9 +73,9 @@ describe('kill command', () => {
       expect(() => cmd.fn('abc')).toThrow('kill: abc: arguments must be process IDs');
     });
 
-    it('throws error for negative PID', () => {
+    it('throws error for zero PID', () => {
       const cmd = createKillCommand(createContext());
-      expect(() => cmd.fn('-0')).toThrow('kill: usage: kill [-signal] pid');
+      expect(() => cmd.fn(0)).toThrow('kill: 0: arguments must be process IDs');
     });
   });
 
@@ -190,32 +190,7 @@ describe('kill command', () => {
       expect(deleteFn).toHaveBeenCalled();
     });
 
-    it('accepts signal flag before PID', () => {
-      const deleteFn = vi.fn(() => ({ allowed: true as const }));
-      const cmd = createKillCommand(
-        createContext({
-          getNodeFromMachine: withVarRun({ 'sshd.pid': 'sshd:port=22' }),
-          deleteNodeFromMachine: deleteFn,
-        }),
-      );
-
-      cmd.fn('-9', 100);
-      expect(deleteFn).toHaveBeenCalledWith(expect.objectContaining({ path: '/var/run/sshd.pid' }));
-    });
-
-    it('accepts -SIGKILL flag', () => {
-      const deleteFn = vi.fn(() => ({ allowed: true as const }));
-      const cmd = createKillCommand(
-        createContext({
-          getNodeFromMachine: withVarRun({ 'sshd.pid': 'sshd:port=22' }),
-          deleteNodeFromMachine: deleteFn,
-        }),
-      );
-
-      cmd.fn('-SIGKILL', 100);
-      expect(deleteFn).toHaveBeenCalled();
-    });
-  });
+});
 
   describe('permission checks', () => {
     it('root can kill any process', () => {

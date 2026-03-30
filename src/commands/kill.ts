@@ -121,28 +121,18 @@ const buildProcessList = (context: KillContext): readonly KillableProcess[] => {
   return processes;
 };
 
-// Parses signal flag and PID from arguments
-const parseKillArgs = (args: readonly unknown[]): { readonly pid: number } => {
-  const stringArgs = args.map(String);
-
-  // Filter out signal flags (e.g., -9, -SIGKILL, -TERM)
-  const nonFlagArgs: string[] = [];
-  for (const arg of stringArgs) {
-    if (arg.startsWith('-') && arg.length > 1) continue; // skip signal flags
-    nonFlagArgs.push(arg);
+const parsePid = (args: readonly unknown[]): number => {
+  if (args.length === 0) {
+    throw new Error('kill: usage: kill(pid)');
   }
 
-  if (nonFlagArgs.length === 0) {
-    throw new Error('kill: usage: kill [-signal] pid');
-  }
-
-  const pidStr = nonFlagArgs[0];
+  const pidStr = String(args[0]);
   const pid = Number(pidStr);
   if (!Number.isInteger(pid) || pid < 1) {
     throw new Error(`kill: ${pidStr}: arguments must be process IDs`);
   }
 
-  return { pid };
+  return pid;
 };
 
 export const createKillCommand = (context: KillContext): Command => ({
@@ -150,20 +140,13 @@ export const createKillCommand = (context: KillContext): Command => ({
   category: 'general',
   description: 'Terminate a process by PID',
   manual: {
-    synopsis: 'kill([-signal], pid)',
-    description:
-      'Send a signal to a process, terminating it. The default signal is TERM. Use ps() to find process IDs.',
-    arguments: [
-      { name: '-signal', description: 'Signal to send (e.g., -9, -KILL, -TERM)', required: false },
-      { name: 'pid', description: 'Process ID to terminate', required: true },
-    ],
-    examples: [
-      { command: 'kill(100)', description: 'Terminate process with PID 100' },
-      { command: 'kill("-9", 100)', description: 'Force kill process with PID 100' },
-    ],
+    synopsis: 'kill(pid)',
+    description: 'Terminate a process by its PID. Use ps() to find process IDs.',
+    arguments: [{ name: 'pid', description: 'Process ID to terminate', required: true }],
+    examples: [{ command: 'kill(100)', description: 'Terminate process with PID 100' }],
   },
   fn: (...args: unknown[]): string => {
-    const { pid } = parseKillArgs(args);
+    const pid = parsePid(args);
     const processes = buildProcessList(context);
     const target = processes.find((p) => p.pid === pid);
 
