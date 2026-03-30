@@ -94,6 +94,14 @@ export const formatObjectiveHint = (mission: MissionNetwork): string => {
     ].join('\n');
   }
 
+  if (objective.type === 'malware') {
+    return [
+      '  The machine has been compromised. Find the malware, kill the process,',
+      '  and delete the malicious file to prevent re-execution.',
+      `  Example: mail("${email}", "done")`,
+    ].join('\n');
+  }
+
   // credential_theft
   return [
     '  Discover the root password on the target machine and mail it to the client.',

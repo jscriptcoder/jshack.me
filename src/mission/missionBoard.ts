@@ -105,6 +105,14 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     difficulty: 'EASY',
     seed: 'CRESTVIEW-exploit-easy-tamper',
   },
+  {
+    client: 'h4rdl1nk',
+    clientEmail: 'h4rdl1nk@darkmail.onion',
+    target: 'Lakeview Hosting — shared web server',
+    objective: 'Find and neutralize malware running on their web server',
+    difficulty: 'EASY',
+    seed: 'LAKEVIEW-ssh-easy-malware',
+  },
   // --- MEDIUM ---
   {
     client: 'n3twr4ith',
@@ -217,6 +225,14 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     objective: 'Exploit a vulnerability and extract root credentials',
     difficulty: 'MEDIUM',
     seed: 'HELIX-exploit-medium-credential-theft',
+  },
+  {
+    client: 'cyb3rg00d',
+    clientEmail: 'cyb3rg00d@darkmail.onion',
+    target: 'Thornfield Hospital — patient database server',
+    objective: 'Investigate and neutralize malware compromising patient data',
+    difficulty: 'MEDIUM',
+    seed: 'THORNFIELD-ssh-medium-malware',
   },
   // --- HARD ---
   {
@@ -331,9 +347,17 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     difficulty: 'HARD',
     seed: 'SOVEREIGN-exploit-hard-tamper-domain',
   },
+  {
+    client: 'wh1t3h4t',
+    clientEmail: 'wh1t3h4t@darkmail.onion',
+    target: 'Titanium Defense — weapons research network',
+    objective: 'Hunt and eliminate deeply hidden malware in their classified infrastructure',
+    difficulty: 'HARD',
+    seed: 'TITANIUM-ssh-hard-malware',
+  },
 ];
 
-const WHITE_HAT_KEYWORDS = ['script-fix', 'script-auto', 'forensics'] as const;
+const WHITE_HAT_KEYWORDS = ['script-fix', 'script-auto', 'forensics', 'malware'] as const;
 
 const isWhiteHat = (seed: string): boolean => {
   const lower = seed.toLowerCase();
