@@ -189,8 +189,7 @@ describe('kill command', () => {
       cmd.fn('100');
       expect(deleteFn).toHaveBeenCalled();
     });
-
-});
+  });
 
   describe('permission checks', () => {
     it('root can kill any process', () => {
