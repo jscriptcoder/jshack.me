@@ -571,7 +571,7 @@ const buildObjective = (
 
     return {
       type: 'malware',
-      description: `${template.briefingHint} Root password: ${malwareRootPassword}`,
+      description: `Identify and neutralize the malware on ${targetMachine.hostname}. Root password: ${malwareRootPassword}`,
       targetMachine: targetMachine.ip,
       targetPath,
       targetContent: template.content,

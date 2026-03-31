@@ -206,7 +206,7 @@ describe('formatMissionBriefing', () => {
     const briefing = formatMissionBriefing(mission);
 
     expect(mission.objective.type).toBe('malware');
-    expect(briefing).toContain('compromised');
+    expect(briefing).toContain('neutralize the malware');
     expect(briefing).toContain('kill');
     expect(briefing).toContain('Root password:');
   });
