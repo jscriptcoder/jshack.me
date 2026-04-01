@@ -89,6 +89,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
         wrapWithWifiCheck(
           createNmapCommand({
             getMachine,
+            findMachineByIp,
             getMachines,
             getLocalIPs: () => new Set(getInterfaces().map((iface) => iface.inet)),
             getLocalHostname: () => session.hostname ?? session.machine,

@@ -199,6 +199,7 @@ export const executeSql = (db: MysqlDatabase, parsed: ParsedSql): SqlResult => {
     }
 
     case 'exit':
+    case 'help':
       // Should not reach executor — handled by the caller
       return { kind: 'read', output: 'Bye' };
   }
