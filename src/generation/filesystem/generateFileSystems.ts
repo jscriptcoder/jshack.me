@@ -44,7 +44,7 @@ import {
   generateBasicRwSnmpConfig,
 } from './networkConfig';
 import { generateForensicsEvidence } from './forensicsEvidence';
-import { generateDatabase, type DbEnrichment } from '../pools/database';
+import { generateDatabase, type DbEnrichment } from '../generateDatabase';
 
 type FilesystemInput = {
   readonly prng: Prng;

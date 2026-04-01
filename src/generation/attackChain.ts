@@ -31,7 +31,7 @@ import {
   enrichForDbFix,
   enrichForDbSabotage,
   type DbEnrichment,
-} from './pools/database';
+} from './generateDatabase';
 
 type BuildObjectiveInput = {
   readonly prng: Prng;

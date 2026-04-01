@@ -1,17 +1,38 @@
 import { describe, it, expect } from 'vitest';
-import { createPrng } from '../prng';
+import { createPrng } from './prng';
 import {
   generateDatabase,
   enrichForDbExfiltrate,
   enrichForDbTamper,
   enrichForDbFix,
   enrichForDbSabotage,
-} from './database';
+} from './generateDatabase';
 
 const makeDb = (seed = 'test-db') => {
   const prng = createPrng(seed);
   return generateDatabase(prng, ['admin', 'jsmith', 'guest']);
 };
+
+describe('generateDatabase', () => {
+  it('always includes a users table', () => {
+    const db = makeDb();
+    expect(db.tables['users']).toBeDefined();
+    expect(db.tables['users'].rows.length).toBeGreaterThan(0);
+  });
+
+  it('includes 3-5 tables total', () => {
+    const db = makeDb();
+    const count = Object.keys(db.tables).length;
+    expect(count).toBeGreaterThanOrEqual(3);
+    expect(count).toBeLessThanOrEqual(5);
+  });
+
+  it('is deterministic', () => {
+    const a = makeDb('determ');
+    const b = makeDb('determ');
+    expect(a).toEqual(b);
+  });
+});
 
 describe('enrichForDbExfiltrate', () => {
   it('injects an ACCESS-KEY into api_keys table', () => {
@@ -76,7 +97,6 @@ describe('enrichForDbFix', () => {
     expect(result.tamperColumn).toBeDefined();
     expect(result.tamperOldValue).toBeDefined();
     expect(result.tamperNewValue).toBeDefined();
-    // For db_fix, old = corrupted, new = correct
     expect(result.tamperOldValue).not.toBe(result.tamperNewValue);
   });
 
@@ -95,13 +115,23 @@ describe('enrichForDbFix', () => {
 });
 
 describe('enrichForDbSabotage', () => {
-  it('returns a target table name', () => {
+  it('returns a target table name from the sabotage pool', () => {
     const db = makeDb('sab-db');
     const prng = createPrng('sab-seed');
     const result = enrichForDbSabotage(prng, db);
 
     expect(result.targetTable).toBeDefined();
-    expect(['sessions', 'api_keys', 'audit_log']).toContain(result.targetTable);
+    const validTables = [
+      'sessions',
+      'api_keys',
+      'audit_log',
+      'orders',
+      'employees',
+      'inventory',
+      'payments',
+      'tickets',
+    ];
+    expect(validTables).toContain(result.targetTable);
   });
 
   it('ensures the target table exists in the database', () => {
