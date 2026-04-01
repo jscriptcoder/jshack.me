@@ -103,6 +103,7 @@ describe('useCommands', () => {
       sessionStack: [],
       ftpSession: null,
       ncSession: null,
+      mysqlSession: null,
     });
 
     const { result } = renderHook(() => useCommands(), { wrapper: createWrapper() });

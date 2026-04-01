@@ -114,6 +114,7 @@ Admin utilities that write PID files to `/var/run/` — `NetworkContext` reads t
 | gobuster   | `gobuster.ts`   | `gobuster("dir", url)`                       | Enumerate directories/files on web servers (async, walks /var/www/html/ tree)                                  |
 | snmpwalk   | `snmpwalk.ts`   | `snmpwalk(host[, community])`                | Walk SNMP MIB tree; public=basic info, RW=full data with creds (async)                                         |
 | snmpset    | `snmpset.ts`    | `snmpset(host, comm, "k=v")`                 | Set writable SNMP OID (firewall rules); requires RW community (async)                                          |
+| mysql      | `mysql.ts`      | `mysql(host, user[, pw])`                    | Connect to MySQL database; enters `mysql>` prompt with SQL commands (async)                                    |
 
 ## WiFi
 

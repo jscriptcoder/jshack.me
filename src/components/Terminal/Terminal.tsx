@@ -10,6 +10,7 @@ import { useVariables } from '../../hooks/useVariables';
 import { useCommands } from '../../hooks/useCommands';
 import { useFtpCommands } from '../../hooks/useFtpCommands';
 import { useNcCommands } from '../../hooks/useNcCommands';
+import { useMysqlCommands } from '../../hooks/useMysqlCommands';
 import { useSession } from '../../session/SessionContext';
 import type { NcSession } from '../../session/SessionContext';
 import { useFileSystem } from '../../filesystem/FileSystemContext';
@@ -39,6 +40,7 @@ import {
   isFtpQuit,
   isNcPrompt,
   isNcQuit,
+  isMysqlPrompt,
   isNanoOpen,
 } from './types';
 import type { AsyncFollowUp } from './types';
@@ -102,11 +104,15 @@ export const Terminal = () => {
     enterNcMode,
     exitNcMode,
     isInNcMode,
+    enterMysqlMode,
+    exitMysqlMode,
+    isInMysqlMode,
     isMachineBricked,
   } = useSession();
   const { executionContext, commandNames } = useCommands();
   const ftpCommands = useFtpCommands();
   const ncCommands = useNcCommands();
+  const { mysqlExecute } = useMysqlCommands();
   const {
     readFile,
     getNode,
@@ -125,8 +131,9 @@ export const Terminal = () => {
   const { getMachine, findMachineUsers, findMachineByIp, resolveNat, getLocalIP, getPublicIP } =
     useNetwork();
 
-  const activeCommandNames =
-    isInFtpMode() && ftpCommands
+  const activeCommandNames = isInMysqlMode()
+    ? []
+    : isInFtpMode() && ftpCommands
       ? Array.from(ftpCommands.keys())
       : isInNcMode() && ncCommands
         ? Array.from(ncCommands.keys())
@@ -162,6 +169,8 @@ export const Terminal = () => {
     authenticateFtpInline,
     startScpPrompt,
     authenticateScpInline,
+    startMysqlPrompt,
+    authenticateMysqlInline,
   } = useAuthentication({
     addLine,
     session,
@@ -174,6 +183,8 @@ export const Terminal = () => {
     setCurrentPath,
     pushSession,
     enterFtpMode,
+    enterMysqlMode,
+    readFileFromMachine,
     findMachineUsers,
     findMachineByIp,
     createFile,
@@ -236,6 +247,20 @@ export const Terminal = () => {
       addCommand(trimmedCommand);
 
       try {
+        // MySQL mode: raw SQL input, bypass variable handling and new Function()
+        if (isInMysqlMode() && mysqlExecute) {
+          const result = mysqlExecute(trimmedCommand);
+          if (result.type === 'quit') {
+            exitMysqlMode();
+            addLine('result', 'Bye');
+            return;
+          }
+          if (result.text) {
+            addLine('result', result.text);
+          }
+          return;
+        }
+
         const variableResult = handleVariableOperation(trimmedCommand, executionContext);
 
         if (variableResult !== null) {
@@ -378,6 +403,18 @@ export const Terminal = () => {
                     }
                   }
 
+                  if (isMysqlPrompt(followUp)) {
+                    if (followUp.password !== undefined) {
+                      authenticateMysqlInline(
+                        followUp.username,
+                        followUp.targetIP,
+                        followUp.password,
+                      );
+                    } else {
+                      startMysqlPrompt(followUp.username, followUp.targetIP);
+                    }
+                  }
+
                   if (isNcPrompt(followUp)) {
                     const resolvedIP = resolveNat(followUp.targetIP, followUp.targetPort).ip;
                     const newNcSession: NcSession = {
@@ -429,6 +466,9 @@ export const Terminal = () => {
       executionContext,
       canReturn,
       popSession,
+      isInMysqlMode,
+      mysqlExecute,
+      exitMysqlMode,
       isInFtpMode,
       ftpCommands,
       exitFtpMode,
@@ -447,6 +487,8 @@ export const Terminal = () => {
       authenticateScpInline,
       startFtpPrompt,
       authenticateFtpInline,
+      startMysqlPrompt,
+      authenticateMysqlInline,
     ],
   );
 

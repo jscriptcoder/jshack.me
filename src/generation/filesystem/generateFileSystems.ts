@@ -44,6 +44,7 @@ import {
   generateBasicRwSnmpConfig,
 } from './networkConfig';
 import { generateForensicsEvidence } from './forensicsEvidence';
+import { generateDatabase } from '../pools/database';
 
 type FilesystemInput = {
   readonly prng: Prng;
@@ -520,6 +521,37 @@ export const buildMachineConfig = (
       'root',
       true,
     );
+  }
+
+  // Generate MySQL database file for machines with an open MySQL port.
+  // Stored as /var/lib/mysql/data.json — read/written by the mysql command.
+  const hasOpenMysqlPort = machine.remoteMachine.ports.some(
+    (p) => p.open && p.port === 3306 && p.service === 'mysql',
+  );
+  if (hasOpenMysqlPort) {
+    const usernames = users.filter((u) => u.userType !== 'guest').map((u) => u.username);
+    const db = generateDatabase(prng, usernames);
+    const mysqlDir = mkDir(
+      'mysql',
+      { 'data.json': mkFile('data.json', JSON.stringify(db), 'root') },
+      'root',
+      false,
+    );
+    // Merge into /var/lib/ — avoid overwriting existing /var/ from web content
+    if (extraDirectories['var']) {
+      const varNode = extraDirectories['var'];
+      if (varNode.type === 'directory' && varNode.children) {
+        const libDir = mkDir('lib', { mysql: mysqlDir }, 'root', false);
+        (varNode.children as Record<string, FileNode>)['lib'] = libDir;
+      }
+    } else {
+      extraDirectories['var'] = mkDir(
+        'var',
+        { lib: mkDir('lib', { mysql: mysqlDir }, 'root', false) },
+        'root',
+        false,
+      );
+    }
   }
 
   // Daemon PID files for all services with ports on this machine.

@@ -70,11 +70,19 @@ export type NcSession = {
   readonly machineId: string;
 };
 
+export type MysqlSession = {
+  readonly targetIP: string;
+  readonly machineId: string;
+  readonly username: string;
+  readonly databaseName: string;
+};
+
 export type PersistedState = {
   readonly session: Session;
   readonly sessionStack: readonly SessionSnapshot[];
   readonly ftpSession: FtpSession | null;
   readonly ncSession: NcSession | null;
+  readonly mysqlSession: MysqlSession | null;
 };
 
 type SessionContextValue = {
@@ -85,6 +93,7 @@ type SessionContextValue = {
   readonly sessionStack: readonly SessionSnapshot[];
   readonly ftpSession: FtpSession | null;
   readonly ncSession: NcSession | null;
+  readonly mysqlSession: MysqlSession | null;
   readonly setUsername: (username: string, userType?: UserType) => void;
   readonly setMachine: (machine: string, hostname?: string) => void;
   readonly setCurrentPath: (path: string) => void;
@@ -101,6 +110,9 @@ type SessionContextValue = {
   readonly exitNcMode: () => NcSession | null;
   readonly isInNcMode: () => boolean;
   readonly updateNcCwd: (cwd: string) => void;
+  readonly enterMysqlMode: (mysqlSession: MysqlSession) => void;
+  readonly exitMysqlMode: () => MysqlSession | null;
+  readonly isInMysqlMode: () => boolean;
   readonly setWifiConnected: (connection: WifiConnection | null) => void;
   readonly disconnectWifi: () => void;
   readonly popAllSessions: () => void;
@@ -131,6 +143,7 @@ const getInitialState = (username: string): PersistedState => {
     sessionStack: [],
     ftpSession: null,
     ncSession: null,
+    mysqlSession: null,
   };
 };
 
@@ -152,6 +165,7 @@ export const SessionProvider = ({ children, workstationName, username }: Session
   );
   const [ftpSession, setFtpSession] = useState<FtpSession | null>(initialState.ftpSession);
   const [ncSession, setNcSession] = useState<NcSession | null>(initialState.ncSession);
+  const [mysqlSession, setMysqlSession] = useState<MysqlSession | null>(initialState.mysqlSession);
   const [brickedMachines, setBrickedMachines] = useState<ReadonlySet<string>>(
     () => new Set(getCachedBrickedMachines()),
   );
@@ -184,6 +198,7 @@ export const SessionProvider = ({ children, workstationName, username }: Session
           setSessionStack([]);
           setFtpSession(null);
           setNcSession(null);
+          setMysqlSession(null);
         }
       }
       if (message.type === 'theme-changed') {
@@ -210,8 +225,8 @@ export const SessionProvider = ({ children, workstationName, username }: Session
 
   // Session state persists to sessionStorage (per-tab)
   useEffect(() => {
-    saveSessionToTab({ session, sessionStack, ftpSession, ncSession });
-  }, [session, sessionStack, ftpSession, ncSession]);
+    saveSessionToTab({ session, sessionStack, ftpSession, ncSession, mysqlSession });
+  }, [session, sessionStack, ftpSession, ncSession, mysqlSession]);
 
   const setUsername = useCallback((username: string, userType: UserType = 'user') => {
     setSession((prev) => ({ ...prev, username, userType }));
@@ -226,10 +241,11 @@ export const SessionProvider = ({ children, workstationName, username }: Session
   }, []);
 
   const getPrompt = useCallback(() => {
+    if (mysqlSession) return 'mysql>';
     if (ftpSession) return 'ftp>';
     if (ncSession) return '$';
     return `${session.username}@${session.hostname ?? session.machine}>`;
-  }, [session.username, session.machine, session.hostname, ftpSession, ncSession]);
+  }, [session.username, session.machine, session.hostname, ftpSession, ncSession, mysqlSession]);
 
   const pushSession = useCallback(
     (reason: SessionReason) => {
@@ -308,6 +324,18 @@ export const SessionProvider = ({ children, workstationName, username }: Session
     setNcSession((prev) => (prev ? { ...prev, currentPath: cwd } : null));
   }, []);
 
+  const enterMysqlMode = useCallback((newMysqlSession: MysqlSession) => {
+    setMysqlSession(newMysqlSession);
+  }, []);
+
+  const exitMysqlMode = useCallback((): MysqlSession | null => {
+    const current = mysqlSession;
+    setMysqlSession(null);
+    return current;
+  }, [mysqlSession]);
+
+  const isInMysqlMode = useCallback(() => mysqlSession !== null, [mysqlSession]);
+
   const setWifiConnected = useCallback((connection: WifiConnection | null) => {
     setConnectedWifiState(connection);
     // WiFi state is shared across tabs — persist to IndexedDB
@@ -349,13 +377,15 @@ export const SessionProvider = ({ children, workstationName, username }: Session
   // Dynamic browser tab title so users can identify tabs at a glance
   useEffect(() => {
     const displayMachine = session.hostname ?? session.machine;
-    const title = ftpSession
-      ? `ftp> \u2014 JSHACK.ME`
-      : ncSession
-        ? `nc shell \u2014 JSHACK.ME`
-        : `${session.username}@${displayMachine} \u2014 JSHACK.ME`;
+    const title = mysqlSession
+      ? `mysql> \u2014 JSHACK.ME`
+      : ftpSession
+        ? `ftp> \u2014 JSHACK.ME`
+        : ncSession
+          ? `nc shell \u2014 JSHACK.ME`
+          : `${session.username}@${displayMachine} \u2014 JSHACK.ME`;
     document.title = title;
-  }, [session.username, session.machine, session.hostname, ftpSession, ncSession]);
+  }, [session.username, session.machine, session.hostname, ftpSession, ncSession, mysqlSession]);
 
   // Resets to the bottom of the session stack (the original state before any SSH).
   // Used by mission abort to return to localhost regardless of SSH nesting depth.
@@ -365,6 +395,7 @@ export const SessionProvider = ({ children, workstationName, username }: Session
     setSessionStack([]);
     setFtpSession(null);
     setNcSession(null);
+    setMysqlSession(null);
     if (bottom) {
       setSession({
         username: bottom.username,
@@ -400,6 +431,7 @@ export const SessionProvider = ({ children, workstationName, username }: Session
     setSessionStack([]);
     setFtpSession(null);
     setNcSession(null);
+    setMysqlSession(null);
     // WiFi state is shared across tabs — persist to IndexedDB
     const db = getDatabase();
     if (db) {
@@ -418,6 +450,7 @@ export const SessionProvider = ({ children, workstationName, username }: Session
         sessionStack,
         ftpSession,
         ncSession,
+        mysqlSession,
         setUsername,
         setMachine,
         setCurrentPath,
@@ -434,6 +467,9 @@ export const SessionProvider = ({ children, workstationName, username }: Session
         exitNcMode,
         isInNcMode,
         updateNcCwd,
+        enterMysqlMode,
+        exitMysqlMode,
+        isInMysqlMode,
         setWifiConnected,
         disconnectWifi,
         popAllSessions,

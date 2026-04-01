@@ -40,6 +40,7 @@ const validSession: PersistedState = {
   ],
   ftpSession: null,
   ncSession: null,
+  mysqlSession: null,
 };
 
 const validPatches: readonly FileSystemPatch[] = [

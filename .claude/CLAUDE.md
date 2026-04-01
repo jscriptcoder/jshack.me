@@ -119,6 +119,18 @@ Current secrets: `WIFI_PASSWORD` (legacy static WiFi password), `WIFI_PASSWORDS`
 
 To add a new secret: add the key-value pair to `src/secrets/secrets.ts`, then run `npm run encode`.
 
+### MySQL Client
+
+`mysql(host, username[, password])` connects to a remote machine's MySQL database (port 3306). Requires `apt install mysql`. Enters an interactive `mysql>` prompt with regex-parsed SQL:
+
+- **Supported**: `SHOW TABLES`, `DESCRIBE`, `SELECT` (with `WHERE col = 'val' [AND ...]`), `UPDATE`, `DELETE FROM`, `DROP TABLE`, `exit`/`quit`
+- **Error tiers**: known keyword + bad syntax → MySQL error 1064; unrecognized/complex → "Unsupported SQL syntax" message; table/column not found → real MySQL error codes
+- **Data model**: Single database per machine stored as `/var/lib/mysql/data.json`. Generated deterministically for machines with port 3306 open (database role). Contains 2-4 tables (always `users` + random picks from sessions, api_keys, config, audit_log)
+- **Persistence**: Mutations (UPDATE, DELETE, DROP) write modified JSON back via `writeFileToMachine` — reuses existing filesystem patch/IndexedDB/cross-tab sync
+- **Session**: `MysqlSession` in `SessionContext` — `mysql>` prompt, bypasses `new Function()` in Terminal.tsx, routes raw SQL input to the executor
+- **Auth**: Validates against remote `/etc/passwd` (same as SSH/FTP). Interactive password prompt or inline `mysql(ip, user, password)` for node scripts
+- **Implementation**: `src/commands/mysql/` (parser, executor, formatter, types), `src/commands/mysql.ts` (command entry point), `src/hooks/useMysqlCommands.ts` (hook)
+
 ### Connection Logging
 
 `src/logging/` records SSH, FTP, SCP, su, and HTTP auth events to target machine log files in realistic Linux formats. Terminal.tsx defines logging callbacks (`onSuAuth`, `onSshAuth`, `onFtpAuth`) passed into `useCommands`. Log entries persist via IndexedDB patches and sync across tabs. See `src/logging/README.md` for full details and `architecture.md` for integration.
