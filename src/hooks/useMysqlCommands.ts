@@ -36,6 +36,23 @@ export const useMysqlCommands = (): {
         return { type: 'quit' };
       }
 
+      // Handle help
+      if (parseResult.parsed.type === 'help') {
+        return {
+          type: 'output',
+          text: [
+            'Supported commands:',
+            "  SHOW TABLES;                              List all tables",
+            "  DESCRIBE <table>;                         Show table columns",
+            "  SELECT [*|cols] FROM <table> [WHERE ...]; Query rows",
+            "  UPDATE <table> SET col='val' [WHERE ...]; Modify rows",
+            "  DELETE FROM <table> [WHERE ...];           Delete rows",
+            "  DROP TABLE <table>;                        Drop a table",
+            "  exit / quit                                Leave mysql mode",
+          ].join('\n'),
+        };
+      }
+
       // Read database from filesystem
       const dbJson = readFileFromMachine({
         machineId: mysqlSession.machineId,
