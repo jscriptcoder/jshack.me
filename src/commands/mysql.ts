@@ -4,6 +4,7 @@ import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 type MysqlContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
+  readonly findMachineByIp: (ip: string) => RemoteMachine | undefined;
   readonly getLocalIP: () => string;
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
 };
@@ -44,7 +45,7 @@ export const createMysqlCommand = (context: MysqlContext): Command => ({
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {
-    const { getMachine, getLocalIP, resolveDomain } = context;
+    const { getMachine, findMachineByIp, getLocalIP, resolveDomain } = context;
 
     const host = args[0] as string | undefined;
     const username = args[1] as string | undefined;
@@ -66,7 +67,10 @@ export const createMysqlCommand = (context: MysqlContext): Command => ({
       targetIP = record.ip;
     }
 
-    const machine = getMachine(targetIP);
+    // getMachine only returns machines visible from the current subnet.
+    // Fall back to findMachineByIp for local connections (the current machine
+    // doesn't appear in its own network view).
+    const machine = getMachine(targetIP) ?? findMachineByIp(targetIP);
     if (!machine) {
       throw new Error(
         `ERROR 2003 (HY000): Can't connect to MySQL server on '${targetIP}:3306' (Connection refused)`,

@@ -35,6 +35,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
     getGateway,
     resolveNat,
     findMachineUsers,
+    findMachineByIp,
   } = useNetwork();
   const {
     resolvePath,
@@ -246,7 +247,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
       'mysql',
       wrapWithBrickedCheck(
         wrapWithWifiCheck(
-          createMysqlCommand({ getMachine, getLocalIP, resolveDomain }),
+          createMysqlCommand({ getMachine, findMachineByIp, getLocalIP, resolveDomain }),
           isWifiRequired,
         ),
         isMachineBricked,
