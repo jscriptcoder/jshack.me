@@ -5,6 +5,7 @@ import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 type NmapContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
+  readonly findMachineByIp: (ip: string) => RemoteMachine | undefined;
   readonly getMachines: () => readonly RemoteMachine[];
   readonly getLocalIPs: () => ReadonlySet<string>;
   readonly getLocalHostname: () => string;
@@ -211,7 +212,7 @@ export const createNmapCommand = (context: NmapContext): Command => ({
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {
-    const { getMachine, getMachines, getLocalIPs, getLocalHostname } = context;
+    const { getMachine, findMachineByIp, getMachines, getLocalIPs, getLocalHostname } = context;
     const { target, versionScan, udpScan, treeScan } = parseNmapArgs(args);
 
     if (!target) {
@@ -248,7 +249,9 @@ export const createNmapCommand = (context: NmapContext): Command => ({
 
               if (localIPs.has(ip)) {
                 const localHostname = getLocalHostname();
-                discoveredHosts.push({ ip, hostname: localHostname, isLocal: true, ports: [] });
+                const localMachine = findMachineByIp(ip);
+                const localPorts = localMachine?.ports ?? [];
+                discoveredHosts.push({ ip, hostname: localHostname, isLocal: true, ports: localPorts });
                 onLine(`Host discovered: ${ip} (${localHostname})`);
               } else {
                 const machine = machines.find((m) => m.ip === ip);
@@ -324,6 +327,7 @@ export const createNmapCommand = (context: NmapContext): Command => ({
       __type: 'async',
       start: (onLine, onComplete) => {
         if (localIPs.has(target)) {
+          const localMachine = findMachineByIp(target);
           onLine(`Starting Nmap scan on ${target}`);
           token.schedule(() => {
             if (token.isCancelled()) return;
@@ -331,7 +335,18 @@ export const createNmapCommand = (context: NmapContext): Command => ({
             onLine(`Nmap scan report for ${getLocalHostname()} (${target})`);
             onLine('Host is up.');
             onLine('');
-            onLine('All scanned ports are closed on this machine.');
+            if (localMachine) {
+              const protocolPorts = filterPortsByProtocol(localMachine.ports, udpScan);
+              const sortedPorts = [...protocolPorts].sort((a, b) => {
+                if (a.open !== b.open) return a.open ? -1 : 1;
+                return a.port - b.port;
+              });
+              const portLines = sortedPorts.map((p) => formatPortLine(p, versionScan));
+              onLine('PORT      STATE  SERVICE');
+              portLines.forEach((line) => onLine(line));
+            } else {
+              onLine('All scanned ports are closed on this machine.');
+            }
             onComplete();
           }, jitter(500));
           return;
