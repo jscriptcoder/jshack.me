@@ -282,6 +282,22 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     difficulty: 'MEDIUM',
     seed: 'CRESTLINE-ssh-medium-db-fix',
   },
+  {
+    client: 'r00tk1ll',
+    clientEmail: 'r00tk1ll@darkmail.onion',
+    target: 'Zenith Aerospace — contractor payroll database',
+    objective: 'Tamper with contractor payment records in the database',
+    difficulty: 'MEDIUM',
+    seed: 'ZENITH-http-medium-db-tamper',
+  },
+  {
+    client: 'v4ult_br3ak',
+    clientEmail: 'v4ult_br3ak@darkmail.onion',
+    target: 'Polaris Insurance — claims processing database',
+    objective: 'Wipe the claims table from their database',
+    difficulty: 'MEDIUM',
+    seed: 'POLARIS-exploit-medium-db-sabotage',
+  },
   // --- HARD ---
   {
     client: 'zer0day_',
@@ -410,6 +426,30 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     objective: 'Destroy the audit trail in their deeply buried database',
     difficulty: 'HARD',
     seed: 'OBSIDIAN-ssh-hard-db-sabotage',
+  },
+  {
+    client: 'sqlph4nt0m',
+    clientEmail: 'sqlph4nt0m@darkmail.onion',
+    target: 'Blackrock Defense — weapons procurement database',
+    objective: 'Exfiltrate the access key from their deep procurement database',
+    difficulty: 'HARD',
+    seed: 'BLACKROCK-snmp-hard-db-exfiltrate',
+  },
+  {
+    client: 'r00tk1ll',
+    clientEmail: 'r00tk1ll@darkmail.onion',
+    target: 'Citadel Finance — high-frequency trading database',
+    objective: 'Tamper with trading records deep in their multi-layer network',
+    difficulty: 'HARD',
+    seed: 'CITADEL-ftp-hard-db-tamper',
+  },
+  {
+    client: 'dbm3dic',
+    clientEmail: 'dbm3dic@darkmail.onion',
+    target: 'Sentinel Health — clinical records database',
+    objective: 'Fix corrupted patient records buried deep in their infrastructure',
+    difficulty: 'HARD',
+    seed: 'SENTINEL-ssh-hard-db-fix',
   },
 ];
 
