@@ -43,6 +43,8 @@ export type DbEnrichment = {
   readonly tamperOldValue?: string;
   readonly tamperNewValue?: string;
   readonly tamperRowHint?: string;
+  readonly tamperFilterColumn?: string;
+  readonly tamperFilterValue?: string;
 };
 
 // Generates an ACCESS-KEY and injects it into the api_keys table.
@@ -85,6 +87,8 @@ export const enrichForDbTamper = (prng: Prng, db: MysqlDatabase): DbEnrichment =
     tamperOldValue: enriched.resolvedOldValue,
     tamperNewValue: enriched.resolvedNewValue,
     tamperRowHint: enriched.rowHint,
+    tamperFilterColumn: enriched.filterColumn,
+    tamperFilterValue: enriched.filterValue,
   };
 };
 
@@ -101,6 +105,8 @@ export const enrichForDbFix = (prng: Prng, db: MysqlDatabase): DbEnrichment => {
     tamperOldValue: enriched.resolvedOldValue,
     tamperNewValue: enriched.resolvedNewValue,
     tamperRowHint: enriched.rowHint,
+    tamperFilterColumn: enriched.filterColumn,
+    tamperFilterValue: enriched.filterValue,
   };
 };
 
@@ -144,6 +150,8 @@ const applyTamperScenario = (
   readonly resolvedOldValue: string;
   readonly resolvedNewValue: string;
   readonly rowHint: string;
+  readonly filterColumn: string;
+  readonly filterValue: string;
 } => {
   const table = db.tables[scenario.table];
   if (!table)
@@ -152,6 +160,8 @@ const applyTamperScenario = (
       resolvedOldValue: scenario.oldValue,
       resolvedNewValue: scenario.newValue,
       rowHint: scenario.rowFilter.value,
+      filterColumn: scenario.rowFilter.column,
+      filterValue: scenario.rowFilter.value,
     };
 
   // Resolve __ADMIN__ placeholder to actual first admin username
@@ -196,5 +206,7 @@ const applyTamperScenario = (
     resolvedOldValue,
     resolvedNewValue,
     rowHint: filterValue,
+    filterColumn: scenario.rowFilter.column,
+    filterValue,
   };
 };

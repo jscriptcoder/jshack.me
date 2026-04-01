@@ -765,6 +765,8 @@ export const buildMissionObjective = (input: BuildObjectiveInput): BuildObjectiv
       dbTamperOldValue: enrichment.tamperOldValue,
       dbTamperNewValue: enrichment.tamperNewValue,
       dbTamperRowHint: enrichment.tamperRowHint,
+      dbTamperFilterColumn: enrichment.tamperFilterColumn,
+      dbTamperFilterValue: enrichment.tamperFilterValue,
     };
 
     return { objective: enrichedObjective, clientEmail, dbEnrichment: enrichment };

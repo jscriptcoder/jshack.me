@@ -78,6 +78,8 @@ export type MissionObjective = {
   readonly dbTamperOldValue?: string;
   readonly dbTamperNewValue?: string;
   readonly dbTamperRowHint?: string;
+  readonly dbTamperFilterColumn?: string;
+  readonly dbTamperFilterValue?: string;
 };
 
 export type GeneratedMachine = {

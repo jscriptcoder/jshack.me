@@ -331,17 +331,26 @@ const verifyDbTamperOrFix = (
   const column = objective.dbTamperColumn;
   if (!column) return 'Invalid mission configuration: no target column.';
 
-  // Check the old value is gone
-  const hasOldValue = table.rows.some((row) => String(row[column]) === objective.dbTamperOldValue);
-  if (hasOldValue) {
+  // Find the specific target row using the filter
+  const filterCol = objective.dbTamperFilterColumn;
+  const filterVal = objective.dbTamperFilterValue;
+  const targetRow = filterCol && filterVal
+    ? table.rows.find((row) => String(row[filterCol]) === filterVal)
+    : table.rows[0];
+
+  if (!targetRow) {
+    return `Target record not found in the ${tableName} table.`;
+  }
+
+  // Check the old value is gone on the target row
+  if (String(targetRow[column]) === objective.dbTamperOldValue) {
     return objective.type === 'db_fix'
       ? `The corrupted value "${objective.dbTamperOldValue}" is still present. Fix the record.`
       : `The value "${objective.dbTamperOldValue}" is still present. Modify the record.`;
   }
 
-  // Check the new value is present
-  const hasNewValue = table.rows.some((row) => String(row[column]) === objective.dbTamperNewValue);
-  if (!hasNewValue) {
+  // Check the new value is present on the target row
+  if (String(targetRow[column]) !== objective.dbTamperNewValue) {
     return objective.type === 'db_fix'
       ? `The correct value "${objective.dbTamperNewValue}" was not found. Check your fix.`
       : `The value "${objective.dbTamperNewValue}" was not found. Check your modification.`;
