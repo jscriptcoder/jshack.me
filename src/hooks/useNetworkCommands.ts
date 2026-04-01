@@ -246,7 +246,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
       'mysql',
       wrapWithBrickedCheck(
         wrapWithWifiCheck(
-          createMysqlCommand({ getMachine, resolveDomain }),
+          createMysqlCommand({ getMachine, getLocalIP, resolveDomain }),
           isWifiRequired,
         ),
         isMachineBricked,
