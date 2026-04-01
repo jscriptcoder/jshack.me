@@ -748,10 +748,19 @@ export const generateFileSystems = (input: FilesystemInput): FilesystemResult =>
   const gatewayNatMap = new Map<string, NatForwarding | undefined>();
   const gatewaySubnetMap = new Map<string, string>();
   if (layers && layers.length > 1) {
-    layers.slice(1).forEach((layer) => {
+    layers.slice(1).forEach((layer, i) => {
       const downstreamIps = new Set(layer.machines.map((m) => m.ip));
       const downstreamMachines = machines.filter((m) => downstreamIps.has(m.ip));
-      gatewayDownstreamMap.set(layer.gateway.ip, downstreamMachines);
+      // Include the next layer's gateway (dual-homed in this subnet) so it
+      // appears in /etc/hosts and is reachable via nmap from this layer.
+      const nextLayer = layers[i + 2]; // i is offset by 1 from slice(1)
+      const nextGateway = nextLayer
+        ? machines.find((m) => m.ip === nextLayer.gateway.ip)
+        : undefined;
+      const allDownstream = nextGateway
+        ? [...downstreamMachines, nextGateway]
+        : downstreamMachines;
+      gatewayDownstreamMap.set(layer.gateway.ip, allDownstream);
       gatewayNatMap.set(layer.gateway.ip, layer.natForwarding);
       gatewaySubnetMap.set(layer.gateway.ip, layer.subnet);
     });
