@@ -4,7 +4,6 @@ import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 type MysqlContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
-  readonly getLocalIP: () => string;
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
 };
 
@@ -44,7 +43,7 @@ export const createMysqlCommand = (context: MysqlContext): Command => ({
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {
-    const { getMachine, getLocalIP, resolveDomain } = context;
+    const { getMachine, resolveDomain } = context;
 
     const host = args[0] as string | undefined;
     const username = args[1] as string | undefined;
@@ -61,11 +60,6 @@ export const createMysqlCommand = (context: MysqlContext): Command => ({
         throw new Error(`ERROR 2005 (HY000): Unknown MySQL server host '${host}'`);
       }
       targetIP = record.ip;
-    }
-
-    const localIP = getLocalIP();
-    if (targetIP === localIP || targetIP === '127.0.0.1' || host === 'localhost') {
-      throw new Error('mysql: cannot connect to localhost MySQL server');
     }
 
     const machine = getMachine(targetIP);
