@@ -24,6 +24,14 @@ import type { MalwareLocation } from './pools';
 import { binaryKeyPaths, binaryTargetPaths } from './binary';
 import { encryptContent, bytesToHex } from '../utils/crypto';
 import { generatePublicIp } from './ip';
+import {
+  generateDatabase,
+  enrichForDbExfiltrate,
+  enrichForDbTamper,
+  enrichForDbFix,
+  enrichForDbSabotage,
+  type DbEnrichment,
+} from './generateDatabase';
 
 type BuildObjectiveInput = {
   readonly prng: Prng;
@@ -39,6 +47,7 @@ type BuildObjectiveInput = {
 type BuildObjectiveResult = {
   readonly objective: MissionObjective;
   readonly clientEmail: string;
+  readonly dbEnrichment?: DbEnrichment;
 };
 
 // Generates a hex access key like ACCESS-A1B2-C3D4-E5F6
@@ -275,9 +284,13 @@ const buildKeyPlacement = (
   };
 };
 
+const isDbObjective = (type: MissionObjectiveType): boolean =>
+  type === 'db_exfiltrate' || type === 'db_tamper' || type === 'db_sabotage' || type === 'db_fix';
+
 // Picks the target machine. With multi-layer subnets, the target is always in the
 // deepest layer. For portforward, the target must be in layer 0 (reachable from
-// the outer router). Gateway machines are never targets.
+// the outer router). Gateway machines are never targets. Database objectives
+// prefer database-role machines (port 3306 open).
 const pickTarget = (
   prng: Prng,
   machines: readonly GeneratedMachine[],
@@ -295,6 +308,12 @@ const pickTarget = (
       (m) => layerIps.has(m.ip) && m.role !== 'router' && m.role !== 'switch',
     );
 
+    // Database objectives prefer database-role machines
+    if (isDbObjective(objectiveType)) {
+      const dbCandidates = candidates.filter((m) => m.role === 'database');
+      if (dbCandidates.length > 0) return prng.pick(dbCandidates);
+    }
+
     // Always consume PRNG to preserve sequence
     return candidates.length > 0 ? prng.pick(candidates) : prng.pick(machines);
   }
@@ -303,6 +322,13 @@ const pickTarget = (
   const nonEntry = machines.filter(
     (m) => m.ip !== entryPoint && m.role !== 'router' && m.role !== 'switch',
   );
+
+  // Database objectives prefer database-role machines
+  if (isDbObjective(objectiveType)) {
+    const dbCandidates = nonEntry.filter((m) => m.role === 'database');
+    if (dbCandidates.length > 0) return prng.pick(dbCandidates);
+  }
+
   if (nonEntry.length === 0) {
     const entry = machines.find((m) => m.ip === entryPoint);
     return entry ?? machines[0]!;
@@ -583,6 +609,75 @@ const buildObjective = (
     };
   }
 
+  if (objectiveType === 'db_exfiltrate') {
+    // Consume dummy PRNG rolls for binary + encrypt to preserve sequence alignment
+    prng.next();
+    prng.next();
+
+    return {
+      type: 'db_exfiltrate',
+      description: `Exfiltrate the secret access key from the database on ${targetMachine.hostname}`,
+      targetMachine: targetMachine.ip,
+      targetPath: '',
+      targetContent: '',
+      clientEmail,
+      expectedProof: '', // Filled after enrichment
+    };
+  }
+
+  if (objectiveType === 'db_tamper') {
+    // Consume dummy PRNG rolls for binary + encrypt to preserve sequence alignment
+    prng.next();
+    prng.next();
+
+    return {
+      type: 'db_tamper',
+      description: `Tamper with the database records on ${targetMachine.hostname}`,
+      targetMachine: targetMachine.ip,
+      targetPath: '',
+      targetContent: '',
+      clientEmail,
+      expectedProof: '',
+    };
+  }
+
+  if (objectiveType === 'db_sabotage') {
+    // Consume dummy PRNG rolls for binary + encrypt to preserve sequence alignment
+    prng.next();
+    prng.next();
+
+    return {
+      type: 'db_sabotage',
+      description: `Destroy the database on ${targetMachine.hostname}`,
+      targetMachine: targetMachine.ip,
+      targetPath: '',
+      targetContent: '',
+      clientEmail,
+      expectedProof: '',
+    };
+  }
+
+  if (objectiveType === 'db_fix') {
+    // Get root password for briefing (player is an authorized contractor)
+    const dbFixCreds = credentials[targetMachine.ip] ?? [];
+    const dbFixRootCred = dbFixCreds.find((c) => c.username === 'root');
+    const dbFixRootPassword = dbFixRootCred?.password ?? 'unknown';
+
+    // Consume dummy PRNG rolls for binary + encrypt to preserve sequence alignment
+    prng.next();
+    prng.next();
+
+    return {
+      type: 'db_fix',
+      description: `Fix the corrupted database records on ${targetMachine.hostname}. Root password: ${dbFixRootPassword}`,
+      targetMachine: targetMachine.ip,
+      targetPath: '',
+      targetContent: '',
+      clientEmail,
+      expectedProof: '',
+    };
+  }
+
   // credential_theft — target is the root password on the target machine
   const targetCreds = credentials[targetMachine.ip] ?? [];
   const rootCred = targetCreds.find((c) => c.username === 'root');
@@ -644,6 +739,38 @@ export const buildMissionObjective = (input: BuildObjectiveInput): BuildObjectiv
       entryPoint,
     },
   );
+
+  // Database objectives: generate a base database, enrich it with mission content,
+  // and patch the objective with enrichment details (expectedProof, tamper values).
+  if (isDbObjective(objectiveType)) {
+    const targetCreds = credentials[targetMachine.ip] ?? [];
+    const usernames = targetCreds.map((c) => c.username);
+    const baseDb = generateDatabase(prng, usernames);
+
+    const enrichFn =
+      objectiveType === 'db_exfiltrate'
+        ? enrichForDbExfiltrate
+        : objectiveType === 'db_tamper'
+          ? enrichForDbTamper
+          : objectiveType === 'db_sabotage'
+            ? enrichForDbSabotage
+            : enrichForDbFix;
+    const enrichment = enrichFn(prng, baseDb);
+
+    const enrichedObjective: MissionObjective = {
+      ...objective,
+      expectedProof: enrichment.expectedProof ?? objective.expectedProof,
+      dbTargetTable: enrichment.targetTable,
+      dbTamperColumn: enrichment.tamperColumn,
+      dbTamperOldValue: enrichment.tamperOldValue,
+      dbTamperNewValue: enrichment.tamperNewValue,
+      dbTamperRowHint: enrichment.tamperRowHint,
+      dbTamperFilterColumn: enrichment.tamperFilterColumn,
+      dbTamperFilterValue: enrichment.tamperFilterValue,
+    };
+
+    return { objective: enrichedObjective, clientEmail, dbEnrichment: enrichment };
+  }
 
   return { objective, clientEmail };
 };

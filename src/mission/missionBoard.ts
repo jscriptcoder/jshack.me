@@ -113,6 +113,38 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     difficulty: 'EASY',
     seed: 'LAKEVIEW-ssh-easy-malware',
   },
+  {
+    client: 'sqlph4nt0m',
+    clientEmail: 'sqlph4nt0m@darkmail.onion',
+    target: 'Trident Pharma — clinical trials database',
+    objective: 'Exfiltrate the access key from their database records',
+    difficulty: 'EASY',
+    seed: 'TRIDENT-ssh-easy-db-exfiltrate',
+  },
+  {
+    client: 'r00tk1ll',
+    clientEmail: 'r00tk1ll@darkmail.onion',
+    target: 'NovaTech Solutions — customer database',
+    objective: 'Tamper with user records in the database',
+    difficulty: 'EASY',
+    seed: 'NOVATECH-ftp-easy-db-tamper',
+  },
+  {
+    client: 'v4ult_br3ak',
+    clientEmail: 'v4ult_br3ak@darkmail.onion',
+    target: 'Arclight Industries — internal database',
+    objective: 'Wipe a critical table from their database',
+    difficulty: 'EASY',
+    seed: 'ARCLIGHT-exploit-easy-db-sabotage',
+  },
+  {
+    client: 'dbm3dic',
+    clientEmail: 'dbm3dic@darkmail.onion',
+    target: 'Harborview Medical — patient management database',
+    objective: 'Fix corrupted records in their database — a deployment went wrong',
+    difficulty: 'EASY',
+    seed: 'HARBORVIEW-ssh-easy-db-fix',
+  },
   // --- MEDIUM ---
   {
     client: 'n3twr4ith',
@@ -233,6 +265,38 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     objective: 'Investigate and neutralize malware compromising patient data',
     difficulty: 'MEDIUM',
     seed: 'THORNFIELD-ssh-medium-malware',
+  },
+  {
+    client: 'sqlph4nt0m',
+    clientEmail: 'sqlph4nt0m@darkmail.onion',
+    target: 'Meridian Finance — trading platform database',
+    objective: 'Exfiltrate the secret access key from their trading database',
+    difficulty: 'MEDIUM',
+    seed: 'MERIDIAN-ssh-medium-db-exfiltrate',
+  },
+  {
+    client: 'dbm3dic',
+    clientEmail: 'dbm3dic@darkmail.onion',
+    target: 'Crestline Logistics — fleet management database',
+    objective: 'Fix corrupted maintenance records that are grounding vehicles',
+    difficulty: 'MEDIUM',
+    seed: 'CRESTLINE-ssh-medium-db-fix',
+  },
+  {
+    client: 'r00tk1ll',
+    clientEmail: 'r00tk1ll@darkmail.onion',
+    target: 'Zenith Aerospace — contractor payroll database',
+    objective: 'Tamper with contractor payment records in the database',
+    difficulty: 'MEDIUM',
+    seed: 'ZENITH-http-medium-db-tamper',
+  },
+  {
+    client: 'v4ult_br3ak',
+    clientEmail: 'v4ult_br3ak@darkmail.onion',
+    target: 'Polaris Insurance — claims processing database',
+    objective: 'Wipe the claims table from their database',
+    difficulty: 'MEDIUM',
+    seed: 'POLARIS-exploit-medium-db-sabotage',
   },
   // --- HARD ---
   {
@@ -355,9 +419,41 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     difficulty: 'HARD',
     seed: 'TITANIUM-ssh-hard-malware',
   },
+  {
+    client: 'v4ult_br3ak',
+    clientEmail: 'v4ult_br3ak@darkmail.onion',
+    target: 'Obsidian Corp — executive database behind multi-layer network',
+    objective: 'Destroy the audit trail in their deeply buried database',
+    difficulty: 'HARD',
+    seed: 'OBSIDIAN-ssh-hard-db-sabotage',
+  },
+  {
+    client: 'sqlph4nt0m',
+    clientEmail: 'sqlph4nt0m@darkmail.onion',
+    target: 'Blackrock Defense — weapons procurement database',
+    objective: 'Exfiltrate the access key from their deep procurement database',
+    difficulty: 'HARD',
+    seed: 'BLACKROCK-snmp-hard-db-exfiltrate',
+  },
+  {
+    client: 'r00tk1ll',
+    clientEmail: 'r00tk1ll@darkmail.onion',
+    target: 'Citadel Finance — high-frequency trading database',
+    objective: 'Tamper with trading records deep in their multi-layer network',
+    difficulty: 'HARD',
+    seed: 'CITADEL-ftp-hard-db-tamper',
+  },
+  {
+    client: 'dbm3dic',
+    clientEmail: 'dbm3dic@darkmail.onion',
+    target: 'Sentinel Health — clinical records database',
+    objective: 'Fix corrupted patient records buried deep in their infrastructure',
+    difficulty: 'HARD',
+    seed: 'SENTINEL-ssh-hard-db-fix',
+  },
 ];
 
-const WHITE_HAT_KEYWORDS = ['script-fix', 'script-auto', 'forensics', 'malware'] as const;
+const WHITE_HAT_KEYWORDS = ['script-fix', 'script-auto', 'forensics', 'malware', 'db-fix'] as const;
 
 const isWhiteHat = (seed: string): boolean => {
   const lower = seed.toLowerCase();

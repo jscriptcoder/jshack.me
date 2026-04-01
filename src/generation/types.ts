@@ -27,7 +27,11 @@ export type MissionObjectiveType =
   | 'backdoor'
   | 'portforward'
   | 'forensics'
-  | 'malware';
+  | 'malware'
+  | 'db_exfiltrate'
+  | 'db_tamper'
+  | 'db_sabotage'
+  | 'db_fix';
 
 export type ScriptBugType = 'syntax' | 'logic' | 'corrupted';
 
@@ -69,6 +73,13 @@ export type MissionObjective = {
   readonly scriptAutoApiMachine?: string;
   readonly malwarePidPath?: string;
   readonly malwarePidName?: string;
+  readonly dbTargetTable?: string;
+  readonly dbTamperColumn?: string;
+  readonly dbTamperOldValue?: string;
+  readonly dbTamperNewValue?: string;
+  readonly dbTamperRowHint?: string;
+  readonly dbTamperFilterColumn?: string;
+  readonly dbTamperFilterValue?: string;
 };
 
 export type GeneratedMachine = {

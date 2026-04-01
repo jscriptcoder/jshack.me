@@ -44,7 +44,7 @@ import {
   generateBasicRwSnmpConfig,
 } from './networkConfig';
 import { generateForensicsEvidence } from './forensicsEvidence';
-import { generateDatabase } from '../pools/database';
+import { generateDatabase, type DbEnrichment } from '../generateDatabase';
 
 type FilesystemInput = {
   readonly prng: Prng;
@@ -58,6 +58,7 @@ type FilesystemInput = {
   readonly entryPoint?: string;
   readonly difficulty?: Difficulty;
   readonly layers?: readonly SubnetLayer[];
+  readonly dbEnrichment?: DbEnrichment;
 };
 
 // Infrastructure service PID file definitions. Maps service names to their
@@ -316,6 +317,7 @@ export type BuildMachineConfigOptions = {
   readonly natForwarding?: NatForwarding;
   readonly isHttpEntry?: boolean;
   readonly downstreamSubnet?: string;
+  readonly dbEnrichment?: DbEnrichment;
 };
 
 export const buildMachineConfig = (
@@ -530,7 +532,11 @@ export const buildMachineConfig = (
   );
   if (hasOpenMysqlPort) {
     const usernames = users.filter((u) => u.userType !== 'guest').map((u) => u.username);
-    const db = generateDatabase(prng, usernames);
+    // For db_* mission targets, use the pre-enriched database from the objective builder
+    const db =
+      isTarget && options.dbEnrichment
+        ? options.dbEnrichment.database
+        : generateDatabase(prng, usernames);
     const mysqlDir = mkDir(
       'mysql',
       { 'data.json': mkFile('data.json', JSON.stringify(db), 'root') },
@@ -732,6 +738,7 @@ export const generateFileSystems = (input: FilesystemInput): FilesystemResult =>
     entryPoint,
     difficulty,
     layers,
+    dbEnrichment,
   } = input;
 
   // Build maps from inner gateway IP → downstream layer info (machines, NAT, subnet).
@@ -741,10 +748,19 @@ export const generateFileSystems = (input: FilesystemInput): FilesystemResult =>
   const gatewayNatMap = new Map<string, NatForwarding | undefined>();
   const gatewaySubnetMap = new Map<string, string>();
   if (layers && layers.length > 1) {
-    layers.slice(1).forEach((layer) => {
+    layers.slice(1).forEach((layer, i) => {
       const downstreamIps = new Set(layer.machines.map((m) => m.ip));
       const downstreamMachines = machines.filter((m) => downstreamIps.has(m.ip));
-      gatewayDownstreamMap.set(layer.gateway.ip, downstreamMachines);
+      // Include the next layer's gateway (dual-homed in this subnet) so it
+      // appears in /etc/hosts and is reachable via nmap from this layer.
+      const nextLayer = layers[i + 2]; // i is offset by 1 from slice(1)
+      const nextGateway = nextLayer
+        ? machines.find((m) => m.ip === nextLayer.gateway.ip)
+        : undefined;
+      const allDownstream = nextGateway
+        ? [...downstreamMachines, nextGateway]
+        : downstreamMachines;
+      gatewayDownstreamMap.set(layer.gateway.ip, allDownstream);
       gatewayNatMap.set(layer.gateway.ip, layer.natForwarding);
       gatewaySubnetMap.set(layer.gateway.ip, layer.subnet);
     });
@@ -824,6 +840,7 @@ export const generateFileSystems = (input: FilesystemInput): FilesystemResult =>
       natForwarding: gatewayNat,
       isHttpEntry,
       downstreamSubnet,
+      dbEnrichment: isTarget ? dbEnrichment : undefined,
     });
 
     // SNMP variant: add /etc/snmp/snmpd.conf for inner gateways with SNMP access variant

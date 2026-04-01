@@ -55,7 +55,8 @@ export type ParsedSql =
     }
   | { readonly type: 'delete'; readonly table: string; readonly where: readonly WhereClause[] }
   | { readonly type: 'drop_table'; readonly table: string }
-  | { readonly type: 'exit' };
+  | { readonly type: 'exit' }
+  | { readonly type: 'help' };
 
 // Executor result — either a display string or a mutation with output
 export type SqlReadResult = {

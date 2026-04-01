@@ -111,6 +111,13 @@ const parseExitQuit = (sql: string): ParsedSql | null => {
   return null;
 };
 
+const parseHelp = (sql: string): ParsedSql | null => {
+  if (/^help$/i.test(sql)) {
+    return { type: 'help' };
+  }
+  return null;
+};
+
 type ParseResult =
   | { readonly ok: true; readonly parsed: ParsedSql }
   | { readonly ok: false; readonly error: string };
@@ -124,9 +131,12 @@ export const parseSql = (raw: string): ParseResult => {
     return { ok: false, error: 'ERROR 1064 (42000): You have an error in your SQL syntax' };
   }
 
-  // Exit/quit first — these don't need semicolons or SQL syntax
+  // Exit/quit and help first — these don't need semicolons or SQL syntax
   const exitResult = parseExitQuit(sql);
   if (exitResult) return { ok: true, parsed: exitResult };
+
+  const helpResult = parseHelp(sql);
+  if (helpResult) return { ok: true, parsed: helpResult };
 
   // Try each parser in order
   const parsers = [

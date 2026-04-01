@@ -102,6 +102,38 @@ export const formatObjectiveHint = (mission: MissionNetwork): string => {
     ].join('\n');
   }
 
+  if (objective.type === 'db_exfiltrate') {
+    return [
+      '  Extract the secret access key from the database on the target machine.',
+      `  Example: mail("${email}", "ACCESS-XXXX-XXXX-XXXX")`,
+    ].join('\n');
+  }
+
+  if (objective.type === 'db_tamper') {
+    const rowCtx = objective.dbTamperRowHint ? `${objective.dbTamperRowHint} ` : '';
+    return [
+      `  Modify the database: change ${rowCtx}value from "${objective.dbTamperOldValue}" to "${objective.dbTamperNewValue}"`,
+      `  in the ${objective.dbTargetTable} table. Then confirm to the client.`,
+      `  Example: mail("${email}", "done")`,
+    ].join('\n');
+  }
+
+  if (objective.type === 'db_sabotage') {
+    return [
+      `  Destroy the ${objective.dbTargetTable} table in the database on the target machine.`,
+      `  Example: mail("${email}", "done")`,
+    ].join('\n');
+  }
+
+  if (objective.type === 'db_fix') {
+    const rowCtx = objective.dbTamperRowHint ? `${objective.dbTamperRowHint} ` : '';
+    return [
+      `  A deployment corrupted database records. Restore ${rowCtx}value from`,
+      `  "${objective.dbTamperOldValue}" to "${objective.dbTamperNewValue}" in the ${objective.dbTargetTable} table.`,
+      `  Example: mail("${email}", "done")`,
+    ].join('\n');
+  }
+
   // credential_theft
   return [
     '  Discover the root password on the target machine and mail it to the client.',

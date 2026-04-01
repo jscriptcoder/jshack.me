@@ -1,6 +1,7 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
 import type { MissionNetwork } from '../generation/types';
 import type { MachineFileOp } from '../filesystem/types';
+import type { MysqlDatabase } from './mysql/types';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 import { parseIptablesRules } from '../network/iptablesParser';
 import { runScriptWithSystem } from '../utils/scriptRunner';
@@ -292,6 +293,90 @@ const verifyMalware = (
   return null;
 };
 
+const readTargetDb = (
+  mission: MissionNetwork,
+  readFileFromMachine: MailCommandContext['readFileFromMachine'],
+): MysqlDatabase | null => {
+  const dbJson = readFileFromMachine({
+    machineId: mission.objective.targetMachine,
+    path: '/var/lib/mysql/data.json',
+    cwd: '/',
+    userType: 'root',
+  });
+  if (!dbJson) return null;
+  return JSON.parse(dbJson) as MysqlDatabase;
+};
+
+const verifyDbExfiltrate = (proof: string, mission: MissionNetwork): string | null => {
+  if (proof === mission.objective.expectedProof) return null;
+  return 'Incorrect proof. Find the ACCESS-KEY in the database.';
+};
+
+// Shared verification for db_tamper and db_fix — checks that the target
+// column no longer has the old value and now has the new value.
+const verifyDbTamperOrFix = (
+  mission: MissionNetwork,
+  readFileFromMachine: MailCommandContext['readFileFromMachine'],
+): string | null => {
+  const { objective } = mission;
+  const db = readTargetDb(mission, readFileFromMachine);
+  if (!db) return 'Database not found on target machine.';
+
+  const tableName = objective.dbTargetTable;
+  if (!tableName) return 'Invalid mission configuration: no target table.';
+
+  const table = db.tables[tableName];
+  if (!table) return `Table '${tableName}' not found in database.`;
+
+  const column = objective.dbTamperColumn;
+  if (!column) return 'Invalid mission configuration: no target column.';
+
+  // Find the specific target row using the filter
+  const filterCol = objective.dbTamperFilterColumn;
+  const filterVal = objective.dbTamperFilterValue;
+  const targetRow = filterCol && filterVal
+    ? table.rows.find((row) => String(row[filterCol]) === filterVal)
+    : table.rows[0];
+
+  if (!targetRow) {
+    return `Target record not found in the ${tableName} table.`;
+  }
+
+  // Check the old value is gone on the target row
+  if (String(targetRow[column]) === objective.dbTamperOldValue) {
+    return objective.type === 'db_fix'
+      ? `The corrupted value "${objective.dbTamperOldValue}" is still present. Fix the record.`
+      : `The value "${objective.dbTamperOldValue}" is still present. Modify the record.`;
+  }
+
+  // Check the new value is present on the target row
+  if (String(targetRow[column]) !== objective.dbTamperNewValue) {
+    return objective.type === 'db_fix'
+      ? `The correct value "${objective.dbTamperNewValue}" was not found. Check your fix.`
+      : `The value "${objective.dbTamperNewValue}" was not found. Check your modification.`;
+  }
+
+  return null;
+};
+
+const verifyDbSabotage = (
+  mission: MissionNetwork,
+  readFileFromMachine: MailCommandContext['readFileFromMachine'],
+): string | null => {
+  const { objective } = mission;
+  const db = readTargetDb(mission, readFileFromMachine);
+  if (!db) return null; // Database file deleted entirely — mission complete
+
+  const tableName = objective.dbTargetTable;
+  if (!tableName) return 'Invalid mission configuration: no target table.';
+
+  const table = db.tables[tableName];
+  // Table dropped or all rows deleted — both count as sabotage
+  if (!table || table.rows.length === 0) return null;
+
+  return `Table '${tableName}' still has data. Destroy it.`;
+};
+
 const verifyProof = (
   proof: string,
   mission: MissionNetwork,
@@ -309,6 +394,10 @@ const verifyProof = (
   if (type === 'portforward') return verifyPortforward(mission, readFileFromMachine);
   if (type === 'forensics') return verifyForensics(proof, mission);
   if (type === 'malware') return verifyMalware(mission, readFileFromMachine);
+  if (type === 'db_exfiltrate') return verifyDbExfiltrate(proof, mission);
+  if (type === 'db_tamper') return verifyDbTamperOrFix(mission, readFileFromMachine);
+  if (type === 'db_fix') return verifyDbTamperOrFix(mission, readFileFromMachine);
+  if (type === 'db_sabotage') return verifyDbSabotage(mission, readFileFromMachine);
   return null;
 };
 
@@ -356,7 +445,10 @@ export const createMailCommand = (context: MailCommandContext): Command => ({
       mission?.objective.type === 'tamper' ||
       mission?.objective.type === 'sabotage' ||
       mission?.objective.type === 'backdoor' ||
-      mission?.objective.type === 'portforward';
+      mission?.objective.type === 'portforward' ||
+      mission?.objective.type === 'db_tamper' ||
+      mission?.objective.type === 'db_sabotage' ||
+      mission?.objective.type === 'db_fix';
 
     if (typeof content !== 'string' && !contentOptional) {
       throw new Error('mail: missing content\nUsage: mail("recipient@darkmail.onion", "proof")');
