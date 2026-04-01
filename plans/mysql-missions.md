@@ -65,9 +65,9 @@ Add four new mission objective types (`db_exfiltrate`, `db_tamper`, `db_sabotage
 
 ### Step 5: Add briefing hints and content-optional flags
 
-**Test**: Unit test that `formatObjectiveHint()` returns appropriate hints for each MySQL objective type (mentions `mysql()`, `SELECT`/`UPDATE`/`DROP TABLE`). Test that `mail()` accepts content-optional for `db_tamper`, `db_sabotage`, and `db_fix`.
-**Implementation**: Add cases to `formatObjectiveHint()` in `src/commands/accept.ts`. Add `db_tamper`, `db_sabotage`, and `db_fix` to the content-optional list in `mail.ts`. Write descriptions that guide the player through the MySQL workflow. `db_fix` hints frame it as white-hat ("A deployment corrupted the data — restore it").
-**Done when**: Briefing shows clear MySQL-specific instructions. Player can submit proof correctly for all four types.
+**Test**: Unit test that `formatObjectiveHint()` returns appropriate briefing text for each MySQL objective type — mentions the target machine and what the client wants, but NO procedural hints (no mention of `mysql()`, `SELECT`, `UPDATE`, etc.). `db_fix` briefing includes root password (same pattern as script_fix, forensics, malware). Test that `mail()` accepts content-optional for `db_tamper`, `db_sabotage`, and `db_fix`.
+**Implementation**: Add cases to `formatObjectiveHint()` in `src/commands/accept.ts`. Briefings describe the objective only — e.g., "Extract the access key from the database on `target-ip`", "A deployment corrupted records on `target-ip` — restore the admin's role" (with root password). Player must figure out the mysql workflow themselves. Add `db_tamper`, `db_sabotage`, and `db_fix` to the content-optional list in `mail.ts`.
+**Done when**: Briefing describes what to do, not how. White-hat `db_fix` provides root password. Player can submit proof correctly for all four types.
 
 ### Step 6: Add mission board seeds and update docs
 
