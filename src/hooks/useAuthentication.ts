@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import type { UserType, FtpSession, SessionReason } from '../session/SessionContext';
+import type { UserType, FtpSession, MysqlSession, SessionReason } from '../session/SessionContext';
 import type { RemoteMachine, RemoteUser } from '../network/types';
 import type { AsyncOutput } from '../components/Terminal/types';
 import type { PermissionResult } from '../filesystem/types';
@@ -30,6 +30,13 @@ type AuthenticationOptions = {
   readonly setCurrentPath: (path: string) => void;
   readonly pushSession: (reason: SessionReason) => void;
   readonly enterFtpMode: (session: FtpSession) => void;
+  readonly enterMysqlMode: (session: MysqlSession) => void;
+  readonly readFileFromMachine: (op: {
+    readonly machineId: string;
+    readonly path: string;
+    readonly cwd: string;
+    readonly userType: UserType;
+  }) => string | null;
   readonly createFile: (path: string, content: string, userType: UserType) => PermissionResult;
   readonly writeFile: (path: string, content: string, userType: UserType) => PermissionResult;
   readonly onSuAuth?: (success: boolean, targetUser: string) => void;
@@ -57,6 +64,8 @@ export const useAuthentication = ({
   setCurrentPath,
   pushSession,
   enterFtpMode,
+  enterMysqlMode,
+  readFileFromMachine,
   createFile,
   writeFile,
   onSuAuth,
@@ -72,6 +81,7 @@ export const useAuthentication = ({
   const [scpTargetIP, setScpTargetIP] = useState<string | null>(null);
   const [scpTargetPort, setScpTargetPort] = useState<number | null>(null);
   const [scpPerformTransfer, setScpPerformTransfer] = useState<(() => AsyncOutput) | null>(null);
+  const [mysqlTargetIP, setMysqlTargetIP] = useState<string | null>(null);
 
   const startPasswordPrompt = useCallback(
     (user: string) => {
@@ -344,6 +354,62 @@ export const useAuthentication = ({
     [hasAuthorizedKey, addLine, onSshAuth],
   );
 
+  // Shared MySQL connection setup: validates the database file exists and enters mysql mode
+  const connectMysql = useCallback(
+    (user: string, ip: string) => {
+      const resolvedIp = resolveNat(ip, 3306).ip;
+      const dbJson = readFileFromMachine({
+        machineId: resolvedIp,
+        path: '/var/lib/mysql/data.json',
+        cwd: '/',
+        userType: 'root',
+      });
+      if (!dbJson) {
+        addLine('error', `ERROR 1049 (42000): Unknown database on '${ip}'`);
+        return;
+      }
+      const db = JSON.parse(dbJson) as { readonly name: string };
+      const newMysqlSession: MysqlSession = {
+        targetIP: ip,
+        machineId: resolvedIp,
+        username: user,
+        databaseName: db.name,
+      };
+      enterMysqlMode(newMysqlSession);
+      addLine(
+        'result',
+        `Welcome to the MySQL monitor. Server version: 8.0.36\n` +
+          `Type 'help;' for help. Type exit or quit to leave.\n`,
+      );
+    },
+    [resolveNat, readFileFromMachine, addLine, enterMysqlMode],
+  );
+
+  // Inline MySQL auth: validates password and enters mysql mode without interactive prompt
+  const authenticateMysqlInline = useCallback(
+    (user: string, targetIP: string, password: string) => {
+      if (validateRemotePassword(user, targetIP, 3306, password)) {
+        connectMysql(user, targetIP);
+      } else {
+        addLine(
+          'error',
+          `ERROR 1045 (28000): Access denied for user '${user}'@'${targetIP}' (using password: YES)`,
+        );
+      }
+    },
+    [validateRemotePassword, connectMysql, addLine],
+  );
+
+  const startMysqlPrompt = useCallback(
+    (user: string, targetIP: string) => {
+      setTargetUser(user);
+      setMysqlTargetIP(targetIP);
+      setPasswordMode(true);
+      addLine('result', `Enter password:`);
+    },
+    [addLine],
+  );
+
   const resetAuthState = useCallback(() => {
     setPasswordMode(false);
     setTargetUser(null);
@@ -354,6 +420,7 @@ export const useAuthentication = ({
     setScpTargetIP(null);
     setScpTargetPort(null);
     setScpPerformTransfer(null);
+    setMysqlTargetIP(null);
   }, []);
 
   // Four-mode password validation: SCP/SSH (remote machine lookup), FTP (remote machine lookup),
@@ -365,6 +432,17 @@ export const useAuthentication = ({
   const validatePassword = useCallback(
     (password: string): boolean => {
       if (!targetUser) return false;
+
+      if (mysqlTargetIP) {
+        const resolvedIp = resolveNat(mysqlTargetIP, 3306).ip;
+        const users = findMachineUsers(resolvedIp);
+
+        const remoteUser = users.find((u) => u.username === targetUser);
+        if (!remoteUser) return false;
+
+        const inputHash = md5(password);
+        return remoteUser.passwordHash === inputHash;
+      }
 
       if (scpTargetIP) {
         const resolvedIp = resolveNat(scpTargetIP, scpTargetPort ?? 22).ip;
@@ -412,6 +490,7 @@ export const useAuthentication = ({
     },
     [
       targetUser,
+      mysqlTargetIP,
       scpTargetIP,
       scpTargetPort,
       sshTargetIP,
@@ -456,13 +535,15 @@ export const useAuthentication = ({
   const handlePasswordSubmit = useCallback(
     (input: string, clearInput: () => void): AsyncOutput | undefined => {
       const maskedPassword = '*'.repeat(input.length);
-      const promptLabel = scpTargetIP
-        ? `${targetUser}@${scpTargetIP}'s password:`
-        : ftpTargetIP
-          ? 'Password:'
-          : sshTargetIP
-            ? `${targetUser}@${sshTargetIP}'s password:`
-            : 'Password:';
+      const promptLabel = mysqlTargetIP
+        ? 'Enter password:'
+        : scpTargetIP
+          ? `${targetUser}@${scpTargetIP}'s password:`
+          : ftpTargetIP
+            ? 'Password:'
+            : sshTargetIP
+              ? `${targetUser}@${sshTargetIP}'s password:`
+              : 'Password:';
       addLine('command', maskedPassword, promptLabel);
 
       let scpTransferAsync: AsyncOutput | undefined;
@@ -470,7 +551,9 @@ export const useAuthentication = ({
       if (validatePassword(input)) {
         if (!targetUser) return undefined;
 
-        if (scpTargetIP) {
+        if (mysqlTargetIP) {
+          connectMysql(targetUser, mysqlTargetIP);
+        } else if (scpTargetIP) {
           saveAuthorizedKey(targetUser, scpTargetIP, scpTargetPort ?? 22);
           onSshAuth?.(true, targetUser, scpTargetIP, scpTargetPort ?? 22, 'password');
           if (scpPerformTransfer) {
@@ -519,7 +602,12 @@ export const useAuthentication = ({
           onSuAuth?.(true, targetUser);
         }
       } else {
-        if (scpTargetIP) {
+        if (mysqlTargetIP) {
+          addLine(
+            'error',
+            `ERROR 1045 (28000): Access denied for user '${targetUser}'@'${mysqlTargetIP}' (using password: YES)`,
+          );
+        } else if (scpTargetIP) {
           addLine('error', `Permission denied, please try again.`);
           if (targetUser)
             onSshAuth?.(false, targetUser, scpTargetIP, scpTargetPort ?? 22, 'password');
@@ -544,12 +632,14 @@ export const useAuthentication = ({
       setScpTargetIP(null);
       setScpTargetPort(null);
       setScpPerformTransfer(null);
+      setMysqlTargetIP(null);
       clearInput();
 
       return scpTransferAsync;
     },
     [
       targetUser,
+      mysqlTargetIP,
       scpTargetIP,
       scpTargetPort,
       scpPerformTransfer,
@@ -558,6 +648,7 @@ export const useAuthentication = ({
       ftpTargetIP,
       validatePassword,
       saveAuthorizedKey,
+      connectMysql,
       connectSsh,
       pushSession,
       setUsername,
@@ -586,6 +677,8 @@ export const useAuthentication = ({
     startScpPrompt,
     authenticateScpInline,
     authenticateFtpInline,
+    startMysqlPrompt,
+    authenticateMysqlInline,
     resetAuthState,
   };
 };

@@ -44,6 +44,7 @@ export const APT_INSTALLABLE = new Set([
   'hydra',
   'gobuster',
   'snmp',
+  'mysql',
 ]);
 
 export type AptPackageInfo = {
@@ -89,6 +90,7 @@ export const APT_PACKAGES: readonly AptPackageInfo[] = [
     version: '5.9.1',
     binaries: ['snmpwalk', 'snmpset'],
   },
+  { name: 'mysql', description: 'MySQL client for database access', version: '8.0.36' },
 ];
 
 // Binary stub content — looks like an ELF binary header
@@ -136,6 +138,7 @@ export const APT_TOOL_NAMES = [
   'gobuster',
   'snmpwalk',
   'snmpset',
+  'mysql',
 ] as const;
 
 // System admin utilities in /usr/sbin/ — root-only services

@@ -39,6 +39,8 @@ const makeOptions = () => ({
   setCurrentPath: vi.fn(),
   pushSession: vi.fn(),
   enterFtpMode: vi.fn(),
+  enterMysqlMode: vi.fn(),
+  readFileFromMachine: vi.fn(() => null),
   createFile: vi.fn(() => ({ allowed: true })),
   writeFile: vi.fn(() => ({ allowed: true })),
 });

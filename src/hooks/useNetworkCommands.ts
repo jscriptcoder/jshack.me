@@ -16,6 +16,7 @@ import { createGobusterCommand } from '../commands/gobuster';
 import { createScpCommand } from '../commands/scp';
 import { createSnmpwalkCommand } from '../commands/snmpwalk';
 import { createSnmpsetCommand } from '../commands/snmpset';
+import { createMysqlCommand } from '../commands/mysql';
 import { wrapWithWifiCheck, wrapWithBrickedCheck } from '../commands/networkGuards';
 import type { Command } from '../components/Terminal/types';
 import { appendToMachineLog } from '../logging/appendToMachineLog';
@@ -235,6 +236,17 @@ export const useNetworkCommands = (): Map<string, Command> => {
             getNodeFromMachine,
             writeFileToMachine,
           }),
+          isWifiRequired,
+        ),
+        isMachineBricked,
+      ),
+    );
+
+    commands.set(
+      'mysql',
+      wrapWithBrickedCheck(
+        wrapWithWifiCheck(
+          createMysqlCommand({ getMachine, getLocalIP, resolveDomain }),
           isWifiRequired,
         ),
         isMachineBricked,

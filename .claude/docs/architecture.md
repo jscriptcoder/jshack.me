@@ -20,6 +20,7 @@ src/
 ├── network/               # Per-machine network simulation (interfaces, DNS, machines)
 ├── commands/              # Command implementations (colocated with .test.ts files)
 │   ├── ftp/               # FTP mode commands (pwd, ls, cd, get, put, quit)
+│   ├── mysql/             # MySQL mode (parser, executor, formatter, types)
 │   └── permissions.ts     # Command restrictions by user type
 ├── generation/            # Seeded network generators (missions + home networks)
 │   ├── prng.ts                # Mulberry32 PRNG seeded via FNV-1a hash
@@ -82,14 +83,14 @@ Three-layer system:
 
 **Storage layout:**
 
-| State                                                   | Storage                             | Scope   |
-| ------------------------------------------------------- | ----------------------------------- | ------- |
-| Session (user, machine, path, theme, SSH stack, FTP/NC) | sessionStorage                      | Per-tab |
-| WiFi connected                                          | IndexedDB (`wifiConnected` key)     | Shared  |
-| Mission seed                                            | IndexedDB (`activeMissionSeed` key) | Shared  |
-| Filesystem patches                                      | IndexedDB (`patches` key)           | Shared  |
-| Bricked machines                                        | IndexedDB (`brickedMachines` key)   | Shared  |
-| SSH keys (`~/.ssh_keys`)                                | Filesystem patches (IndexedDB)      | Shared  |
+| State                                                         | Storage                             | Scope   |
+| ------------------------------------------------------------- | ----------------------------------- | ------- |
+| Session (user, machine, path, theme, SSH stack, FTP/NC/MySQL) | sessionStorage                      | Per-tab |
+| WiFi connected                                                | IndexedDB (`wifiConnected` key)     | Shared  |
+| Mission seed                                                  | IndexedDB (`activeMissionSeed` key) | Shared  |
+| Filesystem patches                                            | IndexedDB (`patches` key)           | Shared  |
+| Bricked machines                                              | IndexedDB (`brickedMachines` key)   | Shared  |
+| SSH keys (`~/.ssh_keys`)                                      | Filesystem patches (IndexedDB)      | Shared  |
 
 Filesystem persistence uses patches (diffs from base filesystem). Each write/create operation records a `FileSystemPatch` with machineId, path, content, owner, and optional `isNew` flag. Patches are replayed on initialization via `applyPatches()`. All filesystem patches (localhost, home network, mission) are persisted to IndexedDB. On reload with an active mission, mission patches are replayed on top of regenerated filesystems. Mission patches are cleaned up on mission end/transition.
 
@@ -99,7 +100,7 @@ Mission seed persistence: the active mission seed string is stored in IndexedDB 
 
 ## Cross-Tab Sync
 
-Multiple browser tabs can run independent terminal sessions with shared state via the `BroadcastChannel` API (`src/utils/crossTabSync.ts`). Each tab has its own session (user, machine, path, SSH stack, FTP/NC mode) but filesystem patches, WiFi state, mission state, and theme are synchronized across tabs in real time.
+Multiple browser tabs can run independent terminal sessions with shared state via the `BroadcastChannel` API (`src/utils/crossTabSync.ts`). Each tab has its own session (user, machine, path, SSH stack, FTP/NC/MySQL mode) but filesystem patches, WiFi state, mission state, and theme are synchronized across tabs in real time.
 
 **Architecture**: A single `jshack-sync` BroadcastChannel carries typed messages. Each context that needs sync creates a channel inside its subscription effect and closes it on cleanup. The channel ref is updated so broadcast calls always use the active channel. This pattern is StrictMode-safe — React's cleanup + re-run cycle gets a fresh channel instead of reusing a closed one. Messages are fire-and-forget — IndexedDB persistence serves as the durable backing store.
 
@@ -114,7 +115,7 @@ Multiple browser tabs can run independent terminal sessions with shared state vi
 
 **Graceful fallback**: When `BroadcastChannel` is unavailable (older browsers, SSR), `createSyncChannel()` returns no-op stubs. Tabs work independently, same as before.
 
-**Dynamic tab title**: `SessionContext` updates `document.title` based on the current session mode: `username@machine — JSHACK.ME`, `ftp> — JSHACK.ME`, or `nc shell — JSHACK.ME`.
+**Dynamic tab title**: `SessionContext` updates `document.title` based on the current session mode: `username@machine — JSHACK.ME`, `ftp> — JSHACK.ME`, `nc shell — JSHACK.ME`, or `mysql> — JSHACK.ME`.
 
 ## Filesystem Permission Model
 
@@ -220,11 +221,13 @@ Network access from localhost requires cracking a WiFi network first. See `infra
 
 See `src/commands/` for implementations and `src/hooks/useCommands.ts` for the registry.
 
-Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, find, grep, rm, su, whoami, bash, airmon, airdump, aircrack, nmcli, ifconfig, ping, nmap, nslookup, ssh, exit, ftp, nc, curl, msfconsole, gobuster, hydra, gpg, reboot, sshd, vsftpd, systemctl, output, resolve, strings, nano, node, missions, accept, abort, mail, apt, theme, reset, xterm, snmpwalk, snmpset.
+Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, find, grep, rm, su, whoami, bash, airmon, airdump, aircrack, nmcli, ifconfig, ping, nmap, nslookup, ssh, exit, ftp, nc, curl, msfconsole, gobuster, hydra, gpg, reboot, sshd, vsftpd, systemctl, output, resolve, strings, nano, node, missions, accept, abort, mail, apt, theme, reset, xterm, snmpwalk, snmpset, mysql.
 
 FTP mode (when connected via ftp): pwd, lpwd, cd, lcd, ls, lls, get, put, quit/bye.
 
 NC mode (when connected via nc): pwd, cd, ls, cat, whoami, bash, help, exit — restricted shell access. Admin binaries (sshd, vsftpd, systemctl) must be run via `bash('/usr/sbin/sshd')` (no PATH in raw nc shell).
+
+MySQL mode (when connected via mysql): Raw SQL input — SHOW TABLES, DESCRIBE, SELECT, UPDATE, DELETE FROM, DROP TABLE, exit/quit. Bypasses `new Function()` — input routed to regex parser + executor. Database stored as `/var/lib/mysql/data.json` on target machine.
 
 ## Command Access Control
 

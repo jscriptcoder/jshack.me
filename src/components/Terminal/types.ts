@@ -57,6 +57,17 @@ export type NcQuitOutput = {
   readonly __type: 'nc_quit';
 };
 
+export type MysqlPromptData = {
+  readonly __type: 'mysql_prompt';
+  readonly targetIP: string;
+  readonly username: string;
+  readonly password?: string;
+};
+
+export type MysqlQuitOutput = {
+  readonly __type: 'mysql_quit';
+};
+
 export type NanoOpenData = {
   readonly __type: 'nano_open';
   readonly filePath: string;
@@ -71,7 +82,12 @@ export type ScpPromptData = {
   readonly password?: string;
 };
 
-export type AsyncFollowUp = SshPromptData | FtpPromptData | NcPromptData | ScpPromptData;
+export type AsyncFollowUp =
+  | SshPromptData
+  | FtpPromptData
+  | NcPromptData
+  | ScpPromptData
+  | MysqlPromptData;
 
 export type AsyncOutput = {
   readonly __type: 'async';
@@ -95,6 +111,8 @@ export type SpecialOutput =
   | FtpQuitOutput
   | NcPromptData
   | NcQuitOutput
+  | MysqlPromptData
+  | MysqlQuitOutput
   | NanoOpenData
   | AsyncOutput;
 
@@ -178,3 +196,9 @@ export const isNanoOpen = (value: unknown): value is NanoOpenData =>
 
 export const isScpPrompt = (value: unknown): value is ScpPromptData =>
   isSpecialOutput(value) && value.__type === 'scp_prompt';
+
+export const isMysqlPrompt = (value: unknown): value is MysqlPromptData =>
+  isSpecialOutput(value) && value.__type === 'mysql_prompt';
+
+export const isMysqlQuit = (value: unknown): value is MysqlQuitOutput =>
+  isSpecialOutput(value) && value.__type === 'mysql_quit';
