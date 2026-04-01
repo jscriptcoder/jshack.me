@@ -110,9 +110,10 @@ export const formatObjectiveHint = (mission: MissionNetwork): string => {
   }
 
   if (objective.type === 'db_tamper') {
+    const rowCtx = objective.dbTamperRowHint ? ` where ${objective.dbTamperRowHint}` : '';
     return [
       `  Modify the database: change "${objective.dbTamperOldValue}" to "${objective.dbTamperNewValue}"`,
-      `  in the ${objective.dbTargetTable} table. Then confirm to the client.`,
+      `  in the ${objective.dbTargetTable} table${rowCtx}. Then confirm to the client.`,
       `  Example: mail("${email}", "done")`,
     ].join('\n');
   }
@@ -125,9 +126,10 @@ export const formatObjectiveHint = (mission: MissionNetwork): string => {
   }
 
   if (objective.type === 'db_fix') {
+    const rowCtx = objective.dbTamperRowHint ? ` where ${objective.dbTamperRowHint}` : '';
     return [
       `  A deployment corrupted database records. Restore the value from`,
-      `  "${objective.dbTamperOldValue}" to "${objective.dbTamperNewValue}" in the ${objective.dbTargetTable} table.`,
+      `  "${objective.dbTamperOldValue}" to "${objective.dbTamperNewValue}" in the ${objective.dbTargetTable} table${rowCtx}.`,
       `  Example: mail("${email}", "done")`,
     ].join('\n');
   }
