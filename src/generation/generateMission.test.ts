@@ -881,3 +881,91 @@ describe('malware mission end-to-end', () => {
     expect(a).toEqual(b);
   });
 });
+
+describe('MySQL mission end-to-end', () => {
+  it('generates a db_exfiltrate mission with ACCESS-KEY in database', () => {
+    const mission = generateMissionNetwork('test-db-exfiltrate-easy');
+    expect(mission.objective.type).toBe('db_exfiltrate');
+    expect(mission.objective.expectedProof).toMatch(/^ACCESS-\d{4}-\d{4}-\d{4}$/);
+    expect(mission.objective.dbTargetTable).toBe('api_keys');
+
+    // Verify database file exists on target machine with the ACCESS-KEY
+    const targetFs = mission.fileSystems[mission.objective.targetMachine];
+    expect(targetFs).toBeDefined();
+    const dbFile =
+      targetFs?.children?.['var']?.children?.['lib']?.children?.['mysql']?.children?.['data.json'];
+    expect(dbFile?.type).toBe('file');
+    const db = JSON.parse(dbFile?.content ?? '{}');
+    const apiKeys = db.tables?.api_keys;
+    expect(apiKeys).toBeDefined();
+    const keyRow = apiKeys.rows.find(
+      (r: Record<string, unknown>) => r.key_value === mission.objective.expectedProof,
+    );
+    expect(keyRow).toBeDefined();
+  });
+
+  it('generates a db_tamper mission with target table and values', () => {
+    const mission = generateMissionNetwork('test-db-tamper-easy');
+    expect(mission.objective.type).toBe('db_tamper');
+    expect(mission.objective.dbTargetTable).toBeDefined();
+    expect(mission.objective.dbTamperColumn).toBeDefined();
+    expect(mission.objective.dbTamperOldValue).toBeDefined();
+    expect(mission.objective.dbTamperNewValue).toBeDefined();
+  });
+
+  it('generates a db_sabotage mission with target table', () => {
+    const mission = generateMissionNetwork('test-db-sabotage-easy');
+    expect(mission.objective.type).toBe('db_sabotage');
+    expect(mission.objective.dbTargetTable).toBeDefined();
+  });
+
+  it('generates a db_fix mission with root password in description', () => {
+    const mission = generateMissionNetwork('test-db-fix-easy');
+    expect(mission.objective.type).toBe('db_fix');
+    expect(mission.objective.description).toContain('Root password:');
+    expect(mission.objective.dbTargetTable).toBeDefined();
+    expect(mission.objective.dbTamperOldValue).toBeDefined();
+    expect(mission.objective.dbTamperNewValue).toBeDefined();
+  });
+
+  it('db_fix uses SSH entry (white-hat)', () => {
+    const mission = generateMissionNetwork('test-db-fix-easy');
+    expect(mission.entryVariant).toBe('ssh');
+  });
+
+  it('is deterministic', () => {
+    const a = generateMissionNetwork('mysql-determ-db-exfiltrate');
+    const b = generateMissionNetwork('mysql-determ-db-exfiltrate');
+    expect(a).toEqual(b);
+  });
+});
+
+describe('parseSeedOverrides — MySQL objectives', () => {
+  it('parses db-exfiltrate keyword', () => {
+    expect(parseSeedOverrides('test-db-exfiltrate').objectiveType).toBe('db_exfiltrate');
+  });
+
+  it('parses db-tamper keyword', () => {
+    expect(parseSeedOverrides('test-db-tamper').objectiveType).toBe('db_tamper');
+  });
+
+  it('parses db-sabotage keyword', () => {
+    expect(parseSeedOverrides('test-db-sabotage').objectiveType).toBe('db_sabotage');
+  });
+
+  it('parses db-fix keyword', () => {
+    expect(parseSeedOverrides('test-db-fix').objectiveType).toBe('db_fix');
+  });
+
+  it('db-exfiltrate does not match plain exfiltrate', () => {
+    expect(parseSeedOverrides('test-exfiltrate').objectiveType).toBe('exfiltrate');
+  });
+
+  it('db-tamper does not match plain tamper', () => {
+    expect(parseSeedOverrides('test-tamper').objectiveType).toBe('tamper');
+  });
+
+  it('db-sabotage does not match plain sabotage', () => {
+    expect(parseSeedOverrides('test-sabotage').objectiveType).toBe('sabotage');
+  });
+});

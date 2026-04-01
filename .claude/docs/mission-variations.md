@@ -6,15 +6,15 @@ Comprehensive catalog of all procedural generation variation axes. Use this to t
 
 All six major generation axes can be controlled by embedding keywords in the seed string (case-insensitive, matched via `includes()`). `parseSeedOverrides(seed)` in `generateMission.ts` extracts overrides. PRNG sequence is preserved — calls are consumed but results discarded in favor of overrides.
 
-| Axis          | Keywords                                                                                                                               | Notes                                                                                                                              |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Difficulty    | `easy`, `medium`, `hard`                                                                                                               | Falls back to hash-based derivation without keyword                                                                                |
-| Entry variant | `ssh`, `ftp`, `nc`, `exploit`, `http`, `snmp`                                                                                          | Falls back if template unavailable (e.g. nc+router-first)                                                                          |
-| Network mode  | `forwarded`, `router-first`                                                                                                            | Hyphenated to avoid false matches                                                                                                  |
-| Objective     | `exfiltrate`, `tamper`, `credential-theft`, `script-fix`, `script-auto`, `sabotage`, `backdoor`, `portforward`, `forensics`, `malware` | Hyphen variant for credential_theft / script_fix / script_auto; portforward forces router-first; forensics/malware force SSH entry |
-| Domain entry  | `domain`                                                                                                                               | Forces domain-based briefing (nslookup required)                                                                                   |
-| Encryption    | `gpg`                                                                                                                                  | Forces exfiltrate + encrypted target file                                                                                          |
-| Gateway type  | `switch`                                                                                                                               | Forces inner gateways to be managed L3 switches (ACLs instead of NAT)                                                              |
+| Axis          | Keywords                                                                                                                                                                                      | Notes                                                                                                                                                                                   |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Difficulty    | `easy`, `medium`, `hard`                                                                                                                                                                      | Falls back to hash-based derivation without keyword                                                                                                                                     |
+| Entry variant | `ssh`, `ftp`, `nc`, `exploit`, `http`, `snmp`                                                                                                                                                 | Falls back if template unavailable (e.g. nc+router-first)                                                                                                                               |
+| Network mode  | `forwarded`, `router-first`                                                                                                                                                                   | Hyphenated to avoid false matches                                                                                                                                                       |
+| Objective     | `exfiltrate`, `tamper`, `credential-theft`, `script-fix`, `script-auto`, `sabotage`, `backdoor`, `portforward`, `forensics`, `malware`, `db-exfiltrate`, `db-tamper`, `db-sabotage`, `db-fix` | Hyphen variant for credential_theft / script_fix / script_auto; portforward forces router-first; forensics/malware/db-fix force SSH entry; db-\* objectives inject MySQL port on target |
+| Domain entry  | `domain`                                                                                                                                                                                      | Forces domain-based briefing (nslookup required)                                                                                                                                        |
+| Encryption    | `gpg`                                                                                                                                                                                         | Forces exfiltrate + encrypted target file                                                                                                                                               |
+| Gateway type  | `switch`                                                                                                                                                                                      | Forces inner gateways to be managed L3 switches (ACLs instead of NAT)                                                                                                                   |
 
 Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`, `test-switch-snmp-hard`
 
@@ -415,7 +415,7 @@ Used when entry variant is `exploit`. Matched by port/service. Multiple template
 | CVE-2017-12166 | OpenVPN 2.4.3       | 1194  | Buffer overflow in key-method negotiation |
 | CVE-2020-15078 | OpenVPN 2.5.1       | 1194  | Auth bypass via deferred auth plugin      |
 
-## Objective Types (10)
+## Objective Types (14)
 
 | Type             | Description                                                    | Completion                             |
 | ---------------- | -------------------------------------------------------------- | -------------------------------------- |
@@ -429,6 +429,10 @@ Used when entry variant is `exploit`. Matched by port/service. Multiple template
 | portforward      | Hack the router and set up NAT port forwarding                 | `mail(email, "done")`                  |
 | forensics        | Investigate breach, find attacker alias and origin IP          | `mail(email, "<alias> <ip>")`          |
 | malware          | Find and neutralize active malware on compromised machine      | `mail(email, "done")`                  |
+| db_exfiltrate    | SELECT ACCESS-KEY from database table, mail to client          | `mail(email, "ACCESS-XXXX-XXXX-XXXX")` |
+| db_tamper        | UPDATE a record in the database, confirm to client             | `mail(email, "done")`                  |
+| db_sabotage      | DROP TABLE or DELETE all rows from a database table            | `mail(email, "done")`                  |
+| db_fix           | Fix corrupted database records (white-hat), confirm to client  | `mail(email, "done")`                  |
 
 ## Exfiltrate Target File Templates (21 — 3 per role)
 

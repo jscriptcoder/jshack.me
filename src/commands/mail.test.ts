@@ -875,3 +875,199 @@ describe('mail command', () => {
     expect(() => mail.fn('xR0gu3x@darkmail.onion', 'done')).toThrow('still running');
   });
 });
+
+describe('MySQL objective verification', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const dbJson = (tables: Record<string, unknown>) => JSON.stringify({ name: 'app_prod', tables });
+
+  it('completes db_exfiltrate with correct ACCESS-KEY', () => {
+    const completeMission = vi.fn();
+    const mission = makeMission({
+      type: 'db_exfiltrate',
+      expectedProof: 'ACCESS-1234-5678-9012',
+    });
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission,
+      readFileFromMachine: vi.fn(),
+      isMachineBricked: () => false,
+    });
+
+    const result = mail.fn('xR0gu3x@darkmail.onion', 'ACCESS-1234-5678-9012') as AsyncOutput;
+    runAsync(result);
+    expect(completeMission).toHaveBeenCalled();
+  });
+
+  it('fails db_exfiltrate with wrong proof', () => {
+    const mission = makeMission({
+      type: 'db_exfiltrate',
+      expectedProof: 'ACCESS-1234-5678-9012',
+    });
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission: vi.fn(),
+      readFileFromMachine: vi.fn(),
+      isMachineBricked: () => false,
+    });
+
+    expect(() => mail.fn('xR0gu3x@darkmail.onion', 'WRONG')).toThrow('Incorrect proof');
+  });
+
+  it('completes db_tamper when value was changed', () => {
+    const completeMission = vi.fn();
+    const mission = makeMission({
+      type: 'db_tamper',
+      dbTargetTable: 'users',
+      dbTamperColumn: 'role',
+      dbTamperOldValue: 'admin',
+      dbTamperNewValue: 'user',
+    });
+    const readFileFromMachine = vi.fn().mockReturnValue(
+      dbJson({
+        users: {
+          columns: [{ name: 'role', type: 'VARCHAR', nullable: true }],
+          rows: [{ id: 1, username: 'admin', role: 'user' }],
+        },
+      }),
+    );
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission,
+      readFileFromMachine,
+      isMachineBricked: () => false,
+    });
+
+    const result = mail.fn('xR0gu3x@darkmail.onion', 'done') as AsyncOutput;
+    runAsync(result);
+    expect(completeMission).toHaveBeenCalled();
+  });
+
+  it('fails db_tamper when old value still present', () => {
+    const mission = makeMission({
+      type: 'db_tamper',
+      dbTargetTable: 'users',
+      dbTamperColumn: 'role',
+      dbTamperOldValue: 'admin',
+      dbTamperNewValue: 'user',
+    });
+    const readFileFromMachine = vi.fn().mockReturnValue(
+      dbJson({
+        users: {
+          columns: [],
+          rows: [{ id: 1, username: 'admin', role: 'admin' }],
+        },
+      }),
+    );
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission: vi.fn(),
+      readFileFromMachine,
+      isMachineBricked: () => false,
+    });
+
+    expect(() => mail.fn('xR0gu3x@darkmail.onion', 'done')).toThrow('still present');
+  });
+
+  it('completes db_fix when corrupted value was restored', () => {
+    const completeMission = vi.fn();
+    const mission = makeMission({
+      type: 'db_fix',
+      dbTargetTable: 'config',
+      dbTamperColumn: 'value',
+      dbTamperOldValue: 'true',
+      dbTamperNewValue: 'false',
+    });
+    const readFileFromMachine = vi.fn().mockReturnValue(
+      dbJson({
+        config: {
+          columns: [],
+          rows: [{ id: 1, key: 'maintenance_mode', value: 'false' }],
+        },
+      }),
+    );
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission,
+      readFileFromMachine,
+      isMachineBricked: () => false,
+    });
+
+    const result = mail.fn('xR0gu3x@darkmail.onion', 'done') as AsyncOutput;
+    runAsync(result);
+    expect(completeMission).toHaveBeenCalled();
+  });
+
+  it('completes db_sabotage when table was dropped', () => {
+    const completeMission = vi.fn();
+    const mission = makeMission({
+      type: 'db_sabotage',
+      dbTargetTable: 'sessions',
+    });
+    const readFileFromMachine = vi.fn().mockReturnValue(
+      dbJson({
+        users: { columns: [], rows: [{ id: 1 }] },
+        // sessions table is missing — dropped
+      }),
+    );
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission,
+      readFileFromMachine,
+      isMachineBricked: () => false,
+    });
+
+    const result = mail.fn('xR0gu3x@darkmail.onion', 'done') as AsyncOutput;
+    runAsync(result);
+    expect(completeMission).toHaveBeenCalled();
+  });
+
+  it('completes db_sabotage when all rows deleted', () => {
+    const completeMission = vi.fn();
+    const mission = makeMission({
+      type: 'db_sabotage',
+      dbTargetTable: 'sessions',
+    });
+    const readFileFromMachine = vi.fn().mockReturnValue(
+      dbJson({
+        sessions: { columns: [], rows: [] },
+      }),
+    );
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission,
+      readFileFromMachine,
+      isMachineBricked: () => false,
+    });
+
+    const result = mail.fn('xR0gu3x@darkmail.onion', 'done') as AsyncOutput;
+    runAsync(result);
+    expect(completeMission).toHaveBeenCalled();
+  });
+
+  it('fails db_sabotage when table still has data', () => {
+    const mission = makeMission({
+      type: 'db_sabotage',
+      dbTargetTable: 'sessions',
+    });
+    const readFileFromMachine = vi.fn().mockReturnValue(
+      dbJson({
+        sessions: { columns: [], rows: [{ id: 1, token: 'abc' }] },
+      }),
+    );
+    const mail = createMailCommand({
+      getActiveMission: () => mission,
+      completeMission: vi.fn(),
+      readFileFromMachine,
+      isMachineBricked: () => false,
+    });
+
+    expect(() => mail.fn('xR0gu3x@darkmail.onion', 'done')).toThrow('still has data');
+  });
+});

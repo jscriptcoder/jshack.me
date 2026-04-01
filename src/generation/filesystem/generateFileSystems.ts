@@ -44,7 +44,7 @@ import {
   generateBasicRwSnmpConfig,
 } from './networkConfig';
 import { generateForensicsEvidence } from './forensicsEvidence';
-import { generateDatabase } from '../pools/database';
+import { generateDatabase, type DbEnrichment } from '../pools/database';
 
 type FilesystemInput = {
   readonly prng: Prng;
@@ -58,6 +58,7 @@ type FilesystemInput = {
   readonly entryPoint?: string;
   readonly difficulty?: Difficulty;
   readonly layers?: readonly SubnetLayer[];
+  readonly dbEnrichment?: DbEnrichment;
 };
 
 // Infrastructure service PID file definitions. Maps service names to their
@@ -316,6 +317,7 @@ export type BuildMachineConfigOptions = {
   readonly natForwarding?: NatForwarding;
   readonly isHttpEntry?: boolean;
   readonly downstreamSubnet?: string;
+  readonly dbEnrichment?: DbEnrichment;
 };
 
 export const buildMachineConfig = (
@@ -530,7 +532,11 @@ export const buildMachineConfig = (
   );
   if (hasOpenMysqlPort) {
     const usernames = users.filter((u) => u.userType !== 'guest').map((u) => u.username);
-    const db = generateDatabase(prng, usernames);
+    // For db_* mission targets, use the pre-enriched database from the objective builder
+    const db =
+      isTarget && options.dbEnrichment
+        ? options.dbEnrichment.database
+        : generateDatabase(prng, usernames);
     const mysqlDir = mkDir(
       'mysql',
       { 'data.json': mkFile('data.json', JSON.stringify(db), 'root') },
@@ -732,6 +738,7 @@ export const generateFileSystems = (input: FilesystemInput): FilesystemResult =>
     entryPoint,
     difficulty,
     layers,
+    dbEnrichment,
   } = input;
 
   // Build maps from inner gateway IP → downstream layer info (machines, NAT, subnet).
@@ -824,6 +831,7 @@ export const generateFileSystems = (input: FilesystemInput): FilesystemResult =>
       natForwarding: gatewayNat,
       isHttpEntry,
       downstreamSubnet,
+      dbEnrichment: isTarget ? dbEnrichment : undefined,
     });
 
     // SNMP variant: add /etc/snmp/snmpd.conf for inner gateways with SNMP access variant

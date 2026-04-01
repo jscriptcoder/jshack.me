@@ -116,6 +116,186 @@ const allTableTemplates: readonly TableTemplate[] = [
 const dbNamePrefixes = ['app', 'web', 'main', 'core', 'portal', 'system'];
 const dbNameSuffixes = ['prod', 'db', 'data', 'store', 'live'];
 
+// Tamper/fix scenario pools — each defines a table, column, and old→new value pair.
+// For db_tamper: database starts with oldValue, player must change to newValue.
+// For db_fix: database starts with oldValue (corrupted), player must restore to newValue.
+type TamperScenario = {
+  readonly table: string;
+  readonly column: string;
+  readonly rowFilter: { readonly column: string; readonly value: string };
+  readonly oldValue: string;
+  readonly newValue: string;
+  readonly description: string;
+};
+
+const tamperScenarios: readonly TamperScenario[] = [
+  {
+    table: 'users',
+    column: 'role',
+    rowFilter: { column: 'username', value: '__ADMIN__' },
+    oldValue: 'admin',
+    newValue: 'user',
+    description: 'admin role',
+  },
+  {
+    table: 'config',
+    column: 'value',
+    rowFilter: { column: 'key', value: 'maintenance_mode' },
+    oldValue: 'false',
+    newValue: 'true',
+    description: 'maintenance mode',
+  },
+  {
+    table: 'config',
+    column: 'value',
+    rowFilter: { column: 'key', value: 'debug_mode' },
+    oldValue: 'false',
+    newValue: 'true',
+    description: 'debug mode',
+  },
+];
+
+// Fix scenarios — reversed direction from tamper. Database starts corrupted, player restores.
+const fixScenarios: readonly TamperScenario[] = [
+  {
+    table: 'users',
+    column: 'role',
+    rowFilter: { column: 'username', value: '__ADMIN__' },
+    oldValue: 'user',
+    newValue: 'admin',
+    description: 'admin role',
+  },
+  {
+    table: 'config',
+    column: 'value',
+    rowFilter: { column: 'key', value: 'maintenance_mode' },
+    oldValue: 'true',
+    newValue: 'false',
+    description: 'maintenance mode',
+  },
+  {
+    table: 'config',
+    column: 'value',
+    rowFilter: { column: 'key', value: 'debug_mode' },
+    oldValue: 'true',
+    newValue: 'false',
+    description: 'debug mode',
+  },
+];
+
+// Tables eligible for sabotage (player must DROP or DELETE all rows)
+const sabotageTargetTables = ['sessions', 'api_keys', 'audit_log'] as const;
+
+export type DbEnrichment = {
+  readonly database: MysqlDatabase;
+  readonly targetTable: string;
+  readonly expectedProof?: string;
+  readonly tamperColumn?: string;
+  readonly tamperOldValue?: string;
+  readonly tamperNewValue?: string;
+};
+
+// Generates an ACCESS-KEY and injects it into the api_keys table.
+// Ensures the api_keys table exists in the database.
+export const enrichForDbExfiltrate = (prng: Prng, db: MysqlDatabase): DbEnrichment => {
+  const accessKey = `ACCESS-${prng.nextInt(1000, 9999)}-${prng.nextInt(1000, 9999)}-${prng.nextInt(1000, 9999)}`;
+
+  const existingTable = db.tables['api_keys'];
+  const table: MysqlTable = existingTable ?? {
+    columns: apiKeysTable.columns,
+    rows: [],
+  };
+
+  const nextId = table.rows.length + 1;
+  const newRow: MysqlRow = {
+    id: nextId,
+    user_id: 1,
+    key_value: accessKey,
+    active: 1,
+  };
+  const updatedTable: MysqlTable = { ...table, rows: [...table.rows, newRow] };
+
+  return {
+    database: { ...db, tables: { ...db.tables, api_keys: updatedTable } },
+    targetTable: 'api_keys',
+    expectedProof: accessKey,
+  };
+};
+
+// Picks a tamper scenario, ensures the target table exists, and sets the old value.
+export const enrichForDbTamper = (prng: Prng, db: MysqlDatabase): DbEnrichment => {
+  const scenario = prng.pick(tamperScenarios);
+  const enriched = applyTamperScenario(db, scenario);
+  return {
+    database: enriched,
+    targetTable: scenario.table,
+    tamperColumn: scenario.column,
+    tamperOldValue: scenario.oldValue,
+    tamperNewValue: scenario.newValue,
+  };
+};
+
+// Picks a fix scenario (corrupted → correct), ensures the target table exists.
+export const enrichForDbFix = (prng: Prng, db: MysqlDatabase): DbEnrichment => {
+  const scenario = prng.pick(fixScenarios);
+  const enriched = applyTamperScenario(db, scenario);
+  return {
+    database: enriched,
+    targetTable: scenario.table,
+    tamperColumn: scenario.column,
+    tamperOldValue: scenario.oldValue,
+    tamperNewValue: scenario.newValue,
+  };
+};
+
+// Ensures a sabotage target table exists in the database.
+export const enrichForDbSabotage = (prng: Prng, db: MysqlDatabase): DbEnrichment => {
+  const targetName = prng.pick(sabotageTargetTables);
+
+  // Ensure the target table exists
+  if (!db.tables[targetName]) {
+    const template = allTableTemplates.find((t) => t.name === targetName);
+    if (template) {
+      const rows = template.rowGenerator(prng, ['admin', 'user']);
+      const enriched: MysqlDatabase = {
+        ...db,
+        tables: { ...db.tables, [targetName]: { columns: [...template.columns], rows: [...rows] } },
+      };
+      return { database: enriched, targetTable: targetName };
+    }
+  }
+
+  return { database: db, targetTable: targetName };
+};
+
+// Applies a tamper/fix scenario to the database, ensuring the target table
+// exists and the target row has the old value set.
+const applyTamperScenario = (db: MysqlDatabase, scenario: TamperScenario): MysqlDatabase => {
+  const table = db.tables[scenario.table];
+  if (!table) return db;
+
+  // Resolve __ADMIN__ placeholder to actual first admin username
+  const filterValue =
+    scenario.rowFilter.value === '__ADMIN__'
+      ? ((table.rows.find((r) => r['role'] === 'admin')?.[scenario.rowFilter.column] as
+          | string
+          | undefined) ?? 'admin')
+      : scenario.rowFilter.value;
+
+  const updatedRows = table.rows.map((row) => {
+    const key = Object.keys(row).find(
+      (k) => k.toLowerCase() === scenario.rowFilter.column.toLowerCase(),
+    );
+    if (!key || String(row[key]) !== filterValue) return row;
+    return { ...row, [scenario.column]: scenario.oldValue };
+  });
+
+  return {
+    ...db,
+    tables: { ...db.tables, [scenario.table]: { ...table, rows: updatedRows } },
+  };
+};
+
 // Generates a MysqlDatabase with deterministic content based on PRNG.
 // Users array provides usernames for populating the users table.
 export const generateDatabase = (prng: Prng, usernames: readonly string[]): MysqlDatabase => {

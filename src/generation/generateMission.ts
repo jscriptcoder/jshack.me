@@ -42,6 +42,10 @@ export const parseSeedOverrides = (seed: string): SeedOverrides => {
     ['portforward', 'portforward'],
     ['script-auto', 'script_auto'],
     ['script-fix', 'script_fix'],
+    ['db-exfiltrate', 'db_exfiltrate'],
+    ['db-sabotage', 'db_sabotage'],
+    ['db-tamper', 'db_tamper'],
+    ['db-fix', 'db_fix'],
     ['sabotage', 'sabotage'],
     ['backdoor', 'backdoor'],
     ['exfiltrate', 'exfiltrate'],
@@ -102,7 +106,8 @@ export const generateMissionNetwork = (
     overrides.objectiveType === 'forensics' ||
     overrides.objectiveType === 'script_fix' ||
     overrides.objectiveType === 'script_auto' ||
-    overrides.objectiveType === 'malware';
+    overrides.objectiveType === 'malware' ||
+    overrides.objectiveType === 'db_fix';
   const effectiveEntryVariant = whiteHatObjective ? 'ssh' : overrides.entryVariant;
 
   const topology = generateTopology(prng, difficulty, {
@@ -210,7 +215,7 @@ export const generateMissionNetwork = (
     ]),
   );
 
-  const { objective, clientEmail } = buildMissionObjective({
+  const { objective, clientEmail, dbEnrichment } = buildMissionObjective({
     prng,
     machines: machinesAfterClosures,
     credentials: allCredentials,
@@ -221,9 +226,32 @@ export const generateMissionNetwork = (
     layers: topology.layers,
   });
 
+  // Database objectives need MySQL port on the target machine so the mysql command
+  // can connect and the database file gets generated. Inject port 3306 if missing.
+  const dbObjectiveTypes = ['db_exfiltrate', 'db_tamper', 'db_sabotage', 'db_fix'];
+  const needsMysqlPort =
+    dbObjectiveTypes.includes(objective.type) &&
+    !machinesAfterClosures
+      .find((m) => m.ip === objective.targetMachine)
+      ?.remoteMachine.ports.some((p) => p.port === 3306);
+
+  const machinesForFs = needsMysqlPort
+    ? machinesAfterClosures.map((m) =>
+        m.ip === objective.targetMachine
+          ? {
+              ...m,
+              remoteMachine: {
+                ...m.remoteMachine,
+                ports: [...m.remoteMachine.ports, { port: 3306, service: 'mysql', open: true }],
+              },
+            }
+          : m,
+      )
+    : machinesAfterClosures;
+
   const { fileSystems, basicSnmpGatewayIps } = generateFileSystems({
     prng,
-    machines: machinesAfterClosures,
+    machines: machinesForFs,
     usersByMachine: allUsersByMachine,
     credentials: allCredentials,
     objective,
@@ -233,6 +261,7 @@ export const generateMissionNetwork = (
     entryPoint: topology.entryPoint,
     difficulty,
     layers: topology.layers,
+    dbEnrichment,
   });
 
   // Add UDP port 161 to non-SNMP-variant gateways that got basic SNMP via PRNG roll.
@@ -253,6 +282,24 @@ export const generateMissionNetwork = (
         )
       : updatedMachineConfigs;
 
+  // Add MySQL port 3306 to the target machine's network config for db_* objectives
+  // so nmap shows the port and mysql() can connect.
+  const mysqlPort = { port: 3306, service: 'mysql', open: true };
+  const configsWithMysql =
+    needsMysqlPort && objective.targetMachine
+      ? Object.fromEntries(
+          Object.entries(finalMachineConfigs).map(([ip, config]) => [
+            ip,
+            {
+              ...config,
+              machines: config.machines.map((rm) =>
+                rm.ip === objective.targetMachine ? { ...rm, ports: [...rm.ports, mysqlPort] } : rm,
+              ),
+            },
+          ]),
+        )
+      : finalMachineConfigs;
+
   // Domain entry: when active, briefing shows router domain instead of IP.
   // Always consume a PRNG call to preserve sequence regardless of override.
   const domainRoll = prng.next();
@@ -267,7 +314,7 @@ export const generateMissionNetwork = (
     entryVariant: topology.entryVariant,
     machines: machinesAfterClosures,
     fileSystems,
-    networkConfig: { machineConfigs: finalMachineConfigs },
+    networkConfig: { machineConfigs: configsWithMysql },
     objective,
     clientEmail,
     routerPublicIp: topology.routerPublicIp,
