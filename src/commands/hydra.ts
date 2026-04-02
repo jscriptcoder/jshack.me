@@ -1,5 +1,6 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
 import type { RemoteMachine, RemoteUser, DnsRecord } from '../network/types';
+import type { MysqlCredential, MysqlDatabase } from './mysql/types';
 import type { FileNode } from '../filesystem/types';
 import { passwords, guestPasswords, snmpRwCommunities } from '../generation/pools';
 import { md5 } from '../utils/md5';
@@ -24,7 +25,7 @@ type CrackResult = {
 const STATUS_DELAY_MS = 400;
 // Services attacked during auto-discovery (no filter). SNMP requires explicit filter.
 const LOGIN_SERVICES = new Set(['ssh', 'ftp']);
-const VALID_SERVICES = new Set(['ssh', 'ftp', 'snmp']);
+const VALID_SERVICES = new Set(['ssh', 'ftp', 'snmp', 'mysql']);
 const ATTEMPTS_PER_USER = 128;
 
 // Crack probability by user type — guest passwords are weak (always crackable),
@@ -148,6 +149,103 @@ const createSnmpAttack = (
   };
 };
 
+// MySQL credential brute-force — reads database credentials from data.json
+const createMysqlAttack = (
+  targetIP: string,
+  machine: RemoteMachine,
+  getNodeFromMachine: HydraContext['getNodeFromMachine'],
+  resolveNat: HydraContext['resolveNat'],
+  userFilter: string | undefined,
+): AsyncOutput => {
+  const mysqlPort = machine.ports.find((p) => p.service === 'mysql' && p.open);
+  if (!mysqlPort) {
+    throw new Error(`hydra: no open mysql service on ${targetIP}`);
+  }
+
+  const resolvedIp = resolveNat(targetIP, mysqlPort.port).ip;
+  const dbNode = getNodeFromMachine(resolvedIp, '/var/lib/mysql/data.json', '/');
+  if (!dbNode || dbNode.type !== 'file' || !dbNode.content) {
+    throw new Error(`hydra: ${targetIP}: no MySQL server responding`);
+  }
+
+  const db = JSON.parse(dbNode.content) as MysqlDatabase;
+  const allUsers: readonly MysqlCredential[] = db.credentials ?? [];
+  const mysqlUsers = userFilter ? allUsers.filter((u) => u.username === userFilter) : allUsers;
+
+  if (userFilter && mysqlUsers.length === 0) {
+    throw new Error(`hydra: user "${userFilter}" not found on ${targetIP}`);
+  }
+
+  const token = createCancellationToken();
+
+  return {
+    __type: 'async',
+    start: (onLine, onComplete) => {
+      onLine('Hydra v9.4 — Network Login Cracker');
+      onLine('');
+
+      let delay = 0;
+      const results: CrackResult[] = [];
+
+      // DATA line
+      delay += jitter(STATUS_DELAY_MS);
+      token.schedule(() => {
+        if (token.isCancelled()) return;
+        onLine(`[DATA] attacking mysql://${targetIP}:${mysqlPort.port}`);
+      }, delay);
+
+      // STATUS progress lines (4 evenly spaced)
+      const totalAttempts = mysqlUsers.length * ATTEMPTS_PER_USER;
+      const statusSteps = 4;
+      for (let i = 1; i <= statusSteps; i++) {
+        const completed = Math.floor((totalAttempts / statusSteps) * i);
+        delay += jitter(STATUS_DELAY_MS);
+        token.schedule(() => {
+          if (token.isCancelled()) return;
+          onLine(`[STATUS] ${completed}/${totalAttempts} attempts completed`);
+        }, delay);
+      }
+
+      // Per-user crack attempts
+      mysqlUsers.forEach((user) => {
+        delay += jitter(STATUS_DELAY_MS);
+        token.schedule(() => {
+          if (token.isCancelled()) return;
+
+          const probability = CRACK_PROBABILITY[user.userType] ?? 0;
+          const cracked = Math.random() < probability;
+          if (!cracked) return;
+
+          const password = hashToPassword.get(user.passwordHash);
+          if (!password) return;
+
+          results.push({
+            port: mysqlPort.port,
+            service: 'mysql',
+            username: user.username,
+            password,
+          });
+          onLine(
+            `[${mysqlPort.port}][mysql] host: ${targetIP}   login: ${user.username}   password: ${password}`,
+          );
+        }, delay);
+      });
+
+      // Summary
+      delay += jitter(STATUS_DELAY_MS);
+      token.schedule(() => {
+        if (token.isCancelled()) return;
+        onLine('');
+        onLine(
+          `${results.length} of ${mysqlUsers.length} target user${mysqlUsers.length === 1 ? '' : 's'} successfully cracked`,
+        );
+        onComplete();
+      }, delay);
+    },
+    cancel: token.cancel,
+  };
+};
+
 export const createHydraCommand = (context: HydraContext): Command => ({
   name: 'hydra',
   category: 'network',
@@ -157,13 +255,13 @@ export const createHydraCommand = (context: HydraContext): Command => ({
     description:
       'Perform a dictionary attack against network login services on a remote host. ' +
       'Attacks SSH and FTP services by default. Optionally specify a service ' +
-      '("ssh", "ftp", or "snmp") and/or a specific username to target. ' +
-      'For SNMP, brute-forces community strings against the SNMP agent.',
+      '("ssh", "ftp", "snmp", or "mysql") and/or a specific username to target. ' +
+      'For SNMP, brute-forces community strings. For MySQL, brute-forces database credentials.',
     arguments: [
       { name: 'host', description: 'IP address or hostname of the target machine', required: true },
       {
         name: 'service',
-        description: 'Service to attack: "ssh", "ftp", or "snmp" (default: ssh+ftp)',
+        description: 'Service to attack: "ssh", "ftp", "snmp", or "mysql" (default: ssh+ftp)',
       },
       { name: 'user', description: 'Specific username to target (default: all users)' },
     ],
@@ -183,6 +281,10 @@ export const createHydraCommand = (context: HydraContext): Command => ({
       {
         command: 'hydra("10.0.0.1", "snmp")',
         description: 'Brute-force SNMP community strings',
+      },
+      {
+        command: 'hydra("10.0.0.5", "mysql")',
+        description: 'Brute-force MySQL database credentials',
       },
     ],
   },
@@ -206,7 +308,7 @@ export const createHydraCommand = (context: HydraContext): Command => ({
 
     if (serviceFilter !== undefined && !VALID_SERVICES.has(serviceFilter)) {
       throw new Error(
-        `hydra: unsupported service "${serviceFilter}" — use "ssh", "ftp", or "snmp"`,
+        `hydra: unsupported service "${serviceFilter}" — use "ssh", "ftp", "snmp", or "mysql"`,
       );
     }
 
@@ -229,6 +331,11 @@ export const createHydraCommand = (context: HydraContext): Command => ({
     // SNMP mode — separate flow, no users involved
     if (serviceFilter === 'snmp') {
       return createSnmpAttack(targetIP, machine, getNodeFromMachine);
+    }
+
+    // MySQL mode — reads DB credentials from data.json
+    if (serviceFilter === 'mysql') {
+      return createMysqlAttack(targetIP, machine, getNodeFromMachine, resolveNat, userFilter);
     }
 
     const services = getTargetServices(machine, serviceFilter);

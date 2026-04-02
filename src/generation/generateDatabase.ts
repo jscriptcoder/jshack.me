@@ -1,20 +1,37 @@
 import type { Prng } from './prng';
-import type { MysqlDatabase, MysqlTable, MysqlRow } from '../commands/mysql/types';
+import type { MysqlCredential, MysqlDatabase, MysqlTable, MysqlRow } from '../commands/mysql/types';
 import {
   usersTable,
   apiKeysTable,
   allTableTemplates,
   dbNamePrefixes,
   dbNameSuffixes,
+  mysqlUsernames,
   tamperScenarios,
   fixScenarios,
   sabotageTargetTables,
   type TamperScenario,
 } from './pools/database';
+import { passwords, guestPasswords } from './pools';
+import { md5 } from '../utils/md5';
+
+type PlaintextCredential = {
+  readonly username: string;
+  readonly password: string;
+};
+
+export type GenerateDatabaseResult = {
+  readonly database: MysqlDatabase;
+  readonly plaintextCredentials: readonly PlaintextCredential[];
+};
 
 // Generates a MysqlDatabase with deterministic content based on PRNG.
 // Users array provides usernames for populating the users table.
-export const generateDatabase = (prng: Prng, usernames: readonly string[]): MysqlDatabase => {
+// Returns both the database (with hashed credentials) and plaintext credentials for leak templates.
+export const generateDatabase = (
+  prng: Prng,
+  usernames: readonly string[],
+): GenerateDatabaseResult => {
   const name = `${prng.pick(dbNamePrefixes)}_${prng.pick(dbNameSuffixes)}`;
 
   // Always include users table, then pick 2-4 additional tables
@@ -30,7 +47,29 @@ export const generateDatabase = (prng: Prng, usernames: readonly string[]): Mysq
     tables[template.name] = { columns: [...template.columns], rows: [...rows] };
   }
 
-  return { name, tables };
+  // Generate MySQL-specific credentials (separate from system users).
+  // Always: 1 root + 1 app user. ~50% chance of a guest account.
+  const rootPassword = prng.pick(passwords);
+  const appUsername = prng.pick(mysqlUsernames);
+  const appPassword = prng.pick(passwords);
+  const hasGuest = prng.next() < 0.5;
+  const guestPassword = prng.pick(guestPasswords);
+
+  const credentials: readonly MysqlCredential[] = [
+    { username: 'root', passwordHash: md5(rootPassword), userType: 'root' },
+    { username: appUsername, passwordHash: md5(appPassword), userType: 'user' },
+    ...(hasGuest
+      ? [{ username: 'readonly', passwordHash: md5(guestPassword), userType: 'guest' as const }]
+      : []),
+  ];
+
+  const plaintextCredentials: readonly PlaintextCredential[] = [
+    { username: 'root', password: rootPassword },
+    { username: appUsername, password: appPassword },
+    ...(hasGuest ? [{ username: 'readonly', password: guestPassword }] : []),
+  ];
+
+  return { database: { name, tables, credentials }, plaintextCredentials };
 };
 
 // --- Database Enrichment for Mission Objectives ---

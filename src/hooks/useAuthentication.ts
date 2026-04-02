@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import type { UserType, FtpSession, MysqlSession, SessionReason } from '../session/SessionContext';
 import type { RemoteMachine, RemoteUser } from '../network/types';
+import type { MysqlDatabase } from '../commands/mysql/types';
 import type { AsyncOutput } from '../components/Terminal/types';
 import type { PermissionResult } from '../filesystem/types';
 import { md5 } from '../utils/md5';
@@ -385,10 +386,30 @@ export const useAuthentication = ({
     [resolveNat, readFileFromMachine, addLine, enterMysqlMode],
   );
 
-  // Inline MySQL auth: validates password and enters mysql mode without interactive prompt
+  // Validates a MySQL user's password against the database's own credential list
+  const validateMysqlPassword = useCallback(
+    (user: string, ip: string, password: string): boolean => {
+      const resolvedIp = resolveNat(ip, 3306).ip;
+      const dbJson = readFileFromMachine({
+        machineId: resolvedIp,
+        path: '/var/lib/mysql/data.json',
+        cwd: '/',
+        userType: 'root',
+      });
+      if (!dbJson) return false;
+      const db = JSON.parse(dbJson) as MysqlDatabase;
+      if (!db.credentials) return false;
+      const mysqlUser = db.credentials.find((c) => c.username === user);
+      if (!mysqlUser) return false;
+      return mysqlUser.passwordHash === md5(password);
+    },
+    [resolveNat, readFileFromMachine],
+  );
+
+  // Inline MySQL auth: validates password against DB credentials and enters mysql mode
   const authenticateMysqlInline = useCallback(
     (user: string, targetIP: string, password: string) => {
-      if (validateRemotePassword(user, targetIP, 3306, password)) {
+      if (validateMysqlPassword(user, targetIP, password)) {
         connectMysql(user, targetIP);
       } else {
         addLine(
@@ -397,7 +418,7 @@ export const useAuthentication = ({
         );
       }
     },
-    [validateRemotePassword, connectMysql, addLine],
+    [validateMysqlPassword, connectMysql, addLine],
   );
 
   const startMysqlPrompt = useCallback(
@@ -434,14 +455,7 @@ export const useAuthentication = ({
       if (!targetUser) return false;
 
       if (mysqlTargetIP) {
-        const resolvedIp = resolveNat(mysqlTargetIP, 3306).ip;
-        const users = findMachineUsers(resolvedIp);
-
-        const remoteUser = users.find((u) => u.username === targetUser);
-        if (!remoteUser) return false;
-
-        const inputHash = md5(password);
-        return remoteUser.passwordHash === inputHash;
+        return validateMysqlPassword(targetUser, mysqlTargetIP, password);
       }
 
       if (scpTargetIP) {
@@ -491,6 +505,7 @@ export const useAuthentication = ({
     [
       targetUser,
       mysqlTargetIP,
+      validateMysqlPassword,
       scpTargetIP,
       scpTargetPort,
       sshTargetIP,

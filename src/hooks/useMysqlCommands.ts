@@ -42,13 +42,13 @@ export const useMysqlCommands = (): {
           type: 'output',
           text: [
             'Supported commands:',
-            "  SHOW TABLES;                              List all tables",
-            "  DESCRIBE <table>;                         Show table columns",
-            "  SELECT [*|cols] FROM <table> [WHERE ...]; Query rows",
+            '  SHOW TABLES;                              List all tables',
+            '  DESCRIBE <table>;                         Show table columns',
+            '  SELECT [*|cols] FROM <table> [WHERE ...]; Query rows',
             "  UPDATE <table> SET col='val' [WHERE ...]; Modify rows",
-            "  DELETE FROM <table> [WHERE ...];           Delete rows",
-            "  DROP TABLE <table>;                        Drop a table",
-            "  exit / quit                                Leave mysql mode",
+            '  DELETE FROM <table> [WHERE ...];           Delete rows',
+            '  DROP TABLE <table>;                        Drop a table',
+            '  exit / quit                                Leave mysql mode',
           ].join('\n'),
         };
       }

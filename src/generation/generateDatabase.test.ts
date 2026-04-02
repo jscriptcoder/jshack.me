@@ -15,13 +15,13 @@ const makeDb = (seed = 'test-db') => {
 
 describe('generateDatabase', () => {
   it('always includes a users table', () => {
-    const db = makeDb();
+    const { database: db } = makeDb();
     expect(db.tables['users']).toBeDefined();
     expect(db.tables['users'].rows.length).toBeGreaterThan(0);
   });
 
   it('includes 3-5 tables total', () => {
-    const db = makeDb();
+    const { database: db } = makeDb();
     const count = Object.keys(db.tables).length;
     expect(count).toBeGreaterThanOrEqual(3);
     expect(count).toBeLessThanOrEqual(5);
@@ -32,11 +32,28 @@ describe('generateDatabase', () => {
     const b = makeDb('determ');
     expect(a).toEqual(b);
   });
+
+  it('generates MySQL credentials separate from system users', () => {
+    const { database: db, plaintextCredentials } = makeDb();
+    expect(db.credentials.length).toBeGreaterThanOrEqual(2);
+
+    const root = db.credentials.find((c) => c.username === 'root');
+    expect(root).toBeDefined();
+    expect(root!.userType).toBe('root');
+
+    const appUser = db.credentials.find((c) => c.userType === 'user');
+    expect(appUser).toBeDefined();
+    expect(appUser!.username).not.toBe('root');
+
+    // Plaintext credentials match the hashed ones
+    expect(plaintextCredentials.length).toBe(db.credentials.length);
+    expect(plaintextCredentials[0]!.username).toBe('root');
+  });
 });
 
 describe('enrichForDbExfiltrate', () => {
   it('injects an ACCESS-KEY into api_keys table', () => {
-    const db = makeDb();
+    const { database: db } = makeDb();
     const prng = createPrng('exfil-seed');
     const result = enrichForDbExfiltrate(prng, db);
 
@@ -50,7 +67,7 @@ describe('enrichForDbExfiltrate', () => {
   });
 
   it('creates api_keys table if it does not exist', () => {
-    const db = makeDb();
+    const { database: db } = makeDb();
     const stripped = { ...db, tables: { users: db.tables['users'] } };
     const prng = createPrng('exfil-no-table');
     const result = enrichForDbExfiltrate(prng, stripped);
@@ -62,7 +79,7 @@ describe('enrichForDbExfiltrate', () => {
 
 describe('enrichForDbTamper', () => {
   it('returns tamper details with old and new values', () => {
-    const db = makeDb('tamper-db');
+    const { database: db } = makeDb('tamper-db');
     const prng = createPrng('tamper-seed');
     const result = enrichForDbTamper(prng, db);
 
@@ -74,7 +91,7 @@ describe('enrichForDbTamper', () => {
   });
 
   it('sets the old value in the database', () => {
-    const db = makeDb('tamper-db-2');
+    const { database: db } = makeDb('tamper-db-2');
     const prng = createPrng('tamper-seed-2');
     const result = enrichForDbTamper(prng, db);
 
@@ -89,7 +106,7 @@ describe('enrichForDbTamper', () => {
 
 describe('enrichForDbFix', () => {
   it('returns fix details with corrupted and correct values', () => {
-    const db = makeDb('fix-db');
+    const { database: db } = makeDb('fix-db');
     const prng = createPrng('fix-seed');
     const result = enrichForDbFix(prng, db);
 
@@ -101,7 +118,7 @@ describe('enrichForDbFix', () => {
   });
 
   it('database starts with the corrupted value', () => {
-    const db = makeDb('fix-db-2');
+    const { database: db } = makeDb('fix-db-2');
     const prng = createPrng('fix-seed-2');
     const result = enrichForDbFix(prng, db);
 
@@ -116,7 +133,7 @@ describe('enrichForDbFix', () => {
 
 describe('enrichForDbSabotage', () => {
   it('returns a target table name from the sabotage pool', () => {
-    const db = makeDb('sab-db');
+    const { database: db } = makeDb('sab-db');
     const prng = createPrng('sab-seed');
     const result = enrichForDbSabotage(prng, db);
 
@@ -135,7 +152,7 @@ describe('enrichForDbSabotage', () => {
   });
 
   it('ensures the target table exists in the database', () => {
-    const db = makeDb('sab-db-2');
+    const { database: db } = makeDb('sab-db-2');
     const prng = createPrng('sab-seed-2');
     const result = enrichForDbSabotage(prng, db);
 

@@ -542,4 +542,124 @@ describe('hydra command', () => {
       expect(lines.some((l) => l.includes('attacking snmp://'))).toBe(false);
     });
   });
+
+  describe('MySQL credential brute-force', () => {
+    // guest password hash: md5('guest') = 084e0343a0486ff05530df6c705c8bb4
+    const mysqlDataJson = (
+      creds?: readonly { username: string; passwordHash: string; userType: string }[],
+    ): FileNode => ({
+      name: 'data.json',
+      type: 'file',
+      owner: 'root',
+      permissions: { read: ['root'], write: ['root'], execute: [] },
+      content: JSON.stringify({
+        name: 'app_prod',
+        credentials: creds ?? [
+          { username: 'root', passwordHash: 'ca8f678fec022c9892f0ffee16eb0aa3', userType: 'root' },
+          {
+            username: 'webapp',
+            passwordHash: '5f4dcc3b5aa765d61d8327deb882cf99',
+            userType: 'user',
+          },
+          {
+            username: 'readonly',
+            passwordHash: '084e0343a0486ff05530df6c705c8bb4',
+            userType: 'guest',
+          },
+        ],
+        tables: {},
+      }),
+    });
+
+    const mysqlMachine = (): RemoteMachine =>
+      getMockRemoteMachine({
+        ip: '10.0.0.5',
+        hostname: 'dbserver',
+        ports: [
+          { port: 22, service: 'ssh', open: true },
+          { port: 3306, service: 'mysql', open: true },
+        ],
+      });
+
+    const mysqlContext = (dataJson?: FileNode) =>
+      createMockContext({
+        machines: [mysqlMachine()],
+        machineFiles: {
+          '10.0.0.5': { '/var/lib/mysql/data.json': dataJson ?? mysqlDataJson() },
+        },
+      });
+
+    it('should crack guest-type MySQL user when random < 1.0', async () => {
+      const hydra = createHydraCommand(mysqlContext());
+      vi.spyOn(Math, 'random').mockReturnValue(0);
+      const result = hydra.fn('10.0.0.5', 'mysql');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      const lines = await collectAsyncLines(result);
+      expect(lines.some((l) => l.includes('login: readonly'))).toBe(true);
+      expect(lines.some((l) => l.includes('[3306][mysql]'))).toBe(true);
+    });
+
+    it('should show DATA line targeting mysql', async () => {
+      const hydra = createHydraCommand(mysqlContext());
+      vi.spyOn(Math, 'random').mockReturnValue(0.5);
+      const result = hydra.fn('10.0.0.5', 'mysql');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      const lines = await collectAsyncLines(result);
+      expect(lines.some((l) => l.includes('[DATA] attacking mysql://10.0.0.5:3306'))).toBe(true);
+    });
+
+    it('should filter by username', async () => {
+      const hydra = createHydraCommand(mysqlContext());
+      vi.spyOn(Math, 'random').mockReturnValue(0);
+      const result = hydra.fn('10.0.0.5', 'mysql', 'webapp');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      const lines = await collectAsyncLines(result);
+      expect(lines.some((l) => l.includes('login: readonly'))).toBe(false);
+      expect(lines.some((l) => l.includes('of 1 target user'))).toBe(true);
+    });
+
+    it('should throw when user not found', () => {
+      const hydra = createHydraCommand(mysqlContext());
+      expect(() => hydra.fn('10.0.0.5', 'mysql', 'nonexistent')).toThrow(
+        'user "nonexistent" not found',
+      );
+    });
+
+    it('should throw when MySQL port is not open', () => {
+      const machine = getMockRemoteMachine({
+        ip: '10.0.0.5',
+        ports: [{ port: 22, service: 'ssh', open: true }],
+      });
+      const hydra = createHydraCommand(createMockContext({ machines: [machine] }));
+      expect(() => hydra.fn('10.0.0.5', 'mysql')).toThrow('no open mysql service on 10.0.0.5');
+    });
+
+    it('should throw when no data.json exists', () => {
+      const machine = getMockRemoteMachine({
+        ip: '10.0.0.5',
+        ports: [{ port: 3306, service: 'mysql', open: true }],
+      });
+      const hydra = createHydraCommand(createMockContext({ machines: [machine] }));
+      expect(() => hydra.fn('10.0.0.5', 'mysql')).toThrow('no MySQL server responding');
+    });
+
+    it('should not auto-discover MySQL (requires explicit service filter)', async () => {
+      const hydra = createHydraCommand(mysqlContext());
+      vi.spyOn(Math, 'random').mockReturnValue(0);
+      const result = hydra.fn('10.0.0.5');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      const lines = await collectAsyncLines(result);
+      expect(lines.some((l) => l.includes('attacking mysql://'))).toBe(false);
+      expect(lines.some((l) => l.includes('attacking ssh://'))).toBe(true);
+    });
+
+    it('should show summary line', async () => {
+      const hydra = createHydraCommand(mysqlContext());
+      vi.spyOn(Math, 'random').mockReturnValue(0.5);
+      const result = hydra.fn('10.0.0.5', 'mysql');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      const lines = await collectAsyncLines(result);
+      expect(lines.some((l) => l.includes('of 3 target users successfully cracked'))).toBe(true);
+    });
+  });
 });

@@ -272,6 +272,18 @@ export const allTableTemplates: readonly TableTemplate[] = [
   ticketsTable,
 ];
 
+// MySQL-specific usernames for database credentials (separate from system users)
+export const mysqlUsernames = [
+  'app_user',
+  'webapp',
+  'db_admin',
+  'service',
+  'api_svc',
+  'backup_svc',
+  'data_admin',
+  'app_rw',
+] as const;
+
 export const dbNamePrefixes = [
   'app',
   'web',

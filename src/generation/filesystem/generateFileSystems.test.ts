@@ -396,8 +396,10 @@ describe('generateFileSystems', () => {
     });
 
     it('binary templates produce files that contain credentials extractable via strings', () => {
-      const binaryTemplates = credentialLeakTemplates.filter((t) => t.binary);
-      expect(binaryTemplates.length).toBeGreaterThanOrEqual(3);
+      const systemBinaryTemplates = credentialLeakTemplates.filter(
+        (t) => t.binary && t.credentialType !== 'mysql',
+      );
+      expect(systemBinaryTemplates.length).toBeGreaterThanOrEqual(1);
 
       for (let i = 0; i < 100; i++) {
         const { topology, fileSystems, credentials } = buildTestData(`cred-leak-binary-${i}`);
@@ -408,7 +410,7 @@ describe('generateFileSystems', () => {
           const userCred = creds.find((c) => c.username !== 'root' && c.username !== 'guest');
           if (!userCred) return;
 
-          binaryTemplates.forEach((t) => {
+          systemBinaryTemplates.forEach((t) => {
             const node = resolveNode(fs, t.path);
             if (!node?.content) return;
             // Binary-wrapped files still contain the password (extractable with strings)

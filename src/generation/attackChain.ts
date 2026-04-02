@@ -658,18 +658,15 @@ const buildObjective = (
   }
 
   if (objectiveType === 'db_fix') {
-    // Get root password for briefing (player is an authorized contractor)
-    const dbFixCreds = credentials[targetMachine.ip] ?? [];
-    const dbFixRootCred = dbFixCreds.find((c) => c.username === 'root');
-    const dbFixRootPassword = dbFixRootCred?.password ?? 'unknown';
-
     // Consume dummy PRNG rolls for binary + encrypt to preserve sequence alignment
     prng.next();
     prng.next();
 
+    // MySQL credentials are generated later in the DB objective block (line ~748).
+    // The description is patched there with the actual MySQL root credentials.
     return {
       type: 'db_fix',
-      description: `Fix the corrupted database records on ${targetMachine.hostname}. Root password: ${dbFixRootPassword}`,
+      description: `Fix the corrupted database records on ${targetMachine.hostname}`,
       targetMachine: targetMachine.ip,
       targetPath: '',
       targetContent: '',
@@ -745,7 +742,10 @@ export const buildMissionObjective = (input: BuildObjectiveInput): BuildObjectiv
   if (isDbObjective(objectiveType)) {
     const targetCreds = credentials[targetMachine.ip] ?? [];
     const usernames = targetCreds.map((c) => c.username);
-    const baseDb = generateDatabase(prng, usernames);
+    const { database: baseDb, plaintextCredentials: mysqlCreds } = generateDatabase(
+      prng,
+      usernames,
+    );
 
     const enrichFn =
       objectiveType === 'db_exfiltrate'
@@ -757,8 +757,19 @@ export const buildMissionObjective = (input: BuildObjectiveInput): BuildObjectiv
             : enrichForDbFix;
     const enrichment = enrichFn(prng, baseDb);
 
+    // For db_fix, patch the description with MySQL root credentials (authorized contractor)
+    const patchedDescription =
+      objectiveType === 'db_fix'
+        ? (() => {
+            const mysqlRoot = mysqlCreds.find((c) => c.username === 'root');
+            const rootPw = mysqlRoot?.password ?? 'unknown';
+            return `${objective.description}. MySQL credentials — user: root, password: ${rootPw}`;
+          })()
+        : objective.description;
+
     const enrichedObjective: MissionObjective = {
       ...objective,
+      description: patchedDescription,
       expectedProof: enrichment.expectedProof ?? objective.expectedProof,
       dbTargetTable: enrichment.targetTable,
       dbTamperColumn: enrichment.tamperColumn,

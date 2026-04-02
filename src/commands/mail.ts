@@ -334,9 +334,10 @@ const verifyDbTamperOrFix = (
   // Find the specific target row using the filter
   const filterCol = objective.dbTamperFilterColumn;
   const filterVal = objective.dbTamperFilterValue;
-  const targetRow = filterCol && filterVal
-    ? table.rows.find((row) => String(row[filterCol]) === filterVal)
-    : table.rows[0];
+  const targetRow =
+    filterCol && filterVal
+      ? table.rows.find((row) => String(row[filterCol]) === filterVal)
+      : table.rows[0];
 
   if (!targetRow) {
     return `Target record not found in the ${tableName} table.`;

@@ -16,7 +16,9 @@ const makeContext = (overrides: Partial<Parameters<typeof createMysqlCommand>[0]
   getMachine: vi.fn((_ip: string) => undefined as RemoteMachine | undefined),
   findMachineByIp: vi.fn((_ip: string) => undefined as RemoteMachine | undefined),
   getLocalIP: vi.fn(() => '10.0.0.5'),
-  resolveDomain: vi.fn((_domain: string) => undefined as { domain: string; ip: string; type: 'A' } | undefined),
+  resolveDomain: vi.fn(
+    (_domain: string) => undefined as { domain: string; ip: string; type: 'A' } | undefined,
+  ),
   ...overrides,
 });
 

@@ -22,9 +22,16 @@ export type MysqlTable = {
   readonly rows: readonly MysqlRow[];
 };
 
+export type MysqlCredential = {
+  readonly username: string;
+  readonly passwordHash: string;
+  readonly userType: 'root' | 'user' | 'guest';
+};
+
 export type MysqlDatabase = {
   readonly name: string;
   readonly tables: Readonly<Record<string, MysqlTable>>;
+  readonly credentials: readonly MysqlCredential[];
 };
 
 // Parsed SQL types — discriminated union from the parser

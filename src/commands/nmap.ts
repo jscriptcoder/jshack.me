@@ -251,7 +251,12 @@ export const createNmapCommand = (context: NmapContext): Command => ({
                 const localHostname = getLocalHostname();
                 const localMachine = findMachineByIp(ip);
                 const localPorts = localMachine?.ports ?? [];
-                discoveredHosts.push({ ip, hostname: localHostname, isLocal: true, ports: localPorts });
+                discoveredHosts.push({
+                  ip,
+                  hostname: localHostname,
+                  isLocal: true,
+                  ports: localPorts,
+                });
                 onLine(`Host discovered: ${ip} (${localHostname})`);
               } else {
                 const machine = machines.find((m) => m.ip === ip);

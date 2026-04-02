@@ -44,7 +44,11 @@ import {
   generateBasicRwSnmpConfig,
 } from './networkConfig';
 import { generateForensicsEvidence } from './forensicsEvidence';
-import { generateDatabase, type DbEnrichment } from '../generateDatabase';
+import {
+  generateDatabase,
+  type DbEnrichment,
+  type GenerateDatabaseResult,
+} from '../generateDatabase';
 
 type FilesystemInput = {
   readonly prng: Prng;
@@ -110,23 +114,30 @@ const CREDENTIAL_LEAK_CHANCE = 0.3;
 
 // Places a credential leak file on a machine ~30% of the time.
 // Leaks a user-type account's credentials in a guest-readable location.
+// DB-themed templates use MySQL credentials when available; others use system credentials.
 // Always consumes 2 PRNG calls for sequence stability.
 const placeCredentialLeak = (
   prng: Prng,
   machineCreds: readonly { readonly username: string; readonly password: string }[],
+  mysqlCreds: readonly { readonly username: string; readonly password: string }[] | undefined,
   extraDirectories: Record<string, FileNode>,
   etcExtraContent: Record<string, FileNode>,
 ): void => {
   const roll = prng.next();
   const template = prng.pick(credentialLeakTemplates);
 
-  // Only user-type credentials (never root or guest)
-  const userCred = machineCreds.find((c) => c.username !== 'root' && c.username !== 'guest');
-  if (roll >= CREDENTIAL_LEAK_CHANCE || !userCred) return;
+  // DB-themed templates use MySQL credentials; system-themed use system credentials
+  const isDbTemplate = template.credentialType === 'mysql';
+  const cred =
+    isDbTemplate && mysqlCreds && mysqlCreds.length > 0
+      ? (mysqlCreds.find((c) => c.username !== 'root' && c.username !== 'readonly') ??
+        mysqlCreds[0])
+      : machineCreds.find((c) => c.username !== 'root' && c.username !== 'guest');
+  if (roll >= CREDENTIAL_LEAK_CHANCE || !cred) return;
 
   const content = fillTemplate(template.content, {
-    username: userCred.username,
-    password: userCred.password,
+    username: cred.username,
+    password: cred.password,
   });
 
   const segments = template.path.split('/').filter(Boolean);
@@ -482,8 +493,26 @@ export const buildMachineConfig = (
     }
   }
 
-  // ~30% chance to place a careless user's credentials in a guest-readable location
-  placeCredentialLeak(prng, machineCreds, extraDirectories, etcExtraContent);
+  // Pre-generate MySQL database for machines with an open MySQL port.
+  // Done before credential leak placement so DB-themed leaks use MySQL credentials.
+  const hasOpenMysqlPort = machine.remoteMachine.ports.some(
+    (p) => p.open && p.port === 3306 && p.service === 'mysql',
+  );
+  let mysqlDb: GenerateDatabaseResult | undefined;
+  if (hasOpenMysqlPort) {
+    const dbUsernames = users.filter((u) => u.userType !== 'guest').map((u) => u.username);
+    // For db_* mission targets, use the pre-enriched database from the objective builder
+    if (isTarget && options.dbEnrichment) {
+      mysqlDb = { database: options.dbEnrichment.database, plaintextCredentials: [] };
+    } else {
+      mysqlDb = generateDatabase(prng, dbUsernames);
+    }
+  }
+
+  // ~30% chance to place a careless user's credentials in a guest-readable location.
+  // DB-themed leak templates use MySQL credentials when available.
+  const mysqlPlaintextCreds = mysqlDb?.plaintextCredentials;
+  placeCredentialLeak(prng, machineCreds, mysqlPlaintextCreds, extraDirectories, etcExtraContent);
 
   // Generate web content for any machine with an open HTTP port.
   // Uses role-appropriate templates: webservers get corporate portals,
@@ -525,21 +554,11 @@ export const buildMachineConfig = (
     );
   }
 
-  // Generate MySQL database file for machines with an open MySQL port.
-  // Stored as /var/lib/mysql/data.json — read/written by the mysql command.
-  const hasOpenMysqlPort = machine.remoteMachine.ports.some(
-    (p) => p.open && p.port === 3306 && p.service === 'mysql',
-  );
-  if (hasOpenMysqlPort) {
-    const usernames = users.filter((u) => u.userType !== 'guest').map((u) => u.username);
-    // For db_* mission targets, use the pre-enriched database from the objective builder
-    const db =
-      isTarget && options.dbEnrichment
-        ? options.dbEnrichment.database
-        : generateDatabase(prng, usernames);
+  // Write MySQL database file as /var/lib/mysql/data.json
+  if (hasOpenMysqlPort && mysqlDb) {
     const mysqlDir = mkDir(
       'mysql',
-      { 'data.json': mkFile('data.json', JSON.stringify(db), 'root') },
+      { 'data.json': mkFile('data.json', JSON.stringify(mysqlDb.database), 'root') },
       'root',
       false,
     );
@@ -757,9 +776,7 @@ export const generateFileSystems = (input: FilesystemInput): FilesystemResult =>
       const nextGateway = nextLayer
         ? machines.find((m) => m.ip === nextLayer.gateway.ip)
         : undefined;
-      const allDownstream = nextGateway
-        ? [...downstreamMachines, nextGateway]
-        : downstreamMachines;
+      const allDownstream = nextGateway ? [...downstreamMachines, nextGateway] : downstreamMachines;
       gatewayDownstreamMap.set(layer.gateway.ip, allDownstream);
       gatewayNatMap.set(layer.gateway.ip, layer.natForwarding);
       gatewaySubnetMap.set(layer.gateway.ip, layer.subnet);

@@ -4,6 +4,7 @@ import type { MysqlDatabase, ParsedSql } from './types';
 
 const createTestDb = (): MysqlDatabase => ({
   name: 'app_prod',
+  credentials: [],
   tables: {
     users: {
       columns: [

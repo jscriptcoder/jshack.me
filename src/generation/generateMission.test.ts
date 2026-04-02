@@ -919,10 +919,12 @@ describe('MySQL mission end-to-end', () => {
     expect(mission.objective.dbTargetTable).toBeDefined();
   });
 
-  it('generates a db_fix mission with root password in description', () => {
+  it('generates a db_fix mission with MySQL credentials in description', () => {
     const mission = generateMissionNetwork('test-db-fix-easy');
     expect(mission.objective.type).toBe('db_fix');
-    expect(mission.objective.description).toContain('Root password:');
+    expect(mission.objective.description).toContain('MySQL credentials');
+    expect(mission.objective.description).toContain('user: root');
+    expect(mission.objective.description).toContain('password:');
     expect(mission.objective.dbTargetTable).toBeDefined();
     expect(mission.objective.dbTamperOldValue).toBeDefined();
     expect(mission.objective.dbTamperNewValue).toBeDefined();
