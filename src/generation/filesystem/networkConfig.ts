@@ -1,5 +1,6 @@
 import type { Prng } from '../prng';
 import type { GeneratedMachine, NatForwarding } from '../types';
+import type { DnsRecord } from '../../network/types';
 import { snmpRwCommunities } from '../pools';
 
 // Generates the content for /etc/switch/acl.conf on managed switches.
@@ -197,6 +198,63 @@ export const generateBasicSnmpConfig = (
     `ifDescr.2 ${ifNames[1]}`,
     `ifAddr.1 ${primaryIp}`,
     `ifAddr.2 ${secondaryIp}`,
+  ];
+
+  return lines.join('\n');
+};
+
+// Generates BIND zone file content for DNS machines.
+// Contains SOA, NS, and A records for all machines visible to the DNS server.
+export const generateDnsZoneContent = (
+  hostname: string,
+  records: readonly DnsRecord[],
+): string => {
+  const padName = (name: string): string => name.padEnd(15);
+
+  const lines = [
+    '; Zone file for mission domain',
+    '$ORIGIN mission.',
+    '$TTL 3600',
+    '',
+    `@  IN SOA ${hostname}.mission. hostmaster.mission. (`,
+    '     2024030101 ; serial',
+    '     3600       ; refresh',
+    '     1800       ; retry',
+    '     604800     ; expire',
+    '     86400      ; minimum',
+    ')',
+    `@  IN NS  ${hostname}.mission.`,
+    '',
+    '; A records',
+    ...records.map((r) => {
+      const name = r.domain.replace('.mission', '');
+      return `${padName(name)} 3600  IN  A  ${r.ip}`;
+    }),
+  ];
+
+  return lines.join('\n');
+};
+
+// Generates /etc/bind/named.conf for DNS machines.
+// The allowAxfr flag controls whether zone transfers are permitted —
+// mirrors the real-world misconfiguration of allow-transfer { any; }.
+export const generateDnsNamedConf = (zoneName: string, allowAxfr: boolean): string => {
+  const lines = [
+    '// BIND named.conf',
+    '// Generated configuration',
+    '',
+    'options {',
+    '  directory "/var/cache/bind";',
+    '  listen-on port 53 { any; };',
+    '  recursion yes;',
+    '  allow-query { any; };',
+    '};',
+    '',
+    `zone "${zoneName}" {`,
+    '  type master;',
+    `  file "/etc/bind/zones/db.${zoneName}";`,
+    `  allow-transfer { ${allowAxfr ? 'any' : 'none'}; };`,
+    '};',
   ];
 
   return lines.join('\n');
