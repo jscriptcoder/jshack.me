@@ -171,12 +171,34 @@ Adds the `dig` command with standard lookup and AXFR zone transfer support.
 
 **Implementation**:
 - Create `src/commands/dig.ts` with `createDigCommand(context)`
-- Context: `getMachine`, `resolveDomain`, `readFileFromMachine`, `getLocalIP`, `getGateway`, `resolveDomain`
+- Context: `getMachine`, `resolveDomain`, `readFileFromMachine`, `getLocalIP`, `getGateway`
 - Parse args: first arg starting with `@` is the DNS server IP, next is domain, optional third is query type
 - For `@server` mode: validate machine exists and has port 53 open, read zone file from `/etc/bind/zones/db.mission`, parse it, find matching A record
 - For no-server mode: use `resolveDomain` fallback (like nslookup)
-- Output format: realistic `dig` output with QUESTION, ANSWER, and metadata sections
 - Returns `AsyncOutput` with realistic DNS query delay
+
+**Output format**: Simplified like `snmpwalk` — recognizable as dig but stripped of noise. Every line is actionable, no QUESTION/AUTHORITY/OPT/flags/message-size clutter.
+
+Standard query:
+```
+; <<>> DiG 9.16.0 <<>> web01.mission @10.0.1.5
+
+;; ANSWER SECTION:
+web01.mission.         3600  IN    A     10.0.1.50
+
+;; SERVER: 10.0.1.5#53
+;; Query time: 4 msec
+```
+
+NXDOMAIN:
+```
+; <<>> DiG 9.16.0 <<>> nonexistent.mission @10.0.1.5
+
+;; status: NXDOMAIN
+
+;; SERVER: 10.0.1.5#53
+;; Query time: 4 msec
+```
 
 **Done when**: All dig tests pass.
 
@@ -193,8 +215,33 @@ Adds the `dig` command with standard lookup and AXFR zone transfer support.
 - Extend dig command: when third arg is `"axfr"`, first read `named.conf` and check `allow-transfer` setting
 - If `allow-transfer { any; }`: read entire zone file and output all records
 - If `allow-transfer { none; }`: return "; Transfer failed." error message
-- AXFR output format: SOA record, then all A records, then trailing SOA (standard AXFR format)
 - Parse zone file content to extract individual records
+
+**Output format**: Simplified AXFR — flat list of A records, record count, no SOA wrapping.
+
+AXFR success:
+```
+; <<>> DiG 9.16.0 <<>> mission AXFR @10.0.1.5
+
+dns01.mission.         3600  IN    A     10.0.1.5
+web01.mission.         3600  IN    A     10.0.1.50
+gateway-sw.mission.    3600  IN    A     10.0.1.1
+db-prod.mission.       3600  IN    A     10.0.2.15
+admin-box.mission.     3600  IN    A     10.0.2.30
+backup-srv.mission.    3600  IN    A     10.0.2.5
+
+;; XFR size: 6 records
+;; SERVER: 10.0.1.5#53
+```
+
+AXFR denied:
+```
+; <<>> DiG 9.16.0 <<>> mission AXFR @10.0.1.5
+
+; Transfer failed.
+
+;; SERVER: 10.0.1.5#53
+```
 
 **Done when**: AXFR tests pass; zone transfer works/fails based on named.conf config.
 
