@@ -5,6 +5,8 @@ import {
   formatFtpConnect,
   formatFtpLoginFailed,
   formatFtpLoginOk,
+  formatMysqlAccessDenied,
+  formatMysqlConnect,
   formatScpAccepted,
   formatScpFailed,
   formatSshAccepted,
@@ -122,6 +124,26 @@ describe('formatFtpLoginFailed', () => {
     const date = new Date('2026-03-21T14:30:15Z');
     const result = formatFtpLoginFailed(date, '192.168.1.100', 'baduser');
     expect(result).toBe('[2026-03-21 14:30:15] FAIL LOGIN: Client "192.168.1.100", user "baduser"');
+  });
+});
+
+describe('formatMysqlConnect', () => {
+  it('formats MySQL successful connection entry', () => {
+    const date = new Date('2026-03-21T14:30:15Z');
+    const result = formatMysqlConnect(date, 42, 'admin', '192.168.1.100', 'webapp_db');
+    expect(result).toBe(
+      '2026-03-21T14:30:15.000000Z\t42 Connect\tadmin@192.168.1.100 on webapp_db using TCP/IP',
+    );
+  });
+});
+
+describe('formatMysqlAccessDenied', () => {
+  it('formats MySQL access denied entry', () => {
+    const date = new Date('2026-03-21T14:30:15Z');
+    const result = formatMysqlAccessDenied(date, 42, 'admin', '192.168.1.100');
+    expect(result).toBe(
+      "2026-03-21T14:30:15.000000Z\t42 Connect\tAccess denied for user 'admin'@'192.168.1.100' (using password: YES)",
+    );
   });
 });
 

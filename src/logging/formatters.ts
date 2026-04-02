@@ -119,6 +119,34 @@ export const formatFtpLoginOk = (date: Date, clientIp: string, user: string): st
 export const formatFtpLoginFailed = (date: Date, clientIp: string, user: string): string =>
   `${formatVsftpdTimestamp(date)} FAIL LOGIN: Client "${clientIp}", user "${user}"`;
 
+// MySQL general log format: YYYY-MM-DDTHH:MM:SS.000000Z\t threadId Event\tmessage
+const formatMysqlTimestamp = (date: Date): string => {
+  const y = date.getUTCFullYear();
+  const mo = (date.getUTCMonth() + 1).toString().padStart(2, '0');
+  const d = date.getUTCDate().toString().padStart(2, '0');
+  const h = date.getUTCHours().toString().padStart(2, '0');
+  const mi = date.getUTCMinutes().toString().padStart(2, '0');
+  const s = date.getUTCSeconds().toString().padStart(2, '0');
+  return `${y}-${mo}-${d}T${h}:${mi}:${s}.000000Z`;
+};
+
+export const formatMysqlConnect = (
+  date: Date,
+  threadId: number,
+  user: string,
+  sourceIp: string,
+  dbName: string,
+): string =>
+  `${formatMysqlTimestamp(date)}\t${threadId} Connect\t${user}@${sourceIp} on ${dbName} using TCP/IP`;
+
+export const formatMysqlAccessDenied = (
+  date: Date,
+  threadId: number,
+  user: string,
+  sourceIp: string,
+): string =>
+  `${formatMysqlTimestamp(date)}\t${threadId} Connect\tAccess denied for user '${user}'@'${sourceIp}' (using password: YES)`;
+
 // Apache Combined Log Format: ip - - [DD/MMM/YYYY:HH:MM:SS +0000] "METHOD /path HTTP/1.1" status size
 export const formatAccessLog = (
   date: Date,

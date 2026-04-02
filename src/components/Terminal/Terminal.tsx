@@ -24,6 +24,8 @@ import {
   formatFtpConnect,
   formatFtpLoginOk,
   formatFtpLoginFailed,
+  formatMysqlConnect,
+  formatMysqlAccessDenied,
 } from '../../logging/formatters';
 import { generatePid, resolveHostname, resolveLogSourceIP } from '../../logging/utils';
 import { useNetwork } from '../../network';
@@ -215,6 +217,25 @@ export const Terminal = () => {
         ? formatFtpLoginOk(now, sourceIP, user)
         : formatFtpLoginFailed(now, sourceIP, user);
       appendToMachineLog(targetIP, '/var/log/vsftpd.log', `${connectLine}\n${authLine}`, logFs);
+    },
+    onMysqlAuth: (success, user, targetIP) => {
+      const resolvedIp = resolveNat(targetIP, 3306).ip;
+      const sourceIP = resolveLogSourceIP(session.machine, targetIP, getLocalIP(), getPublicIP());
+      const threadId = generatePid();
+      if (success) {
+        const dbJson = readFileFromMachine({
+          machineId: resolvedIp,
+          path: '/var/lib/mysql/data.json',
+          cwd: '/',
+          userType: 'root',
+        });
+        const dbName = dbJson ? (JSON.parse(dbJson) as { readonly name: string }).name : 'unknown';
+        const logLine = formatMysqlConnect(new Date(), threadId, user, sourceIP, dbName);
+        appendToMachineLog(targetIP, '/var/log/mysql.log', logLine, logFs);
+      } else {
+        const logLine = formatMysqlAccessDenied(new Date(), threadId, user, sourceIP);
+        appendToMachineLog(targetIP, '/var/log/mysql.log', logLine, logFs);
+      }
     },
   });
 

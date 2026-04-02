@@ -49,6 +49,7 @@ type AuthenticationOptions = {
     method: 'password' | 'publickey',
   ) => void;
   readonly onFtpAuth?: (success: boolean, user: string, targetIP: string) => void;
+  readonly onMysqlAuth?: (success: boolean, user: string, targetIP: string) => void;
 };
 
 export const useAuthentication = ({
@@ -72,6 +73,7 @@ export const useAuthentication = ({
   onSuAuth,
   onSshAuth,
   onFtpAuth,
+  onMysqlAuth,
 }: AuthenticationOptions) => {
   const [passwordMode, setPasswordMode] = useState(false);
   const [targetUser, setTargetUser] = useState<string | null>(null);
@@ -411,14 +413,16 @@ export const useAuthentication = ({
     (user: string, targetIP: string, password: string) => {
       if (validateMysqlPassword(user, targetIP, password)) {
         connectMysql(user, targetIP);
+        onMysqlAuth?.(true, user, targetIP);
       } else {
         addLine(
           'error',
           `ERROR 1045 (28000): Access denied for user '${user}'@'${targetIP}' (using password: YES)`,
         );
+        onMysqlAuth?.(false, user, targetIP);
       }
     },
-    [validateMysqlPassword, connectMysql, addLine],
+    [validateMysqlPassword, connectMysql, addLine, onMysqlAuth],
   );
 
   const startMysqlPrompt = useCallback(
@@ -568,6 +572,7 @@ export const useAuthentication = ({
 
         if (mysqlTargetIP) {
           connectMysql(targetUser, mysqlTargetIP);
+          onMysqlAuth?.(true, targetUser, mysqlTargetIP);
         } else if (scpTargetIP) {
           saveAuthorizedKey(targetUser, scpTargetIP, scpTargetPort ?? 22);
           onSshAuth?.(true, targetUser, scpTargetIP, scpTargetPort ?? 22, 'password');
@@ -622,6 +627,7 @@ export const useAuthentication = ({
             'error',
             `ERROR 1045 (28000): Access denied for user '${targetUser}'@'${mysqlTargetIP}' (using password: YES)`,
           );
+          if (targetUser) onMysqlAuth?.(false, targetUser, mysqlTargetIP);
         } else if (scpTargetIP) {
           addLine('error', `Permission denied, please try again.`);
           if (targetUser)
@@ -677,6 +683,7 @@ export const useAuthentication = ({
       onSuAuth,
       onSshAuth,
       onFtpAuth,
+      onMysqlAuth,
     ],
   );
 
