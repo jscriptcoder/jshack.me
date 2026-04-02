@@ -81,6 +81,14 @@ export const configTemplatesByRole: Readonly<Record<MachineRole, readonly string
     '# Home Assistant config\nhomeassistant:\n  name: Home\n  unit_system: metric\n  time_zone: UTC\nmqtt:\n  broker: localhost\n  port: 1883\n  discovery: true\nautomation: !include automations.yaml',
     '# Modbus RTU configuration\n[modbus]\ndevice=/dev/ttyS0\nbaudrate=9600\nparity=N\nstopbits=1\nunit_id=1\nregisters=0x0000-0x00FF\npoll_interval=5',
   ],
+  dns: [
+    'options {\n  listen-on port 53 { any; };\n  directory "/var/cache/bind";\n  recursion yes;\n  allow-recursion { 10.0.0.0/8; 172.16.0.0/12; 192.168.0.0/16; };\n  forwarders { 8.8.8.8; 8.8.4.4; };\n  dnssec-validation auto;\n};',
+    'options {\n  listen-on port 53 { any; };\n  directory "/var/cache/bind";\n  recursion yes;\n  allow-query { any; };\n  max-cache-size 256M;\n  version "not disclosed";\n};\nlogging {\n  channel query_log {\n    file "/var/log/named/query.log";\n    severity info;\n  };\n};',
+    'options {\n  listen-on port 53 { any; };\n  directory "/var/cache/bind";\n  recursion no;\n  allow-query { any; };\n  rate-limit {\n    responses-per-second 10;\n  };\n};\nstatistics-channels {\n  inet 127.0.0.1 port 8053 allow { 127.0.0.1; };\n};',
+    'options {\n  listen-on port 53 { any; };\n  directory "/var/cache/bind";\n  recursion yes;\n  allow-recursion { localhost; 10.0.0.0/8; };\n  empty-zones-enable yes;\n  querylog yes;\n};\ncontrols {\n  inet 127.0.0.1 port 953 allow { localhost; };\n};',
+    'options {\n  listen-on port 53 { any; };\n  directory "/var/cache/bind";\n  recursion yes;\n  allow-query { any; };\n  forwarders { 1.1.1.1; 9.9.9.9; };\n  forward only;\n  max-cache-ttl 3600;\n  max-ncache-ttl 300;\n};',
+    'options {\n  listen-on port 53 { any; };\n  directory "/var/cache/bind";\n  dnssec-enable yes;\n  dnssec-validation yes;\n  managed-keys-directory "/var/cache/bind/dynamic";\n  auth-nxdomain no;\n  listen-on-v6 { none; };\n};',
+  ],
   router: [
     '*filter\n:INPUT DROP [0:0]\n:FORWARD ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n-A INPUT -i lo -j ACCEPT\n-A INPUT -p tcp --dport 22 -j ACCEPT\n-A INPUT -p tcp --dport {{port}} -j ACCEPT\n-A FORWARD -i eth1 -o eth0 -j ACCEPT\n-A FORWARD -i eth0 -o eth1 -m state --state RELATED,ESTABLISHED -j ACCEPT\nCOMMIT',
     'auto eth0\niface eth0 inet static\n  address {{hostname}}\n  netmask 255.255.255.0\n  gateway 0.0.0.0\n\nauto eth1\niface eth1 inet static\n  address 10.0.0.1\n  netmask 255.255.255.0',
@@ -317,6 +325,23 @@ export const targetFileTemplatesByRole: Readonly<
         'From: payroll@corp.local\nTo: finance@corp.local\nSubject: Wire Transfer Authorization\nDate: Thu, 18 Jan 2024 09:44:11 -0500\n\nPlease authorize the following wire:\nAmount: $1,850,000\nDestination: Cayman National Bank\nAuth code: {{access_key}}\n\nApproval required by EOD.',
     },
   ],
+  dns: [
+    {
+      path: '/etc/bind/zones/db.internal',
+      contentTemplate:
+        '; Internal zone file — CONFIDENTIAL\n; Transfer key: {{access_key}}\n; Last updated: 2024-01-15\n$ORIGIN internal.\n$TTL 3600',
+    },
+    {
+      path: '/var/cache/bind/zone_export.txt',
+      contentTemplate:
+        'Zone Export — Restricted\n========================\nExport key: {{access_key}}\nGenerated: 2024-01-18 02:00:00 UTC',
+    },
+    {
+      path: '/opt/dns/rndc_keys.txt',
+      contentTemplate:
+        'RNDC Key Material\n==================\nPrimary: {{access_key}}\nBackup: rndc-key-9f8e7d6c',
+    },
+  ],
   // Router is infrastructure-only (never the mission target), but the type system
   // requires target file templates for every role. These are unused in practice.
   router: [
@@ -522,6 +547,16 @@ export const tamperFileTemplatesByRole: Readonly<
       tamperField: 'transport',
       tamperOldValue: 'smtp:[audit-relay.corp.local]',
       tamperNewValue: 'discard:',
+    },
+  ],
+  dns: [
+    {
+      path: '/etc/bind/named.conf.options',
+      contentTemplate:
+        '# BIND options\nallow-recursion { {{tamperOldValue}} };\nmax-cache-size 256M;\nquery-source address * port *;',
+      tamperField: 'recursion_acl',
+      tamperOldValue: '10.0.0.0/8',
+      tamperNewValue: 'any',
     },
   ],
   router: [

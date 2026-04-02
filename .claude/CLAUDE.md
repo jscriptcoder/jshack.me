@@ -83,7 +83,7 @@ Commands use a unified filesystem-based access model (`src/commands/availability
 
 - **Shell builtins** (cd, exit, clear, echo, pwd, help, whoami, bash) — always available, no binary needed
 - **Game commands** (missions, accept, abort, mail, output, resolve, author, theme, reset, xterm) — always available
-- **System utilities** in `/bin/` — always present, world-executable (except `reboot`: root-only)
+- **System utilities** in `/bin/` — always present, world-executable (except `reboot`: root-only). Includes `dig` for DNS lookups and zone transfers
 - **Apt-installable tools** in `/usr/bin/` — require `apt install` as root (needs network); only WiFi tools (airmon, airdump, aircrack), node, and gpg are pre-installed on localhost; world-executable once installed (except `gpg`: root-only)
 - **Admin utilities** in `/usr/sbin/` — root-only daemon management (`sshd`, `vsftpd`, `systemctl`); write PID files to `/var/run/` for dynamic port opening via `NetworkContext`
 - **Backdoor listener** — `nc("-l", port)` opens a listener on any machine; part of `netcat` apt package (`/usr/bin/nc`); any user can run it but ports < 1024 require root; writes `/var/run/nc-<port>.pid` with owner info
@@ -145,7 +145,7 @@ To add a new secret: add the key-value pair to `src/secrets/secrets.ts`, then ru
 Commands return objects with `__type` for custom rendering (see `src/components/Terminal/types.ts`):
 
 - `'clear'`, `'author'`, `'password_prompt'`, `'nano_open'`, `'async'`
-- `AsyncOutput` streams lines with delays for network commands (ping, nmap, ssh, nslookup)
+- `AsyncOutput` streams lines with delays for network commands (ping, nmap, ssh, nslookup, dig)
 
 ### Game State, Intro Screen, Boot Screen
 
@@ -184,6 +184,7 @@ See `architecture.md` for integration details, `mission-variations.md` for all g
 - NAT resolution via `resolveNat(ip, port)` using iptables rules on any gateway's filesystem (border router and inner gateways). SNMP firewall overrides also apply to all gateways — inner gateways with SNMP access variant get `snmpd.conf` and respond to `snmpset` for dynamic port opening. `NetworkContext` handles layered home networks the same way — gateway iptables/SNMP parsing, layer-aware localhost visibility, and `.1` IP aliases for inner gateways.
 - **Switch gateways**: Inner gateways can be managed Layer 3 switches (`GatewayType = 'switch'`) instead of routers. Switches use ACL deny rules (`/etc/switch/acl.conf`) instead of NAT/iptables. No address translation — when ACLs are cleared, traffic reaches downstream IPs directly. SNMP on switches uses ACL OIDs (`aclSSH`, `aclHTTP` with `allow`/`deny` values) instead of firewall OIDs (`firewallSSH`/`firewallHTTP` with `permit`/`deny`). Switch gateways are activated via the `switch` seed keyword for missions or a ~40% PRNG roll for home networks. Border gateway is always a router.
 - **Basic SNMP on gateways**: Non-SNMP-variant inner gateways have a difficulty-based PRNG chance (easy 80%, medium 60%, hard 40%) of having basic read-only SNMP enabled. **Basic read-only**: `rocommunity public` only — interface OIDs for subnet discovery, no credential leaks, no firewall/ACL OIDs. Full SNMP configs (SNMP-variant gateways) also include credential leaks and firewall/ACL OIDs. One PRNG roll is consumed per gateway for sequence stability.
+- **DNS machines**: Machines with the `dns` role (ports: 53/UDP, 22, 953) run BIND and have `/etc/bind/named.conf` and `/etc/bind/zones/db.mission` zone files. Zone files contain A records for same-layer and all downstream-layer machines. AXFR zone transfer probability varies by difficulty: easy 80%, medium 60%, hard 40% (`allow-transfer { any; }` vs `{ none; }`). Players can use `dig(serverIp, "axfr")` to dump all records when AXFR is allowed.
 
 ### Node Execution
 

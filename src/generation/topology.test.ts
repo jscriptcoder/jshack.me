@@ -369,7 +369,7 @@ describe('generateTopology', () => {
 
   it('exploit variant machines have a port matching a vulnerability template', () => {
     const vulnerablePorts = [
-      21, 25, 80, 110, 143, 445, 502, 873, 1194, 1883, 3306, 5432, 5900, 6379, 8080, 8443, 9200,
+      21, 25, 53, 80, 110, 143, 445, 502, 873, 1194, 1883, 3306, 5432, 5900, 6379, 8080, 8443, 9200,
       27017,
     ];
     const results = Array.from({ length: 30 }, (_, i) =>
@@ -400,6 +400,42 @@ describe('generateTopology', () => {
   });
 
   // accessVariant tests
+  it('dns role can appear as a non-entry machine', () => {
+    let foundDns = false;
+    for (let i = 0; i < 100; i++) {
+      const result = generateTopology(createPrng(`dns-role-${i}`), 'hard');
+      if (result.machines.some((m) => m.role === 'dns')) {
+        foundDns = true;
+        // DNS machines should never be entry points
+        const dnsMachine = result.machines.find((m) => m.role === 'dns')!;
+        expect(dnsMachine.ip).not.toBe(result.entryPoint);
+        break;
+      }
+    }
+    expect(foundDns).toBe(true);
+  });
+
+  it('dns machines have port 53 (UDP) open and port 22 (SSH) open', () => {
+    let tested = false;
+    for (let i = 0; i < 100; i++) {
+      const result = generateTopology(createPrng(`dns-ports-${i}`), 'hard');
+      const dns = result.machines.find((m) => m.role === 'dns');
+      if (dns) {
+        const dnsPort = dns.remoteMachine.ports.find((p) => p.port === 53);
+        expect(dnsPort).toBeDefined();
+        expect(dnsPort?.open).toBe(true);
+        expect(dnsPort?.protocol).toBe('udp');
+        expect(dnsPort?.service).toBe('dns');
+        const sshPort = dns.remoteMachine.ports.find((p) => p.port === 22);
+        expect(sshPort).toBeDefined();
+        expect(sshPort?.open).toBe(true);
+        tested = true;
+        break;
+      }
+    }
+    expect(tested).toBe(true);
+  });
+
   it('every machine has an accessVariant field', () => {
     const result = generateTopology(createPrng('variant-test'), 'medium');
     result.machines.forEach((m) => {

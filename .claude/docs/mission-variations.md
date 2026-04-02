@@ -319,17 +319,18 @@ Always consumes 8 PRNG calls for sequence stability, even when no closures apply
 
 Each layer independently rolls its forwarding mode. Border router thresholds: easy 70%, medium 50%, hard 0% (always router-first). Inner layer thresholds: easy 70%, medium 50%, hard 30%. This keeps hard missions challenging at the border while allowing variety in inner pivoting.
 
-## Machine Roles (7)
+## Machine Roles (8)
 
-| Role        | Default Ports              | Entry-eligible? | Notes                             |
-| ----------- | -------------------------- | --------------- | --------------------------------- |
-| webserver   | 22, 80, 443                | Yes             |                                   |
-| database    | 22, 3306 (5432 closed)     | No              |                                   |
-| fileserver  | 21, 22 (445 closed)        | No              |                                   |
-| mailserver  | 22, 25, 143 (993 closed)   | No              |                                   |
-| iot         | 22, 80, 1883 (8443 closed) | No              | Minimal BusyBox-style filesystem  |
-| workstation | 22 (8080 closed)           | Yes             |                                   |
-| router      | 22, 80 (8443 closed)       | No              | Infrastructure only, never target |
+| Role        | Default Ports              | Entry-eligible? | Notes                                                             |
+| ----------- | -------------------------- | --------------- | ----------------------------------------------------------------- |
+| webserver   | 22, 80, 443                | Yes             |                                                                   |
+| database    | 22, 3306 (5432 closed)     | No              |                                                                   |
+| fileserver  | 21, 22 (445 closed)        | No              |                                                                   |
+| mailserver  | 22, 25, 143 (993 closed)   | No              |                                                                   |
+| iot         | 22, 80, 1883 (8443 closed) | No              | Minimal BusyBox-style filesystem                                  |
+| dns         | 22, 53/udp, 953            | No              | BIND zone files; AXFR probability: easy 80%, medium 60%, hard 40% |
+| workstation | 22 (8080 closed)           | Yes             |                                                                   |
+| router      | 22, 80 (8443 closed)       | No              | Infrastructure only, never target                                 |
 
 Entry machines always use the entry port template instead of the role's default ports.
 Router is always the border device between localhost and the mission network.

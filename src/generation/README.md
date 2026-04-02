@@ -29,7 +29,7 @@ Home networks use `generateNetwork(options)`, which runs these steps (missions s
 4. **Enrichment** (`enrichment.ts`) — NC/exploit/FTP port owner assignment with weighted PRNG distribution
 5. **Port Closures** (`enrichment.ts: applyPortClosures`) — ~30% SSH/FTP closures with NC backdoor fallbacks
 6. **Config Updates** — Merge users and port closures into network configs
-7. **Base Filesystems** — Role configs, credential leaks, web content, SNMP configs (full for SNMP-variant, basic read-only via difficulty-based PRNG roll for others), iptables rules, PID files
+7. **Base Filesystems** — Role configs, credential leaks, web content, SNMP configs (full for SNMP-variant, basic read-only via difficulty-based PRNG roll for others), iptables rules, PID files, DNS zone files (for dns-role machines)
 
 ### Mission Pipeline (`generateMission.ts`)
 
@@ -86,6 +86,7 @@ Seeds containing "easy", "medium", or "hard" force that difficulty; otherwise de
 | fileserver  | 21, 22       | ftpuser, backup     |
 | mailserver  | 22, 25, 143  | postmaster, mailadm |
 | iot         | 22, 80, 1883 | admin, device       |
+| dns         | 22, 53, 953  | dnsadmin, bind      |
 | workstation | 22           | jsmith, developer   |
 | router      | 22, 80       | netops, routeadm    |
 | switch      | 22, 80, 161  | netadmin, switchadm |

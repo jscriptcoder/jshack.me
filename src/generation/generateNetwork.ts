@@ -11,6 +11,8 @@ import {
   generateBasicSnmpConfig,
   generateSnmpConfig,
   generateSwitchSnmpConfig,
+  generateDnsZoneContent,
+  generateDnsNamedConf,
   mkFile,
   mkDir,
 } from './filesystem';
@@ -185,6 +187,70 @@ export const generateNetwork = (options: GenerateNetworkOptions): GeneratedNetwo
       });
     }
 
+    // Pre-generate DNS zone configs for dns-role machines. Each DNS machine gets
+    // zone records for its own layer + all downstream layers (cross-layer recon).
+    // AXFR probability follows the same pattern as basic SNMP on gateways.
+    const axfrThreshold = difficulty === 'easy' ? 0.8 : difficulty === 'medium' ? 0.6 : 0.4;
+    const dnsConfigs = new Map<
+      string,
+      { readonly zoneContent: string; readonly namedConf: string }
+    >();
+    {
+      // Build layer index: machine IP → layer index
+      const machineLayerIndex = new Map<string, number>();
+      topology.layers.forEach((layer, i) => {
+        layer.machines.forEach((m) => machineLayerIndex.set(m.ip, i));
+        if (i > 0) machineLayerIndex.set(layer.gateway.ip, i - 1);
+      });
+
+      machinesAfterClosures.forEach((machine) => {
+        if (machine.role !== 'dns') return;
+
+        const layerIdx = machineLayerIndex.get(machine.ip) ?? 0;
+
+        // Collect records: same layer + all downstream layers + gateways
+        const zoneRecords = topology.layers.flatMap((layer, i) => {
+          if (i < layerIdx) return [];
+          const layerRecords = layer.machines.map((m) => ({
+            domain: `${m.hostname}.mission`,
+            ip: m.ip,
+            type: 'A' as const,
+          }));
+          // Include downstream gateway (dual-homed, on upstream subnet)
+          if (i > layerIdx) {
+            layerRecords.push({
+              domain: `${layer.gateway.hostname}.mission`,
+              ip: layer.gateway.ip,
+              type: 'A' as const,
+            });
+          }
+          return layerRecords;
+        });
+
+        // Include upstream gateway (.1) for the DNS machine's own layer
+        const upstreamGatewayIp = `${topology.layers[layerIdx]!.subnet}.1`;
+        const upstreamGateway =
+          layerIdx === 0 ? topology.routerMachine : topology.layers[layerIdx]!.gateway;
+        const hasUpstreamInRecords = zoneRecords.some((r) => r.ip === upstreamGateway.ip);
+        if (!hasUpstreamInRecords) {
+          zoneRecords.push({
+            domain: `${upstreamGateway.hostname}.mission`,
+            ip: upstreamGatewayIp,
+            type: 'A' as const,
+          });
+        }
+
+        // AXFR probability roll — always consume for PRNG sequence stability
+        const axfrRoll = prng.next();
+        const allowAxfr = axfrRoll < axfrThreshold;
+
+        dnsConfigs.set(machine.ip, {
+          zoneContent: generateDnsZoneContent(machine.hostname, zoneRecords),
+          namedConf: generateDnsNamedConf('mission', allowAxfr),
+        });
+      });
+    }
+
     // Generate filesystem for each machine
     machinesAfterClosures.forEach((machine) => {
       const users = allUsersByMachine[machine.ip] ?? [];
@@ -203,7 +269,7 @@ export const generateNetwork = (options: GenerateNetworkOptions): GeneratedNetwo
 
       // SNMP variant: add /etc/snmp/snmpd.conf for gateways
       const snmpContent = gatewaySnmpConfigs.get(machine.ip);
-      const config: MachineFileSystemConfig = snmpContent
+      let config: MachineFileSystemConfig = snmpContent
         ? {
             ...baseConfig,
             etcExtraContent: {
@@ -217,6 +283,31 @@ export const generateNetwork = (options: GenerateNetworkOptions): GeneratedNetwo
             },
           }
         : baseConfig;
+
+      // DNS role: add /etc/bind/ with named.conf and zone file
+      const dnsConfig = dnsConfigs.get(machine.ip);
+      if (dnsConfig) {
+        config = {
+          ...config,
+          etcExtraContent: {
+            ...config.etcExtraContent,
+            bind: mkDir(
+              'bind',
+              {
+                'named.conf': mkFile('named.conf', dnsConfig.namedConf, 'root'),
+                zones: mkDir(
+                  'zones',
+                  { 'db.mission': mkFile('db.mission', dnsConfig.zoneContent, 'root') },
+                  'root',
+                  true,
+                ),
+              },
+              'root',
+              true,
+            ),
+          },
+        };
+      }
 
       fileSystems[machine.ip] = createFileSystem(config);
     });

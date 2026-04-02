@@ -133,6 +133,7 @@ const allRoles: readonly MachineRole[] = [
   'workstation',
   'mailserver',
   'iot',
+  'dns',
 ];
 
 const entryRoles: readonly MachineRole[] = ['webserver', 'workstation'];
@@ -162,6 +163,7 @@ const buildPorts = (role: MachineRole): readonly Port[] =>
     port: t.port,
     service: t.service,
     open: t.open,
+    ...(t.protocol ? { protocol: t.protocol } : {}),
   }));
 
 const buildPortsFromTemplate = (

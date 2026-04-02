@@ -8,6 +8,7 @@ export type MachineRole =
   | 'workstation'
   | 'mailserver'
   | 'iot'
+  | 'dns'
   | 'router'
   | 'switch';
 

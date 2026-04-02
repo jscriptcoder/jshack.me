@@ -97,6 +97,14 @@ export const binaryTargetPaths: Readonly<Record<MachineRole, readonly string[]>>
     '/usr/local/share/device_reg.dat',
     '/var/lib/zigbee/mesh_state.bin',
   ],
+  dns: [
+    '/opt/app/zonedump.bin',
+    '/var/lib/bind/cache.dat',
+    '/srv/cache/dns_records.db',
+    '/opt/lib/zone_archive.db',
+    '/usr/local/share/rndc_state.dat',
+    '/var/cache/bind/named_dump.bin',
+  ],
   router: [
     '/opt/app/config.bin',
     '/var/lib/routes.dat',
@@ -152,6 +160,12 @@ export const binaryKeyPaths: Readonly<Record<MachineRole, readonly string[]>> = 
     '/opt/lib/libmqtt_keys.so',
     '/var/lib/firmware/sign_keys.db',
     '/opt/lib/libota_verify.so',
+  ],
+  dns: [
+    '/usr/local/lib/dnssec_keyring.db',
+    '/opt/lib/libtsig_keys.so',
+    '/var/lib/bind/managed-keys.db',
+    '/opt/lib/librndc_sign.so',
   ],
   router: [
     '/usr/local/lib/vpn_keystore.db',

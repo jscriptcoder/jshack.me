@@ -200,6 +200,24 @@ const switchWebContentTemplates: readonly WebContentTemplate[] = [
 
 // Role-based web content template lookup. Every role has templates so any machine
 // with an open HTTP port gets realistic web content.
+const dnsWebContentTemplates: readonly WebContentTemplate[] = [
+  {
+    path: '/var/www/html/index.html',
+    content:
+      '<html>\n<head><title>{{hostname}} — BIND DNS</title></head>\n<body>\n<h1>{{hostname}}</h1>\n<p>BIND 9.16 Name Server — {{ip}}</p>\n<p><a href="/status">Server Status</a> | <a href="/zones">Zone List</a></p>\n<!-- named 9.16.48-Debian -->\n</body>\n</html>',
+  },
+  {
+    path: '/var/www/html/index.html',
+    content:
+      '<html>\n<head><title>{{hostname}} — DNS Admin</title></head>\n<body>\n<h1>DNS Management — {{hostname}}</h1>\n<p>Authoritative nameserver for internal zones</p>\n<form action="/login" method="POST">\n<label>Username: <input type="text" name="user"></label><br>\n<label>Password: <input type="password" name="pass"></label><br>\n<input type="submit" value="Login">\n</form>\n<!-- Webmin DNS Module 1.998 -->\n</body>\n</html>',
+  },
+  {
+    path: '/var/www/html/index.html',
+    content:
+      '<html>\n<head><title>{{hostname}} — PowerDNS</title></head>\n<body>\n<h1>PowerDNS — {{hostname}}</h1>\n<p>PowerDNS Authoritative Server 4.8.0 | {{ip}}</p>\n<p>Zones: 3 | Records: 47 | Uptime: 31d 7h</p>\n<p><a href="/api/v1/servers">API</a> | <a href="/stats">Statistics</a></p>\n</body>\n</html>',
+  },
+];
+
 export const webContentTemplatesByRole: Readonly<
   Record<MachineRole, readonly WebContentTemplate[]>
 > = {
@@ -210,5 +228,6 @@ export const webContentTemplatesByRole: Readonly<
   mailserver: mailserverWebContentTemplates,
   iot: iotWebContentTemplates,
   workstation: workstationWebContentTemplates,
+  dns: dnsWebContentTemplates,
   switch: switchWebContentTemplates,
 };

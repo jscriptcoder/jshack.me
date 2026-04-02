@@ -112,6 +112,7 @@ export const SYSTEM_UTILITY_NAMES = [
   'ifconfig',
   'curl',
   'nslookup',
+  'dig',
   'nmcli',
   'apt',
   'rm',

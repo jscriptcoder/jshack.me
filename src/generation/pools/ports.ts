@@ -46,6 +46,11 @@ export const portTemplatesByRole: Readonly<Record<MachineRole, readonly PortTemp
     { port: 1883, service: 'mqtt', open: true },
     { port: 8443, service: 'https', open: false },
   ],
+  dns: [
+    { port: 22, service: 'ssh', open: true },
+    { port: 53, service: 'dns', open: true, protocol: 'udp' },
+    { port: 953, service: 'rndc', open: false },
+  ],
   router: [
     { port: 22, service: 'ssh', open: true },
     { port: 80, service: 'http', open: true },
