@@ -172,18 +172,15 @@ For the SNMP entry variant, `NetworkContext` also reads `/etc/snmp/snmpd.conf` f
 
 ### Basic SNMP on Non-SNMP-Variant Gateways
 
-Inner gateways without the SNMP access variant have a difficulty-based PRNG chance of basic SNMP: easy 70%, medium 40%, hard 20%. Within basic SNMP gateways, a second PRNG roll (~30%) determines the tier:
+Inner gateways without the SNMP access variant have a difficulty-based PRNG chance of basic read-only SNMP: easy 80%, medium 60%, hard 40%. Basic SNMP provides `rocommunity public` only — no rw community, no credential leaks, no firewall/ACL OIDs. Reconnaissance value is `ifAddr.1`/`ifAddr.2` (dual-homed gateway discovery).
 
-- **Basic read-only** (~70% of basic): `rocommunity public` only — no rw community, no credential leaks, no firewall/ACL OIDs. Reconnaissance value is `ifAddr.1`/`ifAddr.2` (dual-homed gateway discovery).
-- **Basic read-write** (~30% of basic): Has `rwcommunity` + firewall/ACL OIDs (like full SNMP-variant) but NO credential leaks. Players can `snmpset` to open firewalled ports on the gateway. SSH daemon is running but firewalled — `snmpset` unblocks access.
+Probability of basic SNMP per non-SNMP-variant inner gateway:
 
-Combined probability of each SNMP tier per non-SNMP-variant inner gateway:
-
-| Difficulty | No SNMP | Read-only | Read-write |
-| ---------- | ------- | --------- | ---------- |
-| Easy       | 30%     | 49%       | 21%        |
-| Medium     | 60%     | 28%       | 12%        |
-| Hard       | 80%     | 14%       | 6%         |
+| Difficulty | No SNMP | Read-only |
+| ---------- | ------- | --------- |
+| Easy       | 20%     | 80%       |
+| Medium     | 40%     | 60%       |
+| Hard       | 60%     | 40%       |
 
 Note: easy missions have no inner gateways (single layer). Medium has 1, hard has 2.
 
