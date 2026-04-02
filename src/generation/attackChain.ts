@@ -747,14 +747,15 @@ export const buildMissionObjective = (input: BuildObjectiveInput): BuildObjectiv
       usernames,
     );
 
+    const dbEnrichments: readonly (readonly [MissionObjectiveType, typeof enrichForDbExfiltrate])[] =
+      [
+        ['db_exfiltrate', enrichForDbExfiltrate],
+        ['db_tamper', enrichForDbTamper],
+        ['db_sabotage', enrichForDbSabotage],
+        ['db_fix', enrichForDbFix],
+      ];
     const enrichFn =
-      objectiveType === 'db_exfiltrate'
-        ? enrichForDbExfiltrate
-        : objectiveType === 'db_tamper'
-          ? enrichForDbTamper
-          : objectiveType === 'db_sabotage'
-            ? enrichForDbSabotage
-            : enrichForDbFix;
+      dbEnrichments.find(([type]) => type === objectiveType)?.[1] ?? enrichForDbFix;
     const enrichment = enrichFn(prng, baseDb);
 
     // For db_fix, patch the description with MySQL root credentials (authorized contractor)
