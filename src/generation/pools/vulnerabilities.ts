@@ -351,4 +351,23 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'Postfix 3.4.8',
     },
   },
+  // DNS
+  {
+    port: 53,
+    service: 'dns',
+    vulnerability: {
+      cve: 'CVE-2021-25220',
+      description: 'BIND 9.16 cache poisoning via forwarder response injection',
+      serviceVersion: 'BIND 9.16.18',
+    },
+  },
+  {
+    port: 53,
+    service: 'dns',
+    vulnerability: {
+      cve: 'CVE-2020-8617',
+      description: 'BIND TSIG assertion failure causes remote DoS',
+      serviceVersion: 'BIND 9.14.11',
+    },
+  },
 ];
