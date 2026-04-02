@@ -187,9 +187,12 @@ No `@` prefix, no server-targeted single queries. Simple: 1 arg = lookup, 2 args
 
 - Create `src/commands/dig.ts` with `createDigCommand(context)`
 - Context: `getMachine`, `resolveDomain`, `getLocalIP`, `getGateway`, `getNodeFromMachine`
-- Parse args by count:
-  - 1 arg: domain lookup via `resolveDomain` (like nslookup)
-  - 2 args: first is DNS server IP, second must be `"axfr"` — reads zone file + checks named.conf
+- Parse args by value (order-independent, like real dig):
+  - IP address (`/^\d+\.\d+\.\d+\.\d+$/`) → DNS server
+  - `"axfr"` → query type (zone transfer)
+  - anything else → domain name
+  - 1 arg domain → basic lookup via `resolveDomain`
+  - IP + `"axfr"` (any order) → zone transfer from that DNS server
 - For AXFR: validate machine exists and has port 53 open, read `named.conf` for `allow-transfer`, read zone file from `/etc/bind/zones/db.mission`, parse and output all A records
 - Returns `AsyncOutput` with realistic DNS query delay
 
