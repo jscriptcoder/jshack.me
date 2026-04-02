@@ -14,6 +14,7 @@ import { createMsfconsoleCommand } from '../commands/msfconsole';
 import { createHydraCommand } from '../commands/hydra';
 import { createGobusterCommand } from '../commands/gobuster';
 import { createScpCommand } from '../commands/scp';
+import { createDigCommand } from '../commands/dig';
 import { createSnmpwalkCommand } from '../commands/snmpwalk';
 import { createSnmpsetCommand } from '../commands/snmpset';
 import { createMysqlCommand } from '../commands/mysql';
@@ -103,6 +104,20 @@ export const useNetworkCommands = (): Map<string, Command> => {
     commands.set(
       'nslookup',
       wrapWithWifiCheck(createNslookupCommand({ resolveDomain, getGateway }), isWifiRequired),
+    );
+
+    commands.set(
+      'dig',
+      wrapWithWifiCheck(
+        createDigCommand({
+          getMachine,
+          getLocalIP,
+          resolveDomain,
+          getGateway,
+          getNodeFromMachine,
+        }),
+        isWifiRequired,
+      ),
     );
 
     commands.set(
