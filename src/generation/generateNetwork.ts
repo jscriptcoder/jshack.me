@@ -154,7 +154,7 @@ export const generateNetwork = (options: GenerateNetworkOptions): GeneratedNetwo
     // Pre-generate SNMP configs for inner gateways. SNMP-variant gateways get full configs.
     // Non-SNMP gateways get a PRNG roll for basic read-only SNMP (interface discovery).
     // Roll is always consumed per gateway to keep PRNG sequence stable.
-    const basicSnmpThreshold = difficulty === 'easy' ? 0.7 : difficulty === 'medium' ? 0.4 : 0.2;
+    const basicSnmpThreshold = difficulty === 'easy' ? 0.8 : difficulty === 'medium' ? 0.6 : 0.4;
     const gatewaySnmpConfigs = new Map<string, string>();
     const basicSnmpGatewayIps = new Set<string>();
     if (topology.layers.length > 1) {

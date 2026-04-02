@@ -789,7 +789,7 @@ export const generateFileSystems = (input: FilesystemInput): FilesystemResult =>
   // 3. Basic read-only: rocommunity public, interface OIDs only (~70% of basic)
   // Non-SNMP gateways get a PRNG roll for basic SNMP. Within basic, a second roll
   // decides read-only vs read-write. All rolls are always consumed for PRNG stability.
-  const basicSnmpThreshold = difficulty === 'easy' ? 0.7 : difficulty === 'medium' ? 0.4 : 0.2;
+  const basicSnmpThreshold = difficulty === 'easy' ? 0.8 : difficulty === 'medium' ? 0.6 : 0.4;
   const BASIC_RW_CHANCE = 0.3;
   const gatewaySnmpConfigs = new Map<string, string>();
   const basicSnmpGatewayIps = new Set<string>();
