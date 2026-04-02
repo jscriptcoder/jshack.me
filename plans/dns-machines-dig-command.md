@@ -39,9 +39,19 @@ Like `snmpwalk` reads `/etc/snmp/snmpd.conf`, `dig` reads `/etc/bind/zones/db.<z
 - NOT added to `entryRoles` — DNS servers are infrastructure, not entry points
 - Port 53 (DNS, UDP) + port 22 (SSH) + port 953 (rndc, closed by default)
 
-### Zone transfer vulnerability
+### Zone transfer vulnerability — AXFR misconfiguration probability
 
-Zone transfers require the DNS server to have `allow-transfer { any; }` in its config — a classic misconfiguration. The `named.conf` generated for DNS machines includes this vulnerable setting, making AXFR possible. This mirrors real-world pentest scenarios where misconfigured BIND servers leak network topology.
+Zone transfers require the DNS server to have `allow-transfer { any; }` in its config — a classic misconfiguration. Not all DNS machines have this — it's a PRNG roll during generation, following the same pattern as basic SNMP on gateways:
+
+- **Easy networks**: 80% chance AXFR is enabled
+- **Medium networks**: 60% chance AXFR is enabled
+- **Hard networks**: 40% chance AXFR is enabled
+
+When AXFR is **enabled**: `named.conf` has `allow-transfer { any; }` and `dig(@server, domain, "axfr")` dumps the full zone file with all cross-layer records.
+
+When AXFR is **disabled**: `named.conf` has `allow-transfer { none; }` and `dig(@server, domain, "axfr")` returns "Transfer failed." The player can still use `dig(@server, hostname.mission)` for individual A record lookups — the zone file is still there and responds to single queries, just not bulk transfers.
+
+This mirrors real-world pentesting: finding a DNS server doesn't guarantee zone transfer works. On harder networks, the player more often has to fall back to `nmap` subnet scans or guess hostnames one at a time.
 
 ### How zone file generation gets cross-layer data
 
@@ -54,7 +64,9 @@ The filesystem generator already receives full `layers` data and builds `gateway
 - [ ] DNS machines have `/etc/bind/named.conf` and `/etc/bind/zones/db.mission` zone files
 - [ ] Zone files contain A records for same-layer + downstream-layer machines
 - [ ] `dig(@server, domain)` returns a single A record in realistic `dig` output format
-- [ ] `dig(@server, domain, "axfr")` returns all zone records (zone transfer)
+- [ ] `dig(@server, domain, "axfr")` returns all zone records when AXFR is enabled
+- [ ] `dig(@server, domain, "axfr")` returns "Transfer failed." when AXFR is disabled
+- [ ] AXFR misconfiguration probability follows difficulty thresholds (easy 80%, medium 60%, hard 40%)
 - [ ] `dig(domain)` without `@server` falls back to `resolveDomain` (like nslookup)
 - [ ] `dig` is a system utility in `/bin/` (no apt install needed)
 - [ ] `dig` is registered in `useNetworkCommands` with wifi/bricked guards
@@ -105,28 +117,35 @@ Adds the `dns` role to all generation pools and filesystem generation. No new co
 - Add `dns` binary target/key paths in `src/generation/binary.ts`
 **Done when**: All mission objective types work with dns-role target machines.
 
-### Step 5: Generate DNS zone files with cross-layer records
+### Step 5: Generate DNS zone files and named.conf with AXFR probability
 
 **Test**: Write test in `generateFileSystems.test.ts` (or new `dnsZoneFile.test.ts`) that:
 1. A dns-role machine in layer 0 of a 2-layer network gets `/etc/bind/zones/db.mission`
 2. The zone file contains A records for same-layer machines AND layer 1 machines
 3. The zone file contains SOA and NS records
 4. A dns-role machine in a 1-layer network only shows same-layer records
+5. `named.conf` contains `allow-transfer { any; }` when AXFR roll succeeds
+6. `named.conf` contains `allow-transfer { none; }` when AXFR roll fails
 
 **Implementation**:
 - Add `generateDnsZoneContent(hostname, records)` to `src/generation/filesystem/networkConfig.ts` — formats records into BIND zone file syntax with SOA, NS, and A records
-- Add `generateDnsNamedConf(zoneName, zoneFilePath)` to same file — generates `/etc/bind/named.conf` with `allow-transfer { any; }` vulnerability
+- Add `generateDnsNamedConf(zoneName, zoneFilePath, allowAxfr)` to same file — generates `/etc/bind/named.conf` with `allow-transfer` set based on the AXFR probability roll
+- AXFR probability follows the same pattern as basic SNMP on gateways:
+  - Consume one PRNG roll per DNS machine for sequence stability
+  - Compare against difficulty threshold: easy 80%, medium 60%, hard 40%
+  - Result determines `allow-transfer { any; }` vs `allow-transfer { none; }`
 - In `generateNetwork.ts`, when building filesystem for a dns-role machine:
   - Collect same-layer machines + all downstream-layer machines (using existing `layers` data)
+  - Perform AXFR probability roll
   - Build DNS record list from their hostnames/IPs
-  - Pass as extra option to `buildMachineConfig`
+  - Pass zone records + AXFR flag as extra options to `buildMachineConfig`
 - In `generateFileSystems.ts` `buildMachineConfig`, when `machine.role === 'dns'`:
   - Generate zone file content using `generateDnsZoneContent`
   - Place at `/etc/bind/zones/db.mission`
-  - Generate named.conf using `generateDnsNamedConf`
+  - Generate named.conf using `generateDnsNamedConf` (with AXFR flag)
   - Place at `/etc/bind/named.conf` (replaces the generic service config)
 
-**Done when**: Zone file tests pass; `dumpMissionNetwork.ts` shows zone files on dns machines with cross-layer records.
+**Done when**: Zone file tests pass; AXFR probability tests pass; `dumpMissionNetwork.ts` shows zone files on dns machines.
 
 ### Step 6: Wire DNS zone data through generateNetwork pipeline
 
@@ -164,16 +183,20 @@ Adds the `dig` command with standard lookup and AXFR zone transfer support.
 ### Step 8: Add AXFR zone transfer support to `dig`
 
 **Test**: Add to `dig.test.ts`:
-1. `dig("@10.0.1.5", "mission", "axfr")` returns all zone records (SOA + NS + all A records)
+1. `dig("@10.0.1.5", "mission", "axfr")` returns all zone records (SOA + NS + all A records) when `named.conf` has `allow-transfer { any; }`
 2. AXFR output includes records from downstream subnets
-3. AXFR on a machine without DNS port returns error
+3. `dig("@10.0.1.5", "mission", "axfr")` returns "Transfer failed." when `named.conf` has `allow-transfer { none; }`
+4. AXFR on a machine without DNS port returns error
+5. Individual `dig(@server, hostname)` queries still work regardless of AXFR setting
 
 **Implementation**:
-- Extend dig command: when third arg is `"axfr"`, read entire zone file and output all records
+- Extend dig command: when third arg is `"axfr"`, first read `named.conf` and check `allow-transfer` setting
+- If `allow-transfer { any; }`: read entire zone file and output all records
+- If `allow-transfer { none; }`: return "; Transfer failed." error message
 - AXFR output format: SOA record, then all A records, then trailing SOA (standard AXFR format)
 - Parse zone file content to extract individual records
 
-**Done when**: AXFR tests pass; zone transfer reveals downstream subnet machines.
+**Done when**: AXFR tests pass; zone transfer works/fails based on named.conf config.
 
 ### Step 9: Register `dig` in command system
 
