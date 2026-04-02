@@ -42,6 +42,8 @@ import {
   generateSwitchSnmpConfig,
   generateBasicSnmpConfig,
   generateBasicRwSnmpConfig,
+  generateDnsZoneContent,
+  generateDnsNamedConf,
 } from './networkConfig';
 import { generateForensicsEvidence } from './forensicsEvidence';
 import {
@@ -839,6 +841,59 @@ export const generateFileSystems = (input: FilesystemInput): FilesystemResult =>
     });
   }
 
+  // Pre-generate DNS zone configs for dns-role machines. Each DNS machine gets
+  // zone records for its own layer + all downstream layers (cross-layer recon).
+  // AXFR probability: easy 80%, medium 60%, hard 40% — same pattern as basic SNMP.
+  const axfrThreshold = difficulty === 'easy' ? 0.8 : difficulty === 'medium' ? 0.6 : 0.4;
+  const dnsConfigs = new Map<string, { readonly zoneContent: string; readonly namedConf: string }>();
+  if (layers) {
+    const machineLayerIndex = new Map<string, number>();
+    layers.forEach((layer, i) => {
+      layer.machines.forEach((m) => machineLayerIndex.set(m.ip, i));
+      if (i > 0) machineLayerIndex.set(layer.gateway.ip, i - 1);
+    });
+
+    machines.forEach((machine) => {
+      if (machine.role !== 'dns') return;
+
+      const layerIdx = machineLayerIndex.get(machine.ip) ?? 0;
+      const zoneRecords = layers.flatMap((layer, i) => {
+        if (i < layerIdx) return [];
+        const records = layer.machines.map((m) => ({
+          domain: `${m.hostname}.mission`,
+          ip: m.ip,
+          type: 'A' as const,
+        }));
+        if (i > layerIdx) {
+          records.push({
+            domain: `${layer.gateway.hostname}.mission`,
+            ip: layer.gateway.ip,
+            type: 'A' as const,
+          });
+        }
+        return records;
+      });
+
+      const upstreamGatewayIp = `${layers[layerIdx]!.subnet}.1`;
+      const upstreamGateway = layerIdx === 0 ? routerMachine : layers[layerIdx]!.gateway;
+      if (upstreamGateway && !zoneRecords.some((r) => r.ip === upstreamGateway.ip)) {
+        zoneRecords.push({
+          domain: `${upstreamGateway.hostname}.mission`,
+          ip: upstreamGatewayIp,
+          type: 'A' as const,
+        });
+      }
+
+      const axfrRoll = prng.next();
+      const allowAxfr = axfrRoll < axfrThreshold;
+
+      dnsConfigs.set(machine.ip, {
+        zoneContent: generateDnsZoneContent(machine.hostname, zoneRecords),
+        namedConf: generateDnsNamedConf('mission', allowAxfr),
+      });
+    });
+  }
+
   // Pre-generate forensics evidence (log files + calling card) before machine loop
   const forensicsEvidence = generateForensicsEvidence(prng, machines, objective, difficulty);
 
@@ -874,10 +929,35 @@ export const generateFileSystems = (input: FilesystemInput): FilesystemResult =>
         }
       : baseConfig;
 
+    // DNS role: add /etc/bind/ with named.conf and zone file
+    const dnsConfig = dnsConfigs.get(machine.ip);
+    const configWithDns = dnsConfig
+      ? {
+          ...configWithSnmp,
+          etcExtraContent: {
+            ...configWithSnmp.etcExtraContent,
+            bind: mkDir(
+              'bind',
+              {
+                'named.conf': mkFile('named.conf', dnsConfig.namedConf, 'root'),
+                zones: mkDir(
+                  'zones',
+                  { 'db.mission': mkFile('db.mission', dnsConfig.zoneContent, 'root') },
+                  'root',
+                  true,
+                ),
+              },
+              'root',
+              true,
+            ),
+          },
+        }
+      : configWithSnmp;
+
     // Place encryption key file on the key machine (if this is that machine)
     const keyTree =
       objective.keyPlacement?.machineIp === machine.ip ? buildKeyFileTree(prng, objective) : null;
-    const configWithKey = mergeKeyPlacement(configWithSnmp, keyTree);
+    const configWithKey = mergeKeyPlacement(configWithDns, keyTree);
 
     // Merge forensics evidence (log files, calling card) if present for this machine
     const evidence = forensicsEvidence[machine.ip];
