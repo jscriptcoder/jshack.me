@@ -205,10 +205,7 @@ export const generateBasicSnmpConfig = (
 
 // Generates BIND zone file content for DNS machines.
 // Contains SOA, NS, and A records for all machines visible to the DNS server.
-export const generateDnsZoneContent = (
-  hostname: string,
-  records: readonly DnsRecord[],
-): string => {
+export const generateDnsZoneContent = (hostname: string, records: readonly DnsRecord[]): string => {
   const padName = (name: string): string => name.padEnd(15);
 
   const lines = [

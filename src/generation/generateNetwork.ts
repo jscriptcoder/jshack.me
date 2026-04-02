@@ -191,7 +191,10 @@ export const generateNetwork = (options: GenerateNetworkOptions): GeneratedNetwo
     // zone records for its own layer + all downstream layers (cross-layer recon).
     // AXFR probability follows the same pattern as basic SNMP on gateways.
     const axfrThreshold = difficulty === 'easy' ? 0.8 : difficulty === 'medium' ? 0.6 : 0.4;
-    const dnsConfigs = new Map<string, { readonly zoneContent: string; readonly namedConf: string }>();
+    const dnsConfigs = new Map<
+      string,
+      { readonly zoneContent: string; readonly namedConf: string }
+    >();
     {
       // Build layer index: machine IP → layer index
       const machineLayerIndex = new Map<string, number>();
@@ -226,9 +229,8 @@ export const generateNetwork = (options: GenerateNetworkOptions): GeneratedNetwo
 
         // Include upstream gateway (.1) for the DNS machine's own layer
         const upstreamGatewayIp = `${topology.layers[layerIdx]!.subnet}.1`;
-        const upstreamGateway = layerIdx === 0
-          ? topology.routerMachine
-          : topology.layers[layerIdx]!.gateway;
+        const upstreamGateway =
+          layerIdx === 0 ? topology.routerMachine : topology.layers[layerIdx]!.gateway;
         const hasUpstreamInRecords = zoneRecords.some((r) => r.ip === upstreamGateway.ip);
         if (!hasUpstreamInRecords) {
           zoneRecords.push({

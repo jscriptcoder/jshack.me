@@ -83,43 +83,48 @@ Adds the `dns` role to all generation pools and filesystem generation. No new co
 
 **Test**: Write test in `topology.test.ts` that `allRoles` includes `'dns'` and DNS machines can appear in generated topologies.
 **Implementation**:
+
 - Add `'dns'` to `MachineRole` union in `src/generation/types.ts`
 - Add `'dns'` to `allRoles` in `src/generation/topology.ts`
-**Done when**: TypeScript compiles with new role, topology test passes.
+  **Done when**: TypeScript compiles with new role, topology test passes.
 
 ### Step 2: Add DNS port templates, hostnames, usernames
 
 **Test**: Write test that `portTemplatesByRole.dns` has ports 53/22/953 and `hostnamesByRole.dns` / `usernamesByRole.dns` are non-empty arrays.
 **Implementation**:
+
 - Add `dns` entry to `portTemplatesByRole` in `src/generation/pools/ports.ts`: port 53 (dns, UDP, open), 22 (ssh, open), 953 (rndc, closed)
 - Add `dns` hostnames to `hostnamesByRole` in `src/generation/pools/machines.ts` (15 entries: dns01, ns-primary, resolver, bind-srv, nameserver, ns-corp, dns-gw, etc.)
 - Add `dns` usernames to `usernamesByRole` in `src/generation/pools/machines.ts` (15 entries: named, bind, dnsadm, dnsop, zonefile, etc.)
-**Done when**: Pool tests pass, TypeScript exhaustive checks satisfied.
+  **Done when**: Pool tests pass, TypeScript exhaustive checks satisfied.
 
 ### Step 3: Add DNS config templates, web content, vulnerability templates
 
 **Test**: Write test that `configTemplatesByRole.dns` is non-empty and `webContentTemplatesByRole.dns` is non-empty.
 **Implementation**:
+
 - Add `dns` config templates in `src/generation/pools/filesystem.ts` (6 BIND named.conf variants)
 - Add `dns` web content templates in `src/generation/pools/web.ts` (BIND admin panel pages)
 - Add DNS vulnerability entry in `src/generation/pools/vulnerabilities.ts` (CVE for port 53)
 - Add `dns: 'named.conf'` to `serviceConfigNames` in `generateFileSystems.ts`
 - Add `dns` entry to `INFRA_PID_CONFIGS` in `generateFileSystems.ts`
-**Done when**: Pool lookup tests pass, filesystem generation doesn't crash for dns role.
+  **Done when**: Pool lookup tests pass, filesystem generation doesn't crash for dns role.
 
 ### Step 4: Add DNS entries to mission pool files (scriptFix, scriptAuto, malware, binary paths)
 
 **Test**: Write test that `scriptFixTemplatesByRole.dns`, `scriptAutoTemplatesByRole.dns`, `malwareTemplatesByRole.dns`, `binaryTargetPaths.dns`, and `binaryKeyPaths.dns` are all defined and non-empty.
 **Implementation**:
+
 - Add `dns` script fix templates in `src/generation/pools/scriptFix.ts` (2 templates: zone validation script, DNS health check)
 - Add `dns` script auto templates in `src/generation/pools/scriptAuto.ts` (2 templates: zone sync, DNS cache flush)
 - Add `dns` malware templates in `src/generation/pools/malware.ts` (2 templates: DNS tunnel exfiltrator, zone poisoner)
 - Add `dns` binary target/key paths in `src/generation/binary.ts`
-**Done when**: All mission objective types work with dns-role target machines.
+  **Done when**: All mission objective types work with dns-role target machines.
 
 ### Step 5: Generate DNS zone files and named.conf with AXFR probability
 
 **Test**: Write test in `generateFileSystems.test.ts` (or new `dnsZoneFile.test.ts`) that:
+
 1. A dns-role machine in layer 0 of a 2-layer network gets `/etc/bind/zones/db.mission`
 2. The zone file contains A records for same-layer machines AND layer 1 machines
 3. The zone file contains SOA and NS records
@@ -128,6 +133,7 @@ Adds the `dns` role to all generation pools and filesystem generation. No new co
 6. `named.conf` contains `allow-transfer { none; }` when AXFR roll fails
 
 **Implementation**:
+
 - Add `generateDnsZoneContent(hostname, records)` to `src/generation/filesystem/networkConfig.ts` — formats records into BIND zone file syntax with SOA, NS, and A records
 - Add `generateDnsNamedConf(zoneName, zoneFilePath, allowAxfr)` to same file — generates `/etc/bind/named.conf` with `allow-transfer` set based on the AXFR probability roll
 - AXFR probability follows the same pattern as basic SNMP on gateways:
@@ -151,10 +157,11 @@ Adds the `dns` role to all generation pools and filesystem generation. No new co
 
 **Test**: Integration test: generate a medium/hard network with a dns-role machine, verify the zone file in the output filesystem contains records from deeper layers.
 **Implementation**:
+
 - In `generateNetwork.ts`, after building `gatewayDownstreamMap`, build a `dnsVisibleMachines` map: for each dns-role machine, collect all machines from its layer + all downstream layers
 - Pass `dnsZoneRecords` through the options to `buildMachineConfig`
 - Ensure the same data flow works for both `generateNetwork` (home networks) and `generateMission` (missions)
-**Done when**: Integration test passes; existing topology/filesystem tests still pass.
+  **Done when**: Integration test passes; existing topology/filesystem tests still pass.
 
 ## Steps — PR 2: `dig` Command
 
@@ -163,6 +170,7 @@ Adds the `dig` command with standard lookup and AXFR zone transfer support.
 ### Step 7: Create `dig` command with basic A record lookup
 
 **Test**: Write `dig.test.ts`:
+
 1. `dig("@10.0.1.5", "web01.mission")` returns formatted dig output with A record
 2. `dig("web01.mission")` without server falls back to `resolveDomain`
 3. `dig()` with no args throws usage error
@@ -170,6 +178,7 @@ Adds the `dig` command with standard lookup and AXFR zone transfer support.
 5. `dig("@10.0.1.5", "web01.mission")` where 10.0.1.5 has no DNS port returns connection refused
 
 **Implementation**:
+
 - Create `src/commands/dig.ts` with `createDigCommand(context)`
 - Context: `getMachine`, `resolveDomain`, `readFileFromMachine`, `getLocalIP`, `getGateway`
 - Parse args: first arg starting with `@` is the DNS server IP, next is domain, optional third is query type
@@ -180,6 +189,7 @@ Adds the `dig` command with standard lookup and AXFR zone transfer support.
 **Output format**: Simplified like `snmpwalk` — recognizable as dig but stripped of noise. Every line is actionable, no QUESTION/AUTHORITY/OPT/flags/message-size clutter.
 
 Standard query:
+
 ```
 ; <<>> DiG 9.16.0 <<>> web01.mission @10.0.1.5
 
@@ -191,6 +201,7 @@ web01.mission.         3600  IN    A     10.0.1.50
 ```
 
 NXDOMAIN:
+
 ```
 ; <<>> DiG 9.16.0 <<>> nonexistent.mission @10.0.1.5
 
@@ -205,6 +216,7 @@ NXDOMAIN:
 ### Step 8: Add AXFR zone transfer support to `dig`
 
 **Test**: Add to `dig.test.ts`:
+
 1. `dig("@10.0.1.5", "mission", "axfr")` returns all zone records (SOA + NS + all A records) when `named.conf` has `allow-transfer { any; }`
 2. AXFR output includes records from downstream subnets
 3. `dig("@10.0.1.5", "mission", "axfr")` returns "Transfer failed." when `named.conf` has `allow-transfer { none; }`
@@ -212,6 +224,7 @@ NXDOMAIN:
 5. Individual `dig(@server, hostname)` queries still work regardless of AXFR setting
 
 **Implementation**:
+
 - Extend dig command: when third arg is `"axfr"`, first read `named.conf` and check `allow-transfer` setting
 - If `allow-transfer { any; }`: read entire zone file and output all records
 - If `allow-transfer { none; }`: return "; Transfer failed." error message
@@ -220,6 +233,7 @@ NXDOMAIN:
 **Output format**: Simplified AXFR — flat list of A records, record count, no SOA wrapping.
 
 AXFR success:
+
 ```
 ; <<>> DiG 9.16.0 <<>> mission AXFR @10.0.1.5
 
@@ -235,6 +249,7 @@ backup-srv.mission.    3600  IN    A     10.0.2.5
 ```
 
 AXFR denied:
+
 ```
 ; <<>> DiG 9.16.0 <<>> mission AXFR @10.0.1.5
 
@@ -249,24 +264,27 @@ AXFR denied:
 
 **Test**: Write test that `dig` appears in command list and is accessible without apt install.
 **Implementation**:
+
 - Add `'dig'` to `SYSTEM_UTILITY_NAMES` in `src/commands/availability.ts`
 - Register `dig` in `src/hooks/useNetworkCommands.ts` with `wrapWithWifiCheck` and `wrapWithBrickedCheck`
 - Add manual entry with synopsis, description, examples
-**Done when**: `help()` shows dig; `dig` works in terminal without `apt install`.
+  **Done when**: `help()` shows dig; `dig` works in terminal without `apt install`.
 
 ### Step 10: End-to-end verification and cleanup
 
 **Test**: Manual verification with debug scripts:
+
 1. `npx tsx scripts/dumpMissionNetwork.ts <seed>` shows dns-role machines with zone files
 2. `npx tsx scripts/dumpHomeNetwork.ts <seed> <wifi>` shows dns-role machines in home networks
 3. Zone files contain cross-layer records
 4. Existing tests all pass
 
 **Implementation**:
+
 - Run `npm run build`, `npm run lint`, `npm run format`, `npm run test:run`
 - Fix any issues found
 - Update documentation: CLAUDE.md, architecture.md, README.md, relevant module READMEs
-**Done when**: All checks green, docs updated, PR ready for review.
+  **Done when**: All checks green, docs updated, PR ready for review.
 
 ## Pre-PR Quality Gate
 

@@ -845,7 +845,10 @@ export const generateFileSystems = (input: FilesystemInput): FilesystemResult =>
   // zone records for its own layer + all downstream layers (cross-layer recon).
   // AXFR probability: easy 80%, medium 60%, hard 40% — same pattern as basic SNMP.
   const axfrThreshold = difficulty === 'easy' ? 0.8 : difficulty === 'medium' ? 0.6 : 0.4;
-  const dnsConfigs = new Map<string, { readonly zoneContent: string; readonly namedConf: string }>();
+  const dnsConfigs = new Map<
+    string,
+    { readonly zoneContent: string; readonly namedConf: string }
+  >();
   if (layers) {
     const machineLayerIndex = new Map<string, number>();
     layers.forEach((layer, i) => {
