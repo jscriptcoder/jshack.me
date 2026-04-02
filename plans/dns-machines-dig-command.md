@@ -63,11 +63,10 @@ The filesystem generator already receives full `layers` data and builds `gateway
 - [ ] DNS machines get realistic hostnames, usernames, configs, web content, scripts, malware, and binary paths
 - [ ] DNS machines have `/etc/bind/named.conf` and `/etc/bind/zones/db.mission` zone files
 - [ ] Zone files contain A records for same-layer + downstream-layer machines
-- [ ] `dig(@server, domain)` returns a single A record in realistic `dig` output format
-- [ ] `dig(@server, domain, "axfr")` returns all zone records when AXFR is enabled
-- [ ] `dig(@server, domain, "axfr")` returns "Transfer failed." when AXFR is disabled
+- [ ] `dig(domain)` resolves via `resolveDomain` (like nslookup) with dig-style output
+- [ ] `dig(serverIp, "axfr")` returns all zone records when AXFR is enabled
+- [ ] `dig(serverIp, "axfr")` returns "Transfer failed." when AXFR is disabled
 - [ ] AXFR misconfiguration probability follows difficulty thresholds (easy 80%, medium 60%, hard 40%)
-- [ ] `dig(domain)` without `@server` falls back to `resolveDomain` (like nslookup)
 - [ ] `dig` is a system utility in `/bin/` (no apt install needed)
 - [ ] `dig` is registered in `useNetworkCommands` with wifi/bricked guards
 - [ ] DNS machines appear naturally in generated networks (home + mission)
@@ -165,77 +164,64 @@ Adds the `dns` role to all generation pools and filesystem generation. No new co
 
 ## Steps — PR 2: `dig` Command
 
-Adds the `dig` command with standard lookup and AXFR zone transfer support.
+Adds the `dig` command with two simple modes:
 
-### Step 7: Create `dig` command with basic A record lookup
+- `dig(domain)` — basic lookup (like nslookup, uses `resolveDomain`)
+- `dig(serverIp, "axfr")` — zone transfer from a DNS server (the main feature)
+
+No `@` prefix, no server-targeted single queries. Simple: 1 arg = lookup, 2 args = zone transfer.
+
+### Step 7: Create `dig` command with basic lookup and AXFR
 
 **Test**: Write `dig.test.ts`:
 
-1. `dig("@10.0.1.5", "web01.mission")` returns formatted dig output with A record
-2. `dig("web01.mission")` without server falls back to `resolveDomain`
+1. `dig("web01.mission")` returns formatted dig output with A record (via `resolveDomain`)
+2. `dig("nonexistent.mission")` returns NXDOMAIN
 3. `dig()` with no args throws usage error
-4. `dig("@10.0.1.5", "nonexistent.mission")` returns NXDOMAIN
-5. `dig("@10.0.1.5", "web01.mission")` where 10.0.1.5 has no DNS port returns connection refused
+4. `dig("10.0.1.5", "axfr")` returns all zone records when `named.conf` has `allow-transfer { any; }`
+5. `dig("10.0.1.5", "axfr")` returns "Transfer failed." when `named.conf` has `allow-transfer { none; }`
+6. `dig("10.0.1.5", "axfr")` where 10.0.1.5 has no DNS port returns connection refused
+7. AXFR output includes records from downstream subnets
 
 **Implementation**:
 
 - Create `src/commands/dig.ts` with `createDigCommand(context)`
-- Context: `getMachine`, `resolveDomain`, `readFileFromMachine`, `getLocalIP`, `getGateway`
-- Parse args: first arg starting with `@` is the DNS server IP, next is domain, optional third is query type
-- For `@server` mode: validate machine exists and has port 53 open, read zone file from `/etc/bind/zones/db.mission`, parse it, find matching A record
-- For no-server mode: use `resolveDomain` fallback (like nslookup)
+- Context: `getMachine`, `resolveDomain`, `getLocalIP`, `getGateway`, `getNodeFromMachine`
+- Parse args by count:
+  - 1 arg: domain lookup via `resolveDomain` (like nslookup)
+  - 2 args: first is DNS server IP, second must be `"axfr"` — reads zone file + checks named.conf
+- For AXFR: validate machine exists and has port 53 open, read `named.conf` for `allow-transfer`, read zone file from `/etc/bind/zones/db.mission`, parse and output all A records
 - Returns `AsyncOutput` with realistic DNS query delay
 
-**Output format**: Simplified like `snmpwalk` — recognizable as dig but stripped of noise. Every line is actionable, no QUESTION/AUTHORITY/OPT/flags/message-size clutter.
+**Output format**: Simplified like `snmpwalk` — recognizable as dig but stripped of noise.
 
-Standard query:
+Basic lookup:
 
 ```
-; <<>> DiG 9.16.0 <<>> web01.mission @10.0.1.5
+; <<>> DiG 9.16.0 <<>> web01.mission
 
 ;; ANSWER SECTION:
 web01.mission.         3600  IN    A     10.0.1.50
 
-;; SERVER: 10.0.1.5#53
+;; SERVER: 10.0.1.1#53
 ;; Query time: 4 msec
 ```
 
 NXDOMAIN:
 
 ```
-; <<>> DiG 9.16.0 <<>> nonexistent.mission @10.0.1.5
+; <<>> DiG 9.16.0 <<>> nonexistent.mission
 
 ;; status: NXDOMAIN
 
-;; SERVER: 10.0.1.5#53
+;; SERVER: 10.0.1.1#53
 ;; Query time: 4 msec
 ```
-
-**Done when**: All dig tests pass.
-
-### Step 8: Add AXFR zone transfer support to `dig`
-
-**Test**: Add to `dig.test.ts`:
-
-1. `dig("@10.0.1.5", "mission", "axfr")` returns all zone records (SOA + NS + all A records) when `named.conf` has `allow-transfer { any; }`
-2. AXFR output includes records from downstream subnets
-3. `dig("@10.0.1.5", "mission", "axfr")` returns "Transfer failed." when `named.conf` has `allow-transfer { none; }`
-4. AXFR on a machine without DNS port returns error
-5. Individual `dig(@server, hostname)` queries still work regardless of AXFR setting
-
-**Implementation**:
-
-- Extend dig command: when third arg is `"axfr"`, first read `named.conf` and check `allow-transfer` setting
-- If `allow-transfer { any; }`: read entire zone file and output all records
-- If `allow-transfer { none; }`: return "; Transfer failed." error message
-- Parse zone file content to extract individual records
-
-**Output format**: Simplified AXFR — flat list of A records, record count, no SOA wrapping.
 
 AXFR success:
 
 ```
-; <<>> DiG 9.16.0 <<>> mission AXFR @10.0.1.5
+; <<>> DiG 9.16.0 <<>> AXFR 10.0.1.5
 
 dns01.mission.         3600  IN    A     10.0.1.5
 web01.mission.         3600  IN    A     10.0.1.50
@@ -251,26 +237,26 @@ backup-srv.mission.    3600  IN    A     10.0.2.5
 AXFR denied:
 
 ```
-; <<>> DiG 9.16.0 <<>> mission AXFR @10.0.1.5
+; <<>> DiG 9.16.0 <<>> AXFR 10.0.1.5
 
 ; Transfer failed.
 
 ;; SERVER: 10.0.1.5#53
 ```
 
-**Done when**: AXFR tests pass; zone transfer works/fails based on named.conf config.
+**Done when**: All dig tests pass.
 
-### Step 9: Register `dig` in command system
+### Step 8: Register `dig` in command system
 
 **Test**: Write test that `dig` appears in command list and is accessible without apt install.
 **Implementation**:
 
 - Add `'dig'` to `SYSTEM_UTILITY_NAMES` in `src/commands/availability.ts`
 - Register `dig` in `src/hooks/useNetworkCommands.ts` with `wrapWithWifiCheck` and `wrapWithBrickedCheck`
-- Add manual entry with synopsis, description, examples
+- Add manual entry with synopsis: `dig(domain)` or `dig(serverIp, "axfr")`
   **Done when**: `help()` shows dig; `dig` works in terminal without `apt install`.
 
-### Step 10: End-to-end verification and cleanup
+### Step 9: End-to-end verification and cleanup
 
 **Test**: Manual verification with debug scripts:
 
