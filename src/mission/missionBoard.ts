@@ -111,7 +111,7 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     target: 'Lakeview Hosting — shared web server',
     objective: 'Find and neutralize malware running on their web server',
     difficulty: 'EASY',
-    seed: 'LAKEVIEW-ssh-easy-malware',
+    seed: 'LAKEVIEW-ssh-easy-malware-forwarded',
   },
   {
     client: 'sqlph4nt0m',
@@ -119,7 +119,7 @@ export const MISSION_BOARD: readonly MissionListing[] = [
     target: 'Trident Pharma — clinical trials database',
     objective: 'Exfiltrate the access key from their database records',
     difficulty: 'EASY',
-    seed: 'TRIDENT-ssh-easy-db-exfiltrate',
+    seed: 'TRIDENT-ssh-easy-db-exfiltrate-forwarded',
   },
   {
     client: 'r00tk1ll',
