@@ -84,9 +84,7 @@ export const createDigCommand = (context: DigContext): Command => ({
     // AXFR mode: requires a server IP
     if (isAxfr) {
       if (!serverIp) {
-        throw new Error(
-          'dig: AXFR requires a server IP\nUsage: dig("serverIp", "axfr")',
-        );
+        throw new Error('dig: AXFR requires a server IP\nUsage: dig("serverIp", "axfr")');
       }
 
       const localIP = getLocalIP();
@@ -102,9 +100,7 @@ export const createDigCommand = (context: DigContext): Command => ({
         throw new Error(`dig: connection to ${serverIp} timed out`);
       }
 
-      const dnsPort = machine.ports.find(
-        (p) => p.service === 'dns' && p.open,
-      );
+      const dnsPort = machine.ports.find((p) => p.service === 'dns' && p.open);
       if (!dnsPort) {
         throw new Error(`dig: ${serverIp}: no DNS service on target`);
       }
