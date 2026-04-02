@@ -70,7 +70,7 @@ Connecting to a different WiFi switches which machines are visible from localhos
 ## Machines
 
 - **localhost** — the player's starting machine (users: `<username>`, guest, root). Generated at runtime via `generateLocalhost(gameState)` in `src/generation/generateLocalhost.ts`. Workstation name, username, and root password are configurable via the intro screen. The player's own user has no password (empty hash); guest password is seed-derived from the guest passwords pool.
-- **Home network machines** — procedurally generated per WiFi network from the game seed using the shared `generateNetwork()` pipeline. Each WiFi provides a multi-layer network (easy: 2 machines, medium: 5-7, hard: 8-11) with a border router and optional inner gateways. Random difficulty per WiFi. Roles: webserver, database, fileserver, mailserver, iot, workstation.
+- **Home network machines** — procedurally generated per WiFi network from the game seed using the shared `generateNetwork()` pipeline. Each WiFi provides a multi-layer network (easy: 2 machines, medium: 5-7, hard: 8-11) with a border router and optional inner gateways. Random difficulty per WiFi. Roles: webserver, database, fileserver, mailserver, iot, workstation, dns.
 - **Mission machines** — procedurally generated per mission seed (independent of home networks).
 
 All machine filesystems are generated at runtime and built via `fileSystemFactory.ts` with users, directories, and content. Common structure per machine: `/root/`, `/home/[users]/`, `/etc/` (passwd with MD5 hashes, hostname, hosts, configs), `/var/log/`, `/tmp/`. See `architecture.md` for the full filesystem permission model.

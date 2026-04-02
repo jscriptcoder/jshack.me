@@ -104,6 +104,7 @@ Admin utilities that write PID files to `/var/run/` — `NetworkContext` reads t
 | ping       | `ping.ts`       | `ping(host, [count])`                        | Send ICMP echo request to network host (async)                                                                 |
 | nmap       | `nmap.ts`       | `nmap(target[, "-sV"][, "-sU"][, "--tree"])` | Port scanning; -sV version detection, -sU UDP scan, --tree network topology tree (async)                       |
 | nslookup   | `nslookup.ts`   | `nslookup(domain)`                           | Query DNS to resolve domain to IP address (async)                                                              |
+| dig        | `dig.ts`        | `dig(domain) \| dig(serverIp, "axfr")`       | DNS lookup or AXFR zone transfer from DNS server (async)                                                       |
 | ssh        | `ssh.ts`        | `ssh("user@host"[, port][, pw])`             | Connect to remote machine via SSH (async, optional inline auth); logs to target's `/var/log/auth.log`          |
 | scp        | `scp.ts`        | `scp(src, dest[, port][, pw])`               | Copy file to remote machine (async, optional inline auth); logs to target's `/var/log/auth.log`                |
 | curl       | `curl.ts`       | `curl(url, [flags])`                         | HTTP client for GET/POST requests (async, `-i` for headers, `-X POST`); logs to target's `/var/log/access.log` |

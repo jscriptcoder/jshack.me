@@ -211,7 +211,7 @@ Network access from localhost requires cracking a WiFi network first. See `infra
 
 **State**: `brickedMachines: ReadonlySet<string>` in `SessionContext` (initialized from `storageCache`). Persisted to IndexedDB (`brickedMachines` key in session store), synced across tabs via `bricked-changed` BroadcastChannel message.
 
-**Connection gating**: `wrapWithBrickedCheck` HOF in `useNetworkCommands.ts` (outermost wrapper — checked before WiFi) blocks ssh, ftp, nc, ping, nmap, curl, msfconsole, hydra, gobuster to bricked machines. Error: `"Connection timed out — host <ip> appears to be down"`. nslookup is not gated (DNS doesn't require the target to be up).
+**Connection gating**: `wrapWithBrickedCheck` HOF in `useNetworkCommands.ts` (outermost wrapper — checked before WiFi) blocks ssh, ftp, nc, ping, nmap, curl, msfconsole, hydra, gobuster, dig to bricked machines. Error: `"Connection timed out — host <ip> appears to be down"`. nslookup is not gated (DNS doesn't require the target to be up).
 
 **Localhost bricking**: Terminal.tsx checks `isMachineBricked('localhost')` at the top of render. If true, renders a frozen kernel panic screen with no input. Only recovery: `reset("confirm")` (which clears IndexedDB) or clearing browser site data.
 
@@ -223,7 +223,7 @@ Network access from localhost requires cracking a WiFi network first. See `infra
 
 See `src/commands/` for implementations and `src/hooks/useCommands.ts` for the registry.
 
-Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, find, grep, rm, su, whoami, bash, airmon, airdump, aircrack, nmcli, ifconfig, ping, nmap, nslookup, ssh, exit, ftp, nc, curl, msfconsole, gobuster, hydra, gpg, reboot, sshd, vsftpd, systemctl, output, resolve, strings, nano, node, missions, accept, abort, mail, apt, theme, reset, xterm, snmpwalk, snmpset, mysql.
+Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, find, grep, rm, su, whoami, bash, airmon, airdump, aircrack, nmcli, ifconfig, ping, nmap, nslookup, dig, ssh, exit, ftp, nc, curl, msfconsole, gobuster, hydra, gpg, reboot, sshd, vsftpd, systemctl, output, resolve, strings, nano, node, missions, accept, abort, mail, apt, theme, reset, xterm, snmpwalk, snmpset, mysql.
 
 FTP mode (when connected via ftp): pwd, lpwd, cd, lcd, ls, lls, get, put, quit/bye.
 
@@ -247,7 +247,7 @@ Unified filesystem-based access model (`src/commands/availability.ts`). All comm
 
 **Pipeline**: `generateMissionNetwork(seed, usedIps?)` has its own orchestration (for PRNG sequence stability) but shares building blocks with home networks: topology (`topology.ts`), users (`users.ts`), enrichment (`enrichment.ts`), and filesystem helpers (`filesystem/`). Mission-specific steps: objective type resolution → port closures → attack chain (`attackChain.ts`) → objective filesystems → binary wrapping (`binary.ts`). Home networks use the shared `generateNetwork()` pipeline (`generateNetwork.ts`) which composes the same building blocks. Seeds can embed keywords to override generation axes — see `parseSeedOverrides()` in `generateMission.ts`. Shared IP utilities (`ip.ts`) provide `generatePublicIp(prng, usedIps?)` and `generatePrivateSubnet(prng)` — used by both mission and home network generation. When `usedIps` is provided, public IP generation re-rolls to avoid collisions.
 
-**Key properties**: Deterministic (same seed → identical network). 5 machine roles, 3 difficulty tiers, 6 entry variants (ssh, ftp, nc, exploit, http, snmp), 2 network modes, 10 objective types. Output types match existing `NetworkConfig`, `RemoteMachine`, `FileNode`. Mission passwords imported from `src/secrets/__encoded.ts`.
+**Key properties**: Deterministic (same seed → identical network). 6 machine roles, 3 difficulty tiers, 6 entry variants (ssh, ftp, nc, exploit, http, snmp), 2 network modes, 10 objective types. Output types match existing `NetworkConfig`, `RemoteMachine`, `FileNode`. Mission passwords imported from `src/secrets/__encoded.ts`.
 
 **Multi-layer subnet topology**: Difficulty controls network depth via isolated subnet layers. Easy missions have 1 layer (2 machines). Medium missions have 2 layers separated by a gateway (5-7 machines total). Hard missions have 3 layers with 2 gateways (8-11 machines total). Each layer has its own private subnet, entry variant, and 2-3 machines. Gateway machines are dual-homed routers with interfaces in both adjacent subnets. Subnet isolation means machines can only see other machines in their own layer — only gateways bridge layers. The target is always in the deepest layer (except portforward, which targets layer 0). `MissionNetwork.layers` (type `readonly SubnetLayer[]`) exposes per-layer topology. `buildMissionObjective` takes the `layers` parameter for target placement.
 
