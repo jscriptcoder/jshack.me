@@ -206,6 +206,17 @@ describe('dig command', () => {
       expect(output).toContain('XFR size: 4 records');
     });
 
+    it('accepts @ prefix on server IP', () => {
+      const ctx = createMockDigContext({ namedConf: mkNamedConf(true) });
+      const cmd = createDigCommand(ctx);
+      const result = cmd.fn('@10.0.1.5', 'axfr');
+      const lines = collectLines(result as AsyncOutput);
+      const output = lines.join('\n');
+      expect(output).toContain('web01.mission.');
+      expect(output).toContain('XFR size: 4 records');
+      expect(output).toContain('AXFR @10.0.1.5');
+    });
+
     it('throws when target has no DNS port', () => {
       const ctx = createMockDigContext();
       const cmd = createDigCommand(ctx);

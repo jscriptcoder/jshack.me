@@ -71,13 +71,15 @@ export const createDigCommand = (context: DigContext): Command => ({
     let isAxfr = false;
     let domain: string | undefined;
 
-    for (const arg of strArgs) {
+    for (const rawArg of strArgs) {
+      // Strip optional @ prefix (real dig convention: @server)
+      const arg = rawArg.startsWith('@') ? rawArg.slice(1) : rawArg;
       if (arg.toLowerCase() === 'axfr') {
         isAxfr = true;
       } else if (IP_REGEX.test(arg)) {
         serverIp = arg;
       } else {
-        domain = arg;
+        domain = rawArg;
       }
     }
 
@@ -125,7 +127,7 @@ export const createDigCommand = (context: DigContext): Command => ({
       return {
         __type: 'async',
         start: (onLine, onComplete) => {
-          onLine(`; <<>> DiG 9.16.0 <<>> AXFR ${serverIp}`);
+          onLine(`; <<>> DiG 9.16.0 <<>> AXFR @${serverIp}`);
           onLine('');
 
           token.schedule(() => {
