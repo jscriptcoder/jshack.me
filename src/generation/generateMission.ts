@@ -3,7 +3,7 @@ import { generateTopology } from './topology';
 import { generateUsers } from './users';
 import { buildMissionObjective } from './attackChain';
 import { generateFileSystems } from './filesystem';
-import { enrichMachineWithUsers, applyPortClosures } from './enrichment';
+import { enrichMachineWithUsers, applyPortClosures, applyRedisPortOpening } from './enrichment';
 import type {
   Difficulty,
   EntryVariant,
@@ -197,6 +197,9 @@ export const generateMissionNetwork = (
     resolvedObjectiveType,
   );
 
+  // Open Redis port 6379 on ~35% of database machines
+  const machinesWithRedis = applyRedisPortOpening(prng, machinesAfterClosures);
+
   // Update network configs with populated users and port closures
   const updatedMachineConfigs = Object.fromEntries(
     Object.entries(topology.networkConfig.machineConfigs).map(([ip, config]) => [
@@ -204,7 +207,7 @@ export const generateMissionNetwork = (
       {
         ...config,
         machines: config.machines.map((rm) => {
-          const updated = machinesAfterClosures.find((m) => m.ip === rm.ip);
+          const updated = machinesWithRedis.find((m) => m.ip === rm.ip);
           return {
             ...rm,
             users: allUsersByMachine[rm.ip] ?? [],
@@ -217,7 +220,7 @@ export const generateMissionNetwork = (
 
   const { objective, clientEmail, dbEnrichment } = buildMissionObjective({
     prng,
-    machines: machinesAfterClosures,
+    machines: machinesWithRedis,
     credentials: allCredentials,
     entryPoint: topology.entryPoint,
     difficulty,
@@ -231,12 +234,12 @@ export const generateMissionNetwork = (
   const dbObjectiveTypes = ['db_exfiltrate', 'db_tamper', 'db_sabotage', 'db_fix'];
   const needsMysqlPort =
     dbObjectiveTypes.includes(objective.type) &&
-    !machinesAfterClosures
+    !machinesWithRedis
       .find((m) => m.ip === objective.targetMachine)
       ?.remoteMachine.ports.some((p) => p.port === 3306);
 
   const machinesForFs = needsMysqlPort
-    ? machinesAfterClosures.map((m) =>
+    ? machinesWithRedis.map((m) =>
         m.ip === objective.targetMachine
           ? {
               ...m,
@@ -247,7 +250,7 @@ export const generateMissionNetwork = (
             }
           : m,
       )
-    : machinesAfterClosures;
+    : machinesWithRedis;
 
   const { fileSystems, basicSnmpGatewayIps } = generateFileSystems({
     prng,
@@ -312,7 +315,7 @@ export const generateMissionNetwork = (
     difficulty,
     entryPoint: topology.entryPoint,
     entryVariant: topology.entryVariant,
-    machines: machinesAfterClosures,
+    machines: machinesWithRedis,
     fileSystems,
     networkConfig: { machineConfigs: configsWithMysql },
     objective,

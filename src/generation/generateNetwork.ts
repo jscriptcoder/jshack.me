@@ -5,7 +5,7 @@
 import type { Prng } from './prng';
 import { generateTopology, type TopologyOverrides } from './topology';
 import { generateUsers } from './users';
-import { enrichMachineWithUsers, applyPortClosures } from './enrichment';
+import { enrichMachineWithUsers, applyPortClosures, applyRedisPortOpening } from './enrichment';
 import {
   buildMachineConfig,
   generateBasicSnmpConfig,
@@ -118,6 +118,9 @@ export const generateNetwork = (options: GenerateNetworkOptions): GeneratedNetwo
     objectiveType,
   );
 
+  // 5b. Open Redis port 6379 on ~35% of database machines
+  const machinesWithRedis = applyRedisPortOpening(prng, machinesAfterClosures);
+
   // 6. Update network configs with populated users and port closures
   const updatedMachineConfigs: Record<string, MachineNetworkConfig> = Object.fromEntries(
     Object.entries(topology.networkConfig.machineConfigs).map(([ip, config]) => [
@@ -125,7 +128,7 @@ export const generateNetwork = (options: GenerateNetworkOptions): GeneratedNetwo
       {
         ...config,
         machines: config.machines.map((rm) => {
-          const updated = machinesAfterClosures.find((m) => m.ip === rm.ip);
+          const updated = machinesWithRedis.find((m) => m.ip === rm.ip);
           return {
             ...rm,
             users: allUsersByMachine[rm.ip] ?? [],
@@ -146,7 +149,7 @@ export const generateNetwork = (options: GenerateNetworkOptions): GeneratedNetwo
     if (topology.layers.length > 1) {
       topology.layers.slice(1).forEach((layer) => {
         const downstreamIps = new Set(layer.machines.map((m) => m.ip));
-        const downstreamMachines = machinesAfterClosures.filter((m) => downstreamIps.has(m.ip));
+        const downstreamMachines = machinesWithRedis.filter((m) => downstreamIps.has(m.ip));
         gatewayDownstreamMap.set(layer.gateway.ip, downstreamMachines);
         gatewayNatMap.set(layer.gateway.ip, layer.natForwarding);
         gatewaySubnetMap.set(layer.gateway.ip, layer.subnet);
@@ -203,7 +206,7 @@ export const generateNetwork = (options: GenerateNetworkOptions): GeneratedNetwo
         if (i > 0) machineLayerIndex.set(layer.gateway.ip, i - 1);
       });
 
-      machinesAfterClosures.forEach((machine) => {
+      machinesWithRedis.forEach((machine) => {
         if (machine.role !== 'dns') return;
 
         const layerIdx = machineLayerIndex.get(machine.ip) ?? 0;
@@ -252,7 +255,7 @@ export const generateNetwork = (options: GenerateNetworkOptions): GeneratedNetwo
     }
 
     // Generate filesystem for each machine
-    machinesAfterClosures.forEach((machine) => {
+    machinesWithRedis.forEach((machine) => {
       const users = allUsersByMachine[machine.ip] ?? [];
       const machineCreds = allCredentials[machine.ip] ?? [];
       const isHttpEntry = topology.entryVariant === 'http' && machine.ip === topology.entryPoint;
@@ -317,7 +320,7 @@ export const generateNetwork = (options: GenerateNetworkOptions): GeneratedNetwo
     const routerCredsForFs = allCredentials[routerWithUsers.ip] ?? [];
     const layer0Ips = new Set(topology.layers[0]!.machines.map((m) => m.ip));
     const firstGatewayIp = topology.layers.length > 1 ? topology.layers[1]!.gateway.ip : null;
-    const routerVisibleMachines = machinesAfterClosures.filter(
+    const routerVisibleMachines = machinesWithRedis.filter(
       (m) => layer0Ips.has(m.ip) || m.ip === firstGatewayIp,
     );
     const baseRouterConfig = buildMachineConfig(
@@ -379,7 +382,7 @@ export const generateNetwork = (options: GenerateNetworkOptions): GeneratedNetwo
       layers: topology.layers,
       networkConfig: topology.networkConfig,
     },
-    machines: machinesAfterClosures,
+    machines: machinesWithRedis,
     routerMachine: routerWithUsers,
     usersByMachine: allUsersByMachine,
     credentials: allCredentials,
