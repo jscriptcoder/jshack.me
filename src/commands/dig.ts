@@ -36,7 +36,18 @@ const formatDigTimestamp = (): string => {
   return `${days[now.getUTCDay()]} ${months[now.getUTCMonth()]} ${pad(now.getUTCDate())} ${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}:${pad(now.getUTCSeconds())} UTC ${now.getUTCFullYear()}`;
 };
 
-// Parses zone file content into A record entries
+// Compares two IPs numerically by each octet
+const compareIps = (a: string, b: string): number => {
+  const aParts = a.split('.').map(Number);
+  const bParts = b.split('.').map(Number);
+  for (let i = 0; i < 4; i++) {
+    const diff = (aParts[i] ?? 0) - (bParts[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+};
+
+// Parses zone file content into A record entries, sorted by IP
 const parseZoneRecords = (
   content: string,
 ): readonly { readonly hostname: string; readonly ip: string }[] =>
@@ -48,7 +59,8 @@ const parseZoneRecords = (
       const hostname = parts[0] ?? '';
       const ip = parts[parts.length - 1] ?? '';
       return { hostname, ip };
-    });
+    })
+    .sort((a, b) => compareIps(a.ip, b.ip));
 
 // Checks named.conf for allow-transfer { any; }
 const isAxfrAllowed = (namedConfContent: string): boolean =>
