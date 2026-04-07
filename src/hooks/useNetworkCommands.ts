@@ -18,6 +18,7 @@ import { createDigCommand } from '../commands/dig';
 import { createSnmpwalkCommand } from '../commands/snmpwalk';
 import { createSnmpsetCommand } from '../commands/snmpset';
 import { createMysqlCommand } from '../commands/mysql';
+import { createRediscliCommand } from '../commands/rediscli';
 import { wrapWithWifiCheck, wrapWithBrickedCheck } from '../commands/networkGuards';
 import type { Command } from '../components/Terminal/types';
 import { appendToMachineLog } from '../logging/appendToMachineLog';
@@ -264,6 +265,17 @@ export const useNetworkCommands = (): Map<string, Command> => {
       wrapWithBrickedCheck(
         wrapWithWifiCheck(
           createMysqlCommand({ getMachine, findMachineByIp, getLocalIP, resolveDomain }),
+          isWifiRequired,
+        ),
+        isMachineBricked,
+      ),
+    );
+
+    commands.set(
+      'rediscli',
+      wrapWithBrickedCheck(
+        wrapWithWifiCheck(
+          createRediscliCommand({ getMachine, findMachineByIp, getLocalIP, resolveDomain }),
           isWifiRequired,
         ),
         isMachineBricked,
