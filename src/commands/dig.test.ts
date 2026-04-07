@@ -153,10 +153,13 @@ describe('dig command', () => {
       const lines = collectLines(result as AsyncOutput);
       const output = lines.join('\n');
       expect(output).toContain('DiG 9.16.0');
+      expect(output).toContain('global options: +short');
       expect(output).toContain('web01.mission');
       expect(output).toContain('ANSWER SECTION');
       expect(output).toContain('10.0.1.50');
+      expect(output).toContain('Query time:');
       expect(output).toContain('SERVER:');
+      expect(output).toContain('WHEN:');
     });
 
     it('returns NXDOMAIN for unknown domain', () => {

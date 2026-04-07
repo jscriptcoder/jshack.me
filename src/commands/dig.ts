@@ -14,6 +14,28 @@ type DigContext = {
 const DNS_QUERY_DELAY_MS = 500;
 const IP_REGEX = /^\d+\.\d+\.\d+\.\d+$/;
 
+// Formats a UTC timestamp like real dig: "Mon Apr 07 10:30:00 UTC 2026"
+const formatDigTimestamp = (): string => {
+  const now = new Date();
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ] as const;
+  const pad = (n: number): string => n.toString().padStart(2, '0');
+  return `${days[now.getUTCDay()]} ${months[now.getUTCMonth()]} ${pad(now.getUTCDate())} ${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}:${pad(now.getUTCSeconds())} UTC ${now.getUTCFullYear()}`;
+};
+
 // Parses zone file content into A record entries
 const parseZoneRecords = (
   content: string,
@@ -128,6 +150,7 @@ export const createDigCommand = (context: DigContext): Command => ({
         __type: 'async',
         start: (onLine, onComplete) => {
           onLine(`; <<>> DiG 9.16.0 <<>> AXFR @${serverIp}`);
+          onLine(';; global options: +short');
           onLine('');
 
           token.schedule(() => {
@@ -141,10 +164,11 @@ export const createDigCommand = (context: DigContext): Command => ({
               });
               onLine('');
               onLine(`;; XFR size: ${zoneRecords.length} records`);
+              onLine(`;; Query time: ${Math.floor(Math.random() * 12) + 4} msec`);
             }
 
-            onLine('');
             onLine(`;; SERVER: ${serverIp}#53`);
+            onLine(`;; WHEN: ${formatDigTimestamp()}`);
             onComplete();
           }, jitter(DNS_QUERY_DELAY_MS));
         },
@@ -165,6 +189,7 @@ export const createDigCommand = (context: DigContext): Command => ({
       __type: 'async',
       start: (onLine, onComplete) => {
         onLine(`; <<>> DiG 9.16.0 <<>> ${domain}`);
+        onLine(';; global options: +short');
         onLine('');
 
         token.schedule(() => {
@@ -178,8 +203,9 @@ export const createDigCommand = (context: DigContext): Command => ({
           }
 
           onLine('');
-          onLine(`;; SERVER: ${dnsServer}#53`);
           onLine(`;; Query time: ${Math.floor(Math.random() * 8) + 1} msec`);
+          onLine(`;; SERVER: ${dnsServer}#53`);
+          onLine(`;; WHEN: ${formatDigTimestamp()}`);
           onComplete();
         }, jitter(DNS_QUERY_DELAY_MS));
       },
