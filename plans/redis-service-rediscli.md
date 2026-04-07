@@ -45,18 +45,14 @@ rediscli("10.0.1.5", "password")  // connect with auth
 
 ### Supported Redis commands
 
-Interactive `redis>` prompt supports:
+Interactive `redis>` prompt supports 7 commands (matching MySQL's scope):
 
 - `KEYS *` / `KEYS pattern` — list keys (supports `*` glob)
 - `GET key` — get string value
 - `SET key value` — set string value
 - `DEL key` — delete key
-- `TYPE key` — return "string" (all values are strings)
-- `TTL key` — return -1 (no expiry, simulated)
 - `DBSIZE` — return number of keys
-- `INFO` — server info summary (version, connected clients, used memory)
 - `AUTH password` — authenticate (when requirepass is set)
-- `PING` — return "PONG"
 - `QUIT` / `EXIT` — disconnect
 
 Mutations (SET, DEL) persist back to `/var/lib/redis/data.json`.
@@ -72,7 +68,7 @@ Package name: `redis-tools` (real Debian package). Installs `rediscli` binary to
 - [ ] Redis config at `/etc/redis/redis.conf` with optional `requirepass`
 - [ ] `rediscli(ip)` connects to Redis, enters `redis>` prompt
 - [ ] `rediscli(ip, password)` authenticates inline
-- [ ] All supported Redis commands work (KEYS, GET, SET, DEL, TYPE, TTL, DBSIZE, INFO, AUTH, PING)
+- [ ] All supported Redis commands work (KEYS, GET, SET, DEL, DBSIZE, AUTH, QUIT)
 - [ ] Mutations persist to filesystem
 - [ ] `redis-tools` apt package installs `rediscli` binary
 - [ ] `hydra(ip, "redis")` brute-forces requirepass
@@ -163,7 +159,7 @@ Opens port 6379 on some database machines, generates Redis data and config files
 
 **Test**: Write `src/commands/redis/parser.test.ts` and `src/commands/redis/executor.test.ts`:
 
-1. Parser: `KEYS *`, `GET key`, `SET key value`, `DEL key`, `AUTH pass`, `PING`, `QUIT` all parse correctly
+1. Parser: `KEYS *`, `GET key`, `SET key value`, `DEL key`, `DBSIZE`, `AUTH pass`, `QUIT` all parse correctly
 2. Parser: unknown commands return error
 3. Executor: `KEYS *` returns all keys
 4. Executor: `KEYS sess:*` returns only matching keys
@@ -172,8 +168,6 @@ Opens port 6379 on some database machines, generates Redis data and config files
 7. Executor: `DEL` removes key, returns count
 8. Executor: `AUTH` with correct password returns `OK`, wrong returns error
 9. Executor: `DBSIZE` returns key count
-10. Executor: `INFO` returns server summary
-11. Executor: `PING` returns `PONG`
 
 **Implementation**:
 
