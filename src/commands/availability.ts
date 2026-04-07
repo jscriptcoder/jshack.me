@@ -45,6 +45,7 @@ export const APT_INSTALLABLE = new Set([
   'gobuster',
   'snmp',
   'mysql',
+  'redis-tools',
 ]);
 
 export type AptPackageInfo = {
@@ -91,6 +92,12 @@ export const APT_PACKAGES: readonly AptPackageInfo[] = [
     binaries: ['snmpwalk', 'snmpset'],
   },
   { name: 'mysql', description: 'MySQL client for database access', version: '8.0.36' },
+  {
+    name: 'redis-tools',
+    description: 'Redis CLI client for key-value store access',
+    version: '7.0.15',
+    binaries: ['rediscli'],
+  },
 ];
 
 // Binary stub content — looks like an ELF binary header
@@ -140,6 +147,7 @@ export const APT_TOOL_NAMES = [
   'snmpwalk',
   'snmpset',
   'mysql',
+  'rediscli',
 ] as const;
 
 // System admin utilities in /usr/sbin/ — root-only services

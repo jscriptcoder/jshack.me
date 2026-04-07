@@ -7,6 +7,8 @@ import {
   formatFtpLoginOk,
   formatMysqlAccessDenied,
   formatMysqlConnect,
+  formatRedisAuth,
+  formatRedisAuthDenied,
   formatScpAccepted,
   formatScpFailed,
   formatSshAccepted,
@@ -143,6 +145,26 @@ describe('formatMysqlAccessDenied', () => {
     const result = formatMysqlAccessDenied(date, 42, 'admin', '192.168.1.100');
     expect(result).toBe(
       "2026-03-21T14:30:15.000000Z\t42 Connect\tAccess denied for user 'admin'@'192.168.1.100' (using password: YES)",
+    );
+  });
+});
+
+describe('formatRedisAuth', () => {
+  it('formats Redis auth success entry', () => {
+    const date = new Date('2026-03-21T14:30:15Z');
+    const result = formatRedisAuth(date, 1234, '192.168.1.100');
+    expect(result).toBe(
+      '1234:M 21 Mar 2026 14:30:15.000 * Client 192.168.1.100 authenticated successfully',
+    );
+  });
+});
+
+describe('formatRedisAuthDenied', () => {
+  it('formats Redis auth denied entry', () => {
+    const date = new Date('2026-03-21T14:30:15Z');
+    const result = formatRedisAuthDenied(date, 1234, '192.168.1.100');
+    expect(result).toBe(
+      '1234:M 21 Mar 2026 14:30:15.000 # Client 192.168.1.100 authentication failed',
     );
   });
 });

@@ -68,6 +68,16 @@ export type MysqlQuitOutput = {
   readonly __type: 'mysql_quit';
 };
 
+export type RedisPromptData = {
+  readonly __type: 'redis_prompt';
+  readonly targetIP: string;
+  readonly password?: string;
+};
+
+export type RedisQuitOutput = {
+  readonly __type: 'redis_quit';
+};
+
 export type NanoOpenData = {
   readonly __type: 'nano_open';
   readonly filePath: string;
@@ -87,7 +97,8 @@ export type AsyncFollowUp =
   | FtpPromptData
   | NcPromptData
   | ScpPromptData
-  | MysqlPromptData;
+  | MysqlPromptData
+  | RedisPromptData;
 
 export type AsyncOutput = {
   readonly __type: 'async';
@@ -113,6 +124,8 @@ export type SpecialOutput =
   | NcQuitOutput
   | MysqlPromptData
   | MysqlQuitOutput
+  | RedisPromptData
+  | RedisQuitOutput
   | NanoOpenData
   | AsyncOutput;
 
@@ -202,3 +215,9 @@ export const isMysqlPrompt = (value: unknown): value is MysqlPromptData =>
 
 export const isMysqlQuit = (value: unknown): value is MysqlQuitOutput =>
   isSpecialOutput(value) && value.__type === 'mysql_quit';
+
+export const isRedisPrompt = (value: unknown): value is RedisPromptData =>
+  isSpecialOutput(value) && value.__type === 'redis_prompt';
+
+export const isRedisQuit = (value: unknown): value is RedisQuitOutput =>
+  isSpecialOutput(value) && value.__type === 'redis_quit';

@@ -16,6 +16,8 @@ Custom React hooks that wire together commands, context, and terminal features. 
 | `useAutoComplete.ts`           | Tab completion for command names and variable names                                                                                                                           |
 | `usePathAutoComplete.ts`       | Tab completion for file/directory paths inside string arguments — resolves paths via filesystem context                                                                       |
 | `usePathCompletionAdapters.ts` | Adapts filesystem APIs for NC/FTP mode path completion — wraps three `usePathAutoComplete` instances (default, FTP remote, FTP local) with mode-aware routing                 |
+| `useMysqlCommands.ts`          | Creates MySQL-mode commands (SQL parsing + execution) — returns `null` when not in MySQL mode                                                                                 |
+| `useRedisCommands.ts`          | Creates Redis-mode commands (KEYS, GET, SET, DEL, DBSIZE, AUTH, QUIT) — returns `null` when not in Redis mode                                                                 |
 | `useAuthentication.ts`         | Password/SSH/FTP/su authentication state and logic — manages password prompts, credential validation, and session transitions on successful login                             |
 | `useVariables.ts`              | `const`/`let` variable declarations, reassignment, and immutability enforcement                                                                                               |
 

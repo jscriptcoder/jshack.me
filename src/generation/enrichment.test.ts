@@ -11,6 +11,7 @@ import {
   variantEnrichmentFlag,
   enrichMachineWithUsers,
   applyPortClosures,
+  applyRedisPortOpening,
 } from './enrichment';
 
 // --- Test helpers ---
@@ -462,5 +463,70 @@ describe('applyPortClosures', () => {
     const a = applyPortClosures(createPrng('det'), [...machines], '10.0.0.10');
     const b = applyPortClosures(createPrng('det'), [...machines], '10.0.0.10');
     expect(a).toEqual(b);
+  });
+});
+
+describe('applyRedisPortOpening', () => {
+  const mkDbMachine = (ip: string): GeneratedMachine =>
+    mkMachine(
+      ip,
+      'ssh',
+      [
+        mkPort(22, 'ssh', true),
+        mkPort(3306, 'mysql', true),
+        mkPort(5432, 'postgresql', false),
+        mkPort(6379, 'redis', false),
+        mkPort(27017, 'mongodb', false),
+      ],
+      [],
+      'database',
+    );
+
+  it('opens port 6379 on some database machines (~35% rate)', () => {
+    let openCount = 0;
+    const total = 200;
+    for (let i = 0; i < total; i++) {
+      const machines = [mkDbMachine('10.0.0.10')];
+      const result = applyRedisPortOpening(createPrng(`redis-open-${i}`), machines);
+      const redis = result[0]!.remoteMachine.ports.find((p) => p.port === 6379);
+      if (redis?.open) openCount++;
+    }
+    // ~35% rate — allow 15%-55% range
+    expect(openCount).toBeGreaterThanOrEqual(total * 0.15);
+    expect(openCount).toBeLessThanOrEqual(total * 0.55);
+  });
+
+  it('does not open Redis on non-database machines', () => {
+    const webMachine = mkMachine(
+      '10.0.0.20',
+      'ssh',
+      [mkPort(22, 'ssh', true), mkPort(80, 'http', true)],
+      [],
+      'webserver',
+    );
+    for (let i = 0; i < 50; i++) {
+      const result = applyRedisPortOpening(createPrng(`redis-web-${i}`), [webMachine]);
+      expect(result[0]!.remoteMachine.ports).toEqual(webMachine.remoteMachine.ports);
+    }
+  });
+
+  it('is deterministic for the same seed', () => {
+    const machines = [mkDbMachine('10.0.0.10'), mkDbMachine('10.0.0.11')];
+    const a = applyRedisPortOpening(createPrng('redis-det'), machines);
+    const b = applyRedisPortOpening(createPrng('redis-det'), machines);
+    expect(a).toEqual(b);
+  });
+
+  it('always consumes one PRNG call per database machine', () => {
+    const machines = [mkDbMachine('10.0.0.10'), mkDbMachine('10.0.0.11')];
+    const prng1 = createPrng('redis-consume');
+    applyRedisPortOpening(prng1, machines);
+    const after1 = prng1.next();
+
+    const prng2 = createPrng('redis-consume');
+    applyRedisPortOpening(prng2, machines);
+    const after2 = prng2.next();
+
+    expect(after1).toBe(after2);
   });
 });

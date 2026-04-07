@@ -284,3 +284,28 @@ export const applyPortClosures = (
     return m;
   });
 };
+
+// Opens Redis port 6379 on database-role machines with ~35% probability.
+// Always consumes one PRNG call per database machine for sequence stability.
+const REDIS_OPEN_CHANCE = 0.35;
+
+export const applyRedisPortOpening = (
+  prng: Prng,
+  machines: readonly GeneratedMachine[],
+): readonly GeneratedMachine[] =>
+  machines.map((m) => {
+    if (m.role !== 'database') return m;
+
+    const roll = prng.next();
+    if (roll >= REDIS_OPEN_CHANCE) return m;
+
+    return {
+      ...m,
+      remoteMachine: {
+        ...m.remoteMachine,
+        ports: m.remoteMachine.ports.map((p) =>
+          p.port === 6379 && p.service === 'redis' ? { ...p, open: true } : p,
+        ),
+      },
+    };
+  });

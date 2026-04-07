@@ -1,6 +1,6 @@
 # Logging
 
-Dynamic connection logging — records SSH, FTP, SCP, su, MySQL, and HTTP authentication events to target machine log files in realistic Linux formats.
+Dynamic connection logging — records SSH, FTP, SCP, su, MySQL, Redis, and HTTP authentication events to target machine log files in realistic Linux formats.
 
 ## Files
 
@@ -17,6 +17,7 @@ Dynamic connection logging — records SSH, FTP, SCP, su, MySQL, and HTTP authen
 | Syslog          | `/var/log/auth.log`   | SSH, SCP, su | `Mar 21 14:30:00 webserver sshd[1234]: Accepted password for admin from 10.0.1.100 port 45000 ssh2` |
 | vsftpd          | `/var/log/vsftpd.log` | FTP          | `[2026-03-21 14:30:00] OK LOGIN: Client "10.0.1.100", user "ftpuser"`                               |
 | MySQL general   | `/var/log/mysql.log`  | MySQL        | `2026-03-21T14:30:00.000000Z\t42 Connect\tadmin@10.0.1.100 on webapp_db using TCP/IP`               |
+| Redis           | `/var/log/redis.log`  | Redis        | `1234:M 21 Mar 2026 14:30:00.000 * Client connected from 10.0.1.100`                                |
 | Apache Combined | `/var/log/access.log` | curl         | `10.0.1.100 - - [21/Mar/2026:14:30:00 +0000] "GET /index.html HTTP/1.1" 200 1234`                   |
 
 ## Events Logged
@@ -35,6 +36,8 @@ Dynamic connection logging — records SSH, FTP, SCP, su, MySQL, and HTTP authen
 | FTP login failure | `formatFtpLoginFailed`    | `/var/log/vsftpd.log` | Target machine  |
 | MySQL connect     | `formatMysqlConnect`      | `/var/log/mysql.log`  | Target machine  |
 | MySQL auth fail   | `formatMysqlAccessDenied` | `/var/log/mysql.log`  | Target machine  |
+| Redis connect     | `formatRedisConnect`      | `/var/log/redis.log`  | Target machine  |
+| Redis auth fail   | `formatRedisAuthFailed`   | `/var/log/redis.log`  | Target machine  |
 | HTTP request      | `formatAccessLog`         | `/var/log/access.log` | Target machine  |
 
 ## Source IP Resolution
@@ -50,7 +53,7 @@ Dynamic connection logging — records SSH, FTP, SCP, su, MySQL, and HTTP authen
 
 ## How It Works
 
-1. **Terminal.tsx** defines logging callbacks (`onSuAuth`, `onSshAuth`, `onFtpAuth`, `onMysqlAuth`) that are passed to `useAuthentication`
+1. **Terminal.tsx** defines logging callbacks (`onSuAuth`, `onSshAuth`, `onFtpAuth`, `onMysqlAuth`, `onRedisAuth`) that are passed to `useAuthentication`
 2. Commands trigger callbacks on auth events (su inline, SSH/SCP/FTP via `useAuthentication`)
 3. Callbacks resolve the source IP via `resolveLogSourceIP()`, then use formatters to build log lines
 4. `appendToMachineLog` reads the existing log file (as root), appends the new line, and writes back

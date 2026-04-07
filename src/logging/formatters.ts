@@ -147,6 +147,37 @@ export const formatMysqlAccessDenied = (
 ): string =>
   `${formatMysqlTimestamp(date)}\t${threadId} Connect\tAccess denied for user '${user}'@'${sourceIp}' (using password: YES)`;
 
+// Redis log format: pid:role DD MMM YYYY HH:MM:SS.mmm * message
+const formatRedisTimestamp = (date: Date): string => {
+  const d = date.getUTCDate().toString().padStart(2, ' ');
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ] as const;
+  const mo = months[date.getUTCMonth()];
+  const y = date.getUTCFullYear();
+  const h = date.getUTCHours().toString().padStart(2, '0');
+  const mi = date.getUTCMinutes().toString().padStart(2, '0');
+  const s = date.getUTCSeconds().toString().padStart(2, '0');
+  return `${d} ${mo} ${y} ${h}:${mi}:${s}.000`;
+};
+
+export const formatRedisAuth = (date: Date, pid: number, sourceIp: string): string =>
+  `${pid}:M ${formatRedisTimestamp(date)} * Client ${sourceIp} authenticated successfully`;
+
+export const formatRedisAuthDenied = (date: Date, pid: number, sourceIp: string): string =>
+  `${pid}:M ${formatRedisTimestamp(date)} # Client ${sourceIp} authentication failed`;
+
 // Apache Combined Log Format: ip - - [DD/MMM/YYYY:HH:MM:SS +0000] "METHOD /path HTTP/1.1" status size
 export const formatAccessLog = (
   date: Date,

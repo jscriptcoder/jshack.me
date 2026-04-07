@@ -77,12 +77,18 @@ export type MysqlSession = {
   readonly databaseName: string;
 };
 
+export type RedisSession = {
+  readonly targetIP: string;
+  readonly machineId: string;
+};
+
 export type PersistedState = {
   readonly session: Session;
   readonly sessionStack: readonly SessionSnapshot[];
   readonly ftpSession: FtpSession | null;
   readonly ncSession: NcSession | null;
   readonly mysqlSession: MysqlSession | null;
+  readonly redisSession: RedisSession | null;
 };
 
 type SessionContextValue = {
@@ -94,6 +100,7 @@ type SessionContextValue = {
   readonly ftpSession: FtpSession | null;
   readonly ncSession: NcSession | null;
   readonly mysqlSession: MysqlSession | null;
+  readonly redisSession: RedisSession | null;
   readonly setUsername: (username: string, userType?: UserType) => void;
   readonly setMachine: (machine: string, hostname?: string) => void;
   readonly setCurrentPath: (path: string) => void;
@@ -113,6 +120,9 @@ type SessionContextValue = {
   readonly enterMysqlMode: (mysqlSession: MysqlSession) => void;
   readonly exitMysqlMode: () => MysqlSession | null;
   readonly isInMysqlMode: () => boolean;
+  readonly enterRedisMode: (redisSession: RedisSession) => void;
+  readonly exitRedisMode: () => RedisSession | null;
+  readonly isInRedisMode: () => boolean;
   readonly setWifiConnected: (connection: WifiConnection | null) => void;
   readonly disconnectWifi: () => void;
   readonly popAllSessions: () => void;
@@ -144,6 +154,7 @@ const getInitialState = (username: string): PersistedState => {
     ftpSession: null,
     ncSession: null,
     mysqlSession: null,
+    redisSession: null,
   };
 };
 
@@ -166,6 +177,7 @@ export const SessionProvider = ({ children, workstationName, username }: Session
   const [ftpSession, setFtpSession] = useState<FtpSession | null>(initialState.ftpSession);
   const [ncSession, setNcSession] = useState<NcSession | null>(initialState.ncSession);
   const [mysqlSession, setMysqlSession] = useState<MysqlSession | null>(initialState.mysqlSession);
+  const [redisSession, setRedisSession] = useState<RedisSession | null>(initialState.redisSession);
   const [brickedMachines, setBrickedMachines] = useState<ReadonlySet<string>>(
     () => new Set(getCachedBrickedMachines()),
   );
@@ -199,6 +211,7 @@ export const SessionProvider = ({ children, workstationName, username }: Session
           setFtpSession(null);
           setNcSession(null);
           setMysqlSession(null);
+          setRedisSession(null);
         }
       }
       if (message.type === 'theme-changed') {
@@ -225,8 +238,8 @@ export const SessionProvider = ({ children, workstationName, username }: Session
 
   // Session state persists to sessionStorage (per-tab)
   useEffect(() => {
-    saveSessionToTab({ session, sessionStack, ftpSession, ncSession, mysqlSession });
-  }, [session, sessionStack, ftpSession, ncSession, mysqlSession]);
+    saveSessionToTab({ session, sessionStack, ftpSession, ncSession, mysqlSession, redisSession });
+  }, [session, sessionStack, ftpSession, ncSession, mysqlSession, redisSession]);
 
   const setUsername = useCallback((username: string, userType: UserType = 'user') => {
     setSession((prev) => ({ ...prev, username, userType }));
@@ -241,11 +254,20 @@ export const SessionProvider = ({ children, workstationName, username }: Session
   }, []);
 
   const getPrompt = useCallback(() => {
+    if (redisSession) return 'redis>';
     if (mysqlSession) return 'mysql>';
     if (ftpSession) return 'ftp>';
     if (ncSession) return '$';
     return `${session.username}@${session.hostname ?? session.machine}>`;
-  }, [session.username, session.machine, session.hostname, ftpSession, ncSession, mysqlSession]);
+  }, [
+    session.username,
+    session.machine,
+    session.hostname,
+    ftpSession,
+    ncSession,
+    mysqlSession,
+    redisSession,
+  ]);
 
   const pushSession = useCallback(
     (reason: SessionReason) => {
@@ -336,6 +358,18 @@ export const SessionProvider = ({ children, workstationName, username }: Session
 
   const isInMysqlMode = useCallback(() => mysqlSession !== null, [mysqlSession]);
 
+  const enterRedisMode = useCallback((newRedisSession: RedisSession) => {
+    setRedisSession(newRedisSession);
+  }, []);
+
+  const exitRedisMode = useCallback((): RedisSession | null => {
+    const current = redisSession;
+    setRedisSession(null);
+    return current;
+  }, [redisSession]);
+
+  const isInRedisMode = useCallback(() => redisSession !== null, [redisSession]);
+
   const setWifiConnected = useCallback((connection: WifiConnection | null) => {
     setConnectedWifiState(connection);
     // WiFi state is shared across tabs — persist to IndexedDB
@@ -377,15 +411,26 @@ export const SessionProvider = ({ children, workstationName, username }: Session
   // Dynamic browser tab title so users can identify tabs at a glance
   useEffect(() => {
     const displayMachine = session.hostname ?? session.machine;
-    const title = mysqlSession
-      ? `mysql> \u2014 JSHACK.ME`
-      : ftpSession
-        ? `ftp> \u2014 JSHACK.ME`
-        : ncSession
-          ? `nc shell \u2014 JSHACK.ME`
-          : `${session.username}@${displayMachine} \u2014 JSHACK.ME`;
+    const modeLabels: readonly (readonly [unknown, string])[] = [
+      [redisSession, 'redis>'],
+      [mysqlSession, 'mysql>'],
+      [ftpSession, 'ftp>'],
+      [ncSession, 'nc shell'],
+    ];
+    const modeLabel = modeLabels.find(([session]) => session !== null)?.[1];
+    const title = modeLabel
+      ? `${modeLabel} \u2014 JSHACK.ME`
+      : `${session.username}@${displayMachine} \u2014 JSHACK.ME`;
     document.title = title;
-  }, [session.username, session.machine, session.hostname, ftpSession, ncSession, mysqlSession]);
+  }, [
+    session.username,
+    session.machine,
+    session.hostname,
+    ftpSession,
+    ncSession,
+    mysqlSession,
+    redisSession,
+  ]);
 
   // Resets to the bottom of the session stack (the original state before any SSH).
   // Used by mission abort to return to localhost regardless of SSH nesting depth.
@@ -396,6 +441,7 @@ export const SessionProvider = ({ children, workstationName, username }: Session
     setFtpSession(null);
     setNcSession(null);
     setMysqlSession(null);
+    setRedisSession(null);
     if (bottom) {
       setSession({
         username: bottom.username,
@@ -432,6 +478,7 @@ export const SessionProvider = ({ children, workstationName, username }: Session
     setFtpSession(null);
     setNcSession(null);
     setMysqlSession(null);
+    setRedisSession(null);
     // WiFi state is shared across tabs — persist to IndexedDB
     const db = getDatabase();
     if (db) {
@@ -451,6 +498,7 @@ export const SessionProvider = ({ children, workstationName, username }: Session
         ftpSession,
         ncSession,
         mysqlSession,
+        redisSession,
         setUsername,
         setMachine,
         setCurrentPath,
@@ -470,6 +518,9 @@ export const SessionProvider = ({ children, workstationName, username }: Session
         enterMysqlMode,
         exitMysqlMode,
         isInMysqlMode,
+        enterRedisMode,
+        exitRedisMode,
+        isInRedisMode,
         setWifiConnected,
         disconnectWifi,
         popAllSessions,

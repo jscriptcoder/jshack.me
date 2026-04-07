@@ -11,6 +11,7 @@ import { useCommands } from '../../hooks/useCommands';
 import { useFtpCommands } from '../../hooks/useFtpCommands';
 import { useNcCommands } from '../../hooks/useNcCommands';
 import { useMysqlCommands } from '../../hooks/useMysqlCommands';
+import { useRedisCommands } from '../../hooks/useRedisCommands';
 import { useSession } from '../../session/SessionContext';
 import type { NcSession } from '../../session/SessionContext';
 import { useFileSystem } from '../../filesystem/FileSystemContext';
@@ -43,6 +44,7 @@ import {
   isNcPrompt,
   isNcQuit,
   isMysqlPrompt,
+  isRedisPrompt,
   isNanoOpen,
 } from './types';
 import type { AsyncFollowUp } from './types';
@@ -109,12 +111,16 @@ export const Terminal = () => {
     enterMysqlMode,
     exitMysqlMode,
     isInMysqlMode,
+    enterRedisMode,
+    exitRedisMode,
+    isInRedisMode,
     isMachineBricked,
   } = useSession();
   const { executionContext, commandNames } = useCommands();
   const ftpCommands = useFtpCommands();
   const ncCommands = useNcCommands();
   const { mysqlExecute } = useMysqlCommands();
+  const { redisExecute } = useRedisCommands();
   const {
     readFile,
     getNode,
@@ -133,13 +139,15 @@ export const Terminal = () => {
   const { getMachine, findMachineUsers, findMachineByIp, resolveNat, getLocalIP, getPublicIP } =
     useNetwork();
 
-  const activeCommandNames = isInMysqlMode()
+  const activeCommandNames = isInRedisMode()
     ? []
-    : isInFtpMode() && ftpCommands
-      ? Array.from(ftpCommands.keys())
-      : isInNcMode() && ncCommands
-        ? Array.from(ncCommands.keys())
-        : commandNames;
+    : isInMysqlMode()
+      ? []
+      : isInFtpMode() && ftpCommands
+        ? Array.from(ftpCommands.keys())
+        : isInNcMode() && ncCommands
+          ? Array.from(ncCommands.keys())
+          : commandNames;
   const { getCompletions } = useAutoComplete(activeCommandNames, getVariableNames());
 
   const addLine = useCallback(
@@ -173,6 +181,7 @@ export const Terminal = () => {
     authenticateScpInline,
     startMysqlPrompt,
     authenticateMysqlInline,
+    connectRedis,
   } = useAuthentication({
     addLine,
     session,
@@ -186,6 +195,7 @@ export const Terminal = () => {
     pushSession,
     enterFtpMode,
     enterMysqlMode,
+    enterRedisMode,
     readFileFromMachine,
     findMachineUsers,
     findMachineByIp,
@@ -268,6 +278,24 @@ export const Terminal = () => {
       addCommand(trimmedCommand);
 
       try {
+        // Redis mode: raw Redis command input, bypass variable handling and new Function()
+        if (isInRedisMode() && redisExecute) {
+          const result = redisExecute(trimmedCommand);
+          if (result.type === 'quit') {
+            exitRedisMode();
+            addLine('result', 'OK');
+            return;
+          }
+          if (result.type === 'auth_success') {
+            addLine('result', 'OK');
+            return;
+          }
+          if (result.text) {
+            addLine('result', result.text);
+          }
+          return;
+        }
+
         // MySQL mode: raw SQL input, bypass variable handling and new Function()
         if (isInMysqlMode() && mysqlExecute) {
           const result = mysqlExecute(trimmedCommand);
@@ -436,6 +464,10 @@ export const Terminal = () => {
                     }
                   }
 
+                  if (isRedisPrompt(followUp)) {
+                    connectRedis(followUp.targetIP, followUp.password);
+                  }
+
                   if (isNcPrompt(followUp)) {
                     const resolvedIP = resolveNat(followUp.targetIP, followUp.targetPort).ip;
                     const newNcSession: NcSession = {
@@ -510,6 +542,10 @@ export const Terminal = () => {
       authenticateFtpInline,
       startMysqlPrompt,
       authenticateMysqlInline,
+      isInRedisMode,
+      redisExecute,
+      exitRedisMode,
+      connectRedis,
     ],
   );
 

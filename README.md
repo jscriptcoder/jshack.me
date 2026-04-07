@@ -29,7 +29,8 @@ Start with `help()` to see available commands. Good luck, hacker.
 - **WiFi Hacking Gate** - Crack WPA2 networks using aircrack-ng-style commands; switch networks anytime
 - **Network Simulation** - Discover and hack into remote machines; per-WiFi subnets with routers, servers, and databases
 - **DNS Zone Transfers** - DNS servers with BIND zone files; use `dig` for lookups and AXFR zone transfers to discover machines
-- **Connection Logging** - SSH, FTP, SCP, su, and HTTP events are logged to target machine log files in realistic Linux formats (`auth.log`, `vsftpd.log`, `access.log`)
+- **Redis Service** - ~35% of database machines run Redis on port 6379; connect via `rediscli`, query key-value data, brute-force passwords with `hydra`
+- **Connection Logging** - SSH, FTP, SCP, su, Redis, and HTTP events are logged to target machine log files in realistic Linux formats (`auth.log`, `vsftpd.log`, `redis.log`, `access.log`)
 - **SSH Key Persistence** - After first successful SSH/SCP login, the key is saved; subsequent connections auto-authenticate
 - **Multi-Tab Support** - Open multiple browser tabs as independent terminals with shared filesystem, WiFi, mission, and theme state
 - **Session Persistence** - Your location and files are saved; return where you left off after refresh
