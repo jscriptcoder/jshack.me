@@ -1,5 +1,11 @@
 import { useState, useCallback } from 'react';
-import type { UserType, FtpSession, MysqlSession, SessionReason } from '../session/SessionContext';
+import type {
+  UserType,
+  FtpSession,
+  MysqlSession,
+  RedisSession,
+  SessionReason,
+} from '../session/SessionContext';
 import type { RemoteMachine, RemoteUser } from '../network/types';
 import type { MysqlDatabase } from '../commands/mysql/types';
 import type { AsyncOutput } from '../components/Terminal/types';
@@ -32,6 +38,7 @@ type AuthenticationOptions = {
   readonly pushSession: (reason: SessionReason) => void;
   readonly enterFtpMode: (session: FtpSession) => void;
   readonly enterMysqlMode: (session: MysqlSession) => void;
+  readonly enterRedisMode: (session: RedisSession) => void;
   readonly readFileFromMachine: (op: {
     readonly machineId: string;
     readonly path: string;
@@ -67,6 +74,7 @@ export const useAuthentication = ({
   pushSession,
   enterFtpMode,
   enterMysqlMode,
+  enterRedisMode,
   readFileFromMachine,
   createFile,
   writeFile,
@@ -435,6 +443,44 @@ export const useAuthentication = ({
     [addLine],
   );
 
+  // Redis connection: no password check at connect time — auth handled in prompt via AUTH command.
+  // If inline password provided, it's passed to the session for auto-AUTH on first command.
+  const connectRedis = useCallback(
+    (targetIP: string, password?: string) => {
+      const resolvedIp = resolveNat(targetIP, 6379).ip;
+      const newRedisSession: RedisSession = {
+        targetIP,
+        machineId: resolvedIp,
+      };
+      enterRedisMode(newRedisSession);
+
+      // Read config to check if auth is required
+      const confContent = readFileFromMachine({
+        machineId: resolvedIp,
+        path: '/etc/redis/redis.conf',
+        cwd: '/',
+        userType: 'root',
+      });
+      const requirepass =
+        confContent
+          ?.split('\n')
+          .find((l) => l.startsWith('requirepass '))
+          ?.slice('requirepass '.length)
+          .trim() ?? null;
+
+      if (requirepass && !password) {
+        addLine('result', '(error) NOAUTH Authentication required.\nUse AUTH <password> to authenticate.');
+      } else if (requirepass && password) {
+        if (password === requirepass) {
+          addLine('result', 'OK');
+        } else {
+          addLine('error', '(error) ERR invalid password');
+        }
+      }
+    },
+    [resolveNat, readFileFromMachine, addLine, enterRedisMode],
+  );
+
   const resetAuthState = useCallback(() => {
     setPasswordMode(false);
     setTargetUser(null);
@@ -701,6 +747,7 @@ export const useAuthentication = ({
     authenticateFtpInline,
     startMysqlPrompt,
     authenticateMysqlInline,
+    connectRedis,
     resetAuthState,
   };
 };
