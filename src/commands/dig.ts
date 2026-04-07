@@ -159,6 +159,7 @@ export const createDigCommand = (context: DigContext): Command => ({
             if (!allowAxfr) {
               onLine('; Transfer failed.');
             } else {
+              onLine(';; ANSWER SECTION:');
               zoneRecords.forEach((r) => {
                 onLine(formatARecord(r.hostname, r.ip));
               });
