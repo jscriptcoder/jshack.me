@@ -411,15 +411,16 @@ export const SessionProvider = ({ children, workstationName, username }: Session
   // Dynamic browser tab title so users can identify tabs at a glance
   useEffect(() => {
     const displayMachine = session.hostname ?? session.machine;
-    const title = redisSession
-      ? `redis> \u2014 JSHACK.ME`
-      : mysqlSession
-        ? `mysql> \u2014 JSHACK.ME`
-        : ftpSession
-          ? `ftp> \u2014 JSHACK.ME`
-          : ncSession
-            ? `nc shell \u2014 JSHACK.ME`
-            : `${session.username}@${displayMachine} \u2014 JSHACK.ME`;
+    const modeLabels: readonly (readonly [unknown, string])[] = [
+      [redisSession, 'redis>'],
+      [mysqlSession, 'mysql>'],
+      [ftpSession, 'ftp>'],
+      [ncSession, 'nc shell'],
+    ];
+    const modeLabel = modeLabels.find(([session]) => session !== null)?.[1];
+    const title = modeLabel
+      ? `${modeLabel} \u2014 JSHACK.ME`
+      : `${session.username}@${displayMachine} \u2014 JSHACK.ME`;
     document.title = title;
   }, [
     session.username,
