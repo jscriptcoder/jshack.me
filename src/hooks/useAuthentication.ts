@@ -469,7 +469,10 @@ export const useAuthentication = ({
           .trim() ?? null;
 
       if (requirepass && !password) {
-        addLine('result', '(error) NOAUTH Authentication required.\nUse AUTH <password> to authenticate.');
+        addLine(
+          'result',
+          '(error) NOAUTH Authentication required.\nUse AUTH <password> to authenticate.',
+        );
       } else if (requirepass && password) {
         if (password === requirepass) {
           addLine('result', 'OK');

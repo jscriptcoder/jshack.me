@@ -61,8 +61,14 @@ describe('parseRedisCommand', () => {
   });
 
   it('is case-insensitive', () => {
-    expect(parseRedisCommand('keys *')).toEqual({ ok: true, command: { type: 'keys', pattern: '*' } });
-    expect(parseRedisCommand('get foo')).toEqual({ ok: true, command: { type: 'get', key: 'foo' } });
+    expect(parseRedisCommand('keys *')).toEqual({
+      ok: true,
+      command: { type: 'keys', pattern: '*' },
+    });
+    expect(parseRedisCommand('get foo')).toEqual({
+      ok: true,
+      command: { type: 'get', key: 'foo' },
+    });
   });
 
   it('returns error for unknown commands', () => {

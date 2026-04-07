@@ -18,7 +18,8 @@ export const parseRedisCommand = (input: string): ParseResult => {
 
   if (cmd === 'GET') {
     const key = parts[1];
-    if (!key) return { ok: false, error: "(error) ERR wrong number of arguments for 'get' command" };
+    if (!key)
+      return { ok: false, error: "(error) ERR wrong number of arguments for 'get' command" };
     return { ok: true, command: { type: 'get', key } };
   }
 
@@ -34,7 +35,8 @@ export const parseRedisCommand = (input: string): ParseResult => {
 
   if (cmd === 'DEL') {
     const key = parts[1];
-    if (!key) return { ok: false, error: "(error) ERR wrong number of arguments for 'del' command" };
+    if (!key)
+      return { ok: false, error: "(error) ERR wrong number of arguments for 'del' command" };
     return { ok: true, command: { type: 'del', key } };
   }
 

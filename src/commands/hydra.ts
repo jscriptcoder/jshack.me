@@ -212,9 +212,7 @@ const createRedisAttack = (
           if (token.isCancelled()) return;
           if (pw === requirepass && !found) {
             found = pw;
-            onLine(
-              `[${redisPort.port}][redis] host: ${targetIP}   password: ${pw}`,
-            );
+            onLine(`[${redisPort.port}][redis] host: ${targetIP}   password: ${pw}`);
           }
         }, delay);
       });
@@ -343,7 +341,8 @@ export const createHydraCommand = (context: HydraContext): Command => ({
       { name: 'host', description: 'IP address or hostname of the target machine', required: true },
       {
         name: 'service',
-        description: 'Service to attack: "ssh", "ftp", "snmp", "mysql", or "redis" (default: ssh+ftp)',
+        description:
+          'Service to attack: "ssh", "ftp", "snmp", "mysql", or "redis" (default: ssh+ftp)',
       },
       { name: 'user', description: 'Specific username to target (default: all users)' },
     ],

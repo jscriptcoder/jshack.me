@@ -45,12 +45,7 @@ describe('executeRedisCommand', () => {
 
   describe('GET', () => {
     it('returns value for existing key', () => {
-      const result = executeRedisCommand(
-        { type: 'get', key: 'app:config' },
-        mockStore,
-        null,
-        true,
-      );
+      const result = executeRedisCommand({ type: 'get', key: 'app:config' }, mockStore, null, true);
       expect(result.output).toContain('mysql://localhost');
     });
 
@@ -162,7 +157,12 @@ describe('executeRedisCommand', () => {
 
   describe('NOAUTH blocking', () => {
     it('blocks commands when auth required but not authenticated', () => {
-      const result = executeRedisCommand({ type: 'keys', pattern: '*' }, mockStore, 'secret', false);
+      const result = executeRedisCommand(
+        { type: 'keys', pattern: '*' },
+        mockStore,
+        'secret',
+        false,
+      );
       expect(result.output).toContain('NOAUTH');
     });
 

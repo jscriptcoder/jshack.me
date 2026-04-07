@@ -116,7 +116,7 @@ Multiple browser tabs can run independent terminal sessions with shared state vi
 
 **Graceful fallback**: When `BroadcastChannel` is unavailable (older browsers, SSR), `createSyncChannel()` returns no-op stubs. Tabs work independently, same as before.
 
-**Dynamic tab title**: `SessionContext` updates `document.title` based on the current session mode: `username@machine — JSHACK.ME`, `ftp> — JSHACK.ME`, `nc shell — JSHACK.ME`, or `mysql> — JSHACK.ME`.
+**Dynamic tab title**: `SessionContext` updates `document.title` based on the current session mode: `username@machine — JSHACK.ME`, `ftp> — JSHACK.ME`, `nc shell — JSHACK.ME`, `mysql> — JSHACK.ME`, or `redis> — JSHACK.ME`.
 
 ## Filesystem Permission Model
 
@@ -161,6 +161,7 @@ Unix-realistic permission model with owner-scoped access and directory traversal
 - **FTP** — two-stage login (username prompt → password prompt), resolves NAT, validates against target machine via `findMachineUsers`, creates FTP session; triggers `onFtpAuth` callback for logging
 - **SCP** — resolves NAT, validates against target machine via `findMachineUsers`, triggers file transfer animation; triggers `onSshAuth` callback for logging (SCP uses SSH auth)
 - **MySQL** — validates against the database's own `credentials` array (stored in `/var/lib/mysql/data.json`), separate from system users. `validateMysqlPassword` reads and parses the DB file for credential checks
+- **Redis** — validates against `requirepass` in `/etc/redis/redis.conf`. `rediscli` supports inline password or interactive `AUTH` command
 
 **SSH key persistence**: After the first successful SSH or SCP password authentication, a fingerprint-signed entry (`user@ip:fingerprint`) is saved to `~/.ssh_keys` on the source machine's filesystem. The fingerprint is `md5(user:ip:passwordHash)`, tying each entry to the actual credential — manually crafted entries without the correct fingerprint are rejected. On subsequent SSH/SCP connections, `hasAuthorizedKey` recomputes the expected fingerprint from the remote user's password hash and checks for a match, skipping the password prompt on success. Keys are stored per-user (each user's home directory has its own `.ssh_keys` file), persist via the filesystem patch system (IndexedDB), and sync across tabs via BroadcastChannel. The shared `connectSsh` helper extracts the SSH session setup used by both auto-auth and password-auth paths.
 
@@ -223,13 +224,15 @@ Network access from localhost requires cracking a WiFi network first. See `infra
 
 See `src/commands/` for implementations and `src/hooks/useCommands.ts` for the registry.
 
-Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, find, grep, rm, su, whoami, bash, airmon, airdump, aircrack, nmcli, ifconfig, ping, nmap, nslookup, dig, ssh, exit, ftp, nc, curl, msfconsole, gobuster, hydra, gpg, reboot, sshd, vsftpd, systemctl, output, resolve, strings, nano, node, missions, accept, abort, mail, apt, theme, reset, xterm, snmpwalk, snmpset, mysql.
+Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, find, grep, rm, su, whoami, bash, airmon, airdump, aircrack, nmcli, ifconfig, ping, nmap, nslookup, dig, ssh, exit, ftp, nc, curl, msfconsole, gobuster, hydra, gpg, reboot, sshd, vsftpd, systemctl, output, resolve, strings, nano, node, missions, accept, abort, mail, apt, theme, reset, xterm, snmpwalk, snmpset, mysql, rediscli.
 
 FTP mode (when connected via ftp): pwd, lpwd, cd, lcd, ls, lls, get, put, quit/bye.
 
 NC mode (when connected via nc): pwd, cd, ls, cat, whoami, bash, help, exit — restricted shell access. Admin binaries (sshd, vsftpd, systemctl) must be run via `bash('/usr/sbin/sshd')` (no PATH in raw nc shell).
 
 MySQL mode (when connected via mysql): Raw SQL input — SHOW TABLES, DESCRIBE, SELECT, UPDATE, DELETE FROM, DROP TABLE, exit/quit. Bypasses `new Function()` — input routed to regex parser + executor. Database stored as `/var/lib/mysql/data.json` on target machine.
+
+Redis mode (when connected via rediscli): Raw Redis command input — KEYS, GET, SET, DEL, DBSIZE, AUTH, QUIT/EXIT. Bypasses `new Function()` — input routed to command parser + executor. Data stored as `/var/lib/redis/data.json` on target machine. Config at `/etc/redis/redis.conf` with optional `requirepass`.
 
 ## Command Access Control
 

@@ -151,8 +151,18 @@ export const formatMysqlAccessDenied = (
 const formatRedisTimestamp = (date: Date): string => {
   const d = date.getUTCDate().toString().padStart(2, ' ');
   const months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ] as const;
   const mo = months[date.getUTCMonth()];
   const y = date.getUTCFullYear();

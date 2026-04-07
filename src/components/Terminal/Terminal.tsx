@@ -144,10 +144,10 @@ export const Terminal = () => {
     : isInMysqlMode()
       ? []
       : isInFtpMode() && ftpCommands
-      ? Array.from(ftpCommands.keys())
-      : isInNcMode() && ncCommands
-        ? Array.from(ncCommands.keys())
-        : commandNames;
+        ? Array.from(ftpCommands.keys())
+        : isInNcMode() && ncCommands
+          ? Array.from(ncCommands.keys())
+          : commandNames;
   const { getCompletions } = useAutoComplete(activeCommandNames, getVariableNames());
 
   const addLine = useCallback(

@@ -57,11 +57,12 @@ export const useRedisCommands = (): {
         cwd: '/',
         userType: 'root',
       });
-      const requirepass = confContent
-        ?.split('\n')
-        .find((l) => l.startsWith('requirepass '))
-        ?.slice('requirepass '.length)
-        .trim() ?? null;
+      const requirepass =
+        confContent
+          ?.split('\n')
+          .find((l) => l.startsWith('requirepass '))
+          ?.slice('requirepass '.length)
+          .trim() ?? null;
 
       const result = executeRedisCommand(
         parseResult.command,

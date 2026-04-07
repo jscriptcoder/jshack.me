@@ -259,7 +259,15 @@ export const SessionProvider = ({ children, workstationName, username }: Session
     if (ftpSession) return 'ftp>';
     if (ncSession) return '$';
     return `${session.username}@${session.hostname ?? session.machine}>`;
-  }, [session.username, session.machine, session.hostname, ftpSession, ncSession, mysqlSession, redisSession]);
+  }, [
+    session.username,
+    session.machine,
+    session.hostname,
+    ftpSession,
+    ncSession,
+    mysqlSession,
+    redisSession,
+  ]);
 
   const pushSession = useCallback(
     (reason: SessionReason) => {
@@ -413,7 +421,15 @@ export const SessionProvider = ({ children, workstationName, username }: Session
             ? `nc shell \u2014 JSHACK.ME`
             : `${session.username}@${displayMachine} \u2014 JSHACK.ME`;
     document.title = title;
-  }, [session.username, session.machine, session.hostname, ftpSession, ncSession, mysqlSession, redisSession]);
+  }, [
+    session.username,
+    session.machine,
+    session.hostname,
+    ftpSession,
+    ncSession,
+    mysqlSession,
+    redisSession,
+  ]);
 
   // Resets to the bottom of the session stack (the original state before any SSH).
   // Used by mission abort to return to localhost regardless of SSH nesting depth.
