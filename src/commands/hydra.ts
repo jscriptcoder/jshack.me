@@ -25,7 +25,7 @@ type CrackResult = {
 const STATUS_DELAY_MS = 400;
 // Services attacked during auto-discovery (no filter). SNMP requires explicit filter.
 const LOGIN_SERVICES = new Set(['ssh', 'ftp']);
-const VALID_SERVICES = new Set(['ssh', 'ftp', 'snmp', 'mysql']);
+const VALID_SERVICES = new Set(['ssh', 'ftp', 'snmp', 'mysql', 'redis']);
 const ATTEMPTS_PER_USER = 128;
 
 // Crack probability by user type — guest passwords are weak (always crackable),
@@ -149,6 +149,88 @@ const createSnmpAttack = (
   };
 };
 
+// Redis password brute-force — tries passwords from pool against requirepass in redis.conf
+const createRedisAttack = (
+  targetIP: string,
+  machine: RemoteMachine,
+  getNodeFromMachine: HydraContext['getNodeFromMachine'],
+): AsyncOutput => {
+  const redisPort = machine.ports.find((p) => p.service === 'redis' && p.open);
+  if (!redisPort) {
+    throw new Error(`hydra: no open redis service on ${targetIP}`);
+  }
+
+  const confNode = getNodeFromMachine(targetIP, '/etc/redis/redis.conf', '/');
+  if (!confNode || confNode.type !== 'file' || !confNode.content) {
+    throw new Error(`hydra: ${targetIP}: no Redis server responding`);
+  }
+
+  const requirepass =
+    confNode.content
+      .split('\n')
+      .find((l) => l.trim().startsWith('requirepass '))
+      ?.trim()
+      .slice('requirepass '.length) ?? null;
+
+  if (!requirepass) {
+    throw new Error(`hydra: ${targetIP}: Redis server has no password set (open access)`);
+  }
+
+  const allPasswords = [...passwords, ...guestPasswords];
+  const token = createCancellationToken();
+
+  return {
+    __type: 'async',
+    start: (onLine, onComplete) => {
+      onLine('Hydra v9.4 — Network Login Cracker');
+      onLine('');
+
+      let delay = 0;
+      let found = '';
+
+      delay += jitter(STATUS_DELAY_MS);
+      token.schedule(() => {
+        if (token.isCancelled()) return;
+        onLine(`[DATA] attacking redis://${targetIP}:${redisPort.port}`);
+      }, delay);
+
+      const total = allPasswords.length;
+      const statusSteps = 4;
+      for (let i = 1; i <= statusSteps; i++) {
+        const completed = Math.floor((total / statusSteps) * i);
+        delay += jitter(STATUS_DELAY_MS);
+        token.schedule(() => {
+          if (token.isCancelled()) return;
+          onLine(`[STATUS] ${completed}/${total} passwords tested`);
+        }, delay);
+      }
+
+      // Try each password
+      allPasswords.forEach((pw) => {
+        delay += jitter(10);
+        token.schedule(() => {
+          if (token.isCancelled()) return;
+          if (pw === requirepass && !found) {
+            found = pw;
+            onLine(
+              `[${redisPort.port}][redis] host: ${targetIP}   password: ${pw}`,
+            );
+          }
+        }, delay);
+      });
+
+      delay += jitter(STATUS_DELAY_MS);
+      token.schedule(() => {
+        if (token.isCancelled()) return;
+        onLine('');
+        onLine(`${found ? 1 : 0} valid password${found ? '' : 's'} found`);
+        onComplete();
+      }, delay);
+    },
+    cancel: token.cancel,
+  };
+};
+
 // MySQL credential brute-force — reads database credentials from data.json
 const createMysqlAttack = (
   targetIP: string,
@@ -255,13 +337,13 @@ export const createHydraCommand = (context: HydraContext): Command => ({
     description:
       'Perform a dictionary attack against network login services on a remote host. ' +
       'Attacks SSH and FTP services by default. Optionally specify a service ' +
-      '("ssh", "ftp", "snmp", or "mysql") and/or a specific username to target. ' +
+      '("ssh", "ftp", "snmp", "mysql", or "redis") and/or a specific username to target. ' +
       'For SNMP, brute-forces community strings. For MySQL, brute-forces database credentials.',
     arguments: [
       { name: 'host', description: 'IP address or hostname of the target machine', required: true },
       {
         name: 'service',
-        description: 'Service to attack: "ssh", "ftp", "snmp", or "mysql" (default: ssh+ftp)',
+        description: 'Service to attack: "ssh", "ftp", "snmp", "mysql", or "redis" (default: ssh+ftp)',
       },
       { name: 'user', description: 'Specific username to target (default: all users)' },
     ],
@@ -308,7 +390,7 @@ export const createHydraCommand = (context: HydraContext): Command => ({
 
     if (serviceFilter !== undefined && !VALID_SERVICES.has(serviceFilter)) {
       throw new Error(
-        `hydra: unsupported service "${serviceFilter}" — use "ssh", "ftp", "snmp", or "mysql"`,
+        `hydra: unsupported service "${serviceFilter}" — use "ssh", "ftp", "snmp", "mysql", or "redis"`,
       );
     }
 
@@ -331,6 +413,11 @@ export const createHydraCommand = (context: HydraContext): Command => ({
     // SNMP mode — separate flow, no users involved
     if (serviceFilter === 'snmp') {
       return createSnmpAttack(targetIP, machine, getNodeFromMachine);
+    }
+
+    // Redis mode — brute-force requirepass
+    if (serviceFilter === 'redis') {
+      return createRedisAttack(targetIP, machine, getNodeFromMachine);
     }
 
     // MySQL mode — reads DB credentials from data.json
