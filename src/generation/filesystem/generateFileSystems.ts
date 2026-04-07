@@ -51,6 +51,7 @@ import {
   type DbEnrichment,
   type GenerateDatabaseResult,
 } from '../generateDatabase';
+import { generateRedisData } from '../generateRedisData';
 
 type FilesystemInput = {
   readonly prng: Prng;
@@ -581,6 +582,64 @@ export const buildMachineConfig = (
         false,
       );
     }
+  }
+
+  // Write Redis data and config for machines with an open Redis port.
+  const hasOpenRedisPort = machine.remoteMachine.ports.some(
+    (p) => p.open && p.port === 6379 && p.service === 'redis',
+  );
+  if (hasOpenRedisPort) {
+    const redisUsernames = users.filter((u) => u.userType !== 'guest').map((u) => u.username);
+    const redisData = generateRedisData(prng, redisUsernames);
+
+    // /var/lib/redis/data.json
+    const redisDir = mkDir(
+      'redis',
+      { 'data.json': mkFile('data.json', JSON.stringify(redisData.keys), 'root') },
+      'root',
+      false,
+    );
+    if (extraDirectories['var']) {
+      const varNode = extraDirectories['var'];
+      if (varNode.type === 'directory' && varNode.children) {
+        const existingLib = varNode.children['lib'];
+        if (existingLib?.type === 'directory' && existingLib.children) {
+          (existingLib.children as Record<string, FileNode>)['redis'] = redisDir;
+        } else {
+          (varNode.children as Record<string, FileNode>)['lib'] = mkDir(
+            'lib',
+            { redis: redisDir },
+            'root',
+            false,
+          );
+        }
+      }
+    } else {
+      extraDirectories['var'] = mkDir(
+        'var',
+        { lib: mkDir('lib', { redis: redisDir }, 'root', false) },
+        'root',
+        false,
+      );
+    }
+
+    // /etc/redis/redis.conf
+    const redisConfLines = [
+      '# Redis configuration file',
+      'bind 0.0.0.0',
+      'port 6379',
+      'daemonize yes',
+      'pidfile /var/run/redis.pid',
+      'logfile /var/log/redis.log',
+      'dir /var/lib/redis',
+      ...(redisData.requirepass ? [`requirepass ${redisData.requirepass}`] : []),
+    ];
+    etcExtraContent['redis'] = mkDir(
+      'redis',
+      { 'redis.conf': mkFile('redis.conf', redisConfLines.join('\n'), 'root') },
+      'root',
+      true,
+    );
   }
 
   // Daemon PID files for all services with ports on this machine.
