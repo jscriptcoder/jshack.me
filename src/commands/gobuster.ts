@@ -178,8 +178,8 @@ export const createGobusterCommand = (context: GobusterContext): Command => ({
 
     // Filter entries by dirlist wordlist — only show entries whose top-level
     // path segment matches a wordlist entry (like real gobuster).
-    const dirlistLines = resolveWordlist('dirlist.txt', getLocalNode, getCurrentPath());
-    const dirlistSet = new Set(dirlistLines);
+    const dirlist = resolveWordlist('dirlist.txt', getLocalNode, getCurrentPath());
+    const dirlistSet = new Set(dirlist.lines);
     const entries = allEntries.filter((entry) => {
       // Extract top-level segment: "/admin/config.json" → "admin", "/.env" → ".env"
       const topLevel = entry.path.split('/')[1] ?? '';
@@ -202,7 +202,7 @@ export const createGobusterCommand = (context: GobusterContext): Command => ({
           '===============================================================',
           `[+] Mode:         dir`,
           `[+] Url:          ${displayUrl}`,
-          `[+] Wordlist:     /usr/share/wordlists/dirlist.txt`,
+          `[+] Wordlist:     ${dirlist.resolvedPath}`,
           '===============================================================',
           'Starting scan',
           '===============================================================',

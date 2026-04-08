@@ -447,7 +447,11 @@ export const createHydraCommand = (context: HydraContext): Command => ({
 
     // Resolve the filesystem wordlist for SSH/FTP cracking.
     // Password must be in the wordlist (gate) AND probability roll must succeed.
-    const wordlistLines = resolveWordlist('passwords.txt', getLocalNode, getCurrentPath());
+    const { lines: wordlistLines } = resolveWordlist(
+      'passwords.txt',
+      getLocalNode,
+      getCurrentPath(),
+    );
     const wordlistHashes = buildWordlistHashSet(wordlistLines);
     const wordlistHashToPassword = buildWordlistHashMap(wordlistLines);
 

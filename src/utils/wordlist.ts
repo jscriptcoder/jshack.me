@@ -2,23 +2,28 @@ import type { FileNode } from '../filesystem/types';
 
 const WORDLIST_DIR = '/usr/share/wordlists';
 
+type WordlistResult = {
+  readonly lines: readonly string[];
+  readonly resolvedPath: string;
+};
+
 // Resolves a wordlist file by checking cwd first, then /usr/share/wordlists/.
-// Returns parsed lines (trimmed, empty lines filtered out).
+// Returns parsed lines and the resolved path.
 export const resolveWordlist = (
   filename: string,
   getNode: (path: string) => FileNode | null,
   cwd: string,
-): readonly string[] => {
+): WordlistResult => {
   const cwdPath = `${cwd === '/' ? '' : cwd}/${filename}`;
   const cwdNode = getNode(cwdPath);
   if (cwdNode?.type === 'file' && cwdNode.content) {
-    return parseWordlist(cwdNode.content);
+    return { lines: parseWordlist(cwdNode.content), resolvedPath: cwdPath };
   }
 
   const sysPath = `${WORDLIST_DIR}/${filename}`;
   const sysNode = getNode(sysPath);
   if (sysNode?.type === 'file' && sysNode.content) {
-    return parseWordlist(sysNode.content);
+    return { lines: parseWordlist(sysNode.content), resolvedPath: sysPath };
   }
 
   throw new Error(

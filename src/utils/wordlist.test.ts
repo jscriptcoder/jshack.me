@@ -11,14 +11,15 @@ const mkFileNode = (content: string): FileNode => ({
 });
 
 describe('resolveWordlist', () => {
-  it('finds wordlist in cwd first', () => {
+  it('finds wordlist in cwd first and returns cwd path', () => {
     const getNode = (path: string): FileNode | null => {
       if (path === '/home/user/passwords.txt') return mkFileNode('alpha\nbeta\ngamma');
       if (path === '/usr/share/wordlists/passwords.txt') return mkFileNode('other\nlist');
       return null;
     };
     const result = resolveWordlist('passwords.txt', getNode, '/home/user');
-    expect(result).toEqual(['alpha', 'beta', 'gamma']);
+    expect(result.lines).toEqual(['alpha', 'beta', 'gamma']);
+    expect(result.resolvedPath).toBe('/home/user/passwords.txt');
   });
 
   it('falls back to /usr/share/wordlists/ when not in cwd', () => {
@@ -27,7 +28,8 @@ describe('resolveWordlist', () => {
       return null;
     };
     const result = resolveWordlist('passwords.txt', getNode, '/home/user');
-    expect(result).toEqual(['one', 'two', 'three']);
+    expect(result.lines).toEqual(['one', 'two', 'three']);
+    expect(result.resolvedPath).toBe('/usr/share/wordlists/passwords.txt');
   });
 
   it('throws when wordlist not found in either location', () => {
@@ -44,7 +46,7 @@ describe('resolveWordlist', () => {
       return null;
     };
     const result = resolveWordlist('test.txt', getNode, '/tmp');
-    expect(result).toEqual(['alpha', 'beta', 'gamma']);
+    expect(result.lines).toEqual(['alpha', 'beta', 'gamma']);
   });
 
   it('handles cwd at root correctly', () => {
@@ -53,6 +55,7 @@ describe('resolveWordlist', () => {
       return null;
     };
     const result = resolveWordlist('passwords.txt', getNode, '/');
-    expect(result).toEqual(['found']);
+    expect(result.lines).toEqual(['found']);
+    expect(result.resolvedPath).toBe('/passwords.txt');
   });
 });
