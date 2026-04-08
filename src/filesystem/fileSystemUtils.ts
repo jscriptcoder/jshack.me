@@ -285,6 +285,6 @@ export const applyPatches = (
 
     return {
       ...state,
-      [machineId]: addChildAtPath(machineFs, dirParts, fileName, newFile),
+      [machineId]: ensureChildAtPath(machineFs, dirParts, fileName, newFile),
     };
   }, base);
