@@ -177,9 +177,6 @@ const selectMalwarePath = (
     return `${deepPath}/${fileName}`;
   }
 
-  // Always consume a PRNG roll for deep path to preserve sequence
-  prng.next();
-
   const prefix = malwareLocationPrefixes[location];
   return `${prefix}/${fileName}`;
 };
@@ -314,7 +311,6 @@ const pickTarget = (
       if (dbCandidates.length > 0) return prng.pick(dbCandidates);
     }
 
-    // Always consume PRNG to preserve sequence
     return candidates.length > 0 ? prng.pick(candidates) : prng.pick(machines);
   }
 
@@ -365,9 +361,7 @@ const buildObjective = (
     const isBinary = prng.next() < 0.25;
     const finalPath = isBinary ? prng.pick(binaryTargetPaths[targetMachine.role]) : targetPath;
 
-    // Always consume a PRNG roll for encryption chance to preserve sequence
-    const encryptRoll = prng.next();
-    const isEncrypted = encryptionConfig?.encrypted ?? encryptRoll < 0.25;
+    const isEncrypted = encryptionConfig?.encrypted ?? prng.next() < 0.25;
 
     if (isEncrypted && encryptionConfig) {
       const keyHex = generateEncryptionKey(prng);
@@ -483,10 +477,6 @@ const buildObjective = (
   }
 
   if (objectiveType === 'sabotage') {
-    // Consume dummy PRNG rolls for binary + encrypt to preserve sequence alignment
-    prng.next();
-    prng.next();
-
     return {
       type: 'sabotage',
       description: `Destroy the target machine — ${targetMachine.hostname}`,
@@ -504,10 +494,6 @@ const buildObjective = (
     const userRoll = prng.next();
     const backdoorUser: 'root' | 'user' | 'guest' =
       difficulty === 'easy' ? (userRoll < 0.6 ? 'guest' : 'user') : 'root';
-
-    // Consume dummy PRNG rolls for binary + encrypt to preserve sequence alignment
-    prng.next();
-    prng.next();
 
     return {
       type: 'backdoor',
@@ -531,10 +517,6 @@ const buildObjective = (
     );
     const servicePort = openPorts.length > 0 ? prng.pick(openPorts) : { port: 22, service: 'ssh' };
     const publicPort = prng.pick(forwardPublicPorts);
-
-    // Consume dummy PRNG rolls for binary + encrypt to preserve sequence alignment
-    prng.next();
-    prng.next();
 
     return {
       type: 'portforward',
@@ -562,10 +544,6 @@ const buildObjective = (
     const rootCred = targetCreds.find((c) => c.username === 'root');
     const rootPassword = rootCred?.password ?? 'unknown';
 
-    // Consume dummy PRNG rolls to preserve sequence alignment
-    prng.next();
-    prng.next();
-
     return {
       type: 'forensics',
       description: `Investigate the breach on ${targetMachine.hostname}. Send us the attacker's alias and their origin IP. Root password: ${rootPassword}`,
@@ -591,10 +569,6 @@ const buildObjective = (
     const malwareRootCred = malwareCreds.find((c) => c.username === 'root');
     const malwareRootPassword = malwareRootCred?.password ?? 'unknown';
 
-    // Consume dummy PRNG rolls for binary + encrypt to preserve sequence alignment
-    prng.next();
-    prng.next();
-
     return {
       type: 'malware',
       description: `Identify and neutralize the malware on ${targetMachine.hostname}. Root password: ${malwareRootPassword}`,
@@ -610,10 +584,6 @@ const buildObjective = (
   }
 
   if (objectiveType === 'db_exfiltrate') {
-    // Consume dummy PRNG rolls for binary + encrypt to preserve sequence alignment
-    prng.next();
-    prng.next();
-
     return {
       type: 'db_exfiltrate',
       description: `Exfiltrate the secret access key from the database on ${targetMachine.hostname}`,
@@ -626,10 +596,6 @@ const buildObjective = (
   }
 
   if (objectiveType === 'db_tamper') {
-    // Consume dummy PRNG rolls for binary + encrypt to preserve sequence alignment
-    prng.next();
-    prng.next();
-
     return {
       type: 'db_tamper',
       description: `Tamper with the database records on ${targetMachine.hostname}`,
@@ -642,10 +608,6 @@ const buildObjective = (
   }
 
   if (objectiveType === 'db_sabotage') {
-    // Consume dummy PRNG rolls for binary + encrypt to preserve sequence alignment
-    prng.next();
-    prng.next();
-
     return {
       type: 'db_sabotage',
       description: `Destroy the database on ${targetMachine.hostname}`,
@@ -658,11 +620,7 @@ const buildObjective = (
   }
 
   if (objectiveType === 'db_fix') {
-    // Consume dummy PRNG rolls for binary + encrypt to preserve sequence alignment
-    prng.next();
-    prng.next();
-
-    // MySQL credentials are generated later in the DB objective block (line ~748).
+    // MySQL credentials are generated later in the DB objective block.
     // The description is patched there with the actual MySQL root credentials.
     return {
       type: 'db_fix',
@@ -715,9 +673,7 @@ export const buildMissionObjective = (input: BuildObjectiveInput): BuildObjectiv
     'malware',
   ];
 
-  // Always consume PRNG pick to preserve sequence, then apply override
-  const prngObjectiveType = prng.pick(objectiveTypes);
-  const objectiveType = objectiveTypeOverride ?? prngObjectiveType;
+  const objectiveType = objectiveTypeOverride ?? prng.pick(objectiveTypes);
 
   // Pick target from the appropriate layer (deepest for most objectives)
   const nonGatewayMachines = machines.filter((m) => m.role !== 'router' && m.role !== 'switch');
