@@ -56,10 +56,23 @@ const defaultWebRoot = makeDir('html', {
   }),
 });
 
+// Default dirlist matches the entries in defaultWebRoot
+const DEFAULT_DIRLIST = 'index.html\nstatus\nadmin';
+
+const mkDirlistNode = (content: string = DEFAULT_DIRLIST): FileNode => ({
+  name: 'dirlist.txt',
+  type: 'file',
+  owner: 'root',
+  permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: [] },
+  content,
+});
+
 type GobusterContextConfig = {
   readonly machines?: readonly RemoteMachine[];
   readonly dnsRecords?: readonly DnsRecord[];
   readonly webRoot?: FileNode | null;
+  readonly localFiles?: Readonly<Record<string, FileNode>>;
+  readonly currentPath?: string;
 };
 
 const createMockContext = (config: GobusterContextConfig = {}) => {
@@ -67,6 +80,8 @@ const createMockContext = (config: GobusterContextConfig = {}) => {
     machines = [getMockMachine()],
     dnsRecords = [getMockDnsRecord()],
     webRoot = defaultWebRoot,
+    localFiles = { '/usr/share/wordlists/dirlist.txt': mkDirlistNode() },
+    currentPath = '/home/user',
   } = config;
 
   return {
@@ -77,6 +92,8 @@ const createMockContext = (config: GobusterContextConfig = {}) => {
       if (path === '/var/www/html') return webRoot;
       return null;
     },
+    getLocalNode: (path: string) => (localFiles[path] as FileNode | undefined) ?? null,
+    getCurrentPath: () => currentPath,
   };
 };
 
@@ -284,6 +301,7 @@ describe('gobuster command', () => {
         'secret.html': makeFile('secret.html', '<html>Secret Content</html>'),
       });
 
+      const dirlistNode = mkDirlistNode('secret.html');
       const context = {
         getMachine: (ip: string) =>
           ip === routerIP
@@ -296,6 +314,9 @@ describe('gobuster command', () => {
           if (machineId === internalIP && path === '/var/www/html') return internalWebRoot;
           return null;
         },
+        getLocalNode: (path: string) =>
+          path === '/usr/share/wordlists/dirlist.txt' ? dirlistNode : null,
+        getCurrentPath: () => '/home/user',
       };
 
       const gobuster = createGobusterCommand(context);
@@ -320,6 +341,83 @@ describe('gobuster command', () => {
       }
 
       expect(lines).toHaveLength(0);
+    });
+  });
+
+  describe('wordlist filtering', () => {
+    it('should only show entries matching the dirlist', () => {
+      const webRoot = makeDir('html', {
+        admin: makeDir('admin', {
+          'config.json': makeFile('config.json', '{"debug": false}'),
+        }),
+        secret: makeDir('secret', {
+          'hidden.txt': makeFile('hidden.txt', 'top secret'),
+        }),
+        'index.html': makeFile('index.html', '<html>Test</html>'),
+      });
+
+      // Dirlist contains "admin" and "index.html" but NOT "secret"
+      const gobuster = createGobusterCommand(
+        createMockContext({
+          webRoot,
+          localFiles: {
+            '/usr/share/wordlists/dirlist.txt': mkDirlistNode('admin\nindex.html'),
+          },
+        }),
+      );
+      const lines = collectAsyncLines(gobuster.fn('dir', 'http://webserver.local'));
+
+      expect(lines.some((l) => l.includes('/admin'))).toBe(true);
+      expect(lines.some((l) => l.includes('/admin/config.json'))).toBe(true);
+      expect(lines.some((l) => l.includes('/index.html'))).toBe(true);
+      // secret dir and its children should be hidden
+      expect(lines.some((l) => l.includes('/secret'))).toBe(false);
+      expect(lines.some((l) => l.includes('/hidden.txt'))).toBe(false);
+    });
+
+    it('should show zero results when no entries match dirlist', () => {
+      const gobuster = createGobusterCommand(
+        createMockContext({
+          localFiles: {
+            '/usr/share/wordlists/dirlist.txt': mkDirlistNode('nonexistent'),
+          },
+        }),
+      );
+      const lines = collectAsyncLines(gobuster.fn('dir', 'http://webserver.local'));
+      expect(lines.some((l) => l.includes('0 results found'))).toBe(true);
+    });
+
+    it('should throw when dirlist wordlist is not found', () => {
+      const gobuster = createGobusterCommand(createMockContext({ localFiles: {} }));
+      expect(() => gobuster.fn('dir', 'http://webserver.local')).toThrow(
+        'wordlist not found: dirlist.txt',
+      );
+    });
+
+    it('should find dirlist in cwd before /usr/share/wordlists/', () => {
+      const webRoot = makeDir('html', {
+        admin: makeDir('admin', {
+          'config.json': makeFile('config.json', '{}'),
+        }),
+        'index.html': makeFile('index.html', '<html></html>'),
+      });
+
+      // cwd dirlist only has "admin", system dirlist has "index.html"
+      const gobuster = createGobusterCommand(
+        createMockContext({
+          webRoot,
+          localFiles: {
+            '/home/user/dirlist.txt': mkDirlistNode('admin'),
+            '/usr/share/wordlists/dirlist.txt': mkDirlistNode('index.html'),
+          },
+          currentPath: '/home/user',
+        }),
+      );
+      const lines = collectAsyncLines(gobuster.fn('dir', 'http://webserver.local'));
+
+      // Should use cwd dirlist (admin only)
+      expect(lines.some((l) => l.includes('/admin'))).toBe(true);
+      expect(lines.some((l) => l.includes('/index.html'))).toBe(false);
     });
   });
 
