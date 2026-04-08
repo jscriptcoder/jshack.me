@@ -3,6 +3,7 @@ export {
   usernamesByRole,
   guestPasswords,
   passwords,
+  wordlistPasswords,
   hostnamesByRole,
 } from './machines';
 export type { PortTemplate, EntryPortTemplate } from './ports';
