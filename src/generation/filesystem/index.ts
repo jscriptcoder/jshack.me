@@ -6,5 +6,6 @@ export {
   generateDnsZoneContent,
   generateDnsNamedConf,
 } from './networkConfig';
-export type { BuildMachineConfigOptions } from './generateFileSystems';
-export { buildMachineConfig, generateFileSystems } from './generateFileSystems';
+export type { BuildMachineConfigOptions } from './machineConfig';
+export { buildMachineConfig } from './machineConfig';
+export { generateFileSystems } from './generateFileSystems';
