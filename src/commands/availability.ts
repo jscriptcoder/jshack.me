@@ -48,11 +48,17 @@ export const APT_INSTALLABLE = new Set([
   'redis-tools',
 ]);
 
+export type AptExtraFile = {
+  readonly path: string;
+  readonly content: string;
+};
+
 export type AptPackageInfo = {
   readonly name: string;
   readonly description: string;
   readonly version: string;
   readonly binaries?: readonly string[]; // defaults to [name] if omitted
+  readonly extraFiles?: readonly AptExtraFile[]; // non-binary files installed alongside
 };
 
 export const APT_PACKAGES: readonly AptPackageInfo[] = [
@@ -83,8 +89,18 @@ export const APT_PACKAGES: readonly AptPackageInfo[] = [
     version: '2.4.4',
   },
   { name: 'node', description: 'Node.js JavaScript runtime', version: '20.11.0' },
-  { name: 'hydra', description: 'Network login brute-force tool', version: '9.4' },
-  { name: 'gobuster', description: 'Directory/file enumeration tool', version: '3.6' },
+  {
+    name: 'hydra',
+    description: 'Network login brute-force tool',
+    version: '9.4',
+    extraFiles: [{ path: '/usr/share/wordlists/passwords.txt', content: 'placeholder\n' }],
+  },
+  {
+    name: 'gobuster',
+    description: 'Directory/file enumeration tool',
+    version: '3.6',
+    extraFiles: [{ path: '/usr/share/wordlists/dirlist.txt', content: 'placeholder\n' }],
+  },
   {
     name: 'snmp',
     description: 'SNMP tools for network management',
