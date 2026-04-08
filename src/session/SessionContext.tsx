@@ -146,6 +146,10 @@ const getInitialState = (username: string): PersistedState => {
             machineId: persisted.ncSession.machineId ?? persisted.ncSession.targetIP,
           }
         : null,
+      // Interactive service sessions don't survive page reloads — the connection
+      // is lost on refresh, so always start with no active service session.
+      mysqlSession: null,
+      redisSession: null,
     };
   }
   return {
