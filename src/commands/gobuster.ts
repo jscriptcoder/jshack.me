@@ -202,6 +202,7 @@ export const createGobusterCommand = (context: GobusterContext): Command => ({
           '===============================================================',
           `[+] Mode:         dir`,
           `[+] Url:          ${displayUrl}`,
+          `[+] Wordlist:     /usr/share/wordlists/dirlist.txt`,
           '===============================================================',
           'Starting scan',
           '===============================================================',
