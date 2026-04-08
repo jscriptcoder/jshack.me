@@ -305,6 +305,87 @@ describe('apt command', () => {
     });
   });
 
+  describe('extra files', () => {
+    it('creates extra files alongside binaries on install', () => {
+      const { context, createdFiles } = createMockAptContext();
+      const apt = createAptCommand(context);
+      // hydra has extraFiles defined in APT_PACKAGES
+      const result = apt.fn('install', 'hydra');
+
+      expect(isAsyncOutput(result)).toBe(true);
+      if (!isAsyncOutput(result)) return;
+
+      result.start(
+        () => {},
+        () => {},
+      );
+
+      vi.advanceTimersByTime(3000);
+
+      // Binary should be created
+      expect(createdFiles.some((f) => f.path === '/usr/bin/hydra')).toBe(true);
+      // Extra file should also be created
+      const extraFile = createdFiles.find((f) => f.path === '/usr/share/wordlists/passwords.txt');
+      expect(extraFile).toBeDefined();
+      expect(extraFile?.content).toBeTruthy();
+      // Extra files should be readable by all, writable by root, not executable
+      expect(extraFile?.permissions).toEqual({
+        read: ['root', 'user', 'guest'],
+        write: ['root'],
+        execute: [],
+      });
+    });
+
+    it('does not re-create extra files that already exist', () => {
+      const existingFiles = new Set(['/usr/share/wordlists/passwords.txt']);
+      const createdFiles: CreatedFile[] = [];
+
+      const context = {
+        getMachine: () => '10.0.0.1',
+        getNode: (path: string): FileNode | null => {
+          if (existingFiles.has(path)) return mkBinaryNode('passwords.txt');
+          if (createdFiles.some((f) => f.path === path)) return mkBinaryNode('file');
+          return null;
+        },
+        createFile: (
+          path: string,
+          content: string,
+          _userType: string,
+          permissions?: FilePermissions,
+        ) => {
+          createdFiles.push({ path, content, permissions });
+          return { allowed: true };
+        },
+        getUserType: () => 'root' as const,
+        isWifiConnected: () => true,
+      };
+
+      const apt = createAptCommand(context);
+      const result = apt.fn('install', 'hydra');
+
+      if (!isAsyncOutput(result)) return;
+
+      result.start(
+        () => {},
+        () => {},
+      );
+
+      vi.advanceTimersByTime(3000);
+
+      // Binary should be created
+      expect(createdFiles.some((f) => f.path === '/usr/bin/hydra')).toBe(true);
+      // Extra file should NOT be re-created (already exists)
+      expect(createdFiles.some((f) => f.path === '/usr/share/wordlists/passwords.txt')).toBe(false);
+    });
+
+    it('reports already installed when all binaries exist even if extra files missing', () => {
+      const { context } = createMockAptContext({ installedTools: ['hydra'] });
+      const apt = createAptCommand(context);
+      const result = apt.fn('install', 'hydra') as string;
+      expect(result).toContain('already the newest version');
+    });
+  });
+
   describe('invalid subcommand', () => {
     it('throws for unknown subcommand', () => {
       const { context } = createMockAptContext();

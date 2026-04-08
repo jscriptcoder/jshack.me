@@ -114,6 +114,18 @@ const handleInstall = (packageName: string, context: AptContext): AsyncOutput | 
               };
               createFile(`/usr/bin/${binary}`, BINARY_STUB, 'root', binaryPermissions);
             }
+
+            const extraFilePermissions: FilePermissions = {
+              read: ['root', 'user', 'guest'],
+              write: ['root'],
+              execute: [],
+            };
+            for (const extra of pkg?.extraFiles ?? []) {
+              if (getNode(extra.path) === null) {
+                createFile(extra.path, extra.content, 'root', extraFilePermissions);
+              }
+            }
+
             onComplete();
           }
         }, delay);
