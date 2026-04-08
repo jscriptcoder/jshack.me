@@ -38,7 +38,8 @@ src/
 │   │   ├── helpers.ts         # mkFile, mkDir, mkScript, fillTemplate, tree utilities
 │   │   ├── networkConfig.ts   # SNMP, ACL, iptables config generators
 │   │   ├── forensicsEvidence.ts # Forensics log generation + calling cards
-│   │   └── generateFileSystems.ts # Machine config builder + orchestrator
+│   │   ├── machineConfig.ts        # Single-machine filesystem builder (PID files, creds, web, MySQL/Redis)
+│   │   └── generateFileSystems.ts # Multi-machine orchestrator (gateway maps, SNMP/DNS, forensics)
 │   └── generateMission.ts     # Mission orchestrator: seed → MissionNetwork (uses enrichment.ts)
 ├── mission/               # Mission system integration (Phase 2)
 │   ├── MissionContext.tsx     # React context for active mission state + start/abort/complete
