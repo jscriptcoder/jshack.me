@@ -32,18 +32,18 @@ Difficulty adds network depth via isolated subnet layers. Each layer has its own
 
 How the player gains initial access to the entry machine.
 
-| Variant | Flow                                                                                                                                                                                 |
-| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| SSH     | `nmap` → find port 22 → `hydra` brute-force to find credentials                                                                                                                      |
-| FTP     | `nmap` → find port 21 → FTP in, explore files; ~30% credential leak chance, otherwise `hydra` for SSH                                                                                |
-| NC      | `nmap` → find suspicious high port → `nc` to get a restricted shell as port owner; explore files, use `bash` to run binaries; ~30% credential leak chance, otherwise `hydra` for SSH |
-| Exploit | `nmap -sV` → find vulnerable service → `msfconsole(host, port)` → same restricted shell as NC                                                                                        |
-| HTTP    | `nmap` → find HTTP port (80, 443, or 8080) → `curl` to explore web content → find SSH credentials in web files                                                                       |
-| SNMP    | `nmap -sU` → find UDP 161 → `snmpwalk` with RW community → `snmpset` to open SSH port → `hydra` or cred leak                                                                         |
+| Variant | Flow                                                                                                                                                                                                                                             |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| SSH     | `nmap` → find port 22 → `hydra` brute-force to find credentials                                                                                                                                                                                  |
+| FTP     | `nmap` → find port 21 → `hydra(ip, 'ftp')` crack FTP virtual user password → FTP in, explore files → find leaked SSH creds or `get('/etc/passwd')` + `john` → SSH in. SSH passwords are NOT in hydra's wordlist (never crackable by brute force) |
+| NC      | `nmap` → find suspicious high port → `nc` to get a restricted shell as port owner; explore files, use `bash` to run binaries; ~30% credential leak chance, otherwise `hydra` for SSH                                                             |
+| Exploit | `nmap -sV` → find vulnerable service → `msfconsole(host, port)` → same restricted shell as NC                                                                                                                                                    |
+| HTTP    | `nmap` → find HTTP port (80, 443, or 8080) → `curl` to explore web content → find SSH credentials in web files                                                                                                                                   |
+| SNMP    | `nmap -sU` → find UDP 161 → `snmpwalk` with RW community → `snmpset` to open SSH port → `hydra` or cred leak                                                                                                                                     |
 
 ## FTP/NC/Exploit Owner Types (3)
 
-Owner type for NC backdoor and exploit port owners varies per seed, adding difficulty variety. The NC shell user and exploit shell user are determined by the port owner. FTP also gets a port owner via PRNG (preserving sequence stability), but FTP authentication is independent — any valid user on the machine can log in via FTP with correct credentials.
+Owner type for NC backdoor and exploit port owners varies per seed, adding difficulty variety. The NC shell user and exploit shell user are determined by the port owner. FTP also gets a port owner via PRNG (preserving sequence stability), but FTP authentication is independent — any valid user on the machine can log in via FTP with correct credentials. FTP-entry machines have separate FTP credentials (`/etc/vsftpd/virtual_users.conf`) with passwords from `WORDLIST_PASSWORDS` (crackable via hydra). ~40% of other FTP-open machines also get virtual users for variety.
 
 | Type  | Weight | Effect                                                   |
 | ----- | ------ | -------------------------------------------------------- |

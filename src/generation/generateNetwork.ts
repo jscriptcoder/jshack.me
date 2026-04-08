@@ -259,6 +259,7 @@ export const generateNetwork = (options: GenerateNetworkOptions): GeneratedNetwo
       const users = allUsersByMachine[machine.ip] ?? [];
       const machineCreds = allCredentials[machine.ip] ?? [];
       const isHttpEntry = topology.entryVariant === 'http' && machine.ip === topology.entryPoint;
+      const isFtpEntry = topology.entryVariant === 'ftp' && machine.ip === topology.entryPoint;
 
       const downstreamMachines = gatewayDownstreamMap.get(machine.ip);
       const gatewayNat = gatewayNatMap.get(machine.ip);
@@ -267,6 +268,7 @@ export const generateNetwork = (options: GenerateNetworkOptions): GeneratedNetwo
         internalMachines: downstreamMachines,
         natForwarding: gatewayNat,
         isHttpEntry,
+        isFtpEntry,
         downstreamSubnet,
       });
 

@@ -95,7 +95,7 @@ Unix-realistic permission model with owner-scoped access and directory traversal
 
 ### Tool Availability (apt install)
 
-Hacking tools must be installed via `apt('install', '<tool>')` as root. On localhost, only WiFi tools (airmon, airdump, aircrack), node, and gpg are pre-installed; all other tools require `apt install` after connecting to WiFi. `apt install` requires network connectivity — on localhost, WiFi must be connected first. The availability system (`src/commands/availability.ts`) wraps commands with `wrapWithAccessCheck` which checks binary existence and execute permissions at execution time.
+Hacking tools must be installed via `apt('install', '<tool>')` as root. On localhost, only WiFi tools (airmon, airdump, aircrack), node, and gpg are pre-installed; all other tools require `apt install` after connecting to WiFi. `apt install` requires network connectivity — on localhost, WiFi must be connected first. The availability system (`src/commands/availability.ts`) wraps commands with `wrapWithAccessCheck` which checks binary existence and execute permissions at execution time. Packages can declare `extraFiles` (non-binary files installed alongside binaries) — `apt install hydra` installs `/usr/share/wordlists/passwords.txt`, `apt install gobuster` installs `/usr/share/wordlists/dirlist.txt`.
 
 The filesystem factory (`fileSystemFactory.ts`) creates `/boot/`, `/bin/`, and `/usr/bin/` directories on all machines. `mergeExtraDirectories()` handles one-level-deep merging to prevent mission generation's `extraDirectories` from overwriting factory directories.
 
@@ -115,7 +115,7 @@ Sensitive content is XOR+Base64 encoded at build time to prevent finding flag st
 
 `src/secrets/secrets.ts` defines sensitive non-filesystem strings (e.g., WiFi password, mission passwords) as key-value pairs. The `encode` script encodes them into `src/secrets/__encoded.ts`. App code imports from `__encoded`, tests import from the source file directly.
 
-Current secrets: `WIFI_PASSWORD` (legacy static WiFi password), `WIFI_PASSWORDS` (JSON-stringified array of 40 passwords for seeded WiFi generation), `MISSION_PASSWORDS` (JSON-stringified array of 120 passwords used by mission generator), `GUEST_PASSWORDS` (JSON-stringified array of 20 guest passwords used by mission generator), `SNMP_COMMUNITIES` (JSON-stringified array of 24 SNMP read-write community strings used by mission generator and hydra SNMP brute-force).
+Current secrets: `WIFI_PASSWORD` (legacy static WiFi password), `WIFI_PASSWORDS` (JSON-stringified array of 40 passwords for seeded WiFi generation), `MISSION_PASSWORDS` (JSON-stringified array of 120 passwords used by mission generator — never in hydra's wordlist, never brute-forceable), `GUEST_PASSWORDS` (JSON-stringified array of 20 guest passwords used by mission generator — always in hydra's wordlist), `WORDLIST_PASSWORDS` (JSON-stringified array of 60 common passwords for hydra's wordlist — disjoint from MISSION_PASSWORDS; used for crackable service passwords on non-FTP-entry machines), `SNMP_COMMUNITIES` (JSON-stringified array of 24 SNMP read-write community strings used by mission generator and hydra SNMP brute-force).
 
 To add a new secret: add the key-value pair to `src/secrets/secrets.ts`, then run `npm run encode`.
 
@@ -140,6 +140,23 @@ To add a new secret: add the key-value pair to `src/secrets/secrets.ts`, then ru
 - **Auth**: Config at `/etc/redis/redis.conf` with optional `requirepass`. When `requirepass` is set, commands require authentication via `AUTH` or inline password. `hydra(ip, 'redis')` brute-forces the requirepass
 - **Session**: `RedisSession` in `SessionContext` — `redis>` prompt, bypasses `new Function()` in Terminal.tsx, routes raw input to the executor
 - **Implementation**: `src/commands/redis/` (parser, executor, types), `src/commands/rediscli.ts` (command entry point), `src/hooks/useRedisCommands.ts` (hook)
+
+### Wordlist System
+
+Tools like hydra and gobuster use filesystem-based wordlists installed via `apt install`. Wordlists live at `/usr/share/wordlists/` and are also resolved from cwd (for SCP'd tools). Content is generated from encoded secrets at runtime (`src/commands/wordlists.ts`).
+
+- **`passwords.txt`** (installed with hydra) — Contains `GUEST_PASSWORDS` + `WORDLIST_PASSWORDS`, one per line. Hydra reads this file and uses it as a **gate**: password must be in the wordlist AND probability roll must succeed. Passwords NOT in the wordlist can never be cracked. Root passwords (from `MISSION_PASSWORDS`) are never in the wordlist.
+- **`dirlist.txt`** (installed with gobuster) — Contains ~50 common web directory/file names. Gobuster only reveals entries whose top-level path segment matches the dirlist (e.g., `/admin/config.json` shown only if `admin` is in the dirlist).
+- **Resolution**: `resolveWordlist(filename, getNode, cwd)` in `src/utils/wordlist.ts` checks cwd first, then `/usr/share/wordlists/`.
+
+### FTP Virtual Users
+
+Machines with FTP open can have separate FTP credentials in `/etc/vsftpd/virtual_users.conf` (format: `username:md5hash` per line). FTP-entry machines always get virtual users; other FTP-open machines get them ~40% of the time (PRNG roll). When the file exists, FTP auth checks virtual user credentials first, falling back to system users. Hydra FTP also reads virtual users when present. FTP virtual user passwords come from `WORDLIST_PASSWORDS` (in hydra's wordlist, crackable). On FTP-entry machines, SSH passwords come from `MISSION_PASSWORDS` (not in wordlist, never crackable by hydra) — the player must use FTP file exploration to find leaked SSH credentials or crack `/etc/passwd` hashes via `john`.
+
+- **Generation**: `src/generation/ftpCredentials.ts` — `generateFtpVirtualUsers()`, `formatVirtualUsersConf()`, `parseVirtualUsersConf()`
+- **Placement**: `machineConfig.ts` during filesystem generation
+- **Auth**: `useAuthentication.ts` checks virtual users in both inline and interactive FTP auth paths
+- **Hydra**: `hydra.ts` swaps in virtual user hashes for FTP service cracking
 
 ### Connection Logging
 

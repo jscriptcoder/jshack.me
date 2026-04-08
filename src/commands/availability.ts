@@ -1,6 +1,7 @@
 import type { Command } from '../components/Terminal/types';
 import type { FileNode } from '../filesystem/types';
 import type { UserType } from '../session/SessionContext';
+import { passwordsWordlistContent, dirlistWordlistContent } from './wordlists';
 
 // Shell builtins — always available, no binary needed
 const SHELL_BUILTINS = new Set(['cd', 'exit', 'clear', 'echo', 'pwd', 'help', 'whoami', 'bash']);
@@ -93,13 +94,13 @@ export const APT_PACKAGES: readonly AptPackageInfo[] = [
     name: 'hydra',
     description: 'Network login brute-force tool',
     version: '9.4',
-    extraFiles: [{ path: '/usr/share/wordlists/passwords.txt', content: 'placeholder\n' }],
+    extraFiles: [{ path: '/usr/share/wordlists/passwords.txt', content: passwordsWordlistContent }],
   },
   {
     name: 'gobuster',
     description: 'Directory/file enumeration tool',
     version: '3.6',
-    extraFiles: [{ path: '/usr/share/wordlists/dirlist.txt', content: 'placeholder\n' }],
+    extraFiles: [{ path: '/usr/share/wordlists/dirlist.txt', content: dirlistWordlistContent }],
   },
   {
     name: 'snmp',

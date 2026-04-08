@@ -159,7 +159,7 @@ Unix-realistic permission model with owner-scoped access and directory traversal
 
 - **su** — validates password against `/etc/passwd` hashes on the current machine, switches user type and home path; triggers `onSuAuth` callback for logging
 - **SSH** — resolves NAT, validates against target machine user list via `findMachineUsers`, pushes session stack, switches to remote machine; triggers `onSshAuth` callback for logging
-- **FTP** — two-stage login (username prompt → password prompt), resolves NAT, validates against target machine via `findMachineUsers`, creates FTP session; triggers `onFtpAuth` callback for logging
+- **FTP** — two-stage login (username prompt → password prompt), resolves NAT. Checks for `/etc/vsftpd/virtual_users.conf` on target machine first — if present, validates against virtual user credentials; otherwise falls back to system users via `findMachineUsers`. Creates FTP session; triggers `onFtpAuth` callback for logging
 - **SCP** — resolves NAT, validates against target machine via `findMachineUsers`, triggers file transfer animation; triggers `onSshAuth` callback for logging (SCP uses SSH auth)
 - **MySQL** — validates against the database's own `credentials` array (stored in `/var/lib/mysql/data.json`), separate from system users. `validateMysqlPassword` reads and parses the DB file for credential checks
 - **Redis** — validates against `requirepass` in `/etc/redis/redis.conf`. `rediscli` supports inline password or interactive `AUTH` command
