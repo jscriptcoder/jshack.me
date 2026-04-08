@@ -86,6 +86,51 @@ export const updateNodeAtPath = (
   };
 };
 
+// Like addChildAtPath but creates missing intermediate directories automatically.
+// Used by createFile to support deep paths (like mkdir -p + touch).
+const mkDirNode = (name: string): FileNode => ({
+  name,
+  type: 'directory',
+  owner: 'root',
+  permissions: {
+    read: ['root', 'user', 'guest'],
+    write: ['root'],
+    execute: ['root', 'user', 'guest'],
+  },
+  children: {},
+});
+
+export const ensureChildAtPath = (
+  root: FileNode,
+  pathParts: readonly string[],
+  childName: string,
+  child: FileNode,
+): FileNode => {
+  if (pathParts.length === 0) {
+    if (root.type !== 'directory') return root;
+    return {
+      ...root,
+      children: {
+        ...root.children,
+        [childName]: child,
+      },
+    };
+  }
+
+  const [first, ...rest] = pathParts;
+  if (root.type !== 'directory') return root;
+
+  const existing = root.children?.[first] ?? mkDirNode(first);
+
+  return {
+    ...root,
+    children: {
+      ...root.children,
+      [first]: ensureChildAtPath(existing, rest, childName, child),
+    },
+  };
+};
+
 export const addChildAtPath = (
   root: FileNode,
   pathParts: readonly string[],

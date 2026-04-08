@@ -28,7 +28,7 @@ import {
   getNodeAtPath,
   checkTraversal,
   updateNodeAtPath,
-  addChildAtPath,
+  ensureChildAtPath,
   removeChildAtPath,
   upsertPatch,
   applyPatches,
@@ -395,18 +395,24 @@ export const FileSystemProvider = ({
       const dirParts = parts.slice(0, -1);
       const dirPath = '/' + dirParts.join('/') || '/';
 
-      const parentPermission = canWriteFromMachine({
-        machineId,
-        path: dirPath,
-        cwd: '/',
-        userType,
-      });
-      if (!parentPermission.allowed) return parentPermission;
-
       const parentNode = getNodeFromMachine(machineId, dirPath, '/');
-      if (!parentNode || parentNode.type !== 'directory')
+      const parentExists = parentNode?.type === 'directory';
+
+      // If parent exists, check write permission and file collision
+      if (parentExists) {
+        const parentPermission = canWriteFromMachine({
+          machineId,
+          path: dirPath,
+          cwd: '/',
+          userType,
+        });
+        if (!parentPermission.allowed) return parentPermission;
+        if (parentNode.children?.[fileName])
+          return { allowed: false, error: `File exists: ${path}` };
+      } else if (userType !== 'root') {
+        // Only root can auto-create intermediate directories
         return { allowed: false, error: `Not a directory: ${dirPath}` };
-      if (parentNode.children?.[fileName]) return { allowed: false, error: `File exists: ${path}` };
+      }
 
       const defaultPermissions: FilePermissions = {
         read: ['root', userType],
@@ -422,9 +428,10 @@ export const FileSystemProvider = ({
         content,
       };
 
+      // ensureChildAtPath auto-creates missing intermediate directories
       setFileSystems((prev) => ({
         ...prev,
-        [machineId]: addChildAtPath(prev[machineId], dirParts, fileName, newFile),
+        [machineId]: ensureChildAtPath(prev[machineId], dirParts, fileName, newFile),
       }));
 
       broadcastAndRecordPatch({
