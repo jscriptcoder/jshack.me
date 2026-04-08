@@ -347,32 +347,28 @@ describe('generateFileSystems', () => {
 
     it('leaked credentials belong to a user-type account (never root or guest)', () => {
       for (let i = 0; i < 100; i++) {
-        const { topology, fileSystems, usersByMachine } = buildTestData(`cred-leak-user-${i}`);
+        const { topology, fileSystems, credentials } = buildTestData(`cred-leak-user-${i}`);
         topology.machines.forEach((m) => {
           const fs = fileSystems[m.ip];
           if (!fs) return;
 
-          const users = usersByMachine[m.ip] ?? [];
-          const regularUsers = users.filter((u) => u.userType === 'user');
+          const creds = credentials[m.ip] ?? [];
+          const rootCred = creds.find((c) => c.username === 'root');
+          const guestCred = creds.find((c) => c.username === 'guest');
 
           credentialLeakTemplates.forEach((t) => {
+            // Skip DB-themed templates (they use MySQL credentials, not system credentials)
+            if (t.credentialType === 'mysql') return;
             const node = resolveNode(fs, t.path);
             if (!node?.content) return;
 
-            // If this file exists and has credential content, verify it's a regular user
-            const containsUserCred = regularUsers.some((u) => node.content?.includes(u.username));
-            if (containsUserCred) {
-              // Must NOT contain root or guest usernames as the credential subject
-              const rootUser = users.find((u) => u.userType === 'root');
-              const guestUser = users.find((u) => u.userType === 'guest');
-              // The file content should not have root/guest as the leaked credential
-              // (they might appear in other template boilerplate like crontab "root" entries)
-              if (rootUser) {
-                expect(node.content).not.toContain(`pass = ${rootUser.username}`);
-              }
-              if (guestUser) {
-                expect(node.content).not.toContain(`pass = ${guestUser.username}`);
-              }
+            // Verify root/guest passwords don't appear as the leaked credential.
+            // Check passwords (not usernames) since "root" can appear in template boilerplate.
+            if (rootCred) {
+              expect(node.content).not.toContain(rootCred.password);
+            }
+            if (guestCred) {
+              expect(node.content).not.toContain(guestCred.password);
             }
           });
         });

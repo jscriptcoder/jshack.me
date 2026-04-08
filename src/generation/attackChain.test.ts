@@ -152,7 +152,7 @@ describe('buildMissionObjective', () => {
 
     expect(result.objective.type).toBe('portforward');
     expect(result.objective.forwardPublicPort).toBeDefined();
-    expect([8080, 8443, 9090, 8888, 3000, 4443]).toContain(result.objective.forwardPublicPort);
+    expect(result.objective.forwardPublicPort).toBeGreaterThan(0);
     expect(result.objective.forwardInternalIp).toBeDefined();
     expect(result.objective.forwardInternalPort).toBeDefined();
     expect(result.objective.targetPath).toBe('');

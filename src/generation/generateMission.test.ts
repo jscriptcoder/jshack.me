@@ -223,8 +223,8 @@ describe('generateMissionNetwork', () => {
 
   it('non-entry NC machines have backdoor port owners', () => {
     let found = false;
-    for (let i = 0; i < 300; i++) {
-      const result = generateMissionNetwork(`nc-nonentry-${i}`);
+    for (let i = 0; i < 1000; i++) {
+      const result = generateMissionNetwork(`nc-internal-${i}`);
       const nonEntryNc = result.machines.find(
         (m) => m.ip !== result.entryPoint && m.accessVariant === 'nc',
       );
