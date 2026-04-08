@@ -233,6 +233,8 @@ export const useNetworkCommands = (): Map<string, Command> => {
             resolveDomain,
             resolveNat,
             getNodeFromMachine,
+            getLocalNode: (path: string) => getNode(resolvePath(path)),
+            getCurrentPath: () => session.currentPath,
             onHttpRequest,
           }),
           isWifiRequired,

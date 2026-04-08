@@ -3,12 +3,15 @@ import type { RemoteMachine, DnsRecord } from '../network/types';
 import type { FileNode } from '../filesystem/types';
 import { isValidIP } from '../utils/network';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
+import { resolveWordlist } from '../utils/wordlist';
 
 type GobusterContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
   readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
   readonly getNodeFromMachine: (machineId: string, path: string, cwd: string) => FileNode | null;
+  readonly getLocalNode: (path: string) => FileNode | null;
+  readonly getCurrentPath: () => string;
   readonly onHttpRequest?: (
     targetIP: string,
     method: string,
@@ -113,7 +116,14 @@ export const createGobusterCommand = (context: GobusterContext): Command => ({
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {
-    const { getMachine, resolveDomain, resolveNat, getNodeFromMachine } = context;
+    const {
+      getMachine,
+      resolveDomain,
+      resolveNat,
+      getNodeFromMachine,
+      getLocalNode,
+      getCurrentPath,
+    } = context;
 
     const mode = args[0] as string | undefined;
     const urlStr = args[1] as string | undefined;
@@ -164,7 +174,18 @@ export const createGobusterCommand = (context: GobusterContext): Command => ({
       throw new Error(`gobuster: no web root found on ${parsed.host}`);
     }
 
-    const entries = collectWebEntries(webRoot, '');
+    const allEntries = collectWebEntries(webRoot, '');
+
+    // Filter entries by dirlist wordlist — only show entries whose top-level
+    // path segment matches a wordlist entry (like real gobuster).
+    const dirlistLines = resolveWordlist('dirlist.txt', getLocalNode, getCurrentPath());
+    const dirlistSet = new Set(dirlistLines);
+    const entries = allEntries.filter((entry) => {
+      // Extract top-level segment: "/admin/config.json" → "admin", "/.env" → ".env"
+      const topLevel = entry.path.split('/')[1] ?? '';
+      return dirlistSet.has(topLevel);
+    });
+
     const token = createCancellationToken();
 
     // Build display URL: use original url string but strip trailing path
