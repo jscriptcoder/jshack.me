@@ -41,11 +41,12 @@ export const generateDatabase = (
   );
   const selectedTemplates = [usersTable, ...additionalTemplates];
 
-  const tables: Record<string, MysqlTable> = {};
-  for (const template of selectedTemplates) {
-    const rows = template.rowGenerator(prng, usernames);
-    tables[template.name] = { columns: [...template.columns], rows: [...rows] };
-  }
+  const tables: Record<string, MysqlTable> = Object.fromEntries(
+    selectedTemplates.map((template) => {
+      const rows = template.rowGenerator(prng, usernames);
+      return [template.name, { columns: [...template.columns], rows: [...rows] }];
+    }),
+  );
 
   // Generate MySQL-specific credentials (separate from system users).
   // Always: 1 root + 1 app user. ~50% chance of a guest account.

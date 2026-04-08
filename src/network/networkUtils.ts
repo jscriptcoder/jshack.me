@@ -216,14 +216,10 @@ const findSwitchGatewayForMachine = (
 ): string | undefined => {
   const checkLayers = (layers: readonly SubnetLayer[] | undefined): string | undefined => {
     if (!layers || layers.length <= 1) return undefined;
-    for (const layer of layers.slice(1)) {
-      if (layer.gatewayType !== 'switch') continue;
-      // Check if the machine IP belongs to this layer's subnet
-      if (machineIp.startsWith(`${layer.subnet}.`)) {
-        return layer.gateway.ip;
-      }
-    }
-    return undefined;
+    const match = layers
+      .slice(1)
+      .find((layer) => layer.gatewayType === 'switch' && machineIp.startsWith(`${layer.subnet}.`));
+    return match?.gateway.ip;
   };
 
   return checkLayers(ctx.missionLayers) ?? checkLayers(ctx.homeLayers);

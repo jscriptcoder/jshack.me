@@ -104,14 +104,15 @@ export const listProcesses = (adapter: PsAdapter): readonly Process[] => {
           return match ? Number(match[1]) : 0;
         }),
     );
-    for (const port of machineInfo.ports) {
-      if (port.service !== 'elite' || !port.open || ncPidPorts.has(port.port)) continue;
-      processes.push({
-        pid: nextPid++,
-        user: port.owner?.username ?? 'root',
-        command: `/usr/bin/nc -lvnp ${port.port}`,
+    machineInfo.ports
+      .filter((port) => port.service === 'elite' && port.open && !ncPidPorts.has(port.port))
+      .forEach((port) => {
+        processes.push({
+          pid: nextPid++,
+          user: port.owner?.username ?? 'root',
+          command: `/usr/bin/nc -lvnp ${port.port}`,
+        });
       });
-    }
   }
 
   return processes;
@@ -148,11 +149,11 @@ export const createPsCommand = (context: PsContext): Command => ({
       readDirectory: (path) => {
         const node = context.getNodeFromMachine(machine, path, '/');
         if (node?.type !== 'directory' || !node.children) return undefined;
-        const entries: Record<string, string> = {};
-        for (const [name, child] of Object.entries(node.children)) {
-          if (child.type === 'file' && child.content) entries[name] = child.content;
-        }
-        return entries;
+        return Object.fromEntries(
+          Object.entries(node.children)
+            .filter(([, child]) => child.type === 'file' && child.content)
+            .map(([name, child]) => [name, child.content!]),
+        );
       },
     };
 

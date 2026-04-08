@@ -153,11 +153,11 @@ export const useNcCommands = (): Map<string, Command> | null => {
         readDirectory: (path) => {
           const node = getNodeFromMachine(machine, path, '/');
           if (node?.type !== 'directory' || !node.children) return undefined;
-          const entries: Record<string, string> = {};
-          for (const [name, child] of Object.entries(node.children)) {
-            if (child.type === 'file' && child.content) entries[name] = child.content;
-          }
-          return entries;
+          return Object.fromEntries(
+            Object.entries(node.children)
+              .filter(([, child]) => child.type === 'file' && child.content)
+              .map(([name, child]) => [name, child.content!]),
+          );
         },
       };
       const header = 'PID     USER       COMMAND';

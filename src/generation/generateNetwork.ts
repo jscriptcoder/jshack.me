@@ -362,14 +362,18 @@ export const generateNetwork = (options: GenerateNetworkOptions): GeneratedNetwo
     // Add UDP port 161 to non-SNMP-variant gateways that got basic SNMP via PRNG roll
     if (basicSnmpGatewayIps.size > 0) {
       const snmpPort = { port: 161, service: 'snmp', open: true, protocol: 'udp' as const };
-      for (const [ip, config] of Object.entries(updatedMachineConfigs)) {
-        updatedMachineConfigs[ip] = {
-          ...config,
-          machines: config.machines.map((rm) =>
-            basicSnmpGatewayIps.has(rm.ip) ? { ...rm, ports: [...rm.ports, snmpPort] } : rm,
-          ),
-        };
-      }
+      const withSnmp = Object.fromEntries(
+        Object.entries(updatedMachineConfigs).map(([ip, config]) => [
+          ip,
+          {
+            ...config,
+            machines: config.machines.map((rm) =>
+              basicSnmpGatewayIps.has(rm.ip) ? { ...rm, ports: [...rm.ports, snmpPort] } : rm,
+            ),
+          },
+        ]),
+      );
+      Object.assign(updatedMachineConfigs, withSnmp);
     }
   }
 

@@ -104,14 +104,21 @@ const INFRA_PID_CONFIGS: Readonly<Record<string, InfraPidConfig>> = {
 const buildInfrastructurePidFiles = (
   ports: readonly { readonly port: number; readonly service: string; readonly open: boolean }[],
 ): Readonly<Record<string, FileNode>> => {
-  const result: Record<string, FileNode> = {};
-  for (const p of ports) {
-    if (!p.open) continue;
-    const config = INFRA_PID_CONFIGS[p.service];
-    if (!config || result[config.pidFile]) continue;
-    result[config.pidFile] = mkFile(config.pidFile, `${config.binary}:port=${p.port}`, 'guest');
-  }
-  return result;
+  const seen = new Set<string>();
+  return Object.fromEntries(
+    ports
+      .filter((p) => {
+        if (!p.open) return false;
+        const config = INFRA_PID_CONFIGS[p.service];
+        if (!config || seen.has(config.pidFile)) return false;
+        seen.add(config.pidFile);
+        return true;
+      })
+      .map((p) => {
+        const config = INFRA_PID_CONFIGS[p.service]!;
+        return [config.pidFile, mkFile(config.pidFile, `${config.binary}:port=${p.port}`, 'guest')];
+      }),
+  );
 };
 
 const CREDENTIAL_LEAK_CHANCE = 0.3;
