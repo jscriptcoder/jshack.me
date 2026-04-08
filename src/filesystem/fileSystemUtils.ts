@@ -101,13 +101,19 @@ const mkDirNode = (name: string): FileNode => ({
 });
 
 export const ensureChildAtPath = (
-  root: FileNode,
+  root: FileNode | undefined,
   pathParts: readonly string[],
   childName: string,
   child: FileNode,
 ): FileNode => {
+  if (!root || root.type !== 'directory') {
+    // If root is missing or not a directory, create a directory to hold the path
+    const dir = root ?? mkDirNode('');
+    if (dir.type !== 'directory') return dir;
+    return ensureChildAtPath(dir, pathParts, childName, child);
+  }
+
   if (pathParts.length === 0) {
-    if (root.type !== 'directory') return root;
     return {
       ...root,
       children: {
@@ -118,9 +124,8 @@ export const ensureChildAtPath = (
   }
 
   const [first, ...rest] = pathParts;
-  if (root.type !== 'directory') return root;
 
-  const existing = root.children?.[first] ?? mkDirNode(first);
+  const existing = root.children?.[first] ?? mkDirNode(first as string);
 
   return {
     ...root,
