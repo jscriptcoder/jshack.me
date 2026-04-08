@@ -16,48 +16,54 @@ FTP entry variant is pointless: SSH is always open alongside FTP on entry machin
 ### Solution
 
 1. **Wordlist files** installed alongside tools via `apt install`
-2. **Hydra** reads `passwords.txt` and only cracks passwords that are IN the wordlist (replaces probability-based cracking)
+2. **Hydra** reads `passwords.txt` — wordlist membership is a **gate** (necessary condition), probability rolls are preserved as **difficulty** (per-run chance)
 3. **Gobuster** reads `dirlist.txt` and only reveals matching directory/file names (replaces full tree walk)
-4. **FTP-entry machines** get separate FTP credentials (from wordlist pool) while SSH passwords come from a non-wordlist pool
+4. **FTP virtual users** — machines with FTP open can have separate FTP credentials in `/etc/vsftpd/virtual_users.conf` (always on FTP-entry, PRNG chance on other FTP-open machines)
 
 ### Key Design Choices
 
 - **Wordlist location**: `/usr/share/wordlists/` (standard Kali convention). Tools also check cwd as fallback (for SCP'd tools).
 - **Wordlist installed with tools**: `apt install hydra` drops `passwords.txt`, `apt install gobuster` drops `dirlist.txt`. No separate wordlist package needed.
 - **New secret pool**: `WORDLIST_PASSWORDS` (~60 passwords, completely disjoint from `MISSION_PASSWORDS`). The wordlist file = `GUEST_PASSWORDS` + `WORDLIST_PASSWORDS`.
-- **Hydra behavior change**: Replaces probability (guest 100%, user 18%, root 2.5%) with deterministic wordlist membership. Root passwords are NEVER in the wordlist (never crackable). Guest passwords are ALWAYS in the wordlist (always crackable). Regular user passwords: in wordlist for SSH-entry, NOT for FTP-entry SSH.
-- **FTP separate credentials**: FTP on FTP-entry machines uses virtual user credentials (like MySQL has its own creds). Stored in `/etc/vsftpd/virtual_users.conf`. FTP auth checks these first, falls back to system users for non-FTP-entry machines.
+- **Hydra behavior: wordlist gate + probability**. Two conditions must BOTH be true for a crack: (1) password is in the wordlist file, AND (2) probability roll succeeds (guest 100%, user 18%, root 2.5%). If the password is NOT in the wordlist, it can never be cracked regardless of rolls. This preserves the existing difficulty curve for lateral movement while enabling FTP-entry differentiation.
+- **FTP virtual users with PRNG spread**: FTP-entry machines ALWAYS have `/etc/vsftpd/virtual_users.conf`. Other machines with FTP open have a ~40% PRNG chance of also having virtual users. This adds variety — the player learns that FTP sometimes uses different credentials than SSH, which is realistic. When virtual users exist, FTP auth checks them first; otherwise falls back to system user auth.
 - **Gobuster change**: Walks the tree but only shows entries whose filename matches the wordlist. `dirlist.txt` contains ~50 common directory/file names aligned with what generation creates (admin, api, .env, backup, config, status, etc.).
 - **MySQL/Redis hydra**: Out of scope for this plan. MySQL uses same hash lookup (could be updated later). Redis already uses wordlist-like matching. SNMP uses its own community string pool.
 
 ### Impact on Existing Gameplay
 
-| Scenario | Before | After |
-|---|---|---|
-| hydra SSH on SSH-entry | 18% per user per run | 100% (password in wordlist) |
-| hydra SSH on FTP-entry | 18% per user per run | 0% (password NOT in wordlist) |
-| hydra FTP on FTP-entry | 18% per user per run | 100% (FTP password in wordlist) |
-| hydra root (any machine) | 2.5% per run | 0% (root never in wordlist) |
-| hydra guest (any machine) | 100% per run | 100% (guest always in wordlist) |
-| gobuster | Shows all files/dirs | Only shows wordlist matches |
+| Scenario | In wordlist? | Probability | Net effect |
+|---|---|---|---|
+| hydra SSH on SSH-entry (user) | Yes | 18%/run | Same as today |
+| hydra SSH on FTP-entry (user) | No | N/A | Never crackable (find creds via FTP) |
+| hydra FTP on FTP-entry (user) | Yes (virtual) | 18%/run | Crackable with effort |
+| hydra FTP on machine with virtual users | Yes (virtual) | 18%/run | Crackable with effort |
+| hydra FTP on machine without virtual users | Yes (system) | 18%/run | Same as today |
+| hydra on internal machines (user) | Yes | 18%/run | Same as today |
+| hydra root (any machine) | No | N/A | Never crackable (was 2.5%) |
+| hydra guest (any machine) | Yes | 100% | Same as today |
+| gobuster | N/A | N/A | Only shows wordlist matches (was: everything) |
 
 ## Acceptance Criteria
 
 - [ ] `apt install hydra` creates `/usr/bin/hydra` AND `/usr/share/wordlists/passwords.txt`
 - [ ] `apt install gobuster` creates `/usr/bin/gobuster` AND `/usr/share/wordlists/dirlist.txt`
 - [ ] Player can `cat /usr/share/wordlists/passwords.txt` and see the password list
-- [ ] Hydra only cracks passwords present in the wordlist file
+- [ ] Hydra uses wordlist as a gate: password must be in wordlist AND probability roll must succeed
+- [ ] Hydra cannot crack passwords NOT in the wordlist (regardless of probability)
 - [ ] Hydra shows "0 valid passwords found" when no passwords match
 - [ ] Hydra resolves wordlist from cwd first, then `/usr/share/wordlists/`
 - [ ] Hydra errors with clear message if no wordlist is found
 - [ ] Gobuster only reveals directory/file entries matching `dirlist.txt`
 - [ ] Gobuster resolves wordlist from cwd first, then `/usr/share/wordlists/`
-- [ ] FTP-entry machines have separate FTP credentials stored in `/etc/vsftpd/virtual_users.conf`
-- [ ] FTP auth on FTP-entry machines checks virtual user creds (passwords from wordlist)
-- [ ] SSH passwords on FTP-entry machines come from `MISSION_PASSWORDS` (not in wordlist)
-- [ ] SSH-entry machines: regular user passwords come from `WORDLIST_PASSWORDS` (in wordlist)
-- [ ] Credential leaks on FTP-entry machines still leak SSH credentials (so player can find them)
-- [ ] Internal (non-entry) machines: regular user passwords come from `WORDLIST_PASSWORDS` (crackable)
+- [ ] FTP-entry machines ALWAYS have `/etc/vsftpd/virtual_users.conf` with FTP credentials
+- [ ] Other machines with FTP open have ~40% PRNG chance of virtual users
+- [ ] FTP auth checks virtual user creds first when file exists, falls back to system users
+- [ ] Virtual user FTP passwords come from `WORDLIST_PASSWORDS` (in wordlist, crackable)
+- [ ] SSH passwords on FTP-entry machines come from `MISSION_PASSWORDS` (not in wordlist, never crackable)
+- [ ] SSH-entry and internal machines: regular user passwords from `WORDLIST_PASSWORDS` (in wordlist)
+- [ ] Root passwords always from `MISSION_PASSWORDS` (never in wordlist, never crackable)
+- [ ] Credential leaks on FTP-entry machines still expose SSH credentials (player's path in)
 - [ ] All existing tests updated; build, lint, and format pass
 
 ## Steps
@@ -106,11 +112,11 @@ Currently `apt install` only creates binary stubs in `/usr/bin/`. We need it to 
 **Implementation**: Create `src/utils/wordlist.ts` with `resolveWordlist(filename, getNode, cwd)` that checks `${cwd}/${filename}` then `/usr/share/wordlists/${filename}`, returns parsed lines (trimmed, empty lines filtered).
 **Done when**: All resolution cases tested.
 
-#### Step 2.4: Hydra reads wordlist and uses membership check for SSH/FTP
+#### Step 2.4: Hydra reads wordlist and adds it as a gate to cracking
 
-**Test**: Given a machine where user password IS in the wordlist → hydra cracks it. Given a machine where user password is NOT in the wordlist → hydra reports "0 valid passwords found". Guest always cracked (in wordlist). Root never cracked (not in wordlist). Hydra errors clearly if wordlist file not found.
-**Implementation**: In `hydra.ts`, replace the module-level `wordlist`/`hashToPassword` constants with a wordlist read from the filesystem via `resolveWordlist`. In the SSH/FTP cracking section (lines 487-510), replace the probability roll with: build hash set from wordlist passwords, check if `user.passwordHash` matches any. Remove `CRACK_PROBABILITY` constant.
-**Done when**: All cracking tests updated and passing. Old probability-based tests replaced with deterministic wordlist-based tests.
+**Test**: (a) User password IN wordlist + probability succeeds → cracked. (b) User password IN wordlist + probability fails → not cracked this run (can retry). (c) User password NOT in wordlist → never cracked regardless of probability. (d) Guest in wordlist + 100% probability → always cracked. (e) Root not in wordlist → never cracked. (f) Hydra errors clearly if wordlist file not found.
+**Implementation**: In `hydra.ts`, replace the module-level `wordlist`/`hashToPassword` constants with a wordlist read from the filesystem via `resolveWordlist`. In the SSH/FTP cracking section (lines 487-510), add a wordlist membership check BEFORE the probability roll: build hash set from wordlist passwords, check if `user.passwordHash` matches any — if not, skip (never crackable). If yes, proceed with existing `CRACK_PROBABILITY` roll. Keep `CRACK_PROBABILITY` unchanged.
+**Done when**: All cracking tests updated. New tests verify the gate behavior (not-in-wordlist → 0%). Existing probability-based difficulty preserved for in-wordlist passwords.
 
 #### Step 2.5: Password generation uses WORDLIST_PASSWORDS for crackable users
 
@@ -150,27 +156,27 @@ Currently `apt install` only creates binary stubs in `/usr/bin/`. We need it to 
 **Implementation**: Create FTP credential generation in `src/generation/enrichment.ts` (or a new `ftpCredentials.ts`). For each system user on the machine, generate an FTP-specific password from `WORDLIST_PASSWORDS` pool. Store as config file content for `/etc/vsftpd/virtual_users.conf`.
 **Done when**: Generation test passes.
 
-#### Step 4.2: Place virtual_users.conf on FTP-entry machines
+#### Step 4.2: Place virtual_users.conf on FTP-entry and randomly on other FTP-open machines
 
-**Test**: FTP-entry machine's filesystem contains `/etc/vsftpd/virtual_users.conf` with FTP credentials. Non-FTP-entry machines do NOT have this file.
-**Implementation**: During filesystem generation (in `machineConfig.ts` or `generateFileSystems.ts`), when a machine's `accessVariant === 'ftp'`, add the virtual users config file to its filesystem. The credentials map for FTP-entry should include FTP-specific passwords.
-**Done when**: Filesystem generation tests verify file presence/absence.
+**Test**: (a) FTP-entry machine ALWAYS has `/etc/vsftpd/virtual_users.conf`. (b) Non-entry machine with FTP open has ~40% PRNG chance of having the file. (c) Machine without FTP open never has the file. (d) Content contains correct FTP credentials with hashed passwords.
+**Implementation**: During filesystem generation (in `machineConfig.ts` or enrichment), place virtual users config when: `accessVariant === 'ftp'` (always), or FTP port is open + PRNG roll < 0.4 (random). Always consume the PRNG roll for sequence stability even if FTP is closed.
+**Done when**: Filesystem generation tests verify presence/absence by variant and PRNG.
 
-#### Step 4.3: FTP auth checks virtual user credentials on FTP-entry machines
+#### Step 4.3: FTP auth checks virtual user credentials when file exists
 
-**Test**: On FTP-entry machine: FTP login with virtual user password succeeds, system password fails. On non-FTP-entry machine: FTP login with system password succeeds (unchanged behavior).
+**Test**: (a) Machine WITH virtual_users.conf: FTP login with virtual password succeeds, system password fails. (b) Machine WITHOUT virtual_users.conf: FTP login with system password succeeds (unchanged). (c) Works for both FTP-entry and non-entry machines that happen to have virtual users.
 **Implementation**: In `useAuthentication.ts`, modify `authenticateFtpInline` and `handleFtpPassword` to first check for `/etc/vsftpd/virtual_users.conf` on the target machine. If it exists, authenticate against those credentials. If not, fall back to system user authentication (current behavior).
-**Done when**: Both FTP-entry and non-FTP-entry FTP auth tested.
+**Done when**: All three test cases pass.
 
-#### Step 4.4: Hydra FTP resolves FTP-specific credentials on FTP-entry machines
+#### Step 4.4: Hydra FTP resolves FTP-specific credentials when virtual users exist
 
-**Test**: `hydra(ftpEntryIp, 'ftp')` cracks FTP virtual user password (in wordlist). `hydra(ftpEntryIp, 'ssh')` fails (SSH password not in wordlist). On non-FTP-entry machine, hydra FTP still uses system credentials.
-**Implementation**: In `hydra.ts`, for FTP service cracking, read `/etc/vsftpd/virtual_users.conf` from the target machine. If it exists, use those credentials for FTP cracking instead of system users. SSH cracking unchanged (always uses system users).
-**Done when**: Hydra FTP tests pass for both FTP-entry and non-FTP-entry machines.
+**Test**: (a) Machine with virtual users: `hydra(ip, 'ftp')` tries virtual user passwords (from wordlist, crackable with probability). (b) Machine without virtual users: `hydra(ip, 'ftp')` tries system user passwords (current behavior). (c) `hydra(ftpEntryIp, 'ssh')` uses system passwords (not in wordlist → never crackable). (d) SSH cracking is always against system users regardless of virtual users.
+**Implementation**: In `hydra.ts`, for FTP service cracking, read `/etc/vsftpd/virtual_users.conf` from the target machine. If it exists, use those credentials for FTP cracking. Otherwise use system users. SSH cracking always uses system users (unchanged).
+**Done when**: Hydra FTP tests pass for machines with and without virtual users.
 
 #### Step 4.5: FTP-entry machines get non-wordlist SSH passwords
 
-**Test**: On FTP-entry machine, regular user SSH passwords are from `MISSION_PASSWORDS` (not in wordlist). On SSH-entry machine, regular user SSH passwords are from `WORDLIST_PASSWORDS` (in wordlist).
+**Test**: On FTP-entry machine, regular user SSH passwords are from `MISSION_PASSWORDS` (not in wordlist). On SSH-entry and other machines, regular user SSH passwords are from `WORDLIST_PASSWORDS` (in wordlist).
 **Implementation**: In `generateUsers()`, when machine's `accessVariant === 'ftp'`, pick regular user passwords from `passwords` (MISSION_PASSWORDS). Otherwise pick from `wordlistPasswords` (WORDLIST_PASSWORDS). Root always from `passwords`. Guest always from `guestPasswords`.
 **Done when**: Generation tests verify per-variant password selection.
 
