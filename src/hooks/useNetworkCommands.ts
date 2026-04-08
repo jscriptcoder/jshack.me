@@ -215,6 +215,8 @@ export const useNetworkCommands = (): Map<string, Command> => {
             resolveNat,
             findMachineUsers,
             getNodeFromMachine,
+            getLocalNode: (path: string) => getNode(resolvePath(path)),
+            getCurrentPath: () => session.currentPath,
           }),
           isWifiRequired,
         ),

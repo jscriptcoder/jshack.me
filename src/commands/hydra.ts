@@ -6,6 +6,7 @@ import type { FileNode } from '../filesystem/types';
 import { passwords, guestPasswords, snmpRwCommunities } from '../generation/pools';
 import { md5 } from '../utils/md5';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
+import { resolveWordlist } from '../utils/wordlist';
 
 type HydraContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
@@ -14,6 +15,8 @@ type HydraContext = {
   readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
   readonly findMachineUsers: (ip: string) => readonly RemoteUser[];
   readonly getNodeFromMachine: (machineIp: string, path: string, cwd: string) => FileNode | null;
+  readonly getLocalNode: (path: string) => FileNode | null;
+  readonly getCurrentPath: () => string;
 };
 
 type CrackResult = {
@@ -37,9 +40,20 @@ const CRACK_PROBABILITY: Readonly<Record<string, number>> = {
   root: 0.025,
 };
 
-// Build wordlist hash→password map once (same as john)
-const wordlist: readonly string[] = [...passwords, ...guestPasswords];
-const hashToPassword: ReadonlyMap<string, string> = new Map(wordlist.map((pw) => [md5(pw), pw]));
+// Fallback hash→password map from all known pools — used by MySQL/Redis
+// which don't yet use filesystem wordlists.
+const allKnownPasswords: readonly string[] = [...passwords, ...guestPasswords];
+const hashToPassword: ReadonlyMap<string, string> = new Map(
+  allKnownPasswords.map((pw) => [md5(pw), pw]),
+);
+
+// Build a hash set from the filesystem wordlist for SSH/FTP gate checking.
+const buildWordlistHashSet = (wordlistLines: readonly string[]): ReadonlySet<string> =>
+  new Set(wordlistLines.map((pw) => md5(pw)));
+
+// Build a hash→password map from the filesystem wordlist for revealing cracked passwords.
+const buildWordlistHashMap = (wordlistLines: readonly string[]): ReadonlyMap<string, string> =>
+  new Map(wordlistLines.map((pw) => [md5(pw), pw]));
 
 const resolveTargetIP = (
   host: string,
@@ -381,6 +395,8 @@ export const createHydraCommand = (context: HydraContext): Command => ({
       resolveNat,
       findMachineUsers,
       getNodeFromMachine,
+      getLocalNode,
+      getCurrentPath,
     } = context;
 
     const host = args[0] as string | undefined;
@@ -427,6 +443,12 @@ export const createHydraCommand = (context: HydraContext): Command => ({
     if (serviceFilter === 'mysql') {
       return createMysqlAttack(targetIP, machine, getNodeFromMachine, resolveNat, userFilter);
     }
+
+    // Resolve the filesystem wordlist for SSH/FTP cracking.
+    // Password must be in the wordlist (gate) AND probability roll must succeed.
+    const wordlistLines = resolveWordlist('passwords.txt', getLocalNode, getCurrentPath());
+    const wordlistHashes = buildWordlistHashSet(wordlistLines);
+    const wordlistHashToPassword = buildWordlistHashMap(wordlistLines);
 
     const services = getTargetServices(machine, serviceFilter);
     if (services.length === 0) {
@@ -484,17 +506,21 @@ export const createHydraCommand = (context: HydraContext): Command => ({
             }, delay);
           }
 
-          // Per-user crack attempts — one Math.random() roll per user
+          // Per-user crack attempts — wordlist gate + probability roll.
+          // Password must be in the filesystem wordlist AND probability must succeed.
           users.forEach((user) => {
             delay += jitter(STATUS_DELAY_MS);
             token.schedule(() => {
               if (token.isCancelled()) return;
 
+              // Gate: password must be in the wordlist file
+              if (!wordlistHashes.has(user.passwordHash)) return;
+
               const probability = CRACK_PROBABILITY[user.userType] ?? 0;
               const cracked = Math.random() < probability;
               if (!cracked) return;
 
-              const password = hashToPassword.get(user.passwordHash);
+              const password = wordlistHashToPassword.get(user.passwordHash);
               if (!password) return;
 
               svcResults.push({

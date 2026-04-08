@@ -208,6 +208,10 @@ export const passwords: readonly string[] = JSON.parse(
   secrets.MISSION_PASSWORDS,
 ) as readonly string[];
 
+export const wordlistPasswords: readonly string[] = JSON.parse(
+  secrets.WORDLIST_PASSWORDS,
+) as readonly string[];
+
 export const hostnamesByRole: Readonly<Record<MachineRole, readonly string[]>> = {
   webserver: [
     'web01',

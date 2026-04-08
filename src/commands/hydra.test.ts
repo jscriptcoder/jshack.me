@@ -3,8 +3,30 @@ import type { RemoteMachine, DnsRecord } from '../network/types';
 import type { AsyncOutput } from '../components/Terminal/types';
 import type { FileNode } from '../filesystem/types';
 import { createHydraCommand } from './hydra';
+import { md5 } from '../utils/md5';
 
 // --- Factory Functions ---
+
+// Passwords that are IN the wordlist file (crackable via hydra)
+const WORDLIST_PASSWORD = 'admin';
+const WORDLIST_PASSWORD_HASH = md5(WORDLIST_PASSWORD);
+const GUEST_PASSWORD = 'guest';
+const GUEST_PASSWORD_HASH = md5(GUEST_PASSWORD);
+
+// Password NOT in the wordlist file (never crackable)
+const NON_WORDLIST_PASSWORD = 's3cur3!';
+const NON_WORDLIST_PASSWORD_HASH = md5(NON_WORDLIST_PASSWORD);
+
+// The wordlist file content — simulates /usr/share/wordlists/passwords.txt
+const MOCK_WORDLIST_CONTENT = [GUEST_PASSWORD, WORDLIST_PASSWORD, 'password', 'letmein'].join('\n');
+
+const mkWordlistNode = (): FileNode => ({
+  name: 'passwords.txt',
+  type: 'file',
+  owner: 'root',
+  permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: [] },
+  content: MOCK_WORDLIST_CONTENT,
+});
 
 const getMockRemoteMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine => ({
   ip: '192.168.1.50',
@@ -14,9 +36,9 @@ const getMockRemoteMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine
     { port: 22, service: 'ssh', open: true },
   ],
   users: [
-    { username: 'root', passwordHash: 'ca8f678fec022c9892f0ffee16eb0aa3', userType: 'root' },
-    { username: 'ftpuser', passwordHash: '5f4dcc3b5aa765d61d8327deb882cf99', userType: 'user' },
-    { username: 'guest', passwordHash: '084e0343a0486ff05530df6c705c8bb4', userType: 'guest' },
+    { username: 'root', passwordHash: NON_WORDLIST_PASSWORD_HASH, userType: 'root' },
+    { username: 'ftpuser', passwordHash: WORDLIST_PASSWORD_HASH, userType: 'user' },
+    { username: 'guest', passwordHash: GUEST_PASSWORD_HASH, userType: 'guest' },
   ],
   ...overrides,
 });
@@ -26,10 +48,19 @@ type HydraContextConfig = {
   readonly localIP?: string;
   readonly dnsRecords?: readonly DnsRecord[];
   readonly machineFiles?: Readonly<Record<string, Record<string, FileNode>>>;
+  readonly localFiles?: Readonly<Record<string, FileNode>>;
+  readonly currentPath?: string;
 };
 
 const createMockContext = (config: HydraContextConfig = {}) => {
-  const { machines = [], localIP = '192.168.1.100', dnsRecords = [], machineFiles = {} } = config;
+  const {
+    machines = [],
+    localIP = '192.168.1.100',
+    dnsRecords = [],
+    machineFiles = {},
+    localFiles = { '/usr/share/wordlists/passwords.txt': mkWordlistNode() },
+    currentPath = '/home/user',
+  } = config;
   return {
     getMachine: (ip: string) => machines.find((m) => m.ip === ip),
     getLocalIP: () => localIP,
@@ -38,6 +69,8 @@ const createMockContext = (config: HydraContextConfig = {}) => {
     findMachineUsers: (ip: string) => machines.find((m) => m.ip === ip)?.users ?? [],
     getNodeFromMachine: (ip: string, path: string) =>
       (machineFiles[ip]?.[path] as FileNode | undefined) ?? null,
+    getLocalNode: (path: string) => (localFiles[path] as FileNode | undefined) ?? null,
+    getCurrentPath: () => currentPath,
   };
 };
 
@@ -237,18 +270,11 @@ describe('hydra command', () => {
   });
 
   describe('cracking mechanic', () => {
-    it('should always crack guest users (probability 1.0)', async () => {
+    it('should always crack guest users whose password is in wordlist', async () => {
       const machine = getMockRemoteMachine({
-        users: [
-          {
-            username: 'guest',
-            passwordHash: '084e0343a0486ff05530df6c705c8bb4',
-            userType: 'guest',
-          },
-        ],
+        users: [{ username: 'guest', passwordHash: GUEST_PASSWORD_HASH, userType: 'guest' }],
       });
       const hydra = createHydraCommand(createMockContext({ machines: [machine] }));
-      // Math.random returns 0.99 — still below 1.0 threshold
       vi.spyOn(Math, 'random').mockReturnValue(0.99);
       const result = hydra.fn('192.168.1.50', 'ssh');
       if (!isAsyncOutput(result)) throw new Error('Expected async output');
@@ -257,15 +283,9 @@ describe('hydra command', () => {
       expect(lines.some((l) => l.includes('1 of 1'))).toBe(true);
     });
 
-    it('should crack user when random < 0.18', async () => {
+    it('should crack user when password is in wordlist and random < 0.18', async () => {
       const machine = getMockRemoteMachine({
-        users: [
-          {
-            username: 'ftpuser',
-            passwordHash: '5f4dcc3b5aa765d61d8327deb882cf99',
-            userType: 'user',
-          },
-        ],
+        users: [{ username: 'ftpuser', passwordHash: WORDLIST_PASSWORD_HASH, userType: 'user' }],
       });
       const hydra = createHydraCommand(createMockContext({ machines: [machine] }));
       vi.spyOn(Math, 'random').mockReturnValue(0.1);
@@ -275,15 +295,9 @@ describe('hydra command', () => {
       expect(lines.some((l) => l.includes('login: ftpuser'))).toBe(true);
     });
 
-    it('should not crack user when random >= 0.18', async () => {
+    it('should not crack user when password is in wordlist but random >= 0.18', async () => {
       const machine = getMockRemoteMachine({
-        users: [
-          {
-            username: 'ftpuser',
-            passwordHash: '5f4dcc3b5aa765d61d8327deb882cf99',
-            userType: 'user',
-          },
-        ],
+        users: [{ username: 'ftpuser', passwordHash: WORDLIST_PASSWORD_HASH, userType: 'user' }],
       });
       const hydra = createHydraCommand(createMockContext({ machines: [machine] }));
       vi.spyOn(Math, 'random').mockReturnValue(0.5);
@@ -294,35 +308,35 @@ describe('hydra command', () => {
       expect(lines.some((l) => l.includes('0 of 1'))).toBe(true);
     });
 
-    it('should crack root when random < 0.025', async () => {
+    it('should never crack user whose password is NOT in wordlist regardless of probability', async () => {
       const machine = getMockRemoteMachine({
         users: [
-          { username: 'root', passwordHash: 'ca8f678fec022c9892f0ffee16eb0aa3', userType: 'root' },
+          { username: 'ftpuser', passwordHash: NON_WORDLIST_PASSWORD_HASH, userType: 'user' },
         ],
       });
       const hydra = createHydraCommand(createMockContext({ machines: [machine] }));
-      vi.spyOn(Math, 'random').mockReturnValue(0.01);
+      // Even with Math.random = 0 (would pass probability), wordlist gate blocks it
+      vi.spyOn(Math, 'random').mockReturnValue(0);
       const result = hydra.fn('192.168.1.50', 'ssh');
       if (!isAsyncOutput(result)) throw new Error('Expected async output');
       const lines = await collectAsyncLines(result);
-      expect(lines.some((l) => l.includes('login: root'))).toBe(true);
+      expect(lines.some((l) => l.includes('login: ftpuser'))).toBe(false);
+      expect(lines.some((l) => l.includes('0 of 1'))).toBe(true);
     });
 
-    it('should not crack root when random >= 0.025', async () => {
+    it('should never crack root whose password is NOT in wordlist', async () => {
       const machine = getMockRemoteMachine({
-        users: [
-          { username: 'root', passwordHash: 'ca8f678fec022c9892f0ffee16eb0aa3', userType: 'root' },
-        ],
+        users: [{ username: 'root', passwordHash: NON_WORDLIST_PASSWORD_HASH, userType: 'root' }],
       });
       const hydra = createHydraCommand(createMockContext({ machines: [machine] }));
-      vi.spyOn(Math, 'random').mockReturnValue(0.5);
+      vi.spyOn(Math, 'random').mockReturnValue(0);
       const result = hydra.fn('192.168.1.50', 'ssh');
       if (!isAsyncOutput(result)) throw new Error('Expected async output');
       const lines = await collectAsyncLines(result);
       expect(lines.some((l) => l.includes('login: root'))).toBe(false);
     });
 
-    it('should not produce a result line when password hash is not in wordlist', async () => {
+    it('should not produce a result line when password hash is unknown', async () => {
       const machine = getMockRemoteMachine({
         users: [{ username: 'guest', passwordHash: 'not_a_real_hash', userType: 'guest' }],
       });
@@ -333,6 +347,37 @@ describe('hydra command', () => {
       const lines = await collectAsyncLines(result);
       expect(lines.some((l) => l.includes('login:'))).toBe(false);
       expect(lines.some((l) => l.includes('0 of 1'))).toBe(true);
+    });
+
+    it('should throw when wordlist file is not found', () => {
+      const machine = getMockRemoteMachine();
+      const hydra = createHydraCommand(createMockContext({ machines: [machine], localFiles: {} }));
+      expect(() => hydra.fn('192.168.1.50', 'ssh')).toThrow('wordlist not found: passwords.txt');
+    });
+
+    it('should find wordlist in cwd before /usr/share/wordlists/', async () => {
+      const cwdWordlist: FileNode = {
+        name: 'passwords.txt',
+        type: 'file',
+        owner: 'root',
+        permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: [] },
+        content: GUEST_PASSWORD, // Only guest password in cwd wordlist
+      };
+      const machine = getMockRemoteMachine({
+        users: [{ username: 'guest', passwordHash: GUEST_PASSWORD_HASH, userType: 'guest' }],
+      });
+      const hydra = createHydraCommand(
+        createMockContext({
+          machines: [machine],
+          localFiles: { '/home/user/passwords.txt': cwdWordlist },
+          currentPath: '/home/user',
+        }),
+      );
+      vi.spyOn(Math, 'random').mockReturnValue(0);
+      const result = hydra.fn('192.168.1.50', 'ssh');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      const lines = await collectAsyncLines(result);
+      expect(lines.some((l) => l.includes('login: guest'))).toBe(true);
     });
   });
 
@@ -370,13 +415,7 @@ describe('hydra command', () => {
 
     it('should show success lines with port, service, host, login, password', async () => {
       const machine = getMockRemoteMachine({
-        users: [
-          {
-            username: 'guest',
-            passwordHash: '084e0343a0486ff05530df6c705c8bb4',
-            userType: 'guest',
-          },
-        ],
+        users: [{ username: 'guest', passwordHash: GUEST_PASSWORD_HASH, userType: 'guest' }],
       });
       const hydra = createHydraCommand(createMockContext({ machines: [machine] }));
       vi.spyOn(Math, 'random').mockReturnValue(0);
@@ -387,7 +426,7 @@ describe('hydra command', () => {
       expect(successLine).toBeDefined();
       expect(successLine).toContain('host: 192.168.1.50');
       expect(successLine).toContain('login: guest');
-      expect(successLine).toContain('password: ');
+      expect(successLine).toContain(`password: ${GUEST_PASSWORD}`);
     });
 
     it('should show summary line', async () => {
