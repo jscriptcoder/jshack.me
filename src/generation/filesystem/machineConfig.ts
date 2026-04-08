@@ -28,6 +28,7 @@ import {
   type GenerateDatabaseResult,
 } from '../generateDatabase';
 import { generateRedisData } from '../generateRedisData';
+import { generateFtpVirtualUsers, formatVirtualUsersConf } from '../ftpCredentials';
 
 // Infrastructure service PID file definitions. Maps service names to their
 // daemon binary, PID file name, and run user. SSH/FTP are handled separately
@@ -84,7 +85,7 @@ const buildInfrastructurePidFiles = (
 
 const CREDENTIAL_LEAK_CHANCE = 0.3;
 
-// Places a credential leak file on a machine ~30% of the time.
+// Places a credential leak file on a machine with the given probability.
 // Leaks a user-type account's credentials in a guest-readable location.
 // DB-themed templates use MySQL credentials when available; others use system credentials.
 // Always consumes 2 PRNG calls for sequence stability.
@@ -94,6 +95,7 @@ const placeCredentialLeak = (
   mysqlCreds: readonly { readonly username: string; readonly password: string }[] | undefined,
   extraDirectories: Record<string, FileNode>,
   etcExtraContent: Record<string, FileNode>,
+  leakChance: number = CREDENTIAL_LEAK_CHANCE,
 ): void => {
   const roll = prng.next();
   const template = prng.pick(credentialLeakTemplates);
@@ -105,7 +107,7 @@ const placeCredentialLeak = (
       ? (mysqlCreds.find((c) => c.username !== 'root' && c.username !== 'readonly') ??
         mysqlCreds[0])
       : machineCreds.find((c) => c.username !== 'root' && c.username !== 'guest');
-  if (roll >= CREDENTIAL_LEAK_CHANCE || !cred) return;
+  if (roll >= leakChance || !cred) return;
 
   const content = fillTemplate(template.content, {
     username: cred.username,
@@ -299,6 +301,7 @@ export type BuildMachineConfigOptions = {
   readonly internalMachines?: readonly GeneratedMachine[];
   readonly natForwarding?: NatForwarding;
   readonly isHttpEntry?: boolean;
+  readonly isFtpEntry?: boolean;
   readonly downstreamSubnet?: string;
   readonly dbEnrichment?: DbEnrichment;
 };
@@ -483,9 +486,36 @@ export const buildMachineConfig = (
   }
 
   // ~30% chance to place a careless user's credentials in a guest-readable location.
+  // FTP-entry machines get a guaranteed leak — the player needs SSH creds found via FTP.
   // DB-themed leak templates use MySQL credentials when available.
   const mysqlPlaintextCreds = mysqlDb?.plaintextCredentials;
-  placeCredentialLeak(prng, machineCreds, mysqlPlaintextCreds, extraDirectories, etcExtraContent);
+  const leakChance = options.isFtpEntry ? 1.0 : CREDENTIAL_LEAK_CHANCE;
+  placeCredentialLeak(
+    prng,
+    machineCreds,
+    mysqlPlaintextCreds,
+    extraDirectories,
+    etcExtraContent,
+    leakChance,
+  );
+
+  // FTP virtual users: separate FTP credentials stored in /etc/vsftpd/virtual_users.conf.
+  // FTP-entry machines always get virtual users. Other machines with FTP open get
+  // them ~40% of the time. Always consume the PRNG roll for sequence stability.
+  const hasFtpOpen = machine.remoteMachine.ports.some(
+    (p) => p.open && p.port === 21 && p.service === 'ftp',
+  );
+  const ftpVirtualRoll = prng.next();
+  if (hasFtpOpen && (options.isFtpEntry || ftpVirtualRoll < 0.4)) {
+    const ftpVirtualUsers = generateFtpVirtualUsers(prng, users);
+    const confContent = formatVirtualUsersConf(ftpVirtualUsers);
+    etcExtraContent['vsftpd'] = mkDir(
+      'vsftpd',
+      { 'virtual_users.conf': mkFile('virtual_users.conf', confContent, 'root') },
+      'root',
+      true,
+    );
+  }
 
   // Generate web content for any machine with an open HTTP port.
   // Uses role-appropriate templates: webservers get corporate portals,

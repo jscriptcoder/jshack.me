@@ -8,6 +8,7 @@ import type {
 } from '../session/SessionContext';
 import type { RemoteMachine, RemoteUser } from '../network/types';
 import { parseMysqlDatabase } from '../commands/mysql/types';
+import { parseVirtualUsersConf } from '../generation/ftpCredentials';
 import type { AsyncOutput } from '../components/Terminal/types';
 import type { PermissionResult } from '../filesystem/types';
 import { md5 } from '../utils/md5';
@@ -263,7 +264,9 @@ export const useAuthentication = ({
     [hasAuthorizedKey, addLine, connectSsh, onSshAuth],
   );
 
-  // Inline FTP auth: validates username + password and enters FTP mode without interactive prompts
+  // Inline FTP auth: validates username + password and enters FTP mode without interactive prompts.
+  // Checks virtual user credentials (/etc/vsftpd/virtual_users.conf) first if present,
+  // falls back to system user credentials.
   const authenticateFtpInline = useCallback(
     (targetIP: string, username: string, password: string) => {
       const resolvedIp = resolveNat(targetIP, 21).ip;
@@ -276,7 +279,19 @@ export const useAuthentication = ({
         return;
       }
 
-      if (remoteUser.passwordHash !== md5(password)) {
+      // Check virtual users first (FTP-entry machines and ~40% of FTP-open machines)
+      const virtualUsersContent = readFileFromMachine({
+        machineId: resolvedIp,
+        path: '/etc/vsftpd/virtual_users.conf',
+        cwd: '/',
+        userType: 'root',
+      });
+      const expectedHash = virtualUsersContent
+        ? (parseVirtualUsersConf(virtualUsersContent).find((u) => u.username === username)
+            ?.passwordHash ?? remoteUser.passwordHash)
+        : remoteUser.passwordHash;
+
+      if (expectedHash !== md5(password)) {
         addLine('error', '530 Login incorrect.');
         onFtpAuth?.(false, username, targetIP);
         return;
@@ -300,7 +315,16 @@ export const useAuthentication = ({
       addLine('result', '230 Login successful.');
       onFtpAuth?.(true, username, targetIP);
     },
-    [resolveNat, findMachineUsers, addLine, getDefaultHomePath, session, enterFtpMode, onFtpAuth],
+    [
+      resolveNat,
+      findMachineUsers,
+      readFileFromMachine,
+      addLine,
+      getDefaultHomePath,
+      session,
+      enterFtpMode,
+      onFtpAuth,
+    ],
   );
 
   const startFtpPrompt = useCallback(
@@ -544,8 +568,20 @@ export const useAuthentication = ({
         const remoteUser = users.find((u) => u.username === targetUser);
         if (!remoteUser) return false;
 
+        // Check virtual users first (FTP-entry machines and ~40% of FTP-open machines)
+        const virtualUsersContent = readFileFromMachine({
+          machineId: resolvedIp,
+          path: '/etc/vsftpd/virtual_users.conf',
+          cwd: '/',
+          userType: 'root',
+        });
+        const expectedHash = virtualUsersContent
+          ? (parseVirtualUsersConf(virtualUsersContent).find((u) => u.username === targetUser)
+              ?.passwordHash ?? remoteUser.passwordHash)
+          : remoteUser.passwordHash;
+
         const inputHash = md5(password);
-        return remoteUser.passwordHash === inputHash;
+        return expectedHash === inputHash;
       }
 
       const passwdContent = readFile('/etc/passwd', 'root');
@@ -569,6 +605,7 @@ export const useAuthentication = ({
       sshTargetPort,
       ftpTargetIP,
       readFile,
+      readFileFromMachine,
       findMachineUsers,
       resolveNat,
     ],

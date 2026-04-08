@@ -7,6 +7,7 @@ import { passwords, guestPasswords, snmpRwCommunities } from '../generation/pool
 import { md5 } from '../utils/md5';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 import { resolveWordlist } from '../utils/wordlist';
+import { parseVirtualUsersConf } from '../generation/ftpCredentials';
 
 type HydraContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
@@ -460,12 +461,26 @@ export const createHydraCommand = (context: HydraContext): Command => ({
 
     // Resolve NAT per service port to get the actual target machine's users.
     // Each port may forward to a different internal machine.
+    // For FTP: if virtual users exist, swap in their password hashes.
     const serviceUsers = services.map((svc) => {
       const resolvedIp = resolveNat(targetIP, svc.port).ip;
       const resolved = findMachineUsers(resolvedIp);
       // Fall back to visible machine users if NAT-resolved machine has no users
       // (e.g., non-forwarded port on the router itself)
-      const users = resolved.length > 0 ? resolved : machine.users;
+      let users = resolved.length > 0 ? resolved : machine.users;
+
+      // FTP: check for virtual user credentials on the target machine
+      if (svc.service === 'ftp') {
+        const virtualConf = getNodeFromMachine(resolvedIp, '/etc/vsftpd/virtual_users.conf', '/');
+        if (virtualConf?.type === 'file' && virtualConf.content) {
+          const virtualUsers = parseVirtualUsersConf(virtualConf.content);
+          users = users.map((u) => {
+            const virtual = virtualUsers.find((v) => v.username === u.username);
+            return virtual ? { ...u, passwordHash: virtual.passwordHash } : u;
+          });
+        }
+      }
+
       const filtered = userFilter ? users.filter((u) => u.username === userFilter) : users;
       return { svc, users: filtered };
     });

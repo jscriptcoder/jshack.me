@@ -7,6 +7,9 @@ import { usernamesByRole } from './pools';
 import { secrets } from '../secrets/secrets';
 
 const passwords: readonly string[] = JSON.parse(secrets.MISSION_PASSWORDS) as readonly string[];
+const wordlistPasswords: readonly string[] = JSON.parse(
+  secrets.WORDLIST_PASSWORDS,
+) as readonly string[];
 const guestPasswords: readonly string[] = JSON.parse(secrets.GUEST_PASSWORDS) as readonly string[];
 
 const buildTestData = (seed: string) => {
@@ -89,14 +92,16 @@ describe('generateUsers', () => {
     });
   });
 
-  it('uses passwords from the pool', () => {
+  it('uses passwords from appropriate pool based on variant', () => {
     const { topology, users } = buildTestData('pool-test');
     topology.machines.forEach((m) => {
       const creds = users.credentials[m.ip] ?? [];
       creds
         .filter((c) => c.username !== 'guest')
         .forEach((cred) => {
-          expect(passwords).toContain(cred.password);
+          // Root always from MISSION_PASSWORDS, regular users from either pool
+          const allPasswords = [...passwords, ...wordlistPasswords];
+          expect(allPasswords).toContain(cred.password);
         });
     });
   });

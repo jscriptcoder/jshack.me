@@ -323,6 +323,7 @@ export const generateFileSystems = (input: FilesystemInput): FilesystemResult =>
     const machineCreds = credentials[machine.ip] ?? [];
     const isTarget = machine.ip === objective.targetMachine;
     const isHttpEntry = entryVariant === 'http' && machine.ip === entryPoint;
+    const isFtpEntry = entryVariant === 'ftp' && machine.ip === entryPoint;
 
     // Inner gateways get downstream machines for /etc/hosts, NAT/ACL rules, and subnet info
     const downstreamMachines = gatewayDownstreamMap.get(machine.ip);
@@ -334,6 +335,7 @@ export const generateFileSystems = (input: FilesystemInput): FilesystemResult =>
       internalMachines: downstreamMachines,
       natForwarding: gatewayNat,
       isHttpEntry,
+      isFtpEntry,
       downstreamSubnet,
       dbEnrichment: isTarget ? dbEnrichment : undefined,
     });

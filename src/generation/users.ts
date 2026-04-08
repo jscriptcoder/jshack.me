@@ -2,7 +2,7 @@ import type { Prng } from './prng';
 import type { CredentialMap, GeneratedMachine } from './types';
 import type { RemoteUser } from '../network/types';
 import { md5 } from '../utils/md5';
-import { guestPasswords, passwords, usernamesByRole } from './pools';
+import { guestPasswords, passwords, wordlistPasswords, usernamesByRole } from './pools';
 
 type UsersResult = {
   readonly usersByMachine: Readonly<Record<string, readonly RemoteUser[]>>;
@@ -26,7 +26,15 @@ export const generateUsers = (
     const regularCount = prng.nextInt(1, 2);
     const selectedNames = prng.pickN(roleUsernames, regularCount);
 
-    const machinePasswords = prng.pickN(passwords, regularCount + 1);
+    // FTP-entry machines: SSH passwords from MISSION_PASSWORDS (not in wordlist, not crackable).
+    // All other machines: SSH passwords from WORDLIST_PASSWORDS (in wordlist, crackable via hydra).
+    // Root always from MISSION_PASSWORDS (never crackable by hydra).
+    const isFtpEntry = isEntry && machine.accessVariant === 'ftp';
+    const regularPool = isFtpEntry ? passwords : wordlistPasswords;
+    const machinePasswords = [
+      prng.pick(passwords), // root password always from MISSION_PASSWORDS
+      ...prng.pickN(regularPool, regularCount),
+    ];
     const rootPassword = machinePasswords[0] as string;
 
     const rootUser: RemoteUser = {
