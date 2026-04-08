@@ -1,5 +1,5 @@
 import type { Prng } from './prng';
-import type { CredentialMap, GeneratedMachine } from './types';
+import type { CredentialMap, EntryVariant, GeneratedMachine } from './types';
 import type { RemoteUser } from '../network/types';
 import { md5 } from '../utils/md5';
 import { guestPasswords, passwords, wordlistPasswords, usernamesByRole } from './pools';
@@ -9,10 +9,15 @@ type UsersResult = {
   readonly credentials: CredentialMap;
 };
 
+type GenerateUsersOptions = {
+  readonly entryVariant?: EntryVariant;
+};
+
 export const generateUsers = (
   prng: Prng,
   machines: readonly GeneratedMachine[],
   entryPoint: string,
+  options: GenerateUsersOptions = {},
 ): UsersResult => {
   const usersByMachine: Record<string, readonly RemoteUser[]> = {};
   const credentials: Record<
@@ -26,11 +31,13 @@ export const generateUsers = (
     const regularCount = prng.nextInt(1, 2);
     const selectedNames = prng.pickN(roleUsernames, regularCount);
 
-    // FTP-entry machines: SSH passwords from MISSION_PASSWORDS (not in wordlist, not crackable).
-    // All other machines: SSH passwords from WORDLIST_PASSWORDS (in wordlist, crackable via hydra).
+    // FTP-entry: the entry machine AND router need non-wordlist SSH passwords,
+    // since both are reachable by the player and guest SSH must not be crackable.
+    // All other machines: SSH passwords from WORDLIST_PASSWORDS (crackable via hydra).
     // Root always from MISSION_PASSWORDS (never crackable by hydra).
-    const isFtpEntry = isEntry && machine.accessVariant === 'ftp';
-    const regularPool = isFtpEntry ? passwords : wordlistPasswords;
+    const isFtpNetwork = options.entryVariant === 'ftp';
+    const isFtpFirstHop = isFtpNetwork && (isEntry || machine.role === 'router');
+    const regularPool = isFtpFirstHop ? passwords : wordlistPasswords;
     const machinePasswords = [
       prng.pick(passwords), // root password always from MISSION_PASSWORDS
       ...prng.pickN(regularPool, regularCount),
@@ -57,12 +64,12 @@ export const generateUsers = (
       })),
     ];
 
-    // FTP-entry entry machines skip guest — guest passwords are always in hydra's
+    // FTP first-hop machines skip guest — guest passwords are always in hydra's
     // wordlist, so a guest user would let the player bypass FTP by cracking guest on SSH.
     // Always consume PRNG calls for sequence stability.
     const guestRoll = prng.next();
     const guestPassword = prng.pick(guestPasswords);
-    const hasGuest = isFtpEntry ? false : isEntry || guestRoll < 0.5;
+    const hasGuest = isFtpFirstHop ? false : isEntry || guestRoll < 0.5;
     const allUsers = hasGuest
       ? [
           rootUser,

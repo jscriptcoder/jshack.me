@@ -122,6 +122,7 @@ export const generateMissionNetwork = (
     prng,
     topology.machines,
     topology.entryPoint,
+    { entryVariant: topology.entryVariant },
   );
 
   // Generate users for the router machine
@@ -129,6 +130,7 @@ export const generateMissionNetwork = (
     prng,
     [topology.routerMachine],
     '', // router is never the entry point for user generation
+    { entryVariant: topology.entryVariant },
   );
 
   // Merge router users into the main maps.

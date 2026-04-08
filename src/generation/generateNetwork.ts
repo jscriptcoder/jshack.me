@@ -67,11 +67,13 @@ export const generateNetwork = (options: GenerateNetworkOptions): GeneratedNetwo
     prng,
     topology.machines,
     topology.entryPoint,
+    { entryVariant: topology.entryVariant },
   );
   const { usersByMachine: routerUsersByMachine, credentials: routerCredentials } = generateUsers(
     prng,
     [topology.routerMachine],
     '', // router is never the entry point for user generation
+    { entryVariant: topology.entryVariant },
   );
 
   // 3. Merge user/credential maps, including .1 gateway IP aliases
