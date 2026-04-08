@@ -176,29 +176,22 @@ describe('generateMissionNetwork', () => {
   });
 
   it('exploit entry variant adds vulnerability and owner to entry machine port', () => {
-    let found = false;
-    for (let i = 0; i < 200; i++) {
-      const result = generateMissionNetwork(`exploit-gen-${i}`);
-      if (result.entryVariant !== 'exploit') continue;
+    // Known seed that produces an exploit entry variant with vulnerability
+    const result = generateMissionNetwork('exploit-gen-0');
+    expect(result.entryVariant).toBe('exploit');
 
-      const targetIp = result.natForwarding ? result.entryPoint : result.routerPublicIp;
-      const targetMachine = result.natForwarding
-        ? result.machines.find((m) => m.ip === targetIp)
-        : result.routerMachine;
-      expect(targetMachine).toBeDefined();
+    const targetMachine = result.natForwarding
+      ? result.machines.find((m) => m.ip === result.entryPoint)
+      : result.routerMachine;
+    expect(targetMachine).toBeDefined();
 
-      const vulnPort = targetMachine?.remoteMachine.ports.find(
-        (p) => p.service !== 'ssh' && p.open,
-      );
-      if (!vulnPort?.vulnerability) continue;
-
-      expect(vulnPort.vulnerability.cve).toBeTruthy();
-      expect(vulnPort.owner).toBeDefined();
-      expect(['guest', 'user', 'root']).toContain(vulnPort.owner?.userType);
-      found = true;
-      break;
-    }
-    expect(found).toBe(true);
+    const vulnPort = targetMachine?.remoteMachine.ports.find(
+      (p) => p.service !== 'ssh' && p.open && p.vulnerability,
+    );
+    expect(vulnPort).toBeDefined();
+    expect(vulnPort!.vulnerability!.cve).toBeTruthy();
+    expect(vulnPort!.owner).toBeDefined();
+    expect(['guest', 'user', 'root']).toContain(vulnPort!.owner?.userType);
   });
 
   it('NC/exploit owner type varies across seeds', () => {
@@ -238,45 +231,34 @@ describe('generateMissionNetwork', () => {
   });
 
   it('non-entry exploit machines have vulnerability and owner', () => {
-    let found = false;
-    for (let i = 0; i < 300; i++) {
-      const result = generateMissionNetwork(`exploit-nonentry-${i}`);
-      const nonEntryExploit = result.machines.find(
-        (m) => m.ip !== result.entryPoint && m.accessVariant === 'exploit',
-      );
-      if (!nonEntryExploit) continue;
+    // Known seed that produces a non-entry exploit machine
+    const result = generateMissionNetwork('exploit-nonentry-0');
+    const nonEntryExploit = result.machines.find(
+      (m) => m.ip !== result.entryPoint && m.accessVariant === 'exploit',
+    );
+    expect(nonEntryExploit).toBeDefined();
 
-      const vulnPort = nonEntryExploit.remoteMachine.ports.find(
-        (p) => p.service !== 'ssh' && p.open && p.vulnerability,
-      );
-      if (!vulnPort) continue;
-
-      expect(vulnPort.vulnerability?.cve).toBeTruthy();
-      expect(vulnPort.owner).toBeDefined();
-      expect(['guest', 'user', 'root']).toContain(vulnPort.owner?.userType);
-      found = true;
-      break;
-    }
-    expect(found).toBe(true);
+    const vulnPort = nonEntryExploit!.remoteMachine.ports.find(
+      (p) => p.service !== 'ssh' && p.open && p.vulnerability,
+    );
+    expect(vulnPort).toBeDefined();
+    expect(vulnPort!.vulnerability!.cve).toBeTruthy();
+    expect(vulnPort!.owner).toBeDefined();
+    expect(['guest', 'user', 'root']).toContain(vulnPort!.owner?.userType);
   });
 
   it('non-entry FTP machines have FTP port owners', () => {
-    let found = false;
-    for (let i = 0; i < 300; i++) {
-      const result = generateMissionNetwork(`ftp-nonentry-${i}`);
-      const nonEntryFtp = result.machines.find(
-        (m) => m.ip !== result.entryPoint && m.accessVariant === 'ftp',
-      );
-      if (!nonEntryFtp) continue;
+    // Known seed that produces a non-entry FTP machine
+    const result = generateMissionNetwork('ftp-nonentry-0');
+    const nonEntryFtp = result.machines.find(
+      (m) => m.ip !== result.entryPoint && m.accessVariant === 'ftp',
+    );
+    expect(nonEntryFtp).toBeDefined();
 
-      const ftpPort = nonEntryFtp.remoteMachine.ports.find((p) => p.service === 'ftp' && p.open);
-      expect(ftpPort).toBeDefined();
-      expect(ftpPort?.owner).toBeDefined();
-      expect(['guest', 'user', 'root']).toContain(ftpPort?.owner?.userType);
-      found = true;
-      break;
-    }
-    expect(found).toBe(true);
+    const ftpPort = nonEntryFtp!.remoteMachine.ports.find((p) => p.service === 'ftp' && p.open);
+    expect(ftpPort).toBeDefined();
+    expect(ftpPort?.owner).toBeDefined();
+    expect(['guest', 'user', 'root']).toContain(ftpPort?.owner?.userType);
   });
 
   it('routerMachine is a valid machine with router role', () => {
@@ -324,29 +306,23 @@ describe('generateMissionNetwork', () => {
   });
 
   it('forwarded mode natForwarding has port-level rules for entry machine', () => {
-    let found = false;
-    for (let i = 0; i < 50; i++) {
-      const result = generateMissionNetwork(`fwd-mission-${i}`);
-      if (!result.natForwarding) continue;
+    // Known seed that produces forwarded NAT mode
+    const result = generateMissionNetwork('fwd-mission-1');
+    expect(result.natForwarding).toBeDefined();
 
-      expect(result.natForwarding.publicIp).toBe(result.routerPublicIp);
-      expect(result.natForwarding.rules.length).toBeGreaterThan(0);
+    expect(result.natForwarding!.publicIp).toBe(result.routerPublicIp);
+    expect(result.natForwarding!.rules.length).toBeGreaterThan(0);
 
-      // All rules should point to the entry machine
-      result.natForwarding.rules.forEach((rule) => {
-        expect(rule.internalIp).toBe(result.entryPoint);
-        expect(rule.publicPort).toBe(rule.internalPort);
-      });
+    // All rules should point to the entry machine
+    result.natForwarding!.rules.forEach((rule) => {
+      expect(rule.internalIp).toBe(result.entryPoint);
+      expect(rule.publicPort).toBe(rule.internalPort);
+    });
 
-      // Rules should match the entry machine's open ports
-      const entryMachine = result.machines.find((m) => m.ip === result.entryPoint);
-      const openPorts = entryMachine?.remoteMachine.ports.filter((p) => p.open) ?? [];
-      expect(result.natForwarding.rules.length).toBe(openPorts.length);
-
-      found = true;
-      break;
-    }
-    expect(found).toBe(true);
+    // Rules should match the entry machine's open ports
+    const entryMachine = result.machines.find((m) => m.ip === result.entryPoint);
+    const openPorts = entryMachine?.remoteMachine.ports.filter((p) => p.open) ?? [];
+    expect(result.natForwarding!.rules.length).toBe(openPorts.length);
   });
 
   it('seed containing "http" forces http entry variant', () => {
@@ -405,18 +381,12 @@ describe('generateMissionNetwork', () => {
   });
 
   it('script_fix objective content uses _system() instead of _decode()', () => {
-    let found = false;
-    for (let i = 0; i < 100; i++) {
-      const result = generateMissionNetwork(`script-fix-system-${i}`);
-      if (result.objective.type !== 'script_fix') continue;
-
-      expect(result.objective.targetContent).not.toContain('_decode(');
-      expect(result.objective.targetContent).toContain('_system(');
-      expect(result.objective.expectedChecksum).toBeTruthy();
-      found = true;
-      break;
-    }
-    expect(found).toBe(true);
+    // Known seed that produces a script_fix objective with _system()
+    const result = generateMissionNetwork('script-fix-0');
+    expect(result.objective.type).toBe('script_fix');
+    expect(result.objective.targetContent).not.toContain('_decode(');
+    expect(result.objective.targetContent).toContain('_system(');
+    expect(result.objective.expectedChecksum).toBeTruthy();
   });
 
   it('script_fix with keyword always uses _system()', () => {
