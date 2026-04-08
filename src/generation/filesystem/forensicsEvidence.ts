@@ -37,14 +37,23 @@ const generateSshLogLines = (
   const failedLines = Array.from({ length: failedAttempts }, (_, f) => {
     const date = new Date(baseDate.getTime() + (minuteOffset + offset + f) * 60000);
     const port = prng.nextInt(30000, 60000);
-    return formatSshFailed(date, hostname, pid, 'root', sourceIp, port);
+    return formatSshFailed({ date, hostname, pid, user: 'root', fromIp: sourceIp, port });
   });
   lines.push(...failedLines);
   offset += failedAttempts;
 
   const successDate = new Date(baseDate.getTime() + (minuteOffset + offset) * 60000);
   const successPort = prng.nextInt(30000, 60000);
-  lines.push(formatSshAccepted(successDate, hostname, pid, 'root', sourceIp, successPort));
+  lines.push(
+    formatSshAccepted({
+      date: successDate,
+      hostname,
+      pid,
+      user: 'root',
+      fromIp: sourceIp,
+      port: successPort,
+    }),
+  );
   offset += 2;
 
   return { lines, minutesUsed: offset };
@@ -67,13 +76,13 @@ const generateFtpLogLines = (
   const failedAttempts = prng.nextInt(1, 2);
   const failedLines = Array.from({ length: failedAttempts }, (_, f) => {
     const date = new Date(baseDate.getTime() + (minuteOffset + offset + f) * 60000);
-    return formatFtpLoginFailed(date, sourceIp, 'admin');
+    return formatFtpLoginFailed({ date, clientIp: sourceIp, user: 'admin' });
   });
   lines.push(...failedLines);
   offset += failedAttempts;
 
   const successDate = new Date(baseDate.getTime() + (minuteOffset + offset) * 60000);
-  lines.push(formatFtpLoginOk(successDate, sourceIp, 'root'));
+  lines.push(formatFtpLoginOk({ date: successDate, clientIp: sourceIp, user: 'root' }));
   offset += 2;
 
   return { lines, minutesUsed: offset };
@@ -96,19 +105,42 @@ const generateHttpLogLines = (
     const date = new Date(baseDate.getTime() + (minuteOffset + offset + r) * 60000);
     const path = prng.pick(recon);
     const status = path === '/admin' || path === '/login' ? 200 : 404;
-    return formatAccessLog(date, sourceIp, 'GET', path, status, prng.nextInt(200, 5000));
+    return formatAccessLog({
+      date,
+      clientIp: sourceIp,
+      method: 'GET',
+      path,
+      status,
+      size: prng.nextInt(200, 5000),
+    });
   });
   lines.push(...reconLines);
   offset += reconCount;
 
   // Successful exploit/auth
   const successDate = new Date(baseDate.getTime() + (minuteOffset + offset) * 60000);
-  lines.push(formatAccessLog(successDate, sourceIp, 'POST', '/admin/login', 302, 0));
+  lines.push(
+    formatAccessLog({
+      date: successDate,
+      clientIp: sourceIp,
+      method: 'POST',
+      path: '/admin/login',
+      status: 302,
+      size: 0,
+    }),
+  );
   offset += 1;
 
   const shellDate = new Date(baseDate.getTime() + (minuteOffset + offset) * 60000);
   lines.push(
-    formatAccessLog(shellDate, sourceIp, 'POST', '/admin/shell', 200, prng.nextInt(100, 2000)),
+    formatAccessLog({
+      date: shellDate,
+      clientIp: sourceIp,
+      method: 'POST',
+      path: '/admin/shell',
+      status: 200,
+      size: prng.nextInt(100, 2000),
+    }),
   );
   offset += 2;
 
@@ -168,17 +200,22 @@ const generateNoiseLines = (
     if (logType === 'ssh') {
       const port = prng.nextInt(30000, 60000);
       const pid = prng.nextInt(1000, 9999);
-      return prng.next() < 0.7
-        ? formatSshAccepted(date, hostname, pid, noiseUser, noiseIp, port)
-        : formatSshFailed(date, hostname, pid, noiseUser, noiseIp, port);
+      const opts = { date, hostname, pid, user: noiseUser, fromIp: noiseIp, port };
+      return prng.next() < 0.7 ? formatSshAccepted(opts) : formatSshFailed(opts);
     }
     if (logType === 'ftp') {
-      return prng.next() < 0.7
-        ? formatFtpLoginOk(date, noiseIp, noiseUser)
-        : formatFtpLoginFailed(date, noiseIp, noiseUser);
+      const opts = { date, clientIp: noiseIp, user: noiseUser };
+      return prng.next() < 0.7 ? formatFtpLoginOk(opts) : formatFtpLoginFailed(opts);
     }
     const path = prng.pick(forensicsNoiseHttpPaths);
-    return formatAccessLog(date, noiseIp, 'GET', path, 200, prng.nextInt(200, 5000));
+    return formatAccessLog({
+      date,
+      clientIp: noiseIp,
+      method: 'GET',
+      path,
+      status: 200,
+      size: prng.nextInt(200, 5000),
+    });
   });
 };
 
@@ -222,13 +259,13 @@ export const generateForensicsEvidence = (
       i > 0 && logType === 'ssh' && prng.next() < 0.5
         ? [
             ...lines,
-            formatSuSuccess(
-              new Date(baseDate.getTime() + minuteOffset++ * 60000),
-              machine.hostname,
-              prng.nextInt(1000, 9999),
-              'root',
-              'operator',
-            ),
+            formatSuSuccess({
+              date: new Date(baseDate.getTime() + minuteOffset++ * 60000),
+              hostname: machine.hostname,
+              pid: prng.nextInt(1000, 9999),
+              targetUser: 'root',
+              fromUser: 'operator',
+            }),
           ]
         : [...lines];
 

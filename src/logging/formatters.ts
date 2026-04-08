@@ -13,14 +13,22 @@ const MONTHS = [
   'Dec',
 ] as const;
 
+type SyslogLineOptions = {
+  readonly date: Date;
+  readonly hostname: string;
+  readonly service: string;
+  readonly pid: number;
+  readonly message: string;
+};
+
 /** Format a syslog-style timestamp+header: `MMM DD HH:MM:SS hostname service[pid]: message` */
-export const formatSyslogLine = (
-  date: Date,
-  hostname: string,
-  service: string,
-  pid: number,
-  message: string,
-): string => {
+export const formatSyslogLine = ({
+  date,
+  hostname,
+  service,
+  pid,
+  message,
+}: SyslogLineOptions): string => {
   const month = MONTHS[date.getUTCMonth()];
   const day = date.getUTCDate().toString().padStart(2, ' ');
   const hours = date.getUTCHours().toString().padStart(2, '0');
@@ -29,71 +37,100 @@ export const formatSyslogLine = (
   return `${month} ${day} ${hours}:${minutes}:${seconds} ${hostname} ${service}[${pid}]: ${message}`;
 };
 
-export const formatSshAccepted = (
-  date: Date,
-  hostname: string,
-  pid: number,
-  user: string,
-  fromIp: string,
-  port: number,
-): string =>
-  formatSyslogLine(
+type SshLogOptions = {
+  readonly date: Date;
+  readonly hostname: string;
+  readonly pid: number;
+  readonly user: string;
+  readonly fromIp: string;
+  readonly port: number;
+};
+
+export const formatSshAccepted = ({
+  date,
+  hostname,
+  pid,
+  user,
+  fromIp,
+  port,
+}: SshLogOptions): string =>
+  formatSyslogLine({
     date,
     hostname,
-    'sshd',
+    service: 'sshd',
     pid,
-    `Accepted password for ${user} from ${fromIp} port ${port} ssh2`,
-  );
+    message: `Accepted password for ${user} from ${fromIp} port ${port} ssh2`,
+  });
 
-export const formatSshAcceptedKey = (
-  date: Date,
-  hostname: string,
-  pid: number,
-  user: string,
-  fromIp: string,
-  port: number,
-): string =>
-  formatSyslogLine(
+export const formatSshAcceptedKey = ({
+  date,
+  hostname,
+  pid,
+  user,
+  fromIp,
+  port,
+}: SshLogOptions): string =>
+  formatSyslogLine({
     date,
     hostname,
-    'sshd',
+    service: 'sshd',
     pid,
-    `Accepted publickey for ${user} from ${fromIp} port ${port} ssh2`,
-  );
+    message: `Accepted publickey for ${user} from ${fromIp} port ${port} ssh2`,
+  });
 
-export const formatSshFailed = (
-  date: Date,
-  hostname: string,
-  pid: number,
-  user: string,
-  fromIp: string,
-  port: number,
-): string =>
-  formatSyslogLine(
+export const formatSshFailed = ({
+  date,
+  hostname,
+  pid,
+  user,
+  fromIp,
+  port,
+}: SshLogOptions): string =>
+  formatSyslogLine({
     date,
     hostname,
-    'sshd',
+    service: 'sshd',
     pid,
-    `Failed password for ${user} from ${fromIp} port ${port} ssh2`,
-  );
+    message: `Failed password for ${user} from ${fromIp} port ${port} ssh2`,
+  });
 
-export const formatSuSuccess = (
-  date: Date,
-  hostname: string,
-  pid: number,
-  targetUser: string,
-  fromUser: string,
-): string =>
-  formatSyslogLine(date, hostname, 'su', pid, `Successful su for ${targetUser} by ${fromUser}`);
+type SuLogOptions = {
+  readonly date: Date;
+  readonly hostname: string;
+  readonly pid: number;
+  readonly targetUser: string;
+  readonly fromUser: string;
+};
 
-export const formatSuFailed = (
-  date: Date,
-  hostname: string,
-  pid: number,
-  targetUser: string,
-  fromUser: string,
-): string =>
-  formatSyslogLine(date, hostname, 'su', pid, `FAILED su for ${targetUser} by ${fromUser}`);
+export const formatSuSuccess = ({
+  date,
+  hostname,
+  pid,
+  targetUser,
+  fromUser,
+}: SuLogOptions): string =>
+  formatSyslogLine({
+    date,
+    hostname,
+    service: 'su',
+    pid,
+    message: `Successful su for ${targetUser} by ${fromUser}`,
+  });
+
+export const formatSuFailed = ({
+  date,
+  hostname,
+  pid,
+  targetUser,
+  fromUser,
+}: SuLogOptions): string =>
+  formatSyslogLine({
+    date,
+    hostname,
+    service: 'su',
+    pid,
+    message: `FAILED su for ${targetUser} by ${fromUser}`,
+  });
 
 // SCP uses SSH auth — same log format as SSH
 export const formatScpAccepted = formatSshAccepted;
@@ -113,10 +150,16 @@ const formatVsftpdTimestamp = (date: Date): string => {
 export const formatFtpConnect = (date: Date, clientIp: string): string =>
   `${formatVsftpdTimestamp(date)} CONNECT: Client "${clientIp}"`;
 
-export const formatFtpLoginOk = (date: Date, clientIp: string, user: string): string =>
+type FtpLoginOptions = {
+  readonly date: Date;
+  readonly clientIp: string;
+  readonly user: string;
+};
+
+export const formatFtpLoginOk = ({ date, clientIp, user }: FtpLoginOptions): string =>
   `${formatVsftpdTimestamp(date)} OK LOGIN: Client "${clientIp}", user "${user}"`;
 
-export const formatFtpLoginFailed = (date: Date, clientIp: string, user: string): string =>
+export const formatFtpLoginFailed = ({ date, clientIp, user }: FtpLoginOptions): string =>
   `${formatVsftpdTimestamp(date)} FAIL LOGIN: Client "${clientIp}", user "${user}"`;
 
 // MySQL general log format: YYYY-MM-DDTHH:MM:SS.000000Z\t threadId Event\tmessage
@@ -130,21 +173,36 @@ const formatMysqlTimestamp = (date: Date): string => {
   return `${y}-${mo}-${d}T${h}:${mi}:${s}.000000Z`;
 };
 
-export const formatMysqlConnect = (
-  date: Date,
-  threadId: number,
-  user: string,
-  sourceIp: string,
-  dbName: string,
-): string =>
+type MysqlConnectOptions = {
+  readonly date: Date;
+  readonly threadId: number;
+  readonly user: string;
+  readonly sourceIp: string;
+  readonly dbName: string;
+};
+
+export const formatMysqlConnect = ({
+  date,
+  threadId,
+  user,
+  sourceIp,
+  dbName,
+}: MysqlConnectOptions): string =>
   `${formatMysqlTimestamp(date)}\t${threadId} Connect\t${user}@${sourceIp} on ${dbName} using TCP/IP`;
 
-export const formatMysqlAccessDenied = (
-  date: Date,
-  threadId: number,
-  user: string,
-  sourceIp: string,
-): string =>
+type MysqlAccessDeniedOptions = {
+  readonly date: Date;
+  readonly threadId: number;
+  readonly user: string;
+  readonly sourceIp: string;
+};
+
+export const formatMysqlAccessDenied = ({
+  date,
+  threadId,
+  user,
+  sourceIp,
+}: MysqlAccessDeniedOptions): string =>
   `${formatMysqlTimestamp(date)}\t${threadId} Connect\tAccess denied for user '${user}'@'${sourceIp}' (using password: YES)`;
 
 // Redis log format: pid:role DD MMM YYYY HH:MM:SS.mmm * message
@@ -172,21 +230,36 @@ const formatRedisTimestamp = (date: Date): string => {
   return `${d} ${mo} ${y} ${h}:${mi}:${s}.000`;
 };
 
-export const formatRedisAuth = (date: Date, pid: number, sourceIp: string): string =>
+type RedisAuthOptions = {
+  readonly date: Date;
+  readonly pid: number;
+  readonly sourceIp: string;
+};
+
+export const formatRedisAuth = ({ date, pid, sourceIp }: RedisAuthOptions): string =>
   `${pid}:M ${formatRedisTimestamp(date)} * Client ${sourceIp} authenticated successfully`;
 
-export const formatRedisAuthDenied = (date: Date, pid: number, sourceIp: string): string =>
+export const formatRedisAuthDenied = ({ date, pid, sourceIp }: RedisAuthOptions): string =>
   `${pid}:M ${formatRedisTimestamp(date)} # Client ${sourceIp} authentication failed`;
 
+type AccessLogOptions = {
+  readonly date: Date;
+  readonly clientIp: string;
+  readonly method: string;
+  readonly path: string;
+  readonly status: number;
+  readonly size: number;
+};
+
 // Apache Combined Log Format: ip - - [DD/MMM/YYYY:HH:MM:SS +0000] "METHOD /path HTTP/1.1" status size
-export const formatAccessLog = (
-  date: Date,
-  clientIp: string,
-  method: string,
-  path: string,
-  status: number,
-  size: number,
-): string => {
+export const formatAccessLog = ({
+  date,
+  clientIp,
+  method,
+  path,
+  status,
+  size,
+}: AccessLogOptions): string => {
   const day = date.getUTCDate().toString().padStart(2, '0');
   const month = MONTHS[date.getUTCMonth()];
   const year = date.getUTCFullYear();

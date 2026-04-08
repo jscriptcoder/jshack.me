@@ -163,13 +163,13 @@ export const useCommands = (): UseCommandsResult => {
       onAuthResult: (success, targetUser) => {
         const hostname = resolveHostname(session.machine, getMachineInfo);
         const formatter = success ? formatSuSuccess : formatSuFailed;
-        const logLine = formatter(
-          new Date(),
+        const logLine = formatter({
+          date: new Date(),
           hostname,
-          generatePid(),
+          pid: generatePid(),
           targetUser,
-          session.username,
-        );
+          fromUser: session.username,
+        });
         appendToMachineLog(session.machine, '/var/log/auth.log', logLine, logFs);
       },
     });

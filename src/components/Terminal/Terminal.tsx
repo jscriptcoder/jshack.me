@@ -204,7 +204,13 @@ export const Terminal = () => {
     onSuAuth: (success, targetUser) => {
       const hostname = resolveHostname(session.machine, getMachine);
       const formatter = success ? formatSuSuccess : formatSuFailed;
-      const logLine = formatter(new Date(), hostname, generatePid(), targetUser, session.username);
+      const logLine = formatter({
+        date: new Date(),
+        hostname,
+        pid: generatePid(),
+        targetUser,
+        fromUser: session.username,
+      });
       appendToMachineLog(session.machine, '/var/log/auth.log', logLine, logFs);
     },
     onSshAuth: (success, user, targetIP, _port, method) => {
@@ -212,11 +218,12 @@ export const Terminal = () => {
       const pid = generatePid();
       const srcPort = Math.floor(Math.random() * 25536) + 40000;
       const sourceIP = resolveLogSourceIP(session.machine, targetIP, getLocalIP(), getPublicIP());
+      const opts = { date: new Date(), hostname, pid, user, fromIp: sourceIP, port: srcPort };
       const logLine = !success
-        ? formatSshFailed(new Date(), hostname, pid, user, sourceIP, srcPort)
+        ? formatSshFailed(opts)
         : method === 'publickey'
-          ? formatSshAcceptedKey(new Date(), hostname, pid, user, sourceIP, srcPort)
-          : formatSshAccepted(new Date(), hostname, pid, user, sourceIP, srcPort);
+          ? formatSshAcceptedKey(opts)
+          : formatSshAccepted(opts);
       appendToMachineLog(targetIP, '/var/log/auth.log', logLine, logFs);
     },
     onFtpAuth: (success, user, targetIP) => {
@@ -224,8 +231,8 @@ export const Terminal = () => {
       const sourceIP = resolveLogSourceIP(session.machine, targetIP, getLocalIP(), getPublicIP());
       const connectLine = formatFtpConnect(now, sourceIP);
       const authLine = success
-        ? formatFtpLoginOk(now, sourceIP, user)
-        : formatFtpLoginFailed(now, sourceIP, user);
+        ? formatFtpLoginOk({ date: now, clientIp: sourceIP, user })
+        : formatFtpLoginFailed({ date: now, clientIp: sourceIP, user });
       appendToMachineLog(targetIP, '/var/log/vsftpd.log', `${connectLine}\n${authLine}`, logFs);
     },
     onMysqlAuth: (success, user, targetIP) => {
@@ -240,10 +247,21 @@ export const Terminal = () => {
           userType: 'root',
         });
         const dbName = dbJson ? (JSON.parse(dbJson) as { readonly name: string }).name : 'unknown';
-        const logLine = formatMysqlConnect(new Date(), threadId, user, sourceIP, dbName);
+        const logLine = formatMysqlConnect({
+          date: new Date(),
+          threadId,
+          user,
+          sourceIp: sourceIP,
+          dbName,
+        });
         appendToMachineLog(targetIP, '/var/log/mysql.log', logLine, logFs);
       } else {
-        const logLine = formatMysqlAccessDenied(new Date(), threadId, user, sourceIP);
+        const logLine = formatMysqlAccessDenied({
+          date: new Date(),
+          threadId,
+          user,
+          sourceIp: sourceIP,
+        });
         appendToMachineLog(targetIP, '/var/log/mysql.log', logLine, logFs);
       }
     },

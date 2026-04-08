@@ -60,7 +60,14 @@ export const useNetworkCommands = (): Map<string, Command> => {
       size: number,
     ) => {
       const sourceIP = resolveLogSourceIP(session.machine, targetIP, getLocalIP(), getPublicIP());
-      const logLine = formatAccessLog(new Date(), sourceIP, method, path, status, size);
+      const logLine = formatAccessLog({
+        date: new Date(),
+        clientIp: sourceIP,
+        method,
+        path,
+        status,
+        size,
+      });
       appendToMachineLog(targetIP, '/var/log/access.log', logLine, logFs);
     };
 
