@@ -2,6 +2,7 @@ import type { Command, AsyncOutput } from '../components/Terminal/types';
 import type { MissionNetwork } from '../generation/types';
 import type { MachineFileOp } from '../filesystem/types';
 import type { MysqlDatabase } from './mysql/types';
+import { parseMysqlDatabase } from './mysql/types';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 import { parseIptablesRules } from '../network/iptablesParser';
 import { runScriptWithSystem } from '../utils/scriptRunner';
@@ -304,7 +305,7 @@ const readTargetDb = (
     userType: 'root',
   });
   if (!dbJson) return null;
-  return JSON.parse(dbJson) as MysqlDatabase;
+  return parseMysqlDatabase(dbJson);
 };
 
 const verifyDbExfiltrate = (proof: string, mission: MissionNetwork): string | null => {

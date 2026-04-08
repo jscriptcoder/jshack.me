@@ -1,6 +1,7 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
 import type { RemoteMachine, RemoteUser, DnsRecord } from '../network/types';
-import type { MysqlCredential, MysqlDatabase } from './mysql/types';
+import type { MysqlCredential } from './mysql/types';
+import { parseMysqlDatabase } from './mysql/types';
 import type { FileNode } from '../filesystem/types';
 import { passwords, guestPasswords, snmpRwCommunities } from '../generation/pools';
 import { md5 } from '../utils/md5';
@@ -248,7 +249,10 @@ const createMysqlAttack = (
     throw new Error(`hydra: ${targetIP}: no MySQL server responding`);
   }
 
-  const db = JSON.parse(dbNode.content) as MysqlDatabase;
+  const db = parseMysqlDatabase(dbNode.content);
+  if (!db) {
+    throw new Error(`hydra: ${targetIP}: no MySQL server responding`);
+  }
   const allUsers: readonly MysqlCredential[] = db.credentials ?? [];
   const mysqlUsers = userFilter ? allUsers.filter((u) => u.username === userFilter) : allUsers;
 

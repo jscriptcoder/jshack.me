@@ -34,6 +34,14 @@ export type MysqlDatabase = {
   readonly credentials: readonly MysqlCredential[];
 };
 
+export const parseMysqlDatabase = (json: string): MysqlDatabase | null => {
+  const obj: unknown = JSON.parse(json);
+  if (typeof obj !== 'object' || obj === null) return null;
+  const rec = obj as Record<string, unknown>;
+  if (typeof rec['name'] !== 'string' || typeof rec['tables'] !== 'object') return null;
+  return obj as MysqlDatabase;
+};
+
 // Parsed SQL types — discriminated union from the parser
 export type WhereClause = {
   readonly column: string;

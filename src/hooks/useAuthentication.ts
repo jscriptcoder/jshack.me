@@ -7,7 +7,7 @@ import type {
   SessionReason,
 } from '../session/SessionContext';
 import type { RemoteMachine, RemoteUser } from '../network/types';
-import type { MysqlDatabase } from '../commands/mysql/types';
+import { parseMysqlDatabase } from '../commands/mysql/types';
 import type { AsyncOutput } from '../components/Terminal/types';
 import type { PermissionResult } from '../filesystem/types';
 import { md5 } from '../utils/md5';
@@ -379,7 +379,11 @@ export const useAuthentication = ({
         addLine('error', `ERROR 1049 (42000): Unknown database on '${ip}'`);
         return;
       }
-      const db = JSON.parse(dbJson) as { readonly name: string };
+      const db = parseMysqlDatabase(dbJson);
+      if (!db) {
+        addLine('error', `ERROR 1049 (42000): Unknown database on '${ip}'`);
+        return;
+      }
       const newMysqlSession: MysqlSession = {
         targetIP: ip,
         machineId: resolvedIp,
@@ -407,8 +411,8 @@ export const useAuthentication = ({
         userType: 'root',
       });
       if (!dbJson) return false;
-      const db = JSON.parse(dbJson) as MysqlDatabase;
-      if (!db.credentials) return false;
+      const db = parseMysqlDatabase(dbJson);
+      if (!db?.credentials) return false;
       const mysqlUser = db.credentials.find((c) => c.username === user);
       if (!mysqlUser) return false;
       return mysqlUser.passwordHash === md5(password);

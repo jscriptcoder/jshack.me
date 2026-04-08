@@ -1,5 +1,11 @@
 export type RedisStore = Readonly<Record<string, string>>;
 
+export const parseRedisStore = (json: string): RedisStore | null => {
+  const obj: unknown = JSON.parse(json);
+  if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) return null;
+  return obj as RedisStore;
+};
+
 export type ParsedRedisCommand =
   | { readonly type: 'keys'; readonly pattern: string }
   | { readonly type: 'get'; readonly key: string }

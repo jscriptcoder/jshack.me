@@ -2,7 +2,7 @@ import { useCallback, useRef } from 'react';
 import { useSession } from '../session/SessionContext';
 import { useFileSystem } from '../filesystem';
 import { parseRedisCommand, executeRedisCommand } from '../commands/redis/index';
-import type { RedisStore } from '../commands/redis/index';
+import { parseRedisStore } from '../commands/redis/index';
 
 type RedisExecuteResult =
   | { readonly type: 'output'; readonly text: string }
@@ -48,7 +48,10 @@ export const useRedisCommands = (): {
         return { type: 'output', text: '(error) ERR Redis data unavailable' };
       }
 
-      const store = JSON.parse(storeJson) as RedisStore;
+      const store = parseRedisStore(storeJson);
+      if (!store) {
+        return { type: 'output', text: '(error) ERR Redis data unavailable' };
+      }
 
       // Read requirepass from config
       const confContent = readFileFromMachine({

@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import { useSession } from '../session/SessionContext';
 import { useFileSystem } from '../filesystem';
 import { parseSql, executeSql } from '../commands/mysql/index';
-import type { MysqlDatabase } from '../commands/mysql/index';
+import { parseMysqlDatabase } from '../commands/mysql/index';
 
 type MysqlExecuteResult =
   | { readonly type: 'output'; readonly text: string }
@@ -67,7 +67,13 @@ export const useMysqlCommands = (): {
         };
       }
 
-      const db = JSON.parse(dbJson) as MysqlDatabase;
+      const db = parseMysqlDatabase(dbJson);
+      if (!db) {
+        return {
+          type: 'output',
+          text: `ERROR 1049 (42000): Unknown database on '${mysqlSession.targetIP}'`,
+        };
+      }
 
       // Execute SQL
       const result = executeSql(db, parseResult.parsed);

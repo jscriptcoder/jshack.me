@@ -12,6 +12,7 @@ import { useFtpCommands } from '../../hooks/useFtpCommands';
 import { useNcCommands } from '../../hooks/useNcCommands';
 import { useMysqlCommands } from '../../hooks/useMysqlCommands';
 import { useRedisCommands } from '../../hooks/useRedisCommands';
+import { parseMysqlDatabase } from '../../commands/mysql/types';
 import { useSession } from '../../session/SessionContext';
 import type { NcSession } from '../../session/SessionContext';
 import { useFileSystem } from '../../filesystem/FileSystemContext';
@@ -246,7 +247,7 @@ export const Terminal = () => {
           cwd: '/',
           userType: 'root',
         });
-        const dbName = dbJson ? (JSON.parse(dbJson) as { readonly name: string }).name : 'unknown';
+        const dbName = dbJson ? (parseMysqlDatabase(dbJson)?.name ?? 'unknown') : 'unknown';
         const logLine = formatMysqlConnect({
           date: new Date(),
           threadId,
