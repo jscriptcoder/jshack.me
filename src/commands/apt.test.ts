@@ -378,11 +378,25 @@ describe('apt command', () => {
       expect(createdFiles.some((f) => f.path === '/usr/share/wordlists/passwords.txt')).toBe(false);
     });
 
-    it('reports already installed when all binaries exist even if extra files missing', () => {
-      const { context } = createMockAptContext({ installedTools: ['hydra'] });
+    it('installs missing extra files even when binary already exists', () => {
+      const { context, createdFiles } = createMockAptContext({ installedTools: ['hydra'] });
       const apt = createAptCommand(context);
-      const result = apt.fn('install', 'hydra') as string;
-      expect(result).toContain('already the newest version');
+      const result = apt.fn('install', 'hydra');
+
+      expect(isAsyncOutput(result)).toBe(true);
+      if (!isAsyncOutput(result)) return;
+
+      result.start(
+        () => {},
+        () => {},
+      );
+
+      vi.advanceTimersByTime(3000);
+
+      // Binary should NOT be re-created (already exists)
+      expect(createdFiles.some((f) => f.path === '/usr/bin/hydra')).toBe(false);
+      // Extra file should be created (was missing)
+      expect(createdFiles.some((f) => f.path === '/usr/share/wordlists/passwords.txt')).toBe(true);
     });
   });
 

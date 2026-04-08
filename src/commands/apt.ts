@@ -70,10 +70,11 @@ const handleInstall = (packageName: string, context: AptContext): AsyncOutput | 
   const pkg = APT_PACKAGES.find((p) => p.name === packageName);
   const allBinaries = pkg?.binaries ?? [packageName];
 
-  // Only install binaries that don't already exist
+  // Only install binaries/extra files that don't already exist
   const binaries = allBinaries.filter((b) => getNode(`/usr/bin/${b}`) === null);
+  const extraFiles = (pkg?.extraFiles ?? []).filter((f) => getNode(f.path) === null);
 
-  if (binaries.length === 0) {
+  if (binaries.length === 0 && extraFiles.length === 0) {
     const version = pkg?.version ?? '1.0.0';
     return `${packageName} is already the newest version (${version}).\n0 upgraded, 0 newly installed, 0 to remove.`;
   }
@@ -120,10 +121,8 @@ const handleInstall = (packageName: string, context: AptContext): AsyncOutput | 
               write: ['root'],
               execute: [],
             };
-            for (const extra of pkg?.extraFiles ?? []) {
-              if (getNode(extra.path) === null) {
-                createFile(extra.path, extra.content, 'root', extraFilePermissions);
-              }
+            for (const extra of extraFiles) {
+              createFile(extra.path, extra.content, 'root', extraFilePermissions);
             }
 
             onComplete();
