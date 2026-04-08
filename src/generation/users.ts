@@ -58,7 +58,9 @@ export const generateUsers = (
     ];
 
     const hasGuest = isEntry || prng.next() < 0.5;
-    const guestPassword = prng.pick(guestPasswords);
+    // FTP-entry: guest SSH password from MISSION_PASSWORDS (not crackable by hydra),
+    // so the player can't bypass FTP by cracking guest on SSH.
+    const guestPassword = isFtpEntry ? prng.pick(passwords) : prng.pick(guestPasswords);
     const allUsers = hasGuest
       ? [
           rootUser,
