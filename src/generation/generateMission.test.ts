@@ -222,24 +222,19 @@ describe('generateMissionNetwork', () => {
   });
 
   it('non-entry NC machines have backdoor port owners', () => {
-    let found = false;
-    for (let i = 0; i < 1000; i++) {
-      const result = generateMissionNetwork(`nc-internal-${i}`);
-      const nonEntryNc = result.machines.find(
-        (m) => m.ip !== result.entryPoint && m.accessVariant === 'nc',
-      );
-      if (!nonEntryNc) continue;
+    // Known seed that produces a multi-layer network with NC internal machines
+    const result = generateMissionNetwork('nc-internal-5');
+    const nonEntryNc = result.machines.find(
+      (m) => m.ip !== result.entryPoint && m.accessVariant === 'nc',
+    );
+    expect(nonEntryNc).toBeDefined();
 
-      const backdoorPort = nonEntryNc.remoteMachine.ports.find(
-        (p) => p.service === 'elite' && p.open,
-      );
-      expect(backdoorPort).toBeDefined();
-      expect(backdoorPort?.owner).toBeDefined();
-      expect(['guest', 'user']).toContain(backdoorPort?.owner?.userType);
-      found = true;
-      break;
-    }
-    expect(found).toBe(true);
+    const backdoorPort = nonEntryNc!.remoteMachine.ports.find(
+      (p) => p.service === 'elite' && p.open,
+    );
+    expect(backdoorPort).toBeDefined();
+    expect(backdoorPort?.owner).toBeDefined();
+    expect(['guest', 'user']).toContain(backdoorPort?.owner?.userType);
   });
 
   it('non-entry exploit machines have vulnerability and owner', () => {
