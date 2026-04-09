@@ -573,6 +573,344 @@ export const credentialLeakTemplates: readonly CredentialLeakTemplate[] = [
   },
 ];
 
+// Cross-machine credential leak templates — found after privilege escalation.
+// {{target_ip}}, {{target_username}}, {{target_password}} are filled with a same-layer machine's creds.
+// {{owner}} is replaced with the file owner's username (for home directory paths).
+// owner controls file permissions: 'root' = only root can read, 'user' = root + user.
+export type CrossMachineCredentialLeakTemplate = {
+  readonly path: string;
+  readonly content: string;
+  readonly owner: 'root' | 'user';
+  readonly binary?: boolean;
+};
+
+export const crossMachineCredentialLeakTemplates: readonly CrossMachineCredentialLeakTemplate[] = [
+  // Deploy/automation scripts (root-owned)
+  {
+    path: '/root/.ssh/config',
+    owner: 'root',
+    content: [
+      'Host internal-server',
+      '    HostName {{target_ip}}',
+      '    User {{target_username}}',
+      '    # Password: {{target_password}}',
+      '    StrictHostKeyChecking no',
+      '    UserKnownHostsFile /dev/null',
+    ].join('\n'),
+  },
+  {
+    path: '/opt/deploy/hosts.ini',
+    owner: 'root',
+    content: [
+      '[webservers]',
+      '{{target_ip}} ansible_user={{target_username}} ansible_password={{target_password}}',
+      '',
+      '[webservers:vars]',
+      'ansible_connection=ssh',
+      'ansible_become=yes',
+    ].join('\n'),
+  },
+  {
+    path: '/opt/ansible/inventory.yml',
+    owner: 'root',
+    content: [
+      'all:',
+      '  hosts:',
+      '    app-server:',
+      '      ansible_host: {{target_ip}}',
+      '      ansible_user: {{target_username}}',
+      '      ansible_ssh_pass: {{target_password}}',
+      '      ansible_become: true',
+    ].join('\n'),
+  },
+  {
+    path: '/root/deploy.sh',
+    owner: 'root',
+    content: [
+      '#!/bin/bash',
+      '# Deploy script — push latest build to app server',
+      'TARGET={{target_ip}}',
+      'USER={{target_username}}',
+      'PASS={{target_password}}',
+      '',
+      'sshpass -p "$PASS" scp -o StrictHostKeyChecking=no ./build.tar.gz $USER@$TARGET:/opt/app/',
+      'sshpass -p "$PASS" ssh $USER@$TARGET "cd /opt/app && tar xzf build.tar.gz && ./restart.sh"',
+    ].join('\n'),
+  },
+  // Backup scripts (root-owned)
+  {
+    path: '/etc/cron.d/remote-backup',
+    owner: 'root',
+    content: [
+      'SHELL=/bin/bash',
+      '# Nightly backup sync to {{target_ip}}',
+      '0 3 * * * root sshpass -p "{{target_password}}" rsync -az /var/backups/ {{target_username}}@{{target_ip}}:/backups/',
+    ].join('\n'),
+  },
+  {
+    path: '/opt/backups/sync.sh',
+    owner: 'root',
+    content: [
+      '#!/bin/bash',
+      '# Sync local backups to remote storage',
+      'REMOTE_HOST={{target_ip}}',
+      'REMOTE_USER={{target_username}}',
+      'REMOTE_PASS={{target_password}}',
+      '',
+      'sshpass -p "$REMOTE_PASS" rsync -avz --delete \\',
+      '  /var/backups/ $REMOTE_USER@$REMOTE_HOST:/mnt/backups/',
+      'echo "[$(date)] Sync complete" >> /var/log/backup-sync.log',
+    ].join('\n'),
+  },
+  {
+    path: '/root/.netrc',
+    owner: 'root',
+    content: [
+      'machine {{target_ip}}',
+      '  login {{target_username}}',
+      '  password {{target_password}}',
+    ].join('\n'),
+  },
+  // App configs referencing remote services (user-owned)
+  {
+    path: '/home/{{owner}}/projects/.env',
+    owner: 'user',
+    content: [
+      'APP_ENV=development',
+      'APP_DEBUG=true',
+      '',
+      'DB_HOST={{target_ip}}',
+      'DB_PORT=3306',
+      'DB_USER={{target_username}}',
+      'DB_PASS={{target_password}}',
+      '',
+      'REDIS_HOST={{target_ip}}',
+      'REDIS_PORT=6379',
+    ].join('\n'),
+  },
+  {
+    path: '/home/{{owner}}/.bash_history',
+    owner: 'user',
+    content: [
+      'ls -la',
+      'cd /opt/app',
+      'vim config.yml',
+      'ssh {{target_username}}@{{target_ip}}',
+      'sshpass -p "{{target_password}}" ssh {{target_username}}@{{target_ip}}',
+      'cat /var/log/app.log | tail -50',
+      'systemctl restart app',
+      'exit',
+    ].join('\n'),
+  },
+  // Service configs (root-owned)
+  {
+    path: '/etc/supervisor/conf.d/tunnel.conf',
+    owner: 'root',
+    content: [
+      '[program:ssh-tunnel]',
+      'command=sshpass -p "{{target_password}}" ssh -N -L 3306:localhost:3306 {{target_username}}@{{target_ip}}',
+      'autostart=true',
+      'autorestart=true',
+      'stderr_logfile=/var/log/tunnel.err.log',
+      'stdout_logfile=/var/log/tunnel.out.log',
+    ].join('\n'),
+  },
+  {
+    path: '/opt/docker/docker-compose.yml',
+    owner: 'root',
+    content: [
+      'version: "3.8"',
+      'services:',
+      '  app:',
+      '    image: app:latest',
+      '    environment:',
+      '      - DB_HOST={{target_ip}}',
+      '      - DB_USER={{target_username}}',
+      '      - DB_PASS={{target_password}}',
+      '    restart: unless-stopped',
+    ].join('\n'),
+  },
+  // Infrastructure files (root-owned)
+  {
+    path: '/etc/fstab.bak',
+    owner: 'root',
+    content: [
+      '# /etc/fstab — static filesystem table (backup before NFS migration)',
+      'UUID=a1b2c3d4 /              ext4    errors=remount-ro 0 1',
+      'UUID=e5f6a7b8 /boot          ext4    defaults          0 2',
+      '# NFS mount — credentials in-line for testing',
+      '//{{target_ip}}/share /mnt/share cifs username={{target_username}},password={{target_password}},iocharset=utf8 0 0',
+    ].join('\n'),
+  },
+  {
+    path: '/opt/scripts/db_check.sh',
+    owner: 'root',
+    content: [
+      '#!/bin/bash',
+      '# Check remote database health',
+      'DB_HOST={{target_ip}}',
+      'DB_USER={{target_username}}',
+      'DB_PASS={{target_password}}',
+      '',
+      'mysql -h $DB_HOST -u $DB_USER -p$DB_PASS -e "SELECT 1" > /dev/null 2>&1',
+      'if [ $? -ne 0 ]; then',
+      '  echo "CRITICAL: Database at $DB_HOST unreachable" | mail -s "DB Alert" ops@corp.local',
+      'fi',
+    ].join('\n'),
+  },
+  // Binary with embedded remote creds
+  {
+    path: '/usr/local/bin/remote_monitor',
+    owner: 'root',
+    binary: true,
+    content: [
+      'remote_monitor v1.4.2 — compiled service checker',
+      'target_host={{target_ip}}',
+      'auth_user={{target_username}}',
+      'auth_pass={{target_password}}',
+      'check_interval=120',
+      'alert_threshold=3',
+    ].join('\n'),
+  },
+];
+
+// Web credential templates — placed in /var/www/html/ on non-entry machines with HTTP ports.
+// {{username}} and {{password}} are filled with a non-root, non-guest user on the machine.
+// These are same-machine credentials discoverable via curl/gobuster.
+export type WebCredentialTemplate = {
+  readonly webPath: string;
+  readonly content: string;
+  readonly sidecarHeader?: string;
+};
+
+export const webCredentialTemplates: readonly WebCredentialTemplate[] = [
+  // Body-based: credentials visible in file content
+  {
+    webPath: '.env.bak',
+    content: [
+      '# Environment backup — created during migration',
+      'APP_ENV=production',
+      'APP_DEBUG=false',
+      '',
+      'SSH_USER={{username}}',
+      'SSH_PASS={{password}}',
+      'SSH_HOST=localhost',
+    ].join('\n'),
+  },
+  {
+    webPath: 'config.php.bak',
+    content: [
+      '<?php',
+      '// Config backup — do not deploy',
+      '$ssh_host = "localhost";',
+      '$ssh_user = "{{username}}";',
+      '$ssh_pass = "{{password}}";',
+      '',
+      '$db = new PDO("mysql:host=localhost;dbname=app", $ssh_user, $ssh_pass);',
+      '?>',
+    ].join('\n'),
+  },
+  {
+    webPath: 'api/config',
+    content: [
+      '{',
+      '  "version": "3.1.0",',
+      '  "env": "production",',
+      '  "ssh": {',
+      '    "host": "localhost",',
+      '    "user": "{{username}}",',
+      '    "password": "{{password}}"',
+      '  },',
+      '  "debug": false',
+      '}',
+    ].join('\n'),
+  },
+  {
+    webPath: 'backup/db-dump.sh',
+    content: [
+      '#!/bin/bash',
+      '# Quick DB backup — should not be in webroot',
+      'USER="{{username}}"',
+      'PASS="{{password}}"',
+      'mysqldump -u $USER -p$PASS --all-databases > /tmp/dump.sql',
+    ].join('\n'),
+  },
+  {
+    webPath: 'install.php',
+    content: [
+      '<?php',
+      '// Installation wizard — remove after setup!',
+      '// Default SSH credentials for setup:',
+      '//   user: {{username}}',
+      '//   pass: {{password}}',
+      '$setup_complete = true;',
+      'if (!$setup_complete) { header("Location: /install/step1"); }',
+      '?>',
+    ].join('\n'),
+  },
+  // Header-based: credentials in .headers sidecar (requires curl -i)
+  {
+    webPath: '.well-known/security.txt',
+    content: [
+      'Contact: mailto:security@corp.local',
+      'Preferred-Languages: en',
+      'Canonical: /.well-known/security.txt',
+      'Policy: /security-policy',
+    ].join('\n'),
+    sidecarHeader: 'X-Debug-Auth',
+  },
+  {
+    webPath: 'metrics',
+    content: [
+      '# HELP http_requests_total Total HTTP requests',
+      '# TYPE http_requests_total counter',
+      'http_requests_total{method="GET",status="200"} 148203',
+      'http_requests_total{method="POST",status="200"} 42891',
+      'http_requests_total{method="GET",status="404"} 3012',
+    ].join('\n'),
+    sidecarHeader: 'X-Service-Auth',
+  },
+  {
+    webPath: 'api/v2/status',
+    content: [
+      '{',
+      '  "status": "operational",',
+      '  "uptime": "22d 14h",',
+      '  "services": {',
+      '    "web": "running",',
+      '    "db": "connected",',
+      '    "cache": "active"',
+      '  }',
+      '}',
+    ].join('\n'),
+    sidecarHeader: 'X-Admin-Token',
+  },
+  {
+    webPath: 'debug/info',
+    content: [
+      '{',
+      '  "app": "internal-service",',
+      '  "build": "2024-03-15T10:22:00Z",',
+      '  "node": "prod-01",',
+      '  "memory_mb": 512,',
+      '  "pid": 1842',
+      '}',
+    ].join('\n'),
+    sidecarHeader: 'X-Internal-Credential',
+  },
+  {
+    webPath: 'sitemap.xml',
+    content: [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+      '  <url><loc>/</loc><priority>1.0</priority></url>',
+      '  <url><loc>/status</loc><priority>0.5</priority></url>',
+      '</urlset>',
+    ].join('\n'),
+    sidecarHeader: 'X-Forwarded-Auth',
+  },
+];
+
 // HTTP entry credential templates — placed in /var/www/html/ on the entry machine
 // when the entry variant is 'http'. Players discover these via gobuster + curl.
 // Body-based: credentials visible in file content via regular curl.
