@@ -158,6 +158,14 @@ Machines with FTP open can have separate FTP credentials in `/etc/vsftpd/virtual
 - **Auth**: `useAuthentication.ts` checks virtual users in both inline and interactive FTP auth paths
 - **Hydra**: `hydra.ts` swaps in virtual user hashes for FTP service cracking
 
+### Credential Leaks & Lateral Movement
+
+Three types of credential leaks are placed during filesystem generation in `machineConfig.ts`:
+
+- **Same-machine credential leaks** (~30% per machine) — Guest-owned files containing a non-root user's credentials. Placed in realistic locations (backup scripts, config files, deploy logs). DB-themed templates use MySQL credentials when available. Templates in `credentialLeakTemplates` (`src/generation/pools/credentials.ts`). Always consumes 2 PRNG calls for stability.
+- **Cross-machine credential leaks** (~30% per non-target machine) — Root/user-owned files referencing a same-layer peer machine's credentials. Requires privilege escalation to discover (not world-readable). Templates include deploy scripts, ansible inventories, `.ssh/config`, backup crons, `.bash_history` with ssh commands. Uses `crossMachineCredentialLeakTemplates` with `{{target_ip}}`, `{{target_username}}`, `{{target_password}}` placeholders. Layer mapping via `buildSameLayerCredentials()` in `src/generation/filesystem/sameLayerCredentials.ts`. Always consumes 3 PRNG calls. Skipped on target machines.
+- **Web credential exposure** (~30% on non-HTTP-entry machines with open HTTP/HTTPS/HTTP-ALT ports) — Same-machine credentials placed in `/var/www/html/` discoverable via curl/gobuster. Supports body-based (creds in file content) and header-based (`.headers` sidecar, requires `curl -i`). Uses `webCredentialTemplates`. HTTP-entry machines use `httpEntryCredentialTemplates` instead (100% placement). Always consumes 2 PRNG calls.
+
 ### Connection Logging
 
 `src/logging/` records SSH, FTP, SCP, su, MySQL, Redis, and HTTP auth events to target machine log files in realistic Linux formats. Terminal.tsx defines logging callbacks (`onSuAuth`, `onSshAuth`, `onFtpAuth`, `onMysqlAuth`, `onRedisAuth`) passed into `useAuthentication`. Log entries persist via IndexedDB patches and sync across tabs. See `src/logging/README.md` for full details and `architecture.md` for integration.

@@ -28,7 +28,7 @@ Key properties:
 - **1 border router** with a unique public IP (collision-aware via `usedIps`) and dual interfaces
 - **Entry variants** (ssh, ftp, nc, exploit, http, snmp) randomly assigned per layer — no fixed entry method
 - **Port closures** apply for lateral movement variety (~30% SSH, ~30% FTP closures, independent rolls)
-- **Mission-quality filesystems** — credential leaks, web content, SNMP configs, iptables rules, role-based configs, noise files
+- **Mission-quality filesystems** — credential leaks (same-machine ~30% guest-readable, cross-machine ~30% root/user-owned), web credential exposure (~30% on HTTP-serving machines), SNMP configs, iptables rules, role-based configs, noise files
 - **Gateway .1 IP aliases** — inner gateway configs/filesystems are aliased under their downstream `.1` IPs so players can SSH into routers/gateways from inside the network
 - Private subnet per layer (RFC 1918), DNS records, and per-machine network configs
 
