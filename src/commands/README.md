@@ -30,6 +30,32 @@ At execution time, `wrapWithAccessCheck` checks binary existence and execute per
 
 FTP and NC modes have their own separate command sets and are not restricted.
 
+## Adding New Commands
+
+1. Create file in `src/commands/` exporting a `Command` object (see `src/components/Terminal/types.ts` for type)
+2. Register in `src/hooks/useCommands.ts` via `commands.set('name', myCommand)`
+3. If it needs a binary, add to `SYSTEM_UTILITY_NAMES` (for `/bin/`) or `APT_TOOL_NAMES` (for `/usr/bin/`) in `src/commands/availability.ts`
+4. If it should be root-only, add to `RESTRICTED_EXECUTE` in `availability.ts`
+
+## Wordlist System
+
+Tools like hydra and gobuster use filesystem-based wordlists installed via `apt install`. Wordlists live at `/usr/share/wordlists/` and are also resolved from cwd (for SCP'd tools). Content is generated from encoded secrets at runtime (`src/commands/wordlists.ts`).
+
+- **`passwords.txt`** (installed with hydra) — Contains `GUEST_PASSWORDS` + `WORDLIST_PASSWORDS`, one per line. Hydra reads this file and uses it as a **gate**: password must be in the wordlist AND probability roll must succeed. Passwords NOT in the wordlist can never be cracked. Root passwords (from `MISSION_PASSWORDS`) are never in the wordlist.
+- **`dirlist.txt`** (installed with gobuster) — Contains ~50 common web directory/file names. Gobuster only reveals entries whose top-level path segment matches the dirlist (e.g., `/admin/config.json` shown only if `admin` is in the dirlist).
+- **Resolution**: `resolveWordlist(filename, getNode, cwd)` in `src/utils/wordlist.ts` checks cwd first, then `/usr/share/wordlists/`.
+
+## Node Execution
+
+`node(path)` executes JavaScript files with access to all terminal commands. Two execution modes:
+
+- **Sync mode** (default): Uses `new Function()`. Expression-first, falls back to statement mode. Echo calls are buffered and joined.
+- **Async mode** (when script contains `await`): Uses `AsyncFunction` constructor. Returns `AsyncOutput` to Terminal for streaming. Commands returning `AsyncOutput` (hydra, nmap, etc.) are auto-wrapped so `await hydra(...)` resolves to `string[]`. Provides `console.log()`, `sleep(ms)`, and cancellation via Ctrl+C.
+
+**Programmatic auth in scripts**: Interactive commands accept optional credentials for scripting: `su('root', 'pw')` (sync inline auth), `await ssh('user@ip', 'pw')`, `await scp(src, dst, 'pw')`, `await ftp('ip', 'user', 'pw')`. `su` is synchronous so subsequent lines run as the new user. SSH/SCP/FTP embed credentials in their async follow-up data.
+
+**Circular dependency**: `node(path)` needs the execution context which includes `node` itself. Resolved via a lazy getter pattern: mutable `let resolvedExecutionContext` in `useCommands.ts` is set after building the full command map, and node's factory captures a getter that's only called at execution time.
+
 ## General
 
 | Command | File         | Signature             | Description                                                |

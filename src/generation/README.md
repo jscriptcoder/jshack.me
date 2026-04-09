@@ -69,6 +69,14 @@ Home networks use `generateNetwork(options)`, which runs these steps (missions s
 | `generateWifi.ts`        | WiFi network generation from game seed — 2-3 crackable WPA2 + 3-5 noise (WPA3/weak/hidden). Passwords from encoded secrets.                                                                                                                                                                                                                                                                                                                                     |
 | `generateHomeNetwork.ts` | Home network generation: calls `generateNetwork()` with random difficulty (easy/medium/hard per WiFi), adds gateway .1 IP aliases for internal reachability                                                                                                                                                                                                                                                                                                     |
 
+## Credential Leaks & Lateral Movement
+
+Three types of credential leaks are placed during filesystem generation in `machineConfig.ts`:
+
+- **Same-machine credential leaks** (~30% per machine) — Guest-owned files containing a non-root user's credentials. Placed in realistic locations (backup scripts, config files, deploy logs). DB-themed templates use MySQL credentials when available. Templates in `credentialLeakTemplates` (`src/generation/pools/credentials.ts`). Always consumes 2 PRNG calls for stability.
+- **Cross-machine credential leaks** (~30% per non-target machine) — Root/user-owned files referencing a same-layer peer machine's credentials. Requires privilege escalation to discover (not world-readable). Templates include deploy scripts, ansible inventories, `.ssh/config`, backup crons, `.bash_history` with ssh commands. Uses `crossMachineCredentialLeakTemplates` with `{{target_ip}}`, `{{target_username}}`, `{{target_password}}` placeholders. Layer mapping via `buildSameLayerCredentials()` in `src/generation/filesystem/sameLayerCredentials.ts`. Always consumes 3 PRNG calls. Skipped on target machines.
+- **Web credential exposure** (~30% on non-HTTP-entry machines with open HTTP/HTTPS/HTTP-ALT ports) — Same-machine credentials placed in `/var/www/html/` discoverable via curl/gobuster. Supports body-based (creds in file content) and header-based (`.headers` sidecar, requires `curl -i`). Uses `webCredentialTemplates`. HTTP-entry machines use `httpEntryCredentialTemplates` instead (100% placement). Always consumes 2 PRNG calls.
+
 ## Difficulty
 
 Derived from the seed string (or explicit keywords):
