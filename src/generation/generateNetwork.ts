@@ -16,6 +16,7 @@ import {
   mkFile,
   mkDir,
 } from './filesystem';
+import { buildSameLayerCredentials } from './filesystem/sameLayerCredentials';
 import { createFileSystem, type MachineFileSystemConfig } from '../filesystem/fileSystemFactory';
 import type {
   CredentialMap,
@@ -256,6 +257,9 @@ export const generateNetwork = (options: GenerateNetworkOptions): GeneratedNetwo
       });
     }
 
+    // Build same-layer credential map for cross-machine credential leaks
+    const sameLayerCredsMap = buildSameLayerCredentials(topology.layers, allCredentials);
+
     // Generate filesystem for each machine
     machinesWithRedis.forEach((machine) => {
       const users = allUsersByMachine[machine.ip] ?? [];
@@ -272,6 +276,7 @@ export const generateNetwork = (options: GenerateNetworkOptions): GeneratedNetwo
         isHttpEntry,
         isFtpEntry,
         downstreamSubnet,
+        sameLayerCredentials: sameLayerCredsMap.get(machine.ip),
       });
 
       // SNMP variant: add /etc/snmp/snmpd.conf for gateways

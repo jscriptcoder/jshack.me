@@ -28,6 +28,7 @@ import {
 import { generateForensicsEvidence } from './forensicsEvidence';
 import type { DbEnrichment } from '../generateDatabase';
 import { buildMachineConfig } from './machineConfig';
+import { buildSameLayerCredentials } from './sameLayerCredentials';
 
 export type { BuildMachineConfigOptions } from './machineConfig';
 export { buildMachineConfig } from './machineConfig';
@@ -318,6 +319,10 @@ export const generateFileSystems = (input: FilesystemInput): FilesystemResult =>
   // Pre-generate forensics evidence (log files + calling card) before machine loop
   const forensicsEvidence = generateForensicsEvidence(prng, machines, objective, difficulty);
 
+  // Build same-layer credential map for cross-machine credential leaks.
+  // Each machine gets a list of peer credentials from its own subnet layer.
+  const sameLayerCredsMap = layers ? buildSameLayerCredentials(layers, credentials) : new Map();
+
   const entries = machines.map((machine) => {
     const users = usersByMachine[machine.ip] ?? [];
     const machineCreds = credentials[machine.ip] ?? [];
@@ -338,6 +343,7 @@ export const generateFileSystems = (input: FilesystemInput): FilesystemResult =>
       isFtpEntry,
       downstreamSubnet,
       dbEnrichment: isTarget ? dbEnrichment : undefined,
+      sameLayerCredentials: sameLayerCredsMap.get(machine.ip),
     });
 
     // SNMP variant: add /etc/snmp/snmpd.conf for inner gateways with SNMP access variant

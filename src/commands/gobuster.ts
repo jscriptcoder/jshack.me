@@ -167,7 +167,7 @@ export const createGobusterCommand = (context: GobusterContext): Command => ({
     }
 
     // Resolve NAT for filesystem reads (forwarded mode maps router to internal machine)
-    const filesystemIP = resolveNat(targetIP, 80).ip;
+    const filesystemIP = resolveNat(targetIP, parsed.port).ip;
     const webRoot = getNodeFromMachine(filesystemIP, '/var/www/html', '/');
 
     if (!webRoot || webRoot.type !== 'directory') {

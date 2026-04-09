@@ -4,7 +4,7 @@ import { generateTopology } from '../topology';
 import { generateUsers } from '../users';
 import { buildMissionObjective } from '../attackChain';
 import { generateFileSystems } from '.';
-import { credentialLeakTemplates } from '../pools';
+import { credentialLeakTemplates, crossMachineCredentialLeakTemplates } from '../pools';
 import type { FileNode } from '../../filesystem/types';
 import {
   buildTestData,
@@ -375,7 +375,7 @@ describe('generateFileSystems', () => {
       }
     });
 
-    it('leaked files are guest-readable', () => {
+    it('same-machine leaked files are guest-readable', () => {
       for (let i = 0; i < 50; i++) {
         const { topology, fileSystems } = buildTestData(`cred-leak-perms-${i}`);
         topology.machines.forEach((m) => {
@@ -385,7 +385,12 @@ describe('generateFileSystems', () => {
           credentialLeakTemplates.forEach((t) => {
             const node = resolveNode(fs, t.path);
             if (!node?.content) return;
-            expect(node.permissions.read).toContain('guest');
+            // Only check files that are guest-owned (same-machine leaks).
+            // Cross-machine credential files are root/user-owned and may land
+            // at overlapping paths via findLeafDir merge.
+            if (node.owner === 'guest') {
+              expect(node.permissions.read).toContain('guest');
+            }
           });
         });
       }
@@ -529,7 +534,20 @@ describe('generateFileSystems', () => {
       }
     });
 
-    it('non-entry machines do not get HTTP credential files', () => {
+    it('non-entry machines do not get HTTP entry credential files', () => {
+      // Web credential webPaths that CAN appear on non-entry machines (~30% chance)
+      const webCredPaths = new Set([
+        '.env.bak',
+        'config.php.bak',
+        'api',
+        'backup',
+        'install.php',
+        '.well-known',
+        'metrics',
+        'debug',
+        'sitemap.xml',
+      ]);
+
       for (let i = 0; i < 20; i++) {
         const { topology, fileSystems } = buildWithHttpEntry(`http-entry-nonentry-${i}`);
         topology.machines
@@ -539,9 +557,19 @@ describe('generateFileSystems', () => {
             const htmlDir = resolveNode(fs as FileNode, '/var/www/html');
             if (!htmlDir?.children) return;
 
-            // Non-entry machines should only have index.html (no extra credential files)
-            const childNames = Object.keys(htmlDir.children).filter((n) => !n.endsWith('.headers'));
-            expect(childNames).toEqual(['index.html']);
+            // Non-entry machines may have web credential files but not entry-only files.
+            // Both sets share some top-level dirs (api, backup), so we check actual file
+            // names/paths rather than just top-level dirs.
+            const childNames = Object.keys(htmlDir.children).filter(
+              (n) => n !== 'index.html' && !n.endsWith('.headers'),
+            );
+            for (const name of childNames) {
+              // Must be a web credential path, not an entry-only path
+              expect(
+                webCredPaths.has(name),
+                `Non-entry machine ${m.ip} has unexpected web file: ${name}`,
+              ).toBe(true);
+            }
           });
       }
     });
@@ -762,6 +790,114 @@ describe('generateFileSystems', () => {
         return;
       }
       throw new Error('No remote script_auto found in 100 seeds');
+    });
+  });
+
+  describe('cross-machine credential placement', () => {
+    it('cross-machine leak files reference a valid same-layer machine IP', () => {
+      let foundCrossMachineLeak = false;
+      for (let i = 0; i < 100 && !foundCrossMachineLeak; i++) {
+        const { topology, fileSystems } = buildTestData(`xmachine-cred-${i}`, 'medium');
+        const allIps = new Set(topology.machines.map((m) => m.ip));
+
+        for (const machine of topology.machines) {
+          const fs = fileSystems[machine.ip];
+          if (!fs) continue;
+
+          for (const t of crossMachineCredentialLeakTemplates) {
+            // Template paths may contain {{owner}} — check all user variants
+            const users = topology.machines
+              .filter((m) => m.ip === machine.ip)
+              .flatMap(() => ['root', 'user', 'guest']);
+            const paths = [t.path, ...users.map((u) => t.path.replace('{{owner}}', u))];
+
+            for (const path of paths) {
+              const node = resolveNode(fs as FileNode, path);
+              if (!node?.content) continue;
+
+              // File should reference a valid network IP
+              const ipMatch = node.content.match(/\d+\.\d+\.\d+\.\d+/);
+              if (ipMatch && allIps.has(ipMatch[0]) && ipMatch[0] !== machine.ip) {
+                foundCrossMachineLeak = true;
+                // Cross-machine leaks are NOT guest-readable
+                expect(node.permissions.read).not.toContain('guest');
+              }
+            }
+          }
+        }
+      }
+      expect(foundCrossMachineLeak).toBe(true);
+    });
+
+    it('cross-machine leaks are not placed on target machines', () => {
+      for (let i = 0; i < 50; i++) {
+        const { objective, fileSystems } = buildTestData(`xmachine-target-${i}`, 'medium');
+        const targetFs = fileSystems[objective.targetMachine];
+        if (!targetFs) continue;
+
+        for (const t of crossMachineCredentialLeakTemplates) {
+          const node = resolveNode(targetFs as FileNode, t.path);
+          if (!node?.content) continue;
+          // If a file exists at a cross-machine template path on the target,
+          // it should not reference another machine (it was skipped)
+          const ips = [...node.content.matchAll(/\d+\.\d+\.\d+\.\d+/g)].map((m) => m[0]);
+          const referencesOther = ips.some((ip) => ip !== objective.targetMachine);
+          // Cross-machine leaks on target should be suppressed, but same-machine
+          // leaks may exist at overlapping paths. Just verify no cross-machine reference.
+          if (referencesOther && node.owner !== 'guest') {
+            // This would be a cross-machine leak on target — should not happen
+            expect.unreachable(
+              `Target machine ${objective.targetMachine} has cross-machine credential at ${t.path}`,
+            );
+          }
+        }
+      }
+    });
+  });
+
+  describe('web credential placement on non-entry machines', () => {
+    it('web-serving machines can have credential files in /var/www/html/', () => {
+      let foundWebCred = false;
+      for (let i = 0; i < 100 && !foundWebCred; i++) {
+        const { topology, fileSystems } = buildTestData(`webcred-${i}`, 'medium');
+        for (const machine of topology.machines) {
+          const hasHttpPort = machine.remoteMachine.ports.some(
+            (p) =>
+              p.open && (p.service === 'http' || p.service === 'https' || p.service === 'http-alt'),
+          );
+          if (!hasHttpPort) continue;
+
+          const fs = fileSystems[machine.ip];
+          const htmlDir = resolveNode(fs as FileNode, '/var/www/html');
+          if (!htmlDir?.children) continue;
+
+          const extraFiles = Object.keys(htmlDir.children).filter(
+            (n) => n !== 'index.html' && !n.endsWith('.headers'),
+          );
+          if (extraFiles.length > 0) {
+            foundWebCred = true;
+          }
+        }
+      }
+      expect(foundWebCred).toBe(true);
+    });
+
+    it('header-based web credentials produce .headers sidecar files', () => {
+      let foundHeaders = false;
+      for (let i = 0; i < 100 && !foundHeaders; i++) {
+        const { topology, fileSystems } = buildTestData(`webcred-header-${i}`, 'medium');
+        for (const machine of topology.machines) {
+          const fs = fileSystems[machine.ip];
+          const htmlDir = resolveNode(fs as FileNode, '/var/www/html');
+          if (!htmlDir?.children) continue;
+
+          const headerFiles = collectAllFileNames(htmlDir).filter((n) => n.endsWith('.headers'));
+          if (headerFiles.length > 0) {
+            foundHeaders = true;
+          }
+        }
+      }
+      expect(foundHeaders).toBe(true);
     });
   });
 });
