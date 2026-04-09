@@ -323,6 +323,42 @@ describe('gobuster command', () => {
       const lines = collectAsyncLines(gobuster.fn('dir', `http://${routerIP}`));
       expect(lines.some((l) => l.includes('/secret.html'))).toBe(true);
     });
+
+    it('should resolve NAT using the actual port, not hardcoded 80', () => {
+      const routerIP = '103.182.227.201';
+      const httpAltInternalIP = '10.147.206.20';
+
+      const altWebRoot = makeDir('html', {
+        'dashboard.html': makeFile('dashboard.html', '<html>Dashboard</html>'),
+      });
+
+      const dirlistNode = mkDirlistNode('dashboard.html');
+      const context = {
+        getMachine: (ip: string) =>
+          ip === routerIP
+            ? getMockMachine({
+                ip: routerIP,
+                ports: [{ port: 8080, service: 'http-alt', open: true }],
+              })
+            : undefined,
+        resolveDomain: () => undefined,
+        resolveNat: (ip: string, port: number) =>
+          ip === routerIP && port === 8080
+            ? { ip: httpAltInternalIP, port }
+            : { ip, port },
+        getNodeFromMachine: (machineId: string, path: string, _cwd: string): FileNode | null => {
+          if (machineId === httpAltInternalIP && path === '/var/www/html') return altWebRoot;
+          return null;
+        },
+        getLocalNode: (path: string) =>
+          path === '/usr/share/wordlists/dirlist.txt' ? dirlistNode : null,
+        getCurrentPath: () => '/home/user',
+      };
+
+      const gobuster = createGobusterCommand(context);
+      const lines = collectAsyncLines(gobuster.fn('dir', `http://${routerIP}:8080`));
+      expect(lines.some((l) => l.includes('/dashboard.html'))).toBe(true);
+    });
   });
 
   describe('cancellation', () => {
