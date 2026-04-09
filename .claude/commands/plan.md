@@ -35,15 +35,24 @@ Each plan file is self-contained:
 
 ## Acceptance Criteria
 
+[Behaviour-driven criteria — describe observable business outcomes, not implementation details.
+Tests at every level (unit, browser, integration) should verify behaviour.]
+
 - [ ] Criterion 1
 - [ ] Criterion 2
 
 ## Steps
 
+Every step follows RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR. No production code without a failing test.
+Read the project's CLAUDE.md and testing rules before writing steps.
+
 ### Step 1: [One sentence description]
 
-**Test**: What failing test will we write?
-**Implementation**: What code will we write?
+**RED**: What failing test will we write? (Describes expected behaviour, not implementation.)
+**GREEN**: What minimum code makes the test pass?
+**MUTATE**: Run `mutation-testing` skill — produce a report.
+**KILL MUTANTS**: Address surviving mutants (ask human when value is ambiguous).
+**REFACTOR**: Assess improvements (only if they add value).
 **Done when**: How do we know it's complete?
 
 ### Step 2: ...
@@ -51,15 +60,13 @@ Each plan file is self-contained:
 ## Pre-PR Quality Gate
 
 Before each PR:
-
 1. Mutation testing — run `mutation-testing` skill
 2. Refactoring assessment — run `refactoring` skill
 3. Typecheck and lint pass
-4. DDD glossary check (if applicable)
+4. DDD glossary check — if the project uses DDD, verify all domain terms match the canonical glossary
 
 ---
-
-_Delete this file when the plan is complete. If `plans/` is empty, delete the directory._
+*Delete this file when the plan is complete. If `plans/` is empty, delete the directory.*
 ```
 
 ## Constraints
@@ -69,4 +76,6 @@ _Delete this file when the plan is complete. If `plans/` is empty, delete the di
 - Write the plan to a file, never present it inline in chat
 - **Prefer multiple small PRs** — break work into the smallest independently mergeable units. Each PR should be reviewable in isolation.
 - Each step in the plan must be small enough for a single commit
-- Each step must follow RED-GREEN-REFACTOR (specify the failing test first)
+- **TDD is mandatory** — every step must specify the failing test first (RED), then the minimum implementation (GREEN), then mutation testing to verify test effectiveness, then kill surviving mutants, then refactoring assessment. No exceptions.
+- **Test behaviour, not implementation** — acceptance criteria and test descriptions must describe observable outcomes (what the user sees, what the API returns), never internal details (what function was called, what query was run)
+- **Read project testing rules** — before writing steps, read the project's CLAUDE.md and any testing guidelines to ensure tests follow the project's conventions (factories, MSW vs mocks, real DB vs stubs, etc.)
