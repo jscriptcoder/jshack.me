@@ -6,34 +6,32 @@ export type SameLayerCredential = {
   readonly password: string;
 };
 
+// Extracts eligible (non-root, non-guest) credentials for a machine IP.
+const peerCredentials = (
+  credentials: CredentialMap,
+  peerIp: string,
+): readonly SameLayerCredential[] =>
+  (credentials[peerIp] ?? [])
+    .filter((c) => c.username !== 'root' && c.username !== 'guest')
+    .map((c) => ({ ip: peerIp, username: c.username, password: c.password }));
+
 // Builds a map from each machine IP to the credentials of other machines in the same layer.
 // Used for cross-machine credential leak placement — a machine can reference any
 // peer in its own subnet (realistic: same admin, same network segment).
 export const buildSameLayerCredentials = (
   layers: readonly SubnetLayer[],
   credentials: CredentialMap,
-): ReadonlyMap<string, readonly SameLayerCredential[]> => {
-  const result = new Map<string, readonly SameLayerCredential[]>();
-
-  for (const layer of layers) {
-    const machineIps = layer.machines.map((m) => m.ip);
-
-    for (const ip of machineIps) {
-      const peers = machineIps
-        .filter((peerIp) => peerIp !== ip)
-        .flatMap((peerIp) => {
-          const peerCreds = credentials[peerIp] ?? [];
-          // Only include non-root, non-guest credentials — realistic lateral movement targets
-          return peerCreds
-            .filter((c) => c.username !== 'root' && c.username !== 'guest')
-            .map((c) => ({ ip: peerIp, username: c.username, password: c.password }));
+): ReadonlyMap<string, readonly SameLayerCredential[]> =>
+  new Map(
+    layers
+      .flatMap((layer) => {
+        const ips = layer.machines.map((m) => m.ip);
+        return ips.map((ip) => {
+          const peers = ips
+            .filter((peerIp) => peerIp !== ip)
+            .flatMap((peerIp) => peerCredentials(credentials, peerIp));
+          return [ip, peers] as const;
         });
-
-      if (peers.length > 0) {
-        result.set(ip, peers);
-      }
-    }
-  }
-
-  return result;
-};
+      })
+      .filter(([, peers]) => peers.length > 0),
+  );
