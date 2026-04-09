@@ -6,11 +6,13 @@ import type { MachineFileSystemConfig, UserConfig } from '../../filesystem/fileS
 import {
   configTemplatesByRole,
   credentialLeakTemplates,
+  crossMachineCredentialLeakTemplates,
   httpEntryCredentialTemplates,
   logTemplates,
   noiseFiles,
   redHerringFiles,
   webContentTemplatesByRole,
+  webCredentialTemplates,
 } from '../pools';
 import { wrapInBinaryNoise } from '../binary';
 import {
@@ -29,6 +31,7 @@ import {
 } from '../generateDatabase';
 import { generateRedisData } from '../generateRedisData';
 import { generateFtpVirtualUsers, formatVirtualUsersConf } from '../ftpCredentials';
+import type { SameLayerCredential } from './sameLayerCredentials';
 
 // Infrastructure service PID file definitions. Maps service names to their
 // daemon binary, PID file name, and run user. SSH/FTP are handled separately
@@ -146,6 +149,122 @@ const placeCredentialLeak = (
     }
   } else {
     extraDirectories[topDir] = buildNestedDirs(segments, file);
+  }
+};
+
+const CROSS_MACHINE_LEAK_CHANCE = 0.3;
+
+// Places a cross-machine credential leak file on a machine ~30% of the time.
+// These reference same-layer peer machines, enabling lateral movement after escalation.
+// Files are root- or user-owned (NOT guest) — requires privilege escalation to read.
+// Always consumes 3 PRNG calls for sequence stability.
+const placeCrossMachineCredentialLeak = (
+  prng: Prng,
+  sameLayerCreds: readonly SameLayerCredential[],
+  ownerUsername: string,
+  extraDirectories: Record<string, FileNode>,
+  etcExtraContent: Record<string, FileNode>,
+): void => {
+  const roll = prng.next();
+  const template = prng.pick(crossMachineCredentialLeakTemplates);
+  const targetIdx = prng.nextInt(0, Math.max(sameLayerCreds.length, 1));
+
+  if (roll >= CROSS_MACHINE_LEAK_CHANCE || sameLayerCreds.length === 0) return;
+
+  const target = sameLayerCreds[targetIdx % sameLayerCreds.length]!;
+
+  const content = fillTemplate(template.content, {
+    target_ip: target.ip,
+    target_username: target.username,
+    target_password: target.password,
+    owner: ownerUsername,
+  });
+
+  const path = fillTemplate(template.path, { owner: ownerUsername });
+  const segments = path.split('/').filter(Boolean);
+  const fileName = segments[segments.length - 1] ?? 'config';
+  const fileContent = template.binary ? wrapInBinaryNoise(prng, content) : content;
+
+  const file = mkFile(fileName, fileContent, template.owner);
+
+  const topDir = segments[0] ?? 'etc';
+
+  if (topDir === 'etc') {
+    if (segments.length === 2) {
+      etcExtraContent[fileName] = file;
+    } else {
+      const subSegments = segments.slice(1);
+      etcExtraContent[subSegments[0] as string] = buildNestedDirs(subSegments, file);
+    }
+    return;
+  }
+
+  const existingDir = extraDirectories[topDir];
+  if (existingDir) {
+    const leafDir = findLeafDir(existingDir);
+    if (leafDir?.children) {
+      (leafDir.children as Record<string, FileNode>)[fileName] = file;
+    }
+  } else {
+    extraDirectories[topDir] = buildNestedDirs(segments, file);
+  }
+};
+
+const WEB_CREDENTIAL_CHANCE = 0.3;
+
+// Places same-machine credentials in /var/www/html/ on non-entry web machines (~30%).
+// Supports body-based (creds in file content) and header-based (.headers sidecar).
+// Always consumes 2 PRNG calls for sequence stability.
+const placeWebCredentials = (
+  prng: Prng,
+  machineCreds: readonly { readonly username: string; readonly password: string }[],
+  htmlChildren: Record<string, FileNode>,
+): void => {
+  const roll = prng.next();
+  const template = prng.pick(webCredentialTemplates);
+
+  const userCred = machineCreds.find((c) => c.username !== 'root' && c.username !== 'guest');
+  if (roll >= WEB_CREDENTIAL_CHANCE || !userCred) return;
+
+  if (template.sidecarHeader) {
+    const credString = `${userCred.username}:${userCred.password}`;
+    const sidecarContent = `${template.sidecarHeader}: ${credString}`;
+    const segments = template.webPath.split('/');
+    const fileName = segments[segments.length - 1] as string;
+    const sidecarName = `${fileName}.headers`;
+
+    if (segments.length === 1) {
+      if (template.content) {
+        htmlChildren[fileName] = mkFile(fileName, template.content);
+      }
+      htmlChildren[sidecarName] = mkFile(sidecarName, sidecarContent);
+    } else {
+      const dirName = segments[0] as string;
+      const dirChildren: Record<string, FileNode> = {
+        ...(template.content ? { [fileName]: mkFile(fileName, template.content) } : {}),
+        [sidecarName]: mkFile(sidecarName, sidecarContent),
+      };
+      htmlChildren[dirName] = mkDir(dirName, dirChildren, 'root', true);
+    }
+  } else {
+    const content = fillTemplate(template.content, {
+      username: userCred.username,
+      password: userCred.password,
+    });
+    const segments = template.webPath.split('/');
+    const fileName = segments[segments.length - 1] as string;
+
+    if (segments.length === 1) {
+      htmlChildren[fileName] = mkFile(fileName, content);
+    } else {
+      const dirName = segments[0] as string;
+      htmlChildren[dirName] = mkDir(
+        dirName,
+        { [fileName]: mkFile(fileName, content) },
+        'root',
+        true,
+      );
+    }
   }
 };
 
@@ -303,6 +422,7 @@ export type BuildMachineConfigOptions = {
   readonly isFtpEntry?: boolean;
   readonly downstreamSubnet?: string;
   readonly dbEnrichment?: DbEnrichment;
+  readonly sameLayerCredentials?: readonly SameLayerCredential[];
 };
 
 export const buildMachineConfig = (
@@ -489,6 +609,17 @@ export const buildMachineConfig = (
   const mysqlPlaintextCreds = mysqlDb?.plaintextCredentials;
   placeCredentialLeak(prng, machineCreds, mysqlPlaintextCreds, extraDirectories, etcExtraContent);
 
+  // ~30% chance to place a cross-machine credential leak referencing a same-layer peer.
+  // Not placed on target machines (target shouldn't leak credentials for other machines).
+  const ownerUser = users.find((u) => u.userType === 'user');
+  placeCrossMachineCredentialLeak(
+    prng,
+    isTarget ? [] : (options.sameLayerCredentials ?? []),
+    ownerUser?.username ?? 'user',
+    extraDirectories,
+    etcExtraContent,
+  );
+
   // FTP virtual users: separate FTP credentials stored in /etc/vsftpd/virtual_users.conf.
   // FTP-entry machines always get virtual users. Other machines with FTP open get
   // them ~40% of the time. Always consume the PRNG roll for sequence stability.
@@ -526,8 +657,11 @@ export const buildMachineConfig = (
     };
 
     // HTTP entry variant: place credential files in /var/www/html/ for discovery via curl.
+    // Non-entry web machines: ~30% chance to expose same-machine credentials via curl/gobuster.
     if (isHttpEntry) {
       placeHttpEntryCredentials(prng, machineCreds, htmlChildren);
+    } else {
+      placeWebCredentials(prng, machineCreds, htmlChildren);
     }
 
     extraDirectories['var'] = mkDir(

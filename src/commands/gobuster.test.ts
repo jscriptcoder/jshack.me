@@ -343,9 +343,7 @@ describe('gobuster command', () => {
             : undefined,
         resolveDomain: () => undefined,
         resolveNat: (ip: string, port: number) =>
-          ip === routerIP && port === 8080
-            ? { ip: httpAltInternalIP, port }
-            : { ip, port },
+          ip === routerIP && port === 8080 ? { ip: httpAltInternalIP, port } : { ip, port },
         getNodeFromMachine: (machineId: string, path: string, _cwd: string): FileNode | null => {
           if (machineId === httpAltInternalIP && path === '/var/www/html') return altWebRoot;
           return null;

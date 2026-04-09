@@ -55,10 +55,12 @@ Pure data PR — add the template pool and types. No wiring yet.
 **Test**: Write a test that validates all cross-machine templates have required fields: `path`, `content` with `{{target_ip}}` and `{{target_username}}` and `{{target_password}}` placeholders, and `owner` of `'root'` or `'user'`.
 
 **Implementation**: In `src/generation/pools/credentials.ts`:
+
 - Add `CrossMachineCredentialLeakTemplate` type with `path`, `content` (string with `{{target_ip}}`, `{{target_username}}`, `{{target_password}}`), `owner: 'root' | 'user'`, and optional `binary` flag.
 - Add `crossMachineCredentialLeakTemplates` array with ~15-20 realistic templates.
 
 Template categories:
+
 - **Deploy/automation** (root-owned): `/root/.ssh/config`, `/opt/deploy/hosts.ini`, `/opt/ansible/inventory.yml`, `/root/deploy.sh`
 - **Backup scripts** (root-owned): `/etc/cron.d/backup`, `/opt/backups/sync.sh`, `/root/.netrc`
 - **App configs** (user-owned): `/home/{{owner}}/projects/app/.env`, `/home/{{owner}}/.bash_history` (with ssh/scp commands showing passwords)
@@ -79,6 +81,7 @@ Wire the templates into the generation pipeline.
 **Test**: Write a unit test for a new `buildSameLayerCredentials` helper: given layers and a credential map, for a machine IP it returns credentials of other machines in the same layer (excluding self). Verify it returns empty for single-machine layers.
 
 **Implementation**: In `src/generation/filesystem/generateFileSystems.ts`:
+
 - Add helper function `buildSameLayerCredentials(layers, credentials)` that returns a `Map<string, ReadonlyArray<{ip, username, password}>>` — for each machine IP, the credentials of other same-layer machines.
 - Build this map before the per-machine loop.
 
@@ -87,6 +90,7 @@ Wire the templates into the generation pipeline.
 ### Step 4: Add placeCrossMachineCredentialLeak function
 
 **Test**: Write unit tests for `placeCrossMachineCredentialLeak`:
+
 1. When PRNG roll < 0.3 and same-layer credentials exist, a file is placed with correct content referencing the target machine's IP and credentials.
 2. File is owned by root or user (never guest).
 3. When PRNG roll >= 0.3, no file is placed but PRNG calls are still consumed.
@@ -94,6 +98,7 @@ Wire the templates into the generation pipeline.
 5. `fillTemplate` correctly replaces `{{target_ip}}`, `{{target_username}}`, `{{target_password}}`.
 
 **Implementation**: In `src/generation/filesystem/machineConfig.ts`:
+
 - Add `CROSS_MACHINE_LEAK_CHANCE = 0.3`
 - Add `placeCrossMachineCredentialLeak(prng, sameLayerCreds, extraDirectories, etcExtraContent)` function following the same pattern as `placeCredentialLeak()` but:
   - Picks a random target from `sameLayerCreds` (3rd PRNG call)
@@ -108,6 +113,7 @@ Wire the templates into the generation pipeline.
 **Test**: Integration test using `generateFileSystems` with a known seed: verify that a machine with a cross-machine leak has a file referencing a valid same-layer machine's IP and credentials. Verify the file is NOT guest-owned.
 
 **Implementation**:
+
 - Add `sameLayerCredentials` to `BuildMachineConfigOptions`
 - In `generateFileSystems`, compute the same-layer credential map and pass it to each `buildMachineConfig` call
 - In `buildMachineConfig`, call `placeCrossMachineCredentialLeak()` after the existing `placeCredentialLeak()` call
@@ -124,6 +130,7 @@ Wire the templates into the generation pipeline.
 **Test**: Validate all web credential templates have `webPath`, `content` with `{{username}}`/`{{password}}`, and optional `sidecarHeader`.
 
 **Implementation**: In `src/generation/pools/credentials.ts`:
+
 - Add `webCredentialTemplates` array — a curated subset of `httpEntryCredentialTemplates` that make sense for non-entry machines (misconfigured `.env`, leaked config backups, debug endpoints with headers).
 - These expose same-machine credentials (SSH user/password for the machine being curl'd).
 - ~10-12 templates mixing body-based and header-based.
@@ -133,12 +140,14 @@ Wire the templates into the generation pipeline.
 ### Step 7: Add placeWebCredentials function
 
 **Test**: Write unit tests for `placeWebCredentials`:
+
 1. When PRNG roll < 0.3 and machine has non-root/non-guest creds, a web file is placed in htmlChildren.
 2. Header-based templates create `.headers` sidecar files.
 3. When PRNG roll >= 0.3, no file placed but PRNG calls consumed.
 4. When machine is HTTP entry, function is skipped (already has entry credentials).
 
 **Implementation**: In `src/generation/filesystem/machineConfig.ts`:
+
 - Add `WEB_CREDENTIAL_CHANCE = 0.3`
 - Add `placeWebCredentials(prng, machineCreds, htmlChildren)` — similar to `placeHttpEntryCredentials` but with probability gate and using `webCredentialTemplates`.
 - Always consumes 2 PRNG calls for stability.
@@ -150,6 +159,7 @@ Wire the templates into the generation pipeline.
 **Test**: Integration test: generate a network with a known seed, find a non-HTTP-entry machine with an open web port, verify it has web credentials discoverable via curl (body content or headers).
 
 **Implementation**:
+
 - In `buildMachineConfig`, after the existing HTTP entry credential block:
   - If `!isHttpEntry` and machine has an open HTTP/HTTPS/HTTP-ALT port, call `placeWebCredentials()`
   - This runs after web content generation so `htmlChildren` already has the index.html
@@ -171,6 +181,7 @@ Wire the templates into the generation pipeline.
 ### Step 10: Update documentation
 
 **Implementation**: Update:
+
 - `.claude/CLAUDE.md` — document cross-machine credentials, web credential exposure, new template types
 - `.claude/docs/architecture.md` — lateral movement section
 - `.claude/docs/infrastructure-design.md` — credential placement details

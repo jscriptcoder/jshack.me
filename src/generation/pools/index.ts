@@ -28,8 +28,18 @@ export {
   redHerringFiles,
 } from './filesystem';
 export { webContentTemplates, webContentTemplatesByRole } from './web';
-export type { CredentialLeakTemplate, HttpEntryCredentialTemplate } from './credentials';
-export { credentialLeakTemplates, httpEntryCredentialTemplates } from './credentials';
+export type {
+  CredentialLeakTemplate,
+  HttpEntryCredentialTemplate,
+  CrossMachineCredentialLeakTemplate,
+  WebCredentialTemplate,
+} from './credentials';
+export {
+  credentialLeakTemplates,
+  httpEntryCredentialTemplates,
+  crossMachineCredentialLeakTemplates,
+  webCredentialTemplates,
+} from './credentials';
 export type { ScriptFixTemplate } from './scriptFix';
 export { scriptFixTemplatesByRole } from './scriptFix';
 export type { ScriptAutoTemplate } from './scriptAuto';
