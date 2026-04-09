@@ -11,7 +11,7 @@ Use the `/plan` command to create plans. Use the `/continue` command to resume w
 
 ## Plans Directory
 
-Plans live in `plans/` at the project root. Each plan is a self-contained file named descriptively (e.g., `plans/gift-tracking.md`, `plans/email-validation.md`).
+Plans live in `plans/` at the project root. Each plan is a self-contained file named descriptively (e.g., `plans/wifi-cracking.md`, `plans/mission-generation.md`).
 
 To discover active plans: `ls plans/`
 
@@ -32,7 +32,6 @@ There will be exceptions — some changes are inherently coupled and splitting t
 ## What Makes a "Known-Good Increment"
 
 Each step MUST:
-
 - Leave all tests passing
 - Be independently deployable
 - Have clear done criteria
@@ -44,14 +43,12 @@ Each step MUST:
 ## Step Size Heuristics
 
 **Too big if:**
-
 - Takes more than one session
 - Requires multiple commits to complete
 - Has multiple "and"s in description
 - You're unsure how to test it
 
 **Right size if:**
-
 - One clear test case
 - One logical change
 - Can explain to someone quickly
@@ -60,10 +57,15 @@ Each step MUST:
 
 ## TDD Integration
 
-**Every step follows RED-GREEN-REFACTOR.** See `testing` skill for factory patterns.
+**Every step follows RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR.** See `tdd` skill for the workflow, `testing` skill for factory patterns.
 
 ```
 FOR EACH STEP:
+    │
+    ├─► CONFIRM: Present acceptance criteria for this step
+    │   - Human must approve criteria before any code is written
+    │   - Criteria must be specific and observable
+    │   - Do NOT proceed until human confirms
     │
     ├─► RED: Write failing test FIRST
     │   - Test describes expected behavior
@@ -74,12 +76,23 @@ FOR EACH STEP:
     │   - No premature optimization
     │   - Just make the test pass
     │
+    ├─► MUTATE: Verify test effectiveness
+    │   - Run `mutation-testing` skill
+    │   - Produces a mutation testing report
+    │
+    ├─► KILL MUTANTS: Address surviving mutants
+    │   - Add or strengthen tests for surviving mutants
+    │   - Ask the human when a surviving mutant's value is ambiguous
+    │   - All tests pass after fixes
+    │
     ├─► REFACTOR: Assess improvements
     │   - See `refactoring` skill
     │   - Only if it adds value
     │   - All tests still pass
     │
-    └─► STOP: Wait for commit approval
+    └─► STOP: Present the work and wait for commit approval
+         - Show what was implemented and the mutation testing report
+         - Human reviews and approves before commit
 ```
 
 **No exceptions. No "I'll add tests later."**
@@ -88,11 +101,12 @@ FOR EACH STEP:
 
 **NEVER commit without user approval.**
 
-After completing a step (RED-GREEN-REFACTOR):
+After completing a step (RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR):
 
 1. Verify all tests pass
 2. Verify static analysis passes
-3. **STOP and ask**: "Ready to commit [description]. Approve?"
+3. Present the mutation testing report
+4. **STOP and ask**: "Ready to commit [description]. Approve?"
 
 Only proceed with commit after explicit approval.
 
@@ -119,36 +133,48 @@ Each plan file in `plans/` follows this structure:
 
 ## Acceptance Criteria
 
+[Behaviour-driven criteria — describe observable business outcomes, not implementation details.
+Test at the lowest level that gives confidence: prefer unit tests (vitest) for logic and domain behaviour, browser tests (vitest browser mode) for UI interaction, Playwright integration tests only for end-to-end flows. Avoid defaulting to Playwright for everything.]
+
 - [ ] Criterion 1
 - [ ] Criterion 2
 - [ ] Criterion 3
 
 ## Steps
 
+Every step follows RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR. No production code without a failing test.
+Read the project's CLAUDE.md and testing rules before writing steps.
+
 ### Step 1: [One sentence description]
 
-**Test**: What failing test will we write?
-**Implementation**: What code will we write?
-**Done when**: How do we know it's complete?
+**Acceptance criteria**: [What observable behaviour proves this step is done? Be specific — "user sees X", "API returns Y", "test covers Z". Vague criteria like "it works" are not acceptable. **Present to human and get confirmation before writing any code.**]
+**RED**: What failing test will we write? (Describes expected behaviour, not implementation.)
+**GREEN**: What minimum code makes the test pass?
+**MUTATE**: Run `mutation-testing` skill — produce a report.
+**KILL MUTANTS**: Address surviving mutants (ask human when value is ambiguous).
+**REFACTOR**: Assess improvements (only if they add value).
+**Done when**: All acceptance criteria met, mutation report reviewed, human approves commit.
 
 ### Step 2: [One sentence description]
 
-**Test**: ...
-**Implementation**: ...
+**Acceptance criteria**: ...
+**RED**: ...
+**GREEN**: ...
+**MUTATE**: ...
+**KILL MUTANTS**: ...
+**REFACTOR**: ...
 **Done when**: ...
 
 ## Pre-PR Quality Gate
 
 Before each PR:
-
 1. Mutation testing — run `mutation-testing` skill
 2. Refactoring assessment — run `refactoring` skill
 3. Typecheck and lint pass
-4. DDD glossary check (if applicable)
+4. DDD glossary check — if the project uses DDD, verify all domain terms match the canonical glossary
 
 ---
-
-_Delete this file when the plan is complete. If `plans/` is empty, delete the directory._
+*Delete this file when the plan is complete. If `plans/` is empty, delete the directory.*
 ```
 
 ### Plan Changes Require Approval
@@ -172,23 +198,18 @@ When all steps are complete:
 ## Anti-Patterns
 
 ❌ **Committing without approval**
-
 - Always wait for explicit "yes" before committing
 
 ❌ **Steps that span multiple commits**
-
 - Break down further until one step = one commit
 
 ❌ **Writing code before tests**
-
 - RED comes first, always
 
 ❌ **Plans that change silently**
-
 - All plan changes require discussion and approval
 
 ❌ **Keeping plan files after feature complete**
-
 - Delete them; knowledge lives in CLAUDE.md, ADRs, and git history
 
 ## Quick Reference
@@ -200,10 +221,13 @@ START FEATURE
 │
 │   FOR EACH STEP:
 │   │
+│   ├─► CONFIRM: Present acceptance criteria, **wait for human approval**
 │   ├─► RED: Failing test
 │   ├─► GREEN: Make it pass
+│   ├─► MUTATE: Run mutations, produce report
+│   ├─► KILL MUTANTS: Address survivors (ask human when ambiguous)
 │   ├─► REFACTOR: If valuable
-│   └─► **WAIT FOR COMMIT APPROVAL**
+│   └─► **PRESENT WORK + REPORT, WAIT FOR COMMIT APPROVAL**
 │
 END FEATURE
 │

@@ -12,7 +12,7 @@ description: Working expectations and documentation practices. Use when capturin
 3. **Understand the full context** of the code and requirements
 4. **Ask clarifying questions** when requirements are ambiguous
 5. **Think from first principles** - don't make assumptions
-6. **Assess refactoring after every green** - but only refactor if it adds value
+6. **Assess refactoring after mutation testing confirms test strength** - but only refactor if it adds value
 7. **Keep project docs current** - Update CLAUDE.md when introducing meaningful changes
 
 ## Documentation Framework
@@ -20,7 +20,6 @@ description: Working expectations and documentation practices. Use when capturin
 **At the end of every significant change, ask: "What do I wish I'd known at the start?"**
 
 Document if ANY of these are true:
-
 - Would save future developers significant time
 - Prevents a class of bugs or errors
 - Reveals non-obvious behavior or constraints
@@ -31,7 +30,7 @@ Document if ANY of these are true:
 
 ## Types of Learnings to Capture
 
-- **Gotchas**: Unexpected behavior discovered (e.g., "API returns null instead of empty array")
+- **Gotchas**: Unexpected behavior discovered (e.g., "PRNG sequence shifts when adding rolls before existing generation code")
 - **Patterns**: Approaches that worked particularly well
 - **Anti-patterns**: Approaches that seemed good but caused problems
 - **Decisions**: Architectural choices with rationale and trade-offs
@@ -48,10 +47,10 @@ Document if ANY of these are true:
 **Solution**: How to handle it
 
 // CORRECT - Solution
-const example = "correct approach";
+const machines = generateLayer(prng, difficulty);
 
 // WRONG - What causes the problem
-const wrong = "incorrect approach";
+const machines = generateLayer(new Prng(seed), difficulty); // Creates new PRNG, breaks sequence
 ```
 
 ## Code Change Principles

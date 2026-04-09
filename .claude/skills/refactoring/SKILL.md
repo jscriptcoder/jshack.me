@@ -1,53 +1,51 @@
 ---
 name: refactoring
-description: Refactoring assessment and patterns. Use after tests pass (GREEN phase) to assess improvement opportunities.
+description: Refactoring assessment and patterns. Use after mutation testing validates test strength (MUTATE phase) to assess improvement opportunities.
 ---
 
 # Refactoring
 
-Refactoring is the third step of TDD. After GREEN, assess if refactoring adds value.
+Refactoring is the final step of TDD. After mutation testing confirms test strength, assess if refactoring adds value.
 
 ## When to Refactor
 
-- Always assess after green
+- Always assess after mutation testing confirms test strength
 - Only refactor if it improves the code
 - **Commit working code BEFORE refactoring** (critical safety net)
 
 ### Commit Before Refactoring - WHY
 
 Having a working baseline before refactoring:
-
 - Allows reverting if refactoring breaks things
 - Provides safety net for experimentation
 - Makes refactoring less risky
 - Shows clear separation in git history
 
 **Workflow:**
-
 1. GREEN: Tests pass
-2. COMMIT: Save working code
-3. REFACTOR: Improve structure
-4. COMMIT: Save refactored code
+2. MUTATE: Verify test effectiveness
+3. KILL MUTANTS: Address surviving mutants
+4. COMMIT: Save working code with strong tests
+5. REFACTOR: Improve structure
+6. COMMIT: Save refactored code
 
 ## Priority Classification
 
-| Priority | Action       | Examples                                            |
-| -------- | ------------ | --------------------------------------------------- |
-| Critical | Fix now      | Mutations, knowledge duplication, >3 levels nesting |
-| High     | This session | Magic numbers, unclear names, >30 line functions    |
-| Nice     | Later        | Minor naming, single-use helpers                    |
-| Skip     | Don't change | Already clean code                                  |
+| Priority | Action | Examples |
+|----------|--------|----------|
+| Critical | Fix now | Mutations, knowledge duplication, >3 levels nesting |
+| High | This session | Magic numbers, unclear names, >30 line functions |
+| Nice | Later | Minor naming, single-use helpers |
+| Skip | Don't change | Already clean code |
 
 ## DRY = Knowledge, Not Code
 
 **Abstract when**:
-
 - Same business concept (semantic meaning)
 - Would change together if requirements change
 - Obvious why grouped together
 
 **Keep separate when**:
-
 - Different concepts that look similar (structural)
 - Would evolve independently
 - Coupling would be confusing
@@ -55,21 +53,18 @@ Having a working baseline before refactoring:
 ## Example Assessment
 
 ```typescript
-// After GREEN:
-const countOpenPorts = (machine: RemoteMachine): PortSummary => {
-  const openPorts = machine.ports.filter((p) => p.open);
-  const vulnerable = openPorts.filter((p) => p.vulnerability !== undefined);
-  return {
-    total: openPorts.length,
-    vulnerable: vulnerable.length,
-    safe: openPorts.length - vulnerable.length,
-  };
+// After MUTATE + KILL MUTANTS:
+const enrichMachine = (machine: GeneratedMachine, prng: Prng): GeneratedMachine => {
+  const users = generateUsers(prng, machine.role);
+  const guestChance = machine.role === 'database' ? 0.5 : 0.3;
+  const hasGuest = prng.next() < guestChance;
+  return { ...machine, users: hasGuest ? [...users, generateGuestUser(prng)] : users };
 };
 
 // ASSESSMENT:
-// ⚠️ High: Repeated openPorts.length → extract to const
+// ⚠️ High: Magic numbers 0.5, 0.3 → extract constants (GUEST_CHANCE_DB, GUEST_CHANCE_DEFAULT)
 // ✅ Skip: Structure is clear enough
-// DECISION: Extract repeated expression only
+// DECISION: Extract constants only
 ```
 
 ## Speculative Code is a TDD Violation
@@ -79,7 +74,6 @@ If code isn't driven by a failing test, don't write it.
 **Key lesson**: Every line must have a test that demanded its existence.
 
 ❌ **Speculative code examples:**
-
 - "Just in case" logic
 - Features not yet needed
 - Code written "for future flexibility"
@@ -89,8 +83,8 @@ If code isn't driven by a failing test, don't write it.
 
 ```typescript
 // ❌ WRONG - Speculative error handling (no test demands this)
-if (items.length === 0) {
-  throw new Error('Empty cart'); // No test for this path!
+if (machine.ports.length === 0) {
+  throw new Error('Machine has no ports'); // No test for this path!
 }
 
 // ✅ CORRECT - Test-driven error handling
@@ -109,6 +103,7 @@ Don't refactor when:
 - ❌ Would change behavior (that's a feature, not refactoring)
 - ❌ Premature optimization
 - ❌ Code is "good enough" for current phase
+- ❌ **Extracting purely for testability** — if the only reason to move code into a separate file is "so we can unit test it", keep it inline. The consuming function already has behavioral tests that cover this code. Extract for readability, DRY (same knowledge used in multiple places — see "DRY = Knowledge, Not Code" above), or separation of concerns, never for testability alone.
 
 **Remember**: Refactoring should improve code structure without changing behavior.
 
@@ -117,9 +112,9 @@ Don't refactor when:
 ## Commit Messages for Refactoring
 
 ```
-refactor: extract permission traversal logic
-refactor: simplify command access check flow
-refactor: rename ambiguous network parameters
+refactor: extract permission validation helpers
+refactor: simplify NAT resolution flow
+refactor: rename ambiguous PRNG parameter names
 ```
 
 **Format**: `refactor: <what was changed>`

@@ -11,23 +11,29 @@ TDD is the fundamental practice. Every line of production code must be written i
 
 ---
 
-## RED-GREEN-REFACTOR Cycle
+## RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR Cycle
 
 ### RED: Write Failing Test First
-
 - NO production code until you have a failing test
 - Test describes desired behavior, not implementation
 - Test should fail for the right reason
 
 ### GREEN: Minimum Code to Pass
-
 - Write ONLY enough code to make the test pass
 - Resist adding functionality not demanded by a test
-- Commit immediately after green
+
+### MUTATE: Verify Test Effectiveness
+- Run `mutation-testing` skill against the changed code
+- Produce a mutation testing report (killed/survived/score)
+- This validates whether your tests would catch real bugs
+
+### KILL MUTANTS: Address Surviving Mutants
+- Add or strengthen tests to kill surviving mutants
+- Ask the human when a surviving mutant's value is ambiguous
+- All tests pass after fixes
 
 ### REFACTOR: Assess Improvements
-
-- Assess AFTER every green (but only refactor if it adds value)
+- Assess AFTER mutation testing confirms test strength
 - Commit before refactoring
 - All tests must pass after refactoring
 
@@ -37,14 +43,14 @@ TDD is the fundamental practice. Every line of production code must be written i
 
 ### Default Expectation
 
-Commit history should show clear RED → GREEN → REFACTOR progression.
+Commit history should show clear RED → GREEN → MUTATE → KILL MUTANTS → REFACTOR progression.
 
 **Ideal progression:**
-
 ```
-commit abc123: test: add failing test for user authentication
-commit def456: feat: implement user authentication to pass test
-commit ghi789: refactor: extract validation logic for clarity
+commit abc123: test: add failing test for filesystem traversal check
+commit def456: feat: implement traversal permission checking to pass test
+commit ghi789: test: strengthen boundary tests (mutation testing)
+commit jkl012: refactor: extract permission helpers for clarity
 ```
 
 ### Rare Exceptions
@@ -52,22 +58,19 @@ commit ghi789: refactor: extract validation logic for clarity
 TDD evidence may not be linearly visible in commits in these cases:
 
 **1. Multi-Session Work**
-
 - Feature spans multiple development sessions
 - Work done with TDD in each session
 - Commits organized for PR clarity rather than strict TDD phases
 - **Evidence**: Tests exist, all passing, implementation matches test requirements
 
 **2. Context Continuation**
-
 - Resuming from previous work
 - Original RED phase done in previous session/commit
 - Current work continues from that point
 - **Evidence**: Reference to RED commit in PR description
 
 **3. Refactoring Commits**
-
-- Large refactors after GREEN
+- Large refactors after GREEN + MUTATE + KILL MUTANTS
 - Multiple small refactors combined into single commit
 - All tests remained green throughout
 - **Evidence**: Commit message notes "refactor only, no behavior change"
@@ -79,8 +82,9 @@ When exception applies, document in PR description:
 ```markdown
 ## TDD Evidence
 
-RED phase: commit c925187 (added failing tests for shopping cart)
+RED phase: commit c925187 (added failing tests for NAT resolution)
 GREEN phase: commits 5e0055b, 9a246d0 (implementation + bug fixes)
+MUTATE + KILL MUTANTS: commit 7b8c9d0 (strengthened boundary tests)
 REFACTOR: commit 11dbd1a (test isolation improvements)
 
 Test Evidence:
@@ -102,18 +106,13 @@ Test Evidence:
 **Before approving any PR claiming "100% coverage":**
 
 1. Check out the branch
-
    ```bash
    git checkout feature-branch
    ```
 
 2. Run coverage verification:
-
    ```bash
-   cd packages/core
-   pnpm test:coverage
-   # OR
-   pnpm exec vitest run --coverage
+   npm run test:coverage
    ```
 
 3. Verify ALL metrics hit 100%:
@@ -131,12 +130,12 @@ Test Evidence:
 Look for the "All files" line in coverage summary:
 
 ```
-File           | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s
----------------|---------|----------|---------|---------|-------------------
-All files      |     100 |      100 |     100 |     100 |
-setup.ts       |     100 |      100 |     100 |     100 |
-context.ts     |     100 |      100 |     100 |     100 |
-endpoints.ts   |     100 |      100 |     100 |     100 |
+File                    | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s
+------------------------|---------|----------|---------|---------|-------------------
+All files               |     100 |      100 |     100 |     100 |
+fileSystemUtils.ts      |     100 |      100 |     100 |     100 |
+fileSystemFactory.ts    |     100 |      100 |     100 |     100 |
+enrichment.ts           |     100 |      100 |     100 |     100 |
 ```
 
 ✅ This is 100% coverage - all four metrics at 100%.
@@ -146,27 +145,21 @@ endpoints.ts   |     100 |      100 |     100 |     100 |
 Watch for these signs of incomplete coverage:
 
 ❌ **PR claims "100% coverage" but you haven't verified**
-
 - Never trust claims without running coverage yourself
 
 ❌ **Coverage summary shows <100% on any metric**
-
 ```
-All files      |   97.11 |    93.97 |   81.81 |   97.11 |
+All files               |   97.11 |    93.97 |   81.81 |   97.11 |
 ```
-
 - This is NOT 100% coverage (Functions: 81.81%, Lines: 97.11%)
 
 ❌ **"Uncovered Line #s" column shows line numbers**
-
 ```
-setup.ts       |   95.23 |      100 |      60 |   95.23 | 45-48, 52-55
+enrichment.ts           |   95.23 |      100 |      60 |   95.23 | 45-48, 52-55
 ```
-
 - Lines 45-48 and 52-55 are not covered
 
 ❌ **Coverage gaps without explicit exception documentation**
-
 - If coverage <100%, exception should be documented (see Exception Process below)
 
 ### When Coverage Drops, Ask
@@ -192,7 +185,6 @@ If 100% coverage cannot be achieved:
 **Step 1: Document in package README**
 
 Explain:
-
 - Current coverage metrics
 - WHY 100% cannot be achieved in this package
 - WHERE the missing coverage will come from (integration tests, E2E, etc.)
@@ -210,9 +202,9 @@ Under "Test Coverage: 100% Required" section, list the exception
 ```markdown
 ## Current Exceptions
 
-- **Next.js Adapter**: 86% function coverage
-  - Documented in `/packages/nextjs-adapter/README.md`
-  - Missing coverage from SSR functions (tested in E2E layer)
+- **React Terminal Component**: 86% function coverage
+  - Documented in `/src/components/Terminal/README.md`
+  - Missing coverage from async command streaming (tested in E2E layer)
   - Approved: 2024-11-15
 ```
 
@@ -227,31 +219,38 @@ The burden of proof is on the requester. 100% is the default expectation.
 ### Adding a New Feature
 
 1. **Write failing test** - describe expected behavior
-2. **Run test** - confirm it fails (`pnpm test:watch`)
+2. **Run test** - confirm it fails (`npm test`)
 3. **Implement minimum** - just enough to pass
 4. **Run test** - confirm it passes
-5. **Refactor if valuable** - improve code structure
-6. **Commit** - with conventional commit message
+5. **Run mutation testing** - verify tests catch real bugs
+6. **Kill surviving mutants** - strengthen tests (ask human when ambiguous)
+7. **Refactor if valuable** - improve code structure
+8. **Commit** - with conventional commit message
 
 ### Workflow Example
 
 ```bash
 # 1. Write failing test
-it('should deny execute permission for guest users', () => {
-  const result = checkPermission(guestUser, fileNode, 'execute');
-  expect(result).toEqual({ allowed: false, error: 'Permission denied' });
+it('rejects traversal for guest through root-only directory', () => {
+  const fs = mkDir('root', { secret: mkDir('secret', {}, 'root', false) });
+  const result = checkTraversal(fs, '/secret/data.txt', 'guest');
+  expect(result.allowed).toBe(false);
 }); # ❌ Test fails (no implementation)
 
 # 2. Implement minimum code
-if (!node.permissions.execute.includes(userType)) {
-  return { allowed: false, error: 'Permission denied' };
+if (!dir.permissions.execute.includes(userType)) {
+  return { allowed: false, reason: `${path}: Permission denied` };
 } # ✅ Test passes
 
-# 3. Refactor if needed (extract validation, improve naming)
+# 3. Run mutation testing to verify test strength
 
-# 4. Commit
+# 4. Kill surviving mutants (ask human when ambiguous)
+
+# 5. Refactor if needed (extract helper, improve naming)
+
+# 6. Commit
 git add .
-git commit -m "feat: deny execute permission for non-permitted users"
+git commit -m "feat: enforce execute permission on directory traversal"
 ```
 
 ---
@@ -261,15 +260,14 @@ git commit -m "feat: deny execute permission for non-permitted users"
 Use conventional commits format:
 
 ```
-feat: add filesystem permission traversal checks
-fix: correct NAT port resolution for routed machines
-refactor: extract command access check logic
-test: add edge cases for root-only binary execution
+feat: add SNMP firewall override for gateway machines
+fix: correct NAT resolution for inner subnet gateways
+refactor: extract permission checking into utility functions
+test: add edge cases for filesystem traversal
 docs: update architecture documentation
 ```
 
 **Format:**
-
 - `feat:` - New feature
 - `fix:` - Bug fix
 - `refactor:` - Code change that neither fixes bug nor adds feature
@@ -293,38 +291,38 @@ Before submitting PR:
 ```markdown
 ## Summary
 
-Adds directory traversal checking for filesystem permission enforcement.
+Adds filesystem traversal permission checking with execute-bit enforcement on directories.
 
 ## Behavior Changes
 
-- `checkTraversal` verifies execute permission on each path segment
-- Permission denied if any parent directory lacks execute for current user
-- Root user bypasses traversal checks
+- Directory traversal now requires execute permission on each path segment
+- Root user bypasses all permission checks
+- Guest users can only traverse world-readable directories
 
 ## Test Evidence
 
-✅ 42/42 tests passing
+✅ 12/12 tests passing
 ✅ 100% coverage verified (see coverage report)
 
 ## TDD Evidence
 
-RED: commit 4a3b2c1 (failing tests for traversal permission checks)
+RED: commit 4a3b2c1 (failing tests for traversal checking)
 GREEN: commit 5d4e3f2 (implementation)
-REFACTOR: commit 6e5f4a3 (extract traversal resolution logic)
+REFACTOR: commit 6e5f4a3 (extract permission resolution logic)
 ```
 
 ---
 
 ## Refactoring Priority
 
-After green, classify any issues:
+After mutation testing confirms test strength, classify any issues:
 
-| Priority | Action       | Examples                                            |
-| -------- | ------------ | --------------------------------------------------- |
-| Critical | Fix now      | Mutations, knowledge duplication, >3 levels nesting |
-| High     | This session | Magic numbers, unclear names, >30 line functions    |
-| Nice     | Later        | Minor naming, single-use helpers                    |
-| Skip     | Don't change | Already clean code                                  |
+| Priority | Action | Examples |
+|----------|--------|----------|
+| Critical | Fix now | Mutations, knowledge duplication, >3 levels nesting |
+| High | This session | Magic numbers, unclear names, >30 line functions |
+| Nice | Later | Minor naming, single-use helpers |
+| Skip | Don't change | Already clean code |
 
 For detailed refactoring methodology, load the `refactoring` skill.
 
@@ -354,6 +352,7 @@ Before marking work complete:
 - [ ] Commit history shows TDD evidence (or documented exception)
 - [ ] All tests pass
 - [ ] Coverage verified at 100% (or exception documented)
+- [ ] Mutation testing run and surviving mutants addressed
 - [ ] Test factories used (no `let`/`beforeEach`)
 - [ ] Tests verify behavior (not implementation details)
 - [ ] Refactoring assessed and applied if valuable

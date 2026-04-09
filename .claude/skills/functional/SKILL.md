@@ -27,18 +27,17 @@ Immutable data is the foundation of functional programming. Understanding WHY he
 - **Concurrency-safe**: No race conditions when data can't change
 
 **Example of the problem:**
-
 ```typescript
 // ❌ WRONG - Mutation creates unpredictable behavior
-const machine = { hostname: 'target', ports: [{ port: 22, open: true }] };
-addPort(machine, { port: 80, open: false }); // Mutates machine.ports internally
+const machine = { ip: '10.0.1.5', ports: [{ port: 22, service: 'ssh', open: true }] };
+addPort(machine, { port: 80, service: 'http', open: true }); // Mutates machine.ports internally
 console.log(machine.ports.length); // 2 - SURPRISE! machine changed
 ```
 
 ```typescript
 // ✅ CORRECT - Immutable approach is predictable
-const machine = { hostname: 'target', ports: [{ port: 22, open: true }] };
-const updatedMachine = addPort(machine, { port: 80, open: false }); // Returns new object
+const machine = { ip: '10.0.1.5', ports: [{ port: 22, service: 'ssh', open: true }] };
+const updatedMachine = addPort(machine, { port: 80, service: 'http', open: true }); // Returns new object
 console.log(machine.ports.length); // 1 - original unchanged
 console.log(updatedMachine.ports.length); // 2 - new version
 ```
@@ -50,14 +49,12 @@ console.log(updatedMachine.ports.length); // 2 - new version
 We follow "Functional Light" principles - practical functional patterns without heavy abstractions:
 
 **What we DO:**
-
 - Pure functions and immutable data
 - Composition and declarative code
 - Array methods over loops
 - Type safety and readonly
 
 **What we DON'T do:**
-
 - Category theory or monads
 - Heavy FP libraries (fp-ts, Ramda)
 - Over-engineering with abstractions
@@ -66,20 +63,17 @@ We follow "Functional Light" principles - practical functional patterns without 
 **Why:** The goal is **maintainable, testable code** - not academic purity. If a functional pattern makes code harder to understand, don't use it.
 
 **Example - Keep it simple:**
-
 ```typescript
 // ✅ GOOD - Simple, clear, functional
-const openPorts = machine.ports.filter((p) => p.open);
-const serviceNames = openPorts.map((p) => p.service);
+const openPorts = machine.ports.filter(p => p.open);
+const serviceNames = openPorts.map(p => p.service);
 
 // ❌ OVER-ENGINEERED - Unnecessary abstraction
-const compose =
-  <T>(...fns: Array<(arg: T) => T>) =>
-  (x: T) =>
-    fns.reduceRight((v, f) => f(v), x);
-const openPorts = compose(
+const compose = <T>(...fns: Array<(arg: T) => T>) => (x: T) =>
+  fns.reduceRight((v, f) => f(v), x);
+const serviceNames = compose(
   filter((p: Port) => p.open),
-  map((p: Port) => p.service),
+  map((p: Port) => p.service)
 )(machine.ports);
 ```
 
@@ -97,17 +91,16 @@ Code should be clear through naming and structure. Comments that restate **what*
 
 ### Examples
 
-❌ **WRONG - Comments restating what the code does**
-
+❌ **WRONG - Comments explaining unclear code**
 ```typescript
-// Get the file and check if readable and user has access
-function check(f: any) {
-  // Check file exists
-  if (f) {
-    // Check if readable
-    if (f.r) {
+// Get the node and check if it's a file with read access
+function check(n: any) {
+  // Check node exists
+  if (n) {
+    // Check if file
+    if (n.t) {
       // Check permission
-      if (f.p) {
+      if (n.p) {
         return true;
       }
     }
@@ -177,15 +170,14 @@ If code needs **what** comments, refactor instead:
 - Break complex logic into steps
 - Use type aliases for domain concepts
 
-✅ **JSDoc for public APIs**
-
+✅ **Acceptable JSDoc for public APIs**
 ```typescript
 /**
- * Applies a filesystem patch to a machine's virtual filesystem.
- * @param patch - The patch containing path, content, and permissions
- * @throws {PermissionError} if current user lacks write access
+ * Creates a seeded PRNG for deterministic mission generation.
+ * @param seed - The mission seed string used to derive the initial state
+ * @throws {Error} if seed is empty
  */
-export function applyFileSystemPatch(patch: FileSystemPatch): void {
+export function createPrng(seed: string): Prng {
   // Implementation
 }
 ```
@@ -199,77 +191,68 @@ Prefer `map`, `filter`, `reduce` for transformations. They're declarative (what,
 ### Map - Transform Each Element
 
 ❌ **WRONG - Imperative loop**
-
 ```typescript
-const commandNames = [];
-for (const command of commands) {
-  commandNames.push(command.name);
+const serviceNames = [];
+for (const port of machine.ports) {
+  serviceNames.push(port.service);
 }
 ```
 
 ✅ **CORRECT - Functional map**
-
 ```typescript
-const commandNames = commands.map((c) => c.name);
+const serviceNames = machine.ports.map(p => p.service);
 ```
 
 ### Filter - Select Subset
 
 ❌ **WRONG - Imperative loop**
-
 ```typescript
-const networkCommands = [];
-for (const command of commands) {
-  if (command.category === 'network') {
-    networkCommands.push(command);
+const openPorts = [];
+for (const port of machine.ports) {
+  if (port.open) {
+    openPorts.push(port);
   }
 }
 ```
 
 ✅ **CORRECT - Functional filter**
-
 ```typescript
-const networkCommands = commands.filter((c) => c.category === 'network');
+const openPorts = machine.ports.filter(p => p.open);
 ```
 
 ### Reduce - Aggregate Values
 
 ❌ **WRONG - Imperative loop**
-
 ```typescript
-let openPortCount = 0;
-for (const port of machine.ports) {
-  if (port.open) openPortCount += 1;
+let totalMachines = 0;
+for (const layer of mission.layers) {
+  totalMachines += layer.machines.length;
 }
 ```
 
 ✅ **CORRECT - Functional reduce**
-
 ```typescript
-const openPortCount = machine.ports.reduce((count, port) => count + (port.open ? 1 : 0), 0);
+const totalMachines = mission.layers.reduce((sum, layer) => sum + layer.machines.length, 0);
 ```
 
 ### Chaining Multiple Operations
 
 ✅ **CORRECT - Compose array methods**
-
 ```typescript
-const vulnerableServices = machine.ports
-  .filter((port) => port.open)
-  .filter((port) => port.vulnerability !== undefined)
-  .map((port) => port.service);
+const sshTargets = network.machines
+  .filter(m => !m.bricked)
+  .map(m => m.ports.filter(p => p.port === 22 && p.open))
+  .reduce((all, ports) => [...all, ...ports], []);
 ```
 
 ### When Loops Are Acceptable
 
 Imperative loops are fine when:
-
 - Early termination is essential (use `for...of` with `break`)
 - Performance critical (measure first!)
 - Side effects are necessary (logging, DOM manipulation)
 
 But even then, consider:
-
 - `Array.find()` for early termination
 - `Array.some()` / `Array.every()` for boolean checks
 
@@ -282,7 +265,6 @@ Default to options objects for function parameters. This improves readability an
 ### Why Options Objects?
 
 **Benefits:**
-
 - Named parameters (clear what each argument means)
 - No ordering dependencies
 - Easy to add optional parameters
@@ -292,66 +274,63 @@ Default to options objects for function parameters. This improves readability an
 ### Examples
 
 ❌ **WRONG - Positional parameters**
-
 ```typescript
-function createRemoteMachine(
-  ip: string,
-  hostname: string,
-  ports: readonly Port[],
-  users: readonly RemoteUser[],
-  vulnerable: boolean,
-  natEnabled: boolean,
-): RemoteMachine {
+function generateMission(
+  seed: string,
+  difficulty: Difficulty,
+  entryVariant: EntryVariant,
+  networkMode: NetworkMode,
+  domainEntry: boolean,
+  gpgEnabled: boolean
+): MissionNetwork {
   // ...
 }
 
 // Call site - unclear what parameters mean
-createRemoteMachine('10.0.0.5', 'target', ports, users, true, false);
+generateMission('abc123', 'hard', 'ssh', 'nat', true, false);
 ```
 
 ✅ **CORRECT - Options object**
-
 ```typescript
-type CreateRemoteMachineOptions = {
-  readonly ip: string;
-  readonly hostname: string;
-  readonly ports: readonly Port[];
-  readonly users: readonly RemoteUser[];
-  readonly vulnerable?: boolean;
-  readonly natEnabled?: boolean;
+type GenerateMissionOptions = {
+  readonly seed: string;
+  readonly difficulty: Difficulty;
+  readonly entryVariant: EntryVariant;
+  readonly networkMode: NetworkMode;
+  readonly domainEntry?: boolean;
+  readonly gpgEnabled?: boolean;
 };
 
-function createRemoteMachine(options: CreateRemoteMachineOptions): RemoteMachine {
-  const { ip, hostname, ports, users, vulnerable = false, natEnabled = false } = options;
+function generateMission(options: GenerateMissionOptions): MissionNetwork {
+  const { seed, difficulty, entryVariant, networkMode, domainEntry = false, gpgEnabled = false } = options;
   // ...
 }
 
 // Call site - crystal clear
-createRemoteMachine({
-  ip: '10.0.0.5',
-  hostname: 'target',
-  ports: [{ port: 22, service: 'ssh', open: true }],
-  users: [{ username: 'admin', password: 'secret' }],
-  vulnerable: true,
+generateMission({
+  seed: 'abc123',
+  difficulty: 'hard',
+  entryVariant: 'ssh',
+  networkMode: 'nat',
+  domainEntry: true,
 });
 ```
 
 ### When Positional Parameters Are OK
 
 Use positional parameters when:
-
 - 1-2 parameters max
 - Order is obvious (e.g., `add(a, b)`)
 - High-frequency utility functions
 
 ```typescript
 // ✅ OK - Obvious ordering, few parameters
-function add(a: number, b: number): number {
-  return a + b;
+function resolvePath(path: string, cwd: string): string {
+  return normalizePath(`${cwd}/${path}`);
 }
 
-function updateFileNode(node: FileNode, changes: Partial<FileNode>): FileNode {
-  return { ...node, ...changes };
+function addChild(parent: FileNode, child: FileNode): FileNode {
+  return { ...parent, children: { ...parent.children, [child.name]: child } };
 }
 ```
 
@@ -378,28 +357,29 @@ Pure functions have no side effects and always return the same output for the sa
 ### Examples
 
 ❌ **WRONG - Impure function (mutations)**
-
 ```typescript
-function addPort(ports: Port[], newPort: Port): void {
-  ports.push(newPort); // ❌ Mutates input
+function addMachine(machines: GeneratedMachine[], newMachine: GeneratedMachine): void {
+  machines.push(newMachine); // ❌ Mutates input
 }
 
-let lineId = 0;
-function nextLineId(): number {
-  lineId++; // ❌ Modifies external state
-  return lineId;
+let portCount = 0;
+function countPort(): number {
+  portCount++; // ❌ Modifies external state
+  return portCount;
 }
 ```
 
 ✅ **CORRECT - Pure functions**
-
 ```typescript
-function addPort(ports: ReadonlyArray<Port>, newPort: Port): ReadonlyArray<Port> {
-  return [...ports, newPort]; // ✅ Returns new array
+function addMachine(
+  machines: ReadonlyArray<GeneratedMachine>,
+  newMachine: GeneratedMachine,
+): ReadonlyArray<GeneratedMachine> {
+  return [...machines, newMachine]; // ✅ Returns new array
 }
 
-function nextLineId(currentId: number): number {
-  return currentId + 1; // ✅ No external state
+function countPort(current: number): number {
+  return current + 1; // ✅ No external state
 }
 ```
 
@@ -418,18 +398,14 @@ Some functions must be impure (I/O, randomness, side effects). Isolate them:
 ```typescript
 // ✅ CORRECT - Isolate impure functions at edges
 // Pure core
-function buildOutputLines(content: string, startId: number): ReadonlyArray<OutputLine> {
-  return content.split('\n').map((line, i) => ({
-    id: startId + i,
-    type: 'result' as const,
-    content: line,
-  }));
+function countOpenPorts(machine: Readonly<RemoteMachine>): number {
+  return machine.ports.reduce((sum, p) => sum + (p.open ? 1 : 0), 0);
 }
 
 // Impure shell (isolated)
-async function persistFileSystemPatch(patch: FileSystemPatch): Promise<void> {
-  const validated = validatePatch(patch); // Pure
-  await indexedDB.savePatch(validated); // Impure (I/O)
+function persistPatch(patch: FileSystemPatch): void {
+  const count = countOpenPorts(machine); // Pure
+  indexedDB.put('patches', patch); // Impure (I/O)
 }
 ```
 
@@ -451,74 +427,63 @@ Compose small functions into larger ones. Each function does one thing well.
 ### Examples
 
 ❌ **WRONG - Complex monolithic function**
-
 ```typescript
-function executeCommand(input: unknown) {
-  if (typeof input !== 'string' || !input) {
+function validateMissionSeed(input: unknown) {
+  if (typeof input !== 'object' || !input) {
     throw new Error('Invalid input');
   }
-  if (!commandMap.has(input)) {
-    throw new Error('Command not found');
+  if (!('seed' in input) || typeof input.seed !== 'string') {
+    throw new Error('Missing seed');
   }
-  if (!checkBinaryExists(input)) {
-    throw new Error('Binary not installed');
+  if (!('difficulty' in input) || typeof input.difficulty !== 'string') {
+    throw new Error('Missing difficulty');
   }
-  if (!checkExecutePermission(input, currentUser)) {
-    throw new Error('Permission denied');
+  if (!('machines' in input) || !Array.isArray(input.machines)) {
+    throw new Error('Missing machines');
   }
-  // ... 50 more lines of parsing and execution
+  // ... 50 more lines of validation and registration
 }
 ```
 
 ✅ **CORRECT - Composed functions**
-
 ```typescript
 // Small, focused functions
-const parseCommand = (input: string) => commandMap.get(input);
-const checkAccess = (cmd: Command) => wrapWithAccessCheck(cmd);
+const validate = (input: unknown) => MissionSeedSchema.parse(input);
+const generate = (config: MissionConfig) => generateMissionNetwork(config);
 
 // Compose them
-const executeCommand = (input: string) => checkAccess(parseCommand(input));
-
-// Even better - use pipe/compose utilities
-const executeCommand = pipe(parseCommand, checkAccess);
+const createMission = (input: unknown) => generate(validate(input));
 ```
 
 ### Composing Immutable Transformations
 
 ```typescript
 // Small transformation functions
-const addPort = (machine: RemoteMachine, port: Port): RemoteMachine => ({
+const addUsers = (machine: GeneratedMachine, users: ReadonlyArray<RemoteUser>): GeneratedMachine => ({
   ...machine,
-  ports: [...machine.ports, port],
+  users,
 });
 
-const setHostname = (machine: RemoteMachine, hostname: string): RemoteMachine => ({
+const addPorts = (machine: GeneratedMachine, ports: ReadonlyArray<Port>): GeneratedMachine => ({
   ...machine,
-  hostname,
+  ports,
 });
 
-const addUser = (machine: RemoteMachine, user: RemoteUser): RemoteMachine => ({
+const setRole = (machine: GeneratedMachine, role: MachineRole): GeneratedMachine => ({
   ...machine,
-  users: [...machine.users, user],
+  role,
 });
 
 // Compose them
-const buildTargetMachine = (machine: RemoteMachine): RemoteMachine => {
-  return addUser(
-    addPort(setHostname(machine, 'target-srv'), { port: 22, service: 'ssh', open: true }),
-    { username: 'admin', password: 'secret' },
+const enrichMachine = (machine: GeneratedMachine, prng: Prng): GeneratedMachine => {
+  return setRole(
+    addPorts(
+      addUsers(machine, generateUsers(prng)),
+      generatePorts(machine.role, prng)
+    ),
+    machine.role
   );
 };
-
-// Or use pipe for left-to-right reading
-const buildTargetMachine = (machine: RemoteMachine): RemoteMachine =>
-  pipe(
-    machine,
-    (m) => setHostname(m, 'target-srv'),
-    (m) => addPort(m, { port: 22, service: 'ssh', open: true }),
-    (m) => addUser(m, { username: 'admin', password: 'secret' }),
-  );
 ```
 
 ---
@@ -531,16 +496,16 @@ Use `readonly` on all data structures to signal immutability intent.
 
 ```typescript
 // ✅ CORRECT - Immutable data structure
-type Command = {
-  readonly name: string;
-  readonly category: CommandCategory;
-  readonly description: string;
+type RemoteMachine = {
+  readonly ip: string;
+  readonly hostname: string;
+  readonly ports: ReadonlyArray<Port>;
 };
 
 // ❌ WRONG - Mutable
-type Command = {
-  name: string;
-  category: CommandCategory;
+type RemoteMachine = {
+  ip: string;
+  hostname: string;
 };
 ```
 
@@ -548,13 +513,13 @@ type Command = {
 
 ```typescript
 // ✅ CORRECT - Immutable array
-type FileNode = {
-  readonly children: ReadonlyArray<FileNode>;
+type MissionNetwork = {
+  readonly machines: ReadonlyArray<GeneratedMachine>;
 };
 
 // ❌ WRONG - Mutable array
-type FileNode = {
-  readonly children: FileNode[];
+type MissionNetwork = {
+  readonly machines: GeneratedMachine[];
 };
 ```
 
@@ -565,9 +530,10 @@ type FileNode = {
 type Port = {
   readonly port: number;
   readonly service: string;
-  readonly vulnerability: {
+  readonly open: boolean;
+  readonly vulnerability?: {
     readonly type: string;
-    readonly severity: readonly string[];
+    readonly payload: readonly string[];
   };
 };
 ```
@@ -595,13 +561,12 @@ type Port = {
 ### Examples
 
 ❌ **WRONG - Deep nesting (4+ levels)**
-
 ```typescript
-function executeCommand(cmd: Command, user: UserType, fs: FileNode) {
-  if (cmd.fn) {
-    if (user !== 'guest') {
-      if (checkBinaryExists(cmd.name, fs)) {
-        if (cmd.permissions.execute.includes(user)) {
+function checkFileAccess(node: FileNode, path: string, user: UserType) {
+  if (node.type === 'directory') {
+    if (node.children) {
+      if (path in node.children) {
+        if (node.children[path].permissions.read.includes(user)) {
           // ... deeply nested logic
         }
       }
@@ -611,34 +576,30 @@ function executeCommand(cmd: Command, user: UserType, fs: FileNode) {
 ```
 
 ✅ **CORRECT - Flat with early returns**
-
 ```typescript
-function executeCommand(cmd: Command, user: UserType, fs: FileNode) {
-  if (!cmd.fn) return;
-  if (user === 'guest') return;
-  if (!checkBinaryExists(cmd.name, fs)) return;
-  if (!cmd.permissions.execute.includes(user)) return;
+function checkFileAccess(node: FileNode, path: string, user: UserType) {
+  if (node.type !== 'directory') return false;
+  if (!node.children) return false;
+  if (!(path in node.children)) return false;
+  if (!node.children[path].permissions.read.includes(user)) return false;
 
   // Main logic at top level
+  return true;
 }
 ```
 
 ✅ **CORRECT - Extract to functions**
-
 ```typescript
-function executeCommand(cmd: Command, user: UserType, fs: FileNode) {
-  if (!canExecuteCommand(cmd, user, fs)) return;
-  const resolved = resolveCommand(cmd);
-  return runCommand(resolved);
+function checkFileAccess(node: FileNode, path: string, user: UserType) {
+  if (!isAccessibleDirectory(node, path)) return false;
+  const child = node.children![path];
+  return hasReadPermission(child, user);
 }
 
-function canExecuteCommand(cmd: Command, user: UserType, fs: FileNode): boolean {
-  return (
-    !!cmd.fn &&
-    user !== 'guest' &&
-    checkBinaryExists(cmd.name, fs) &&
-    cmd.permissions.execute.includes(user)
-  );
+function isAccessibleDirectory(node: FileNode, path: string): boolean {
+  return node.type === 'directory'
+    && node.children !== undefined
+    && path in node.children;
 }
 ```
 
@@ -650,45 +611,46 @@ function canExecuteCommand(cmd: Command, user: UserType, fs: FileNode): boolean 
 
 ```typescript
 // ❌ WRONG - Mutations
-items.push(newItem); // Add to end
-items.pop(); // Remove last
-items.unshift(newItem); // Add to start
-items.shift(); // Remove first
-items.splice(index, 1); // Remove at index
-items.reverse(); // Reverse order
-items.sort(); // Sort
-items[i] = newValue; // Update at index
+machines.push(newMachine);        // Add to end
+machines.pop();                   // Remove last
+machines.unshift(newMachine);     // Add to start
+machines.shift();                 // Remove first
+machines.splice(index, 1);       // Remove at index
+machines.reverse();               // Reverse order
+machines.sort();                  // Sort
+machines[i] = newValue;           // Update at index
 
 // ✅ CORRECT - Immutable alternatives
-const withNew = [...items, newItem]; // Add to end
-const withoutLast = items.slice(0, -1); // Remove last
-const withFirst = [newItem, ...items]; // Add to start
-const withoutFirst = items.slice(1); // Remove first
-const removed = [
-  ...items.slice(0, index), // Remove at index
-  ...items.slice(index + 1),
-];
-const reversed = [...items].reverse(); // Reverse (copy first!)
-const sorted = [...items].sort(); // Sort (copy first!)
-const updated = items.map(
-  (
-    item,
-    idx, // Update at index
-  ) => (idx === i ? newValue : item),
+const withNew = [...machines, newMachine];              // Add to end
+const withoutLast = machines.slice(0, -1);              // Remove last
+const withFirst = [newMachine, ...machines];             // Add to start
+const withoutFirst = machines.slice(1);                  // Remove first
+const removed = [...machines.slice(0, index),            // Remove at index
+                 ...machines.slice(index + 1)];
+const reversed = [...machines].reverse();                // Reverse (copy first!)
+const sorted = [...machines].sort();                     // Sort (copy first!)
+const updated = machines.map((m, idx) =>                 // Update at index
+  idx === i ? newValue : m
 );
 ```
 
 **Common patterns:**
 
 ```typescript
-// Filter out specific item
-const withoutItem = items.filter((item) => item.id !== targetId);
+// Filter out specific machine by IP
+const withoutMachine = machines.filter(m => m.ip !== targetIp);
 
-// Replace specific item
-const replaced = items.map((item) => (item.id === targetId ? newItem : item));
+// Replace specific machine
+const replaced = machines.map(m =>
+  m.ip === targetIp ? updatedMachine : m
+);
 
 // Insert at specific position
-const inserted = [...items.slice(0, index), newItem, ...items.slice(index)];
+const inserted = [
+  ...machines.slice(0, index),
+  newMachine,
+  ...machines.slice(index)
+];
 ```
 
 ---
@@ -697,11 +659,11 @@ const inserted = [...items.slice(0, index), newItem, ...items.slice(index)];
 
 ```typescript
 // ❌ WRONG
-file.content = 'new data';
-Object.assign(file, { content: 'new data' });
+machine.hostname = 'web-server';
+Object.assign(machine, { hostname: 'web-server' });
 
 // ✅ CORRECT
-const updated = { ...file, content: 'new data' };
+const updated = { ...machine, hostname: 'web-server' };
 ```
 
 ---
@@ -710,17 +672,20 @@ const updated = { ...file, content: 'new data' };
 
 ```typescript
 // ✅ CORRECT - Immutable nested update
-const updatedDirectory = {
-  ...directory,
-  children: directory.children.map((child, i) =>
-    i === targetIndex ? { ...child, content: newContent } : child,
+const updatedMachine = {
+  ...machine,
+  ports: machine.ports.map((p, i) =>
+    i === targetIndex ? { ...p, open: false } : p
   ),
 };
 
-// ✅ CORRECT - Immutable nested array update
-const updatedMachine = {
-  ...machine,
-  ports: [...machine.ports.slice(0, index), updatedPort, ...machine.ports.slice(index + 1)],
+// ✅ CORRECT - Immutable nested array update (filesystem tree)
+const updatedRoot = {
+  ...root,
+  children: {
+    ...root.children,
+    [childName]: updatedChild,
+  },
 };
 ```
 
@@ -730,18 +695,18 @@ const updatedMachine = {
 
 ```typescript
 // ❌ WRONG - Nested conditions
-if (file) {
-  if (file.type === 'file') {
-    if (file.permissions.read.includes(user)) {
+if (node) {
+  if (node.type === 'file') {
+    if (node.permissions.read.includes(userType)) {
       // do something
     }
   }
 }
 
 // ✅ CORRECT - Early returns (guard clauses)
-if (!file) return;
-if (file.type !== 'file') return;
-if (!file.permissions.read.includes(user)) return;
+if (!node) return;
+if (node.type !== 'file') return;
+if (!node.permissions.read.includes(userType)) return;
 
 // do something
 ```
@@ -751,33 +716,31 @@ if (!file.permissions.read.includes(user)) return;
 ## Result Type for Error Handling
 
 ```typescript
-type Result<T, E = Error> =
-  | { readonly success: true; readonly data: T }
-  | { readonly success: false; readonly error: E };
+type PermissionResult =
+  | { readonly allowed: true }
+  | { readonly allowed: false; readonly reason: string };
 
 // Usage
-function checkPermission(
-  file: FileNode,
-  user: UserType,
-  action: 'read' | 'write' | 'execute',
-): Result<PermissionResult> {
-  if (!file) {
-    return { success: false, error: new Error('File not found') };
+function checkTraversal(fs: FileNode, path: string, user: UserType): PermissionResult {
+  if (!fs.children) {
+    return { allowed: false, reason: `${path}: No such file or directory` };
   }
 
-  const allowed = file.permissions[action].includes(user);
-  return { success: true, data: { allowed, error: allowed ? undefined : 'Permission denied' } };
+  const segment = path.split('/')[0];
+  if (!fs.children[segment]?.permissions.execute.includes(user)) {
+    return { allowed: false, reason: `${path}: Permission denied` };
+  }
+
+  return { allowed: true };
 }
 
 // Caller handles both cases explicitly
-const result = checkPermission(file, 'user', 'read');
-if (!result.success) {
-  console.error(result.error);
-  return;
+const result = checkTraversal(fs, path, user);
+if (!result.allowed) {
+  return result.reason;
 }
 
-// TypeScript knows result.data exists here
-console.log(result.data.allowed);
+// TypeScript knows result.allowed is true here
 ```
 
 ---
