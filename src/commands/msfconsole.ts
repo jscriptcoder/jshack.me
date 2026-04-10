@@ -1,5 +1,6 @@
 import type { Command, AsyncOutput, NcPromptData } from '../components/Terminal/types';
 import type { RemoteMachine, DnsRecord } from '../network/types';
+import { findVulnForService } from '../generation/pools/vulnerabilities';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 type MsfconsoleContext = {
@@ -77,7 +78,8 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
       throw new Error(`msfconsole: ${targetIP}:${port}: Connection refused`);
     }
 
-    if (!targetPort.vulnerability) {
+    const vulnerability = findVulnForService(targetPort.service, targetPort.serviceVersion ?? '');
+    if (!vulnerability) {
       throw new Error(`msfconsole: no known vulnerability on ${targetIP}:${port}`);
     }
 
@@ -85,7 +87,7 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
       throw new Error(`msfconsole: exploit failed — service not exploitable`);
     }
 
-    const { vulnerability, owner } = targetPort;
+    const { owner } = targetPort;
     const token = createCancellationToken();
 
     return {
