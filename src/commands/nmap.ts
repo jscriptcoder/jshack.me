@@ -1,5 +1,6 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
 import type { Port, RemoteMachine } from '../network/types';
+import { findVulnForService } from '../generation/pools/vulnerabilities';
 import { isValidIP, parseIPRange } from '../utils/network';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
@@ -20,26 +21,25 @@ const formatPortLine = (port: Port, versionScan: boolean): string => {
   const stateService = `${state.padEnd(7)}${port.service}`;
   if (!versionScan) return `${portStr}${stateService}`;
 
-  const version = port.open ? (port.vulnerability?.serviceVersion ?? '') : '';
+  const version = port.open ? (port.serviceVersion ?? '') : '';
   return `${portStr}${stateService.padEnd(16)}${version}`;
 };
 
 const formatVulnerabilitySection = (openPorts: readonly Port[]): readonly string[] => {
-  const vulnPorts = openPorts.filter((p) => p.vulnerability);
-  if (vulnPorts.length === 0) return [];
+  const vulnEntries = openPorts.flatMap((p) => {
+    const v = findVulnForService(p.service, p.serviceVersion ?? '');
+    return v ? [{ port: p, vuln: v }] : [];
+  });
+  if (vulnEntries.length === 0) return [];
 
   return [
     '',
     'VULNERABILITIES:',
-    ...vulnPorts.flatMap((p) => {
-      const v = p.vulnerability;
-      if (!v) return [];
-      return [
-        `  ${v.cve} - ${v.description}`,
-        `    Affected: ${p.service} on port ${p.port}`,
-        '    Risk: CRITICAL \u2014 remote code execution',
-      ];
-    }),
+    ...vulnEntries.flatMap(({ port, vuln }) => [
+      `  ${vuln.cve} - ${vuln.description}`,
+      `    Affected: ${port.service} on port ${port.port}`,
+      '    Risk: CRITICAL \u2014 remote code execution',
+    ]),
   ];
 };
 
@@ -102,13 +102,17 @@ const formatTreeCVELines = (
 ): readonly string[] => {
   if (host.isLocal) return [];
   const filtered = filterPortsByProtocol(host.ports, udpScan);
-  const vulnPorts = filtered.filter((p) => p.open && p.vulnerability);
-  if (vulnPorts.length === 0) return [];
+  const vulnEntries = filtered.flatMap((p) => {
+    if (!p.open) return [];
+    const v = findVulnForService(p.service, p.serviceVersion ?? '');
+    return v ? [{ port: p, vuln: v }] : [];
+  });
+  if (vulnEntries.length === 0) return [];
 
-  return vulnPorts.map((p, i) => {
-    const isLastCVE = i === vulnPorts.length - 1;
+  return vulnEntries.map(({ port, vuln }, i) => {
+    const isLastCVE = i === vulnEntries.length - 1;
     const connector = isLastCVE ? '\u2514\u2500\u2500 ' : '\u251C\u2500\u2500 ';
-    return `${continuationPrefix}${connector}\u26A0 ${p.vulnerability!.cve} (${p.service}:${p.port}) CRITICAL`;
+    return `${continuationPrefix}${connector}\u26A0 ${vuln.cve} (${port.service}:${port.port}) CRITICAL`;
   });
 };
 
@@ -293,9 +297,7 @@ export const createNmapCommand = (context: NmapContext): Command => ({
                         const services = versionScan
                           ? openPorts
                               .map((p) =>
-                                p.vulnerability
-                                  ? `${p.service} ${p.vulnerability.serviceVersion}`
-                                  : p.service,
+                                p.serviceVersion ? `${p.service} ${p.serviceVersion}` : p.service,
                               )
                               .join(', ')
                           : openPorts.map((p) => p.service).join(', ');

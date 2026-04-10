@@ -296,12 +296,8 @@ describe('nmap command', () => {
               {
                 port: 80,
                 service: 'http',
+                serviceVersion: 'Apache/2.4.49',
                 open: true,
-                vulnerability: {
-                  cve: 'CVE-2021-41773',
-                  description: 'Apache path traversal',
-                  serviceVersion: 'Apache/2.4.49',
-                },
               },
             ],
           }),
@@ -351,7 +347,7 @@ describe('nmap command', () => {
       expect(lines.some((l) => l.includes('VERSION'))).toBe(true);
     });
 
-    it('should show vulnerability service version in port line', () => {
+    it('should show service version in port line', () => {
       const context = createMockNmapContext({
         machines: [
           getMockRemoteMachine({
@@ -361,12 +357,8 @@ describe('nmap command', () => {
               {
                 port: 80,
                 service: 'http',
+                serviceVersion: 'Apache/2.4.49',
                 open: true,
-                vulnerability: {
-                  cve: 'CVE-2021-41773',
-                  description: 'Apache path traversal',
-                  serviceVersion: 'Apache/2.4.49',
-                },
               },
             ],
           }),
@@ -398,12 +390,8 @@ describe('nmap command', () => {
               {
                 port: 80,
                 service: 'http',
+                serviceVersion: 'Apache/2.4.49',
                 open: true,
-                vulnerability: {
-                  cve: 'CVE-2021-41773',
-                  description: 'Apache 2.4.49 path traversal / RCE',
-                  serviceVersion: 'Apache/2.4.49',
-                },
               },
             ],
           }),
@@ -453,6 +441,102 @@ describe('nmap command', () => {
       expect(lines.some((l) => l.includes('VULNERABILITIES:'))).toBe(false);
     });
 
+    it('should not render "undefined" in the version column when a port has no serviceVersion', () => {
+      // Regression guard: prior to the dynamic lookup refactor, removing the
+      // nullish coalescing could surface the literal string "undefined" in the
+      // -sV version column for safe ports. Players shouldn't see that.
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.50',
+            hostname: 'server',
+            ports: [{ port: 22, service: 'ssh', open: true }],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('-sV', '192.168.1.50');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(2000);
+
+      expect(lines.some((l) => l.includes('undefined'))).toBe(false);
+    });
+
+    it('should show the service version for an open port even when no CVE matches', () => {
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.50',
+            hostname: 'server',
+            ports: [
+              {
+                port: 22,
+                service: 'ssh',
+                serviceVersion: 'OpenSSH 9.6',
+                open: true,
+              },
+            ],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('-sV', '192.168.1.50');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(2000);
+
+      expect(lines.some((l) => l.includes('OpenSSH 9.6'))).toBe(true);
+      expect(lines.some((l) => l.includes('VULNERABILITIES:'))).toBe(false);
+    });
+
+    it('should include serviceVersion in range-scan summary line with -sV', () => {
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.50',
+            hostname: 'server',
+            ports: [
+              {
+                port: 22,
+                service: 'ssh',
+                serviceVersion: 'OpenSSH 9.6',
+                open: true,
+              },
+            ],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('-sV', '192.168.1.50-51');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(3000);
+
+      expect(lines.some((l) => l.includes('ssh OpenSSH 9.6'))).toBe(true);
+    });
+
     it('should not show VERSION column without -sV flag', () => {
       const context = createMockNmapContext({
         machines: [
@@ -463,12 +547,8 @@ describe('nmap command', () => {
               {
                 port: 80,
                 service: 'http',
+                serviceVersion: 'Apache/2.4.49',
                 open: true,
-                vulnerability: {
-                  cve: 'CVE-2021-41773',
-                  description: 'test',
-                  serviceVersion: 'Apache/2.4.49',
-                },
               },
             ],
           }),
@@ -1050,12 +1130,8 @@ describe('nmap command', () => {
               {
                 port: 80,
                 service: 'http',
+                serviceVersion: 'Apache/2.4.49',
                 open: true,
-                vulnerability: {
-                  cve: 'CVE-2021-41773',
-                  description: 'Apache path traversal',
-                  serviceVersion: 'Apache/2.4.49',
-                },
               },
             ],
           }),
@@ -1096,12 +1172,8 @@ describe('nmap command', () => {
               {
                 port: 80,
                 service: 'http',
+                serviceVersion: 'Apache/2.4.49',
                 open: true,
-                vulnerability: {
-                  cve: 'CVE-2021-41773',
-                  description: 'Apache path traversal',
-                  serviceVersion: 'Apache/2.4.49',
-                },
               },
             ],
           }),
@@ -1250,12 +1322,8 @@ describe('nmap command', () => {
               {
                 port: 80,
                 service: 'http',
+                serviceVersion: 'Apache/2.4.49',
                 open: true,
-                vulnerability: {
-                  cve: 'CVE-2021-41773',
-                  description: 'Apache path traversal',
-                  serviceVersion: 'Apache/2.4.49',
-                },
               },
             ],
           }),
@@ -1302,12 +1370,8 @@ describe('nmap command', () => {
               {
                 port: 80,
                 service: 'http',
+                serviceVersion: 'Apache/2.4.49',
                 open: true,
-                vulnerability: {
-                  cve: 'CVE-2021-41773',
-                  description: 'Apache path traversal',
-                  serviceVersion: 'Apache/2.4.49',
-                },
               },
             ],
           }),

@@ -13,12 +13,8 @@ const getMockRemoteMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine
     {
       port: 80,
       service: 'http',
+      serviceVersion: 'Apache/2.4.49',
       open: true,
-      vulnerability: {
-        cve: 'CVE-2021-41773',
-        description: 'Apache 2.4.49 path traversal / RCE',
-        serviceVersion: 'Apache/2.4.49',
-      },
       owner: { username: 'guest', userType: 'guest', homePath: '/home/guest' },
     },
   ],
@@ -200,12 +196,8 @@ describe('msfconsole command', () => {
               {
                 port: 80,
                 service: 'http',
+                serviceVersion: 'Apache/2.4.49',
                 open: true,
-                vulnerability: {
-                  cve: 'CVE-2021-41773',
-                  description: 'test',
-                  serviceVersion: 'Apache/2.4.49',
-                },
                 // No owner
               },
             ],
@@ -285,6 +277,96 @@ describe('msfconsole command', () => {
         expect(followUp.userType).toBe('guest');
         expect(followUp.homePath).toBe('/home/guest');
       }
+    });
+  });
+
+  describe('dynamic vulnerability lookup', () => {
+    it('should exploit a port whose serviceVersion matches a CVE, even without a stored vulnerability field', () => {
+      const context = createMockMsfconsoleContext({
+        machines: [
+          getMockRemoteMachine({
+            ports: [
+              {
+                port: 80,
+                service: 'http',
+                serviceVersion: 'Apache/2.4.49',
+                open: true,
+                owner: { username: 'guest', userType: 'guest', homePath: '/home/guest' },
+              },
+            ],
+          }),
+        ],
+      });
+      const msfconsole = createMsfconsoleCommand(context);
+      const result = msfconsole.fn('10.50.100.10', 80);
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(3000);
+
+      expect(lines.some((l) => l.includes('CVE-2021-41773'))).toBe(true);
+      expect(lines.some((l) => l.includes('Exploit successful'))).toBe(true);
+    });
+
+    it('should reject exploitation when serviceVersion does not match any CVE', () => {
+      const context = createMockMsfconsoleContext({
+        machines: [
+          getMockRemoteMachine({
+            ports: [
+              {
+                port: 80,
+                service: 'http',
+                serviceVersion: 'Apache/999.0.0',
+                open: true,
+                owner: { username: 'guest', userType: 'guest', homePath: '/home/guest' },
+              },
+            ],
+          }),
+        ],
+      });
+      const msfconsole = createMsfconsoleCommand(context);
+
+      expect(() => msfconsole.fn('10.50.100.10', 80)).toThrow(
+        'msfconsole: no known vulnerability on 10.50.100.10:80',
+      );
+    });
+
+    it('should pick the CVE that matches the specific serviceVersion, not just the service', () => {
+      const context = createMockMsfconsoleContext({
+        machines: [
+          getMockRemoteMachine({
+            ports: [
+              {
+                port: 80,
+                service: 'http',
+                serviceVersion: 'Apache/2.4.25',
+                open: true,
+                owner: { username: 'guest', userType: 'guest', homePath: '/home/guest' },
+              },
+            ],
+          }),
+        ],
+      });
+      const msfconsole = createMsfconsoleCommand(context);
+      const result = msfconsole.fn('10.50.100.10', 80);
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(3000);
+
+      expect(lines.some((l) => l.includes('CVE-2017-7679'))).toBe(true);
     });
   });
 
