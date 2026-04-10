@@ -84,9 +84,11 @@ export const addFtpServerOwner = (
   );
 };
 
-// For exploit entry variant: attaches a vulnerability and owner to the
+// For exploit entry variant: sets a vulnerable serviceVersion and owner on the
 // non-SSH open port on the entry machine. Owner type is picked by PRNG
-// (guest/user/root) for difficulty variety.
+// (guest/user/root) for difficulty variety. Whether the port is actually
+// exploitable is determined at runtime via findVulnForService — here we just
+// guarantee the version string matches a CVE entry for the service.
 export const addExploitVulnerability = (
   ports: readonly Port[],
   users: readonly RemoteUser[],
@@ -99,12 +101,12 @@ export const addExploitVulnerability = (
   return ports.map((p) => {
     if (p.service === 'ssh' || !p.open) return p;
 
-    const vuln = vulnerabilityTemplates.find((v) => v.service === p.service);
-    if (!vuln) return p;
+    const vulnTemplate = vulnerabilityTemplates.find((v) => v.service === p.service);
+    if (!vulnTemplate) return p;
 
     return {
       ...p,
-      vulnerability: vuln.vulnerability,
+      serviceVersion: vulnTemplate.vulnerability.serviceVersion,
       owner: {
         username: owner.username,
         userType: owner.userType,
