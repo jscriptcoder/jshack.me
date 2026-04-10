@@ -83,6 +83,18 @@ describe('generateHomeNetwork', () => {
     }
   });
 
+  it('should set a serviceVersion on every port of every generated machine', () => {
+    const network = generateHomeNetwork('version-audit', 0, 'TEST');
+    const allMachines = [network.routerMachine, ...network.machines];
+    for (const machine of allMachines) {
+      for (const port of machine.remoteMachine.ports) {
+        expect(port.serviceVersion).toBeDefined();
+        expect(typeof port.serviceVersion).toBe('string');
+        expect(port.serviceVersion.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
   it('should avoid public IPs in the usedIps set', () => {
     const network = generateHomeNetwork('collision-seed', 0, 'NET-0');
     const blocked = new Set([network.router.publicIp]);

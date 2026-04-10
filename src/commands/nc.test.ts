@@ -8,7 +8,7 @@ import { createNcCommand, startNcListener, createNcPidContent, type NcListenAdap
 const getMockRemoteMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine => ({
   ip: '192.168.1.50',
   hostname: 'fileserver',
-  ports: [{ port: 21, service: 'ftp', open: true }],
+  ports: [{ port: 21, service: 'ftp', serviceVersion: 'latest', open: true }],
   users: [{ username: 'ftpuser', passwordHash: 'abc123', userType: 'user' }],
   ...overrides,
 });
@@ -160,7 +160,7 @@ describe('nc command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 21, service: 'ftp', open: false }],
+            ports: [{ port: 21, service: 'ftp', serviceVersion: 'latest', open: false }],
           }),
         ],
       });
@@ -176,7 +176,7 @@ describe('nc command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 21, service: 'ftp', open: true }],
+            ports: [{ port: 21, service: 'ftp', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -271,7 +271,7 @@ describe('nc command', () => {
       const context = createMockNcContext({
         machines: [
           getMockRemoteMachine({
-            ports: [{ port: 21, service: 'ftp', open: true }],
+            ports: [{ port: 21, service: 'ftp', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -297,7 +297,7 @@ describe('nc command', () => {
       const context = createMockNcContext({
         machines: [
           getMockRemoteMachine({
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -321,7 +321,7 @@ describe('nc command', () => {
       const context = createMockNcContext({
         machines: [
           getMockRemoteMachine({
-            ports: [{ port: 80, service: 'http', open: true }],
+            ports: [{ port: 80, service: 'http', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -345,7 +345,7 @@ describe('nc command', () => {
       const context = createMockNcContext({
         machines: [
           getMockRemoteMachine({
-            ports: [{ port: 9999, service: 'custom', open: true }],
+            ports: [{ port: 9999, service: 'custom', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -376,6 +376,7 @@ describe('nc command', () => {
               {
                 port: 31337,
                 service: 'elite',
+                serviceVersion: 'latest',
                 open: true,
                 owner: { username: 'ghost', userType: 'user', homePath: '/home/ghost' },
               },
@@ -418,6 +419,7 @@ describe('nc command', () => {
               {
                 port: 31337,
                 service: 'elite',
+                serviceVersion: 'latest',
                 open: true,
                 owner: { username: 'ghost', userType: 'user', homePath: '/home/ghost' },
               },

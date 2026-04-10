@@ -7,9 +7,9 @@ const getMockDbMachine = (): RemoteMachine => ({
   ip: '10.0.1.20',
   hostname: 'db-primary',
   ports: [
-    { port: 22, service: 'ssh', open: true },
-    { port: 3306, service: 'mysql', open: true },
-    { port: 6379, service: 'redis', open: true },
+    { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+    { port: 3306, service: 'mysql', serviceVersion: 'latest', open: true },
+    { port: 6379, service: 'redis', serviceVersion: 'latest', open: true },
   ],
   users: [{ username: 'redis', passwordHash: 'abc123', userType: 'user' }],
 });
@@ -18,8 +18,8 @@ const getMockWebMachine = (): RemoteMachine => ({
   ip: '10.0.1.50',
   hostname: 'web01',
   ports: [
-    { port: 22, service: 'ssh', open: true },
-    { port: 80, service: 'http', open: true },
+    { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+    { port: 80, service: 'http', serviceVersion: 'latest', open: true },
   ],
   users: [],
 });

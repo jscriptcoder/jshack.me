@@ -8,7 +8,7 @@ import { createNmapCommand } from './nmap';
 const getMockRemoteMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine => ({
   ip: '192.168.1.50',
   hostname: 'fileserver',
-  ports: [{ port: 22, service: 'ssh', open: true }],
+  ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
   users: [{ username: 'root', passwordHash: 'abc123', userType: 'root' }],
   ...overrides,
 });
@@ -175,7 +175,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.50',
             hostname: 'fileserver',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -275,7 +275,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.50',
             hostname: 'server',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -327,7 +327,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.50',
             hostname: 'server',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -421,7 +421,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.50',
             hostname: 'server',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -450,7 +450,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.50',
             hostname: 'server',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -581,9 +581,9 @@ describe('nmap command', () => {
             ip: '192.168.1.50',
             hostname: 'router',
             ports: [
-              { port: 22, service: 'ssh', open: true },
-              { port: 80, service: 'http', open: true },
-              { port: 161, service: 'snmp', open: true, protocol: 'udp' },
+              { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+              { port: 80, service: 'http', serviceVersion: 'latest', open: true },
+              { port: 161, service: 'snmp', serviceVersion: 'latest', open: true, protocol: 'udp' },
             ],
           }),
         ],
@@ -614,8 +614,8 @@ describe('nmap command', () => {
             ip: '192.168.1.50',
             hostname: 'router',
             ports: [
-              { port: 22, service: 'ssh', open: true },
-              { port: 161, service: 'snmp', open: true, protocol: 'udp' },
+              { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+              { port: 161, service: 'snmp', serviceVersion: 'latest', open: true, protocol: 'udp' },
             ],
           }),
         ],
@@ -644,8 +644,8 @@ describe('nmap command', () => {
             ip: '192.168.1.50',
             hostname: 'router',
             ports: [
-              { port: 22, service: 'ssh', open: true },
-              { port: 161, service: 'snmp', open: true, protocol: 'udp' },
+              { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+              { port: 161, service: 'snmp', serviceVersion: 'latest', open: true, protocol: 'udp' },
             ],
           }),
         ],
@@ -674,8 +674,8 @@ describe('nmap command', () => {
             ip: '192.168.1.50',
             hostname: 'router',
             ports: [
-              { port: 22, service: 'ssh', open: true },
-              { port: 161, service: 'snmp', open: true, protocol: 'udp' },
+              { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+              { port: 161, service: 'snmp', serviceVersion: 'latest', open: true, protocol: 'udp' },
             ],
           }),
         ],
@@ -704,7 +704,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.50',
             hostname: 'server',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -795,8 +795,8 @@ describe('nmap command', () => {
             ip: '192.168.1.50',
             hostname: 'fileserver',
             ports: [
-              { port: 22, service: 'ssh', open: true },
-              { port: 80, service: 'http', open: true },
+              { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+              { port: 80, service: 'http', serviceVersion: 'latest', open: true },
             ],
           }),
         ],
@@ -832,8 +832,8 @@ describe('nmap command', () => {
             ip: '192.168.1.50',
             hostname: 'server',
             ports: [
-              { port: 22, service: 'ssh', open: true },
-              { port: 23, service: 'telnet', open: false },
+              { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+              { port: 23, service: 'telnet', serviceVersion: 'latest', open: false },
             ],
           }),
         ],
@@ -861,7 +861,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.50',
             hostname: 'server',
-            ports: [{ port: 22, service: 'ssh', open: false }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: false }],
           }),
         ],
       });
@@ -888,9 +888,9 @@ describe('nmap command', () => {
             ip: '192.168.1.50',
             hostname: 'server',
             ports: [
-              { port: 22, service: 'ssh', open: true },
-              { port: 80, service: 'http', open: true },
-              { port: 443, service: 'https', open: true },
+              { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+              { port: 80, service: 'http', serviceVersion: 'latest', open: true },
+              { port: 443, service: 'https', serviceVersion: 'latest', open: true },
             ],
           }),
         ],
@@ -943,14 +943,14 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.1',
             hostname: 'router',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
           getMockRemoteMachine({
             ip: '192.168.1.10',
             hostname: 'webserver',
             ports: [
-              { port: 22, service: 'ssh', open: true },
-              { port: 80, service: 'http', open: true },
+              { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+              { port: 80, service: 'http', serviceVersion: 'latest', open: true },
             ],
           }),
         ],
@@ -982,17 +982,17 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.1',
             hostname: 'router',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
           getMockRemoteMachine({
             ip: '192.168.1.10',
             hostname: 'webserver',
-            ports: [{ port: 80, service: 'http', open: true }],
+            ports: [{ port: 80, service: 'http', serviceVersion: 'latest', open: true }],
           }),
           getMockRemoteMachine({
             ip: '192.168.1.20',
             hostname: 'dbserver',
-            ports: [{ port: 3306, service: 'mysql', open: true }],
+            ports: [{ port: 3306, service: 'mysql', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -1025,12 +1025,12 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.10',
             hostname: 'webserver',
-            ports: [{ port: 80, service: 'http', open: true }],
+            ports: [{ port: 80, service: 'http', serviceVersion: 'latest', open: true }],
           }),
           getMockRemoteMachine({
             ip: '192.168.1.20',
             hostname: 'dbserver',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -1063,7 +1063,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.1',
             hostname: 'router',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -1092,7 +1092,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.1',
             hostname: 'router',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -1121,7 +1121,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.1',
             hostname: 'router',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
           getMockRemoteMachine({
             ip: '192.168.1.10',
@@ -1163,7 +1163,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.1',
             hostname: 'router',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
           getMockRemoteMachine({
             ip: '192.168.1.10',
@@ -1202,8 +1202,8 @@ describe('nmap command', () => {
             ip: '192.168.1.1',
             hostname: 'router',
             ports: [
-              { port: 22, service: 'ssh', open: true },
-              { port: 161, service: 'snmp', open: true, protocol: 'udp' },
+              { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+              { port: 161, service: 'snmp', serviceVersion: 'latest', open: true, protocol: 'udp' },
             ],
           }),
         ],
@@ -1250,7 +1250,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.1',
             hostname: 'router',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -1281,8 +1281,8 @@ describe('nmap command', () => {
             ip: '192.168.1.1',
             hostname: 'router',
             ports: [
-              { port: 22, service: 'ssh', open: true },
-              { port: 80, service: 'http', open: true },
+              { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+              { port: 80, service: 'http', serviceVersion: 'latest', open: true },
             ],
           }),
         ],
@@ -1313,7 +1313,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.1',
             hostname: 'router',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
           getMockRemoteMachine({
             ip: '192.168.1.10',
@@ -1330,7 +1330,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.20',
             hostname: 'dbserver',
-            ports: [{ port: 3306, service: 'mysql', open: true }],
+            ports: [{ port: 3306, service: 'mysql', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -1361,7 +1361,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.1',
             hostname: 'router',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
           getMockRemoteMachine({
             ip: '192.168.1.10',
@@ -1402,7 +1402,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.1',
             hostname: 'router',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -1428,7 +1428,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.10',
             hostname: 'closedserver',
-            ports: [{ port: 22, service: 'ssh', open: false }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: false }],
           }),
         ],
       });

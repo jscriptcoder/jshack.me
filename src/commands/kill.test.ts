@@ -260,6 +260,7 @@ describe('kill command', () => {
               {
                 port: 4444,
                 service: 'elite',
+                serviceVersion: 'latest',
                 open: true,
                 owner: {
                   username: 'webadmin',

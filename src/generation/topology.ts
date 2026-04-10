@@ -24,6 +24,7 @@ import {
   backdoorPorts,
 } from './pools';
 import { vulnerabilityTemplates } from './pools';
+import { defaultServiceVersion } from './pools/vulnerabilities';
 
 const allVariants: readonly EntryVariant[] = ['ssh', 'ftp', 'nc', 'exploit', 'http', 'snmp'];
 
@@ -48,11 +49,22 @@ const buildVariantPorts = (
     if (hasFtp) {
       return rolePorts.map((p) => (p.port === 21 ? { ...p, open: true } : p));
     }
-    return [...rolePorts, { port: 21, service: 'ftp', open: true }];
+    return [
+      ...rolePorts,
+      { port: 21, service: 'ftp', serviceVersion: defaultServiceVersion('ftp'), open: true },
+    ];
   }
 
   if (variant === 'nc') {
-    return [...rolePorts, { port: backdoorPort, service: 'elite', open: true }];
+    return [
+      ...rolePorts,
+      {
+        port: backdoorPort,
+        service: 'elite',
+        serviceVersion: defaultServiceVersion('elite'),
+        open: true,
+      },
+    ];
   }
 
   if (variant === 'exploit') {
@@ -71,7 +83,10 @@ const buildVariantPorts = (
     }
 
     // No role port matches — add port 80 (http) which has a vulnerability template
-    return [...rolePorts, { port: 80, service: 'http', open: true }];
+    return [
+      ...rolePorts,
+      { port: 80, service: 'http', serviceVersion: defaultServiceVersion('http'), open: true },
+    ];
   }
 
   // HTTP variant
@@ -79,7 +94,10 @@ const buildVariantPorts = (
   if (hasHttp) {
     return rolePorts.map((p) => (p.port === 80 ? { ...p, open: true } : p));
   }
-  return [...rolePorts, { port: 80, service: 'http', open: true }];
+  return [
+    ...rolePorts,
+    { port: 80, service: 'http', serviceVersion: defaultServiceVersion('http'), open: true },
+  ];
 };
 
 export type TopologyResult = {
@@ -162,6 +180,7 @@ const buildPorts = (role: MachineRole): readonly Port[] =>
   portTemplatesByRole[role].map((t) => ({
     port: t.port,
     service: t.service,
+    serviceVersion: defaultServiceVersion(t.service),
     open: t.open,
     ...(t.protocol ? { protocol: t.protocol } : {}),
   }));
@@ -177,6 +196,7 @@ const buildPortsFromTemplate = (
   template.map((t) => ({
     port: t.port,
     service: t.service,
+    serviceVersion: defaultServiceVersion(t.service),
     open: t.open,
     ...(t.protocol ? { protocol: t.protocol } : {}),
   }));

@@ -14,6 +14,16 @@ export const findVulnForService = (
     (t) => t.service === service && t.vulnerability.serviceVersion === serviceVersion,
   )?.vulnerability;
 
+// Default "safe" service version used when constructing ports that shouldn't
+// be exploitable. The string is deliberately chosen to never match any entry
+// in vulnerabilityTemplates — i.e., findVulnForService(anyService, 'latest')
+// always returns undefined. Phase 3+ can replace this with per-service
+// realistic version strings (OpenSSH 9.6, Apache/2.4.59, etc.) without
+// changing any consumer — they only care about lookup results.
+export const DEFAULT_SERVICE_VERSION = 'latest';
+
+export const defaultServiceVersion = (_service: string): string => DEFAULT_SERVICE_VERSION;
+
 export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
   {
     port: 80,

@@ -105,6 +105,7 @@ describe('listProcesses', () => {
           {
             port: 4444,
             service: 'elite',
+            serviceVersion: 'latest',
             open: true,
             owner: { username: 'webadmin', userType: 'user', homePath: '/home/webadmin' },
           },
@@ -120,7 +121,8 @@ describe('listProcesses', () => {
 
   it('shows nc listener as root when backdoor has no owner', () => {
     const adapter = createAdapter({
-      getMachineInfo: () => makeMachine([{ port: 31337, service: 'elite', open: true }]),
+      getMachineInfo: () =>
+        makeMachine([{ port: 31337, service: 'elite', serviceVersion: 'latest', open: true }]),
     });
     const processes = listProcesses(adapter);
     expect(processes).toContainEqual({
@@ -163,7 +165,8 @@ describe('listProcesses', () => {
 
   it('shows no daemons when /var/run has no PID files', () => {
     const adapter = createAdapter({
-      getMachineInfo: () => makeMachine([{ port: 80, service: 'http', open: true }]),
+      getMachineInfo: () =>
+        makeMachine([{ port: 80, service: 'http', serviceVersion: 'latest', open: true }]),
     });
     const processes = listProcesses(adapter);
     expect(processes).toHaveLength(1); // only init

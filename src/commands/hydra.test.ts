@@ -32,8 +32,8 @@ const getMockRemoteMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine
   ip: '192.168.1.50',
   hostname: 'fileserver',
   ports: [
-    { port: 21, service: 'ftp', open: true },
-    { port: 22, service: 'ssh', open: true },
+    { port: 21, service: 'ftp', serviceVersion: 'latest', open: true },
+    { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
   ],
   users: [
     { username: 'root', passwordHash: NON_WORDLIST_PASSWORD_HASH, userType: 'root' },
@@ -117,7 +117,9 @@ describe('hydra command', () => {
 
     it('should accept "snmp" as valid service', () => {
       const machine = getMockRemoteMachine({
-        ports: [{ port: 161, service: 'snmp', open: true, protocol: 'udp' }],
+        ports: [
+          { port: 161, service: 'snmp', serviceVersion: 'latest', open: true, protocol: 'udp' },
+        ],
       });
       const snmpdConf: FileNode = {
         name: 'snmpd.conf',
@@ -207,7 +209,7 @@ describe('hydra command', () => {
   describe('service validation', () => {
     it('should throw when no attackable services are open', () => {
       const machine = getMockRemoteMachine({
-        ports: [{ port: 80, service: 'http', open: true }],
+        ports: [{ port: 80, service: 'http', serviceVersion: 'latest', open: true }],
       });
       const hydra = createHydraCommand(createMockContext({ machines: [machine] }));
       expect(() => hydra.fn('192.168.1.50')).toThrow(
@@ -217,7 +219,7 @@ describe('hydra command', () => {
 
     it('should throw when requested service is not open', () => {
       const machine = getMockRemoteMachine({
-        ports: [{ port: 22, service: 'ssh', open: true }],
+        ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
       });
       const hydra = createHydraCommand(createMockContext({ machines: [machine] }));
       expect(() => hydra.fn('192.168.1.50', 'ftp')).toThrow('no open ftp service on 192.168.1.50');
@@ -226,8 +228,8 @@ describe('hydra command', () => {
     it('should skip closed ports', () => {
       const machine = getMockRemoteMachine({
         ports: [
-          { port: 21, service: 'ftp', open: false },
-          { port: 22, service: 'ssh', open: true },
+          { port: 21, service: 'ftp', serviceVersion: 'latest', open: false },
+          { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
         ],
       });
       const hydra = createHydraCommand(createMockContext({ machines: [machine] }));
@@ -476,8 +478,8 @@ describe('hydra command', () => {
         ip: '10.0.0.1',
         hostname: 'router01',
         ports: [
-          { port: 22, service: 'ssh', open: true },
-          { port: 161, service: 'snmp', open: true, protocol: 'udp' },
+          { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+          { port: 161, service: 'snmp', serviceVersion: 'latest', open: true, protocol: 'udp' },
         ],
       });
 
@@ -532,7 +534,7 @@ describe('hydra command', () => {
     it('should throw when SNMP port is not open', () => {
       const machine = getMockRemoteMachine({
         ip: '10.0.0.1',
-        ports: [{ port: 22, service: 'ssh', open: true }],
+        ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
       });
       const hydra = createHydraCommand(createMockContext({ machines: [machine] }));
       expect(() => hydra.fn('10.0.0.1', 'snmp')).toThrow('no open snmp service on 10.0.0.1');
@@ -541,7 +543,9 @@ describe('hydra command', () => {
     it('should throw when no snmpd.conf exists on the machine', () => {
       const machine = getMockRemoteMachine({
         ip: '10.0.0.1',
-        ports: [{ port: 161, service: 'snmp', open: true, protocol: 'udp' }],
+        ports: [
+          { port: 161, service: 'snmp', serviceVersion: 'latest', open: true, protocol: 'udp' },
+        ],
       });
       // No machineFiles provided — getNodeFromMachine returns null
       const hydra = createHydraCommand(createMockContext({ machines: [machine] }));
@@ -562,8 +566,8 @@ describe('hydra command', () => {
       const machine = getMockRemoteMachine({
         ip: '10.0.0.1',
         ports: [
-          { port: 22, service: 'ssh', open: true },
-          { port: 161, service: 'snmp', open: true, protocol: 'udp' },
+          { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+          { port: 161, service: 'snmp', serviceVersion: 'latest', open: true, protocol: 'udp' },
         ],
       });
       const hydra = createHydraCommand(
@@ -615,8 +619,8 @@ describe('hydra command', () => {
         ip: '10.0.0.5',
         hostname: 'dbserver',
         ports: [
-          { port: 22, service: 'ssh', open: true },
-          { port: 3306, service: 'mysql', open: true },
+          { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+          { port: 3306, service: 'mysql', serviceVersion: 'latest', open: true },
         ],
       });
 
@@ -667,7 +671,7 @@ describe('hydra command', () => {
     it('should throw when MySQL port is not open', () => {
       const machine = getMockRemoteMachine({
         ip: '10.0.0.5',
-        ports: [{ port: 22, service: 'ssh', open: true }],
+        ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
       });
       const hydra = createHydraCommand(createMockContext({ machines: [machine] }));
       expect(() => hydra.fn('10.0.0.5', 'mysql')).toThrow('no open mysql service on 10.0.0.5');
@@ -676,7 +680,7 @@ describe('hydra command', () => {
     it('should throw when no data.json exists', () => {
       const machine = getMockRemoteMachine({
         ip: '10.0.0.5',
-        ports: [{ port: 3306, service: 'mysql', open: true }],
+        ports: [{ port: 3306, service: 'mysql', serviceVersion: 'latest', open: true }],
       });
       const hydra = createHydraCommand(createMockContext({ machines: [machine] }));
       expect(() => hydra.fn('10.0.0.5', 'mysql')).toThrow('no MySQL server responding');

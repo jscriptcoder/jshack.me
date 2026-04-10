@@ -22,11 +22,10 @@ export type Vulnerability = {
 export type Port = {
   readonly port: number;
   readonly service: string;
+  readonly serviceVersion: string;
   readonly open: boolean;
   readonly protocol?: 'tcp' | 'udp';
-  readonly serviceVersion?: string;
   readonly owner?: ServiceOwner; // For interactive services (backdoors)
-  readonly vulnerability?: Vulnerability;
 };
 
 export type RemoteUser = {

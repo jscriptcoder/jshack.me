@@ -26,6 +26,7 @@ const mkUser = (username: string, userType: 'root' | 'user' | 'guest'): RemoteUs
 const mkPort = (port: number, service: string, open: boolean): Port => ({
   port,
   service,
+  serviceVersion: 'latest',
   open,
 });
 
@@ -196,20 +197,20 @@ describe('addExploitVulnerability', () => {
     expect(http?.owner).toBeDefined();
   });
 
-  it('does not set a serviceVersion on SSH ports', () => {
+  it('does not make SSH ports exploitable', () => {
     const prng = createPrng('exploit-skip-ssh');
     const result = addExploitVulnerability(basePorts, allUsers, prng);
     const ssh = result.find((p) => p.service === 'ssh');
-    expect(ssh?.serviceVersion).toBeUndefined();
+    expect(findVulnForService('ssh', ssh?.serviceVersion ?? '')).toBeUndefined();
     expect(ssh?.owner).toBeUndefined();
   });
 
-  it('does not set a serviceVersion on closed ports', () => {
+  it('does not make closed ports exploitable', () => {
     const ports: readonly Port[] = [mkPort(22, 'ssh', true), mkPort(80, 'http', false)];
     const prng = createPrng('exploit-closed');
     const result = addExploitVulnerability(ports, allUsers, prng);
     const http = result.find((p) => p.service === 'http');
-    expect(http?.serviceVersion).toBeUndefined();
+    expect(findVulnForService('http', http?.serviceVersion ?? '')).toBeUndefined();
   });
 
   it('skips ports with no matching vulnerability template', () => {
@@ -217,7 +218,7 @@ describe('addExploitVulnerability', () => {
     const prng = createPrng('exploit-no-match');
     const result = addExploitVulnerability(ports, allUsers, prng);
     const unknown = result.find((p) => p.service === 'unknown-service');
-    expect(unknown?.serviceVersion).toBeUndefined();
+    expect(findVulnForService('unknown-service', unknown?.serviceVersion ?? '')).toBeUndefined();
   });
 });
 
