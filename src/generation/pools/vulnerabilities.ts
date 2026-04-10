@@ -6,6 +6,14 @@ export type VulnerabilityTemplate = {
   readonly vulnerability: Vulnerability;
 };
 
+export const findVulnForService = (
+  service: string,
+  serviceVersion: string,
+): Vulnerability | undefined =>
+  vulnerabilityTemplates.find(
+    (t) => t.service === service && t.vulnerability.serviceVersion === serviceVersion,
+  )?.vulnerability;
+
 export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
   {
     port: 80,
