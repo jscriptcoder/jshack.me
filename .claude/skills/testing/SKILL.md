@@ -20,6 +20,7 @@ For verifying test effectiveness through mutation analysis, load the `mutation-t
 Never test implementation details. Test behavior through public APIs.
 
 **Why this matters:**
+
 - Tests remain valid when refactoring
 - Tests document intended behavior
 - Tests catch real bugs, not implementation changes
@@ -27,6 +28,7 @@ Never test implementation details. Test behavior through public APIs.
 ### Examples
 
 ❌ **WRONG - Testing implementation:**
+
 ```typescript
 // ❌ Testing HOW (implementation detail)
 it('should call normalizePath', () => {
@@ -49,6 +51,7 @@ it('should set traversal flag', () => {
 ```
 
 ✅ **CORRECT - Testing behavior through public API:**
+
 ```typescript
 it('resolves relative path from home directory', () => {
   const result = resolvePath('../etc/passwd', '/home/user');
@@ -119,6 +122,7 @@ If code is inline in a function, it gets coverage through that function's behavi
 The anti-pattern is creating a 1:1 mapping between extracted helpers and test files (see "No 1:1 Mapping" below). The extracted helper is an implementation detail of its consumer. Test the consumer's behavior.
 
 ❌ **WRONG — Extracted single-use helper with its own test file:**
+
 ```typescript
 // filter-open-ports.ts (new file, one caller)
 export const filterOpenPorts = (ports: ReadonlyArray<Port>) =>
@@ -129,22 +133,25 @@ it('filters open SSH ports', () => { ... });
 ```
 
 ✅ **CORRECT — Inline in the consuming function, tested through its behavior:**
+
 ```typescript
 // scan-machine.ts
 export const scanMachine = (machine: RemoteMachine): ScanResult => {
-  const sshPorts = machine.ports.filter(p => p.open && p.service === 'ssh');
-  const ftpPorts = machine.ports.filter(p => p.open && p.service === 'ftp');
+  const sshPorts = machine.ports.filter((p) => p.open && p.service === 'ssh');
+  const ftpPorts = machine.ports.filter((p) => p.open && p.service === 'ftp');
   return { sshPorts, ftpPorts, hostname: machine.hostname };
 };
 
 // The behavioral test for scanMachine covers the filtering:
 it('returns only open SSH ports in scan result', () => {
-  const result = scanMachine(getMockMachine({
-    ports: [
-      { port: 22, service: 'ssh', open: true },
-      { port: 80, service: 'http', open: false },
-    ],
-  }));
+  const result = scanMachine(
+    getMockMachine({
+      ports: [
+        { port: 22, service: 'ssh', open: true },
+        { port: 80, service: 'http', open: false },
+      ],
+    }),
+  );
   expect(result.sshPorts).toHaveLength(1);
 });
 ```
@@ -178,7 +185,9 @@ const getMockFileNode = (overrides?: Partial<FileNode>): FileNode => ({
 
 // Usage
 it('restricts write access for guest users', () => {
-  const file = getMockFileNode({ permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: [] } });
+  const file = getMockFileNode({
+    permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: [] },
+  });
   const result = canWriteFile(file, 'guest');
   expect(result).toBe(false);
 });
@@ -203,6 +212,7 @@ const getMockMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine => ({
 ```
 
 **Why validate with schema?**
+
 - Ensures test data is valid according to production schema
 - Catches breaking changes early (schema changes fail tests)
 - Single source of truth (no schema redefinition)
@@ -224,8 +234,8 @@ const getMockPort = (overrides?: Partial<Port>): Port => ({
 const getMockMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine => ({
   ip: '10.0.1.5',
   hostname: 'web-server',
-  ports: [getMockPort()],              // ✅ Compose factories
-  users: [getMockRemoteUser()],        // ✅ Compose factories
+  ports: [getMockPort()], // ✅ Compose factories
+  users: [getMockRemoteUser()], // ✅ Compose factories
   ...overrides,
 });
 
@@ -242,6 +252,7 @@ it('counts total open ports across all machines', () => {
 ### Anti-Patterns
 
 ❌ **WRONG: Using `let` and `beforeEach`**
+
 ```typescript
 let machine: RemoteMachine;
 beforeEach(() => {
@@ -258,37 +269,41 @@ it('test 2', () => {
 ```
 
 ✅ **CORRECT: Factory per test**
+
 ```typescript
 it('test 1', () => {
-  const machine = getMockMachine({ hostname: 'modified' });  // Fresh state
+  const machine = getMockMachine({ hostname: 'modified' }); // Fresh state
   // ...
 });
 
 it('test 2', () => {
-  const machine = getMockMachine();  // Fresh state, not affected by test 1
-  expect(machine.hostname).toBe('web-server');  // ✅ Passes
+  const machine = getMockMachine(); // Fresh state, not affected by test 1
+  expect(machine.hostname).toBe('web-server'); // ✅ Passes
 });
 ```
 
 ❌ **WRONG: Incomplete objects**
+
 ```typescript
 const getMockMachine = () => ({
-  ip: '10.0.1.5',  // Missing hostname, ports, users!
+  ip: '10.0.1.5', // Missing hostname, ports, users!
 });
 ```
 
 ✅ **CORRECT: Complete objects**
+
 ```typescript
 const getMockMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine => ({
   ip: '10.0.1.5',
   hostname: 'web-server',
   ports: [getMockPort()],
   users: [getMockRemoteUser()],
-  ...overrides,  // All required fields present
+  ...overrides, // All required fields present
 });
 ```
 
 ❌ **WRONG: Redefining schemas in tests**
+
 ```typescript
 // ❌ Schema already defined in src/generation/types.ts!
 const MissionSchema = z.object({ ... });
@@ -296,6 +311,7 @@ const getMockMission = () => MissionSchema.parse({ ... });
 ```
 
 ✅ **CORRECT: Import real schema**
+
 ```typescript
 import { MissionSchema } from '@/generation/types';
 
@@ -317,6 +333,7 @@ Watch for these patterns that give fake 100% coverage:
 ### Pattern 1: Mock the function being tested
 
 ❌ **WRONG** - Gives 100% coverage but tests nothing:
+
 ```typescript
 it('calls normalizePath', () => {
   const spy = vi.spyOn(utils, 'normalizePath');
@@ -326,6 +343,7 @@ it('calls normalizePath', () => {
 ```
 
 ✅ **CORRECT** - Test actual behavior:
+
 ```typescript
 it('resolves parent directory reference', () => {
   const result = resolvePath('..', '/home/user');
@@ -336,6 +354,7 @@ it('resolves parent directory reference', () => {
 ### Pattern 2: Test only that function was called
 
 ❌ **WRONG** - No behavior validation:
+
 ```typescript
 it('writes file', () => {
   const spy = vi.spyOn(fs, 'writeFile');
@@ -345,6 +364,7 @@ it('writes file', () => {
 ```
 
 ✅ **CORRECT** - Verify the outcome:
+
 ```typescript
 it('creates file with correct content and permissions', () => {
   createFile('/tmp/test.txt', 'content', 'user');
@@ -357,6 +377,7 @@ it('creates file with correct content and permissions', () => {
 ### Pattern 3: Test trivial getters/setters
 
 ❌ **WRONG** - Testing implementation, not behavior:
+
 ```typescript
 it('sets hostname', () => {
   machine.setHostname('web-01');
@@ -365,10 +386,11 @@ it('sets hostname', () => {
 ```
 
 ✅ **CORRECT** - Test meaningful behavior:
+
 ```typescript
 it('generates unique hostnames for each machine in layer', () => {
   const machines = generateLayer(prng, 3);
-  const hostnames = machines.map(m => m.hostname);
+  const hostnames = machines.map((m) => m.hostname);
   expect(new Set(hostnames).size).toBe(3);
 });
 ```
@@ -376,6 +398,7 @@ it('generates unique hostnames for each machine in layer', () => {
 ### Pattern 4: 100% line coverage, 0% branch coverage
 
 ❌ **WRONG** - Missing edge cases:
+
 ```typescript
 it('checks permission', () => {
   const result = checkTraversal(fs, '/home', 'root');
@@ -385,6 +408,7 @@ it('checks permission', () => {
 ```
 
 ✅ **CORRECT** - Test all branches:
+
 ```typescript
 describe('checkTraversal', () => {
   it('denies guest access to root-only directories', () => {
@@ -416,6 +440,7 @@ describe('checkTraversal', () => {
 Don't create test files that mirror implementation files.
 
 ❌ **WRONG:**
+
 ```
 src/
   filesystem/fileSystemUtils.ts
@@ -428,6 +453,7 @@ tests/
 ```
 
 ✅ **CORRECT:**
+
 ```
 src/
   filesystem/fileSystemUtils.ts

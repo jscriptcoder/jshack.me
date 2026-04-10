@@ -47,7 +47,7 @@ RED-GREEN-MUTATE-REFACTOR Cycle
 └─────────────────────────────────────────────────┘
 ```
 
-**Why MUTATE before REFACTOR:** Mutation testing validates test strength *before* you restructure code. Refactoring with unverified tests means restructuring code whose safety net you haven't checked.
+**Why MUTATE before REFACTOR:** Mutation testing validates test strength _before_ you restructure code. Refactoring with unverified tests means restructuring code whose safety net you haven't checked.
 
 ---
 
@@ -79,6 +79,7 @@ For each changed function/method, work through the mutation operators (see Mutat
 **Always revert each mutation before applying the next.** Never leave mutated code in place.
 
 You do not need to apply every possible mutation to every line. Focus on:
+
 - Changed code on the branch
 - Operators most likely to have surviving mutants (see Quick Reference)
 - Conditions with boundary values
@@ -92,14 +93,17 @@ After working through the mutations, produce a summary:
 ## Mutation Testing Report
 
 ### Killed (tests caught the mutation)
+
 - `countOpenPorts`: `+` → `-` — killed by "counts all open ports on machine"
 - `isPortOpen`: `===` → `!==` — killed by "returns true for open SSH port"
 
 ### Survived (tests DID NOT catch the mutation)
+
 - `generateLayer`: `>=` → `>` — no test for boundary value at exactly minMachines
   → **Action**: Add boundary test for minimum machine count
 
 ### Summary
+
 - Mutations applied: 8
 - Killed: 6
 - Survived: 2
@@ -111,11 +115,13 @@ After working through the mutations, produce a summary:
 Not every surviving mutant warrants a new test. Some mutations produce equivalent behavior, and some boundary cases are low-risk enough that the test would add noise without meaningful protection.
 
 **Fix immediately** when:
+
 - The mutation represents a realistic bug (wrong operator, inverted condition)
 - The surviving mutant is in critical business logic (permissions, authentication, mission objectives)
 - The fix is a simple boundary test or stronger assertion
 
 **Ask the human** when:
+
 - You're unsure whether the mutation represents a real risk
 - The test to kill it would be complex or hard to name clearly
 - The mutation is in a code path that's also covered by integration/E2E tests
@@ -131,13 +137,13 @@ When fixing, follow TDD — write the failing test first, verify it fails agains
 
 ### Arithmetic Operator Mutations
 
-| Original | Mutated | Test Should Verify |
-|----------|---------|-------------------|
-| `a + b` | `a - b` | Addition behavior |
-| `a - b` | `a + b` | Subtraction behavior |
-| `a * b` | `a / b` | Multiplication behavior |
-| `a / b` | `a * b` | Division behavior |
-| `a % b` | `a * b` | Modulo behavior |
+| Original | Mutated | Test Should Verify      |
+| -------- | ------- | ----------------------- |
+| `a + b`  | `a - b` | Addition behavior       |
+| `a - b`  | `a + b` | Subtraction behavior    |
+| `a * b`  | `a / b` | Multiplication behavior |
+| `a / b`  | `a * b` | Division behavior       |
+| `a % b`  | `a * b` | Modulo behavior         |
 
 **Example Analysis:**
 
@@ -167,16 +173,16 @@ it('counts multiple open ports', () => {
 
 ### Conditional Expression Mutations
 
-| Original | Mutated | Test Should Verify |
-|----------|---------|-------------------|
-| `a < b` | `a <= b` | Boundary value at equality |
-| `a < b` | `a >= b` | Both sides of condition |
-| `a <= b` | `a < b` | Boundary value at equality |
-| `a <= b` | `a > b` | Both sides of condition |
-| `a > b` | `a >= b` | Boundary value at equality |
-| `a > b` | `a <= b` | Both sides of condition |
-| `a >= b` | `a > b` | Boundary value at equality |
-| `a >= b` | `a < b` | Both sides of condition |
+| Original | Mutated  | Test Should Verify         |
+| -------- | -------- | -------------------------- |
+| `a < b`  | `a <= b` | Boundary value at equality |
+| `a < b`  | `a >= b` | Both sides of condition    |
+| `a <= b` | `a < b`  | Boundary value at equality |
+| `a <= b` | `a > b`  | Both sides of condition    |
+| `a > b`  | `a >= b` | Boundary value at equality |
+| `a > b`  | `a <= b` | Both sides of condition    |
+| `a >= b` | `a > b`  | Boundary value at equality |
+| `a >= b` | `a < b`  | Both sides of condition    |
 
 **Example Analysis:**
 
@@ -191,31 +197,31 @@ const isPrivilegedPort = (port: number): boolean => {
 
 // ❌ WEAK TEST - Would NOT catch boundary mutant
 it('returns true for well-known ports', () => {
-  expect(isPrivilegedPort(80)).toBe(true);  // 80 < 1024 = true, 80 <= 1024 = true (SAME!)
+  expect(isPrivilegedPort(80)).toBe(true); // 80 < 1024 = true, 80 <= 1024 = true (SAME!)
 });
 
 // ✅ STRONG TEST - Would catch boundary mutant
 it('returns false for port 1024 exactly', () => {
-  expect(isPrivilegedPort(1024)).toBe(false);  // 1024 < 1024 = false, 1024 <= 1024 = true (DIFFERENT!)
+  expect(isPrivilegedPort(1024)).toBe(false); // 1024 < 1024 = false, 1024 <= 1024 = true (DIFFERENT!)
 });
 ```
 
 ### Equality Operator Mutations
 
-| Original | Mutated | Test Should Verify |
-|----------|---------|-------------------|
+| Original  | Mutated   | Test Should Verify             |
+| --------- | --------- | ------------------------------ |
 | `a === b` | `a !== b` | Both equal and not equal cases |
 | `a !== b` | `a === b` | Both equal and not equal cases |
-| `a == b` | `a != b` | Both equal and not equal cases |
-| `a != b` | `a == b` | Both equal and not equal cases |
+| `a == b`  | `a != b`  | Both equal and not equal cases |
+| `a != b`  | `a == b`  | Both equal and not equal cases |
 
 ### Logical Operator Mutations
 
-| Original | Mutated | Test Should Verify |
-|----------|---------|-------------------|
-| `a && b` | `a \|\| b` | Case where one is true, other is false |
-| `a \|\| b` | `a && b` | Case where one is true, other is false |
-| `a ?? b` | `a && b` | Nullish coalescing behavior |
+| Original   | Mutated    | Test Should Verify                     |
+| ---------- | ---------- | -------------------------------------- |
+| `a && b`   | `a \|\| b` | Case where one is true, other is false |
+| `a \|\| b` | `a && b`   | Case where one is true, other is false |
+| `a ?? b`   | `a && b`   | Nullish coalescing behavior            |
 
 **Example Analysis:**
 
@@ -230,28 +236,28 @@ const canExecuteCommand = (hasWifi: boolean, hasBinary: boolean): boolean => {
 
 // ❌ WEAK TEST - Would NOT catch mutant
 it('returns true when both conditions met', () => {
-  expect(canExecuteCommand(true, true)).toBe(true);  // true && true = true || true (SAME!)
+  expect(canExecuteCommand(true, true)).toBe(true); // true && true = true || true (SAME!)
 });
 
 // ✅ STRONG TEST - Would catch mutant
 it('returns false when WiFi connected but binary missing', () => {
-  expect(canExecuteCommand(true, false)).toBe(false);  // true && false = false, true || false = true (DIFFERENT!)
+  expect(canExecuteCommand(true, false)).toBe(false); // true && false = false, true || false = true (DIFFERENT!)
 });
 ```
 
 ### Boolean Literal Mutations
 
-| Original | Mutated | Test Should Verify |
-|----------|---------|-------------------|
-| `true` | `false` | Both true and false outcomes |
-| `false` | `true` | Both true and false outcomes |
-| `!(a)` | `a` | Negation is necessary |
+| Original | Mutated | Test Should Verify           |
+| -------- | ------- | ---------------------------- |
+| `true`   | `false` | Both true and false outcomes |
+| `false`  | `true`  | Both true and false outcomes |
+| `!(a)`   | `a`     | Negation is necessary        |
 
 ### Block Statement Mutations
 
-| Original | Mutated | Test Should Verify |
-|----------|---------|-------------------|
-| `{ code }` | `{ }` | Side effects of the block |
+| Original   | Mutated | Test Should Verify        |
+| ---------- | ------- | ------------------------- |
+| `{ code }` | `{ }`   | Side effects of the block |
 
 **Example Analysis:**
 
@@ -260,7 +266,7 @@ it('returns false when WiFi connected but binary missing', () => {
 const applyPatch = (fs: FileNode, patch: FileSystemPatch): FileNode => {
   const pathParts = patch.path.split('/').filter(Boolean);
   return updateNodeAtPath(fs, pathParts, () =>
-    mkFile(pathParts[pathParts.length - 1], patch.content ?? '', patch.owner)
+    mkFile(pathParts[pathParts.length - 1], patch.content ?? '', patch.owner),
   );
 };
 
@@ -269,12 +275,17 @@ const applyPatch = (fs: FileNode, patch: FileSystemPatch): FileNode => {
 
 // ❌ WEAK TEST - Would NOT catch mutant
 it('applies patch without error', () => {
-  expect(() => applyPatch(baseFs, patch)).not.toThrow();  // Empty function also doesn't throw!
+  expect(() => applyPatch(baseFs, patch)).not.toThrow(); // Empty function also doesn't throw!
 });
 
 // ✅ STRONG TEST - Would catch mutant
 it('updates file content at specified path', () => {
-  const result = applyPatch(baseFs, { machineId: 'm1', path: '/etc/hosts', content: '10.0.1.1 web', owner: 'root' });
+  const result = applyPatch(baseFs, {
+    machineId: 'm1',
+    path: '/etc/hosts',
+    content: '10.0.1.1 web',
+    owner: 'root',
+  });
   const node = getNodeAtPath(result, '/etc/hosts');
   expect(node?.content).toBe('10.0.1.1 web');
 });
@@ -282,51 +293,51 @@ it('updates file content at specified path', () => {
 
 ### String Literal Mutations
 
-| Original | Mutated | Test Should Verify |
-|----------|---------|-------------------|
-| `"text"` | `""` | Non-empty string behavior |
-| `""` | `"Stryker was here!"` | Empty string behavior |
+| Original | Mutated               | Test Should Verify        |
+| -------- | --------------------- | ------------------------- |
+| `"text"` | `""`                  | Non-empty string behavior |
+| `""`     | `"Stryker was here!"` | Empty string behavior     |
 
 ### Array Declaration Mutations
 
-| Original | Mutated | Test Should Verify |
-|----------|---------|-------------------|
-| `[1, 2, 3]` | `[]` | Non-empty array behavior |
-| `new Array(1, 2)` | `new Array()` | Array contents matter |
+| Original          | Mutated       | Test Should Verify       |
+| ----------------- | ------------- | ------------------------ |
+| `[1, 2, 3]`       | `[]`          | Non-empty array behavior |
+| `new Array(1, 2)` | `new Array()` | Array contents matter    |
 
 ### Unary Operator Mutations
 
-| Original | Mutated | Test Should Verify |
-|----------|---------|-------------------|
-| `+a` | `-a` | Sign matters |
-| `-a` | `+a` | Sign matters |
-| `++a` | `--a` | Increment vs decrement |
-| `a++` | `a--` | Increment vs decrement |
+| Original | Mutated | Test Should Verify     |
+| -------- | ------- | ---------------------- |
+| `+a`     | `-a`    | Sign matters           |
+| `-a`     | `+a`    | Sign matters           |
+| `++a`    | `--a`   | Increment vs decrement |
+| `a++`    | `a--`   | Increment vs decrement |
 
 ### Method Expression Mutations (TypeScript/JavaScript)
 
-| Original | Mutated | Test Should Verify |
-|----------|---------|-------------------|
-| `startsWith()` | `endsWith()` | Correct string position |
-| `endsWith()` | `startsWith()` | Correct string position |
-| `toUpperCase()` | `toLowerCase()` | Case transformation |
-| `toLowerCase()` | `toUpperCase()` | Case transformation |
-| `some()` | `every()` | Partial vs full match |
-| `every()` | `some()` | Full vs partial match |
-| `filter()` | (removed) | Filtering is necessary |
-| `reverse()` | (removed) | Order matters |
-| `sort()` | (removed) | Ordering is necessary |
-| `min()` | `max()` | Correct extremum |
-| `max()` | `min()` | Correct extremum |
-| `trim()` | `trimStart()` | Correct trim behavior |
+| Original        | Mutated         | Test Should Verify      |
+| --------------- | --------------- | ----------------------- |
+| `startsWith()`  | `endsWith()`    | Correct string position |
+| `endsWith()`    | `startsWith()`  | Correct string position |
+| `toUpperCase()` | `toLowerCase()` | Case transformation     |
+| `toLowerCase()` | `toUpperCase()` | Case transformation     |
+| `some()`        | `every()`       | Partial vs full match   |
+| `every()`       | `some()`        | Full vs partial match   |
+| `filter()`      | (removed)       | Filtering is necessary  |
+| `reverse()`     | (removed)       | Order matters           |
+| `sort()`        | (removed)       | Ordering is necessary   |
+| `min()`         | `max()`         | Correct extremum        |
+| `max()`         | `min()`         | Correct extremum        |
+| `trim()`        | `trimStart()`   | Correct trim behavior   |
 
 ### Optional Chaining Mutations
 
-| Original | Mutated | Test Should Verify |
-|----------|---------|-------------------|
+| Original   | Mutated   | Test Should Verify      |
+| ---------- | --------- | ----------------------- |
 | `foo?.bar` | `foo.bar` | Null/undefined handling |
-| `foo?.[i]` | `foo[i]` | Null/undefined handling |
-| `foo?.()` | `foo()` | Null/undefined handling |
+| `foo?.[i]` | `foo[i]`  | Null/undefined handling |
+| `foo?.()`  | `foo()`   | Null/undefined handling |
 
 ---
 
@@ -334,13 +345,13 @@ it('updates file content at specified path', () => {
 
 ### Mutant States
 
-| State | Meaning | Action |
-|-------|---------|--------|
-| **Killed** | Test failed when mutant applied | Good - tests are effective |
-| **Survived** | Tests passed with mutant active | Bad - add/strengthen test |
-| **No Coverage** | No test exercises this code | Add behavior test |
-| **Timeout** | Tests timed out (infinite loop) | Counted as detected |
-| **Equivalent** | Mutant produces same behavior | No action - not a real bug |
+| State           | Meaning                         | Action                     |
+| --------------- | ------------------------------- | -------------------------- |
+| **Killed**      | Test failed when mutant applied | Good - tests are effective |
+| **Survived**    | Tests passed with mutant active | Bad - add/strengthen test  |
+| **No Coverage** | No test exercises this code     | Add behavior test          |
+| **Timeout**     | Tests timed out (infinite loop) | Counted as detected        |
+| **Equivalent**  | Mutant produces same behavior   | No action - not a real bug |
 
 ### Metrics
 
@@ -350,12 +361,12 @@ it('updates file content at specified path', () => {
 
 ### Target Mutation Score
 
-| Score | Quality |
-|-------|---------|
-| < 60% | Weak test suite - significant gaps |
-| 60-80% | Moderate - many improvements possible |
-| 80-90% | Good - but still gaps to address |
-| > 90% | Strong - but watch for equivalent mutants |
+| Score  | Quality                                   |
+| ------ | ----------------------------------------- |
+| < 60%  | Weak test suite - significant gaps        |
+| 60-80% | Moderate - many improvements possible     |
+| 80-90% | Good - but still gaps to address          |
+| > 90%  | Strong - but watch for equivalent mutants |
 
 ---
 
@@ -370,7 +381,7 @@ Equivalent mutants produce the same behavior as the original code. They cannot b
 ```typescript
 // Mutant in conditional where both branches have same effect
 if (whatever) {
-  portCount += 0;  // Can mutate to -= 0, *= 1, /= 1 - all equivalent!
+  portCount += 0; // Can mutate to -= 0, *= 1, /= 1 - all equivalent!
 } else {
   portCount += 0;
 }
@@ -382,8 +393,9 @@ if (whatever) {
 // When max equals min, condition doesn't matter
 const maxPort = Math.max(a, b);
 const minPort = Math.min(a, b);
-if (a >= b) {  // Mutating to <= or < has no effect when a === b
-  result = maxPort - minPort;  // 0 regardless
+if (a >= b) {
+  // Mutating to <= or < has no effect when a === b
+  result = maxPort - minPort; // 0 regardless
 }
 ```
 
@@ -392,7 +404,7 @@ if (a >= b) {  // Mutating to <= or < has no effect when a === b
 ```typescript
 // If this path is never reached, mutations don't matter
 if (impossibleCondition) {
-  closePorts();  // Mutating this won't affect behavior
+  closePorts(); // Mutating this won't affect behavior
 }
 ```
 
@@ -411,7 +423,7 @@ When analyzing code changes on a branch:
 
 ### For Each Function/Method Changed:
 
-- [ ] **Arithmetic operators**: Would changing +, -, *, / be detected?
+- [ ] **Arithmetic operators**: Would changing +, -, \*, / be detected?
 - [ ] **Conditionals**: Are boundary values tested (>=, <=)?
 - [ ] **Boolean logic**: Are all branches of &&, || tested?
 - [ ] **Return statements**: Would changing return value be detected?
@@ -450,9 +462,9 @@ it('checks if port is privileged', () => {
 
 // Strengthened with boundary values
 it('checks privileged port boundary at 1024', () => {
-  expect(isPrivilegedPort(1023)).toBe(true);   // Just below
-  expect(isPrivilegedPort(1024)).toBe(false);   // Exactly at boundary
-  expect(isPrivilegedPort(1025)).toBe(false);   // Just above
+  expect(isPrivilegedPort(1023)).toBe(true); // Just below
+  expect(isPrivilegedPort(1024)).toBe(false); // Exactly at boundary
+  expect(isPrivilegedPort(1025)).toBe(false); // Just above
 });
 ```
 
@@ -483,14 +495,14 @@ it('denies when neither condition met', () => {
 ```typescript
 // Weak - uses identity values
 it('calculates', () => {
-  expect(generateLayerSize(1, 1)).toBe(1);  // x * 1 = x / 1
-  expect(addMachineCount(5, 0)).toBe(5);    // x + 0 = x - 0
+  expect(generateLayerSize(1, 1)).toBe(1); // x * 1 = x / 1
+  expect(addMachineCount(5, 0)).toBe(5); // x + 0 = x - 0
 });
 
 // Strong - uses values that reveal operator differences
 it('calculates', () => {
-  expect(generateLayerSize(3, 4)).toBe(12);  // 3 * 4 != 3 / 4
-  expect(addMachineCount(5, 3)).toBe(8);     // 5 + 3 != 5 - 3
+  expect(generateLayerSize(3, 4)).toBe(12); // 3 * 4 != 3 / 4
+  expect(addMachineCount(5, 3)).toBe(8); // 5 + 3 != 5 - 3
 });
 ```
 
@@ -556,6 +568,7 @@ npx stryker run --incremental
 > "If I introduced a bug here, would my tests catch it?"
 
 **For each test, verify it would catch:**
+
 - Arithmetic operator changes
 - Boundary condition shifts
 - Boolean logic inversions
@@ -563,6 +576,7 @@ npx stryker run --incremental
 - Changed return values
 
 **Remember:**
+
 - Coverage measures execution, mutation testing measures detection
 - A test that doesn't make assertions can't kill mutants
 - Boundary values are critical for conditional mutations
@@ -582,10 +596,10 @@ npx stryker run --incremental
 
 ### Test Values That Kill Mutants
 
-| Avoid | Use Instead |
-|-------|-------------|
-| 0 (for +/-) | Non-zero values |
-| 1 (for */) | Values > 1 |
-| Empty arrays | Arrays with multiple items |
-| Identical values for comparisons | Distinct values |
-| All true/false for logical ops | Mixed true/false |
+| Avoid                            | Use Instead                |
+| -------------------------------- | -------------------------- |
+| 0 (for +/-)                      | Non-zero values            |
+| 1 (for \*/)                      | Values > 1                 |
+| Empty arrays                     | Arrays with multiple items |
+| Identical values for comparisons | Distinct values            |
+| All true/false for logical ops   | Mixed true/false           |

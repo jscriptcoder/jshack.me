@@ -85,6 +85,7 @@ export type GameState = z.infer<typeof GameStateSchema>;
 ### What Each Setting Does
 
 **Core strict flags:**
+
 - **`strict: true`** - Enables all strict type checking options
 - **`noImplicitAny`** - Error on expressions/declarations with implied `any` type
 - **`strictNullChecks`** - `null` and `undefined` have their own types (not assignable to everything)
@@ -94,6 +95,7 @@ export type GameState = z.infer<typeof GameStateSchema>;
 - **`noFallthroughCasesInSwitch`** - Error on fallthrough cases in switch statements
 
 **Additional safety flags (CRITICAL):**
+
 - **`noUncheckedIndexedAccess`** - Array/object access returns `T | undefined` (prevents runtime errors from assuming elements exist)
 - **`exactOptionalPropertyTypes`** - Distinguishes `property?: T` from `property: T | undefined` (more precise types)
 - **`noPropertyAccessFromIndexSignature`** - Requires bracket notation for index signature properties (forces awareness of dynamic access)
@@ -118,6 +120,7 @@ The `noUnusedParameters` rule can reveal architectural problems:
 For detailed patterns on immutability (`readonly`, `ReadonlyArray`), pure functions, composition, Result types, array methods, and factory functions, see the `functional` skill. These are the canonical patterns used across the codebase.
 
 Key TypeScript-specific notes:
+
 - Use `readonly` on all `type` properties and `ReadonlyArray<T>` for arrays
 - The compiler enforces immutability when `readonly` is used — leverage this
 - Factory functions (not classes) for object creation, supporting dependency injection
@@ -157,9 +160,7 @@ const patch = FileSystemPatchSchema.parse(storedData);
 
 ```typescript
 // ✅ CORRECT - No schema needed
-type PermissionResult =
-  | { allowed: true }
-  | { allowed: false; reason: string };
+type PermissionResult = { allowed: true } | { allowed: false; reason: string };
 
 // ✅ CORRECT - Interface, no validation
 interface CommandExecutor {

@@ -27,6 +27,7 @@ Immutable data is the foundation of functional programming. Understanding WHY he
 - **Concurrency-safe**: No race conditions when data can't change
 
 **Example of the problem:**
+
 ```typescript
 // ❌ WRONG - Mutation creates unpredictable behavior
 const machine = { ip: '10.0.1.5', ports: [{ port: 22, service: 'ssh', open: true }] };
@@ -49,12 +50,14 @@ console.log(updatedMachine.ports.length); // 2 - new version
 We follow "Functional Light" principles - practical functional patterns without heavy abstractions:
 
 **What we DO:**
+
 - Pure functions and immutable data
 - Composition and declarative code
 - Array methods over loops
 - Type safety and readonly
 
 **What we DON'T do:**
+
 - Category theory or monads
 - Heavy FP libraries (fp-ts, Ramda)
 - Over-engineering with abstractions
@@ -63,17 +66,20 @@ We follow "Functional Light" principles - practical functional patterns without 
 **Why:** The goal is **maintainable, testable code** - not academic purity. If a functional pattern makes code harder to understand, don't use it.
 
 **Example - Keep it simple:**
+
 ```typescript
 // ✅ GOOD - Simple, clear, functional
-const openPorts = machine.ports.filter(p => p.open);
-const serviceNames = openPorts.map(p => p.service);
+const openPorts = machine.ports.filter((p) => p.open);
+const serviceNames = openPorts.map((p) => p.service);
 
 // ❌ OVER-ENGINEERED - Unnecessary abstraction
-const compose = <T>(...fns: Array<(arg: T) => T>) => (x: T) =>
-  fns.reduceRight((v, f) => f(v), x);
+const compose =
+  <T>(...fns: Array<(arg: T) => T>) =>
+  (x: T) =>
+    fns.reduceRight((v, f) => f(v), x);
 const serviceNames = compose(
   filter((p: Port) => p.open),
-  map((p: Port) => p.service)
+  map((p: Port) => p.service),
 )(machine.ports);
 ```
 
@@ -92,6 +98,7 @@ Code should be clear through naming and structure. Comments that restate **what*
 ### Examples
 
 ❌ **WRONG - Comments explaining unclear code**
+
 ```typescript
 // Get the node and check if it's a file with read access
 function check(n: any) {
@@ -171,6 +178,7 @@ If code needs **what** comments, refactor instead:
 - Use type aliases for domain concepts
 
 ✅ **Acceptable JSDoc for public APIs**
+
 ```typescript
 /**
  * Creates a seeded PRNG for deterministic mission generation.
@@ -191,6 +199,7 @@ Prefer `map`, `filter`, `reduce` for transformations. They're declarative (what,
 ### Map - Transform Each Element
 
 ❌ **WRONG - Imperative loop**
+
 ```typescript
 const serviceNames = [];
 for (const port of machine.ports) {
@@ -199,13 +208,15 @@ for (const port of machine.ports) {
 ```
 
 ✅ **CORRECT - Functional map**
+
 ```typescript
-const serviceNames = machine.ports.map(p => p.service);
+const serviceNames = machine.ports.map((p) => p.service);
 ```
 
 ### Filter - Select Subset
 
 ❌ **WRONG - Imperative loop**
+
 ```typescript
 const openPorts = [];
 for (const port of machine.ports) {
@@ -216,13 +227,15 @@ for (const port of machine.ports) {
 ```
 
 ✅ **CORRECT - Functional filter**
+
 ```typescript
-const openPorts = machine.ports.filter(p => p.open);
+const openPorts = machine.ports.filter((p) => p.open);
 ```
 
 ### Reduce - Aggregate Values
 
 ❌ **WRONG - Imperative loop**
+
 ```typescript
 let totalMachines = 0;
 for (const layer of mission.layers) {
@@ -231,6 +244,7 @@ for (const layer of mission.layers) {
 ```
 
 ✅ **CORRECT - Functional reduce**
+
 ```typescript
 const totalMachines = mission.layers.reduce((sum, layer) => sum + layer.machines.length, 0);
 ```
@@ -238,21 +252,24 @@ const totalMachines = mission.layers.reduce((sum, layer) => sum + layer.machines
 ### Chaining Multiple Operations
 
 ✅ **CORRECT - Compose array methods**
+
 ```typescript
 const sshTargets = network.machines
-  .filter(m => !m.bricked)
-  .map(m => m.ports.filter(p => p.port === 22 && p.open))
+  .filter((m) => !m.bricked)
+  .map((m) => m.ports.filter((p) => p.port === 22 && p.open))
   .reduce((all, ports) => [...all, ...ports], []);
 ```
 
 ### When Loops Are Acceptable
 
 Imperative loops are fine when:
+
 - Early termination is essential (use `for...of` with `break`)
 - Performance critical (measure first!)
 - Side effects are necessary (logging, DOM manipulation)
 
 But even then, consider:
+
 - `Array.find()` for early termination
 - `Array.some()` / `Array.every()` for boolean checks
 
@@ -265,6 +282,7 @@ Default to options objects for function parameters. This improves readability an
 ### Why Options Objects?
 
 **Benefits:**
+
 - Named parameters (clear what each argument means)
 - No ordering dependencies
 - Easy to add optional parameters
@@ -274,6 +292,7 @@ Default to options objects for function parameters. This improves readability an
 ### Examples
 
 ❌ **WRONG - Positional parameters**
+
 ```typescript
 function generateMission(
   seed: string,
@@ -281,7 +300,7 @@ function generateMission(
   entryVariant: EntryVariant,
   networkMode: NetworkMode,
   domainEntry: boolean,
-  gpgEnabled: boolean
+  gpgEnabled: boolean,
 ): MissionNetwork {
   // ...
 }
@@ -291,6 +310,7 @@ generateMission('abc123', 'hard', 'ssh', 'nat', true, false);
 ```
 
 ✅ **CORRECT - Options object**
+
 ```typescript
 type GenerateMissionOptions = {
   readonly seed: string;
@@ -302,7 +322,14 @@ type GenerateMissionOptions = {
 };
 
 function generateMission(options: GenerateMissionOptions): MissionNetwork {
-  const { seed, difficulty, entryVariant, networkMode, domainEntry = false, gpgEnabled = false } = options;
+  const {
+    seed,
+    difficulty,
+    entryVariant,
+    networkMode,
+    domainEntry = false,
+    gpgEnabled = false,
+  } = options;
   // ...
 }
 
@@ -319,6 +346,7 @@ generateMission({
 ### When Positional Parameters Are OK
 
 Use positional parameters when:
+
 - 1-2 parameters max
 - Order is obvious (e.g., `add(a, b)`)
 - High-frequency utility functions
@@ -357,6 +385,7 @@ Pure functions have no side effects and always return the same output for the sa
 ### Examples
 
 ❌ **WRONG - Impure function (mutations)**
+
 ```typescript
 function addMachine(machines: GeneratedMachine[], newMachine: GeneratedMachine): void {
   machines.push(newMachine); // ❌ Mutates input
@@ -370,6 +399,7 @@ function countPort(): number {
 ```
 
 ✅ **CORRECT - Pure functions**
+
 ```typescript
 function addMachine(
   machines: ReadonlyArray<GeneratedMachine>,
@@ -427,6 +457,7 @@ Compose small functions into larger ones. Each function does one thing well.
 ### Examples
 
 ❌ **WRONG - Complex monolithic function**
+
 ```typescript
 function validateMissionSeed(input: unknown) {
   if (typeof input !== 'object' || !input) {
@@ -446,6 +477,7 @@ function validateMissionSeed(input: unknown) {
 ```
 
 ✅ **CORRECT - Composed functions**
+
 ```typescript
 // Small, focused functions
 const validate = (input: unknown) => MissionSeedSchema.parse(input);
@@ -459,7 +491,10 @@ const createMission = (input: unknown) => generate(validate(input));
 
 ```typescript
 // Small transformation functions
-const addUsers = (machine: GeneratedMachine, users: ReadonlyArray<RemoteUser>): GeneratedMachine => ({
+const addUsers = (
+  machine: GeneratedMachine,
+  users: ReadonlyArray<RemoteUser>,
+): GeneratedMachine => ({
   ...machine,
   users,
 });
@@ -477,11 +512,8 @@ const setRole = (machine: GeneratedMachine, role: MachineRole): GeneratedMachine
 // Compose them
 const enrichMachine = (machine: GeneratedMachine, prng: Prng): GeneratedMachine => {
   return setRole(
-    addPorts(
-      addUsers(machine, generateUsers(prng)),
-      generatePorts(machine.role, prng)
-    ),
-    machine.role
+    addPorts(addUsers(machine, generateUsers(prng)), generatePorts(machine.role, prng)),
+    machine.role,
   );
 };
 ```
@@ -561,6 +593,7 @@ type Port = {
 ### Examples
 
 ❌ **WRONG - Deep nesting (4+ levels)**
+
 ```typescript
 function checkFileAccess(node: FileNode, path: string, user: UserType) {
   if (node.type === 'directory') {
@@ -576,6 +609,7 @@ function checkFileAccess(node: FileNode, path: string, user: UserType) {
 ```
 
 ✅ **CORRECT - Flat with early returns**
+
 ```typescript
 function checkFileAccess(node: FileNode, path: string, user: UserType) {
   if (node.type !== 'directory') return false;
@@ -589,6 +623,7 @@ function checkFileAccess(node: FileNode, path: string, user: UserType) {
 ```
 
 ✅ **CORRECT - Extract to functions**
+
 ```typescript
 function checkFileAccess(node: FileNode, path: string, user: UserType) {
   if (!isAccessibleDirectory(node, path)) return false;
@@ -597,9 +632,7 @@ function checkFileAccess(node: FileNode, path: string, user: UserType) {
 }
 
 function isAccessibleDirectory(node: FileNode, path: string): boolean {
-  return node.type === 'directory'
-    && node.children !== undefined
-    && path in node.children;
+  return node.type === 'directory' && node.children !== undefined && path in node.children;
 }
 ```
 
@@ -611,26 +644,31 @@ function isAccessibleDirectory(node: FileNode, path: string): boolean {
 
 ```typescript
 // ❌ WRONG - Mutations
-machines.push(newMachine);        // Add to end
-machines.pop();                   // Remove last
-machines.unshift(newMachine);     // Add to start
-machines.shift();                 // Remove first
-machines.splice(index, 1);       // Remove at index
-machines.reverse();               // Reverse order
-machines.sort();                  // Sort
-machines[i] = newValue;           // Update at index
+machines.push(newMachine); // Add to end
+machines.pop(); // Remove last
+machines.unshift(newMachine); // Add to start
+machines.shift(); // Remove first
+machines.splice(index, 1); // Remove at index
+machines.reverse(); // Reverse order
+machines.sort(); // Sort
+machines[i] = newValue; // Update at index
 
 // ✅ CORRECT - Immutable alternatives
-const withNew = [...machines, newMachine];              // Add to end
-const withoutLast = machines.slice(0, -1);              // Remove last
-const withFirst = [newMachine, ...machines];             // Add to start
-const withoutFirst = machines.slice(1);                  // Remove first
-const removed = [...machines.slice(0, index),            // Remove at index
-                 ...machines.slice(index + 1)];
-const reversed = [...machines].reverse();                // Reverse (copy first!)
-const sorted = [...machines].sort();                     // Sort (copy first!)
-const updated = machines.map((m, idx) =>                 // Update at index
-  idx === i ? newValue : m
+const withNew = [...machines, newMachine]; // Add to end
+const withoutLast = machines.slice(0, -1); // Remove last
+const withFirst = [newMachine, ...machines]; // Add to start
+const withoutFirst = machines.slice(1); // Remove first
+const removed = [
+  ...machines.slice(0, index), // Remove at index
+  ...machines.slice(index + 1),
+];
+const reversed = [...machines].reverse(); // Reverse (copy first!)
+const sorted = [...machines].sort(); // Sort (copy first!)
+const updated = machines.map(
+  (
+    m,
+    idx, // Update at index
+  ) => (idx === i ? newValue : m),
 );
 ```
 
@@ -638,19 +676,13 @@ const updated = machines.map((m, idx) =>                 // Update at index
 
 ```typescript
 // Filter out specific machine by IP
-const withoutMachine = machines.filter(m => m.ip !== targetIp);
+const withoutMachine = machines.filter((m) => m.ip !== targetIp);
 
 // Replace specific machine
-const replaced = machines.map(m =>
-  m.ip === targetIp ? updatedMachine : m
-);
+const replaced = machines.map((m) => (m.ip === targetIp ? updatedMachine : m));
 
 // Insert at specific position
-const inserted = [
-  ...machines.slice(0, index),
-  newMachine,
-  ...machines.slice(index)
-];
+const inserted = [...machines.slice(0, index), newMachine, ...machines.slice(index)];
 ```
 
 ---
@@ -674,9 +706,7 @@ const updated = { ...machine, hostname: 'web-server' };
 // ✅ CORRECT - Immutable nested update
 const updatedMachine = {
   ...machine,
-  ports: machine.ports.map((p, i) =>
-    i === targetIndex ? { ...p, open: false } : p
-  ),
+  ports: machine.ports.map((p, i) => (i === targetIndex ? { ...p, open: false } : p)),
 };
 
 // ✅ CORRECT - Immutable nested array update (filesystem tree)

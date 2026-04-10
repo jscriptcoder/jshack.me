@@ -16,12 +16,14 @@ Refactoring is the final step of TDD. After mutation testing confirms test stren
 ### Commit Before Refactoring - WHY
 
 Having a working baseline before refactoring:
+
 - Allows reverting if refactoring breaks things
 - Provides safety net for experimentation
 - Makes refactoring less risky
 - Shows clear separation in git history
 
 **Workflow:**
+
 1. GREEN: Tests pass
 2. MUTATE: Verify test effectiveness
 3. KILL MUTANTS: Address surviving mutants
@@ -31,21 +33,23 @@ Having a working baseline before refactoring:
 
 ## Priority Classification
 
-| Priority | Action | Examples |
-|----------|--------|----------|
-| Critical | Fix now | Mutations, knowledge duplication, >3 levels nesting |
-| High | This session | Magic numbers, unclear names, >30 line functions |
-| Nice | Later | Minor naming, single-use helpers |
-| Skip | Don't change | Already clean code |
+| Priority | Action       | Examples                                            |
+| -------- | ------------ | --------------------------------------------------- |
+| Critical | Fix now      | Mutations, knowledge duplication, >3 levels nesting |
+| High     | This session | Magic numbers, unclear names, >30 line functions    |
+| Nice     | Later        | Minor naming, single-use helpers                    |
+| Skip     | Don't change | Already clean code                                  |
 
 ## DRY = Knowledge, Not Code
 
 **Abstract when**:
+
 - Same business concept (semantic meaning)
 - Would change together if requirements change
 - Obvious why grouped together
 
 **Keep separate when**:
+
 - Different concepts that look similar (structural)
 - Would evolve independently
 - Coupling would be confusing
@@ -74,6 +78,7 @@ If code isn't driven by a failing test, don't write it.
 **Key lesson**: Every line must have a test that demanded its existence.
 
 ❌ **Speculative code examples:**
+
 - "Just in case" logic
 - Features not yet needed
 - Code written "for future flexibility"

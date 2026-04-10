@@ -32,6 +32,7 @@ There will be exceptions — some changes are inherently coupled and splitting t
 ## What Makes a "Known-Good Increment"
 
 Each step MUST:
+
 - Leave all tests passing
 - Be independently deployable
 - Have clear done criteria
@@ -43,12 +44,14 @@ Each step MUST:
 ## Step Size Heuristics
 
 **Too big if:**
+
 - Takes more than one session
 - Requires multiple commits to complete
 - Has multiple "and"s in description
 - You're unsure how to test it
 
 **Right size if:**
+
 - One clear test case
 - One logical change
 - Can explain to someone quickly
@@ -168,13 +171,15 @@ Read the project's CLAUDE.md and testing rules before writing steps.
 ## Pre-PR Quality Gate
 
 Before each PR:
+
 1. Mutation testing — run `mutation-testing` skill
 2. Refactoring assessment — run `refactoring` skill
 3. Typecheck and lint pass
 4. DDD glossary check — if the project uses DDD, verify all domain terms match the canonical glossary
 
 ---
-*Delete this file when the plan is complete. If `plans/` is empty, delete the directory.*
+
+_Delete this file when the plan is complete. If `plans/` is empty, delete the directory._
 ```
 
 ### Plan Changes Require Approval
@@ -198,18 +203,23 @@ When all steps are complete:
 ## Anti-Patterns
 
 ❌ **Committing without approval**
+
 - Always wait for explicit "yes" before committing
 
 ❌ **Steps that span multiple commits**
+
 - Break down further until one step = one commit
 
 ❌ **Writing code before tests**
+
 - RED comes first, always
 
 ❌ **Plans that change silently**
+
 - All plan changes require discussion and approval
 
 ❌ **Keeping plan files after feature complete**
+
 - Delete them; knowledge lives in CLAUDE.md, ADRs, and git history
 
 ## Quick Reference

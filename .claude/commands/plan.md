@@ -60,13 +60,15 @@ Read the project's CLAUDE.md and testing rules before writing steps.
 ## Pre-PR Quality Gate
 
 Before each PR:
+
 1. Mutation testing — run `mutation-testing` skill
 2. Refactoring assessment — run `refactoring` skill
 3. Typecheck and lint pass
 4. DDD glossary check — if the project uses DDD, verify all domain terms match the canonical glossary
 
 ---
-*Delete this file when the plan is complete. If `plans/` is empty, delete the directory.*
+
+_Delete this file when the plan is complete. If `plans/` is empty, delete the directory._
 ```
 
 ## Constraints

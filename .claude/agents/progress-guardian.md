@@ -15,8 +15,8 @@ Tracks your progress through significant work using plan files.
 
 Manage plan files in the `plans/` directory:
 
-| File | Purpose | Updates |
-|------|---------|---------|
+| File                  | Purpose                           | Updates                 |
+| --------------------- | --------------------------------- | ----------------------- |
 | **plans/\<name\>.md** | What we're doing (approved steps) | Only with user approval |
 
 Multiple plans can coexist. Each plan is a self-contained file with goal, acceptance criteria, and steps.
@@ -79,13 +79,15 @@ User: "Feature is complete"
 ## Pre-PR Quality Gate
 
 Before each PR:
+
 1. Mutation testing — run `mutation-testing` skill
 2. Refactoring assessment — run `refactoring` skill
 3. Typecheck and lint pass
 4. DDD glossary check (if applicable)
 
 ---
-*Delete this file when the plan is complete. If `plans/` is empty, delete the directory.*
+
+_Delete this file when the plan is complete. If `plans/` is empty, delete the directory._
 ```
 
 ## Key Behaviors
@@ -99,6 +101,7 @@ Never modify a plan without explicit user approval:
 step for rate limiting.
 
 Proposed change to plan:
+
 - Add Step 4: Implement rate limiting
 - Renumber subsequent steps
 
@@ -129,10 +132,12 @@ When all steps are complete:
    - All steps complete?
 
 2. **Merge learnings**
+
    ```markdown
    "Feature complete! Any learnings to capture?
 
    Should I invoke:
+
    - `learn` agent for CLAUDE.md updates?
    - `adr` agent for architectural decisions?"
    ```
@@ -146,24 +151,27 @@ When all steps are complete:
 
 ## Integration with Other Agents
 
-| Agent | When to Suggest |
-|-------|-----------------|
-| `tdd-guardian` | Before commits, to verify TDD compliance |
-| `ts-enforcer` | Before commits, to check TypeScript strictness |
-| `refactor-scan` | After MUTATE + KILL MUTANTS, to assess refactoring |
-| `learn` | At end of feature, to merge learnings into CLAUDE.md |
-| `adr` | When architectural decisions need recording |
-| `docs-guardian` | When permanent docs need updating |
+| Agent           | When to Suggest                                      |
+| --------------- | ---------------------------------------------------- |
+| `tdd-guardian`  | Before commits, to verify TDD compliance             |
+| `ts-enforcer`   | Before commits, to check TypeScript strictness       |
+| `refactor-scan` | After MUTATE + KILL MUTANTS, to assess refactoring   |
+| `learn`         | At end of feature, to merge learnings into CLAUDE.md |
+| `adr`           | When architectural decisions need recording          |
+| `docs-guardian` | When permanent docs need updating                    |
 
 ## Anti-Patterns
 
 ❌ **Modifying plans without approval**
+
 - Always ask before changing the plan
 
 ❌ **Committing without approval**
+
 - Always ask "Do you approve this commit?"
 
 ❌ **Keeping plan files after feature complete**
+
 - Delete them; knowledge lives in CLAUDE.md, ADRs, and git history
 
 ## Example Session
@@ -174,17 +182,21 @@ User: "Let's implement email validation"
 progress-guardian: "I'll create the plan.
 
 **plans/email-validation.md** (draft):
+
 # Plan: Email Validation
 
 ## Goal
+
 Add email format validation to user registration.
 
 ## Acceptance Criteria
+
 - [ ] Invalid emails rejected with clear error
 - [ ] Valid emails accepted
 - [ ] Edge cases handled (empty, null, unicode)
 
 ## Steps
+
 1. Write test for basic email format validation
 2. Implement validation using regex
 3. Write tests for edge cases

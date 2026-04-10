@@ -19,9 +19,9 @@ npm install -D vitest @vitest/browser-playwright vitest-browser-react @vitejs/pl
 
 ```typescript
 // vitest.config.ts
-import { defineConfig } from 'vitest/config'
-import { playwright } from '@vitest/browser-playwright'
-import react from '@vitejs/plugin-react'
+import { defineConfig } from 'vitest/config';
+import { playwright } from '@vitest/browser-playwright';
+import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
@@ -33,24 +33,25 @@ export default defineConfig({
       instances: [{ browser: 'chromium' }],
     },
   },
-})
+});
 ```
 
 ### Component Testing
 
 ```tsx
-import { render } from 'vitest-browser-react'
-import { expect, test } from 'vitest'
+import { render } from 'vitest-browser-react';
+import { expect, test } from 'vitest';
 
 test('should display machine info when provided', async () => {
-  const screen = await render(<MachineInfo ip="10.0.1.5" hostname="web-server" ports={3} />)
+  const screen = await render(<MachineInfo ip="10.0.1.5" hostname="web-server" ports={3} />);
 
-  await expect.element(screen.getByText(/10\.0\.1\.5/)).toBeVisible()
-  await expect.element(screen.getByText(/web-server/)).toBeVisible()
-})
+  await expect.element(screen.getByText(/10\.0\.1\.5/)).toBeVisible();
+  await expect.element(screen.getByText(/web-server/)).toBeVisible();
+});
 ```
 
 **Key differences from `@testing-library/react`:**
+
 - `render()` is async — use `await`
 - Returns a `screen` scoped to the rendered component
 - Use `expect.element()` for auto-retrying assertions
@@ -61,44 +62,42 @@ test('should display machine info when provided', async () => {
 
 ```tsx
 test('should call onCommand when input submitted', async () => {
-  const handleCommand = vi.fn()
-  const screen = await render(<CommandInput onCommand={handleCommand} />)
+  const handleCommand = vi.fn();
+  const screen = await render(<CommandInput onCommand={handleCommand} />);
 
-  await screen.getByRole('textbox').fill('ls -la /home')
-  await screen.getByRole('textbox').press('Enter')
+  await screen.getByRole('textbox').fill('ls -la /home');
+  await screen.getByRole('textbox').press('Enter');
 
-  expect(handleCommand).toHaveBeenCalledWith('ls -la /home')
-})
+  expect(handleCommand).toHaveBeenCalledWith('ls -la /home');
+});
 ```
 
 ### Testing Conditional Rendering
 
 ```tsx
 test('should show connection error when machine is unreachable', async () => {
-  const screen = await render(
-    <SshConnection ip="10.0.1.5" bricked={true} />
-  )
+  const screen = await render(<SshConnection ip="10.0.1.5" bricked={true} />);
 
-  await expect.element(screen.getByText(/connection timed out/i)).toBeVisible()
-})
+  await expect.element(screen.getByText(/connection timed out/i)).toBeVisible();
+});
 ```
 
 ### Testing Hooks with renderHook
 
 ```tsx
-import { renderHook } from 'vitest-browser-react'
+import { renderHook } from 'vitest-browser-react';
 
 test('should toggle WiFi connection state', async () => {
-  const { result } = await renderHook(() => useWifiConnection())
+  const { result } = await renderHook(() => useWifiConnection());
 
-  expect(result.current.connected).toBe(false)
+  expect(result.current.connected).toBe(false);
 
   await act(() => {
-    result.current.connect({ essid: 'NETGEAR-5G', bssid: 'AA:BB:CC:DD:EE:FF' })
-  })
+    result.current.connect({ essid: 'NETGEAR-5G', bssid: 'AA:BB:CC:DD:EE:FF' });
+  });
 
-  expect(result.current.connected).toBe(true)
-})
+  expect(result.current.connected).toBe(true);
+});
 ```
 
 ### Testing Context Providers
@@ -106,22 +105,23 @@ test('should toggle WiFi connection state', async () => {
 ```tsx
 test('should show terminal prompt when session is active', async () => {
   const screen = await render(
-    <SessionProvider initialSession={{ userType: 'user', machine: 'localhost', currentPath: '/home/user' }}>
+    <SessionProvider
+      initialSession={{ userType: 'user', machine: 'localhost', currentPath: '/home/user' }}
+    >
       <Terminal />
-    </SessionProvider>
-  )
+    </SessionProvider>,
+  );
 
-  await expect.element(screen.getByText(/user@localhost/)).toBeVisible()
-})
+  await expect.element(screen.getByText(/user@localhost/)).toBeVisible();
+});
 ```
 
 For hooks that need context:
+
 ```tsx
 const { result } = await renderHook(() => useSession(), {
-  wrapper: ({ children }) => (
-    <SessionProvider>{children}</SessionProvider>
-  ),
-})
+  wrapper: ({ children }) => <SessionProvider>{children}</SessionProvider>,
+});
 ```
 
 ---
@@ -213,6 +213,7 @@ it('should toggle WiFi connection state', () => {
 ```
 
 **Pattern:**
+
 - `result.current` - Current return value of hook
 - `act()` - Wrap state updates
 - `rerender()` - Re-run hook with new props
@@ -221,10 +222,9 @@ it('should toggle WiFi connection state', () => {
 
 ```tsx
 it('should accept initial session values', () => {
-  const { result, rerender } = renderHook(
-    ({ userType }) => useSession(userType),
-    { initialProps: { userType: 'guest' as UserType } }
-  );
+  const { result, rerender } = renderHook(({ userType }) => useSession(userType), {
+    initialProps: { userType: 'guest' as UserType },
+  });
 
   expect(result.current.userType).toBe('guest');
 
@@ -244,11 +244,7 @@ it('should accept initial session values', () => {
 
 ```tsx
 const { result } = renderHook(() => useSession(), {
-  wrapper: ({ children }) => (
-    <SessionProvider>
-      {children}
-    </SessionProvider>
-  ),
+  wrapper: ({ children }) => <SessionProvider>{children}</SessionProvider>,
 });
 
 expect(result.current.userType).toBe('guest');
@@ -266,9 +262,7 @@ expect(result.current.userType).toBe('root');
 const AllProviders = ({ children }) => (
   <GameProvider>
     <SessionProvider>
-      <NetworkProvider>
-        {children}
-      </NetworkProvider>
+      <NetworkProvider>{children}</NetworkProvider>
     </SessionProvider>
   </GameProvider>
 );
@@ -283,12 +277,7 @@ const { result } = renderHook(() => useNetworkCommands(), {
 ```tsx
 // ✅ CORRECT - Wrap component in provider
 const renderWithSession = (ui, { session = null, ...options } = {}) => {
-  return render(
-    <SessionProvider initialSession={session}>
-      {ui}
-    </SessionProvider>,
-    options
-  );
+  return render(<SessionProvider initialSession={session}>{ui}</SessionProvider>, options);
 };
 
 it('should show root prompt when logged in as root', () => {
@@ -367,6 +356,7 @@ it('should show validation errors for empty fields', async () => {
 ### 1. Unnecessary act() wrapping
 
 ❌ **WRONG - Manual act() everywhere**
+
 ```tsx
 act(() => {
   render(<Terminal />);
@@ -378,18 +368,21 @@ await act(async () => {
 ```
 
 ✅ **CORRECT - RTL handles it**
+
 ```tsx
 render(<Terminal />);
 await user.click(button);
 ```
 
 **Modern RTL auto-wraps:**
+
 - `render()`
 - `userEvent` methods
 - `fireEvent`
 - `waitFor`, `findBy`
 
 **When you DO need manual `act()`:**
+
 - Custom hook state updates (`renderHook`)
 - Direct state mutations (rare, usually bad practice)
 
@@ -398,6 +391,7 @@ await user.click(button);
 ### 2. Manual cleanup() calls
 
 ❌ **WRONG - Manual cleanup**
+
 ```tsx
 afterEach(() => {
   cleanup(); // Automatic since RTL 9!
@@ -405,6 +399,7 @@ afterEach(() => {
 ```
 
 ✅ **CORRECT - No cleanup needed**
+
 ```tsx
 // Cleanup happens automatically after each test
 ```
@@ -414,6 +409,7 @@ afterEach(() => {
 ### 3. beforeEach render pattern
 
 ❌ **WRONG - Shared render in beforeEach**
+
 ```tsx
 let input;
 beforeEach(() => {
@@ -427,6 +423,7 @@ it('test 1', () => {
 ```
 
 ✅ **CORRECT - Factory function per test**
+
 ```tsx
 const renderCommandInput = () => {
   render(<CommandInput />);
@@ -447,6 +444,7 @@ For factory patterns, see `testing` skill.
 ### 4. Testing component internals
 
 ❌ **WRONG - Accessing component internals**
+
 ```tsx
 const wrapper = shallow(<Terminal />);
 expect(wrapper.state('currentPath')).toBe('/home'); // Internal state
@@ -454,6 +452,7 @@ expect(wrapper.instance().handleCommand).toBeDefined(); // Internal method
 ```
 
 ✅ **CORRECT - Test rendered output**
+
 ```tsx
 render(<Terminal />);
 expect(screen.getByText(/user@localhost/)).toBeInTheDocument(); // What user sees
@@ -464,12 +463,14 @@ expect(screen.getByText(/user@localhost/)).toBeInTheDocument(); // What user see
 ### 5. Shallow rendering
 
 ❌ **WRONG - Shallow rendering**
+
 ```tsx
 const wrapper = shallow(<Terminal />);
 // Child components not rendered - incomplete test
 ```
 
 ✅ **CORRECT - Full rendering**
+
 ```tsx
 render(<Terminal />);
 // Full component tree rendered - realistic test
@@ -508,7 +509,7 @@ it('should catch errors with error boundary', () => {
   render(
     <ErrorBoundary fallback={<div>Something went wrong</div>}>
       <BrokenComponent />
-    </ErrorBoundary>
+    </ErrorBoundary>,
   );
 
   expect(screen.getByText(/something went wrong/i)).toBeInTheDocument();
@@ -541,7 +542,7 @@ it('should show fallback then content', async () => {
   render(
     <Suspense fallback={<div>Loading...</div>}>
       <LazyMissionPanel />
-    </Suspense>
+    </Suspense>,
   );
 
   // Initially fallback

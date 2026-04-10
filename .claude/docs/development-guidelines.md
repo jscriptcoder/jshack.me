@@ -29,6 +29,7 @@ I follow Test-Driven Development (TDD) with a strong emphasis on behavior-driven
 **Core principle**: Test behavior, not implementation. 100% coverage through business behavior.
 
 **Quick reference:**
+
 - Write tests first (TDD non-negotiable)
 - Test through public API exclusively
 - Use factory functions for test data (no `let`/`beforeEach`)
@@ -43,6 +44,7 @@ For verifying test effectiveness through mutation analysis, load the `mutation-t
 **Core principle**: Strict mode always. Schema-first at trust boundaries, types for internal logic.
 
 **Quick reference:**
+
 - No `any` types - ever (use `unknown` if type truly unknown)
 - No type assertions without justification
 - Prefer `type` over `interface` for data structures
@@ -58,6 +60,7 @@ For API and interface design patterns, load the `api-design` skill.
 **Core principle**: Functional programming with immutable data. Self-documenting code.
 
 **Quick reference:**
+
 - No data mutation - immutable data structures only
 - Pure functions wherever possible
 - No nested if/else - use early returns or composition
@@ -72,6 +75,7 @@ For detailed patterns and examples, load the `functional` skill.
 **Core principle**: RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR in small, known-good increments. TDD is the fundamental practice.
 
 **Quick reference:**
+
 - RED: Write failing test first (NO production code without failing test)
 - GREEN: Write MINIMUM code to pass test
 - MUTATE: Run mutation testing to verify test effectiveness, produce a report
@@ -79,9 +83,9 @@ For detailed patterns and examples, load the `functional` skill.
 - REFACTOR: Assess improvement opportunities (only refactor if adds value)
 - **Wait for commit approval** before every commit
 - Each increment leaves codebase in working state
-For detailed TDD workflow, load the `tdd` skill.
-For refactoring methodology, load the `refactoring` skill.
-For significant work, load the `planning` skill. Plans live in `plans/` directory.
+  For detailed TDD workflow, load the `tdd` skill.
+  For refactoring methodology, load the `refactoring` skill.
+  For significant work, load the `planning` skill. Plans live in `plans/` directory.
 
 **Project onboarding:** Run `/setup` in any new project to detect its tech stack and generate project-level CLAUDE.md, hooks, commands, and PR review agent in one shot. This replaces the need for `/init`.
 
@@ -98,6 +102,7 @@ For significant work, load the `planning` skill. Plans live in `plans/` director
 **Core principle**: Think deeply, follow TDD strictly, capture learnings while context is fresh.
 
 **Quick reference:**
+
 - ALWAYS FOLLOW TDD - no production code without failing test
 - Assess refactoring after every green (but only if adds value)
 - Update CLAUDE.md when introducing meaningful changes
@@ -113,6 +118,7 @@ For detailed guidance on expectations and documentation, load the `expectations`
 Prefer `agent-browser` for web automation. If it is not installed, fall back to other available tools (e.g. `WebFetch`, `curl`, or MCP browser tools). Always try `agent-browser` first.
 
 `agent-browser` core workflow:
+
 1. `agent-browser open <url>` - Navigate to page
 2. `agent-browser snapshot -i` - Get interactive elements with refs (@e1, @e2)
 3. `agent-browser click @e1` / `fill @e2 "text"` - Interact using refs
