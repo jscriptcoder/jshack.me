@@ -269,3 +269,97 @@ export const formatAccessLog = ({
   const ts = `${day}/${month}/${year}:${h}:${mi}:${s} +0000`;
   return `${clientIp} - - [${ts}] "${method} ${path} HTTP/1.1" ${status} ${size}`;
 };
+
+// --- Exploit attempt formatters ---
+// Produce realistic log lines for the attackPattern carried on each
+// Vulnerability. Each formatter corresponds to one AttackPattern variant.
+
+type VsftpdAttackOptions = {
+  readonly date: Date;
+  readonly clientIp: string;
+  readonly command: string;
+};
+
+// vsftpd command-level log line (same format as other vsftpd events)
+export const formatVsftpdAttack = ({ date, clientIp, command }: VsftpdAttackOptions): string =>
+  `${formatVsftpdTimestamp(date)} FTP command: Client "${clientIp}", "${command}"`;
+
+type MysqlAttackOptions = {
+  readonly date: Date;
+  readonly threadId: number;
+  readonly sourceIp: string;
+  readonly query: string;
+};
+
+// MySQL general log — "Query" event with the raw statement
+export const formatMysqlAttack = ({
+  date,
+  threadId,
+  sourceIp,
+  query,
+}: MysqlAttackOptions): string =>
+  `${formatMysqlTimestamp(date)}\t${threadId} Query\t/* from ${sourceIp} */ ${query}`;
+
+type RedisAttackOptions = {
+  readonly date: Date;
+  readonly pid: number;
+  readonly sourceIp: string;
+  readonly message: string;
+};
+
+// Redis log — warning-level (#) entry for suspicious activity
+export const formatRedisAttack = ({ date, pid, sourceIp, message }: RedisAttackOptions): string =>
+  `${pid}:M ${formatRedisTimestamp(date)} # Client ${sourceIp} ${message}`;
+
+type MailAttackOptions = {
+  readonly date: Date;
+  readonly hostname: string;
+  readonly pid: number;
+  readonly daemon: 'postfix/smtpd' | 'dovecot' | 'courier';
+  readonly sourceIp: string;
+  readonly message: string;
+};
+
+// Mail log — syslog-format entry with a mail daemon tag. The sourceIp is
+// embedded in the message since mail.log doesn't have a dedicated peer field.
+export const formatMailAttack = ({
+  date,
+  hostname,
+  pid,
+  daemon,
+  sourceIp,
+  message,
+}: MailAttackOptions): string =>
+  formatSyslogLine({
+    date,
+    hostname,
+    service: daemon,
+    pid,
+    message: `[${sourceIp}] ${message}`,
+  });
+
+type SyslogAttackOptions = {
+  readonly date: Date;
+  readonly hostname: string;
+  readonly pid: number;
+  readonly daemon: string;
+  readonly sourceIp: string;
+  readonly message: string;
+};
+
+// Generic syslog fallback for services without a dedicated log file
+export const formatSyslogAttack = ({
+  date,
+  hostname,
+  pid,
+  daemon,
+  sourceIp,
+  message,
+}: SyslogAttackOptions): string =>
+  formatSyslogLine({
+    date,
+    hostname,
+    service: daemon,
+    pid,
+    message: `[${sourceIp}] ${message}`,
+  });

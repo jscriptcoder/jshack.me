@@ -23,7 +23,9 @@ import { wrapWithWifiCheck, wrapWithBrickedCheck } from '../commands/networkGuar
 import type { Command } from '../components/Terminal/types';
 import { appendToMachineLog } from '../logging/appendToMachineLog';
 import { formatAccessLog } from '../logging/formatters';
-import { resolveLogSourceIP } from '../logging/utils';
+import { resolveLogSourceIP, generatePid, resolveHostname } from '../logging/utils';
+import { formatExploitAttempt, formatUnknownExploitAttempt } from '../logging/exploitAttempt';
+import { findVulnForService } from '../generation/pools/vulnerabilities';
 
 export const useNetworkCommands = (): Map<string, Command> => {
   const {
@@ -69,6 +71,36 @@ export const useNetworkCommands = (): Map<string, Command> => {
         size,
       });
       appendToMachineLog(targetIP, '/var/log/access.log', logLine, logFs);
+    };
+
+    const onExploitAttempt = (info: {
+      readonly targetIp: string;
+      readonly port: number;
+      readonly service?: string;
+      readonly serviceVersion?: string;
+      readonly success: boolean;
+    }) => {
+      const sourceIp = resolveLogSourceIP(
+        session.machine,
+        info.targetIp,
+        getLocalIP(),
+        getPublicIP(),
+      );
+      const hostname = resolveHostname(info.targetIp, getMachine);
+      const dispatchOptions = {
+        date: new Date(),
+        hostname,
+        pid: generatePid(),
+        sourceIp,
+      };
+      const vuln =
+        info.service && info.serviceVersion
+          ? findVulnForService(info.service, info.serviceVersion)
+          : undefined;
+      const entry = vuln
+        ? formatExploitAttempt(vuln, dispatchOptions)
+        : formatUnknownExploitAttempt(info.service ?? 'kernel', dispatchOptions);
+      appendToMachineLog(info.targetIp, entry.logFile, entry.line, logFs);
     };
 
     const commands = new Map<string, Command>();
@@ -197,7 +229,12 @@ export const useNetworkCommands = (): Map<string, Command> => {
       'msfconsole',
       wrapWithBrickedCheck(
         wrapWithWifiCheck(
-          createMsfconsoleCommand({ getMachine, getLocalIP, resolveDomain }),
+          createMsfconsoleCommand({
+            getMachine,
+            getLocalIP,
+            resolveDomain,
+            onExploitAttempt,
+          }),
           isWifiRequired,
         ),
         isMachineBricked,

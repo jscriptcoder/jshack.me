@@ -29,15 +29,23 @@ type MsfconsoleContextConfig = {
   readonly machines?: readonly RemoteMachine[];
   readonly localIP?: string;
   readonly dnsRecords?: readonly DnsRecord[];
+  readonly onExploitAttempt?: (info: {
+    readonly targetIp: string;
+    readonly port: number;
+    readonly service?: string;
+    readonly serviceVersion?: string;
+    readonly success: boolean;
+  }) => void;
 };
 
 const createMockMsfconsoleContext = (config: MsfconsoleContextConfig = {}) => {
-  const { machines = [], localIP = '192.168.1.100', dnsRecords = [] } = config;
+  const { machines = [], localIP = '192.168.1.100', dnsRecords = [], onExploitAttempt } = config;
 
   return {
     getMachine: (ip: string) => machines.find((m) => m.ip === ip),
     getLocalIP: () => localIP,
     resolveDomain: (domain: string) => dnsRecords.find((r) => r.domain === domain),
+    onExploitAttempt,
   };
 };
 
@@ -367,6 +375,151 @@ describe('msfconsole command', () => {
       vi.advanceTimersByTime(3000);
 
       expect(lines.some((l) => l.includes('CVE-2017-7679'))).toBe(true);
+    });
+  });
+
+  describe('onExploitAttempt callback', () => {
+    it('calls onExploitAttempt with success=true when exploit succeeds', () => {
+      const onExploitAttempt = vi.fn();
+      const context = createMockMsfconsoleContext({
+        machines: [getMockRemoteMachine()],
+        onExploitAttempt,
+      });
+      const msfconsole = createMsfconsoleCommand(context);
+      msfconsole.fn('10.50.100.10', 80);
+
+      expect(onExploitAttempt).toHaveBeenCalledTimes(1);
+      expect(onExploitAttempt).toHaveBeenCalledWith({
+        targetIp: '10.50.100.10',
+        port: 80,
+        service: 'http',
+        serviceVersion: 'Apache/2.4.49',
+        success: true,
+      });
+    });
+
+    it('calls onExploitAttempt with success=false when no CVE matches the version', () => {
+      const onExploitAttempt = vi.fn();
+      const context = createMockMsfconsoleContext({
+        machines: [
+          getMockRemoteMachine({
+            ports: [
+              {
+                port: 80,
+                service: 'http',
+                serviceVersion: 'Apache/999.0.0',
+                open: true,
+                owner: { username: 'guest', userType: 'guest', homePath: '/home/guest' },
+              },
+            ],
+          }),
+        ],
+        onExploitAttempt,
+      });
+      const msfconsole = createMsfconsoleCommand(context);
+
+      expect(() => msfconsole.fn('10.50.100.10', 80)).toThrow('msfconsole: no known vulnerability');
+      expect(onExploitAttempt).toHaveBeenCalledTimes(1);
+      expect(onExploitAttempt).toHaveBeenCalledWith({
+        targetIp: '10.50.100.10',
+        port: 80,
+        service: 'http',
+        serviceVersion: 'Apache/999.0.0',
+        success: false,
+      });
+    });
+
+    it('calls onExploitAttempt with success=false when port is closed', () => {
+      const onExploitAttempt = vi.fn();
+      const context = createMockMsfconsoleContext({
+        machines: [
+          getMockRemoteMachine({
+            ports: [{ port: 80, service: 'http', serviceVersion: 'Apache/2.4.49', open: false }],
+          }),
+        ],
+        onExploitAttempt,
+      });
+      const msfconsole = createMsfconsoleCommand(context);
+
+      expect(() => msfconsole.fn('10.50.100.10', 80)).toThrow('Connection refused');
+      expect(onExploitAttempt).toHaveBeenCalledTimes(1);
+      expect(onExploitAttempt).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetIp: '10.50.100.10',
+          port: 80,
+          success: false,
+        }),
+      );
+    });
+
+    it('calls onExploitAttempt with success=false when port does not exist', () => {
+      const onExploitAttempt = vi.fn();
+      const context = createMockMsfconsoleContext({
+        machines: [getMockRemoteMachine()],
+        onExploitAttempt,
+      });
+      const msfconsole = createMsfconsoleCommand(context);
+
+      expect(() => msfconsole.fn('10.50.100.10', 9999)).toThrow('Connection refused');
+      expect(onExploitAttempt).toHaveBeenCalledTimes(1);
+      expect(onExploitAttempt).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetIp: '10.50.100.10',
+          port: 9999,
+          success: false,
+        }),
+      );
+    });
+
+    it('calls onExploitAttempt with success=false when CVE matches but port has no owner', () => {
+      const onExploitAttempt = vi.fn();
+      const context = createMockMsfconsoleContext({
+        machines: [
+          getMockRemoteMachine({
+            ports: [
+              {
+                port: 80,
+                service: 'http',
+                serviceVersion: 'Apache/2.4.49',
+                open: true,
+                // no owner
+              },
+            ],
+          }),
+        ],
+        onExploitAttempt,
+      });
+      const msfconsole = createMsfconsoleCommand(context);
+
+      expect(() => msfconsole.fn('10.50.100.10', 80)).toThrow('service not exploitable');
+      expect(onExploitAttempt).toHaveBeenCalledTimes(1);
+      expect(onExploitAttempt).toHaveBeenCalledWith({
+        targetIp: '10.50.100.10',
+        port: 80,
+        service: 'http',
+        serviceVersion: 'Apache/2.4.49',
+        success: false,
+      });
+    });
+
+    it('does NOT call onExploitAttempt on argument validation errors', () => {
+      const onExploitAttempt = vi.fn();
+      const context = createMockMsfconsoleContext({ onExploitAttempt });
+      const msfconsole = createMsfconsoleCommand(context);
+
+      expect(() => msfconsole.fn()).toThrow('missing host');
+      expect(() => msfconsole.fn('10.50.100.10')).toThrow('missing or invalid port');
+      expect(() => msfconsole.fn('10.50.100.10', 0)).toThrow('port must be');
+      expect(onExploitAttempt).not.toHaveBeenCalled();
+    });
+
+    it('does NOT call onExploitAttempt when the target machine does not exist', () => {
+      const onExploitAttempt = vi.fn();
+      const context = createMockMsfconsoleContext({ machines: [], onExploitAttempt });
+      const msfconsole = createMsfconsoleCommand(context);
+
+      expect(() => msfconsole.fn('10.99.99.99', 80)).toThrow('Connection timed out');
+      expect(onExploitAttempt).not.toHaveBeenCalled();
     });
   });
 
