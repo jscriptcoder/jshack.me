@@ -38,41 +38,89 @@ Explicitly out of scope for Phase 3 and deferred to later phases:
 
 ## Data model changes
 
-Three additions to Phase 1's data model:
+Four additions to Phase 1's data model.
 
-### 1. `publishedAt` on Vulnerability
+### 1. 1:1 `(service, version) → CVE` invariant with version timelines
+
+Each `(service, version)` pair has AT MOST one CVE entry. A version is either "has exactly one associated CVE" or "has no CVE yet." No second CVE is ever discovered against a version that already has one. This is a simplification of real-world CVSS but cleans up all the gameplay edge cases.
+
+Instead of a flat CVE pool, services have **version timelines** — ordered sequences of versions, each with its own eventually-discovered CVE and a `publishedAt` value marking when that CVE becomes "known" to the game world:
+
+```
+http:
+  Apache/2.4.49  → CVE-2021-41773  publishedAt: 0   (vulnerable from day 1)
+  Apache/2.4.50  → CVE-2026-0001  publishedAt: 5   (publishes on game day 5)
+  Apache/2.4.51  → CVE-2026-0002  publishedAt: 12  (publishes on game day 12)
+  Apache/2.4.52  → CVE-2026-0003  publishedAt: 20  (publishes on game day 20)
+  …
+```
+
+The treadmill cycle:
+
+1. Player is on `Apache/2.4.49`, currently vulnerable to `CVE-2021-41773`.
+2. `apt upgrade http` → player moves to `Apache/2.4.52` (the latest version whose CVE is still future-dated, `publishedAt > gameTime`).
+3. Apache/2.4.52 is currently safe. Player has a breathing window.
+4. On game day 20, `CVE-2026-0003` becomes active. Player's current version is now vulnerable.
+5. Player runs `apt upgrade http` again → moves further along the timeline.
+6. Treadmill continues indefinitely.
+
+### 2. `publishedAt` and `severity` on Vulnerability
 
 ```ts
+export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
+
 export type Vulnerability = {
   readonly cve: string;
   readonly description: string;
   readonly serviceVersion: string;
   readonly attackPattern: AttackPattern;
-  readonly publishedAt: number; // NEW — game day (epoch) when this CVE became active
+  readonly publishedAt: number; // NEW — game day when this CVE becomes active
+  readonly severity: Severity; // NEW — critical/high/medium/low/info
 };
 ```
 
-`findVulnForService` takes an additional `gameTime: number` parameter and filters out CVEs where `publishedAt > gameTime`. All call sites pass the current game time.
+`findVulnForService(service, version, gameTime)` filters out CVEs where `publishedAt > gameTime`. Under the 1:1 invariant it returns either the single matching CVE or `undefined`. No multi-match ambiguity.
 
-### 2. Game-time model
+**Severity semantics in Phase 3**: the field is populated but most tiers have no mechanical effect yet. The four "shell-producing" tiers (`critical / high / medium / low`) all still produce the same outcome in Phase 3 — `msfconsole` gives a shell. The `info` tier is deferred:
 
-A new `gameTime` primitive, stored in session state, representing "how far into the game world we are." Options evaluated below; the plan locks in **Option B — real-world-clock time, anchored at first game start**.
+- **`info`-severity CVEs are NOT exploitable via `msfconsole` in Phase 3.** `msfconsole` treats a port with only an `info` CVE as safe. No shell is produced.
+- This is because `info` semantically means banner leaks, dir listings, username enumeration — outcomes that need typed effects to be meaningful.
+- Phase 4 activates `info` alongside typed effects. When that lands, an `info` CVE will produce a specific non-shell outcome (e.g., `cat /etc/passwd` disclosure, directory listing).
+- **Initial CVE backfill uses only `critical / high / medium / low`** — no existing CVE is labeled `info` because every existing CVE currently produces a shell. New `info` CVEs will be added in Phase 4.
+
+### 3. Game-time model
+
+A new `gameTime` primitive, derived from real-world time, representing "how far into the game world we are." Locking in **real-world-clock time anchored at first game start**:
 
 ```ts
-type GameTime = number; // days since the player started the game (Date.now() - startedAt) / msPerDay
+type GameTime = number; // days since the player started the game
+// Implementation: Math.floor((Date.now() - startedAt) / MS_PER_DAY)
 ```
 
-Every CVE lookup, patch action, and log entry carries the current `gameTime`. This value is derived, not stored — the only persisted field is `startedAt`, already in session state (or added to it).
+The only persisted field is `startedAt`, added to session state. `gameTime` is derived at read time. Offline accrual is a feature: leave the game for a week, come back to a week's worth of new CVE publications.
 
-### 3. Firmware on routers
+Under the 1:1 invariant, **mission seed determinism holds naturally**. The same seed always produces the same machine with the same vulnerable version, which always maps to the same CVE. Missions don't need any special `gameTime` pinning — they're reproducible by seed because of the 1:1 constraint. A mission's vulnerable service is drawn from versions whose CVE has `publishedAt = 0` (classic, always-active vulns), ensuring the mission is solvable regardless of current game time.
+
+### 4. Version overlay via filesystem files
+
+When a player runs `apt upgrade http`, the new version has to be persisted somewhere that survives reloads. Three approaches were considered (session override map, new patch type in the IndexedDB stream, file-on-machine). **Locking in the file-on-machine approach.**
+
+The upgraded version is stored as a file on the machine's filesystem:
+
+```
+/var/lib/apt/service_versions/http  →  "Apache/2.4.60"
+/var/lib/apt/service_versions/ssh   →  "OpenSSH 9.7"
+```
+
+Port-version reads become overlay-aware: check the file first, fall back to the generated version. This reuses the existing IndexedDB filesystem patch stream for persistence — no new patch types needed, no new session-state structures.
+
+**Realistic**: real Linux tracks installed package versions in `/var/lib/dpkg/status`. Players can `cat /var/lib/apt/service_versions/http` to see their current version. In-genre, discoverable, file-based.
+
+**Permissions**: the files are root-owned and only writable by the `apt` command at the implementation level (or at least discouraged from manual editing). A root player could technically `nano` them, but that's in-genre (real sysadmins can do worse).
+
+### 5. Firmware on routers
 
 ```ts
-export type Port = {
-  // existing fields
-};
-
-// New: routers get a firmware property separate from any port.
-// This is conceptually a "service" that runs the whole box.
 export type RouterFirmware = {
   readonly vendor: string;
   readonly version: string;
@@ -85,29 +133,30 @@ export type GeneratedMachine = {
 };
 ```
 
-`findVulnForService` gains a companion `findVulnForFirmware(vendor, version, gameTime)`. Firmware CVE entries get their own pool or live alongside service CVEs with a distinct `kind` discriminator.
+`findVulnForFirmware(vendor, version, gameTime)` looks up firmware CVEs. Firmware CVEs live in a separate pool (not the service CVE table) with their own version timelines per vendor. Upgraded firmware is stored in `/var/lib/apt/service_versions/firmware` on the router, parallel to the service-version mechanism.
 
-## Game-time model (design decision)
+## Version timeline generation and tuning
 
-**Three options were considered. Locking in Option B.**
+The per-service version timelines are generated at game start (or on first access) from a pool of version strings per service. `publishedAt` values are assigned with randomized gaps:
 
-### Option A — game tick clock
+```ts
+// src/generation/pools/cveTiming.ts (new module)
+export const CVE_TIMING_CONFIG = {
+  minSafeWindowDays: 3, // shortest time between one CVE publishing and the next for the same service
+  maxSafeWindowDays: 21, // longest
+  initialVulnerableCount: 2, // how many versions start with publishedAt = 0 (vulnerable from day 1)
+};
+```
 
-Every player action advances a counter by 1. New CVEs drop every N actions. Simple but arbitrary and disconnects time from the real-world rhythm of play. Long sessions feel rushed, short sessions feel empty.
+Generation walks the version pool for each service and assigns `publishedAt` values by accumulating random gaps. The first N versions (`initialVulnerableCount`) get `publishedAt = 0` so the player has "classic" CVEs to work with on day 1; subsequent versions get progressively later `publishedAt` values.
 
-### Option B — real-world clock, anchored at first game start (chosen)
+All tuning knobs live in `CVE_TIMING_CONFIG` so post-launch playtesting can tweak cadence without code changes.
 
-Game time = days since `startedAt`. Real-world hours and minutes feel meaningful: leaving the game for three days means catching up on three days of new CVEs when you log in. Matches how real system administration feels. Persisted as `startedAt: number` in session state; derived as `Math.floor((Date.now() - startedAt) / MS_PER_DAY)` at read time.
+### Offline accrual and permadeath
 
-**Cadence**: CVEs publish at a rate of ~1-3 new entries per game day, drawn from a future-dated pool at generation time.
+Time passes even when the game is closed. Log back in after a week → a week of CVE publications have activated. Realistic, creates genuine pressure.
 
-**Offline accrual**: time passes even when the game is closed. Log back in after a week → a week's worth of CVEs have dropped. This is realistic and creates genuine pressure.
-
-**Reset on permadeath**: the permadeath model (from earlier brainstorming) already implies a fresh `startedAt` when a new game begins.
-
-### Option C — explicit epochs, player-triggered
-
-Player advances the clock manually or via in-game events. Too much player control removes the pressure.
+Permadeath (from earlier brainstorming) resets `startedAt` naturally when a new game begins — the treadmill restarts from day 1 with a fresh CVE timeline.
 
 ## Feature overview and PR split
 
@@ -115,57 +164,135 @@ Player advances the clock manually or via in-game events. Too much player contro
 
 ### PR A — `apt upgrade` command (foundation)
 
-The simplest feature. No game-time model yet. `apt('upgrade')` with no arg upgrades every port on the current machine whose current `serviceVersion` matches a CVE, to a version that doesn't. Output mimics real `apt upgrade`. Requires root.
+Adds a full set of apt subcommands for running-service management plus the file-based version overlay mechanism. No game-time model yet (PR B) — every CVE is "live" in this PR. Every CVE in the timeline that matches the current version is treated as a current threat; patching closes it.
 
-Implementation strategy:
+**Subcommand surface** (matches real apt semantics):
 
-- Add an `upgrade` subcommand handler to `apt.ts`.
-- For each port on the current machine with a CVE-matching version, compute a "latest safe" version for that service. Easiest: iterate `vulnerabilityTemplates` for that service, find the lexicographically-highest version, bump one step beyond it (e.g., `Apache/2.4.49` → `Apache/2.4.60`). Or simpler: use `defaultServiceVersion(service)` which already returns `'latest'`.
-- Mutate the port's `serviceVersion` in-place via a new filesystem patch mechanism or a session-level override. **Design question**: where does the new serviceVersion live? The `Port` type is readonly and ports come from generation. Options:
-  - (i) Add a `portOverrides` map to `SessionContext` keyed by `(machineId, port) → serviceVersion`, applied when reading ports.
-  - (ii) Apply via the existing IndexedDB patch mechanism — patch the generated machine's port array.
-  - (iii) Store upgraded versions as files on the machine (e.g., `/var/lib/apt/versions/nginx` = `nginx/1.25.0`), consumed at read time.
-  - **Lean**: (i) — session-level override map. Smallest footprint, no schema change to generation, trivially reversible via `apt upgrade`.
+```
+apt('list')                              # existing — list installable player tools
+apt('install', 'nmap')                   # existing — install a player tool
+apt('upgrade')                            # NEW — upgrade ALL running services on current machine
+apt('upgrade', 'http')                    # NEW — upgrade a specific service to its latest safe version
+apt('install', 'http=Apache/2.4.49')      # NEW — install a specific version of a running service (for targeted upgrade or downgrade)
+```
 
-Scope: no time dimension. Every CVE is "live" in this PR. Patching closes every window at once.
+No separate `apt downgrade` subcommand. Downgrading is `apt('install', 'service=older-version')` — matches real apt's `apt install package=version` syntax exactly.
 
-### PR B — game-time model + `publishedAt` on CVEs
+**Parsing rules**:
 
-The architectural PR. Introduces the game clock and retrofits all existing CVE lookups.
+- Single string arg with `=` → service install. Split at first `=`. Left side must be a known service in the machine's running services; right side must exist in that service's version timeline.
+- Single string arg without `=` → tool install (if the name is in `APT_PACKAGES`) or service upgrade (if the name matches a running service).
+- Invalid service name → `E: Unable to locate service 'http'`
+- Valid service, invalid version → `E: Version Apache/9.9.9 not available for service 'http'`
+- Valid service, version equal to current → `http is already at Apache/2.4.49` (no-op)
+- Root required for all service operations.
 
-- Add `startedAt: number` to session state (Date.now() at new game start).
-- Add a `getGameTime()` helper that returns days-since-startedAt.
-- Add `publishedAt: number` to every entry in `vulnerabilityTemplates`. Backfill with a distribution: ~half the CVEs are "already published" (publishedAt = 0), the rest spread across game days 1-30. This ensures a starting pool of CVEs that matter on day 1 plus a future pool that activates over the first month of play.
+**File-based version overlay**:
+
+Upgraded versions are written to `/var/lib/apt/service_versions/<service>` on the target machine's filesystem (the one running `apt`, which in Phase 3 is always localhost). The existing IndexedDB filesystem patch stream persists these files across reloads with no new patch type.
+
+**Read-side integration**:
+
+A new helper `getServiceVersion(machineId, port)` reads the overlay file first and falls back to the generated `port.serviceVersion`. All call sites that currently read `port.serviceVersion` directly switch to this helper — `msfconsole`, `nmap -sV`, the exploit callback, any test fixture that constructs a port.
+
+**Realistic output**: `apt upgrade` simulates a fake download/install with jitter delays and realistic `apt` text (matches the existing tool-install async output). ~5-10 seconds to upgrade a typical machine feels right.
+
+**Version selection logic**:
+
+For `apt upgrade` / `apt upgrade <service>`, the target version is "the newest version in the service's timeline whose CVE has `publishedAt > 0`" (in PR A, since no game-time yet, `gameTime = 0` is assumed). In PR B, this changes to "whose CVE has `publishedAt > currentGameTime`."
+
+**Out of scope for PR A**:
+
+- Game-time model (PR B)
+- CVE publication drift over time (PR B)
+- Firewall rules (PR C)
+- Router firmware (PR D)
+
+### PR B — game-time model + `publishedAt` + `severity` on CVEs
+
+The architectural PR. Introduces the game clock, retrofits all CVE lookups, and adds the severity field.
+
+**Game-time plumbing**:
+
+- Add `startedAt: number` to session state (Date.now() when a new game begins).
+- Add a `getGameTime()` helper returning `Math.floor((Date.now() - startedAt) / MS_PER_DAY)`.
+- Expose `gameTime` as a derived value in the session context, available to command contexts that need it.
+
+**Data model updates**:
+
+- Add `publishedAt: number` and `severity: Severity` fields to `Vulnerability`.
+- Enforce the 1:1 `(service, version) → CVE` invariant in `vulnerabilityTemplates`. Audit the current 38 entries for any duplicate `(service, version)` pairs (I don't expect any — all existing entries have distinct versions per service).
+- Backfill every existing CVE with `publishedAt = 0` (classic vulns, always active) and a realistic severity (`critical / high / medium / low`, no `info`).
+- Add a new `src/generation/pools/versionTimelines.ts` module containing per-service version pools and the `CVE_TIMING_CONFIG` tuning knobs. Each service's timeline is built from its pool entries at generation time by walking forward with randomized gaps.
+
+**Lookup refactor**:
+
 - Change `findVulnForService(service, version)` to `findVulnForService(service, version, gameTime)`.
-- Update every call site (msfconsole, nmap, useNetworkCommands exploit callback).
-- Write tests verifying that:
-  - A CVE with `publishedAt > gameTime` is NOT returned by the lookup.
-  - A CVE with `publishedAt <= gameTime` IS returned.
-  - Patching via `apt upgrade` now respects the game clock (safe versions are chosen from CVEs currently active, not the full table).
+- Filter out CVEs where `publishedAt > gameTime`. Also filter out `info`-severity CVEs in Phase 3 (they produce no shell outcome, so `msfconsole` treats them as absent).
+- Update every call site (`msfconsole`, `nmap` version column + CVE block, exploit callback, and the new `apt upgrade` target-version picker from PR A).
 
-**Risk**: determinism. Session replays, seed reproducibility, and deterministic tests now depend on game time. For tests, injectable clock; for production, Date.now() at session start.
+**Apt upgrade picker update**: PR A's version-selection logic assumed `gameTime = 0`. PR B changes it to "the newest version whose CVE has `publishedAt > currentGameTime`." Now the player can only upgrade to currently-unpublished CVEs — so the breathing window is finite and depends on the game clock.
+
+**Tests**:
+
+- A CVE with `publishedAt > gameTime` is NOT returned by the lookup; `msfconsole` reports "no known vulnerability."
+- A CVE with `publishedAt <= gameTime` IS returned; `msfconsole` exploits it.
+- An `info`-severity CVE is NOT returned even when `publishedAt <= gameTime`.
+- After advancing game time past a CVE's `publishedAt`, the same port becomes exploitable.
+- `apt upgrade http` picks the newest version in the timeline whose CVE is still future-dated, respecting the current game time.
+
+**Risk**: determinism. For tests, the game clock needs to be injectable (mock `Date.now` via vitest `vi.useFakeTimers` or a dedicated clock abstraction). Production reads `Date.now()` at session start.
 
 ### PR C — player firewall command
 
-New command `iptables` (or maybe `ufw` — decide during implementation; `iptables` is more realistic but harder to use, `ufw` is simpler).
+**Reuses the existing iptables mechanism.** Router-role machines already have `/etc/iptables/rules.v4` and the game already parses it (`src/network/iptablesParser.ts`). PR C extends this so non-router machines can also have iptables rules, and adds a player-facing `iptables` command to manage them.
 
-- Player can list current rules, allow/deny ports on their own machine.
-- Closing a port makes that port show as `closed` in nmap from external machines (and blocks inbound traffic).
-- Opening a port makes it show as `open`. (Players typically want to keep ports closed to reduce attack surface, but some ports must stay open — their wallet receive port, contract delivery port, etc.)
-- Firewall state lives in the session override map (same mechanism as PR A's version overrides).
-- Tests: after `iptables_allow(80)` on localhost, a remote `nmap` shows port 80 open. After `iptables_deny(80)`, it shows closed.
+**Command surface**:
 
-Design question: do firewall rules persist across reboots? **Lean yes** — real firewall rules do (via iptables-persistent). Stored in the same session override mechanism.
+```
+iptables('-L')                              # list current rules on current machine
+iptables('-A', 'INPUT', '-p', 'tcp', '--dport', 80, '-j', 'DROP')   # drop inbound to port 80
+iptables('-A', 'INPUT', '-p', 'tcp', '--dport', 80, '-j', 'ACCEPT') # allow inbound to port 80
+iptables('-D', 'INPUT', ruleNumber)         # delete rule by number
+iptables('-F')                              # flush all rules
+```
+
+Real iptables is notoriously verbose. The plan is to ship this verbose form first and potentially add a simpler `ufw` wrapper later in Phase 3 if playtesting shows the full syntax is too painful.
+
+**Read-side integration**:
+
+The existing iptables parser already returns a filtered view of a machine's ports (hiding ports that are dropped by rules). Extend it to apply to _any_ machine that has `/etc/iptables/rules.v4`, not just routers. Port-read call sites get the iptables-aware view — `nmap` from another machine sees dropped ports as closed.
+
+**Persistence**:
+
+Firewall rules are stored as plain text in `/etc/iptables/rules.v4` on the player's machine — same file real Linux uses. Persisted via the existing filesystem patch stream. No new session state.
+
+**Wallet-vs-paranoia tension**:
+
+If the player closes everything, they can't receive income from future wallet mechanics (Phase 5+). In Phase 3 there's no wallet yet, so this tension is deferred. The plan notes it but doesn't solve it.
+
+**Root required**. Modifying `/etc/iptables/rules.v4` is a root operation on real Linux.
+
+**Tests**:
+
+- After `iptables('-A', 'INPUT', '-p', 'tcp', '--dport', 80, '-j', 'DROP')` on the player's machine, a remote `nmap` shows port 80 as closed.
+- After `iptables('-A', 'INPUT', '-p', 'tcp', '--dport', 80, '-j', 'ACCEPT')`, it shows open again.
+- Rules persist across `reboot()` (since they're in a real file).
+- Non-root users get "Permission denied".
 
 ### PR D — router firmware as a first-class service
 
-- Add `firmware: RouterFirmware` to router-role machines at generation time.
-- Add a small pool of router firmware templates (e.g., `Cisco IOS 15.6`, `Mikrotik RouterOS 6.45`, `DD-WRT v24 sp2`).
-- Add firmware CVEs (5-10 entries) in a new `firmwareVulnerabilityTemplates` pool. Each has `publishedAt` same as service CVEs.
-- `findVulnForFirmware(vendor, version, gameTime)` looks up firmware CVEs.
-- `msfconsole` against a router's admin port (SSH, HTTPS, OpenVPN — depending on role) checks firmware CVEs in addition to per-port service CVEs.
-- `apt upgrade` when run on a router includes firmware. The syntax becomes `apt('upgrade', 'firmware')` or `apt('upgrade')` upgrades everything including firmware.
-- Tests: vulnerable firmware → exploitable via msfconsole → `apt upgrade` closes the window.
+- Add `firmware: RouterFirmware` to router-role machines at generation time. Populated with a randomly-picked vendor + version from a new pool.
+- New `src/generation/pools/firmware.ts` with firmware templates (e.g., `Cisco IOS 15.6`, `MikroTik RouterOS 6.45`, `DD-WRT v24 sp2`, `OpenWRT 19.07`, `pfSense 2.5`).
+- New `firmwareVersionTimelines.ts` with per-vendor version timelines paralleling service timelines. Each has its own CVEs with `publishedAt` and `severity`.
+- `findVulnForFirmware(vendor, version, gameTime)` companion lookup.
+- `msfconsole` against a router's admin port (SSH, HTTPS, OpenVPN — role-dependent) also checks firmware CVEs. If either the port-service CVE or the firmware CVE matches, the exploit succeeds.
+- `apt upgrade` on a router includes firmware. Subcommand surface:
+  - `apt('upgrade')` on a router → upgrades services AND firmware to the latest safe values
+  - `apt('upgrade', 'firmware')` → firmware only
+  - `apt('install', 'firmware=MikroTik RouterOS 6.48')` → specific firmware version
+- Firmware overlay lives at `/var/lib/apt/service_versions/firmware` on the router — same mechanism as service versions.
+- Tests: vulnerable firmware → exploitable via msfconsole → `apt upgrade firmware` closes the window → CVE advances → vulnerable again.
 
 ### PR E — log rotation + `shred` command
 
@@ -216,12 +343,14 @@ Before each PR:
 
 ## Risks & open questions
 
-- **Game time vs mission seeds**. Missions are seeded and deterministic. If `findVulnForService` takes `gameTime`, mission generation at seed X may produce different exploitability at different times. This is either a feature (missions drift with real-world time) or a bug (missions should be reproducible by seed alone). **Decision needed**: does mission generation pin `gameTime = 0` to stay deterministic, or does it use the current time like player machines? My lean: **pin missions to gameTime = 0** so they remain reproducible by seed, and only the _home network / player machine_ feels time drift. Mission CVEs are all "classic" vulns that have been around since day 1; only the home network gets the treadmill.
-- **Offline accrual could feel punishing**. Log in after a two-week vacation to find your box is now vulnerable to fourteen new CVEs. Mitigation: cap the rate of CVEs the player actually has to respond to on a single login (e.g., "14 CVEs queued but only 3 are critical to your running services"). Or: slow the publication rate. We'll tune this after PR B lands.
-- **Firewall UX vs. wallet gameplay**. If players can close all ports they'll want to close everything. But the future wallet-as-file mechanic needs some port open to receive crypto. Tension between defense and playability. Resolution: specific ports (wallet, contract delivery) refuse to be firewalled, or player accepts the tradeoff of losing income to gain safety. Decide in PR C.
-- **`apt upgrade` feels anticlimactic if it's a one-shot trivial command**. Mitigation: add an install time (async, 5-10 seconds of fake download), a chance of failure requiring a retry, or a cooldown. We'll see how it feels after PR A.
+- **Mission determinism under game-time drift**. Resolved by the 1:1 `(service, version) → CVE` invariant combined with "mission vulnerable services draw only from `publishedAt = 0` CVEs." Same seed → same vulnerable version → same CVE (always published) → same mission experience, forever. No pinning required.
+- **Phase 3 trade-offs feel shallow without typed effects**. All four Phase 3 severity tiers produce the same mechanical outcome (a shell). Players will reflexively run `apt upgrade` whenever a CVE publishes because there's no reason not to. The strategic "should I live with this CVE?" decision arrives in Phase 4 with typed effects. Phase 3 is the infrastructure phase; Phase 4 makes the choices mean something.
+- **Offline accrual could feel punishing**. Log in after a two-week vacation to find your box is vulnerable to several new CVEs across multiple services. Mitigation options: slow the `avgPublishCadence` tuning knob, cap "critical CVEs queued since last login" on the login screen, or add a short grace period after a long idle. We'll tune this after PR B lands.
+- **Firewall UX vs. wallet gameplay**. If players can close all ports they'll want to close everything. But the future wallet-as-file mechanic (Phase 5+) needs open ports to receive income. Tension between defense and playability. Deferred to Phase 5+ since there's no wallet yet in Phase 3 — noted here so we don't forget it.
+- **`apt upgrade` may feel anticlimactic if it's a one-shot trivial command**. Mitigation: fake async download time with realistic apt output (already in the plan for PR A), chance of failure requiring a retry, or a cooldown. Evaluate after PR A plays.
 - **Log rotation may break existing tests** that assume log files grow unbounded. Audit on PR E.
 - **`shred` cover-up paradox**. If `shred` is loggable, the attacker can shred the shred log. The chain has to terminate somewhere. Proposed termination: `/var/log/kern.log` entries for file deletions are written at the "kernel" level and cannot be targeted by `shred` (in-game constraint, not a real filesystem constraint). Realistic: audit daemon integrity.
+- **Service-version file and manual edits**. A root player could `nano /var/lib/apt/service_versions/http` to set their version to anything they want, including a safe version we didn't intend. In Phase 3 this is acceptable (in-genre, matches real Linux), but it's a potential cheat vector if not constrained. Phase 5+'s server-authoritative multiplayer model will naturally fix this via patch validation.
 
 ## Suggested ordering
 
