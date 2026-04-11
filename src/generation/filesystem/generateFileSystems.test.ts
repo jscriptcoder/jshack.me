@@ -185,6 +185,162 @@ describe('generateFileSystems', () => {
     });
   });
 
+  describe('log file seeding — realistic per-destination layout', () => {
+    it('every machine has auth.log, syslog, and kern.log', () => {
+      const { topology, fileSystems } = buildTestData('seeding-universal');
+      topology.machines.forEach((m) => {
+        const root = fileSystems[m.ip];
+        expect(resolveNode(root as FileNode, '/var/log/auth.log')?.content).toBeTruthy();
+        expect(resolveNode(root as FileNode, '/var/log/syslog')?.content).toBeTruthy();
+        expect(resolveNode(root as FileNode, '/var/log/kern.log')?.content).toBeTruthy();
+      });
+    });
+
+    it('auth.log only contains authentication-related lines', () => {
+      const { topology, fileSystems } = buildTestData('seeding-authlog');
+      topology.machines.forEach((m) => {
+        const root = fileSystems[m.ip];
+        const content = resolveNode(root as FileNode, '/var/log/auth.log')?.content ?? '';
+        // Auth.log must not contain kernel, postfix, CRON, dhclient, or systemd start/stop messages
+        expect(content).not.toMatch(/kernel:/);
+        expect(content).not.toMatch(/postfix\//);
+        expect(content).not.toMatch(/CRON\[/);
+        expect(content).not.toMatch(/dhclient\[/);
+        expect(content).not.toMatch(/systemd\[1\]:/);
+        // It must contain at least one auth-family entry (sshd, sudo, su, or systemd-logind)
+        expect(content).toMatch(/(sshd\[|sudo:|su\[|systemd-logind\[)/);
+      });
+    });
+
+    it('kern.log only contains kernel-related lines', () => {
+      const { topology, fileSystems } = buildTestData('seeding-kernlog');
+      topology.machines.forEach((m) => {
+        const root = fileSystems[m.ip];
+        const content = resolveNode(root as FileNode, '/var/log/kern.log')?.content ?? '';
+        // kern.log must not contain userspace service lines
+        expect(content).not.toMatch(/sshd\[/);
+        expect(content).not.toMatch(/sudo:/);
+        expect(content).not.toMatch(/CRON\[/);
+        expect(content).not.toMatch(/postfix\//);
+        // It must contain at least one kernel entry
+        expect(content).toMatch(/kernel:/);
+      });
+    });
+
+    it('syslog contains generic system messages and excludes auth lines', () => {
+      const { topology, fileSystems } = buildTestData('seeding-syslog');
+      topology.machines.forEach((m) => {
+        const root = fileSystems[m.ip];
+        const content = resolveNode(root as FileNode, '/var/log/syslog')?.content ?? '';
+        expect(content).toBeTruthy();
+        // Syslog should not contain sshd auth entries (those are in auth.log)
+        expect(content).not.toMatch(/sshd\[.*(Accepted password|Failed password)/);
+      });
+    });
+
+    it('webserver role machines have access.log with Apache Combined entries', () => {
+      const { topology, fileSystems } = buildTestData('seeding-webserver');
+      const webservers = topology.machines.filter((m) => m.role === 'webserver');
+      // Test seed should produce at least one webserver
+      expect(webservers.length).toBeGreaterThan(0);
+      webservers.forEach((m) => {
+        const root = fileSystems[m.ip];
+        const content = resolveNode(root as FileNode, '/var/log/access.log')?.content ?? '';
+        expect(content).toBeTruthy();
+        // Apache Combined lines start with an IP and have a quoted HTTP request
+        expect(content).toMatch(/\d+\.\d+\.\d+\.\d+ - - \[.*\] "[A-Z]+ .* HTTP\/1\.1" \d+ \d+/);
+      });
+    });
+
+    it('fileserver role machines have vsftpd.log with vsftpd-format entries', () => {
+      let found = false;
+      for (let i = 0; i < 30 && !found; i++) {
+        const { topology, fileSystems } = buildTestData(`seeding-fileserver-${i}`);
+        const fileservers = topology.machines.filter((m) => m.role === 'fileserver');
+        if (fileservers.length === 0) continue;
+        found = true;
+        fileservers.forEach((m) => {
+          const root = fileSystems[m.ip];
+          const content = resolveNode(root as FileNode, '/var/log/vsftpd.log')?.content ?? '';
+          expect(content).toBeTruthy();
+          // vsftpd lines look like "[YYYY-MM-DD HH:MM:SS] EVENT: ..."
+          expect(content).toMatch(
+            /\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] (CONNECT|OK LOGIN|FAIL LOGIN|OK DOWNLOAD|OK UPLOAD):/,
+          );
+        });
+      }
+      expect(found).toBe(true);
+    });
+
+    it('database role machines have mysql.log when MySQL port is open', () => {
+      let found = false;
+      for (let i = 0; i < 30 && !found; i++) {
+        const { topology, fileSystems } = buildTestData(`seeding-database-${i}`);
+        const databasesWithMysql = topology.machines.filter(
+          (m) =>
+            m.role === 'database' &&
+            m.remoteMachine.ports.some((p) => p.service === 'mysql' && p.open),
+        );
+        if (databasesWithMysql.length === 0) continue;
+        found = true;
+        databasesWithMysql.forEach((m) => {
+          const root = fileSystems[m.ip];
+          const content = resolveNode(root as FileNode, '/var/log/mysql.log')?.content ?? '';
+          expect(content).toBeTruthy();
+          // MySQL general log lines start with an ISO timestamp
+          expect(content).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+        });
+      }
+      expect(found).toBe(true);
+    });
+
+    it('mailserver role machines have mail.log with postfix entries', () => {
+      // Force a mailserver by iterating many seeds until one shows up
+      let found = false;
+      for (let i = 0; i < 30 && !found; i++) {
+        const { topology, fileSystems } = buildTestData(`seeding-mailserver-${i}`);
+        const mailservers = topology.machines.filter((m) => m.role === 'mailserver');
+        if (mailservers.length === 0) continue;
+        found = true;
+        mailservers.forEach((m) => {
+          const root = fileSystems[m.ip];
+          const content = resolveNode(root as FileNode, '/var/log/mail.log')?.content ?? '';
+          expect(content).toBeTruthy();
+          expect(content).toMatch(/postfix\/(smtpd|smtp)\[/);
+        });
+      }
+      expect(found).toBe(true);
+    });
+
+    it('workstation role machines do NOT have access.log, vsftpd.log, mysql.log, or mail.log', () => {
+      let checked = 0;
+      for (let i = 0; i < 30 && checked < 3; i++) {
+        const { topology, fileSystems } = buildTestData(`seeding-workstation-${i}`);
+        const workstations = topology.machines.filter((m) => m.role === 'workstation');
+        workstations.forEach((m) => {
+          checked++;
+          const root = fileSystems[m.ip];
+          expect(resolveNode(root as FileNode, '/var/log/access.log')).toBeUndefined();
+          expect(resolveNode(root as FileNode, '/var/log/vsftpd.log')).toBeUndefined();
+          expect(resolveNode(root as FileNode, '/var/log/mysql.log')).toBeUndefined();
+          expect(resolveNode(root as FileNode, '/var/log/mail.log')).toBeUndefined();
+        });
+      }
+      expect(checked).toBeGreaterThan(0);
+    });
+
+    it('router machines have kern.log (replacing the old firewall.log) with iptables entries', () => {
+      const { topology, fileSystems } = buildTestData('seeding-router');
+      const root = fileSystems[topology.routerMachine.ip];
+      const kernLog = resolveNode(root as FileNode, '/var/log/kern.log')?.content ?? '';
+      expect(kernLog).toBeTruthy();
+      // Should contain iptables-format entries alongside generic kernel lines
+      expect(kernLog).toMatch(/kernel: \[iptables\] (ACCEPT|DROP)/);
+      // The legacy firewall.log should no longer exist
+      expect(resolveNode(root as FileNode, '/var/log/firewall.log')).toBeUndefined();
+    });
+  });
+
   describe('web content for machines with HTTP ports', () => {
     const buildWithRouter = (seed: string) => {
       const prng = createPrng(seed);

@@ -1,35 +1,88 @@
 import type { MachineRole } from '../types';
 
-export const logTemplates: readonly string[] = [
+// Log templates split by destination log file. Each array contains only lines
+// that would realistically appear in that log file on a real Linux system.
+// Consumed by generateLogsByFile in machineConfig.ts.
+
+export const authLogTemplates: readonly string[] = [
   '{{date}} sshd[{{pid}}]: Accepted password for {{user}} from {{ip}} port {{srcport}}',
   '{{date}} sshd[{{pid}}]: Failed password for {{user}} from {{ip}} port {{srcport}}',
   '{{date}} sshd[{{pid}}]: Connection closed by {{ip}} port {{srcport}}',
-  '{{date}} CRON[{{pid}}]: ({{user}}) CMD (/usr/bin/backup.sh)',
-  '{{date}} systemd[1]: Started {{service}}.service',
-  '{{date}} kernel: [{{uptime}}] eth0: link up',
-  '{{date}} sudo: {{user}} : TTY=pts/0 ; PWD=/home/{{user}} ; COMMAND=/bin/cat /etc/shadow',
   '{{date}} sshd[{{pid}}]: Accepted publickey for {{user}} from {{ip}} port {{srcport}}',
   '{{date}} sshd[{{pid}}]: Invalid user admin from {{ip}} port {{srcport}}',
-  '{{date}} systemd[1]: Stopping {{service}}.service',
-  '{{date}} kernel: [{{uptime}}] TCP: request_sock_TCP: Possible SYN flooding on port 22',
-  '{{date}} su[{{pid}}]: pam_unix(su:session): session opened for user root by {{user}}(uid=1000)',
-  '{{date}} CRON[{{pid}}]: (root) CMD (/usr/local/bin/certbot renew --quiet)',
-  '{{date}} postfix/smtpd[{{pid}}]: connect from unknown[{{ip}}]',
   '{{date}} sshd[{{pid}}]: Received disconnect from {{ip}} port {{srcport}}: 11: disconnected by user',
   '{{date}} sshd[{{pid}}]: pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost={{ip}} user={{user}}',
-  '{{date}} kernel: [{{uptime}}] Out of memory: Killed process {{pid}} (java) total-vm:2048000kB',
-  '{{date}} systemd[1]: {{service}}.service: Main process exited, code=exited, status=1/FAILURE',
   '{{date}} sshd[{{pid}}]: Accepted keyboard-interactive/pam for {{user}} from {{ip}} port {{srcport}} ssh2',
-  '{{date}} CRON[{{pid}}]: ({{user}}) CMD (/opt/scripts/cleanup.sh >> /var/log/cleanup.log 2>&1)',
-  '{{date}} sudo: {{user}} : TTY=pts/1 ; PWD=/opt/app ; COMMAND=/bin/systemctl restart nginx',
-  '{{date}} kernel: [{{uptime}}] [UFW BLOCK] IN=eth0 OUT= MAC=00:16:3e:5e:6c:00 SRC={{ip}} DST=10.0.0.1 PROTO=TCP DPT=443',
   '{{date}} sshd[{{pid}}]: error: maximum authentication attempts exceeded for {{user}} from {{ip}} port {{srcport}} ssh2',
+  '{{date}} sudo: {{user}} : TTY=pts/0 ; PWD=/home/{{user}} ; COMMAND=/bin/cat /etc/shadow',
+  '{{date}} sudo: {{user}} : TTY=pts/1 ; PWD=/opt/app ; COMMAND=/bin/systemctl restart nginx',
+  '{{date}} su[{{pid}}]: pam_unix(su:session): session opened for user root by {{user}}(uid=1000)',
   '{{date}} systemd-logind[{{pid}}]: New session 47 of user {{user}}.',
-  '{{date}} postfix/smtp[{{pid}}]: {{ip}}: to=<admin@corp.local>, relay=mail.corp.local[10.0.0.8]:25, status=sent',
-  '{{date}} kernel: [{{uptime}}] device eth0 entered promiscuous mode',
+];
+
+export const syslogTemplates: readonly string[] = [
+  '{{date}} systemd[1]: Started {{service}}.service',
+  '{{date}} systemd[1]: Stopping {{service}}.service',
+  '{{date}} systemd[1]: {{service}}.service: Main process exited, code=exited, status=1/FAILURE',
+  '{{date}} CRON[{{pid}}]: ({{user}}) CMD (/usr/bin/backup.sh)',
+  '{{date}} CRON[{{pid}}]: (root) CMD (/usr/local/bin/certbot renew --quiet)',
+  '{{date}} CRON[{{pid}}]: ({{user}}) CMD (/opt/scripts/cleanup.sh >> /var/log/cleanup.log 2>&1)',
   '{{date}} dhclient[{{pid}}]: DHCPREQUEST for 10.0.0.{{pid}} on eth0 to {{ip}} port 67',
   '{{date}} rsyslogd: [origin software="rsyslogd"] start',
   '{{date}} fail2ban.actions[{{pid}}]: NOTICE [sshd] Ban {{ip}}',
+];
+
+export const kernLogTemplates: readonly string[] = [
+  '{{date}} kernel: [{{uptime}}] eth0: link up',
+  '{{date}} kernel: [{{uptime}}] TCP: request_sock_TCP: Possible SYN flooding on port 22',
+  '{{date}} kernel: [{{uptime}}] Out of memory: Killed process {{pid}} (java) total-vm:2048000kB',
+  '{{date}} kernel: [{{uptime}}] [UFW BLOCK] IN=eth0 OUT= MAC=00:16:3e:5e:6c:00 SRC={{ip}} DST=10.0.0.1 PROTO=TCP DPT=443',
+  '{{date}} kernel: [{{uptime}}] device eth0 entered promiscuous mode',
+];
+
+export const mailLogTemplates: readonly string[] = [
+  '{{date}} postfix/smtpd[{{pid}}]: connect from unknown[{{ip}}]',
+  '{{date}} postfix/smtp[{{pid}}]: {{ip}}: to=<admin@corp.local>, relay=mail.corp.local[10.0.0.8]:25, status=sent',
+  '{{date}} postfix/qmgr[{{pid}}]: {{pid}}ABCDEF: from=<cron@{{ip}}>, size=512, nrcpt=1 (queue active)',
+  '{{date}} postfix/smtpd[{{pid}}]: disconnect from unknown[{{ip}}] ehlo=1 quit=1 commands=2',
+  '{{date}} postfix/cleanup[{{pid}}]: {{pid}}DEADBE: message-id=<20260321.{{pid}}@mail.corp.local>',
+];
+
+// Apache Combined format — used to seed /var/log/access.log on webserver-role machines.
+// Note: these templates use a different date format ({{apacheDate}}) than syslog.
+export const accessLogTemplates: readonly string[] = [
+  '{{ip}} - - [{{apacheDate}}] "GET / HTTP/1.1" 200 {{size}} "-" "Mozilla/5.0"',
+  '{{ip}} - - [{{apacheDate}}] "GET /favicon.ico HTTP/1.1" 404 {{size}} "-" "Mozilla/5.0"',
+  '{{ip}} - - [{{apacheDate}}] "GET /index.html HTTP/1.1" 200 {{size}} "-" "Mozilla/5.0"',
+  '{{ip}} - - [{{apacheDate}}] "POST /api/login HTTP/1.1" 200 {{size}} "-" "curl/7.68.0"',
+  '{{ip}} - - [{{apacheDate}}] "GET /admin HTTP/1.1" 403 {{size}} "-" "Mozilla/5.0"',
+  '{{ip}} - - [{{apacheDate}}] "GET /robots.txt HTTP/1.1" 200 {{size}} "-" "Googlebot/2.1"',
+  '{{ip}} - - [{{apacheDate}}] "GET /wp-login.php HTTP/1.1" 404 {{size}} "-" "Mozilla/5.0"',
+];
+
+// vsftpd format — used to seed /var/log/vsftpd.log on fileserver-role machines.
+export const vsftpdLogTemplates: readonly string[] = [
+  '[{{vsftpdDate}}] CONNECT: Client "{{ip}}"',
+  '[{{vsftpdDate}}] OK LOGIN: Client "{{ip}}", user "{{user}}"',
+  '[{{vsftpdDate}}] FAIL LOGIN: Client "{{ip}}", user "{{user}}"',
+  '[{{vsftpdDate}}] OK DOWNLOAD: Client "{{ip}}", "/srv/ftp/{{filename}}"',
+  '[{{vsftpdDate}}] OK UPLOAD: Client "{{ip}}", "/srv/ftp/{{filename}}"',
+];
+
+// MySQL general log format — used to seed /var/log/mysql.log on database-role machines.
+export const mysqlLogTemplates: readonly string[] = [
+  '{{mysqlDate}}\t{{threadId}} Connect\t{{user}}@{{ip}} on app_prod using TCP/IP',
+  '{{mysqlDate}}\t{{threadId}} Query\tSELECT * FROM users WHERE id = {{pid}}',
+  '{{mysqlDate}}\t{{threadId}} Quit\t',
+  "{{mysqlDate}}\t{{threadId}} Connect\tAccess denied for user '{{user}}'@'{{ip}}' (using password: YES)",
+];
+
+// Redis log format — used to seed /var/log/redis.log on database-role machines with Redis open.
+export const redisLogTemplates: readonly string[] = [
+  '{{pid}}:M {{redisDate}} * Ready to accept connections',
+  '{{pid}}:M {{redisDate}} * Client {{ip}} authenticated successfully',
+  '{{pid}}:M {{redisDate}} # Client {{ip}} authentication failed',
+  '{{pid}}:M {{redisDate}} * Background saving started by pid {{pid}}',
 ];
 
 export const configTemplatesByRole: Readonly<Record<MachineRole, readonly string[]>> = {
