@@ -34,6 +34,7 @@ import { useFileSystemCommands } from './useFileSystemCommands';
 import { useNetworkCommands } from './useNetworkCommands';
 import { useWifiCommands } from './useWifiCommands';
 import { useSession } from '../session/SessionContext';
+import { getGameTime } from '../session/gameTime';
 import { useNetwork } from '../network';
 import { useFileSystem } from '../filesystem';
 import { getDatabase } from '../utils/storageCache';
@@ -232,6 +233,7 @@ export const useCommands = (): UseCommandsResult => {
         writeFile,
         getUserType: () => session.userType,
         isWifiConnected: () => wifiConnected,
+        getGameTime,
       }),
     );
 

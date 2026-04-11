@@ -1,6 +1,6 @@
 import type { Command, AsyncOutput, NcPromptData } from '../components/Terminal/types';
 import type { RemoteMachine, DnsRecord } from '../network/types';
-import { findVulnForService } from '../generation/pools/vulnerabilities';
+import { findVulnForService } from '../generation/vulnerabilityLookup';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 export type ExploitAttemptInfo = {
@@ -15,6 +15,7 @@ type MsfconsoleContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
   readonly getLocalIP: () => string;
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
+  readonly getGameTime?: () => number;
   readonly onExploitAttempt?: (info: ExploitAttemptInfo) => void;
 };
 
@@ -88,7 +89,12 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
       throw new Error(`msfconsole: ${targetIP}:${port}: Connection refused`);
     }
 
-    const vulnerability = findVulnForService(targetPort.service, targetPort.serviceVersion ?? '');
+    const gameTime = context.getGameTime?.() ?? 0;
+    const vulnerability = findVulnForService(
+      targetPort.service,
+      targetPort.serviceVersion ?? '',
+      gameTime,
+    );
     if (!vulnerability) {
       onExploitAttempt?.({
         targetIp: targetIP,

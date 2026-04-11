@@ -5,7 +5,8 @@ import type { UserType } from '../session/SessionContext';
 import type { RemoteMachine } from '../network/types';
 import { APT_PACKAGES, APT_INSTALLABLE, BINARY_STUB, RESTRICTED_EXECUTE } from './availability';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
-import { findVulnForService, defaultServiceVersion } from '../generation/pools/vulnerabilities';
+import { findVulnForService } from '../generation/vulnerabilityLookup';
+import { getLatestSafeVersion, DEFAULT_LATEST_VERSION } from '../generation/timeline';
 import { DPKG_STATUS_PATH, setDpkgVersion } from '../network/dpkgStatus';
 
 type AptContext = {
@@ -22,6 +23,7 @@ type AptContext = {
   readonly writeFile?: (path: string, content: string, userType: UserType) => PermissionResult;
   readonly getUserType: () => UserType;
   readonly isWifiConnected: () => boolean;
+  readonly getGameTime?: () => number;
 };
 
 const formatInstalledStatus = (
@@ -152,14 +154,16 @@ const DPKG_STATUS_PERMISSIONS: FilePermissions = {
 
 const OVERLAY_DELAY_MS = 250;
 
-// In Phase 3 PR A (no version timeline yet), every upgrade targets the
-// default "safe" sentinel version. Phase 3 PR B replaces this with
-// timeline-based selection of the latest version whose CVE is still
-// future-dated relative to the current gameTime.
-const pickUpgradeTarget = (service: string): string => defaultServiceVersion(service);
+// Phase 3 PR B: upgrade target is the newest version in the service's
+// pool whose CVE (if any) has publishedAt > currentGameTime — i.e., the
+// latest currently-safe version. Falls back to the DEFAULT_LATEST_VERSION
+// sentinel when the service has no pool or when every version in the pool
+// is currently vulnerable.
+const pickUpgradeTarget = (service: string, gameTime: number): string =>
+  getLatestSafeVersion(service, gameTime) ?? DEFAULT_LATEST_VERSION;
 
-const isVulnerable = (service: string, version: string): boolean =>
-  findVulnForService(service, version) !== undefined;
+const isVulnerable = (service: string, version: string, gameTime: number): boolean =>
+  findVulnForService(service, version, gameTime) !== undefined;
 
 type UpgradeCandidate = {
   readonly service: string;
@@ -169,15 +173,19 @@ type UpgradeCandidate = {
 const collectUpgradeCandidates = (
   machine: RemoteMachine,
   serviceFilter: string | undefined,
+  gameTime: number,
 ): readonly UpgradeCandidate[] => {
   const seen = new Set<string>();
   const candidates: UpgradeCandidate[] = [];
   for (const port of machine.ports) {
     if (seen.has(port.service)) continue;
     if (serviceFilter !== undefined && port.service !== serviceFilter) continue;
-    if (!isVulnerable(port.service, port.serviceVersion)) continue;
+    if (!isVulnerable(port.service, port.serviceVersion, gameTime)) continue;
     seen.add(port.service);
-    candidates.push({ service: port.service, targetVersion: pickUpgradeTarget(port.service) });
+    candidates.push({
+      service: port.service,
+      targetVersion: pickUpgradeTarget(port.service, gameTime),
+    });
   }
   return candidates;
 };
@@ -210,6 +218,7 @@ const handleUpgrade = (
   context: AptContext,
 ): AsyncOutput | string => {
   const { getMachine, getCurrentMachine, readFile, getUserType, isWifiConnected } = context;
+  const gameTime = context.getGameTime?.() ?? 0;
   const machineId = getMachine();
 
   if (machineId === 'localhost' && !isWifiConnected()) {
@@ -230,7 +239,7 @@ const handleUpgrade = (
     throw new Error(`E: Service '${serviceFilter}' is not running on this machine`);
   }
 
-  const candidates = collectUpgradeCandidates(machine, serviceFilter);
+  const candidates = collectUpgradeCandidates(machine, serviceFilter, gameTime);
 
   if (candidates.length === 0) {
     return [

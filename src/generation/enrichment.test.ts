@@ -13,7 +13,7 @@ import {
   applyPortClosures,
   applyRedisPortOpening,
 } from './enrichment';
-import { findVulnForService } from './pools/vulnerabilities';
+import { findVulnForService } from './vulnerabilityLookup';
 
 // --- Test helpers ---
 
@@ -193,7 +193,7 @@ describe('addExploitVulnerability', () => {
     const result = addExploitVulnerability(basePorts, allUsers, prng);
     const http = result.find((p) => p.service === 'http');
     expect(http?.serviceVersion).toBeDefined();
-    expect(findVulnForService('http', http?.serviceVersion ?? '')).toBeDefined();
+    expect(findVulnForService('http', http?.serviceVersion ?? '', 0)).toBeDefined();
     expect(http?.owner).toBeDefined();
   });
 
@@ -201,7 +201,7 @@ describe('addExploitVulnerability', () => {
     const prng = createPrng('exploit-skip-ssh');
     const result = addExploitVulnerability(basePorts, allUsers, prng);
     const ssh = result.find((p) => p.service === 'ssh');
-    expect(findVulnForService('ssh', ssh?.serviceVersion ?? '')).toBeUndefined();
+    expect(findVulnForService('ssh', ssh?.serviceVersion ?? '', 0)).toBeUndefined();
     expect(ssh?.owner).toBeUndefined();
   });
 
@@ -210,7 +210,7 @@ describe('addExploitVulnerability', () => {
     const prng = createPrng('exploit-closed');
     const result = addExploitVulnerability(ports, allUsers, prng);
     const http = result.find((p) => p.service === 'http');
-    expect(findVulnForService('http', http?.serviceVersion ?? '')).toBeUndefined();
+    expect(findVulnForService('http', http?.serviceVersion ?? '', 0)).toBeUndefined();
   });
 
   it('skips ports with no matching vulnerability template', () => {
@@ -218,7 +218,7 @@ describe('addExploitVulnerability', () => {
     const prng = createPrng('exploit-no-match');
     const result = addExploitVulnerability(ports, allUsers, prng);
     const unknown = result.find((p) => p.service === 'unknown-service');
-    expect(findVulnForService('unknown-service', unknown?.serviceVersion ?? '')).toBeUndefined();
+    expect(findVulnForService('unknown-service', unknown?.serviceVersion ?? '', 0)).toBeUndefined();
   });
 });
 
@@ -268,7 +268,7 @@ describe('enrichMachineWithUsers', () => {
     const result = enrichMachineWithUsers(machine, allUsers, prng);
     const http = result.remoteMachine.ports.find((p) => p.service === 'http');
     expect(http?.serviceVersion).toBeDefined();
-    expect(findVulnForService('http', http?.serviceVersion ?? '')).toBeDefined();
+    expect(findVulnForService('http', http?.serviceVersion ?? '', 0)).toBeDefined();
   });
 
   it('enriches FTP variant with port owner', () => {

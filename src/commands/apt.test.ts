@@ -492,9 +492,10 @@ describe('apt command', () => {
       expect(statusContent).not.toContain('Package: ssh');
     });
 
-    it('status file entries use the default safe sentinel version', () => {
-      // In PR A there's no version timeline yet, so the upgrade target is
-      // defaultServiceVersion(service) which returns 'latest'.
+    it('status file entries use a currently-safe version from the service pool', () => {
+      // Phase 3 PR B: upgrade target is the latest version from the pool
+      // whose CVE (if any) has publishedAt > currentGameTime. For http, that's
+      // a real version like 'nginx/1.26.0' rather than the 'latest' sentinel.
       const machine = mkMachine([{ port: 80, service: 'http', serviceVersion: 'Apache/2.4.49' }]);
       const { context, fileContents } = createMockAptContext({ currentMachine: machine });
       const apt = createAptCommand(context);
@@ -508,7 +509,13 @@ describe('apt command', () => {
       vi.advanceTimersByTime(5000);
 
       const statusContent = fileContents['/var/lib/dpkg/status'] ?? '';
-      expect(statusContent).toMatch(/Package: http[\s\S]*?Version: latest/);
+      // The http entry should have a Version that is NOT the input version
+      // (Apache/2.4.49) and that findVulnForService can't exploit.
+      const versionMatch = /Package: http[\s\S]*?Version: (.+?)$/m.exec(statusContent);
+      expect(versionMatch).not.toBeNull();
+      const newVersion = versionMatch?.[1]?.trim() ?? '';
+      expect(newVersion).not.toBe('Apache/2.4.49');
+      expect(newVersion.length).toBeGreaterThan(0);
     });
 
     it('preserves existing status file entries when upgrading', () => {
@@ -539,8 +546,10 @@ Version: OpenSSH 9.6
       const statusContent = fileContents['/var/lib/dpkg/status'] ?? '';
       expect(statusContent).toContain('Package: ssh');
       expect(statusContent).toContain('Package: http');
+      // ssh entry is preserved from the initial seed
       expect(statusContent).toContain('Version: OpenSSH 9.6');
-      expect(statusContent).toContain('Version: latest');
+      // http entry was upgraded to some safe version from the pool
+      expect(statusContent).toMatch(/Package: http[\s\S]*?Version: \S+/);
     });
 
     it('reports already-current when no services have active CVEs', () => {
