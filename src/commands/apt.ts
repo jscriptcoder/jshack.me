@@ -6,7 +6,7 @@ import type { RemoteMachine } from '../network/types';
 import { APT_PACKAGES, APT_INSTALLABLE, BINARY_STUB, RESTRICTED_EXECUTE } from './availability';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 import { findVulnForService } from '../generation/pools/vulnerabilities';
-import { getLatestSafeVersion, DEFAULT_LATEST_VERSION } from '../generation/pools/versionTimelines';
+import { getLatestSafeVersion, DEFAULT_LATEST_VERSION } from '../generation/timeline';
 import { DPKG_STATUS_PATH, setDpkgVersion } from '../network/dpkgStatus';
 
 type AptContext = {

@@ -1,14 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import {
-  bumpTuple,
-  buildTimeline,
-  findGeneratedVersion,
-  buildGeneratedVuln,
-  getLatestSafeVersion,
-  serviceTemplates,
-  type GeneratedVersion,
-} from './versionGenerator';
-import { CVE_TIMING_CONFIG } from './versionTimelines';
+import { bumpTuple, buildTimeline, findLatestSafeVersion, findGeneratedVersion } from './walker';
+import { CVE_TIMING_CONFIG } from './config';
 
 const TIMING = CVE_TIMING_CONFIG;
 
@@ -63,7 +55,6 @@ describe('buildTimeline', () => {
     const timeline = buildTimeline('http', 100, TIMING);
     const first = timeline[0];
     expect(first).toBeDefined();
-    // Apache/2.4.60 is the starting tuple for http
     expect(first?.version).toBe('Apache/2.4.60');
   });
 
@@ -93,7 +84,7 @@ describe('buildTimeline', () => {
   it('walks past the target when target exactly equals an existing publishedAt', () => {
     // Edge case: the loop stop condition must include equality, otherwise
     // when gameTime lands exactly on a boundary the timeline truncates one
-    // step early and getLatestSafeVersion can't find a "next" version.
+    // step early and findLatestSafeVersion can't find a "next" version.
     const reference = buildTimeline('http', 500, TIMING);
     const boundary = reference[3]!.publishedAt;
     const timeline = buildTimeline('http', boundary, TIMING);
@@ -107,24 +98,26 @@ describe('buildTimeline', () => {
   });
 });
 
-describe('getLatestSafeVersion (from generator)', () => {
+describe('findLatestSafeVersion', () => {
   it('skips the entry whose publishedAt exactly equals gameTime', () => {
     // At the boundary, that entry's CVE is published *right now* — it's
     // no longer safe. The returned version must be a strictly later one.
     const timeline = buildTimeline('http', 500, TIMING);
     const boundary = timeline[3]!;
-    const safe = getLatestSafeVersion('http', boundary.publishedAt, TIMING);
+    const safe = findLatestSafeVersion('http', boundary.publishedAt, TIMING);
     expect(safe).toBeDefined();
     expect(safe).not.toBe(boundary.version);
     const safeEntry = timeline.find((e) => e.version === safe);
     expect(safeEntry!.publishedAt).toBeGreaterThan(boundary.publishedAt);
   });
+
+  it('returns undefined for services with no template', () => {
+    expect(findLatestSafeVersion('no-such-service', 0, TIMING)).toBeUndefined();
+  });
 });
 
 describe('findGeneratedVersion', () => {
   it('finds a version that exists in the generator walk', () => {
-    // First build the timeline up to some game time, then look up one of
-    // its entries by version string.
     const timeline = buildTimeline('http', 200, TIMING);
     const someEntry = timeline[Math.floor(timeline.length / 2)];
     expect(someEntry).toBeDefined();
@@ -142,60 +135,5 @@ describe('findGeneratedVersion', () => {
   it('returns undefined for services with no template', () => {
     const found = findGeneratedVersion('no-such-service', 'anything', 100, TIMING);
     expect(found).toBeUndefined();
-  });
-});
-
-describe('buildGeneratedVuln', () => {
-  const mkEntry = (version: string, index: number, publishedAt: number): GeneratedVersion => ({
-    version,
-    tuple: [2, 4, 60 + index],
-    index,
-    publishedAt,
-  });
-
-  it('produces a Vulnerability with all required fields', () => {
-    const vuln = buildGeneratedVuln('http', mkEntry('Apache/2.4.61', 1, 30));
-    expect(vuln.cve).toMatch(/^CVE-\d{4}-\d{4}$/);
-    expect(vuln.description).toContain('Apache/2.4.61');
-    expect(vuln.serviceVersion).toBe('Apache/2.4.61');
-    expect(vuln.attackPattern).toBeDefined();
-    expect(['critical', 'high', 'medium', 'low']).toContain(vuln.severity);
-    expect(vuln.publishedAt).toBe(30);
-  });
-
-  it('is deterministic for the same (service, index)', () => {
-    const a = buildGeneratedVuln('http', mkEntry('Apache/2.4.61', 1, 30));
-    const b = buildGeneratedVuln('http', mkEntry('Apache/2.4.61', 1, 30));
-    expect(a).toEqual(b);
-  });
-
-  it('produces different CVEs for different indexes', () => {
-    const a = buildGeneratedVuln('http', mkEntry('Apache/2.4.61', 1, 30));
-    const b = buildGeneratedVuln('http', mkEntry('Apache/2.4.62', 2, 60));
-    expect(a.cve).not.toBe(b.cve);
-  });
-
-  it('never produces info severity in Phase 3', () => {
-    // Walk many generated versions and confirm none are info-severity.
-    for (let index = 0; index < 50; index++) {
-      const vuln = buildGeneratedVuln(
-        'http',
-        mkEntry(`Apache/2.4.${60 + index}`, index, 30 * (index + 1)),
-      );
-      expect(vuln.severity).not.toBe('info');
-    }
-  });
-
-  it('falls back to syslog attack pattern for services with no template', () => {
-    const vuln = buildGeneratedVuln('no-such-service', mkEntry('Something/1.0.0', 0, 30));
-    expect(vuln.attackPattern.logFile).toBe('/var/log/syslog');
-  });
-});
-
-describe('serviceTemplates', () => {
-  it('every template uses a separator string', () => {
-    for (const template of Object.values(serviceTemplates)) {
-      expect(template.separator.length).toBeGreaterThan(0);
-    }
   });
 });

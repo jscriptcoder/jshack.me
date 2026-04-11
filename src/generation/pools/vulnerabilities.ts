@@ -1,6 +1,5 @@
 import type { Vulnerability } from '../../network/types';
-import { buildGeneratedVuln, findGeneratedVersion } from './versionGenerator';
-import { CVE_TIMING_CONFIG } from './versionTimelines';
+import { buildGeneratedVuln, findGeneratedVersion, CVE_TIMING_CONFIG } from '../timeline';
 
 export type VulnerabilityTemplate = {
   readonly port: number;
@@ -14,7 +13,7 @@ export type VulnerabilityTemplate = {
 // real-world vulns like CVE-2021-41773, Log4Shell, EternalBlue. All have
 // publishedAt=0 (classic, active from day 1) and a realistic severity.
 //
-// Layer 2 — procedurally generated timeline (versionGenerator.ts): future
+// Layer 2 — procedurally generated timeline (../timeline/): future
 // versions beyond the historical table, with deterministic seeded CVEs and
 // publishedAt values derived from randomized gap accumulation. This is what
 // drives the treadmill over game time.
