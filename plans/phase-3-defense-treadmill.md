@@ -268,24 +268,14 @@ When we pick this back up, real iptables INPUT semantics (DROP/ACCEPT), a player
 - Firmware overlay lives at `/var/lib/dpkg/status` on the router — same mechanism as service versions (unified Phase 3 PR B).
 - Tests: vulnerable firmware → exploitable via msfconsole → `apt upgrade firmware` closes the window → CVE advances → vulnerable again.
 
-### Follow-up (post-PR C) — `apt install <pkg>=<version>` version pinning
+### `apt install <pkg>=<version>` version pinning (shipped in PR C)
 
-Not shipped in PR C. A small follow-up PR should add generic version-pin install syntax that works for both services and firmware:
+Generic version-pin install syntax for both services and firmware:
 
-- `apt('install', 'nginx=nginx/1.24.0')` → pin a service to a specific version
+- `apt('install', 'http=Apache/2.4.49')` → pin a service to a specific version
 - `apt('install', 'firmware=MikroTik RouterOS 7.15.0')` → pin a router's firmware to a specific version
 
-**Validation**:
-
-- The package must be installed on the machine (a running service or, for `firmware`, the machine must be a router).
-- The pinned version must exist in the appropriate procedural timeline (service timeline via `buildTimeline`, firmware timeline via `buildTimelineFromTemplate(firmwareTemplates[vendor], ...)`). Rejects nonsense versions.
-- Pinning a **currently-vulnerable** version is allowed — players can deliberately downgrade (e.g. for troubleshooting or to practice exploit chains). The treadmill surfaces this the next time `findExploitableCve` runs.
-- Writes the pinned version into `/var/lib/dpkg/status` via the existing `setDpkgVersion` helper.
-
-**Out of scope for the follow-up**:
-
-- Version aliasing / ranges (`nginx>=1.20.0`) — real apt supports it but it's overkill here.
-- `apt install` for a package that's not already installed on the machine (would require the generator to allow introducing a new running service, which reshapes topology).
+Validation: the package must be installed (a running service, or `firmware` on a router), and the pinned version must be reachable in either the hand-authored CVE table or the procedural walker within a ~2-year walk budget. Pinning a currently-vulnerable version is allowed — deliberate downgrades are a valid gameplay move.
 
 ## Acceptance Criteria
 
