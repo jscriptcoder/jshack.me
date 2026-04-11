@@ -8,7 +8,7 @@ import { createSshCommand } from './ssh';
 const getMockRemoteMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine => ({
   ip: '192.168.1.50',
   hostname: 'fileserver',
-  ports: [{ port: 22, service: 'ssh', open: true }],
+  ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
   users: [{ username: 'root', passwordHash: 'abc123', userType: 'root' }],
   ...overrides,
 });
@@ -102,7 +102,7 @@ describe('ssh command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 80, service: 'http', open: true }],
+            ports: [{ port: 80, service: 'http', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -118,7 +118,7 @@ describe('ssh command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 22, service: 'ssh', open: false }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: false }],
           }),
         ],
       });
@@ -134,7 +134,7 @@ describe('ssh command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
             users: [{ username: 'root', passwordHash: 'abc', userType: 'root' }],
           }),
         ],
@@ -153,7 +153,7 @@ describe('ssh command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
             users: [{ username: 'admin', passwordHash: 'abc', userType: 'user' }],
           }),
         ],
@@ -170,7 +170,7 @@ describe('ssh command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
             users: [{ username: 'admin', passwordHash: 'abc', userType: 'user' }],
           }),
         ],
@@ -189,7 +189,7 @@ describe('ssh command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
             users: [{ username: 'admin', passwordHash: 'abc', userType: 'user' }],
           }),
         ],
@@ -210,7 +210,7 @@ describe('ssh command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
             users: [{ username: 'admin', passwordHash: 'abc', userType: 'user' }],
           }),
         ],
@@ -234,7 +234,7 @@ describe('ssh command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
             users: [{ username: 'admin', passwordHash: 'abc', userType: 'user' }],
           }),
         ],
@@ -261,7 +261,7 @@ describe('ssh command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
             users: [{ username: 'admin', passwordHash: 'abc', userType: 'user' }],
           }),
         ],
@@ -288,7 +288,7 @@ describe('ssh command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
             users: [{ username: 'admin', passwordHash: 'abc', userType: 'user' }],
           }),
         ],
@@ -321,7 +321,7 @@ describe('ssh command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
             users: [
               { username: 'root', passwordHash: 'abc', userType: 'root' },
               { username: 'guest', passwordHash: 'def', userType: 'guest' },
@@ -356,7 +356,7 @@ describe('ssh command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 2222, service: 'ssh', open: true }],
+            ports: [{ port: 2222, service: 'ssh', serviceVersion: 'latest', open: true }],
             users: [{ username: 'admin', passwordHash: 'abc', userType: 'user' }],
           }),
         ],
@@ -374,8 +374,8 @@ describe('ssh command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.50',
             ports: [
-              { port: 22, service: 'ssh', open: true },
-              { port: 2222, service: 'ssh', open: false },
+              { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+              { port: 2222, service: 'ssh', serviceVersion: 'latest', open: false },
             ],
             users: [{ username: 'admin', passwordHash: 'abc', userType: 'user' }],
           }),
@@ -393,7 +393,7 @@ describe('ssh command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
             users: [{ username: 'admin', passwordHash: 'abc', userType: 'user' }],
           }),
         ],
@@ -410,7 +410,7 @@ describe('ssh command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
             users: [{ username: 'admin', passwordHash: 'abc', userType: 'user' }],
           }),
         ],
@@ -426,7 +426,7 @@ describe('ssh command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 2222, service: 'ssh', open: true }],
+            ports: [{ port: 2222, service: 'ssh', serviceVersion: 'latest', open: true }],
             users: [{ username: 'admin', passwordHash: 'abc', userType: 'user' }],
           }),
         ],
@@ -456,7 +456,7 @@ describe('ssh command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
             users: [{ username: 'admin', passwordHash: 'abc', userType: 'user' }],
           }),
         ],
@@ -488,7 +488,7 @@ describe('ssh command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
             users: [{ username: 'admin', passwordHash: 'abc', userType: 'user' }],
           }),
         ],
@@ -519,7 +519,7 @@ describe('ssh command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
             users: [{ username: 'admin', passwordHash: 'abc', userType: 'user' }],
           }),
         ],
@@ -555,7 +555,7 @@ describe('ssh command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
             users: [{ username: 'admin', passwordHash: 'abc', userType: 'user' }],
           }),
         ],
@@ -590,7 +590,7 @@ describe('ssh command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 2222, service: 'ssh', open: true }],
+            ports: [{ port: 2222, service: 'ssh', serviceVersion: 'latest', open: true }],
             users: [{ username: 'admin', passwordHash: 'abc', userType: 'user' }],
           }),
         ],
@@ -624,7 +624,7 @@ describe('ssh command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
             users: [{ username: 'admin', passwordHash: 'abc', userType: 'user' }],
           }),
         ],
@@ -654,7 +654,7 @@ describe('ssh command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
             users: [{ username: 'admin', passwordHash: 'abc', userType: 'user' }],
           }),
         ],
@@ -687,7 +687,7 @@ describe('ssh command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 2222, service: 'ssh', open: true }],
+            ports: [{ port: 2222, service: 'ssh', serviceVersion: 'latest', open: true }],
             users: [{ username: 'admin', passwordHash: 'abc', userType: 'user' }],
           }),
         ],

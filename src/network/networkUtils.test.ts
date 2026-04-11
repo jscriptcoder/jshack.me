@@ -21,6 +21,7 @@ import {
 const createPort = (overrides: Partial<Port> = {}): Port => ({
   port: 80,
   service: 'http',
+  serviceVersion: 'latest',
   open: true,
   ...overrides,
 });
@@ -46,13 +47,15 @@ describe('applyDaemonOverrides', () => {
   describe('sshd overrides', () => {
     it('should open an existing closed port matching the override', () => {
       const machine = createMachine({
-        ports: [createPort({ port: 22, service: 'ssh', open: false })],
+        ports: [createPort({ port: 22, service: 'ssh', serviceVersion: 'latest', open: false })],
       });
       const overrides: readonly SshdPortOverride[] = [{ port: 22, service: 'ssh', open: true }];
 
       const result = applyDaemonOverrides(machine, overrides);
 
-      expect(result.ports).toEqual([{ port: 22, service: 'ssh', open: true }]);
+      expect(result.ports).toEqual([
+        { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+      ]);
     });
 
     it('should add a new port when daemon runs on non-default port', () => {
@@ -61,25 +64,29 @@ describe('applyDaemonOverrides', () => {
 
       const result = applyDaemonOverrides(machine, overrides);
 
-      expect(result.ports).toEqual([{ port: 2222, service: 'ssh', open: true }]);
+      expect(result.ports).toEqual([
+        { port: 2222, service: 'ssh', serviceVersion: 'latest', open: true },
+      ]);
     });
 
     it('should remove closed default port when daemon runs on a different port', () => {
       const machine = createMachine({
-        ports: [createPort({ port: 22, service: 'ssh', open: false })],
+        ports: [createPort({ port: 22, service: 'ssh', serviceVersion: 'latest', open: false })],
       });
       const overrides: readonly SshdPortOverride[] = [{ port: 2223, service: 'ssh', open: true }];
 
       const result = applyDaemonOverrides(machine, overrides);
 
-      expect(result.ports).toEqual([{ port: 2223, service: 'ssh', open: true }]);
+      expect(result.ports).toEqual([
+        { port: 2223, service: 'ssh', serviceVersion: 'latest', open: true },
+      ]);
     });
 
     it('should preserve unrelated ports when removing closed default port', () => {
       const machine = createMachine({
         ports: [
-          createPort({ port: 22, service: 'ssh', open: false }),
-          createPort({ port: 80, service: 'http', open: true }),
+          createPort({ port: 22, service: 'ssh', serviceVersion: 'latest', open: false }),
+          createPort({ port: 80, service: 'http', serviceVersion: 'latest', open: true }),
         ],
       });
       const overrides: readonly SshdPortOverride[] = [{ port: 2223, service: 'ssh', open: true }];
@@ -87,22 +94,22 @@ describe('applyDaemonOverrides', () => {
       const result = applyDaemonOverrides(machine, overrides);
 
       expect(result.ports).toEqual([
-        { port: 80, service: 'http', open: true },
-        { port: 2223, service: 'ssh', open: true },
+        { port: 80, service: 'http', serviceVersion: 'latest', open: true },
+        { port: 2223, service: 'ssh', serviceVersion: 'latest', open: true },
       ]);
     });
 
     it('should not remove an open port with the same service', () => {
       const machine = createMachine({
-        ports: [createPort({ port: 22, service: 'ssh', open: true })],
+        ports: [createPort({ port: 22, service: 'ssh', serviceVersion: 'latest', open: true })],
       });
       const overrides: readonly SshdPortOverride[] = [{ port: 2223, service: 'ssh', open: true }];
 
       const result = applyDaemonOverrides(machine, overrides);
 
       expect(result.ports).toEqual([
-        { port: 22, service: 'ssh', open: true },
-        { port: 2223, service: 'ssh', open: true },
+        { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+        { port: 2223, service: 'ssh', serviceVersion: 'latest', open: true },
       ]);
     });
   });
@@ -110,24 +117,28 @@ describe('applyDaemonOverrides', () => {
   describe('ftpd overrides', () => {
     it('should remove closed default ftp port when ftpd runs on a different port', () => {
       const machine = createMachine({
-        ports: [createPort({ port: 21, service: 'ftp', open: false })],
+        ports: [createPort({ port: 21, service: 'ftp', serviceVersion: 'latest', open: false })],
       });
       const overrides: readonly FtpdPortOverride[] = [{ port: 2121, service: 'ftp', open: true }];
 
       const result = applyDaemonOverrides(machine, overrides);
 
-      expect(result.ports).toEqual([{ port: 2121, service: 'ftp', open: true }]);
+      expect(result.ports).toEqual([
+        { port: 2121, service: 'ftp', serviceVersion: 'latest', open: true },
+      ]);
     });
 
     it('should open existing ftp port when daemon runs on same port', () => {
       const machine = createMachine({
-        ports: [createPort({ port: 21, service: 'ftp', open: false })],
+        ports: [createPort({ port: 21, service: 'ftp', serviceVersion: 'latest', open: false })],
       });
       const overrides: readonly FtpdPortOverride[] = [{ port: 21, service: 'ftp', open: true }];
 
       const result = applyDaemonOverrides(machine, overrides);
 
-      expect(result.ports).toEqual([{ port: 21, service: 'ftp', open: true }]);
+      expect(result.ports).toEqual([
+        { port: 21, service: 'ftp', serviceVersion: 'latest', open: true },
+      ]);
     });
   });
 
@@ -135,9 +146,9 @@ describe('applyDaemonOverrides', () => {
     it('should handle both sshd and ftpd overrides simultaneously', () => {
       const machine = createMachine({
         ports: [
-          createPort({ port: 22, service: 'ssh', open: false }),
-          createPort({ port: 21, service: 'ftp', open: false }),
-          createPort({ port: 80, service: 'http', open: true }),
+          createPort({ port: 22, service: 'ssh', serviceVersion: 'latest', open: false }),
+          createPort({ port: 21, service: 'ftp', serviceVersion: 'latest', open: false }),
+          createPort({ port: 80, service: 'http', serviceVersion: 'latest', open: true }),
         ],
       });
       const overrides: readonly (SshdPortOverride | FtpdPortOverride)[] = [
@@ -148,20 +159,22 @@ describe('applyDaemonOverrides', () => {
       const result = applyDaemonOverrides(machine, overrides);
 
       expect(result.ports).toEqual([
-        { port: 80, service: 'http', open: true },
-        { port: 2222, service: 'ssh', open: true },
-        { port: 2121, service: 'ftp', open: true },
+        { port: 80, service: 'http', serviceVersion: 'latest', open: true },
+        { port: 2222, service: 'ssh', serviceVersion: 'latest', open: true },
+        { port: 2121, service: 'ftp', serviceVersion: 'latest', open: true },
       ]);
     });
 
     it('should return machine unchanged when no overrides given', () => {
       const machine = createMachine({
-        ports: [createPort({ port: 22, service: 'ssh', open: false })],
+        ports: [createPort({ port: 22, service: 'ssh', serviceVersion: 'latest', open: false })],
       });
 
       const result = applyDaemonOverrides(machine, []);
 
-      expect(result.ports).toEqual([{ port: 22, service: 'ssh', open: false }]);
+      expect(result.ports).toEqual([
+        { port: 22, service: 'ssh', serviceVersion: 'latest', open: false },
+      ]);
     });
   });
 
@@ -183,6 +196,7 @@ describe('applyDaemonOverrides', () => {
         {
           port: 4444,
           service: 'elite',
+          serviceVersion: 'latest',
           open: true,
           owner: { username: 'webadmin', userType: 'user', homePath: '/home/webadmin' },
         },
@@ -191,7 +205,9 @@ describe('applyDaemonOverrides', () => {
 
     it('should open existing elite port and add owner', () => {
       const machine = createMachine({
-        ports: [createPort({ port: 4444, service: 'elite', open: false })],
+        ports: [
+          createPort({ port: 4444, service: 'elite', serviceVersion: 'latest', open: false }),
+        ],
       });
       const overrides: readonly NcPortOverride[] = [
         {
@@ -208,6 +224,7 @@ describe('applyDaemonOverrides', () => {
         {
           port: 4444,
           service: 'elite',
+          serviceVersion: 'latest',
           open: true,
           owner: { username: 'root', userType: 'root', homePath: '/root' },
         },
@@ -216,7 +233,7 @@ describe('applyDaemonOverrides', () => {
 
     it('should handle nc listener override alongside sshd override', () => {
       const machine = createMachine({
-        ports: [createPort({ port: 22, service: 'ssh', open: false })],
+        ports: [createPort({ port: 22, service: 'ssh', serviceVersion: 'latest', open: false })],
       });
       const overrides: readonly (SshdPortOverride | NcPortOverride)[] = [
         { port: 22, service: 'ssh', open: true },
@@ -231,10 +248,11 @@ describe('applyDaemonOverrides', () => {
       const result = applyDaemonOverrides(machine, overrides);
 
       expect(result.ports).toEqual([
-        { port: 22, service: 'ssh', open: true },
+        { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
         {
           port: 4444,
           service: 'elite',
+          serviceVersion: 'latest',
           open: true,
           owner: { username: 'webadmin', userType: 'user', homePath: '/home/webadmin' },
         },
@@ -246,31 +264,35 @@ describe('applyDaemonOverrides', () => {
 describe('applySnmpFirewallOverrides', () => {
   it('should open a closed port matching the override', () => {
     const machine = createMachine({
-      ports: [createPort({ port: 22, service: 'ssh', open: false })],
+      ports: [createPort({ port: 22, service: 'ssh', serviceVersion: 'latest', open: false })],
     });
     const overrides: readonly SnmpFirewallOverride[] = [{ port: 22, open: true }];
 
     const result = applySnmpFirewallOverrides(machine, overrides);
 
-    expect(result.ports).toEqual([{ port: 22, service: 'ssh', open: true }]);
+    expect(result.ports).toEqual([
+      { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+    ]);
   });
 
   it('should close an open port matching the override', () => {
     const machine = createMachine({
-      ports: [createPort({ port: 80, service: 'http', open: true })],
+      ports: [createPort({ port: 80, service: 'http', serviceVersion: 'latest', open: true })],
     });
     const overrides: readonly SnmpFirewallOverride[] = [{ port: 80, open: false }];
 
     const result = applySnmpFirewallOverrides(machine, overrides);
 
-    expect(result.ports).toEqual([{ port: 80, service: 'http', open: false }]);
+    expect(result.ports).toEqual([
+      { port: 80, service: 'http', serviceVersion: 'latest', open: false },
+    ]);
   });
 
   it('should not affect ports without a matching override', () => {
     const machine = createMachine({
       ports: [
-        createPort({ port: 22, service: 'ssh', open: false }),
-        createPort({ port: 80, service: 'http', open: true }),
+        createPort({ port: 22, service: 'ssh', serviceVersion: 'latest', open: false }),
+        createPort({ port: 80, service: 'http', serviceVersion: 'latest', open: true }),
       ],
     });
     const overrides: readonly SnmpFirewallOverride[] = [{ port: 22, open: true }];
@@ -278,19 +300,21 @@ describe('applySnmpFirewallOverrides', () => {
     const result = applySnmpFirewallOverrides(machine, overrides);
 
     expect(result.ports).toEqual([
-      { port: 22, service: 'ssh', open: true },
-      { port: 80, service: 'http', open: true },
+      { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+      { port: 80, service: 'http', serviceVersion: 'latest', open: true },
     ]);
   });
 
   it('should return machine unchanged when no overrides given', () => {
     const machine = createMachine({
-      ports: [createPort({ port: 22, service: 'ssh', open: false })],
+      ports: [createPort({ port: 22, service: 'ssh', serviceVersion: 'latest', open: false })],
     });
 
     const result = applySnmpFirewallOverrides(machine, []);
 
-    expect(result.ports).toEqual([{ port: 22, service: 'ssh', open: false }]);
+    expect(result.ports).toEqual([
+      { port: 22, service: 'ssh', serviceVersion: 'latest', open: false },
+    ]);
   });
 });
 
@@ -306,7 +330,7 @@ describe('buildMergedRouterView', () => {
       hostname: 'target',
       remoteMachine: createMachine({
         ip: '10.0.0.5',
-        ports: [createPort({ port: 22, service: 'ssh', open: true })],
+        ports: [createPort({ port: 22, service: 'ssh', serviceVersion: 'latest', open: true })],
       }),
     });
     const rules: readonly NatForwardingRule[] = [
@@ -315,7 +339,9 @@ describe('buildMergedRouterView', () => {
 
     const result = buildMergedRouterView(router, [target], rules);
 
-    expect(result.ports).toEqual([{ port: 2222, service: 'ssh', open: true }]);
+    expect(result.ports).toEqual([
+      { port: 2222, service: 'ssh', serviceVersion: 'latest', open: true },
+    ]);
   });
 
   it('should not forward closed internal ports', () => {
@@ -327,7 +353,7 @@ describe('buildMergedRouterView', () => {
       ip: '10.0.0.5',
       remoteMachine: createMachine({
         ip: '10.0.0.5',
-        ports: [createPort({ port: 22, service: 'ssh', open: false })],
+        ports: [createPort({ port: 22, service: 'ssh', serviceVersion: 'latest', open: false })],
       }),
     });
     const rules: readonly NatForwardingRule[] = [
@@ -344,14 +370,14 @@ describe('buildMergedRouterView', () => {
       ip: '203.0.113.1',
       remoteMachine: createMachine({
         ip: '203.0.113.1',
-        ports: [createPort({ port: 80, service: 'http', open: true })],
+        ports: [createPort({ port: 80, service: 'http', serviceVersion: 'latest', open: true })],
       }),
     });
     const target = createGeneratedMachine({
       ip: '10.0.0.5',
       remoteMachine: createMachine({
         ip: '10.0.0.5',
-        ports: [createPort({ port: 22, service: 'ssh', open: true })],
+        ports: [createPort({ port: 22, service: 'ssh', serviceVersion: 'latest', open: true })],
       }),
     });
     const rules: readonly NatForwardingRule[] = [
@@ -361,8 +387,8 @@ describe('buildMergedRouterView', () => {
     const result = buildMergedRouterView(router, [target], rules);
 
     expect(result.ports).toEqual([
-      { port: 80, service: 'http', open: true },
-      { port: 2222, service: 'ssh', open: true },
+      { port: 80, service: 'http', serviceVersion: 'latest', open: true },
+      { port: 2222, service: 'ssh', serviceVersion: 'latest', open: true },
     ]);
   });
 
@@ -371,14 +397,16 @@ describe('buildMergedRouterView', () => {
       ip: '203.0.113.1',
       remoteMachine: createMachine({
         ip: '203.0.113.1',
-        ports: [createPort({ port: 80, service: 'http', open: false })],
+        ports: [createPort({ port: 80, service: 'http', serviceVersion: 'latest', open: false })],
       }),
     });
     const target = createGeneratedMachine({
       ip: '10.0.0.5',
       remoteMachine: createMachine({
         ip: '10.0.0.5',
-        ports: [createPort({ port: 8080, service: 'http-alt', open: true })],
+        ports: [
+          createPort({ port: 8080, service: 'http-alt', serviceVersion: 'latest', open: true }),
+        ],
       }),
     });
     const rules: readonly NatForwardingRule[] = [
@@ -387,7 +415,9 @@ describe('buildMergedRouterView', () => {
 
     const result = buildMergedRouterView(router, [target], rules);
 
-    expect(result.ports).toEqual([{ port: 80, service: 'http-alt', open: true }]);
+    expect(result.ports).toEqual([
+      { port: 80, service: 'http-alt', serviceVersion: 'latest', open: true },
+    ]);
   });
 
   it('should merge users from router and forwarded machines, deduplicating by username', () => {
@@ -414,7 +444,7 @@ describe('buildMergedRouterView', () => {
       ip: '10.0.0.5',
       remoteMachine: createMachine({
         ip: '10.0.0.5',
-        ports: [createPort({ port: 22, service: 'ssh', open: true })],
+        ports: [createPort({ port: 22, service: 'ssh', serviceVersion: 'latest', open: true })],
         users: [sharedUser, targetUser],
       }),
     });
@@ -449,7 +479,7 @@ describe('buildMergedRouterView', () => {
       ip: '10.0.0.99',
       remoteMachine: createMachine({
         ip: '10.0.0.99',
-        ports: [createPort({ port: 22, service: 'ssh', open: true })],
+        ports: [createPort({ port: 22, service: 'ssh', serviceVersion: 'latest', open: true })],
         users: [{ username: 'ghost', passwordHash: 'h', userType: 'user' }],
       }),
     });
@@ -581,7 +611,7 @@ describe('buildRouterRemoteView', () => {
       remoteMachine: createMachine({
         ip: '203.0.113.1',
         hostname: 'gw',
-        ports: [createPort({ port: 22, service: 'ssh', open: true })],
+        ports: [createPort({ port: 22, service: 'ssh', serviceVersion: 'latest', open: true })],
       }),
     });
 
@@ -595,14 +625,14 @@ describe('buildRouterRemoteView', () => {
       ip: '203.0.113.1',
       remoteMachine: createMachine({
         ip: '203.0.113.1',
-        ports: [createPort({ port: 22, service: 'ssh', open: false })],
+        ports: [createPort({ port: 22, service: 'ssh', serviceVersion: 'latest', open: false })],
       }),
     });
     const target = createGeneratedMachine({
       ip: '10.0.0.5',
       remoteMachine: createMachine({
         ip: '10.0.0.5',
-        ports: [createPort({ port: 80, service: 'http', open: true })],
+        ports: [createPort({ port: 80, service: 'http', serviceVersion: 'latest', open: true })],
       }),
     });
     const rules: readonly NatForwardingRule[] = [
@@ -616,7 +646,12 @@ describe('buildRouterRemoteView', () => {
     expect(result.ports).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ port: 22, open: true }),
-        expect.objectContaining({ port: 8080, service: 'http', open: true }),
+        expect.objectContaining({
+          port: 8080,
+          service: 'http',
+          serviceVersion: 'latest',
+          open: true,
+        }),
       ]),
     );
   });
@@ -649,7 +684,7 @@ describe('applyDynamicOverrides', () => {
       ip: '10.0.1.10',
       remoteMachine: createMachine({
         ip: '10.0.1.10',
-        ports: [createPort({ port: 22, service: 'ssh', open: true })],
+        ports: [createPort({ port: 22, service: 'ssh', serviceVersion: 'latest', open: true })],
       }),
     });
     const rules: readonly NatForwardingRule[] = [
@@ -666,7 +701,9 @@ describe('applyDynamicOverrides', () => {
       readNode: noopReader,
     });
 
-    expect(result.ports).toEqual([{ port: 2222, service: 'ssh', open: true }]);
+    expect(result.ports).toEqual([
+      { port: 2222, service: 'ssh', serviceVersion: 'latest', open: true },
+    ]);
   });
 
   it('should find home gateway by .1 alias IP and preserve the visible IP', () => {
@@ -679,7 +716,7 @@ describe('applyDynamicOverrides', () => {
       ip: '10.0.0.10',
       remoteMachine: createMachine({
         ip: '10.0.0.10',
-        ports: [createPort({ port: 80, service: 'http', open: true })],
+        ports: [createPort({ port: 80, service: 'http', serviceVersion: 'latest', open: true })],
       }),
     });
     const rules: readonly NatForwardingRule[] = [
@@ -700,14 +737,14 @@ describe('applyDynamicOverrides', () => {
 
     expect(result.ip).toBe('10.0.0.1');
     expect(result.ports).toContainEqual(
-      expect.objectContaining({ port: 80, service: 'http', open: true }),
+      expect.objectContaining({ port: 80, service: 'http', serviceVersion: 'latest', open: true }),
     );
   });
 
   it('should apply sshd daemon override from PID file', () => {
     const machine = createMachine({
       ip: '10.0.0.5',
-      ports: [createPort({ port: 22, service: 'ssh', open: false })],
+      ports: [createPort({ port: 22, service: 'ssh', serviceVersion: 'latest', open: false })],
     });
     const readNode = (machineId: string, path: string) => {
       if (machineId === '10.0.0.5' && path === '/var/run/sshd.pid') {
@@ -732,14 +769,14 @@ describe('applyDynamicOverrides', () => {
     });
 
     expect(result.ports).toContainEqual(
-      expect.objectContaining({ port: 22, service: 'ssh', open: true }),
+      expect.objectContaining({ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }),
     );
   });
 
   it('should let SNMP firewall deny override a running daemon (firewall wins)', () => {
     const machine = createMachine({
       ip: '10.0.0.5',
-      ports: [createPort({ port: 22, service: 'ssh', open: false })],
+      ports: [createPort({ port: 22, service: 'ssh', serviceVersion: 'latest', open: false })],
     });
     // sshd is running (PID file exists)
     const readNode = (machineId: string, path: string) => {
@@ -768,14 +805,14 @@ describe('applyDynamicOverrides', () => {
 
     // Firewall should win: port 22 closed despite daemon running
     expect(result.ports).toContainEqual(
-      expect.objectContaining({ port: 22, service: 'ssh', open: false }),
+      expect.objectContaining({ port: 22, service: 'ssh', serviceVersion: 'latest', open: false }),
     );
   });
 
   it('should close SSH port when no sshd.pid exists (daemon not running)', () => {
     const machine = createMachine({
       ip: '10.0.0.5',
-      ports: [createPort({ port: 22, service: 'ssh', open: true })],
+      ports: [createPort({ port: 22, service: 'ssh', serviceVersion: 'latest', open: true })],
     });
 
     const result = applyDynamicOverrides(machine, {
@@ -788,14 +825,14 @@ describe('applyDynamicOverrides', () => {
     });
 
     expect(result.ports).toContainEqual(
-      expect.objectContaining({ port: 22, service: 'ssh', open: false }),
+      expect.objectContaining({ port: 22, service: 'ssh', serviceVersion: 'latest', open: false }),
     );
   });
 
   it('should close FTP port when no vsftpd.pid exists (daemon not running)', () => {
     const machine = createMachine({
       ip: '10.0.0.5',
-      ports: [createPort({ port: 21, service: 'ftp', open: true })],
+      ports: [createPort({ port: 21, service: 'ftp', serviceVersion: 'latest', open: true })],
     });
 
     const result = applyDynamicOverrides(machine, {
@@ -808,7 +845,7 @@ describe('applyDynamicOverrides', () => {
     });
 
     expect(result.ports).toContainEqual(
-      expect.objectContaining({ port: 21, service: 'ftp', open: false }),
+      expect.objectContaining({ port: 21, service: 'ftp', serviceVersion: 'latest', open: false }),
     );
   });
 
@@ -816,8 +853,8 @@ describe('applyDynamicOverrides', () => {
     const machine = createMachine({
       ip: '10.0.0.5',
       ports: [
-        createPort({ port: 80, service: 'http', open: true }),
-        createPort({ port: 3306, service: 'mysql', open: true }),
+        createPort({ port: 80, service: 'http', serviceVersion: 'latest', open: true }),
+        createPort({ port: 3306, service: 'mysql', serviceVersion: 'latest', open: true }),
       ],
     });
 
@@ -832,10 +869,15 @@ describe('applyDynamicOverrides', () => {
 
     // Infrastructure services stay open — they're not daemon-backed
     expect(result.ports).toContainEqual(
-      expect.objectContaining({ port: 80, service: 'http', open: true }),
+      expect.objectContaining({ port: 80, service: 'http', serviceVersion: 'latest', open: true }),
     );
     expect(result.ports).toContainEqual(
-      expect.objectContaining({ port: 3306, service: 'mysql', open: true }),
+      expect.objectContaining({
+        port: 3306,
+        service: 'mysql',
+        serviceVersion: 'latest',
+        open: true,
+      }),
     );
   });
 });

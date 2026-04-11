@@ -8,7 +8,7 @@ import { createFtpCommand } from './ftp';
 const getMockRemoteMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine => ({
   ip: '192.168.1.50',
   hostname: 'fileserver',
-  ports: [{ port: 22, service: 'ssh', open: true }],
+  ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
   users: [{ username: 'root', passwordHash: 'abc123', userType: 'root' }],
   ...overrides,
 });
@@ -112,7 +112,7 @@ describe('ftp command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -128,7 +128,7 @@ describe('ftp command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 21, service: 'ftp', open: false }],
+            ports: [{ port: 21, service: 'ftp', serviceVersion: 'latest', open: false }],
           }),
         ],
       });
@@ -147,7 +147,7 @@ describe('ftp command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.50',
             hostname: 'fileserver',
-            ports: [{ port: 21, service: 'ftp', open: true }],
+            ports: [{ port: 21, service: 'ftp', serviceVersion: 'latest', open: true }],
           }),
         ],
         dnsRecords: [getMockDnsRecord({ domain: 'fileserver.local', ip: '192.168.1.50' })],
@@ -165,7 +165,7 @@ describe('ftp command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.50',
             hostname: 'fileserver',
-            ports: [{ port: 21, service: 'ftp', open: true }],
+            ports: [{ port: 21, service: 'ftp', serviceVersion: 'latest', open: true }],
           }),
         ],
         dnsRecords: [getMockDnsRecord({ domain: 'fileserver.local', ip: '192.168.1.50' })],
@@ -189,7 +189,7 @@ describe('ftp command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 21, service: 'ftp', open: true }],
+            ports: [{ port: 21, service: 'ftp', serviceVersion: 'latest', open: true }],
           }),
         ],
         dnsRecords: [getMockDnsRecord({ domain: 'FileServer.Local', ip: '192.168.1.50' })],
@@ -208,7 +208,7 @@ describe('ftp command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 21, service: 'ftp', open: true }],
+            ports: [{ port: 21, service: 'ftp', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -224,7 +224,7 @@ describe('ftp command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 21, service: 'ftp', open: true }],
+            ports: [{ port: 21, service: 'ftp', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -242,7 +242,7 @@ describe('ftp command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 21, service: 'ftp', open: true }],
+            ports: [{ port: 21, service: 'ftp', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -262,7 +262,7 @@ describe('ftp command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 21, service: 'ftp', open: true }],
+            ports: [{ port: 21, service: 'ftp', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -285,7 +285,7 @@ describe('ftp command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 21, service: 'ftp', open: true }],
+            ports: [{ port: 21, service: 'ftp', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -312,7 +312,7 @@ describe('ftp command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.50',
             hostname: 'fileserver',
-            ports: [{ port: 21, service: 'ftp', open: true }],
+            ports: [{ port: 21, service: 'ftp', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -338,7 +338,7 @@ describe('ftp command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 21, service: 'ftp', open: true }],
+            ports: [{ port: 21, service: 'ftp', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -370,7 +370,7 @@ describe('ftp command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.50',
             hostname: 'fileserver',
-            ports: [{ port: 21, service: 'ftp', open: true }],
+            ports: [{ port: 21, service: 'ftp', serviceVersion: 'latest', open: true }],
           }),
         ],
         dnsRecords: [getMockDnsRecord({ domain: 'fileserver.local', ip: '192.168.1.50' })],
@@ -402,7 +402,7 @@ describe('ftp command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 21, service: 'ftp', open: true }],
+            ports: [{ port: 21, service: 'ftp', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -433,7 +433,7 @@ describe('ftp command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.50',
             hostname: 'fileserver',
-            ports: [{ port: 21, service: 'ftp', open: true }],
+            ports: [{ port: 21, service: 'ftp', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -468,7 +468,7 @@ describe('ftp command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 21, service: 'ftp', open: true }],
+            ports: [{ port: 21, service: 'ftp', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -502,7 +502,7 @@ describe('ftp command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 21, service: 'ftp', open: true }],
+            ports: [{ port: 21, service: 'ftp', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -537,7 +537,7 @@ describe('ftp command', () => {
         machines: [
           getMockRemoteMachine({
             ip: '192.168.1.50',
-            ports: [{ port: 21, service: 'ftp', open: true }],
+            ports: [{ port: 21, service: 'ftp', serviceVersion: 'latest', open: true }],
           }),
         ],
         dnsRecords: [getMockDnsRecord({ domain: 'fileserver.local', ip: '192.168.1.50' })],

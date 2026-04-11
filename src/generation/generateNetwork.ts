@@ -6,6 +6,7 @@ import type { Prng } from './prng';
 import { generateTopology, type TopologyOverrides } from './topology';
 import { generateUsers } from './users';
 import { enrichMachineWithUsers, applyPortClosures, applyRedisPortOpening } from './enrichment';
+import { defaultServiceVersion } from './pools/vulnerabilities';
 import {
   buildMachineConfig,
   generateBasicSnmpConfig,
@@ -370,7 +371,13 @@ export const generateNetwork = (options: GenerateNetworkOptions): GeneratedNetwo
 
     // Add UDP port 161 to non-SNMP-variant gateways that got basic SNMP via PRNG roll
     if (basicSnmpGatewayIps.size > 0) {
-      const snmpPort = { port: 161, service: 'snmp', open: true, protocol: 'udp' as const };
+      const snmpPort = {
+        port: 161,
+        service: 'snmp',
+        serviceVersion: defaultServiceVersion('snmp'),
+        open: true,
+        protocol: 'udp' as const,
+      };
       const withSnmp = Object.fromEntries(
         Object.entries(updatedMachineConfigs).map(([ip, config]) => [
           ip,

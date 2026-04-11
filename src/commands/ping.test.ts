@@ -8,7 +8,7 @@ import { createPingCommand } from './ping';
 const getMockRemoteMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine => ({
   ip: '192.168.1.50',
   hostname: 'fileserver',
-  ports: [{ port: 22, service: 'ssh', open: true }],
+  ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
   users: [{ username: 'root', passwordHash: 'abc123', userType: 'root' }],
   ...overrides,
 });

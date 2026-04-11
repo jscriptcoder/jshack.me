@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { findVulnForService } from './vulnerabilities';
+import {
+  findVulnForService,
+  defaultServiceVersion,
+  vulnerabilityTemplates,
+} from './vulnerabilities';
 
 describe('findVulnForService', () => {
   it('returns the matching vulnerability when service and version both match a CVE entry', () => {
@@ -27,5 +31,18 @@ describe('findVulnForService', () => {
     // Pins that service matching is required, not just version matching.
     const vuln = findVulnForService('mysql', 'Apache/2.4.49');
     expect(vuln).toBeUndefined();
+  });
+});
+
+describe('defaultServiceVersion', () => {
+  it('returns a version that does not match any CVE entry in the table', () => {
+    // Regression guard: if someone accidentally picks a default version that
+    // matches a CVE entry, every "safe" port in the game would become
+    // exploitable at runtime via findVulnForService.
+    const defaultVersion = defaultServiceVersion('http');
+    const matches = vulnerabilityTemplates.filter(
+      (t) => t.vulnerability.serviceVersion === defaultVersion,
+    );
+    expect(matches).toHaveLength(0);
   });
 });

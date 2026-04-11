@@ -40,8 +40,8 @@ const getMockRouter = (): RemoteMachine => ({
   ip: '91.234.56.78',
   hostname: 'border-gw',
   ports: [
-    { port: 22, service: 'ssh', open: false },
-    { port: 161, service: 'snmp', open: true, protocol: 'udp' },
+    { port: 22, service: 'ssh', serviceVersion: 'latest', open: false },
+    { port: 161, service: 'snmp', serviceVersion: 'latest', open: true, protocol: 'udp' },
   ],
   users: [{ username: 'netops', passwordHash: 'abc123', userType: 'user' }],
 });
@@ -128,7 +128,7 @@ describe('snmpwalk command', () => {
       const noSnmpMachine: RemoteMachine = {
         ip: '10.0.0.1',
         hostname: 'web01',
-        ports: [{ port: 22, service: 'ssh', open: true }],
+        ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
         users: [],
       };
       const context = createMockSnmpwalkContext({ machines: [noSnmpMachine] });

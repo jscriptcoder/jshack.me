@@ -9,7 +9,7 @@ const getMockRemoteMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine
   ip: '10.50.100.10',
   hostname: 'web01',
   ports: [
-    { port: 22, service: 'ssh', open: true },
+    { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
     {
       port: 80,
       service: 'http',
@@ -154,7 +154,7 @@ describe('msfconsole command', () => {
       const context = createMockMsfconsoleContext({
         machines: [
           getMockRemoteMachine({
-            ports: [{ port: 80, service: 'http', open: false }],
+            ports: [{ port: 80, service: 'http', serviceVersion: 'latest', open: false }],
           }),
         ],
       });

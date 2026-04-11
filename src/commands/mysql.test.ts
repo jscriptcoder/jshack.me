@@ -6,8 +6,10 @@ const makeMachine = (ip: string, hasMysql = true): RemoteMachine => ({
   ip,
   hostname: 'db-server',
   ports: [
-    { port: 22, service: 'ssh', open: true },
-    ...(hasMysql ? [{ port: 3306, service: 'mysql' as const, open: true }] : []),
+    { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+    ...(hasMysql
+      ? [{ port: 3306, service: 'mysql' as const, serviceVersion: 'latest', open: true }]
+      : []),
   ],
   users: [{ username: 'root', passwordHash: 'abc', userType: 'root' as const }],
 });

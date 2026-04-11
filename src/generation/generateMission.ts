@@ -4,6 +4,7 @@ import { generateUsers } from './users';
 import { buildMissionObjective } from './attackChain';
 import { generateFileSystems } from './filesystem';
 import { enrichMachineWithUsers, applyPortClosures, applyRedisPortOpening } from './enrichment';
+import { defaultServiceVersion } from './pools/vulnerabilities';
 import type {
   Difficulty,
   EntryVariant,
@@ -247,7 +248,15 @@ export const generateMissionNetwork = (
               ...m,
               remoteMachine: {
                 ...m.remoteMachine,
-                ports: [...m.remoteMachine.ports, { port: 3306, service: 'mysql', open: true }],
+                ports: [
+                  ...m.remoteMachine.ports,
+                  {
+                    port: 3306,
+                    service: 'mysql',
+                    serviceVersion: defaultServiceVersion('mysql'),
+                    open: true,
+                  },
+                ],
               },
             }
           : m,
@@ -271,7 +280,13 @@ export const generateMissionNetwork = (
 
   // Add UDP port 161 to non-SNMP-variant gateways that got basic SNMP via PRNG roll.
   // This makes them discoverable via snmpwalk from neighboring machines.
-  const snmpPort = { port: 161, service: 'snmp', open: true, protocol: 'udp' as const };
+  const snmpPort = {
+    port: 161,
+    service: 'snmp',
+    serviceVersion: defaultServiceVersion('snmp'),
+    open: true,
+    protocol: 'udp' as const,
+  };
   const finalMachineConfigs =
     basicSnmpGatewayIps.size > 0
       ? Object.fromEntries(
@@ -289,7 +304,12 @@ export const generateMissionNetwork = (
 
   // Add MySQL port 3306 to the target machine's network config for db_* objectives
   // so nmap shows the port and mysql() can connect.
-  const mysqlPort = { port: 3306, service: 'mysql', open: true };
+  const mysqlPort = {
+    port: 3306,
+    service: 'mysql',
+    serviceVersion: defaultServiceVersion('mysql'),
+    open: true,
+  };
   const configsWithMysql =
     needsMysqlPort && objective.targetMachine
       ? Object.fromEntries(
