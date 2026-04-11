@@ -3,6 +3,8 @@ import type { FileNode, FilePermissions } from '../filesystem/types';
 import type { AsyncOutput } from '../components/Terminal/types';
 import type { RemoteMachine } from '../network/types';
 import { createAptCommand } from './apt';
+import { buildTimelineFromTemplate, CVE_TIMING_CONFIG } from '../generation/timeline';
+import { firmwareTemplates } from '../generation/pools/routerFirmware';
 
 const mkBinaryNode = (name: string): FileNode => ({
   name,
@@ -29,6 +31,7 @@ type MockAptConfig = {
   readonly wifiConnected?: boolean;
   readonly currentMachine?: RemoteMachine;
   readonly initialFiles?: Readonly<Record<string, string>>;
+  readonly gameTime?: number;
 };
 
 type CreatedFile = {
@@ -45,6 +48,7 @@ const createMockAptContext = (config: MockAptConfig = {}) => {
     wifiConnected = true,
     currentMachine,
     initialFiles = {},
+    gameTime,
   } = config;
   const createdFiles: CreatedFile[] = [];
   const writtenFiles: Array<{ path: string; content: string }> = [];
@@ -81,6 +85,7 @@ const createMockAptContext = (config: MockAptConfig = {}) => {
       },
       getUserType: () => userType,
       isWifiConnected: () => wifiConnected,
+      getGameTime: gameTime !== undefined ? () => gameTime : undefined,
     },
     createdFiles,
     writtenFiles,
@@ -96,6 +101,7 @@ const mkMachine = (
     readonly serviceVersion: string;
     readonly open?: boolean;
   }[],
+  firmware?: { readonly vendor: string; readonly version: string },
 ): RemoteMachine => ({
   ip: '10.0.0.1',
   hostname: 'test-host',
@@ -106,6 +112,7 @@ const mkMachine = (
     open: p.open ?? true,
   })),
   users: [],
+  ...(firmware ? { firmwareVendor: firmware.vendor, firmwareVersion: firmware.version } : {}),
 });
 
 describe('apt command', () => {
@@ -600,11 +607,11 @@ Version: OpenSSH 9.6
       expect(statusContent).not.toContain('Package: mysql');
     });
 
-    it('throws when upgrading a service that is not running on the current machine', () => {
+    it('throws when upgrading a package that is not installed on the current machine', () => {
       const machine = mkMachine([{ port: 80, service: 'http', serviceVersion: 'Apache/2.4.49' }]);
       const { context } = createMockAptContext({ currentMachine: machine });
       const apt = createAptCommand(context);
-      expect(() => apt.fn('upgrade', 'mysql')).toThrow(/not running|Unable to locate/);
+      expect(() => apt.fn('upgrade', 'mysql')).toThrow(/not installed|Unable to locate/);
     });
 
     it('reports already-current for a specific service that is already safe', () => {
@@ -645,6 +652,113 @@ Version: OpenSSH 9.6
       expect(lines.some((l) => l.includes('Reading package lists'))).toBe(true);
       expect(lines.some((l) => /\d+ upgraded/.test(l))).toBe(true);
       expect(lines.some((l) => l.includes('http'))).toBe(true);
+    });
+  });
+
+  describe('apt upgrade — router firmware', () => {
+    // Walk a firmware timeline to pick a deterministic vulnerable entry.
+    // Using mikrotik because its walker sequence is well-tested elsewhere.
+    const getVulnerableFirmware = () => {
+      const timeline = buildTimelineFromTemplate(
+        firmwareTemplates.mikrotik,
+        'firmware:mikrotik',
+        500,
+        CVE_TIMING_CONFIG,
+      );
+      return timeline[2]!;
+    };
+
+    it('upgrades the firmware package on a router when firmware is vulnerable', () => {
+      const vuln = getVulnerableFirmware();
+      const machine = mkMachine(
+        [{ port: 22, service: 'ssh', serviceVersion: 'OpenSSH 9.9.9' }],
+        { vendor: 'mikrotik', version: vuln.version },
+      );
+      const { context, fileContents } = createMockAptContext({
+        currentMachine: machine,
+        gameTime: vuln.publishedAt,
+      });
+      const apt = createAptCommand(context);
+      const result = apt.fn('upgrade');
+      expect(isAsyncOutput(result)).toBe(true);
+      if (!isAsyncOutput(result)) throw new Error('expected async output');
+      result.start(
+        () => {},
+        () => {},
+      );
+      vi.advanceTimersByTime(5000);
+
+      const statusContent = fileContents['/var/lib/dpkg/status'] ?? '';
+      // Tight anchor: look for the firmware package as its own block,
+      // not as a substring inside another field.
+      const firmwareBlockMatch = /^Package: firmware\nStatus: .+?\nVersion: (.+?)$/m.exec(
+        statusContent,
+      );
+      expect(firmwareBlockMatch).not.toBeNull();
+      // The installed version must differ from the starting (vulnerable) one
+      expect(firmwareBlockMatch?.[1]?.trim()).not.toBe(vuln.version);
+    });
+
+    it('skips firmware when firmware is not currently vulnerable', () => {
+      // At gameTime=0 the vendor's starting tuple is always pre-CVE.
+      const machine = mkMachine(
+        [{ port: 80, service: 'http', serviceVersion: 'Apache/2.4.49' }],
+        { vendor: 'mikrotik', version: 'MikroTik RouterOS 7.14.2' },
+      );
+      const { context, fileContents } = createMockAptContext({
+        currentMachine: machine,
+        gameTime: 0,
+      });
+      const apt = createAptCommand(context);
+      const result = apt.fn('upgrade');
+
+      if (!isAsyncOutput(result)) return;
+      result.start(
+        () => {},
+        () => {},
+      );
+      vi.advanceTimersByTime(5000);
+
+      const statusContent = fileContents['/var/lib/dpkg/status'] ?? '';
+      // http is upgraded but firmware is not touched
+      expect(statusContent).toContain('Package: http');
+      expect(statusContent).not.toContain('Package: firmware');
+    });
+
+    it("rejects 'apt upgrade firmware' on a non-router machine", () => {
+      const machine = mkMachine([{ port: 80, service: 'http', serviceVersion: 'Apache/2.4.49' }]);
+      const { context } = createMockAptContext({ currentMachine: machine });
+      const apt = createAptCommand(context);
+      expect(() => apt.fn('upgrade', 'firmware')).toThrow(/firmware/i);
+    });
+
+    it("'apt upgrade firmware' on a router upgrades ONLY firmware, not other services", () => {
+      const vuln = getVulnerableFirmware();
+      const machine = mkMachine(
+        [
+          // http is also vulnerable, but the filter pins us to firmware only
+          { port: 80, service: 'http', serviceVersion: 'Apache/2.4.49' },
+        ],
+        { vendor: 'mikrotik', version: vuln.version },
+      );
+      const { context, fileContents } = createMockAptContext({
+        currentMachine: machine,
+        gameTime: vuln.publishedAt,
+      });
+      const apt = createAptCommand(context);
+      const result = apt.fn('upgrade', 'firmware');
+
+      if (!isAsyncOutput(result)) return;
+      result.start(
+        () => {},
+        () => {},
+      );
+      vi.advanceTimersByTime(5000);
+
+      const statusContent = fileContents['/var/lib/dpkg/status'] ?? '';
+      expect(statusContent).toContain('Package: firmware');
+      // http was NOT upgraded because the filter was 'firmware'
+      expect(statusContent).not.toContain('Package: http');
     });
   });
 });

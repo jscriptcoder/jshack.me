@@ -43,3 +43,27 @@ export const findFirmwareCve = (
   if (vuln.severity === 'info') return undefined;
   return vuln;
 };
+
+// Returns the newest firmware version for a vendor whose CVE has not yet
+// been "published" at the given game time. apt upgrade firmware uses this
+// to pick its upgrade target — analogous to getLatestSafeVersion but
+// resolved against the per-vendor firmware timeline instead of the service
+// template pool. Returns undefined for unknown vendors.
+export const findLatestSafeFirmware = (
+  vendor: FirmwareVendor,
+  gameTime: number,
+): string | undefined => {
+  const template = firmwareTemplates[vendor];
+  if (!template) return undefined;
+
+  const timeline = buildTimelineFromTemplate(
+    template,
+    `firmware:${vendor}`,
+    gameTime,
+    CVE_TIMING_CONFIG,
+  );
+  for (const entry of timeline) {
+    if (entry.publishedAt > gameTime) return entry.version;
+  }
+  return undefined;
+};

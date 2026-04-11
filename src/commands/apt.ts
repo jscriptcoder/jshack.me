@@ -6,6 +6,8 @@ import type { RemoteMachine } from '../network/types';
 import { APT_PACKAGES, APT_INSTALLABLE, BINARY_STUB, RESTRICTED_EXECUTE } from './availability';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 import { findVulnForService } from '../generation/vulnerabilityLookup';
+import { findFirmwareCve, findLatestSafeFirmware } from '../generation/firmwareLookup';
+import type { FirmwareVendor } from '../generation/pools/routerFirmware';
 import { getLatestSafeVersion, DEFAULT_LATEST_VERSION } from '../generation/timeline';
 import { DPKG_STATUS_PATH, setDpkgVersion } from '../network/dpkgStatus';
 
@@ -170,6 +172,8 @@ type UpgradeCandidate = {
   readonly targetVersion: string;
 };
 
+const FIRMWARE_PACKAGE = 'firmware';
+
 const collectUpgradeCandidates = (
   machine: RemoteMachine,
   serviceFilter: string | undefined,
@@ -187,14 +191,43 @@ const collectUpgradeCandidates = (
       targetVersion: pickUpgradeTarget(port.service, gameTime),
     });
   }
+
+  // Router firmware is treated like a package named `firmware`. It's a
+  // candidate only when the machine actually has a firmware vendor AND its
+  // current firmware version has a live CVE.
+  const includeFirmware =
+    serviceFilter === undefined || serviceFilter === FIRMWARE_PACKAGE;
+  if (
+    includeFirmware &&
+    machine.firmwareVendor &&
+    machine.firmwareVersion &&
+    findFirmwareCve(
+      machine.firmwareVendor as FirmwareVendor,
+      machine.firmwareVersion,
+      gameTime,
+    )
+  ) {
+    const target =
+      findLatestSafeFirmware(machine.firmwareVendor as FirmwareVendor, gameTime) ??
+      machine.firmwareVersion;
+    candidates.push({
+      service: FIRMWARE_PACKAGE,
+      targetVersion: target,
+    });
+  }
+
   return candidates;
 };
 
-// Returns the set of services currently running on the machine (one entry per
-// unique service across all ports). Used by `apt upgrade <service>` to decide
-// whether the named service exists before computing upgrade candidates.
-const runningServices = (machine: RemoteMachine): ReadonlySet<string> =>
-  new Set(machine.ports.map((p) => p.service));
+// Returns the set of packages currently installed on the machine. Includes
+// one entry per unique service across all ports, plus `firmware` if the
+// machine is a router. Used by `apt upgrade <package>` to decide whether
+// the named package exists before computing upgrade candidates.
+const installedPackages = (machine: RemoteMachine): ReadonlySet<string> => {
+  const packages = new Set(machine.ports.map((p) => p.service));
+  if (machine.firmwareVendor) packages.add(FIRMWARE_PACKAGE);
+  return packages;
+};
 
 // Writes (or creates) /var/lib/dpkg/status with the given content. Uses the
 // existing readFile helper to decide create-vs-write, since createFile rejects
@@ -235,8 +268,8 @@ const handleUpgrade = (
     return '0 upgraded, 0 newly installed, 0 to remove.';
   }
 
-  if (serviceFilter !== undefined && !runningServices(machine).has(serviceFilter)) {
-    throw new Error(`E: Service '${serviceFilter}' is not running on this machine`);
+  if (serviceFilter !== undefined && !installedPackages(machine).has(serviceFilter)) {
+    throw new Error(`E: Package '${serviceFilter}' is not installed on this machine`);
   }
 
   const candidates = collectUpgradeCandidates(machine, serviceFilter, gameTime);
