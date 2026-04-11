@@ -329,6 +329,21 @@ describe('generateFileSystems', () => {
       expect(checked).toBeGreaterThan(0);
     });
 
+    it('every machine has /var/lib/dpkg/status with an entry per unique running service', () => {
+      const { topology, fileSystems } = buildTestData('dpkg-status-test');
+      topology.machines.forEach((m) => {
+        const root = fileSystems[m.ip];
+        const statusFile = resolveNode(root as FileNode, '/var/lib/dpkg/status');
+        expect(statusFile).toBeDefined();
+        const content = statusFile?.content ?? '';
+        // Every unique running service on the machine should be represented
+        const uniqueServices = new Set(m.remoteMachine.ports.map((p) => p.service));
+        uniqueServices.forEach((service) => {
+          expect(content).toContain(`Package: ${service}`);
+        });
+      });
+    });
+
     it('router machines have kern.log (replacing the old firewall.log) with iptables entries', () => {
       const { topology, fileSystems } = buildTestData('seeding-router');
       const root = fileSystems[topology.routerMachine.ip];

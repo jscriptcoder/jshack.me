@@ -22,6 +22,7 @@ import {
   webCredentialTemplates,
 } from '../pools';
 import { wrapInBinaryNoise } from '../binary';
+import { buildInitialDpkgStatus } from '../../network/dpkgStatus';
 import {
   createBinaryEntries,
   SYSTEM_UTILITY_NAMES,
@@ -918,6 +919,44 @@ export const buildMachineConfig = (
         ...malwarePidFile,
       }
     : undefined;
+
+  // Seed /var/lib/dpkg/status with one entry per unique running service.
+  // Real Debian/Ubuntu machines have this file tracking installed package
+  // versions; in the game it also acts as the overlay source read by
+  // applyVersionOverlay so nmap/msfconsole see any upgrades the player
+  // performs via `apt upgrade`.
+  //
+  // Placed LAST in the machineConfig flow so it survives earlier /var
+  // overwrites (web content at ~L803 wholesale-replaces extraDirectories['var']
+  // for webservers; MySQL/Redis data paths do similar).
+  const dpkgStatusContent = buildInitialDpkgStatus(machine.remoteMachine.ports);
+  if (dpkgStatusContent.length > 0) {
+    const statusFile = mkFile('status', dpkgStatusContent, 'guest');
+    const existingVar = extraDirectories['var'];
+    if (existingVar && existingVar.type === 'directory' && existingVar.children) {
+      const varChildren = existingVar.children as Record<string, FileNode>;
+      const existingLib = varChildren['lib'];
+      if (existingLib && existingLib.type === 'directory' && existingLib.children) {
+        // Merge into existing /var/lib/
+        const libChildren = existingLib.children as Record<string, FileNode>;
+        const existingDpkg = libChildren['dpkg'];
+        if (existingDpkg && existingDpkg.type === 'directory' && existingDpkg.children) {
+          (existingDpkg.children as Record<string, FileNode>)['status'] = statusFile;
+        } else {
+          libChildren['dpkg'] = mkDir('dpkg', { status: statusFile }, 'root', true);
+        }
+      } else {
+        varChildren['lib'] = mkDir(
+          'lib',
+          { dpkg: mkDir('dpkg', { status: statusFile }, 'root', true) },
+          'root',
+          true,
+        );
+      }
+    } else {
+      extraDirectories['var'] = buildNestedDirs(['var', 'lib', 'dpkg', 'status'], statusFile);
+    }
+  }
 
   return {
     users: userConfigs,
