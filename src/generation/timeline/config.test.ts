@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { getLatestSafeVersion, CVE_TIMING_CONFIG, DEFAULT_LATEST_VERSION } from './config';
-import { findVulnForService } from '../pools/vulnerabilities';
+import { findVulnForService } from '../vulnerabilityLookup';
 
 describe('CVE_TIMING_CONFIG', () => {
   it('exposes tuning knobs with sane defaults', () => {

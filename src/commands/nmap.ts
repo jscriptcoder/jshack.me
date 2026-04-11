@@ -1,6 +1,6 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
 import type { Port, RemoteMachine } from '../network/types';
-import { findVulnForService } from '../generation/pools/vulnerabilities';
+import { findVulnForService } from '../generation/vulnerabilityLookup';
 import { isValidIP, parseIPRange } from '../utils/network';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 

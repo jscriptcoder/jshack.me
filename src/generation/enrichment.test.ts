@@ -13,7 +13,7 @@ import {
   applyPortClosures,
   applyRedisPortOpening,
 } from './enrichment';
-import { findVulnForService } from './pools/vulnerabilities';
+import { findVulnForService } from './vulnerabilityLookup';
 
 // --- Test helpers ---
 

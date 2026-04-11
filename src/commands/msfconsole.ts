@@ -1,6 +1,6 @@
 import type { Command, AsyncOutput, NcPromptData } from '../components/Terminal/types';
 import type { RemoteMachine, DnsRecord } from '../network/types';
-import { findVulnForService } from '../generation/pools/vulnerabilities';
+import { findVulnForService } from '../generation/vulnerabilityLookup';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 export type ExploitAttemptInfo = {

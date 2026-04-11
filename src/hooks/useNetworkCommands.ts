@@ -29,7 +29,7 @@ import {
 } from '../logging/formatters';
 import { resolveLogSourceIP, generatePid, resolveHostname } from '../logging/utils';
 import { formatExploitAttempt, formatUnknownExploitAttempt } from '../logging/exploitAttempt';
-import { findVulnForService } from '../generation/pools/vulnerabilities';
+import { findVulnForService } from '../generation/vulnerabilityLookup';
 import { applyVersionOverlay } from '../network/applyVersionOverlay';
 import type { RemoteMachine } from '../network/types';
 import { getGameTime } from '../session/gameTime';

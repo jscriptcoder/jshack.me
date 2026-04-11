@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { generateMissionNetwork, parseSeedOverrides } from './generateMission';
 import type { FileNode } from '../filesystem/types';
 import { parseIptablesRules } from '../network/iptablesParser';
-import { findVulnForService } from './pools/vulnerabilities';
+import { findVulnForService } from './vulnerabilityLookup';
 
 describe('parseSeedOverrides', () => {
   it('parses domain keyword', () => {
