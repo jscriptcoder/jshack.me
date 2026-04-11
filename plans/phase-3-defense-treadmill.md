@@ -207,8 +207,8 @@ For `apt upgrade` / `apt upgrade <service>`, the target version is "the newest v
 
 - Game-time model (PR B)
 - CVE publication drift over time (PR B)
-- Firewall rules (PR C)
-- Router firmware (PR D)
+- Router firmware (PR C — was PR D)
+- ~~Firewall rules~~ (deferred to Phase 5+ multiplayer prep)
 
 ### PR B — game-time model + `publishedAt` + `severity` on CVEs
 
@@ -245,44 +245,17 @@ The architectural PR. Introduces the game clock, retrofits all CVE lookups, and 
 
 **Risk**: determinism. For tests, the game clock needs to be injectable (mock `Date.now` via vitest `vi.useFakeTimers` or a dedicated clock abstraction). Production reads `Date.now()` at session start.
 
-### PR C — player firewall command
+### ~~PR C — player firewall command~~ (deferred)
 
-**Reuses the existing iptables mechanism.** Router-role machines already have `/etc/iptables/rules.v4` and the game already parses it (`src/network/iptablesParser.ts`). PR C extends this so non-router machines can also have iptables rules, and adds a player-facing `iptables` command to manage them.
+**Deferred to Phase 5+ (multiplayer prep).** In single-player the defensive value is thin:
 
-**Command surface**:
+- The player can already "close" router-forwarded ports by rooting their home router and editing `/etc/iptables/rules.v4` (removing a `forward` rule). Crude but functional.
+- On internal machines, killing a service is already a natural way to close the port behind it.
+- Local INPUT-chain firewalling only earns its keep when another player is scanning you — i.e., multiplayer.
 
-```
-iptables('-L')                              # list current rules on current machine
-iptables('-A', 'INPUT', '-p', 'tcp', '--dport', 80, '-j', 'DROP')   # drop inbound to port 80
-iptables('-A', 'INPUT', '-p', 'tcp', '--dport', 80, '-j', 'ACCEPT') # allow inbound to port 80
-iptables('-D', 'INPUT', ruleNumber)         # delete rule by number
-iptables('-F')                              # flush all rules
-```
+When we pick this back up, real iptables INPUT semantics (DROP/ACCEPT), a player-facing `iptables` command, and extending the existing NAT-only parser to handle both rule types will all need fresh consideration.
 
-Real iptables is notoriously verbose. The plan is to ship this verbose form first and potentially add a simpler `ufw` wrapper later in Phase 3 if playtesting shows the full syntax is too painful.
-
-**Read-side integration**:
-
-The existing iptables parser already returns a filtered view of a machine's ports (hiding ports that are dropped by rules). Extend it to apply to _any_ machine that has `/etc/iptables/rules.v4`, not just routers. Port-read call sites get the iptables-aware view — `nmap` from another machine sees dropped ports as closed.
-
-**Persistence**:
-
-Firewall rules are stored as plain text in `/etc/iptables/rules.v4` on the player's machine — same file real Linux uses. Persisted via the existing filesystem patch stream. No new session state.
-
-**Wallet-vs-paranoia tension**:
-
-If the player closes everything, they can't receive income from future wallet mechanics (Phase 5+). In Phase 3 there's no wallet yet, so this tension is deferred. The plan notes it but doesn't solve it.
-
-**Root required**. Modifying `/etc/iptables/rules.v4` is a root operation on real Linux.
-
-**Tests**:
-
-- After `iptables('-A', 'INPUT', '-p', 'tcp', '--dport', 80, '-j', 'DROP')` on the player's machine, a remote `nmap` shows port 80 as closed.
-- After `iptables('-A', 'INPUT', '-p', 'tcp', '--dport', 80, '-j', 'ACCEPT')`, it shows open again.
-- Rules persist across `reboot()` (since they're in a real file).
-- Non-root users get "Permission denied".
-
-### PR D — router firmware as a first-class service
+### PR C — router firmware as a first-class service
 
 - Add `firmware: RouterFirmware` to router-role machines at generation time. Populated with a randomly-picked vendor + version from a new pool.
 - New `src/generation/pools/firmware.ts` with firmware templates (e.g., `Cisco IOS 15.6`, `MikroTik RouterOS 6.45`, `DD-WRT v24 sp2`, `OpenWRT 19.07`, `pfSense 2.5`).
@@ -336,10 +309,10 @@ Before each PR:
 
 1. **PR A** — `apt upgrade` + file-based version overlay (foundation, no time dimension)
 2. **PR B** — game-time model + `publishedAt` + `severity` + 1:1 invariant (architectural)
-3. **PR C** — firewall command (reuses existing iptables mechanism)
-4. **PR D** — router firmware as first-class service
+3. **PR C** — router firmware as first-class service
+4. ~~PR D~~ — firewall command (deferred to Phase 5+ multiplayer prep)
 
-PRs A, B, D form the backbone of the treadmill. PR C is parallelizable with D but ordering it third keeps the defense features in logical build-up order.
+PRs A, B, C form the backbone of the treadmill. The firewall (originally PR C) was deferred because its defensive value only materializes once a second player is scanning your box.
 
 ---
 
