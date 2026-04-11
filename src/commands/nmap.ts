@@ -15,6 +15,7 @@ type NmapContext = {
   readonly getMachines: () => readonly RemoteMachine[];
   readonly getLocalIPs: () => ReadonlySet<string>;
   readonly getLocalHostname: () => string;
+  readonly getGameTime?: () => number;
   readonly onScanAggregate?: (info: NmapScanAggregateInfo) => void;
 };
 
@@ -31,9 +32,12 @@ const formatPortLine = (port: Port, versionScan: boolean): string => {
   return `${portStr}${stateService.padEnd(16)}${version}`;
 };
 
-const formatVulnerabilitySection = (openPorts: readonly Port[]): readonly string[] => {
+const formatVulnerabilitySection = (
+  openPorts: readonly Port[],
+  gameTime: number,
+): readonly string[] => {
   const vulnEntries = openPorts.flatMap((p) => {
-    const v = findVulnForService(p.service, p.serviceVersion ?? '');
+    const v = findVulnForService(p.service, p.serviceVersion ?? '', gameTime);
     return v ? [{ port: p, vuln: v }] : [];
   });
   if (vulnEntries.length === 0) return [];
@@ -105,12 +109,13 @@ const formatTreeCVELines = (
   host: DiscoveredHost,
   continuationPrefix: string,
   udpScan: boolean,
+  gameTime: number,
 ): readonly string[] => {
   if (host.isLocal) return [];
   const filtered = filterPortsByProtocol(host.ports, udpScan);
   const vulnEntries = filtered.flatMap((p) => {
     if (!p.open) return [];
-    const v = findVulnForService(p.service, p.serviceVersion ?? '');
+    const v = findVulnForService(p.service, p.serviceVersion ?? '', gameTime);
     return v ? [{ port: p, vuln: v }] : [];
   });
   if (vulnEntries.length === 0) return [];
@@ -127,6 +132,7 @@ const renderNetworkTree = (
   hosts: readonly DiscoveredHost[],
   versionScan: boolean,
   udpScan: boolean,
+  gameTime: number,
 ): readonly string[] => {
   if (hosts.length === 0) return ['No hosts found in range.'];
 
@@ -147,7 +153,7 @@ const renderNetworkTree = (
 
       lines.push(`${connector}${formatTreeHostLine(child, udpScan)}`);
       if (versionScan) {
-        lines.push(...formatTreeCVELines(child, continuation, udpScan));
+        lines.push(...formatTreeCVELines(child, continuation, udpScan, gameTime));
       }
     });
   } else {
@@ -157,7 +163,7 @@ const renderNetworkTree = (
     hosts.forEach((host) => {
       lines.push(formatTreeHostLine(host, udpScan));
       if (versionScan) {
-        lines.push(...formatTreeCVELines(host, '  ', udpScan));
+        lines.push(...formatTreeCVELines(host, '  ', udpScan, gameTime));
       }
     });
   }
@@ -230,6 +236,7 @@ export const createNmapCommand = (context: NmapContext): Command => ({
       getLocalHostname,
       onScanAggregate,
     } = context;
+    const gameTime = context.getGameTime?.() ?? 0;
     const { target, versionScan, udpScan, treeScan } = parseNmapArgs(args);
 
     if (!target) {
@@ -308,8 +315,8 @@ export const createNmapCommand = (context: NmapContext): Command => ({
                     onLine('');
                     onLine('No hosts found in range.');
                   } else if (treeScan) {
-                    renderNetworkTree(discoveredHosts, versionScan, udpScan).forEach((line) =>
-                      onLine(line),
+                    renderNetworkTree(discoveredHosts, versionScan, udpScan, gameTime).forEach(
+                      (line) => onLine(line),
                     );
                   } else {
                     onLine('');
@@ -453,7 +460,7 @@ export const createNmapCommand = (context: NmapContext): Command => ({
                   if (token.isCancelled()) return;
 
                   if (versionScan) {
-                    const vulnLines = formatVulnerabilitySection(openPorts);
+                    const vulnLines = formatVulnerabilitySection(openPorts, gameTime);
                     vulnLines.forEach((line) => onLine(line));
                   }
 

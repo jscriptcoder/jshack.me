@@ -32,6 +32,7 @@ import { formatExploitAttempt, formatUnknownExploitAttempt } from '../logging/ex
 import { findVulnForService } from '../generation/pools/vulnerabilities';
 import { applyVersionOverlay } from '../network/applyVersionOverlay';
 import type { RemoteMachine } from '../network/types';
+import { getGameTime } from '../session/gameTime';
 
 export const useNetworkCommands = (): Map<string, Command> => {
   const {
@@ -111,7 +112,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
       };
       const vuln =
         info.service && info.serviceVersion
-          ? findVulnForService(info.service, info.serviceVersion)
+          ? findVulnForService(info.service, info.serviceVersion, getGameTime())
           : undefined;
       const entry = vuln
         ? formatExploitAttempt(vuln, dispatchOptions)
@@ -194,6 +195,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
             getMachines: getEffectiveMachines,
             getLocalIPs: () => new Set(getInterfaces().map((iface) => iface.inet)),
             getLocalHostname: () => session.hostname ?? session.machine,
+            getGameTime,
             onScanAggregate,
           }),
           isWifiRequired,
@@ -295,6 +297,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
             getMachine: getEffectiveMachine,
             getLocalIP,
             resolveDomain,
+            getGameTime,
             onExploitAttempt,
           }),
           isWifiRequired,

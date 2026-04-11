@@ -13,6 +13,13 @@ export type ServiceOwner = {
   readonly homePath: string;
 };
 
+// Severity tiers for Vulnerability. Phase 3 backfills with critical/high/
+// medium/low only — all four produce the same mechanical outcome in PR B
+// (msfconsole gives a shell). `info` is reserved for Phase 4 alongside typed
+// effects: info-severity CVEs produce non-shell outcomes like dir listings
+// or banner leaks. msfconsole treats info-severity CVEs as absent in Phase 3.
+export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
+
 // Discriminated union describing what a vulnerability exploit attempt looks
 // like in the target's logs. Each variant knows which log file the entry
 // lands in and carries enough content for the log formatter to produce a
@@ -52,6 +59,12 @@ export type Vulnerability = {
   readonly description: string;
   readonly serviceVersion: string;
   readonly attackPattern: AttackPattern;
+  readonly severity: Severity;
+  // Game day (relative to session startedAt) when this CVE becomes "live" in
+  // the game world. Phase 3 PR B backfills every existing CVE with 0. Future
+  // content PRs add entries with positive publishedAt values to create the
+  // treadmill cycle.
+  readonly publishedAt: number;
 };
 
 export type Port = {

@@ -190,7 +190,7 @@ describe('generateMissionNetwork', () => {
       (p) =>
         p.service !== 'ssh' &&
         p.open &&
-        findVulnForService(p.service, p.serviceVersion ?? '') !== undefined,
+        findVulnForService(p.service, p.serviceVersion ?? '', 0) !== undefined,
     );
     expect(vulnPort).toBeDefined();
     expect(vulnPort!.owner).toBeDefined();
@@ -245,7 +245,7 @@ describe('generateMissionNetwork', () => {
       (p) =>
         p.service !== 'ssh' &&
         p.open &&
-        findVulnForService(p.service, p.serviceVersion ?? '') !== undefined,
+        findVulnForService(p.service, p.serviceVersion ?? '', 0) !== undefined,
     );
     expect(vulnPort).toBeDefined();
     expect(vulnPort!.owner).toBeDefined();

@@ -15,6 +15,7 @@ type MsfconsoleContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
   readonly getLocalIP: () => string;
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
+  readonly getGameTime?: () => number;
   readonly onExploitAttempt?: (info: ExploitAttemptInfo) => void;
 };
 
@@ -88,7 +89,12 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
       throw new Error(`msfconsole: ${targetIP}:${port}: Connection refused`);
     }
 
-    const vulnerability = findVulnForService(targetPort.service, targetPort.serviceVersion ?? '');
+    const gameTime = context.getGameTime?.() ?? 0;
+    const vulnerability = findVulnForService(
+      targetPort.service,
+      targetPort.serviceVersion ?? '',
+      gameTime,
+    );
     if (!vulnerability) {
       onExploitAttempt?.({
         targetIp: targetIP,
