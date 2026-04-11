@@ -1,5 +1,9 @@
 import { createPrng, type Prng } from '../prng';
-import { serviceTemplates, formatVersion } from '../pools/serviceTemplates';
+import {
+  serviceTemplates,
+  formatVersion,
+  type VersionTemplate,
+} from '../pools/serviceTemplates';
 
 // Procedural version timeline walker.
 //
@@ -58,20 +62,21 @@ export const bumpTuple = (tuple: readonly number[], bumpType: BumpType): readonl
   return result;
 };
 
-// Build the procedural timeline for a service, walking forward from the
-// starting tuple and accumulating randomized day-gaps. Walks until the
-// most recent version's publishedAt exceeds `upToPublishedAt`, so the
-// returned slice is guaranteed to contain at least one "currently safe"
-// entry relative to the caller's game time.
-export const buildTimeline = (
-  service: string,
+// Generic walker: build a procedural timeline for any VersionTemplate + PRNG
+// seed key. Walks forward from the template's starting tuple, accumulating
+// randomized day-gaps until the most recent version's publishedAt exceeds
+// `upToPublishedAt`. Determinism comes from the caller-supplied prngKey.
+//
+// This is the building block used by both service timelines and router
+// firmware timelines — pass the relevant template record and a key that
+// uniquely identifies the entity being walked.
+export const buildTimelineFromTemplate = (
+  template: VersionTemplate,
+  prngKey: string,
   upToPublishedAt: number,
   timing: TimelineTiming,
 ): readonly GeneratedVersion[] => {
-  const template = serviceTemplates[service];
-  if (!template) return [];
-
-  const prng = createPrng(`timeline:${service}`);
+  const prng = createPrng(prngKey);
   const result: GeneratedVersion[] = [];
   let tuple: readonly number[] = template.startTuple;
   let publishedAt = 0;
@@ -93,6 +98,19 @@ export const buildTimeline = (
   }
 
   return result;
+};
+
+// Service-specific wrapper around buildTimelineFromTemplate. Resolves the
+// template via the serviceTemplates pool and seeds with `timeline:${service}`.
+// Returns an empty timeline for services with no registered template.
+export const buildTimeline = (
+  service: string,
+  upToPublishedAt: number,
+  timing: TimelineTiming,
+): readonly GeneratedVersion[] => {
+  const template = serviceTemplates[service];
+  if (!template) return [];
+  return buildTimelineFromTemplate(template, `timeline:${service}`, upToPublishedAt, timing);
 };
 
 // Returns the newest procedurally-generated version whose CVE has not yet

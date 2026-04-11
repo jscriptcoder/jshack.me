@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { bumpTuple, buildTimeline, findLatestSafeVersion, findGeneratedVersion } from './walker';
+import {
+  bumpTuple,
+  buildTimeline,
+  buildTimelineFromTemplate,
+  findLatestSafeVersion,
+  findGeneratedVersion,
+} from './walker';
 import { CVE_TIMING_CONFIG } from './config';
+import type { VersionTemplate } from '../pools/serviceTemplates';
 
 const TIMING = CVE_TIMING_CONFIG;
 
@@ -51,6 +58,17 @@ describe('buildTimeline', () => {
     expect(http[0]?.version).not.toBe(mysql[0]?.version);
   });
 
+  it('seeds each service with its own prng (publishedAts differ across services)', () => {
+    // Pins that the service name is part of the PRNG key. If the walker
+    // shared one seed across services, every service would have identical
+    // publishedAt sequences.
+    const http = buildTimeline('http', 500, TIMING);
+    const mysql = buildTimeline('mysql', 500, TIMING);
+    const httpTimes = http.map((e) => e.publishedAt);
+    const mysqlTimes = mysql.map((e) => e.publishedAt);
+    expect(httpTimes).not.toEqual(mysqlTimes);
+  });
+
   it('first entry uses the service template starting tuple', () => {
     const timeline = buildTimeline('http', 100, TIMING);
     const first = timeline[0];
@@ -95,6 +113,33 @@ describe('buildTimeline', () => {
   it('index values are sequential from 0', () => {
     const timeline = buildTimeline('http', 200, TIMING);
     timeline.forEach((entry, i) => expect(entry.index).toBe(i));
+  });
+});
+
+describe('buildTimelineFromTemplate', () => {
+  const template: VersionTemplate = {
+    prefix: 'TestVendor/',
+    separator: '.',
+    startTuple: [1, 0, 0],
+  };
+
+  it('walks a procedural timeline for any given template (not just serviceTemplates)', () => {
+    const timeline = buildTimelineFromTemplate(template, 'test:vendor-a', 200, TIMING);
+    expect(timeline.length).toBeGreaterThan(0);
+    expect(timeline[0]!.version).toBe('TestVendor/1.0.0');
+    expect(timeline[0]!.publishedAt).toBeGreaterThan(0);
+  });
+
+  it('uses the prng key to seed the walk (different keys → different timelines)', () => {
+    const a = buildTimelineFromTemplate(template, 'test:key-a', 500, TIMING);
+    const b = buildTimelineFromTemplate(template, 'test:key-b', 500, TIMING);
+    expect(a).not.toEqual(b);
+  });
+
+  it('is deterministic for the same template and prng key', () => {
+    const a = buildTimelineFromTemplate(template, 'test:stable', 300, TIMING);
+    const b = buildTimelineFromTemplate(template, 'test:stable', 300, TIMING);
+    expect(a).toEqual(b);
   });
 });
 
