@@ -3,10 +3,19 @@ import type { RemoteMachine, DnsRecord } from '../network/types';
 import { findVulnForService } from '../generation/pools/vulnerabilities';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
+export type ExploitAttemptInfo = {
+  readonly targetIp: string;
+  readonly port: number;
+  readonly service?: string;
+  readonly serviceVersion?: string;
+  readonly success: boolean;
+};
+
 type MsfconsoleContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
   readonly getLocalIP: () => string;
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
+  readonly onExploitAttempt?: (info: ExploitAttemptInfo) => void;
 };
 
 const MSFCONSOLE_PHASE_DELAY_MS = 600;
@@ -37,7 +46,7 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {
-    const { getMachine, getLocalIP, resolveDomain } = context;
+    const { getMachine, getLocalIP, resolveDomain, onExploitAttempt } = context;
 
     const host = args[0] as string | undefined;
     const port = args[1] as number | undefined;
@@ -75,17 +84,40 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
 
     const targetPort = machine.ports.find((p) => p.port === port);
     if (!targetPort || !targetPort.open) {
+      onExploitAttempt?.({ targetIp: targetIP, port, success: false });
       throw new Error(`msfconsole: ${targetIP}:${port}: Connection refused`);
     }
 
     const vulnerability = findVulnForService(targetPort.service, targetPort.serviceVersion ?? '');
     if (!vulnerability) {
+      onExploitAttempt?.({
+        targetIp: targetIP,
+        port,
+        service: targetPort.service,
+        serviceVersion: targetPort.serviceVersion,
+        success: false,
+      });
       throw new Error(`msfconsole: no known vulnerability on ${targetIP}:${port}`);
     }
 
     if (!targetPort.owner) {
+      onExploitAttempt?.({
+        targetIp: targetIP,
+        port,
+        service: targetPort.service,
+        serviceVersion: targetPort.serviceVersion,
+        success: false,
+      });
       throw new Error(`msfconsole: exploit failed — service not exploitable`);
     }
+
+    onExploitAttempt?.({
+      targetIp: targetIP,
+      port,
+      service: targetPort.service,
+      serviceVersion: targetPort.serviceVersion,
+      success: true,
+    });
 
     const { owner } = targetPort;
     const token = createCancellationToken();
