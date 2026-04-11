@@ -1,6 +1,6 @@
 import type { Command, AsyncOutput, NcPromptData } from '../components/Terminal/types';
 import type { RemoteMachine, DnsRecord } from '../network/types';
-import { findVulnForService } from '../generation/vulnerabilityLookup';
+import { findExploitableCve } from '../generation/findExploitableCve';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 export type ExploitAttemptInfo = {
@@ -90,11 +90,7 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
     }
 
     const gameTime = context.getGameTime?.() ?? 0;
-    const vulnerability = findVulnForService(
-      targetPort.service,
-      targetPort.serviceVersion ?? '',
-      gameTime,
-    );
+    const vulnerability = findExploitableCve(machine, targetPort, gameTime);
     if (!vulnerability) {
       onExploitAttempt?.({
         targetIp: targetIP,

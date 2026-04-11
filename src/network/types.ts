@@ -91,6 +91,11 @@ export type RemoteMachine = {
   // consumed by findFirmwareCve / msfconsole / apt upgrade firmware.
   // Undefined for non-router machines.
   readonly firmwareVendor?: string;
+  // Router-only. Mutable — reflects the firmware version currently installed
+  // on the router as read from /var/lib/dpkg/status via applyVersionOverlay.
+  // Undefined on non-routers and on routers whose status file has no
+  // `firmware` package entry.
+  readonly firmwareVersion?: string;
 };
 
 export type DnsRecord = {

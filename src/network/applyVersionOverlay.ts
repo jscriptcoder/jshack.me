@@ -29,11 +29,16 @@ export const applyVersionOverlay = (
   const versions = parseDpkgVersions(content);
   if (versions.size === 0) return machine;
 
+  // Firmware package is router-only. Non-routers won't have one and non-
+  // routers' firmwareVersion stays undefined regardless.
+  const firmwareOverlay = versions.get('firmware');
+
   return {
     ...machine,
     ports: machine.ports.map((port) => {
       const overlay = versions.get(port.service);
       return overlay === undefined ? port : { ...port, serviceVersion: overlay };
     }),
+    ...(firmwareOverlay !== undefined ? { firmwareVersion: firmwareOverlay } : {}),
   };
 };
