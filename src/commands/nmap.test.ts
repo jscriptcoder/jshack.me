@@ -17,10 +17,19 @@ type NmapContextConfig = {
   readonly machines?: readonly RemoteMachine[];
   readonly localIP?: string;
   readonly localHostname?: string;
+  readonly onScanAggregate?: (info: {
+    readonly targetIp: string;
+    readonly probedPorts: readonly number[];
+  }) => void;
 };
 
 const createMockNmapContext = (config: NmapContextConfig = {}) => {
-  const { machines = [], localIP = '192.168.1.100', localHostname = 'localhost' } = config;
+  const {
+    machines = [],
+    localIP = '192.168.1.100',
+    localHostname = 'localhost',
+    onScanAggregate,
+  } = config;
 
   return {
     getMachine: (ip: string) => machines.find((m) => m.ip === ip),
@@ -28,6 +37,7 @@ const createMockNmapContext = (config: NmapContextConfig = {}) => {
     getMachines: () => machines,
     getLocalIPs: () => new Set([localIP, '127.0.0.1']),
     getLocalHostname: () => localHostname,
+    onScanAggregate,
   };
 };
 
@@ -1447,6 +1457,119 @@ describe('nmap command', () => {
 
       // Tree output line (not the "Host discovered:" line)
       expect(lines.some((l) => l === 'closedserver (192.168.1.10)')).toBe(true);
+    });
+  });
+
+  describe('onScanAggregate callback', () => {
+    it('calls onScanAggregate once for a single-host scan with the list of probed ports', () => {
+      const onScanAggregate = vi.fn();
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.50',
+            ports: [
+              { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+              { port: 80, service: 'http', serviceVersion: 'latest', open: true },
+              { port: 443, service: 'https', serviceVersion: 'latest', open: false },
+            ],
+          }),
+        ],
+        onScanAggregate,
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('192.168.1.50');
+
+      if (isAsyncOutput(result)) {
+        result.start(
+          () => {},
+          () => {},
+        );
+      }
+      vi.advanceTimersByTime(3000);
+
+      expect(onScanAggregate).toHaveBeenCalledTimes(1);
+      expect(onScanAggregate).toHaveBeenCalledWith({
+        targetIp: '192.168.1.50',
+        probedPorts: expect.arrayContaining([22, 80, 443]),
+      });
+    });
+
+    it('calls onScanAggregate once per touched target in a range scan', () => {
+      const onScanAggregate = vi.fn();
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.1',
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
+          }),
+          getMockRemoteMachine({
+            ip: '192.168.1.10',
+            ports: [
+              { port: 80, service: 'http', serviceVersion: 'latest', open: true },
+              { port: 3306, service: 'mysql', serviceVersion: 'latest', open: false },
+            ],
+          }),
+        ],
+        onScanAggregate,
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('192.168.1.1-20');
+
+      if (isAsyncOutput(result)) {
+        result.start(
+          () => {},
+          () => {},
+        );
+      }
+      vi.advanceTimersByTime(10000);
+
+      expect(onScanAggregate).toHaveBeenCalledTimes(2);
+      expect(onScanAggregate).toHaveBeenCalledWith({
+        targetIp: '192.168.1.1',
+        probedPorts: expect.arrayContaining([22]),
+      });
+      expect(onScanAggregate).toHaveBeenCalledWith({
+        targetIp: '192.168.1.10',
+        probedPorts: expect.arrayContaining([80, 3306]),
+      });
+    });
+
+    it('does NOT call onScanAggregate for a local-IP scan', () => {
+      const onScanAggregate = vi.fn();
+      const context = createMockNmapContext({
+        machines: [getMockRemoteMachine({ ip: '192.168.1.100' })],
+        localIP: '192.168.1.100',
+        onScanAggregate,
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('192.168.1.100');
+
+      if (isAsyncOutput(result)) {
+        result.start(
+          () => {},
+          () => {},
+        );
+      }
+      vi.advanceTimersByTime(2000);
+
+      expect(onScanAggregate).not.toHaveBeenCalled();
+    });
+
+    it('does NOT call onScanAggregate when the target is unreachable (host seems down)', () => {
+      const onScanAggregate = vi.fn();
+      const context = createMockNmapContext({ machines: [], onScanAggregate });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('192.168.1.99');
+
+      if (isAsyncOutput(result)) {
+        result.start(
+          () => {},
+          () => {},
+        );
+      }
+      vi.advanceTimersByTime(2000);
+
+      expect(onScanAggregate).not.toHaveBeenCalled();
     });
   });
 });

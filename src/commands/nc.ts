@@ -64,10 +64,18 @@ export const startNcListener = (adapter: NcListenAdapter, args: readonly unknown
 
 // --- Connect mode (nc host port) ---
 
+export type NcConnectInfo = {
+  readonly targetIp: string;
+  readonly port: number;
+  readonly service?: string;
+  readonly success: boolean;
+};
+
 type NcConnectContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
   readonly getLocalIP: () => string;
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
+  readonly onNcConnect?: (info: NcConnectInfo) => void;
 };
 
 const NC_CONNECT_DELAY_MS = 400;
@@ -91,7 +99,7 @@ const SERVICE_BANNERS: Readonly<Record<string, string | null>> = {
 const isInteractivePort = (port: Port): boolean => port.owner !== undefined;
 
 const connectNc = (context: NcConnectContext, args: readonly unknown[]): AsyncOutput => {
-  const { getMachine, getLocalIP, resolveDomain } = context;
+  const { getMachine, getLocalIP, resolveDomain, onNcConnect } = context;
 
   const host = args[0] as string | undefined;
   const port = args[1] as number | undefined;
@@ -129,8 +137,11 @@ const connectNc = (context: NcConnectContext, args: readonly unknown[]): AsyncOu
 
   const targetPort = machine.ports.find((p) => p.port === port);
   if (!targetPort || !targetPort.open) {
+    onNcConnect?.({ targetIp: targetIP, port, service: targetPort?.service, success: false });
     throw new Error(`nc: connect to ${targetIP} port ${port}: Connection refused`);
   }
+
+  onNcConnect?.({ targetIp: targetIP, port, service: targetPort.service, success: true });
 
   const token = createCancellationToken();
 

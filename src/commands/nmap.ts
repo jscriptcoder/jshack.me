@@ -4,12 +4,18 @@ import { findVulnForService } from '../generation/pools/vulnerabilities';
 import { isValidIP, parseIPRange } from '../utils/network';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
+export type NmapScanAggregateInfo = {
+  readonly targetIp: string;
+  readonly probedPorts: readonly number[];
+};
+
 type NmapContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
   readonly findMachineByIp: (ip: string) => RemoteMachine | undefined;
   readonly getMachines: () => readonly RemoteMachine[];
   readonly getLocalIPs: () => ReadonlySet<string>;
   readonly getLocalHostname: () => string;
+  readonly onScanAggregate?: (info: NmapScanAggregateInfo) => void;
 };
 
 const SCAN_DELAY_MS = 150;
@@ -216,7 +222,14 @@ export const createNmapCommand = (context: NmapContext): Command => ({
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {
-    const { getMachine, findMachineByIp, getMachines, getLocalIPs, getLocalHostname } = context;
+    const {
+      getMachine,
+      findMachineByIp,
+      getMachines,
+      getLocalIPs,
+      getLocalHostname,
+      onScanAggregate,
+    } = context;
     const { target, versionScan, udpScan, treeScan } = parseNmapArgs(args);
 
     if (!target) {
@@ -276,6 +289,18 @@ export const createNmapCommand = (context: NmapContext): Command => ({
               }
 
               if (scannedCount === totalIPs) {
+                // Fire aggregated scan callback for each non-local target that
+                // was actually touched. Matches how real iptables LOG would
+                // capture one packet-burst per target machine.
+                discoveredHosts
+                  .filter((h) => !h.isLocal)
+                  .forEach((h) =>
+                    onScanAggregate?.({
+                      targetIp: h.ip,
+                      probedPorts: h.ports.map((p) => p.port),
+                    }),
+                  );
+
                 token.schedule(() => {
                   if (token.isCancelled()) return;
 
@@ -385,6 +410,12 @@ export const createNmapCommand = (context: NmapContext): Command => ({
           return a.port - b.port;
         });
         const openPorts = sortedPorts.filter((p) => p.open);
+
+        // Single aggregated log entry for the whole scan on this target.
+        onScanAggregate?.({
+          targetIp: target,
+          probedPorts: machine.ports.map((p) => p.port),
+        });
 
         onLine(`Starting Nmap scan on ${target}${scanModeLabel(versionScan, udpScan)}`);
         onLine(`Scanning ${udpScan ? 'UDP ' : ''}ports...`);
