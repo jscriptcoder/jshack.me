@@ -5,8 +5,15 @@ import type { UserType } from '../session/SessionContext';
 import type { RemoteMachine } from '../network/types';
 import { APT_PACKAGES, APT_INSTALLABLE, BINARY_STUB, RESTRICTED_EXECUTE } from './availability';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
-import { findVulnForService } from '../generation/vulnerabilityLookup';
-import { findFirmwareCve, findLatestSafeFirmware } from '../generation/firmwareLookup';
+import {
+  findVulnForService,
+  findPinnableServiceVersion,
+} from '../generation/vulnerabilityLookup';
+import {
+  findFirmwareCve,
+  findLatestSafeFirmware,
+  findPinnableFirmwareVersion,
+} from '../generation/firmwareLookup';
 import type { FirmwareVendor } from '../generation/pools/routerFirmware';
 import { getLatestSafeVersion, DEFAULT_LATEST_VERSION } from '../generation/timeline';
 import { DPKG_STATUS_PATH, setDpkgVersion } from '../network/dpkgStatus';
@@ -327,6 +334,88 @@ const handleUpgrade = (
   };
 };
 
+// --- apt install <pkg>=<version> (version pinning) ---
+
+// Writes a specific version of an existing package into /var/lib/dpkg/status.
+// Used for both services (e.g., `http=Apache/2.4.49`) and router firmware
+// (e.g., `firmware=MikroTik RouterOS 7.14.3`). Pinning a vulnerable version
+// is allowed — players can deliberately downgrade.
+const handleInstallPin = (
+  pkg: string,
+  pinnedVersion: string,
+  context: AptContext,
+): AsyncOutput | string => {
+  const { getMachine, getCurrentMachine, readFile, getUserType, isWifiConnected } = context;
+  const gameTime = context.getGameTime?.() ?? 0;
+
+  if (getMachine() === 'localhost' && !isWifiConnected()) {
+    throw new Error('E: Failed to fetch http://archive.ubuntu.com — network is unreachable');
+  }
+
+  if (getUserType() !== 'root') {
+    throw new Error('E: Could not open lock file /var/lib/dpkg/lock-frontend — are you root?');
+  }
+
+  const machine = getCurrentMachine?.();
+  if (!machine) {
+    throw new Error(`E: Package '${pkg}' is not installed on this machine`);
+  }
+
+  if (!installedPackages(machine).has(pkg)) {
+    throw new Error(`E: Package '${pkg}' is not installed on this machine`);
+  }
+
+  // Validate the pinned version is reachable for the package.
+  const pinnable =
+    pkg === FIRMWARE_PACKAGE
+      ? machine.firmwareVendor !== undefined &&
+        findPinnableFirmwareVersion(
+          machine.firmwareVendor as FirmwareVendor,
+          pinnedVersion,
+          gameTime,
+        )
+      : findPinnableServiceVersion(pkg, pinnedVersion, gameTime);
+
+  if (!pinnable) {
+    throw new Error(
+      `E: Package '${pkg}' has no installation candidate for version '${pinnedVersion}'`,
+    );
+  }
+
+  const token = createCancellationToken();
+
+  return {
+    __type: 'async',
+    start: (onLine, onComplete) => {
+      const lines = [
+        'Reading package lists... Done',
+        'Building dependency tree... Done',
+        `The following packages will be DOWNGRADED:`,
+        `  ${pkg}`,
+        `0 upgraded, 0 newly installed, 1 downgraded, 0 to remove.`,
+        `Get: ${pkg} ${pinnedVersion}`,
+        `Setting up ${pkg} (${pinnedVersion}) ...`,
+      ];
+
+      let delay = 0;
+      lines.forEach((line, i) => {
+        delay += jitter(OVERLAY_DELAY_MS);
+        token.schedule(() => {
+          if (token.isCancelled()) return;
+          onLine(line);
+          if (i === lines.length - 1) {
+            const currentContent = readFile ? (readFile(DPKG_STATUS_PATH) ?? '') : '';
+            const updatedContent = setDpkgVersion(currentContent, pkg, pinnedVersion);
+            writeDpkgStatus(updatedContent, context);
+            onComplete();
+          }
+        }, delay);
+      });
+    },
+    cancel: token.cancel,
+  };
+};
+
 export const createAptCommand = (context: AptContext): Command => ({
   name: 'apt',
   category: 'general',
@@ -379,6 +468,14 @@ export const createAptCommand = (context: AptContext): Command => ({
       const packageName = args[1] as string | undefined;
       if (!packageName) {
         throw new Error("E: No package name specified. Usage: apt('install', '<package>')");
+      }
+      // `pkg=version` → version-pin install (service or firmware). Otherwise
+      // fall through to the binary-tool install path.
+      const equalsIndex = packageName.indexOf('=');
+      if (equalsIndex > 0) {
+        const pkg = packageName.slice(0, equalsIndex);
+        const version = packageName.slice(equalsIndex + 1);
+        return handleInstallPin(pkg, version, context);
       }
       return handleInstall(packageName, context);
     }

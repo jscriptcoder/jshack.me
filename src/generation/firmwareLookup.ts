@@ -44,6 +44,32 @@ export const findFirmwareCve = (
   return vuln;
 };
 
+// Looks up a specific firmware version in a vendor's procedural timeline.
+// Returns the walker entry if found within the walk budget, or undefined.
+// Used by apt install firmware=<version> to validate a pinned version
+// actually exists in the vendor's timeline before writing it to dpkg/status.
+//
+// The walk budget is intentionally generous (~2 years of game time past
+// gameTime) so the player can pin reasonably-near-future versions.
+const INSTALL_WALK_BUDGET_DAYS = 730;
+
+export const findPinnableFirmwareVersion = (
+  vendor: FirmwareVendor,
+  firmwareVersion: string,
+  gameTime: number,
+): boolean => {
+  const template = firmwareTemplates[vendor];
+  if (!template) return false;
+
+  const timeline = buildTimelineFromTemplate(
+    template,
+    `firmware:${vendor}`,
+    gameTime + INSTALL_WALK_BUDGET_DAYS,
+    CVE_TIMING_CONFIG,
+  );
+  return timeline.some((e) => e.version === firmwareVersion);
+};
+
 // Returns the newest firmware version for a vendor whose CVE has not yet
 // been "published" at the given game time. apt upgrade firmware uses this
 // to pick its upgrade target — analogous to getLatestSafeVersion but
