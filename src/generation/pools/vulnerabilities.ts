@@ -1,4 +1,6 @@
 import type { Vulnerability } from '../../network/types';
+import { buildGeneratedVuln, findGeneratedVersion } from './versionGenerator';
+import { CVE_TIMING_CONFIG } from './versionTimelines';
 
 export type VulnerabilityTemplate = {
   readonly port: number;
@@ -6,29 +8,46 @@ export type VulnerabilityTemplate = {
   readonly vulnerability: Vulnerability;
 };
 
-// Phase 3 PR B: findVulnForService now takes gameTime and filters out CVEs
-// that haven't been "published" yet (publishedAt > gameTime) AND CVEs with
-// severity 'info' (Phase 4 activates these alongside typed effects — in PR B
-// they're non-exploitable via msfconsole).
+// Phase 3 PR B: two-layer lookup.
 //
-// Under the 1:1 (service, version) → CVE invariant, this returns either the
-// single matching CVE or undefined.
+// Layer 1 — hand-authored historical CVEs (vulnerabilityTemplates below):
+// real-world vulns like CVE-2021-41773, Log4Shell, EternalBlue. All have
+// publishedAt=0 (classic, active from day 1) and a realistic severity.
 //
-// The gameTime argument is required to prevent accidental calls that would
-// bypass the time filter. Callers that genuinely want the all-time view
-// (currently: none) can pass Number.MAX_SAFE_INTEGER.
+// Layer 2 — procedurally generated timeline (versionGenerator.ts): future
+// versions beyond the historical table, with deterministic seeded CVEs and
+// publishedAt values derived from randomized gap accumulation. This is what
+// drives the treadmill over game time.
+//
+// Both layers apply the same filters: CVEs with publishedAt > gameTime are
+// not yet live, and info-severity CVEs are non-exploitable in Phase 3
+// (Phase 4 activates them alongside typed effects).
+//
+// Under the 1:1 (service, version) → CVE invariant, this returns either
+// the single matching CVE or undefined.
 export const findVulnForService = (
   service: string,
   serviceVersion: string,
   gameTime: number,
 ): Vulnerability | undefined => {
-  const match = vulnerabilityTemplates.find(
+  // Layer 1: hand-authored historical CVEs
+  const handAuthored = vulnerabilityTemplates.find(
     (t) => t.service === service && t.vulnerability.serviceVersion === serviceVersion,
   )?.vulnerability;
-  if (!match) return undefined;
-  if (match.severity === 'info') return undefined;
-  if (match.publishedAt > gameTime) return undefined;
-  return match;
+  if (handAuthored) {
+    if (handAuthored.severity === 'info') return undefined;
+    if (handAuthored.publishedAt > gameTime) return undefined;
+    return handAuthored;
+  }
+
+  // Layer 2: procedurally generated timeline
+  const generated = findGeneratedVersion(service, serviceVersion, gameTime, CVE_TIMING_CONFIG);
+  if (!generated) return undefined;
+  if (generated.publishedAt > gameTime) return undefined;
+
+  const vuln = buildGeneratedVuln(service, generated);
+  if (vuln.severity === 'info') return undefined;
+  return vuln;
 };
 
 // Default "safe" service version used when constructing ports that shouldn't

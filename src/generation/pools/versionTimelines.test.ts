@@ -1,92 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
-  serviceVersionPools,
   getLatestSafeVersion,
-  DEFAULT_LATEST_VERSION,
   CVE_TIMING_CONFIG,
+  DEFAULT_LATEST_VERSION,
 } from './versionTimelines';
 import { findVulnForService } from './vulnerabilities';
-
-describe('serviceVersionPools', () => {
-  it('has pools for every service referenced by existing CVEs', () => {
-    // Every service that has a CVE should also have a version pool so
-    // apt upgrade can find a safe target.
-    const servicesWithCves = new Set<string>();
-    // We don't import vulnerabilityTemplates directly to keep this test focused
-    // on the pools themselves. Instead we check a representative sample.
-    for (const service of [
-      'http',
-      'mysql',
-      'ftp',
-      'redis',
-      'smtp',
-      'imap',
-      'pop3',
-      'dns',
-      'openvpn',
-      'smb',
-      'mongodb',
-    ]) {
-      servicesWithCves.add(service);
-    }
-    for (const service of servicesWithCves) {
-      expect(serviceVersionPools[service]).toBeDefined();
-      expect(serviceVersionPools[service]?.length ?? 0).toBeGreaterThan(0);
-    }
-  });
-
-  it('pool entries are ordered oldest → newest (by the last entry being newer than the first)', () => {
-    // We rely on the hand-authored ordering being correct. Spot-check http.
-    const httpPool = serviceVersionPools['http'];
-    expect(httpPool).toBeDefined();
-    expect(httpPool?.[0]).not.toBe(httpPool?.[httpPool.length - 1]);
-  });
-});
-
-describe('getLatestSafeVersion', () => {
-  it('returns the newest pool entry whose CVE has not yet published', () => {
-    // At gameTime = 0 with all CVEs at publishedAt=0, the newest safe version
-    // for http is whichever entry at the END of the pool has no CVE entry
-    // at all (or has a CVE with publishedAt > 0, of which there are none yet
-    // in PR B). The pool's LAST entry is designed to be a safe version.
-    const latest = getLatestSafeVersion('http', 0);
-    expect(latest).toBeDefined();
-    // The returned version must not be exploitable at gameTime 0
-    expect(findVulnForService('http', latest!, 0)).toBeUndefined();
-  });
-
-  it('returns DEFAULT_LATEST_VERSION for services with no pool', () => {
-    const latest = getLatestSafeVersion('unknown-service', 0);
-    expect(latest).toBe(DEFAULT_LATEST_VERSION);
-  });
-
-  it('prefers the newest (rightmost) safe version when multiple are available', () => {
-    // If the pool has [A (vuln), B (safe), C (safe)], the picker returns C.
-    // http's pool has several currently-safe nginx versions at the end; the
-    // picker should return the last one.
-    const pool = serviceVersionPools['http'];
-    expect(pool).toBeDefined();
-    if (!pool) return;
-    const latest = getLatestSafeVersion('http', 0);
-    // Find the last safe version manually and compare.
-    let expected: string | undefined;
-    for (let i = pool.length - 1; i >= 0; i--) {
-      if (findVulnForService('http', pool[i] as string, 0) === undefined) {
-        expected = pool[i];
-        break;
-      }
-    }
-    expect(latest).toBe(expected);
-  });
-
-  it('every service in the pool has at least one currently-safe version at gameTime=0', () => {
-    for (const [service, pool] of Object.entries(serviceVersionPools)) {
-      const latest = getLatestSafeVersion(service, 0);
-      expect(latest, `no safe version for ${service}`).toBeDefined();
-      expect(pool.includes(latest as string)).toBe(true);
-    }
-  });
-});
+import { serviceTemplates } from './versionGenerator';
 
 describe('CVE_TIMING_CONFIG', () => {
   it('exposes tuning knobs with sane defaults', () => {
@@ -94,6 +13,95 @@ describe('CVE_TIMING_CONFIG', () => {
     expect(CVE_TIMING_CONFIG.maxSafeWindowDays).toBeGreaterThan(
       CVE_TIMING_CONFIG.minSafeWindowDays,
     );
-    expect(CVE_TIMING_CONFIG.initialVulnerableCount).toBeGreaterThan(0);
+    expect(CVE_TIMING_CONFIG.bumpWeights.major).toBeGreaterThan(0);
+    expect(CVE_TIMING_CONFIG.bumpWeights.minor).toBeGreaterThan(
+      CVE_TIMING_CONFIG.bumpWeights.major,
+    );
+    expect(CVE_TIMING_CONFIG.bumpWeights.patch).toBeGreaterThan(
+      CVE_TIMING_CONFIG.bumpWeights.minor,
+    );
+  });
+
+  it('targets roughly 10 CVEs per year per service', () => {
+    // Average gap = (min + max) / 2. ~365 days / avg gap ≈ bumps per year.
+    const avgGap = (CVE_TIMING_CONFIG.minSafeWindowDays + CVE_TIMING_CONFIG.maxSafeWindowDays) / 2;
+    const bumpsPerYear = 365 / avgGap;
+    expect(bumpsPerYear).toBeGreaterThan(5);
+    expect(bumpsPerYear).toBeLessThan(20);
+  });
+});
+
+describe('getLatestSafeVersion', () => {
+  it('returns a procedural version for services with a template', () => {
+    const version = getLatestSafeVersion('http', 0);
+    expect(version).toBeDefined();
+    // Should start with the service template prefix
+    expect(version).toMatch(/^Apache\//);
+  });
+
+  it('returns DEFAULT_LATEST_VERSION for services with no template', () => {
+    const version = getLatestSafeVersion('no-such-service', 0);
+    expect(version).toBe(DEFAULT_LATEST_VERSION);
+  });
+
+  it('returns a version whose CVE is not yet published at the given gameTime', () => {
+    const gameTime = 0;
+    const version = getLatestSafeVersion('http', gameTime);
+    expect(version).toBeDefined();
+    // findVulnForService should return undefined for a currently-safe version
+    expect(findVulnForService('http', version!, gameTime)).toBeUndefined();
+  });
+
+  it('eventually returns a different version as game time advances', () => {
+    // At day 0 and day 1000, the "latest safe" should differ for http
+    // because the treadmill has advanced.
+    const day0 = getLatestSafeVersion('http', 0);
+    const day1000 = getLatestSafeVersion('http', 1000);
+    expect(day0).toBeDefined();
+    expect(day1000).toBeDefined();
+    expect(day0).not.toBe(day1000);
+  });
+
+  it('is deterministic for the same service and gameTime', () => {
+    const a = getLatestSafeVersion('http', 100);
+    const b = getLatestSafeVersion('http', 100);
+    expect(a).toBe(b);
+  });
+
+  it('produces different versions for different services', () => {
+    const http = getLatestSafeVersion('http', 0);
+    const mysql = getLatestSafeVersion('mysql', 0);
+    // Different services must have different templates → different version strings
+    expect(http).not.toBe(mysql);
+  });
+});
+
+describe('serviceTemplates', () => {
+  it('has a template for every service that has a hand-authored CVE', () => {
+    // Spot check: every service referenced in the historical CVE table
+    // should also have a template so the player can upgrade beyond its
+    // hand-authored entries.
+    const importantServices = [
+      'http',
+      'mysql',
+      'ftp',
+      'redis',
+      'smtp',
+      'imap',
+      'pop3',
+      'mongodb',
+      'smb',
+      'rsync',
+    ];
+    for (const service of importantServices) {
+      expect(serviceTemplates[service], `missing template for ${service}`).toBeDefined();
+    }
+  });
+
+  it('every template has a non-empty prefix and starting tuple', () => {
+    for (const [service, template] of Object.entries(serviceTemplates)) {
+      expect(template.prefix.length, `empty prefix for ${service}`).toBeGreaterThan(0);
+      expect(template.startTuple.length, `empty tuple for ${service}`).toBeGreaterThan(0);
+    }
   });
 });
