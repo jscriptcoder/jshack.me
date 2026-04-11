@@ -93,6 +93,7 @@ export const useCommands = (): UseCommandsResult => {
     writeFileToMachine,
     createFileOnMachine,
     createFile,
+    writeFile,
     getNodeFromMachine,
     deleteNodeFromMachine,
     canTraverse,
@@ -223,8 +224,10 @@ export const useCommands = (): UseCommandsResult => {
       'apt',
       createAptCommand({
         getMachine: () => session.machine,
+        getCurrentMachine: () => getMachineInfo(session.machine),
         getNode,
         createFile,
+        writeFile,
         getUserType: () => session.userType,
         isWifiConnected: () => wifiConnected,
       }),

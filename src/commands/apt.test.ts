@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { FileNode, FilePermissions } from '../filesystem/types';
 import type { AsyncOutput } from '../components/Terminal/types';
+import type { RemoteMachine } from '../network/types';
 import { createAptCommand } from './apt';
 
 const mkBinaryNode = (name: string): FileNode => ({
@@ -26,6 +27,7 @@ type MockAptConfig = {
   readonly userType?: 'root' | 'user' | 'guest';
   readonly installedTools?: readonly string[];
   readonly wifiConnected?: boolean;
+  readonly currentMachine?: RemoteMachine;
 };
 
 type CreatedFile = {
@@ -40,12 +42,15 @@ const createMockAptContext = (config: MockAptConfig = {}) => {
     userType = 'root',
     installedTools = [],
     wifiConnected = true,
+    currentMachine,
   } = config;
   const createdFiles: CreatedFile[] = [];
+  const writtenFiles: Array<{ path: string; content: string }> = [];
 
   return {
     context: {
       getMachine: () => machine,
+      getCurrentMachine: () => currentMachine,
       getNode: (path: string): FileNode | null => {
         const name = path.replace('/usr/bin/', '');
         if (installedTools.includes(name)) return mkBinaryNode(name);
@@ -61,12 +66,37 @@ const createMockAptContext = (config: MockAptConfig = {}) => {
         createdFiles.push({ path, content, permissions });
         return { allowed: true };
       },
+      writeFile: (path: string, content: string, _userType: string) => {
+        writtenFiles.push({ path, content });
+        return { allowed: true };
+      },
       getUserType: () => userType,
       isWifiConnected: () => wifiConnected,
     },
     createdFiles,
+    writtenFiles,
   };
 };
+
+// Minimal helper to build a RemoteMachine fixture for upgrade tests
+const mkMachine = (
+  ports: readonly {
+    readonly port: number;
+    readonly service: string;
+    readonly serviceVersion: string;
+    readonly open?: boolean;
+  }[],
+): RemoteMachine => ({
+  ip: '10.0.0.1',
+  hostname: 'test-host',
+  ports: ports.map((p) => ({
+    port: p.port,
+    service: p.service,
+    serviceVersion: p.serviceVersion,
+    open: p.open ?? true,
+  })),
+  users: [],
+});
 
 describe('apt command', () => {
   beforeEach(() => {
@@ -405,6 +435,172 @@ describe('apt command', () => {
       const { context } = createMockAptContext();
       const apt = createAptCommand(context);
       expect(() => apt.fn('remove')).toThrow("Invalid operation 'remove'");
+    });
+  });
+
+  describe('apt upgrade', () => {
+    it('requires root', () => {
+      const machine = mkMachine([{ port: 80, service: 'http', serviceVersion: 'Apache/2.4.49' }]);
+      const { context } = createMockAptContext({ userType: 'user', currentMachine: machine });
+      const apt = createAptCommand(context);
+      expect(() => apt.fn('upgrade')).toThrow('are you root?');
+    });
+
+    it('requires WiFi on localhost', () => {
+      const machine = mkMachine([{ port: 80, service: 'http', serviceVersion: 'Apache/2.4.49' }]);
+      const { context } = createMockAptContext({
+        machine: 'localhost',
+        wifiConnected: false,
+        currentMachine: machine,
+      });
+      const apt = createAptCommand(context);
+      expect(() => apt.fn('upgrade')).toThrow('network is unreachable');
+    });
+
+    it('writes an overlay file for each vulnerable service when called without args', () => {
+      const machine = mkMachine([
+        { port: 22, service: 'ssh', serviceVersion: 'OpenSSH 9.6' }, // safe
+        { port: 80, service: 'http', serviceVersion: 'Apache/2.4.49' }, // CVE-2021-41773
+        { port: 3306, service: 'mysql', serviceVersion: 'MySQL 5.5.23' }, // CVE-2012-2122
+      ]);
+      const { context, createdFiles } = createMockAptContext({ currentMachine: machine });
+      const apt = createAptCommand(context);
+      const result = apt.fn('upgrade');
+
+      expect(isAsyncOutput(result)).toBe(true);
+      if (!isAsyncOutput(result)) return;
+      result.start(
+        () => {},
+        () => {},
+      );
+      vi.advanceTimersByTime(5000);
+
+      // Overlay files for http and mysql, not ssh (which was already safe)
+      const httpOverlay = createdFiles.find((f) => f.path === '/var/lib/apt/service_versions/http');
+      const mysqlOverlay = createdFiles.find(
+        (f) => f.path === '/var/lib/apt/service_versions/mysql',
+      );
+      const sshOverlay = createdFiles.find((f) => f.path === '/var/lib/apt/service_versions/ssh');
+
+      expect(httpOverlay).toBeDefined();
+      expect(mysqlOverlay).toBeDefined();
+      expect(sshOverlay).toBeUndefined();
+    });
+
+    it('overlay content is a version string that findVulnForService cannot exploit', () => {
+      // We verify this by checking the content is the default "safe" sentinel ("latest")
+      // — in PR A there's no version timeline yet, so the upgrade target is the sentinel.
+      const machine = mkMachine([{ port: 80, service: 'http', serviceVersion: 'Apache/2.4.49' }]);
+      const { context, createdFiles } = createMockAptContext({ currentMachine: machine });
+      const apt = createAptCommand(context);
+      const result = apt.fn('upgrade');
+
+      if (!isAsyncOutput(result)) return;
+      result.start(
+        () => {},
+        () => {},
+      );
+      vi.advanceTimersByTime(5000);
+
+      const httpOverlay = createdFiles.find((f) => f.path === '/var/lib/apt/service_versions/http');
+      expect(httpOverlay?.content).toBe('latest');
+    });
+
+    it('reports already-current when no services have active CVEs', () => {
+      const machine = mkMachine([
+        { port: 22, service: 'ssh', serviceVersion: 'OpenSSH 9.6' },
+        { port: 80, service: 'http', serviceVersion: 'Apache/9.9.9' }, // no CVE match
+      ]);
+      const { context, createdFiles } = createMockAptContext({ currentMachine: machine });
+      const apt = createAptCommand(context);
+      const result = apt.fn('upgrade');
+
+      // Either returns a sync string or an async output — both valid
+      if (typeof result === 'string') {
+        expect(result).toMatch(/0 (upgraded|to upgrade)/);
+      } else if (isAsyncOutput(result)) {
+        const lines: string[] = [];
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+        vi.advanceTimersByTime(5000);
+        expect(lines.some((l) => /0 (upgraded|to upgrade)/.test(l))).toBe(true);
+      }
+
+      // No overlay files should be written
+      expect(createdFiles.some((f) => f.path.startsWith('/var/lib/apt/service_versions/'))).toBe(
+        false,
+      );
+    });
+
+    it('upgrades a specific service when given a service name', () => {
+      const machine = mkMachine([
+        { port: 80, service: 'http', serviceVersion: 'Apache/2.4.49' },
+        { port: 3306, service: 'mysql', serviceVersion: 'MySQL 5.5.23' },
+      ]);
+      const { context, createdFiles } = createMockAptContext({ currentMachine: machine });
+      const apt = createAptCommand(context);
+      const result = apt.fn('upgrade', 'http');
+
+      if (!isAsyncOutput(result)) return;
+      result.start(
+        () => {},
+        () => {},
+      );
+      vi.advanceTimersByTime(5000);
+
+      // Only http should be upgraded, not mysql
+      expect(createdFiles.some((f) => f.path === '/var/lib/apt/service_versions/http')).toBe(true);
+      expect(createdFiles.some((f) => f.path === '/var/lib/apt/service_versions/mysql')).toBe(
+        false,
+      );
+    });
+
+    it('throws when upgrading a service that is not running on the current machine', () => {
+      const machine = mkMachine([{ port: 80, service: 'http', serviceVersion: 'Apache/2.4.49' }]);
+      const { context } = createMockAptContext({ currentMachine: machine });
+      const apt = createAptCommand(context);
+      expect(() => apt.fn('upgrade', 'mysql')).toThrow(/not running|Unable to locate/);
+    });
+
+    it('reports already-current for a specific service that is already safe', () => {
+      const machine = mkMachine([{ port: 22, service: 'ssh', serviceVersion: 'OpenSSH 9.6' }]);
+      const { context, createdFiles } = createMockAptContext({ currentMachine: machine });
+      const apt = createAptCommand(context);
+      const result = apt.fn('upgrade', 'ssh');
+
+      if (typeof result === 'string') {
+        expect(result).toMatch(/already|0 (upgraded|to upgrade)/);
+      } else if (isAsyncOutput(result)) {
+        const lines: string[] = [];
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+        vi.advanceTimersByTime(5000);
+        expect(lines.some((l) => /already|0 (upgraded|to upgrade)/.test(l))).toBe(true);
+      }
+      expect(createdFiles.some((f) => f.path === '/var/lib/apt/service_versions/ssh')).toBe(false);
+    });
+
+    it('displays realistic apt upgrade output lines', () => {
+      const machine = mkMachine([{ port: 80, service: 'http', serviceVersion: 'Apache/2.4.49' }]);
+      const { context } = createMockAptContext({ currentMachine: machine });
+      const apt = createAptCommand(context);
+      const result = apt.fn('upgrade');
+
+      if (!isAsyncOutput(result)) return;
+      const lines: string[] = [];
+      result.start(
+        (line) => lines.push(line),
+        () => {},
+      );
+      vi.advanceTimersByTime(5000);
+
+      expect(lines.some((l) => l.includes('Reading package lists'))).toBe(true);
+      expect(lines.some((l) => /\d+ upgraded/.test(l))).toBe(true);
+      expect(lines.some((l) => l.includes('http'))).toBe(true);
     });
   });
 });

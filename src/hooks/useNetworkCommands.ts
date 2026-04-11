@@ -30,6 +30,8 @@ import {
 import { resolveLogSourceIP, generatePid, resolveHostname } from '../logging/utils';
 import { formatExploitAttempt, formatUnknownExploitAttempt } from '../logging/exploitAttempt';
 import { findVulnForService } from '../generation/pools/vulnerabilities';
+import { applyVersionOverlay } from '../network/applyVersionOverlay';
+import type { RemoteMachine } from '../network/types';
 
 export const useNetworkCommands = (): Map<string, Command> => {
   const {
@@ -58,6 +60,16 @@ export const useNetworkCommands = (): Map<string, Command> => {
   return useMemo(() => {
     const isWifiRequired = () => session.machine === 'localhost' && !wifiConnected;
     const logFs = { readFileFromMachine, writeFileToMachine, createFileOnMachine };
+
+    // Phase 3 Step A: apply the /var/lib/apt/service_versions/<service> overlay
+    // when reading any machine's ports. Commands (nmap, msfconsole) receive
+    // overlay-aware views without needing to know the overlay exists.
+    const withOverlay = (machine: RemoteMachine | undefined) =>
+      machine === undefined ? undefined : applyVersionOverlay(machine, readFileFromMachine);
+    const getEffectiveMachine = (ip: string) => withOverlay(getMachine(ip));
+    const findEffectiveMachineByIp = (ip: string) => withOverlay(findMachineByIp(ip));
+    const getEffectiveMachines = (): readonly RemoteMachine[] =>
+      getMachines().map((m) => applyVersionOverlay(m, readFileFromMachine));
     const onHttpRequest = (
       targetIP: string,
       method: string,
@@ -177,9 +189,9 @@ export const useNetworkCommands = (): Map<string, Command> => {
       wrapWithBrickedCheck(
         wrapWithWifiCheck(
           createNmapCommand({
-            getMachine,
-            findMachineByIp,
-            getMachines,
+            getMachine: getEffectiveMachine,
+            findMachineByIp: findEffectiveMachineByIp,
+            getMachines: getEffectiveMachines,
             getLocalIPs: () => new Set(getInterfaces().map((iface) => iface.inet)),
             getLocalHostname: () => session.hostname ?? session.machine,
             onScanAggregate,
@@ -280,7 +292,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
       wrapWithBrickedCheck(
         wrapWithWifiCheck(
           createMsfconsoleCommand({
-            getMachine,
+            getMachine: getEffectiveMachine,
             getLocalIP,
             resolveDomain,
             onExploitAttempt,
