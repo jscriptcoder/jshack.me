@@ -363,3 +363,57 @@ export const formatSyslogAttack = ({
     pid,
     message: `[${sourceIp}] ${message}`,
   });
+
+type XinetdConnectOptions = {
+  readonly date: Date;
+  readonly hostname: string;
+  readonly pid: number;
+  readonly sourceIp: string;
+  readonly port: number;
+  readonly success: boolean;
+};
+
+// nc connection attempt — landed in /var/log/syslog as an xinetd entry.
+// Both successful connections and connection-refused events use this format.
+export const formatXinetdConnection = ({
+  date,
+  hostname,
+  pid,
+  sourceIp,
+  port,
+  success,
+}: XinetdConnectOptions): string => {
+  const verb = success ? 'START' : 'FAIL';
+  return formatSyslogLine({
+    date,
+    hostname,
+    service: 'xinetd',
+    pid,
+    message: `${verb}: connection from=${sourceIp} to port=${port}`,
+  });
+};
+
+type NmapScanLogOptions = {
+  readonly date: Date;
+  readonly hostname: string;
+  readonly sourceIp: string;
+  readonly probedPorts: readonly number[];
+};
+
+// Aggregated nmap scan — landed in /var/log/kern.log as an iptables LOG entry.
+// Matches how real netfilter LOG target records port scans: one line listing
+// the ports that were touched and the source IP.
+export const formatNmapScanAggregate = ({
+  date,
+  hostname,
+  sourceIp,
+  probedPorts,
+}: NmapScanLogOptions): string => {
+  const month = MONTHS[date.getUTCMonth()];
+  const day = date.getUTCDate().toString().padStart(2, ' ');
+  const hours = date.getUTCHours().toString().padStart(2, '0');
+  const minutes = date.getUTCMinutes().toString().padStart(2, '0');
+  const seconds = date.getUTCSeconds().toString().padStart(2, '0');
+  const portList = probedPorts.join(',');
+  return `${month} ${day} ${hours}:${minutes}:${seconds} ${hostname} kernel: [iptables] Port scan from ${sourceIp} — probed ports ${portList} (${probedPorts.length} hits)`;
+};

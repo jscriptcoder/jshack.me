@@ -17,10 +17,16 @@ type NcContextConfig = {
   readonly machines?: readonly RemoteMachine[];
   readonly localIP?: string;
   readonly dnsRecords?: readonly DnsRecord[];
+  readonly onNcConnect?: (info: {
+    readonly targetIp: string;
+    readonly port: number;
+    readonly service?: string;
+    readonly success: boolean;
+  }) => void;
 };
 
 const createMockNcContext = (config: NcContextConfig = {}) => {
-  const { machines = [], localIP = '192.168.1.100', dnsRecords = [] } = config;
+  const { machines = [], localIP = '192.168.1.100', dnsRecords = [], onNcConnect } = config;
 
   return {
     getMachine: (ip: string) => machines.find((m) => m.ip === ip),
@@ -33,6 +39,7 @@ const createMockNcContext = (config: NcContextConfig = {}) => {
       username: 'user',
       userType: 'user' as const,
     }),
+    onNcConnect,
   };
 };
 
@@ -441,6 +448,84 @@ describe('nc command', () => {
       vi.advanceTimersByTime(1050);
 
       expect(lines).toContain('# 31337 #');
+    });
+  });
+
+  describe('onNcConnect callback', () => {
+    it('calls onNcConnect with success=true on successful connection', () => {
+      const onNcConnect = vi.fn();
+      const context = createMockNcContext({
+        machines: [getMockRemoteMachine()],
+        onNcConnect,
+      });
+      const nc = createNcCommand(context);
+      nc.fn('192.168.1.50', 21);
+
+      expect(onNcConnect).toHaveBeenCalledTimes(1);
+      expect(onNcConnect).toHaveBeenCalledWith({
+        targetIp: '192.168.1.50',
+        port: 21,
+        service: 'ftp',
+        success: true,
+      });
+    });
+
+    it('calls onNcConnect with success=false when port is closed', () => {
+      const onNcConnect = vi.fn();
+      const context = createMockNcContext({
+        machines: [
+          getMockRemoteMachine({
+            ports: [{ port: 21, service: 'ftp', serviceVersion: 'latest', open: false }],
+          }),
+        ],
+        onNcConnect,
+      });
+      const nc = createNcCommand(context);
+
+      expect(() => nc.fn('192.168.1.50', 21)).toThrow('Connection refused');
+      expect(onNcConnect).toHaveBeenCalledTimes(1);
+      expect(onNcConnect).toHaveBeenCalledWith({
+        targetIp: '192.168.1.50',
+        port: 21,
+        service: 'ftp',
+        success: false,
+      });
+    });
+
+    it('calls onNcConnect with success=false when port does not exist', () => {
+      const onNcConnect = vi.fn();
+      const context = createMockNcContext({
+        machines: [getMockRemoteMachine()],
+        onNcConnect,
+      });
+      const nc = createNcCommand(context);
+
+      expect(() => nc.fn('192.168.1.50', 9999)).toThrow('Connection refused');
+      expect(onNcConnect).toHaveBeenCalledTimes(1);
+      expect(onNcConnect).toHaveBeenCalledWith({
+        targetIp: '192.168.1.50',
+        port: 9999,
+        success: false,
+      });
+    });
+
+    it('does NOT call onNcConnect on argument validation errors', () => {
+      const onNcConnect = vi.fn();
+      const context = createMockNcContext({ onNcConnect });
+      const nc = createNcCommand(context);
+
+      expect(() => nc.fn()).toThrow('missing host');
+      expect(() => nc.fn('192.168.1.50')).toThrow('missing or invalid port');
+      expect(onNcConnect).not.toHaveBeenCalled();
+    });
+
+    it('does NOT call onNcConnect when the target machine does not exist', () => {
+      const onNcConnect = vi.fn();
+      const context = createMockNcContext({ machines: [], onNcConnect });
+      const nc = createNcCommand(context);
+
+      expect(() => nc.fn('10.99.99.99', 21)).toThrow('Connection timed out');
+      expect(onNcConnect).not.toHaveBeenCalled();
     });
   });
 

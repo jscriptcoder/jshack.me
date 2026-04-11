@@ -22,7 +22,11 @@ import { createRediscliCommand } from '../commands/rediscli';
 import { wrapWithWifiCheck, wrapWithBrickedCheck } from '../commands/networkGuards';
 import type { Command } from '../components/Terminal/types';
 import { appendToMachineLog } from '../logging/appendToMachineLog';
-import { formatAccessLog } from '../logging/formatters';
+import {
+  formatAccessLog,
+  formatNmapScanAggregate,
+  formatXinetdConnection,
+} from '../logging/formatters';
 import { resolveLogSourceIP, generatePid, resolveHostname } from '../logging/utils';
 import { formatExploitAttempt, formatUnknownExploitAttempt } from '../logging/exploitAttempt';
 import { findVulnForService } from '../generation/pools/vulnerabilities';
@@ -103,6 +107,50 @@ export const useNetworkCommands = (): Map<string, Command> => {
       appendToMachineLog(info.targetIp, entry.logFile, entry.line, logFs);
     };
 
+    const onNcConnect = (info: {
+      readonly targetIp: string;
+      readonly port: number;
+      readonly service?: string;
+      readonly success: boolean;
+    }) => {
+      const sourceIp = resolveLogSourceIP(
+        session.machine,
+        info.targetIp,
+        getLocalIP(),
+        getPublicIP(),
+      );
+      const hostname = resolveHostname(info.targetIp, getMachine);
+      const line = formatXinetdConnection({
+        date: new Date(),
+        hostname,
+        pid: generatePid(),
+        sourceIp,
+        port: info.port,
+        success: info.success,
+      });
+      appendToMachineLog(info.targetIp, '/var/log/syslog', line, logFs);
+    };
+
+    const onScanAggregate = (info: {
+      readonly targetIp: string;
+      readonly probedPorts: readonly number[];
+    }) => {
+      const sourceIp = resolveLogSourceIP(
+        session.machine,
+        info.targetIp,
+        getLocalIP(),
+        getPublicIP(),
+      );
+      const hostname = resolveHostname(info.targetIp, getMachine);
+      const line = formatNmapScanAggregate({
+        date: new Date(),
+        hostname,
+        sourceIp,
+        probedPorts: info.probedPorts,
+      });
+      appendToMachineLog(info.targetIp, '/var/log/kern.log', line, logFs);
+    };
+
     const commands = new Map<string, Command>();
 
     commands.set(
@@ -134,6 +182,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
             getMachines,
             getLocalIPs: () => new Set(getInterfaces().map((iface) => iface.inet)),
             getLocalHostname: () => session.hostname ?? session.machine,
+            onScanAggregate,
           }),
           isWifiRequired,
         ),
@@ -185,6 +234,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
         getMachine,
         getLocalIP,
         resolveDomain,
+        onNcConnect,
         isWifiRequired,
         isMachineBricked,
         getListenAdapter: () => ({
