@@ -15,24 +15,26 @@ The user has confirmed missions are allowed to break during this phase (same pol
 
 ## Goal
 
-Players gain **five new mechanics** that together turn single-player from a static puzzle into a continuous defense treadmill:
+Players gain **four new mechanics** that together turn single-player from a static puzzle into a continuous defense treadmill:
 
 1. **`apt upgrade`** — patch running services to a version not matched by any current CVE. One-shot "close the vuln window" action.
 2. **CVE time drift** — new CVEs get published over game time. A version that's safe today becomes vulnerable later. Patching is not a one-time chore.
 3. **Player-controlled firewall** — open/close individual ports on the player's own machine. Reducing attack surface is a legitimate defense, at the cost of losing services.
 4. **Router firmware as a first-class service** — routers gain a firmware version that can be targeted by CVEs and patched via `apt upgrade` like any other service.
-5. **Log rotation + `shred` command** — logs don't grow forever, and attackers can erase specific entries to cover their tracks (at the cost of the `shred` action itself being loggable).
+
+Log rotation and the `shred` cover-your-tracks command were originally scoped here but are deferred to Phase 5+ (multiplayer). Shred's real value is in a PvP context where attackers cover tracks from other players; without an adversary reading your logs in single-player, shred is a dry run. Rotation alone is just memory optimization and can ride along with shred when it lands.
 
 ## Non-goals
 
 Explicitly out of scope for Phase 3 and deferred to later phases:
 
+- **Log rotation + `shred` command** — moved to Phase 5+ alongside multiplayer. Shred's gameplay value requires an adversary reading your logs, and without that adversary in single-player it's a dry run. Log rotation will ride along with shred.
 - **Typed vulnerability effects** (file reads, password changes, directory listings) — Phase 4. Phase 3 still uses the "every exploit gives a shell" model. Only the time dimension changes.
 - **CVE feed as a player-facing resource** — Phase 4. Phase 3 may surface "new CVE available" as a subtle ambient message (e.g., a motd line on login or a file in `/var/cve/latest`), but there's no dedicated feed UI.
+- **Informed-tradeoff gameplay on severity** — Phase 4. Phase 3 populates the `severity` field but all four shell-producing tiers have identical mechanical outcomes. Players reflexively upgrade because there's no reason not to.
 - **Cross-player monitoring** — Phase 5+.
 - **Automatic patching / unattended-upgrades** — out of scope forever; this is an active gameplay mechanic, not a background service.
 - **Package dependency resolution for running services** — single-service upgrade only; no "this depends on that" graph.
-- **Per-CVE severity tiers** — all CVEs are equal in Phase 3; severity is a Phase 4 concern.
 - **IDS alerts / active defense monitoring** — Phase 5+.
 - **Honeypot mechanics** — Phase 5+.
 
@@ -160,7 +162,7 @@ Permadeath (from earlier brainstorming) resets `startedAt` naturally when a new 
 
 ## Feature overview and PR split
 
-**Suggested 5 PRs, one per feature.** Each is independently mergeable; later PRs depend on earlier ones.
+**Suggested 4 PRs, one per feature.** Each is independently mergeable; later PRs depend on earlier ones. (Log rotation + `shred` were originally scoped as PR E here but are deferred to Phase 5+.)
 
 ### PR A — `apt upgrade` command (foundation)
 
@@ -294,23 +296,6 @@ If the player closes everything, they can't receive income from future wallet me
 - Firmware overlay lives at `/var/lib/apt/service_versions/firmware` on the router — same mechanism as service versions.
 - Tests: vulnerable firmware → exploitable via msfconsole → `apt upgrade firmware` closes the window → CVE advances → vulnerable again.
 
-### PR E — log rotation + `shred` command
-
-Two features bundled:
-
-**Log rotation**: every log file has a max line count (e.g., 500 lines). When a write would exceed the limit, the oldest lines are dropped. Applies at write time in `appendToMachineLog`. Realistic rotation (moving to `.1`, `.2`, `.gz`) is overkill for this phase — just trim.
-
-**`shred` command**: removes specific log entries.
-
-- `shred(path)` — destroys an entire file (wipes + overwrites). Obvious cover-up. Loggable as a `shred: file destroyed` entry in syslog.
-- `shred(path, grep)` — removes all lines in `path` matching the `grep` regex. Subtler cover-up. Loggable too, but the attacker can then shred the shred log... paradox mitigated by: shred is itself logged in a separate root-only file that shred cannot target (e.g., `/var/log/kern.log` kernel-level audit of file-deletion syscalls). Design detail TBD in implementation.
-
-Tests:
-
-- `shred('/var/log/auth.log')` → file gone, root-only audit entry created.
-- `shred('/var/log/access.log', 'source-ip-pattern')` → matching lines removed, others intact.
-- Log rotation: writing 600 entries to a file with limit 500 leaves exactly 500 entries.
-
 ## Acceptance Criteria
 
 Behaviour-driven; observable from the terminal and from filesystem reads:
@@ -324,9 +309,6 @@ Behaviour-driven; observable from the terminal and from filesystem reads:
 - [ ] Router machines have a `firmware` field at generation time. Some firmware versions are vulnerable, others are safe.
 - [ ] Exploiting a router via `msfconsole` can trigger on firmware vulnerabilities in addition to port-service vulnerabilities.
 - [ ] `apt upgrade` on a router updates firmware.
-- [ ] A log file that hits its rotation limit drops the oldest lines on the next write.
-- [ ] `shred(path)` removes the target file and writes a root-only audit entry.
-- [ ] `shred(path, pattern)` removes matching lines from the target file without touching other lines.
 - [ ] All new commands have permission checks (root required where realistic).
 - [ ] `npm run build`, `npm run lint`, `npm run format:check`, and `npm run test:run` all pass.
 - [ ] Mission test breakage, if any, is documented in each PR description.
@@ -348,19 +330,16 @@ Before each PR:
 - **Offline accrual could feel punishing**. Log in after a two-week vacation to find your box is vulnerable to several new CVEs across multiple services. Mitigation options: slow the `avgPublishCadence` tuning knob, cap "critical CVEs queued since last login" on the login screen, or add a short grace period after a long idle. We'll tune this after PR B lands.
 - **Firewall UX vs. wallet gameplay**. If players can close all ports they'll want to close everything. But the future wallet-as-file mechanic (Phase 5+) needs open ports to receive income. Tension between defense and playability. Deferred to Phase 5+ since there's no wallet yet in Phase 3 — noted here so we don't forget it.
 - **`apt upgrade` may feel anticlimactic if it's a one-shot trivial command**. Mitigation: fake async download time with realistic apt output (already in the plan for PR A), chance of failure requiring a retry, or a cooldown. Evaluate after PR A plays.
-- **Log rotation may break existing tests** that assume log files grow unbounded. Audit on PR E.
-- **`shred` cover-up paradox**. If `shred` is loggable, the attacker can shred the shred log. The chain has to terminate somewhere. Proposed termination: `/var/log/kern.log` entries for file deletions are written at the "kernel" level and cannot be targeted by `shred` (in-game constraint, not a real filesystem constraint). Realistic: audit daemon integrity.
 - **Service-version file and manual edits**. A root player could `nano /var/lib/apt/service_versions/http` to set their version to anything they want, including a safe version we didn't intend. In Phase 3 this is acceptable (in-genre, matches real Linux), but it's a potential cheat vector if not constrained. Phase 5+'s server-authoritative multiplayer model will naturally fix this via patch validation.
 
 ## Suggested ordering
 
-1. **PR A** — `apt upgrade` (foundation, no time dimension)
-2. **PR B** — game-time model + `publishedAt` on CVEs (the architectural PR)
-3. **PR C** — firewall command (independent, but makes more sense after the treadmill is established)
-4. **PR D** — router firmware (builds on PR A's upgrade path)
-5. **PR E** — log rotation + `shred` (the cover-up mechanic)
+1. **PR A** — `apt upgrade` + file-based version overlay (foundation, no time dimension)
+2. **PR B** — game-time model + `publishedAt` + `severity` + 1:1 invariant (architectural)
+3. **PR C** — firewall command (reuses existing iptables mechanism)
+4. **PR D** — router firmware as first-class service
 
-PRs A, B, D form the backbone. PR C and PR E are parallelizable but ordering them last keeps the defense features in logical build-up order.
+PRs A, B, D form the backbone of the treadmill. PR C is parallelizable with D but ordering it third keeps the defense features in logical build-up order.
 
 ---
 
