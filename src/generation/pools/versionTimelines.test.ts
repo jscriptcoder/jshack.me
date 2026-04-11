@@ -22,12 +22,14 @@ describe('CVE_TIMING_CONFIG', () => {
     );
   });
 
-  it('targets roughly 10 CVEs per year per service', () => {
+  it('targets a fast-enough cadence to feel in a single session', () => {
     // Average gap = (min + max) / 2. ~365 days / avg gap ≈ bumps per year.
+    // Tuned for ~40 bumps per year per service so a typical 15-service
+    // network sees multiple CVEs land per real day.
     const avgGap = (CVE_TIMING_CONFIG.minSafeWindowDays + CVE_TIMING_CONFIG.maxSafeWindowDays) / 2;
     const bumpsPerYear = 365 / avgGap;
-    expect(bumpsPerYear).toBeGreaterThan(5);
-    expect(bumpsPerYear).toBeLessThan(20);
+    expect(bumpsPerYear).toBeGreaterThan(20);
+    expect(bumpsPerYear).toBeLessThan(100);
   });
 });
 
