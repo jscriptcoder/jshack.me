@@ -265,9 +265,17 @@ When we pick this back up, real iptables INPUT semantics (DROP/ACCEPT), a player
 - `apt upgrade` on a router includes firmware. Subcommand surface:
   - `apt('upgrade')` on a router → upgrades services AND firmware to the latest safe values
   - `apt('upgrade', 'firmware')` → firmware only
-  - `apt('install', 'firmware=MikroTik RouterOS 6.48')` → specific firmware version
-- Firmware overlay lives at `/var/lib/apt/service_versions/firmware` on the router — same mechanism as service versions.
+- Firmware overlay lives at `/var/lib/dpkg/status` on the router — same mechanism as service versions (unified Phase 3 PR B).
 - Tests: vulnerable firmware → exploitable via msfconsole → `apt upgrade firmware` closes the window → CVE advances → vulnerable again.
+
+### `apt install <pkg>=<version>` version pinning (shipped in PR C)
+
+Generic version-pin install syntax for both services and firmware:
+
+- `apt('install', 'http=Apache/2.4.49')` → pin a service to a specific version
+- `apt('install', 'firmware=MikroTik RouterOS 7.15.0')` → pin a router's firmware to a specific version
+
+Validation: the package must be installed (a running service, or `firmware` on a router), and the pinned version must be reachable in either the hand-authored CVE table or the procedural walker within a ~2-year walk budget. Pinning a currently-vulnerable version is allowed — deliberate downgrades are a valid gameplay move.
 
 ## Acceptance Criteria
 

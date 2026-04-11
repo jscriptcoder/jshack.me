@@ -134,6 +134,21 @@ describe('buildInitialDpkgStatus', () => {
   it('returns an empty string for a machine with no services', () => {
     expect(buildInitialDpkgStatus([])).toBe('');
   });
+
+  it('includes a firmware entry when a firmware version is supplied', () => {
+    const content = buildInitialDpkgStatus(
+      [{ service: 'ssh', serviceVersion: 'OpenSSH 9.6' }],
+      'MikroTik RouterOS 7.14.2',
+    );
+    const parsed = parseDpkgStatus(content);
+    expect(parsed.get('firmware')?.version).toBe('MikroTik RouterOS 7.14.2');
+    expect(parsed.get('ssh')?.version).toBe('OpenSSH 9.6');
+  });
+
+  it('omits the firmware entry when no firmware version is supplied', () => {
+    const content = buildInitialDpkgStatus([{ service: 'ssh', serviceVersion: 'OpenSSH 9.6' }]);
+    expect(parseDpkgStatus(content).has('firmware')).toBe(false);
+  });
 });
 
 describe('setDpkgVersion', () => {

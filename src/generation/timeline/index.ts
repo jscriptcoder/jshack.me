@@ -1,6 +1,7 @@
 export {
   bumpTuple,
   buildTimeline,
+  buildTimelineFromTemplate,
   findLatestSafeVersion,
   findGeneratedVersion,
   type GeneratedVersion,

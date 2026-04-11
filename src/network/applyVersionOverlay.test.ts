@@ -113,4 +113,34 @@ Version: MySQL 8.0.35
     expect(result.ports[0]?.serviceVersion).toBe('OpenSSH 8.9');
     expect(result.ports[1]?.serviceVersion).toBe('Apache/2.4.49');
   });
+
+  it('sets firmwareVersion on a router from the firmware package entry', () => {
+    const routerMachine: RemoteMachine = {
+      ...baseMachine,
+      firmwareVendor: 'mikrotik',
+    };
+    const content = `Package: ssh
+Status: install ok installed
+Version: OpenSSH 8.9
+
+Package: firmware
+Status: install ok installed
+Version: MikroTik RouterOS 7.14.2
+`;
+    const result = applyVersionOverlay(routerMachine, mkReader(content));
+    expect(result.firmwareVersion).toBe('MikroTik RouterOS 7.14.2');
+  });
+
+  it('leaves firmwareVersion undefined when dpkg/status has no firmware entry', () => {
+    const routerMachine: RemoteMachine = {
+      ...baseMachine,
+      firmwareVendor: 'mikrotik',
+    };
+    const content = `Package: ssh
+Status: install ok installed
+Version: OpenSSH 9.7
+`;
+    const result = applyVersionOverlay(routerMachine, mkReader(content));
+    expect(result.firmwareVersion).toBeUndefined();
+  });
 });

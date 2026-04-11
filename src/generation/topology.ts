@@ -1,4 +1,4 @@
-import type { Prng } from './prng';
+import { createPrng, type Prng } from './prng';
 import { generatePrivateSubnet, generatePublicIp } from './ip';
 import type {
   Difficulty,
@@ -25,6 +25,7 @@ import {
 } from './pools';
 import { vulnerabilityTemplates } from './pools';
 import { defaultServiceVersion } from './pools/vulnerabilities';
+import { FIRMWARE_VENDORS, type FirmwareVendor } from './pools/routerFirmware';
 
 const allVariants: readonly EntryVariant[] = ['ssh', 'ftp', 'nc', 'exploit', 'http', 'snmp'];
 
@@ -371,6 +372,11 @@ export const generateTopology = (
     ? 'ssh'
     : outerLayer.entryVariant;
 
+  // Use a derived PRNG so the main topology PRNG sequence is unchanged by
+  // firmware picks (keeps downstream generation deterministic-compatible).
+  const routerFirmwareVendor: FirmwareVendor = createPrng(
+    `firmware-vendor:${routerPublicIp}`,
+  ).pick(FIRMWARE_VENDORS);
   const routerMachine: GeneratedMachine = {
     ip: routerPublicIp,
     hostname: routerHostname,
@@ -381,6 +387,7 @@ export const generateTopology = (
       hostname: routerHostname,
       ports: outerLayer.gatewayPorts,
       users: [],
+      firmwareVendor: routerFirmwareVendor,
     },
   };
 
@@ -411,6 +418,10 @@ export const generateTopology = (
             ? 'ssh'
             : downstreamLayer.entryVariant;
 
+      const gatewayFirmwareVendor: FirmwareVendor | undefined =
+        gatewayRole === 'router'
+          ? createPrng(`firmware-vendor:${gatewayUpstreamIp}`).pick(FIRMWARE_VENDORS)
+          : undefined;
       return {
         ip: gatewayUpstreamIp,
         hostname: gatewayHostname,
@@ -421,6 +432,7 @@ export const generateTopology = (
           hostname: gatewayHostname,
           ports: downstreamLayer.gatewayPorts,
           users: [],
+          firmwareVendor: gatewayFirmwareVendor,
         },
       };
     },

@@ -5,7 +5,16 @@ import type { UserType } from '../session/SessionContext';
 import type { RemoteMachine } from '../network/types';
 import { APT_PACKAGES, APT_INSTALLABLE, BINARY_STUB, RESTRICTED_EXECUTE } from './availability';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
-import { findVulnForService } from '../generation/vulnerabilityLookup';
+import {
+  findVulnForService,
+  findPinnableServiceVersion,
+} from '../generation/vulnerabilityLookup';
+import {
+  findFirmwareCve,
+  findLatestSafeFirmware,
+  findPinnableFirmwareVersion,
+} from '../generation/firmwareLookup';
+import type { FirmwareVendor } from '../generation/pools/routerFirmware';
 import { getLatestSafeVersion, DEFAULT_LATEST_VERSION } from '../generation/timeline';
 import { DPKG_STATUS_PATH, setDpkgVersion } from '../network/dpkgStatus';
 
@@ -170,6 +179,8 @@ type UpgradeCandidate = {
   readonly targetVersion: string;
 };
 
+const FIRMWARE_PACKAGE = 'firmware';
+
 const collectUpgradeCandidates = (
   machine: RemoteMachine,
   serviceFilter: string | undefined,
@@ -187,14 +198,43 @@ const collectUpgradeCandidates = (
       targetVersion: pickUpgradeTarget(port.service, gameTime),
     });
   }
+
+  // Router firmware is treated like a package named `firmware`. It's a
+  // candidate only when the machine actually has a firmware vendor AND its
+  // current firmware version has a live CVE.
+  const includeFirmware =
+    serviceFilter === undefined || serviceFilter === FIRMWARE_PACKAGE;
+  if (
+    includeFirmware &&
+    machine.firmwareVendor &&
+    machine.firmwareVersion &&
+    findFirmwareCve(
+      machine.firmwareVendor as FirmwareVendor,
+      machine.firmwareVersion,
+      gameTime,
+    )
+  ) {
+    const target =
+      findLatestSafeFirmware(machine.firmwareVendor as FirmwareVendor, gameTime) ??
+      machine.firmwareVersion;
+    candidates.push({
+      service: FIRMWARE_PACKAGE,
+      targetVersion: target,
+    });
+  }
+
   return candidates;
 };
 
-// Returns the set of services currently running on the machine (one entry per
-// unique service across all ports). Used by `apt upgrade <service>` to decide
-// whether the named service exists before computing upgrade candidates.
-const runningServices = (machine: RemoteMachine): ReadonlySet<string> =>
-  new Set(machine.ports.map((p) => p.service));
+// Returns the set of packages currently installed on the machine. Includes
+// one entry per unique service across all ports, plus `firmware` if the
+// machine is a router. Used by `apt upgrade <package>` to decide whether
+// the named package exists before computing upgrade candidates.
+const installedPackages = (machine: RemoteMachine): ReadonlySet<string> => {
+  const packages = new Set(machine.ports.map((p) => p.service));
+  if (machine.firmwareVendor) packages.add(FIRMWARE_PACKAGE);
+  return packages;
+};
 
 // Writes (or creates) /var/lib/dpkg/status with the given content. Uses the
 // existing readFile helper to decide create-vs-write, since createFile rejects
@@ -235,8 +275,8 @@ const handleUpgrade = (
     return '0 upgraded, 0 newly installed, 0 to remove.';
   }
 
-  if (serviceFilter !== undefined && !runningServices(machine).has(serviceFilter)) {
-    throw new Error(`E: Service '${serviceFilter}' is not running on this machine`);
+  if (serviceFilter !== undefined && !installedPackages(machine).has(serviceFilter)) {
+    throw new Error(`E: Package '${serviceFilter}' is not installed on this machine`);
   }
 
   const candidates = collectUpgradeCandidates(machine, serviceFilter, gameTime);
@@ -284,6 +324,88 @@ const handleUpgrade = (
                 setDpkgVersion(content, candidate.service, candidate.targetVersion),
               currentContent,
             );
+            writeDpkgStatus(updatedContent, context);
+            onComplete();
+          }
+        }, delay);
+      });
+    },
+    cancel: token.cancel,
+  };
+};
+
+// --- apt install <pkg>=<version> (version pinning) ---
+
+// Writes a specific version of an existing package into /var/lib/dpkg/status.
+// Used for both services (e.g., `http=Apache/2.4.49`) and router firmware
+// (e.g., `firmware=MikroTik RouterOS 7.14.3`). Pinning a vulnerable version
+// is allowed — players can deliberately downgrade.
+const handleInstallPin = (
+  pkg: string,
+  pinnedVersion: string,
+  context: AptContext,
+): AsyncOutput | string => {
+  const { getMachine, getCurrentMachine, readFile, getUserType, isWifiConnected } = context;
+  const gameTime = context.getGameTime?.() ?? 0;
+
+  if (getMachine() === 'localhost' && !isWifiConnected()) {
+    throw new Error('E: Failed to fetch http://archive.ubuntu.com — network is unreachable');
+  }
+
+  if (getUserType() !== 'root') {
+    throw new Error('E: Could not open lock file /var/lib/dpkg/lock-frontend — are you root?');
+  }
+
+  const machine = getCurrentMachine?.();
+  if (!machine) {
+    throw new Error(`E: Package '${pkg}' is not installed on this machine`);
+  }
+
+  if (!installedPackages(machine).has(pkg)) {
+    throw new Error(`E: Package '${pkg}' is not installed on this machine`);
+  }
+
+  // Validate the pinned version is reachable for the package.
+  const pinnable =
+    pkg === FIRMWARE_PACKAGE
+      ? machine.firmwareVendor !== undefined &&
+        findPinnableFirmwareVersion(
+          machine.firmwareVendor as FirmwareVendor,
+          pinnedVersion,
+          gameTime,
+        )
+      : findPinnableServiceVersion(pkg, pinnedVersion, gameTime);
+
+  if (!pinnable) {
+    throw new Error(
+      `E: Package '${pkg}' has no installation candidate for version '${pinnedVersion}'`,
+    );
+  }
+
+  const token = createCancellationToken();
+
+  return {
+    __type: 'async',
+    start: (onLine, onComplete) => {
+      const lines = [
+        'Reading package lists... Done',
+        'Building dependency tree... Done',
+        `The following packages will be DOWNGRADED:`,
+        `  ${pkg}`,
+        `0 upgraded, 0 newly installed, 1 downgraded, 0 to remove.`,
+        `Get: ${pkg} ${pinnedVersion}`,
+        `Setting up ${pkg} (${pinnedVersion}) ...`,
+      ];
+
+      let delay = 0;
+      lines.forEach((line, i) => {
+        delay += jitter(OVERLAY_DELAY_MS);
+        token.schedule(() => {
+          if (token.isCancelled()) return;
+          onLine(line);
+          if (i === lines.length - 1) {
+            const currentContent = readFile ? (readFile(DPKG_STATUS_PATH) ?? '') : '';
+            const updatedContent = setDpkgVersion(currentContent, pkg, pinnedVersion);
             writeDpkgStatus(updatedContent, context);
             onComplete();
           }
@@ -346,6 +468,14 @@ export const createAptCommand = (context: AptContext): Command => ({
       const packageName = args[1] as string | undefined;
       if (!packageName) {
         throw new Error("E: No package name specified. Usage: apt('install', '<package>')");
+      }
+      // `pkg=version` → version-pin install (service or firmware). Otherwise
+      // fall through to the binary-tool install path.
+      const equalsIndex = packageName.indexOf('=');
+      if (equalsIndex > 0) {
+        const pkg = packageName.slice(0, equalsIndex);
+        const version = packageName.slice(equalsIndex + 1);
+        return handleInstallPin(pkg, version, context);
       }
       return handleInstall(packageName, context);
     }
