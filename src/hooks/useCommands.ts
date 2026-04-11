@@ -89,6 +89,7 @@ export const useCommands = (): UseCommandsResult => {
   const {
     resolvePath,
     getNode,
+    readFile,
     readFileFromMachine,
     writeFileToMachine,
     createFileOnMachine,
@@ -226,6 +227,7 @@ export const useCommands = (): UseCommandsResult => {
         getMachine: () => session.machine,
         getCurrentMachine: () => getMachineInfo(session.machine),
         getNode,
+        readFile: (path: string) => readFile(path, 'root'),
         createFile,
         writeFile,
         getUserType: () => session.userType,

@@ -1,38 +1,39 @@
 import type { MachineFileOp } from '../filesystem/types';
 import type { RemoteMachine } from './types';
+import { DPKG_STATUS_PATH, parseDpkgVersions } from './dpkgStatus';
 
-// Phase 3 file-based service-version overlay. When a player runs
-// `apt upgrade` or `apt install service=version` on a machine, the new
-// service version is written to /var/lib/apt/service_versions/<service>
-// on that machine's filesystem (via the existing IndexedDB patch stream).
+// Phase 3 service-version overlay. When a player runs `apt upgrade` on a
+// machine, the new service version is persisted in the machine's
+// /var/lib/dpkg/status file (the real path Debian/Ubuntu uses for package
+// metadata). This function wraps a RemoteMachine so that port.serviceVersion
+// reads come from that file if an entry exists for the port's service name;
+// otherwise it falls through to the generation-time default.
 //
-// applyVersionOverlay wraps a RemoteMachine so that port-version reads
-// see the overlay'd version instead of the generation-time default.
-// Consumers (nmap, msfconsole, the exploit-logging callback) don't need
-// to know the overlay exists — they get an "effective machine" view.
-
-export const SERVICE_VERSION_OVERLAY_DIR = '/var/lib/apt/service_versions';
-
-export const serviceVersionOverlayPath = (service: string): string =>
-  `${SERVICE_VERSION_OVERLAY_DIR}/${service}`;
+// Consumers (nmap, msfconsole, the exploit-logging callback) get the overlay
+// applied transparently via useNetworkCommands wrapping getMachine/etc.
 
 type ReadFromMachine = (op: MachineFileOp) => string | null;
 
 export const applyVersionOverlay = (
   machine: RemoteMachine,
   readFileFromMachine: ReadFromMachine,
-): RemoteMachine => ({
-  ...machine,
-  ports: machine.ports.map((port) => {
-    const overlay = readFileFromMachine({
-      machineId: machine.ip,
-      path: serviceVersionOverlayPath(port.service),
-      cwd: '/',
-      userType: 'root',
-    });
-    if (overlay === null) return port;
-    const trimmed = overlay.trim();
-    if (trimmed.length === 0) return port;
-    return { ...port, serviceVersion: trimmed };
-  }),
-});
+): RemoteMachine => {
+  const content = readFileFromMachine({
+    machineId: machine.ip,
+    path: DPKG_STATUS_PATH,
+    cwd: '/',
+    userType: 'root',
+  });
+  if (content === null || content.trim().length === 0) return machine;
+
+  const versions = parseDpkgVersions(content);
+  if (versions.size === 0) return machine;
+
+  return {
+    ...machine,
+    ports: machine.ports.map((port) => {
+      const overlay = versions.get(port.service);
+      return overlay === undefined ? port : { ...port, serviceVersion: overlay };
+    }),
+  };
+};

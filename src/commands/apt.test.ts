@@ -28,6 +28,7 @@ type MockAptConfig = {
   readonly installedTools?: readonly string[];
   readonly wifiConnected?: boolean;
   readonly currentMachine?: RemoteMachine;
+  readonly initialFiles?: Readonly<Record<string, string>>;
 };
 
 type CreatedFile = {
@@ -43,10 +44,14 @@ const createMockAptContext = (config: MockAptConfig = {}) => {
     installedTools = [],
     wifiConnected = true,
     currentMachine,
+    initialFiles = {},
   } = config;
   const createdFiles: CreatedFile[] = [];
   const writtenFiles: Array<{ path: string; content: string }> = [];
+  const fileContents: Record<string, string> = { ...initialFiles };
 
+  // Keep createdFiles / writtenFiles in sync with fileContents so tests can
+  // introspect either.
   return {
     context: {
       getMachine: () => machine,
@@ -55,8 +60,10 @@ const createMockAptContext = (config: MockAptConfig = {}) => {
         const name = path.replace('/usr/bin/', '');
         if (installedTools.includes(name)) return mkBinaryNode(name);
         if (createdFiles.some((f) => f.path === path)) return mkBinaryNode(name);
+        if (fileContents[path] !== undefined) return mkBinaryNode(name);
         return null;
       },
+      readFile: (path: string): string | null => fileContents[path] ?? null,
       createFile: (
         path: string,
         content: string,
@@ -64,10 +71,12 @@ const createMockAptContext = (config: MockAptConfig = {}) => {
         permissions?: FilePermissions,
       ) => {
         createdFiles.push({ path, content, permissions });
+        fileContents[path] = content;
         return { allowed: true };
       },
       writeFile: (path: string, content: string, _userType: string) => {
         writtenFiles.push({ path, content });
+        fileContents[path] = content;
         return { allowed: true };
       },
       getUserType: () => userType,
@@ -75,6 +84,7 @@ const createMockAptContext = (config: MockAptConfig = {}) => {
     },
     createdFiles,
     writtenFiles,
+    fileContents,
   };
 };
 
@@ -457,13 +467,13 @@ describe('apt command', () => {
       expect(() => apt.fn('upgrade')).toThrow('network is unreachable');
     });
 
-    it('writes an overlay file for each vulnerable service when called without args', () => {
+    it('writes an entry to /var/lib/dpkg/status for each vulnerable service', () => {
       const machine = mkMachine([
         { port: 22, service: 'ssh', serviceVersion: 'OpenSSH 9.6' }, // safe
         { port: 80, service: 'http', serviceVersion: 'Apache/2.4.49' }, // CVE-2021-41773
         { port: 3306, service: 'mysql', serviceVersion: 'MySQL 5.5.23' }, // CVE-2012-2122
       ]);
-      const { context, createdFiles } = createMockAptContext({ currentMachine: machine });
+      const { context, fileContents } = createMockAptContext({ currentMachine: machine });
       const apt = createAptCommand(context);
       const result = apt.fn('upgrade');
 
@@ -475,23 +485,18 @@ describe('apt command', () => {
       );
       vi.advanceTimersByTime(5000);
 
-      // Overlay files for http and mysql, not ssh (which was already safe)
-      const httpOverlay = createdFiles.find((f) => f.path === '/var/lib/apt/service_versions/http');
-      const mysqlOverlay = createdFiles.find(
-        (f) => f.path === '/var/lib/apt/service_versions/mysql',
-      );
-      const sshOverlay = createdFiles.find((f) => f.path === '/var/lib/apt/service_versions/ssh');
-
-      expect(httpOverlay).toBeDefined();
-      expect(mysqlOverlay).toBeDefined();
-      expect(sshOverlay).toBeUndefined();
+      const statusContent = fileContents['/var/lib/dpkg/status'] ?? '';
+      expect(statusContent).toContain('Package: http');
+      expect(statusContent).toContain('Package: mysql');
+      // ssh was safe, so it should NOT be in the status file
+      expect(statusContent).not.toContain('Package: ssh');
     });
 
-    it('overlay content is a version string that findVulnForService cannot exploit', () => {
-      // We verify this by checking the content is the default "safe" sentinel ("latest")
-      // — in PR A there's no version timeline yet, so the upgrade target is the sentinel.
+    it('status file entries use the default safe sentinel version', () => {
+      // In PR A there's no version timeline yet, so the upgrade target is
+      // defaultServiceVersion(service) which returns 'latest'.
       const machine = mkMachine([{ port: 80, service: 'http', serviceVersion: 'Apache/2.4.49' }]);
-      const { context, createdFiles } = createMockAptContext({ currentMachine: machine });
+      const { context, fileContents } = createMockAptContext({ currentMachine: machine });
       const apt = createAptCommand(context);
       const result = apt.fn('upgrade');
 
@@ -502,8 +507,40 @@ describe('apt command', () => {
       );
       vi.advanceTimersByTime(5000);
 
-      const httpOverlay = createdFiles.find((f) => f.path === '/var/lib/apt/service_versions/http');
-      expect(httpOverlay?.content).toBe('latest');
+      const statusContent = fileContents['/var/lib/dpkg/status'] ?? '';
+      expect(statusContent).toMatch(/Package: http[\s\S]*?Version: latest/);
+    });
+
+    it('preserves existing status file entries when upgrading', () => {
+      // Simulate a machine that already has a seeded status file with ssh
+      // entry, then upgrade http. The ssh entry should still be present.
+      const initialStatus = `Package: ssh
+Status: install ok installed
+Version: OpenSSH 9.6
+`;
+      const machine = mkMachine([
+        { port: 22, service: 'ssh', serviceVersion: 'OpenSSH 9.6' },
+        { port: 80, service: 'http', serviceVersion: 'Apache/2.4.49' },
+      ]);
+      const { context, fileContents } = createMockAptContext({
+        currentMachine: machine,
+        initialFiles: { '/var/lib/dpkg/status': initialStatus },
+      });
+      const apt = createAptCommand(context);
+      const result = apt.fn('upgrade');
+
+      if (!isAsyncOutput(result)) return;
+      result.start(
+        () => {},
+        () => {},
+      );
+      vi.advanceTimersByTime(5000);
+
+      const statusContent = fileContents['/var/lib/dpkg/status'] ?? '';
+      expect(statusContent).toContain('Package: ssh');
+      expect(statusContent).toContain('Package: http');
+      expect(statusContent).toContain('Version: OpenSSH 9.6');
+      expect(statusContent).toContain('Version: latest');
     });
 
     it('reports already-current when no services have active CVEs', () => {
@@ -511,7 +548,7 @@ describe('apt command', () => {
         { port: 22, service: 'ssh', serviceVersion: 'OpenSSH 9.6' },
         { port: 80, service: 'http', serviceVersion: 'Apache/9.9.9' }, // no CVE match
       ]);
-      const { context, createdFiles } = createMockAptContext({ currentMachine: machine });
+      const { context, fileContents } = createMockAptContext({ currentMachine: machine });
       const apt = createAptCommand(context);
       const result = apt.fn('upgrade');
 
@@ -528,10 +565,8 @@ describe('apt command', () => {
         expect(lines.some((l) => /0 (upgraded|to upgrade)/.test(l))).toBe(true);
       }
 
-      // No overlay files should be written
-      expect(createdFiles.some((f) => f.path.startsWith('/var/lib/apt/service_versions/'))).toBe(
-        false,
-      );
+      // No status file should be written
+      expect(fileContents['/var/lib/dpkg/status']).toBeUndefined();
     });
 
     it('upgrades a specific service when given a service name', () => {
@@ -539,7 +574,7 @@ describe('apt command', () => {
         { port: 80, service: 'http', serviceVersion: 'Apache/2.4.49' },
         { port: 3306, service: 'mysql', serviceVersion: 'MySQL 5.5.23' },
       ]);
-      const { context, createdFiles } = createMockAptContext({ currentMachine: machine });
+      const { context, fileContents } = createMockAptContext({ currentMachine: machine });
       const apt = createAptCommand(context);
       const result = apt.fn('upgrade', 'http');
 
@@ -550,11 +585,10 @@ describe('apt command', () => {
       );
       vi.advanceTimersByTime(5000);
 
-      // Only http should be upgraded, not mysql
-      expect(createdFiles.some((f) => f.path === '/var/lib/apt/service_versions/http')).toBe(true);
-      expect(createdFiles.some((f) => f.path === '/var/lib/apt/service_versions/mysql')).toBe(
-        false,
-      );
+      const statusContent = fileContents['/var/lib/dpkg/status'] ?? '';
+      // Only http should appear in the status file, not mysql
+      expect(statusContent).toContain('Package: http');
+      expect(statusContent).not.toContain('Package: mysql');
     });
 
     it('throws when upgrading a service that is not running on the current machine', () => {
@@ -566,7 +600,7 @@ describe('apt command', () => {
 
     it('reports already-current for a specific service that is already safe', () => {
       const machine = mkMachine([{ port: 22, service: 'ssh', serviceVersion: 'OpenSSH 9.6' }]);
-      const { context, createdFiles } = createMockAptContext({ currentMachine: machine });
+      const { context, fileContents } = createMockAptContext({ currentMachine: machine });
       const apt = createAptCommand(context);
       const result = apt.fn('upgrade', 'ssh');
 
@@ -581,7 +615,8 @@ describe('apt command', () => {
         vi.advanceTimersByTime(5000);
         expect(lines.some((l) => /already|0 (upgraded|to upgrade)/.test(l))).toBe(true);
       }
-      expect(createdFiles.some((f) => f.path === '/var/lib/apt/service_versions/ssh')).toBe(false);
+      // No status file should be written since nothing was upgraded
+      expect(fileContents['/var/lib/dpkg/status']).toBeUndefined();
     });
 
     it('displays realistic apt upgrade output lines', () => {

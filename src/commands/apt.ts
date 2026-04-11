@@ -6,12 +6,13 @@ import type { RemoteMachine } from '../network/types';
 import { APT_PACKAGES, APT_INSTALLABLE, BINARY_STUB, RESTRICTED_EXECUTE } from './availability';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 import { findVulnForService, defaultServiceVersion } from '../generation/pools/vulnerabilities';
-import { serviceVersionOverlayPath } from '../network/applyVersionOverlay';
+import { DPKG_STATUS_PATH, setDpkgVersion } from '../network/dpkgStatus';
 
 type AptContext = {
   readonly getMachine: () => string;
   readonly getCurrentMachine?: () => RemoteMachine | undefined;
   readonly getNode: (path: string) => FileNode | null;
+  readonly readFile?: (path: string) => string | null;
   readonly createFile: (
     path: string,
     content: string,
@@ -141,9 +142,9 @@ const handleInstall = (packageName: string, context: AptContext): AsyncOutput | 
 
 // --- apt upgrade ---
 
-// Overlay files are root-owned and world-readable. Matches real Linux
-// /var/lib/dpkg/status and similar package-metadata file permissions.
-const OVERLAY_PERMISSIONS: FilePermissions = {
+// Matches real Linux /var/lib/dpkg/status permissions: root-owned, world
+// readable, no execute.
+const DPKG_STATUS_PERMISSIONS: FilePermissions = {
   read: ['root', 'user', 'guest'],
   write: ['root'],
   execute: [],
@@ -187,11 +188,28 @@ const collectUpgradeCandidates = (
 const runningServices = (machine: RemoteMachine): ReadonlySet<string> =>
   new Set(machine.ports.map((p) => p.service));
 
+// Writes (or creates) /var/lib/dpkg/status with the given content. Uses the
+// existing readFile helper to decide create-vs-write, since createFile rejects
+// existing files.
+const writeDpkgStatus = (content: string, context: AptContext): void => {
+  const { readFile, createFile, writeFile } = context;
+  const existing = readFile ? readFile(DPKG_STATUS_PATH) : null;
+  if (existing === null) {
+    createFile(DPKG_STATUS_PATH, content, 'root', DPKG_STATUS_PERMISSIONS);
+  } else if (writeFile) {
+    writeFile(DPKG_STATUS_PATH, content, 'root');
+  } else {
+    // No writeFile available (test contexts may omit it). Fall back to
+    // recreating via createFile — harmless in tests that track created files.
+    createFile(DPKG_STATUS_PATH, content, 'root', DPKG_STATUS_PERMISSIONS);
+  }
+};
+
 const handleUpgrade = (
   serviceFilter: string | undefined,
   context: AptContext,
 ): AsyncOutput | string => {
-  const { getMachine, getCurrentMachine, createFile, getUserType, isWifiConnected } = context;
+  const { getMachine, getCurrentMachine, readFile, getUserType, isWifiConnected } = context;
   const machineId = getMachine();
 
   if (machineId === 'localhost' && !isWifiConnected()) {
@@ -249,15 +267,15 @@ const handleUpgrade = (
           if (token.isCancelled()) return;
           onLine(line);
           if (i === lines.length - 1) {
-            // Write the overlay files for every candidate at completion.
-            for (const candidate of candidates) {
-              createFile(
-                serviceVersionOverlayPath(candidate.service),
-                candidate.targetVersion,
-                'root',
-                OVERLAY_PERMISSIONS,
-              );
-            }
+            // Read current /var/lib/dpkg/status, fold in all upgraded
+            // services, then write the whole file back in one shot.
+            const currentContent = readFile ? (readFile(DPKG_STATUS_PATH) ?? '') : '';
+            const updatedContent = candidates.reduce(
+              (content, candidate) =>
+                setDpkgVersion(content, candidate.service, candidate.targetVersion),
+              currentContent,
+            );
+            writeDpkgStatus(updatedContent, context);
             onComplete();
           }
         }, delay);
