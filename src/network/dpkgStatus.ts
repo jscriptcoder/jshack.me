@@ -68,12 +68,21 @@ export const buildEntry = (pkg: string, version: string): DpkgEntry => ({
 // unique service running on any of its ports. Used at generation time to
 // seed a plausible /var/lib/dpkg/status so players see entries for their
 // running services even on a fresh machine.
+//
+// When `firmwareVersion` is supplied (router machines only), a synthetic
+// `firmware` package is added alongside the service entries. apt upgrade
+// and findFirmwareCve consume this entry the same way they consume
+// regular service packages.
 export const buildInitialDpkgStatus = (
   ports: readonly { readonly service: string; readonly serviceVersion: string }[],
+  firmwareVersion?: string,
 ): string => {
   const seen = new Map<string, string>();
   for (const port of ports) {
     if (!seen.has(port.service)) seen.set(port.service, port.serviceVersion);
+  }
+  if (firmwareVersion !== undefined) {
+    seen.set('firmware', firmwareVersion);
   }
   if (seen.size === 0) return '';
   const entries = Array.from(seen, ([pkg, version]) => buildEntry(pkg, version));

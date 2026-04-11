@@ -23,6 +23,8 @@ import {
 } from '../pools';
 import { wrapInBinaryNoise } from '../binary';
 import { buildInitialDpkgStatus } from '../../network/dpkgStatus';
+import { firmwareTemplates, type FirmwareVendor } from '../pools/routerFirmware';
+import { formatVersion } from '../pools/serviceTemplates';
 import {
   createBinaryEntries,
   SYSTEM_UTILITY_NAMES,
@@ -929,7 +931,18 @@ export const buildMachineConfig = (
   // Placed LAST in the machineConfig flow so it survives earlier /var
   // overwrites (web content at ~L803 wholesale-replaces extraDirectories['var']
   // for webservers; MySQL/Redis data paths do similar).
-  const dpkgStatusContent = buildInitialDpkgStatus(machine.remoteMachine.ports);
+  // Routers get an additional `firmware` package seeded with the vendor's
+  // starting-tuple version. Non-routers pass undefined and the helper omits
+  // the firmware entry entirely.
+  const vendor = machine.remoteMachine.firmwareVendor as FirmwareVendor | undefined;
+  const initialFirmwareVersion =
+    vendor && firmwareTemplates[vendor]
+      ? formatVersion(firmwareTemplates[vendor], firmwareTemplates[vendor].startTuple)
+      : undefined;
+  const dpkgStatusContent = buildInitialDpkgStatus(
+    machine.remoteMachine.ports,
+    initialFirmwareVersion,
+  );
   if (dpkgStatusContent.length > 0) {
     const statusFile = mkFile('status', dpkgStatusContent, 'guest');
     const existingVar = extraDirectories['var'];

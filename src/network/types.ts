@@ -87,6 +87,10 @@ export type RemoteMachine = {
   readonly hostname: string;
   readonly ports: readonly Port[];
   readonly users: readonly RemoteUser[];
+  // Router-only. Chosen at generation time by the topology seeder and
+  // consumed by findFirmwareCve / msfconsole / apt upgrade firmware.
+  // Undefined for non-router machines.
+  readonly firmwareVendor?: string;
 };
 
 export type DnsRecord = {
