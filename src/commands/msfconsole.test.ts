@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { RemoteMachine, DnsRecord } from '../network/types';
-import type { AsyncOutput, NcPromptData } from '../components/Terminal/types';
+import type { AsyncFollowUp, AsyncOutput, NcPromptData } from '../components/Terminal/types';
 import { createMsfconsoleCommand } from './msfconsole';
+import { buildTimeline, buildGeneratedVuln, CVE_TIMING_CONFIG } from '../generation/timeline';
 
 // --- Factory Functions ---
 
@@ -29,6 +30,7 @@ type MsfconsoleContextConfig = {
   readonly machines?: readonly RemoteMachine[];
   readonly localIP?: string;
   readonly dnsRecords?: readonly DnsRecord[];
+  readonly gameTime?: number;
   readonly onExploitAttempt?: (info: {
     readonly targetIp: string;
     readonly port: number;
@@ -39,13 +41,20 @@ type MsfconsoleContextConfig = {
 };
 
 const createMockMsfconsoleContext = (config: MsfconsoleContextConfig = {}) => {
-  const { machines = [], localIP = '192.168.1.100', dnsRecords = [], onExploitAttempt } = config;
+  const {
+    machines = [],
+    localIP = '192.168.1.100',
+    dnsRecords = [],
+    gameTime,
+    onExploitAttempt,
+  } = config;
 
   return {
     getMachine: (ip: string) => machines.find((m) => m.ip === ip),
     getLocalIP: () => localIP,
     resolveDomain: (domain: string) => dnsRecords.find((r) => r.domain === domain),
     onExploitAttempt,
+    getGameTime: gameTime !== undefined ? () => gameTime : undefined,
   };
 };
 
@@ -549,6 +558,82 @@ describe('msfconsole command', () => {
       // Only the initial targeting line (synchronous) should appear
       expect(lines).toHaveLength(1);
       expect(completed).toBe(false);
+    });
+  });
+
+  describe('effect dispatch — shell_full', () => {
+    // Find a procedural CVE with shell_full for a known service.
+    const findShellFullCve = () => {
+      const timeline = buildTimeline('http', 1000, CVE_TIMING_CONFIG);
+      for (const entry of timeline) {
+        const vuln = buildGeneratedVuln('http', entry);
+        if (vuln.effect.kind === 'shell_full') return { entry, vuln };
+      }
+      throw new Error('no shell_full CVE found for http in first 1000 days');
+    };
+
+    it('returns an exploit_shell follow-up for a CVE with shell_full effect', () => {
+      const { entry, vuln } = findShellFullCve();
+      const machine = getMockRemoteMachine({
+        ports: [
+          {
+            port: 80,
+            service: 'http',
+            serviceVersion: vuln.serviceVersion,
+            open: true,
+            owner: { username: 'www-data', userType: 'guest', homePath: '/var/www' },
+          },
+        ],
+      });
+      const context = createMockMsfconsoleContext({
+        machines: [machine],
+        gameTime: entry.publishedAt,
+      });
+      const msfconsole = createMsfconsoleCommand(context);
+      const result = msfconsole.fn('10.50.100.10', 80);
+
+      expect(isAsyncOutput(result)).toBe(true);
+      if (!isAsyncOutput(result)) return;
+
+      let followUp: AsyncFollowUp | undefined;
+      result.start(
+        () => {},
+        (fu) => {
+          followUp = fu;
+        },
+      );
+      vi.advanceTimersByTime(5000);
+
+      expect(followUp).toBeDefined();
+      expect(followUp?.__type).toBe('exploit_shell');
+      if (followUp && '__type' in followUp && followUp.__type === 'exploit_shell') {
+        const shell = followUp as { __type: 'exploit_shell'; tier: string; targetIP: string };
+        expect(['guest', 'user', 'root']).toContain(shell.tier);
+        expect(shell.targetIP).toBe('10.50.100.10');
+      }
+    });
+
+    it('still returns nc_prompt for a CVE with shell_limited effect', () => {
+      // Apache/2.4.49 is hand-authored with shell_limited
+      const machine = getMockRemoteMachine();
+      const context = createMockMsfconsoleContext({ machines: [machine] });
+      const msfconsole = createMsfconsoleCommand(context);
+      const result = msfconsole.fn('10.50.100.10', 80);
+
+      expect(isAsyncOutput(result)).toBe(true);
+      if (!isAsyncOutput(result)) return;
+
+      let followUp: AsyncFollowUp | undefined;
+      result.start(
+        () => {},
+        (fu) => {
+          followUp = fu;
+        },
+      );
+      vi.advanceTimersByTime(5000);
+
+      expect(followUp).toBeDefined();
+      expect(followUp?.__type).toBe('nc_prompt');
     });
   });
 });

@@ -44,6 +44,7 @@ import {
   isFtpQuit,
   isNcPrompt,
   isNcQuit,
+  isExploitShell,
   isMysqlPrompt,
   isRedisPrompt,
   isNanoOpen,
@@ -485,6 +486,15 @@ export const Terminal = () => {
 
                   if (isRedisPrompt(followUp)) {
                     connectRedis(followUp.targetIP, followUp.password);
+                  }
+
+                  if (isExploitShell(followUp)) {
+                    const resolvedIP = resolveNat(followUp.targetIP, followUp.targetPort).ip;
+                    pushSession('exploit');
+                    const targetMachine = findMachineByIp(resolvedIP);
+                    setUsername(followUp.username, followUp.userType);
+                    setMachine(resolvedIP, targetMachine?.hostname);
+                    setCurrentPath(followUp.homePath);
                   }
 
                   if (isNcPrompt(followUp)) {
