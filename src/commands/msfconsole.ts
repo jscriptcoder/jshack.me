@@ -22,6 +22,10 @@ type MsfconsoleContext = {
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
   readonly getGameTime?: () => number;
   readonly onExploitAttempt?: (info: ExploitAttemptInfo) => void;
+  readonly readRemoteFile?: (machineId: string, path: string) => string | null;
+  readonly readLocalFile?: (path: string) => string | null;
+  readonly writeRemoteFile?: (machineId: string, path: string, content: string) => void;
+  readonly listRemoteDir?: (machineId: string, path: string) => readonly string[] | null;
 };
 
 const MSFCONSOLE_PHASE_DELAY_MS = 600;
@@ -56,6 +60,7 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
 
     const host = args[0] as string | undefined;
     const port = args[1] as number | undefined;
+    const thirdArg = args[2] as string | undefined;
 
     if (!host) {
       throw new Error('msfconsole: missing host\nUsage: msfconsole("host", port)');
@@ -128,6 +133,22 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
 
     const { owner } = targetPort;
     const { effect } = vulnerability;
+
+    const requiresPath = effect.kind === 'file_read' || effect.kind === 'dir_list';
+    const requiresLocalRemote = effect.kind === 'file_write';
+    const requiresScript = effect.kind === 'script_exec';
+
+    if ((requiresPath || requiresScript) && !thirdArg) {
+      throw new Error(
+        `msfconsole: this exploit requires a target path — usage: msfconsole(host, port, '/path')`,
+      );
+    }
+    if (requiresLocalRemote && (!thirdArg || !thirdArg.includes(':'))) {
+      throw new Error(
+        `msfconsole: this exploit requires local:remote syntax — usage: msfconsole(host, port, '/local/file:/remote/path')`,
+      );
+    }
+
     const token = createCancellationToken();
 
     // For shell_full, the tier comes from the effect, not the port owner.
@@ -188,6 +209,65 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
               tier: effect.tier,
             };
             onComplete(exploitShell);
+          } else if (effect.kind === 'file_read') {
+            const content = context.readRemoteFile?.(targetIP, thirdArg!) ?? null;
+            onLine('[+] Exploit successful!');
+            if (content !== null) {
+              onLine(`[+] Reading ${thirdArg}:`);
+              onLine('');
+              content.split('\n').forEach((line) => onLine(line));
+            } else {
+              onLine(`[-] File not found or not readable: ${thirdArg}`);
+            }
+            onComplete();
+          } else if (effect.kind === 'dir_list') {
+            const entries = context.listRemoteDir?.(targetIP, thirdArg!) ?? null;
+            onLine('[+] Exploit successful!');
+            if (entries !== null) {
+              onLine(`[+] Listing ${thirdArg}:`);
+              onLine('');
+              entries.forEach((entry) => onLine(entry));
+            } else {
+              onLine(`[-] Directory not found or not readable: ${thirdArg}`);
+            }
+            onComplete();
+          } else if (effect.kind === 'file_write') {
+            const colonIdx = thirdArg!.indexOf(':');
+            const localPath = thirdArg!.slice(0, colonIdx);
+            const remotePath = thirdArg!.slice(colonIdx + 1);
+            const localContent = context.readLocalFile?.(localPath) ?? null;
+            if (localContent === null) {
+              onLine(`[-] Could not read local file: ${localPath}`);
+            } else {
+              context.writeRemoteFile?.(targetIP, remotePath, localContent);
+              onLine('[+] Exploit successful!');
+              onLine(`[+] Uploaded ${localPath} → ${remotePath} (${localContent.length} bytes)`);
+            }
+            onComplete();
+          } else if (effect.kind === 'password_reset') {
+            const tier = effect.tier;
+            const newPassword = `pwned-${vulnerability.cve.slice(-4)}-${tier}`;
+            const currentPasswd = context.readRemoteFile?.(targetIP, '/etc/passwd') ?? '';
+            const targetUser =
+              tier === 'root'
+                ? 'root'
+                : (machine.users.find((u) => u.userType === tier)?.username ?? tier);
+            const updatedPasswd = currentPasswd
+              .split('\n')
+              .map((line) => {
+                const parts = line.split(':');
+                if (parts[0] === targetUser) {
+                  return [parts[0], newPassword, ...parts.slice(2)].join(':');
+                }
+                return line;
+              })
+              .join('\n');
+            context.writeRemoteFile?.(targetIP, '/etc/passwd', updatedPasswd);
+            onLine('[+] Exploit successful!');
+            onLine(
+              `[+] Password reset for '${targetUser}' — new password: ${newPassword}`,
+            );
+            onComplete();
           } else {
             onLine('[+] Exploit successful!');
             onLine(`[+] Got shell as ${owner.username}@${targetIP}`);
