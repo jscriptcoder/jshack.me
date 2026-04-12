@@ -57,6 +57,17 @@ export type NcQuitOutput = {
   readonly __type: 'nc_quit';
 };
 
+export type ExploitShellData = {
+  readonly __type: 'exploit_shell';
+  readonly targetIP: string;
+  readonly targetPort: number;
+  readonly service: string;
+  readonly username: string;
+  readonly userType: 'root' | 'user' | 'guest';
+  readonly homePath: string;
+  readonly tier: 'root' | 'user' | 'guest';
+};
+
 export type MysqlPromptData = {
   readonly __type: 'mysql_prompt';
   readonly targetIP: string;
@@ -96,6 +107,7 @@ export type AsyncFollowUp =
   | SshPromptData
   | FtpPromptData
   | NcPromptData
+  | ExploitShellData
   | ScpPromptData
   | MysqlPromptData
   | RedisPromptData;
@@ -122,6 +134,7 @@ export type SpecialOutput =
   | FtpQuitOutput
   | NcPromptData
   | NcQuitOutput
+  | ExploitShellData
   | MysqlPromptData
   | MysqlQuitOutput
   | RedisPromptData
@@ -200,6 +213,9 @@ export const isAsyncOutput = (value: unknown): value is AsyncOutput =>
 
 export const isNcPrompt = (value: unknown): value is NcPromptData =>
   isSpecialOutput(value) && value.__type === 'nc_prompt';
+
+export const isExploitShell = (value: unknown): value is ExploitShellData =>
+  isSpecialOutput(value) && value.__type === 'exploit_shell';
 
 export const isNcQuit = (value: unknown): value is NcQuitOutput =>
   isSpecialOutput(value) && value.__type === 'nc_quit';

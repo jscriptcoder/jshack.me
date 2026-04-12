@@ -1,4 +1,9 @@
-import type { Command, AsyncOutput, NcPromptData } from '../components/Terminal/types';
+import type {
+  Command,
+  AsyncOutput,
+  NcPromptData,
+  ExploitShellData,
+} from '../components/Terminal/types';
 import type { RemoteMachine, DnsRecord } from '../network/types';
 import { findExploitableCve } from '../generation/findExploitableCve';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
@@ -122,7 +127,21 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
     });
 
     const { owner } = targetPort;
+    const { effect } = vulnerability;
     const token = createCancellationToken();
+
+    // For shell_full, the tier comes from the effect, not the port owner.
+    // Resolve a plausible username and home path for the effect's tier.
+    const resolveShellFullUser = (
+      tier: 'guest' | 'user' | 'root',
+    ): { readonly username: string; readonly homePath: string } => {
+      if (tier === 'root') return { username: 'root', homePath: '/root' };
+      const matchingUser = machine.users.find((u) => u.userType === tier);
+      if (matchingUser) {
+        return { username: matchingUser.username, homePath: `/home/${matchingUser.username}` };
+      }
+      return { username: tier, homePath: `/home/${tier}` };
+    };
 
     return {
       __type: 'async',
@@ -151,21 +170,40 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
         delay += jitter(MSFCONSOLE_PHASE_DELAY_MS);
         token.schedule(() => {
           if (token.isCancelled()) return;
-          onLine('[+] Exploit successful!');
-          onLine(`[+] Got shell as ${owner.username}@${targetIP}`);
-          onLine('');
 
-          const ncPrompt: NcPromptData = {
-            __type: 'nc_prompt',
-            targetIP,
-            targetPort: port,
-            service: targetPort.service,
-            username: owner.username,
-            userType: owner.userType,
-            homePath: owner.homePath,
-          };
+          if (effect.kind === 'shell_full') {
+            const shellUser = resolveShellFullUser(effect.tier);
+            onLine('[+] Exploit successful!');
+            onLine(`[+] Full shell as ${shellUser.username}@${targetIP}`);
+            onLine('');
 
-          onComplete(ncPrompt);
+            const exploitShell: ExploitShellData = {
+              __type: 'exploit_shell',
+              targetIP,
+              targetPort: port,
+              service: targetPort.service,
+              username: shellUser.username,
+              userType: effect.tier,
+              homePath: shellUser.homePath,
+              tier: effect.tier,
+            };
+            onComplete(exploitShell);
+          } else {
+            onLine('[+] Exploit successful!');
+            onLine(`[+] Got shell as ${owner.username}@${targetIP}`);
+            onLine('');
+
+            const ncPrompt: NcPromptData = {
+              __type: 'nc_prompt',
+              targetIP,
+              targetPort: port,
+              service: targetPort.service,
+              username: owner.username,
+              userType: owner.userType,
+              homePath: owner.homePath,
+            };
+            onComplete(ncPrompt);
+          }
         }, delay);
       },
       cancel: token.cancel,
