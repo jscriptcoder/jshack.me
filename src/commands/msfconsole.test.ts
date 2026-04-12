@@ -573,19 +573,18 @@ describe('msfconsole command', () => {
     });
   });
 
-  describe('effect dispatch — shell_full', () => {
-    // Find a procedural CVE with shell_full for a known service.
-    const findShellFullCve = () => {
-      const timeline = buildTimeline('http', 1000, CVE_TIMING_CONFIG);
-      for (const entry of timeline) {
-        const vuln = buildGeneratedVuln('http', entry);
-        if (vuln.effect.kind === 'shell_full') return { entry, vuln };
-      }
-      throw new Error('no shell_full CVE found for http in first 1000 days');
-    };
+  const findCveWithEffect = (service: string, effectKind: string) => {
+    const timeline = buildTimeline(service, 2000, CVE_TIMING_CONFIG);
+    for (const entry of timeline) {
+      const vuln = buildGeneratedVuln(service, entry);
+      if (vuln.effect.kind === effectKind) return { entry, vuln };
+    }
+    throw new Error(`no ${effectKind} CVE found for ${service} in first 2000 days`);
+  };
 
+  describe('effect dispatch — shell_full', () => {
     it('returns an exploit_shell follow-up for a CVE with shell_full effect', () => {
-      const { entry, vuln } = findShellFullCve();
+      const { entry, vuln } = findCveWithEffect('http', 'shell_full');
       const machine = getMockRemoteMachine({
         ports: [
           {
