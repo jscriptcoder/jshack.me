@@ -42,6 +42,11 @@ type MsfconsoleContextConfig = {
   readonly readLocalFile?: (path: string) => string | null;
   readonly writeRemoteFile?: (machineId: string, path: string, content: string) => void;
   readonly listRemoteDir?: (machineId: string, path: string) => readonly string[] | null;
+  readonly runScriptOnTarget?: (
+    machineId: string,
+    scriptBody: string,
+    tier: 'guest' | 'user' | 'root',
+  ) => readonly string[];
 };
 
 const createMockMsfconsoleContext = (config: MsfconsoleContextConfig = {}) => {
@@ -55,6 +60,7 @@ const createMockMsfconsoleContext = (config: MsfconsoleContextConfig = {}) => {
     readLocalFile,
     writeRemoteFile,
     listRemoteDir,
+    runScriptOnTarget,
   } = config;
 
   return {
@@ -67,6 +73,7 @@ const createMockMsfconsoleContext = (config: MsfconsoleContextConfig = {}) => {
     readLocalFile,
     writeRemoteFile,
     listRemoteDir,
+    runScriptOnTarget,
   };
 };
 
@@ -789,6 +796,102 @@ describe('msfconsole command', () => {
       expect(written[0]?.content).toContain('nc:port=');
       expect(lines.some((l) => /backdoor.*port/i.test(l))).toBe(true);
       expect(followUp).toBeUndefined();
+    });
+  });
+
+  describe('effect dispatch — script_exec', () => {
+    it('reads the local script, runs it on target, and prints output', () => {
+      const { entry, vuln } = findCveWithEffect('redis', 'script_exec');
+      const machine = getMockRemoteMachine({
+        ports: [
+          {
+            port: 6379,
+            service: 'redis',
+            serviceVersion: vuln.serviceVersion,
+            open: true,
+            owner: { username: 'redis', userType: 'user', homePath: '/var/lib/redis' },
+          },
+        ],
+      });
+      const context = createMockMsfconsoleContext({
+        machines: [machine],
+        gameTime: entry.publishedAt,
+        readLocalFile: () => 'cat("/etc/passwd")',
+        runScriptOnTarget: () => ['root:x:0:0:root:/root:/bin/bash'],
+      });
+      const msfconsole = createMsfconsoleCommand(context);
+      const result = msfconsole.fn('10.50.100.10', 6379, '/root/payloads/dump.js');
+
+      expect(isAsyncOutput(result)).toBe(true);
+      if (!isAsyncOutput(result)) return;
+
+      const lines: string[] = [];
+      let followUp: AsyncFollowUp | undefined;
+      result.start(
+        (line) => lines.push(line),
+        (fu) => {
+          followUp = fu;
+        },
+      );
+      vi.advanceTimersByTime(5000);
+
+      expect(lines.some((l) => l.includes('root:x:0:0'))).toBe(true);
+      expect(followUp).toBeUndefined();
+    });
+
+    it('throws when the 3rd arg (script path) is missing', () => {
+      const { entry, vuln } = findCveWithEffect('redis', 'script_exec');
+      const machine = getMockRemoteMachine({
+        ports: [
+          {
+            port: 6379,
+            service: 'redis',
+            serviceVersion: vuln.serviceVersion,
+            open: true,
+            owner: { username: 'redis', userType: 'user', homePath: '/var/lib/redis' },
+          },
+        ],
+      });
+      const context = createMockMsfconsoleContext({
+        machines: [machine],
+        gameTime: entry.publishedAt,
+      });
+      const msfconsole = createMsfconsoleCommand(context);
+      expect(() => msfconsole.fn('10.50.100.10', 6379)).toThrow(/target path/i);
+    });
+
+    it('shows an error when the local script file cannot be read', () => {
+      const { entry, vuln } = findCveWithEffect('redis', 'script_exec');
+      const machine = getMockRemoteMachine({
+        ports: [
+          {
+            port: 6379,
+            service: 'redis',
+            serviceVersion: vuln.serviceVersion,
+            open: true,
+            owner: { username: 'redis', userType: 'user', homePath: '/var/lib/redis' },
+          },
+        ],
+      });
+      const context = createMockMsfconsoleContext({
+        machines: [machine],
+        gameTime: entry.publishedAt,
+        readLocalFile: () => null,
+      });
+      const msfconsole = createMsfconsoleCommand(context);
+      const result = msfconsole.fn('10.50.100.10', 6379, '/root/missing.js');
+
+      expect(isAsyncOutput(result)).toBe(true);
+      if (!isAsyncOutput(result)) return;
+
+      const lines: string[] = [];
+      result.start(
+        (line) => lines.push(line),
+        () => {},
+      );
+      vi.advanceTimersByTime(5000);
+
+      expect(lines.some((l) => /could not.*open.*script/i.test(l))).toBe(true);
     });
   });
 });
