@@ -38,6 +38,10 @@ type MsfconsoleContextConfig = {
     readonly serviceVersion?: string;
     readonly success: boolean;
   }) => void;
+  readonly readRemoteFile?: (machineId: string, path: string) => string | null;
+  readonly readLocalFile?: (path: string) => string | null;
+  readonly writeRemoteFile?: (machineId: string, path: string, content: string) => void;
+  readonly listRemoteDir?: (machineId: string, path: string) => readonly string[] | null;
 };
 
 const createMockMsfconsoleContext = (config: MsfconsoleContextConfig = {}) => {
@@ -47,6 +51,10 @@ const createMockMsfconsoleContext = (config: MsfconsoleContextConfig = {}) => {
     dnsRecords = [],
     gameTime,
     onExploitAttempt,
+    readRemoteFile,
+    readLocalFile,
+    writeRemoteFile,
+    listRemoteDir,
   } = config;
 
   return {
@@ -55,6 +63,10 @@ const createMockMsfconsoleContext = (config: MsfconsoleContextConfig = {}) => {
     resolveDomain: (domain: string) => dnsRecords.find((r) => r.domain === domain),
     onExploitAttempt,
     getGameTime: gameTime !== undefined ? () => gameTime : undefined,
+    readRemoteFile,
+    readLocalFile,
+    writeRemoteFile,
+    listRemoteDir,
   };
 };
 
