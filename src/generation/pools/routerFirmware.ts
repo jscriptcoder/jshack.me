@@ -9,13 +9,7 @@ import type { VersionTemplate } from './serviceTemplates';
 // versions circa 2026. Procedural walking advances them over game time,
 // same as services.
 
-export type FirmwareVendor =
-  | 'cisco'
-  | 'mikrotik'
-  | 'ddwrt'
-  | 'openwrt'
-  | 'pfsense'
-  | 'ubiquiti';
+export type FirmwareVendor = 'cisco' | 'mikrotik' | 'ddwrt' | 'openwrt' | 'pfsense' | 'ubiquiti';
 
 export const firmwareTemplates: Readonly<Record<FirmwareVendor, VersionTemplate>> = {
   cisco: { prefix: 'Cisco IOS ', separator: '.', startTuple: [15, 9, 3] },

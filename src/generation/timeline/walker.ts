@@ -1,9 +1,5 @@
 import { createPrng, type Prng } from '../prng';
-import {
-  serviceTemplates,
-  formatVersion,
-  type VersionTemplate,
-} from '../pools/serviceTemplates';
+import { serviceTemplates, formatVersion, type VersionTemplate } from '../pools/serviceTemplates';
 
 // Procedural version timeline walker.
 //

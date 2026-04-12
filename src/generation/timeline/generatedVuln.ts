@@ -1,6 +1,7 @@
 import { createPrng, type Prng } from '../prng';
 import type { AttackPattern, Severity, Vulnerability } from '../../network/types';
 import type { GeneratedVersion } from './walker';
+import { pickEffect } from './effectPicker';
 
 // Deterministic CVE construction for procedurally generated timeline entries.
 // Each generated CVE has:
@@ -128,6 +129,10 @@ export const buildGeneratedVuln = (service: string, entry: GeneratedVersion): Vu
     ? prng.pick(patternPool)
     : GENERIC_SYSLOG_ATTACK(service, entry.version);
 
+  // Effect is rolled AFTER all existing picks so the PRNG sequence for
+  // CVE id, severity, and attack pattern is preserved from Phase 3.
+  const effect = pickEffect(service, prng);
+
   return {
     cve,
     description: `${service} ${entry.version} remote code execution (${cve})`,
@@ -135,5 +140,6 @@ export const buildGeneratedVuln = (service: string, entry: GeneratedVersion): Vu
     attackPattern,
     severity,
     publishedAt: entry.publishedAt,
+    effect,
   };
 };

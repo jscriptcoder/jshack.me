@@ -39,11 +39,7 @@ describe('findFirmwareCve', () => {
   });
 
   it('returns undefined for an unknown vendor', () => {
-    const vuln = findFirmwareCve(
-      'no-such-vendor' as 'mikrotik',
-      'Whatever 1.0.0',
-      1000,
-    );
+    const vuln = findFirmwareCve('no-such-vendor' as 'mikrotik', 'Whatever 1.0.0', 1000);
     expect(vuln).toBeUndefined();
   });
 
