@@ -7,6 +7,7 @@ import type {
 import type { RemoteMachine, DnsRecord } from '../network/types';
 import { findExploitableCve } from '../generation/findExploitableCve';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
+import { ncPidFilePath, createNcPidContent } from './nc';
 
 export type ExploitAttemptInfo = {
   readonly targetIp: string;
@@ -267,6 +268,14 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
             onLine(
               `[+] Password reset for '${targetUser}' — new password: ${newPassword}`,
             );
+            onComplete();
+          } else if (effect.kind === 'backdoor_port_open') {
+            const backdoorPort = effect.port;
+            const pidPath = ncPidFilePath(backdoorPort);
+            const pidContent = createNcPidContent(backdoorPort, 'backdoor', 'root');
+            context.writeRemoteFile?.(targetIP, pidPath, pidContent);
+            onLine('[+] Exploit successful!');
+            onLine(`[+] Backdoor planted on port ${backdoorPort} — connect with nc(target, ${backdoorPort})`);
             onComplete();
           } else {
             onLine('[+] Exploit successful!');

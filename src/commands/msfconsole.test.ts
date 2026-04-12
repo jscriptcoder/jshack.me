@@ -745,4 +745,50 @@ describe('msfconsole command', () => {
       expect(followUp).toBeUndefined();
     });
   });
+
+  describe('effect dispatch — backdoor_port_open', () => {
+    it('writes a nc pid file on the target and returns no follow-up', () => {
+      const { entry, vuln } = findCveWithEffect('ssh', 'backdoor_port_open');
+      const machine = getMockRemoteMachine({
+        ports: [
+          {
+            port: 22,
+            service: 'ssh',
+            serviceVersion: vuln.serviceVersion,
+            open: true,
+            owner: { username: 'root', userType: 'root', homePath: '/root' },
+          },
+        ],
+      });
+      const written: Array<{ machineId: string; path: string; content: string }> = [];
+      const context = createMockMsfconsoleContext({
+        machines: [machine],
+        gameTime: entry.publishedAt,
+        writeRemoteFile: (machineId, path, content) => {
+          written.push({ machineId, path, content });
+        },
+      });
+      const msfconsole = createMsfconsoleCommand(context);
+      const result = msfconsole.fn('10.50.100.10', 22);
+
+      expect(isAsyncOutput(result)).toBe(true);
+      if (!isAsyncOutput(result)) return;
+
+      const lines: string[] = [];
+      let followUp: AsyncFollowUp | undefined;
+      result.start(
+        (line) => lines.push(line),
+        (fu) => {
+          followUp = fu;
+        },
+      );
+      vi.advanceTimersByTime(5000);
+
+      expect(written).toHaveLength(1);
+      expect(written[0]?.path).toMatch(/\/var\/run\/nc-\d+\.pid/);
+      expect(written[0]?.content).toContain('nc:port=');
+      expect(lines.some((l) => /backdoor.*port/i.test(l))).toBe(true);
+      expect(followUp).toBeUndefined();
+    });
+  });
 });
