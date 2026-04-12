@@ -7,6 +7,7 @@ import type {
 import type { RemoteMachine, DnsRecord } from '../network/types';
 import { findExploitableCve } from '../generation/findExploitableCve';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
+import { ncPidFilePath, createNcPidContent } from './nc';
 
 export type ExploitAttemptInfo = {
   readonly targetIp: string;
@@ -192,97 +193,116 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
         token.schedule(() => {
           if (token.isCancelled()) return;
 
-          if (effect.kind === 'shell_full') {
-            const shellUser = resolveShellFullUser(effect.tier);
-            onLine('[+] Exploit successful!');
-            onLine(`[+] Full shell as ${shellUser.username}@${targetIP}`);
-            onLine('');
-
-            const exploitShell: ExploitShellData = {
-              __type: 'exploit_shell',
-              targetIP,
-              targetPort: port,
-              service: targetPort.service,
-              username: shellUser.username,
-              userType: effect.tier,
-              homePath: shellUser.homePath,
-              tier: effect.tier,
-            };
-            onComplete(exploitShell);
-          } else if (effect.kind === 'file_read') {
-            const content = context.readRemoteFile?.(targetIP, thirdArg!) ?? null;
-            onLine('[+] Exploit successful!');
-            if (content !== null) {
-              onLine(`[+] Reading ${thirdArg}:`);
-              onLine('');
-              content.split('\n').forEach((line) => onLine(line));
-            } else {
-              onLine(`[-] File not found or not readable: ${thirdArg}`);
-            }
-            onComplete();
-          } else if (effect.kind === 'dir_list') {
-            const entries = context.listRemoteDir?.(targetIP, thirdArg!) ?? null;
-            onLine('[+] Exploit successful!');
-            if (entries !== null) {
-              onLine(`[+] Listing ${thirdArg}:`);
-              onLine('');
-              entries.forEach((entry) => onLine(entry));
-            } else {
-              onLine(`[-] Directory not found or not readable: ${thirdArg}`);
-            }
-            onComplete();
-          } else if (effect.kind === 'file_write') {
-            const colonIdx = thirdArg!.indexOf(':');
-            const localPath = thirdArg!.slice(0, colonIdx);
-            const remotePath = thirdArg!.slice(colonIdx + 1);
-            const localContent = context.readLocalFile?.(localPath) ?? null;
-            if (localContent === null) {
-              onLine(`[-] Could not read local file: ${localPath}`);
-            } else {
-              context.writeRemoteFile?.(targetIP, remotePath, localContent);
+          switch (effect.kind) {
+            case 'shell_full': {
+              const shellUser = resolveShellFullUser(effect.tier);
               onLine('[+] Exploit successful!');
-              onLine(`[+] Uploaded ${localPath} → ${remotePath} (${localContent.length} bytes)`);
+              onLine(`[+] Full shell as ${shellUser.username}@${targetIP}`);
+              onLine('');
+              const exploitShell: ExploitShellData = {
+                __type: 'exploit_shell',
+                targetIP,
+                targetPort: port,
+                service: targetPort.service,
+                username: shellUser.username,
+                userType: effect.tier,
+                homePath: shellUser.homePath,
+                tier: effect.tier,
+              };
+              onComplete(exploitShell);
+              break;
             }
-            onComplete();
-          } else if (effect.kind === 'password_reset') {
-            const tier = effect.tier;
-            const newPassword = `pwned-${vulnerability.cve.slice(-4)}-${tier}`;
-            const currentPasswd = context.readRemoteFile?.(targetIP, '/etc/passwd') ?? '';
-            const targetUser =
-              tier === 'root'
-                ? 'root'
-                : (machine.users.find((u) => u.userType === tier)?.username ?? tier);
-            const updatedPasswd = currentPasswd
-              .split('\n')
-              .map((line) => {
-                const parts = line.split(':');
-                if (parts[0] === targetUser) {
-                  return [parts[0], newPassword, ...parts.slice(2)].join(':');
-                }
-                return line;
-              })
-              .join('\n');
-            context.writeRemoteFile?.(targetIP, '/etc/passwd', updatedPasswd);
-            onLine('[+] Exploit successful!');
-            onLine(
-              `[+] Password reset for '${targetUser}' — new password: ${newPassword}`,
-            );
-            onComplete();
-          } else {
-            onLine('[+] Exploit successful!');
-            onLine(`[+] Got shell as ${owner.username}@${targetIP}`);
-            onLine('');
-
-            const ncPrompt: NcPromptData = {
-              __type: 'nc_prompt',
-              targetIP,
-              targetPort: port,
-              service: targetPort.service,
-              username: owner.username,
-              userType: owner.userType,
-              homePath: owner.homePath,
-            };
-            onComplete(ncPrompt);
+            case 'file_read': {
+              const content = context.readRemoteFile?.(targetIP, thirdArg!) ?? null;
+              onLine('[+] Exploit successful!');
+              if (content !== null) {
+                onLine(`[+] Reading ${thirdArg}:`);
+                onLine('');
+                content.split('\n').forEach((line) => onLine(line));
+              } else {
+                onLine(`[-] File not found or not readable: ${thirdArg}`);
+              }
+              onComplete();
+              break;
+            }
+            case 'dir_list': {
+              const entries = context.listRemoteDir?.(targetIP, thirdArg!) ?? null;
+              onLine('[+] Exploit successful!');
+              if (entries !== null) {
+                onLine(`[+] Listing ${thirdArg}:`);
+                onLine('');
+                entries.forEach((entry) => onLine(entry));
+              } else {
+                onLine(`[-] Directory not found or not readable: ${thirdArg}`);
+              }
+              onComplete();
+              break;
+            }
+            case 'file_write': {
+              const colonIdx = thirdArg!.indexOf(':');
+              const localPath = thirdArg!.slice(0, colonIdx);
+              const remotePath = thirdArg!.slice(colonIdx + 1);
+              const localContent = context.readLocalFile?.(localPath) ?? null;
+              if (localContent === null) {
+                onLine(`[-] Could not read local file: ${localPath}`);
+              } else {
+                context.writeRemoteFile?.(targetIP, remotePath, localContent);
+                onLine('[+] Exploit successful!');
+                onLine(`[+] Uploaded ${localPath} → ${remotePath} (${localContent.length} bytes)`);
+              }
+              onComplete();
+              break;
+            }
+            case 'password_reset': {
+              const tier = effect.tier;
+              const newPassword = `pwned-${vulnerability.cve.slice(-4)}-${tier}`;
+              const currentPasswd = context.readRemoteFile?.(targetIP, '/etc/passwd') ?? '';
+              const targetUser =
+                tier === 'root'
+                  ? 'root'
+                  : (machine.users.find((u) => u.userType === tier)?.username ?? tier);
+              const updatedPasswd = currentPasswd
+                .split('\n')
+                .map((line) => {
+                  const parts = line.split(':');
+                  if (parts[0] === targetUser) {
+                    return [parts[0], newPassword, ...parts.slice(2)].join(':');
+                  }
+                  return line;
+                })
+                .join('\n');
+              context.writeRemoteFile?.(targetIP, '/etc/passwd', updatedPasswd);
+              onLine('[+] Exploit successful!');
+              onLine(`[+] Password reset for '${targetUser}' — new password: ${newPassword}`);
+              onComplete();
+              break;
+            }
+            case 'backdoor_port_open': {
+              const backdoorPort = effect.port;
+              const pidPath = ncPidFilePath(backdoorPort);
+              const pidContent = createNcPidContent(backdoorPort, 'backdoor', 'root');
+              context.writeRemoteFile?.(targetIP, pidPath, pidContent);
+              onLine('[+] Exploit successful!');
+              onLine(`[+] Backdoor planted on port ${backdoorPort} — connect with nc(target, ${backdoorPort})`);
+              onComplete();
+              break;
+            }
+            default: {
+              // shell_limited + script_exec (not yet implemented) + future effects
+              onLine('[+] Exploit successful!');
+              onLine(`[+] Got shell as ${owner.username}@${targetIP}`);
+              onLine('');
+              const ncPrompt: NcPromptData = {
+                __type: 'nc_prompt',
+                targetIP,
+                targetPort: port,
+                service: targetPort.service,
+                username: owner.username,
+                userType: owner.userType,
+                homePath: owner.homePath,
+              };
+              onComplete(ncPrompt);
+            }
           }
         }, delay);
       },
