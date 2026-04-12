@@ -27,6 +27,11 @@ type MsfconsoleContext = {
   readonly readLocalFile?: (path: string) => string | null;
   readonly writeRemoteFile?: (machineId: string, path: string, content: string) => void;
   readonly listRemoteDir?: (machineId: string, path: string) => readonly string[] | null;
+  readonly runScriptOnTarget?: (
+    machineId: string,
+    scriptBody: string,
+    tier: 'guest' | 'user' | 'root',
+  ) => readonly string[];
 };
 
 const MSFCONSOLE_PHASE_DELAY_MS = 600;
@@ -287,8 +292,24 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
               onComplete();
               break;
             }
+            case 'script_exec': {
+              const scriptBody = context.readLocalFile?.(thirdArg!) ?? null;
+              if (scriptBody === null) {
+                onLine(`[-] Could not open script file: ${thirdArg}`);
+                onComplete();
+                break;
+              }
+              onLine('[+] Exploit successful!');
+              onLine(`[+] Executing script on ${targetIP} as ${effect.tier}...`);
+              onLine('');
+              const outputLines =
+                context.runScriptOnTarget?.(targetIP, scriptBody, effect.tier) ?? [];
+              outputLines.forEach((line) => onLine(line));
+              onComplete();
+              break;
+            }
             default: {
-              // shell_limited + script_exec (not yet implemented) + future effects
+              // shell_limited + future effects
               onLine('[+] Exploit successful!');
               onLine(`[+] Got shell as ${owner.username}@${targetIP}`);
               onLine('');
