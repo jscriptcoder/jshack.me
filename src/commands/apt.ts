@@ -5,10 +5,7 @@ import type { UserType } from '../session/SessionContext';
 import type { RemoteMachine } from '../network/types';
 import { APT_PACKAGES, APT_INSTALLABLE, BINARY_STUB, RESTRICTED_EXECUTE } from './availability';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
-import {
-  findVulnForService,
-  findPinnableServiceVersion,
-} from '../generation/vulnerabilityLookup';
+import { findVulnForService, findPinnableServiceVersion } from '../generation/vulnerabilityLookup';
 import {
   findFirmwareCve,
   findLatestSafeFirmware,
@@ -202,17 +199,12 @@ const collectUpgradeCandidates = (
   // Router firmware is treated like a package named `firmware`. It's a
   // candidate only when the machine actually has a firmware vendor AND its
   // current firmware version has a live CVE.
-  const includeFirmware =
-    serviceFilter === undefined || serviceFilter === FIRMWARE_PACKAGE;
+  const includeFirmware = serviceFilter === undefined || serviceFilter === FIRMWARE_PACKAGE;
   if (
     includeFirmware &&
     machine.firmwareVendor &&
     machine.firmwareVersion &&
-    findFirmwareCve(
-      machine.firmwareVendor as FirmwareVendor,
-      machine.firmwareVersion,
-      gameTime,
-    )
+    findFirmwareCve(machine.firmwareVendor as FirmwareVendor, machine.firmwareVersion, gameTime)
   ) {
     const target =
       findLatestSafeFirmware(machine.firmwareVendor as FirmwareVendor, gameTime) ??

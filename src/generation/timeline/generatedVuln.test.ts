@@ -46,4 +46,16 @@ describe('buildGeneratedVuln', () => {
     const vuln = buildGeneratedVuln('no-such-service', mkEntry('Something/1.0.0', 0, 30));
     expect(vuln.attackPattern.logFile).toBe('/var/log/syslog');
   });
+
+  it('includes an effect field with a valid kind', () => {
+    const vuln = buildGeneratedVuln('http', mkEntry('Apache/2.4.61', 1, 30));
+    expect(vuln.effect).toBeDefined();
+    expect(vuln.effect.kind).toBeDefined();
+  });
+
+  it('effect is deterministic for the same (service, index)', () => {
+    const a = buildGeneratedVuln('http', mkEntry('Apache/2.4.61', 1, 30));
+    const b = buildGeneratedVuln('http', mkEntry('Apache/2.4.61', 1, 30));
+    expect(a.effect).toEqual(b.effect);
+  });
 });

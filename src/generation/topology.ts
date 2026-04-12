@@ -374,9 +374,9 @@ export const generateTopology = (
 
   // Use a derived PRNG so the main topology PRNG sequence is unchanged by
   // firmware picks (keeps downstream generation deterministic-compatible).
-  const routerFirmwareVendor: FirmwareVendor = createPrng(
-    `firmware-vendor:${routerPublicIp}`,
-  ).pick(FIRMWARE_VENDORS);
+  const routerFirmwareVendor: FirmwareVendor = createPrng(`firmware-vendor:${routerPublicIp}`).pick(
+    FIRMWARE_VENDORS,
+  );
   const routerMachine: GeneratedMachine = {
     ip: routerPublicIp,
     hostname: routerHostname,

@@ -54,6 +54,20 @@ export type AttackPattern =
       readonly message: string;
     };
 
+// Discriminated union of exploit outcomes. The effect kind determines what
+// msfconsole does on a successful exploit: grant a shell, read a file,
+// write a file, list a directory, reset a password, open a backdoor port,
+// or execute a player-supplied script on the target.
+export type VulnerabilityEffect =
+  | { readonly kind: 'shell_limited' }
+  | { readonly kind: 'shell_full'; readonly tier: 'guest' | 'user' | 'root' }
+  | { readonly kind: 'file_read' }
+  | { readonly kind: 'dir_list' }
+  | { readonly kind: 'file_write' }
+  | { readonly kind: 'password_reset'; readonly tier: 'guest' | 'user' | 'root' }
+  | { readonly kind: 'backdoor_port_open'; readonly port: number }
+  | { readonly kind: 'script_exec'; readonly tier: 'guest' | 'user' | 'root' };
+
 export type Vulnerability = {
   readonly cve: string;
   readonly description: string;
@@ -65,6 +79,7 @@ export type Vulnerability = {
   // content PRs add entries with positive publishedAt values to create the
   // treadmill cycle.
   readonly publishedAt: number;
+  readonly effect: VulnerabilityEffect;
 };
 
 export type Port = {

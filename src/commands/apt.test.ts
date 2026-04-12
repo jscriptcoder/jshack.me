@@ -670,10 +670,10 @@ Version: OpenSSH 9.6
 
     it('upgrades the firmware package on a router when firmware is vulnerable', () => {
       const vuln = getVulnerableFirmware();
-      const machine = mkMachine(
-        [{ port: 22, service: 'ssh', serviceVersion: 'OpenSSH 9.9.9' }],
-        { vendor: 'mikrotik', version: vuln.version },
-      );
+      const machine = mkMachine([{ port: 22, service: 'ssh', serviceVersion: 'OpenSSH 9.9.9' }], {
+        vendor: 'mikrotik',
+        version: vuln.version,
+      });
       const { context, fileContents } = createMockAptContext({
         currentMachine: machine,
         gameTime: vuln.publishedAt,
@@ -701,10 +701,10 @@ Version: OpenSSH 9.6
 
     it('skips firmware when firmware is not currently vulnerable', () => {
       // At gameTime=0 the vendor's starting tuple is always pre-CVE.
-      const machine = mkMachine(
-        [{ port: 80, service: 'http', serviceVersion: 'Apache/2.4.49' }],
-        { vendor: 'mikrotik', version: 'MikroTik RouterOS 7.14.2' },
-      );
+      const machine = mkMachine([{ port: 80, service: 'http', serviceVersion: 'Apache/2.4.49' }], {
+        vendor: 'mikrotik',
+        version: 'MikroTik RouterOS 7.14.2',
+      });
       const { context, fileContents } = createMockAptContext({
         currentMachine: machine,
         gameTime: 0,
@@ -734,10 +734,10 @@ Version: OpenSSH 9.6
 
     it('includes firmware in the output lines of apt upgrade on a router', () => {
       const vuln = getVulnerableFirmware();
-      const machine = mkMachine(
-        [{ port: 22, service: 'ssh', serviceVersion: 'OpenSSH 9.9.9' }],
-        { vendor: 'mikrotik', version: vuln.version },
-      );
+      const machine = mkMachine([{ port: 22, service: 'ssh', serviceVersion: 'OpenSSH 9.9.9' }], {
+        vendor: 'mikrotik',
+        version: vuln.version,
+      });
       const { context } = createMockAptContext({
         currentMachine: machine,
         gameTime: vuln.publishedAt,
@@ -799,9 +799,7 @@ Version: OpenSSH 9.6
 
     it('pins a service to a specific hand-authored historical version', () => {
       // The player deliberately downgrades http to a known-vulnerable version.
-      const machine = mkMachine([
-        { port: 80, service: 'http', serviceVersion: 'Apache/2.4.60' },
-      ]);
+      const machine = mkMachine([{ port: 80, service: 'http', serviceVersion: 'Apache/2.4.60' }]);
       const { context, fileContents } = createMockAptContext({ currentMachine: machine });
       const apt = createAptCommand(context);
       const result = apt.fn('install', 'http=Apache/2.4.49');
@@ -820,10 +818,10 @@ Version: OpenSSH 9.6
 
     it('pins router firmware to a specific walker version', () => {
       const target = getGeneratedFirmware();
-      const machine = mkMachine(
-        [{ port: 22, service: 'ssh', serviceVersion: 'OpenSSH 9.7.0' }],
-        { vendor: 'mikrotik', version: 'MikroTik RouterOS 7.14.2' },
-      );
+      const machine = mkMachine([{ port: 22, service: 'ssh', serviceVersion: 'OpenSSH 9.7.0' }], {
+        vendor: 'mikrotik',
+        version: 'MikroTik RouterOS 7.14.2',
+      });
       const { context, fileContents } = createMockAptContext({
         currentMachine: machine,
         gameTime: 0,
@@ -844,9 +842,7 @@ Version: OpenSSH 9.6
     });
 
     it('rejects an unknown version for a known service', () => {
-      const machine = mkMachine([
-        { port: 80, service: 'http', serviceVersion: 'Apache/2.4.60' },
-      ]);
+      const machine = mkMachine([{ port: 80, service: 'http', serviceVersion: 'Apache/2.4.60' }]);
       const { context } = createMockAptContext({ currentMachine: machine });
       const apt = createAptCommand(context);
       expect(() => apt.fn('install', 'http=Apache/999.999.999')).toThrow(
@@ -855,29 +851,23 @@ Version: OpenSSH 9.6
     });
 
     it('rejects pinning a package that is not installed on the machine', () => {
-      const machine = mkMachine([
-        { port: 80, service: 'http', serviceVersion: 'Apache/2.4.60' },
-      ]);
+      const machine = mkMachine([{ port: 80, service: 'http', serviceVersion: 'Apache/2.4.60' }]);
       const { context } = createMockAptContext({ currentMachine: machine });
       const apt = createAptCommand(context);
       expect(() => apt.fn('install', 'mysql=MySQL 8.0.36')).toThrow(/not installed/i);
     });
 
     it('rejects apt install firmware=... on a non-router machine', () => {
-      const machine = mkMachine([
-        { port: 22, service: 'ssh', serviceVersion: 'OpenSSH 9.7.0' },
-      ]);
+      const machine = mkMachine([{ port: 22, service: 'ssh', serviceVersion: 'OpenSSH 9.7.0' }]);
       const { context } = createMockAptContext({ currentMachine: machine });
       const apt = createAptCommand(context);
-      expect(() =>
-        apt.fn('install', 'firmware=MikroTik RouterOS 7.14.3'),
-      ).toThrow(/not installed/i);
+      expect(() => apt.fn('install', 'firmware=MikroTik RouterOS 7.14.3')).toThrow(
+        /not installed/i,
+      );
     });
 
     it('requires root to pin a version', () => {
-      const machine = mkMachine([
-        { port: 80, service: 'http', serviceVersion: 'Apache/2.4.60' },
-      ]);
+      const machine = mkMachine([{ port: 80, service: 'http', serviceVersion: 'Apache/2.4.60' }]);
       const { context } = createMockAptContext({ currentMachine: machine, userType: 'user' });
       const apt = createAptCommand(context);
       expect(() => apt.fn('install', 'http=Apache/2.4.49')).toThrow(/root/i);
@@ -886,9 +876,7 @@ Version: OpenSSH 9.6
     it('still installs binary tools when no = is present (apt install nmap)', () => {
       // Regression guard: pure `apt install <package>` with no version must
       // continue to work as a binary-tool install.
-      const machine = mkMachine([
-        { port: 80, service: 'http', serviceVersion: 'Apache/2.4.60' },
-      ]);
+      const machine = mkMachine([{ port: 80, service: 'http', serviceVersion: 'Apache/2.4.60' }]);
       const { context, createdFiles } = createMockAptContext({ currentMachine: machine });
       const apt = createAptCommand(context);
       const result = apt.fn('install', 'nmap');
