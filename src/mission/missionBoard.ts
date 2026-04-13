@@ -46,7 +46,30 @@ const mergeColumns = (
   });
 };
 
+const COMING_SOON_MESSAGE = [
+  '============================================',
+  '  DARKNET MARKETPLACE',
+  '============================================',
+  '',
+  '  [ UNDER CONSTRUCTION ]',
+  '',
+  '  The marketplace is being rebuilt with a',
+  '  new vulnerability and defense system.',
+  '',
+  '  New contracts will feature:',
+  '  - Typed exploit effects (shells, file',
+  '    reads, password resets, backdoors)',
+  '  - A defense treadmill with CVEs that',
+  '    publish over real game time',
+  '  - Router firmware as a target surface',
+  '',
+  '  Check back soon.',
+  '',
+].join('\n');
+
 export const formatMissionBoard = (listings: readonly MissionListing[]): string => {
+  if (listings.length === 0) return COMING_SOON_MESSAGE;
+
   const blackHat = listings.filter((l) => !isWhiteHat(l.seed));
   const whiteHat = listings.filter((l) => isWhiteHat(l.seed));
 

@@ -19,12 +19,13 @@ describe('missionBoard', () => {
 });
 
 describe('formatMissionBoard', () => {
-  it('includes header', () => {
-    const output = formatMissionBoard(MISSION_BOARD);
-    expect(output).toContain('DARKNET CONTRACTS');
+  it('shows coming-soon message when the board is empty', () => {
+    const output = formatMissionBoard([]);
+    expect(output).toContain('UNDER CONSTRUCTION');
+    expect(output).toContain('Check back soon');
   });
 
-  it('includes all listing details', () => {
+  it('includes header and listing details when populated', () => {
     const listings: readonly MissionListing[] = [
       {
         client: 'testclient',
@@ -36,13 +37,10 @@ describe('formatMissionBoard', () => {
       },
     ];
     const output = formatMissionBoard(listings);
+    expect(output).toContain('DARKNET CONTRACTS');
     expect(output).toContain('Test Corp');
     expect(output).toContain('Test objective');
     expect(output).toContain('TEST-SEED');
-  });
-
-  it('includes usage hint', () => {
-    const output = formatMissionBoard(MISSION_BOARD);
     expect(output).toContain('accept("SEED")');
   });
 });
