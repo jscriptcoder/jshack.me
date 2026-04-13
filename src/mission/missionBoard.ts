@@ -7,7 +7,57 @@ export type MissionListing = {
   readonly seed: string;
 };
 
-export const MISSION_BOARD: readonly MissionListing[] = [];
+export const MISSION_BOARD: readonly MissionListing[] = [
+  {
+    client: 'gh0st_protocol',
+    clientEmail: 'gh0st_protocol@darkmail.onion',
+    target: 'NovaCorp Web Portal',
+    objective: 'Exfiltrate data from the target server',
+    difficulty: '* (Easy)',
+    seed: 'NOVA-HEIST-exploit-easy',
+  },
+  {
+    client: 'z3r0_c00l',
+    clientEmail: 'z3r0_c00l@darkmail.onion',
+    target: 'Meridian FTP Archives',
+    objective: 'Retrieve classified files via FTP',
+    difficulty: '* (Easy)',
+    seed: 'FTP-HEIST-ftp-easy',
+  },
+  {
+    client: 'shadowbroker',
+    clientEmail: 'shadowbroker@darkmail.onion',
+    target: 'Axiom Mail Infrastructure',
+    objective: 'Compromise the mail server cluster',
+    difficulty: '** (Medium)',
+    seed: 'MAIL-HACK-exploit-medium',
+  },
+  {
+    client: 'dr_chaos',
+    clientEmail: 'dr_chaos@darkmail.onion',
+    target: 'Pinnacle Database Systems',
+    objective: 'Exfiltrate customer records from the database',
+    difficulty: '** (Medium)',
+    seed: 'DB-CRACK-db-exfiltrate-medium',
+  },
+  {
+    client: 'n1ghtwatch',
+    clientEmail: 'n1ghtwatch@proton.onion',
+    target: 'ClearView Analytics firmware',
+    objective: 'Audit network device firmware for vulnerabilities',
+    difficulty: '** (Medium)',
+    seed: 'FIRMWARE-HACK-snmp-medium',
+  },
+  {
+    client: 'r00tk1t',
+    clientEmail: 'r00tk1t@darkmail.onion',
+    target: 'Fortis Global Infrastructure',
+    objective: 'Full network compromise across all layers',
+    difficulty: '*** (Hard)',
+    seed: 'FULL-STACK-ssh-hard',
+  },
+];
+
 
 const WHITE_HAT_KEYWORDS = ['script-fix', 'script-auto', 'forensics', 'malware', 'db-fix'] as const;
 
