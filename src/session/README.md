@@ -9,6 +9,8 @@ Single source of truth for all terminal session state. Manages the current user,
 | `SessionContext.tsx`   | React context with session state, connection stacks, persistence, and type guards  |
 | `sessionUtils.ts`      | Pure functions: type guards, validators, normalizers, and default session constant |
 | `sessionUtils.test.ts` | Unit tests for sessionUtils                                                        |
+| `gameTime.ts`          | Real-world-clock game time model anchored at first game start via localStorage     |
+| `gameTime.test.ts`     | Unit tests for gameTime                                                            |
 
 ## Session State
 
@@ -31,10 +33,11 @@ The `hostname` field provides display names for the prompt (`session.hostname ??
 
 ### Session Stack (SSH + su)
 
-When SSH-ing into a remote machine or switching users via `su()`, the current session is pushed onto a stack with a `reason` field (`'ssh'` or `'su'`). `exit()` pops the stack to restore the previous session, showing context-appropriate messages ("Connection closed." for SSH, "logout" for su).
+When SSH-ing into a remote machine, switching users via `su()`, or gaining a shell through an exploit, the current session is pushed onto a stack with a `reason` field (`'ssh'`, `'su'`, or `'exploit'`). `exit()` pops the stack to restore the previous session, showing context-appropriate messages ("Connection closed." for SSH, "logout" for su).
 
 - `pushSession('ssh')` — save current state before SSH
 - `pushSession('su')` — save current state before user switch
+- `pushSession('exploit')` — save current state before exploit shell (e.g., msfconsole `shell_full` effect)
 - `popSession()` — restore previous state on exit
 - `canReturn()` — check if stack has entries
 - Supports nested SSH (machine A -> B -> C) and mixed stacking (SSH -> su -> exit -> exit)
@@ -79,6 +82,24 @@ type NcSession = {
 - `updateNcCwd(path)` — navigate directories
 - Prompt changes to `$` when active
 
+## Game Time
+
+Real-world-clock time model for the defense treadmill (Phase 3). The game's CVE table has a `publishedAt` field on every entry measuring game days since `startedAt`; once game time passes that threshold, the CVE becomes "active" and can be exploited.
+
+### API (`gameTime.ts`)
+
+| Export                  | Description                                                                          |
+| ----------------------- | ------------------------------------------------------------------------------------ |
+| `MS_PER_DAY`            | Constant (`86400000`) — milliseconds in one day                                      |
+| `initGameTimeIfUnset()` | Records anchor (`Date.now()`) in localStorage on first call; returns `startedAt`     |
+| `readStartedAt()`       | Reads the stored anchor without side effects; returns `number \| null`               |
+| `getGameTime()`         | Returns whole game days elapsed: `Math.floor((Date.now() - startedAt) / MS_PER_DAY)` |
+| `resetGameTime()`       | Clears the anchor (called on permadeath / new game)                                  |
+
+The anchor is stored in localStorage under `jshack_started_at`. `initGameTimeIfUnset()` is safe to call on every app startup — it only writes if no anchor exists yet.
+
+**Offline accrual:** if the player leaves the game for a week, they return to a week's worth of newly-published CVEs. This matches how real system administration feels — patches pile up while you're away.
+
 ## Persistence
 
 Session state uses a split storage model:
@@ -101,7 +122,7 @@ Validated with type guards on restore. Falls back to defaults if invalid or corr
 | `setMachine(ip, hostname?)` | Change current machine and optional display hostname               |
 | `setCurrentPath(path)`      | Change working directory                                           |
 | `getPrompt()`               | Formatted prompt (`user@workstation>`, `user@ip>`, `ftp>`, or `$`) |
-| `pushSession(reason)`       | Save session to stack (before SSH or su)                           |
+| `pushSession(reason)`       | Save session to stack (before SSH, su, or exploit)                 |
 | `popSession()`              | Restore previous session (on exit)                                 |
 | `popAllSessions()`          | Reset to bottom of stack (mission abort)                           |
 | `canReturn()`               | Check if session stack has entries                                 |

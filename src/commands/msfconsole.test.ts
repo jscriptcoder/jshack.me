@@ -659,10 +659,15 @@ describe('msfconsole command', () => {
     const mkMachineWithCve = (effectKind: string, service = 'http', portNum = 80) => {
       const { entry, vuln } = findCveWithEffect(service, effectKind);
       const machine = getMockRemoteMachine({
-        ports: [{
-          port: portNum, service, serviceVersion: vuln.serviceVersion, open: true,
-          owner: { username: 'www-data', userType: 'guest', homePath: '/var/www' },
-        }],
+        ports: [
+          {
+            port: portNum,
+            service,
+            serviceVersion: vuln.serviceVersion,
+            open: true,
+            owner: { username: 'www-data', userType: 'guest', homePath: '/var/www' },
+          },
+        ],
       });
       return { entry, vuln, machine };
     };
@@ -670,7 +675,8 @@ describe('msfconsole command', () => {
     it('file_read prints target file content with no follow-up', () => {
       const { entry, machine } = mkMachineWithCve('file_read', 'ftp', 21);
       const context = createMockMsfconsoleContext({
-        machines: [machine], gameTime: entry.publishedAt,
+        machines: [machine],
+        gameTime: entry.publishedAt,
         readRemoteFile: () => 'root:x:0:0:root:/root:/bin/bash',
       });
       const result = createMsfconsoleCommand(context).fn('10.50.100.10', 21, '/etc/passwd');
@@ -678,7 +684,12 @@ describe('msfconsole command', () => {
       if (!isAsyncOutput(result)) return;
       const lines: string[] = [];
       let followUp: AsyncFollowUp | undefined;
-      result.start((line) => lines.push(line), (fu) => { followUp = fu; });
+      result.start(
+        (line) => lines.push(line),
+        (fu) => {
+          followUp = fu;
+        },
+      );
       vi.advanceTimersByTime(5000);
       expect(lines.some((l) => l.includes('root:x:0:0'))).toBe(true);
       expect(followUp).toBeUndefined();
@@ -686,14 +697,18 @@ describe('msfconsole command', () => {
 
     it('file_read throws when 3rd arg is missing', () => {
       const { entry, machine } = mkMachineWithCve('file_read', 'ftp', 21);
-      const context = createMockMsfconsoleContext({ machines: [machine], gameTime: entry.publishedAt });
+      const context = createMockMsfconsoleContext({
+        machines: [machine],
+        gameTime: entry.publishedAt,
+      });
       expect(() => createMsfconsoleCommand(context).fn('10.50.100.10', 21)).toThrow(/target path/i);
     });
 
     it('dir_list prints directory listing with no follow-up', () => {
       const { entry, machine } = mkMachineWithCve('dir_list', 'ftp', 21);
       const context = createMockMsfconsoleContext({
-        machines: [machine], gameTime: entry.publishedAt,
+        machines: [machine],
+        gameTime: entry.publishedAt,
         listRemoteDir: () => ['file1.txt', 'file2.txt', 'subdir'],
       });
       const result = createMsfconsoleCommand(context).fn('10.50.100.10', 21, '/home');
@@ -701,7 +716,12 @@ describe('msfconsole command', () => {
       if (!isAsyncOutput(result)) return;
       const lines: string[] = [];
       let followUp: AsyncFollowUp | undefined;
-      result.start((line) => lines.push(line), (fu) => { followUp = fu; });
+      result.start(
+        (line) => lines.push(line),
+        (fu) => {
+          followUp = fu;
+        },
+      );
       vi.advanceTimersByTime(5000);
       expect(lines.some((l) => l.includes('file1.txt'))).toBe(true);
       expect(followUp).toBeUndefined();
@@ -711,15 +731,27 @@ describe('msfconsole command', () => {
       const { entry, machine } = mkMachineWithCve('file_write', 'ftp', 21);
       const written: Array<{ path: string; content: string }> = [];
       const context = createMockMsfconsoleContext({
-        machines: [machine], gameTime: entry.publishedAt,
+        machines: [machine],
+        gameTime: entry.publishedAt,
         readLocalFile: () => 'payload-content',
-        writeRemoteFile: (_id, path, content) => { written.push({ path, content }); },
+        writeRemoteFile: (_id, path, content) => {
+          written.push({ path, content });
+        },
       });
-      const result = createMsfconsoleCommand(context).fn('10.50.100.10', 21, '/root/p.txt:/var/www/p.txt');
+      const result = createMsfconsoleCommand(context).fn(
+        '10.50.100.10',
+        21,
+        '/root/p.txt:/var/www/p.txt',
+      );
       expect(isAsyncOutput(result)).toBe(true);
       if (!isAsyncOutput(result)) return;
       let followUp: AsyncFollowUp | undefined;
-      result.start(() => {}, (fu) => { followUp = fu; });
+      result.start(
+        () => {},
+        (fu) => {
+          followUp = fu;
+        },
+      );
       vi.advanceTimersByTime(5000);
       expect(written).toHaveLength(1);
       expect(written[0]?.path).toBe('/var/www/p.txt');
@@ -728,24 +760,37 @@ describe('msfconsole command', () => {
 
     it('file_write throws when local:remote syntax is missing', () => {
       const { entry, machine } = mkMachineWithCve('file_write', 'ftp', 21);
-      const context = createMockMsfconsoleContext({ machines: [machine], gameTime: entry.publishedAt });
-      expect(() => createMsfconsoleCommand(context).fn('10.50.100.10', 21, '/no-colon')).toThrow(/local:remote/i);
+      const context = createMockMsfconsoleContext({
+        machines: [machine],
+        gameTime: entry.publishedAt,
+      });
+      expect(() => createMsfconsoleCommand(context).fn('10.50.100.10', 21, '/no-colon')).toThrow(
+        /local:remote/i,
+      );
     });
 
     it('password_reset mutates /etc/passwd and prints new password', () => {
       const { entry, machine } = mkMachineWithCve('password_reset', 'mysql', 3306);
       let written = '';
       const context = createMockMsfconsoleContext({
-        machines: [machine], gameTime: entry.publishedAt,
+        machines: [machine],
+        gameTime: entry.publishedAt,
         readRemoteFile: () => 'root:oldHash:0:0:root:/root:/bin/bash',
-        writeRemoteFile: (_id, _path, content) => { written = content; },
+        writeRemoteFile: (_id, _path, content) => {
+          written = content;
+        },
       });
       const result = createMsfconsoleCommand(context).fn('10.50.100.10', 3306);
       expect(isAsyncOutput(result)).toBe(true);
       if (!isAsyncOutput(result)) return;
       const lines: string[] = [];
       let followUp: AsyncFollowUp | undefined;
-      result.start((line) => lines.push(line), (fu) => { followUp = fu; });
+      result.start(
+        (line) => lines.push(line),
+        (fu) => {
+          followUp = fu;
+        },
+      );
       vi.advanceTimersByTime(5000);
       expect(lines.some((l) => /password.*reset/i.test(l) || /new password/i.test(l))).toBe(true);
       expect(written.length).toBeGreaterThan(0);

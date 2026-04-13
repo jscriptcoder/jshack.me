@@ -288,7 +288,9 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
               const pidContent = createNcPidContent(backdoorPort, 'backdoor', 'root');
               context.writeRemoteFile?.(targetIP, pidPath, pidContent);
               onLine('[+] Exploit successful!');
-              onLine(`[+] Backdoor planted on port ${backdoorPort} — connect with nc(target, ${backdoorPort})`);
+              onLine(
+                `[+] Backdoor planted on port ${backdoorPort} — connect with nc(target, ${backdoorPort})`,
+              );
               onComplete();
               break;
             }

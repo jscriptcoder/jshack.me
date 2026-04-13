@@ -303,7 +303,12 @@ export const useNetworkCommands = (): Map<string, Command> => {
             readRemoteFile: (machineId, path) =>
               readFileFromMachine({ machineId, path, cwd: '/', userType: 'root' }),
             readLocalFile: (path) =>
-              readFileFromMachine({ machineId: session.machine, path, cwd: '/', userType: session.userType }),
+              readFileFromMachine({
+                machineId: session.machine,
+                path,
+                cwd: '/',
+                userType: session.userType,
+              }),
             writeRemoteFile: (machineId, path, content) =>
               writeFileToMachine({ machineId, path, cwd: '/', userType: 'root', content }),
             listRemoteDir: (machineId, path) =>
