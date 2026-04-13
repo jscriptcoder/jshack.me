@@ -2,20 +2,34 @@ import type { Command, AsyncOutput } from '../components/Terminal/types';
 import type { FileNode, FilePermissions } from '../filesystem/types';
 import type { PermissionResult } from '../filesystem/types';
 import type { UserType } from '../session/SessionContext';
+import type { RemoteMachine } from '../network/types';
 import { APT_PACKAGES, APT_INSTALLABLE, BINARY_STUB, RESTRICTED_EXECUTE } from './availability';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
+import { findVulnForService, findPinnableServiceVersion } from '../generation/vulnerabilityLookup';
+import {
+  findFirmwareCve,
+  findLatestSafeFirmware,
+  findPinnableFirmwareVersion,
+} from '../generation/firmwareLookup';
+import type { FirmwareVendor } from '../generation/pools/routerFirmware';
+import { getLatestSafeVersion, DEFAULT_LATEST_VERSION } from '../generation/timeline';
+import { DPKG_STATUS_PATH, setDpkgVersion } from '../network/dpkgStatus';
 
 type AptContext = {
   readonly getMachine: () => string;
+  readonly getCurrentMachine?: () => RemoteMachine | undefined;
   readonly getNode: (path: string) => FileNode | null;
+  readonly readFile?: (path: string) => string | null;
   readonly createFile: (
     path: string,
     content: string,
     userType: UserType,
     permissions?: FilePermissions,
   ) => PermissionResult;
+  readonly writeFile?: (path: string, content: string, userType: UserType) => PermissionResult;
   readonly getUserType: () => UserType;
   readonly isWifiConnected: () => boolean;
+  readonly getGameTime?: () => number;
 };
 
 const formatInstalledStatus = (
@@ -134,6 +148,266 @@ const handleInstall = (packageName: string, context: AptContext): AsyncOutput | 
   };
 };
 
+// --- apt upgrade ---
+
+// Matches real Linux /var/lib/dpkg/status permissions: root-owned, world
+// readable, no execute.
+const DPKG_STATUS_PERMISSIONS: FilePermissions = {
+  read: ['root', 'user', 'guest'],
+  write: ['root'],
+  execute: [],
+};
+
+const OVERLAY_DELAY_MS = 250;
+
+// Phase 3 PR B: upgrade target is the newest version in the service's
+// pool whose CVE (if any) has publishedAt > currentGameTime — i.e., the
+// latest currently-safe version. Falls back to the DEFAULT_LATEST_VERSION
+// sentinel when the service has no pool or when every version in the pool
+// is currently vulnerable.
+const pickUpgradeTarget = (service: string, gameTime: number): string =>
+  getLatestSafeVersion(service, gameTime) ?? DEFAULT_LATEST_VERSION;
+
+const isVulnerable = (service: string, version: string, gameTime: number): boolean =>
+  findVulnForService(service, version, gameTime) !== undefined;
+
+type UpgradeCandidate = {
+  readonly service: string;
+  readonly targetVersion: string;
+};
+
+const FIRMWARE_PACKAGE = 'firmware';
+
+const collectUpgradeCandidates = (
+  machine: RemoteMachine,
+  serviceFilter: string | undefined,
+  gameTime: number,
+): readonly UpgradeCandidate[] => {
+  const seen = new Set<string>();
+  const candidates: UpgradeCandidate[] = [];
+  for (const port of machine.ports) {
+    if (seen.has(port.service)) continue;
+    if (serviceFilter !== undefined && port.service !== serviceFilter) continue;
+    if (!isVulnerable(port.service, port.serviceVersion, gameTime)) continue;
+    seen.add(port.service);
+    candidates.push({
+      service: port.service,
+      targetVersion: pickUpgradeTarget(port.service, gameTime),
+    });
+  }
+
+  // Router firmware is treated like a package named `firmware`. It's a
+  // candidate only when the machine actually has a firmware vendor AND its
+  // current firmware version has a live CVE.
+  const includeFirmware = serviceFilter === undefined || serviceFilter === FIRMWARE_PACKAGE;
+  if (
+    includeFirmware &&
+    machine.firmwareVendor &&
+    machine.firmwareVersion &&
+    findFirmwareCve(machine.firmwareVendor as FirmwareVendor, machine.firmwareVersion, gameTime)
+  ) {
+    const target =
+      findLatestSafeFirmware(machine.firmwareVendor as FirmwareVendor, gameTime) ??
+      machine.firmwareVersion;
+    candidates.push({
+      service: FIRMWARE_PACKAGE,
+      targetVersion: target,
+    });
+  }
+
+  return candidates;
+};
+
+// Returns the set of packages currently installed on the machine. Includes
+// one entry per unique service across all ports, plus `firmware` if the
+// machine is a router. Used by `apt upgrade <package>` to decide whether
+// the named package exists before computing upgrade candidates.
+const installedPackages = (machine: RemoteMachine): ReadonlySet<string> => {
+  const packages = new Set(machine.ports.map((p) => p.service));
+  if (machine.firmwareVendor) packages.add(FIRMWARE_PACKAGE);
+  return packages;
+};
+
+// Writes (or creates) /var/lib/dpkg/status with the given content. Uses the
+// existing readFile helper to decide create-vs-write, since createFile rejects
+// existing files.
+const writeDpkgStatus = (content: string, context: AptContext): void => {
+  const { readFile, createFile, writeFile } = context;
+  const existing = readFile ? readFile(DPKG_STATUS_PATH) : null;
+  if (existing === null) {
+    createFile(DPKG_STATUS_PATH, content, 'root', DPKG_STATUS_PERMISSIONS);
+  } else if (writeFile) {
+    writeFile(DPKG_STATUS_PATH, content, 'root');
+  } else {
+    // No writeFile available (test contexts may omit it). Fall back to
+    // recreating via createFile — harmless in tests that track created files.
+    createFile(DPKG_STATUS_PATH, content, 'root', DPKG_STATUS_PERMISSIONS);
+  }
+};
+
+const handleUpgrade = (
+  serviceFilter: string | undefined,
+  context: AptContext,
+): AsyncOutput | string => {
+  const { getMachine, getCurrentMachine, readFile, getUserType, isWifiConnected } = context;
+  const gameTime = context.getGameTime?.() ?? 0;
+  const machineId = getMachine();
+
+  if (machineId === 'localhost' && !isWifiConnected()) {
+    throw new Error('E: Failed to fetch http://archive.ubuntu.com — network is unreachable');
+  }
+
+  if (getUserType() !== 'root') {
+    throw new Error('E: Could not open lock file /var/lib/dpkg/lock-frontend — are you root?');
+  }
+
+  const machine = getCurrentMachine?.();
+  if (!machine) {
+    // No machine data available — nothing to upgrade.
+    return '0 upgraded, 0 newly installed, 0 to remove.';
+  }
+
+  if (serviceFilter !== undefined && !installedPackages(machine).has(serviceFilter)) {
+    throw new Error(`E: Package '${serviceFilter}' is not installed on this machine`);
+  }
+
+  const candidates = collectUpgradeCandidates(machine, serviceFilter, gameTime);
+
+  if (candidates.length === 0) {
+    return [
+      'Reading package lists... Done',
+      'Building dependency tree... Done',
+      'Calculating upgrade... Done',
+      '0 upgraded, 0 newly installed, 0 to remove.',
+    ].join('\n');
+  }
+
+  const token = createCancellationToken();
+
+  return {
+    __type: 'async',
+    start: (onLine, onComplete) => {
+      const headerLines = [
+        'Reading package lists... Done',
+        'Building dependency tree... Done',
+        'Calculating upgrade... Done',
+        'The following packages will be upgraded:',
+        `  ${candidates.map((c) => c.service).join(' ')}`,
+        `${candidates.length} upgraded, 0 newly installed, 0 to remove.`,
+      ];
+      const setupLines = candidates.flatMap((c) => [
+        `Get: ${c.service} ${c.targetVersion}`,
+        `Setting up ${c.service} (${c.targetVersion}) ...`,
+      ]);
+      const lines = [...headerLines, ...setupLines];
+
+      let delay = 0;
+      lines.forEach((line, i) => {
+        delay += jitter(OVERLAY_DELAY_MS);
+        token.schedule(() => {
+          if (token.isCancelled()) return;
+          onLine(line);
+          if (i === lines.length - 1) {
+            // Read current /var/lib/dpkg/status, fold in all upgraded
+            // services, then write the whole file back in one shot.
+            const currentContent = readFile ? (readFile(DPKG_STATUS_PATH) ?? '') : '';
+            const updatedContent = candidates.reduce(
+              (content, candidate) =>
+                setDpkgVersion(content, candidate.service, candidate.targetVersion),
+              currentContent,
+            );
+            writeDpkgStatus(updatedContent, context);
+            onComplete();
+          }
+        }, delay);
+      });
+    },
+    cancel: token.cancel,
+  };
+};
+
+// --- apt install <pkg>=<version> (version pinning) ---
+
+// Writes a specific version of an existing package into /var/lib/dpkg/status.
+// Used for both services (e.g., `http=Apache/2.4.49`) and router firmware
+// (e.g., `firmware=MikroTik RouterOS 7.14.3`). Pinning a vulnerable version
+// is allowed — players can deliberately downgrade.
+const handleInstallPin = (
+  pkg: string,
+  pinnedVersion: string,
+  context: AptContext,
+): AsyncOutput | string => {
+  const { getMachine, getCurrentMachine, readFile, getUserType, isWifiConnected } = context;
+  const gameTime = context.getGameTime?.() ?? 0;
+
+  if (getMachine() === 'localhost' && !isWifiConnected()) {
+    throw new Error('E: Failed to fetch http://archive.ubuntu.com — network is unreachable');
+  }
+
+  if (getUserType() !== 'root') {
+    throw new Error('E: Could not open lock file /var/lib/dpkg/lock-frontend — are you root?');
+  }
+
+  const machine = getCurrentMachine?.();
+  if (!machine) {
+    throw new Error(`E: Package '${pkg}' is not installed on this machine`);
+  }
+
+  if (!installedPackages(machine).has(pkg)) {
+    throw new Error(`E: Package '${pkg}' is not installed on this machine`);
+  }
+
+  // Validate the pinned version is reachable for the package.
+  const pinnable =
+    pkg === FIRMWARE_PACKAGE
+      ? machine.firmwareVendor !== undefined &&
+        findPinnableFirmwareVersion(
+          machine.firmwareVendor as FirmwareVendor,
+          pinnedVersion,
+          gameTime,
+        )
+      : findPinnableServiceVersion(pkg, pinnedVersion, gameTime);
+
+  if (!pinnable) {
+    throw new Error(
+      `E: Package '${pkg}' has no installation candidate for version '${pinnedVersion}'`,
+    );
+  }
+
+  const token = createCancellationToken();
+
+  return {
+    __type: 'async',
+    start: (onLine, onComplete) => {
+      const lines = [
+        'Reading package lists... Done',
+        'Building dependency tree... Done',
+        `The following packages will be DOWNGRADED:`,
+        `  ${pkg}`,
+        `0 upgraded, 0 newly installed, 1 downgraded, 0 to remove.`,
+        `Get: ${pkg} ${pinnedVersion}`,
+        `Setting up ${pkg} (${pinnedVersion}) ...`,
+      ];
+
+      let delay = 0;
+      lines.forEach((line, i) => {
+        delay += jitter(OVERLAY_DELAY_MS);
+        token.schedule(() => {
+          if (token.isCancelled()) return;
+          onLine(line);
+          if (i === lines.length - 1) {
+            const currentContent = readFile ? (readFile(DPKG_STATUS_PATH) ?? '') : '';
+            const updatedContent = setDpkgVersion(currentContent, pkg, pinnedVersion);
+            writeDpkgStatus(updatedContent, context);
+            onComplete();
+          }
+        }, delay);
+      });
+    },
+    cancel: token.cancel,
+  };
+};
+
 export const createAptCommand = (context: AptContext): Command => ({
   name: 'apt',
   category: 'general',
@@ -187,11 +461,24 @@ export const createAptCommand = (context: AptContext): Command => ({
       if (!packageName) {
         throw new Error("E: No package name specified. Usage: apt('install', '<package>')");
       }
+      // `pkg=version` → version-pin install (service or firmware). Otherwise
+      // fall through to the binary-tool install path.
+      const equalsIndex = packageName.indexOf('=');
+      if (equalsIndex > 0) {
+        const pkg = packageName.slice(0, equalsIndex);
+        const version = packageName.slice(equalsIndex + 1);
+        return handleInstallPin(pkg, version, context);
+      }
       return handleInstall(packageName, context);
     }
 
+    if (subcommand === 'upgrade') {
+      const serviceFilter = args[1] as string | undefined;
+      return handleUpgrade(serviceFilter, context);
+    }
+
     throw new Error(
-      `E: Invalid operation '${subcommand}'. Usage: apt('install', '<package>') or apt('list')`,
+      `E: Invalid operation '${subcommand}'. Usage: apt('install', '<package>'), apt('upgrade'), or apt('list')`,
     );
   },
 });

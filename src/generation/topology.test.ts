@@ -802,3 +802,37 @@ describe('generateSubnetLayer', () => {
     expect(routerFirst.isForwarded).toBe(false);
   });
 });
+
+describe('generateTopology — router firmware assignment', () => {
+  it('assigns a firmwareVendor to every router-role machine', () => {
+    const result = generateTopology(createPrng('firmware-routers'), 'medium');
+    const routers = result.machines.filter((m) => m.role === 'router');
+    expect(routers.length).toBeGreaterThan(0);
+    for (const router of routers) {
+      expect(router.remoteMachine.firmwareVendor).toBeDefined();
+    }
+  });
+
+  it('leaves non-router machines without a firmwareVendor', () => {
+    const result = generateTopology(createPrng('firmware-nonrouters'), 'hard');
+    const nonRouters = result.machines.filter((m) => m.role !== 'router');
+    expect(nonRouters.length).toBeGreaterThan(0);
+    for (const machine of nonRouters) {
+      expect(machine.remoteMachine.firmwareVendor).toBeUndefined();
+    }
+  });
+
+  it('assigns different vendors across routers in different seeds (not hardcoded)', () => {
+    const seeds = Array.from({ length: 20 }, (_, i) => `fw-variety-${i}`);
+    const vendors = new Set<string>();
+    for (const seed of seeds) {
+      const result = generateTopology(createPrng(seed), 'medium');
+      const router = result.machines.find((m) => m.role === 'router');
+      if (router?.remoteMachine.firmwareVendor) {
+        vendors.add(router.remoteMachine.firmwareVendor);
+      }
+    }
+    // With 6 vendors and 20 seeds, we should see at least 3 distinct values
+    expect(vendors.size).toBeGreaterThanOrEqual(3);
+  });
+});

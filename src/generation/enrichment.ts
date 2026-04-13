@@ -2,6 +2,7 @@ import type { Prng } from './prng';
 import type { EntryVariant, GeneratedMachine, MissionObjectiveType } from './types';
 import type { Port, RemoteUser, ServiceOwner } from '../network/types';
 import { backdoorPorts, vulnerabilityTemplates } from './pools';
+import { defaultServiceVersion } from './pools/vulnerabilities';
 
 // Picks an owner type for NC/exploit port owners with weighted distribution:
 // guest (60%), user (30%), root (10%). Adds difficulty variety to restricted shells.
@@ -84,9 +85,11 @@ export const addFtpServerOwner = (
   );
 };
 
-// For exploit entry variant: attaches a vulnerability and owner to the
+// For exploit entry variant: sets a vulnerable serviceVersion and owner on the
 // non-SSH open port on the entry machine. Owner type is picked by PRNG
-// (guest/user/root) for difficulty variety.
+// (guest/user/root) for difficulty variety. Whether the port is actually
+// exploitable is determined at runtime via findVulnForService — here we just
+// guarantee the version string matches a CVE entry for the service.
 export const addExploitVulnerability = (
   ports: readonly Port[],
   users: readonly RemoteUser[],
@@ -99,12 +102,12 @@ export const addExploitVulnerability = (
   return ports.map((p) => {
     if (p.service === 'ssh' || !p.open) return p;
 
-    const vuln = vulnerabilityTemplates.find((v) => v.service === p.service);
-    if (!vuln) return p;
+    const vulnTemplate = vulnerabilityTemplates.find((v) => v.service === p.service);
+    if (!vulnTemplate) return p;
 
     return {
       ...p,
-      vulnerability: vuln.vulnerability,
+      serviceVersion: vulnTemplate.vulnerability.serviceVersion,
       owner: {
         username: owner.username,
         userType: owner.userType,
@@ -223,6 +226,7 @@ export const applyPortClosures = (
         {
           port: dualBackdoorPort,
           service: 'elite',
+          serviceVersion: defaultServiceVersion('elite'),
           open: true,
           owner: rootUser
             ? { username: rootUser.username, userType: 'root', homePath: '/root' }
@@ -254,12 +258,29 @@ export const applyPortClosures = (
       // Ensure FTP port 21 is open
       const withFtp = hasFtp
         ? portsWithClosedSsh.map((p) => (p.port === 21 ? { ...p, open: true } : p))
-        : [...portsWithClosedSsh, { port: 21, service: 'ftp', open: true }];
+        : [
+            ...portsWithClosedSsh,
+            {
+              port: 21,
+              service: 'ftp',
+              serviceVersion: defaultServiceVersion('ftp'),
+              open: true,
+            },
+          ];
 
       // Add NC backdoor with root owner if none exists
       const ports = hasElite
         ? withFtp
-        : [...withFtp, { port: sshBackdoorPort, service: 'elite', open: true, owner: rootOwner }];
+        : [
+            ...withFtp,
+            {
+              port: sshBackdoorPort,
+              service: 'elite',
+              serviceVersion: defaultServiceVersion('elite'),
+              open: true,
+              owner: rootOwner,
+            },
+          ];
 
       return {
         ...m,

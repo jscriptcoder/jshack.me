@@ -1,7 +1,13 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
 import type { Port, RemoteMachine } from '../network/types';
+import { findVulnForService } from '../generation/vulnerabilityLookup';
 import { isValidIP, parseIPRange } from '../utils/network';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
+
+export type NmapScanAggregateInfo = {
+  readonly targetIp: string;
+  readonly probedPorts: readonly number[];
+};
 
 type NmapContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
@@ -9,6 +15,8 @@ type NmapContext = {
   readonly getMachines: () => readonly RemoteMachine[];
   readonly getLocalIPs: () => ReadonlySet<string>;
   readonly getLocalHostname: () => string;
+  readonly getGameTime?: () => number;
+  readonly onScanAggregate?: (info: NmapScanAggregateInfo) => void;
 };
 
 const SCAN_DELAY_MS = 150;
@@ -20,26 +28,28 @@ const formatPortLine = (port: Port, versionScan: boolean): string => {
   const stateService = `${state.padEnd(7)}${port.service}`;
   if (!versionScan) return `${portStr}${stateService}`;
 
-  const version = port.open ? (port.vulnerability?.serviceVersion ?? '') : '';
+  const version = port.open ? (port.serviceVersion ?? '') : '';
   return `${portStr}${stateService.padEnd(16)}${version}`;
 };
 
-const formatVulnerabilitySection = (openPorts: readonly Port[]): readonly string[] => {
-  const vulnPorts = openPorts.filter((p) => p.vulnerability);
-  if (vulnPorts.length === 0) return [];
+const formatVulnerabilitySection = (
+  openPorts: readonly Port[],
+  gameTime: number,
+): readonly string[] => {
+  const vulnEntries = openPorts.flatMap((p) => {
+    const v = findVulnForService(p.service, p.serviceVersion ?? '', gameTime);
+    return v ? [{ port: p, vuln: v }] : [];
+  });
+  if (vulnEntries.length === 0) return [];
 
   return [
     '',
     'VULNERABILITIES:',
-    ...vulnPorts.flatMap((p) => {
-      const v = p.vulnerability;
-      if (!v) return [];
-      return [
-        `  ${v.cve} - ${v.description}`,
-        `    Affected: ${p.service} on port ${p.port}`,
-        '    Risk: CRITICAL \u2014 remote code execution',
-      ];
-    }),
+    ...vulnEntries.flatMap(({ port, vuln }) => [
+      `  ${vuln.cve} - ${vuln.description}`,
+      `    Affected: ${port.service} on port ${port.port}`,
+      '    Risk: CRITICAL \u2014 remote code execution',
+    ]),
   ];
 };
 
@@ -99,16 +109,21 @@ const formatTreeCVELines = (
   host: DiscoveredHost,
   continuationPrefix: string,
   udpScan: boolean,
+  gameTime: number,
 ): readonly string[] => {
   if (host.isLocal) return [];
   const filtered = filterPortsByProtocol(host.ports, udpScan);
-  const vulnPorts = filtered.filter((p) => p.open && p.vulnerability);
-  if (vulnPorts.length === 0) return [];
+  const vulnEntries = filtered.flatMap((p) => {
+    if (!p.open) return [];
+    const v = findVulnForService(p.service, p.serviceVersion ?? '', gameTime);
+    return v ? [{ port: p, vuln: v }] : [];
+  });
+  if (vulnEntries.length === 0) return [];
 
-  return vulnPorts.map((p, i) => {
-    const isLastCVE = i === vulnPorts.length - 1;
+  return vulnEntries.map(({ port, vuln }, i) => {
+    const isLastCVE = i === vulnEntries.length - 1;
     const connector = isLastCVE ? '\u2514\u2500\u2500 ' : '\u251C\u2500\u2500 ';
-    return `${continuationPrefix}${connector}\u26A0 ${p.vulnerability!.cve} (${p.service}:${p.port}) CRITICAL`;
+    return `${continuationPrefix}${connector}\u26A0 ${vuln.cve} (${port.service}:${port.port}) CRITICAL`;
   });
 };
 
@@ -117,6 +132,7 @@ const renderNetworkTree = (
   hosts: readonly DiscoveredHost[],
   versionScan: boolean,
   udpScan: boolean,
+  gameTime: number,
 ): readonly string[] => {
   if (hosts.length === 0) return ['No hosts found in range.'];
 
@@ -137,7 +153,7 @@ const renderNetworkTree = (
 
       lines.push(`${connector}${formatTreeHostLine(child, udpScan)}`);
       if (versionScan) {
-        lines.push(...formatTreeCVELines(child, continuation, udpScan));
+        lines.push(...formatTreeCVELines(child, continuation, udpScan, gameTime));
       }
     });
   } else {
@@ -147,7 +163,7 @@ const renderNetworkTree = (
     hosts.forEach((host) => {
       lines.push(formatTreeHostLine(host, udpScan));
       if (versionScan) {
-        lines.push(...formatTreeCVELines(host, '  ', udpScan));
+        lines.push(...formatTreeCVELines(host, '  ', udpScan, gameTime));
       }
     });
   }
@@ -212,7 +228,15 @@ export const createNmapCommand = (context: NmapContext): Command => ({
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {
-    const { getMachine, findMachineByIp, getMachines, getLocalIPs, getLocalHostname } = context;
+    const {
+      getMachine,
+      findMachineByIp,
+      getMachines,
+      getLocalIPs,
+      getLocalHostname,
+      onScanAggregate,
+    } = context;
+    const gameTime = context.getGameTime?.() ?? 0;
     const { target, versionScan, udpScan, treeScan } = parseNmapArgs(args);
 
     if (!target) {
@@ -272,6 +296,18 @@ export const createNmapCommand = (context: NmapContext): Command => ({
               }
 
               if (scannedCount === totalIPs) {
+                // Fire aggregated scan callback for each non-local target that
+                // was actually touched. Matches how real iptables LOG would
+                // capture one packet-burst per target machine.
+                discoveredHosts
+                  .filter((h) => !h.isLocal)
+                  .forEach((h) =>
+                    onScanAggregate?.({
+                      targetIp: h.ip,
+                      probedPorts: h.ports.map((p) => p.port),
+                    }),
+                  );
+
                 token.schedule(() => {
                   if (token.isCancelled()) return;
 
@@ -279,8 +315,8 @@ export const createNmapCommand = (context: NmapContext): Command => ({
                     onLine('');
                     onLine('No hosts found in range.');
                   } else if (treeScan) {
-                    renderNetworkTree(discoveredHosts, versionScan, udpScan).forEach((line) =>
-                      onLine(line),
+                    renderNetworkTree(discoveredHosts, versionScan, udpScan, gameTime).forEach(
+                      (line) => onLine(line),
                     );
                   } else {
                     onLine('');
@@ -293,9 +329,7 @@ export const createNmapCommand = (context: NmapContext): Command => ({
                         const services = versionScan
                           ? openPorts
                               .map((p) =>
-                                p.vulnerability
-                                  ? `${p.service} ${p.vulnerability.serviceVersion}`
-                                  : p.service,
+                                p.serviceVersion ? `${p.service} ${p.serviceVersion}` : p.service,
                               )
                               .join(', ')
                           : openPorts.map((p) => p.service).join(', ');
@@ -384,6 +418,12 @@ export const createNmapCommand = (context: NmapContext): Command => ({
         });
         const openPorts = sortedPorts.filter((p) => p.open);
 
+        // Single aggregated log entry for the whole scan on this target.
+        onScanAggregate?.({
+          targetIp: target,
+          probedPorts: machine.ports.map((p) => p.port),
+        });
+
         onLine(`Starting Nmap scan on ${target}${scanModeLabel(versionScan, udpScan)}`);
         onLine(`Scanning ${udpScan ? 'UDP ' : ''}ports...`);
 
@@ -420,7 +460,7 @@ export const createNmapCommand = (context: NmapContext): Command => ({
                   if (token.isCancelled()) return;
 
                   if (versionScan) {
-                    const vulnLines = formatVulnerabilitySection(openPorts);
+                    const vulnLines = formatVulnerabilitySection(openPorts, gameTime);
                     vulnLines.forEach((line) => onLine(line));
                   }
 

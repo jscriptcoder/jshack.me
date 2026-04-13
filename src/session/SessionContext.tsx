@@ -35,7 +35,7 @@ export type Session = {
   readonly theme: ThemeId;
 };
 
-export type SessionReason = 'ssh' | 'su';
+export type SessionReason = 'ssh' | 'su' | 'exploit';
 
 export type SessionSnapshot = {
   readonly username: string;

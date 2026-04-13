@@ -5,7 +5,7 @@
 ```
 src/
 ├── components/Terminal/   # Terminal UI (Terminal.tsx orchestrator, Input, Output, NanoEditor)
-├── session/               # SessionContext — global session state (user, machine, path, wifiConnected)
+├── session/               # SessionContext — global session state (user, machine, path, wifiConnected, gameTime)
 ├── filesystem/            # Virtual filesystem with IndexedDB persistence
 │   ├── FileSystemContext.tsx   # React context provider for filesystem operations + patch persistence
 │   ├── fileSystemUtils.ts      # Pure utility functions (path resolution, tree ops, patches, traversal checks)
@@ -17,15 +17,27 @@ src/
 │   └── __encoded.ts            # GENERATED (gitignored) — encoded secrets for production
 ├── hooks/                 # React hooks (commands, history, autocomplete, variables)
 ├── logging/               # Connection logging (auth.log, vsftpd.log, access.log formatters + append utility)
-├── network/               # Per-machine network simulation (interfaces, DNS, machines)
+├── network/               # Per-machine network simulation, version overlays, dpkg/status, types
 ├── commands/              # Command implementations (colocated with .test.ts files)
 │   ├── ftp/               # FTP mode commands (pwd, ls, cd, get, put, quit)
 │   ├── mysql/             # MySQL mode (parser, executor, formatter, types)
 │   └── permissions.ts     # Command restrictions by user type
-├── generation/            # Seeded network generators (missions + home networks)
+├── generation/            # Seeded network generators (missions + home networks) + vulnerability system
 │   ├── prng.ts                # Mulberry32 PRNG seeded via FNV-1a hash
 │   ├── types.ts               # MissionNetwork, GeneratedMachine, AttackStep, EntryVariant, etc.
-│   ├── pools/                 # Data pools split by domain (machines, ports, vulnerabilities, filesystem, web, credentials, scripts, forensics, database); passwords from encoded secrets
+│   ├── vulnerabilityLookup.ts # Two-layer CVE lookup (hand-authored + procedural walker)
+│   ├── firmwareLookup.ts      # Router firmware CVE lookup + safe-version finder
+│   ├── findExploitableCve.ts  # Layered exploit check (service CVE → firmware CVE fallback)
+│   ├── timeline/              # Procedural version timeline generator
+│   │   ├── walker.ts          # buildTimelineFromTemplate, buildTimeline, bumpTuple
+│   │   ├── generatedVuln.ts   # buildGeneratedVuln — constructs Vulnerability from walker entry
+│   │   ├── effectPicker.ts    # Per-service VulnerabilityEffect distribution (8 kinds)
+│   │   ├── config.ts          # CVE_TIMING_CONFIG, getLatestSafeVersion wrapper
+│   │   └── index.ts           # Barrel re-exports
+│   ├── pools/                 # Static data: CVE templates, service/firmware templates, machines, ports, etc.
+│   │   ├── serviceTemplates.ts    # 20 service VersionTemplates for the procedural walker
+│   │   ├── routerFirmware.ts      # 6 firmware vendor templates (Cisco, MikroTik, DD-WRT, etc.)
+│   │   ├── vulnerabilities.ts     # 39 hand-authored CVE entries (publishedAt=0, shell_limited)
 │   ├── generateDatabase.ts    # MySQL database generator + mission enrichment (db_exfiltrate/tamper/sabotage/fix)
 │   ├── ip.ts                  # Shared IP utilities: generatePublicIp (collision-aware), generatePrivateSubnet
 │   ├── topology.ts            # Network topology generator (machines, roles, entry variant, NetworkConfig)

@@ -38,8 +38,8 @@ const remoteMachine: RemoteMachine = {
   ip: '192.168.1.50',
   hostname: 'fileserver',
   ports: [
-    { port: 22, service: 'ssh', open: true },
-    { port: 21, service: 'ftp', open: true },
+    { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+    { port: 21, service: 'ftp', serviceVersion: 'latest', open: true },
   ],
   users: [
     { username: 'root', passwordHash: 'abc', userType: 'root' },
@@ -51,7 +51,7 @@ const remoteMachine: RemoteMachine = {
 const noSshMachine: RemoteMachine = {
   ip: '10.0.0.5',
   hostname: 'nossh',
-  ports: [{ port: 80, service: 'http', open: true }],
+  ports: [{ port: 80, service: 'http', serviceVersion: 'latest', open: true }],
   users: [{ username: 'guest', passwordHash: 'ghi', userType: 'guest' }],
 };
 
@@ -281,8 +281,8 @@ describe('scp', () => {
       ip: '185.13.117.85',
       hostname: 'router01',
       ports: [
-        { port: 22, service: 'ssh', open: true },
-        { port: 25, service: 'smtp', open: true },
+        { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+        { port: 25, service: 'smtp', serviceVersion: 'latest', open: true },
       ],
       users: [
         { username: 'guest', passwordHash: 'ghi', userType: 'guest' },
@@ -335,7 +335,7 @@ describe('scp', () => {
     const routerMachine: RemoteMachine = {
       ip: '45.33.100.1',
       hostname: 'router01',
-      ports: [{ port: 22, service: 'ssh', open: true }],
+      ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
       users: [{ username: 'guest', passwordHash: 'ghi', userType: 'guest' }],
     };
     const createdFiles: {

@@ -10,8 +10,8 @@ const getMockMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine => ({
   ip: '192.168.1.75',
   hostname: 'webserver',
   ports: [
-    { port: 80, service: 'http', open: true },
-    { port: 22, service: 'ssh', open: true },
+    { port: 80, service: 'http', serviceVersion: 'latest', open: true },
+    { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
   ],
   users: [{ username: 'www-data', passwordHash: 'abc', userType: 'user' }],
   ...overrides,
@@ -162,7 +162,11 @@ describe('gobuster command', () => {
     it('should throw when HTTP port is not open', () => {
       const gobuster = createGobusterCommand(
         createMockContext({
-          machines: [getMockMachine({ ports: [{ port: 80, service: 'http', open: false }] })],
+          machines: [
+            getMockMachine({
+              ports: [{ port: 80, service: 'http', serviceVersion: 'latest', open: false }],
+            }),
+          ],
         }),
       );
       expect(() => gobuster.fn('dir', 'http://webserver.local')).toThrow('Connection refused');
@@ -171,7 +175,11 @@ describe('gobuster command', () => {
     it('should throw when port is not an HTTP service', () => {
       const gobuster = createGobusterCommand(
         createMockContext({
-          machines: [getMockMachine({ ports: [{ port: 80, service: 'ftp', open: true }] })],
+          machines: [
+            getMockMachine({
+              ports: [{ port: 80, service: 'ftp', serviceVersion: 'latest', open: true }],
+            }),
+          ],
         }),
       );
       expect(() => gobuster.fn('dir', 'http://webserver.local')).toThrow('Connection refused');
@@ -278,7 +286,11 @@ describe('gobuster command', () => {
     it('should work with custom port', () => {
       const gobuster = createGobusterCommand(
         createMockContext({
-          machines: [getMockMachine({ ports: [{ port: 8080, service: 'http-alt', open: true }] })],
+          machines: [
+            getMockMachine({
+              ports: [{ port: 8080, service: 'http-alt', serviceVersion: 'latest', open: true }],
+            }),
+          ],
         }),
       );
       const lines = collectAsyncLines(gobuster.fn('dir', 'http://webserver.local:8080'));
@@ -305,7 +317,10 @@ describe('gobuster command', () => {
       const context = {
         getMachine: (ip: string) =>
           ip === routerIP
-            ? getMockMachine({ ip: routerIP, ports: [{ port: 80, service: 'http', open: true }] })
+            ? getMockMachine({
+                ip: routerIP,
+                ports: [{ port: 80, service: 'http', serviceVersion: 'latest', open: true }],
+              })
             : undefined,
         resolveDomain: () => undefined,
         resolveNat: (ip: string, port: number) =>
@@ -338,7 +353,7 @@ describe('gobuster command', () => {
           ip === routerIP
             ? getMockMachine({
                 ip: routerIP,
-                ports: [{ port: 8080, service: 'http-alt', open: true }],
+                ports: [{ port: 8080, service: 'http-alt', serviceVersion: 'latest', open: true }],
               })
             : undefined,
         resolveDomain: () => undefined,

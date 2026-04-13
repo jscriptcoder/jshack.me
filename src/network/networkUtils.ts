@@ -14,6 +14,7 @@ import type { FileNode } from '../filesystem/types';
 import type { HomeNetwork } from '../generation/generateHomeNetwork';
 import { SSH_PID_FILE_PATH } from '../commands/sshd';
 import { FTP_PID_FILE_PATH } from '../commands/vsftpd';
+import { defaultServiceVersion } from '../generation/pools/vulnerabilities';
 
 // Builds a merged view of the router that includes NAT-forwarded ports from
 // internal machines, remapped to their public port numbers.
@@ -115,6 +116,7 @@ export const applyDaemonOverrides = (
   const newPorts = [...overrideMap.values()].map((o) => ({
     port: o.port,
     service: o.service,
+    serviceVersion: defaultServiceVersion(o.service),
     open: true as const,
     ...('owner' in o ? { owner: o.owner } : {}),
   }));

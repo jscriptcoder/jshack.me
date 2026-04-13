@@ -1,4 +1,4 @@
-import type { Prng } from './prng';
+import { createPrng, type Prng } from './prng';
 import { generatePrivateSubnet, generatePublicIp } from './ip';
 import type {
   Difficulty,
@@ -24,6 +24,8 @@ import {
   backdoorPorts,
 } from './pools';
 import { vulnerabilityTemplates } from './pools';
+import { defaultServiceVersion } from './pools/vulnerabilities';
+import { FIRMWARE_VENDORS, type FirmwareVendor } from './pools/routerFirmware';
 
 const allVariants: readonly EntryVariant[] = ['ssh', 'ftp', 'nc', 'exploit', 'http', 'snmp'];
 
@@ -48,11 +50,22 @@ const buildVariantPorts = (
     if (hasFtp) {
       return rolePorts.map((p) => (p.port === 21 ? { ...p, open: true } : p));
     }
-    return [...rolePorts, { port: 21, service: 'ftp', open: true }];
+    return [
+      ...rolePorts,
+      { port: 21, service: 'ftp', serviceVersion: defaultServiceVersion('ftp'), open: true },
+    ];
   }
 
   if (variant === 'nc') {
-    return [...rolePorts, { port: backdoorPort, service: 'elite', open: true }];
+    return [
+      ...rolePorts,
+      {
+        port: backdoorPort,
+        service: 'elite',
+        serviceVersion: defaultServiceVersion('elite'),
+        open: true,
+      },
+    ];
   }
 
   if (variant === 'exploit') {
@@ -71,7 +84,10 @@ const buildVariantPorts = (
     }
 
     // No role port matches — add port 80 (http) which has a vulnerability template
-    return [...rolePorts, { port: 80, service: 'http', open: true }];
+    return [
+      ...rolePorts,
+      { port: 80, service: 'http', serviceVersion: defaultServiceVersion('http'), open: true },
+    ];
   }
 
   // HTTP variant
@@ -79,7 +95,10 @@ const buildVariantPorts = (
   if (hasHttp) {
     return rolePorts.map((p) => (p.port === 80 ? { ...p, open: true } : p));
   }
-  return [...rolePorts, { port: 80, service: 'http', open: true }];
+  return [
+    ...rolePorts,
+    { port: 80, service: 'http', serviceVersion: defaultServiceVersion('http'), open: true },
+  ];
 };
 
 export type TopologyResult = {
@@ -162,6 +181,7 @@ const buildPorts = (role: MachineRole): readonly Port[] =>
   portTemplatesByRole[role].map((t) => ({
     port: t.port,
     service: t.service,
+    serviceVersion: defaultServiceVersion(t.service),
     open: t.open,
     ...(t.protocol ? { protocol: t.protocol } : {}),
   }));
@@ -177,6 +197,7 @@ const buildPortsFromTemplate = (
   template.map((t) => ({
     port: t.port,
     service: t.service,
+    serviceVersion: defaultServiceVersion(t.service),
     open: t.open,
     ...(t.protocol ? { protocol: t.protocol } : {}),
   }));
@@ -351,6 +372,11 @@ export const generateTopology = (
     ? 'ssh'
     : outerLayer.entryVariant;
 
+  // Use a derived PRNG so the main topology PRNG sequence is unchanged by
+  // firmware picks (keeps downstream generation deterministic-compatible).
+  const routerFirmwareVendor: FirmwareVendor = createPrng(`firmware-vendor:${routerPublicIp}`).pick(
+    FIRMWARE_VENDORS,
+  );
   const routerMachine: GeneratedMachine = {
     ip: routerPublicIp,
     hostname: routerHostname,
@@ -361,6 +387,7 @@ export const generateTopology = (
       hostname: routerHostname,
       ports: outerLayer.gatewayPorts,
       users: [],
+      firmwareVendor: routerFirmwareVendor,
     },
   };
 
@@ -391,6 +418,10 @@ export const generateTopology = (
             ? 'ssh'
             : downstreamLayer.entryVariant;
 
+      const gatewayFirmwareVendor: FirmwareVendor | undefined =
+        gatewayRole === 'router'
+          ? createPrng(`firmware-vendor:${gatewayUpstreamIp}`).pick(FIRMWARE_VENDORS)
+          : undefined;
       return {
         ip: gatewayUpstreamIp,
         hostname: gatewayHostname,
@@ -401,6 +432,7 @@ export const generateTopology = (
           hostname: gatewayHostname,
           ports: downstreamLayer.gatewayPorts,
           users: [],
+          firmwareVendor: gatewayFirmwareVendor,
         },
       };
     },

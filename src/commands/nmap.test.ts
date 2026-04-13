@@ -8,7 +8,7 @@ import { createNmapCommand } from './nmap';
 const getMockRemoteMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine => ({
   ip: '192.168.1.50',
   hostname: 'fileserver',
-  ports: [{ port: 22, service: 'ssh', open: true }],
+  ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
   users: [{ username: 'root', passwordHash: 'abc123', userType: 'root' }],
   ...overrides,
 });
@@ -17,10 +17,19 @@ type NmapContextConfig = {
   readonly machines?: readonly RemoteMachine[];
   readonly localIP?: string;
   readonly localHostname?: string;
+  readonly onScanAggregate?: (info: {
+    readonly targetIp: string;
+    readonly probedPorts: readonly number[];
+  }) => void;
 };
 
 const createMockNmapContext = (config: NmapContextConfig = {}) => {
-  const { machines = [], localIP = '192.168.1.100', localHostname = 'localhost' } = config;
+  const {
+    machines = [],
+    localIP = '192.168.1.100',
+    localHostname = 'localhost',
+    onScanAggregate,
+  } = config;
 
   return {
     getMachine: (ip: string) => machines.find((m) => m.ip === ip),
@@ -28,6 +37,7 @@ const createMockNmapContext = (config: NmapContextConfig = {}) => {
     getMachines: () => machines,
     getLocalIPs: () => new Set([localIP, '127.0.0.1']),
     getLocalHostname: () => localHostname,
+    onScanAggregate,
   };
 };
 
@@ -175,7 +185,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.50',
             hostname: 'fileserver',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -275,7 +285,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.50',
             hostname: 'server',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -296,12 +306,8 @@ describe('nmap command', () => {
               {
                 port: 80,
                 service: 'http',
+                serviceVersion: 'Apache/2.4.49',
                 open: true,
-                vulnerability: {
-                  cve: 'CVE-2021-41773',
-                  description: 'Apache path traversal',
-                  serviceVersion: 'Apache/2.4.49',
-                },
               },
             ],
           }),
@@ -331,7 +337,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.50',
             hostname: 'server',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -351,7 +357,7 @@ describe('nmap command', () => {
       expect(lines.some((l) => l.includes('VERSION'))).toBe(true);
     });
 
-    it('should show vulnerability service version in port line', () => {
+    it('should show service version in port line', () => {
       const context = createMockNmapContext({
         machines: [
           getMockRemoteMachine({
@@ -361,12 +367,8 @@ describe('nmap command', () => {
               {
                 port: 80,
                 service: 'http',
+                serviceVersion: 'Apache/2.4.49',
                 open: true,
-                vulnerability: {
-                  cve: 'CVE-2021-41773',
-                  description: 'Apache path traversal',
-                  serviceVersion: 'Apache/2.4.49',
-                },
               },
             ],
           }),
@@ -398,12 +400,8 @@ describe('nmap command', () => {
               {
                 port: 80,
                 service: 'http',
+                serviceVersion: 'Apache/2.4.49',
                 open: true,
-                vulnerability: {
-                  cve: 'CVE-2021-41773',
-                  description: 'Apache 2.4.49 path traversal / RCE',
-                  serviceVersion: 'Apache/2.4.49',
-                },
               },
             ],
           }),
@@ -433,7 +431,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.50',
             hostname: 'server',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -453,6 +451,102 @@ describe('nmap command', () => {
       expect(lines.some((l) => l.includes('VULNERABILITIES:'))).toBe(false);
     });
 
+    it('should not render "undefined" in the version column when a port has no serviceVersion', () => {
+      // Regression guard: prior to the dynamic lookup refactor, removing the
+      // nullish coalescing could surface the literal string "undefined" in the
+      // -sV version column for safe ports. Players shouldn't see that.
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.50',
+            hostname: 'server',
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('-sV', '192.168.1.50');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(2000);
+
+      expect(lines.some((l) => l.includes('undefined'))).toBe(false);
+    });
+
+    it('should show the service version for an open port even when no CVE matches', () => {
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.50',
+            hostname: 'server',
+            ports: [
+              {
+                port: 22,
+                service: 'ssh',
+                serviceVersion: 'OpenSSH 9.6',
+                open: true,
+              },
+            ],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('-sV', '192.168.1.50');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(2000);
+
+      expect(lines.some((l) => l.includes('OpenSSH 9.6'))).toBe(true);
+      expect(lines.some((l) => l.includes('VULNERABILITIES:'))).toBe(false);
+    });
+
+    it('should include serviceVersion in range-scan summary line with -sV', () => {
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.50',
+            hostname: 'server',
+            ports: [
+              {
+                port: 22,
+                service: 'ssh',
+                serviceVersion: 'OpenSSH 9.6',
+                open: true,
+              },
+            ],
+          }),
+        ],
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('-sV', '192.168.1.50-51');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+      }
+
+      vi.advanceTimersByTime(3000);
+
+      expect(lines.some((l) => l.includes('ssh OpenSSH 9.6'))).toBe(true);
+    });
+
     it('should not show VERSION column without -sV flag', () => {
       const context = createMockNmapContext({
         machines: [
@@ -463,12 +557,8 @@ describe('nmap command', () => {
               {
                 port: 80,
                 service: 'http',
+                serviceVersion: 'Apache/2.4.49',
                 open: true,
-                vulnerability: {
-                  cve: 'CVE-2021-41773',
-                  description: 'test',
-                  serviceVersion: 'Apache/2.4.49',
-                },
               },
             ],
           }),
@@ -501,9 +591,9 @@ describe('nmap command', () => {
             ip: '192.168.1.50',
             hostname: 'router',
             ports: [
-              { port: 22, service: 'ssh', open: true },
-              { port: 80, service: 'http', open: true },
-              { port: 161, service: 'snmp', open: true, protocol: 'udp' },
+              { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+              { port: 80, service: 'http', serviceVersion: 'latest', open: true },
+              { port: 161, service: 'snmp', serviceVersion: 'latest', open: true, protocol: 'udp' },
             ],
           }),
         ],
@@ -534,8 +624,8 @@ describe('nmap command', () => {
             ip: '192.168.1.50',
             hostname: 'router',
             ports: [
-              { port: 22, service: 'ssh', open: true },
-              { port: 161, service: 'snmp', open: true, protocol: 'udp' },
+              { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+              { port: 161, service: 'snmp', serviceVersion: 'latest', open: true, protocol: 'udp' },
             ],
           }),
         ],
@@ -564,8 +654,8 @@ describe('nmap command', () => {
             ip: '192.168.1.50',
             hostname: 'router',
             ports: [
-              { port: 22, service: 'ssh', open: true },
-              { port: 161, service: 'snmp', open: true, protocol: 'udp' },
+              { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+              { port: 161, service: 'snmp', serviceVersion: 'latest', open: true, protocol: 'udp' },
             ],
           }),
         ],
@@ -594,8 +684,8 @@ describe('nmap command', () => {
             ip: '192.168.1.50',
             hostname: 'router',
             ports: [
-              { port: 22, service: 'ssh', open: true },
-              { port: 161, service: 'snmp', open: true, protocol: 'udp' },
+              { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+              { port: 161, service: 'snmp', serviceVersion: 'latest', open: true, protocol: 'udp' },
             ],
           }),
         ],
@@ -624,7 +714,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.50',
             hostname: 'server',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -715,8 +805,8 @@ describe('nmap command', () => {
             ip: '192.168.1.50',
             hostname: 'fileserver',
             ports: [
-              { port: 22, service: 'ssh', open: true },
-              { port: 80, service: 'http', open: true },
+              { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+              { port: 80, service: 'http', serviceVersion: 'latest', open: true },
             ],
           }),
         ],
@@ -752,8 +842,8 @@ describe('nmap command', () => {
             ip: '192.168.1.50',
             hostname: 'server',
             ports: [
-              { port: 22, service: 'ssh', open: true },
-              { port: 23, service: 'telnet', open: false },
+              { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+              { port: 23, service: 'telnet', serviceVersion: 'latest', open: false },
             ],
           }),
         ],
@@ -781,7 +871,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.50',
             hostname: 'server',
-            ports: [{ port: 22, service: 'ssh', open: false }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: false }],
           }),
         ],
       });
@@ -808,9 +898,9 @@ describe('nmap command', () => {
             ip: '192.168.1.50',
             hostname: 'server',
             ports: [
-              { port: 22, service: 'ssh', open: true },
-              { port: 80, service: 'http', open: true },
-              { port: 443, service: 'https', open: true },
+              { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+              { port: 80, service: 'http', serviceVersion: 'latest', open: true },
+              { port: 443, service: 'https', serviceVersion: 'latest', open: true },
             ],
           }),
         ],
@@ -863,14 +953,14 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.1',
             hostname: 'router',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
           getMockRemoteMachine({
             ip: '192.168.1.10',
             hostname: 'webserver',
             ports: [
-              { port: 22, service: 'ssh', open: true },
-              { port: 80, service: 'http', open: true },
+              { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+              { port: 80, service: 'http', serviceVersion: 'latest', open: true },
             ],
           }),
         ],
@@ -902,17 +992,17 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.1',
             hostname: 'router',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
           getMockRemoteMachine({
             ip: '192.168.1.10',
             hostname: 'webserver',
-            ports: [{ port: 80, service: 'http', open: true }],
+            ports: [{ port: 80, service: 'http', serviceVersion: 'latest', open: true }],
           }),
           getMockRemoteMachine({
             ip: '192.168.1.20',
             hostname: 'dbserver',
-            ports: [{ port: 3306, service: 'mysql', open: true }],
+            ports: [{ port: 3306, service: 'mysql', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -945,12 +1035,12 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.10',
             hostname: 'webserver',
-            ports: [{ port: 80, service: 'http', open: true }],
+            ports: [{ port: 80, service: 'http', serviceVersion: 'latest', open: true }],
           }),
           getMockRemoteMachine({
             ip: '192.168.1.20',
             hostname: 'dbserver',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -983,7 +1073,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.1',
             hostname: 'router',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -1012,7 +1102,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.1',
             hostname: 'router',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -1041,7 +1131,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.1',
             hostname: 'router',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
           getMockRemoteMachine({
             ip: '192.168.1.10',
@@ -1050,12 +1140,8 @@ describe('nmap command', () => {
               {
                 port: 80,
                 service: 'http',
+                serviceVersion: 'Apache/2.4.49',
                 open: true,
-                vulnerability: {
-                  cve: 'CVE-2021-41773',
-                  description: 'Apache path traversal',
-                  serviceVersion: 'Apache/2.4.49',
-                },
               },
             ],
           }),
@@ -1087,7 +1173,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.1',
             hostname: 'router',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
           getMockRemoteMachine({
             ip: '192.168.1.10',
@@ -1096,12 +1182,8 @@ describe('nmap command', () => {
               {
                 port: 80,
                 service: 'http',
+                serviceVersion: 'Apache/2.4.49',
                 open: true,
-                vulnerability: {
-                  cve: 'CVE-2021-41773',
-                  description: 'Apache path traversal',
-                  serviceVersion: 'Apache/2.4.49',
-                },
               },
             ],
           }),
@@ -1130,8 +1212,8 @@ describe('nmap command', () => {
             ip: '192.168.1.1',
             hostname: 'router',
             ports: [
-              { port: 22, service: 'ssh', open: true },
-              { port: 161, service: 'snmp', open: true, protocol: 'udp' },
+              { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+              { port: 161, service: 'snmp', serviceVersion: 'latest', open: true, protocol: 'udp' },
             ],
           }),
         ],
@@ -1178,7 +1260,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.1',
             hostname: 'router',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -1209,8 +1291,8 @@ describe('nmap command', () => {
             ip: '192.168.1.1',
             hostname: 'router',
             ports: [
-              { port: 22, service: 'ssh', open: true },
-              { port: 80, service: 'http', open: true },
+              { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+              { port: 80, service: 'http', serviceVersion: 'latest', open: true },
             ],
           }),
         ],
@@ -1241,7 +1323,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.1',
             hostname: 'router',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
           getMockRemoteMachine({
             ip: '192.168.1.10',
@@ -1250,19 +1332,15 @@ describe('nmap command', () => {
               {
                 port: 80,
                 service: 'http',
+                serviceVersion: 'Apache/2.4.49',
                 open: true,
-                vulnerability: {
-                  cve: 'CVE-2021-41773',
-                  description: 'Apache path traversal',
-                  serviceVersion: 'Apache/2.4.49',
-                },
               },
             ],
           }),
           getMockRemoteMachine({
             ip: '192.168.1.20',
             hostname: 'dbserver',
-            ports: [{ port: 3306, service: 'mysql', open: true }],
+            ports: [{ port: 3306, service: 'mysql', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -1293,7 +1371,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.1',
             hostname: 'router',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
           getMockRemoteMachine({
             ip: '192.168.1.10',
@@ -1302,12 +1380,8 @@ describe('nmap command', () => {
               {
                 port: 80,
                 service: 'http',
+                serviceVersion: 'Apache/2.4.49',
                 open: true,
-                vulnerability: {
-                  cve: 'CVE-2021-41773',
-                  description: 'Apache path traversal',
-                  serviceVersion: 'Apache/2.4.49',
-                },
               },
             ],
           }),
@@ -1338,7 +1412,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.1',
             hostname: 'router',
-            ports: [{ port: 22, service: 'ssh', open: true }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
           }),
         ],
       });
@@ -1364,7 +1438,7 @@ describe('nmap command', () => {
           getMockRemoteMachine({
             ip: '192.168.1.10',
             hostname: 'closedserver',
-            ports: [{ port: 22, service: 'ssh', open: false }],
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: false }],
           }),
         ],
       });
@@ -1383,6 +1457,119 @@ describe('nmap command', () => {
 
       // Tree output line (not the "Host discovered:" line)
       expect(lines.some((l) => l === 'closedserver (192.168.1.10)')).toBe(true);
+    });
+  });
+
+  describe('onScanAggregate callback', () => {
+    it('calls onScanAggregate once for a single-host scan with the list of probed ports', () => {
+      const onScanAggregate = vi.fn();
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.50',
+            ports: [
+              { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+              { port: 80, service: 'http', serviceVersion: 'latest', open: true },
+              { port: 443, service: 'https', serviceVersion: 'latest', open: false },
+            ],
+          }),
+        ],
+        onScanAggregate,
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('192.168.1.50');
+
+      if (isAsyncOutput(result)) {
+        result.start(
+          () => {},
+          () => {},
+        );
+      }
+      vi.advanceTimersByTime(3000);
+
+      expect(onScanAggregate).toHaveBeenCalledTimes(1);
+      expect(onScanAggregate).toHaveBeenCalledWith({
+        targetIp: '192.168.1.50',
+        probedPorts: expect.arrayContaining([22, 80, 443]),
+      });
+    });
+
+    it('calls onScanAggregate once per touched target in a range scan', () => {
+      const onScanAggregate = vi.fn();
+      const context = createMockNmapContext({
+        machines: [
+          getMockRemoteMachine({
+            ip: '192.168.1.1',
+            ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
+          }),
+          getMockRemoteMachine({
+            ip: '192.168.1.10',
+            ports: [
+              { port: 80, service: 'http', serviceVersion: 'latest', open: true },
+              { port: 3306, service: 'mysql', serviceVersion: 'latest', open: false },
+            ],
+          }),
+        ],
+        onScanAggregate,
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('192.168.1.1-20');
+
+      if (isAsyncOutput(result)) {
+        result.start(
+          () => {},
+          () => {},
+        );
+      }
+      vi.advanceTimersByTime(10000);
+
+      expect(onScanAggregate).toHaveBeenCalledTimes(2);
+      expect(onScanAggregate).toHaveBeenCalledWith({
+        targetIp: '192.168.1.1',
+        probedPorts: expect.arrayContaining([22]),
+      });
+      expect(onScanAggregate).toHaveBeenCalledWith({
+        targetIp: '192.168.1.10',
+        probedPorts: expect.arrayContaining([80, 3306]),
+      });
+    });
+
+    it('does NOT call onScanAggregate for a local-IP scan', () => {
+      const onScanAggregate = vi.fn();
+      const context = createMockNmapContext({
+        machines: [getMockRemoteMachine({ ip: '192.168.1.100' })],
+        localIP: '192.168.1.100',
+        onScanAggregate,
+      });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('192.168.1.100');
+
+      if (isAsyncOutput(result)) {
+        result.start(
+          () => {},
+          () => {},
+        );
+      }
+      vi.advanceTimersByTime(2000);
+
+      expect(onScanAggregate).not.toHaveBeenCalled();
+    });
+
+    it('does NOT call onScanAggregate when the target is unreachable (host seems down)', () => {
+      const onScanAggregate = vi.fn();
+      const context = createMockNmapContext({ machines: [], onScanAggregate });
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('192.168.1.99');
+
+      if (isAsyncOutput(result)) {
+        result.start(
+          () => {},
+          () => {},
+        );
+      }
+      vi.advanceTimersByTime(2000);
+
+      expect(onScanAggregate).not.toHaveBeenCalled();
     });
   });
 });

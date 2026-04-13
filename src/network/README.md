@@ -4,21 +4,23 @@ Simulated network environment for hacking missions. Defines the topology, machin
 
 ## Files
 
-| File                    | Description                                                                                                                            |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `types.ts`              | Core types: `NetworkInterface`, `RemoteMachine`, `Port`, `Vulnerability`, `DnsRecord`, `MachineNetworkConfig`, `NetworkConfig`         |
-| `wifiTypes.ts`          | `WifiConnection` type (`{ essid, bssid }`) and validator — replaces boolean WiFi state                                                 |
-| `initialNetwork.ts`     | Localhost interface constants: `localhostWlan0Down` (disconnected wlan0) and `localhostDisconnectedInterfaces` (loopback + wlan0 down) |
-| `NetworkContext.tsx`    | React context — imports `useSession`, resolves config per `session.machine`, provides `getMachine`, `getLocalIP`, etc.                 |
-| `networkUtils.ts`       | Pure functions extracted from context: `buildMergedRouterView`, `applySnmpFirewallOverrides`, `applyDaemonOverrides`, ACL filtering    |
-| `iptablesParser.ts`     | Pure parser for router's `/etc/iptables/rules.v4` — extracts `forward <port> to <ip>:<port>` rules into `NatForwardingRule[]`          |
-| `snmpFirewallParser.ts` | Pure parser for SNMP firewall OIDs in `/etc/snmp/snmpd.conf` — maps `firewallSSH`/`firewallHTTP` `permit`/`deny` to port overrides     |
-| `aclParser.ts`          | Pure parser for switch `/etc/switch/acl.conf` — extracts `deny`/`allow` ACL rules with subnet and port matching                        |
-| `snmpAclParser.ts`      | Pure parser for SNMP ACL OIDs in `/etc/snmp/snmpd.conf` — maps `aclSSH`/`aclHTTP`/`aclFTP` `allow`/`deny` to port overrides            |
-| `sshdStateParser.ts`    | Pure parser for `/var/run/sshd.pid` — extracts `sshd:port=N` into SSH port override                                                    |
-| `ftpdStateParser.ts`    | Pure parser for `/var/run/vsftpd.pid` — extracts `vsftpd:port=N` into FTP port override                                                |
-| `ncStateParser.ts`      | Pure parser for `/var/run/nc-*.pid` — extracts `nc:port=N,user=X,userType=T,home=P` into elite port overrides with owner               |
-| `index.ts`              | Module exports                                                                                                                         |
+| File                     | Description                                                                                                                             |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `types.ts`               | Core types: `NetworkInterface`, `RemoteMachine`, `Port`, `Vulnerability`, `DnsRecord`, `MachineNetworkConfig`, `NetworkConfig`          |
+| `wifiTypes.ts`           | `WifiConnection` type (`{ essid, bssid }`) and validator — replaces boolean WiFi state                                                  |
+| `initialNetwork.ts`      | Localhost interface constants: `localhostWlan0Down` (disconnected wlan0) and `localhostDisconnectedInterfaces` (loopback + wlan0 down)  |
+| `NetworkContext.tsx`     | React context — imports `useSession`, resolves config per `session.machine`, provides `getMachine`, `getLocalIP`, etc.                  |
+| `networkUtils.ts`        | Pure functions extracted from context: `buildMergedRouterView`, `applySnmpFirewallOverrides`, `applyDaemonOverrides`, ACL filtering     |
+| `iptablesParser.ts`      | Pure parser for router's `/etc/iptables/rules.v4` — extracts `forward <port> to <ip>:<port>` rules into `NatForwardingRule[]`           |
+| `snmpFirewallParser.ts`  | Pure parser for SNMP firewall OIDs in `/etc/snmp/snmpd.conf` — maps `firewallSSH`/`firewallHTTP` `permit`/`deny` to port overrides      |
+| `aclParser.ts`           | Pure parser for switch `/etc/switch/acl.conf` — extracts `deny`/`allow` ACL rules with subnet and port matching                         |
+| `snmpAclParser.ts`       | Pure parser for SNMP ACL OIDs in `/etc/snmp/snmpd.conf` — maps `aclSSH`/`aclHTTP`/`aclFTP` `allow`/`deny` to port overrides             |
+| `sshdStateParser.ts`     | Pure parser for `/var/run/sshd.pid` — extracts `sshd:port=N` into SSH port override                                                     |
+| `ftpdStateParser.ts`     | Pure parser for `/var/run/vsftpd.pid` — extracts `vsftpd:port=N` into FTP port override                                                 |
+| `ncStateParser.ts`       | Pure parser for `/var/run/nc-*.pid` — extracts `nc:port=N,user=X,userType=T,home=P` into elite port overrides with owner                |
+| `dpkgStatus.ts`          | Debian-style `/var/lib/dpkg/status` parser/writer — RFC-822 format with Package/Status/Version fields for service version tracking      |
+| `applyVersionOverlay.ts` | Wraps a `RemoteMachine` so `port.serviceVersion` reads come from dpkg/status if an entry exists; also overlays router `firmwareVersion` |
+| `index.ts`               | Module exports                                                                                                                          |
 
 ## Network Topology
 
@@ -45,26 +47,54 @@ type NetworkConfig = {
 };
 ```
 
-**Port** — includes optional `owner` for interactive services (backdoors via `nc`, exploits) and optional `vulnerability` for version scanning:
+**Severity** — vulnerability severity tiers. `critical`/`high`/`medium`/`low` all grant shells in Phase 3; `info` is reserved for Phase 4 typed effects (non-shell outcomes):
+
+```typescript
+type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
+```
+
+**VulnerabilityEffect** — discriminated union of exploit outcomes. Determines what `msfconsole` does on a successful exploit:
+
+```typescript
+type VulnerabilityEffect =
+  | { readonly kind: 'shell_limited' }
+  | { readonly kind: 'shell_full'; readonly tier: 'guest' | 'user' | 'root' }
+  | { readonly kind: 'file_read' }
+  | { readonly kind: 'dir_list' }
+  | { readonly kind: 'file_write' }
+  | { readonly kind: 'password_reset'; readonly tier: 'guest' | 'user' | 'root' }
+  | { readonly kind: 'backdoor_port_open'; readonly port: number }
+  | { readonly kind: 'script_exec'; readonly tier: 'guest' | 'user' | 'root' };
+```
+
+**Vulnerability** — CVE metadata including severity, timed publication, typed effects, and attack logging patterns:
 
 ```typescript
 type Vulnerability = {
   readonly cve: string;
   readonly description: string;
   readonly serviceVersion: string;
-};
-
-type Port = {
-  readonly port: number;
-  readonly service: string;
-  readonly open: boolean;
-  readonly protocol?: 'tcp' | 'udp'; // defaults to 'tcp'; used by nmap -sU for UDP scanning
-  readonly owner?: ServiceOwner; // username, userType, homePath
-  readonly vulnerability?: Vulnerability; // CVE info for nmap -sV / msfconsole
+  readonly attackPattern: AttackPattern;
+  readonly severity: Severity;
+  readonly publishedAt: number; // game day when CVE becomes live (0 = always active)
+  readonly effect: VulnerabilityEffect;
 };
 ```
 
-**RemoteMachine** — each machine has an IP, hostname, open ports, and user accounts:
+**Port** — includes `serviceVersion` for version scanning and optional `owner` for interactive services (backdoors via `nc`, exploits). Version comes from generation but can be overlaid at runtime via dpkg/status:
+
+```typescript
+type Port = {
+  readonly port: number;
+  readonly service: string;
+  readonly serviceVersion: string;
+  readonly open: boolean;
+  readonly protocol?: 'tcp' | 'udp'; // defaults to 'tcp'; used by nmap -sU for UDP scanning
+  readonly owner?: ServiceOwner; // username, userType, homePath
+};
+```
+
+**RemoteMachine** — each machine has an IP, hostname, open ports, and user accounts. Routers additionally carry firmware metadata:
 
 ```typescript
 type RemoteMachine = {
@@ -72,6 +102,8 @@ type RemoteMachine = {
   readonly hostname: string;
   readonly ports: readonly Port[];
   readonly users: readonly RemoteUser[];
+  readonly firmwareVendor?: string; // router-only, set at generation time
+  readonly firmwareVersion?: string; // router-only, overlaid from dpkg/status
 };
 ```
 
@@ -126,3 +158,19 @@ For managed Layer 3 switch gateways, `NetworkProvider` reads `/etc/switch/acl.co
 `NetworkProvider` reads PID files (`/var/run/sshd.pid`, `/var/run/vsftpd.pid`, `/var/run/nc-*.pid`) from each machine's filesystem. When the player starts a daemon (e.g., `sshd(2222)`, `bash('/usr/sbin/vsftpd')`, `systemctl('start', 'sshd')`, or `nc("-l", 4444)`), the command writes a PID file. `systemctl('stop', service)` deletes the PID file to close the port. `parseSshdState()`, `parseFtpdState()`, and `parseNcPidFiles()` extract port overrides, and `applyDaemonOverrides()` opens the corresponding port on the machine's `RemoteMachine` view. This enables dynamic SSH/FTP/backdoor port opening from NC shells during lateral movement.
 
 `nc` listener PID files include owner metadata (`user`, `userType`, `home`) so that when another player connects via `nc()`, they land as the user who opened the listener. Port binding follows Unix rules: ports below 1024 require root.
+
+## Dpkg Status (Service Version Tracking)
+
+`dpkgStatus.ts` implements a Debian-style `/var/lib/dpkg/status` parser/writer. The file uses RFC-822-like format: entries separated by blank lines, each entry containing `Package`, `Status`, and `Version` fields. The game uses this as the source-of-truth for service versions on each machine:
+
+- **Generation time** — `buildInitialDpkgStatus(ports, firmwareVersion?)` seeds the file with one entry per running service. For routers, a synthetic `firmware` package entry is included.
+- **Runtime mutation** — `apt upgrade` calls `setDpkgVersion(content, pkg, version)` to update a package's version in-place (preserving other fields) or append a new entry.
+- **Read path** — `parseDpkgVersions(content)` returns a `Package -> Version` map consumed by the version overlay.
+
+Exports: `DpkgEntry` type, `parseDpkgStatus`, `parseDpkgVersions`, `formatDpkgStatus`, `buildEntry`, `buildInitialDpkgStatus`, `setDpkgVersion`, `DPKG_STATUS_PATH`.
+
+## Version Overlay
+
+`applyVersionOverlay.ts` wraps a `RemoteMachine` so that `port.serviceVersion` reads come from `/var/lib/dpkg/status` if an entry exists for the port's service name; otherwise it falls through to the generation-time default. For routers, the `firmwareVersion` field is also overlaid from the `firmware` package entry.
+
+This is applied transparently by `useNetworkCommands` — consumers like `nmap`, `msfconsole`, and the exploit-logging callback see post-overlay versions without any special handling. When a player runs `apt upgrade` on a machine, the dpkg/status file updates, and subsequent version reads reflect the patched version.

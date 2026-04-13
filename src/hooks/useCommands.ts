@@ -34,6 +34,7 @@ import { useFileSystemCommands } from './useFileSystemCommands';
 import { useNetworkCommands } from './useNetworkCommands';
 import { useWifiCommands } from './useWifiCommands';
 import { useSession } from '../session/SessionContext';
+import { getGameTime } from '../session/gameTime';
 import { useNetwork } from '../network';
 import { useFileSystem } from '../filesystem';
 import { getDatabase } from '../utils/storageCache';
@@ -89,10 +90,12 @@ export const useCommands = (): UseCommandsResult => {
   const {
     resolvePath,
     getNode,
+    readFile,
     readFileFromMachine,
     writeFileToMachine,
     createFileOnMachine,
     createFile,
+    writeFile,
     getNodeFromMachine,
     deleteNodeFromMachine,
     canTraverse,
@@ -223,10 +226,14 @@ export const useCommands = (): UseCommandsResult => {
       'apt',
       createAptCommand({
         getMachine: () => session.machine,
+        getCurrentMachine: () => getMachineInfo(session.machine),
         getNode,
+        readFile: (path: string) => readFile(path, 'root'),
         createFile,
+        writeFile,
         getUserType: () => session.userType,
         isWifiConnected: () => wifiConnected,
+        getGameTime,
       }),
     );
 

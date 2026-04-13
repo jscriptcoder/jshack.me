@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { generateMissionNetwork, parseSeedOverrides } from './generateMission';
 import type { FileNode } from '../filesystem/types';
 import { parseIptablesRules } from '../network/iptablesParser';
+import { findVulnForService } from './vulnerabilityLookup';
 
 describe('parseSeedOverrides', () => {
   it('parses domain keyword', () => {
@@ -175,8 +176,8 @@ describe('generateMissionNetwork', () => {
     expect(uniqueEntries.size).toBeGreaterThan(1);
   });
 
-  it('exploit entry variant adds vulnerability and owner to entry machine port', () => {
-    // Known seed that produces an exploit entry variant with vulnerability
+  it('exploit entry variant sets a vulnerable serviceVersion and owner on entry machine port', () => {
+    // Known seed that produces an exploit entry variant with a vulnerable service
     const result = generateMissionNetwork('exploit-gen-0');
     expect(result.entryVariant).toBe('exploit');
 
@@ -186,10 +187,12 @@ describe('generateMissionNetwork', () => {
     expect(targetMachine).toBeDefined();
 
     const vulnPort = targetMachine?.remoteMachine.ports.find(
-      (p) => p.service !== 'ssh' && p.open && p.vulnerability,
+      (p) =>
+        p.service !== 'ssh' &&
+        p.open &&
+        findVulnForService(p.service, p.serviceVersion ?? '', 0) !== undefined,
     );
     expect(vulnPort).toBeDefined();
-    expect(vulnPort!.vulnerability!.cve).toBeTruthy();
     expect(vulnPort!.owner).toBeDefined();
     expect(['guest', 'user', 'root']).toContain(vulnPort!.owner?.userType);
   });
@@ -230,7 +233,7 @@ describe('generateMissionNetwork', () => {
     expect(['guest', 'user']).toContain(backdoorPort?.owner?.userType);
   });
 
-  it('non-entry exploit machines have vulnerability and owner', () => {
+  it('non-entry exploit machines have a vulnerable serviceVersion and owner', () => {
     // Known seed that produces a non-entry exploit machine
     const result = generateMissionNetwork('exploit-nonentry-0');
     const nonEntryExploit = result.machines.find(
@@ -239,10 +242,12 @@ describe('generateMissionNetwork', () => {
     expect(nonEntryExploit).toBeDefined();
 
     const vulnPort = nonEntryExploit!.remoteMachine.ports.find(
-      (p) => p.service !== 'ssh' && p.open && p.vulnerability,
+      (p) =>
+        p.service !== 'ssh' &&
+        p.open &&
+        findVulnForService(p.service, p.serviceVersion ?? '', 0) !== undefined,
     );
     expect(vulnPort).toBeDefined();
-    expect(vulnPort!.vulnerability!.cve).toBeTruthy();
     expect(vulnPort!.owner).toBeDefined();
     expect(['guest', 'user', 'root']).toContain(vulnPort!.owner?.userType);
   });

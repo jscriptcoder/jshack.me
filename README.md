@@ -30,7 +30,11 @@ Start with `help()` to see available commands. Good luck, hacker.
 - **Network Simulation** - Discover and hack into remote machines; per-WiFi subnets with routers, servers, and databases
 - **DNS Zone Transfers** - DNS servers with BIND zone files; use `dig` for lookups and AXFR zone transfers to discover machines
 - **Redis Service** - ~35% of database machines run Redis on port 6379; connect via `rediscli`, query key-value data, brute-force passwords with `hydra`
-- **Connection Logging** - SSH, FTP, SCP, su, Redis, and HTTP events are logged to target machine log files in realistic Linux formats (`auth.log`, `vsftpd.log`, `redis.log`, `access.log`)
+- **Defense Treadmill** - Patch vulnerable services with `apt('upgrade')`. CVEs publish over real game time (~one new CVE every 13 hours across the network). Patching buys breathing room; neglecting it means re-exploitation
+- **Router Firmware** - Routers have vendor-stamped firmware (Cisco, MikroTik, DD-WRT, OpenWRT, pfSense, EdgeOS) that treadmills alongside services. Exploitable via `msfconsole`, patchable via `apt('upgrade', 'firmware')`
+- **Typed Exploit Effects** - Each CVE produces one of 8 outcomes: full shell (tiered), restricted shell, file read, directory listing, file write, password reset, backdoor port, or script execution. The effect depends on the service being exploited
+- **Version Pinning** - `apt('install', 'http=Apache/2.4.49')` pins a service to a specific version. Works for both services and router firmware. Deliberate downgrades allowed
+- **Connection Logging** - SSH, FTP, SCP, su, Redis, HTTP, msfconsole exploits, nc connects, and nmap scans are logged to target machine log files in realistic Linux formats (`auth.log`, `vsftpd.log`, `redis.log`, `access.log`, `syslog`)
 - **SSH Key Persistence** - After first successful SSH/SCP login, the key is saved; subsequent connections auto-authenticate
 - **Multi-Tab Support** - Open multiple browser tabs as independent terminals with shared filesystem, WiFi, mission, and theme state
 - **Session Persistence** - Your location and files are saved; return where you left off after refresh
@@ -129,6 +133,18 @@ ls(); // List remote files
 get('secret.txt'); // Download to local
 put('/tmp/data.txt'); // Upload to remote
 quit(); // Exit FTP
+
+// Exploit a vulnerable service (effect depends on the CVE)
+msfconsole('10.0.0.5', 80); // May give a shell, reset a password, etc.
+msfconsole('10.0.0.5', 21, '/etc/passwd'); // file_read: dump a target file
+msfconsole('10.0.0.5', 21, '/root/shell.php:/var/www/html/s.php'); // file_write: upload
+msfconsole('10.0.0.5', 6379, '/root/payloads/dump.js'); // script_exec: run a script
+
+// Patch vulnerable services
+apt('upgrade'); // Upgrade all vulnerable services + firmware
+apt('upgrade', 'http'); // Upgrade only the http service
+apt('upgrade', 'firmware'); // Upgrade only router firmware
+apt('install', 'http=Apache/2.4.60'); // Pin a specific version
 ```
 
 ## Network Simulation
@@ -178,13 +194,15 @@ npx playwright test --headed
 ```
 src/
 ├── components/Terminal/    # Terminal UI components
-├── session/                # SessionContext — global session state
+├── session/                # SessionContext, gameTime — global session + game clock
 ├── filesystem/             # Virtual file system with IndexedDB persistence
-├── network/                # Per-machine network simulation
-├── hooks/                  # Custom React hooks
-├── logging/                # Connection logging (auth.log, vsftpd.log, access.log)
+├── network/                # Per-machine network simulation, version overlays, types
+├── hooks/                  # Custom React hooks (command wiring, authentication)
+├── logging/                # Connection logging (auth.log, vsftpd.log, access.log, syslog)
 ├── commands/               # Terminal commands (colocated with tests)
-├── generation/             # Seeded mission network generator
+├── generation/             # Seeded network generator + vulnerability system
+│   ├── pools/              # Static data: CVE templates, service/firmware templates
+│   └── timeline/           # Procedural version walker, effect picker, CVE builder
 ├── theme/                  # Terminal color themes
 ├── utils/                  # Utilities (crypto, storage, network, content codec)
 └── App.tsx                 # Root component

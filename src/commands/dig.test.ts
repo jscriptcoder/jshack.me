@@ -58,9 +58,9 @@ const getMockDnsMachine = (): RemoteMachine => ({
   ip: '10.0.1.5',
   hostname: 'dns01',
   ports: [
-    { port: 22, service: 'ssh', open: true },
-    { port: 53, service: 'dns', open: true, protocol: 'udp' },
-    { port: 953, service: 'rndc', open: false },
+    { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+    { port: 53, service: 'dns', serviceVersion: 'latest', open: true, protocol: 'udp' },
+    { port: 953, service: 'rndc', serviceVersion: 'latest', open: false },
   ],
   users: [{ username: 'bind', passwordHash: 'abc123', userType: 'user' }],
 });
@@ -69,8 +69,8 @@ const getMockWebMachine = (): RemoteMachine => ({
   ip: '10.0.1.50',
   hostname: 'web01',
   ports: [
-    { port: 22, service: 'ssh', open: true },
-    { port: 80, service: 'http', open: true },
+    { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+    { port: 80, service: 'http', serviceVersion: 'latest', open: true },
   ],
   users: [{ username: 'www-data', passwordHash: 'abc123', userType: 'user' }],
 });

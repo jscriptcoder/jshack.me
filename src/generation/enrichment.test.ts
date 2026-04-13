@@ -13,6 +13,7 @@ import {
   applyPortClosures,
   applyRedisPortOpening,
 } from './enrichment';
+import { findVulnForService } from './vulnerabilityLookup';
 
 // --- Test helpers ---
 
@@ -25,6 +26,7 @@ const mkUser = (username: string, userType: 'root' | 'user' | 'guest'): RemoteUs
 const mkPort = (port: number, service: string, open: boolean): Port => ({
   port,
   service,
+  serviceVersion: 'latest',
   open,
 });
 
@@ -186,28 +188,29 @@ describe('addFtpServerOwner', () => {
 describe('addExploitVulnerability', () => {
   const basePorts: readonly Port[] = [mkPort(22, 'ssh', true), mkPort(80, 'http', true)];
 
-  it('attaches a vulnerability to the non-SSH open port', () => {
+  it('sets a vulnerable serviceVersion on the non-SSH open port', () => {
     const prng = createPrng('exploit-vuln');
     const result = addExploitVulnerability(basePorts, allUsers, prng);
     const http = result.find((p) => p.service === 'http');
-    expect(http?.vulnerability).toBeDefined();
+    expect(http?.serviceVersion).toBeDefined();
+    expect(findVulnForService('http', http?.serviceVersion ?? '', 0)).toBeDefined();
     expect(http?.owner).toBeDefined();
   });
 
-  it('does not attach vulnerability to SSH ports', () => {
+  it('does not make SSH ports exploitable', () => {
     const prng = createPrng('exploit-skip-ssh');
     const result = addExploitVulnerability(basePorts, allUsers, prng);
     const ssh = result.find((p) => p.service === 'ssh');
-    expect(ssh?.vulnerability).toBeUndefined();
+    expect(findVulnForService('ssh', ssh?.serviceVersion ?? '', 0)).toBeUndefined();
     expect(ssh?.owner).toBeUndefined();
   });
 
-  it('does not attach vulnerability to closed ports', () => {
+  it('does not make closed ports exploitable', () => {
     const ports: readonly Port[] = [mkPort(22, 'ssh', true), mkPort(80, 'http', false)];
     const prng = createPrng('exploit-closed');
     const result = addExploitVulnerability(ports, allUsers, prng);
     const http = result.find((p) => p.service === 'http');
-    expect(http?.vulnerability).toBeUndefined();
+    expect(findVulnForService('http', http?.serviceVersion ?? '', 0)).toBeUndefined();
   });
 
   it('skips ports with no matching vulnerability template', () => {
@@ -215,7 +218,7 @@ describe('addExploitVulnerability', () => {
     const prng = createPrng('exploit-no-match');
     const result = addExploitVulnerability(ports, allUsers, prng);
     const unknown = result.find((p) => p.service === 'unknown-service');
-    expect(unknown?.vulnerability).toBeUndefined();
+    expect(findVulnForService('unknown-service', unknown?.serviceVersion ?? '', 0)).toBeUndefined();
   });
 });
 
@@ -256,7 +259,7 @@ describe('enrichMachineWithUsers', () => {
     expect(elite?.owner).toBeDefined();
   });
 
-  it('enriches exploit variant with vulnerability', () => {
+  it('enriches exploit variant with a vulnerable serviceVersion', () => {
     const machine = mkMachine('10.0.0.1', 'exploit', [
       mkPort(22, 'ssh', true),
       mkPort(80, 'http', true),
@@ -264,7 +267,8 @@ describe('enrichMachineWithUsers', () => {
     const prng = createPrng('enrich-exploit');
     const result = enrichMachineWithUsers(machine, allUsers, prng);
     const http = result.remoteMachine.ports.find((p) => p.service === 'http');
-    expect(http?.vulnerability).toBeDefined();
+    expect(http?.serviceVersion).toBeDefined();
+    expect(findVulnForService('http', http?.serviceVersion ?? '', 0)).toBeDefined();
   });
 
   it('enriches FTP variant with port owner', () => {

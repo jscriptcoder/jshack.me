@@ -9,8 +9,8 @@ const getMockMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine => ({
   ip: '192.168.1.75',
   hostname: 'webserver',
   ports: [
-    { port: 80, service: 'http', open: true },
-    { port: 22, service: 'ssh', open: true },
+    { port: 80, service: 'http', serviceVersion: 'latest', open: true },
+    { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
   ],
   users: [{ username: 'www-data', passwordHash: 'abc', userType: 'user' }],
   ...overrides,
@@ -106,7 +106,7 @@ describe('curl command', () => {
         createMockCurlContext({
           machines: [
             getMockMachine({
-              ports: [{ port: 80, service: 'http', open: false }],
+              ports: [{ port: 80, service: 'http', serviceVersion: 'latest', open: false }],
             }),
           ],
         }),
@@ -119,7 +119,7 @@ describe('curl command', () => {
         createMockCurlContext({
           machines: [
             getMockMachine({
-              ports: [{ port: 80, service: 'ftp', open: true }],
+              ports: [{ port: 80, service: 'ftp', serviceVersion: 'latest', open: true }],
             }),
           ],
         }),
@@ -401,7 +401,7 @@ describe('curl command', () => {
           machines: [
             getMockMachine({
               ip: '203.0.113.42',
-              ports: [{ port: 8080, service: 'http-alt', open: true }],
+              ports: [{ port: 8080, service: 'http-alt', serviceVersion: 'latest', open: true }],
             }),
           ],
           dnsRecords: [getMockDnsRecord({ domain: 'darknet.ctf', ip: '203.0.113.42' })],
@@ -423,7 +423,10 @@ describe('curl command', () => {
       const context = {
         getMachine: (ip: string) =>
           ip === routerIP
-            ? getMockMachine({ ip: routerIP, ports: [{ port: 80, service: 'http', open: true }] })
+            ? getMockMachine({
+                ip: routerIP,
+                ports: [{ port: 80, service: 'http', serviceVersion: 'latest', open: true }],
+              })
             : undefined,
         resolveDomain: () => undefined,
         resolveNat: (ip: string, port: number) =>
@@ -453,7 +456,10 @@ describe('curl command', () => {
       const context = {
         getMachine: (ip: string) =>
           ip === routerIP
-            ? getMockMachine({ ip: routerIP, ports: [{ port: 80, service: 'http', open: true }] })
+            ? getMockMachine({
+                ip: routerIP,
+                ports: [{ port: 80, service: 'http', serviceVersion: 'latest', open: true }],
+              })
             : undefined,
         resolveDomain: () => undefined,
         resolveNat: (ip: string, port: number) =>

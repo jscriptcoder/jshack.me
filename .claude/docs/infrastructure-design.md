@@ -189,3 +189,58 @@ Full SNMP configs (SNMP-variant gateways and border routers) also include `ifAdd
 ### Dynamic Daemon Ports
 
 `NetworkContext` reads PID files (`/var/run/sshd.pid`, `/var/run/vsftpd.pid`) from each machine's filesystem. When the player runs `sshd(port)` or `vsftpd(port)` (or via `bash('/usr/sbin/sshd')` from an NC shell, or `systemctl('start', 'sshd')`), the command writes a PID file. `parseSshdState()` and `parseFtpdState()` parse these into port overrides, and `applyDaemonOverrides()` opens the corresponding port on the machine's `RemoteMachine` view. All daemon commands are root-only (`/usr/sbin/`, `execute: ['root']`). `systemctl('stop', service)` deletes the PID file to close the port.
+
+### Backdoor Port Overrides
+
+`ncStateParser.ts` scans `/var/run/nc-*.pid` files for backdoor listeners. When `msfconsole` exploits a CVE with `backdoor_port_open` effect, it writes a PID file on the target (`/var/run/nc-<port>.pid`). `parseNcPidFiles()` returns `NcPortOverride` entries (service: `elite`, open: true) that merge into the machine's port list. Same mechanism as `nc -l` on the player's own machine.
+
+## Version Overlay System
+
+`/var/lib/dpkg/status` is the authoritative source for installed package versions on each machine. RFC-822 format with `Package:`, `Status:`, `Version:` fields per entry.
+
+- **Seeding**: `buildInitialDpkgStatus(ports, firmwareVersion?)` writes one entry per running service at generation time. Router machines also get a `firmware` package entry.
+- **Overlay**: `applyVersionOverlay(machine, readFileFromMachine)` transparently wraps `RemoteMachine` so `port.serviceVersion` reads come from dpkg/status if an overlay exists. Also sets `machine.firmwareVersion` from the firmware package entry.
+- **Updates**: `setDpkgVersion(content, pkg, version)` modifies a single package in the file. Used by `apt upgrade` and `apt install pkg=version`.
+- **Consumers**: `useNetworkCommands` applies the overlay to every machine read — nmap, msfconsole, and the exploit-logging callback all see overlay-aware views transparently.
+
+## Procedural Version Timelines
+
+Each service has a `VersionTemplate` (prefix, separator, startTuple) in `pools/serviceTemplates.ts`. The walker in `timeline/walker.ts` bumps the tuple forward with weighted-random bump types (80% patch, 15% minor, 5% major) and randomized day-gaps (3-14 days per `CVE_TIMING_CONFIG`).
+
+- **Deterministic**: seeded PRNG keyed on service/vendor name. Same game always produces the same timeline.
+- **Cadence**: ~43 CVEs/year/service. Across ~15 services, ~1 new CVE somewhere on the network every 13 hours.
+- **Two-layer lookup** (`vulnerabilityLookup.ts`): hand-authored historical CVEs (39 entries, `publishedAt=0`) checked first, then procedural walker entries.
+- **Generic walker**: `buildTimelineFromTemplate(template, prngKey, upTo, timing)` is reused by both service and firmware timelines — no duplication.
+
+## Router Firmware
+
+Each router gets a `firmwareVendor` (Cisco IOS, MikroTik RouterOS, DD-WRT, OpenWRT, pfSense, EdgeOS) at topology generation time via a derived PRNG keyed on the router's IP. Firmware has its own procedural timeline (`pools/routerFirmware.ts` + same walker).
+
+- `findFirmwareCve(vendor, version, gameTime)` — firmware CVE lookup
+- `findExploitableCve(machine, port, gameTime)` — layers service CVE over firmware CVE; used by msfconsole
+- `apt upgrade firmware` patches the router's firmware package in `/var/lib/dpkg/status`
+
+## Game Time
+
+Real-world clock anchored at first game start (`src/session/gameTime.ts`). `getGameTime()` returns elapsed game days. Persisted in localStorage.
+
+- CVEs with `publishedAt > gameTime` are not yet live — this drives the treadmill.
+- Offline accrual: leaving the game for a week = a week of CVE publications on return.
+- `resetGameTime()` clears the anchor on permadeath / new game.
+
+## Typed Vulnerability Effects
+
+Each `Vulnerability` carries an `effect: VulnerabilityEffect` — a discriminated union of 8 kinds. The effect picker in `timeline/effectPicker.ts` assigns effects based on the service being exploited.
+
+| Effect                     | Description                              | 3rd arg to msfconsole      |
+| -------------------------- | ---------------------------------------- | -------------------------- |
+| `shell_limited`            | Restricted nc_prompt (legacy default)    | none                       |
+| `shell_full(tier)`         | Real SSH-style session                   | none                       |
+| `file_read`                | Dump a target file                       | target path                |
+| `dir_list`                 | List a target directory                  | target path                |
+| `file_write`               | Upload attacker content to target        | `local:remote`             |
+| `password_reset(tier)`     | Reset a user's password on target        | none                       |
+| `backdoor_port_open(port)` | Plant a persistent nc listener           | none                       |
+| `script_exec(tier)`        | Run a player-written JS script on target | attacker-local script path |
+
+Per-service distribution: SSH is the universal hammer; FTP gets read/write/list/backdoor (no shells); databases add password_reset + script_exec; web services add script_exec; VNC/OpenVPN/Modbus/DNS/MQTT get shell + backdoor only.

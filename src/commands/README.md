@@ -58,20 +58,38 @@ Tools like hydra and gobuster use filesystem-based wordlists installed via `apt 
 
 ## General
 
-| Command | File         | Signature             | Description                                                |
-| ------- | ------------ | --------------------- | ---------------------------------------------------------- |
-| help    | `help.ts`    | `help()`              | List all available commands                                |
-| man     | `man.ts`     | `man(cmd)`            | Display detailed manual for a command                      |
-| echo    | `echo.ts`    | `echo(value)`         | Output a stringified value                                 |
-| author  | `author.ts`  | `author()`            | Display author profile card                                |
-| clear   | `clear.ts`   | `clear()`             | Clear the terminal screen                                  |
-| exit    | `exit.ts`    | `exit()`              | Return to previous session (SSH connection or user via su) |
-| resolve | `resolve.ts` | `resolve(promise)`    | Unwrap a Promise and display its resolved value            |
-| reset   | `reset.ts`   | `reset(["confirm"])`  | Reset game to factory defaults (clears all saved progress) |
-| theme   | `theme.ts`   | `theme([name])`       | List or switch terminal color themes (persists)            |
-| apt     | `apt.ts`     | `apt(sub, [pkg])`     | Package manager — install hacking tools (requires network) |
-| xterm   | `xterm.ts`   | `xterm()`             | Open a new terminal session in a separate browser tab      |
-| bash    | `bash.ts`    | `bash(path, ...args)` | Execute binary by filesystem path (shell builtin)          |
+| Command | File         | Signature             | Description                                                              |
+| ------- | ------------ | --------------------- | ------------------------------------------------------------------------ |
+| help    | `help.ts`    | `help()`              | List all available commands                                              |
+| man     | `man.ts`     | `man(cmd)`            | Display detailed manual for a command                                    |
+| echo    | `echo.ts`    | `echo(value)`         | Output a stringified value                                               |
+| author  | `author.ts`  | `author()`            | Display author profile card                                              |
+| clear   | `clear.ts`   | `clear()`             | Clear the terminal screen                                                |
+| exit    | `exit.ts`    | `exit()`              | Return to previous session (SSH connection or user via su)               |
+| resolve | `resolve.ts` | `resolve(promise)`    | Unwrap a Promise and display its resolved value                          |
+| reset   | `reset.ts`   | `reset(["confirm"])`  | Reset game to factory defaults (clears all saved progress)               |
+| theme   | `theme.ts`   | `theme([name])`       | List or switch terminal color themes (persists)                          |
+| apt     | `apt.ts`     | `apt(sub, [pkg])`     | Package manager — install tools, upgrade/pin services (requires network) |
+| xterm   | `xterm.ts`   | `xterm()`             | Open a new terminal session in a separate browser tab                    |
+| bash    | `bash.ts`    | `bash(path, ...args)` | Execute binary by filesystem path (shell builtin)                        |
+
+### apt Subcommands
+
+The `apt` command has three subcommands: `list`, `install`, and `upgrade`.
+
+**`apt('list')` / `apt('list', '-i')`** — list available or installed packages.
+
+**`apt('install', 'pkg')`** — install a binary tool (nmap, hydra, etc.) into `/usr/bin/`. Requires root and network connectivity. This is the original behavior.
+
+**`apt('install', 'pkg=version')`** — pin a specific version of a service or router firmware. Uses scp-style syntax for the package name (e.g., `apt('install', 'http=Apache/2.4.49')`, `apt('install', 'firmware=MikroTik RouterOS 7.14.3')`). Validates the version exists in the procedural timeline or hand-authored CVE table. Requires root.
+
+**`apt('upgrade')`** — upgrade all vulnerable services on the current machine to the latest safe version. Reads and writes `/var/lib/dpkg/status`. Requires root. Requires WiFi when running on localhost.
+
+**`apt('upgrade', 'serviceName')`** — upgrade only the named service (e.g., `apt('upgrade', 'http')`).
+
+**`apt('upgrade', 'firmware')`** — upgrade router firmware to the latest safe version (router machines only).
+
+Upgrade targets are computed via `getLatestSafeVersion()` from the procedural timeline — the newest version whose CVE (if any) has `publishedAt > currentGameTime`.
 
 ## Daemon
 
@@ -136,13 +154,40 @@ Admin utilities that write PID files to `/var/run/` — `NetworkContext` reads t
 | curl       | `curl.ts`       | `curl(url, [flags])`                         | HTTP client for GET/POST requests (async, `-i` for headers, `-X POST`); logs to target's `/var/log/access.log`                                                                                                                                                               |
 | ftp        | `ftp.ts`        | `ftp(host[, user, pw])`                      | Connect to remote machine via FTP (async, optional inline auth); logs to target's `/var/log/vsftpd.log`                                                                                                                                                                      |
 | nc         | `nc.ts`         | `nc(host, port) \| nc("-l", port)`           | Netcat - connect to port or open backdoor listener with -l (async/sync)                                                                                                                                                                                                      |
-| msfconsole | `msfconsole.ts` | `msfconsole(host, port)`                     | Exploit a vulnerable service for RCE (async, drops into restricted shell)                                                                                                                                                                                                    |
+| msfconsole | `msfconsole.ts` | `msfconsole(host, port[, arg])`              | Exploit a vulnerable service — effect depends on CVE kind (async); see below                                                                                                                                                                                                 |
 | hydra      | `hydra.ts`      | `hydra(host[, svc[, user]])`                 | Brute-force SSH/FTP logins, SNMP community strings, or MySQL credentials (async). Reads `/usr/share/wordlists/passwords.txt` — password must be in wordlist AND probability roll must succeed. For FTP, uses virtual user creds when `/etc/vsftpd/virtual_users.conf` exists |
 | gobuster   | `gobuster.ts`   | `gobuster("dir", url)`                       | Enumerate directories/files on web servers (async). Reads `/usr/share/wordlists/dirlist.txt` — only shows entries whose top-level path segment matches the wordlist                                                                                                          |
 | snmpwalk   | `snmpwalk.ts`   | `snmpwalk(host[, community])`                | Walk SNMP MIB tree; public=basic info, RW=full data with creds (async)                                                                                                                                                                                                       |
 | snmpset    | `snmpset.ts`    | `snmpset(host, comm, "k=v")`                 | Set writable SNMP OID (firewall rules); requires RW community (async)                                                                                                                                                                                                        |
 | mysql      | `mysql.ts`      | `mysql(host, user[, pw])`                    | Connect to MySQL database; enters `mysql>` prompt with SQL commands (async)                                                                                                                                                                                                  |
 | rediscli   | `rediscli.ts`   | `rediscli(host[, pw])`                       | Connect to Redis server; enters `redis>` prompt with key-value commands (async)                                                                                                                                                                                              |
+
+### msfconsole Exploit Effects
+
+`msfconsole` dispatches on `vulnerability.effect.kind` (a `VulnerabilityEffect` discriminated union in `src/network/types.ts`) to determine what a successful exploit does. An optional 3rd argument provides effect-specific input.
+
+| Effect Kind          | 3rd Argument               | Behavior                                                                                       |
+| -------------------- | -------------------------- | ---------------------------------------------------------------------------------------------- |
+| `shell_limited`      | none                       | Drops into restricted nc-style shell as the port owner                                         |
+| `shell_full`         | none                       | Opens a full SSH-style session as the effect's tier; returns `ExploitShellData` follow-up      |
+| `file_read`          | target file path           | Reads a file on the target: `msfconsole('host', port, '/etc/passwd')`                          |
+| `dir_list`           | target directory path      | Lists a directory on the target: `msfconsole('host', port, '/home')`                           |
+| `file_write`         | `local:remote` (scp-style) | Uploads a local file to the target: `msfconsole('host', port, '/local/file:/remote/path')`     |
+| `password_reset`     | none                       | Mutates `/etc/passwd` on the target, prints the new password                                   |
+| `backdoor_port_open` | none                       | Plants a backdoor listener on the target (writes nc PID file via `createNcPidContent` from nc) |
+| `script_exec`        | attacker-local script path | Executes a script on the target: `msfconsole('host', port, '/root/payloads/pwn.js')`           |
+
+**`MsfconsoleContext`** provides optional helpers for effects that interact with remote filesystems:
+
+- `readRemoteFile(machineId, path)` — read a file on the target machine
+- `readLocalFile(path)` — read a file on the attacker's machine
+- `writeRemoteFile(machineId, path, content)` — write a file on the target machine
+- `listRemoteDir(machineId, path)` — list a directory on the target machine
+- `runScriptOnTarget(machineId, scriptBody, tier)` — execute a script body on the target as a given tier
+
+**`ExploitShellData`** (`src/components/Terminal/types.ts`) is the follow-up type returned by `shell_full` effects. It carries `targetIP`, `targetPort`, `service`, `username`, `userType`, `homePath`, and `tier`, triggering a full SSH-style session in the terminal.
+
+**`VulnerabilityEffect`** (`src/network/types.ts`) is a discriminated union with 8 effect kinds: `shell_limited`, `shell_full`, `file_read`, `dir_list`, `file_write`, `password_reset`, `backdoor_port_open`, `script_exec`. Each vulnerability in the `Vulnerability` type carries an `effect` field of this type, which determines how `msfconsole` handles a successful exploit.
 
 ## WiFi
 

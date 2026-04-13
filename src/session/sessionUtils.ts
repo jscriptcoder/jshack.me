@@ -83,8 +83,8 @@ export const normalizeSession = (session: Session): Session => ({
   theme: isValidThemeId(session.theme) ? session.theme : DEFAULT_THEME_ID,
 });
 
-export const isValidSessionReason = (value: unknown): value is 'ssh' | 'su' =>
-  value === 'ssh' || value === 'su';
+export const isValidSessionReason = (value: unknown): value is 'ssh' | 'su' | 'exploit' =>
+  value === 'ssh' || value === 'su' || value === 'exploit';
 
 // Old persisted snapshots may lack `reason` — default to 'ssh' for backward compatibility
 export const normalizeSnapshot = (snapshot: SessionSnapshot): SessionSnapshot => {

@@ -19,7 +19,14 @@ export type { VulnerabilityTemplate } from './vulnerabilities';
 export { vulnerabilityTemplates } from './vulnerabilities';
 export type { TargetFileTemplate, TamperFileTemplate, KeyPlacementTemplate } from './filesystem';
 export {
-  logTemplates,
+  authLogTemplates,
+  syslogTemplates,
+  kernLogTemplates,
+  mailLogTemplates,
+  accessLogTemplates,
+  vsftpdLogTemplates,
+  mysqlLogTemplates,
+  redisLogTemplates,
   configTemplatesByRole,
   noiseFiles,
   targetFileTemplatesByRole,

@@ -22,8 +22,17 @@ import { createRediscliCommand } from '../commands/rediscli';
 import { wrapWithWifiCheck, wrapWithBrickedCheck } from '../commands/networkGuards';
 import type { Command } from '../components/Terminal/types';
 import { appendToMachineLog } from '../logging/appendToMachineLog';
-import { formatAccessLog } from '../logging/formatters';
-import { resolveLogSourceIP } from '../logging/utils';
+import {
+  formatAccessLog,
+  formatNmapScanAggregate,
+  formatXinetdConnection,
+} from '../logging/formatters';
+import { resolveLogSourceIP, generatePid, resolveHostname } from '../logging/utils';
+import { formatExploitAttempt, formatUnknownExploitAttempt } from '../logging/exploitAttempt';
+import { findVulnForService } from '../generation/vulnerabilityLookup';
+import { applyVersionOverlay } from '../network/applyVersionOverlay';
+import type { RemoteMachine } from '../network/types';
+import { getGameTime } from '../session/gameTime';
 
 export const useNetworkCommands = (): Map<string, Command> => {
   const {
@@ -46,12 +55,23 @@ export const useNetworkCommands = (): Map<string, Command> => {
     getNodeFromMachine,
     createFileOnMachine,
     writeFileToMachine,
+    listDirectoryFromMachine,
   } = useFileSystem();
   const { session, wifiConnected, isMachineBricked } = useSession();
 
   return useMemo(() => {
     const isWifiRequired = () => session.machine === 'localhost' && !wifiConnected;
     const logFs = { readFileFromMachine, writeFileToMachine, createFileOnMachine };
+
+    // Phase 3 Step A: apply the /var/lib/apt/service_versions/<service> overlay
+    // when reading any machine's ports. Commands (nmap, msfconsole) receive
+    // overlay-aware views without needing to know the overlay exists.
+    const withOverlay = (machine: RemoteMachine | undefined) =>
+      machine === undefined ? undefined : applyVersionOverlay(machine, readFileFromMachine);
+    const getEffectiveMachine = (ip: string) => withOverlay(getMachine(ip));
+    const findEffectiveMachineByIp = (ip: string) => withOverlay(findMachineByIp(ip));
+    const getEffectiveMachines = (): readonly RemoteMachine[] =>
+      getMachines().map((m) => applyVersionOverlay(m, readFileFromMachine));
     const onHttpRequest = (
       targetIP: string,
       method: string,
@@ -69,6 +89,80 @@ export const useNetworkCommands = (): Map<string, Command> => {
         size,
       });
       appendToMachineLog(targetIP, '/var/log/access.log', logLine, logFs);
+    };
+
+    const onExploitAttempt = (info: {
+      readonly targetIp: string;
+      readonly port: number;
+      readonly service?: string;
+      readonly serviceVersion?: string;
+      readonly success: boolean;
+    }) => {
+      const sourceIp = resolveLogSourceIP(
+        session.machine,
+        info.targetIp,
+        getLocalIP(),
+        getPublicIP(),
+      );
+      const hostname = resolveHostname(info.targetIp, getMachine);
+      const dispatchOptions = {
+        date: new Date(),
+        hostname,
+        pid: generatePid(),
+        sourceIp,
+      };
+      const vuln =
+        info.service && info.serviceVersion
+          ? findVulnForService(info.service, info.serviceVersion, getGameTime())
+          : undefined;
+      const entry = vuln
+        ? formatExploitAttempt(vuln, dispatchOptions)
+        : formatUnknownExploitAttempt(info.service ?? 'kernel', dispatchOptions);
+      appendToMachineLog(info.targetIp, entry.logFile, entry.line, logFs);
+    };
+
+    const onNcConnect = (info: {
+      readonly targetIp: string;
+      readonly port: number;
+      readonly service?: string;
+      readonly success: boolean;
+    }) => {
+      const sourceIp = resolveLogSourceIP(
+        session.machine,
+        info.targetIp,
+        getLocalIP(),
+        getPublicIP(),
+      );
+      const hostname = resolveHostname(info.targetIp, getMachine);
+      const line = formatXinetdConnection({
+        date: new Date(),
+        hostname,
+        pid: generatePid(),
+        sourceIp,
+        port: info.port,
+        success: info.success,
+      });
+      appendToMachineLog(info.targetIp, '/var/log/syslog', line, logFs);
+    };
+
+    const onScanAggregate = (info: {
+      readonly targetIp: string;
+      readonly probedPorts: readonly number[];
+    }) => {
+      const sourceIp = resolveLogSourceIP(
+        session.machine,
+        info.targetIp,
+        getLocalIP(),
+        getPublicIP(),
+      );
+      const hostname = resolveHostname(info.targetIp, getMachine);
+      const line = formatNmapScanAggregate({
+        date: new Date(),
+        hostname,
+        sourceIp,
+        probedPorts: info.probedPorts,
+      });
+      appendToMachineLog(info.targetIp, '/var/log/kern.log', line, logFs);
     };
 
     const commands = new Map<string, Command>();
@@ -97,11 +191,13 @@ export const useNetworkCommands = (): Map<string, Command> => {
       wrapWithBrickedCheck(
         wrapWithWifiCheck(
           createNmapCommand({
-            getMachine,
-            findMachineByIp,
-            getMachines,
+            getMachine: getEffectiveMachine,
+            findMachineByIp: findEffectiveMachineByIp,
+            getMachines: getEffectiveMachines,
             getLocalIPs: () => new Set(getInterfaces().map((iface) => iface.inet)),
             getLocalHostname: () => session.hostname ?? session.machine,
+            getGameTime,
+            onScanAggregate,
           }),
           isWifiRequired,
         ),
@@ -153,6 +249,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
         getMachine,
         getLocalIP,
         resolveDomain,
+        onNcConnect,
         isWifiRequired,
         isMachineBricked,
         getListenAdapter: () => ({
@@ -197,7 +294,26 @@ export const useNetworkCommands = (): Map<string, Command> => {
       'msfconsole',
       wrapWithBrickedCheck(
         wrapWithWifiCheck(
-          createMsfconsoleCommand({ getMachine, getLocalIP, resolveDomain }),
+          createMsfconsoleCommand({
+            getMachine: getEffectiveMachine,
+            getLocalIP,
+            resolveDomain,
+            getGameTime,
+            onExploitAttempt,
+            readRemoteFile: (machineId, path) =>
+              readFileFromMachine({ machineId, path, cwd: '/', userType: 'root' }),
+            readLocalFile: (path) =>
+              readFileFromMachine({
+                machineId: session.machine,
+                path,
+                cwd: '/',
+                userType: session.userType,
+              }),
+            writeRemoteFile: (machineId, path, content) =>
+              writeFileToMachine({ machineId, path, cwd: '/', userType: 'root', content }),
+            listRemoteDir: (machineId, path) =>
+              listDirectoryFromMachine({ machineId, path, cwd: '/', userType: 'root' }),
+          }),
           isWifiRequired,
         ),
         isMachineBricked,
