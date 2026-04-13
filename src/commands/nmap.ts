@@ -25,11 +25,11 @@ const PORT_SCAN_DELAY_MS = 300;
 const formatPortLine = (port: Port, versionScan: boolean): string => {
   const portStr = `${port.port}/${port.protocol ?? 'tcp'}`.padEnd(10);
   const state = port.open ? 'open' : 'closed';
-  const stateService = `${state.padEnd(7)}${port.service}`;
+  const stateService = `${state.padEnd(7)}${port.service.padEnd(16)}`;
   if (!versionScan) return `${portStr}${stateService}`;
 
   const version = port.open ? (port.serviceVersion ?? '') : '';
-  return `${portStr}${stateService.padEnd(16)}${version}`;
+  return `${portStr}${stateService}${version}`;
 };
 
 const formatVulnerabilitySection = (
