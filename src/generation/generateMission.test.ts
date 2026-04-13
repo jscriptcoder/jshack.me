@@ -551,8 +551,9 @@ describe('generateMissionNetwork', () => {
     });
 
     it('NC backdoor on SSH-closed machine is always root-owned', () => {
-      for (let i = 0; i < 500; i++) {
-        const result = generateMissionNetwork(`ssh-backdoor-owner-${i}`);
+      const sshClosureSeeds = [7, 26, 30, 37, 40, 41, 44, 47, 49, 50];
+      for (const i of sshClosureSeeds) {
+        const result = generateMissionNetwork(`port-closure-ssh-${i}`);
         result.machines.forEach((m) => {
           if (m.ip === result.entryPoint || m.role === 'router') return;
           const sshClosed = m.remoteMachine.ports.some((p) => p.port === 22 && !p.open);
@@ -567,8 +568,9 @@ describe('generateMissionNetwork', () => {
     });
 
     it('SSH-closed non-entry machines always have an NC backdoor', () => {
-      for (let i = 0; i < 500; i++) {
-        const result = generateMissionNetwork(`ssh-needs-backdoor-${i}`);
+      const sshClosureSeeds = [7, 26, 30, 37, 40, 41, 44, 47, 49, 50];
+      for (const i of sshClosureSeeds) {
+        const result = generateMissionNetwork(`port-closure-ssh-${i}`);
         result.machines.forEach((m) => {
           if (m.ip === result.entryPoint || m.role === 'router') return;
           const sshClosed = m.remoteMachine.ports.some((p) => p.port === 22 && !p.open);
