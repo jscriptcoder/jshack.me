@@ -55,6 +55,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
     getNodeFromMachine,
     createFileOnMachine,
     writeFileToMachine,
+    listDirectoryFromMachine,
   } = useFileSystem();
   const { session, wifiConnected, isMachineBricked } = useSession();
 
@@ -299,6 +300,14 @@ export const useNetworkCommands = (): Map<string, Command> => {
             resolveDomain,
             getGameTime,
             onExploitAttempt,
+            readRemoteFile: (machineId, path) =>
+              readFileFromMachine({ machineId, path, cwd: '/', userType: 'root' }),
+            readLocalFile: (path) =>
+              readFileFromMachine({ machineId: session.machine, path, cwd: '/', userType: session.userType }),
+            writeRemoteFile: (machineId, path, content) =>
+              writeFileToMachine({ machineId, path, cwd: '/', userType: 'root', content }),
+            listRemoteDir: (machineId, path) =>
+              listDirectoryFromMachine({ machineId, path, cwd: '/', userType: 'root' }),
           }),
           isWifiRequired,
         ),
