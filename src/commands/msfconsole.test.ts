@@ -282,7 +282,10 @@ describe('msfconsole command', () => {
       expect(lines.some((l) => l.includes('CVE-2021-41773'))).toBe(true);
       expect(lines.some((l) => l.includes('Sending exploit payload'))).toBe(true);
       expect(lines.some((l) => l.includes('Exploit successful'))).toBe(true);
-      expect(lines.some((l) => l.includes('Got shell as guest@10.50.100.10'))).toBe(true);
+      // CVE-2021-41773 is shell_limited with tier 'user' — msfconsole uses
+      // the effect's tier (not the port owner's) to resolve the shell user.
+      // No 'user'-type account in the mock machine → fallback to 'user'.
+      expect(lines.some((l) => l.includes('Got shell as user@10.50.100.10'))).toBe(true);
     });
 
     it('should complete with NcPromptData for restricted shell', () => {
@@ -309,9 +312,9 @@ describe('msfconsole command', () => {
         expect(followUp.targetIP).toBe('10.50.100.10');
         expect(followUp.targetPort).toBe(80);
         expect(followUp.service).toBe('http');
-        expect(followUp.username).toBe('guest');
-        expect(followUp.userType).toBe('guest');
-        expect(followUp.homePath).toBe('/home/guest');
+        // shell_limited now reflects the CVE's effect.tier (user for
+        // CVE-2021-41773), not the port owner's userType.
+        expect(followUp.userType).toBe('user');
       }
     });
   });

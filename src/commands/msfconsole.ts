@@ -150,7 +150,6 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
       success: true,
     });
 
-    const { owner } = targetPort;
     const { effect } = vulnerability;
 
     const requiresPath = effect.kind === 'file_read' || effect.kind === 'dir_list';
@@ -329,21 +328,24 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
               onComplete();
               break;
             }
-            default: {
-              // shell_limited + future effects
+            case 'shell_limited': {
+              // Use the effect's tier (not the port owner's) so nmap's "as X"
+              // hint matches the actual privilege level the player lands at.
+              const shellUser = resolveShellFullUser(effect.tier);
               onLine('[+] Exploit successful!');
-              onLine(`[+] Got shell as ${owner.username}@${targetIP}`);
+              onLine(`[+] Got shell as ${shellUser.username}@${targetIP}`);
               onLine('');
               const ncPrompt: NcPromptData = {
                 __type: 'nc_prompt',
                 targetIP,
                 targetPort: port,
                 service: targetPort.service,
-                username: owner.username,
-                userType: owner.userType,
-                homePath: owner.homePath,
+                username: shellUser.username,
+                userType: effect.tier,
+                homePath: shellUser.homePath,
               };
               onComplete(ncPrompt);
+              break;
             }
           }
         }, delay);
