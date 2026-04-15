@@ -1,6 +1,7 @@
 import type { MachineFileOp } from '../filesystem/types';
 import type { RemoteMachine } from './types';
 import { DPKG_STATUS_PATH, parseDpkgVersions } from './dpkgStatus';
+import { DEFAULT_LATEST_VERSION } from '../generation/timeline';
 
 // Phase 3 service-version overlay. When a player runs `apt upgrade` on a
 // machine, the new service version is persisted in the machine's
@@ -37,8 +38,15 @@ export const applyVersionOverlay = (
     ...machine,
     ports: machine.ports.map((port) => {
       const overlay = versions.get(port.service);
-      return overlay === undefined ? port : { ...port, serviceVersion: overlay };
+      // Skip override when the dpkg entry is the 'latest' sentinel — that's
+      // the untouched default, not a real apt-upgrade result. Important for
+      // NAT-forwarded ports where the router's dpkg may have a same-named
+      // service entry that would otherwise clobber the backend's real version.
+      if (overlay === undefined || overlay === DEFAULT_LATEST_VERSION) return port;
+      return { ...port, serviceVersion: overlay };
     }),
-    ...(firmwareOverlay !== undefined ? { firmwareVersion: firmwareOverlay } : {}),
+    ...(firmwareOverlay !== undefined && firmwareOverlay !== DEFAULT_LATEST_VERSION
+      ? { firmwareVersion: firmwareOverlay }
+      : {}),
   };
 };

@@ -114,6 +114,20 @@ Version: MySQL 8.0.35
     expect(result.ports[1]?.serviceVersion).toBe('Apache/2.4.49');
   });
 
+  it('does not clobber a port version with the "latest" sentinel', () => {
+    // Regression: NAT-forwarded ports carry the backend's real version into
+    // the router's merged view. The router's own dpkg/status may have a
+    // same-named service entry at the default 'latest' sentinel. The overlay
+    // must NOT override the forwarded port's real version with 'latest'.
+    const content = `Package: http
+Status: install ok installed
+Version: latest
+`;
+    const result = applyVersionOverlay(baseMachine, mkReader(content));
+    // The real Apache/2.4.49 survives the 'latest' overlay
+    expect(result.ports[1]?.serviceVersion).toBe('Apache/2.4.49');
+  });
+
   it('sets firmwareVersion on a router from the firmware package entry', () => {
     const routerMachine: RemoteMachine = {
       ...baseMachine,
