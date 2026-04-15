@@ -12,7 +12,7 @@ describe('buildGeneratedVuln', () => {
 
   it('produces a Vulnerability with all required fields', () => {
     const vuln = buildGeneratedVuln('http', mkEntry('Apache/2.4.61', 1, 30));
-    expect(vuln.cve).toMatch(/^CVE-\d{4}-\d{4}$/);
+    expect(vuln.cve).toMatch(/^CVE-\d{4}-\d{7}$/);
     expect(vuln.description).toContain('Apache/2.4.61');
     expect(vuln.serviceVersion).toBe('Apache/2.4.61');
     expect(vuln.attackPattern).toBeDefined();
@@ -57,5 +57,22 @@ describe('buildGeneratedVuln', () => {
     const a = buildGeneratedVuln('http', mkEntry('Apache/2.4.61', 1, 30));
     const b = buildGeneratedVuln('http', mkEntry('Apache/2.4.61', 1, 30));
     expect(a.effect).toEqual(b.effect);
+  });
+
+  it('produces unique CVE ids across services and indexes (no collisions)', () => {
+    // Exhaustive check: walk every service template at many indexes and
+    // confirm no two generated CVE ids collide. This is the core guarantee
+    // — the player must never see two different vulns with the same CVE.
+    const services = ['ssh', 'http', 'ftp', 'mysql', 'redis', 'smb', 'mongodb', 'dns'];
+    const seen = new Set<string>();
+    const collisions: string[] = [];
+    for (const service of services) {
+      for (let index = 0; index < 200; index++) {
+        const vuln = buildGeneratedVuln(service, mkEntry(`${service}-${index}`, index, 30 * index));
+        if (seen.has(vuln.cve)) collisions.push(vuln.cve);
+        seen.add(vuln.cve);
+      }
+    }
+    expect(collisions).toEqual([]);
   });
 });

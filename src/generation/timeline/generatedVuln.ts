@@ -2,6 +2,18 @@ import { createPrng, type Prng } from '../prng';
 import type { AttackPattern, Severity, Vulnerability } from '../../network/types';
 import type { GeneratedVersion } from './walker';
 import { pickEffect } from './effectPicker';
+import { serviceTemplates } from '../pools/serviceTemplates';
+import { firmwareTemplates } from '../pools/routerFirmware';
+
+// Stable numeric ID per service/firmware-vendor name. Used to pack the CVE
+// serial so (service, index) pairs always produce unique ids across the
+// whole game — no collisions even when 100s of CVEs publish in the same year.
+// Sorted alphabetically so the map is deterministic regardless of insertion
+// order; safe because CVE ids are not persisted and are regenerated each run.
+const TEMPLATE_KEY_IDS: Readonly<Record<string, number>> = (() => {
+  const allKeys = [...Object.keys(serviceTemplates), ...Object.keys(firmwareTemplates)].sort();
+  return Object.fromEntries(allKeys.map((k, i) => [k, i]));
+})();
 
 // Deterministic CVE construction for procedurally generated timeline entries.
 // Each generated CVE has:
@@ -117,10 +129,17 @@ const pickGeneratedSeverity = (prng: Prng): Severity => {
 export const buildGeneratedVuln = (service: string, entry: GeneratedVersion): Vulnerability => {
   const prng = createPrng(`generated-cve:${service}:${entry.index}`);
 
-  // CVE id: CVE-YYYY-NNNN with YYYY derived from publishedAt (roughly calendar year)
+  // CVE id: CVE-YYYY-NNNNNNN with YYYY derived from publishedAt (roughly calendar
+  // year) and the 7-digit serial encoded as `${templateId}${entry.index}` so
+  // (service, index) pairs produce unique ids across the whole game. Uses a
+  // stable alphabetical template ordering; no PRNG in the serial since the
+  // deterministic encoding already guarantees uniqueness.
   const year = 2026 + Math.floor(entry.publishedAt / 365);
-  const serial = 1000 + prng.nextInt(0, 8999);
-  const cve = `CVE-${year}-${String(serial).padStart(4, '0')}`;
+  const templateId = TEMPLATE_KEY_IDS[service] ?? 99;
+  // templateId takes 2 leading digits (supports up to 100 templates); entry.index
+  // takes 5 trailing digits (supports up to 100000 CVEs per template).
+  const serial = templateId * 100000 + entry.index;
+  const cve = `CVE-${year}-${String(serial).padStart(7, '0')}`;
 
   const severity = pickGeneratedSeverity(prng);
 
