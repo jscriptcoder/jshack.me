@@ -1,5 +1,5 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
-import type { Port, RemoteMachine } from '../network/types';
+import type { Port, RemoteMachine, Vulnerability } from '../network/types';
 import { findVulnForService } from '../generation/vulnerabilityLookup';
 import { isValidIP, parseIPRange } from '../utils/network';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
@@ -32,6 +32,28 @@ const formatPortLine = (port: Port, versionScan: boolean): string => {
   return `${portStr}${stateService}${version}`;
 };
 
+const formatEffectHint = (effect: Vulnerability['effect']): string => {
+  const tier = effect.tier;
+  switch (effect.kind) {
+    case 'shell_limited':
+      return `limited remote shell as ${tier}`;
+    case 'shell_full':
+      return `full shell access as ${tier}`;
+    case 'file_read':
+      return `arbitrary file read as ${tier} (requires target path)`;
+    case 'dir_list':
+      return `directory listing as ${tier} (requires target path)`;
+    case 'file_write':
+      return `arbitrary file write as ${tier} (requires local:remote path)`;
+    case 'password_reset':
+      return `password reset for ${tier} account`;
+    case 'backdoor_port_open':
+      return `persistent backdoor on port ${effect.port} as ${tier}`;
+    case 'script_exec':
+      return `unauthenticated script execution as ${tier} (requires script path)`;
+  }
+};
+
 const formatVulnerabilitySection = (
   openPorts: readonly Port[],
   gameTime: number,
@@ -48,7 +70,7 @@ const formatVulnerabilitySection = (
     ...vulnEntries.flatMap(({ port, vuln }) => [
       `  ${vuln.cve} - ${vuln.description}`,
       `    Affected: ${port.service} on port ${port.port}`,
-      '    Risk: CRITICAL \u2014 remote code execution',
+      `    Severity: ${vuln.severity.toUpperCase()} \u2014 ${formatEffectHint(vuln.effect)}`,
     ]),
   ];
 };

@@ -58,15 +58,17 @@ export type AttackPattern =
 // msfconsole does on a successful exploit: grant a shell, read a file,
 // write a file, list a directory, reset a password, open a backdoor port,
 // or execute a player-supplied script on the target.
+export type EffectTier = 'guest' | 'user' | 'root';
+
 export type VulnerabilityEffect =
-  | { readonly kind: 'shell_limited' }
-  | { readonly kind: 'shell_full'; readonly tier: 'guest' | 'user' | 'root' }
-  | { readonly kind: 'file_read' }
-  | { readonly kind: 'dir_list' }
-  | { readonly kind: 'file_write' }
-  | { readonly kind: 'password_reset'; readonly tier: 'guest' | 'user' | 'root' }
-  | { readonly kind: 'backdoor_port_open'; readonly port: number }
-  | { readonly kind: 'script_exec'; readonly tier: 'guest' | 'user' | 'root' };
+  | { readonly kind: 'shell_limited'; readonly tier: EffectTier }
+  | { readonly kind: 'shell_full'; readonly tier: EffectTier }
+  | { readonly kind: 'file_read'; readonly tier: EffectTier }
+  | { readonly kind: 'dir_list'; readonly tier: EffectTier }
+  | { readonly kind: 'file_write'; readonly tier: EffectTier }
+  | { readonly kind: 'password_reset'; readonly tier: EffectTier }
+  | { readonly kind: 'backdoor_port_open'; readonly port: number; readonly tier: EffectTier }
+  | { readonly kind: 'script_exec'; readonly tier: EffectTier };
 
 export type Vulnerability = {
   readonly cve: string;
