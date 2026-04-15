@@ -33,21 +33,6 @@ const LOGIN_SERVICES = new Set(['ssh', 'ftp']);
 const VALID_SERVICES = new Set(['ssh', 'ftp', 'snmp', 'mysql', 'redis']);
 const ATTEMPTS_PER_USER = 128;
 
-// Crack probability by user type — guest passwords are weak (always crackable),
-// user passwords sometimes appear in wordlists, root passwords almost never.
-const CRACK_PROBABILITY: Readonly<Record<string, number>> = {
-  guest: 1.0,
-  user: 0.18,
-  root: 0.025,
-};
-
-// Fallback hash→password map from all known pools — used by MySQL/Redis
-// which don't yet use filesystem wordlists.
-const allKnownPasswords: readonly string[] = [...passwords, ...guestPasswords];
-const hashToPassword: ReadonlyMap<string, string> = new Map(
-  allKnownPasswords.map((pw) => [md5(pw), pw]),
-);
-
 // Build a hash set from the filesystem wordlist for SSH/FTP gate checking.
 const buildWordlistHashSet = (wordlistLines: readonly string[]): ReadonlySet<string> =>
   new Set(wordlistLines.map((pw) => md5(pw)));
@@ -252,6 +237,8 @@ const createMysqlAttack = (
   getNodeFromMachine: HydraContext['getNodeFromMachine'],
   resolveNat: HydraContext['resolveNat'],
   userFilter: string | undefined,
+  wordlistHashes: ReadonlySet<string>,
+  wordlistHashToPassword: ReadonlyMap<string, string>,
 ): AsyncOutput => {
   const mysqlPort = machine.ports.find((p) => p.service === 'mysql' && p.open);
   if (!mysqlPort) {
@@ -305,17 +292,17 @@ const createMysqlAttack = (
         }, delay);
       }
 
-      // Per-user crack attempts
+      // Per-user crack attempts — wordlist-gated, deterministic. Password
+      // hash must appear in the filesystem wordlist for the credential to
+      // crack. No probability roll — same wordlist + same target = same
+      // outcome across runs.
       mysqlUsers.forEach((user) => {
         delay += jitter(STATUS_DELAY_MS);
         token.schedule(() => {
           if (token.isCancelled()) return;
 
-          const probability = CRACK_PROBABILITY[user.userType] ?? 0;
-          const cracked = Math.random() < probability;
-          if (!cracked) return;
-
-          const password = hashToPassword.get(user.passwordHash);
+          if (!wordlistHashes.has(user.passwordHash)) return;
+          const password = wordlistHashToPassword.get(user.passwordHash);
           if (!password) return;
 
           results.push({
@@ -435,18 +422,14 @@ export const createHydraCommand = (context: HydraContext): Command => ({
       return createSnmpAttack(targetIP, machine, getNodeFromMachine);
     }
 
-    // Redis mode — brute-force requirepass
+    // Redis mode — brute-force requirepass (uses its own deterministic pool)
     if (serviceFilter === 'redis') {
       return createRedisAttack(targetIP, machine, getNodeFromMachine);
     }
 
-    // MySQL mode — reads DB credentials from data.json
-    if (serviceFilter === 'mysql') {
-      return createMysqlAttack(targetIP, machine, getNodeFromMachine, resolveNat, userFilter);
-    }
-
-    // Resolve the filesystem wordlist for SSH/FTP cracking.
-    // Password must be in the wordlist (gate) AND probability roll must succeed.
+    // Resolve the filesystem wordlist — shared by SSH/FTP/MySQL paths.
+    // The wordlist is the sole gate: if the user's password hash appears in
+    // the wordlist, the credential cracks; otherwise it never does.
     const { lines: wordlistLines } = resolveWordlist(
       'passwords.txt',
       getLocalNode,
@@ -454,6 +437,19 @@ export const createHydraCommand = (context: HydraContext): Command => ({
     );
     const wordlistHashes = buildWordlistHashSet(wordlistLines);
     const wordlistHashToPassword = buildWordlistHashMap(wordlistLines);
+
+    // MySQL mode — reads DB credentials from data.json, gates against wordlist
+    if (serviceFilter === 'mysql') {
+      return createMysqlAttack(
+        targetIP,
+        machine,
+        getNodeFromMachine,
+        resolveNat,
+        userFilter,
+        wordlistHashes,
+        wordlistHashToPassword,
+      );
+    }
 
     const services = getTargetServices(machine, serviceFilter);
     if (services.length === 0) {
@@ -525,20 +521,17 @@ export const createHydraCommand = (context: HydraContext): Command => ({
             }, delay);
           }
 
-          // Per-user crack attempts — wordlist gate + probability roll.
-          // Password must be in the filesystem wordlist AND probability must succeed.
+          // Per-user crack attempts — wordlist is the sole gate.
+          // If the password hash matches an entry in the wordlist, it cracks.
+          // Otherwise it never cracks. Deterministic: same wordlist + same
+          // target = same outcome. Running hydra in a loop cannot find
+          // passwords not in the wordlist.
           users.forEach((user) => {
             delay += jitter(STATUS_DELAY_MS);
             token.schedule(() => {
               if (token.isCancelled()) return;
 
-              // Gate: password must be in the wordlist file
               if (!wordlistHashes.has(user.passwordHash)) return;
-
-              const probability = CRACK_PROBABILITY[user.userType] ?? 0;
-              const cracked = Math.random() < probability;
-              if (!cracked) return;
-
               const password = wordlistHashToPassword.get(user.passwordHash);
               if (!password) return;
 
