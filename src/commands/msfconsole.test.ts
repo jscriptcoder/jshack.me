@@ -46,7 +46,7 @@ type MsfconsoleContextConfig = {
     machineId: string,
     scriptBody: string,
     tier: 'guest' | 'user' | 'root',
-  ) => readonly string[];
+  ) => { readonly error: string | null };
 };
 
 const createMockMsfconsoleContext = (config: MsfconsoleContextConfig = {}) => {
@@ -848,7 +848,50 @@ describe('msfconsole command', () => {
   });
 
   describe('effect dispatch — script_exec', () => {
-    it('reads the local script, runs it on target, and prints output', () => {
+    it('reads the local script, runs it blindly, and shows injection success', () => {
+      const { entry, vuln } = findCveWithEffect('redis', 'script_exec');
+      const machine = getMockRemoteMachine({
+        ports: [
+          {
+            port: 6379,
+            service: 'redis',
+            serviceVersion: vuln.serviceVersion,
+            open: true,
+            owner: { username: 'redis', userType: 'user', homePath: '/var/lib/redis' },
+          },
+        ],
+      });
+      const runScriptOnTarget = vi.fn(() => ({ error: null }));
+      const context = createMockMsfconsoleContext({
+        machines: [machine],
+        gameTime: entry.publishedAt,
+        readLocalFile: () => 'sshd()',
+        runScriptOnTarget,
+      });
+      const msfconsole = createMsfconsoleCommand(context);
+      const result = msfconsole.fn('10.50.100.10', 6379, '/root/payloads/start_ssh.js');
+
+      expect(isAsyncOutput(result)).toBe(true);
+      if (!isAsyncOutput(result)) return;
+
+      const lines: string[] = [];
+      let followUp: AsyncFollowUp | undefined;
+      result.start(
+        (line) => lines.push(line),
+        (fu) => {
+          followUp = fu;
+        },
+      );
+      vi.advanceTimersByTime(5000);
+
+      // Blind injection — no script output, just success message
+      expect(lines.some((l) => l.includes('Script injected'))).toBe(true);
+      expect(lines.some((l) => l.includes('Exploit successful'))).toBe(true);
+      expect(runScriptOnTarget).toHaveBeenCalledWith('10.50.100.10', 'sshd()', vuln.effect.tier);
+      expect(followUp).toBeUndefined();
+    });
+
+    it('shows injection failure when script errors', () => {
       const { entry, vuln } = findCveWithEffect('redis', 'script_exec');
       const machine = getMockRemoteMachine({
         ports: [
@@ -864,27 +907,24 @@ describe('msfconsole command', () => {
       const context = createMockMsfconsoleContext({
         machines: [machine],
         gameTime: entry.publishedAt,
-        readLocalFile: () => 'cat("/etc/passwd")',
-        runScriptOnTarget: () => ['root:x:0:0:root:/root:/bin/bash'],
+        readLocalFile: () => 'sshd()',
+        runScriptOnTarget: () => ({ error: 'sshd: permission denied' }),
       });
       const msfconsole = createMsfconsoleCommand(context);
-      const result = msfconsole.fn('10.50.100.10', 6379, '/root/payloads/dump.js');
+      const result = msfconsole.fn('10.50.100.10', 6379, '/root/payloads/start_ssh.js');
 
       expect(isAsyncOutput(result)).toBe(true);
       if (!isAsyncOutput(result)) return;
 
       const lines: string[] = [];
-      let followUp: AsyncFollowUp | undefined;
       result.start(
         (line) => lines.push(line),
-        (fu) => {
-          followUp = fu;
-        },
+        () => {},
       );
       vi.advanceTimersByTime(5000);
 
-      expect(lines.some((l) => l.includes('root:x:0:0'))).toBe(true);
-      expect(followUp).toBeUndefined();
+      expect(lines.some((l) => l.includes('Script injection failed'))).toBe(true);
+      expect(lines.some((l) => l.includes('permission denied'))).toBe(true);
     });
 
     it('throws when the 3rd arg (script path) is missing', () => {

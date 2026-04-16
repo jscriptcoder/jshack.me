@@ -8,9 +8,16 @@ import { createNmapCommand } from '../commands/nmap';
 import { createNslookupCommand } from '../commands/nslookup';
 import { createSshCommand } from '../commands/ssh';
 import { createFtpCommand } from '../commands/ftp';
-import { createNcCommand, ncPidFilePath } from '../commands/nc';
+import { createNcCommand, ncPidFilePath, startNcListener } from '../commands/nc';
 import { createCurlCommand } from '../commands/curl';
 import { createMsfconsoleCommand } from '../commands/msfconsole';
+import { startSshd, SSH_PID_FILE_PATH, type SshdAdapter } from '../commands/sshd';
+import { startVsftpd, FTP_PID_FILE_PATH, type VsftpdAdapter } from '../commands/vsftpd';
+import { executeSystemctl, type SystemctlContext } from '../commands/systemctl';
+import { listProcesses, type PsAdapter } from '../commands/ps';
+import { executeScriptOnTarget } from '../utils/remoteScriptRunner';
+import type { UserType } from '../session/SessionContext';
+import type { MachineId } from '../filesystem/machineFileSystems';
 import { createHydraCommand } from '../commands/hydra';
 import { createGobusterCommand } from '../commands/gobuster';
 import { createScpCommand } from '../commands/scp';
@@ -56,6 +63,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
     createFileOnMachine,
     writeFileToMachine,
     listDirectoryFromMachine,
+    deleteNodeFromMachine,
   } = useFileSystem();
   const { session, wifiConnected, isMachineBricked } = useSession();
 
@@ -290,6 +298,140 @@ export const useNetworkCommands = (): Map<string, Command> => {
       ),
     );
 
+    // Builds a command context for running scripts on a target machine.
+    // Provides the same daemon/system commands the player would have if
+    // SSH'd into the machine at the given privilege tier.
+    const buildTargetCommandContext = (
+      machineId: string,
+      tier: UserType,
+    ): Readonly<Record<string, (...args: readonly unknown[]) => unknown>> => {
+      const mid = machineId as MachineId;
+      const machineInfo = getMachine(machineId);
+
+      const sshdFn = (...args: unknown[]): string => {
+        const adapter: SshdAdapter = {
+          isPortOpen: (port) =>
+            machineInfo?.ports.some((p) => p.port === port && p.service === 'ssh' && p.open) ??
+            false,
+          readPidFile: () => {
+            const node = getNodeFromMachine(mid, SSH_PID_FILE_PATH, '/');
+            return node?.type === 'file' ? (node.content ?? undefined) : undefined;
+          },
+          writePidFile: (content) =>
+            createFileOnMachine({
+              machineId: mid,
+              path: SSH_PID_FILE_PATH,
+              cwd: '/',
+              content,
+              userType: 'root',
+            }),
+        };
+        return startSshd(adapter, args);
+      };
+
+      const vsftpdFn = (...args: unknown[]): string => {
+        const adapter: VsftpdAdapter = {
+          isPortOpen: (port) =>
+            machineInfo?.ports.some((p) => p.port === port && p.service === 'ftp' && p.open) ??
+            false,
+          readPidFile: () => {
+            const node = getNodeFromMachine(mid, FTP_PID_FILE_PATH, '/');
+            return node?.type === 'file' ? (node.content ?? undefined) : undefined;
+          },
+          writePidFile: (content) =>
+            createFileOnMachine({
+              machineId: mid,
+              path: FTP_PID_FILE_PATH,
+              cwd: '/',
+              content,
+              userType: 'root',
+            }),
+        };
+        return startVsftpd(adapter, args);
+      };
+
+      const systemctlFn = (...args: unknown[]): string => {
+        const context: SystemctlContext = {
+          getMachine: () => mid,
+          getMachineInfo: (ip) => getMachine(ip),
+          getNodeFromMachine,
+          createFileOnMachine: (path, content, userType) =>
+            createFileOnMachine({ machineId: mid, path, cwd: '/', content, userType }),
+          deleteFileOnMachine: deleteNodeFromMachine,
+        };
+        return executeSystemctl(context, args);
+      };
+
+      const psFn = (): string => {
+        const adapter: PsAdapter = {
+          getMachineInfo: () => machineInfo,
+          readDirectory: (path) => {
+            const node = getNodeFromMachine(mid, path, '/');
+            if (node?.type !== 'directory' || !node.children) return undefined;
+            return Object.fromEntries(
+              Object.entries(node.children)
+                .filter(([, child]) => child.type === 'file' && child.content)
+                .map(([name, child]) => [name, child.content!]),
+            );
+          },
+        };
+        const header = 'PID     USER       COMMAND';
+        const rows = listProcesses(adapter).map(
+          (p) => `${String(p.pid).padEnd(8)}${p.user.padEnd(11)}${p.command}`,
+        );
+        return [header, ...rows].join('\n');
+      };
+
+      const ncFn = (...args: unknown[]): string => {
+        // Only listen mode in script context (no outbound connections)
+        const adapter = {
+          isPortOpen: (port: number) =>
+            machineInfo?.ports.some((p) => p.port === port && p.open) ?? false,
+          pidFileExists: (port: number) => {
+            const node = getNodeFromMachine(mid, ncPidFilePath(port), '/');
+            return node !== null;
+          },
+          writePidFile: (port: number, content: string) =>
+            createFileOnMachine({
+              machineId: mid,
+              path: ncPidFilePath(port),
+              cwd: '/',
+              content,
+              userType: 'root',
+            }),
+          username: tier === 'root' ? 'root' : 'user',
+          userType: tier,
+        };
+        return startNcListener(adapter, args);
+      };
+
+      const catFn = (path: unknown): string => {
+        if (typeof path !== 'string') throw new Error('cat: missing operand');
+        return (
+          readFileFromMachine({ machineId: mid, path, cwd: '/', userType: tier }) ?? `cat: ${path}: No such file or directory`
+        );
+      };
+
+      const lsFn = (path?: unknown): string => {
+        const dir = typeof path === 'string' ? path : '/';
+        const entries = listDirectoryFromMachine({ machineId: mid, path: dir, cwd: '/', userType: tier });
+        return entries ? entries.join('  ') : `ls: ${dir}: No such file or directory`;
+      };
+
+      const echoFn = (...args: readonly unknown[]): string => args.map(String).join(' ');
+
+      return {
+        sshd: sshdFn,
+        vsftpd: vsftpdFn,
+        systemctl: systemctlFn,
+        ps: psFn,
+        nc: ncFn,
+        cat: catFn,
+        ls: lsFn,
+        echo: echoFn,
+      };
+    };
+
     commands.set(
       'msfconsole',
       wrapWithBrickedCheck(
@@ -313,6 +455,8 @@ export const useNetworkCommands = (): Map<string, Command> => {
               writeFileToMachine({ machineId, path, cwd: '/', userType: tier, content }),
             listRemoteDir: (machineId, path, tier = 'root') =>
               listDirectoryFromMachine({ machineId, path, cwd: '/', userType: tier }),
+            runScriptOnTarget: (machineId, scriptBody, tier) =>
+              executeScriptOnTarget(scriptBody, buildTargetCommandContext(machineId, tier)),
           }),
           isWifiRequired,
         ),
@@ -447,6 +591,8 @@ export const useNetworkCommands = (): Map<string, Command> => {
     getNodeFromMachine,
     createFileOnMachine,
     writeFileToMachine,
+    deleteNodeFromMachine,
+    listDirectoryFromMachine,
     session.machine,
     session.hostname,
     session.currentPath,
