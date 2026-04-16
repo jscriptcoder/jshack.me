@@ -408,13 +408,19 @@ export const useNetworkCommands = (): Map<string, Command> => {
       const catFn = (path: unknown): string => {
         if (typeof path !== 'string') throw new Error('cat: missing operand');
         return (
-          readFileFromMachine({ machineId: mid, path, cwd: '/', userType: tier }) ?? `cat: ${path}: No such file or directory`
+          readFileFromMachine({ machineId: mid, path, cwd: '/', userType: tier }) ??
+          `cat: ${path}: No such file or directory`
         );
       };
 
       const lsFn = (path?: unknown): string => {
         const dir = typeof path === 'string' ? path : '/';
-        const entries = listDirectoryFromMachine({ machineId: mid, path: dir, cwd: '/', userType: tier });
+        const entries = listDirectoryFromMachine({
+          machineId: mid,
+          path: dir,
+          cwd: '/',
+          userType: tier,
+        });
         return entries ? entries.join('  ') : `ls: ${dir}: No such file or directory`;
       };
 

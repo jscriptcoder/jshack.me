@@ -318,8 +318,11 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
                 break;
               }
               // Blind injection — execute script for side effects only, no output
-              const scriptResult =
-                context.runScriptOnTarget?.(targetIP, scriptBody, effect.tier) ?? { error: null };
+              const scriptResult = context.runScriptOnTarget?.(
+                targetIP,
+                scriptBody,
+                effect.tier,
+              ) ?? { error: null };
               if (scriptResult.error) {
                 onLine(`[-] Script injection failed: ${scriptResult.error}`);
               } else {
