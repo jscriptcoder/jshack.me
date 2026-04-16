@@ -348,11 +348,18 @@ describe('applyPortClosures', () => {
     expect(result).toBe(machines);
   });
 
-  it('skips closures for backdoor objective', () => {
-    const prng = createPrng('closure-backdoor');
-    const machines = buildMachines(4, '10.0.0.10');
-    const result = applyPortClosures(prng, machines, '10.0.0.10', 'backdoor');
-    expect(result).toBe(machines);
+  it('allows closures for backdoor objective (player can nc -l via script_exec)', () => {
+    let anyClosed = false;
+    for (let i = 0; i < 50; i++) {
+      const prng = createPrng(`closure-backdoor-${i}`);
+      const machines = buildMachines(4, '10.0.0.10');
+      const result = applyPortClosures(prng, machines, '10.0.0.10', 'backdoor');
+      const sshClosed = result.some(
+        (m) => m.ip !== '10.0.0.10' && m.remoteMachine.ports.some((p) => p.port === 22 && !p.open),
+      );
+      if (sshClosed) anyClosed = true;
+    }
+    expect(anyClosed).toBe(true);
   });
 
   it('skips closures for portforward objective', () => {
@@ -467,6 +474,41 @@ describe('applyPortClosures', () => {
     const a = applyPortClosures(createPrng('det'), [...machines], '10.0.0.10');
     const b = applyPortClosures(createPrng('det'), [...machines], '10.0.0.10');
     expect(a).toEqual(b);
+  });
+
+  it('stamps forcedEffect script_exec root on an open port when SSH is closed', () => {
+    for (let i = 0; i < 100; i++) {
+      const prng = createPrng(`closure-forced-${i}`);
+      const machines = buildMachines(4, '10.0.0.10');
+      const result = applyPortClosures(prng, machines, '10.0.0.10');
+
+      for (const m of result) {
+        const sshClosed = m.remoteMachine.ports.some((p) => p.port === 22 && !p.open);
+        if (!sshClosed) continue;
+
+        const forcedPort = m.remoteMachine.ports.find((p) => p.forcedEffect);
+        expect(forcedPort).toBeDefined();
+        expect(forcedPort?.forcedEffect).toEqual({ kind: 'script_exec', tier: 'root' });
+        expect(forcedPort?.open).toBe(true);
+        expect(forcedPort?.port).not.toBe(22);
+      }
+    }
+  });
+
+  it('does not stamp forcedEffect on machines without SSH closure', () => {
+    for (let i = 0; i < 50; i++) {
+      const prng = createPrng(`closure-no-forced-${i}`);
+      const machines = buildMachines(4, '10.0.0.10');
+      const result = applyPortClosures(prng, machines, '10.0.0.10');
+
+      for (const m of result) {
+        const sshOpen = m.remoteMachine.ports.every((p) => p.port !== 22 || p.open);
+        if (!sshOpen) continue;
+
+        const hasForcedEffect = m.remoteMachine.ports.some((p) => p.forcedEffect);
+        expect(hasForcedEffect).toBe(false);
+      }
+    }
   });
 });
 

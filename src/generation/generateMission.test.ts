@@ -602,18 +602,21 @@ describe('generateMissionNetwork', () => {
     expect(result.objective.description).toContain('backdoor');
   });
 
-  it('backdoor seeds never have SSH closures', () => {
+  it('backdoor seeds with SSH closures have forcedEffect for recovery', () => {
     for (let i = 0; i < 50; i++) {
-      const result = generateMissionNetwork(`backdoor-noclose-${i}`);
+      const result = generateMissionNetwork(`backdoor-closure-${i}`);
       if (result.objective.type !== 'backdoor') continue;
 
       result.machines
         .filter((m) => m.role !== 'router')
         .forEach((m) => {
-          const sshPort = m.remoteMachine.ports.find((p) => p.port === 22);
-          if (sshPort) {
-            expect(sshPort.open).toBe(true);
-          }
+          const sshClosed = m.remoteMachine.ports.some((p) => p.port === 22 && !p.open);
+          if (!sshClosed) return;
+          // SSH-closed machines must have a forcedEffect for script_exec recovery
+          const hasForcedEffect = m.remoteMachine.ports.some(
+            (p) => p.forcedEffect?.kind === 'script_exec' && p.forcedEffect?.tier === 'root',
+          );
+          expect(hasForcedEffect).toBe(true);
         });
     }
   });
@@ -941,5 +944,104 @@ describe('parseSeedOverrides — MySQL objectives', () => {
 
   it('db-sabotage does not match plain sabotage', () => {
     expect(parseSeedOverrides('test-sabotage').objectiveType).toBe('sabotage');
+  });
+});
+
+describe('parseSeedOverrides — effect keywords', () => {
+  it('parses script-exec keyword', () => {
+    expect(parseSeedOverrides('test-script-exec').forcedEffectKind).toBe('script_exec');
+  });
+
+  it('parses shell-full keyword', () => {
+    expect(parseSeedOverrides('test-shell-full').forcedEffectKind).toBe('shell_full');
+  });
+
+  it('parses shell-limited keyword', () => {
+    expect(parseSeedOverrides('test-shell-limited').forcedEffectKind).toBe('shell_limited');
+  });
+
+  it('parses file-read keyword', () => {
+    expect(parseSeedOverrides('test-file-read').forcedEffectKind).toBe('file_read');
+  });
+
+  it('parses dir-list keyword', () => {
+    expect(parseSeedOverrides('test-dir-list').forcedEffectKind).toBe('dir_list');
+  });
+
+  it('parses file-write keyword', () => {
+    expect(parseSeedOverrides('test-file-write').forcedEffectKind).toBe('file_write');
+  });
+
+  it('parses password-reset keyword', () => {
+    expect(parseSeedOverrides('test-password-reset').forcedEffectKind).toBe('password_reset');
+  });
+
+  it('parses backdoor-port keyword', () => {
+    expect(parseSeedOverrides('test-backdoor-port').forcedEffectKind).toBe('backdoor_port_open');
+  });
+
+  it('returns undefined without effect keyword', () => {
+    expect(parseSeedOverrides('test-mission').forcedEffectKind).toBeUndefined();
+  });
+
+  it('parses tier-root keyword', () => {
+    expect(parseSeedOverrides('test-tier-root').forcedEffectTier).toBe('root');
+  });
+
+  it('parses tier-user keyword', () => {
+    expect(parseSeedOverrides('test-tier-user').forcedEffectTier).toBe('user');
+  });
+
+  it('parses tier-guest keyword', () => {
+    expect(parseSeedOverrides('test-tier-guest').forcedEffectTier).toBe('guest');
+  });
+
+  it('returns undefined tier without tier keyword', () => {
+    expect(parseSeedOverrides('test-script-exec').forcedEffectTier).toBeUndefined();
+  });
+
+  it('parses both effect and tier from combined seed', () => {
+    const result = parseSeedOverrides('HEIST-script-exec-tier-root-hard');
+    expect(result.forcedEffectKind).toBe('script_exec');
+    expect(result.forcedEffectTier).toBe('root');
+    expect(result.difficulty).toBe('hard');
+  });
+
+  it('backdoor-port does not match plain backdoor objective', () => {
+    const result = parseSeedOverrides('test-backdoor-port');
+    expect(result.forcedEffectKind).toBe('backdoor_port_open');
+    expect(result.objectiveType).toBeUndefined();
+  });
+
+  it('script-exec does not match script-fix objective', () => {
+    const result = parseSeedOverrides('test-script-exec');
+    expect(result.objectiveType).toBeUndefined();
+  });
+});
+
+describe('forced effect on target machine via seed keyword', () => {
+  it('seed with script-exec-tier-root stamps forcedEffect on a target machine port', () => {
+    const result = generateMissionNetwork('test-script-exec-tier-root-exfiltrate');
+    const targetMachine = result.machines.find((m) => m.ip === result.objective.targetMachine);
+    expect(targetMachine).toBeDefined();
+    const forcedPort = targetMachine?.remoteMachine.ports.find((p) => p.forcedEffect);
+    expect(forcedPort).toBeDefined();
+    expect(forcedPort?.forcedEffect).toEqual({ kind: 'script_exec', tier: 'root' });
+    expect(forcedPort?.open).toBe(true);
+  });
+
+  it('seed without effect keywords produces no forcedEffect on any port', () => {
+    const result = generateMissionNetwork('test-plain-exfiltrate');
+    const hasForcedEffect = result.machines.some((m) =>
+      m.remoteMachine.ports.some((p) => p.forcedEffect),
+    );
+    expect(hasForcedEffect).toBe(false);
+  });
+
+  it('forced effect with tier-guest produces guest tier', () => {
+    const result = generateMissionNetwork('test-file-read-tier-guest-exfiltrate');
+    const targetMachine = result.machines.find((m) => m.ip === result.objective.targetMachine);
+    const forcedPort = targetMachine?.remoteMachine.ports.find((p) => p.forcedEffect);
+    expect(forcedPort?.forcedEffect).toEqual({ kind: 'file_read', tier: 'guest' });
   });
 });

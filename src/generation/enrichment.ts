@@ -1,6 +1,6 @@
 import type { Prng } from './prng';
 import type { EntryVariant, GeneratedMachine, MissionObjectiveType } from './types';
-import type { Port, RemoteUser, ServiceOwner } from '../network/types';
+import type { Port, RemoteUser, ServiceOwner, VulnerabilityEffect } from '../network/types';
 import { backdoorPorts, vulnerabilityTemplates } from './pools';
 import { defaultServiceVersion } from './pools/vulnerabilities';
 
@@ -168,12 +168,12 @@ export const applyPortClosures = (
   const dualBackdoorPort = prng.pick(backdoorPorts);
   const sshBackdoorPort = prng.pick(backdoorPorts);
 
-  // script_fix, script_auto, sabotage, backdoor, and portforward need SSH shell access — skip all closures
+  // script_fix, script_auto, sabotage, and portforward need interactive SSH shell access — skip all closures.
+  // backdoor no longer skips: player can nc("-l", port) via script_exec injection on the forced-effect port.
   if (
     objectiveType === 'script_fix' ||
     objectiveType === 'script_auto' ||
     objectiveType === 'sabotage' ||
-    objectiveType === 'backdoor' ||
     objectiveType === 'portforward'
   )
     return machines;
@@ -215,23 +215,38 @@ export const applyPortClosures = (
   )
     return machines;
 
+  // Guaranteed fallback: stamps forcedEffect script_exec root on an open port.
+  // Players may also recover via natural vulnerabilities on other ports
+  // (shell_full, backdoor_port_open, password_reset, etc.) — this ensures
+  // there's always at least one path to restart sshd when SSH is closed.
+  const scriptExecRoot: VulnerabilityEffect = { kind: 'script_exec', tier: 'root' };
+  const stampForcedEffect = (ports: readonly Port[]): readonly Port[] => {
+    // Prefer FTP (guaranteed open on SSH-only closures), fall back to any open non-SSH port
+    const target =
+      ports.find((p) => p.port === 21 && p.open) ?? ports.find((p) => p.open && p.port !== 22);
+    if (!target) return ports;
+    return ports.map((p) => (p === target ? { ...p, forcedEffect: scriptExecRoot } : p));
+  };
+
   return machines.map((m) => {
     if (m.ip === dualClosureIp) {
       // Dual closure: close SSH and FTP, add NC backdoor with root owner
       const rootUser = m.remoteMachine.users.find((u) => u.userType === 'root');
+      const backdoorPort: Port = {
+        port: dualBackdoorPort,
+        service: 'elite',
+        serviceVersion: defaultServiceVersion('elite'),
+        open: true,
+        owner: rootUser
+          ? { username: rootUser.username, userType: 'root', homePath: '/root' }
+          : undefined,
+        forcedEffect: scriptExecRoot,
+      };
       const ports: readonly Port[] = [
         ...m.remoteMachine.ports.map((p) =>
           p.port === 22 || p.port === 21 ? { ...p, open: false } : p,
         ),
-        {
-          port: dualBackdoorPort,
-          service: 'elite',
-          serviceVersion: defaultServiceVersion('elite'),
-          open: true,
-          owner: rootUser
-            ? { username: rootUser.username, userType: 'root', homePath: '/root' }
-            : undefined,
-        },
+        backdoorPort,
       ];
       return { ...m, remoteMachine: { ...m.remoteMachine, ports } };
     }
@@ -284,7 +299,7 @@ export const applyPortClosures = (
 
       return {
         ...m,
-        remoteMachine: { ...m.remoteMachine, ports },
+        remoteMachine: { ...m.remoteMachine, ports: stampForcedEffect(ports) },
       };
     }
 

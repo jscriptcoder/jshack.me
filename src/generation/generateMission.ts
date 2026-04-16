@@ -5,9 +5,11 @@ import { buildMissionObjective } from './attackChain';
 import { generateFileSystems } from './filesystem';
 import { enrichMachineWithUsers, applyPortClosures, applyRedisPortOpening } from './enrichment';
 import { defaultServiceVersion } from './pools/vulnerabilities';
+import type { VulnerabilityEffect, EffectTier } from '../network/types';
 import type {
   Difficulty,
   EntryVariant,
+  ForcedEffectKind,
   GeneratedMachine,
   MissionNetwork,
   MissionObjectiveType,
@@ -39,6 +41,11 @@ export const parseSeedOverrides = (seed: string): SeedOverrides => {
       ? false
       : undefined;
 
+  // Strip effect-keyword prefixes that would otherwise false-match objective
+  // keywords (e.g. "backdoor-port" contains "backdoor", "script-exec" contains
+  // no objective prefix but we strip for safety).
+  const stripped = lower.replace('backdoor-port', '').replace('script-exec', '');
+
   const objectiveKeywords: readonly (readonly [string, MissionObjectiveType])[] = [
     ['portforward', 'portforward'],
     ['script-auto', 'script_auto'],
@@ -55,7 +62,7 @@ export const parseSeedOverrides = (seed: string): SeedOverrides => {
     ['forensics', 'forensics'],
     ['malware', 'malware'],
   ];
-  const objectiveType = objectiveKeywords.find(([keyword]) => lower.includes(keyword))?.[1];
+  const objectiveType = objectiveKeywords.find(([keyword]) => stripped.includes(keyword))?.[1];
 
   const domainEntry = lower.includes('domain') ? true : undefined;
 
@@ -65,6 +72,28 @@ export const parseSeedOverrides = (seed: string): SeedOverrides => {
   // 'switch' keyword forces inner gateways to be managed switches instead of routers
   const switchGateway = lower.includes('switch') ? true : undefined;
 
+  // Effect keywords — force a specific vulnerability effect on the target machine.
+  // Longer keywords first to avoid false prefix matches.
+  const effectKeywords: readonly (readonly [string, ForcedEffectKind])[] = [
+    ['shell-limited', 'shell_limited'],
+    ['shell-full', 'shell_full'],
+    ['file-read', 'file_read'],
+    ['file-write', 'file_write'],
+    ['dir-list', 'dir_list'],
+    ['password-reset', 'password_reset'],
+    ['backdoor-port', 'backdoor_port_open'],
+    ['script-exec', 'script_exec'],
+  ];
+  const forcedEffectKind = effectKeywords.find(([keyword]) => lower.includes(keyword))?.[1];
+
+  // Tier keywords — force the tier of the forced effect
+  const tierKeywords: readonly (readonly [string, 'root' | 'user' | 'guest'])[] = [
+    ['tier-root', 'root'],
+    ['tier-user', 'user'],
+    ['tier-guest', 'guest'],
+  ];
+  const forcedEffectTier = tierKeywords.find(([keyword]) => lower.includes(keyword))?.[1];
+
   return {
     difficulty,
     entryVariant,
@@ -73,6 +102,8 @@ export const parseSeedOverrides = (seed: string): SeedOverrides => {
     domainEntry,
     encrypted,
     switchGateway,
+    forcedEffectKind,
+    forcedEffectTier,
   };
 };
 
@@ -263,9 +294,41 @@ export const generateMissionNetwork = (
       )
     : machinesWithRedis;
 
+  // Apply seed-keyword forced effect to the target machine's first open non-SSH port.
+  // Uses a PRNG roll for the tier when no tier keyword is specified, and for the
+  // backdoor_port_open port number.
+  const buildForcedEffect = (kind: ForcedEffectKind, tier: EffectTier): VulnerabilityEffect => {
+    if (kind === 'backdoor_port_open') {
+      const backdoorPorts = [31337, 4444, 1337, 12345, 8080] as const;
+      return { kind, port: prng.pick(backdoorPorts), tier };
+    }
+    return { kind, tier };
+  };
+
+  const machinesWithForcedEffect =
+    overrides.forcedEffectKind && objective.targetMachine
+      ? machinesForFs.map((m) => {
+          if (m.ip !== objective.targetMachine) return m;
+          const tier = overrides.forcedEffectTier ?? prng.pick(['guest', 'user', 'root']);
+          const effect = buildForcedEffect(overrides.forcedEffectKind!, tier);
+          // Pick the first open non-SSH port to stamp
+          const targetPort = m.remoteMachine.ports.find((p) => p.open && p.port !== 22);
+          if (!targetPort) return m;
+          return {
+            ...m,
+            remoteMachine: {
+              ...m.remoteMachine,
+              ports: m.remoteMachine.ports.map((p) =>
+                p === targetPort ? { ...p, forcedEffect: effect } : p,
+              ),
+            },
+          };
+        })
+      : machinesForFs;
+
   const { fileSystems, basicSnmpGatewayIps } = generateFileSystems({
     prng,
-    machines: machinesForFs,
+    machines: machinesWithForcedEffect,
     usersByMachine: allUsersByMachine,
     credentials: allCredentials,
     objective,
@@ -337,7 +400,7 @@ export const generateMissionNetwork = (
     difficulty,
     entryPoint: topology.entryPoint,
     entryVariant: topology.entryVariant,
-    machines: machinesWithRedis,
+    machines: machinesWithForcedEffect,
     fileSystems,
     networkConfig: { machineConfigs: configsWithMysql },
     objective,
