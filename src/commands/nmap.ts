@@ -1,6 +1,6 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
 import type { Port, RemoteMachine, Vulnerability } from '../network/types';
-import { findVulnForService } from '../generation/vulnerabilityLookup';
+import { findExploitableCve } from '../generation/findExploitableCve';
 import { isValidIP, parseIPRange } from '../utils/network';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
@@ -55,11 +55,12 @@ const formatEffectHint = (effect: Vulnerability['effect']): string => {
 };
 
 const formatVulnerabilitySection = (
+  machine: RemoteMachine,
   openPorts: readonly Port[],
   gameTime: number,
 ): readonly string[] => {
   const vulnEntries = openPorts.flatMap((p) => {
-    const v = findVulnForService(p.service, p.serviceVersion ?? '', gameTime);
+    const v = findExploitableCve(machine, p, gameTime);
     return v ? [{ port: p, vuln: v }] : [];
   });
   if (vulnEntries.length === 0) return [];
@@ -87,6 +88,7 @@ type DiscoveredHost = {
   readonly hostname: string;
   readonly isLocal: boolean;
   readonly ports: readonly Port[];
+  readonly machine?: RemoteMachine;
 };
 
 // Parses args to detect -sV and -sU flags. Flags can appear in any position;
@@ -133,11 +135,11 @@ const formatTreeCVELines = (
   udpScan: boolean,
   gameTime: number,
 ): readonly string[] => {
-  if (host.isLocal) return [];
+  if (host.isLocal || !host.machine) return [];
   const filtered = filterPortsByProtocol(host.ports, udpScan);
   const vulnEntries = filtered.flatMap((p) => {
     if (!p.open) return [];
-    const v = findVulnForService(p.service, p.serviceVersion ?? '', gameTime);
+    const v = findExploitableCve(host.machine!, p, gameTime);
     return v ? [{ port: p, vuln: v }] : [];
   });
   if (vulnEntries.length === 0) return [];
@@ -312,6 +314,7 @@ export const createNmapCommand = (context: NmapContext): Command => ({
                     hostname: machine.hostname,
                     isLocal: false,
                     ports: machine.ports,
+                    machine,
                   });
                   onLine(`Host discovered: ${ip} (${machine.hostname})`);
                 }
@@ -482,7 +485,7 @@ export const createNmapCommand = (context: NmapContext): Command => ({
                   if (token.isCancelled()) return;
 
                   if (versionScan) {
-                    const vulnLines = formatVulnerabilitySection(openPorts, gameTime);
+                    const vulnLines = formatVulnerabilitySection(machine, openPorts, gameTime);
                     vulnLines.forEach((line) => onLine(line));
                   }
 
