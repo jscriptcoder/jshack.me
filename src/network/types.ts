@@ -91,6 +91,11 @@ export type Port = {
   readonly open: boolean;
   readonly protocol?: 'tcp' | 'udp';
   readonly owner?: ServiceOwner; // For interactive services (backdoors)
+  // When set, overrides the vulnerability's natural effect. Used by SSH
+  // closure enrichment (guarantees script_exec for recovery) and seed
+  // keyword overrides (testing/gameplay control). findExploitableCve
+  // synthesizes a minimal vulnerability if no natural one exists.
+  readonly forcedEffect?: VulnerabilityEffect;
 };
 
 export type RemoteUser = {
