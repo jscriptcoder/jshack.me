@@ -10,7 +10,7 @@ Custom React hooks that wire together commands, context, and terminal features. 
 | `useFileSystemCommands.ts`     | Creates filesystem commands (pwd, ls, cd, cat, whoami, gpg, output, strings, nano) with context from `useFileSystem` and `useSession`                                                                                      |
 | `useNetworkCommands.ts`        | Creates network commands (ifconfig, ping, nmap, nslookup, ssh, curl, ftp, nc, msfconsole, gobuster) with context from `useNetwork` and `useFileSystem`. Applies version overlays and wires game time into network commands |
 | `useFtpCommands.ts`            | Creates FTP-mode commands (pwd, lpwd, cd, lcd, ls, lls, get, put, quit/bye) — returns `null` when not in FTP mode                                                                                                          |
-| `useNcCommands.ts`             | Creates NC-mode commands (pwd, cd, ls, cat, whoami, bash, help, exit) — returns `null` when not in NC mode. Daemon commands (sshd, vsftpd, systemctl) are hidden behind bash.                                              |
+| `useNcCommands.ts`             | Creates NC-mode commands (pwd, cd, ls, cat, whoami, help, exit) — read-only recon shell, returns `null` when not in NC mode                                                                                                |
 | `useWifiCommands.ts`           | Creates WiFi commands (airmon, airdump, aircrack, nmcli) — generates WiFi networks from game seed, manages monitor mode state via `useRef`                                                                                 |
 | `useCommandHistory.ts`         | Up/down arrow navigation through previous commands                                                                                                                                                                         |
 | `useAutoComplete.ts`           | Tab completion for command names and variable names                                                                                                                                                                        |
@@ -109,14 +109,14 @@ Three overlay-aware accessors replace direct `getMachine`/`findMachineByIp`/`get
 
 ## Msfconsole Filesystem Helpers
 
-The msfconsole command context receives five filesystem helper functions to support typed vulnerability effects that need to read/write files on target and attacker machines:
+The msfconsole command context receives six helper functions to support typed vulnerability effects that need to read/write files on target and attacker machines:
 
-| Helper                                      | Description                                                      |
-| ------------------------------------------- | ---------------------------------------------------------------- |
-| `readRemoteFile(machineId, path)`           | Reads a file from the target machine as root                     |
-| `readLocalFile(path)`                       | Reads a file from the attacker's current machine as current user |
-| `writeRemoteFile(machineId, path, content)` | Writes a file to the target machine as root                      |
-| `listRemoteDir(machineId, path)`            | Lists a directory on the target machine as root                  |
-| `runScriptOnTarget`                         | Not yet wired (needs game DSL sandbox)                           |
+| Helper                                       | Description                                                                                                                                                                 |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `readRemoteFile(machineId, path)`            | Reads a file from the target machine as root                                                                                                                                |
+| `readLocalFile(path)`                        | Reads a file from the attacker's current machine as current user                                                                                                            |
+| `writeRemoteFile(machineId, path, content)`  | Writes a file to the target machine as root                                                                                                                                 |
+| `listRemoteDir(machineId, path)`             | Lists a directory on the target machine as root                                                                                                                             |
+| `runScriptOnTarget(machineId, script, tier)` | Blind script injection — executes script on target with full command context (sshd, vsftpd, systemctl, ps, nc, cat, ls, echo) at given tier. Returns `{ error }`, no output |
 
 These helpers delegate to the existing `readFileFromMachine`, `writeFileToMachine`, and `listDirectoryFromMachine` functions from `useFileSystem`, injecting the appropriate `cwd` (`/`) and `userType` (`root` for remote, `session.userType` for local).

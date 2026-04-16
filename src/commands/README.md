@@ -220,13 +220,12 @@ Available only when connected via FTP. Registered in `src/hooks/useFtpCommands.t
 
 Available when connected to interactive services via nc. Registered in `src/hooks/useNcCommands.ts`. Like a real netcat shell, there is no PATH — admin binaries (sshd, vsftpd, systemctl) must be run via `bash('/usr/sbin/sshd')`.
 
-| Command | File           | Signature             | Description                       |
-| ------- | -------------- | --------------------- | --------------------------------- |
-| pwd     | `nc/pwd.ts`    | `pwd()`               | Print working directory           |
-| cd      | `nc/cd.ts`     | `cd(path)`            | Change directory                  |
-| ls      | `nc/ls.ts`     | `ls([path])`          | List directory contents           |
-| cat     | `nc/cat.ts`    | `cat(path)`           | Display file contents             |
-| whoami  | `nc/whoami.ts` | `whoami()`            | Display current user              |
-| bash    | `nc/bash.ts`   | `bash(path, ...args)` | Execute binary by filesystem path |
-| help    | (inline)       | `help()`              | List available nc commands        |
-| exit    | (inline)       | `exit()`              | Close connection                  |
+| Command | File           | Signature    | Description                |
+| ------- | -------------- | ------------ | -------------------------- |
+| pwd     | `nc/pwd.ts`    | `pwd()`      | Print working directory    |
+| cd      | `nc/cd.ts`     | `cd(path)`   | Change directory           |
+| ls      | `nc/ls.ts`     | `ls([path])` | List directory contents    |
+| cat     | `nc/cat.ts`    | `cat(path)`  | Display file contents      |
+| whoami  | `nc/whoami.ts` | `whoami()`   | Display current user       |
+| help    | (inline)       | `help()`     | List available nc commands |
+| exit    | (inline)       | `exit()`     | Close connection           |

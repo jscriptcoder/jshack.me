@@ -158,7 +158,7 @@ Layer 2 (<layer2-subnet>.10, .11, ...) — 2-3 machines (target here)
 
 ### Port Closures
 
-PRNG-driven SSH/FTP port closures (~30% each, independent rolls) add lateral movement variety. At most one SSH and one FTP closure per network. Entry machine, router, and script_fix/sabotage objectives are protected. When SSH is closed on a non-entry machine, FTP port 21 is ensured open and a root-owned NC backdoor is guaranteed (existing backdoor upgraded or new one added). The player connects via `nc`, then uses `bash('/usr/sbin/sshd')` to start SSH or `bash('/usr/sbin/vsftpd')` to start FTP. A dual closure (~15%) closes both SSH and FTP, adding an NC backdoor with root owner.
+PRNG-driven SSH/FTP port closures (~30% each, independent rolls) add lateral movement variety. At most one SSH and one FTP closure per network. Entry machine, router, and script_fix/sabotage objectives are protected. When SSH is closed on a non-entry machine, FTP port 21 is ensured open and a root-owned NC backdoor is guaranteed (existing backdoor upgraded or new one added). The player can use a `script_exec` vulnerability via `msfconsole(target, port, '/path/to/script.js')` to blindly inject a script that starts sshd or vsftpd on the target. A dual closure (~15%) closes both SSH and FTP, adding an NC backdoor with root owner.
 
 ### NAT Resolution
 
