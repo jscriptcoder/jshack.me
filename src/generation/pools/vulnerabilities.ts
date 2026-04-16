@@ -27,7 +27,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'Apache/2.4.49',
       severity: 'critical',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/access.log',
         method: 'GET',
@@ -45,7 +45,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'Apache/2.4.25',
       severity: 'critical',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/access.log',
         method: 'GET',
@@ -63,7 +63,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'Apache/2.4.38',
       severity: 'high',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/access.log',
         method: 'POST',
@@ -81,7 +81,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'nginx/1.20.0',
       severity: 'high',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/access.log',
         method: 'GET',
@@ -99,7 +99,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'Struts/2.3.31',
       severity: 'critical',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/access.log',
         method: 'POST',
@@ -117,7 +117,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'Tomcat/9.0.40',
       severity: 'critical',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/access.log',
         method: 'GET',
@@ -135,7 +135,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'Elasticsearch 1.4.2',
       severity: 'critical',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/access.log',
         method: 'POST',
@@ -153,7 +153,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'PulseSecure/9.0R1',
       severity: 'high',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/access.log',
         method: 'GET',
@@ -172,7 +172,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'vsftpd 2.3.4',
       severity: 'critical',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'root' },
       attackPattern: {
         logFile: '/var/log/vsftpd.log',
         command: 'USER user:)',
@@ -188,7 +188,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'ProFTPD 1.3.5',
       severity: 'critical',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/vsftpd.log',
         command: 'SITE CPFR /etc/passwd',
@@ -204,7 +204,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'ProFTPD 1.3.6',
       severity: 'high',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/vsftpd.log',
         command: 'SITE CPTO /var/www/html/shell.php',
@@ -221,7 +221,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'MySQL 5.5.23',
       severity: 'high',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/mysql.log',
         query: 'Connect\troot@ using password: repeated-invalid',
@@ -237,7 +237,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'MySQL 5.5.52',
       severity: 'critical',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'root' },
       attackPattern: {
         logFile: '/var/log/mysql.log',
         query: "SET GLOBAL general_log_file = '/var/lib/mysql/malicious.so'",
@@ -253,7 +253,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'MariaDB 10.5.8',
       severity: 'critical',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/mysql.log',
         query: "SET GLOBAL wsrep_provider = '/tmp/payload.so'",
@@ -270,7 +270,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'Redis 5.0.7',
       severity: 'critical',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/redis.log',
         message: 'Lua script called unexpected C function: os.execute',
@@ -286,7 +286,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'Redis 2.8.19',
       severity: 'critical',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/redis.log',
         message: 'EVAL called with dofile sandbox bypass attempt',
@@ -303,7 +303,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'Exim 4.87',
       severity: 'critical',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/mail.log',
         daemon: 'postfix/smtpd',
@@ -320,7 +320,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'Exim 4.69',
       severity: 'critical',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/mail.log',
         daemon: 'postfix/smtpd',
@@ -337,7 +337,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'Postfix 3.4.8',
       severity: 'high',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/mail.log',
         daemon: 'postfix/smtpd',
@@ -354,7 +354,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'Dovecot 2.3.7',
       severity: 'high',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/mail.log',
         daemon: 'dovecot',
@@ -371,7 +371,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'Dovecot 2.2.33',
       severity: 'medium',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/mail.log',
         daemon: 'dovecot',
@@ -388,7 +388,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'Courier 0.75.0',
       severity: 'high',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/mail.log',
         daemon: 'courier',
@@ -406,7 +406,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'Mosquitto 2.0.14',
       severity: 'high',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/syslog',
         daemon: 'mosquitto',
@@ -423,7 +423,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'Mosquitto 1.4.12',
       severity: 'medium',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/syslog',
         daemon: 'mosquitto',
@@ -440,7 +440,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'Samba 4.5.9',
       severity: 'critical',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'root' },
       attackPattern: {
         logFile: '/var/log/syslog',
         daemon: 'smbd',
@@ -457,7 +457,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'PostgreSQL 9.3',
       severity: 'critical',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/syslog',
         daemon: 'postgres',
@@ -474,7 +474,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'PostgreSQL 13.10',
       severity: 'low',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/syslog',
         daemon: 'postgres',
@@ -491,7 +491,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'MongoDB 3.6.12',
       severity: 'high',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/syslog',
         daemon: 'mongod',
@@ -508,7 +508,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'MongoDB 4.0.5',
       severity: 'critical',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/syslog',
         daemon: 'mongod',
@@ -525,7 +525,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'rsync 3.2.3',
       severity: 'high',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/syslog',
         daemon: 'rsyncd',
@@ -542,7 +542,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'rsync 3.2.7',
       severity: 'critical',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/syslog',
         daemon: 'rsyncd',
@@ -559,7 +559,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'TightVNC 1.3.10',
       severity: 'high',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/syslog',
         daemon: 'xvnc',
@@ -576,7 +576,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'RealVNC 4.1.1',
       severity: 'critical',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/syslog',
         daemon: 'vncserver',
@@ -593,7 +593,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'ModbusTCP 1.0',
       severity: 'critical',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/syslog',
         daemon: 'modbusd',
@@ -610,7 +610,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'Modicon M340',
       severity: 'critical',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/syslog',
         daemon: 'modbusd',
@@ -627,7 +627,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'OpenVPN 2.4.3',
       severity: 'high',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/syslog',
         daemon: 'openvpn',
@@ -644,7 +644,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'OpenVPN 2.5.1',
       severity: 'high',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/syslog',
         daemon: 'openvpn',
@@ -661,7 +661,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'BIND 9.16.18',
       severity: 'medium',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/syslog',
         daemon: 'named',
@@ -678,7 +678,7 @@ export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
       serviceVersion: 'BIND 9.14.11',
       severity: 'medium',
       publishedAt: 0,
-      effect: { kind: 'shell_limited' },
+      effect: { kind: 'shell_limited', tier: 'user' },
       attackPattern: {
         logFile: '/var/log/syslog',
         daemon: 'named',

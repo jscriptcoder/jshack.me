@@ -297,17 +297,44 @@ describe('hydra command', () => {
       expect(lines.some((l) => l.includes('login: ftpuser'))).toBe(true);
     });
 
-    it('should not crack user when password is in wordlist but random >= 0.18', async () => {
+    it('is deterministic: running hydra twice produces the same outcome', async () => {
+      // Regression guard: before this change, probability rolls let players
+      // "loop until lucky". Now the wordlist is the sole gate — same input
+      // always produces the same output, no matter how many times hydra runs.
+      const machine = getMockRemoteMachine({
+        users: [
+          { username: 'notcrackable', passwordHash: NON_WORDLIST_PASSWORD_HASH, userType: 'root' },
+          { username: 'guest', passwordHash: GUEST_PASSWORD_HASH, userType: 'guest' },
+        ],
+      });
+      const hydra = createHydraCommand(createMockContext({ machines: [machine] }));
+      const run1Result = hydra.fn('192.168.1.50', 'ssh');
+      if (!isAsyncOutput(run1Result)) throw new Error('Expected async output');
+      const run1Lines = await collectAsyncLines(run1Result);
+      const run2Result = hydra.fn('192.168.1.50', 'ssh');
+      if (!isAsyncOutput(run2Result)) throw new Error('Expected async output');
+      const run2Lines = await collectAsyncLines(run2Result);
+
+      // Guest cracks both runs; root never does, no matter how many loops.
+      expect(run1Lines.some((l) => l.includes('login: guest'))).toBe(true);
+      expect(run2Lines.some((l) => l.includes('login: guest'))).toBe(true);
+      expect(run1Lines.some((l) => l.includes('login: notcrackable'))).toBe(false);
+      expect(run2Lines.some((l) => l.includes('login: notcrackable'))).toBe(false);
+    });
+
+    it('always cracks user when password is in wordlist (no probability roll)', async () => {
+      // Removed the old probability gate: if the hash is in the wordlist,
+      // it cracks deterministically regardless of Math.random value.
       const machine = getMockRemoteMachine({
         users: [{ username: 'ftpuser', passwordHash: WORDLIST_PASSWORD_HASH, userType: 'user' }],
       });
       const hydra = createHydraCommand(createMockContext({ machines: [machine] }));
-      vi.spyOn(Math, 'random').mockReturnValue(0.5);
+      vi.spyOn(Math, 'random').mockReturnValue(0.99);
       const result = hydra.fn('192.168.1.50', 'ssh');
       if (!isAsyncOutput(result)) throw new Error('Expected async output');
       const lines = await collectAsyncLines(result);
-      expect(lines.some((l) => l.includes('login: ftpuser'))).toBe(false);
-      expect(lines.some((l) => l.includes('0 of 1'))).toBe(true);
+      expect(lines.some((l) => l.includes('login: ftpuser'))).toBe(true);
+      expect(lines.some((l) => l.includes('1 of 1'))).toBe(true);
     });
 
     it('should never crack user whose password is NOT in wordlist regardless of probability', async () => {

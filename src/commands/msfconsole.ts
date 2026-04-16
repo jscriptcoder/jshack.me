@@ -23,10 +23,23 @@ type MsfconsoleContext = {
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
   readonly getGameTime?: () => number;
   readonly onExploitAttempt?: (info: ExploitAttemptInfo) => void;
-  readonly readRemoteFile?: (machineId: string, path: string) => string | null;
+  readonly readRemoteFile?: (
+    machineId: string,
+    path: string,
+    tier?: 'guest' | 'user' | 'root',
+  ) => string | null;
   readonly readLocalFile?: (path: string) => string | null;
-  readonly writeRemoteFile?: (machineId: string, path: string, content: string) => void;
-  readonly listRemoteDir?: (machineId: string, path: string) => readonly string[] | null;
+  readonly writeRemoteFile?: (
+    machineId: string,
+    path: string,
+    content: string,
+    tier?: 'guest' | 'user' | 'root',
+  ) => void;
+  readonly listRemoteDir?: (
+    machineId: string,
+    path: string,
+    tier?: 'guest' | 'user' | 'root',
+  ) => readonly string[] | null;
   readonly runScriptOnTarget?: (
     machineId: string,
     scriptBody: string,
@@ -137,7 +150,6 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
       success: true,
     });
 
-    const { owner } = targetPort;
     const { effect } = vulnerability;
 
     const requiresPath = effect.kind === 'file_read' || effect.kind === 'dir_list';
@@ -218,27 +230,31 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
               break;
             }
             case 'file_read': {
-              const content = context.readRemoteFile?.(targetIP, thirdArg!) ?? null;
+              const content = context.readRemoteFile?.(targetIP, thirdArg!, effect.tier) ?? null;
               onLine('[+] Exploit successful!');
               if (content !== null) {
-                onLine(`[+] Reading ${thirdArg}:`);
+                onLine(`[+] Reading ${thirdArg} (as ${effect.tier}):`);
                 onLine('');
                 content.split('\n').forEach((line) => onLine(line));
               } else {
-                onLine(`[-] File not found or not readable: ${thirdArg}`);
+                onLine(
+                  `[-] File not found or permission denied (as ${effect.tier}): ${thirdArg}`,
+                );
               }
               onComplete();
               break;
             }
             case 'dir_list': {
-              const entries = context.listRemoteDir?.(targetIP, thirdArg!) ?? null;
+              const entries = context.listRemoteDir?.(targetIP, thirdArg!, effect.tier) ?? null;
               onLine('[+] Exploit successful!');
               if (entries !== null) {
-                onLine(`[+] Listing ${thirdArg}:`);
+                onLine(`[+] Listing ${thirdArg} (as ${effect.tier}):`);
                 onLine('');
                 entries.forEach((entry) => onLine(entry));
               } else {
-                onLine(`[-] Directory not found or not readable: ${thirdArg}`);
+                onLine(
+                  `[-] Directory not found or permission denied (as ${effect.tier}): ${thirdArg}`,
+                );
               }
               onComplete();
               break;
@@ -251,9 +267,11 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
               if (localContent === null) {
                 onLine(`[-] Could not read local file: ${localPath}`);
               } else {
-                context.writeRemoteFile?.(targetIP, remotePath, localContent);
+                context.writeRemoteFile?.(targetIP, remotePath, localContent, effect.tier);
                 onLine('[+] Exploit successful!');
-                onLine(`[+] Uploaded ${localPath} → ${remotePath} (${localContent.length} bytes)`);
+                onLine(
+                  `[+] Uploaded ${localPath} → ${remotePath} as ${effect.tier} (${localContent.length} bytes)`,
+                );
               }
               onComplete();
               break;
@@ -285,8 +303,8 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
             case 'backdoor_port_open': {
               const backdoorPort = effect.port;
               const pidPath = ncPidFilePath(backdoorPort);
-              const pidContent = createNcPidContent(backdoorPort, 'backdoor', 'root');
-              context.writeRemoteFile?.(targetIP, pidPath, pidContent);
+              const pidContent = createNcPidContent(backdoorPort, 'backdoor', effect.tier);
+              context.writeRemoteFile?.(targetIP, pidPath, pidContent, 'root');
               onLine('[+] Exploit successful!');
               onLine(
                 `[+] Backdoor planted on port ${backdoorPort} — connect with nc(target, ${backdoorPort})`,
@@ -310,21 +328,24 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
               onComplete();
               break;
             }
-            default: {
-              // shell_limited + future effects
+            case 'shell_limited': {
+              // Use the effect's tier (not the port owner's) so nmap's "as X"
+              // hint matches the actual privilege level the player lands at.
+              const shellUser = resolveShellFullUser(effect.tier);
               onLine('[+] Exploit successful!');
-              onLine(`[+] Got shell as ${owner.username}@${targetIP}`);
+              onLine(`[+] Got shell as ${shellUser.username}@${targetIP}`);
               onLine('');
               const ncPrompt: NcPromptData = {
                 __type: 'nc_prompt',
                 targetIP,
                 targetPort: port,
                 service: targetPort.service,
-                username: owner.username,
-                userType: owner.userType,
-                homePath: owner.homePath,
+                username: shellUser.username,
+                userType: effect.tier,
+                homePath: shellUser.homePath,
               };
               onComplete(ncPrompt);
+              break;
             }
           }
         }, delay);

@@ -14,15 +14,16 @@ const BACKDOOR_PORTS = [31337, 4444, 1337, 12345, 8080] as const;
 
 const TIERS = ['guest', 'user', 'root'] as const;
 
-const shellLimited: EffectFactory = () => ({ kind: 'shell_limited' });
+const shellLimited: EffectFactory = (prng) => ({ kind: 'shell_limited', tier: prng.pick(TIERS) });
 const shellFull: EffectFactory = (prng) => ({ kind: 'shell_full', tier: prng.pick(TIERS) });
-const fileRead: EffectFactory = () => ({ kind: 'file_read' });
-const dirList: EffectFactory = () => ({ kind: 'dir_list' });
-const fileWrite: EffectFactory = () => ({ kind: 'file_write' });
+const fileRead: EffectFactory = (prng) => ({ kind: 'file_read', tier: prng.pick(TIERS) });
+const dirList: EffectFactory = (prng) => ({ kind: 'dir_list', tier: prng.pick(TIERS) });
+const fileWrite: EffectFactory = (prng) => ({ kind: 'file_write', tier: prng.pick(TIERS) });
 const passwordReset: EffectFactory = (prng) => ({ kind: 'password_reset', tier: prng.pick(TIERS) });
 const backdoorPortOpen: EffectFactory = (prng) => ({
   kind: 'backdoor_port_open',
   port: prng.pick(BACKDOOR_PORTS),
+  tier: prng.pick(TIERS),
 });
 const scriptExec: EffectFactory = (prng) => ({ kind: 'script_exec', tier: prng.pick(TIERS) });
 

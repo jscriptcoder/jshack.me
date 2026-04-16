@@ -300,8 +300,8 @@ export const useNetworkCommands = (): Map<string, Command> => {
             resolveDomain,
             getGameTime,
             onExploitAttempt,
-            readRemoteFile: (machineId, path) =>
-              readFileFromMachine({ machineId, path, cwd: '/', userType: 'root' }),
+            readRemoteFile: (machineId, path, tier = 'root') =>
+              readFileFromMachine({ machineId, path, cwd: '/', userType: tier }),
             readLocalFile: (path) =>
               readFileFromMachine({
                 machineId: session.machine,
@@ -309,10 +309,10 @@ export const useNetworkCommands = (): Map<string, Command> => {
                 cwd: '/',
                 userType: session.userType,
               }),
-            writeRemoteFile: (machineId, path, content) =>
-              writeFileToMachine({ machineId, path, cwd: '/', userType: 'root', content }),
-            listRemoteDir: (machineId, path) =>
-              listDirectoryFromMachine({ machineId, path, cwd: '/', userType: 'root' }),
+            writeRemoteFile: (machineId, path, content, tier = 'root') =>
+              writeFileToMachine({ machineId, path, cwd: '/', userType: tier, content }),
+            listRemoteDir: (machineId, path, tier = 'root') =>
+              listDirectoryFromMachine({ machineId, path, cwd: '/', userType: tier }),
           }),
           isWifiRequired,
         ),
