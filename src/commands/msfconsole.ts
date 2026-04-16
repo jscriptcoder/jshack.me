@@ -44,7 +44,7 @@ type MsfconsoleContext = {
     machineId: string,
     scriptBody: string,
     tier: 'guest' | 'user' | 'root',
-  ) => readonly string[];
+  ) => { readonly error: string | null };
 };
 
 const MSFCONSOLE_PHASE_DELAY_MS = 600;
@@ -317,12 +317,18 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
                 onComplete();
                 break;
               }
-              onLine('[+] Exploit successful!');
-              onLine(`[+] Executing script on ${targetIP} as ${effect.tier}...`);
-              onLine('');
-              const outputLines =
-                context.runScriptOnTarget?.(targetIP, scriptBody, effect.tier) ?? [];
-              outputLines.forEach((line) => onLine(line));
+              // Blind injection — execute script for side effects only, no output
+              const scriptResult = context.runScriptOnTarget?.(
+                targetIP,
+                scriptBody,
+                effect.tier,
+              ) ?? { error: null };
+              if (scriptResult.error) {
+                onLine(`[-] Script injection failed: ${scriptResult.error}`);
+              } else {
+                onLine('[+] Exploit successful!');
+                onLine(`[+] Script injected on ${targetIP} as ${effect.tier}`);
+              }
               onComplete();
               break;
             }

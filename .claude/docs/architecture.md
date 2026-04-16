@@ -242,7 +242,7 @@ Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, find, grep, rm,
 
 FTP mode (when connected via ftp): pwd, lpwd, cd, lcd, ls, lls, get, put, quit/bye.
 
-NC mode (when connected via nc): pwd, cd, ls, cat, whoami, bash, help, exit — restricted shell access. Admin binaries (sshd, vsftpd, systemctl) must be run via `bash('/usr/sbin/sshd')` (no PATH in raw nc shell).
+NC mode (when connected via nc): pwd, cd, ls, cat, whoami, help, exit — read-only recon shell. No binary execution — remote code execution is done via `script_exec` vulnerabilities through `msfconsole(target, port, '/path/to/script.js')`.
 
 MySQL mode (when connected via mysql): Raw SQL input — SHOW TABLES, DESCRIBE, SELECT, UPDATE, DELETE FROM, DROP TABLE, exit/quit. Bypasses `new Function()` — input routed to regex parser + executor. Database stored as `/var/lib/mysql/data.json` on target machine.
 

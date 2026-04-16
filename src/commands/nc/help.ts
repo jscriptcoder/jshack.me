@@ -4,5 +4,5 @@ export const ncHelpCommand: Command = {
   name: 'help',
   category: 'network',
   description: 'Show available commands',
-  fn: (): string => 'pwd  cd  ls  cat  whoami  bash  exit',
+  fn: (): string => 'pwd  cd  ls  cat  whoami  exit',
 };
