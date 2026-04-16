@@ -943,3 +943,75 @@ describe('parseSeedOverrides — MySQL objectives', () => {
     expect(parseSeedOverrides('test-sabotage').objectiveType).toBe('sabotage');
   });
 });
+
+describe('parseSeedOverrides — effect keywords', () => {
+  it('parses script-exec keyword', () => {
+    expect(parseSeedOverrides('test-script-exec').forcedEffectKind).toBe('script_exec');
+  });
+
+  it('parses shell-full keyword', () => {
+    expect(parseSeedOverrides('test-shell-full').forcedEffectKind).toBe('shell_full');
+  });
+
+  it('parses shell-limited keyword', () => {
+    expect(parseSeedOverrides('test-shell-limited').forcedEffectKind).toBe('shell_limited');
+  });
+
+  it('parses file-read keyword', () => {
+    expect(parseSeedOverrides('test-file-read').forcedEffectKind).toBe('file_read');
+  });
+
+  it('parses dir-list keyword', () => {
+    expect(parseSeedOverrides('test-dir-list').forcedEffectKind).toBe('dir_list');
+  });
+
+  it('parses file-write keyword', () => {
+    expect(parseSeedOverrides('test-file-write').forcedEffectKind).toBe('file_write');
+  });
+
+  it('parses password-reset keyword', () => {
+    expect(parseSeedOverrides('test-password-reset').forcedEffectKind).toBe('password_reset');
+  });
+
+  it('parses backdoor-port keyword', () => {
+    expect(parseSeedOverrides('test-backdoor-port').forcedEffectKind).toBe('backdoor_port_open');
+  });
+
+  it('returns undefined without effect keyword', () => {
+    expect(parseSeedOverrides('test-mission').forcedEffectKind).toBeUndefined();
+  });
+
+  it('parses tier-root keyword', () => {
+    expect(parseSeedOverrides('test-tier-root').forcedEffectTier).toBe('root');
+  });
+
+  it('parses tier-user keyword', () => {
+    expect(parseSeedOverrides('test-tier-user').forcedEffectTier).toBe('user');
+  });
+
+  it('parses tier-guest keyword', () => {
+    expect(parseSeedOverrides('test-tier-guest').forcedEffectTier).toBe('guest');
+  });
+
+  it('returns undefined tier without tier keyword', () => {
+    expect(parseSeedOverrides('test-script-exec').forcedEffectTier).toBeUndefined();
+  });
+
+  it('parses both effect and tier from combined seed', () => {
+    const result = parseSeedOverrides('HEIST-script-exec-tier-root-hard');
+    expect(result.forcedEffectKind).toBe('script_exec');
+    expect(result.forcedEffectTier).toBe('root');
+    expect(result.difficulty).toBe('hard');
+  });
+
+  it('backdoor-port does not match plain backdoor objective', () => {
+    const result = parseSeedOverrides('test-backdoor-port');
+    expect(result.forcedEffectKind).toBe('backdoor_port_open');
+    expect(result.objectiveType).toBeUndefined();
+  });
+
+  it('script-exec does not match script-fix objective', () => {
+    const result = parseSeedOverrides('test-script-exec');
+    expect(result.objectiveType).toBeUndefined();
+  });
+});

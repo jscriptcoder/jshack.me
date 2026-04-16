@@ -136,6 +136,16 @@ export type NatForwarding = {
   readonly rules: readonly NatForwardingRule[];
 };
 
+export type ForcedEffectKind =
+  | 'shell_limited'
+  | 'shell_full'
+  | 'file_read'
+  | 'dir_list'
+  | 'file_write'
+  | 'password_reset'
+  | 'backdoor_port_open'
+  | 'script_exec';
+
 export type SeedOverrides = {
   readonly difficulty?: Difficulty;
   readonly entryVariant?: EntryVariant;
@@ -144,4 +154,6 @@ export type SeedOverrides = {
   readonly domainEntry?: boolean;
   readonly encrypted?: boolean;
   readonly switchGateway?: boolean;
+  readonly forcedEffectKind?: ForcedEffectKind;
+  readonly forcedEffectTier?: 'root' | 'user' | 'guest';
 };
