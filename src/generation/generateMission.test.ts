@@ -1015,3 +1015,30 @@ describe('parseSeedOverrides — effect keywords', () => {
     expect(result.objectiveType).toBeUndefined();
   });
 });
+
+describe('forced effect on target machine via seed keyword', () => {
+  it('seed with script-exec-tier-root stamps forcedEffect on a target machine port', () => {
+    const result = generateMissionNetwork('test-script-exec-tier-root-exfiltrate');
+    const targetMachine = result.machines.find((m) => m.ip === result.objective.targetMachine);
+    expect(targetMachine).toBeDefined();
+    const forcedPort = targetMachine?.remoteMachine.ports.find((p) => p.forcedEffect);
+    expect(forcedPort).toBeDefined();
+    expect(forcedPort?.forcedEffect).toEqual({ kind: 'script_exec', tier: 'root' });
+    expect(forcedPort?.open).toBe(true);
+  });
+
+  it('seed without effect keywords produces no forcedEffect on any port', () => {
+    const result = generateMissionNetwork('test-plain-exfiltrate');
+    const hasForcedEffect = result.machines.some((m) =>
+      m.remoteMachine.ports.some((p) => p.forcedEffect),
+    );
+    expect(hasForcedEffect).toBe(false);
+  });
+
+  it('forced effect with tier-guest produces guest tier', () => {
+    const result = generateMissionNetwork('test-file-read-tier-guest-exfiltrate');
+    const targetMachine = result.machines.find((m) => m.ip === result.objective.targetMachine);
+    const forcedPort = targetMachine?.remoteMachine.ports.find((p) => p.forcedEffect);
+    expect(forcedPort?.forcedEffect).toEqual({ kind: 'file_read', tier: 'guest' });
+  });
+});
