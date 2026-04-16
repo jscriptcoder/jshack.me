@@ -892,8 +892,10 @@ export const buildMachineConfig = (
   // Daemon PID files for all services with ports on this machine.
   // SSH/FTP use their existing PID file factories. Infrastructure services
   // (nginx, mysql, etc.) get simple PID files so `ps` can show them as running.
-  const hasSshPort = machine.remoteMachine.ports.some((p) => p.service === 'ssh');
-  const hasFtpPort = machine.remoteMachine.ports.some((p) => p.service === 'ftp');
+  // Only create PID files for ports that are actually open — closed ports
+  // (from applyPortClosures) should not have running daemons.
+  const hasSshPort = machine.remoteMachine.ports.some((p) => p.service === 'ssh' && p.open);
+  const hasFtpPort = machine.remoteMachine.ports.some((p) => p.service === 'ftp' && p.open);
   const infraPidFiles = buildInfrastructurePidFiles(machine.remoteMachine.ports);
 
   // Malware PID file: placed on target machine so `ps` shows the malware process

@@ -48,33 +48,37 @@ describe('generateFileSystems', () => {
     });
   });
 
-  it('machines with SSH port have sshd.pid regardless of static open flag', () => {
+  it('machines with open SSH port have sshd.pid, closed SSH ports do not', () => {
     for (let i = 0; i < 20; i++) {
       const { topology, fileSystems } = buildTestData(`sshd-pid-${i}`);
       const allMachines = [...topology.machines, topology.routerMachine];
       allMachines.forEach((m) => {
-        const hasSshPort = m.remoteMachine.ports.some((p) => p.service === 'ssh');
+        const sshPort = m.remoteMachine.ports.find((p) => p.service === 'ssh');
         const fs = fileSystems[m.ip];
         const pidFile = resolveNode(fs as FileNode, '/var/run/sshd.pid');
-        if (hasSshPort) {
-          expect(pidFile, `${m.ip} has SSH port but no sshd.pid`).toBeDefined();
+        if (sshPort?.open) {
+          expect(pidFile, `${m.ip} has open SSH but no sshd.pid`).toBeDefined();
           expect(pidFile?.content).toMatch(/^sshd:port=\d+$/);
+        } else if (sshPort && !sshPort.open) {
+          expect(pidFile, `${m.ip} has closed SSH but sshd.pid exists`).toBeUndefined();
         }
       });
     }
   });
 
-  it('machines with FTP port have vsftpd.pid regardless of static open flag', () => {
+  it('machines with open FTP port have vsftpd.pid, closed FTP ports do not', () => {
     for (let i = 0; i < 20; i++) {
       const { topology, fileSystems } = buildTestData(`ftpd-pid-${i}`);
       const allMachines = [...topology.machines, topology.routerMachine];
       allMachines.forEach((m) => {
-        const hasFtpPort = m.remoteMachine.ports.some((p) => p.service === 'ftp');
+        const ftpPort = m.remoteMachine.ports.find((p) => p.service === 'ftp');
         const fs = fileSystems[m.ip];
         const pidFile = resolveNode(fs as FileNode, '/var/run/vsftpd.pid');
-        if (hasFtpPort) {
-          expect(pidFile, `${m.ip} has FTP port but no vsftpd.pid`).toBeDefined();
+        if (ftpPort?.open) {
+          expect(pidFile, `${m.ip} has open FTP but no vsftpd.pid`).toBeDefined();
           expect(pidFile?.content).toMatch(/^vsftpd:port=\d+$/);
+        } else if (ftpPort && !ftpPort.open) {
+          expect(pidFile, `${m.ip} has closed FTP but vsftpd.pid exists`).toBeUndefined();
         }
       });
     }
