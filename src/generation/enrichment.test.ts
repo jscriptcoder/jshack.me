@@ -348,11 +348,18 @@ describe('applyPortClosures', () => {
     expect(result).toBe(machines);
   });
 
-  it('skips closures for backdoor objective', () => {
-    const prng = createPrng('closure-backdoor');
-    const machines = buildMachines(4, '10.0.0.10');
-    const result = applyPortClosures(prng, machines, '10.0.0.10', 'backdoor');
-    expect(result).toBe(machines);
+  it('allows closures for backdoor objective (player can nc -l via script_exec)', () => {
+    let anyClosed = false;
+    for (let i = 0; i < 50; i++) {
+      const prng = createPrng(`closure-backdoor-${i}`);
+      const machines = buildMachines(4, '10.0.0.10');
+      const result = applyPortClosures(prng, machines, '10.0.0.10', 'backdoor');
+      const sshClosed = result.some(
+        (m) => m.ip !== '10.0.0.10' && m.remoteMachine.ports.some((p) => p.port === 22 && !p.open),
+      );
+      if (sshClosed) anyClosed = true;
+    }
+    expect(anyClosed).toBe(true);
   });
 
   it('skips closures for portforward objective', () => {

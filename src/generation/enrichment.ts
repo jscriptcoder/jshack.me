@@ -168,12 +168,12 @@ export const applyPortClosures = (
   const dualBackdoorPort = prng.pick(backdoorPorts);
   const sshBackdoorPort = prng.pick(backdoorPorts);
 
-  // script_fix, script_auto, sabotage, backdoor, and portforward need SSH shell access — skip all closures
+  // script_fix, script_auto, sabotage, and portforward need interactive SSH shell access — skip all closures.
+  // backdoor no longer skips: player can nc("-l", port) via script_exec injection on the forced-effect port.
   if (
     objectiveType === 'script_fix' ||
     objectiveType === 'script_auto' ||
     objectiveType === 'sabotage' ||
-    objectiveType === 'backdoor' ||
     objectiveType === 'portforward'
   )
     return machines;

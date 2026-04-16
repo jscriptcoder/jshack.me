@@ -602,18 +602,21 @@ describe('generateMissionNetwork', () => {
     expect(result.objective.description).toContain('backdoor');
   });
 
-  it('backdoor seeds never have SSH closures', () => {
+  it('backdoor seeds with SSH closures have forcedEffect for recovery', () => {
     for (let i = 0; i < 50; i++) {
-      const result = generateMissionNetwork(`backdoor-noclose-${i}`);
+      const result = generateMissionNetwork(`backdoor-closure-${i}`);
       if (result.objective.type !== 'backdoor') continue;
 
       result.machines
         .filter((m) => m.role !== 'router')
         .forEach((m) => {
-          const sshPort = m.remoteMachine.ports.find((p) => p.port === 22);
-          if (sshPort) {
-            expect(sshPort.open).toBe(true);
-          }
+          const sshClosed = m.remoteMachine.ports.some((p) => p.port === 22 && !p.open);
+          if (!sshClosed) return;
+          // SSH-closed machines must have a forcedEffect for script_exec recovery
+          const hasForcedEffect = m.remoteMachine.ports.some(
+            (p) => p.forcedEffect?.kind === 'script_exec' && p.forcedEffect?.tier === 'root',
+          );
+          expect(hasForcedEffect).toBe(true);
         });
     }
   });
