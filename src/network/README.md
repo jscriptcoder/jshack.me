@@ -57,14 +57,15 @@ type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 
 ```typescript
 type VulnerabilityEffect =
-  | { readonly kind: 'shell_limited' }
-  | { readonly kind: 'shell_full'; readonly tier: 'guest' | 'user' | 'root' }
-  | { readonly kind: 'file_read' }
-  | { readonly kind: 'dir_list' }
-  | { readonly kind: 'file_write' }
-  | { readonly kind: 'password_reset'; readonly tier: 'guest' | 'user' | 'root' }
-  | { readonly kind: 'backdoor_port_open'; readonly port: number }
-  | { readonly kind: 'script_exec'; readonly tier: 'guest' | 'user' | 'root' };
+  | { readonly kind: 'shell_limited'; readonly tier: EffectTier }
+  | { readonly kind: 'shell_full'; readonly tier: EffectTier }
+  | { readonly kind: 'file_read'; readonly tier: EffectTier }
+  | { readonly kind: 'dir_list'; readonly tier: EffectTier }
+  | { readonly kind: 'file_write'; readonly tier: EffectTier }
+  | { readonly kind: 'password_reset'; readonly tier: EffectTier }
+  | { readonly kind: 'backdoor_port_open'; readonly port: number; readonly tier: EffectTier }
+  | { readonly kind: 'script_exec'; readonly tier: EffectTier };
+// where EffectTier = 'guest' | 'user' | 'root'
 ```
 
 **Vulnerability** — CVE metadata including severity, timed publication, typed effects, and attack logging patterns:

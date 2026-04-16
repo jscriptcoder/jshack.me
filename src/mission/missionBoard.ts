@@ -58,7 +58,6 @@ export const MISSION_BOARD: readonly MissionListing[] = [
   },
 ];
 
-
 const WHITE_HAT_KEYWORDS = ['script-fix', 'script-auto', 'forensics', 'malware', 'db-fix'] as const;
 
 const isWhiteHat = (seed: string): boolean => {

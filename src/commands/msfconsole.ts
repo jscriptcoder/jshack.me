@@ -237,9 +237,7 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
                 onLine('');
                 content.split('\n').forEach((line) => onLine(line));
               } else {
-                onLine(
-                  `[-] File not found or permission denied (as ${effect.tier}): ${thirdArg}`,
-                );
+                onLine(`[-] File not found or permission denied (as ${effect.tier}): ${thirdArg}`);
               }
               onComplete();
               break;

@@ -232,15 +232,15 @@ Real-world clock anchored at first game start (`src/session/gameTime.ts`). `getG
 
 Each `Vulnerability` carries an `effect: VulnerabilityEffect` — a discriminated union of 8 kinds. The effect picker in `timeline/effectPicker.ts` assigns effects based on the service being exploited.
 
-| Effect                     | Description                              | 3rd arg to msfconsole      |
-| -------------------------- | ---------------------------------------- | -------------------------- |
-| `shell_limited`            | Restricted nc_prompt (legacy default)    | none                       |
-| `shell_full(tier)`         | Real SSH-style session                   | none                       |
-| `file_read`                | Dump a target file                       | target path                |
-| `dir_list`                 | List a target directory                  | target path                |
-| `file_write`               | Upload attacker content to target        | `local:remote`             |
-| `password_reset(tier)`     | Reset a user's password on target        | none                       |
-| `backdoor_port_open(port)` | Plant a persistent nc listener           | none                       |
-| `script_exec(tier)`        | Run a player-written JS script on target | attacker-local script path |
+| Effect                           | Description                              | 3rd arg to msfconsole      |
+| -------------------------------- | ---------------------------------------- | -------------------------- |
+| `shell_limited(tier)`            | Restricted nc_prompt at effect tier      | none                       |
+| `shell_full(tier)`               | Real SSH-style session                   | none                       |
+| `file_read(tier)`                | Dump a target file                       | target path                |
+| `dir_list(tier)`                 | List a target directory                  | target path                |
+| `file_write(tier)`               | Upload attacker content to target        | `local:remote`             |
+| `password_reset(tier)`           | Reset a user's password on target        | none                       |
+| `backdoor_port_open(port, tier)` | Plant a persistent nc listener           | none                       |
+| `script_exec(tier)`              | Run a player-written JS script on target | attacker-local script path |
 
 Per-service distribution: SSH is the universal hammer; FTP gets read/write/list/backdoor (no shells); databases add password_reset + script_exec; web services add script_exec; VNC/OpenVPN/Modbus/DNS/MQTT get shell + backdoor only.
