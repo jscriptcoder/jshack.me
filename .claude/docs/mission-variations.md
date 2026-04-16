@@ -4,7 +4,7 @@ Comprehensive catalog of all procedural generation variation axes. Use this to t
 
 ## Seed Keywords
 
-All six major generation axes can be controlled by embedding keywords in the seed string (case-insensitive, matched via `includes()`). `parseSeedOverrides(seed)` in `generateMission.ts` extracts overrides. PRNG sequence is preserved — calls are consumed but results discarded in favor of overrides.
+All generation axes can be controlled by embedding keywords in the seed string (case-insensitive, matched via `includes()`). `parseSeedOverrides(seed)` in `generateMission.ts` extracts overrides. PRNG sequence is preserved — calls are consumed but results discarded in favor of overrides.
 
 | Axis          | Keywords                                                                                                                                                                                      | Notes                                                                                                                                                                                   |
 | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -15,6 +15,8 @@ All six major generation axes can be controlled by embedding keywords in the see
 | Domain entry  | `domain`                                                                                                                                                                                      | Forces domain-based briefing (nslookup required)                                                                                                                                        |
 | Encryption    | `gpg`                                                                                                                                                                                         | Forces exfiltrate + encrypted target file                                                                                                                                               |
 | Gateway type  | `switch`                                                                                                                                                                                      | Forces inner gateways to be managed L3 switches (ACLs instead of NAT)                                                                                                                   |
+| Forced effect | `shell-limited`, `shell-full`, `file-read`, `dir-list`, `file-write`, `password-reset`, `backdoor-port`, `script-exec`                                                                        | Forces a specific vulnerability effect on the target machine's first open non-SSH port                                                                                                  |
+| Forced tier   | `tier-root`, `tier-user`, `tier-guest`                                                                                                                                                        | Controls the privilege tier of the forced effect (defaults to PRNG roll)                                                                                                                |
 
 Example seeds: `HEIST-ssh-forwarded-tamper-hard`, `BANK-JOB-nc-exfiltrate`, `test-exploit-router-first`, `test-switch-snmp-hard`
 
@@ -183,7 +185,7 @@ Port is PRNG-picked from `backdoorPorts` pool: 4444, 31337, 8888, 1337 (all abov
 
 - No target file (like sabotage/credential_theft)
 - Dummy PRNG rolls consumed for binary + encrypt to preserve sequence alignment
-- SSH port closures skipped for backdoor (player needs shell access on target)
+- SSH port closures allowed for backdoor (player can `nc("-l", port)` via script_exec injection on the forced-effect port)
 - Player can install netcat via `apt install netcat` (needs root for apt) or copy the binary via `scp`
 
 ## Portforward Objective
@@ -296,11 +298,11 @@ PRNG-driven SSH/FTP port closures increase lateral movement variety. At most one
 - **Router**: never closed (infrastructure)
 - **script_fix / script_auto objectives**: never close SSH (player needs `node()` shell access on target)
 - **sabotage objective**: never close SSH (player needs shell access to `rm` boot files and `reboot`)
-- **backdoor objective**: never close SSH (player needs shell access to run `nc -l` on target)
 - **portforward objective**: never close SSH (player needs shell access through the network)
+- **backdoor objective**: closures allowed — player can inject `nc("-l", port)` via `script_exec` on the forced-effect port
 - **Same-machine collision**: FTP closure skipped if it targets the same machine as SSH closure
 - When SSH is closed, FTP port 21 is added/opened and a root-owned NC backdoor is guaranteed
-- Root backdoor enables `bash('/usr/sbin/sshd')` or `bash('/usr/sbin/vsftpd')` to restart services
+- SSH-closed machines get `forcedEffect: { kind: 'script_exec', tier: 'root' }` on an open port so players can `msfconsole(target, port, '/script.js')` to inject a script that restarts sshd
 
 ### PRNG Consumption
 

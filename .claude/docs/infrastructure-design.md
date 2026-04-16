@@ -244,3 +244,10 @@ Each `Vulnerability` carries an `effect: VulnerabilityEffect` — a discriminate
 | `script_exec(tier)`              | Run a player-written JS script on target | attacker-local script path |
 
 Per-service distribution: SSH is the universal hammer; FTP gets read/write/list/backdoor (no shells); databases add password_reset + script_exec; web services add script_exec; VNC/OpenVPN/Modbus/DNS/MQTT get shell + backdoor only.
+
+### Forced Effects (`Port.forcedEffect`)
+
+Ports can carry an optional `forcedEffect?: VulnerabilityEffect` that overrides the vulnerability's natural effect. `findExploitableCve` checks this first — if set, it clones the natural vulnerability with the forced effect, or synthesizes a minimal stub if no natural CVE exists. Two consumers:
+
+1. **Seed keywords** — `shell-limited`, `shell-full`, `file-read`, `dir-list`, `file-write`, `password-reset`, `backdoor-port`, `script-exec` + `tier-root`/`tier-user`/`tier-guest` force a specific effect on the target machine's first open non-SSH port.
+2. **SSH closure enrichment** — `applyPortClosures` stamps `{ kind: 'script_exec', tier: 'root' }` on an open port when SSH is closed, ensuring the player can always inject a script to restart sshd.
