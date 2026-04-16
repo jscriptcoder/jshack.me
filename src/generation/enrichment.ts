@@ -215,8 +215,10 @@ export const applyPortClosures = (
   )
     return machines;
 
-  // Stamps forcedEffect on the first open non-SSH port so players can use
-  // msfconsole to inject a script that restarts sshd.
+  // Guaranteed fallback: stamps forcedEffect script_exec root on an open port.
+  // Players may also recover via natural vulnerabilities on other ports
+  // (shell_full, backdoor_port_open, password_reset, etc.) — this ensures
+  // there's always at least one path to restart sshd when SSH is closed.
   const scriptExecRoot: VulnerabilityEffect = { kind: 'script_exec', tier: 'root' };
   const stampForcedEffect = (ports: readonly Port[]): readonly Port[] => {
     // Prefer FTP (guaranteed open on SSH-only closures), fall back to any open non-SSH port
