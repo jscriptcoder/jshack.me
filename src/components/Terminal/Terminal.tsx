@@ -12,22 +12,14 @@ import { useFtpCommands } from '../../hooks/useFtpCommands';
 import { useNcCommands } from '../../hooks/useNcCommands';
 import { useMysqlCommands } from '../../hooks/useMysqlCommands';
 import { useRedisCommands } from '../../hooks/useRedisCommands';
-import { parseMysqlDatabase } from '../../commands/mysql/types';
 import { useSession } from '../../session/SessionContext';
 import type { NcSession } from '../../session/SessionContext';
 import { useFileSystem } from '../../filesystem/FileSystemContext';
 import { appendToMachineLog } from '../../logging/appendToMachineLog';
-import {
-  formatSuSuccess,
-  formatSuFailed,
-  formatFtpConnect,
-  formatFtpLoginOk,
-  formatFtpLoginFailed,
-  formatMysqlConnect,
-  formatMysqlAccessDenied,
-} from '../../logging/formatters';
-import { generatePid, resolveHostname, resolveLogSourceIP } from '../../logging/utils';
+import { formatSuSuccess, formatSuFailed } from '../../logging/formatters';
+import { generatePid, resolveHostname } from '../../logging/utils';
 import { createFtpAuthHandler } from '../../logging/handlers/ftpAuth';
+import { createMysqlAuthHandler } from '../../logging/handlers/mysqlAuth';
 import { createSshAuthHandler } from '../../logging/handlers/sshAuth';
 import { useNetwork } from '../../network';
 import type { OutputLine, AuthorData } from './types';
@@ -229,36 +221,14 @@ export const Terminal = () => {
       resolveNat,
       logFs,
     }),
-    onMysqlAuth: (success, user, targetIP) => {
-      const resolvedIp = resolveNat(targetIP, 3306).ip;
-      const sourceIP = resolveLogSourceIP(session.machine, targetIP, getLocalIP(), getPublicIP());
-      const threadId = generatePid();
-      if (success) {
-        const dbJson = readFileFromMachine({
-          machineId: resolvedIp,
-          path: '/var/lib/mysql/data.json',
-          cwd: '/',
-          userType: 'root',
-        });
-        const dbName = dbJson ? (parseMysqlDatabase(dbJson)?.name ?? 'unknown') : 'unknown';
-        const logLine = formatMysqlConnect({
-          date: new Date(),
-          threadId,
-          user,
-          sourceIp: sourceIP,
-          dbName,
-        });
-        appendToMachineLog(targetIP, '/var/log/mysql.log', logLine, logFs);
-      } else {
-        const logLine = formatMysqlAccessDenied({
-          date: new Date(),
-          threadId,
-          user,
-          sourceIp: sourceIP,
-        });
-        appendToMachineLog(targetIP, '/var/log/mysql.log', logLine, logFs);
-      }
-    },
+    onMysqlAuth: createMysqlAuthHandler({
+      sessionMachine: session.machine,
+      getLocalIP,
+      getPublicIP,
+      resolveNat,
+      readFileFromMachine,
+      logFs,
+    }),
   });
 
   const { getPathCompletions } = usePathCompletionAdapters({

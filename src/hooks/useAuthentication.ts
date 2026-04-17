@@ -57,7 +57,7 @@ type AuthenticationOptions = {
     method: 'password' | 'publickey',
   ) => void;
   readonly onFtpAuth?: (success: boolean, user: string, targetIP: string, port: number) => void;
-  readonly onMysqlAuth?: (success: boolean, user: string, targetIP: string) => void;
+  readonly onMysqlAuth?: (success: boolean, user: string, targetIP: string, port: number) => void;
 };
 
 export const useAuthentication = ({
@@ -449,13 +449,13 @@ export const useAuthentication = ({
     (user: string, targetIP: string, password: string) => {
       if (validateMysqlPassword(user, targetIP, password)) {
         connectMysql(user, targetIP);
-        onMysqlAuth?.(true, user, targetIP);
+        onMysqlAuth?.(true, user, targetIP, 3306);
       } else {
         addLine(
           'error',
           `ERROR 1045 (28000): Access denied for user '${user}'@'${targetIP}' (using password: YES)`,
         );
-        onMysqlAuth?.(false, user, targetIP);
+        onMysqlAuth?.(false, user, targetIP, 3306);
       }
     },
     [validateMysqlPassword, connectMysql, addLine, onMysqlAuth],
@@ -662,7 +662,7 @@ export const useAuthentication = ({
 
         if (mysqlTargetIP) {
           connectMysql(targetUser, mysqlTargetIP);
-          onMysqlAuth?.(true, targetUser, mysqlTargetIP);
+          onMysqlAuth?.(true, targetUser, mysqlTargetIP, 3306);
         } else if (scpTargetIP) {
           saveAuthorizedKey(targetUser, scpTargetIP, scpTargetPort ?? 22);
           onSshAuth?.(true, targetUser, scpTargetIP, scpTargetPort ?? 22, 'password');
@@ -717,7 +717,7 @@ export const useAuthentication = ({
             'error',
             `ERROR 1045 (28000): Access denied for user '${targetUser}'@'${mysqlTargetIP}' (using password: YES)`,
           );
-          if (targetUser) onMysqlAuth?.(false, targetUser, mysqlTargetIP);
+          if (targetUser) onMysqlAuth?.(false, targetUser, mysqlTargetIP, 3306);
         } else if (scpTargetIP) {
           addLine('error', `Permission denied, please try again.`);
           if (targetUser)
