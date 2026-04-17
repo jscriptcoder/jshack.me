@@ -477,8 +477,8 @@ describe('apt command', () => {
     it('writes an entry to /var/lib/dpkg/status for each vulnerable service', () => {
       const machine = mkMachine([
         { port: 22, service: 'ssh', serviceVersion: 'OpenSSH 9.6' }, // safe
-        { port: 80, service: 'http', serviceVersion: 'Apache/2.4.49' }, // CVE-2021-41773
-        { port: 3306, service: 'mysql', serviceVersion: 'MySQL 5.5.23' }, // CVE-2012-2122
+        { port: 80, service: 'http', serviceVersion: 'Apache/2.4.49' }, // CVE-2024-9001
+        { port: 3306, service: 'mysql', serviceVersion: 'MySQL 5.5.23' }, // CVE-2024-9012
       ]);
       const { context, fileContents } = createMockAptContext({ currentMachine: machine });
       const apt = createAptCommand(context);

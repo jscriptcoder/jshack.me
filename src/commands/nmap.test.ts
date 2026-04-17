@@ -421,7 +421,7 @@ describe('nmap command', () => {
       vi.advanceTimersByTime(2000);
 
       expect(lines.some((l) => l.includes('VULNERABILITIES:'))).toBe(true);
-      expect(lines.some((l) => l.includes('CVE-2021-41773'))).toBe(true);
+      expect(lines.some((l) => l.includes('CVE-2024-9001'))).toBe(true);
       expect(lines.some((l) => l.includes('CRITICAL'))).toBe(true);
     });
 
@@ -1162,7 +1162,7 @@ describe('nmap command', () => {
 
       expect(
         lines.some(
-          (l) => l.includes('\u26A0') && l.includes('CVE-2021-41773') && l.includes('http:80'),
+          (l) => l.includes('\u26A0') && l.includes('CVE-2024-9001') && l.includes('http:80'),
         ),
       ).toBe(true);
     });
@@ -1360,7 +1360,7 @@ describe('nmap command', () => {
       // CVE under non-last child should use │   └── prefix
       expect(
         lines.some(
-          (l) => l.startsWith('\u2502   \u2514\u2500\u2500') && l.includes('CVE-2021-41773'),
+          (l) => l.startsWith('\u2502   \u2514\u2500\u2500') && l.includes('CVE-2024-9001'),
         ),
       ).toBe(true);
     });
@@ -1402,7 +1402,7 @@ describe('nmap command', () => {
 
       // CVE under last child should use spaces + └── prefix
       expect(
-        lines.some((l) => l.startsWith('    \u2514\u2500\u2500') && l.includes('CVE-2021-41773')),
+        lines.some((l) => l.startsWith('    \u2514\u2500\u2500') && l.includes('CVE-2024-9001')),
       ).toBe(true);
     });
 

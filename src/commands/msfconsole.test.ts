@@ -279,10 +279,10 @@ describe('msfconsole command', () => {
       vi.advanceTimersByTime(3000);
 
       expect(lines.some((l) => l.includes('Targeting 10.50.100.10:80'))).toBe(true);
-      expect(lines.some((l) => l.includes('CVE-2021-41773'))).toBe(true);
+      expect(lines.some((l) => l.includes('CVE-2024-9001'))).toBe(true);
       expect(lines.some((l) => l.includes('Sending exploit payload'))).toBe(true);
       expect(lines.some((l) => l.includes('Exploit successful'))).toBe(true);
-      // CVE-2021-41773 is shell_limited with tier 'user' — msfconsole uses
+      // CVE-2024-9001 is shell_limited with tier 'user' — msfconsole uses
       // the effect's tier (not the port owner's) to resolve the shell user.
       // No 'user'-type account in the mock machine → fallback to 'user'.
       expect(lines.some((l) => l.includes('Got shell as user@10.50.100.10'))).toBe(true);
@@ -313,7 +313,7 @@ describe('msfconsole command', () => {
         expect(followUp.targetPort).toBe(80);
         expect(followUp.service).toBe('http');
         // shell_limited now reflects the CVE's effect.tier (user for
-        // CVE-2021-41773), not the port owner's userType.
+        // CVE-2024-9001), not the port owner's userType.
         expect(followUp.userType).toBe('user');
       }
     });
@@ -349,7 +349,7 @@ describe('msfconsole command', () => {
 
       vi.advanceTimersByTime(3000);
 
-      expect(lines.some((l) => l.includes('CVE-2021-41773'))).toBe(true);
+      expect(lines.some((l) => l.includes('CVE-2024-9001'))).toBe(true);
       expect(lines.some((l) => l.includes('Exploit successful'))).toBe(true);
     });
 
@@ -405,7 +405,7 @@ describe('msfconsole command', () => {
 
       vi.advanceTimersByTime(3000);
 
-      expect(lines.some((l) => l.includes('CVE-2017-7679'))).toBe(true);
+      expect(lines.some((l) => l.includes('CVE-2024-9002'))).toBe(true);
     });
   });
 
