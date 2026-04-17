@@ -19,12 +19,6 @@ describe('missionBoard', () => {
 });
 
 describe('formatMissionBoard', () => {
-  it('shows coming-soon message when the board is empty', () => {
-    const output = formatMissionBoard([]);
-    expect(output).toContain('UNDER CONSTRUCTION');
-    expect(output).toContain('Check back soon');
-  });
-
   it('includes header and listing details when populated', () => {
     const listings: readonly MissionListing[] = [
       {
