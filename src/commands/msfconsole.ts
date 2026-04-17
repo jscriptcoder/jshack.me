@@ -45,6 +45,10 @@ type MsfconsoleContext = {
     scriptBody: string,
     tier: 'guest' | 'user' | 'root',
   ) => { readonly error: string | null };
+  readonly openBackdoorForwards?: (
+    machineIp: string,
+    port: number,
+  ) => { readonly publicEdgeIp: string | null; readonly publicEdgePort: number | null };
 };
 
 const MSFCONSOLE_PHASE_DELAY_MS = 600;
@@ -307,6 +311,12 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
               onLine(
                 `[+] Backdoor planted on port ${backdoorPort} — connect with nc(target, ${backdoorPort})`,
               );
+              const forwards = context.openBackdoorForwards?.(targetIP, backdoorPort);
+              if (forwards?.publicEdgeIp && forwards.publicEdgePort !== null) {
+                onLine(
+                  `[+] NAT forwarding chain installed — reachable via ${forwards.publicEdgeIp}:${forwards.publicEdgePort} from outside`,
+                );
+              }
               onComplete();
               break;
             }

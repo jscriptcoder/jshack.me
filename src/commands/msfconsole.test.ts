@@ -47,6 +47,10 @@ type MsfconsoleContextConfig = {
     scriptBody: string,
     tier: 'guest' | 'user' | 'root',
   ) => { readonly error: string | null };
+  readonly openBackdoorForwards?: (
+    machineIp: string,
+    port: number,
+  ) => { readonly publicEdgeIp: string | null; readonly publicEdgePort: number | null };
 };
 
 const createMockMsfconsoleContext = (config: MsfconsoleContextConfig = {}) => {
@@ -61,6 +65,7 @@ const createMockMsfconsoleContext = (config: MsfconsoleContextConfig = {}) => {
     writeRemoteFile,
     listRemoteDir,
     runScriptOnTarget,
+    openBackdoorForwards,
   } = config;
 
   return {
@@ -74,6 +79,7 @@ const createMockMsfconsoleContext = (config: MsfconsoleContextConfig = {}) => {
     writeRemoteFile,
     listRemoteDir,
     runScriptOnTarget,
+    openBackdoorForwards,
   };
 };
 
@@ -844,6 +850,84 @@ describe('msfconsole command', () => {
       expect(written[0]?.content).toContain('nc:port=');
       expect(lines.some((l) => /backdoor.*port/i.test(l))).toBe(true);
       expect(followUp).toBeUndefined();
+    });
+
+    it('invokes openBackdoorForwards after planting the pid file and reports public-edge reach', () => {
+      const { entry, vuln } = findCveWithEffect('ssh', 'backdoor_port_open');
+      const machine = getMockRemoteMachine({
+        ports: [
+          {
+            port: 22,
+            service: 'ssh',
+            serviceVersion: vuln.serviceVersion,
+            open: true,
+            owner: { username: 'root', userType: 'root', homePath: '/root' },
+          },
+        ],
+      });
+      const openBackdoorForwards = vi.fn(() => ({
+        publicEdgeIp: '203.0.113.5',
+        publicEdgePort: 4444,
+      }));
+      const context = createMockMsfconsoleContext({
+        machines: [machine],
+        gameTime: entry.publishedAt,
+        writeRemoteFile: () => {},
+        openBackdoorForwards,
+      });
+      const msfconsole = createMsfconsoleCommand(context);
+      const result = msfconsole.fn('10.50.100.10', 22);
+
+      if (!isAsyncOutput(result)) throw new Error('expected async');
+      const lines: string[] = [];
+      result.start(
+        (line) => lines.push(line),
+        () => {},
+      );
+      vi.advanceTimersByTime(5000);
+
+      const backdoorPort = vuln.effect.kind === 'backdoor_port_open' ? vuln.effect.port : 0;
+      expect(openBackdoorForwards).toHaveBeenCalledWith('10.50.100.10', backdoorPort);
+      expect(lines.some((l) => l.includes('203.0.113.5:4444'))).toBe(true);
+      expect(lines.some((l) => /reachable/i.test(l))).toBe(true);
+    });
+
+    it('omits the NAT-forward message when no gateway chain exists (home network target)', () => {
+      const { entry, vuln } = findCveWithEffect('ssh', 'backdoor_port_open');
+      const machine = getMockRemoteMachine({
+        ports: [
+          {
+            port: 22,
+            service: 'ssh',
+            serviceVersion: vuln.serviceVersion,
+            open: true,
+            owner: { username: 'root', userType: 'root', homePath: '/root' },
+          },
+        ],
+      });
+      const openBackdoorForwards = vi.fn(() => ({
+        publicEdgeIp: null,
+        publicEdgePort: null,
+      }));
+      const context = createMockMsfconsoleContext({
+        machines: [machine],
+        gameTime: entry.publishedAt,
+        writeRemoteFile: () => {},
+        openBackdoorForwards,
+      });
+      const msfconsole = createMsfconsoleCommand(context);
+      const result = msfconsole.fn('10.50.100.10', 22);
+
+      if (!isAsyncOutput(result)) throw new Error('expected async');
+      const lines: string[] = [];
+      result.start(
+        (line) => lines.push(line),
+        () => {},
+      );
+      vi.advanceTimersByTime(5000);
+
+      expect(openBackdoorForwards).toHaveBeenCalled();
+      expect(lines.some((l) => /reachable/i.test(l))).toBe(false);
     });
   });
 

@@ -34,6 +34,11 @@ import { resolveLogSourceIP, resolveHostname } from '../logging/utils';
 import { createExploitAttemptHandler } from '../logging/handlers/exploitAttempt';
 import { createHttpRequestHandler } from '../logging/handlers/httpRequest';
 import { createNcConnectHandler } from '../logging/handlers/ncConnect';
+import {
+  chainForwardBackdoor,
+  IPTABLES_PATH,
+  type BackdoorForwardDeps,
+} from '../network/backdoorForwarding';
 import { applyVersionOverlay } from '../network/applyVersionOverlay';
 import type { RemoteMachine } from '../network/types';
 import { getGameTime } from '../session/gameTime';
@@ -51,6 +56,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
     resolveNat,
     findMachineUsers,
     findMachineByIp,
+    getGatewayChainFor,
   } = useNetwork();
   const {
     resolvePath,
@@ -414,6 +420,38 @@ export const useNetworkCommands = (): Map<string, Command> => {
               listDirectoryFromMachine({ machineId, path, cwd: '/', userType: tier }),
             runScriptOnTarget: (machineId, scriptBody, tier) =>
               executeScriptOnTarget(scriptBody, buildTargetCommandContext(machineId, tier)),
+            openBackdoorForwards: (machineIp, port) => {
+              const chain = getGatewayChainFor(machineIp);
+              if (chain.length === 0) {
+                return { publicEdgeIp: null, publicEdgePort: null };
+              }
+              const deps: BackdoorForwardDeps = {
+                readIptables: (gwIp) =>
+                  readFileFromMachine({
+                    machineId: gwIp,
+                    path: IPTABLES_PATH,
+                    cwd: '/',
+                    userType: 'root',
+                  }),
+                writeIptables: (gwIp, content) => {
+                  writeFileToMachine({
+                    machineId: gwIp,
+                    path: IPTABLES_PATH,
+                    cwd: '/',
+                    userType: 'root',
+                    content,
+                  });
+                },
+              };
+              const result = chainForwardBackdoor({
+                machineIp,
+                internalPort: port,
+                gatewayChain: chain,
+                deps,
+              });
+              const edge = chain[chain.length - 1]!;
+              return { publicEdgeIp: edge.ip, publicEdgePort: result.publicEdgePort };
+            },
           }),
           isWifiRequired,
         ),

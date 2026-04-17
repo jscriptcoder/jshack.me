@@ -12,6 +12,7 @@ import { localhostDisconnectedInterfaces, localhostWlan0Down } from './initialNe
 import type { HomeNetwork } from '../generation/generateHomeNetwork';
 import { useSession } from '../session/SessionContext';
 import { useFileSystem } from '../filesystem';
+import { findGatewayChainFor } from './gatewayChain';
 import { parseIptablesRules } from './iptablesParser';
 import { parseSnmpFirewallConfig } from './snmpFirewallParser';
 import type { SnmpFirewallOverride } from './snmpFirewallParser';
@@ -40,6 +41,7 @@ type NetworkContextType = {
   readonly findMachineByIp: (ip: string) => RemoteMachine | undefined;
   readonly getPublicIP: () => string | null;
   readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
+  readonly getGatewayChainFor: (machineIp: string) => readonly GeneratedMachine[];
 };
 
 const NetworkContext = createContext<NetworkContextType | null>(null);
@@ -449,6 +451,12 @@ export const NetworkProvider = ({
     [allIptablesRules],
   );
 
+  const getGatewayChainFor = useCallback(
+    (machineIp: string): readonly GeneratedMachine[] =>
+      findGatewayChainFor(machineIp, missionLayers),
+    [missionLayers],
+  );
+
   return (
     <NetworkContext.Provider
       value={{
@@ -464,6 +472,7 @@ export const NetworkProvider = ({
         findMachineUsers,
         findMachineByIp,
         resolveNat,
+        getGatewayChainFor,
       }}
     >
       {children}
