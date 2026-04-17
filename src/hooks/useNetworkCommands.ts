@@ -30,7 +30,7 @@ import { wrapWithWifiCheck, wrapWithBrickedCheck } from '../commands/networkGuar
 import type { Command } from '../components/Terminal/types';
 import { appendToMachineLog } from '../logging/appendToMachineLog';
 import { formatNmapScanAggregate } from '../logging/formatters';
-import { resolveLogSourceIP, generatePid, resolveHostname } from '../logging/utils';
+import { resolveLogSourceIP, resolveHostname } from '../logging/utils';
 import { createExploitAttemptHandler } from '../logging/handlers/exploitAttempt';
 import { createHttpRequestHandler } from '../logging/handlers/httpRequest';
 import { createNcConnectHandler } from '../logging/handlers/ncConnect';

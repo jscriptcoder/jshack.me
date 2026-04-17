@@ -25,8 +25,7 @@ describe('createNcConnectHandler', () => {
       makeDeps({
         resolveNat: (ip, port) =>
           ip === '203.0.113.5' && port === 4444 ? { ip: '10.0.1.20', port: 4444 } : { ip, port },
-        getMachine: (ip) =>
-          ip === '10.0.1.20' ? { hostname: 'backend' } : { hostname: 'router' },
+        getMachine: (ip) => (ip === '10.0.1.20' ? { hostname: 'backend' } : { hostname: 'router' }),
         logFs,
       }),
     );
@@ -61,8 +60,7 @@ describe('createNcConnectHandler', () => {
       makeDeps({
         resolveNat: (ip, port) =>
           ip === '203.0.113.5' && port === 4444 ? { ip: '10.0.1.20', port: 4444 } : { ip, port },
-        getMachine: (ip) =>
-          ip === '10.0.1.20' ? { hostname: 'backend' } : { hostname: 'router' },
+        getMachine: (ip) => (ip === '10.0.1.20' ? { hostname: 'backend' } : { hostname: 'router' }),
         logFs,
       }),
     );

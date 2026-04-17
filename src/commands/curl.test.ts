@@ -526,6 +526,5 @@ describe('curl command', () => {
         expect.any(Number),
       );
     });
-
   });
 });

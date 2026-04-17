@@ -6,10 +6,7 @@ export type FtpAuthDeps = {
   readonly sessionMachine: string;
   readonly getLocalIP: () => string;
   readonly getPublicIP: () => string | null;
-  readonly resolveNat: (
-    ip: string,
-    port: number,
-  ) => { readonly ip: string; readonly port: number };
+  readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
   readonly logFs: LogFileSystemDeps;
 };
 

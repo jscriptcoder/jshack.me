@@ -25,8 +25,7 @@ describe('createSshAuthHandler', () => {
       makeDeps({
         resolveNat: (ip, port) =>
           ip === '203.0.113.5' && port === 2222 ? { ip: '10.0.1.20', port: 22 } : { ip, port },
-        getMachine: (ip) =>
-          ip === '10.0.1.20' ? { hostname: 'backend' } : { hostname: 'router' },
+        getMachine: (ip) => (ip === '10.0.1.20' ? { hostname: 'backend' } : { hostname: 'router' }),
         logFs,
       }),
     );
@@ -61,8 +60,7 @@ describe('createSshAuthHandler', () => {
       makeDeps({
         resolveNat: (ip, port) =>
           ip === '203.0.113.5' && port === 2222 ? { ip: '10.0.1.20', port: 22 } : { ip, port },
-        getMachine: (ip) =>
-          ip === '10.0.1.20' ? { hostname: 'backend' } : { hostname: 'router' },
+        getMachine: (ip) => (ip === '10.0.1.20' ? { hostname: 'backend' } : { hostname: 'router' }),
         logFs,
       }),
     );

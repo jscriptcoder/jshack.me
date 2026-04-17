@@ -13,10 +13,7 @@ export type NcConnectDeps = {
   readonly sessionMachine: string;
   readonly getLocalIP: () => string;
   readonly getPublicIP: () => string | null;
-  readonly resolveNat: (
-    ip: string,
-    port: number,
-  ) => { readonly ip: string; readonly port: number };
+  readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
   readonly getMachine: (ip: string) => { readonly hostname: string } | undefined;
   readonly logFs: LogFileSystemDeps;
 };
