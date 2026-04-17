@@ -12,6 +12,8 @@ Simulated network environment for hacking missions. Defines the topology, machin
 | `NetworkContext.tsx`     | React context — imports `useSession`, resolves config per `session.machine`, provides `getMachine`, `getLocalIP`, etc.                  |
 | `networkUtils.ts`        | Pure functions extracted from context: `buildMergedRouterView`, `applySnmpFirewallOverrides`, `applyDaemonOverrides`, ACL filtering     |
 | `iptablesParser.ts`      | Pure parser for router's `/etc/iptables/rules.v4` — extracts `forward <port> to <ip>:<port>` rules into `NatForwardingRule[]`           |
+| `gatewayChain.ts`        | Pure fn: given a machine IP and mission layers, returns the ordered gateway chain from innermost to edge router                         |
+| `backdoorForwarding.ts`  | Installs chained NAT forward rules on every gateway between a backdoored machine and the public edge; picks free ports per gateway      |
 | `snmpFirewallParser.ts`  | Pure parser for SNMP firewall OIDs in `/etc/snmp/snmpd.conf` — maps `firewallSSH`/`firewallHTTP` `permit`/`deny` to port overrides      |
 | `aclParser.ts`           | Pure parser for switch `/etc/switch/acl.conf` — extracts `deny`/`allow` ACL rules with subnet and port matching                         |
 | `snmpAclParser.ts`       | Pure parser for SNMP ACL OIDs in `/etc/snmp/snmpd.conf` — maps `aclSSH`/`aclHTTP`/`aclFTP` `allow`/`deny` to port overrides             |
@@ -133,6 +135,7 @@ Mission machines live on dynamically generated subnets (e.g., `10.x.x.0/24`) and
 - `resolveDomain(domain)` — DNS lookup (per-machine DNS records)
 - `getDnsRecords()` — all DNS records visible from current machine
 - `resolveNat(ip, port)` — translate router public IP + port to internal machine IP + port via parsed iptables rules
+- `getGatewayChainFor(machineIp)` — ordered gateway chain from the machine's layer out to the border router (empty for non-mission IPs)
 
 ## Dynamic Iptables
 
@@ -141,6 +144,10 @@ NAT forwarding rules are parsed on-demand from `/etc/iptables/rules.v4` on the r
 - **Forwarded mode**: file is pre-populated with forwarding rules matching the generated topology
 - **Router-first mode**: file has only comment headers (empty template for the player)
 - Format: `forward <public_port> to <internal_ip>:<port>` — comments (`#`) and blank lines are ignored
+
+### Backdoor chain forwarding
+
+When the `backdoor_port_open` exploit effect plants an nc listener on an internal machine, `backdoorForwarding.ts` appends a `forward` rule to every gateway's `rules.v4` between that machine and the public edge (via `gatewayChain.ts`). Each gateway independently picks the backdoor port first, or the next free port if taken. The public-edge IP and port are reported back to the player so they can re-enter from outside. Rules survive nc-listener death — defenders can grep `/etc/iptables/rules.v4` as a forensic breadcrumb.
 
 ## Dynamic SNMP Firewall
 
