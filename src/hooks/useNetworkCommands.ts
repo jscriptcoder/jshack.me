@@ -29,14 +29,11 @@ import { createRediscliCommand } from '../commands/rediscli';
 import { wrapWithWifiCheck, wrapWithBrickedCheck } from '../commands/networkGuards';
 import type { Command } from '../components/Terminal/types';
 import { appendToMachineLog } from '../logging/appendToMachineLog';
-import {
-  formatAccessLog,
-  formatNmapScanAggregate,
-  formatXinetdConnection,
-} from '../logging/formatters';
-import { resolveLogSourceIP, generatePid, resolveHostname } from '../logging/utils';
-import { formatExploitAttempt, formatUnknownExploitAttempt } from '../logging/exploitAttempt';
-import { findVulnForService } from '../generation/vulnerabilityLookup';
+import { formatNmapScanAggregate } from '../logging/formatters';
+import { resolveLogSourceIP, resolveHostname } from '../logging/utils';
+import { createExploitAttemptHandler } from '../logging/handlers/exploitAttempt';
+import { createHttpRequestHandler } from '../logging/handlers/httpRequest';
+import { createNcConnectHandler } from '../logging/handlers/ncConnect';
 import { applyVersionOverlay } from '../network/applyVersionOverlay';
 import type { RemoteMachine } from '../network/types';
 import { getGameTime } from '../session/gameTime';
@@ -80,78 +77,32 @@ export const useNetworkCommands = (): Map<string, Command> => {
     const findEffectiveMachineByIp = (ip: string) => withOverlay(findMachineByIp(ip));
     const getEffectiveMachines = (): readonly RemoteMachine[] =>
       getMachines().map((m) => applyVersionOverlay(m, readFileFromMachine));
-    const onHttpRequest = (
-      targetIP: string,
-      method: string,
-      path: string,
-      status: number,
-      size: number,
-    ) => {
-      const sourceIP = resolveLogSourceIP(session.machine, targetIP, getLocalIP(), getPublicIP());
-      const logLine = formatAccessLog({
-        date: new Date(),
-        clientIp: sourceIP,
-        method,
-        path,
-        status,
-        size,
-      });
-      appendToMachineLog(targetIP, '/var/log/access.log', logLine, logFs);
-    };
+    const onHttpRequest = createHttpRequestHandler({
+      sessionMachine: session.machine,
+      getLocalIP,
+      getPublicIP,
+      resolveNat,
+      logFs,
+    });
 
-    const onExploitAttempt = (info: {
-      readonly targetIp: string;
-      readonly port: number;
-      readonly service?: string;
-      readonly serviceVersion?: string;
-      readonly success: boolean;
-    }) => {
-      const sourceIp = resolveLogSourceIP(
-        session.machine,
-        info.targetIp,
-        getLocalIP(),
-        getPublicIP(),
-      );
-      const hostname = resolveHostname(info.targetIp, getMachine);
-      const dispatchOptions = {
-        date: new Date(),
-        hostname,
-        pid: generatePid(),
-        sourceIp,
-      };
-      const vuln =
-        info.service && info.serviceVersion
-          ? findVulnForService(info.service, info.serviceVersion, getGameTime())
-          : undefined;
-      const entry = vuln
-        ? formatExploitAttempt(vuln, dispatchOptions)
-        : formatUnknownExploitAttempt(info.service ?? 'kernel', dispatchOptions);
-      appendToMachineLog(info.targetIp, entry.logFile, entry.line, logFs);
-    };
+    const onExploitAttempt = createExploitAttemptHandler({
+      sessionMachine: session.machine,
+      getLocalIP,
+      getPublicIP,
+      resolveNat,
+      getMachine,
+      getGameTime,
+      logFs,
+    });
 
-    const onNcConnect = (info: {
-      readonly targetIp: string;
-      readonly port: number;
-      readonly service?: string;
-      readonly success: boolean;
-    }) => {
-      const sourceIp = resolveLogSourceIP(
-        session.machine,
-        info.targetIp,
-        getLocalIP(),
-        getPublicIP(),
-      );
-      const hostname = resolveHostname(info.targetIp, getMachine);
-      const line = formatXinetdConnection({
-        date: new Date(),
-        hostname,
-        pid: generatePid(),
-        sourceIp,
-        port: info.port,
-        success: info.success,
-      });
-      appendToMachineLog(info.targetIp, '/var/log/syslog', line, logFs);
-    };
+    const onNcConnect = createNcConnectHandler({
+      sessionMachine: session.machine,
+      getLocalIP,
+      getPublicIP,
+      resolveNat,
+      getMachine,
+      logFs,
+    });
 
     const onScanAggregate = (info: {
       readonly targetIp: string;

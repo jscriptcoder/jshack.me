@@ -494,6 +494,7 @@ describe('curl command', () => {
 
       expect(onHttpRequest).toHaveBeenCalledWith(
         '192.168.1.75',
+        80,
         'GET',
         '/index.html',
         200,
@@ -507,7 +508,7 @@ describe('curl command', () => {
       const curl = createCurlCommand(context);
       collectAsyncLines(curl.fn('http://192.168.1.75/missing'));
 
-      expect(onHttpRequest).toHaveBeenCalledWith('192.168.1.75', 'GET', '/missing', 404, 48);
+      expect(onHttpRequest).toHaveBeenCalledWith('192.168.1.75', 80, 'GET', '/missing', 404, 48);
     });
 
     it('calls onHttpRequest with POST method', () => {
@@ -518,6 +519,7 @@ describe('curl command', () => {
 
       expect(onHttpRequest).toHaveBeenCalledWith(
         '192.168.1.75',
+        80,
         'POST',
         '/api/users',
         200,

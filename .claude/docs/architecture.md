@@ -160,9 +160,11 @@ Unix-realistic permission model with owner-scoped access and directory traversal
 - `/var/log/vsftpd.log` — FTP events (vsftpd format: `[YYYY-MM-DD HH:MM:SS] OK LOGIN: Client "IP", user "name"`)
 - `/var/log/access.log` — HTTP requests via curl (Apache Combined format)
 
-**Integration:** Terminal.tsx defines three logging callbacks (`onSuAuth`, `onSshAuth`, `onFtpAuth`) that are passed into `useCommands`. The `su` command calls `onSuAuth` directly; SSH/SCP/FTP trigger their callbacks via `useAuthentication`. Each callback uses formatters from `src/logging/formatters.ts` and `appendToMachineLog` to write to the target machine's filesystem. The curl command logs HTTP requests directly.
+**Integration:** Handlers in `src/logging/handlers/` (one factory per event type — exploit, nc, http, ssh, ftp, mysql) encapsulate log-writing logic. Terminal.tsx and useNetworkCommands.ts instantiate each factory with its dependencies and wire the resulting handler into the relevant command or auth flow. The `su` command still uses a small inline callback since it logs locally. Each handler formats the log line and calls `appendToMachineLog` to write it to the target machine's filesystem.
 
 **Source IP:** `resolveLogSourceIP()` in `src/logging/utils.ts` determines the correct source IP for log entries. When on a remote machine, its IP is used directly. When on localhost, same-subnet targets see the LAN IP (e.g., `10.45.12.100`), while cross-network targets (missions) see the home router's public IP (NAT'd through the gateway). `NetworkContext.getPublicIP()` provides the router's public IP.
+
+**Log destination (NAT-aware):** Each handler calls `resolveNat(targetIp, port)` before writing. When a public port is forwarded through a router (e.g., `router:2222 → backend:22`), the log lands on the backend where the daemon actually runs — matching real Linux logging and enabling cross-machine tracing. Router-native services are unaffected since their ports don't appear in the router's DNAT rules.
 
 **Persistence:** Log entries are standard filesystem writes — they persist via IndexedDB patches and sync across tabs via BroadcastChannel. Dynamically created log files use world-readable permissions (`read: ['root', 'user', 'guest']`), matching real Linux `/var/log/` behavior.
 

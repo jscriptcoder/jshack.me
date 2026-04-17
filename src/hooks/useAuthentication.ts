@@ -56,8 +56,8 @@ type AuthenticationOptions = {
     port: number,
     method: 'password' | 'publickey',
   ) => void;
-  readonly onFtpAuth?: (success: boolean, user: string, targetIP: string) => void;
-  readonly onMysqlAuth?: (success: boolean, user: string, targetIP: string) => void;
+  readonly onFtpAuth?: (success: boolean, user: string, targetIP: string, port: number) => void;
+  readonly onMysqlAuth?: (success: boolean, user: string, targetIP: string, port: number) => void;
 };
 
 export const useAuthentication = ({
@@ -275,7 +275,7 @@ export const useAuthentication = ({
 
       if (!remoteUser) {
         addLine('error', '530 Login incorrect.');
-        onFtpAuth?.(false, username, targetIP);
+        onFtpAuth?.(false, username, targetIP, 21);
         return;
       }
 
@@ -293,7 +293,7 @@ export const useAuthentication = ({
 
       if (expectedHash !== md5(password)) {
         addLine('error', '530 Login incorrect.');
-        onFtpAuth?.(false, username, targetIP);
+        onFtpAuth?.(false, username, targetIP, 21);
         return;
       }
 
@@ -313,7 +313,7 @@ export const useAuthentication = ({
 
       enterFtpMode(newFtpSession);
       addLine('result', '230 Login successful.');
-      onFtpAuth?.(true, username, targetIP);
+      onFtpAuth?.(true, username, targetIP, 21);
     },
     [
       resolveNat,
@@ -449,13 +449,13 @@ export const useAuthentication = ({
     (user: string, targetIP: string, password: string) => {
       if (validateMysqlPassword(user, targetIP, password)) {
         connectMysql(user, targetIP);
-        onMysqlAuth?.(true, user, targetIP);
+        onMysqlAuth?.(true, user, targetIP, 3306);
       } else {
         addLine(
           'error',
           `ERROR 1045 (28000): Access denied for user '${user}'@'${targetIP}' (using password: YES)`,
         );
-        onMysqlAuth?.(false, user, targetIP);
+        onMysqlAuth?.(false, user, targetIP, 3306);
       }
     },
     [validateMysqlPassword, connectMysql, addLine, onMysqlAuth],
@@ -624,7 +624,7 @@ export const useAuthentication = ({
       const remoteUser = users.find((u) => u.username === username);
       if (!remoteUser) {
         addLine('error', '530 Login incorrect.');
-        onFtpAuth?.(false, username, ftpTargetIP);
+        onFtpAuth?.(false, username, ftpTargetIP, 21);
         setFtpTargetIP(null);
         setFtpUsernameMode(false);
         clearInput();
@@ -662,7 +662,7 @@ export const useAuthentication = ({
 
         if (mysqlTargetIP) {
           connectMysql(targetUser, mysqlTargetIP);
-          onMysqlAuth?.(true, targetUser, mysqlTargetIP);
+          onMysqlAuth?.(true, targetUser, mysqlTargetIP, 3306);
         } else if (scpTargetIP) {
           saveAuthorizedKey(targetUser, scpTargetIP, scpTargetPort ?? 22);
           onSshAuth?.(true, targetUser, scpTargetIP, scpTargetPort ?? 22, 'password');
@@ -689,7 +689,7 @@ export const useAuthentication = ({
 
           enterFtpMode(newFtpSession);
           addLine('result', '230 Login successful.');
-          onFtpAuth?.(true, targetUser, ftpTargetIP);
+          onFtpAuth?.(true, targetUser, ftpTargetIP, 21);
         } else if (sshTargetIP) {
           saveAuthorizedKey(targetUser, sshTargetIP, sshTargetPort ?? 22);
           connectSsh(targetUser, sshTargetIP, sshTargetPort ?? 22);
@@ -717,14 +717,14 @@ export const useAuthentication = ({
             'error',
             `ERROR 1045 (28000): Access denied for user '${targetUser}'@'${mysqlTargetIP}' (using password: YES)`,
           );
-          if (targetUser) onMysqlAuth?.(false, targetUser, mysqlTargetIP);
+          if (targetUser) onMysqlAuth?.(false, targetUser, mysqlTargetIP, 3306);
         } else if (scpTargetIP) {
           addLine('error', `Permission denied, please try again.`);
           if (targetUser)
             onSshAuth?.(false, targetUser, scpTargetIP, scpTargetPort ?? 22, 'password');
         } else if (ftpTargetIP) {
           addLine('error', '530 Login incorrect.');
-          if (targetUser) onFtpAuth?.(false, targetUser, ftpTargetIP);
+          if (targetUser) onFtpAuth?.(false, targetUser, ftpTargetIP, 21);
         } else if (sshTargetIP) {
           addLine('error', `Permission denied, please try again.`);
           if (targetUser)

@@ -540,7 +540,7 @@ describe('useAuthentication', () => {
 
       act(() => result.current.authenticateFtpInline(TARGET_IP, 'bob', PASSWORD));
 
-      expect(onFtpAuth).toHaveBeenCalledWith(true, 'bob', TARGET_IP);
+      expect(onFtpAuth).toHaveBeenCalledWith(true, 'bob', TARGET_IP, 21);
     });
 
     it('calls onFtpAuth on inline user-not-found failure', () => {
@@ -551,7 +551,7 @@ describe('useAuthentication', () => {
 
       act(() => result.current.authenticateFtpInline(TARGET_IP, 'nobody', PASSWORD));
 
-      expect(onFtpAuth).toHaveBeenCalledWith(false, 'nobody', TARGET_IP);
+      expect(onFtpAuth).toHaveBeenCalledWith(false, 'nobody', TARGET_IP, 21);
     });
 
     it('calls onFtpAuth on inline wrong-password failure', () => {
@@ -564,7 +564,7 @@ describe('useAuthentication', () => {
 
       act(() => result.current.authenticateFtpInline(TARGET_IP, 'bob', 'wrong'));
 
-      expect(onFtpAuth).toHaveBeenCalledWith(false, 'bob', TARGET_IP);
+      expect(onFtpAuth).toHaveBeenCalledWith(false, 'bob', TARGET_IP, 21);
     });
 
     it('calls onFtpAuth on interactive login success', () => {
@@ -579,7 +579,7 @@ describe('useAuthentication', () => {
       act(() => result.current.handleFtpUsernameSubmit('bob', vi.fn()));
       act(() => result.current.handlePasswordSubmit(PASSWORD, vi.fn()));
 
-      expect(onFtpAuth).toHaveBeenCalledWith(true, 'bob', TARGET_IP);
+      expect(onFtpAuth).toHaveBeenCalledWith(true, 'bob', TARGET_IP, 21);
     });
 
     it('calls onFtpAuth on interactive username failure', () => {
@@ -591,7 +591,7 @@ describe('useAuthentication', () => {
       act(() => result.current.startFtpPrompt(TARGET_IP));
       act(() => result.current.handleFtpUsernameSubmit('nobody', vi.fn()));
 
-      expect(onFtpAuth).toHaveBeenCalledWith(false, 'nobody', TARGET_IP);
+      expect(onFtpAuth).toHaveBeenCalledWith(false, 'nobody', TARGET_IP, 21);
     });
 
     it('calls onFtpAuth on interactive password failure', () => {
@@ -606,7 +606,7 @@ describe('useAuthentication', () => {
       act(() => result.current.handleFtpUsernameSubmit('bob', vi.fn()));
       act(() => result.current.handlePasswordSubmit('wrong', vi.fn()));
 
-      expect(onFtpAuth).toHaveBeenCalledWith(false, 'bob', TARGET_IP);
+      expect(onFtpAuth).toHaveBeenCalledWith(false, 'bob', TARGET_IP, 21);
     });
   });
 
