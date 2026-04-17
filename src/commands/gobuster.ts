@@ -14,6 +14,7 @@ type GobusterContext = {
   readonly getCurrentPath: () => string;
   readonly onHttpRequest?: (
     targetIP: string,
+    port: number,
     method: string,
     path: string,
     status: number,
@@ -226,7 +227,7 @@ export const createGobusterCommand = (context: GobusterContext): Command => ({
             if (token.isCancelled()) return;
             onLine(formatEntry(entry));
             const status = entry.isDirectory ? 301 : 200;
-            context.onHttpRequest?.(targetIP, 'GET', entry.path, status, entry.size);
+            context.onHttpRequest?.(targetIP, parsed.port, 'GET', entry.path, status, entry.size);
           }, delay);
         });
 

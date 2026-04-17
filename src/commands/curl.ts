@@ -12,6 +12,7 @@ type CurlContext = {
   readonly readFileFromMachine: (op: MachineFileOp) => string | null;
   readonly onHttpRequest?: (
     targetIP: string,
+    port: number,
     method: string,
     path: string,
     status: number,
@@ -308,6 +309,7 @@ export const createCurlCommand = (context: CurlContext): Command => ({
 
           context.onHttpRequest?.(
             targetIP,
+            parsed.port,
             isPost ? 'POST' : 'GET',
             parsed.path,
             response.statusCode,

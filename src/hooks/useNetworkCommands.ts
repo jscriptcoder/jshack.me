@@ -29,9 +29,10 @@ import { createRediscliCommand } from '../commands/rediscli';
 import { wrapWithWifiCheck, wrapWithBrickedCheck } from '../commands/networkGuards';
 import type { Command } from '../components/Terminal/types';
 import { appendToMachineLog } from '../logging/appendToMachineLog';
-import { formatAccessLog, formatNmapScanAggregate, formatXinetdConnection } from '../logging/formatters';
+import { formatNmapScanAggregate } from '../logging/formatters';
 import { resolveLogSourceIP, generatePid, resolveHostname } from '../logging/utils';
 import { createExploitAttemptHandler } from '../logging/handlers/exploitAttempt';
+import { createHttpRequestHandler } from '../logging/handlers/httpRequest';
 import { createNcConnectHandler } from '../logging/handlers/ncConnect';
 import { applyVersionOverlay } from '../network/applyVersionOverlay';
 import type { RemoteMachine } from '../network/types';
@@ -76,24 +77,13 @@ export const useNetworkCommands = (): Map<string, Command> => {
     const findEffectiveMachineByIp = (ip: string) => withOverlay(findMachineByIp(ip));
     const getEffectiveMachines = (): readonly RemoteMachine[] =>
       getMachines().map((m) => applyVersionOverlay(m, readFileFromMachine));
-    const onHttpRequest = (
-      targetIP: string,
-      method: string,
-      path: string,
-      status: number,
-      size: number,
-    ) => {
-      const sourceIP = resolveLogSourceIP(session.machine, targetIP, getLocalIP(), getPublicIP());
-      const logLine = formatAccessLog({
-        date: new Date(),
-        clientIp: sourceIP,
-        method,
-        path,
-        status,
-        size,
-      });
-      appendToMachineLog(targetIP, '/var/log/access.log', logLine, logFs);
-    };
+    const onHttpRequest = createHttpRequestHandler({
+      sessionMachine: session.machine,
+      getLocalIP,
+      getPublicIP,
+      resolveNat,
+      logFs,
+    });
 
     const onExploitAttempt = createExploitAttemptHandler({
       sessionMachine: session.machine,

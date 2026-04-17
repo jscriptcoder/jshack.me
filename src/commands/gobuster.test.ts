@@ -480,6 +480,7 @@ describe('gobuster command', () => {
       // defaultWebRoot has: /index.html, /status, /admin (dir), /admin/config.json
       expect(onHttpRequest).toHaveBeenCalledWith(
         '192.168.1.75',
+        80,
         'GET',
         '/index.html',
         200,
@@ -487,14 +488,16 @@ describe('gobuster command', () => {
       );
       expect(onHttpRequest).toHaveBeenCalledWith(
         '192.168.1.75',
+        80,
         'GET',
         '/status',
         200,
         expect.any(Number),
       );
-      expect(onHttpRequest).toHaveBeenCalledWith('192.168.1.75', 'GET', '/admin', 301, 0);
+      expect(onHttpRequest).toHaveBeenCalledWith('192.168.1.75', 80, 'GET', '/admin', 301, 0);
       expect(onHttpRequest).toHaveBeenCalledWith(
         '192.168.1.75',
+        80,
         'GET',
         '/admin/config.json',
         200,
