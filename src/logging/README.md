@@ -9,6 +9,32 @@ Dynamic connection logging — records SSH, FTP, SCP, su, MySQL, Redis, and HTTP
 | `appendToMachineLog.ts` | Core utility — appends log lines to any machine's filesystem, creates if missing |
 | `formatters.ts`         | Log line formatters (syslog, vsftpd, Apache Combined)                            |
 | `utils.ts`              | Helpers — `generatePid()`, `resolveHostname()`, `resolveLogSourceIP()`           |
+| `exploitAttempt.ts`     | Dispatch exploit-attempt log lines to the right log file per attack pattern      |
+| `handlers/`             | Per-event handler factories (see below)                                          |
+
+## Handlers
+
+The `handlers/` subdirectory holds one factory per log event. Each factory
+takes its dependencies (session machine, NAT resolver, log filesystem, etc.)
+and returns a handler the UI layer wires into commands.
+
+| Handler                       | Triggered by   | Log file              |
+| ----------------------------- | -------------- | --------------------- |
+| `createExploitAttemptHandler` | msfconsole     | per attack pattern    |
+| `createNcConnectHandler`      | nc connect     | `/var/log/syslog`     |
+| `createHttpRequestHandler`    | curl, gobuster | `/var/log/access.log` |
+| `createSshAuthHandler`        | ssh, scp       | `/var/log/auth.log`   |
+| `createFtpAuthHandler`        | ftp            | `/var/log/vsftpd.log` |
+| `createMysqlAuthHandler`      | mysql          | `/var/log/mysql.log`  |
+
+### NAT-aware log destination
+
+Each handler resolves NAT (`resolveNat(targetIp, port)`) before writing.
+When a public port is forwarded through a router to a backend (e.g.,
+`router:2222 → backend:22`), the log lands on the backend where the
+daemon actually runs — matching real Linux logging. Router-native
+services are unaffected (their ports don't appear in the router's
+DNAT rules, so `resolveNat` is a no-op).
 
 ## Log Formats
 
@@ -53,9 +79,9 @@ Dynamic connection logging — records SSH, FTP, SCP, su, MySQL, Redis, and HTTP
 
 ## How It Works
 
-1. **Terminal.tsx** defines logging callbacks (`onSuAuth`, `onSshAuth`, `onFtpAuth`, `onMysqlAuth`, `onRedisAuth`) that are passed to `useAuthentication`
-2. Commands trigger callbacks on auth events (su inline, SSH/SCP/FTP via `useAuthentication`)
-3. Callbacks resolve the source IP via `resolveLogSourceIP()`, then use formatters to build log lines
+1. **Terminal.tsx** and **useNetworkCommands.ts** instantiate the handler factories from `handlers/` with their dependencies
+2. Commands trigger the handlers on auth / exploit / connect / HTTP events
+3. Each handler resolves NAT and source IP, builds a formatted log line, and calls `appendToMachineLog`
 4. `appendToMachineLog` reads the existing log file (as root), appends the new line, and writes back
 5. If the log file doesn't exist, it's created with world-readable permissions
 
