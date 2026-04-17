@@ -48,6 +48,10 @@ npx tsx scripts/dumpHomeNetwork.ts <gameSeed> [wifiIndex]
 # View full content of a specific file on a machine (works on both scripts)
 npx tsx scripts/dumpMissionNetwork.ts <seed> --cat <ip|hostname>:<path>
 npx tsx scripts/dumpHomeNetwork.ts <gameSeed> <wifiIndex> --cat <ip|hostname>:<path>
+
+# Simulate msfconsole(ip, port): reports CVE, effect, attack pattern, NAT chain — without running the game
+npx tsx scripts/simulateExploit.ts home <gameSeed> <wifiIndex> <ip> <port> [--gameTime <days>]
+npx tsx scripts/simulateExploit.ts mission <seed> <ip> <port> [--gameTime <days>]
 ```
 
 ## Key Architecture
