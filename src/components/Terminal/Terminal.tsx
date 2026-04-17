@@ -27,6 +27,7 @@ import {
   formatMysqlAccessDenied,
 } from '../../logging/formatters';
 import { generatePid, resolveHostname, resolveLogSourceIP } from '../../logging/utils';
+import { createFtpAuthHandler } from '../../logging/handlers/ftpAuth';
 import { createSshAuthHandler } from '../../logging/handlers/sshAuth';
 import { useNetwork } from '../../network';
 import type { OutputLine, AuthorData } from './types';
@@ -221,15 +222,13 @@ export const Terminal = () => {
       getMachine,
       logFs,
     }),
-    onFtpAuth: (success, user, targetIP) => {
-      const now = new Date();
-      const sourceIP = resolveLogSourceIP(session.machine, targetIP, getLocalIP(), getPublicIP());
-      const connectLine = formatFtpConnect(now, sourceIP);
-      const authLine = success
-        ? formatFtpLoginOk({ date: now, clientIp: sourceIP, user })
-        : formatFtpLoginFailed({ date: now, clientIp: sourceIP, user });
-      appendToMachineLog(targetIP, '/var/log/vsftpd.log', `${connectLine}\n${authLine}`, logFs);
-    },
+    onFtpAuth: createFtpAuthHandler({
+      sessionMachine: session.machine,
+      getLocalIP,
+      getPublicIP,
+      resolveNat,
+      logFs,
+    }),
     onMysqlAuth: (success, user, targetIP) => {
       const resolvedIp = resolveNat(targetIP, 3306).ip;
       const sourceIP = resolveLogSourceIP(session.machine, targetIP, getLocalIP(), getPublicIP());
