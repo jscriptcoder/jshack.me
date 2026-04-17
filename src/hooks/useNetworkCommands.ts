@@ -29,14 +29,9 @@ import { createRediscliCommand } from '../commands/rediscli';
 import { wrapWithWifiCheck, wrapWithBrickedCheck } from '../commands/networkGuards';
 import type { Command } from '../components/Terminal/types';
 import { appendToMachineLog } from '../logging/appendToMachineLog';
-import {
-  formatAccessLog,
-  formatNmapScanAggregate,
-  formatXinetdConnection,
-} from '../logging/formatters';
+import { formatAccessLog, formatNmapScanAggregate, formatXinetdConnection } from '../logging/formatters';
 import { resolveLogSourceIP, generatePid, resolveHostname } from '../logging/utils';
-import { formatExploitAttempt, formatUnknownExploitAttempt } from '../logging/exploitAttempt';
-import { findVulnForService } from '../generation/vulnerabilityLookup';
+import { createExploitAttemptHandler } from '../logging/handlers/exploitAttempt';
 import { applyVersionOverlay } from '../network/applyVersionOverlay';
 import type { RemoteMachine } from '../network/types';
 import { getGameTime } from '../session/gameTime';
@@ -99,35 +94,15 @@ export const useNetworkCommands = (): Map<string, Command> => {
       appendToMachineLog(targetIP, '/var/log/access.log', logLine, logFs);
     };
 
-    const onExploitAttempt = (info: {
-      readonly targetIp: string;
-      readonly port: number;
-      readonly service?: string;
-      readonly serviceVersion?: string;
-      readonly success: boolean;
-    }) => {
-      const sourceIp = resolveLogSourceIP(
-        session.machine,
-        info.targetIp,
-        getLocalIP(),
-        getPublicIP(),
-      );
-      const hostname = resolveHostname(info.targetIp, getMachine);
-      const dispatchOptions = {
-        date: new Date(),
-        hostname,
-        pid: generatePid(),
-        sourceIp,
-      };
-      const vuln =
-        info.service && info.serviceVersion
-          ? findVulnForService(info.service, info.serviceVersion, getGameTime())
-          : undefined;
-      const entry = vuln
-        ? formatExploitAttempt(vuln, dispatchOptions)
-        : formatUnknownExploitAttempt(info.service ?? 'kernel', dispatchOptions);
-      appendToMachineLog(info.targetIp, entry.logFile, entry.line, logFs);
-    };
+    const onExploitAttempt = createExploitAttemptHandler({
+      sessionMachine: session.machine,
+      getLocalIP,
+      getPublicIP,
+      resolveNat,
+      getMachine,
+      getGameTime,
+      logFs,
+    });
 
     const onNcConnect = (info: {
       readonly targetIp: string;
