@@ -20,9 +20,6 @@ import { appendToMachineLog } from '../../logging/appendToMachineLog';
 import {
   formatSuSuccess,
   formatSuFailed,
-  formatSshAccepted,
-  formatSshAcceptedKey,
-  formatSshFailed,
   formatFtpConnect,
   formatFtpLoginOk,
   formatFtpLoginFailed,
@@ -30,6 +27,7 @@ import {
   formatMysqlAccessDenied,
 } from '../../logging/formatters';
 import { generatePid, resolveHostname, resolveLogSourceIP } from '../../logging/utils';
+import { createSshAuthHandler } from '../../logging/handlers/sshAuth';
 import { useNetwork } from '../../network';
 import type { OutputLine, AuthorData } from './types';
 import {
@@ -215,19 +213,14 @@ export const Terminal = () => {
       });
       appendToMachineLog(session.machine, '/var/log/auth.log', logLine, logFs);
     },
-    onSshAuth: (success, user, targetIP, _port, method) => {
-      const hostname = resolveHostname(targetIP, getMachine);
-      const pid = generatePid();
-      const srcPort = Math.floor(Math.random() * 25536) + 40000;
-      const sourceIP = resolveLogSourceIP(session.machine, targetIP, getLocalIP(), getPublicIP());
-      const opts = { date: new Date(), hostname, pid, user, fromIp: sourceIP, port: srcPort };
-      const logLine = !success
-        ? formatSshFailed(opts)
-        : method === 'publickey'
-          ? formatSshAcceptedKey(opts)
-          : formatSshAccepted(opts);
-      appendToMachineLog(targetIP, '/var/log/auth.log', logLine, logFs);
-    },
+    onSshAuth: createSshAuthHandler({
+      sessionMachine: session.machine,
+      getLocalIP,
+      getPublicIP,
+      resolveNat,
+      getMachine,
+      logFs,
+    }),
     onFtpAuth: (success, user, targetIP) => {
       const now = new Date();
       const sourceIP = resolveLogSourceIP(session.machine, targetIP, getLocalIP(), getPublicIP());
