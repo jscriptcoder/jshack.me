@@ -32,6 +32,7 @@ import { appendToMachineLog } from '../logging/appendToMachineLog';
 import { formatAccessLog, formatNmapScanAggregate, formatXinetdConnection } from '../logging/formatters';
 import { resolveLogSourceIP, generatePid, resolveHostname } from '../logging/utils';
 import { createExploitAttemptHandler } from '../logging/handlers/exploitAttempt';
+import { createNcConnectHandler } from '../logging/handlers/ncConnect';
 import { applyVersionOverlay } from '../network/applyVersionOverlay';
 import type { RemoteMachine } from '../network/types';
 import { getGameTime } from '../session/gameTime';
@@ -104,29 +105,14 @@ export const useNetworkCommands = (): Map<string, Command> => {
       logFs,
     });
 
-    const onNcConnect = (info: {
-      readonly targetIp: string;
-      readonly port: number;
-      readonly service?: string;
-      readonly success: boolean;
-    }) => {
-      const sourceIp = resolveLogSourceIP(
-        session.machine,
-        info.targetIp,
-        getLocalIP(),
-        getPublicIP(),
-      );
-      const hostname = resolveHostname(info.targetIp, getMachine);
-      const line = formatXinetdConnection({
-        date: new Date(),
-        hostname,
-        pid: generatePid(),
-        sourceIp,
-        port: info.port,
-        success: info.success,
-      });
-      appendToMachineLog(info.targetIp, '/var/log/syslog', line, logFs);
-    };
+    const onNcConnect = createNcConnectHandler({
+      sessionMachine: session.machine,
+      getLocalIP,
+      getPublicIP,
+      resolveNat,
+      getMachine,
+      logFs,
+    });
 
     const onScanAggregate = (info: {
       readonly targetIp: string;
