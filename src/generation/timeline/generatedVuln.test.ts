@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildGeneratedVuln } from './generatedVuln';
+import { describeEffect } from '../describeEffect';
 import type { GeneratedVersion } from './walker';
 
 describe('buildGeneratedVuln', () => {
@@ -57,6 +58,24 @@ describe('buildGeneratedVuln', () => {
     const a = buildGeneratedVuln('http', mkEntry('Apache/2.4.61', 1, 30));
     const b = buildGeneratedVuln('http', mkEntry('Apache/2.4.61', 1, 30));
     expect(a.effect).toEqual(b.effect);
+  });
+
+  it('description is coherent with the effect kind (uses describeEffect)', () => {
+    // Walk many (service, index) pairs; every generated description must
+    // equal describeEffect(service, version, cve, effect). Catches any
+    // regression where the template drifts from the effect.
+    const services = ['ssh', 'http', 'ftp', 'mysql', 'redis', 'smb', 'mongodb', 'dns'];
+    for (const service of services) {
+      for (let index = 0; index < 20; index++) {
+        const vuln = buildGeneratedVuln(
+          service,
+          mkEntry(`${service}/1.0.${index}`, index, 30 * (index + 1)),
+        );
+        expect(vuln.description).toBe(
+          describeEffect(service, vuln.serviceVersion, vuln.cve, vuln.effect),
+        );
+      }
+    }
   });
 
   it('produces unique CVE ids across services and indexes (no collisions)', () => {

