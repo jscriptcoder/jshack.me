@@ -247,6 +247,97 @@ describe('complete', () => {
     });
   });
 
+  describe('keyword completion at arg 0', () => {
+    const aptCommand: Command = {
+      name: 'apt',
+      category: 'general',
+      description: '',
+      fn: () => '',
+      manual: {
+        synopsis: 'apt ...',
+        description: '',
+        arguments: [
+          {
+            name: 'subcommand',
+            description: '',
+            values: ['install', 'list', 'upgrade'],
+          },
+          { name: 'package', description: '' },
+        ],
+      },
+    };
+    const adapter = makeAdapter({
+      commandNames: ['apt', 'cat'],
+      getCommand: (name) => (name === 'apt' ? aptCommand : undefined),
+    });
+
+    it('offers subcommand keywords at arg 0 when prefix has no slash', () => {
+      const result = complete('apt ', 4, adapter);
+
+      expect(result.matches).toEqual(['install', 'list', 'upgrade']);
+    });
+
+    it('filters keyword matches by typed prefix', () => {
+      const result = complete('apt i', 5, adapter);
+
+      expect(result.matches).toEqual(['install']);
+      expect(result.replacement).toBe('apt install ');
+    });
+
+    it('falls back to path completion when prefix contains a slash', () => {
+      const adapter2 = makeAdapter({
+        commandNames: ['apt'],
+        getCommand: () => aptCommand,
+        listPath: (abs) => (abs === '/tmp' ? ['foo.txt'] : null),
+        isDirectory: (abs) => abs === '/tmp',
+        resolvePath: (p) => (p.startsWith('/') ? p : `/${p}`),
+      });
+
+      const result = complete('apt /tmp/f', 10, adapter2);
+
+      expect(result.matches).toEqual(['foo.txt']);
+    });
+
+    it('does not offer keywords at arg 1 (package position)', () => {
+      const adapter2 = makeAdapter({
+        commandNames: ['apt'],
+        getCommand: () => aptCommand,
+        listPath: () => null,
+      });
+
+      const result = complete('apt install i', 13, adapter2);
+
+      // We're at arg 1 (the package position), which has no values defined.
+      // Should NOT re-offer 'install' from arg 0's values.
+      expect(result.matches).toEqual([]);
+    });
+
+    it('does not offer keywords when command has no values defined', () => {
+      const adapter2 = makeAdapter({
+        commandNames: ['cat'],
+        getCommand: (name) =>
+          name === 'cat'
+            ? {
+                name: 'cat',
+                category: 'general',
+                description: '',
+                fn: () => '',
+                manual: {
+                  synopsis: 'cat',
+                  description: '',
+                  arguments: [{ name: 'path', description: '' }],
+                },
+              }
+            : undefined,
+        listPath: () => null,
+      });
+
+      const result = complete('cat r', 5, adapter2);
+
+      expect(result.matches).toEqual([]);
+    });
+  });
+
   describe('flag completion', () => {
     const adapter = makeAdapter({
       commandNames: ['nmap'],

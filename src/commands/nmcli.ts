@@ -127,6 +127,7 @@ export const createNmcliCommand = (context: NmcliContext): Command => ({
         name: 'subcommand',
         description: '"connect", "disconnect", or "status"',
         required: true,
+        values: ['connect', 'disconnect', 'status'],
       },
     ],
     examples: [

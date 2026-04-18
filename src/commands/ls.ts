@@ -116,8 +116,13 @@ export const createLsCommand = (context: LsContext): Command => ({
         required: false,
       },
       {
-        name: 'flags',
-        description: 'Options: "-a" to show hidden files, "-l" for long listing with permissions',
+        name: '-a',
+        description: 'Show hidden files (entries starting with a dot)',
+        required: false,
+      },
+      {
+        name: '-l',
+        description: 'Long listing format with permissions, owner, size',
         required: false,
       },
     ],

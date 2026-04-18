@@ -173,6 +173,7 @@ export const createSystemctlCommand = (context: SystemctlContext): Command => ({
         name: 'action',
         description: "Action to perform: 'start', 'stop', or 'status'",
         required: true,
+        values: ['start', 'stop', 'status'],
       },
       {
         name: 'service',

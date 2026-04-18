@@ -138,19 +138,28 @@ Executor prefers `fnShell` when shell context is provided (pipe stdin) and the c
 
 **Acceptance:** `cat /etc/pa<Tab>` → `/etc/passwd` (no quotes needed); `nmap -s<Tab>` lists `-sU`, `-sV`; `ls | gr<Tab>` → `grep `; `cat /x > /tmp/o<Tab>` → `/tmp/out.txt`. Known limitation: FTP/NC path completion now uses the default filesystem, not the mode-specific one — Phase G addresses.
 
-### Phase E — Flag audit
+### Phase E — Flag audit + subcommand keyword completion
 
-Read the source of each command under `src/commands/` and identify every flag it accepts in code. Add a matching entry to `manual.arguments` for any flag not already documented (entries with `name` starting with `-`). Phase D's tab completion reads these entries — once filled in, `<cmd> -<Tab>` will list all supported flags across the whole command set.
+Two parallel extensions of the Phase D completer: backfill missing flag documentation, and add first-arg keyword completion for commands that dispatch on a subcommand token.
+
+**Flag audit:**
 
 1. For each command file, locate flag-handling logic (e.g., `args.includes('-l')`, `args.filter(a => a.startsWith('-'))`, switch on flag strings).
 2. Confirm `manual.arguments` contains an entry for each flag. If missing, add `{ name: '-x', description: '...', required: false }`.
 3. Unify existing quoted variants (e.g., `'"-l"'` — old JS-syntax artifact) to bare `-l`.
-4. Descriptions should be concise and player-facing (what the flag does, not implementation detail).
-5. Do **not** touch `synopsis` or `examples` in this phase — those are Phase F's scope.
 
-**Out of scope:** synopsis/examples rewrite, deleting `output`, version bump, doc updates.
+Scope: 4 commands needed entries added (`apt`, `curl`, `ls`, `rm`). `grep`, `nc`, `nmap` already had documented flags.
 
-**Acceptance:** `<cmd> -<Tab>` lists every flag the command actually supports, across every command that accepts flags. `npx tsc --noEmit` + `npm run test:run` green.
+**Subcommand keyword completion:**
+
+1. Extended `CommandArgument` with optional `values?: readonly string[]` for the discrete set of valid values at that arg slot.
+2. Added `values` to the first `manual.arguments` entry of 4 commands: `apt` (install/list/upgrade), `systemctl` (start/stop/status), `nmcli` (connect/disconnect/status), `airmon` (start/stop).
+3. Extended `complete.ts`: when the cursor is at positional arg 0 of a stage AND the prefix has no `/` AND the command's first non-flag argument has `values`, offer those keywords instead of path completion. Falls back to path when either condition fails.
+4. `gobuster dir` and `dig axfr` left out — only one keyword each / non-arg-0 position.
+
+**Out of scope:** synopsis/examples rewrite, deleting `output`, version bump, doc updates, free-form value completion (package names, hostnames, theme names, etc.).
+
+**Acceptance:** `<cmd> -<Tab>` lists every flag the command actually supports. `apt <Tab>` → `install, list, upgrade`; `systemctl <Tab>` → keywords; etc. `npx tsc --noEmit` + `npm run test:run` green.
 
 ### Phase F — Manual rewrite + cleanup
 

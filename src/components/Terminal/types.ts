@@ -161,6 +161,9 @@ export type CommandArgument = {
   readonly name: string;
   readonly description: string;
   readonly required?: boolean;
+  // Discrete set of valid values for this argument slot. Used by tab completion
+  // to offer keywords at the first arg position (e.g., apt install/list/upgrade).
+  readonly values?: readonly string[];
 };
 
 export type CommandExample = {

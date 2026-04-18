@@ -287,6 +287,65 @@ const findCommandNameForStage = (input: string, tokenStart: number): string | nu
   return firstWord || null;
 };
 
+// Count positional (non-flag) arg tokens between the command name and the cursor.
+// Returns -1 if the cursor is at the command position (no command yet).
+const positionalArgIndex = (input: string, tokenStart: number): number => {
+  const pipeIdx = input.lastIndexOf('|', tokenStart - 1);
+  const stageStart = pipeIdx === -1 ? 0 : pipeIdx + 1;
+  const stageBeforeToken = input.slice(stageStart, tokenStart).trim();
+  if (stageBeforeToken === '') return -1;
+  const words = stageBeforeToken.split(/\s+/);
+  return words.slice(1).filter((w) => !w.startsWith('-')).length;
+};
+
+const completeKeyword = (
+  input: string,
+  cursorPos: number,
+  ctx: CursorContext,
+  keywords: readonly string[],
+): CompletionOutcome => {
+  const matches = keywords
+    .filter((kw) => kw.startsWith(ctx.prefix))
+    .sort((a, b) => a.localeCompare(b));
+
+  if (matches.length === 0) return emptyOutcome(input, cursorPos, 'path');
+
+  const commonPrefix = longestCommonPrefix(matches);
+  const singleMatch = matches.length === 1;
+  const completedToken = singleMatch ? matches[0] : commonPrefix;
+  const trailing = singleMatch ? ' ' : '';
+  const { replacement, newCursorPosition } = buildReplacement(input, ctx, completedToken, trailing);
+
+  return {
+    kind: 'path',
+    matches,
+    commonPrefix,
+    replacement,
+    newCursorPosition,
+    displayText: matches.join(', '),
+    addTrailingSpace: singleMatch,
+  };
+};
+
+// If we're at positional arg 0 and the command's manual defines a `values` set for its
+// first non-flag argument, offer those keywords instead of path completion — but only
+// when the prefix doesn't contain a slash (users typing a path want filesystem listing).
+const keywordsForArg0 = (
+  adapter: CompleteAdapter,
+  input: string,
+  ctx: CursorContext,
+): readonly string[] | null => {
+  if (ctx.prefix.includes('/')) return null;
+  if (positionalArgIndex(input, ctx.tokenStart) !== 0) return null;
+
+  const commandName = findCommandNameForStage(input, ctx.tokenStart);
+  if (!commandName) return null;
+  const command = adapter.getCommand(commandName);
+  const entries = command?.manual?.arguments ?? [];
+  const firstPositional = entries.find((entry) => !entry.name.startsWith('-'));
+  return firstPositional?.values ?? null;
+};
+
 export const complete = (
   input: string,
   cursorPos: number,
@@ -295,8 +354,12 @@ export const complete = (
   const ctx = classifyCursor(input, cursorPos);
 
   if (ctx.kind === 'command') return completeCommand(input, cursorPos, ctx, adapter);
-  if (ctx.kind === 'path') return completePath(input, cursorPos, ctx, adapter);
   if (ctx.kind === 'flag') return completeFlag(input, cursorPos, ctx, adapter);
+  if (ctx.kind === 'path') {
+    const keywords = keywordsForArg0(adapter, input, ctx);
+    if (keywords) return completeKeyword(input, cursorPos, ctx, keywords);
+    return completePath(input, cursorPos, ctx, adapter);
+  }
 
   return emptyOutcome(input, cursorPos, ctx.kind);
 };

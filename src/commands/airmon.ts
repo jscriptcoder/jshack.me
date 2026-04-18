@@ -16,7 +16,12 @@ export const createAirmonCommand = (context: AirmonContext): Command => ({
     description:
       'Put a wireless interface into or out of monitor mode. Monitor mode is required before scanning for networks with airdump() or cracking with aircrack().',
     arguments: [
-      { name: 'action', description: '"start" or "stop"', required: true },
+      {
+        name: 'action',
+        description: '"start" or "stop"',
+        required: true,
+        values: ['start', 'stop'],
+      },
       { name: 'interface', description: 'Wireless interface name (e.g., "wlan0")', required: true },
     ],
     examples: [

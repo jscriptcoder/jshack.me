@@ -419,10 +419,25 @@ export const createAptCommand = (context: AptContext): Command => ({
       'Tools like nmap, john, hydra, and nc must be installed before use. ' +
       'Requires root privileges and network connectivity to install.',
     arguments: [
-      { name: 'subcommand', description: "'install' or 'list'", required: true },
       {
-        name: 'package/flag',
-        description: "Package name for install, or '-i'/'--installed' for list",
+        name: 'subcommand',
+        description: "'install', 'list', or 'upgrade'",
+        required: true,
+        values: ['install', 'list', 'upgrade'],
+      },
+      {
+        name: 'package',
+        description: 'Package name (required for install subcommand)',
+        required: false,
+      },
+      {
+        name: '-i',
+        description: 'With "list": show only installed packages',
+        required: false,
+      },
+      {
+        name: '--installed',
+        description: 'Alias for -i (list installed packages only)',
         required: false,
       },
     ],

@@ -52,8 +52,18 @@ export const createRmCommand = (context: RmContext): Command => ({
       'Remove files or directories. Directories require the -r flag. Use -f to suppress errors for non-existent files.',
     arguments: [
       {
-        name: 'flags',
-        description: '-r (recursive, required for directories), -f (force, ignore nonexistent)',
+        name: '-r',
+        description: 'Recursive — required to remove directories',
+        required: false,
+      },
+      {
+        name: '-R',
+        description: 'Alias for -r (recursive)',
+        required: false,
+      },
+      {
+        name: '-f',
+        description: 'Force — ignore nonexistent files, no errors',
         required: false,
       },
       {
