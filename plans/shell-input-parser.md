@@ -129,12 +129,14 @@ Executor prefers `fnShell` when shell context is provided (pipe stdin) and the c
 
 ### Phase D — Tab completion rewrite
 
-1. New `complete.ts` — given (input, cursorPos), return completions for command/path/flag based on tokenizer output
-2. Replace `handleTab` two-layer logic in `Terminal.tsx`
-3. Add flag completion driven by `command.manual.arguments`
-4. Update `TerminalInput.test.tsx` and add direct tests for `complete.ts`
+1. New `src/shell/complete.ts` — `classifyCursor(input, cursorPos)` returns `{kind, prefix, quoteChar, tokenStart, tokenEnd}` where kind is `command | path | flag | none`. `complete(input, cursorPos, adapter)` dispatches to source-specific logic (command registry / filesystem / manual.arguments) and returns a full `CompletionOutcome` with replacement + cursor position + match list.
+2. `Terminal.tsx` wires a `shellCompleteAdapter` from the active command registry + filesystem + session user; `handleTab` replaces the old two-layer approach with a single `complete()` call.
+3. Flag completion filters `command.manual.arguments[].name` to entries starting with `-`.
+4. Path completion works for **unquoted tokens** (`cat /etc/pa<Tab>`) as well as quoted (`cat "/etc/pa<Tab>`) — fixes the shell-mode regression where the old string-literal detection only fired inside quotes.
+5. Redirect targets (`... > out<Tab>`) complete as paths.
+6. Deleted dead hooks: `useAutoComplete`, `usePathAutoComplete`, `usePathCompletionAdapters`, `useVariables` (all orphaned by Phases A–D).
 
-**Acceptance:** tab completion works for commands, paths, and flags. Old string-literal-detection code deleted.
+**Acceptance:** `cat /etc/pa<Tab>` → `/etc/passwd` (no quotes needed); `nmap -s<Tab>` lists `-sU`, `-sV`; `ls | gr<Tab>` → `grep `; `cat /x > /tmp/o<Tab>` → `/tmp/out.txt`. Known limitation: FTP/NC path completion now uses the default filesystem, not the mode-specific one — Phase F addresses.
 
 ### Phase E — Cutover, command manuals, cleanup
 

@@ -129,7 +129,7 @@ export const createGrepCommand = (context: GrepContext): Command => ({
         description: 'File or directory to search (use "." for current directory)',
       },
       {
-        name: '"-l"',
+        name: '-l',
         description: 'Optional: list only filenames containing matches',
         required: false,
       },

@@ -1,12 +1,9 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { TerminalOutput } from './TerminalOutput';
 import { TerminalInput } from './TerminalInput';
 import { NanoEditor } from './NanoEditor';
 import { useCommandHistory } from '../../hooks/useCommandHistory';
-import { useAutoComplete } from '../../hooks/useAutoComplete';
-import { usePathCompletionAdapters } from '../../hooks/usePathCompletionAdapters';
 import { useAuthentication } from '../../hooks/useAuthentication';
-import { useVariables } from '../../hooks/useVariables';
 import { useCommands } from '../../hooks/useCommands';
 import { useFtpCommands } from '../../hooks/useFtpCommands';
 import { useNcCommands } from '../../hooks/useNcCommands';
@@ -41,7 +38,7 @@ import {
   isNanoOpen,
 } from './types';
 import type { AsyncFollowUp } from './types';
-import { tokenize, parse, execute } from '../../shell';
+import { tokenize, parse, execute, complete, type CompleteAdapter } from '../../shell';
 
 const BANNER = `
      ██╗███████╗██╗  ██╗ █████╗  ██████╗██╗  ██╗   ███╗   ███╗███████╗
@@ -84,7 +81,6 @@ export const Terminal = () => {
   const terminalInputRef = useRef<HTMLInputElement>(null);
 
   const { addCommand, navigateUp, navigateDown, resetNavigation } = useCommandHistory();
-  const { getVariableNames } = useVariables();
   const {
     getPrompt,
     setUsername,
@@ -94,8 +90,6 @@ export const Terminal = () => {
     popSession,
     canReturn,
     session,
-    ncSession,
-    ftpSession,
     enterFtpMode,
     exitFtpMode,
     isInFtpMode,
@@ -123,9 +117,6 @@ export const Terminal = () => {
     getDefaultHomePath,
     listDirectory,
     resolvePath,
-    resolvePathForMachine,
-    getNodeFromMachine,
-    listDirectoryFromMachine,
     readFileFromMachine,
     writeFileToMachine,
     createFileOnMachine,
@@ -133,16 +124,43 @@ export const Terminal = () => {
   const { getMachine, findMachineUsers, findMachineByIp, resolveNat, getLocalIP, getPublicIP } =
     useNetwork();
 
-  const activeCommandNames = isInRedisMode()
-    ? []
-    : isInMysqlMode()
-      ? []
-      : isInFtpMode() && ftpCommands
-        ? Array.from(ftpCommands.keys())
+  const shellCompleteAdapter = useMemo<CompleteAdapter>(() => {
+    const active =
+      isInFtpMode() && ftpCommands
+        ? ftpCommands
         : isInNcMode() && ncCommands
-          ? Array.from(ncCommands.keys())
-          : commandNames;
-  const { getCompletions } = useAutoComplete(activeCommandNames, getVariableNames());
+          ? ncCommands
+          : commands;
+    const visibleNames = isInRedisMode()
+      ? []
+      : isInMysqlMode()
+        ? []
+        : isInFtpMode() && ftpCommands
+          ? Array.from(ftpCommands.keys())
+          : isInNcMode() && ncCommands
+            ? Array.from(ncCommands.keys())
+            : commandNames;
+    return {
+      commandNames: visibleNames,
+      getCommand: (name) => active.get(name),
+      listPath: (abs) => listDirectory(abs, session.userType),
+      isDirectory: (abs) => getNode(abs)?.type === 'directory',
+      resolvePath,
+    };
+  }, [
+    commands,
+    commandNames,
+    ftpCommands,
+    ncCommands,
+    isInFtpMode,
+    isInNcMode,
+    isInRedisMode,
+    isInMysqlMode,
+    listDirectory,
+    getNode,
+    resolvePath,
+    session.userType,
+  ]);
 
   const addLine = useCallback(
     (type: 'command' | 'result' | 'error' | 'banner', content: string, prompt?: string) => {
@@ -230,20 +248,6 @@ export const Terminal = () => {
       readFileFromMachine,
       logFs,
     }),
-  });
-
-  const { getPathCompletions } = usePathCompletionAdapters({
-    ncSession,
-    ftpSession,
-    isInNcMode,
-    isInFtpMode,
-    userType: session.userType,
-    listDirectory,
-    getNode,
-    resolvePath,
-    listDirectoryFromMachine,
-    getNodeFromMachine,
-    resolvePathForMachine,
   });
 
   useEffect(() => {
@@ -576,40 +580,27 @@ export const Terminal = () => {
     setInput(cmd);
   }, [navigateDown]);
 
-  // Two-layer tab completion: path completion (inside string literals) takes priority,
-  // then falls back to command/variable name completion
+  // Tokenizer-driven completion: classifies the cursor as command / path / flag position,
+  // then dispatches to the appropriate source (command registry / filesystem / command.manual).
   const handleTab = useCallback(
     (cursorPosition: number) => {
-      const pathResult = getPathCompletions(input, cursorPosition);
-      if (pathResult) {
-        if (pathResult.replacement !== input) {
-          setInput(pathResult.replacement);
-          // Defer cursor repositioning until after React re-renders with new value
-          requestAnimationFrame(() => {
-            terminalInputRef.current?.setSelectionRange(
-              pathResult.newCursorPosition,
-              pathResult.newCursorPosition,
-            );
-          });
-        }
-        if (pathResult.matches.length > 1) {
-          addLine('result', pathResult.displayText);
-        }
-        return;
-      }
+      const outcome = complete(input, cursorPosition, shellCompleteAdapter);
+      if (outcome.matches.length === 0) return;
 
-      const { matches, displayText, commonPrefix } = getCompletions(input);
-      if (matches.length === 1) {
-        // Trailing space so the cursor is ready to type arguments.
-        setInput(matches[0].display + ' ');
-      } else if (matches.length > 1) {
-        if (commonPrefix.length > input.trim().length) {
-          setInput(commonPrefix);
-        }
-        addLine('result', displayText);
+      if (outcome.replacement !== input) {
+        setInput(outcome.replacement);
+        requestAnimationFrame(() => {
+          terminalInputRef.current?.setSelectionRange(
+            outcome.newCursorPosition,
+            outcome.newCursorPosition,
+          );
+        });
+      }
+      if (outcome.matches.length > 1) {
+        addLine('result', outcome.displayText);
       }
     },
-    [input, getPathCompletions, getCompletions, addLine],
+    [input, shellCompleteAdapter, addLine],
   );
 
   const handleInputChange = useCallback((value: string) => {
