@@ -301,7 +301,20 @@ export const Terminal = () => {
               ? ncCommands
               : commands;
 
-        const result = execute(parse(tokenize(trimmedCommand)), activeCommands);
+        const redirectWriter = (path: string, content: string): void => {
+          const resolved = resolvePath(path);
+          const existing = getNode(resolved);
+          const outcome = existing
+            ? writeFile(path, content, session.userType)
+            : createFile(path, content, session.userType);
+          if (!outcome.allowed) {
+            throw new Error(`bash: ${path}: ${outcome.error ?? 'write failed'}`);
+          }
+        };
+
+        const result = execute(parse(tokenize(trimmedCommand)), activeCommands, {
+          redirectWriter,
+        });
 
         if (result !== undefined) {
           if (isClearOutput(result)) {
@@ -497,6 +510,9 @@ export const Terminal = () => {
       enterNcMode,
       getNode,
       readFile,
+      resolvePath,
+      writeFile,
+      createFile,
       session.userType,
       resolveNat,
       startPasswordPrompt,

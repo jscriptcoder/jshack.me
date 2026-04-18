@@ -2,7 +2,13 @@ import type { AsyncOutput, Command } from '../components/Terminal/types';
 import { isAsyncOutput } from '../components/Terminal/types';
 import type { Pipeline, ShellContext, Stage } from './types';
 
-const collectAsyncOutput = (asyncOutput: AsyncOutput): string => {
+export type RedirectWriter = (path: string, content: string) => void;
+
+export type ExecuteOptions = {
+  readonly redirectWriter?: RedirectWriter;
+};
+
+const collectAsyncOutputSync = (asyncOutput: AsyncOutput): string => {
   const lines: string[] = [];
   let completed = false;
   asyncOutput.start(
@@ -12,8 +18,6 @@ const collectAsyncOutput = (asyncOutput: AsyncOutput): string => {
     },
   );
   if (!completed) {
-    // Intermediate pipe stages must be synchronous so their stdout can be piped.
-    // Commands that truly need async work (network calls) can't be intermediate for now.
     throw new Error('bash: pipe: async intermediate stages must complete synchronously');
   }
   return lines.join('\n');
@@ -39,13 +43,64 @@ const runStage = (
 
 const materializeStdin = (result: unknown): string => {
   if (typeof result === 'string') return result;
-  if (isAsyncOutput(result)) return collectAsyncOutput(result);
+  if (isAsyncOutput(result)) return collectAsyncOutputSync(result);
   if (result === undefined || result === null) return '';
   throw new Error('bash: pipe: intermediate stage produced an unsupported output type');
 };
 
-export const execute = (pipeline: Pipeline, registry: ReadonlyMap<string, Command>): unknown => {
+// Wrap an async output so lines still stream to the terminal while also being collected
+// and written to the redirect target when the producer finishes.
+const teeAsyncToFile = (
+  source: AsyncOutput,
+  path: string,
+  writer: RedirectWriter,
+): AsyncOutput => ({
+  __type: 'async',
+  clearScreen: source.clearScreen,
+  cancel: source.cancel,
+  start: (emit, done) => {
+    const lines: string[] = [];
+    source.start(
+      (line) => {
+        lines.push(line);
+        emit(line);
+      },
+      (followUp) => {
+        try {
+          writer(path, lines.join('\n'));
+        } catch (err) {
+          emit(`bash: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        done(followUp);
+      },
+    );
+  },
+});
+
+const applyRedirect = (result: unknown, path: string, writer: RedirectWriter): unknown => {
+  if (isAsyncOutput(result)) return teeAsyncToFile(result, path, writer);
+
+  const content =
+    typeof result === 'string'
+      ? result
+      : result === undefined || result === null
+        ? ''
+        : String(result);
+
+  writer(path, content);
+  return undefined;
+};
+
+export const execute = (
+  pipeline: Pipeline,
+  registry: ReadonlyMap<string, Command>,
+  options?: ExecuteOptions,
+): unknown => {
   if (pipeline.stages.length === 0) return undefined;
+
+  if (pipeline.redirect && !options?.redirectWriter) {
+    throw new Error('bash: redirect: no writer configured');
+  }
 
   const intermediateStages = pipeline.stages.slice(0, -1);
   const finalStage = pipeline.stages[pipeline.stages.length - 1];
@@ -55,5 +110,11 @@ export const execute = (pipeline: Pipeline, registry: ReadonlyMap<string, Comman
     undefined,
   );
 
-  return runStage(finalStage, registry, stdinForFinal);
+  const finalResult = runStage(finalStage, registry, stdinForFinal);
+
+  if (pipeline.redirect && options?.redirectWriter) {
+    return applyRedirect(finalResult, pipeline.redirect.path, options.redirectWriter);
+  }
+
+  return finalResult;
 };

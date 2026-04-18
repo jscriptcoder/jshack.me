@@ -180,4 +180,106 @@ describe('execute', () => {
       );
     });
   });
+
+  describe('redirect', () => {
+    it('writes a sync final stage output to the redirect target and returns undefined', () => {
+      const writer = vi.fn();
+      const pipeline: Pipeline = {
+        stages: [{ command: 'cat', args: ['/x'] }],
+        redirect: { path: 'out.txt' },
+      };
+
+      const result = execute(pipeline, registryOf(makeCommand('cat', () => 'file-content')), {
+        redirectWriter: writer,
+      });
+
+      expect(result).toBeUndefined();
+      expect(writer).toHaveBeenCalledWith('out.txt', 'file-content');
+    });
+
+    it('writes the final stage of a pipeline to the redirect target', () => {
+      const writer = vi.fn();
+      const producer = makeCommand('cat', () => 'alpha\nbeta\nroot\ngamma');
+      const consumer = makeShellCommand('grep', (ctx, pattern) =>
+        (ctx.stdin ?? '')
+          .split('\n')
+          .filter((l) => l.includes(pattern as string))
+          .join('\n'),
+      );
+      const pipeline: Pipeline = {
+        stages: [
+          { command: 'cat', args: ['/log'] },
+          { command: 'grep', args: ['root'] },
+        ],
+        redirect: { path: 'matches.txt' },
+      };
+
+      execute(pipeline, registryOf(producer, consumer), { redirectWriter: writer });
+
+      expect(writer).toHaveBeenCalledWith('matches.txt', 'root');
+    });
+
+    it('streams async final output live AND writes collected content to the file', () => {
+      const writer = vi.fn();
+      const stream = asyncOutputOf(['line-1', 'line-2', 'line-3']);
+      const pipeline: Pipeline = {
+        stages: [{ command: 'ping', args: [] }],
+        redirect: { path: 'ping.log' },
+      };
+
+      const result = execute(pipeline, registryOf(makeCommand('ping', () => stream)), {
+        redirectWriter: writer,
+      });
+
+      expect(result).toBeDefined();
+      const emitted: string[] = [];
+      let finished = false;
+      (result as AsyncOutput).start(
+        (line) => emitted.push(line),
+        () => {
+          finished = true;
+        },
+      );
+
+      expect(emitted).toEqual(['line-1', 'line-2', 'line-3']);
+      expect(finished).toBe(true);
+      expect(writer).toHaveBeenCalledWith('ping.log', 'line-1\nline-2\nline-3');
+    });
+
+    it('throws if a redirect is present but no writer is provided', () => {
+      const pipeline: Pipeline = {
+        stages: [{ command: 'cat', args: [] }],
+        redirect: { path: 'out.txt' },
+      };
+
+      expect(() => execute(pipeline, registryOf(makeCommand('cat', () => 'x')))).toThrow(
+        'bash: redirect: no writer configured',
+      );
+    });
+
+    it('surfaces errors thrown by the writer (sync case)', () => {
+      const writer = vi.fn(() => {
+        throw new Error('out.txt: Permission denied');
+      });
+      const pipeline: Pipeline = {
+        stages: [{ command: 'cat', args: [] }],
+        redirect: { path: 'out.txt' },
+      };
+
+      expect(() =>
+        execute(pipeline, registryOf(makeCommand('cat', () => 'x')), {
+          redirectWriter: writer,
+        }),
+      ).toThrow('out.txt: Permission denied');
+    });
+
+    it('does not invoke the writer when the pipeline has no redirect', () => {
+      const writer = vi.fn();
+      const pipeline: Pipeline = { stages: [{ command: 'cat', args: [] }] };
+
+      execute(pipeline, registryOf(makeCommand('cat', () => 'x')), { redirectWriter: writer });
+
+      expect(writer).not.toHaveBeenCalled();
+    });
+  });
 });

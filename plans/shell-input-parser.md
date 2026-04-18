@@ -118,11 +118,14 @@ Executor prefers `fnShell` when shell context is provided (pipe stdin) and the c
 
 ### Phase C — Redirect `>`
 
-1. Extend parser to accept `>` on the final stage with a path target
-2. Extend executor to collect final-stage stdout and write to file using the same permission-checked write path that `output.ts` uses (extract into a shared helper; don't duplicate)
-3. Integration tests: `cat foo > bar.txt`, `cat a | grep x > out.txt`, permission-denied cases, overwrite vs. create
+1. Parser accepts `>` as the trailing operator on the last stage with a path target. Bash-style errors for malformed cases (leading `>`, missing target, operator after target, redirect before a pipe).
+2. Executor gains an `options.redirectWriter` hook. When a pipeline has a redirect AND a writer is provided, the executor writes the final stage's output through the writer. Missing writer with present redirect → error (hard contract).
+3. **Async output tee-ing**: when the final stage is `AsyncOutput`, the executor returns a new `AsyncOutput` that streams lines live to the terminal AND collects them; on completion, the collected content is written to the file via the writer. Writer errors emit an inline bash-style error line. (This intentionally diverges from real bash, which would silence terminal output — game UX preference.)
+4. Sync final stage: writer called synchronously with the string result, executor returns `undefined` (nothing rendered).
+5. Terminal.tsx wires `redirectWriter` using `resolvePath` + `getNode` + `writeFile`/`createFile` + `session.userType`. Errors surface as `bash: <path>: <reason>`.
+6. The existing `output` command stays until Phase E. Redirect and `output` coexist during intermediate phases.
 
-**Acceptance:** redirect works including combined with pipes.
+**Acceptance:** `cat /etc/hosts > out.txt` works; `cat /etc/passwd | grep root > matches.txt` works; `ping 1.1.1.1 > ping.log` streams live to terminal while writing to file.
 
 ### Phase D — Tab completion rewrite
 

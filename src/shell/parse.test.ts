@@ -79,15 +79,52 @@ describe('parse', () => {
     });
   });
 
-  describe('Phase C rejections (redirect)', () => {
-    it('throws bash-style error on redirect token', () => {
-      expect(() => parse([word('ls'), redirect, word('out.txt')])).toThrow(
-        "bash: syntax error near unexpected token `>'",
-      );
+  describe('redirect', () => {
+    it('parses a redirect on a single command', () => {
+      expect(parse([word('ls'), redirect, word('out.txt')])).toEqual({
+        stages: [{ command: 'ls', args: [] }],
+        redirect: { path: 'out.txt' },
+      });
+    });
+
+    it('parses a redirect on the last stage of a pipeline', () => {
+      expect(
+        parse([word('cat'), word('/log'), pipe, word('grep'), word('x'), redirect, word('out')]),
+      ).toEqual({
+        stages: [
+          { command: 'cat', args: ['/log'] },
+          { command: 'grep', args: ['x'] },
+        ],
+        redirect: { path: 'out' },
+      });
     });
 
     it('throws when input starts with a redirect', () => {
       expect(() => parse([redirect, word('out.txt')])).toThrow(
+        "bash: syntax error near unexpected token `>'",
+      );
+    });
+
+    it('throws when redirect has no target', () => {
+      expect(() => parse([word('ls'), redirect])).toThrow(
+        "bash: syntax error near unexpected token `newline'",
+      );
+    });
+
+    it('throws when redirect target is another operator', () => {
+      expect(() => parse([word('ls'), redirect, pipe, word('cat')])).toThrow(
+        "bash: syntax error near unexpected token `|'",
+      );
+    });
+
+    it('throws when redirect appears before the last stage', () => {
+      expect(() =>
+        parse([word('cat'), redirect, word('mid.txt'), pipe, word('grep'), word('x')]),
+      ).toThrow("bash: syntax error near unexpected token `|'");
+    });
+
+    it('throws when multiple redirects appear', () => {
+      expect(() => parse([word('ls'), redirect, word('a.txt'), redirect, word('b.txt')])).toThrow(
         "bash: syntax error near unexpected token `>'",
       );
     });
