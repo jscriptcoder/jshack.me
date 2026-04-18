@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 
 export type CompletionMatch = {
   readonly name: string;
-  readonly display: string; // name with () for functions
+  readonly display: string;
 };
 
 export type CompletionResult = {
@@ -40,16 +40,8 @@ export const useAutoComplete = (
         return { matches: [], displayText: '', commonPrefix: '' };
       }
 
-      const commandItems = commandNames.map((name) => ({
-        name,
-        display: name + '()',
-      }));
-      const variableItems = variableNames.map((name) => ({
-        name,
-        display: name,
-      }));
-
-      const allItems = [...commandItems, ...variableItems];
+      const allNames = [...commandNames, ...variableNames];
+      const allItems = allNames.map((name) => ({ name, display: name }));
 
       const matches = allItems
         .filter((item) => item.name.toLowerCase().startsWith(trimmed.toLowerCase()))

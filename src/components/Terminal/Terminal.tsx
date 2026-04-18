@@ -41,6 +41,7 @@ import {
   isNanoOpen,
 } from './types';
 import type { AsyncFollowUp } from './types';
+import { tokenize, parse, execute } from '../../shell';
 
 const BANNER = `
      ██╗███████╗██╗  ██╗ █████╗  ██████╗██╗  ██╗   ███╗   ███╗███████╗
@@ -83,7 +84,7 @@ export const Terminal = () => {
   const terminalInputRef = useRef<HTMLInputElement>(null);
 
   const { addCommand, navigateUp, navigateDown, resetNavigation } = useCommandHistory();
-  const { getVariables, getVariableNames, handleVariableOperation } = useVariables();
+  const { getVariableNames } = useVariables();
   const {
     getPrompt,
     setUsername,
@@ -109,7 +110,7 @@ export const Terminal = () => {
     isInRedisMode,
     isMachineBricked,
   } = useSession();
-  const { executionContext, commandNames } = useCommands();
+  const { commands, commandNames } = useCommands();
   const ftpCommands = useFtpCommands();
   const ncCommands = useNcCommands();
   const { mysqlExecute } = useMysqlCommands();
@@ -260,7 +261,7 @@ export const Terminal = () => {
       addCommand(trimmedCommand);
 
       try {
-        // Redis mode: raw Redis command input, bypass variable handling and new Function()
+        // Redis mode: raw Redis command input, bypass the shell parser.
         if (isInRedisMode() && redisExecute) {
           const result = redisExecute(trimmedCommand);
           if (result.type === 'quit') {
@@ -278,7 +279,7 @@ export const Terminal = () => {
           return;
         }
 
-        // MySQL mode: raw SQL input, bypass variable handling and new Function()
+        // MySQL mode: raw SQL input, bypass the shell parser.
         if (isInMysqlMode() && mysqlExecute) {
           const result = mysqlExecute(trimmedCommand);
           if (result.type === 'quit') {
@@ -292,39 +293,15 @@ export const Terminal = () => {
           return;
         }
 
-        const variableResult = handleVariableOperation(trimmedCommand, executionContext);
-
-        if (variableResult !== null) {
-          if (!variableResult.success) {
-            addLine('error', `Error: ${variableResult.error}`);
-          } else if (variableResult.value !== undefined) {
-            const resultStr =
-              typeof variableResult.value === 'string'
-                ? variableResult.value
-                : JSON.stringify(variableResult.value, null, 2);
-            addLine('result', resultStr);
-          }
-          return;
-        }
-
-        // When in FTP or NC mode, swap the execution context so only that mode's
-        // commands are available (e.g., ftp> pwd, ls, get instead of normal commands)
-        const activeContext =
+        // In FTP or NC mode, only that mode's command set is visible to the shell.
+        const activeCommands =
           isInFtpMode() && ftpCommands
-            ? Object.fromEntries(Array.from(ftpCommands.entries()).map(([k, v]) => [k, v.fn]))
+            ? ftpCommands
             : isInNcMode() && ncCommands
-              ? Object.fromEntries(Array.from(ncCommands.entries()).map(([k, v]) => [k, v.fn]))
-              : executionContext;
+              ? ncCommands
+              : commands;
 
-        const variables = getVariables();
-        const context = { ...activeContext, ...variables };
-
-        const contextKeys = Object.keys(context);
-        const contextValues = Object.values(context);
-
-        // Commands are injected as local variables so users type e.g. help() not commands.help()
-        const fn = new Function(...contextKeys, `return ${trimmedCommand}`);
-        const result = fn(...contextValues);
+        const result = execute(parse(tokenize(trimmedCommand)), activeCommands);
 
         if (result !== undefined) {
           if (isClearOutput(result)) {
@@ -504,10 +481,8 @@ export const Terminal = () => {
       addLine,
       addAuthorLine,
       clearLines,
-      handleVariableOperation,
-      getVariables,
       getPrompt,
-      executionContext,
+      commands,
       canReturn,
       popSession,
       isInMysqlMode,
@@ -609,7 +584,8 @@ export const Terminal = () => {
 
       const { matches, displayText, commonPrefix } = getCompletions(input);
       if (matches.length === 1) {
-        setInput(matches[0].display);
+        // Trailing space so the cursor is ready to type arguments.
+        setInput(matches[0].display + ' ');
       } else if (matches.length > 1) {
         if (commonPrefix.length > input.trim().length) {
           setInput(commonPrefix);

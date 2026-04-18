@@ -52,7 +52,7 @@ describe('useAutoComplete', () => {
       const completions = result.current.getCompletions('hel');
 
       expect(completions.matches).toHaveLength(1);
-      expect(completions.matches[0]).toEqual({ name: 'help', display: 'help()' });
+      expect(completions.matches[0]).toEqual({ name: 'help', display: 'help' });
     });
 
     it('should match multiple commands', () => {
@@ -64,12 +64,12 @@ describe('useAutoComplete', () => {
       expect(completions.matches.map((m) => m.name)).toEqual(['hello', 'help']);
     });
 
-    it('should add () suffix to command display', () => {
+    it('should use bare command name in display (no parens)', () => {
       const { result } = renderHook(() => useAutoComplete(['echo']));
 
       const completions = result.current.getCompletions('e');
 
-      expect(completions.matches[0].display).toBe('echo()');
+      expect(completions.matches[0].display).toBe('echo');
     });
 
     it('should match exact command name', () => {
@@ -121,7 +121,7 @@ describe('useAutoComplete', () => {
       expect(completions.matches.map((m) => m.name)).toEqual(['hello', 'helm', 'help', 'helper']);
     });
 
-    it('should distinguish commands and variables in display', () => {
+    it('should use bare names for both commands and variables in display', () => {
       const { result } = renderHook(() => useAutoComplete(['test'], ['testing']));
 
       const completions = result.current.getCompletions('test');
@@ -129,7 +129,7 @@ describe('useAutoComplete', () => {
       const testCmd = completions.matches.find((m) => m.name === 'test');
       const testingVar = completions.matches.find((m) => m.name === 'testing');
 
-      expect(testCmd?.display).toBe('test()');
+      expect(testCmd?.display).toBe('test');
       expect(testingVar?.display).toBe('testing');
     });
   });
@@ -187,7 +187,7 @@ describe('useAutoComplete', () => {
 
       const completions = result.current.getCompletions('h');
 
-      expect(completions.displayText).toBe('help(), history()');
+      expect(completions.displayText).toBe('help, history');
     });
 
     it('should include both commands and variables in display text', () => {
@@ -195,7 +195,7 @@ describe('useAutoComplete', () => {
 
       const completions = result.current.getCompletions('e');
 
-      expect(completions.displayText).toBe('echo(), error');
+      expect(completions.displayText).toBe('echo, error');
     });
 
     it('should return single item without comma', () => {
@@ -203,7 +203,7 @@ describe('useAutoComplete', () => {
 
       const completions = result.current.getCompletions('uni');
 
-      expect(completions.displayText).toBe('unique()');
+      expect(completions.displayText).toBe('unique');
     });
   });
 

@@ -65,6 +65,7 @@ const SKIP_ACCESS_CHECK = new Set([
 ]);
 
 type UseCommandsResult = {
+  readonly commands: ReadonlyMap<string, Command>;
   readonly executionContext: Record<string, (...args: unknown[]) => unknown>;
   readonly commandNames: readonly string[];
 };
@@ -362,7 +363,7 @@ export const useCommands = (): UseCommandsResult => {
       isCommandVisible(name, session.machine, getNodeFromMachine, session.currentPath),
     );
 
-    return { executionContext, commandNames };
+    return { commands, executionContext, commandNames };
   }, [
     fileSystemCommands,
     networkCommands,
