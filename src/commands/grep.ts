@@ -1,6 +1,7 @@
 import type { Command } from '../components/Terminal/types';
 import type { FileNode, PermissionResult } from '../filesystem/types';
 import type { UserType } from '../session/SessionContext';
+import type { ShellContext } from '../shell/types';
 
 type GrepContext = {
   readonly getCurrentPath: () => string;
@@ -62,6 +63,57 @@ const walkAndSearch = (
   });
 };
 
+const searchOnFilesystem = (context: GrepContext, args: readonly unknown[]): string => {
+  const stringArgs = args.filter((arg): arg is string => typeof arg === 'string');
+
+  if (stringArgs.length < 2) {
+    throw new Error('grep: usage: grep(pattern, path, ["-l"])');
+  }
+
+  const [rawPattern, rawPath] = stringArgs;
+  const flags = stringArgs.slice(2);
+  const listOnly = flags.some((f) => f.includes('l'));
+  const searchPath = context.resolvePath(rawPath);
+  const node = context.getNode(searchPath);
+
+  if (!node) {
+    throw new Error(`grep: '${rawPath}': No such file or directory`);
+  }
+
+  const pattern = new RegExp(rawPattern, 'i');
+
+  if (node.type === 'file') {
+    const content = node.content ?? '';
+    if (isBinary(content)) return '';
+    const matches = searchFile(content, pattern);
+    if (listOnly) return matches.length > 0 ? searchPath : '';
+    return matches.join('\n');
+  }
+
+  const matches = walkAndSearch(node, searchPath, {
+    pattern,
+    userType: context.getUserType(),
+    canTraverse: context.canTraverse,
+  });
+
+  if (listOnly) {
+    const uniqueFiles = [...new Set(matches.map((m) => m.filepath))];
+    return uniqueFiles.join('\n');
+  }
+
+  return matches.map((m) => `${m.filepath}:${m.line}`).join('\n');
+};
+
+const searchStdin = (stdin: string, args: readonly unknown[]): string => {
+  const stringArgs = args.filter((arg): arg is string => typeof arg === 'string');
+  if (stringArgs.length < 1) {
+    throw new Error('grep: usage: grep(pattern, path, ["-l"])');
+  }
+
+  const pattern = new RegExp(stringArgs[0], 'i');
+  return searchFile(stdin, pattern).join('\n');
+};
+
 export const createGrepCommand = (context: GrepContext): Command => ({
   name: 'grep',
   category: 'filesystem',
@@ -69,7 +121,7 @@ export const createGrepCommand = (context: GrepContext): Command => ({
   manual: {
     synopsis: 'grep(pattern, path, ["-l"])',
     description:
-      'Search for lines matching a pattern in file contents. If path is a file, searches that file. If path is a directory, searches all files recursively. All searches are case-insensitive. Use "-l" to list only filenames containing matches. Binary files are skipped.',
+      'Search for lines matching a pattern in file contents. If path is a file, searches that file. If path is a directory, searches all files recursively. When piped (no path argument), searches the piped input. All searches are case-insensitive. Use "-l" to list only filenames containing matches. Binary files are skipped.',
     arguments: [
       { name: 'pattern', description: 'String to search for (case-insensitive)' },
       {
@@ -89,44 +141,11 @@ export const createGrepCommand = (context: GrepContext): Command => ({
       { command: 'grep("admin", "/var/log")', description: 'Search log files for "admin"' },
     ],
   },
-  fn: (...args: unknown[]): string => {
-    const stringArgs = args.filter((arg): arg is string => typeof arg === 'string');
-
-    if (stringArgs.length < 2) {
-      throw new Error('grep: usage: grep(pattern, path, ["-l"])');
-    }
-
-    const [rawPattern, rawPath] = stringArgs;
-    const flags = stringArgs.slice(2);
-    const listOnly = flags.some((f) => f.includes('l'));
-    const searchPath = context.resolvePath(rawPath as string);
-    const node = context.getNode(searchPath);
-
-    if (!node) {
-      throw new Error(`grep: '${rawPath}': No such file or directory`);
-    }
-
-    const pattern = new RegExp(rawPattern as string, 'i');
-
-    if (node.type === 'file') {
-      const content = node.content ?? '';
-      if (isBinary(content)) return '';
-      const matches = searchFile(content, pattern);
-      if (listOnly) return matches.length > 0 ? searchPath : '';
-      return matches.join('\n');
-    }
-
-    const matches = walkAndSearch(node, searchPath, {
-      pattern,
-      userType: context.getUserType(),
-      canTraverse: context.canTraverse,
-    });
-
-    if (listOnly) {
-      const uniqueFiles = [...new Set(matches.map((m) => m.filepath))];
-      return uniqueFiles.join('\n');
-    }
-
-    return matches.map((m) => `${m.filepath}:${m.line}`).join('\n');
+  fn: (...args: unknown[]): string => searchOnFilesystem(context, args),
+  fnShell: (ctx: ShellContext, ...args: unknown[]): string => {
+    // A path arg still means filesystem mode even when stdin is fed.
+    const hasPathArg = args.filter((a) => typeof a === 'string').length >= 2;
+    if (hasPathArg) return searchOnFilesystem(context, args);
+    return searchStdin(ctx.stdin ?? '', args);
   },
 });

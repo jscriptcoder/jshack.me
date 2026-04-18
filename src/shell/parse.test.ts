@@ -31,22 +31,58 @@ describe('parse', () => {
     });
   });
 
-  describe('Phase A rejections', () => {
-    it('throws bash-style error on pipe token', () => {
-      expect(() => parse([word('ls'), pipe, word('cat')])).toThrow(
-        "bash: syntax error near unexpected token `|'",
-      );
+  describe('pipes', () => {
+    it('parses a two-stage pipeline', () => {
+      expect(parse([word('ls'), pipe, word('cat')])).toEqual({
+        stages: [
+          { command: 'ls', args: [] },
+          { command: 'cat', args: [] },
+        ],
+      });
     });
 
-    it('throws bash-style error on redirect token', () => {
-      expect(() => parse([word('ls'), redirect, word('out.txt')])).toThrow(
-        "bash: syntax error near unexpected token `>'",
-      );
+    it('parses a three-stage pipeline', () => {
+      expect(parse([word('a'), pipe, word('b'), pipe, word('c')])).toEqual({
+        stages: [
+          { command: 'a', args: [] },
+          { command: 'b', args: [] },
+          { command: 'c', args: [] },
+        ],
+      });
+    });
+
+    it('preserves args per stage', () => {
+      expect(parse([word('cat'), word('/etc/passwd'), pipe, word('grep'), word('root')])).toEqual({
+        stages: [
+          { command: 'cat', args: ['/etc/passwd'] },
+          { command: 'grep', args: ['root'] },
+        ],
+      });
     });
 
     it('throws when input starts with a pipe', () => {
       expect(() => parse([pipe, word('cat')])).toThrow(
         "bash: syntax error near unexpected token `|'",
+      );
+    });
+
+    it('throws when a stage between pipes is empty', () => {
+      expect(() => parse([word('ls'), pipe, pipe, word('cat')])).toThrow(
+        "bash: syntax error near unexpected token `|'",
+      );
+    });
+
+    it('throws on a trailing pipe (missing command after)', () => {
+      expect(() => parse([word('ls'), pipe])).toThrow(
+        "bash: syntax error near unexpected token `|'",
+      );
+    });
+  });
+
+  describe('Phase C rejections (redirect)', () => {
+    it('throws bash-style error on redirect token', () => {
+      expect(() => parse([word('ls'), redirect, word('out.txt')])).toThrow(
+        "bash: syntax error near unexpected token `>'",
       );
     });
 

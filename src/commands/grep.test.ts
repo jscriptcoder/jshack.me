@@ -439,4 +439,65 @@ describe('grep command', () => {
       expect(() => grep.fn(123, true)).toThrow('grep: usage: grep(pattern, path, ["-l"])');
     });
   });
+
+  describe('stdin mode (fnShell)', () => {
+    const context = createMockContext({ rootNode: mkDir('/', {}) });
+
+    it('filters stdin by pattern when no file arg is given', () => {
+      const grep = createGrepCommand(context);
+      const stdin = 'root:x:0:0\nguest:x:1000:1000\nadmin:x:1001:1001';
+
+      const result = grep.fnShell?.({ stdin }, 'root');
+
+      expect(result).toBe('root:x:0:0');
+    });
+
+    it('matches case-insensitively in stdin mode', () => {
+      const grep = createGrepCommand(context);
+      const stdin = 'ROOT\nuser\nGuest';
+
+      const result = grep.fnShell?.({ stdin }, 'root');
+
+      expect(result).toBe('ROOT');
+    });
+
+    it('returns empty string when stdin has no matches', () => {
+      const grep = createGrepCommand(context);
+      const stdin = 'alpha\nbeta\ngamma';
+
+      expect(grep.fnShell?.({ stdin }, 'zzz')).toBe('');
+    });
+
+    it('returns empty string when stdin is empty', () => {
+      const grep = createGrepCommand(context);
+
+      expect(grep.fnShell?.({ stdin: '' }, 'anything')).toBe('');
+    });
+
+    it('returns empty string when stdin is undefined', () => {
+      const grep = createGrepCommand(context);
+
+      expect(grep.fnShell?.({}, 'anything')).toBe('');
+    });
+
+    it('delegates to fn when a file arg is present (pipe feeds file-mode grep)', () => {
+      const rootNode = mkDir('/', {
+        'log.txt': mkFile('log.txt', 'alpha\nbeta\ngamma'),
+      });
+      const ctx = createMockContext({ rootNode });
+      const grep = createGrepCommand(ctx);
+
+      const result = grep.fnShell?.({ stdin: 'ignored' }, 'alpha', '/log.txt');
+
+      expect(result).toBe('alpha');
+    });
+
+    it('throws when called with no pattern', () => {
+      const grep = createGrepCommand(context);
+
+      expect(() => grep.fnShell?.({ stdin: 'data' })).toThrow(
+        'grep: usage: grep(pattern, path, ["-l"])',
+      );
+    });
+  });
 });

@@ -96,13 +96,23 @@ All phases TDD — red, green, refactor.
 
 **Acceptance:** `nmap 10.10.10.10 -sV` works in the terminal. Still no pipes, no redirect.
 
-### Phase B — Pipes
+### Phase B — Pipes (Hybrid shell-context opt-in)
 
-1. Extend parser to accept `|` and produce multi-stage pipelines
-2. Extend executor to chain stages, collecting left stdout → right `context.stdin`
-3. Add `stdin?: string` to the shared `ShellContext` type
-4. Update `grep.ts` to read `context.stdin` when no file args — TDD the stdin path
-5. Integration tests: `cat /etc/passwd | grep root`, `ls /home | grep admin`, three-stage chains
+**Design decision (locked):** hybrid opt-in, not a full signature refactor. Command type gains an optional second method:
+
+```ts
+readonly fn: (...args: unknown[]) => unknown;                             // unchanged
+readonly fnShell?: (ctx: ShellContext, ...args: unknown[]) => unknown;    // opt-in
+```
+
+Executor prefers `fnShell` when shell context is provided (pipe stdin) and the command defines it. Scripts, 58/60 producer-only commands, and their tests stay untouched. Future shell features (env vars, stderr, signals) extend `ShellContext` — zero churn to non-shell-aware commands.
+
+1. Add `ShellContext` type in `src/shell/types.ts` with `stdin?: string`
+2. Add optional `fnShell` to `Command` type
+3. Extend parser to accept `|` and produce multi-stage pipelines
+4. Extend executor to chain stages: intermediate stage stdout → next stage `ctx.stdin`. Intermediate async outputs collected synchronously into a string; final stage passes through unchanged.
+5. Update `grep.ts` with `fnShell` that reads `ctx.stdin` when no file arg is present. File-mode grep unchanged (`fn` still works standalone).
+6. Integration tests: `cat /etc/passwd | grep root`, three-stage chains, async intermediate, fall-back to `fn` when command has no `fnShell`.
 
 **Acceptance:** pipes work for `grep` end-to-end.
 
