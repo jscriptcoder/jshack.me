@@ -123,7 +123,7 @@ Executor prefers `fnShell` when shell context is provided (pipe stdin) and the c
 3. **Async output tee-ing**: when the final stage is `AsyncOutput`, the executor returns a new `AsyncOutput` that streams lines live to the terminal AND collects them; on completion, the collected content is written to the file via the writer. Writer errors emit an inline bash-style error line. (This intentionally diverges from real bash, which would silence terminal output — game UX preference.)
 4. Sync final stage: writer called synchronously with the string result, executor returns `undefined` (nothing rendered).
 5. Terminal.tsx wires `redirectWriter` using `resolvePath` + `getNode` + `writeFile`/`createFile` + `session.userType`. Errors surface as `bash: <path>: <reason>`.
-6. The existing `output` command stays until Phase E. Redirect and `output` coexist during intermediate phases.
+6. The existing `output` command stays until Phase F. Redirect and `output` coexist during intermediate phases.
 
 **Acceptance:** `cat /etc/hosts > out.txt` works; `cat /etc/passwd | grep root > matches.txt` works; `ping 1.1.1.1 > ping.log` streams live to terminal while writing to file.
 
@@ -136,25 +136,38 @@ Executor prefers `fnShell` when shell context is provided (pipe stdin) and the c
 5. Redirect targets (`... > out<Tab>`) complete as paths.
 6. Deleted dead hooks: `useAutoComplete`, `usePathAutoComplete`, `usePathCompletionAdapters`, `useVariables` (all orphaned by Phases A–D).
 
-**Acceptance:** `cat /etc/pa<Tab>` → `/etc/passwd` (no quotes needed); `nmap -s<Tab>` lists `-sU`, `-sV`; `ls | gr<Tab>` → `grep `; `cat /x > /tmp/o<Tab>` → `/tmp/out.txt`. Known limitation: FTP/NC path completion now uses the default filesystem, not the mode-specific one — Phase F addresses.
+**Acceptance:** `cat /etc/pa<Tab>` → `/etc/passwd` (no quotes needed); `nmap -s<Tab>` lists `-sU`, `-sV`; `ls | gr<Tab>` → `grep `; `cat /x > /tmp/o<Tab>` → `/tmp/out.txt`. Known limitation: FTP/NC path completion now uses the default filesystem, not the mode-specific one — Phase G addresses.
 
-### Phase E — Cutover, command manuals, cleanup
+### Phase E — Flag audit
 
-1. Delete the `new Function()` JS-eval branch in `executeCommand` (`Terminal.tsx:326`) — scripts keep their own path, unchanged
-2. Delete `src/commands/output.ts` and `output.test.ts` — `>` replaces it. Remove from registry wiring.
-3. **Rewrite every command's `manual.synopsis` and `manual.examples[].command`** from JS-call syntax to shell syntax across all ~60 command files. `man` renders these verbatim (`man.ts:5,23`), so they must match the new input style.
+Read the source of each command under `src/commands/` and identify every flag it accepts in code. Add a matching entry to `manual.arguments` for any flag not already documented (entries with `name` starting with `-`). Phase D's tab completion reads these entries — once filled in, `<cmd> -<Tab>` will list all supported flags across the whole command set.
+
+1. For each command file, locate flag-handling logic (e.g., `args.includes('-l')`, `args.filter(a => a.startsWith('-'))`, switch on flag strings).
+2. Confirm `manual.arguments` contains an entry for each flag. If missing, add `{ name: '-x', description: '...', required: false }`.
+3. Unify existing quoted variants (e.g., `'"-l"'` — old JS-syntax artifact) to bare `-l`.
+4. Descriptions should be concise and player-facing (what the flag does, not implementation detail).
+5. Do **not** touch `synopsis` or `examples` in this phase — those are Phase F's scope.
+
+**Out of scope:** synopsis/examples rewrite, deleting `output`, version bump, doc updates.
+
+**Acceptance:** `<cmd> -<Tab>` lists every flag the command actually supports, across every command that accepts flags. `npx tsc --noEmit` + `npm run test:run` green.
+
+### Phase F — Manual rewrite + cleanup
+
+1. **Rewrite every command's `manual.synopsis` and `manual.examples[].command`** from JS-call syntax to shell syntax across all ~60 command files. `man` renders these verbatim (`man.ts:5,23`), so they must match the new input style.
    - `synopsis: 'nmap(target, ...flags)'` → `synopsis: 'nmap <target> [flags...]'`
    - `{ command: 'nmap("192.168.1.1", "-sV")' }` → `{ command: 'nmap 192.168.1.1 -sV' }`
-   - Audit tests that assert against synopsis/example strings and update
-4. Update docs — `README.md`, `src/commands/README.md`, `.claude/docs/*` — use shell syntax for interactive examples. **Keep JS syntax only where the context is clearly about scripts** (scripts are unchanged).
-5. Bump version in `package.json` + lockfile (feature change — per memory)
-6. Full verification: `npm run build`, `npm run lint`, `npm run format`, `npm run test:run`
+   - Audit tests that assert against synopsis/example strings and update.
+2. Delete `src/commands/output.ts` and `output.test.ts` — `>` replaces it. Remove from registry wiring.
+3. Update docs — `README.md`, `src/commands/README.md`, `.claude/docs/*` — use shell syntax for interactive examples. **Keep JS syntax only where the context is clearly about scripts** (scripts are unchanged).
+4. Bump version in `package.json` + lockfile (feature change — per memory).
+5. Full verification: `npm run build`, `npm run lint`, `npm run format`, `npm run test:run`.
 
-**Acceptance:** single dispatch path for interactive input, `output` gone, every `man <cmd>` shows shell syntax, version bumped, all checks green.
+**Acceptance:** every `man <cmd>` shows shell syntax, `output` gone, version bumped, all checks green.
 
-### Phase F — FTP / NC mode shell migration (follow-up)
+### Phase G — FTP / NC mode shell migration (follow-up)
 
-Separate branch/PR after Phase E lands. Apply the same tokenize → parse → execute pipeline to `ftp>` and `nc>` modes so players can type `get file.txt` instead of `get("file.txt")`. Redis and MySQL modes remain raw-input (authentic to their real CLIs).
+Separate branch/PR after Phase F lands. Apply the same tokenize → parse → execute pipeline to `ftp>` and `nc>` modes so players can type `get file.txt` instead of `get("file.txt")`. Also reconnect FTP/NC path completion to the correct session filesystem (regressed in Phase D). Redis and MySQL modes remain raw-input (authentic to their real CLIs).
 
 ## Testing strategy
 
@@ -170,7 +183,7 @@ Separate branch/PR after Phase E lands. Apply the same tokenize → parse → ex
 4. **Exit codes**: deferred. Commands continue to throw on error; the executor renders the error message as today. No `$?` plumbing.
 5. **Mode parsers**:
    - `redis` and `mysql` — unchanged (raw-input paths remain; their real CLIs aren't bash-shaped, so current behavior is authentic).
-   - `ftp` and `nc` — should convert to shell-style eventually, but **as a separate step after the main shell lands** (see Phase F).
+   - `ftp` and `nc` — should convert to shell-style eventually, but **as a separate step after the main shell lands** (see Phase G).
 
 ## Out-of-scope follow-ups
 
