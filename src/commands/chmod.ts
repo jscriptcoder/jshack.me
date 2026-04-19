@@ -87,18 +87,37 @@ const applyMode = (
   return updated as FilePermissions;
 };
 
+const MODE_SYNTAX = /^[ugoa]*[+-][rwx]+$/;
+
+type PathedNode = { readonly node: FileNode; readonly path: string };
+
+function* walkTree(node: FileNode, path: string): Generator<PathedNode> {
+  yield { node, path };
+  if (node.type === 'directory' && node.children) {
+    for (const [childName, child] of Object.entries(node.children)) {
+      const childPath = path === '/' ? `/${childName}` : `${path}/${childName}`;
+      yield* walkTree(child, childPath);
+    }
+  }
+}
+
 export const createChmodCommand = (context: ChmodContext): Command => ({
   name: 'chmod',
   category: 'filesystem',
   description: 'Change file permissions',
   manual: {
-    synopsis: 'chmod <mode> <path>',
+    synopsis: 'chmod [-R] <mode> <path>',
     description:
-      'Change the permissions of a file or directory. Only the file owner or root can change permissions. Uses symbolic notation: [ugoa][+-][rwx]. u=owner, g=user, o=guest, a=all.',
+      'Change the permissions of a file or directory. Only the file owner or root can change permissions. Uses symbolic notation: [ugoa][+-][rwx]. u=owner, g=user, o=guest, a=all. -R recurses into directories; per-node ownership is enforced, non-owned nodes are skipped with an error and the walk continues.',
     arguments: [
       {
+        name: '-R',
+        description: 'Recurse into directories, applying the mode to every descendant',
+        required: false,
+      },
+      {
         name: 'mode',
-        description: 'Symbolic mode string (e.g., "o+x", "u-w", "a+rx", "go-w")',
+        description: 'Symbolic mode string (e.g., "o+x", "u-w", "a+rx", "go-rwx")',
         required: true,
       },
       {
@@ -114,20 +133,31 @@ export const createChmodCommand = (context: ChmodContext): Command => ({
         description: 'Make script readable and executable by all',
       },
       { command: 'chmod u-w readonly.txt', description: 'Remove write permission for owner' },
+      {
+        command: 'chmod -R go-rwx /home/jscript',
+        description: 'Lock down a home directory tree: strip all access from user + guest',
+      },
     ],
   },
   fn: (...args: unknown[]): string => {
     const { resolvePath, getNode, getUserType, updatePermissions, canTraverse } = context;
 
-    if (args.length < 2) {
-      throw new Error('chmod: missing operand\nUsage: chmod <mode> <path>');
+    const recursive = args.includes('-R');
+    const positional = args.filter((a) => a !== '-R');
+
+    if (positional.length < 2) {
+      throw new Error('chmod: missing operand\nUsage: chmod [-R] <mode> <path>');
     }
 
-    const mode = args[0];
-    const path = args[1];
+    const mode = positional[0];
+    const path = positional[1];
 
     if (typeof mode !== 'string' || typeof path !== 'string') {
-      throw new Error('chmod: invalid arguments\nUsage: chmod <mode> <path>');
+      throw new Error('chmod: invalid arguments\nUsage: chmod [-R] <mode> <path>');
+    }
+
+    if (!MODE_SYNTAX.test(mode)) {
+      throw new Error(`chmod: invalid mode: '${mode}'`);
     }
 
     const userType = getUserType();
@@ -138,28 +168,49 @@ export const createChmodCommand = (context: ChmodContext): Command => ({
       throw new Error(`chmod: cannot access '${path}': Permission denied`);
     }
 
-    const node = getNode(resolvedPath);
-    if (!node) {
+    const rootNode = getNode(resolvedPath);
+    if (!rootNode) {
       throw new Error(`chmod: cannot access '${path}': No such file or directory`);
     }
 
-    // Only owner or root can chmod
-    if (userType !== 'root' && userType !== node.owner) {
-      throw new Error(`chmod: changing permissions of '${path}': Operation not permitted`);
+    const targets: readonly PathedNode[] =
+      recursive && rootNode.type === 'directory'
+        ? [...walkTree(rootNode, resolvedPath)]
+        : [{ node: rootNode, path: resolvedPath }];
+
+    // Per-file ownership check so partial failures don't stop the walk (matches
+    // real chmod -R). For a non-recursive invocation with a single target this
+    // still produces the same single-error behavior via the throw below.
+    const errors: string[] = [];
+
+    for (const { node, path: nodePath } of targets) {
+      if (userType !== 'root' && userType !== node.owner) {
+        const msg = `chmod: changing permissions of '${nodePath}': Operation not permitted`;
+        if (!recursive) {
+          throw new Error(msg);
+        }
+        errors.push(msg);
+        continue;
+      }
+
+      // Parse per-node because 'u' resolves to each file's own owner.
+      const parsed = parseSymbolicMode(mode, node.owner);
+      if (!parsed) {
+        throw new Error(`chmod: invalid mode: '${mode}'`);
+      }
+
+      const newPermissions = applyMode(node.permissions, parsed.targets, parsed.op, parsed.perms);
+      const result = updatePermissions(nodePath, newPermissions);
+
+      if (!result.allowed) {
+        const msg = result.error ?? `chmod: cannot modify '${nodePath}'`;
+        if (!recursive) {
+          throw new Error(msg);
+        }
+        errors.push(msg);
+      }
     }
 
-    const parsed = parseSymbolicMode(mode, node.owner);
-    if (!parsed) {
-      throw new Error(`chmod: invalid mode: '${mode}'`);
-    }
-
-    const newPermissions = applyMode(node.permissions, parsed.targets, parsed.op, parsed.perms);
-    const result = updatePermissions(resolvedPath, newPermissions);
-
-    if (!result.allowed) {
-      throw new Error(result.error ?? `chmod: cannot modify '${path}'`);
-    }
-
-    return '';
+    return errors.join('\n');
   },
 });

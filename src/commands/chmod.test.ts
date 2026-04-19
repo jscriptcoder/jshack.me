@@ -240,6 +240,213 @@ describe('chmod command', () => {
     });
   });
 
+  describe('recursive mode (-R)', () => {
+    const makeDir = (
+      name: string,
+      owner: UserType,
+      children: Record<string, FileNode>,
+    ): FileNode => ({
+      name,
+      type: 'directory',
+      owner,
+      permissions: {
+        read: ['root', 'user', 'guest'],
+        write: ['root', owner],
+        execute: ['root', 'user', 'guest'],
+      },
+      children,
+    });
+
+    const makeFile = (name: string, owner: UserType): FileNode => ({
+      name,
+      type: 'file',
+      owner,
+      permissions: {
+        read: ['root', 'user', 'guest'],
+        write: ['root', owner],
+        execute: ['root', 'user', 'guest'],
+      },
+      content: '',
+    });
+
+    // Tree: /home/jscript/ (user) -> secret.txt (user), docs/ (user) -> report.txt (user)
+    const buildUserTree = (): Record<string, FileNode> => {
+      const report = makeFile('report.txt', 'user');
+      const docs = makeDir('docs', 'user', { 'report.txt': report });
+      const secret = makeFile('secret.txt', 'user');
+      const home = makeDir('jscript', 'user', { 'secret.txt': secret, docs });
+      return {
+        '/home/jscript': home,
+        '/home/jscript/secret.txt': secret,
+        '/home/jscript/docs': docs,
+        '/home/jscript/docs/report.txt': report,
+      };
+    };
+
+    it('applies the mode to every descendant of a directory', () => {
+      const { context } = createMockContext({
+        userType: 'user',
+        fileSystem: buildUserTree(),
+      });
+
+      const chmod = createChmodCommand(context);
+      const result = chmod.fn('-R', 'go-rwx', '/home/jscript') as string;
+
+      const updates = vi.mocked(context.updatePermissions).mock.calls;
+      const updatedPaths = updates.map((call) => call[0]).sort();
+      expect(updatedPaths).toEqual(
+        [
+          '/home/jscript',
+          '/home/jscript/docs',
+          '/home/jscript/docs/report.txt',
+          '/home/jscript/secret.txt',
+        ].sort(),
+      );
+
+      // Every descendant should have guest + user stripped from rwx
+      updates.forEach((call) => {
+        const perms = call[1];
+        expect(perms.read).not.toContain('guest');
+        expect(perms.read).not.toContain('user');
+        expect(perms.write).not.toContain('guest');
+        expect(perms.write).not.toContain('user');
+        expect(perms.execute).not.toContain('guest');
+        expect(perms.execute).not.toContain('user');
+        // root survives because applyMode never strips root
+        expect(perms.read).toContain('root');
+      });
+
+      expect(result).toBe('');
+    });
+
+    it('is a no-op on children when target is a plain file', () => {
+      const file = makeFile('test.txt', 'user');
+      const { context } = createMockContext({
+        userType: 'user',
+        fileSystem: { '/test.txt': file },
+      });
+
+      const chmod = createChmodCommand(context);
+      chmod.fn('-R', 'o+x', '/test.txt');
+
+      expect(vi.mocked(context.updatePermissions).mock.calls).toHaveLength(1);
+      expect(vi.mocked(context.updatePermissions).mock.calls[0][0]).toBe('/test.txt');
+    });
+
+    it('accepts -R before the mode argument', () => {
+      const { context } = createMockContext({
+        userType: 'user',
+        fileSystem: buildUserTree(),
+      });
+
+      const chmod = createChmodCommand(context);
+      chmod.fn('-R', 'go-rwx', '/home/jscript');
+
+      expect(vi.mocked(context.updatePermissions).mock.calls).toHaveLength(4);
+    });
+
+    it('accepts -R between the mode and path', () => {
+      const { context } = createMockContext({
+        userType: 'user',
+        fileSystem: buildUserTree(),
+      });
+
+      const chmod = createChmodCommand(context);
+      chmod.fn('go-rwx', '-R', '/home/jscript');
+
+      expect(vi.mocked(context.updatePermissions).mock.calls).toHaveLength(4);
+    });
+
+    it('accepts -R after the path argument', () => {
+      const { context } = createMockContext({
+        userType: 'user',
+        fileSystem: buildUserTree(),
+      });
+
+      const chmod = createChmodCommand(context);
+      chmod.fn('go-rwx', '/home/jscript', '-R');
+
+      expect(vi.mocked(context.updatePermissions).mock.calls).toHaveLength(4);
+    });
+
+    it('skips files the caller does not own but keeps walking', () => {
+      // Mixed-ownership tree: /shared (user) contains user-owned file and root-owned file
+      const myFile = makeFile('mine.txt', 'user');
+      const theirFile = makeFile('theirs.txt', 'root');
+      const shared = makeDir('shared', 'user', { 'mine.txt': myFile, 'theirs.txt': theirFile });
+
+      const { context } = createMockContext({
+        userType: 'user',
+        fileSystem: {
+          '/shared': shared,
+          '/shared/mine.txt': myFile,
+          '/shared/theirs.txt': theirFile,
+        },
+      });
+
+      const chmod = createChmodCommand(context);
+      const result = chmod.fn('-R', 'go-rwx', '/shared') as string;
+
+      const updates = vi.mocked(context.updatePermissions).mock.calls.map((call) => call[0]);
+      expect(updates).toContain('/shared');
+      expect(updates).toContain('/shared/mine.txt');
+      // Root-owned file must NOT have been touched
+      expect(updates).not.toContain('/shared/theirs.txt');
+
+      expect(result).toContain("chmod: changing permissions of '/shared/theirs.txt'");
+      expect(result).toContain('Operation not permitted');
+    });
+
+    it('returns empty string when every application succeeds', () => {
+      const { context } = createMockContext({
+        userType: 'root',
+        fileSystem: buildUserTree(),
+      });
+
+      const chmod = createChmodCommand(context);
+      const result = chmod.fn('-R', 'go-rwx', '/home/jscript') as string;
+
+      expect(result).toBe('');
+    });
+
+    it('joins multiple error lines with newlines', () => {
+      const f1 = makeFile('a.txt', 'root');
+      const f2 = makeFile('b.txt', 'root');
+      const dir = makeDir('locked', 'user', { 'a.txt': f1, 'b.txt': f2 });
+      const { context } = createMockContext({
+        userType: 'user',
+        fileSystem: { '/locked': dir, '/locked/a.txt': f1, '/locked/b.txt': f2 },
+      });
+
+      const chmod = createChmodCommand(context);
+      const result = chmod.fn('-R', 'go-rwx', '/locked') as string;
+
+      const lines = result.split('\n');
+      expect(lines).toHaveLength(2);
+      lines.forEach((line) => expect(line).toContain('Operation not permitted'));
+    });
+
+    it('resolves symbolic u per-node when owners differ', () => {
+      const rootFile = makeFile('a.txt', 'root');
+      const userFile = makeFile('b.txt', 'user');
+      const dir = makeDir('mixed', 'root', { 'a.txt': rootFile, 'b.txt': userFile });
+      const { context } = createMockContext({
+        userType: 'root',
+        fileSystem: { '/mixed': dir, '/mixed/a.txt': rootFile, '/mixed/b.txt': userFile },
+      });
+
+      const chmod = createChmodCommand(context);
+      chmod.fn('-R', 'u+w', '/mixed');
+
+      // 'u' should resolve to each node's owner
+      const calls = vi.mocked(context.updatePermissions).mock.calls;
+      const aCall = calls.find((c) => c[0] === '/mixed/a.txt');
+      const bCall = calls.find((c) => c[0] === '/mixed/b.txt');
+      expect(aCall?.[1].write).toContain('root');
+      expect(bCall?.[1].write).toContain('user');
+    });
+  });
+
   describe('implicit who defaults to all', () => {
     it('should treat bare +x as a+x', () => {
       const node = makeMockNode({
