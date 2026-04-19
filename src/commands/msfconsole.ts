@@ -82,7 +82,8 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
     const { getMachine, getLocalIP, resolveDomain, onExploitAttempt } = context;
 
     const host = args[0] as string | undefined;
-    const port = args[1] as number | undefined;
+    const portArg = args[1];
+    const port = portArg === undefined ? undefined : Number(portArg);
     const thirdArg = args[2] as string | undefined;
 
     if (!host) {
@@ -91,7 +92,7 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
       );
     }
 
-    if (port === undefined || typeof port !== 'number') {
+    if (port === undefined || Number.isNaN(port)) {
       throw new Error(
         'msfconsole: missing or invalid port\nUsage: msfconsole <host> <port> [path-or-local:remote]',
       );

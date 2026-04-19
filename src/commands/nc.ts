@@ -102,13 +102,14 @@ const connectNc = (context: NcConnectContext, args: readonly unknown[]): AsyncOu
   const { getMachine, getLocalIP, resolveDomain, onNcConnect } = context;
 
   const host = args[0] as string | undefined;
-  const port = args[1] as number | undefined;
+  const portArg = args[1];
+  const port = portArg === undefined ? undefined : Number(portArg);
 
   if (!host) {
     throw new Error('nc: missing host\nUsage: nc <host> <port>');
   }
 
-  if (port === undefined || typeof port !== 'number') {
+  if (port === undefined || Number.isNaN(port)) {
     throw new Error('nc: missing or invalid port\nUsage: nc <host> <port>');
   }
 

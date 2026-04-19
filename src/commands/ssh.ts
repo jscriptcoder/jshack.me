@@ -74,25 +74,32 @@ export const createSshCommand = (context: SshContext): Command => ({
 
     const { user, host } = parsed;
 
-    // Overloaded args: ssh(target, password?) or ssh(target, port, password?)
+    // Overloaded args: ssh(target, password?) or ssh(target, port, password?).
+    // Script callers may pass a number (strict validation); shell callers pass
+    // strings and we interpret port-shaped integers as ports.
     const secondArg = args[1];
     const thirdArg = args[2];
 
-    const port =
-      typeof secondArg === 'number'
-        ? Number.isInteger(secondArg) && secondArg >= 1 && secondArg <= 65535
-          ? secondArg
-          : (() => {
-              throw new Error(`ssh: invalid port '${String(secondArg)}'`);
-            })()
-        : 22;
+    let port = 22;
+    let password: string | undefined;
 
-    const password =
-      typeof secondArg === 'string'
-        ? secondArg
-        : typeof thirdArg === 'string'
-          ? thirdArg
-          : undefined;
+    if (typeof secondArg === 'number') {
+      if (!Number.isInteger(secondArg) || secondArg < 1 || secondArg > 65535) {
+        throw new Error(`ssh: invalid port '${String(secondArg)}'`);
+      }
+      port = secondArg;
+      password = typeof thirdArg === 'string' ? thirdArg : undefined;
+    } else if (typeof secondArg === 'string') {
+      const asNum = Number(secondArg);
+      const looksLikePort =
+        secondArg.trim() !== '' && Number.isInteger(asNum) && asNum >= 1 && asNum <= 65535;
+      if (looksLikePort) {
+        port = asNum;
+        password = typeof thirdArg === 'string' ? thirdArg : undefined;
+      } else {
+        password = secondArg;
+      }
+    }
 
     const localIP = getLocalIP();
     if (host === localIP || host === '127.0.0.1' || host === 'localhost') {
