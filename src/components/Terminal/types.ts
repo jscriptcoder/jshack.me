@@ -1,3 +1,5 @@
+import type { ShellContext } from '../../shell/types';
+
 export type AuthorLink = {
   readonly label: string;
   readonly url: string;
@@ -159,6 +161,9 @@ export type CommandArgument = {
   readonly name: string;
   readonly description: string;
   readonly required?: boolean;
+  // Discrete set of valid values for this argument slot. Used by tab completion
+  // to offer keywords at the first arg position (e.g., apt install/list/upgrade).
+  readonly values?: readonly string[];
 };
 
 export type CommandExample = {
@@ -181,6 +186,9 @@ export type Command = {
   readonly description: string;
   readonly manual?: CommandManual;
   readonly fn: (...args: unknown[]) => unknown;
+  // Optional opt-in for shell features (stdin, future env/stderr). When a pipeline
+  // provides shell context and the command defines fnShell, the executor prefers it.
+  readonly fnShell?: (ctx: ShellContext, ...args: unknown[]) => unknown;
 };
 
 // Type guards for discriminated unions

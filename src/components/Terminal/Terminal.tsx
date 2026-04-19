@@ -1,12 +1,9 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { TerminalOutput } from './TerminalOutput';
 import { TerminalInput } from './TerminalInput';
 import { NanoEditor } from './NanoEditor';
 import { useCommandHistory } from '../../hooks/useCommandHistory';
-import { useAutoComplete } from '../../hooks/useAutoComplete';
-import { usePathCompletionAdapters } from '../../hooks/usePathCompletionAdapters';
 import { useAuthentication } from '../../hooks/useAuthentication';
-import { useVariables } from '../../hooks/useVariables';
 import { useCommands } from '../../hooks/useCommands';
 import { useFtpCommands } from '../../hooks/useFtpCommands';
 import { useNcCommands } from '../../hooks/useNcCommands';
@@ -41,6 +38,7 @@ import {
   isNanoOpen,
 } from './types';
 import type { AsyncFollowUp } from './types';
+import { tokenize, parse, execute, complete, type CompleteAdapter } from '../../shell';
 
 const BANNER = `
      ██╗███████╗██╗  ██╗ █████╗  ██████╗██╗  ██╗   ███╗   ███╗███████╗
@@ -83,7 +81,6 @@ export const Terminal = () => {
   const terminalInputRef = useRef<HTMLInputElement>(null);
 
   const { addCommand, navigateUp, navigateDown, resetNavigation } = useCommandHistory();
-  const { getVariables, getVariableNames, handleVariableOperation } = useVariables();
   const {
     getPrompt,
     setUsername,
@@ -93,8 +90,6 @@ export const Terminal = () => {
     popSession,
     canReturn,
     session,
-    ncSession,
-    ftpSession,
     enterFtpMode,
     exitFtpMode,
     isInFtpMode,
@@ -109,7 +104,7 @@ export const Terminal = () => {
     isInRedisMode,
     isMachineBricked,
   } = useSession();
-  const { executionContext, commandNames } = useCommands();
+  const { commands, commandNames } = useCommands();
   const ftpCommands = useFtpCommands();
   const ncCommands = useNcCommands();
   const { mysqlExecute } = useMysqlCommands();
@@ -122,9 +117,6 @@ export const Terminal = () => {
     getDefaultHomePath,
     listDirectory,
     resolvePath,
-    resolvePathForMachine,
-    getNodeFromMachine,
-    listDirectoryFromMachine,
     readFileFromMachine,
     writeFileToMachine,
     createFileOnMachine,
@@ -132,16 +124,43 @@ export const Terminal = () => {
   const { getMachine, findMachineUsers, findMachineByIp, resolveNat, getLocalIP, getPublicIP } =
     useNetwork();
 
-  const activeCommandNames = isInRedisMode()
-    ? []
-    : isInMysqlMode()
-      ? []
-      : isInFtpMode() && ftpCommands
-        ? Array.from(ftpCommands.keys())
+  const shellCompleteAdapter = useMemo<CompleteAdapter>(() => {
+    const active =
+      isInFtpMode() && ftpCommands
+        ? ftpCommands
         : isInNcMode() && ncCommands
-          ? Array.from(ncCommands.keys())
-          : commandNames;
-  const { getCompletions } = useAutoComplete(activeCommandNames, getVariableNames());
+          ? ncCommands
+          : commands;
+    const visibleNames = isInRedisMode()
+      ? []
+      : isInMysqlMode()
+        ? []
+        : isInFtpMode() && ftpCommands
+          ? Array.from(ftpCommands.keys())
+          : isInNcMode() && ncCommands
+            ? Array.from(ncCommands.keys())
+            : commandNames;
+    return {
+      commandNames: visibleNames,
+      getCommand: (name) => active.get(name),
+      listPath: (abs) => listDirectory(abs, session.userType),
+      isDirectory: (abs) => getNode(abs)?.type === 'directory',
+      resolvePath,
+    };
+  }, [
+    commands,
+    commandNames,
+    ftpCommands,
+    ncCommands,
+    isInFtpMode,
+    isInNcMode,
+    isInRedisMode,
+    isInMysqlMode,
+    listDirectory,
+    getNode,
+    resolvePath,
+    session.userType,
+  ]);
 
   const addLine = useCallback(
     (type: 'command' | 'result' | 'error' | 'banner', content: string, prompt?: string) => {
@@ -231,20 +250,6 @@ export const Terminal = () => {
     }),
   });
 
-  const { getPathCompletions } = usePathCompletionAdapters({
-    ncSession,
-    ftpSession,
-    isInNcMode,
-    isInFtpMode,
-    userType: session.userType,
-    listDirectory,
-    getNode,
-    resolvePath,
-    listDirectoryFromMachine,
-    getNodeFromMachine,
-    resolvePathForMachine,
-  });
-
   useEffect(() => {
     if (outputRef.current) {
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
@@ -260,7 +265,7 @@ export const Terminal = () => {
       addCommand(trimmedCommand);
 
       try {
-        // Redis mode: raw Redis command input, bypass variable handling and new Function()
+        // Redis mode: raw Redis command input, bypass the shell parser.
         if (isInRedisMode() && redisExecute) {
           const result = redisExecute(trimmedCommand);
           if (result.type === 'quit') {
@@ -278,7 +283,7 @@ export const Terminal = () => {
           return;
         }
 
-        // MySQL mode: raw SQL input, bypass variable handling and new Function()
+        // MySQL mode: raw SQL input, bypass the shell parser.
         if (isInMysqlMode() && mysqlExecute) {
           const result = mysqlExecute(trimmedCommand);
           if (result.type === 'quit') {
@@ -292,39 +297,28 @@ export const Terminal = () => {
           return;
         }
 
-        const variableResult = handleVariableOperation(trimmedCommand, executionContext);
-
-        if (variableResult !== null) {
-          if (!variableResult.success) {
-            addLine('error', `Error: ${variableResult.error}`);
-          } else if (variableResult.value !== undefined) {
-            const resultStr =
-              typeof variableResult.value === 'string'
-                ? variableResult.value
-                : JSON.stringify(variableResult.value, null, 2);
-            addLine('result', resultStr);
-          }
-          return;
-        }
-
-        // When in FTP or NC mode, swap the execution context so only that mode's
-        // commands are available (e.g., ftp> pwd, ls, get instead of normal commands)
-        const activeContext =
+        // In FTP or NC mode, only that mode's command set is visible to the shell.
+        const activeCommands =
           isInFtpMode() && ftpCommands
-            ? Object.fromEntries(Array.from(ftpCommands.entries()).map(([k, v]) => [k, v.fn]))
+            ? ftpCommands
             : isInNcMode() && ncCommands
-              ? Object.fromEntries(Array.from(ncCommands.entries()).map(([k, v]) => [k, v.fn]))
-              : executionContext;
+              ? ncCommands
+              : commands;
 
-        const variables = getVariables();
-        const context = { ...activeContext, ...variables };
+        const redirectWriter = (path: string, content: string): void => {
+          const resolved = resolvePath(path);
+          const existing = getNode(resolved);
+          const outcome = existing
+            ? writeFile(path, content, session.userType)
+            : createFile(path, content, session.userType);
+          if (!outcome.allowed) {
+            throw new Error(`bash: ${path}: ${outcome.error ?? 'write failed'}`);
+          }
+        };
 
-        const contextKeys = Object.keys(context);
-        const contextValues = Object.values(context);
-
-        // Commands are injected as local variables so users type e.g. help() not commands.help()
-        const fn = new Function(...contextKeys, `return ${trimmedCommand}`);
-        const result = fn(...contextValues);
+        const result = execute(parse(tokenize(trimmedCommand)), activeCommands, {
+          redirectWriter,
+        });
 
         if (result !== undefined) {
           if (isClearOutput(result)) {
@@ -504,10 +498,8 @@ export const Terminal = () => {
       addLine,
       addAuthorLine,
       clearLines,
-      handleVariableOperation,
-      getVariables,
       getPrompt,
-      executionContext,
+      commands,
       canReturn,
       popSession,
       isInMysqlMode,
@@ -522,6 +514,9 @@ export const Terminal = () => {
       enterNcMode,
       getNode,
       readFile,
+      resolvePath,
+      writeFile,
+      createFile,
       session.userType,
       resolveNat,
       startPasswordPrompt,
@@ -585,39 +580,27 @@ export const Terminal = () => {
     setInput(cmd);
   }, [navigateDown]);
 
-  // Two-layer tab completion: path completion (inside string literals) takes priority,
-  // then falls back to command/variable name completion
+  // Tokenizer-driven completion: classifies the cursor as command / path / flag position,
+  // then dispatches to the appropriate source (command registry / filesystem / command.manual).
   const handleTab = useCallback(
     (cursorPosition: number) => {
-      const pathResult = getPathCompletions(input, cursorPosition);
-      if (pathResult) {
-        if (pathResult.replacement !== input) {
-          setInput(pathResult.replacement);
-          // Defer cursor repositioning until after React re-renders with new value
-          requestAnimationFrame(() => {
-            terminalInputRef.current?.setSelectionRange(
-              pathResult.newCursorPosition,
-              pathResult.newCursorPosition,
-            );
-          });
-        }
-        if (pathResult.matches.length > 1) {
-          addLine('result', pathResult.displayText);
-        }
-        return;
-      }
+      const outcome = complete(input, cursorPosition, shellCompleteAdapter);
+      if (outcome.matches.length === 0) return;
 
-      const { matches, displayText, commonPrefix } = getCompletions(input);
-      if (matches.length === 1) {
-        setInput(matches[0].display);
-      } else if (matches.length > 1) {
-        if (commonPrefix.length > input.trim().length) {
-          setInput(commonPrefix);
-        }
-        addLine('result', displayText);
+      if (outcome.replacement !== input) {
+        setInput(outcome.replacement);
+        requestAnimationFrame(() => {
+          terminalInputRef.current?.setSelectionRange(
+            outcome.newCursorPosition,
+            outcome.newCursorPosition,
+          );
+        });
+      }
+      if (outcome.matches.length > 1) {
+        addLine('result', outcome.displayText);
       }
     },
-    [input, getPathCompletions, getCompletions, addLine],
+    [input, shellCompleteAdapter, addLine],
   );
 
   const handleInputChange = useCallback((value: string) => {

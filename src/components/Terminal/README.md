@@ -19,13 +19,14 @@ The main UI component — a retro CRT terminal that orchestrates command executi
 User types input
     │
     ▼
-Terminal.tsx handleSubmit()
+Terminal.tsx executeCommand()
     │
-    ├── Variable operation? (const/let/reassign)
-    │   └── useVariables.handleVariableOperation()
+    ├── Redis / MySQL mode? → raw input to mode executor
     │
-    └── Command execution
-        └── new Function(...context, input)
+    └── Shell pipeline
+        └── tokenize → parse → execute (src/shell/)
+            │   ├── pipes: stage stdout → next stage's ShellContext.stdin
+            │   └── redirect `>`: final output written via redirectWriter
             │
             ├── Returns string → display as result
             ├── Returns { __type: 'author' } → render AuthorCard
@@ -61,7 +62,8 @@ Terminal.tsx handleSubmit()
 ### Terminal (orchestrator)
 
 - Holds all state: output lines, input value, mode flags (password, FTP username, async running), editor state
-- Wires hooks together: `useCommands`, `useFtpCommands`, `useNcCommands`, `useCommandHistory`, `useAutoComplete`, `useVariables`
+- Wires hooks together: `useCommands`, `useFtpCommands`, `useNcCommands`, `useCommandHistory`, `useAuthentication`
+- Shell pipeline + tab completion live in `src/shell/`
 - Handles password validation (local `su` via `/etc/passwd`, remote SSH via machine users)
 - Defines logging callbacks (`onSuAuth`, `onSshAuth`, `onFtpAuth`) that write auth events to target machine log files (`/var/log/auth.log`, `/var/log/vsftpd.log`) via `src/logging/`
 - Manages NanoEditor overlay lifecycle (open on `nano_open`, close on editor exit)

@@ -220,8 +220,13 @@ export const createCurlCommand = (context: CurlContext): Command => ({
         required: true,
       },
       {
-        name: 'flags',
-        description: 'Optional flags: -i (include headers), -X POST (POST request)',
+        name: '-i',
+        description: 'Include HTTP response headers in the output',
+        required: false,
+      },
+      {
+        name: '-X',
+        description: 'HTTP method (e.g., `-X POST` for a POST request)',
         required: false,
       },
     ],
