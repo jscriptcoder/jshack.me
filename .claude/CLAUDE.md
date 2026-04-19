@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**JSHACK.ME** is a web-based JavaScript terminal emulator with a retro amber-on-black CRT aesthetic. Features a virtual filesystem with Unix-like permissions for mission-based hacking challenges with procedurally generated contracts. Players start via an intro screen, choose their workstation name, username, and root password, boot into a Linux-style terminal, crack WiFi networks (each providing access to a different subnet of machines), and take contracts from a darknet marketplace. Deployed on Vercel at jshack.me.
+**JSHACK.ME** is a web-based Linux-style terminal emulator with a retro amber-on-black CRT aesthetic. Interactive input uses a shell parser (commands, args, flags, single/double quotes, pipes `|`, redirect `>`); scripts (`.js` files executed via `node`) use JavaScript with command function calls. Features a virtual filesystem with Unix-like permissions for mission-based hacking challenges with procedurally generated contracts. Players start via an intro screen, choose their workstation name, username, and root password, boot into a Linux-style terminal, crack WiFi networks (each providing access to a different subnet of machines), and take contracts from a darknet marketplace. Deployed on Vercel at jshack.me.
 
 ## Code Style
 

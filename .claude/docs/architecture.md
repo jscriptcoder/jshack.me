@@ -74,9 +74,19 @@ e2e/
 - ASCII banner on startup ("JSHACK.ME v{version}") — version is read from `package.json` via Vite's `define` config
 - Dynamic prompt: `username@machine>` (managed via SessionContext)
 - Command history (up/down arrows)
-- Tab autocompletion for commands and variables
-- Tab path autocompletion inside string arguments (files and directories)
-- `const`/`let` variable declarations with immutability enforcement
+- Shell-style input parsing (see below)
+- Tokenizer-driven tab completion: command names, paths, flags, subcommand keywords, redirect targets
+- Scripts (`.js` files executed via `node <path>`) use JavaScript with command function calls
+
+## Shell Input Parser
+
+`src/shell/` implements the interactive input pipeline: `tokenize → parse → execute`. Tokenizes words, single/double-quoted strings, backslash escapes, pipes (`|`), and output redirect (`>`). Parser produces a `Pipeline` AST (stages + optional redirect target). Executor dispatches each stage to a `Command` from the registry Map.
+
+- **Pipes**: each stage's stdout becomes the next stage's `ShellContext.stdin`. Commands opt in to shell context via an optional `fnShell?: (ctx, ...args) => unknown` on the `Command` type (grep is the only current consumer; future `head`/`tail`/`wc`/`sort` would follow the same pattern).
+- **Redirect**: `>` on the final stage writes output via a `redirectWriter` callback wired in Terminal.tsx. Async outputs are "tee'd" — streamed live to the terminal AND collected into the file on completion (intentional UX divergence from real bash for long-running commands).
+- **Tab completion**: `src/shell/complete.ts` classifies the cursor as command / path / flag / redirect-target, with subcommand keyword completion at arg 0 driven by `CommandArgument.values`.
+- **Script-only helpers**: `output(cmd, path?)` and `resolve(promise)` live in `executionContext` but are removed from the shell command registry — interactive players use `>` for redirection, and Promise handling happens inside scripts.
+- **Redis/MySQL modes**: bypass the shell parser (raw command input for their native REPL semantics). FTP/NC modes currently use JS function-call syntax internally (shell-mode migration deferred).
 
 ## Session Context
 
@@ -200,21 +210,16 @@ Network commands (ping, nmap, ssh, nslookup) and WiFi commands (airdump, aircrac
 
 ## Tab Autocompletion
 
-Two layers of tab completion, tried in order:
+`src/shell/complete.ts` provides a tokenizer-driven single-dispatcher: given `(input, cursorPos, adapter)` it classifies the cursor as one of four kinds and returns a unified `CompletionOutcome` (matches, replacement, new cursor position, display text):
 
-1. **Path completion** (`usePathAutoComplete`) — activated when the cursor is inside a string literal (single or double quotes). Scans the input to detect quote state, extracts the partial path, resolves the directory via `FileSystemContext`, and filters entries by prefix. Directories append `/`. Single match auto-completes; multiple matches advance to the longest common prefix and display the match list. Cursor is repositioned after completion via `requestAnimationFrame`.
+1. **Command** — first token of a stage (start of input or right after `|`). Matches against `adapter.commandNames`.
+2. **Path** — arg or redirect-target token. Resolves the directory via `adapter.resolvePath` and lists entries via `adapter.listPath`. Directories append `/`. Works for both unquoted (`cat /etc/pa<Tab>`) and quoted (`cat "/etc/pa<Tab>`) tokens — the quote char is preserved in the replacement.
+3. **Flag** — token starting with `-` past the command position. Reads `command.manual.arguments` and offers entries whose `name` starts with `-`.
+4. **Keyword** — subcommand at positional arg 0 when the prefix has no `/` and the command's first non-flag argument has a `values: readonly string[]` field (e.g., `apt <Tab>` → `install, list, upgrade`).
 
-2. **Command/variable completion** (`useAutoComplete`) — fallback when not inside a string. Matches command names (appends `()`) and variable names against the full input. Case-insensitive prefix matching.
+`Terminal.tsx` wires the adapter from the active command registry + filesystem helpers + session user type. Single-match commands and keywords get a trailing space so the cursor is ready for arguments; path matches don't (directories decorate with `/`).
 
-`TerminalInput` passes `cursorPosition` to `onTab`, enabling mid-input completion. `Terminal.tsx` orchestrates both hooks in `handleTab`.
-
-**Mode-aware path completion** (`usePathCompletionAdapters`): A hook that adapts filesystem APIs for different terminal modes and manages three `usePathAutoComplete` instances internally:
-
-- **Default/NC mode** — uses NC session's `targetIP` and `currentPath` when NC mode is active, otherwise uses the main session's filesystem. Without this, path completion would resolve against the main session's machine (localhost).
-- **FTP remote** — resolves against the FTP target machine for remote commands (`cd`, `ls`).
-- **FTP local** — resolves against the origin machine for local commands (`lcd`, `lls`).
-
-FTP mode operates on two machines simultaneously. The adapter detects which FTP command is being typed and routes to the correct instance: dual-argument commands (`get(remote, local)`, `put(local, remote)`) switch context per argument position by counting commas before the cursor. Returns a single `getPathCompletions` function that handles all mode switching internally.
+**Known limitation**: FTP/NC mode path completion currently uses the default filesystem, not the mode-specific one — Phase G fixes when FTP/NC migrate to shell syntax.
 
 ## WiFi Hacking Gate
 
@@ -230,7 +235,7 @@ Network access from localhost requires cracking a WiFi network first. See `infra
 
 **Connection gating**: `wrapWithBrickedCheck` HOF in `useNetworkCommands.ts` (outermost wrapper — checked before WiFi) blocks ssh, ftp, nc, ping, nmap, curl, msfconsole, hydra, gobuster, dig to bricked machines. Error: `"Connection timed out — host <ip> appears to be down"`. nslookup is not gated (DNS doesn't require the target to be up).
 
-**Localhost bricking**: Terminal.tsx checks `isMachineBricked('localhost')` at the top of render. If true, renders a frozen kernel panic screen with no input. Only recovery: `reset("confirm")` (which clears IndexedDB) or clearing browser site data.
+**Localhost bricking**: Terminal.tsx checks `isMachineBricked('localhost')` at the top of render. If true, renders a frozen kernel panic screen with no input. Only recovery: `reset confirm` (which clears IndexedDB) or clearing browser site data.
 
 **Remote bricking**: After bricking a remote machine, the reboot command pops the SSH session (returns to parent machine). The bricked machine is then unreachable via any connection command.
 

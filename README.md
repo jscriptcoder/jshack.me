@@ -1,6 +1,6 @@
 # JSHACK.ME
 
-A web-based JavaScript terminal emulator with a retro amber-on-black CRT aesthetic. Execute JavaScript expressions and custom commands in a terminal-like interface, featuring a virtual Unix-like file system and network simulation for a mission-based hacking game with procedurally generated contracts. Choose your username, name your workstation, set your root password, crack multiple WiFi networks to access different subnets, and take darknet contracts.
+A web-based Linux-style terminal emulator with a retro amber-on-black CRT aesthetic. Type real shell-style commands (`nmap 10.10.10.10 -sV`, `cat /etc/passwd | grep root > out.txt`) in a terminal-like interface, featuring a virtual Unix filesystem and network simulation for a mission-based hacking game with procedurally generated contracts. Choose your username, name your workstation, set your root password, crack multiple WiFi networks to access different subnets, and take darknet contracts. Scripts (`.js` files) still use JavaScript for more advanced automation.
 
 **Live Demo:** [jshack.me](https://jshack.me)
 
@@ -14,14 +14,14 @@ You are a freelance operator working from a personal workstation. Choose your us
 
 Each mission drops you into a unique network topology with routers, servers, and hidden flags. Use your knowledge of Linux commands, networking, and creative thinking to infiltrate targets and complete contracts.
 
-Start with `help()` to see available commands. Good luck, hacker.
+Start with `help` to see available commands. Good luck, hacker.
 
 ## Features
 
-- **JavaScript Execution** - Run any JavaScript expression directly in the terminal
+- **Shell-style Input** - Real Linux syntax: `nmap 10.10.10.10 -sV`, pipes (`cat file | grep x`), redirect (`ls > out.txt`), quoted args, flags
+- **Scripting via `node`** - Save `.js` files and execute them; scripts use JavaScript with command function calls (`nmap('1.2.3.4')`) for automation
 - **Command History** - Navigate previous commands with up/down arrows
-- **Tab Autocompletion** - Complete commands and variables with Tab key
-- **Variable Support** - Create variables with `const` and `let` declarations
+- **Tab Autocompletion** - Tokenizer-aware completion for commands, paths, flags, and subcommand keywords
 - **Virtual Environment** - Explore a simulated system with secrets to uncover
 - **Command Restrictions** - Commands are tiered by privilege level; escalate from guest to root to unlock tools
 - **Intro & Boot Screen** - Choose your username, name your workstation, set your root password, start a new game with a Linux-style boot sequence
@@ -30,10 +30,10 @@ Start with `help()` to see available commands. Good luck, hacker.
 - **Network Simulation** - Discover and hack into remote machines; per-WiFi subnets with routers, servers, and databases
 - **DNS Zone Transfers** - DNS servers with BIND zone files; use `dig` for lookups and AXFR zone transfers to discover machines
 - **Redis Service** - ~35% of database machines run Redis on port 6379; connect via `rediscli`, query key-value data, brute-force passwords with `hydra`
-- **Defense Treadmill** - Patch vulnerable services with `apt('upgrade')`. CVEs publish over real game time (~one new CVE every 13 hours across the network). Patching buys breathing room; neglecting it means re-exploitation
-- **Router Firmware** - Routers have vendor-stamped firmware (Cisco, MikroTik, DD-WRT, OpenWRT, pfSense, EdgeOS) that treadmills alongside services. Exploitable via `msfconsole`, patchable via `apt('upgrade', 'firmware')`
+- **Defense Treadmill** - Patch vulnerable services with `apt upgrade`. CVEs publish over real game time (~one new CVE every 13 hours across the network). Patching buys breathing room; neglecting it means re-exploitation
+- **Router Firmware** - Routers have vendor-stamped firmware (Cisco, MikroTik, DD-WRT, OpenWRT, pfSense, EdgeOS) that treadmills alongside services. Exploitable via `msfconsole`, patchable via `apt upgrade firmware`
 - **Typed Exploit Effects** - Each CVE produces one of 8 outcomes: full shell (tiered), restricted shell, file read, directory listing, file write, password reset, backdoor port, or script execution. The effect depends on the service being exploited
-- **Version Pinning** - `apt('install', 'http=Apache/2.4.49')` pins a service to a specific version. Works for both services and router firmware. Deliberate downgrades allowed
+- **Version Pinning** - `apt install http=Apache/2.4.49` pins a service to a specific version. Works for both services and router firmware. Deliberate downgrades allowed
 - **Connection Logging** - SSH, FTP, SCP, su, Redis, HTTP, msfconsole exploits, nc connects, and nmap scans are logged to target machine log files in realistic Linux formats (`auth.log`, `vsftpd.log`, `redis.log`, `access.log`, `syslog`)
 - **SSH Key Persistence** - After first successful SSH/SCP login, the key is saved; subsequent connections auto-authenticate
 - **Multi-Tab Support** - Open multiple browser tabs as independent terminals with shared filesystem, WiFi, mission, and theme state
@@ -77,74 +77,82 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 
 ## Available Commands
 
-35+ commands covering filesystem operations, networking, WiFi hacking, mission gameplay, and more. Use `help()` in the terminal to list commands or `man(cmd)` for detailed usage.
+35+ commands covering filesystem operations, networking, WiFi hacking, mission gameplay, and more. Use `help` in the terminal to list commands or `man <cmd>` for detailed usage.
 
 See [src/commands/README.md](src/commands/README.md) for the full command reference.
 
-### Examples
+### Examples (interactive shell)
+
+```bash
+# File system
+ls                          # List current directory
+cd /etc                     # Change to /etc
+cat passwd                  # View file contents
+cat /etc/passwd | grep root # Pipe to filter
+echo hello > greeting.txt   # Redirect output to a file
+
+# Help
+man ls                      # Show manual for ls command
+
+# Switch user (will prompt for password)
+su root                     # Attempt to switch to root
+
+# WiFi hacking (required before network access)
+airmon start wlan0          # Enable monitor mode
+airdump                     # Scan for WiFi networks
+aircrack A4:CF:12:D3:8B:7A  # Crack target network
+
+# Network
+ifconfig                    # Show network interfaces
+whoami                      # Display current user
+ping localhost              # Test connectivity
+
+# SSH to remote machine
+ssh admin@45.33.32.100      # Connect to remote host
+exit                        # Return to previous machine (or previous user after su)
+
+# HTTP requests
+curl http://45.33.32.100/          # Fetch web page
+curl -i 45.33.32.100/status        # Include headers
+curl -X POST 45.33.32.100/api/x    # POST request
+
+# Edit and execute files
+nano exploit.js             # Opens nano-style editor (Ctrl+S save, Ctrl+X exit)
+node exploit.js             # Execute a JavaScript file
+
+# FTP file transfer
+ftp 45.33.32.100            # Connect to remote FTP server
+# In FTP mode: ls, get secret.txt, put /tmp/data.txt, quit
+
+# Exploit a vulnerable service (effect depends on the CVE)
+msfconsole 10.0.0.5 80                                    # Shell / auth bypass / ...
+msfconsole 10.0.0.5 21 /etc/passwd                        # file_read: dump a target file
+msfconsole 10.0.0.5 21 /root/shell.php:/var/www/html/s.php # file_write: upload
+msfconsole 10.0.0.5 6379 /root/payloads/dump.js           # script_exec: run a script
+
+# Patch vulnerable services
+apt upgrade                      # Upgrade all vulnerable services + firmware
+apt upgrade http                 # Upgrade only the http service
+apt upgrade firmware             # Upgrade only router firmware
+apt install http=Apache/2.4.60   # Pin a specific version
+```
+
+### Scripting (`.js` files, executed via `node`)
+
+Scripts use JavaScript with command functions for more advanced automation:
 
 ```javascript
-// Basic JavaScript
-2 + 2; // => 4
-Math.sqrt(16); // => 4
-
-// Variables
+// Basic JavaScript expressions still work in scripts
 const name = 'World';
-echo('Hello ' + name); // => Hello World
+echo('Hello ' + name);
 
-// File system
-ls(); // List current directory
-cd('/etc'); // Change to /etc
-cat('passwd'); // View file contents
+// Command functions mirror shell invocations
+const hosts = nmap('10.0.0.1-254');
+echo(hosts);
 
-// Help
-man('ls'); // Show manual for ls command
-
-// Switch user (will prompt for password)
-su('root'); // Attempt to switch to root
-
-// WiFi hacking (required before network access)
-airmon('start', 'wlan0'); // Enable monitor mode
-airdump(); // Scan for WiFi networks
-aircrack('A4:CF:12:D3:8B:7A'); // Crack target network
-
-// Network
-ifconfig(); // Show network interfaces
-whoami(); // Display current user
-ping('localhost'); // Test connectivity
-
-// SSH to remote machine
-ssh('admin', '45.33.32.100'); // Connect to remote host
-exit(); // Return to previous machine (or previous user after su)
-
-// HTTP requests
-curl('http://45.33.32.100/'); // Fetch web page
-curl('45.33.32.100/status', '-i'); // Include headers
-
-// Edit and execute files
-nano('exploit.js'); // Opens nano-style editor
-// (Type code, Ctrl+S to save, Ctrl+X to exit)
-node('exploit.js'); // Execute the file
-
-// FTP file transfer
-ftp('45.33.32.100'); // Connect to remote FTP server
-// In FTP mode:
-ls(); // List remote files
-get('secret.txt'); // Download to local
-put('/tmp/data.txt'); // Upload to remote
-quit(); // Exit FTP
-
-// Exploit a vulnerable service (effect depends on the CVE)
-msfconsole('10.0.0.5', 80); // May give a shell, reset a password, etc.
-msfconsole('10.0.0.5', 21, '/etc/passwd'); // file_read: dump a target file
-msfconsole('10.0.0.5', 21, '/root/shell.php:/var/www/html/s.php'); // file_write: upload
-msfconsole('10.0.0.5', 6379, '/root/payloads/dump.js'); // script_exec: run a script
-
-// Patch vulnerable services
-apt('upgrade'); // Upgrade all vulnerable services + firmware
-apt('upgrade', 'http'); // Upgrade only the http service
-apt('upgrade', 'firmware'); // Upgrade only router firmware
-apt('install', 'http=Apache/2.4.60'); // Pin a specific version
+// Capture async command output via the script-only output() helper
+const log = await output(ping('10.0.0.5', 3));
+output(cat('/etc/passwd'), '/tmp/backup.txt'); // copy a file
 ```
 
 ## Network Simulation
