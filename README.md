@@ -150,9 +150,13 @@ echo('Hello ' + name);
 const hosts = nmap('10.0.0.1-254');
 echo(hosts);
 
-// Capture async command output via the script-only output() helper
-const log = await output(ping('10.0.0.5', 3));
-output(cat('/etc/passwd'), '/tmp/backup.txt'); // copy a file
+// Awaiting an async command resolves to the lines it streamed
+const lines = await ping('10.0.0.5', 3);
+echo('got ' + lines.length + ' reply lines');
+
+// Write content to a file via the script-only writeFile() helper
+writeFile('/tmp/ping.log', lines); // arrays of strings are joined with '\n'
+writeFile('/tmp/backup.txt', cat('/etc/passwd'));
 ```
 
 ## Network Simulation

@@ -174,16 +174,19 @@ Scope: 4 commands needed entries added (`apt`, `curl`, `ls`, `rm`). `grep`, `nc`
 
 **Acceptance:** every `man <cmd>` shows shell syntax, `output` gone from shell (but still works in scripts), version bumped, all checks green.
 
-### Phase H — Scripting API refresh (future, separate PR)
+### Phase H — Scripting API refresh ✅ shipped
 
-Replace `output(cmd, path?)` with cleaner orthogonal helpers available only in scripts:
+Replaced `output(cmd, path?)` + `resolve(promise)` with a single script-only helper:
 
-- `writeFile(path, content)` — explicit file write (with permission errors surfaced)
-- `capture(asyncCommand): Promise<string>` — unwrap `AsyncOutput` to a Promise
+- `writeFile(path, content)` — writes `content` to `path` under the current user's permissions. Strings pass through; arrays of strings are joined with `\n`; other values go through `stringify()`. Permission errors surface as `writeFile: <reason>`. Lives in `src/scripting/` and is injected into `executionContext`; never appears in the shell command registry.
 
-Both are injected into `executionContext` alongside the command functions. Migrate any existing scripts that use `output()`. Delete `src/commands/output.ts` once migration is complete.
+`capture(asyncCmd)` was dropped from the plan — the async-path wrapper in `src/commands/node.ts` already turns `await asyncCmd(...)` into `Promise<string[]>`, so a dedicated capture helper is redundant. `resolve(promise)` was deleted outright — `await` replaces it.
 
-Out of scope for the current PR stack.
+Scripts that want to combine the two write `const lines = await hydra(...); writeFile('/tmp/out', lines)`.
+
+Deleted files: `src/commands/output.ts`, `src/commands/output.test.ts`, `src/commands/resolve.ts`, `src/commands/resolve.test.ts`.
+
+New files: `src/scripting/writeFile.ts`, `src/scripting/writeFile.test.ts`, `src/scripting/index.ts`.
 
 ### Phase G — FTP / NC mode path completion
 
