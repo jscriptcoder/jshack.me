@@ -185,9 +185,18 @@ Both are injected into `executionContext` alongside the command functions. Migra
 
 Out of scope for the current PR stack.
 
-### Phase G — FTP / NC mode shell migration (follow-up)
+### Phase G — FTP / NC mode path completion
 
-Separate branch/PR after Phase F lands. Apply the same tokenize → parse → execute pipeline to `ftp>` and `nc>` modes so players can type `get file.txt` instead of `get("file.txt")`. Also reconnect FTP/NC path completion to the correct session filesystem (regressed in Phase D). Redis and MySQL modes remain raw-input (authentic to their real CLIs).
+Phase A already routed FTP/NC input through the shell parser (both modes swap in mode-specific command Maps but otherwise share the tokenize → parse → execute pipeline). The remaining gap was tab path completion: Phase D left the completer wired to the default filesystem for all modes.
+
+This phase makes `shellCompleteAdapter` in `Terminal.tsx` mode-aware:
+
+- **NC mode**: resolves paths against the NC target machine's filesystem via `listDirectoryFromMachine` / `getNodeFromMachine` / `resolvePathForMachine` keyed by `ncSession.machineId` + `ncSession.userType` + `ncSession.currentPath`.
+- **FTP mode**: routes to the FTP **remote** machine's filesystem (`ftpSession.remoteMachine` + `remoteUserType` + `remoteCwd`). Local-facing commands (`lcd`, `lls`, `put`) share the remote filesystem for completion — positional-arg precision per command is a future refinement that would need the completer to pass the detected command name into the adapter.
+- **Redis / MySQL**: empty adapter (these modes have no filesystem semantics and take raw REPL input anyway).
+- **Default**: unchanged (current session's filesystem).
+
+**Acceptance:** `cat /etc/pa<Tab>` inside an NC shell lists entries from the NC target machine; inside FTP it lists entries from the remote server. All existing tests pass.
 
 ## Testing strategy
 
