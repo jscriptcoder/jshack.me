@@ -115,22 +115,29 @@ export const createScpCommand = (context: ScpContext): Command => ({
       throw new Error(`scp: ${sourcePath}: Is a directory`);
     }
 
-    // Parse optional port argument; when omitted, auto-detect SSH service
-    const explicitPort =
-      typeof thirdArg === 'number'
-        ? Number.isInteger(thirdArg) && thirdArg >= 1 && thirdArg <= 65535
-          ? thirdArg
-          : (() => {
-              throw new Error(`scp: invalid port '${String(thirdArg)}'`);
-            })()
-        : undefined;
+    // Parse optional port argument; when omitted, auto-detect SSH service.
+    // Script callers may pass a number (strict validation); shell callers pass
+    // strings and we interpret port-shaped integers as ports.
+    let explicitPort: number | undefined;
+    let password: string | undefined;
 
-    const password =
-      typeof thirdArg === 'string'
-        ? thirdArg
-        : typeof fourthArg === 'string'
-          ? fourthArg
-          : undefined;
+    if (typeof thirdArg === 'number') {
+      if (!Number.isInteger(thirdArg) || thirdArg < 1 || thirdArg > 65535) {
+        throw new Error(`scp: invalid port '${String(thirdArg)}'`);
+      }
+      explicitPort = thirdArg;
+      password = typeof fourthArg === 'string' ? fourthArg : undefined;
+    } else if (typeof thirdArg === 'string') {
+      const asNum = Number(thirdArg);
+      const looksLikePort =
+        thirdArg.trim() !== '' && Number.isInteger(asNum) && asNum >= 1 && asNum <= 65535;
+      if (looksLikePort) {
+        explicitPort = asNum;
+        password = typeof fourthArg === 'string' ? fourthArg : undefined;
+      } else {
+        password = thirdArg;
+      }
+    }
 
     // Validate remote machine SSH access
     const machine = getMachine(dest.host);

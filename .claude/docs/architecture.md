@@ -86,7 +86,8 @@ e2e/
 - **Redirect**: `>` on the final stage writes output via a `redirectWriter` callback wired in Terminal.tsx. Async outputs are "tee'd" — streamed live to the terminal AND collected into the file on completion (intentional UX divergence from real bash for long-running commands).
 - **Tab completion**: `src/shell/complete.ts` classifies the cursor as command / path / flag / redirect-target, with subcommand keyword completion at arg 0 driven by `CommandArgument.values`.
 - **Script-only helpers**: `output(cmd, path?)` and `resolve(promise)` live in `executionContext` but are removed from the shell command registry — interactive players use `>` for redirection, and Promise handling happens inside scripts.
-- **Redis/MySQL modes**: bypass the shell parser (raw command input for their native REPL semantics). FTP/NC modes currently use JS function-call syntax internally (shell-mode migration deferred).
+- **Redis/MySQL modes**: bypass the shell parser (raw command input for their native REPL semantics).
+- **FTP/NC modes**: use the same shell parser but swap in mode-specific command Maps. Tab completion routes path completion to the mode-appropriate filesystem (FTP remote machine, NC target machine).
 
 ## Session Context
 
@@ -219,7 +220,7 @@ Network commands (ping, nmap, ssh, nslookup) and WiFi commands (airdump, aircrac
 
 `Terminal.tsx` wires the adapter from the active command registry + filesystem helpers + session user type. Single-match commands and keywords get a trailing space so the cursor is ready for arguments; path matches don't (directories decorate with `/`).
 
-**Known limitation**: FTP/NC mode path completion currently uses the default filesystem, not the mode-specific one — Phase G fixes when FTP/NC migrate to shell syntax.
+FTP and NC modes route path completion to their respective filesystems (FTP remote machine, NC target machine) via mode-conditional adapters wired in `Terminal.tsx`. FTP local-facing commands (`lcd`, `lls`, `put`) share the remote filesystem for completion — true positional-arg awareness per command is a future refinement.
 
 ## WiFi Hacking Gate
 

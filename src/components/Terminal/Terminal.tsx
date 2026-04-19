@@ -90,6 +90,8 @@ export const Terminal = () => {
     popSession,
     canReturn,
     session,
+    ftpSession,
+    ncSession,
     enterFtpMode,
     exitFtpMode,
     isInFtpMode,
@@ -120,29 +122,68 @@ export const Terminal = () => {
     readFileFromMachine,
     writeFileToMachine,
     createFileOnMachine,
+    listDirectoryFromMachine,
+    getNodeFromMachine,
+    resolvePathForMachine,
   } = useFileSystem();
   const { getMachine, findMachineUsers, findMachineByIp, resolveNat, getLocalIP, getPublicIP } =
     useNetwork();
 
   const shellCompleteAdapter = useMemo<CompleteAdapter>(() => {
-    const active =
-      isInFtpMode() && ftpCommands
-        ? ftpCommands
-        : isInNcMode() && ncCommands
-          ? ncCommands
-          : commands;
-    const visibleNames = isInRedisMode()
-      ? []
-      : isInMysqlMode()
-        ? []
-        : isInFtpMode() && ftpCommands
-          ? Array.from(ftpCommands.keys())
-          : isInNcMode() && ncCommands
-            ? Array.from(ncCommands.keys())
-            : commandNames;
+    // NC mode: complete paths against the remote target machine's filesystem.
+    if (isInNcMode() && ncSession && ncCommands) {
+      return {
+        commandNames: Array.from(ncCommands.keys()),
+        getCommand: (name) => ncCommands.get(name),
+        listPath: (abs) =>
+          listDirectoryFromMachine({
+            machineId: ncSession.machineId,
+            path: abs,
+            cwd: '/',
+            userType: ncSession.userType,
+          }),
+        isDirectory: (abs) =>
+          getNodeFromMachine(ncSession.machineId, abs, '/')?.type === 'directory',
+        resolvePath: (path) => resolvePathForMachine(path, ncSession.currentPath),
+      };
+    }
+
+    // FTP mode: complete against the remote machine's filesystem. Local-facing
+    // commands (lcd, lls, lpwd, put) would prefer origin, but the common case
+    // (cd, ls, cat, get on remote) is served by remote — acceptable trade-off
+    // without positional awareness in the completer.
+    if (isInFtpMode() && ftpSession && ftpCommands) {
+      return {
+        commandNames: Array.from(ftpCommands.keys()),
+        getCommand: (name) => ftpCommands.get(name),
+        listPath: (abs) =>
+          listDirectoryFromMachine({
+            machineId: ftpSession.remoteMachine,
+            path: abs,
+            cwd: '/',
+            userType: ftpSession.remoteUserType,
+          }),
+        isDirectory: (abs) =>
+          getNodeFromMachine(ftpSession.remoteMachine, abs, '/')?.type === 'directory',
+        resolvePath: (path) => resolvePathForMachine(path, ftpSession.remoteCwd),
+      };
+    }
+
+    // Redis / MySQL: no path completion (those modes have no filesystem semantics).
+    if (isInRedisMode() || isInMysqlMode()) {
+      return {
+        commandNames: [],
+        getCommand: () => undefined,
+        listPath: () => null,
+        isDirectory: () => false,
+        resolvePath: (p) => p,
+      };
+    }
+
+    // Default shell mode: current session's filesystem.
     return {
-      commandNames: visibleNames,
-      getCommand: (name) => active.get(name),
+      commandNames,
+      getCommand: (name) => commands.get(name),
       listPath: (abs) => listDirectory(abs, session.userType),
       isDirectory: (abs) => getNode(abs)?.type === 'directory',
       resolvePath,
@@ -152,13 +193,18 @@ export const Terminal = () => {
     commandNames,
     ftpCommands,
     ncCommands,
+    ftpSession,
+    ncSession,
     isInFtpMode,
     isInNcMode,
     isInRedisMode,
     isInMysqlMode,
     listDirectory,
+    listDirectoryFromMachine,
     getNode,
+    getNodeFromMachine,
     resolvePath,
+    resolvePathForMachine,
     session.userType,
   ]);
 

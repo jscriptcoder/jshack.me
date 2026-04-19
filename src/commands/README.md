@@ -211,30 +211,30 @@ WiFi commands manage the wireless connection gate on localhost. Registered in `s
 
 ## FTP Mode (`ftp/`)
 
-Available only when connected via FTP. Registered in `src/hooks/useFtpCommands.ts`. NOTE: FTP mode still uses JS function-call syntax internally — shell conversion for FTP/NC mode is deferred to a follow-up phase.
+Available only when connected via FTP. Registered in `src/hooks/useFtpCommands.ts`. Uses the same shell parser as normal mode with an FTP-specific command set. Tab path completion resolves against the FTP remote machine's filesystem (local-facing commands like `lcd` / `lls` / `put` share the remote filesystem for completion — full mode-specific local completion is a future refinement).
 
 | Command | File          | Usage               | Description                        |
 | ------- | ------------- | ------------------- | ---------------------------------- |
-| pwd     | `ftp/pwd.ts`  | `pwd()`             | Print remote working directory     |
-| lpwd    | `ftp/lpwd.ts` | `lpwd()`            | Print local working directory      |
-| cd      | `ftp/cd.ts`   | `cd(path)`          | Change remote directory            |
-| lcd     | `ftp/lcd.ts`  | `lcd(path)`         | Change local directory             |
-| ls      | `ftp/ls.ts`   | `ls([path])`        | List remote directory contents     |
-| lls     | `ftp/lls.ts`  | `lls([path])`       | List local directory contents      |
-| get     | `ftp/get.ts`  | `get(file, [dest])` | Download file from remote to local |
-| put     | `ftp/put.ts`  | `put(file, [dest])` | Upload file from local to remote   |
-| quit    | `ftp/quit.ts` | `quit()` / `bye()`  | Close FTP connection               |
+| pwd     | `ftp/pwd.ts`  | `pwd`               | Print remote working directory     |
+| lpwd    | `ftp/lpwd.ts` | `lpwd`              | Print local working directory      |
+| cd      | `ftp/cd.ts`   | `cd <path>`         | Change remote directory            |
+| lcd     | `ftp/lcd.ts`  | `lcd <path>`        | Change local directory             |
+| ls      | `ftp/ls.ts`   | `ls [path]`         | List remote directory contents     |
+| lls     | `ftp/lls.ts`  | `lls [path]`        | List local directory contents      |
+| get     | `ftp/get.ts`  | `get <file> [dest]` | Download file from remote to local |
+| put     | `ftp/put.ts`  | `put <file> [dest]` | Upload file from local to remote   |
+| quit    | `ftp/quit.ts` | `quit` / `bye`      | Close FTP connection               |
 
 ## NC Mode (`nc/`)
 
-Available when connected to interactive services via nc. Registered in `src/hooks/useNcCommands.ts`. Like a real netcat shell, there is no PATH — admin binaries (sshd, vsftpd, systemctl) must be run via `bash('/usr/sbin/sshd')`. NOTE: NC mode still uses JS function-call syntax — see Phase G.
+Available when connected to interactive services via nc. Registered in `src/hooks/useNcCommands.ts`. Uses the same shell parser as normal mode with an NC-specific command set. Tab path completion resolves against the NC target machine's filesystem. Like a real netcat shell, there is no PATH — admin binaries (sshd, vsftpd, systemctl) must be run via `bash /usr/sbin/sshd`.
 
 | Command | File           | Usage        | Description                |
 | ------- | -------------- | ------------ | -------------------------- |
-| pwd     | `nc/pwd.ts`    | `pwd()`      | Print working directory    |
-| cd      | `nc/cd.ts`     | `cd(path)`   | Change directory           |
-| ls      | `nc/ls.ts`     | `ls([path])` | List directory contents    |
-| cat     | `nc/cat.ts`    | `cat(path)`  | Display file contents      |
-| whoami  | `nc/whoami.ts` | `whoami()`   | Display current user       |
-| help    | (inline)       | `help()`     | List available nc commands |
-| exit    | (inline)       | `exit()`     | Close connection           |
+| pwd     | `nc/pwd.ts`    | `pwd`        | Print working directory    |
+| cd      | `nc/cd.ts`     | `cd <path>`  | Change directory           |
+| ls      | `nc/ls.ts`     | `ls [path]`  | List directory contents    |
+| cat     | `nc/cat.ts`    | `cat <path>` | Display file contents      |
+| whoami  | `nc/whoami.ts` | `whoami`     | Display current user       |
+| help    | (inline)       | `help`       | List available nc commands |
+| exit    | (inline)       | `exit`       | Close connection           |
