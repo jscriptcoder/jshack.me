@@ -202,6 +202,76 @@ const isValidPermissions = (value: unknown): boolean =>
   Array.isArray(value.write) &&
   Array.isArray(value.execute);
 
+export type DirectoryPlanResult =
+  | { readonly ok: true; readonly toCreate: readonly string[] }
+  | { readonly ok: false; readonly error: string };
+
+// Plans which intermediate directories need to be created for a mkdir call.
+// Pure — takes a node-lookup function and a parent-write-permission checker
+// so it can be tested without a real filesystem. The caller is responsible
+// for actually creating the directories returned in `toCreate`.
+//
+// Key invariant: only the FIRST missing segment's parent is checked for write
+// permission. Once the chain starts creating new directories, the caller owns
+// them, so their children don't need their parent re-validated — and couldn't
+// be, since those parents aren't in the filesystem snapshot yet.
+export const planDirectoryCreation = (options: {
+  readonly parts: readonly string[];
+  readonly targetPath: string;
+  readonly parents: boolean;
+  readonly getNode: (path: string) => FileNode | null;
+  readonly canWriteParent: (path: string) => { readonly allowed: boolean };
+}): DirectoryPlanResult => {
+  const { parts, targetPath, parents, getNode, canWriteParent } = options;
+
+  type State = { readonly cursor: string; readonly toCreate: readonly string[] };
+  type Step =
+    | { readonly ok: true; readonly state: State }
+    | { readonly ok: false; readonly error: string };
+
+  const final = parts.reduce<Step>(
+    (step, segment, i) => {
+      if (!step.ok) return step;
+      const { cursor, toCreate } = step.state;
+      const nextPath = cursor === '/' ? `/${segment}` : `${cursor}/${segment}`;
+      const node = getNode(nextPath);
+
+      if (node) {
+        if (node.type !== 'directory') {
+          return {
+            ok: false,
+            error: `mkdir: cannot create directory '${targetPath}': Not a directory`,
+          };
+        }
+        return { ok: true, state: { cursor: nextPath, toCreate } };
+      }
+
+      const isFinalSegment = i === parts.length - 1;
+      if (!isFinalSegment && !parents) {
+        return {
+          ok: false,
+          error: `mkdir: cannot create directory '${targetPath}': No such file or directory`,
+        };
+      }
+
+      // Only re-check the cursor's writability while the plan is still empty.
+      // After that we own every subsequent parent by construction.
+      if (toCreate.length === 0 && !canWriteParent(cursor).allowed) {
+        return {
+          ok: false,
+          error: `mkdir: cannot create directory '${targetPath}': Permission denied`,
+        };
+      }
+
+      return { ok: true, state: { cursor: nextPath, toCreate: [...toCreate, nextPath] } };
+    },
+    { ok: true, state: { cursor: '/', toCreate: [] } },
+  );
+
+  if (!final.ok) return final;
+  return { ok: true, toCreate: final.state.toCreate };
+};
+
 export const isValidPatch = (value: unknown): value is FileSystemPatch =>
   isRecord(value) &&
   typeof value.machineId === 'string' &&
@@ -210,7 +280,8 @@ export const isValidPatch = (value: unknown): value is FileSystemPatch =>
   typeof value.owner === 'string' &&
   ['root', 'user', 'guest'].includes(value.owner) &&
   (value.permissions === undefined || isValidPermissions(value.permissions)) &&
-  (value.isNew === undefined || value.isNew === true);
+  (value.isNew === undefined || value.isNew === true) &&
+  (value.nodeType === undefined || value.nodeType === 'file' || value.nodeType === 'directory');
 
 // Preserves `isNew` from the existing patch so a create-then-write sequence
 // retains the flag (enabling clean removal on deletion instead of a null patch).
@@ -241,6 +312,31 @@ export const applyPatches = (
     if (!machineFs) return state;
 
     const parts = patch.path.split('/').filter(Boolean);
+
+    // Directory-create patch — upsert an empty directory at the path. No-op if
+    // the directory (or any other node) already exists there, so replaying a
+    // mkdir patch never clobbers contents added later by file patches.
+    if (patch.nodeType === 'directory') {
+      const existing = getNodeAtPath(machineFs, patch.path);
+      if (existing) return state;
+      const dirName = parts[parts.length - 1];
+      const dirParts = parts.slice(0, -1);
+      const newDir: FileNode = {
+        name: dirName ?? '',
+        type: 'directory',
+        owner: patch.owner,
+        permissions: patch.permissions ?? {
+          read: ['root', 'user', 'guest'],
+          write: ['root', patch.owner],
+          execute: ['root', 'user', 'guest'],
+        },
+        children: {},
+      };
+      return {
+        ...state,
+        [machineId]: ensureChildAtPath(machineFs, dirParts, dirName ?? '', newDir),
+      };
+    }
 
     // Deletion patch — remove the node from the filesystem
     if (patch.content === null) {

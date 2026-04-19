@@ -11,13 +11,15 @@ import { createStringsCommand } from '../commands/strings';
 import { createNanoCommand } from '../commands/nano';
 import { createJohnCommand } from '../commands/john';
 import { createRmCommand } from '../commands/rm';
+import { createMkdirCommand } from '../commands/mkdir';
 import { createChmodCommand } from '../commands/chmod';
 import { createFindCommand } from '../commands/find';
 import { createGrepCommand } from '../commands/grep';
 import type { Command } from '../components/Terminal/types';
 
 export const useFileSystemCommands = (): Map<string, Command> => {
-  const { resolvePath, getNode, deleteNode, updatePermissions, canTraverse } = useFileSystem();
+  const { resolvePath, getNode, deleteNode, updatePermissions, canTraverse, createDirectory } =
+    useFileSystem();
   const { session, setCurrentPath } = useSession();
 
   return useMemo(() => {
@@ -132,6 +134,15 @@ export const useFileSystemCommands = (): Map<string, Command> => {
       }),
     );
 
+    // mkdir command
+    commands.set(
+      'mkdir',
+      createMkdirCommand({
+        getUserType,
+        createDirectory: (path, userType, options) => createDirectory(path, userType, options),
+      }),
+    );
+
     // chmod command
     commands.set(
       'chmod',
@@ -170,5 +181,14 @@ export const useFileSystemCommands = (): Map<string, Command> => {
     );
 
     return commands;
-  }, [setCurrentPath, resolvePath, getNode, deleteNode, updatePermissions, canTraverse, session]);
+  }, [
+    setCurrentPath,
+    resolvePath,
+    getNode,
+    deleteNode,
+    updatePermissions,
+    canTraverse,
+    createDirectory,
+    session,
+  ]);
 };

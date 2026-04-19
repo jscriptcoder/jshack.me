@@ -10,6 +10,7 @@ import {
   upsertPatch,
   applyPatches,
   isValidPatch,
+  planDirectoryCreation,
 } from './fileSystemUtils';
 
 const makeDir = (
@@ -361,6 +362,83 @@ describe('applyPatches', () => {
     const result = applyPatches(baseState, [patch]);
     expect(result).toEqual(baseState);
   });
+
+  describe('directory patches', () => {
+    it('creates an empty directory via nodeType: directory patch', () => {
+      const patch: FileSystemPatch = {
+        machineId: 'localhost',
+        path: '/home/jshacker/stash',
+        content: null,
+        owner: 'user',
+        isNew: true,
+        nodeType: 'directory',
+      };
+      const result = applyPatches(baseState, [patch]);
+      const node = getNodeAtPath(result['localhost'], '/home/jshacker/stash');
+      expect(node?.type).toBe('directory');
+      expect(node?.owner).toBe('user');
+      expect(node?.children).toEqual({});
+    });
+
+    it('uses patch permissions on the new directory', () => {
+      const patch: FileSystemPatch = {
+        machineId: 'localhost',
+        path: '/home/jshacker/private',
+        content: null,
+        owner: 'user',
+        isNew: true,
+        nodeType: 'directory',
+        permissions: {
+          read: ['root', 'user'],
+          write: ['root', 'user'],
+          execute: ['root', 'user'],
+        },
+      };
+      const result = applyPatches(baseState, [patch]);
+      const node = getNodeAtPath(result['localhost'], '/home/jshacker/private');
+      expect(node?.permissions.read).toEqual(['root', 'user']);
+      expect(node?.permissions.execute).toEqual(['root', 'user']);
+    });
+
+    it('is a no-op when the directory already exists', () => {
+      const patch: FileSystemPatch = {
+        machineId: 'localhost',
+        path: '/home/jshacker',
+        content: null,
+        owner: 'user',
+        isNew: true,
+        nodeType: 'directory',
+      };
+      const existingChildren = getNodeAtPath(baseState['localhost'], '/home/jshacker')?.children;
+      const result = applyPatches(baseState, [patch]);
+      const node = getNodeAtPath(result['localhost'], '/home/jshacker');
+      // Existing contents survive — mkdir-on-existing must never clobber children
+      expect(node?.children).toBe(existingChildren);
+    });
+
+    it('deletes a directory via null-content patch without nodeType', () => {
+      // Deletion reuses the file-deletion path; nodeType only matters for creation.
+      const createPatch: FileSystemPatch = {
+        machineId: 'localhost',
+        path: '/home/jshacker/tempdir',
+        content: null,
+        owner: 'user',
+        isNew: true,
+        nodeType: 'directory',
+      };
+      const afterCreate = applyPatches(baseState, [createPatch]);
+      expect(getNodeAtPath(afterCreate['localhost'], '/home/jshacker/tempdir')).not.toBeNull();
+
+      const deletePatch: FileSystemPatch = {
+        machineId: 'localhost',
+        path: '/home/jshacker/tempdir',
+        content: null,
+        owner: 'user',
+      };
+      const afterDelete = applyPatches(afterCreate, [deletePatch]);
+      expect(getNodeAtPath(afterDelete['localhost'], '/home/jshacker/tempdir')).toBeNull();
+    });
+  });
 });
 
 describe('isValidPatch', () => {
@@ -442,5 +520,139 @@ describe('isValidPatch', () => {
     expect(
       isValidPatch({ ...validBase, permissions: { read: 'root', write: [], execute: [] } }),
     ).toBe(false);
+  });
+});
+
+describe('planDirectoryCreation', () => {
+  const allowWrite = { allowed: true as const };
+  const denyWrite = { allowed: false as const };
+
+  const getNodeFromMap = (nodes: Readonly<Record<string, FileNode>>) => (path: string) =>
+    nodes[path] ?? null;
+
+  it('plans a single new directory when the parent exists', () => {
+    const tmp = makeDir('tmp');
+    const result = planDirectoryCreation({
+      parts: ['tmp', 'newdir'],
+      targetPath: '/tmp/newdir',
+      parents: false,
+      getNode: getNodeFromMap({ '/tmp': tmp }),
+      canWriteParent: () => allowWrite,
+    });
+
+    expect(result).toEqual({ ok: true, toCreate: ['/tmp/newdir'] });
+  });
+
+  it('plans the full chain when -p is set and the parent exists', () => {
+    // The original bug: canWriteParent was called with '/tmp/a' (a path that
+    // does not yet exist in the filesystem), so the underlying check returned
+    // "No such file or directory" and the walk aborted. With the fix, the
+    // canWriteParent callback is only invoked while toCreate is still empty.
+    const tmp = makeDir('tmp');
+    const calls: string[] = [];
+
+    const result = planDirectoryCreation({
+      parts: ['tmp', 'a', 'b', 'c'],
+      targetPath: '/tmp/a/b/c',
+      parents: true,
+      getNode: getNodeFromMap({ '/tmp': tmp }),
+      canWriteParent: (path) => {
+        calls.push(path);
+        return allowWrite;
+      },
+    });
+
+    expect(result).toEqual({ ok: true, toCreate: ['/tmp/a', '/tmp/a/b', '/tmp/a/b/c'] });
+    expect(calls).toEqual(['/tmp']);
+  });
+
+  it('returns an empty plan when the target already exists and -p is set', () => {
+    // Real callers short-circuit before planDirectoryCreation runs when the
+    // target exists, but the planner should still be safe in that case.
+    const tmp = makeDir('tmp', { existing: makeDir('existing') });
+    const result = planDirectoryCreation({
+      parts: ['tmp', 'existing'],
+      targetPath: '/tmp/existing',
+      parents: true,
+      getNode: getNodeFromMap({ '/tmp': tmp, '/tmp/existing': tmp.children!.existing! }),
+      canWriteParent: () => allowWrite,
+    });
+
+    expect(result).toEqual({ ok: true, toCreate: [] });
+  });
+
+  it('errors when a missing intermediate is hit without -p', () => {
+    const tmp = makeDir('tmp');
+    const result = planDirectoryCreation({
+      parts: ['tmp', 'a', 'b'],
+      targetPath: '/tmp/a/b',
+      parents: false,
+      getNode: getNodeFromMap({ '/tmp': tmp }),
+      canWriteParent: () => allowWrite,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: "mkdir: cannot create directory '/tmp/a/b': No such file or directory",
+    });
+  });
+
+  it('errors when the caller lacks write on the first missing parent', () => {
+    const tmp = makeDir('tmp');
+    const result = planDirectoryCreation({
+      parts: ['tmp', 'forbidden'],
+      targetPath: '/tmp/forbidden',
+      parents: false,
+      getNode: getNodeFromMap({ '/tmp': tmp }),
+      canWriteParent: () => denyWrite,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: "mkdir: cannot create directory '/tmp/forbidden': Permission denied",
+    });
+  });
+
+  it('errors when a segment along the path is not a directory', () => {
+    const tmp = makeDir('tmp');
+    const file: FileNode = {
+      name: 'blocker',
+      type: 'file',
+      owner: 'user',
+      permissions: { read: ['root', 'user'], write: ['root', 'user'], execute: ['root'] },
+      content: '',
+    };
+    const result = planDirectoryCreation({
+      parts: ['tmp', 'blocker', 'nested'],
+      targetPath: '/tmp/blocker/nested',
+      parents: true,
+      getNode: getNodeFromMap({ '/tmp': tmp, '/tmp/blocker': file }),
+      canWriteParent: () => allowWrite,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: "mkdir: cannot create directory '/tmp/blocker/nested': Not a directory",
+    });
+  });
+
+  it('only checks canWriteParent once, at the first missing segment', () => {
+    // Regression guard for the original bug.
+    const tmp = makeDir('tmp');
+    const calls: string[] = [];
+
+    planDirectoryCreation({
+      parts: ['tmp', 'a', 'b', 'c', 'd'],
+      targetPath: '/tmp/a/b/c/d',
+      parents: true,
+      getNode: getNodeFromMap({ '/tmp': tmp }),
+      canWriteParent: (path) => {
+        calls.push(path);
+        return allowWrite;
+      },
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toBe('/tmp');
   });
 });
