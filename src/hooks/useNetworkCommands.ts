@@ -595,5 +595,8 @@ export const useNetworkCommands = (): Map<string, Command> => {
     session.userType,
     wifiConnected,
     isMachineBricked,
+    findMachineByIp,
+    getGatewayChainFor,
+    getPublicIP,
   ]);
 };

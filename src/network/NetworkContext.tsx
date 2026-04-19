@@ -96,8 +96,12 @@ export const NetworkProvider = ({
     return map;
   }, [gatewayIps, getNodeFromMachine]);
 
-  // Backward-compatible: border router iptables rules used in baseConfig
-  const iptablesRules = allIptablesRules.get(missionRouterMachine?.ip ?? '') ?? [];
+  // Backward-compatible: border router iptables rules used in baseConfig.
+  // Memoized so the `?? []` fallback doesn't create a fresh reference every render.
+  const iptablesRules = useMemo(
+    () => allIptablesRules.get(missionRouterMachine?.ip ?? '') ?? [],
+    [allIptablesRules, missionRouterMachine],
+  );
 
   // Dynamic SNMP firewall rules: read and parse /etc/snmp/snmpd.conf from all
   // gateway filesystems. When the player runs snmpset to modify firewall OIDs,
@@ -114,8 +118,12 @@ export const NetworkProvider = ({
     return map;
   }, [gatewayIps, getNodeFromMachine]);
 
-  // Backward-compatible: border router SNMP overrides used in baseConfig
-  const snmpFirewallOverrides = allSnmpOverrides.get(missionRouterMachine?.ip ?? '') ?? [];
+  // Backward-compatible: border router SNMP overrides used in baseConfig.
+  // Memoized so the `?? []` fallback doesn't create a fresh reference every render.
+  const snmpFirewallOverrides = useMemo(
+    () => allSnmpOverrides.get(missionRouterMachine?.ip ?? '') ?? [],
+    [allSnmpOverrides, missionRouterMachine],
+  );
 
   // Dynamic ACL rules: read and parse /etc/switch/acl.conf from switch gateways.
   // When the player edits acl.conf with nano, ports on downstream machines open/close.

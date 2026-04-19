@@ -405,5 +405,8 @@ export const useCommands = (): UseCommandsResult => {
     writeFileToMachine,
     createFileOnMachine,
     deleteNodeFromMachine,
+    readFile,
+    writeFile,
+    usedPublicIps,
   ]);
 };

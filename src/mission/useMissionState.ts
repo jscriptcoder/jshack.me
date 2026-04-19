@@ -30,6 +30,13 @@ export const useMissionState = (usedPublicIps: ReadonlySet<string>): MissionStat
   // the currently-active channel.
   const syncChannelRef = useRef<ReturnType<typeof createSyncChannel> | null>(null);
 
+  // Keep usedPublicIps in a ref so the mount-only effect below can read the
+  // current value without resubscribing the channel every time it changes.
+  const usedPublicIpsRef = useRef(usedPublicIps);
+  useEffect(() => {
+    usedPublicIpsRef.current = usedPublicIps;
+  }, [usedPublicIps]);
+
   // Subscribe to mission changes from other tabs
   useEffect(() => {
     const channel = createSyncChannel();
@@ -38,7 +45,7 @@ export const useMissionState = (usedPublicIps: ReadonlySet<string>): MissionStat
       if (message.type !== 'mission-changed') return;
 
       if (message.seed) {
-        const mission = generateMissionNetwork(message.seed, usedPublicIps);
+        const mission = generateMissionNetwork(message.seed, usedPublicIpsRef.current);
         setActiveMission(mission);
         const db = getDatabase();
         if (db) saveMissionSeed(db, message.seed);
