@@ -11,25 +11,21 @@ type MkdirContext = {
   ) => PermissionResult;
 };
 
+const isFlagToken = (s: string) => s.length > 1 && s.startsWith('-') && !s.startsWith('--');
+
 const parseArgs = (
   args: readonly unknown[],
 ): { readonly parents: boolean; readonly paths: readonly string[] } => {
-  let parents = false;
-  const paths: string[] = [];
+  const strings = args.filter((a): a is string => typeof a === 'string');
+  const flagChars = strings.filter(isFlagToken).flatMap((token) => [...token.slice(1)]);
 
-  for (const arg of args) {
-    if (typeof arg !== 'string') continue;
-    if (arg.startsWith('-') && arg.length > 1 && !arg.startsWith('--')) {
-      for (const ch of arg.slice(1)) {
-        if (ch === 'p') parents = true;
-        else throw new Error(`mkdir: invalid option -- '${ch}'`);
-      }
-    } else {
-      paths.push(arg);
-    }
-  }
+  const invalid = flagChars.find((ch) => ch !== 'p');
+  if (invalid) throw new Error(`mkdir: invalid option -- '${invalid}'`);
 
-  return { parents, paths };
+  return {
+    parents: flagChars.includes('p'),
+    paths: strings.filter((s) => !isFlagToken(s)),
+  };
 };
 
 export const createMkdirCommand = (context: MkdirContext): Command => ({
@@ -71,19 +67,13 @@ export const createMkdirCommand = (context: MkdirContext): Command => ({
     }
 
     const userType = getUserType();
-    const errors: string[] = [];
 
-    for (const path of paths) {
+    const errors = paths.flatMap((path) => {
       const result = createDirectory(path, userType, { parents });
-      if (!result.allowed) {
-        errors.push(result.error ?? `mkdir: cannot create directory '${path}'`);
-      }
-    }
+      return result.allowed ? [] : [result.error ?? `mkdir: cannot create directory '${path}'`];
+    });
 
-    if (errors.length > 0) {
-      throw new Error(errors.join('\n'));
-    }
-
+    if (errors.length > 0) throw new Error(errors.join('\n'));
     return '';
   },
 });

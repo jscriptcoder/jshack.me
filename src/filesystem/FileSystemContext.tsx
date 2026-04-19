@@ -479,55 +479,57 @@ export const FileSystemProvider = ({
 
       const parts = resolvedPath.split('/').filter(Boolean);
 
-      // Non-recursive: require the full parent chain to exist. With -p we create
-      // missing intermediates, each checked for parent-write permission as we go.
-      const segmentsToCreate: string[] = [];
-      let cursorPath = '/';
+      type WalkState =
+        | { readonly ok: true; readonly cursor: string; readonly toCreate: readonly string[] }
+        | { readonly ok: false; readonly error: string };
 
-      for (let i = 0; i < parts.length; i++) {
-        const segment = parts[i];
-        const nextPath = cursorPath === '/' ? `/${segment}` : `${cursorPath}/${segment}`;
-        const node = getNodeFromMachine(machineId, nextPath, '/');
+      // Walk the path segment-by-segment, checking per-intermediate permissions
+      // so a caller with write on /tmp can't escalate into /root via mkdir -p.
+      const walk = parts.reduce<WalkState>(
+        (state, segment, i) => {
+          if (!state.ok) return state;
 
-        if (node) {
-          if (node.type !== 'directory') {
+          const nextPath = state.cursor === '/' ? `/${segment}` : `${state.cursor}/${segment}`;
+          const node = getNodeFromMachine(machineId, nextPath, '/');
+
+          if (node) {
+            if (node.type !== 'directory') {
+              return {
+                ok: false,
+                error: `mkdir: cannot create directory '${path}': Not a directory`,
+              };
+            }
+            return { ok: true, cursor: nextPath, toCreate: state.toCreate };
+          }
+
+          const isFinalSegment = i === parts.length - 1;
+          if (!isFinalSegment && !parents) {
             return {
-              allowed: false,
-              error: `mkdir: cannot create directory '${path}': Not a directory`,
+              ok: false,
+              error: `mkdir: cannot create directory '${path}': No such file or directory`,
             };
           }
-          cursorPath = nextPath;
-          continue;
-        }
 
-        // Missing segment. Only allowed if we're mid-path and parents flag is set,
-        // or we're at the final segment (that's the mkdir target itself).
-        const isFinalSegment = i === parts.length - 1;
-        if (!isFinalSegment && !parents) {
-          return {
-            allowed: false,
-            error: `mkdir: cannot create directory '${path}': No such file or directory`,
-          };
-        }
+          const parentPermission = canWriteFromMachine({
+            machineId,
+            path: state.cursor,
+            cwd: '/',
+            userType,
+          });
+          if (!parentPermission.allowed) {
+            return {
+              ok: false,
+              error: `mkdir: cannot create directory '${path}': Permission denied`,
+            };
+          }
 
-        const parentPermission = canWriteFromMachine({
-          machineId,
-          path: cursorPath,
-          cwd: '/',
-          userType,
-        });
-        if (!parentPermission.allowed) {
-          return {
-            allowed: false,
-            error: `mkdir: cannot create directory '${path}': Permission denied`,
-          };
-        }
+          return { ok: true, cursor: nextPath, toCreate: [...state.toCreate, nextPath] };
+        },
+        { ok: true, cursor: '/', toCreate: [] },
+      );
 
-        segmentsToCreate.push(nextPath);
-        cursorPath = nextPath;
-      }
-
-      if (segmentsToCreate.length === 0) return { allowed: true };
+      if (!walk.ok) return { allowed: false, error: walk.error };
+      if (walk.toCreate.length === 0) return { allowed: true };
 
       const defaultPermissions: FilePermissions = {
         read: ['root', 'user', 'guest'],
@@ -535,13 +537,13 @@ export const FileSystemProvider = ({
         execute: ['root', 'user', 'guest'],
       };
 
-      for (const dirPath of segmentsToCreate) {
+      walk.toCreate.forEach((dirPath) => {
         const dirParts = dirPath.split('/').filter(Boolean);
-        const dirName = dirParts[dirParts.length - 1];
+        const dirName = dirParts[dirParts.length - 1] ?? '';
         const parentParts = dirParts.slice(0, -1);
 
         const newDir: FileNode = {
-          name: dirName ?? '',
+          name: dirName,
           type: 'directory',
           owner: userType,
           permissions: permissions ?? defaultPermissions,
@@ -550,7 +552,7 @@ export const FileSystemProvider = ({
 
         setFileSystems((prev) => ({
           ...prev,
-          [machineId]: ensureChildAtPath(prev[machineId], parentParts, dirName ?? '', newDir),
+          [machineId]: ensureChildAtPath(prev[machineId], parentParts, dirName, newDir),
         }));
 
         broadcastAndRecordPatch({
@@ -562,7 +564,7 @@ export const FileSystemProvider = ({
           nodeType: 'directory',
           ...(permissions ? { permissions } : { permissions: defaultPermissions }),
         });
-      }
+      });
 
       return { allowed: true };
     },
