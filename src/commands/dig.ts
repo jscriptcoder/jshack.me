@@ -75,7 +75,7 @@ export const createDigCommand = (context: DigContext): Command => ({
   category: 'network',
   description: 'DNS lookup and zone transfer tool',
   manual: {
-    synopsis: 'dig(domain) | dig(serverIp, "axfr")',
+    synopsis: 'dig <domain> | dig <serverIp> axfr',
     description:
       'Query DNS records. With one argument, resolves a domain name (like nslookup). ' +
       'With a server IP and "axfr", performs a zone transfer to dump all DNS records ' +
@@ -83,12 +83,12 @@ export const createDigCommand = (context: DigContext): Command => ({
     arguments: [
       { name: 'domain', description: 'Domain name to look up (e.g., "web01.mission")' },
       { name: 'serverIp', description: 'IP address of the DNS server to query' },
-      { name: '"axfr"', description: 'Request a zone transfer (requires serverIp)' },
+      { name: 'axfr', description: 'Request a zone transfer (requires serverIp)' },
     ],
     examples: [
-      { command: 'dig("web01.mission")', description: 'Look up a domain name' },
-      { command: 'dig("10.0.1.5", "axfr")', description: 'Zone transfer from DNS server' },
-      { command: 'dig("axfr", "10.0.1.5")', description: 'Same — argument order is flexible' },
+      { command: 'dig web01.mission', description: 'Look up a domain name' },
+      { command: 'dig 10.0.1.5 axfr', description: 'Zone transfer from DNS server' },
+      { command: 'dig axfr 10.0.1.5', description: 'Same — argument order is flexible' },
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {
@@ -97,7 +97,7 @@ export const createDigCommand = (context: DigContext): Command => ({
     const strArgs = args.filter((a) => typeof a === 'string') as string[];
 
     if (strArgs.length === 0) {
-      throw new Error('dig: missing arguments\nUsage: dig("domain") or dig("serverIp", "axfr")');
+      throw new Error('dig: missing arguments\nUsage: dig <domain> or dig <serverIp> axfr');
     }
 
     // Classify arguments by value
@@ -120,7 +120,7 @@ export const createDigCommand = (context: DigContext): Command => ({
     // AXFR mode: requires a server IP
     if (isAxfr) {
       if (!serverIp) {
-        throw new Error('dig: AXFR requires a server IP\nUsage: dig("serverIp", "axfr")');
+        throw new Error('dig: AXFR requires a server IP\nUsage: dig <serverIp> axfr');
       }
 
       const localIP = getLocalIP();
@@ -191,7 +191,7 @@ export const createDigCommand = (context: DigContext): Command => ({
 
     // Basic lookup mode: resolve domain via resolveDomain
     if (!domain) {
-      throw new Error('dig: missing domain argument\nUsage: dig("domain")');
+      throw new Error('dig: missing domain argument\nUsage: dig <domain>');
     }
 
     const dnsServer = getGateway();

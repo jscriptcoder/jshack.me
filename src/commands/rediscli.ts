@@ -17,7 +17,7 @@ export const createRediscliCommand = (context: RediscliContext): Command => ({
   category: 'network',
   description: 'Redis CLI client for key-value store access',
   manual: {
-    synopsis: 'rediscli(host[, password])',
+    synopsis: 'rediscli <host> [password]',
     description:
       'Connect to a Redis server on the specified host. If the server requires authentication, ' +
       'provide the password as the second argument or use the AUTH command after connecting.',
@@ -26,9 +26,9 @@ export const createRediscliCommand = (context: RediscliContext): Command => ({
       { name: 'password', description: 'Optional password for AUTH' },
     ],
     examples: [
-      { command: 'rediscli("10.0.1.20")', description: 'Connect to Redis server' },
+      { command: 'rediscli 10.0.1.20', description: 'Connect to Redis server' },
       {
-        command: 'rediscli("10.0.1.20", "secret")',
+        command: 'rediscli 10.0.1.20 secret',
         description: 'Connect with authentication',
       },
     ],
@@ -40,7 +40,7 @@ export const createRediscliCommand = (context: RediscliContext): Command => ({
     const password = args[1] as string | undefined;
 
     if (!host) {
-      throw new Error('rediscli: missing host argument\nUsage: rediscli("host"[, "password"])');
+      throw new Error('rediscli: missing host argument\nUsage: rediscli <host> [password]');
     }
 
     let targetIP = host;

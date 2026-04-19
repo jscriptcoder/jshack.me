@@ -39,7 +39,7 @@ export const createBashCommand = (context: BashContext): Command => ({
   category: 'general',
   description: 'Execute binary by filesystem path',
   manual: {
-    synopsis: 'bash(path, ...args)',
+    synopsis: 'bash <path> [args...]',
     description:
       'Execute a binary by its filesystem path. Resolves the binary, checks execute ' +
       'permissions, and runs the corresponding command with forwarded arguments.',
@@ -52,13 +52,13 @@ export const createBashCommand = (context: BashContext): Command => ({
       { name: '...args', description: 'Arguments forwarded to the command', required: false },
     ],
     examples: [
-      { command: 'bash("/usr/sbin/sshd")', description: 'Start sshd on default port' },
-      { command: 'bash("/usr/sbin/sshd", 2222)', description: 'Start sshd on port 2222' },
+      { command: 'bash /usr/sbin/sshd', description: 'Start sshd on default port' },
+      { command: 'bash /usr/sbin/sshd 2222', description: 'Start sshd on port 2222' },
     ],
   },
   fn: (binaryPath?: unknown, ...args: unknown[]) => {
     if (typeof binaryPath !== 'string' || !binaryPath) {
-      throw new Error('bash: missing binary path\nUsage: bash("/path/to/binary", ...args)');
+      throw new Error('bash: missing binary path\nUsage: bash <path> [args...]');
     }
 
     const adapter: BashAdapter = {

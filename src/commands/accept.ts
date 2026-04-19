@@ -168,16 +168,14 @@ export const createAcceptCommand = (context: AcceptCommandContext): Command => (
   category: 'mission',
   description: 'Accept a mission contract',
   manual: {
-    synopsis: 'accept(seed)',
+    synopsis: 'accept <seed>',
     description:
       'Accept a mission contract from the darknet marketplace. The seed determines the target network — same seed always generates the same mission. Use missions() to browse available contracts and find seeds.',
-    examples: [
-      { command: 'accept("MY-SEED-easy")', description: 'Accept a mission with this seed' },
-    ],
+    examples: [{ command: 'accept MY-SEED-easy', description: 'Accept a mission with this seed' }],
   },
   fn: (seed: unknown): string => {
     if (typeof seed !== 'string' || !seed.trim()) {
-      throw new Error('accept: missing seed\nUsage: accept("SEED-CODE")');
+      throw new Error('accept: missing seed\nUsage: accept <SEED-CODE>');
     }
     if (context.isMissionActive()) {
       throw new Error('A mission is already active. Use abort() to cancel it first.');

@@ -413,7 +413,7 @@ export const createAptCommand = (context: AptContext): Command => ({
   category: 'general',
   description: 'Package manager — install hacking tools',
   manual: {
-    synopsis: "apt('install', packageName) | apt('list', ['-i'])",
+    synopsis: 'apt <subcommand> [package] [-i]',
     description:
       'Advanced package tool for installing hacking utilities. ' +
       'Tools like nmap, john, hydra, and nc must be installed before use. ' +
@@ -442,10 +442,10 @@ export const createAptCommand = (context: AptContext): Command => ({
       },
     ],
     examples: [
-      { command: "apt('install', 'nmap')", description: 'Install nmap on the current machine' },
-      { command: "apt('list')", description: 'List all available packages' },
+      { command: 'apt install nmap', description: 'Install nmap on the current machine' },
+      { command: 'apt list', description: 'List all available packages' },
       {
-        command: "apt('list', '-i')",
+        command: 'apt list -i',
         description: 'List only installed packages',
       },
     ],
@@ -457,12 +457,12 @@ export const createAptCommand = (context: AptContext): Command => ({
       throw new Error(
         [
           'apt: missing subcommand',
-          'Usage: apt(subcommand, [args])',
+          'Usage: apt <install|list|upgrade> [package]',
           '',
           'Subcommands:',
-          "  apt('install', '<package>')  Install a package",
-          "  apt('list')                  List available packages",
-          "  apt('list', '-i')            List installed packages",
+          '  apt install <package>  Install a package',
+          '  apt list               List available packages',
+          '  apt list -i            List installed packages',
         ].join('\n'),
       );
     }
@@ -474,7 +474,7 @@ export const createAptCommand = (context: AptContext): Command => ({
     if (subcommand === 'install') {
       const packageName = args[1] as string | undefined;
       if (!packageName) {
-        throw new Error("E: No package name specified. Usage: apt('install', '<package>')");
+        throw new Error('E: No package name specified. Usage: apt install <package>');
       }
       // `pkg=version` → version-pin install (service or firmware). Otherwise
       // fall through to the binary-tool install path.
@@ -493,7 +493,7 @@ export const createAptCommand = (context: AptContext): Command => ({
     }
 
     throw new Error(
-      `E: Invalid operation '${subcommand}'. Usage: apt('install', '<package>'), apt('upgrade'), or apt('list')`,
+      `E: Invalid operation '${subcommand}'. Usage: apt install <package>, apt upgrade, or apt list`,
     );
   },
 });

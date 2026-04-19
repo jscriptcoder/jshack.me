@@ -30,22 +30,22 @@ export const createManCommand = (getCommands: () => Map<string, Command>): Comma
   category: 'general',
   description: 'Display manual for a command',
   manual: {
-    synopsis: 'man(command)',
+    synopsis: 'man <command>',
     description:
       'Display detailed documentation for a command, including description, arguments, and usage examples.',
     arguments: [
       { name: 'command', description: 'The name of the command to get help for', required: true },
     ],
     examples: [
-      { command: 'man("ls")', description: 'Show manual for the ls command' },
-      { command: 'man("cat")', description: 'Show manual for the cat command' },
+      { command: 'man ls', description: 'Show manual for the ls command' },
+      { command: 'man cat', description: 'Show manual for the cat command' },
     ],
   },
   fn: (...args: unknown[]): string => {
     const cmdName = args[0] as string | undefined;
 
     if (!cmdName) {
-      throw new Error('man: missing command name\nUsage: man("command")');
+      throw new Error('man: missing command name\nUsage: man <command>');
     }
 
     const commands = getCommands();

@@ -22,7 +22,7 @@ export const createFtpLlsCommand = (context: FtpLlsContext): Command => ({
   category: 'network',
   description: 'List local directory contents',
   manual: {
-    synopsis: 'lls([path], [flags])',
+    synopsis: 'lls [path] [flags...]',
     description:
       'List the contents of a directory on the local machine (where the FTP connection was initiated from). Hidden files (starting with .) are not shown by default. If no path is given, lists the current local directory.',
     arguments: [
@@ -38,10 +38,10 @@ export const createFtpLlsCommand = (context: FtpLlsContext): Command => ({
       },
     ],
     examples: [
-      { command: 'lls()', description: 'List current local directory' },
-      { command: 'lls("-a")', description: 'List all files including hidden ones' },
-      { command: 'lls("-l")', description: 'Long listing with permissions and owner' },
-      { command: 'lls("/home")', description: 'List /home on local machine' },
+      { command: 'lls', description: 'List current local directory' },
+      { command: 'lls -a', description: 'List all files including hidden ones' },
+      { command: 'lls -l', description: 'Long listing with permissions and owner' },
+      { command: 'lls /home', description: 'List /home on local machine' },
     ],
   },
   fn: (...args: unknown[]): string => {

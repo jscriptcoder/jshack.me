@@ -22,7 +22,7 @@ export const createFtpLsCommand = (context: FtpLsContext): Command => ({
   category: 'network',
   description: 'List remote directory contents',
   manual: {
-    synopsis: 'ls([path], [flags])',
+    synopsis: 'ls [path] [flags...]',
     description:
       'List the contents of a directory on the remote FTP server. Hidden files (starting with .) are not shown by default. If no path is given, lists the current remote directory.',
     arguments: [
@@ -38,10 +38,10 @@ export const createFtpLsCommand = (context: FtpLsContext): Command => ({
       },
     ],
     examples: [
-      { command: 'ls()', description: 'List current remote directory' },
-      { command: 'ls("-a")', description: 'List all files including hidden ones' },
-      { command: 'ls("-l")', description: 'Long listing with permissions and owner' },
-      { command: 'ls("/srv/ftp")', description: 'List /srv/ftp on remote' },
+      { command: 'ls', description: 'List current remote directory' },
+      { command: 'ls -a', description: 'List all files including hidden ones' },
+      { command: 'ls -l', description: 'Long listing with permissions and owner' },
+      { command: 'ls /srv/ftp', description: 'List /srv/ftp on remote' },
     ],
   },
   fn: (...args: unknown[]): string => {

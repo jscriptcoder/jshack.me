@@ -56,7 +56,7 @@ export const createCatCommand = (context: CatContext): Command => ({
   category: 'filesystem',
   description: 'Display file contents',
   manual: {
-    synopsis: 'cat(path)',
+    synopsis: 'cat <path>',
     description: 'Display the contents of a file. The file must be readable by the current user.',
     arguments: [
       {
@@ -66,9 +66,9 @@ export const createCatCommand = (context: CatContext): Command => ({
       },
     ],
     examples: [
-      { command: 'cat("/etc/passwd")', description: 'Display the passwd file' },
-      { command: 'cat("readme.txt")', description: 'Display a file in the current directory' },
-      { command: 'cat("../file.txt")', description: 'Display a file in the parent directory' },
+      { command: 'cat /etc/passwd', description: 'Display the passwd file' },
+      { command: 'cat readme.txt', description: 'Display a file in the current directory' },
+      { command: 'cat ../file.txt', description: 'Display a file in the parent directory' },
     ],
   },
   fn: (...args: unknown[]): string => readFileContent(context, args),

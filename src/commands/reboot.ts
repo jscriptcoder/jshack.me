@@ -64,10 +64,10 @@ export const createRebootCommand = (context: RebootContext): Command => ({
   category: 'filesystem',
   description: 'Reboot the current machine',
   manual: {
-    synopsis: 'reboot()',
+    synopsis: 'reboot',
     description:
       'Reboot the current machine. Requires root privileges. If critical boot files (/boot/vmlinuz, /boot/initrd.img) are missing, the machine will fail to boot and become permanently unreachable.',
-    examples: [{ command: 'reboot()', description: 'Reboot the current machine' }],
+    examples: [{ command: 'reboot', description: 'Reboot the current machine' }],
   },
   fn: (): AsyncOutput => {
     const {

@@ -337,7 +337,7 @@ export const createHydraCommand = (context: HydraContext): Command => ({
   category: 'network',
   description: 'Network login brute-force tool',
   manual: {
-    synopsis: 'hydra(host[, service[, user]])',
+    synopsis: 'hydra <host> [service] [user]',
     description:
       'Perform a dictionary attack against network login services on a remote host. ' +
       'Attacks SSH and FTP services by default. Optionally specify a service ' +
@@ -354,23 +354,23 @@ export const createHydraCommand = (context: HydraContext): Command => ({
     ],
     examples: [
       {
-        command: 'hydra("192.168.1.50")',
+        command: 'hydra 192.168.1.50',
         description: 'Attack all SSH/FTP services on the target',
       },
       {
-        command: 'hydra("192.168.1.50", "ssh")',
+        command: 'hydra 192.168.1.50 ssh',
         description: 'Attack only the SSH service',
       },
       {
-        command: 'hydra("192.168.1.50", "ssh", "ftpuser")',
+        command: 'hydra 192.168.1.50 ssh ftpuser',
         description: 'Attack a specific user on SSH',
       },
       {
-        command: 'hydra("10.0.0.1", "snmp")',
+        command: 'hydra 10.0.0.1 snmp',
         description: 'Brute-force SNMP community strings',
       },
       {
-        command: 'hydra("10.0.0.5", "mysql")',
+        command: 'hydra 10.0.0.5 mysql',
         description: 'Brute-force MySQL database credentials',
       },
     ],
@@ -392,7 +392,7 @@ export const createHydraCommand = (context: HydraContext): Command => ({
     const userFilter = args[2] as string | undefined;
 
     if (!host) {
-      throw new Error('hydra: missing host\nUsage: hydra("host"[, "service"[, "user"]])');
+      throw new Error('hydra: missing host\nUsage: hydra <host> [service] [user]');
     }
 
     if (serviceFilter !== undefined && !VALID_SERVICES.has(serviceFilter)) {

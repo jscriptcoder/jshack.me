@@ -49,7 +49,7 @@ export const createSnmpsetCommand = (context: SnmpsetContext): Command => ({
   category: 'network',
   description: 'SNMP SET — modify SNMP OID values',
   manual: {
-    synopsis: 'snmpset(host, community, "oid=value")',
+    synopsis: 'snmpset <host> <community> <oid=value>',
     description:
       'Set a writable SNMP OID on a remote host. Requires a read-write community string. ' +
       'Writable OIDs: firewall OIDs (firewallSSH, firewallHTTP) with values "permit"/"deny", ' +
@@ -65,11 +65,11 @@ export const createSnmpsetCommand = (context: SnmpsetContext): Command => ({
     ],
     examples: [
       {
-        command: 'snmpset("192.168.1.1", "private", "firewallSSH=permit")',
+        command: 'snmpset 192.168.1.1 private firewallSSH=permit',
         description: 'Open SSH through the firewall (router)',
       },
       {
-        command: 'snmpset("192.168.1.1", "private", "aclSSH=allow")',
+        command: 'snmpset 192.168.1.1 private aclSSH=allow',
         description: 'Allow SSH through ACL (switch)',
       },
     ],
@@ -84,7 +84,7 @@ export const createSnmpsetCommand = (context: SnmpsetContext): Command => ({
 
     if (!host || !community || !assignment) {
       throw new Error(
-        'snmpset: missing host, community, or assignment\nUsage: snmpset("host", "community", "oid=value")',
+        'snmpset: missing host, community, or assignment\nUsage: snmpset <host> <community> <oid=value>',
       );
     }
 

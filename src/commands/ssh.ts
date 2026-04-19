@@ -25,10 +25,10 @@ export const createSshCommand = (context: SshContext): Command => ({
   category: 'network',
   description: 'Secure shell connection to remote host',
   manual: {
-    synopsis: 'ssh("user@host"[, port][, password])',
+    synopsis: 'ssh <user@host> [port] [password]',
     description:
       'Connect to a remote machine via SSH. Without a password, you will be prompted interactively. ' +
-      'With a password, authentication happens automatically after the connection animation — useful in scripts via node(). ' +
+      'With a password, authentication happens automatically after the connection animation — useful in scripts via node. ' +
       'Default port is 22.',
     arguments: [
       {
@@ -48,13 +48,13 @@ export const createSshCommand = (context: SshContext): Command => ({
       },
     ],
     examples: [
-      { command: 'ssh("admin@192.168.1.1")', description: 'Connect to gateway as admin' },
+      { command: 'ssh admin@192.168.1.1', description: 'Connect to gateway as admin' },
       {
-        command: 'ssh("root@10.0.0.5", 2222)',
+        command: 'ssh root@10.0.0.5 2222',
         description: 'Connect on port 2222',
       },
       {
-        command: 'ssh("admin@192.168.1.1", "secret")',
+        command: 'ssh admin@192.168.1.1 secret',
         description: 'Connect with password (scripting)',
       },
     ],
@@ -64,12 +64,12 @@ export const createSshCommand = (context: SshContext): Command => ({
 
     const arg = args[0];
     if (typeof arg !== 'string' || !arg) {
-      throw new Error('ssh: missing destination\nUsage: ssh("user@host")');
+      throw new Error('ssh: missing destination\nUsage: ssh <user@host>');
     }
 
     const parsed = parseTarget(arg);
     if (!parsed) {
-      throw new Error(`ssh: invalid destination: '${arg}'\nUsage: ssh("user@host")`);
+      throw new Error(`ssh: invalid destination: '${arg}'\nUsage: ssh <user@host>`);
     }
 
     const { user, host } = parsed;

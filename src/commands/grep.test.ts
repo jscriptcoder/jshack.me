@@ -413,14 +413,14 @@ describe('grep command', () => {
       const context = createMockContext({ rootNode });
       const grep = createGrepCommand(context);
 
-      expect(() => grep.fn()).toThrow('grep: usage: grep(pattern, path, ["-l"])');
+      expect(() => grep.fn()).toThrow(/grep:.*usage/i);
     });
 
     it('should throw error when only pattern provided', () => {
       const context = createMockContext({ rootNode });
       const grep = createGrepCommand(context);
 
-      expect(() => grep.fn('pattern')).toThrow('grep: usage: grep(pattern, path, ["-l"])');
+      expect(() => grep.fn('pattern')).toThrow(/grep:.*usage/i);
     });
 
     it('should throw error for non-existent path', () => {
@@ -436,7 +436,7 @@ describe('grep command', () => {
       const context = createMockContext({ rootNode });
       const grep = createGrepCommand(context);
 
-      expect(() => grep.fn(123, true)).toThrow('grep: usage: grep(pattern, path, ["-l"])');
+      expect(() => grep.fn(123, true)).toThrow(/grep:.*usage/i);
     });
   });
 
@@ -495,9 +495,7 @@ describe('grep command', () => {
     it('throws when called with no pattern', () => {
       const grep = createGrepCommand(context);
 
-      expect(() => grep.fnShell?.({ stdin: 'data' })).toThrow(
-        'grep: usage: grep(pattern, path, ["-l"])',
-      );
+      expect(() => grep.fnShell?.({ stdin: 'data' })).toThrow(/grep:.*usage/i);
     });
   });
 });

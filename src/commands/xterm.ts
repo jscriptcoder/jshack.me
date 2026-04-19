@@ -5,10 +5,10 @@ export const xtermCommand: Command = {
   category: 'general',
   description: 'Open a new terminal in a browser tab',
   manual: {
-    synopsis: 'xterm()',
+    synopsis: 'xterm',
     description:
       'Open a new terminal session in a separate browser tab. Each tab runs an independent session with its own user, machine, path, and command history. Filesystem, WiFi state, and mission state are shared across tabs.',
-    examples: [{ command: 'xterm()', description: 'Open a new terminal tab' }],
+    examples: [{ command: 'xterm', description: 'Open a new terminal tab' }],
   },
   fn: (): string => {
     // Chromium clones sessionStorage from the opener when using window.open,

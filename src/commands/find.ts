@@ -58,7 +58,7 @@ export const createFindCommand = (context: FindContext): Command => ({
   category: 'filesystem',
   description: 'Search for files and directories by name',
   manual: {
-    synopsis: 'find(path, pattern, [user])',
+    synopsis: 'find <path> <pattern> [user]',
     description:
       'Recursively search for files and directories matching a glob pattern. Supports * (any characters) and ? (single character) wildcards. Directories in results are shown with a trailing /. Restricted directories are silently skipped.',
     arguments: [
@@ -70,20 +70,20 @@ export const createFindCommand = (context: FindContext): Command => ({
       { name: 'user', description: 'Optional: filter results by file owner', required: false },
     ],
     examples: [
-      { command: 'find(".", "*.txt")', description: 'Find all .txt files from current directory' },
-      { command: 'find("/", "*.key")', description: 'Find all .key files from root' },
+      { command: 'find . *.txt', description: 'Find all .txt files from current directory' },
+      { command: 'find / *.key', description: 'Find all .key files from root' },
       {
-        command: 'find("/home", "*.log", "root")',
+        command: 'find /home *.log root',
         description: 'Find root-owned .log files in /home',
       },
-      { command: 'find(".", "passwd")', description: 'Find files named passwd' },
+      { command: 'find . passwd', description: 'Find files named passwd' },
     ],
   },
   fn: (...args: unknown[]): string => {
     const stringArgs = args.filter((arg): arg is string => typeof arg === 'string');
 
     if (stringArgs.length < 2) {
-      throw new Error('find: usage: find(path, pattern, [user])');
+      throw new Error('find: usage: find <path> <pattern> [user]');
     }
 
     const [rawPath, pattern, ownerFilter] = stringArgs;

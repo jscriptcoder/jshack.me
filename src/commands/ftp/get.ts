@@ -29,7 +29,7 @@ export const createFtpGetCommand = (context: FtpGetContext): Command => ({
   category: 'network',
   description: 'Download file from remote server',
   manual: {
-    synopsis: 'get(remoteFile, [localPath])',
+    synopsis: 'get <remoteFile> [localPath]',
     description:
       'Download a file from the remote FTP server to the local machine. ' +
       'If localPath is not specified, the file is saved in the current local directory with the same name.',
@@ -43,18 +43,18 @@ export const createFtpGetCommand = (context: FtpGetContext): Command => ({
     ],
     examples: [
       {
-        command: 'get("secret.txt")',
+        command: 'get secret.txt',
         description: 'Download secret.txt to current local directory',
       },
       {
-        command: 'get("data.txt", "/tmp/data.txt")',
+        command: 'get data.txt /tmp/data.txt',
         description: 'Download to specific local path',
       },
     ],
   },
   fn: (remoteFile?: unknown, localPath?: unknown): AsyncOutput => {
     if (typeof remoteFile !== 'string' || !remoteFile) {
-      throw new Error('get: missing remote file argument\nUsage: get("remoteFile", ["localPath"])');
+      throw new Error('get: missing remote file argument\nUsage: get <remoteFile> [localPath]');
     }
 
     const remoteMachine = context.getRemoteMachine();

@@ -124,7 +124,7 @@ const buildProcessList = (context: KillContext): readonly KillableProcess[] => {
 
 const parsePid = (args: readonly unknown[]): number => {
   if (args.length === 0) {
-    throw new Error('kill: usage: kill(pid)');
+    throw new Error('kill: usage: kill <pid>');
   }
 
   const pidStr = String(args[0]);
@@ -141,10 +141,10 @@ export const createKillCommand = (context: KillContext): Command => ({
   category: 'general',
   description: 'Terminate a process by PID',
   manual: {
-    synopsis: 'kill(pid)',
-    description: 'Terminate a process by its PID. Use ps() to find process IDs.',
+    synopsis: 'kill <pid>',
+    description: 'Terminate a process by its PID. Use ps to find process IDs.',
     arguments: [{ name: 'pid', description: 'Process ID to terminate', required: true }],
-    examples: [{ command: 'kill(100)', description: 'Terminate process with PID 100' }],
+    examples: [{ command: 'kill 100', description: 'Terminate process with PID 100' }],
   },
   fn: (...args: unknown[]): string => {
     const pid = parsePid(args);

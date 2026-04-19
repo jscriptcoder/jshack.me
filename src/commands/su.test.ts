@@ -104,7 +104,7 @@ describe('su command', () => {
       const su = createSuCommand(context);
 
       expect(() => su.fn()).toThrow('su: missing username');
-      expect(() => su.fn()).toThrow('Usage: su("username")');
+      expect(() => su.fn()).toThrow(/su:[\s\S]*usage/i);
     });
 
     it('should throw error when username is undefined', () => {

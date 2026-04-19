@@ -16,11 +16,11 @@ export const createFtpCommand = (context: FtpContext): Command => ({
   category: 'network',
   description: 'File Transfer Protocol connection to remote host',
   manual: {
-    synopsis: 'ftp(host[, username, password])',
+    synopsis: 'ftp <host> [username] [password]',
     description:
       'Connect to a remote machine via FTP. Without credentials, you will be prompted for username and password. ' +
-      'With credentials, authentication happens automatically after the connection animation — useful in scripts via node(). ' +
-      'Once connected, you can use FTP commands: ls(), cd(), pwd(), lpwd(), lcd(), get(), put(), quit().',
+      'With credentials, authentication happens automatically after the connection animation — useful in scripts via node. ' +
+      'Once connected, you can use FTP commands: ls, cd, pwd, lpwd, lcd, get, put, quit.',
     arguments: [
       { name: 'host', description: 'IP address or hostname of the remote machine', required: true },
       {
@@ -35,10 +35,10 @@ export const createFtpCommand = (context: FtpContext): Command => ({
       },
     ],
     examples: [
-      { command: 'ftp("10.0.0.5")', description: 'Connect to a remote host via FTP' },
-      { command: 'ftp("target.local")', description: 'Connect using hostname' },
+      { command: 'ftp 10.0.0.5', description: 'Connect to a remote host via FTP' },
+      { command: 'ftp target.local', description: 'Connect using hostname' },
       {
-        command: 'ftp("10.0.0.5", "admin", "secret")',
+        command: 'ftp 10.0.0.5 admin secret',
         description: 'Connect with credentials (scripting)',
       },
     ],
@@ -51,7 +51,7 @@ export const createFtpCommand = (context: FtpContext): Command => ({
     const passwordArg = args[2] as string | undefined;
 
     if (!host) {
-      throw new Error('ftp: missing host\nUsage: ftp("host")');
+      throw new Error('ftp: missing host\nUsage: ftp <host>');
     }
 
     let targetIP = host;

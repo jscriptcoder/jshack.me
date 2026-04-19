@@ -58,10 +58,10 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
   category: 'network',
   description: 'Exploit a vulnerable service for remote code execution',
   manual: {
-    synopsis: 'msfconsole(host, port)',
+    synopsis: 'msfconsole <host> <port>',
     description:
       'Exploit a known vulnerability on a remote service to gain shell access. ' +
-      'Use nmap("-sV", target) first to discover vulnerable services and their CVEs. ' +
+      'Use nmap -sV <target> first to discover vulnerable services and their CVEs. ' +
       'Only works against ports with known vulnerabilities.',
     arguments: [
       { name: 'host', description: 'IP address or hostname of the target machine', required: true },
@@ -69,11 +69,11 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
     ],
     examples: [
       {
-        command: 'msfconsole("10.50.100.10", 80)',
+        command: 'msfconsole 10.50.100.10 80',
         description: 'Exploit a vulnerable HTTP service',
       },
       {
-        command: 'msfconsole("web01.mission", 3306)',
+        command: 'msfconsole web01.mission 3306',
         description: 'Exploit a vulnerable MySQL service',
       },
     ],
@@ -86,11 +86,15 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
     const thirdArg = args[2] as string | undefined;
 
     if (!host) {
-      throw new Error('msfconsole: missing host\nUsage: msfconsole("host", port)');
+      throw new Error(
+        'msfconsole: missing host\nUsage: msfconsole <host> <port> [path-or-local:remote]',
+      );
     }
 
     if (port === undefined || typeof port !== 'number') {
-      throw new Error('msfconsole: missing or invalid port\nUsage: msfconsole("host", port)');
+      throw new Error(
+        'msfconsole: missing or invalid port\nUsage: msfconsole <host> <port> [path-or-local:remote]',
+      );
     }
 
     if (port < 1 || port > 65535) {
@@ -162,12 +166,12 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
 
     if ((requiresPath || requiresScript) && !thirdArg) {
       throw new Error(
-        `msfconsole: this exploit requires a target path — usage: msfconsole(host, port, '/path')`,
+        `msfconsole: this exploit requires a target path — usage: msfconsole <host> <port> <path>`,
       );
     }
     if (requiresLocalRemote && (!thirdArg || !thirdArg.includes(':'))) {
       throw new Error(
-        `msfconsole: this exploit requires local:remote syntax — usage: msfconsole(host, port, '/local/file:/remote/path')`,
+        `msfconsole: this exploit requires local:remote syntax — usage: msfconsole <host> <port> <local:remote>`,
       );
     }
 

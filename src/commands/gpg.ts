@@ -18,7 +18,7 @@ export const createGpgCommand = (context: GpgContext): Command => ({
   category: 'filesystem',
   description: 'Decrypt a file using AES-256',
   manual: {
-    synopsis: 'gpg(file, key)',
+    synopsis: 'gpg <file> <key>',
     description:
       'Decrypt an encrypted file using a 256-bit key. ' +
       'The file should contain base64-encoded encrypted data. ' +
@@ -37,12 +37,13 @@ export const createGpgCommand = (context: GpgContext): Command => ({
     ],
     examples: [
       {
-        command: 'gpg("secret.enc", "a1b2c3...")',
+        command: 'gpg secret.enc a1b2c3...',
         description: 'Decrypt a file with the given key',
       },
       {
-        command: 'gpg("/home/ghost/message.enc", key)',
-        description: 'Decrypt using a key stored in a variable',
+        command:
+          'gpg /home/ghost/message.enc 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+        description: 'Decrypt a file at an absolute path',
       },
     ],
   },
@@ -53,11 +54,11 @@ export const createGpgCommand = (context: GpgContext): Command => ({
     const key = args[1] as string | undefined;
 
     if (!filePath) {
-      throw new Error('gpg: missing file path\nUsage: gpg("file", "key")');
+      throw new Error('gpg: missing file path\nUsage: gpg <file> <key>');
     }
 
     if (!key) {
-      throw new Error('gpg: missing key\nUsage: gpg("file", "key")');
+      throw new Error('gpg: missing key\nUsage: gpg <file> <key>');
     }
 
     const cleanKey = key.replace(/\s/g, '');

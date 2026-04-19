@@ -17,7 +17,7 @@ export const createThemeCommand = ({
   category: 'general',
   description: 'List or switch terminal color themes',
   manual: {
-    synopsis: 'theme([name])',
+    synopsis: 'theme [name]',
     description:
       'Without arguments, lists all available themes with the current one marked. With a theme name, switches to that theme. Theme choice persists across sessions.',
     arguments: [
@@ -28,9 +28,9 @@ export const createThemeCommand = ({
       },
     ],
     examples: [
-      { command: 'theme()', description: 'List available themes' },
-      { command: 'theme("green")', description: 'Switch to green phosphor theme' },
-      { command: 'theme("light")', description: 'Switch to light theme' },
+      { command: 'theme', description: 'List available themes' },
+      { command: 'theme green', description: 'Switch to green phosphor theme' },
+      { command: 'theme light', description: 'Switch to light theme' },
     ],
   },
   fn: (...args: readonly unknown[]): string => {

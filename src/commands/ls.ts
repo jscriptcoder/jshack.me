@@ -106,7 +106,7 @@ export const createLsCommand = (context: LsContext): Command => ({
   category: 'filesystem',
   description: 'List directory contents',
   manual: {
-    synopsis: 'ls([path], [flags])',
+    synopsis: 'ls [path] [flags...]',
     description:
       'List the contents of a directory. Directories are shown with a trailing slash. Hidden files (starting with .) are not shown by default. If no path is specified, lists the current directory.',
     arguments: [
@@ -127,12 +127,12 @@ export const createLsCommand = (context: LsContext): Command => ({
       },
     ],
     examples: [
-      { command: 'ls()', description: 'List contents of current directory' },
-      { command: 'ls("-a")', description: 'List all files including hidden ones' },
-      { command: 'ls("-l")', description: 'Long listing with permissions, owner, and name' },
-      { command: 'ls("-la")', description: 'Long listing including hidden files' },
-      { command: 'ls("/")', description: 'List contents of root directory' },
-      { command: 'ls("/home", "-a")', description: 'List all files in /home including hidden' },
+      { command: 'ls', description: 'List contents of current directory' },
+      { command: 'ls -a', description: 'List all files including hidden ones' },
+      { command: 'ls -l', description: 'Long listing with permissions, owner, and name' },
+      { command: 'ls -la', description: 'Long listing including hidden files' },
+      { command: 'ls /', description: 'List contents of root directory' },
+      { command: 'ls /home -a', description: 'List all files in /home including hidden' },
     ],
   },
   fn: (...args: unknown[]): string => {

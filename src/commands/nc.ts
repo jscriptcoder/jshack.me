@@ -31,7 +31,7 @@ const parseListenArgs = (
   const isFlag = (v: unknown): boolean => v === '-l';
   const flagIndex = args.findIndex(isFlag);
   if (flagIndex === -1 || args.length < 2) {
-    throw new Error('nc: usage: nc("-l", port) or nc(host, port)');
+    throw new Error('nc: usage: nc -l <port> or nc <host> <port>');
   }
   const portArg = args[flagIndex === 0 ? 1 : 0];
   const port = Number(portArg);
@@ -105,11 +105,11 @@ const connectNc = (context: NcConnectContext, args: readonly unknown[]): AsyncOu
   const port = args[1] as number | undefined;
 
   if (!host) {
-    throw new Error('nc: missing host\nUsage: nc("host", port)');
+    throw new Error('nc: missing host\nUsage: nc <host> <port>');
   }
 
   if (port === undefined || typeof port !== 'number') {
-    throw new Error('nc: missing or invalid port\nUsage: nc("host", port)');
+    throw new Error('nc: missing or invalid port\nUsage: nc <host> <port>');
   }
 
   if (port < 1 || port > 65535) {
@@ -208,11 +208,11 @@ export const createNcCommand = (context: NcContext): Command => ({
   category: 'network',
   description: 'Netcat — arbitrary TCP connections and listeners',
   manual: {
-    synopsis: 'nc(host, port) | nc("-l", port)',
+    synopsis: 'nc <host> <port> | nc -l <port>',
     description:
       'Connect to a remote host on the specified port, or open a backdoor listener with -l. ' +
       'In connect mode, opens a raw TCP connection. ' +
-      'In listen mode, starts a backdoor that other machines can connect to via nc(). ' +
+      'In listen mode, starts a backdoor that other machines can connect to via nc. ' +
       'Ports below 1024 require root privileges.',
     arguments: [
       { name: 'host', description: 'IP address or hostname (connect mode)', required: true },
@@ -220,10 +220,10 @@ export const createNcCommand = (context: NcContext): Command => ({
       { name: '-l', description: 'Listen mode — open a backdoor listener', required: false },
     ],
     examples: [
-      { command: 'nc("10.0.0.5", 21)', description: 'Connect to FTP port and see banner' },
-      { command: 'nc("10.0.0.5", 31337)', description: 'Connect to backdoor service' },
-      { command: 'nc("-l", 4444)', description: 'Open a listener on port 4444' },
-      { command: 'nc(8888, "-l")', description: 'Open a listener on port 8888' },
+      { command: 'nc 10.0.0.5 21', description: 'Connect to FTP port and see banner' },
+      { command: 'nc 10.0.0.5 31337', description: 'Connect to backdoor service' },
+      { command: 'nc -l 4444', description: 'Open a listener on port 4444' },
+      { command: 'nc 8888 -l', description: 'Open a listener on port 8888' },
     ],
   },
   fn: (...args: unknown[]): AsyncOutput | string => {

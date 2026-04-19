@@ -276,14 +276,14 @@ describe('find command', () => {
       const context = createMockContext({ rootNode });
       const find = createFindCommand(context);
 
-      expect(() => find.fn()).toThrow('find: usage: find(path, pattern, [user])');
+      expect(() => find.fn()).toThrow(/find:.*usage/i);
     });
 
     it('should throw error when only path provided (missing pattern)', () => {
       const context = createMockContext({ rootNode });
       const find = createFindCommand(context);
 
-      expect(() => find.fn('/')).toThrow('find: usage: find(path, pattern, [user])');
+      expect(() => find.fn('/')).toThrow(/find:.*usage/i);
     });
 
     it('should throw error for non-existent path', () => {
@@ -309,7 +309,7 @@ describe('find command', () => {
       const context = createMockContext({ rootNode });
       const find = createFindCommand(context);
 
-      expect(() => find.fn(123, true)).toThrow('find: usage: find(path, pattern, [user])');
+      expect(() => find.fn(123, true)).toThrow(/find:.*usage/i);
     });
   });
 

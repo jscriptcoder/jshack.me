@@ -14,9 +14,9 @@ type NmcliContext = {
 
 const USAGE = [
   'Usage:',
-  '  nmcli("connect", "<ESSID>", "<password>")  Connect to a WiFi network',
-  '  nmcli("disconnect")                        Disconnect from WiFi',
-  '  nmcli("status")                            Show connection status',
+  '  nmcli connect <ESSID> <password>  Connect to a WiFi network',
+  '  nmcli disconnect                  Disconnect from WiFi',
+  '  nmcli status                      Show connection status',
 ].join('\n');
 
 const handleConnect = (
@@ -34,7 +34,7 @@ const handleConnect = (
   }
 
   if (!essid || !password) {
-    throw new Error('nmcli: usage: nmcli("connect", "<ESSID>", "<password>")');
+    throw new Error('nmcli: usage: nmcli connect <ESSID> <password>');
   }
 
   const networks = context.getWifiNetworks();
@@ -119,7 +119,7 @@ export const createNmcliCommand = (context: NmcliContext): Command => ({
   category: 'wifi',
   description: 'NetworkManager CLI — manage WiFi connections',
   manual: {
-    synopsis: 'nmcli(subcommand, ...args)',
+    synopsis: 'nmcli <subcommand> [args...]',
     description:
       'Manage WiFi network connections. Use "connect" to join a network, "disconnect" to leave, and "status" to check connection state.',
     arguments: [
@@ -132,11 +132,11 @@ export const createNmcliCommand = (context: NmcliContext): Command => ({
     ],
     examples: [
       {
-        command: 'nmcli("connect", "<ESSID>", "<password>")',
+        command: 'nmcli connect <ESSID> <password>',
         description: 'Connect to a WiFi network',
       },
-      { command: 'nmcli("disconnect")', description: 'Disconnect from WiFi' },
-      { command: 'nmcli("status")', description: 'Show connection status' },
+      { command: 'nmcli disconnect', description: 'Disconnect from WiFi' },
+      { command: 'nmcli status', description: 'Show connection status' },
     ],
   },
   fn: (...args: readonly unknown[]): string | AsyncOutput => {
