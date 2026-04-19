@@ -65,7 +65,7 @@ export const createSnmpwalkCommand = (context: SnmpwalkContext): Command => ({
   category: 'network',
   description: 'SNMP MIB tree walker',
   manual: {
-    synopsis: 'snmpwalk(host[, community])',
+    synopsis: 'snmpwalk <host> [community]',
     description:
       'Walk the SNMP MIB tree on a remote host. Default community string is "public" (read-only). ' +
       'Use the correct read-write community string to access sensitive OIDs including firewall configuration.',
@@ -77,9 +77,9 @@ export const createSnmpwalkCommand = (context: SnmpwalkContext): Command => ({
       },
     ],
     examples: [
-      { command: 'snmpwalk("192.168.1.1")', description: 'Walk with default public community' },
+      { command: 'snmpwalk 192.168.1.1', description: 'Walk with default public community' },
       {
-        command: 'snmpwalk("192.168.1.1", "private")',
+        command: 'snmpwalk 192.168.1.1 private',
         description: 'Walk with read-write community',
       },
     ],
@@ -91,7 +91,7 @@ export const createSnmpwalkCommand = (context: SnmpwalkContext): Command => ({
     const community = (args[1] as string | undefined) ?? 'public';
 
     if (!host) {
-      throw new Error('snmpwalk: missing host\nUsage: snmpwalk("host"[, "community"])');
+      throw new Error('snmpwalk: missing host\nUsage: snmpwalk <host> [community]');
     }
 
     if (host === 'localhost' || host === '127.0.0.1') {

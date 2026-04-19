@@ -11,10 +11,10 @@ export const createAbortCommand = (context: AbortCommandContext): Command => ({
   category: 'mission',
   description: 'Abort the current mission',
   manual: {
-    synopsis: 'abort()',
+    synopsis: 'abort',
     description:
       'Abort the current active mission. Returns you to localhost and clears all mission data including generated machines and filesystems.',
-    examples: [{ command: 'abort()', description: 'Cancel the active mission' }],
+    examples: [{ command: 'abort', description: 'Cancel the active mission' }],
   },
   fn: (): string => {
     if (!context.isMissionActive()) {

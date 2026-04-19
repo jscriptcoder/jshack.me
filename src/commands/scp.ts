@@ -31,13 +31,13 @@ export const createScpCommand = (context: ScpContext): Command => ({
   category: 'network',
   description: 'Secure copy files between machines',
   manual: {
-    synopsis: 'scp(source, destination[, port][, password])',
+    synopsis: 'scp <source> <destination> [port] [password]',
     description:
       'Copy a file from the current machine to a remote machine via SSH. ' +
       'The destination uses user@host:path format. Preserves file permissions from the source. ' +
       'Requires an open SSH port on the target machine. ' +
       'An optional port argument overrides the SSH port (default: auto-detect). ' +
-      'With a password, authentication happens automatically — useful in scripts via node().',
+      'With a password, authentication happens automatically — useful in scripts via node.',
     arguments: [
       { name: 'source', description: 'Path to the file on the current machine', required: true },
       {
@@ -58,15 +58,15 @@ export const createScpCommand = (context: ScpContext): Command => ({
     ],
     examples: [
       {
-        command: 'scp("/usr/bin/nmap", "guest@192.168.1.50:/home/guest/nmap")',
+        command: 'scp /usr/bin/nmap guest@192.168.1.50:/home/guest/nmap',
         description: 'Copy nmap binary to remote machine',
       },
       {
-        command: 'scp("/usr/bin/node", "guest@185.13.117.85:/home/guest", 25)',
+        command: 'scp /usr/bin/node guest@185.13.117.85:/home/guest 25',
         description: 'Copy via forwarded SSH port',
       },
       {
-        command: 'scp("/usr/bin/nmap", "guest@192.168.1.50:/home/guest", "secret")',
+        command: 'scp /usr/bin/nmap guest@192.168.1.50:/home/guest secret',
         description: 'Copy with password (scripting)',
       },
     ],
@@ -83,7 +83,7 @@ export const createScpCommand = (context: ScpContext): Command => ({
     } = context;
 
     if (args.length < 2 || typeof args[0] !== 'string' || typeof args[1] !== 'string') {
-      throw new Error('scp: missing operand\nUsage: scp(source, "user@host:path"[, port])');
+      throw new Error('scp: missing operand\nUsage: scp <source> <user@host:path> [port]');
     }
 
     const sourcePath = args[0];
@@ -96,7 +96,7 @@ export const createScpCommand = (context: ScpContext): Command => ({
     const dest = parseDestination(destStr);
     if (!dest) {
       throw new Error(
-        `scp: invalid destination format: '${destStr}'\nUsage: scp(source, "user@host:path")`,
+        `scp: invalid destination format: '${destStr}'\nUsage: scp <source> <user@host:path>`,
       );
     }
 

@@ -65,7 +65,7 @@ describe('kill command', () => {
   describe('argument parsing', () => {
     it('throws usage error with no arguments', () => {
       const cmd = createKillCommand(createContext());
-      expect(() => cmd.fn()).toThrow('kill: usage: kill(pid)');
+      expect(() => cmd.fn()).toThrow(/kill:.*usage/i);
     });
 
     it('throws error for non-numeric PID', () => {

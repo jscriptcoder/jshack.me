@@ -92,7 +92,7 @@ export const createChmodCommand = (context: ChmodContext): Command => ({
   category: 'filesystem',
   description: 'Change file permissions',
   manual: {
-    synopsis: 'chmod(mode, path)',
+    synopsis: 'chmod <mode> <path>',
     description:
       'Change the permissions of a file or directory. Only the file owner or root can change permissions. Uses symbolic notation: [ugoa][+-][rwx]. u=owner, g=user, o=guest, a=all.',
     arguments: [
@@ -108,26 +108,26 @@ export const createChmodCommand = (context: ChmodContext): Command => ({
       },
     ],
     examples: [
-      { command: 'chmod("o+x", "/usr/bin/nmap")', description: 'Make nmap executable by guests' },
+      { command: 'chmod o+x /usr/bin/nmap', description: 'Make nmap executable by guests' },
       {
-        command: 'chmod("a+rx", "script.sh")',
+        command: 'chmod a+rx script.sh',
         description: 'Make script readable and executable by all',
       },
-      { command: 'chmod("u-w", "readonly.txt")', description: 'Remove write permission for owner' },
+      { command: 'chmod u-w readonly.txt', description: 'Remove write permission for owner' },
     ],
   },
   fn: (...args: unknown[]): string => {
     const { resolvePath, getNode, getUserType, updatePermissions, canTraverse } = context;
 
     if (args.length < 2) {
-      throw new Error('chmod: missing operand\nUsage: chmod(mode, path)');
+      throw new Error('chmod: missing operand\nUsage: chmod <mode> <path>');
     }
 
     const mode = args[0];
     const path = args[1];
 
     if (typeof mode !== 'string' || typeof path !== 'string') {
-      throw new Error('chmod: invalid arguments\nUsage: chmod(mode, path)');
+      throw new Error('chmod: invalid arguments\nUsage: chmod <mode> <path>');
     }
 
     const userType = getUserType();

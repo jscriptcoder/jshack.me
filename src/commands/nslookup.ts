@@ -14,13 +14,13 @@ export const createNslookupCommand = (context: NslookupContext): Command => ({
   category: 'network',
   description: 'Query DNS for domain name resolution',
   manual: {
-    synopsis: 'nslookup(domain)',
+    synopsis: 'nslookup <domain>',
     description:
       'Query the DNS server to resolve a domain name to its IP address. Returns the IP address associated with the given domain name if found.',
     arguments: [{ name: 'domain', description: 'The domain name to look up', required: true }],
     examples: [
-      { command: 'nslookup("gateway.local")', description: 'Resolve a local domain' },
-      { command: 'nslookup("target.local")', description: 'Resolve a mission domain' },
+      { command: 'nslookup gateway.local', description: 'Resolve a local domain' },
+      { command: 'nslookup target.local', description: 'Resolve a mission domain' },
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {

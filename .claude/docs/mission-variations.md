@@ -34,14 +34,14 @@ Difficulty adds network depth via isolated subnet layers. Each layer has its own
 
 How the player gains initial access to the entry machine.
 
-| Variant | Flow                                                                                                                                                                                                                                             |
-| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| SSH     | `nmap` → find port 22 → `hydra` brute-force to find credentials                                                                                                                                                                                  |
-| FTP     | `nmap` → find port 21 → `hydra(ip, 'ftp')` crack FTP virtual user password → FTP in, explore files → find leaked SSH creds or `get('/etc/passwd')` + `john` → SSH in. SSH passwords are NOT in hydra's wordlist (never crackable by brute force) |
-| NC      | `nmap` → find suspicious high port → `nc` to get a read-only recon shell as port owner; explore files; ~30% credential leak chance, otherwise `hydra` for SSH. Remote code execution via `script_exec` vulnerabilities through `msfconsole`      |
-| Exploit | `nmap -sV` → find vulnerable service → `msfconsole(host, port)` → same restricted shell as NC                                                                                                                                                    |
-| HTTP    | `nmap` → find HTTP port (80, 443, or 8080) → `curl` to explore web content → find SSH credentials in web files                                                                                                                                   |
-| SNMP    | `nmap -sU` → find UDP 161 → `snmpwalk` with RW community → `snmpset` to open SSH port → `hydra` or cred leak                                                                                                                                     |
+| Variant | Flow                                                                                                                                                                                                                                                    |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SSH     | `nmap` → find port 22 → `hydra` brute-force to find credentials                                                                                                                                                                                         |
+| FTP     | `nmap` → find port 21 → `hydra <ip> ftp` crack FTP virtual user password → FTP in, explore files → find leaked SSH creds or fetch `/etc/passwd` via `get` + `john` → SSH in. SSH passwords are NOT in hydra's wordlist (never crackable by brute force) |
+| NC      | `nmap` → find suspicious high port → `nc` to get a read-only recon shell as port owner; explore files; ~30% credential leak chance, otherwise `hydra` for SSH. Remote code execution via `script_exec` vulnerabilities through `msfconsole`             |
+| Exploit | `nmap -sV` → find vulnerable service → `msfconsole <host> <port>` → same restricted shell as NC                                                                                                                                                         |
+| HTTP    | `nmap` → find HTTP port (80, 443, or 8080) → `curl` to explore web content → find SSH credentials in web files                                                                                                                                          |
+| SNMP    | `nmap -sU` → find UDP 161 → `snmpwalk` with RW community → `snmpset` to open SSH port → `hydra` or cred leak                                                                                                                                            |
 
 ## FTP/NC/Exploit Owner Types (3)
 
@@ -121,7 +121,7 @@ Each template is a short script that filters/counts array data and conditionally
 
 ## Script Auto Objective
 
-A white-hat objective type where the player is hired as an authorized contractor to write an automated script from scratch. The player SSHs in with root credentials (provided in the briefing), finds the stub file in an automation location (cron, init, or network-up hook) with comment instructions describing what data to read and extract. The player writes the script body using `nano()`, tests it with `node()`, and confirms to the client via `mail("done")`. The `mail()` command re-executes the script and verifies `_system()` was called with the correct value. Seed keyword: `script-auto`.
+A white-hat objective type where the player is hired as an authorized contractor to write an automated script from scratch. The player SSHs in with root credentials (provided in the briefing), finds the stub file in an automation location (cron, init, or network-up hook) with comment instructions describing what data to read and extract. The player writes the script body using `nano <path>`, tests it with `node <path>`, and confirms to the client via `mail <recipient> done`. The `mail` command re-executes the script and verifies `_system()` was called with the correct value. Seed keyword: `script-auto`.
 
 ### Two Flavors
 
@@ -185,7 +185,7 @@ Port is PRNG-picked from `backdoorPorts` pool: 4444, 31337, 8888, 1337 (all abov
 
 - No target file (like sabotage/credential_theft)
 - Dummy PRNG rolls consumed for binary + encrypt to preserve sequence alignment
-- SSH port closures allowed for backdoor (player can `nc("-l", port)` via script_exec injection on the forced-effect port)
+- SSH port closures allowed for backdoor (player can `nc -l <port>` via script_exec injection on the forced-effect port)
 - Player can install netcat via `apt install netcat` (needs root for apt) or copy the binary via `scp`
 
 ## Portforward Objective
@@ -274,10 +274,10 @@ An 8th objective type where the player investigates a breach as an authorized in
 
 Player mails both the attacker handle and origin IP. Proof is split on `/[\s,:\-]+/` and verified order-independently:
 
-```js
-mail('client@darkmail.onion', 'xR0gu3x:45.33.12.99');
-mail('client@darkmail.onion', '45.33.12.99 - xR0gu3x');
-mail('client@darkmail.onion', 'xR0gu3x, 45.33.12.99');
+```bash
+mail client@darkmail.onion xR0gu3x:45.33.12.99
+mail client@darkmail.onion "45.33.12.99 - xR0gu3x"
+mail client@darkmail.onion "xR0gu3x, 45.33.12.99"
 ```
 
 ### Difficulty Scaling
@@ -296,13 +296,13 @@ PRNG-driven SSH/FTP port closures increase lateral movement variety. At most one
 - ~15% chance of dual closure (both SSH and FTP closed) — adds NC backdoor with root owner
 - **Entry machine**: never closed (protected)
 - **Router**: never closed (infrastructure)
-- **script_fix / script_auto objectives**: never close SSH (player needs `node()` shell access on target)
+- **script_fix / script_auto objectives**: never close SSH (player needs `node <path>` shell access on target)
 - **sabotage objective**: never close SSH (player needs shell access to `rm` boot files and `reboot`)
 - **portforward objective**: never close SSH (player needs shell access through the network)
-- **backdoor objective**: closures allowed — player can inject `nc("-l", port)` via `script_exec` on the forced-effect port
+- **backdoor objective**: closures allowed — player can inject `nc -l <port>` via `script_exec` on the forced-effect port
 - **Same-machine collision**: FTP closure skipped if it targets the same machine as SSH closure
 - When SSH is closed, FTP port 21 is added/opened and a root-owned NC backdoor is guaranteed
-- SSH-closed machines get `forcedEffect: { kind: 'script_exec', tier: 'root' }` on an open port so players can `msfconsole(target, port, '/script.js')` to inject a script that restarts sshd
+- SSH-closed machines get `forcedEffect: { kind: 'script_exec', tier: 'root' }` on an open port so players can `msfconsole <target> <port> /script.js` to inject a script that restarts sshd
 
 ### PRNG Consumption
 

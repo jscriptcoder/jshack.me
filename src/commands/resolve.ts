@@ -15,7 +15,7 @@ export const createResolveCommand = (): Command => ({
   category: 'general',
   description: 'Unwrap a Promise and display its resolved value',
   manual: {
-    synopsis: 'resolve(promise)',
+    synopsis: 'resolve <promise>',
     description:
       'Waits for a Promise to resolve and displays its value. ' +
       'Useful for unwrapping the result of async commands like output(ping(...)) ' +

@@ -22,7 +22,7 @@ export const createFtpLcdCommand = (context: FtpLcdContext): Command => ({
   category: 'network',
   description: 'Change local directory',
   manual: {
-    synopsis: 'lcd([path])',
+    synopsis: 'lcd [path]',
     description:
       'Change the current working directory on the local machine (where the FTP connection was initiated from).',
     arguments: [
@@ -30,10 +30,10 @@ export const createFtpLcdCommand = (context: FtpLcdContext): Command => ({
     ],
     examples: [
       {
-        command: 'lcd("/home")',
+        command: 'lcd /home',
         description: 'Change to home directory on local machine',
       },
-      { command: 'lcd("/tmp")', description: 'Change to /tmp on local machine' },
+      { command: 'lcd /tmp', description: 'Change to /tmp on local machine' },
     ],
   },
   fn: (path?: unknown): string => {

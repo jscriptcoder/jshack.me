@@ -40,17 +40,17 @@ Connecting to a different WiFi switches which machines are visible from localhos
 
 1. Intro screen: player fills a single-screen 3-field form (workstation name, username, root password), starts new game (seed generated)
 2. Boot screen: Linux-style boot sequence with hostname, username, and wlan0 detection
-3. After gaining root access, the player explores — `ifconfig()` and `help()` reveal next steps
-4. `ifconfig()` shows `wlan0` is DOWN (no IP assigned)
+3. After gaining root access, the player explores — `ifconfig` and `help` reveal next steps
+4. `ifconfig` shows `wlan0` is DOWN (no IP assigned)
 5. Network commands (ping, nmap, ssh, etc.) fail with `"Network is unreachable"`
-6. Player discovers aircrack commands via `help()` or `~/downloads/wifi_tools.txt` and `~/README.txt`
-7. `airmon("start", "wlan0")` — enables monitor mode
-8. `airdump()` — scans and displays nearby WiFi networks (seeded, async output)
-9. `aircrack("<BSSID>")` — cracks a WPA2 network, shows `KEY FOUND!` + nmcli hint
-10. `nmcli("connect", "<ESSID>", "<password>")` — connects to WiFi
-11. On success: `ifconfig()` shows wlan0 UP with IP from that network's subnet, machines visible
-12. Player can switch networks: `nmcli("connect", "<other>", "<pass>")` auto-disconnects current
-13. `nmcli("disconnect")` drops WiFi (even from remote machines — returns to localhost)
+6. Player discovers aircrack commands via `help` or `~/downloads/wifi_tools.txt` and `~/README.txt`
+7. `airmon start wlan0` — enables monitor mode
+8. `airdump` — scans and displays nearby WiFi networks (seeded, async output)
+9. `aircrack <BSSID>` — cracks a WPA2 network, shows `KEY FOUND!` + nmcli hint
+10. `nmcli connect <ESSID> <password>` — connects to WiFi
+11. On success: `ifconfig` shows wlan0 UP with IP from that network's subnet, machines visible
+12. Player can switch networks: `nmcli connect <other> <pass>` auto-disconnects current
+13. `nmcli disconnect` drops WiFi (even from remote machines — returns to localhost)
 
 ### Implementation
 
@@ -62,8 +62,8 @@ Connecting to a different WiFi switches which machines are visible from localhos
 - Localhost uses `wlan0` interface (not `eth0`) + `lo` loopback; IP is dynamic per home network subnet
 - `NetworkContext` accepts `homeNetwork` prop; switches machines/interfaces based on connected WiFi
 - `FileSystemProvider` accepts `homeFileSystems` prop; merges home network machine filesystems
-- `nmcli("connect")` to same network is a no-op; to different network auto-disconnects and reconnects
-- `nmcli("disconnect")` while SSH'd calls `SessionContext.disconnectWifi()` to atomically reset to localhost
+- `nmcli connect` to same network is a no-op; to different network auto-disconnects and reconnects
+- `nmcli disconnect` while SSH'd calls `SessionContext.disconnectWifi()` to atomically reset to localhost
 - Hint file at `/home/<username>/downloads/wifi_tools.txt` provides the aircrack + nmcli cheatsheet
 - `~/README.txt` is the single guide file for new players (replaces the old `.mission` file)
 
@@ -188,7 +188,7 @@ Full SNMP configs (SNMP-variant gateways and border routers) also include `ifAdd
 
 ### Dynamic Daemon Ports
 
-`NetworkContext` reads PID files (`/var/run/sshd.pid`, `/var/run/vsftpd.pid`) from each machine's filesystem. When the player runs `sshd(port)` or `vsftpd(port)` (or via `bash('/usr/sbin/sshd')` from an NC shell, or `systemctl('start', 'sshd')`), the command writes a PID file. `parseSshdState()` and `parseFtpdState()` parse these into port overrides, and `applyDaemonOverrides()` opens the corresponding port on the machine's `RemoteMachine` view. All daemon commands are root-only (`/usr/sbin/`, `execute: ['root']`). `systemctl('stop', service)` deletes the PID file to close the port.
+`NetworkContext` reads PID files (`/var/run/sshd.pid`, `/var/run/vsftpd.pid`) from each machine's filesystem. When the player runs `sshd [port]` or `vsftpd [port]` (or via `bash('/usr/sbin/sshd')` from an NC shell, or `systemctl start sshd`), the command writes a PID file. `parseSshdState()` and `parseFtpdState()` parse these into port overrides, and `applyDaemonOverrides()` opens the corresponding port on the machine's `RemoteMachine` view. All daemon commands are root-only (`/usr/sbin/`, `execute: ['root']`). `systemctl stop <service>` deletes the PID file to close the port.
 
 ### Backdoor Port Overrides
 

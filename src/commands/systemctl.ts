@@ -125,7 +125,7 @@ const VALID_ACTIONS = new Set<Action>(['start', 'stop', 'status']);
 export const executeSystemctl = (context: SystemctlContext, args: readonly unknown[]): string => {
   if (args.length === 0) {
     throw new Error(
-      'systemctl: missing action\nUsage: systemctl(action, service)\nActions: start, stop, status\nServices: sshd, vsftpd',
+      'systemctl: missing action\nUsage: systemctl <action> <service>\nActions: start, stop, status\nServices: sshd, vsftpd',
     );
   }
 
@@ -163,7 +163,7 @@ export const createSystemctlCommand = (context: SystemctlContext): Command => ({
   category: 'network',
   description: 'Control system services',
   manual: {
-    synopsis: "systemctl('action', 'service')",
+    synopsis: 'systemctl <action> <service>',
     description:
       'Control system services (start, stop, status). ' +
       'Available services: sshd (OpenSSH server), vsftpd (FTP server). ' +
@@ -182,9 +182,9 @@ export const createSystemctlCommand = (context: SystemctlContext): Command => ({
       },
     ],
     examples: [
-      { command: "systemctl('start', 'sshd')", description: 'Start the SSH server' },
-      { command: "systemctl('stop', 'vsftpd')", description: 'Stop the FTP server' },
-      { command: "systemctl('status', 'sshd')", description: 'Check SSH server status' },
+      { command: 'systemctl start sshd', description: 'Start the SSH server' },
+      { command: 'systemctl stop vsftpd', description: 'Stop the FTP server' },
+      { command: 'systemctl status sshd', description: 'Check SSH server status' },
     ],
   },
   fn: (...args: unknown[]): string => executeSystemctl(context, args),

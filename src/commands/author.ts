@@ -5,10 +5,10 @@ export const authorCommand: Command = {
   category: 'general',
   description: 'Display information about the author',
   manual: {
-    synopsis: 'author()',
+    synopsis: 'author',
     description:
       'Display a profile card with information about the author of this terminal, including avatar, description, and social links.',
-    examples: [{ command: 'author()', description: 'Show author profile card' }],
+    examples: [{ command: 'author', description: 'Show author profile card' }],
   },
   fn: (): AuthorData => ({
     __type: 'author',

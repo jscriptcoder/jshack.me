@@ -12,8 +12,6 @@ const GAME_COMMANDS = new Set([
   'accept',
   'abort',
   'mail',
-  'output',
-  'resolve',
   'author',
   'theme',
   'reset',

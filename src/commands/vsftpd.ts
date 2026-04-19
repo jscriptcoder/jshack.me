@@ -78,15 +78,15 @@ export const createVsftpdCommand = (context: VsftpdContext): Command => ({
   category: 'network',
   description: 'vsftpd FTP server daemon',
   manual: {
-    synopsis: 'vsftpd([port])',
+    synopsis: 'vsftpd [port]',
     description:
       'Start the vsftpd FTP server daemon. ' +
       'Listens for FTP connections on the specified port (default 21). ' +
       'Must be run as root.',
     arguments: [{ name: 'port', description: 'Port to listen on (default: 21)', required: false }],
     examples: [
-      { command: 'vsftpd()', description: 'Start FTP server on default port 21' },
-      { command: 'vsftpd(2121)', description: 'Start FTP server on port 2121' },
+      { command: 'vsftpd', description: 'Start FTP server on default port 21' },
+      { command: 'vsftpd 2121', description: 'Start FTP server on port 2121' },
     ],
   },
   fn: (...args: unknown[]): string => {
