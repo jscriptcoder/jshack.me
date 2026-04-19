@@ -14,7 +14,7 @@ export const createNanoCommand = (context: NanoContext): Command => ({
   category: 'filesystem',
   description: 'Open a file in the text editor',
   manual: {
-    synopsis: 'nano(path)',
+    synopsis: 'nano <path>',
     description:
       'Open a file for editing in a nano-style text editor. ' +
       'Creates a new file if the path does not exist. ' +
@@ -28,11 +28,11 @@ export const createNanoCommand = (context: NanoContext): Command => ({
     ],
     examples: [
       {
-        command: 'nano("script.js")',
+        command: 'nano script.js',
         description: 'Edit or create a file in the current directory',
       },
       {
-        command: 'nano("/tmp/notes.txt")',
+        command: 'nano /tmp/notes.txt',
         description: 'Edit or create a file at an absolute path',
       },
     ],

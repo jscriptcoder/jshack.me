@@ -208,7 +208,7 @@ export const createNmapCommand = (context: NmapContext): Command => ({
   category: 'network',
   description: 'Network exploration and port scanning',
   manual: {
-    synopsis: 'nmap(target[, "-sV"][, "-sU"][, "--tree"])',
+    synopsis: 'nmap <target> [-sV] [-sU] [--tree]',
     description:
       'Nmap ("Network Mapper") is a utility for network exploration and security auditing. It can discover hosts on a network and determine what services they are running. Use a single IP to scan ports on that host, or use a range (e.g., "192.168.1.1-254") to discover live hosts. Use -sV for service version detection and vulnerability scanning. Use -sU for UDP port scanning. Use --tree with a range scan to display discovered hosts as a network topology tree.',
     arguments: [
@@ -235,18 +235,18 @@ export const createNmapCommand = (context: NmapContext): Command => ({
       },
     ],
     examples: [
-      { command: 'nmap("192.168.1.1")', description: 'Scan ports on a single host' },
-      { command: 'nmap("192.168.1.1-254")', description: 'Discover hosts in IP range' },
+      { command: 'nmap 192.168.1.1', description: 'Scan ports on a single host' },
+      { command: 'nmap 192.168.1.1-254', description: 'Discover hosts in IP range' },
       {
-        command: 'nmap("-sV", "192.168.1.1")',
+        command: 'nmap -sV 192.168.1.1',
         description: 'Scan with service version detection',
       },
       {
-        command: 'nmap("192.168.1.1-254", "--tree")',
+        command: 'nmap 192.168.1.1-254 --tree',
         description: 'Show network topology tree',
       },
       {
-        command: 'nmap("192.168.1.1-254", "--tree", "-sV")',
+        command: 'nmap 192.168.1.1-254 --tree -sV',
         description: 'Topology tree with vulnerability info',
       },
     ],

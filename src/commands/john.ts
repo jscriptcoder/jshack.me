@@ -44,7 +44,7 @@ export const createJohnCommand = (context: JohnContext): Command => ({
   category: 'filesystem',
   description: 'Crack password hashes using dictionary attack',
   manual: {
-    synopsis: 'john(file)',
+    synopsis: 'john <file>',
     description:
       'Crack password hashes from a passwd-format file using a dictionary attack. ' +
       'Reads username:hash pairs and attempts to crack them against a built-in wordlist. ' +
@@ -57,9 +57,9 @@ export const createJohnCommand = (context: JohnContext): Command => ({
       },
     ],
     examples: [
-      { command: 'john("/etc/passwd")', description: 'Crack hashes from the passwd file' },
+      { command: 'john /etc/passwd', description: 'Crack hashes from the passwd file' },
       {
-        command: 'john("/tmp/backup_hashes.txt")',
+        command: 'john /tmp/backup_hashes.txt',
         description: 'Crack hashes from a backup file',
       },
     ],
@@ -70,7 +70,7 @@ export const createJohnCommand = (context: JohnContext): Command => ({
     const filePath = args[0] as string | undefined;
 
     if (!filePath) {
-      throw new Error('john: missing file operand — usage: john("/etc/passwd")');
+      throw new Error('john: missing file operand — usage: john <file>');
     }
 
     const userType = getUserType();

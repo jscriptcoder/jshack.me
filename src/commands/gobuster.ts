@@ -87,7 +87,7 @@ export const createGobusterCommand = (context: GobusterContext): Command => ({
   category: 'network',
   description: 'Directory/file enumeration on web servers',
   manual: {
-    synopsis: 'gobuster("dir", url)',
+    synopsis: 'gobuster dir <url>',
     description:
       'Enumerate directories and files on a web server by scanning the target URL. Discovers hidden paths, admin panels, configuration files, and other web content. Only "dir" mode is supported.',
     arguments: [
@@ -104,16 +104,16 @@ export const createGobusterCommand = (context: GobusterContext): Command => ({
       },
     ],
     examples: [
-      { command: 'gobuster("dir", "http://192.168.1.75")', description: 'Scan a web server by IP' },
+      { command: 'gobuster dir http://192.168.1.75', description: 'Scan a web server by IP' },
       {
-        command: 'gobuster("dir", "http://webserver.local")',
+        command: 'gobuster dir http://webserver.local',
         description: 'Scan using a domain name',
       },
       {
-        command: 'gobuster("dir", "http://192.168.1.75:8080")',
+        command: 'gobuster dir http://192.168.1.75:8080',
         description: 'Scan a non-standard HTTP port',
       },
-      { command: 'gobuster("dir", "192.168.1.75")', description: 'Scan without http:// prefix' },
+      { command: 'gobuster dir 192.168.1.75', description: 'Scan without http:// prefix' },
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {
@@ -130,7 +130,7 @@ export const createGobusterCommand = (context: GobusterContext): Command => ({
     const urlStr = args[1] as string | undefined;
 
     if (!mode) {
-      throw new Error('gobuster: missing mode argument. Usage: gobuster("dir", url)');
+      throw new Error('gobuster: missing mode argument. Usage: gobuster dir <url>');
     }
 
     if (mode !== 'dir') {
@@ -138,7 +138,7 @@ export const createGobusterCommand = (context: GobusterContext): Command => ({
     }
 
     if (!urlStr) {
-      throw new Error('gobuster: missing URL argument. Usage: gobuster("dir", url)');
+      throw new Error('gobuster: missing URL argument. Usage: gobuster dir <url>');
     }
 
     const parsed = parseUrl(urlStr);

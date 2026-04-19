@@ -135,10 +135,10 @@ export const createPsCommand = (context: PsContext): Command => ({
   category: 'general',
   description: 'Report running processes',
   manual: {
-    synopsis: 'ps()',
+    synopsis: 'ps',
     description: 'Display a snapshot of running processes on the current machine.',
     arguments: [],
-    examples: [{ command: 'ps()', description: 'List all running processes' }],
+    examples: [{ command: 'ps', description: 'List all running processes' }],
   },
   fn: (): string => {
     const machine = context.getMachine();

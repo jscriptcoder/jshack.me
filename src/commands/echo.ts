@@ -6,7 +6,7 @@ export const echoCommand: Command = {
   category: 'general',
   description: 'Output the given value as a string',
   manual: {
-    synopsis: 'echo(value)',
+    synopsis: 'echo <value>',
     description:
       'Output the given value as a string. Objects and arrays are pretty-printed as JSON.',
     arguments: [
@@ -17,9 +17,8 @@ export const echoCommand: Command = {
       },
     ],
     examples: [
-      { command: 'echo("Hello World")', description: 'Output a string' },
-      { command: 'echo(42)', description: 'Output a number' },
-      { command: 'echo({name: "test"})', description: 'Output an object as formatted JSON' },
+      { command: 'echo "Hello World"', description: 'Output a string' },
+      { command: 'echo 42', description: 'Output a number' },
       { command: 'const msg = "Hi"; echo(msg)', description: 'Output a variable value' },
     ],
   },

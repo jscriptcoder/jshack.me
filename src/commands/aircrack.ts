@@ -17,7 +17,7 @@ export const createAircrackCommand = (context: AircrackContext): Command => ({
   category: 'wifi',
   description: 'Crack WPA/WPA2 wireless network keys',
   manual: {
-    synopsis: 'aircrack(bssid)',
+    synopsis: 'aircrack <bssid>',
     description:
       'Attempt to crack the WPA/WPA2 key for a target wireless network using a wordlist attack. The BSSID can be found via airdump(). Requires monitor mode to be enabled.',
     arguments: [
@@ -27,9 +27,7 @@ export const createAircrackCommand = (context: AircrackContext): Command => ({
         required: true,
       },
     ],
-    examples: [
-      { command: 'aircrack("A4:CF:12:D3:8B:7A")', description: 'Crack the target network' },
-    ],
+    examples: [{ command: 'aircrack A4:CF:12:D3:8B:7A', description: 'Crack the target network' }],
   },
   fn: (...args: unknown[]): AsyncOutput => {
     const { isOnLocalhost, isMonitorMode } = context;
@@ -39,13 +37,13 @@ export const createAircrackCommand = (context: AircrackContext): Command => ({
     }
 
     if (!isMonitorMode()) {
-      throw new Error('aircrack: monitor mode not enabled — run airmon("start", "wlan0") first');
+      throw new Error('aircrack: monitor mode not enabled — run airmon start wlan0 first');
     }
 
     const bssid = args[0] as string | undefined;
 
     if (!bssid) {
-      throw new Error('aircrack: missing BSSID — usage: aircrack("AA:BB:CC:DD:EE:FF")');
+      throw new Error('aircrack: missing BSSID — usage: aircrack <BSSID>');
     }
 
     const networks = context.getWifiNetworks();

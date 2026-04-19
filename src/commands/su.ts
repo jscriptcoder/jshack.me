@@ -52,10 +52,10 @@ export const createSuCommand = (context: SuContext): Command => ({
   category: 'general',
   description: 'Switch user',
   manual: {
-    synopsis: 'su(username[, password])',
+    synopsis: 'su <username> [password]',
     description:
       'Switch to another user account. Without a password, you will be prompted interactively. ' +
-      'With a password, authentication happens inline — useful in scripts via node().',
+      'With a password, authentication happens inline — useful in scripts via node.',
     arguments: [
       {
         name: 'username',
@@ -69,8 +69,8 @@ export const createSuCommand = (context: SuContext): Command => ({
       },
     ],
     examples: [
-      { command: 'su("root")', description: 'Switch to root user (interactive prompt)' },
-      { command: 'su("root", "toor")', description: 'Switch to root with password (scripting)' },
+      { command: 'su root', description: 'Switch to root user (interactive prompt)' },
+      { command: 'su root toor', description: 'Switch to root with password (scripting)' },
     ],
   },
   fn: (...args: unknown[]): PasswordPromptData | string => {
@@ -78,7 +78,7 @@ export const createSuCommand = (context: SuContext): Command => ({
     const password = args[1] as string | undefined;
 
     if (!username) {
-      throw new Error('su: missing username\nUsage: su("username")');
+      throw new Error('su: missing username\nUsage: su <username>');
     }
 
     const validUsers = context.getUsers();

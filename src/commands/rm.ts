@@ -47,7 +47,7 @@ export const createRmCommand = (context: RmContext): Command => ({
   category: 'filesystem',
   description: 'Remove files or directories',
   manual: {
-    synopsis: 'rm([flags], path, [path2, ...])',
+    synopsis: 'rm [flags] <path> [paths...]',
     description:
       'Remove files or directories. Directories require the -r flag. Use -f to suppress errors for non-existent files.',
     arguments: [
@@ -73,10 +73,10 @@ export const createRmCommand = (context: RmContext): Command => ({
       },
     ],
     examples: [
-      { command: 'rm("file.txt")', description: 'Remove a file' },
-      { command: 'rm("-r", "/boot")', description: 'Remove a directory recursively' },
-      { command: 'rm("-rf", "/boot")', description: 'Force remove a directory' },
-      { command: 'rm("a.txt", "b.txt")', description: 'Remove multiple files' },
+      { command: 'rm file.txt', description: 'Remove a file' },
+      { command: 'rm -r /boot', description: 'Remove a directory recursively' },
+      { command: 'rm -rf /boot', description: 'Force remove a directory' },
+      { command: 'rm a.txt b.txt', description: 'Remove multiple files' },
     ],
   },
   fn: (...args: unknown[]): string => {

@@ -29,7 +29,7 @@ export const createFtpPutCommand = (context: FtpPutContext): Command => ({
   category: 'network',
   description: 'Upload file to remote server',
   manual: {
-    synopsis: 'put(localFile, [remotePath])',
+    synopsis: 'put <localFile> [remotePath]',
     description:
       'Upload a file from the local machine to the remote FTP server. ' +
       'If remotePath is not specified, the file is saved in the current remote directory with the same name.',
@@ -43,18 +43,18 @@ export const createFtpPutCommand = (context: FtpPutContext): Command => ({
     ],
     examples: [
       {
-        command: 'put("/tmp/payload.sh")',
+        command: 'put /tmp/payload.sh',
         description: 'Upload to current remote directory',
       },
       {
-        command: 'put("/tmp/data.txt", "/srv/ftp/uploads/data.txt")',
+        command: 'put /tmp/data.txt /srv/ftp/uploads/data.txt',
         description: 'Upload to specific remote path',
       },
     ],
   },
   fn: (localFile?: unknown, remotePath?: unknown): AsyncOutput => {
     if (typeof localFile !== 'string' || !localFile) {
-      throw new Error('put: missing local file argument\nUsage: put("localFile", ["remotePath"])');
+      throw new Error('put: missing local file argument\nUsage: put <localFile> [remotePath]');
     }
 
     const remoteMachine = context.getRemoteMachine();

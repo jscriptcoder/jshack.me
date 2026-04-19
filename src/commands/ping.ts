@@ -23,7 +23,7 @@ export const createPingCommand = (context: PingContext): Command => ({
   category: 'network',
   description: 'Send ICMP echo request to network host',
   manual: {
-    synopsis: 'ping(host, [count])',
+    synopsis: 'ping <host> [count]',
     description:
       'Send ICMP ECHO_REQUEST packets to a network host to test connectivity. By default sends 4 packets. The host can be an IP address or hostname of a known machine on the network.',
     arguments: [
@@ -31,9 +31,9 @@ export const createPingCommand = (context: PingContext): Command => ({
       { name: 'count', description: 'Number of packets to send (default: 4)', required: false },
     ],
     examples: [
-      { command: 'ping("192.168.1.1")', description: 'Ping the gateway' },
-      { command: 'ping("gateway")', description: 'Ping by hostname' },
-      { command: 'ping("192.168.1.1", 2)', description: 'Send only 2 packets' },
+      { command: 'ping 192.168.1.1', description: 'Ping the gateway' },
+      { command: 'ping gateway', description: 'Ping by hostname' },
+      { command: 'ping 192.168.1.1 2', description: 'Send only 2 packets' },
     ],
   },
   fn: (...args: unknown[]): AsyncOutput | string => {

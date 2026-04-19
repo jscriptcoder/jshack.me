@@ -17,10 +17,10 @@ export const createMysqlCommand = (context: MysqlContext): Command => ({
   category: 'network',
   description: 'MySQL client for database access',
   manual: {
-    synopsis: 'mysql(host, username[, password])',
+    synopsis: 'mysql <host> <username> [password]',
     description:
       'Connect to a MySQL database server on a remote machine. Without a password, you will be prompted interactively. ' +
-      'With a password, authentication happens automatically after the connection animation — useful in scripts via node(). ' +
+      'With a password, authentication happens automatically after the connection animation — useful in scripts via node. ' +
       'Once connected, you can use SQL commands: SHOW TABLES, DESCRIBE, SELECT, UPDATE, DELETE, DROP TABLE.',
     arguments: [
       {
@@ -36,10 +36,10 @@ export const createMysqlCommand = (context: MysqlContext): Command => ({
       },
     ],
     examples: [
-      { command: 'mysql("10.0.0.5", "root")', description: 'Connect to database as root' },
-      { command: 'mysql("db.local", "admin")', description: 'Connect using hostname' },
+      { command: 'mysql 10.0.0.5 root', description: 'Connect to database as root' },
+      { command: 'mysql db.local admin', description: 'Connect using hostname' },
       {
-        command: 'mysql("10.0.0.5", "admin", "secret")',
+        command: 'mysql 10.0.0.5 admin secret',
         description: 'Connect with password (scripting)',
       },
     ],
@@ -52,7 +52,7 @@ export const createMysqlCommand = (context: MysqlContext): Command => ({
     const password = args[2] as string | undefined;
 
     if (!host || !username) {
-      throw new Error('mysql: missing arguments\nUsage: mysql("host", "username")');
+      throw new Error('mysql: missing arguments\nUsage: mysql <host> <username>');
     }
 
     // Resolve localhost/127.0.0.1 to the current machine's IP

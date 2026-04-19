@@ -16,7 +16,7 @@ export const createResetCommand = (context: ResetContext): Command => ({
   category: 'general',
   description: 'Wipe all progress and return to the start screen',
   manual: {
-    synopsis: 'reset(["confirm"])',
+    synopsis: 'reset [confirm]',
     description:
       'Wipe all game progress and return to the start screen. ' +
       'Clears session, filesystem changes, mission state, and game seed. ' +
@@ -30,8 +30,8 @@ export const createResetCommand = (context: ResetContext): Command => ({
       },
     ],
     examples: [
-      { command: 'reset()', description: 'Show reset warning' },
-      { command: 'reset("confirm")', description: 'Reset game and reload page' },
+      { command: 'reset', description: 'Show reset warning' },
+      { command: 'reset confirm', description: 'Reset game and reload page' },
     ],
   },
   fn: (...args: unknown[]): string | AsyncOutput => {

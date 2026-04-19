@@ -23,7 +23,7 @@ describe('man command', () => {
       const man = createManCommand(() => new Map());
 
       expect(() => man.fn()).toThrow('man: missing command name');
-      expect(() => man.fn()).toThrow('Usage: man("command")');
+      expect(() => man.fn()).toThrow(/man:[\s\S]*usage/i);
     });
 
     it('should throw error for unknown command', () => {

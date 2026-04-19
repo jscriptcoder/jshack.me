@@ -43,10 +43,10 @@ export const createAirdumpCommand = (context: AirdumpContext): Command => ({
   category: 'wifi',
   description: 'Scan for nearby wireless networks',
   manual: {
-    synopsis: 'airdump()',
+    synopsis: 'airdump',
     description:
-      'Capture and display wireless network traffic. Shows nearby access points with signal strength, channel, and encryption. Requires monitor mode to be enabled first via airmon("start", "wlan0").',
-    examples: [{ command: 'airdump()', description: 'Scan for WiFi networks' }],
+      'Capture and display wireless network traffic. Shows nearby access points with signal strength, channel, and encryption. Requires monitor mode to be enabled first via airmon start wlan0.',
+    examples: [{ command: 'airdump', description: 'Scan for WiFi networks' }],
   },
   fn: (): AsyncOutput => {
     const { isOnLocalhost, isMonitorMode, getWifiNetworks } = context;

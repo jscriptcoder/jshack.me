@@ -67,7 +67,7 @@ const searchOnFilesystem = (context: GrepContext, args: readonly unknown[]): str
   const stringArgs = args.filter((arg): arg is string => typeof arg === 'string');
 
   if (stringArgs.length < 2) {
-    throw new Error('grep: usage: grep(pattern, path, ["-l"])');
+    throw new Error('grep: usage: grep <pattern> <path> [-l]');
   }
 
   const [rawPattern, rawPath] = stringArgs;
@@ -107,7 +107,7 @@ const searchOnFilesystem = (context: GrepContext, args: readonly unknown[]): str
 const searchStdin = (stdin: string, args: readonly unknown[]): string => {
   const stringArgs = args.filter((arg): arg is string => typeof arg === 'string');
   if (stringArgs.length < 1) {
-    throw new Error('grep: usage: grep(pattern, path, ["-l"])');
+    throw new Error('grep: usage: grep <pattern> <path> [-l]');
   }
 
   const pattern = new RegExp(stringArgs[0], 'i');
@@ -119,7 +119,7 @@ export const createGrepCommand = (context: GrepContext): Command => ({
   category: 'filesystem',
   description: 'Search file contents for a pattern',
   manual: {
-    synopsis: 'grep(pattern, path, ["-l"])',
+    synopsis: 'grep <pattern> <path> [-l]',
     description:
       'Search for lines matching a pattern in file contents. If path is a file, searches that file. If path is a directory, searches all files recursively. When piped (no path argument), searches the piped input. All searches are case-insensitive. Use "-l" to list only filenames containing matches. Binary files are skipped.',
     arguments: [
@@ -135,10 +135,10 @@ export const createGrepCommand = (context: GrepContext): Command => ({
       },
     ],
     examples: [
-      { command: 'grep("password", "/etc/passwd")', description: 'Search a single file' },
-      { command: 'grep("secret", "/home")', description: 'Recursively search a directory' },
-      { command: 'grep("key", ".", "-l")', description: 'List filenames containing "key"' },
-      { command: 'grep("admin", "/var/log")', description: 'Search log files for "admin"' },
+      { command: 'grep password /etc/passwd', description: 'Search a single file' },
+      { command: 'grep secret /home', description: 'Recursively search a directory' },
+      { command: 'grep key . -l', description: 'List filenames containing "key"' },
+      { command: 'grep admin /var/log', description: 'Search log files for "admin"' },
     ],
   },
   fn: (...args: unknown[]): string => searchOnFilesystem(context, args),

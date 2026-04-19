@@ -17,7 +17,7 @@ export const createCdCommand = (context: CdContext): Command => ({
   category: 'filesystem',
   description: 'Change current directory',
   manual: {
-    synopsis: 'cd([path])',
+    synopsis: 'cd [path]',
     description:
       'Change the current working directory. If no path is specified, changes to the home directory of the current user.',
     arguments: [
@@ -28,11 +28,11 @@ export const createCdCommand = (context: CdContext): Command => ({
       },
     ],
     examples: [
-      { command: 'cd()', description: 'Change to home directory' },
-      { command: 'cd("/")', description: 'Change to root directory' },
-      { command: 'cd("/etc")', description: 'Change to /etc directory' },
-      { command: 'cd("..")', description: 'Change to parent directory' },
-      { command: 'cd("subdir")', description: 'Change to a subdirectory' },
+      { command: 'cd', description: 'Change to home directory' },
+      { command: 'cd /', description: 'Change to root directory' },
+      { command: 'cd /etc', description: 'Change to /etc directory' },
+      { command: 'cd ..', description: 'Change to parent directory' },
+      { command: 'cd subdir', description: 'Change to a subdirectory' },
     ],
   },
   fn: (...args: unknown[]): undefined => {

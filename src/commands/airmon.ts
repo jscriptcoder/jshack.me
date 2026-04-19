@@ -12,9 +12,9 @@ export const createAirmonCommand = (context: AirmonContext): Command => ({
   category: 'wifi',
   description: 'Enable/disable wireless monitor mode',
   manual: {
-    synopsis: 'airmon(action, interface)',
+    synopsis: 'airmon <action> <interface>',
     description:
-      'Put a wireless interface into or out of monitor mode. Monitor mode is required before scanning for networks with airdump() or cracking with aircrack().',
+      'Put a wireless interface into or out of monitor mode. Monitor mode is required before scanning for networks with airdump or cracking with aircrack.',
     arguments: [
       {
         name: 'action',
@@ -25,8 +25,8 @@ export const createAirmonCommand = (context: AirmonContext): Command => ({
       { name: 'interface', description: 'Wireless interface name (e.g., "wlan0")', required: true },
     ],
     examples: [
-      { command: 'airmon("start", "wlan0")', description: 'Enable monitor mode on wlan0' },
-      { command: 'airmon("stop", "wlan0")', description: 'Disable monitor mode on wlan0' },
+      { command: 'airmon start wlan0', description: 'Enable monitor mode on wlan0' },
+      { command: 'airmon stop wlan0', description: 'Disable monitor mode on wlan0' },
     ],
   },
   fn: (...args: unknown[]): string => {
@@ -44,7 +44,7 @@ export const createAirmonCommand = (context: AirmonContext): Command => ({
     const iface = args[1] as string | undefined;
 
     if (!action || !iface) {
-      throw new Error('airmon: usage: airmon("start"|"stop", "wlan0")');
+      throw new Error('airmon: usage: airmon <start|stop> <interface>');
     }
 
     if (iface !== 'wlan0') {

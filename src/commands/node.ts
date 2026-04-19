@@ -234,7 +234,7 @@ export const createNodeCommand = (context: NodeContext): Command => ({
   category: 'filesystem',
   description: 'Execute a JavaScript file',
   manual: {
-    synopsis: 'node(path[, ...args])',
+    synopsis: 'node <path> [args...]',
     description:
       'Execute the contents of a JavaScript file. ' +
       'The file runs with access to all terminal commands. ' +
@@ -254,9 +254,9 @@ export const createNodeCommand = (context: NodeContext): Command => ({
       },
     ],
     examples: [
-      { command: 'node("script.js")', description: 'Execute a JavaScript file' },
+      { command: 'node script.js', description: 'Execute a JavaScript file' },
       {
-        command: 'node("brute.js", "192.168.1.50", "ssh")',
+        command: 'node brute.js 192.168.1.50 ssh',
         description: 'Run with args (process.argv[0]="192.168.1.50")',
       },
     ],

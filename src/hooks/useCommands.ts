@@ -56,7 +56,6 @@ const SKIP_ACCESS_CHECK = new Set([
   'accept',
   'abort',
   'mail',
-  'output',
   'resolve',
   'author',
   'theme',
@@ -351,11 +350,17 @@ export const useCommands = (): UseCommandsResult => {
       }
     });
 
+    // Capture the script-facing execution context first so scripts still receive
+    // output(). Then remove output from the shell-facing command Map — interactive
+    // redirection uses `>` instead. Scripts keep output() via executionContext.
     const executionContext: Record<string, (...args: unknown[]) => unknown> = Object.fromEntries(
       Array.from(commands.entries()).map(([name, cmd]) => [name, cmd.fn]),
     );
 
     resolvedExecutionContext = executionContext;
+
+    commands.delete('output');
+    commands.delete('resolve');
 
     // Show all commands with a visible binary (or builtins/game commands) —
     // no user-type filtering, all users see the same commands

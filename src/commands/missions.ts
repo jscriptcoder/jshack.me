@@ -13,11 +13,11 @@ export const createMissionsCommand = (context: MissionsCommandContext): Command 
   category: 'mission',
   description: 'Browse available contracts or view active mission briefing',
   manual: {
-    synopsis: 'missions()',
+    synopsis: 'missions',
     description:
-      'Browse the darknet marketplace for available hacker-for-hire contracts. Each contract shows a client, target, objective, difficulty, and seed code. Use accept(seed) to start a mission. If a mission is already active, displays the current mission briefing.',
+      'Browse the darknet marketplace for available hacker-for-hire contracts. Each contract shows a client, target, objective, difficulty, and seed code. Use accept <seed> to start a mission. If a mission is already active, displays the current mission briefing.',
     examples: [
-      { command: 'missions()', description: 'List available contracts or view active mission' },
+      { command: 'missions', description: 'List available contracts or view active mission' },
     ],
   },
   fn: (): string => {

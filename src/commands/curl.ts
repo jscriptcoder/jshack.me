@@ -210,7 +210,7 @@ export const createCurlCommand = (context: CurlContext): Command => ({
   category: 'network',
   description: 'Transfer data from or to a server',
   manual: {
-    synopsis: 'curl([flags], url)',
+    synopsis: 'curl [flags...] <url>',
     description:
       'Transfer data from or to a server using HTTP protocol. Supports GET and POST requests. Use -i flag to include HTTP response headers in output. Use -X POST to make POST requests to /api/* endpoints. Flags and URL can be in any order.',
     arguments: [
@@ -231,21 +231,21 @@ export const createCurlCommand = (context: CurlContext): Command => ({
       },
     ],
     examples: [
-      { command: 'curl("http://192.168.1.1/")', description: 'Fetch a web page' },
+      { command: 'curl http://192.168.1.1/', description: 'Fetch a web page' },
       {
-        command: 'curl("192.168.1.1/index.html")',
+        command: 'curl 192.168.1.1/index.html',
         description: 'Fetch without protocol (defaults to http)',
       },
       {
-        command: 'curl("-i", "http://192.168.1.1/")',
+        command: 'curl -i http://192.168.1.1/',
         description: 'Include HTTP response headers',
       },
       {
-        command: 'curl("http://192.168.1.1/", "-i")',
+        command: 'curl http://192.168.1.1/ -i',
         description: 'Flags work in any position',
       },
       {
-        command: 'curl("-X POST", "http://192.168.1.1/api/users")',
+        command: 'curl -X POST http://192.168.1.1/api/users',
         description: 'POST request to API',
       },
     ],

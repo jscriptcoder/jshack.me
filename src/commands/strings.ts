@@ -47,7 +47,7 @@ export const createStringsCommand = (context: StringsContext): Command => ({
   category: 'filesystem',
   description: 'Extract printable strings from a file',
   manual: {
-    synopsis: 'strings(file, [minLength])',
+    synopsis: 'strings <file> [minLength]',
     description:
       'Print the sequences of printable characters in a file. ' +
       'Useful for extracting readable text from binary files. ' +
@@ -66,11 +66,11 @@ export const createStringsCommand = (context: StringsContext): Command => ({
     ],
     examples: [
       {
-        command: 'strings("/bin/sudo")',
+        command: 'strings /bin/sudo',
         description: 'Extract strings from a binary',
       },
       {
-        command: 'strings("program.exe", 8)',
+        command: 'strings program.exe 8',
         description: 'Extract strings of 8+ characters',
       },
     ],

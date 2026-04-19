@@ -408,7 +408,7 @@ export const createMailCommand = (context: MailCommandContext): Command => ({
   category: 'mission',
   description: 'Send proof to a darknet client to complete a mission',
   manual: {
-    synopsis: 'mail(recipient[, content])',
+    synopsis: 'mail <recipient> [content]',
     description:
       'Send a message to a darknet client. Used to submit mission proof and complete contracts. The recipient must match the client email shown in the mission briefing. Content is optional for missions that verify by inspecting machine state.',
     arguments: [
@@ -421,22 +421,22 @@ export const createMailCommand = (context: MailCommandContext): Command => ({
     ],
     examples: [
       {
-        command: 'mail("xR0gu3x@darkmail.onion", "ACCESS-A1B2-C3D4-E5F6")',
+        command: 'mail xR0gu3x@darkmail.onion ACCESS-A1B2-C3D4-E5F6',
         description: 'Submit an exfiltrated access key',
       },
       {
-        command: 'mail("gh0st_@darkmail.onion", "s3cr3tP4ss")',
+        command: 'mail gh0st_@darkmail.onion s3cr3tP4ss',
         description: 'Submit a stolen password',
       },
       {
-        command: 'mail("cyph3rpunk@darkmail.onion", "done")',
+        command: 'mail cyph3rpunk@darkmail.onion done',
         description: 'Confirm a tamper mission',
       },
     ],
   },
   fn: (recipient: unknown, content: unknown): AsyncOutput => {
     if (typeof recipient !== 'string' || !recipient.trim()) {
-      throw new Error('mail: missing recipient\nUsage: mail("recipient@darkmail.onion", "proof")');
+      throw new Error('mail: missing recipient\nUsage: mail <recipient> <proof>');
     }
     const mission = context.getActiveMission();
 
@@ -453,11 +453,11 @@ export const createMailCommand = (context: MailCommandContext): Command => ({
       mission?.objective.type === 'db_fix';
 
     if (typeof content !== 'string' && !contentOptional) {
-      throw new Error('mail: missing content\nUsage: mail("recipient@darkmail.onion", "proof")');
+      throw new Error('mail: missing content\nUsage: mail <recipient> <proof>');
     }
 
     if (!mission) {
-      throw new Error('No active mission. Use accept("SEED") to start one.');
+      throw new Error('No active mission. Use accept <SEED> to start one.');
     }
 
     const trimmedRecipient = recipient.trim();
