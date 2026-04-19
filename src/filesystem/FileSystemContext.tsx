@@ -15,6 +15,7 @@ import type {
   MachineCreateOp,
   MachineDeleteOp,
   MachineFileOp,
+  MachineMkdirOp,
   MachineWriteOp,
   PermissionResult,
 } from './types';
@@ -50,6 +51,11 @@ type FileSystemContextValue = {
     userType: UserType,
     permissions?: FilePermissions,
   ) => PermissionResult;
+  readonly createDirectory: (
+    path: string,
+    userType: UserType,
+    options?: { readonly parents?: boolean; readonly permissions?: FilePermissions },
+  ) => PermissionResult;
   readonly deleteNode: (
     path: string,
     userType: UserType,
@@ -64,6 +70,7 @@ type FileSystemContextValue = {
   readonly readFileFromMachine: (op: MachineFileOp) => string | null;
   readonly writeFileToMachine: (op: MachineWriteOp) => PermissionResult;
   readonly createFileOnMachine: (op: MachineCreateOp) => PermissionResult;
+  readonly createDirectoryOnMachine: (op: MachineMkdirOp) => PermissionResult;
   readonly deleteNodeFromMachine: (op: MachineDeleteOp) => PermissionResult;
   readonly updatePermissions: (
     path: string,
@@ -448,6 +455,120 @@ export const FileSystemProvider = ({
     [resolvePathForMachine, canWriteFromMachine, getNodeFromMachine, broadcastAndRecordPatch],
   );
 
+  const createDirectoryOnMachine = useCallback(
+    ({
+      machineId,
+      path,
+      cwd,
+      userType,
+      parents,
+      permissions,
+    }: MachineMkdirOp): PermissionResult => {
+      const resolvedPath = resolvePathForMachine(path, cwd);
+
+      if (resolvedPath === '/') {
+        return { allowed: false, error: `mkdir: cannot create directory '${path}': File exists` };
+      }
+
+      const existing = getNodeFromMachine(machineId, resolvedPath, '/');
+
+      if (existing) {
+        if (parents) return { allowed: true };
+        return { allowed: false, error: `mkdir: cannot create directory '${path}': File exists` };
+      }
+
+      const parts = resolvedPath.split('/').filter(Boolean);
+
+      // Non-recursive: require the full parent chain to exist. With -p we create
+      // missing intermediates, each checked for parent-write permission as we go.
+      const segmentsToCreate: string[] = [];
+      let cursorPath = '/';
+
+      for (let i = 0; i < parts.length; i++) {
+        const segment = parts[i];
+        const nextPath = cursorPath === '/' ? `/${segment}` : `${cursorPath}/${segment}`;
+        const node = getNodeFromMachine(machineId, nextPath, '/');
+
+        if (node) {
+          if (node.type !== 'directory') {
+            return {
+              allowed: false,
+              error: `mkdir: cannot create directory '${path}': Not a directory`,
+            };
+          }
+          cursorPath = nextPath;
+          continue;
+        }
+
+        // Missing segment. Only allowed if we're mid-path and parents flag is set,
+        // or we're at the final segment (that's the mkdir target itself).
+        const isFinalSegment = i === parts.length - 1;
+        if (!isFinalSegment && !parents) {
+          return {
+            allowed: false,
+            error: `mkdir: cannot create directory '${path}': No such file or directory`,
+          };
+        }
+
+        const parentPermission = canWriteFromMachine({
+          machineId,
+          path: cursorPath,
+          cwd: '/',
+          userType,
+        });
+        if (!parentPermission.allowed) {
+          return {
+            allowed: false,
+            error: `mkdir: cannot create directory '${path}': Permission denied`,
+          };
+        }
+
+        segmentsToCreate.push(nextPath);
+        cursorPath = nextPath;
+      }
+
+      if (segmentsToCreate.length === 0) return { allowed: true };
+
+      const defaultPermissions: FilePermissions = {
+        read: ['root', 'user', 'guest'],
+        write: ['root', userType],
+        execute: ['root', 'user', 'guest'],
+      };
+
+      for (const dirPath of segmentsToCreate) {
+        const dirParts = dirPath.split('/').filter(Boolean);
+        const dirName = dirParts[dirParts.length - 1];
+        const parentParts = dirParts.slice(0, -1);
+
+        const newDir: FileNode = {
+          name: dirName ?? '',
+          type: 'directory',
+          owner: userType,
+          permissions: permissions ?? defaultPermissions,
+          children: {},
+        };
+
+        setFileSystems((prev) => ({
+          ...prev,
+          [machineId]: ensureChildAtPath(prev[machineId], parentParts, dirName ?? '', newDir),
+        }));
+
+        broadcastAndRecordPatch({
+          machineId,
+          path: dirPath,
+          content: null,
+          owner: userType,
+          isNew: true,
+          nodeType: 'directory',
+          ...(permissions ? { permissions } : { permissions: defaultPermissions }),
+        });
+      }
+
+      return { allowed: true };
+    },
+    [resolvePathForMachine, canWriteFromMachine, getNodeFromMachine, broadcastAndRecordPatch],
+  );
+
   const deleteNodeFromMachine = useCallback(
     ({ machineId, path, cwd, userType, recursive }: MachineDeleteOp): PermissionResult => {
       const resolvedPath = resolvePathForMachine(path, cwd);
@@ -536,6 +657,24 @@ export const FileSystemProvider = ({
     [createFileOnMachine, currentMachine, currentPath],
   );
 
+  const createDirectory = useCallback(
+    (
+      path: string,
+      userType: UserType,
+      options?: { readonly parents?: boolean; readonly permissions?: FilePermissions },
+    ): PermissionResult => {
+      return createDirectoryOnMachine({
+        machineId: currentMachine,
+        path,
+        cwd: currentPath,
+        userType,
+        parents: options?.parents,
+        permissions: options?.permissions,
+      });
+    },
+    [createDirectoryOnMachine, currentMachine, currentPath],
+  );
+
   const updatePermissions = useCallback(
     (path: string, permissions: FilePermissions, userType: UserType): PermissionResult => {
       const resolvedPath = resolvePathUtil(path, currentPath);
@@ -604,6 +743,7 @@ export const FileSystemProvider = ({
         readFile,
         writeFile,
         createFile,
+        createDirectory,
         deleteNode,
         getDefaultHomePath: getDefaultHomePathFn,
         resolvePathForMachine,
@@ -614,6 +754,7 @@ export const FileSystemProvider = ({
         readFileFromMachine,
         writeFileToMachine,
         createFileOnMachine,
+        createDirectoryOnMachine,
         deleteNodeFromMachine,
         updatePermissions,
         canTraverse: canTraverseFn,

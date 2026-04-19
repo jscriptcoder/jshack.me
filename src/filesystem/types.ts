@@ -31,6 +31,9 @@ export type FileSystemPatch = {
   readonly owner: UserType;
   readonly permissions?: FilePermissions;
   readonly isNew?: true;
+  // When omitted, behaves as a file patch (backward compatible). 'directory'
+  // lets mkdir persist empty directories across refresh and multi-tab sync.
+  readonly nodeType?: 'file' | 'directory';
 };
 
 // Options objects for machine-targeted filesystem operations (4+ params)
@@ -51,4 +54,9 @@ export type MachineCreateOp = MachineWriteOp & {
 
 export type MachineDeleteOp = MachineFileOp & {
   readonly recursive?: boolean;
+};
+
+export type MachineMkdirOp = MachineFileOp & {
+  readonly parents?: boolean;
+  readonly permissions?: FilePermissions;
 };

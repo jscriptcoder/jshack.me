@@ -138,6 +138,7 @@ export const SYSTEM_UTILITY_NAMES = [
   'nmcli',
   'apt',
   'rm',
+  'mkdir',
   'chmod',
   'scp',
   'reboot',

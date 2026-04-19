@@ -66,6 +66,7 @@ const createMockGetNode =
         'nmcli',
         'apt',
         'rm',
+        'mkdir',
         'chmod',
         'scp',
         'reboot',

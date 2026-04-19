@@ -210,7 +210,8 @@ export const isValidPatch = (value: unknown): value is FileSystemPatch =>
   typeof value.owner === 'string' &&
   ['root', 'user', 'guest'].includes(value.owner) &&
   (value.permissions === undefined || isValidPermissions(value.permissions)) &&
-  (value.isNew === undefined || value.isNew === true);
+  (value.isNew === undefined || value.isNew === true) &&
+  (value.nodeType === undefined || value.nodeType === 'file' || value.nodeType === 'directory');
 
 // Preserves `isNew` from the existing patch so a create-then-write sequence
 // retains the flag (enabling clean removal on deletion instead of a null patch).
@@ -241,6 +242,31 @@ export const applyPatches = (
     if (!machineFs) return state;
 
     const parts = patch.path.split('/').filter(Boolean);
+
+    // Directory-create patch — upsert an empty directory at the path. No-op if
+    // the directory (or any other node) already exists there, so replaying a
+    // mkdir patch never clobbers contents added later by file patches.
+    if (patch.nodeType === 'directory') {
+      const existing = getNodeAtPath(machineFs, patch.path);
+      if (existing) return state;
+      const dirName = parts[parts.length - 1];
+      const dirParts = parts.slice(0, -1);
+      const newDir: FileNode = {
+        name: dirName ?? '',
+        type: 'directory',
+        owner: patch.owner,
+        permissions: patch.permissions ?? {
+          read: ['root', 'user', 'guest'],
+          write: ['root', patch.owner],
+          execute: ['root', 'user', 'guest'],
+        },
+        children: {},
+      };
+      return {
+        ...state,
+        [machineId]: ensureChildAtPath(machineFs, dirParts, dirName ?? '', newDir),
+      };
+    }
 
     // Deletion patch — remove the node from the filesystem
     if (patch.content === null) {

@@ -130,6 +130,7 @@ Admin utilities that write PID files to `/var/run/` — `NetworkContext` reads t
 | find    | `find.ts`    | `find <path> <pattern> [user]` | Recursively search for files/directories by glob pattern                  |
 | grep    | `grep.ts`    | `grep <pattern> <path> [-l]`   | Search file contents for a pattern (case-insensitive)                     |
 | rm      | `rm.ts`      | `rm [-r] [-f] <path>…`         | Remove files or directories (-r recursive, -f force)                      |
+| mkdir   | `mkdir.ts`   | `mkdir [-p] <path>…`           | Create one or more directories; `-p` creates parents and is idempotent    |
 | whoami  | `whoami.ts`  | `whoami`                       | Display current username                                                  |
 | gpg     | `gpg.ts`     | `gpg <file> <key>`             | Decrypt file using AES-256 (async, root-only)                             |
 | strings | `strings.ts` | `strings <file> [min]`         | Extract printable strings from binary files                               |

@@ -361,6 +361,83 @@ describe('applyPatches', () => {
     const result = applyPatches(baseState, [patch]);
     expect(result).toEqual(baseState);
   });
+
+  describe('directory patches', () => {
+    it('creates an empty directory via nodeType: directory patch', () => {
+      const patch: FileSystemPatch = {
+        machineId: 'localhost',
+        path: '/home/jshacker/stash',
+        content: null,
+        owner: 'user',
+        isNew: true,
+        nodeType: 'directory',
+      };
+      const result = applyPatches(baseState, [patch]);
+      const node = getNodeAtPath(result['localhost'], '/home/jshacker/stash');
+      expect(node?.type).toBe('directory');
+      expect(node?.owner).toBe('user');
+      expect(node?.children).toEqual({});
+    });
+
+    it('uses patch permissions on the new directory', () => {
+      const patch: FileSystemPatch = {
+        machineId: 'localhost',
+        path: '/home/jshacker/private',
+        content: null,
+        owner: 'user',
+        isNew: true,
+        nodeType: 'directory',
+        permissions: {
+          read: ['root', 'user'],
+          write: ['root', 'user'],
+          execute: ['root', 'user'],
+        },
+      };
+      const result = applyPatches(baseState, [patch]);
+      const node = getNodeAtPath(result['localhost'], '/home/jshacker/private');
+      expect(node?.permissions.read).toEqual(['root', 'user']);
+      expect(node?.permissions.execute).toEqual(['root', 'user']);
+    });
+
+    it('is a no-op when the directory already exists', () => {
+      const patch: FileSystemPatch = {
+        machineId: 'localhost',
+        path: '/home/jshacker',
+        content: null,
+        owner: 'user',
+        isNew: true,
+        nodeType: 'directory',
+      };
+      const existingChildren = getNodeAtPath(baseState['localhost'], '/home/jshacker')?.children;
+      const result = applyPatches(baseState, [patch]);
+      const node = getNodeAtPath(result['localhost'], '/home/jshacker');
+      // Existing contents survive — mkdir-on-existing must never clobber children
+      expect(node?.children).toBe(existingChildren);
+    });
+
+    it('deletes a directory via null-content patch without nodeType', () => {
+      // Deletion reuses the file-deletion path; nodeType only matters for creation.
+      const createPatch: FileSystemPatch = {
+        machineId: 'localhost',
+        path: '/home/jshacker/tempdir',
+        content: null,
+        owner: 'user',
+        isNew: true,
+        nodeType: 'directory',
+      };
+      const afterCreate = applyPatches(baseState, [createPatch]);
+      expect(getNodeAtPath(afterCreate['localhost'], '/home/jshacker/tempdir')).not.toBeNull();
+
+      const deletePatch: FileSystemPatch = {
+        machineId: 'localhost',
+        path: '/home/jshacker/tempdir',
+        content: null,
+        owner: 'user',
+      };
+      const afterDelete = applyPatches(afterCreate, [deletePatch]);
+      expect(getNodeAtPath(afterDelete['localhost'], '/home/jshacker/tempdir')).toBeNull();
+    });
+  });
 });
 
 describe('isValidPatch', () => {
