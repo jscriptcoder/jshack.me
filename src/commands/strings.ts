@@ -79,13 +79,13 @@ export const createStringsCommand = (context: StringsContext): Command => ({
     const { resolvePath, getNode, getUserType } = context;
 
     const filePath = args[0] as string | undefined;
-    const minLength = (args[1] as number | undefined) ?? MIN_STRING_LENGTH;
+    const minLength = args[1] === undefined ? MIN_STRING_LENGTH : Number(args[1]);
 
     if (!filePath) {
       throw new Error('strings: missing file operand');
     }
 
-    if (minLength < 1 || minLength > 100) {
+    if (Number.isNaN(minLength) || minLength < 1 || minLength > 100) {
       throw new Error('strings: minimum length must be between 1 and 100');
     }
 

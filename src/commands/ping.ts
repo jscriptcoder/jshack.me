@@ -40,13 +40,13 @@ export const createPingCommand = (context: PingContext): Command => ({
     const { getMachine, getMachines, getLocalIP } = context;
 
     const host = args[0] as string | undefined;
-    const count = (args[1] as number | undefined) ?? 4;
+    const count = args[1] === undefined ? 4 : Number(args[1]);
 
     if (!host) {
       throw new Error('ping: missing host operand');
     }
 
-    if (count < 1 || count > 10) {
+    if (Number.isNaN(count) || count < 1 || count > 10) {
       throw new Error('ping: count must be between 1 and 10');
     }
 
