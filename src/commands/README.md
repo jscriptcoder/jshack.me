@@ -121,25 +121,25 @@ Admin utilities that write PID files to `/var/run/` — `NetworkContext` reads t
 
 ## File System
 
-| Command | File         | Usage                          | Description                                                     |
-| ------- | ------------ | ------------------------------ | --------------------------------------------------------------- |
-| pwd     | `pwd.ts`     | `pwd`                          | Print current working directory                                 |
-| ls      | `ls.ts`      | `ls [path] [-a] [-l]`          | List directory contents (`-a` hidden, `-l` long format)         |
-| cd      | `cd.ts`      | `cd [path]`                    | Change current directory                                        |
-| cat     | `cat.ts`     | `cat <path>`                   | Display file contents                                           |
-| find    | `find.ts`    | `find <path> <pattern> [user]` | Recursively search for files/directories by glob pattern        |
-| grep    | `grep.ts`    | `grep <pattern> <path> [-l]`   | Search file contents for a pattern (case-insensitive)           |
-| rm      | `rm.ts`      | `rm [-r] [-f] <path>…`         | Remove files or directories (-r recursive, -f force)            |
-| whoami  | `whoami.ts`  | `whoami`                       | Display current username                                        |
-| gpg     | `gpg.ts`     | `gpg <file> <key>`             | Decrypt file using AES-256 (async, root-only)                   |
-| strings | `strings.ts` | `strings <file> [min]`         | Extract printable strings from binary files                     |
-| nano    | `nano.ts`    | `nano <path>`                  | Open file in nano-style text editor overlay                     |
-| node    | `node.ts`    | `node <path>`                  | Execute a JavaScript file — supports `await` for async commands |
-| john    | `john.ts`    | `john <file>`                  | Crack password hashes using dictionary attack (async)           |
-| chmod   | `chmod.ts`   | `chmod <mode> <path>`          | Change file permissions (symbolic: `o+x`, `u-w`, etc.)          |
-| reboot  | `reboot.ts`  | `reboot`                       | Reboot current machine; bricks if boot files missing            |
-| ps      | `ps.ts`      | `ps`                           | Report running processes (reads PID files from `/var/run/`)     |
-| kill    | `kill.ts`    | `kill <pid>`                   | Terminate a process by PID (deletes PID file)                   |
+| Command | File         | Usage                          | Description                                                               |
+| ------- | ------------ | ------------------------------ | ------------------------------------------------------------------------- |
+| pwd     | `pwd.ts`     | `pwd`                          | Print current working directory                                           |
+| ls      | `ls.ts`      | `ls [path] [-a] [-l]`          | List directory contents (`-a` hidden, `-l` long format)                   |
+| cd      | `cd.ts`      | `cd [path]`                    | Change current directory                                                  |
+| cat     | `cat.ts`     | `cat <path>`                   | Display file contents                                                     |
+| find    | `find.ts`    | `find <path> <pattern> [user]` | Recursively search for files/directories by glob pattern                  |
+| grep    | `grep.ts`    | `grep <pattern> <path> [-l]`   | Search file contents for a pattern (case-insensitive)                     |
+| rm      | `rm.ts`      | `rm [-r] [-f] <path>…`         | Remove files or directories (-r recursive, -f force)                      |
+| whoami  | `whoami.ts`  | `whoami`                       | Display current username                                                  |
+| gpg     | `gpg.ts`     | `gpg <file> <key>`             | Decrypt file using AES-256 (async, root-only)                             |
+| strings | `strings.ts` | `strings <file> [min]`         | Extract printable strings from binary files                               |
+| nano    | `nano.ts`    | `nano <path>`                  | Open file in nano-style text editor overlay                               |
+| node    | `node.ts`    | `node <path>`                  | Execute a JavaScript file — supports `await` for async commands           |
+| john    | `john.ts`    | `john <file>`                  | Crack password hashes using dictionary attack (async)                     |
+| chmod   | `chmod.ts`   | `chmod [-R] <mode> <path>`     | Change file permissions (symbolic: `o+x`, `u-w`, `go-rwx`). `-R` recurses |
+| reboot  | `reboot.ts`  | `reboot`                       | Reboot current machine; bricks if boot files missing                      |
+| ps      | `ps.ts`      | `ps`                           | Report running processes (reads PID files from `/var/run/`)               |
+| kill    | `kill.ts`    | `kill <pid>`                   | Terminate a process by PID (deletes PID file)                             |
 
 Redirect `>` is the interactive way to capture command output to a file. Scripts use the `writeFile(path, content)` helper (see `src/scripting/`).
 
