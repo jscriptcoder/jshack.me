@@ -4,14 +4,21 @@ All terminal commands live here. Each command implements the `Command` type and 
 
 Commands use a factory pattern with context injection: `createXCommand(context) => Command`.
 
+## Input syntax
+
+Interactive input uses a **shell-style parser** (`src/shell/`) that tokenizes commands, arguments, flags, single/double quotes, backslash escapes, pipes (`|`), and output redirect (`>`). Players type `nmap 10.10.10.10 -sV`, `cat /etc/passwd | grep root > out.txt` — matching real Linux muscle memory.
+
+**Scripts** (`.js` files executed via `node`) keep their JavaScript calling convention: `nmap('10.10.10.10', '-sV')`. The tables below show the **shell form** in the Usage column. Scripts call the same command as a function with quoted string arguments.
+
 ## Access Control (`availability.ts`)
 
 Commands use a unified filesystem-based access model. All commands are visible to all users — execution is gated by binary file permissions.
 
 - **Shell builtins** (cd, exit, clear, echo, pwd, help, whoami, bash) — always available, no binary needed
-- **Game commands** (missions, accept, abort, mail, output, resolve, author, theme, reset, xterm) — always available
+- **Game commands** (missions, accept, abort, mail, author, theme, reset, xterm) — always available
+- **Script-only builtins** (output, resolve) — available to scripts via `executionContext` but not shown in the shell registry; interactive equivalents are `>` (redirect) and direct expression evaluation
 - **System utilities** in `/bin/` — always present on all machines; most are world-executable
-- **Apt-installable tools** in `/usr/bin/` — must be installed via `apt('install', '<tool>')` as root (requires network); only WiFi tools (airmon, airdump, aircrack), node, and gpg are pre-installed on localhost
+- **Apt-installable tools** in `/usr/bin/` — must be installed via `apt install <tool>` as root (requires network); only WiFi tools (airmon, airdump, aircrack), node, and gpg are pre-installed on localhost
 - **Admin utilities** in `/usr/sbin/` — root-only daemon management (`sshd`, `vsftpd`, `systemctl`); write PID files to `/var/run/` for dynamic port opening
 - **Restricted binaries** — `reboot`, `gpg`, `sshd`, `vsftpd`, and `systemctl` have `execute: ['root']`; all others are world-executable
 
@@ -26,7 +33,7 @@ At execution time, `wrapWithAccessCheck` checks binary existence and execute per
 | System utilities | `/bin/`      | Always (ls, cat, rm, chmod, scp, su, man, nano, strings, ssh, etc.)      |
 | Admin utilities  | `/usr/sbin/` | Always present, root-only (sshd, vsftpd, systemctl)                      |
 | Apt-installable  | `/usr/bin/`  | After `apt install` (WiFi tools + node + gpg pre-installed on localhost) |
-| Game-specific    | N/A          | Always (missions, accept, abort, mail, output, etc.)                     |
+| Game-specific    | N/A          | Always (missions, accept, abort, mail, author, theme, reset, xterm)      |
 
 FTP and NC modes have their own separate command sets and are not restricted.
 
@@ -47,47 +54,48 @@ Tools like hydra and gobuster use filesystem-based wordlists installed via `apt 
 
 ## Node Execution
 
-`node(path)` executes JavaScript files with access to all terminal commands. Two execution modes:
+`node <path>` executes JavaScript files with access to all terminal commands. Two execution modes:
 
 - **Sync mode** (default): Uses `new Function()`. Expression-first, falls back to statement mode. Echo calls are buffered and joined.
 - **Async mode** (when script contains `await`): Uses `AsyncFunction` constructor. Returns `AsyncOutput` to Terminal for streaming. Commands returning `AsyncOutput` (hydra, nmap, etc.) are auto-wrapped so `await hydra(...)` resolves to `string[]`. Provides `console.log()`, `sleep(ms)`, and cancellation via Ctrl+C.
 
 **Programmatic auth in scripts**: Interactive commands accept optional credentials for scripting: `su('root', 'pw')` (sync inline auth), `await ssh('user@ip', 'pw')`, `await scp(src, dst, 'pw')`, `await ftp('ip', 'user', 'pw')`. `su` is synchronous so subsequent lines run as the new user. SSH/SCP/FTP embed credentials in their async follow-up data.
 
-**Circular dependency**: `node(path)` needs the execution context which includes `node` itself. Resolved via a lazy getter pattern: mutable `let resolvedExecutionContext` in `useCommands.ts` is set after building the full command map, and node's factory captures a getter that's only called at execution time.
+**Script-only helpers**: `output(cmd, path?)` captures command output (to a variable or file) and `resolve(promise)` unwraps Promises. Both live in `executionContext` but aren't part of the shell command registry — `>` replaces `output()` interactively.
+
+**Circular dependency**: `node <path>` needs the execution context which includes `node` itself. Resolved via a lazy getter pattern: mutable `let resolvedExecutionContext` in `useCommands.ts` is set after building the full command map, and node's factory captures a getter that's only called at execution time.
 
 ## General
 
-| Command | File         | Signature             | Description                                                              |
-| ------- | ------------ | --------------------- | ------------------------------------------------------------------------ |
-| help    | `help.ts`    | `help()`              | List all available commands                                              |
-| man     | `man.ts`     | `man(cmd)`            | Display detailed manual for a command                                    |
-| echo    | `echo.ts`    | `echo(value)`         | Output a stringified value                                               |
-| author  | `author.ts`  | `author()`            | Display author profile card                                              |
-| clear   | `clear.ts`   | `clear()`             | Clear the terminal screen                                                |
-| exit    | `exit.ts`    | `exit()`              | Return to previous session (SSH connection or user via su)               |
-| resolve | `resolve.ts` | `resolve(promise)`    | Unwrap a Promise and display its resolved value                          |
-| reset   | `reset.ts`   | `reset(["confirm"])`  | Reset game to factory defaults (clears all saved progress)               |
-| theme   | `theme.ts`   | `theme([name])`       | List or switch terminal color themes (persists)                          |
-| apt     | `apt.ts`     | `apt(sub, [pkg])`     | Package manager — install tools, upgrade/pin services (requires network) |
-| xterm   | `xterm.ts`   | `xterm()`             | Open a new terminal session in a separate browser tab                    |
-| bash    | `bash.ts`    | `bash(path, ...args)` | Execute binary by filesystem path (shell builtin)                        |
+| Command | File        | Usage                 | Description                                                              |
+| ------- | ----------- | --------------------- | ------------------------------------------------------------------------ |
+| help    | `help.ts`   | `help`                | List all available commands                                              |
+| man     | `man.ts`    | `man <cmd>`           | Display detailed manual for a command                                    |
+| echo    | `echo.ts`   | `echo <value>`        | Output a value                                                           |
+| author  | `author.ts` | `author`              | Display author profile card                                              |
+| clear   | `clear.ts`  | `clear`               | Clear the terminal screen                                                |
+| exit    | `exit.ts`   | `exit`                | Return to previous session (SSH connection or user via su)               |
+| reset   | `reset.ts`  | `reset [confirm]`     | Reset game to factory defaults (clears all saved progress)               |
+| theme   | `theme.ts`  | `theme [name]`        | List or switch terminal color themes (persists)                          |
+| apt     | `apt.ts`    | `apt <sub> [pkg]`     | Package manager — install tools, upgrade/pin services (requires network) |
+| xterm   | `xterm.ts`  | `xterm`               | Open a new terminal session in a separate browser tab                    |
+| bash    | `bash.ts`   | `bash <path> [args…]` | Execute binary by filesystem path (shell builtin)                        |
 
 ### apt Subcommands
 
 The `apt` command has three subcommands: `list`, `install`, and `upgrade`.
 
-**`apt('list')` / `apt('list', '-i')`** — list available or installed packages.
+**`apt list` / `apt list -i`** — list available or installed packages.
 
-**`apt('install', 'pkg')`** — install a binary tool (nmap, hydra, etc.) into `/usr/bin/`. Requires root and network connectivity. This is the original behavior.
+**`apt install <pkg>`** — install a binary tool (nmap, hydra, etc.) into `/usr/bin/`. Requires root and network connectivity.
 
-**`apt('install', 'pkg=version')`** — pin a specific version of a service or router firmware. Uses scp-style syntax for the package name (e.g., `apt('install', 'http=Apache/2.4.49')`, `apt('install', 'firmware=MikroTik RouterOS 7.14.3')`). Validates the version exists in the procedural timeline or hand-authored CVE table. Requires root.
+**`apt install <pkg>=<version>`** — pin a specific version of a service or router firmware. Uses scp-style syntax for the package name (e.g., `apt install http=Apache/2.4.49`, `apt install 'firmware=MikroTik RouterOS 7.14.3'`). Validates the version exists in the procedural timeline or hand-authored CVE table. Requires root.
 
-**`apt('upgrade')`** — upgrade all vulnerable services on the current machine to the latest safe version. Reads and writes `/var/lib/dpkg/status`. Requires root. Requires WiFi when running on localhost.
+**`apt upgrade`** — upgrade all vulnerable services on the current machine to the latest safe version. Reads and writes `/var/lib/dpkg/status`. Requires root. Requires WiFi when running on localhost.
 
-**`apt('upgrade', 'serviceName')`** — upgrade only the named service (e.g., `apt('upgrade', 'http')`).
+**`apt upgrade <service>`** — upgrade only the named service (e.g., `apt upgrade http`).
 
-**`apt('upgrade', 'firmware')`** — upgrade router firmware to the latest safe version (router machines only).
+**`apt upgrade firmware`** — upgrade router firmware to the latest safe version (router machines only).
 
 Upgrade targets are computed via `getLatestSafeVersion()` from the procedural timeline — the newest version whose CVE (if any) has `publishedAt > currentGameTime`.
 
@@ -95,72 +103,73 @@ Upgrade targets are computed via `getLatestSafeVersion()` from the procedural ti
 
 Admin utilities that write PID files to `/var/run/` — `NetworkContext` reads these to dynamically open ports.
 
-| Command   | File           | Signature                    | Description                                                        |
-| --------- | -------------- | ---------------------------- | ------------------------------------------------------------------ |
-| sshd      | `sshd.ts`      | `sshd([port])`               | Start SSH daemon (root-only, writes `/var/run/sshd.pid`)           |
-| vsftpd    | `vsftpd.ts`    | `vsftpd([port])`             | Start FTP daemon (root-only, writes `/var/run/vsftpd.pid`)         |
-| systemctl | `systemctl.ts` | `systemctl(action, service)` | Control services: start, stop, status (root-only)                  |
-| nc -l     | `nc.ts`        | `nc("-l", port)`             | Open backdoor listener (any user, writes `/var/run/nc-<port>.pid`) |
+| Command   | File           | Usage                      | Description                                                        |
+| --------- | -------------- | -------------------------- | ------------------------------------------------------------------ |
+| sshd      | `sshd.ts`      | `sshd [port]`              | Start SSH daemon (root-only, writes `/var/run/sshd.pid`)           |
+| vsftpd    | `vsftpd.ts`    | `vsftpd [port]`            | Start FTP daemon (root-only, writes `/var/run/vsftpd.pid`)         |
+| systemctl | `systemctl.ts` | `systemctl <action> <svc>` | Control services: start, stop, status (root-only)                  |
+| nc -l     | `nc.ts`        | `nc -l <port>`             | Open backdoor listener (any user, writes `/var/run/nc-<port>.pid`) |
 
 ## Mission
 
-| Command  | File          | Signature                  | Description                                               |
-| -------- | ------------- | -------------------------- | --------------------------------------------------------- |
-| missions | `missions.ts` | `missions()`               | Browse available hacker-for-hire contracts on the darknet |
-| accept   | `accept.ts`   | `accept(seed)`             | Accept a mission contract and generate the target network |
-| abort    | `abort.ts`    | `abort()`                  | Abort the current mission and return to localhost         |
-| mail     | `mail.ts`     | `mail(recipient, content)` | Send proof to a darknet client to complete a mission      |
+| Command  | File          | Usage                        | Description                                               |
+| -------- | ------------- | ---------------------------- | --------------------------------------------------------- |
+| missions | `missions.ts` | `missions`                   | Browse available hacker-for-hire contracts on the darknet |
+| accept   | `accept.ts`   | `accept <seed>`              | Accept a mission contract and generate the target network |
+| abort    | `abort.ts`    | `abort`                      | Abort the current mission and return to localhost         |
+| mail     | `mail.ts`     | `mail <recipient> <content>` | Send proof to a darknet client to complete a mission      |
 
 ## File System
 
-| Command | File         | Signature                     | Description                                                     |
-| ------- | ------------ | ----------------------------- | --------------------------------------------------------------- |
-| pwd     | `pwd.ts`     | `pwd()`                       | Print current working directory                                 |
-| ls      | `ls.ts`      | `ls([path], [flags])`         | List directory contents (`-a` hidden, `-l` long format)         |
-| cd      | `cd.ts`      | `cd([path])`                  | Change current directory                                        |
-| cat     | `cat.ts`     | `cat(path)`                   | Display file contents                                           |
-| find    | `find.ts`    | `find(path, pattern, [user])` | Recursively search for files/directories by glob pattern        |
-| grep    | `grep.ts`    | `grep(pattern, path, ["-l"])` | Search file contents for a pattern (case-insensitive)           |
-| rm      | `rm.ts`      | `rm([flags], path, ...)`      | Remove files or directories (-r recursive, -f force)            |
-| whoami  | `whoami.ts`  | `whoami()`                    | Display current username                                        |
-| gpg     | `gpg.ts`     | `gpg(file, key)`              | Decrypt file using AES-256 (async, root-only)                   |
-| output  | `output.ts`  | `output(cmd, [file])`         | Capture command output to variable or file                      |
-| strings | `strings.ts` | `strings(file, [min])`        | Extract printable strings from binary files                     |
-| nano    | `nano.ts`    | `nano(path)`                  | Open file in nano-style text editor overlay                     |
-| node    | `node.ts`    | `node(path)`                  | Execute a JavaScript file — supports `await` for async commands |
-| john    | `john.ts`    | `john(file)`                  | Crack password hashes using dictionary attack (async)           |
-| chmod   | `chmod.ts`   | `chmod(mode, path)`           | Change file permissions (symbolic: `o+x`, `u-w`, etc.)          |
-| reboot  | `reboot.ts`  | `reboot()`                    | Reboot current machine; bricks if boot files missing            |
-| ps      | `ps.ts`      | `ps()`                        | Report running processes (reads PID files from `/var/run/`)     |
-| kill    | `kill.ts`    | `kill(pid)`                   | Terminate a process by PID (deletes PID file)                   |
+| Command | File         | Usage                          | Description                                                     |
+| ------- | ------------ | ------------------------------ | --------------------------------------------------------------- |
+| pwd     | `pwd.ts`     | `pwd`                          | Print current working directory                                 |
+| ls      | `ls.ts`      | `ls [path] [-a] [-l]`          | List directory contents (`-a` hidden, `-l` long format)         |
+| cd      | `cd.ts`      | `cd [path]`                    | Change current directory                                        |
+| cat     | `cat.ts`     | `cat <path>`                   | Display file contents                                           |
+| find    | `find.ts`    | `find <path> <pattern> [user]` | Recursively search for files/directories by glob pattern        |
+| grep    | `grep.ts`    | `grep <pattern> <path> [-l]`   | Search file contents for a pattern (case-insensitive)           |
+| rm      | `rm.ts`      | `rm [-r] [-f] <path>…`         | Remove files or directories (-r recursive, -f force)            |
+| whoami  | `whoami.ts`  | `whoami`                       | Display current username                                        |
+| gpg     | `gpg.ts`     | `gpg <file> <key>`             | Decrypt file using AES-256 (async, root-only)                   |
+| strings | `strings.ts` | `strings <file> [min]`         | Extract printable strings from binary files                     |
+| nano    | `nano.ts`    | `nano <path>`                  | Open file in nano-style text editor overlay                     |
+| node    | `node.ts`    | `node <path>`                  | Execute a JavaScript file — supports `await` for async commands |
+| john    | `john.ts`    | `john <file>`                  | Crack password hashes using dictionary attack (async)           |
+| chmod   | `chmod.ts`   | `chmod <mode> <path>`          | Change file permissions (symbolic: `o+x`, `u-w`, etc.)          |
+| reboot  | `reboot.ts`  | `reboot`                       | Reboot current machine; bricks if boot files missing            |
+| ps      | `ps.ts`      | `ps`                           | Report running processes (reads PID files from `/var/run/`)     |
+| kill    | `kill.ts`    | `kill <pid>`                   | Terminate a process by PID (deletes PID file)                   |
+
+Redirect `>` replaces the old `output()` command interactively; scripts still call `output(cmd, path?)`.
 
 ## User Management
 
-| Command | File    | Signature          | Description                                                                     |
+| Command | File    | Usage              | Description                                                                     |
 | ------- | ------- | ------------------ | ------------------------------------------------------------------------------- |
-| su      | `su.ts` | `su(user[, pass])` | Switch user (prompts or inline auth with password); logs to `/var/log/auth.log` |
+| su      | `su.ts` | `su <user> [pass]` | Switch user (prompts or inline auth with password); logs to `/var/log/auth.log` |
 
 ## Network
 
-| Command    | File            | Signature                                    | Description                                                                                                                                                                                                                                             |
-| ---------- | --------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ifconfig   | `ifconfig.ts`   | `ifconfig([iface])`                          | Display network interface configuration                                                                                                                                                                                                                 |
-| ping       | `ping.ts`       | `ping(host, [count])`                        | Send ICMP echo request to network host (async)                                                                                                                                                                                                          |
-| nmap       | `nmap.ts`       | `nmap(target[, "-sV"][, "-sU"][, "--tree"])` | Port scanning; -sV version detection, -sU UDP scan, --tree network topology tree (async)                                                                                                                                                                |
-| nslookup   | `nslookup.ts`   | `nslookup(domain)`                           | Query DNS to resolve domain to IP address (async)                                                                                                                                                                                                       |
-| dig        | `dig.ts`        | `dig(domain) \| dig(serverIp, "axfr")`       | DNS lookup or AXFR zone transfer from DNS server (async)                                                                                                                                                                                                |
-| ssh        | `ssh.ts`        | `ssh("user@host"[, port][, pw])`             | Connect to remote machine via SSH (async, optional inline auth); logs to target's `/var/log/auth.log`                                                                                                                                                   |
-| scp        | `scp.ts`        | `scp(src, dest[, port][, pw])`               | Copy file to remote machine (async, optional inline auth); logs to target's `/var/log/auth.log`                                                                                                                                                         |
-| curl       | `curl.ts`       | `curl(url, [flags])`                         | HTTP client for GET/POST requests (async, `-i` for headers, `-X POST`); logs to target's `/var/log/access.log`                                                                                                                                          |
-| ftp        | `ftp.ts`        | `ftp(host[, user, pw])`                      | Connect to remote machine via FTP (async, optional inline auth); logs to target's `/var/log/vsftpd.log`                                                                                                                                                 |
-| nc         | `nc.ts`         | `nc(host, port) \| nc("-l", port)`           | Netcat - connect to port or open backdoor listener with -l (async/sync)                                                                                                                                                                                 |
-| msfconsole | `msfconsole.ts` | `msfconsole(host, port[, arg])`              | Exploit a vulnerable service — effect depends on CVE kind (async); see below                                                                                                                                                                            |
-| hydra      | `hydra.ts`      | `hydra(host[, svc[, user]])`                 | Brute-force SSH/FTP logins, SNMP community strings, or MySQL credentials (async). Reads `/usr/share/wordlists/passwords.txt` — wordlist is the sole gate (deterministic). For FTP, uses virtual user creds when `/etc/vsftpd/virtual_users.conf` exists |
-| gobuster   | `gobuster.ts`   | `gobuster("dir", url)`                       | Enumerate directories/files on web servers (async). Reads `/usr/share/wordlists/dirlist.txt` — only shows entries whose top-level path segment matches the wordlist                                                                                     |
-| snmpwalk   | `snmpwalk.ts`   | `snmpwalk(host[, community])`                | Walk SNMP MIB tree; public=basic info, RW=full data with creds (async)                                                                                                                                                                                  |
-| snmpset    | `snmpset.ts`    | `snmpset(host, comm, "k=v")`                 | Set writable SNMP OID (firewall rules); requires RW community (async)                                                                                                                                                                                   |
-| mysql      | `mysql.ts`      | `mysql(host, user[, pw])`                    | Connect to MySQL database; enters `mysql>` prompt with SQL commands (async)                                                                                                                                                                             |
-| rediscli   | `rediscli.ts`   | `rediscli(host[, pw])`                       | Connect to Redis server; enters `redis>` prompt with key-value commands (async)                                                                                                                                                                         |
+| Command    | File            | Usage                                    | Description                                                                                                                                                                                                                                             |
+| ---------- | --------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ifconfig   | `ifconfig.ts`   | `ifconfig [iface]`                       | Display network interface configuration                                                                                                                                                                                                                 |
+| ping       | `ping.ts`       | `ping <host> [count]`                    | Send ICMP echo request to network host (async)                                                                                                                                                                                                          |
+| nmap       | `nmap.ts`       | `nmap <target> [-sV] [-sU] [--tree]`     | Port scanning; -sV version detection, -sU UDP scan, --tree network topology tree (async)                                                                                                                                                                |
+| nslookup   | `nslookup.ts`   | `nslookup <domain>`                      | Query DNS to resolve domain to IP address (async)                                                                                                                                                                                                       |
+| dig        | `dig.ts`        | `dig <domain>` or `dig <server> axfr`    | DNS lookup or AXFR zone transfer from DNS server (async)                                                                                                                                                                                                |
+| ssh        | `ssh.ts`        | `ssh <user@host> [port] [pw]`            | Connect to remote machine via SSH (async, optional inline auth); logs to target's `/var/log/auth.log`                                                                                                                                                   |
+| scp        | `scp.ts`        | `scp <src> <dest> [port] [pw]`           | Copy file to remote machine (async, optional inline auth); logs to target's `/var/log/auth.log`                                                                                                                                                         |
+| curl       | `curl.ts`       | `curl [flags] <url>`                     | HTTP client for GET/POST requests (async, `-i` for headers, `-X POST`); logs to target's `/var/log/access.log`                                                                                                                                          |
+| ftp        | `ftp.ts`        | `ftp <host> [user] [pw]`                 | Connect to remote machine via FTP (async, optional inline auth); logs to target's `/var/log/vsftpd.log`                                                                                                                                                 |
+| nc         | `nc.ts`         | `nc <host> <port>` or `nc -l <port>`     | Netcat - connect to port or open backdoor listener with -l (async/sync)                                                                                                                                                                                 |
+| msfconsole | `msfconsole.ts` | `msfconsole <host> <port> [arg]`         | Exploit a vulnerable service — effect depends on CVE kind (async); see below                                                                                                                                                                            |
+| hydra      | `hydra.ts`      | `hydra <host> [service] [user]`          | Brute-force SSH/FTP logins, SNMP community strings, or MySQL credentials (async). Reads `/usr/share/wordlists/passwords.txt` — wordlist is the sole gate (deterministic). For FTP, uses virtual user creds when `/etc/vsftpd/virtual_users.conf` exists |
+| gobuster   | `gobuster.ts`   | `gobuster dir <url>`                     | Enumerate directories/files on web servers (async). Reads `/usr/share/wordlists/dirlist.txt` — only shows entries whose top-level path segment matches the wordlist                                                                                     |
+| snmpwalk   | `snmpwalk.ts`   | `snmpwalk <host> [community]`            | Walk SNMP MIB tree; public=basic info, RW=full data with creds (async)                                                                                                                                                                                  |
+| snmpset    | `snmpset.ts`    | `snmpset <host> <community> <oid=value>` | Set writable SNMP OID (firewall rules); requires RW community (async)                                                                                                                                                                                   |
+| mysql      | `mysql.ts`      | `mysql <host> <user> [pw]`               | Connect to MySQL database; enters `mysql>` prompt with SQL commands (async)                                                                                                                                                                             |
+| rediscli   | `rediscli.ts`   | `rediscli <host> [pw]`                   | Connect to Redis server; enters `redis>` prompt with key-value commands (async)                                                                                                                                                                         |
 
 ### msfconsole Exploit Effects
 
@@ -170,12 +179,12 @@ Admin utilities that write PID files to `/var/run/` — `NetworkContext` reads t
 | -------------------- | -------------------------- | ---------------------------------------------------------------------------------------------- |
 | `shell_limited`      | none                       | Drops into restricted nc-style shell at the effect's tier                                      |
 | `shell_full`         | none                       | Opens a full SSH-style session as the effect's tier; returns `ExploitShellData` follow-up      |
-| `file_read`          | target file path           | Reads a file on the target: `msfconsole('host', port, '/etc/passwd')`                          |
-| `dir_list`           | target directory path      | Lists a directory on the target: `msfconsole('host', port, '/home')`                           |
-| `file_write`         | `local:remote` (scp-style) | Uploads a local file to the target: `msfconsole('host', port, '/local/file:/remote/path')`     |
+| `file_read`          | target file path           | Reads a file on the target: `msfconsole <host> <port> /etc/passwd`                             |
+| `dir_list`           | target directory path      | Lists a directory on the target: `msfconsole <host> <port> /home`                              |
+| `file_write`         | `local:remote` (scp-style) | Uploads a local file to the target: `msfconsole <host> <port> /local/file:/remote/path`        |
 | `password_reset`     | none                       | Mutates `/etc/passwd` on the target, prints the new password                                   |
 | `backdoor_port_open` | none                       | Plants a backdoor listener on the target (writes nc PID file via `createNcPidContent` from nc) |
-| `script_exec`        | attacker-local script path | Executes a script on the target: `msfconsole('host', port, '/root/payloads/pwn.js')`           |
+| `script_exec`        | attacker-local script path | Executes a script on the target: `msfconsole <host> <port> /root/payloads/pwn.js`              |
 
 **`MsfconsoleContext`** provides optional helpers for effects that interact with remote filesystems:
 
@@ -193,18 +202,18 @@ Admin utilities that write PID files to `/var/run/` — `NetworkContext` reads t
 
 WiFi commands manage the wireless connection gate on localhost. Registered in `src/hooks/useWifiCommands.ts`.
 
-| Command  | File          | Signature                            | Description                                           |
-| -------- | ------------- | ------------------------------------ | ----------------------------------------------------- |
-| airmon   | `airmon.ts`   | `airmon(action, iface)`              | Enable/disable monitor mode on wireless interface     |
-| airdump  | `airdump.ts`  | `airdump()`                          | Scan and display nearby WiFi networks (async)         |
-| aircrack | `aircrack.ts` | `aircrack(bssid)`                    | Crack WiFi password by BSSID (async)                  |
-| nmcli    | `nmcli.ts`    | `nmcli(action, [essid], [password])` | Manage WiFi connections (connect, disconnect, status) |
+| Command  | File          | Usage                               | Description                                           |
+| -------- | ------------- | ----------------------------------- | ----------------------------------------------------- |
+| airmon   | `airmon.ts`   | `airmon <start\|stop> <iface>`      | Enable/disable monitor mode on wireless interface     |
+| airdump  | `airdump.ts`  | `airdump`                           | Scan and display nearby WiFi networks (async)         |
+| aircrack | `aircrack.ts` | `aircrack <bssid>`                  | Crack WiFi password by BSSID (async)                  |
+| nmcli    | `nmcli.ts`    | `nmcli <action> [essid] [password]` | Manage WiFi connections (connect, disconnect, status) |
 
 ## FTP Mode (`ftp/`)
 
-Available only when connected via FTP. Registered in `src/hooks/useFtpCommands.ts`.
+Available only when connected via FTP. Registered in `src/hooks/useFtpCommands.ts`. NOTE: FTP mode still uses JS function-call syntax internally — shell conversion for FTP/NC mode is deferred to a follow-up phase.
 
-| Command | File          | Signature           | Description                        |
+| Command | File          | Usage               | Description                        |
 | ------- | ------------- | ------------------- | ---------------------------------- |
 | pwd     | `ftp/pwd.ts`  | `pwd()`             | Print remote working directory     |
 | lpwd    | `ftp/lpwd.ts` | `lpwd()`            | Print local working directory      |
@@ -218,9 +227,9 @@ Available only when connected via FTP. Registered in `src/hooks/useFtpCommands.t
 
 ## NC Mode (`nc/`)
 
-Available when connected to interactive services via nc. Registered in `src/hooks/useNcCommands.ts`. Like a real netcat shell, there is no PATH — admin binaries (sshd, vsftpd, systemctl) must be run via `bash('/usr/sbin/sshd')`.
+Available when connected to interactive services via nc. Registered in `src/hooks/useNcCommands.ts`. Like a real netcat shell, there is no PATH — admin binaries (sshd, vsftpd, systemctl) must be run via `bash('/usr/sbin/sshd')`. NOTE: NC mode still uses JS function-call syntax — see Phase G.
 
-| Command | File           | Signature    | Description                |
+| Command | File           | Usage        | Description                |
 | ------- | -------------- | ------------ | -------------------------- |
 | pwd     | `nc/pwd.ts`    | `pwd()`      | Print working directory    |
 | cd      | `nc/cd.ts`     | `cd(path)`   | Change directory           |
