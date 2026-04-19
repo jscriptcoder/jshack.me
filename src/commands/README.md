@@ -16,7 +16,7 @@ Commands use a unified filesystem-based access model. All commands are visible t
 
 - **Shell builtins** (cd, exit, clear, echo, pwd, help, whoami, bash) — always available, no binary needed
 - **Game commands** (missions, accept, abort, mail, author, theme, reset, xterm) — always available
-- **Script-only builtins** (output, resolve) — available to scripts via `executionContext` but not shown in the shell registry; interactive equivalents are `>` (redirect) and direct expression evaluation
+- **Script-only helpers** (`writeFile`) — live in `src/scripting/` and are injected into `executionContext` only; never dispatched by the shell parser. Interactive equivalents: `>` for file writes, `await` for unwrapping async commands.
 - **System utilities** in `/bin/` — always present on all machines; most are world-executable
 - **Apt-installable tools** in `/usr/bin/` — must be installed via `apt install <tool>` as root (requires network); only WiFi tools (airmon, airdump, aircrack), node, and gpg are pre-installed on localhost
 - **Admin utilities** in `/usr/sbin/` — root-only daemon management (`sshd`, `vsftpd`, `systemctl`); write PID files to `/var/run/` for dynamic port opening
@@ -61,7 +61,7 @@ Tools like hydra and gobuster use filesystem-based wordlists installed via `apt 
 
 **Programmatic auth in scripts**: Interactive commands accept optional credentials for scripting: `su('root', 'pw')` (sync inline auth), `await ssh('user@ip', 'pw')`, `await scp(src, dst, 'pw')`, `await ftp('ip', 'user', 'pw')`. `su` is synchronous so subsequent lines run as the new user. SSH/SCP/FTP embed credentials in their async follow-up data.
 
-**Script-only helpers**: `output(cmd, path?)` captures command output (to a variable or file) and `resolve(promise)` unwraps Promises. Both live in `executionContext` but aren't part of the shell command registry — `>` replaces `output()` interactively.
+**Script-only helpers** (`src/scripting/`): `writeFile(path, content)` writes content to a file with the current user's permissions. Arrays of strings are joined with `\n` so `const lines = await hydra(...); writeFile('/tmp/out.log', lines)` works without a `.join()`. Helpers live in `executionContext` only — they never appear in the shell command registry. Interactive redirect `>` replaces file-write scripting needs at the prompt; `await` replaces the old `resolve()` for unwrapping async commands.
 
 **Circular dependency**: `node <path>` needs the execution context which includes `node` itself. Resolved via a lazy getter pattern: mutable `let resolvedExecutionContext` in `useCommands.ts` is set after building the full command map, and node's factory captures a getter that's only called at execution time.
 
@@ -141,7 +141,7 @@ Admin utilities that write PID files to `/var/run/` — `NetworkContext` reads t
 | ps      | `ps.ts`      | `ps`                           | Report running processes (reads PID files from `/var/run/`)     |
 | kill    | `kill.ts`    | `kill <pid>`                   | Terminate a process by PID (deletes PID file)                   |
 
-Redirect `>` replaces the old `output()` command interactively; scripts still call `output(cmd, path?)`.
+Redirect `>` is the interactive way to capture command output to a file. Scripts use the `writeFile(path, content)` helper (see `src/scripting/`).
 
 ## User Management
 

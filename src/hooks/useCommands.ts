@@ -7,7 +7,6 @@ import { exitCommand } from '../commands/exit';
 import { createSuCommand } from '../commands/su';
 import { createHelpCommand } from '../commands/help';
 import { createManCommand } from '../commands/man';
-import { createResolveCommand } from '../commands/resolve';
 import { createNodeCommand } from '../commands/node';
 import { createResetCommand } from '../commands/reset';
 import { createThemeCommand } from '../commands/theme';
@@ -24,6 +23,7 @@ import { createBashCommand } from '../commands/bash';
 import { createPsCommand } from '../commands/ps';
 import { createKillCommand } from '../commands/kill';
 import { xtermCommand } from '../commands/xterm';
+import { createWriteFile } from '../scripting';
 import { useMission } from '../mission';
 import {
   isCommandVisible,
@@ -56,7 +56,6 @@ const SKIP_ACCESS_CHECK = new Set([
   'accept',
   'abort',
   'mail',
-  'resolve',
   'author',
   'theme',
   'reset',
@@ -143,7 +142,6 @@ export const useCommands = (): UseCommandsResult => {
     commands.set('clear', clearCommand);
     commands.set('exit', exitCommand);
     commands.set('xterm', xtermCommand);
-    commands.set('resolve', createResolveCommand());
     commands.set('reset', createResetCommand({ getDatabase }));
     commands.set(
       'theme',
@@ -350,17 +348,23 @@ export const useCommands = (): UseCommandsResult => {
       }
     });
 
-    // Capture the script-facing execution context first so scripts still receive
-    // output(). Then remove output from the shell-facing command Map — interactive
-    // redirection uses `>` instead. Scripts keep output() via executionContext.
-    const executionContext: Record<string, (...args: unknown[]) => unknown> = Object.fromEntries(
-      Array.from(commands.entries()).map(([name, cmd]) => [name, cmd.fn]),
-    );
+    // Script-facing execution context: every shell command's `fn`, plus script-only
+    // helpers (writeFile) that never appear in the shell command Map. Scripts reach
+    // everything through this single merged namespace via `node script.js`.
+    const writeFileHelper = createWriteFile({
+      resolvePath,
+      getNode,
+      getUserType: () => session.userType,
+      createFile,
+      writeFile,
+    });
+
+    const executionContext: Record<string, (...args: unknown[]) => unknown> = {
+      ...Object.fromEntries(Array.from(commands.entries()).map(([name, cmd]) => [name, cmd.fn])),
+      writeFile: writeFileHelper as (...args: unknown[]) => unknown,
+    };
 
     resolvedExecutionContext = executionContext;
-
-    commands.delete('output');
-    commands.delete('resolve');
 
     // Show all commands with a visible binary (or builtins/game commands) —
     // no user-type filtering, all users see the same commands

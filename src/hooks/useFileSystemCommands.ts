@@ -7,7 +7,6 @@ import { createCdCommand } from '../commands/cd';
 import { createCatCommand } from '../commands/cat';
 import { createWhoamiCommand } from '../commands/whoami';
 import { createGpgCommand } from '../commands/gpg';
-import { createOutputCommand } from '../commands/output';
 import { createStringsCommand } from '../commands/strings';
 import { createNanoCommand } from '../commands/nano';
 import { createJohnCommand } from '../commands/john';
@@ -18,15 +17,7 @@ import { createGrepCommand } from '../commands/grep';
 import type { Command } from '../components/Terminal/types';
 
 export const useFileSystemCommands = (): Map<string, Command> => {
-  const {
-    resolvePath,
-    getNode,
-    createFile,
-    writeFile,
-    deleteNode,
-    updatePermissions,
-    canTraverse,
-  } = useFileSystem();
+  const { resolvePath, getNode, deleteNode, updatePermissions, canTraverse } = useFileSystem();
   const { session, setCurrentPath } = useSession();
 
   return useMemo(() => {
@@ -94,18 +85,6 @@ export const useFileSystemCommands = (): Map<string, Command> => {
         getNode,
         getUserType,
         canTraverse: canTraverseFn,
-      }),
-    );
-
-    // output command
-    commands.set(
-      'output',
-      createOutputCommand({
-        resolvePath,
-        getNode,
-        getUserType,
-        createFile,
-        writeFile,
       }),
     );
 
@@ -191,15 +170,5 @@ export const useFileSystemCommands = (): Map<string, Command> => {
     );
 
     return commands;
-  }, [
-    setCurrentPath,
-    resolvePath,
-    getNode,
-    createFile,
-    writeFile,
-    deleteNode,
-    updatePermissions,
-    canTraverse,
-    session,
-  ]);
+  }, [setCurrentPath, resolvePath, getNode, deleteNode, updatePermissions, canTraverse, session]);
 };

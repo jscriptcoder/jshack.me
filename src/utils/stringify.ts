@@ -7,13 +7,13 @@ const isPromise = (value: unknown): value is Promise<unknown> =>
 /**
  * Convert any value to a string representation.
  * Objects and arrays are pretty-printed as JSON.
- * Promises are displayed as [Promise] to hint users need to resolve them.
+ * Promises are displayed as [Promise] to hint users need to await them in a script.
  */
 export const stringify = (value: unknown): string => {
   if (value === undefined) return 'undefined';
   if (value === null) return 'null';
   if (typeof value === 'string') return value;
-  if (isPromise(value)) return '[Promise] - use resolve() to unwrap';
+  if (isPromise(value)) return '[Promise] - await it inside a node script';
   if (typeof value === 'object') {
     try {
       return JSON.stringify(value, null, 2);
