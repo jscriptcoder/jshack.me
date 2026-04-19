@@ -21,16 +21,8 @@ const WHO_MAP: Readonly<Record<string, readonly UserType[]>> = {
 const resolveWho = (chars: string, owner: UserType): readonly UserType[] => {
   if (chars === '' || chars === 'a') return ['root', 'user', 'guest'];
 
-  const types = new Set<UserType>();
-  for (const ch of chars) {
-    if (ch === 'u') {
-      types.add(owner);
-    } else {
-      const mapped = WHO_MAP[ch];
-      if (mapped) mapped.forEach((t) => types.add(t));
-    }
-  }
-  return [...types];
+  const resolved = [...chars].flatMap((ch) => (ch === 'u' ? [owner] : (WHO_MAP[ch] ?? [])));
+  return [...new Set(resolved)];
 };
 
 const PERM_KEYS: Readonly<Record<string, keyof FilePermissions>> = {
@@ -63,43 +55,45 @@ const parseSymbolicMode = (
   return { targets, op: op as '+' | '-', perms };
 };
 
+const updatePermList = (
+  current: readonly UserType[],
+  targets: readonly UserType[],
+  op: '+' | '-',
+): readonly UserType[] => {
+  if (op === '+') {
+    const additions = targets.filter((t) => !current.includes(t));
+    return [...current, ...additions];
+  }
+  // Removal never strips root — matches real chmod's "cannot revoke owner on /"
+  // spirit for the game's three-tier permission model.
+  return current.filter((u) => u === 'root' || !targets.includes(u));
+};
+
 const applyMode = (
   current: FilePermissions,
   targets: readonly UserType[],
   op: '+' | '-',
   perms: readonly (keyof FilePermissions)[],
-): FilePermissions => {
-  const updated = { ...current };
-
-  for (const perm of perms) {
-    const existing = new Set(current[perm]);
-    for (const target of targets) {
-      if (op === '+') {
-        existing.add(target);
-      } else {
-        // Never remove root from any permission
-        if (target !== 'root') existing.delete(target);
-      }
-    }
-    (updated as Record<string, readonly UserType[]>)[perm] = [...existing];
-  }
-
-  return updated as FilePermissions;
-};
+): FilePermissions =>
+  perms.reduce<FilePermissions>(
+    (acc, perm) => ({ ...acc, [perm]: updatePermList(acc[perm], targets, op) }),
+    current,
+  );
 
 const MODE_SYNTAX = /^[ugoa]*[+-][rwx]+$/;
 
 type PathedNode = { readonly node: FileNode; readonly path: string };
 
-function* walkTree(node: FileNode, path: string): Generator<PathedNode> {
-  yield { node, path };
-  if (node.type === 'directory' && node.children) {
-    for (const [childName, child] of Object.entries(node.children)) {
-      const childPath = path === '/' ? `/${childName}` : `${path}/${childName}`;
-      yield* walkTree(child, childPath);
-    }
-  }
-}
+const walkTree = (node: FileNode, path: string): readonly PathedNode[] => {
+  const self: PathedNode = { node, path };
+  if (node.type !== 'directory' || !node.children) return [self];
+
+  const descendants = Object.entries(node.children).flatMap(([childName, child]) => {
+    const childPath = path === '/' ? `/${childName}` : `${path}/${childName}`;
+    return walkTree(child, childPath);
+  });
+  return [self, ...descendants];
+};
 
 export const createChmodCommand = (context: ChmodContext): Command => ({
   name: 'chmod',
@@ -175,41 +169,34 @@ export const createChmodCommand = (context: ChmodContext): Command => ({
 
     const targets: readonly PathedNode[] =
       recursive && rootNode.type === 'directory'
-        ? [...walkTree(rootNode, resolvedPath)]
+        ? walkTree(rootNode, resolvedPath)
         : [{ node: rootNode, path: resolvedPath }];
 
-    // Per-file ownership check so partial failures don't stop the walk (matches
-    // real chmod -R). For a non-recursive invocation with a single target this
-    // still produces the same single-error behavior via the throw below.
-    const errors: string[] = [];
-
-    for (const { node, path: nodePath } of targets) {
+    // flatMap collects per-node errors while the walk continues. In
+    // non-recursive mode there's exactly one target, so throwing on the first
+    // problem early-terminates naturally and matches the pre-recursive contract.
+    const errors = targets.flatMap(({ node, path: nodePath }): readonly string[] => {
       if (userType !== 'root' && userType !== node.owner) {
         const msg = `chmod: changing permissions of '${nodePath}': Operation not permitted`;
-        if (!recursive) {
-          throw new Error(msg);
-        }
-        errors.push(msg);
-        continue;
+        if (!recursive) throw new Error(msg);
+        return [msg];
       }
 
       // Parse per-node because 'u' resolves to each file's own owner.
       const parsed = parseSymbolicMode(mode, node.owner);
-      if (!parsed) {
-        throw new Error(`chmod: invalid mode: '${mode}'`);
-      }
+      if (!parsed) throw new Error(`chmod: invalid mode: '${mode}'`);
 
       const newPermissions = applyMode(node.permissions, parsed.targets, parsed.op, parsed.perms);
       const result = updatePermissions(nodePath, newPermissions);
 
       if (!result.allowed) {
         const msg = result.error ?? `chmod: cannot modify '${nodePath}'`;
-        if (!recursive) {
-          throw new Error(msg);
-        }
-        errors.push(msg);
+        if (!recursive) throw new Error(msg);
+        return [msg];
       }
-    }
+
+      return [];
+    });
 
     return errors.join('\n');
   },
