@@ -167,12 +167,23 @@ Scope: 4 commands needed entries added (`apt`, `curl`, `ls`, `rm`). `grep`, `nc`
    - `synopsis: 'nmap(target, ...flags)'` → `synopsis: 'nmap <target> [flags...]'`
    - `{ command: 'nmap("192.168.1.1", "-sV")' }` → `{ command: 'nmap 192.168.1.1 -sV' }`
    - Audit tests that assert against synopsis/example strings and update.
-2. Delete `src/commands/output.ts` and `output.test.ts` — `>` replaces it. Remove from registry wiring.
+2. **`output` becomes script-only**: remove from the shell command registry (not visible in `help`, tab completion, or interactively) but keep its `fn` injected into `executionContext` so scripts continue to call `output(cmd, path?)` unchanged. The `output.ts` file and tests stay. `>` replaces it interactively.
 3. Update docs — `README.md`, `src/commands/README.md`, `.claude/docs/*` — use shell syntax for interactive examples. **Keep JS syntax only where the context is clearly about scripts** (scripts are unchanged).
 4. Bump version in `package.json` + lockfile (feature change — per memory).
 5. Full verification: `npm run build`, `npm run lint`, `npm run format`, `npm run test:run`.
 
-**Acceptance:** every `man <cmd>` shows shell syntax, `output` gone, version bumped, all checks green.
+**Acceptance:** every `man <cmd>` shows shell syntax, `output` gone from shell (but still works in scripts), version bumped, all checks green.
+
+### Phase H — Scripting API refresh (future, separate PR)
+
+Replace `output(cmd, path?)` with cleaner orthogonal helpers available only in scripts:
+
+- `writeFile(path, content)` — explicit file write (with permission errors surfaced)
+- `capture(asyncCommand): Promise<string>` — unwrap `AsyncOutput` to a Promise
+
+Both are injected into `executionContext` alongside the command functions. Migrate any existing scripts that use `output()`. Delete `src/commands/output.ts` once migration is complete.
+
+Out of scope for the current PR stack.
 
 ### Phase G — FTP / NC mode shell migration (follow-up)
 
