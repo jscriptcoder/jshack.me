@@ -33,6 +33,7 @@ import {
   removeChildAtPath,
   upsertPatch,
   applyPatches,
+  planDirectoryCreation,
   type FileSystemsState,
 } from './fileSystemUtils';
 
@@ -477,59 +478,16 @@ export const FileSystemProvider = ({
         return { allowed: false, error: `mkdir: cannot create directory '${path}': File exists` };
       }
 
-      const parts = resolvedPath.split('/').filter(Boolean);
+      const plan = planDirectoryCreation({
+        parts: resolvedPath.split('/').filter(Boolean),
+        targetPath: path,
+        parents: parents ?? false,
+        getNode: (p) => getNodeFromMachine(machineId, p, '/'),
+        canWriteParent: (p) => canWriteFromMachine({ machineId, path: p, cwd: '/', userType }),
+      });
 
-      type WalkState =
-        | { readonly ok: true; readonly cursor: string; readonly toCreate: readonly string[] }
-        | { readonly ok: false; readonly error: string };
-
-      // Walk the path segment-by-segment, checking per-intermediate permissions
-      // so a caller with write on /tmp can't escalate into /root via mkdir -p.
-      const walk = parts.reduce<WalkState>(
-        (state, segment, i) => {
-          if (!state.ok) return state;
-
-          const nextPath = state.cursor === '/' ? `/${segment}` : `${state.cursor}/${segment}`;
-          const node = getNodeFromMachine(machineId, nextPath, '/');
-
-          if (node) {
-            if (node.type !== 'directory') {
-              return {
-                ok: false,
-                error: `mkdir: cannot create directory '${path}': Not a directory`,
-              };
-            }
-            return { ok: true, cursor: nextPath, toCreate: state.toCreate };
-          }
-
-          const isFinalSegment = i === parts.length - 1;
-          if (!isFinalSegment && !parents) {
-            return {
-              ok: false,
-              error: `mkdir: cannot create directory '${path}': No such file or directory`,
-            };
-          }
-
-          const parentPermission = canWriteFromMachine({
-            machineId,
-            path: state.cursor,
-            cwd: '/',
-            userType,
-          });
-          if (!parentPermission.allowed) {
-            return {
-              ok: false,
-              error: `mkdir: cannot create directory '${path}': Permission denied`,
-            };
-          }
-
-          return { ok: true, cursor: nextPath, toCreate: [...state.toCreate, nextPath] };
-        },
-        { ok: true, cursor: '/', toCreate: [] },
-      );
-
-      if (!walk.ok) return { allowed: false, error: walk.error };
-      if (walk.toCreate.length === 0) return { allowed: true };
+      if (!plan.ok) return { allowed: false, error: plan.error };
+      if (plan.toCreate.length === 0) return { allowed: true };
 
       const defaultPermissions: FilePermissions = {
         read: ['root', 'user', 'guest'],
@@ -537,7 +495,7 @@ export const FileSystemProvider = ({
         execute: ['root', 'user', 'guest'],
       };
 
-      walk.toCreate.forEach((dirPath) => {
+      plan.toCreate.forEach((dirPath) => {
         const dirParts = dirPath.split('/').filter(Boolean);
         const dirName = dirParts[dirParts.length - 1] ?? '';
         const parentParts = dirParts.slice(0, -1);
