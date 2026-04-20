@@ -30,6 +30,8 @@ import {
   checkCommandAccess,
   wrapWithAccessCheck,
 } from '../commands/availability';
+import { wrapWithLibraryCheck } from '../commands/libraryDeps';
+import { createLddCommand } from '../commands/ldd';
 import { useFileSystemCommands } from './useFileSystemCommands';
 import { useNetworkCommands } from './useNetworkCommands';
 import { useWifiCommands } from './useWifiCommands';
@@ -328,6 +330,12 @@ export const useCommands = (): UseCommandsResult => {
 
     commands.set('help', helpCommand);
     commands.set('man', manCommand);
+    commands.set(
+      'ldd',
+      createLddCommand({
+        getNode: (path: string) => getNodeFromMachine(session.machine, path, '/'),
+      }),
+    );
 
     // Wrap all non-builtin/non-game commands with unified access check
     // (binary existence + execute permissions)
@@ -346,6 +354,20 @@ export const useCommands = (): UseCommandsResult => {
           ),
         );
       }
+    });
+
+    // Wrap every command with the library-presence check. The wrapper is a
+    // no-op for commands without a libraryDeps entry, so this is safe to
+    // apply blanketly. Ordering: access-check runs first (binary exists +
+    // executable), then library-check (dynamic linker loads .so files) —
+    // matching real Linux execution order.
+    commands.forEach((cmd, name) => {
+      commands.set(
+        name,
+        wrapWithLibraryCheck(cmd, name, (path: string) =>
+          getNodeFromMachine(session.machine, path, '/'),
+        ),
+      );
     });
 
     // Script-facing execution context: every shell command's `fn`, plus script-only

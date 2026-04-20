@@ -144,6 +144,7 @@ export const SYSTEM_UTILITY_NAMES = [
   'reboot',
   'ps',
   'kill',
+  'ldd',
 ] as const;
 
 // Apt-installable tool names for /usr/bin/
