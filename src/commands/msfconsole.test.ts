@@ -3,6 +3,10 @@ import type { RemoteMachine, DnsRecord } from '../network/types';
 import type { AsyncFollowUp, AsyncOutput, NcPromptData } from '../components/Terminal/types';
 import { createMsfconsoleCommand } from './msfconsole';
 import { buildTimeline, buildGeneratedVuln, CVE_TIMING_CONFIG } from '../generation/timeline';
+import { buildTimelineFromTemplate } from '../generation/timeline';
+import { systemLibraryTemplates } from '../generation/pools/systemLibraryTemplates';
+import { buildInitialDpkgStatus } from '../network/dpkgStatus';
+import { formatVersion } from '../generation/pools/serviceTemplates';
 
 // --- Factory Functions ---
 
@@ -29,6 +33,7 @@ const getMockRemoteMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine
 type MsfconsoleContextConfig = {
   readonly machines?: readonly RemoteMachine[];
   readonly localIP?: string;
+  readonly currentMachineId?: string;
   readonly dnsRecords?: readonly DnsRecord[];
   readonly gameTime?: number;
   readonly onExploitAttempt?: (info: {
@@ -68,9 +73,12 @@ const createMockMsfconsoleContext = (config: MsfconsoleContextConfig = {}) => {
     openBackdoorForwards,
   } = config;
 
+  const { currentMachineId } = config;
+
   return {
     getMachine: (ip: string) => machines.find((m) => m.ip === ip),
     getLocalIP: () => localIP,
+    getCurrentMachineId: currentMachineId !== undefined ? () => currentMachineId : undefined,
     resolveDomain: (domain: string) => dnsRecords.find((r) => r.domain === domain),
     onExploitAttempt,
     getGameTime: gameTime !== undefined ? () => gameTime : undefined,
@@ -1064,6 +1072,178 @@ describe('msfconsole command', () => {
       vi.advanceTimersByTime(5000);
 
       expect(lines.some((l) => /could not.*open.*script/i.test(l))).toBe(true);
+    });
+  });
+
+  describe('--local (library CVE exploitation)', () => {
+    // Walk the libpam timeline to find entry 0 (the startTuple version).
+    // At gameTime = entry.publishedAt, that libpam version has a live CVE,
+    // which — since every machine's dpkg status carries startTuple-formatted
+    // library versions — is exactly what we need to exploit `su` locally.
+    const libpamFirstCveEntry = () => {
+      const timeline = buildTimelineFromTemplate(
+        systemLibraryTemplates.libpam,
+        'library:libpam',
+        500,
+        CVE_TIMING_CONFIG,
+      );
+      return timeline[0]!;
+    };
+
+    // Build a dpkg/status content with every library at its startTuple
+    // (matches what generateFileSystems seeds per-machine).
+    const initialDpkgStatus = () => {
+      const libraryVersions: Record<string, string> = {};
+      for (const [lib, tpl] of Object.entries(systemLibraryTemplates)) {
+        libraryVersions[lib] = formatVersion(tpl, tpl.startTuple);
+      }
+      return buildInitialDpkgStatus([], undefined, libraryVersions);
+    };
+
+    const targetMachine = (): RemoteMachine =>
+      getMockRemoteMachine({
+        ip: '10.50.100.50',
+        hostname: 'breached',
+        // Ports don't matter for --local but the machine must be resolvable.
+        ports: [{ port: 22, service: 'ssh', serviceVersion: 'OpenSSH 9.9.9', open: true }],
+      });
+
+    it('throws "no known vulnerability" when no library CVE is live', () => {
+      const machine = targetMachine();
+      const context = createMockMsfconsoleContext({
+        machines: [machine],
+        currentMachineId: machine.ip,
+        gameTime: 0, // pre-any-CVE
+        readRemoteFile: () => initialDpkgStatus(),
+      });
+      const msfconsole = createMsfconsoleCommand(context);
+      expect(() => msfconsole.fn('--local', 'su')).toThrow(/no known vulnerability/i);
+    });
+
+    it('returns an async output when a linked library has a live CVE', () => {
+      const entry = libpamFirstCveEntry();
+      const machine = targetMachine();
+      const context = createMockMsfconsoleContext({
+        machines: [machine],
+        currentMachineId: machine.ip,
+        gameTime: entry.publishedAt,
+        readRemoteFile: () => initialDpkgStatus(),
+      });
+      const msfconsole = createMsfconsoleCommand(context);
+      const result = msfconsole.fn('--local', 'su');
+      expect(isAsyncOutput(result)).toBe(true);
+    });
+
+    it('announces the underlying library CVE in the exploit output', () => {
+      const entry = libpamFirstCveEntry();
+      const machine = targetMachine();
+      const context = createMockMsfconsoleContext({
+        machines: [machine],
+        currentMachineId: machine.ip,
+        gameTime: entry.publishedAt,
+        readRemoteFile: () => initialDpkgStatus(),
+      });
+      const msfconsole = createMsfconsoleCommand(context);
+      const result = msfconsole.fn('--local', 'su');
+      if (!isAsyncOutput(result)) throw new Error('expected async output');
+
+      const lines: string[] = [];
+      result.start(
+        (line) => lines.push(line),
+        () => {},
+      );
+      vi.advanceTimersByTime(5000);
+
+      // The exploit output should reference a CVE id (format: CVE-YYYY-NNNNNNN).
+      expect(lines.some((l) => /CVE-\d{4}-\d{7}/.test(l))).toBe(true);
+    });
+
+    it('is deterministic: same seed + gameTime produces same effect twice', () => {
+      const entry = libpamFirstCveEntry();
+      const machine = targetMachine();
+      const runOnce = (): readonly string[] => {
+        const context = createMockMsfconsoleContext({
+          machines: [machine],
+          currentMachineId: machine.ip,
+          gameTime: entry.publishedAt,
+          readRemoteFile: () => initialDpkgStatus(),
+        });
+        const msfconsole = createMsfconsoleCommand(context);
+        const result = msfconsole.fn('--local', 'su');
+        if (!isAsyncOutput(result)) throw new Error('expected async output');
+        const lines: string[] = [];
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+        vi.advanceTimersByTime(5000);
+        return lines;
+      };
+      // We compare a stable slice of the output — specifically the CVE line
+      // and the "Exploit successful" line — to verify both the CVE pick and
+      // the effect roll are deterministic.
+      const a = runOnce();
+      const b = runOnce();
+      const filterStable = (lines: readonly string[]) => lines.filter((l) => /CVE-|\[\+\]/.test(l));
+      expect(filterStable(a)).toEqual(filterStable(b));
+    });
+
+    it('throws for a command with no libraryDeps entry', () => {
+      const entry = libpamFirstCveEntry();
+      const machine = targetMachine();
+      const context = createMockMsfconsoleContext({
+        machines: [machine],
+        currentMachineId: machine.ip,
+        gameTime: entry.publishedAt,
+        readRemoteFile: () => initialDpkgStatus(),
+      });
+      const msfconsole = createMsfconsoleCommand(context);
+      // `mkdir` is explicitly excluded from libraryDeps (weak thematic fit).
+      expect(() => msfconsole.fn('--local', 'mkdir')).toThrow(/no known vulnerability/i);
+    });
+
+    it('throws when --local is used without a command argument', () => {
+      const context = createMockMsfconsoleContext({ currentMachineId: '10.50.100.50' });
+      const msfconsole = createMsfconsoleCommand(context);
+      expect(() => msfconsole.fn('--local')).toThrow(/--local.*command|missing.*command/i);
+    });
+
+    it('throws when the current machine cannot be resolved', () => {
+      const context = createMockMsfconsoleContext({
+        machines: [],
+        currentMachineId: '10.50.100.99',
+        gameTime: 0,
+      });
+      const msfconsole = createMsfconsoleCommand(context);
+      expect(() => msfconsole.fn('--local', 'su')).toThrow();
+    });
+
+    it('resolves the current machine via getCurrentMachine for localhost (not in remote machines list)', () => {
+      // Localhost isn't in the remote-machines list — it's generated
+      // separately. getCurrentMachine is the escape hatch for --local.
+      const entry = libpamFirstCveEntry();
+      const localhostMachine: RemoteMachine = {
+        ip: 'localhost',
+        hostname: 'workstation',
+        ports: [],
+        users: [
+          { username: 'root', passwordHash: '', userType: 'root' },
+          { username: 'player', passwordHash: '', userType: 'user' },
+          { username: 'guest', passwordHash: '', userType: 'guest' },
+        ],
+      };
+      const context = {
+        ...createMockMsfconsoleContext({
+          machines: [], // no remote machines, localhost is NOT in this list
+          currentMachineId: 'localhost',
+          gameTime: entry.publishedAt,
+          readRemoteFile: () => initialDpkgStatus(),
+        }),
+        getCurrentMachine: () => localhostMachine,
+      };
+      const msfconsole = createMsfconsoleCommand(context);
+      const result = msfconsole.fn('--local', 'su');
+      expect(isAsyncOutput(result)).toBe(true);
     });
   });
 });

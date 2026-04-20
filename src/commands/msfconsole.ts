@@ -4,8 +4,13 @@ import type {
   NcPromptData,
   ExploitShellData,
 } from '../components/Terminal/types';
-import type { RemoteMachine, DnsRecord } from '../network/types';
+import type { RemoteMachine, DnsRecord, Port, Vulnerability } from '../network/types';
 import { findExploitableCve } from '../generation/findExploitableCve';
+import { findLibraryCve } from '../generation/systemLibraryLookup';
+import { pickCommandEffect } from '../generation/timeline/systemCommandEffects';
+import { createPrng } from '../generation/prng';
+import { parseDpkgVersions, DPKG_STATUS_PATH } from '../network/dpkgStatus';
+import { libraryDeps } from './libraryDeps';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 import { ncPidFilePath, createNcPidContent } from './nc';
 
@@ -20,6 +25,16 @@ export type ExploitAttemptInfo = {
 type MsfconsoleContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
   readonly getLocalIP: () => string;
+  // For `msfconsole --local <command>` — identifies the machine the player
+  // is currently shelled into (session.machine). Undefined means the player
+  // has no current-machine context (e.g., pre-shell state), and --local
+  // will refuse to resolve.
+  readonly getCurrentMachineId?: () => string;
+  // Returns the current machine as a RemoteMachine. Handles the localhost
+  // case, which isn't in the regular remote-machines list (localhost is the
+  // player's workstation, generated separately via generateLocalhost).
+  // Used by --local to resolve the user set for shell-effect tiers.
+  readonly getCurrentMachine?: () => RemoteMachine | undefined;
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
   readonly getGameTime?: () => number;
   readonly onExploitAttempt?: (info: ExploitAttemptInfo) => void;
@@ -79,6 +94,15 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {
+    // --- Branch: `msfconsole --local <command> [thirdArg]` ---
+    // Resolves a library CVE against the current machine's /lib/*.so
+    // versions instead of a remote port. Rolls an effect from the command's
+    // own pool and falls through to the shared effect-dispatch below.
+    if (args[0] === '--local') {
+      return runLocalExploit(args, context);
+    }
+
+    // --- Branch: regular remote exploit (msfconsole <host> <port>) ---
     const { getMachine, getLocalIP, resolveDomain, onExploitAttempt } = context;
 
     const host = args[0] as string | undefined;
@@ -159,217 +183,342 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
       success: true,
     });
 
-    const { effect } = vulnerability;
-
-    const requiresPath = effect.kind === 'file_read' || effect.kind === 'dir_list';
-    const requiresLocalRemote = effect.kind === 'file_write';
-    const requiresScript = effect.kind === 'script_exec';
-
-    if ((requiresPath || requiresScript) && !thirdArg) {
-      throw new Error(
-        `msfconsole: this exploit requires a target path — usage: msfconsole <host> <port> <path>`,
-      );
-    }
-    if (requiresLocalRemote && (!thirdArg || !thirdArg.includes(':'))) {
-      throw new Error(
-        `msfconsole: this exploit requires local:remote syntax — usage: msfconsole <host> <port> <local:remote>`,
-      );
-    }
-
-    const token = createCancellationToken();
-
-    // For shell_full, the tier comes from the effect, not the port owner.
-    // Resolve a plausible username and home path for the effect's tier.
-    const resolveShellFullUser = (
-      tier: 'guest' | 'user' | 'root',
-    ): { readonly username: string; readonly homePath: string } => {
-      if (tier === 'root') return { username: 'root', homePath: '/root' };
-      const matchingUser = machine.users.find((u) => u.userType === tier);
-      if (matchingUser) {
-        return { username: matchingUser.username, homePath: `/home/${matchingUser.username}` };
-      }
-      return { username: tier, homePath: `/home/${tier}` };
-    };
-
-    return {
-      __type: 'async',
-      start: (onLine, onComplete) => {
-        onLine(`[*] Targeting ${targetIP}:${port} (${vulnerability.serviceVersion})`);
-
-        let delay = jitter(MSFCONSOLE_PHASE_DELAY_MS);
-
-        token.schedule(() => {
-          if (token.isCancelled()) return;
-          onLine(`[*] Vulnerability: ${vulnerability.cve}`);
-        }, delay);
-
-        delay += jitter(MSFCONSOLE_PHASE_DELAY_MS);
-        token.schedule(() => {
-          if (token.isCancelled()) return;
-          onLine('[*] Sending exploit payload...');
-        }, delay);
-
-        delay += jitter(MSFCONSOLE_PHASE_DELAY_MS);
-        token.schedule(() => {
-          if (token.isCancelled()) return;
-          onLine('[*] Payload delivered, waiting for callback...');
-        }, delay);
-
-        delay += jitter(MSFCONSOLE_PHASE_DELAY_MS);
-        token.schedule(() => {
-          if (token.isCancelled()) return;
-
-          switch (effect.kind) {
-            case 'shell_full': {
-              const shellUser = resolveShellFullUser(effect.tier);
-              onLine('[+] Exploit successful!');
-              onLine(`[+] Full shell as ${shellUser.username}@${targetIP}`);
-              onLine('');
-              const exploitShell: ExploitShellData = {
-                __type: 'exploit_shell',
-                targetIP,
-                targetPort: port,
-                service: targetPort.service,
-                username: shellUser.username,
-                userType: effect.tier,
-                homePath: shellUser.homePath,
-                tier: effect.tier,
-              };
-              onComplete(exploitShell);
-              break;
-            }
-            case 'file_read': {
-              const content = context.readRemoteFile?.(targetIP, thirdArg!, effect.tier) ?? null;
-              onLine('[+] Exploit successful!');
-              if (content !== null) {
-                onLine(`[+] Reading ${thirdArg} (as ${effect.tier}):`);
-                onLine('');
-                content.split('\n').forEach((line) => onLine(line));
-              } else {
-                onLine(`[-] File not found or permission denied (as ${effect.tier}): ${thirdArg}`);
-              }
-              onComplete();
-              break;
-            }
-            case 'dir_list': {
-              const entries = context.listRemoteDir?.(targetIP, thirdArg!, effect.tier) ?? null;
-              onLine('[+] Exploit successful!');
-              if (entries !== null) {
-                onLine(`[+] Listing ${thirdArg} (as ${effect.tier}):`);
-                onLine('');
-                entries.forEach((entry) => onLine(entry));
-              } else {
-                onLine(
-                  `[-] Directory not found or permission denied (as ${effect.tier}): ${thirdArg}`,
-                );
-              }
-              onComplete();
-              break;
-            }
-            case 'file_write': {
-              const colonIdx = thirdArg!.indexOf(':');
-              const localPath = thirdArg!.slice(0, colonIdx);
-              const remotePath = thirdArg!.slice(colonIdx + 1);
-              const localContent = context.readLocalFile?.(localPath) ?? null;
-              if (localContent === null) {
-                onLine(`[-] Could not read local file: ${localPath}`);
-              } else {
-                context.writeRemoteFile?.(targetIP, remotePath, localContent, effect.tier);
-                onLine('[+] Exploit successful!');
-                onLine(
-                  `[+] Uploaded ${localPath} → ${remotePath} as ${effect.tier} (${localContent.length} bytes)`,
-                );
-              }
-              onComplete();
-              break;
-            }
-            case 'password_reset': {
-              const tier = effect.tier;
-              const newPassword = `pwned-${vulnerability.cve.slice(-4)}-${tier}`;
-              const currentPasswd = context.readRemoteFile?.(targetIP, '/etc/passwd') ?? '';
-              const targetUser =
-                tier === 'root'
-                  ? 'root'
-                  : (machine.users.find((u) => u.userType === tier)?.username ?? tier);
-              const updatedPasswd = currentPasswd
-                .split('\n')
-                .map((line) => {
-                  const parts = line.split(':');
-                  if (parts[0] === targetUser) {
-                    return [parts[0], newPassword, ...parts.slice(2)].join(':');
-                  }
-                  return line;
-                })
-                .join('\n');
-              context.writeRemoteFile?.(targetIP, '/etc/passwd', updatedPasswd);
-              onLine('[+] Exploit successful!');
-              onLine(`[+] Password reset for '${targetUser}' — new password: ${newPassword}`);
-              onComplete();
-              break;
-            }
-            case 'backdoor_port_open': {
-              const backdoorPort = effect.port;
-              const pidPath = ncPidFilePath(backdoorPort);
-              const pidContent = createNcPidContent(backdoorPort, 'backdoor', effect.tier);
-              context.writeRemoteFile?.(targetIP, pidPath, pidContent, 'root');
-              onLine('[+] Exploit successful!');
-              onLine(
-                `[+] Backdoor planted on port ${backdoorPort} — connect with nc(target, ${backdoorPort})`,
-              );
-              const forwards = context.openBackdoorForwards?.(targetIP, backdoorPort);
-              if (forwards?.publicEdgeIp && forwards.publicEdgePort !== null) {
-                onLine(
-                  `[+] NAT forwarding chain installed — reachable via ${forwards.publicEdgeIp}:${forwards.publicEdgePort} from outside`,
-                );
-              }
-              onComplete();
-              break;
-            }
-            case 'script_exec': {
-              const scriptBody = context.readLocalFile?.(thirdArg!) ?? null;
-              if (scriptBody === null) {
-                onLine(`[-] Could not open script file: ${thirdArg}`);
-                onComplete();
-                break;
-              }
-              // Blind injection — execute script for side effects only, no output
-              const scriptResult = context.runScriptOnTarget?.(
-                targetIP,
-                scriptBody,
-                effect.tier,
-              ) ?? { error: null };
-              if (scriptResult.error) {
-                onLine(`[-] Script injection failed: ${scriptResult.error}`);
-              } else {
-                onLine('[+] Exploit successful!');
-                onLine(`[+] Script injected on ${targetIP} as ${effect.tier}`);
-              }
-              onComplete();
-              break;
-            }
-            case 'shell_limited': {
-              // Use the effect's tier (not the port owner's) so nmap's "as X"
-              // hint matches the actual privilege level the player lands at.
-              const shellUser = resolveShellFullUser(effect.tier);
-              onLine('[+] Exploit successful!');
-              onLine(`[+] Got shell as ${shellUser.username}@${targetIP}`);
-              onLine('');
-              const ncPrompt: NcPromptData = {
-                __type: 'nc_prompt',
-                targetIP,
-                targetPort: port,
-                service: targetPort.service,
-                username: shellUser.username,
-                userType: effect.tier,
-                homePath: shellUser.homePath,
-              };
-              onComplete(ncPrompt);
-              break;
-            }
-          }
-        }, delay);
-      },
-      cancel: token.cancel,
-    };
+    return buildExploitOutput(
+      { machine, targetIP, port, targetPort, vulnerability },
+      thirdArg,
+      context,
+    );
   },
 });
+
+// Shared dispatch: given a resolved exploit target + rolled vulnerability,
+// returns the AsyncOutput that drives the exploit UI (payload phases,
+// effect application, final shell/data delivery). Used by both the remote
+// host/port path and the --local library-CVE path.
+type ExploitTarget = {
+  readonly machine: RemoteMachine;
+  readonly targetIP: string;
+  readonly port: number;
+  readonly targetPort: Port;
+  readonly vulnerability: Vulnerability;
+};
+
+// Local exploit resolver: the player has a shell on a machine and wants to
+// exploit a system library CVE via one of the pre-installed commands in
+// that command's libraryDeps manifest. The vulnerability is in the
+// library; the effect is rolled from the command's pool (e.g., libpcre CVE
+// via `ls` lands `dir_list`; via `grep` lands `file_read`).
+//
+// Shape:
+//   msfconsole --local <command> [thirdArg]
+//
+// Success = library CVE found + effect rolled + buildExploitOutput returned.
+// Failure = no libraryDeps entry, no current machine, no library CVE live —
+// all surface as "no known vulnerability on <command>" (parallel wording to
+// the remote path so the player learns one error message).
+const runLocalExploit = (args: readonly unknown[], context: MsfconsoleContext): AsyncOutput => {
+  const commandName = args[1] as string | undefined;
+  const thirdArg = args[2] as string | undefined;
+
+  if (!commandName) {
+    throw new Error(
+      'msfconsole: --local requires a command name\nUsage: msfconsole --local <command> [thirdArg]',
+    );
+  }
+
+  const deps = libraryDeps[commandName];
+  if (!deps || deps.length === 0) {
+    throw new Error(`msfconsole: no known vulnerability on ${commandName}`);
+  }
+
+  const currentMachineId = context.getCurrentMachineId?.();
+  if (!currentMachineId) {
+    throw new Error('msfconsole --local: no current machine context');
+  }
+
+  // Prefer getCurrentMachine (handles localhost) over getMachine (which
+  // only knows remote machines). Fall back to getMachine for older contexts
+  // that don't provide getCurrentMachine.
+  const machine = context.getCurrentMachine?.() ?? context.getMachine(currentMachineId);
+  if (!machine) {
+    throw new Error(`msfconsole --local: cannot resolve current machine ${currentMachineId}`);
+  }
+
+  const gameTime = context.getGameTime?.() ?? 0;
+
+  // Read the machine's dpkg/status to find which library versions are
+  // currently installed. Uniform day-zero versions + any apt upgrade
+  // history are both reflected here.
+  const dpkgContent = context.readRemoteFile?.(currentMachineId, DPKG_STATUS_PATH) ?? '';
+  const libraryVersions = parseDpkgVersions(dpkgContent);
+
+  // Walk the command's linked libraries and return the first with a live
+  // CVE. Manifest order is stable, so selection is deterministic.
+  const libraryCve = deps
+    .map((lib) => {
+      const version = libraryVersions.get(lib);
+      if (!version) return undefined;
+      return findLibraryCve(lib, version, gameTime);
+    })
+    .find((v): v is Vulnerability => v !== undefined);
+
+  if (!libraryCve) {
+    throw new Error(`msfconsole: no known vulnerability on ${commandName}`);
+  }
+
+  // Roll an effect from the command's own pool. PRNG seed binds
+  // (machine, command, cve) so the same local exploit always lands the
+  // same effect — deterministic like every other CVE in the game.
+  const effectPrng = createPrng(
+    `local-exploit:${currentMachineId}:${commandName}:${libraryCve.cve}`,
+  );
+  const rolledEffect = pickCommandEffect(commandName, effectPrng);
+  if (!rolledEffect) {
+    throw new Error(`msfconsole: no known vulnerability on ${commandName}`);
+  }
+
+  // Override the library CVE's placeholder effect with the command-scoped
+  // rolled one. This is the "library carries the CVE, command carries the
+  // exploitation semantics" split.
+  const vulnerability: Vulnerability = { ...libraryCve, effect: rolledEffect };
+
+  // Synthesize a target context. For local exploits there is no port; we
+  // use port 0 + the command name as "service" so existing output lines
+  // read sensibly (`[*] Targeting 10.50.1.5:0 (libpam 1.5.3)` etc.).
+  const syntheticTargetPort: Port = {
+    port: 0,
+    service: commandName,
+    open: true,
+    serviceVersion: libraryCve.serviceVersion,
+  };
+
+  return buildExploitOutput(
+    {
+      machine,
+      targetIP: currentMachineId,
+      port: 0,
+      targetPort: syntheticTargetPort,
+      vulnerability,
+    },
+    thirdArg,
+    context,
+  );
+};
+
+const buildExploitOutput = (
+  target: ExploitTarget,
+  thirdArg: string | undefined,
+  context: MsfconsoleContext,
+): AsyncOutput => {
+  const { machine, targetIP, port, targetPort, vulnerability } = target;
+  const { effect } = vulnerability;
+
+  const requiresPath = effect.kind === 'file_read' || effect.kind === 'dir_list';
+  const requiresLocalRemote = effect.kind === 'file_write';
+  const requiresScript = effect.kind === 'script_exec';
+
+  if ((requiresPath || requiresScript) && !thirdArg) {
+    throw new Error(
+      `msfconsole: this exploit requires a target path — usage: msfconsole <host> <port> <path>`,
+    );
+  }
+  if (requiresLocalRemote && (!thirdArg || !thirdArg.includes(':'))) {
+    throw new Error(
+      `msfconsole: this exploit requires local:remote syntax — usage: msfconsole <host> <port> <local:remote>`,
+    );
+  }
+
+  const token = createCancellationToken();
+
+  // For shell_full, the tier comes from the effect, not the port owner.
+  // Resolve a plausible username and home path for the effect's tier.
+  const resolveShellFullUser = (
+    tier: 'guest' | 'user' | 'root',
+  ): { readonly username: string; readonly homePath: string } => {
+    if (tier === 'root') return { username: 'root', homePath: '/root' };
+    const matchingUser = machine.users.find((u) => u.userType === tier);
+    if (matchingUser) {
+      return { username: matchingUser.username, homePath: `/home/${matchingUser.username}` };
+    }
+    return { username: tier, homePath: `/home/${tier}` };
+  };
+
+  return {
+    __type: 'async',
+    start: (onLine, onComplete) => {
+      onLine(`[*] Targeting ${targetIP}:${port} (${vulnerability.serviceVersion})`);
+
+      let delay = jitter(MSFCONSOLE_PHASE_DELAY_MS);
+
+      token.schedule(() => {
+        if (token.isCancelled()) return;
+        onLine(`[*] Vulnerability: ${vulnerability.cve}`);
+      }, delay);
+
+      delay += jitter(MSFCONSOLE_PHASE_DELAY_MS);
+      token.schedule(() => {
+        if (token.isCancelled()) return;
+        onLine('[*] Sending exploit payload...');
+      }, delay);
+
+      delay += jitter(MSFCONSOLE_PHASE_DELAY_MS);
+      token.schedule(() => {
+        if (token.isCancelled()) return;
+        onLine('[*] Payload delivered, waiting for callback...');
+      }, delay);
+
+      delay += jitter(MSFCONSOLE_PHASE_DELAY_MS);
+      token.schedule(() => {
+        if (token.isCancelled()) return;
+
+        switch (effect.kind) {
+          case 'shell_full': {
+            const shellUser = resolveShellFullUser(effect.tier);
+            onLine('[+] Exploit successful!');
+            onLine(`[+] Full shell as ${shellUser.username}@${targetIP}`);
+            onLine('');
+            const exploitShell: ExploitShellData = {
+              __type: 'exploit_shell',
+              targetIP,
+              targetPort: port,
+              service: targetPort.service,
+              username: shellUser.username,
+              userType: effect.tier,
+              homePath: shellUser.homePath,
+              tier: effect.tier,
+            };
+            onComplete(exploitShell);
+            break;
+          }
+          case 'file_read': {
+            const content = context.readRemoteFile?.(targetIP, thirdArg!, effect.tier) ?? null;
+            onLine('[+] Exploit successful!');
+            if (content !== null) {
+              onLine(`[+] Reading ${thirdArg} (as ${effect.tier}):`);
+              onLine('');
+              content.split('\n').forEach((line) => onLine(line));
+            } else {
+              onLine(`[-] File not found or permission denied (as ${effect.tier}): ${thirdArg}`);
+            }
+            onComplete();
+            break;
+          }
+          case 'dir_list': {
+            const entries = context.listRemoteDir?.(targetIP, thirdArg!, effect.tier) ?? null;
+            onLine('[+] Exploit successful!');
+            if (entries !== null) {
+              onLine(`[+] Listing ${thirdArg} (as ${effect.tier}):`);
+              onLine('');
+              entries.forEach((entry) => onLine(entry));
+            } else {
+              onLine(
+                `[-] Directory not found or permission denied (as ${effect.tier}): ${thirdArg}`,
+              );
+            }
+            onComplete();
+            break;
+          }
+          case 'file_write': {
+            const colonIdx = thirdArg!.indexOf(':');
+            const localPath = thirdArg!.slice(0, colonIdx);
+            const remotePath = thirdArg!.slice(colonIdx + 1);
+            const localContent = context.readLocalFile?.(localPath) ?? null;
+            if (localContent === null) {
+              onLine(`[-] Could not read local file: ${localPath}`);
+            } else {
+              context.writeRemoteFile?.(targetIP, remotePath, localContent, effect.tier);
+              onLine('[+] Exploit successful!');
+              onLine(
+                `[+] Uploaded ${localPath} → ${remotePath} as ${effect.tier} (${localContent.length} bytes)`,
+              );
+            }
+            onComplete();
+            break;
+          }
+          case 'password_reset': {
+            const tier = effect.tier;
+            const newPassword = `pwned-${vulnerability.cve.slice(-4)}-${tier}`;
+            const currentPasswd = context.readRemoteFile?.(targetIP, '/etc/passwd') ?? '';
+            const targetUser =
+              tier === 'root'
+                ? 'root'
+                : (machine.users.find((u) => u.userType === tier)?.username ?? tier);
+            const updatedPasswd = currentPasswd
+              .split('\n')
+              .map((line) => {
+                const parts = line.split(':');
+                if (parts[0] === targetUser) {
+                  return [parts[0], newPassword, ...parts.slice(2)].join(':');
+                }
+                return line;
+              })
+              .join('\n');
+            context.writeRemoteFile?.(targetIP, '/etc/passwd', updatedPasswd);
+            onLine('[+] Exploit successful!');
+            onLine(`[+] Password reset for '${targetUser}' — new password: ${newPassword}`);
+            onComplete();
+            break;
+          }
+          case 'backdoor_port_open': {
+            const backdoorPort = effect.port;
+            const pidPath = ncPidFilePath(backdoorPort);
+            const pidContent = createNcPidContent(backdoorPort, 'backdoor', effect.tier);
+            context.writeRemoteFile?.(targetIP, pidPath, pidContent, 'root');
+            onLine('[+] Exploit successful!');
+            onLine(
+              `[+] Backdoor planted on port ${backdoorPort} — connect with nc(target, ${backdoorPort})`,
+            );
+            const forwards = context.openBackdoorForwards?.(targetIP, backdoorPort);
+            if (forwards?.publicEdgeIp && forwards.publicEdgePort !== null) {
+              onLine(
+                `[+] NAT forwarding chain installed — reachable via ${forwards.publicEdgeIp}:${forwards.publicEdgePort} from outside`,
+              );
+            }
+            onComplete();
+            break;
+          }
+          case 'script_exec': {
+            const scriptBody = context.readLocalFile?.(thirdArg!) ?? null;
+            if (scriptBody === null) {
+              onLine(`[-] Could not open script file: ${thirdArg}`);
+              onComplete();
+              break;
+            }
+            // Blind injection — execute script for side effects only, no output
+            const scriptResult = context.runScriptOnTarget?.(targetIP, scriptBody, effect.tier) ?? {
+              error: null,
+            };
+            if (scriptResult.error) {
+              onLine(`[-] Script injection failed: ${scriptResult.error}`);
+            } else {
+              onLine('[+] Exploit successful!');
+              onLine(`[+] Script injected on ${targetIP} as ${effect.tier}`);
+            }
+            onComplete();
+            break;
+          }
+          case 'shell_limited': {
+            // Use the effect's tier (not the port owner's) so nmap's "as X"
+            // hint matches the actual privilege level the player lands at.
+            const shellUser = resolveShellFullUser(effect.tier);
+            onLine('[+] Exploit successful!');
+            onLine(`[+] Got shell as ${shellUser.username}@${targetIP}`);
+            onLine('');
+            const ncPrompt: NcPromptData = {
+              __type: 'nc_prompt',
+              targetIP,
+              targetPort: port,
+              service: targetPort.service,
+              username: shellUser.username,
+              userType: effect.tier,
+              homePath: shellUser.homePath,
+            };
+            onComplete(ncPrompt);
+            break;
+          }
+        }
+      }, delay);
+    },
+    cancel: token.cancel,
+  };
+};
