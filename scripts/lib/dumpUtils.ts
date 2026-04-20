@@ -8,6 +8,7 @@
 import type { FileNode } from '../../src/filesystem/types';
 import type { GeneratedMachine } from '../../src/generation/types';
 import type { Port, RemoteUser } from '../../src/network/types';
+import { CVE_TIMING_CONFIG, findGeneratedVersion } from '../../src/generation/timeline';
 
 // ---------------------------------------------------------------------------
 // ANSI helpers
@@ -25,11 +26,48 @@ export const magenta = (s: string) => `\x1b[35m${s}\x1b[0m`;
 // Formatters
 // ---------------------------------------------------------------------------
 
+export type PortPatchInfo = {
+  readonly patchDelayDays: number;
+  readonly fixReleasedAtDay: number;
+};
+
+// Walk far enough past the current game time to catch the version a player
+// might plausibly be running. Mirrors the budget used elsewhere in the
+// lookup layer so the debug view stays consistent with the game.
+const PATCH_INFO_WALK_BUDGET_DAYS = 365 * 2;
+
+/**
+ * Returns patch-delay info for a procedural service version — the randomized
+ * patchDelay drawn by the timeline walker plus the day on which the fix is
+ * released (publishedAt + patchDelay). Returns undefined for hand-authored
+ * CVEs (which have no patch delay) and for unknown services.
+ */
+export const resolvePortPatchInfo = (
+  service: string,
+  version: string,
+): PortPatchInfo | undefined => {
+  const entry = findGeneratedVersion(
+    service,
+    version,
+    PATCH_INFO_WALK_BUDGET_DAYS,
+    CVE_TIMING_CONFIG,
+  );
+  if (!entry) return undefined;
+  return {
+    patchDelayDays: entry.patchDelay,
+    fixReleasedAtDay: entry.publishedAt + entry.patchDelay,
+  };
+};
+
 export const formatPort = (p: Port): string => {
   const state = p.open ? green('open') : red('closed');
   let extra = '';
   if (p.vulnerability) {
     extra += ` ${red(`[${p.vulnerability.cve}]`)} ${dim(p.vulnerability.serviceVersion)}`;
+    const patch = resolvePortPatchInfo(p.service, p.vulnerability.serviceVersion);
+    if (patch) {
+      extra += ` ${dim(`patch=${patch.patchDelayDays}d fix@day${patch.fixReleasedAtDay}`)}`;
+    }
   }
   if (p.owner) {
     extra += ` ${dim(`owner=${p.owner.username}(${p.owner.userType})`)}`;

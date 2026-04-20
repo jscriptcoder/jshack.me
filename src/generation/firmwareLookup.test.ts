@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findFirmwareCve } from './firmwareLookup';
+import { findFirmwareCve, findLatestSafeFirmware } from './firmwareLookup';
 import { buildTimelineFromTemplate, CVE_TIMING_CONFIG } from './timeline';
 import { firmwareTemplates } from './pools/routerFirmware';
 
@@ -57,5 +57,29 @@ describe('findFirmwareCve', () => {
       const vuln = findFirmwareCve('ddwrt', entry.version, entry.publishedAt);
       if (vuln) expect(vuln.severity).not.toBe('info');
     }
+  });
+});
+
+describe('findLatestSafeFirmware (patch delay enforcement)', () => {
+  it('returns undefined during the patch-delay gap after a firmware CVE publishes', () => {
+    const vulnerable = vendorEntry('mikrotik', 500, 3);
+    expect(findLatestSafeFirmware('mikrotik', vulnerable.publishedAt)).toBeUndefined();
+  });
+
+  it('returns the fix once the patch delay has elapsed', () => {
+    const timeline = buildTimelineFromTemplate(
+      firmwareTemplates.mikrotik,
+      'firmware:mikrotik',
+      500,
+      TIMING,
+    );
+    const vulnerable = timeline[3]!;
+    const next = timeline[4]!;
+    const fixReleased = vulnerable.publishedAt + vulnerable.patchDelay;
+    expect(findLatestSafeFirmware('mikrotik', fixReleased)).toBe(next.version);
+  });
+
+  it('returns undefined for an unknown vendor', () => {
+    expect(findLatestSafeFirmware('no-such-vendor' as 'mikrotik', 1000)).toBeUndefined();
   });
 });

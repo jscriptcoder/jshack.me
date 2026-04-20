@@ -30,7 +30,7 @@ Start with `help` to see available commands. Good luck, hacker.
 - **Network Simulation** - Discover and hack into remote machines; per-WiFi subnets with routers, servers, and databases
 - **DNS Zone Transfers** - DNS servers with BIND zone files; use `dig` for lookups and AXFR zone transfers to discover machines
 - **Redis Service** - ~35% of database machines run Redis on port 6379; connect via `rediscli`, query key-value data, brute-force passwords with `hydra`
-- **Defense Treadmill** - Patch vulnerable services with `apt upgrade`. CVEs publish over real game time (~one new CVE every 13 hours across the network). Patching buys breathing room; neglecting it means re-exploitation
+- **Defense Treadmill** - Patch vulnerable services with `apt upgrade`. CVEs publish over real game time (~one new CVE every 13 hours across the network). When a CVE drops there's a 1–2 day patch-delay window where no fix exists yet — defend via `iptables`, `systemctl`, permissions, etc. Inspect per-service status with `apt list --upgradable` (or `-u`). Neglecting upgrades means re-exploitation
 - **Router Firmware** - Routers have vendor-stamped firmware (Cisco, MikroTik, DD-WRT, OpenWRT, pfSense, EdgeOS) that treadmills alongside services. Exploitable via `msfconsole`, patchable via `apt upgrade firmware`
 - **Typed Exploit Effects** - Each CVE produces one of 8 outcomes: full shell (tiered), restricted shell, file read, directory listing, file write, password reset, backdoor port, or script execution. The effect depends on the service being exploited
 - **Version Pinning** - `apt install http=Apache/2.4.49` pins a service to a specific version. Works for both services and router firmware. Deliberate downgrades allowed
@@ -131,6 +131,7 @@ msfconsole 10.0.0.5 21 /root/shell.php:/var/www/html/s.php # file_write: upload
 msfconsole 10.0.0.5 6379 /root/payloads/dump.js           # script_exec: run a script
 
 # Patch vulnerable services
+apt list -u                      # Per-service upgrade status on this machine
 apt upgrade                      # Upgrade all vulnerable services + firmware
 apt upgrade http                 # Upgrade only the http service
 apt upgrade firmware             # Upgrade only router firmware

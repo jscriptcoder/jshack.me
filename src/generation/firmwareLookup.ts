@@ -71,10 +71,9 @@ export const findPinnableFirmwareVersion = (
 };
 
 // Returns the newest firmware version for a vendor whose CVE has not yet
-// been "published" at the given game time. apt upgrade firmware uses this
-// to pick its upgrade target — analogous to getLatestSafeVersion but
-// resolved against the per-vendor firmware timeline instead of the service
-// template pool. Returns undefined for unknown vendors.
+// been "published" AND whose release has occurred (prev.publishedAt +
+// prev.patchDelay <= gameTime). Returns undefined during the patch-delay
+// gap when no fix is yet released — mirrors findLatestSafeVersion.
 export const findLatestSafeFirmware = (
   vendor: FirmwareVendor,
   gameTime: number,
@@ -88,8 +87,11 @@ export const findLatestSafeFirmware = (
     gameTime,
     CVE_TIMING_CONFIG,
   );
-  for (const entry of timeline) {
-    if (entry.publishedAt > gameTime) return entry.version;
-  }
+  const i = timeline.findIndex((e) => e.publishedAt > gameTime);
+  if (i === -1) return undefined;
+  const entry = timeline[i]!;
+  if (i === 0) return entry.version;
+  const prev = timeline[i - 1]!;
+  if (prev.publishedAt + prev.patchDelay <= gameTime) return entry.version;
   return undefined;
 };

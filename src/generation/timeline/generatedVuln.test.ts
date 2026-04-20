@@ -9,6 +9,7 @@ describe('buildGeneratedVuln', () => {
     tuple: [2, 4, 60 + index],
     index,
     publishedAt,
+    patchDelay: 1,
   });
 
   it('produces a Vulnerability with all required fields', () => {

@@ -418,6 +418,20 @@ Used when entry variant is `exploit`. Matched by port/service. Multiple template
 | CVE-2017-12166 | OpenVPN 2.4.3       | 1194  | Buffer overflow in key-method negotiation |
 | CVE-2020-15078 | OpenVPN 2.5.1       | 1194  | Auth bypass via deferred auth plugin      |
 
+## Procedural CVE Timing
+
+Beyond the 36 hand-authored CVEs above, the timeline walker (`src/generation/timeline/walker.ts`) produces procedural CVEs for any service/firmware version over game time. Each procedural CVE carries three randomized-but-deterministic timing fields:
+
+| Field       | Range (days)                     | Source                          | Effect                                                                                                            |
+| ----------- | -------------------------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Safe window | 3–14 (minSafeWindowDays / max)   | `prng.nextInt`                  | Gap between one CVE publishing and the next for the same service. Drives the ~43 CVEs/year/service cadence.       |
+| Patch delay | 1–2 (minPatchDelayDays / max)    | side-PRNG (`:patchDelay` keyed) | After a CVE drops, its fix waits this many days before `apt upgrade` can apply it. Players must defend meanwhile. |
+| Bump type   | major 5% / minor 15% / patch 80% | `prng.nextInt(0,99)`            | Shape of the next version tuple. Over time produces Apache/2.4.60 → 2.4.72 → 2.5.0 → 3.0.0-style progressions.    |
+
+Invariant: `minSafeWindowDays > maxPatchDelayDays` (asserted at module load) guarantees every released fix has a positive safe window before the next CVE.
+
+Hand-authored CVEs (above) have no patch delay — they are immediately fixable by design (they anchor day-0 exploit variety).
+
 ## Objective Types (14)
 
 | Type             | Description                                                    | Completion                             |
