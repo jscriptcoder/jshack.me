@@ -354,6 +354,108 @@ describe('apt command', () => {
     });
   });
 
+  describe('apt list --upgradable', () => {
+    const httpGapTime = (): number => {
+      const timeline = buildTimelineFromTemplate(
+        serviceTemplates.http,
+        'timeline:http',
+        500,
+        CVE_TIMING_CONFIG,
+      );
+      return timeline[3]!.publishedAt;
+    };
+
+    const firmwareSafeTime = (): { gameTime: number; version: string } => {
+      const timeline = buildTimelineFromTemplate(
+        firmwareTemplates.mikrotik,
+        'firmware:mikrotik',
+        500,
+        CVE_TIMING_CONFIG,
+      );
+      const vuln = timeline[2]!;
+      // gameTime past the patch-delay gap so the fix is released.
+      return { gameTime: vuln.publishedAt + vuln.patchDelay, version: vuln.version };
+    };
+
+    it('prints a listing header for --upgradable', () => {
+      const machine = mkMachine([{ port: 80, service: 'http', serviceVersion: 'Apache/2.4.49' }]);
+      const { context } = createMockAptContext({ currentMachine: machine, gameTime: 0 });
+      const apt = createAptCommand(context);
+      const result = apt.fn('list', '--upgradable') as string;
+      expect(result).toMatch(/Listing upgradable packages/);
+    });
+
+    it('-u produces identical output to --upgradable', () => {
+      const machine = mkMachine([
+        { port: 80, service: 'http', serviceVersion: 'Apache/2.4.49' },
+        { port: 22, service: 'ssh', serviceVersion: 'OpenSSH 9.9.9' },
+      ]);
+      const { context: ctxLong } = createMockAptContext({
+        currentMachine: machine,
+        gameTime: 0,
+      });
+      const { context: ctxShort } = createMockAptContext({
+        currentMachine: machine,
+        gameTime: 0,
+      });
+      const long = createAptCommand(ctxLong).fn('list', '--upgradable') as string;
+      const short = createAptCommand(ctxShort).fn('list', '-u') as string;
+      expect(short).toBe(long);
+    });
+
+    it('renders [upgradable → version] for a service with an available fix', () => {
+      const machine = mkMachine([{ port: 80, service: 'http', serviceVersion: 'Apache/2.4.49' }]);
+      const { context } = createMockAptContext({ currentMachine: machine, gameTime: 0 });
+      const apt = createAptCommand(context);
+      const result = apt.fn('list', '--upgradable') as string;
+      expect(result).toMatch(/http\s+Apache\/2\.4\.49\s+\[upgradable → Apache\/\S+\]/);
+    });
+
+    it('renders [vulnerable, no fix yet — ETA ~N days] for a service in the patch-delay gap', () => {
+      const machine = mkMachine([{ port: 80, service: 'http', serviceVersion: 'Apache/2.4.49' }]);
+      const { context } = createMockAptContext({
+        currentMachine: machine,
+        gameTime: httpGapTime(),
+      });
+      const apt = createAptCommand(context);
+      const result = apt.fn('list', '--upgradable') as string;
+      const expectedEta = Math.round(
+        (CVE_TIMING_CONFIG.minPatchDelayDays + CVE_TIMING_CONFIG.maxPatchDelayDays) / 2,
+      );
+      expect(result).toContain(`[vulnerable, no fix yet — ETA ~${expectedEta} day`);
+    });
+
+    it('renders [up to date] for a service with no live CVE', () => {
+      // OpenSSH 9.9.9 is not in vulnerabilityTemplates and the ssh procedural
+      // timeline has not yet hit its first CVE at gameTime 0.
+      const machine = mkMachine([{ port: 22, service: 'ssh', serviceVersion: 'OpenSSH 9.9.9' }]);
+      const { context } = createMockAptContext({ currentMachine: machine, gameTime: 0 });
+      const apt = createAptCommand(context);
+      const result = apt.fn('list', '--upgradable') as string;
+      expect(result).toMatch(/ssh\s+OpenSSH 9\.9\.9\s+\[up to date\]/);
+    });
+
+    it('includes a firmware row on routers', () => {
+      const { gameTime, version } = firmwareSafeTime();
+      const machine = mkMachine([{ port: 22, service: 'ssh', serviceVersion: 'OpenSSH 9.9.9' }], {
+        vendor: 'mikrotik',
+        version,
+      });
+      const { context } = createMockAptContext({ currentMachine: machine, gameTime });
+      const apt = createAptCommand(context);
+      const result = apt.fn('list', '--upgradable') as string;
+      expect(result).toMatch(/firmware\s+\S.+\s+\[upgradable → /);
+    });
+
+    it('does not include a firmware row on non-router machines', () => {
+      const machine = mkMachine([{ port: 22, service: 'ssh', serviceVersion: 'OpenSSH 9.9.9' }]);
+      const { context } = createMockAptContext({ currentMachine: machine, gameTime: 0 });
+      const apt = createAptCommand(context);
+      const result = apt.fn('list', '--upgradable') as string;
+      expect(result).not.toMatch(/^\s*firmware\s/m);
+    });
+  });
+
   describe('extra files', () => {
     it('creates extra files alongside binaries on install', () => {
       const { context, createdFiles } = createMockAptContext();

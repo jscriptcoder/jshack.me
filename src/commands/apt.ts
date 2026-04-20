@@ -46,11 +46,18 @@ const formatInstalledStatus = (
   return getNode(`/usr/bin/${firstBinary}`) !== null ? '[installed]' : '[not installed]';
 };
 
-const handleList = (
-  getNode: (path: string) => FileNode | null,
-  args: readonly unknown[],
-): string => {
-  const showInstalled = args[0] === '--installed' || args[0] === '-i';
+const renderUpgradableLine = (name: string, version: string, status: string): string =>
+  `  ${name.padEnd(12)} ${version.padEnd(24)} ${status}`;
+
+const handleList = (context: AptContext, args: readonly unknown[]): string => {
+  const { getNode } = context;
+  const flag = args[0];
+  const showInstalled = flag === '--installed' || flag === '-i';
+  const showUpgradable = flag === '--upgradable' || flag === '-u';
+
+  if (showUpgradable) {
+    return renderUpgradableList(context);
+  }
 
   const lines = APT_PACKAGES.map((pkg) => {
     const status = formatInstalledStatus(pkg.name, getNode);
@@ -267,8 +274,69 @@ const collectUpgradeCandidates = (
   return candidates;
 };
 
+const AVG_PATCH_DELAY_LABEL = `${AVG_PATCH_DELAY_DAYS} day${AVG_PATCH_DELAY_DAYS === 1 ? '' : 's'}`;
+
 const formatNoFixWarning = (service: string): string =>
-  `W: ${service} is vulnerable but no fix has been released (ETA ~${AVG_PATCH_DELAY_DAYS} day${AVG_PATCH_DELAY_DAYS === 1 ? '' : 's'})`;
+  `W: ${service} is vulnerable but no fix has been released (ETA ~${AVG_PATCH_DELAY_LABEL})`;
+
+const NO_FIX_STATUS = `[vulnerable, no fix yet — ETA ~${AVG_PATCH_DELAY_LABEL}]`;
+
+// Per-service status for `apt list --upgradable`. An entry is 'up to date'
+// when no CVE (hand-authored or procedural) is live at gameTime. Otherwise
+// the resolution mirrors apt upgrade: a released fix → 'upgradable → X',
+// a fix still inside the patch-delay gap → the shared NO_FIX_STATUS string.
+const serviceUpgradableStatus = (service: string, version: string, gameTime: number): string => {
+  if (!isVulnerable(service, version, gameTime)) return '[up to date]';
+  const target = pickServiceUpgradeTarget(service, gameTime);
+  if (target.kind === 'no-fix-yet') return NO_FIX_STATUS;
+  const v = target.kind === 'target' ? target.version : DEFAULT_LATEST_VERSION;
+  return `[upgradable → ${v}]`;
+};
+
+const firmwareUpgradableStatus = (
+  vendor: FirmwareVendor,
+  version: string,
+  gameTime: number,
+): string => {
+  if (!findFirmwareCve(vendor, version, gameTime)) return '[up to date]';
+  const target = pickFirmwareUpgradeTarget(vendor, gameTime);
+  if (target.kind === 'no-fix-yet') return NO_FIX_STATUS;
+  const v = target.kind === 'target' ? target.version : version;
+  return `[upgradable → ${v}]`;
+};
+
+const renderUpgradableList = (context: AptContext): string => {
+  const machine = context.getCurrentMachine?.();
+  const gameTime = context.getGameTime?.() ?? 0;
+  if (!machine) {
+    return ['Listing upgradable packages...', ''].join('\n');
+  }
+
+  const seen = new Set<string>();
+  const serviceLines = machine.ports.flatMap((port) => {
+    if (seen.has(port.service)) return [];
+    seen.add(port.service);
+    const status = serviceUpgradableStatus(port.service, port.serviceVersion, gameTime);
+    return [renderUpgradableLine(port.service, port.serviceVersion, status)];
+  });
+
+  const firmwareLines =
+    machine.firmwareVendor && machine.firmwareVersion
+      ? [
+          renderUpgradableLine(
+            FIRMWARE_PACKAGE,
+            machine.firmwareVersion,
+            firmwareUpgradableStatus(
+              machine.firmwareVendor as FirmwareVendor,
+              machine.firmwareVersion,
+              gameTime,
+            ),
+          ),
+        ]
+      : [];
+
+  return ['Listing upgradable packages...', '', ...serviceLines, ...firmwareLines].join('\n');
+};
 
 // Returns the set of packages currently installed on the machine. Includes
 // one entry per unique service across all ports, plus `firmware` if the
@@ -470,7 +538,7 @@ export const createAptCommand = (context: AptContext): Command => ({
   category: 'general',
   description: 'Package manager — install hacking tools',
   manual: {
-    synopsis: 'apt <subcommand> [package] [-i]',
+    synopsis: 'apt <subcommand> [package] [-i | -u]',
     description:
       'Advanced package tool for installing hacking utilities. ' +
       'Tools like nmap, john, hydra, and nc must be installed before use. ' +
@@ -497,6 +565,16 @@ export const createAptCommand = (context: AptContext): Command => ({
         description: 'Alias for -i (list installed packages only)',
         required: false,
       },
+      {
+        name: '-u',
+        description: 'With "list": show services on this machine with upgrade status',
+        required: false,
+      },
+      {
+        name: '--upgradable',
+        description: 'Alias for -u (per-service upgrade status)',
+        required: false,
+      },
     ],
     examples: [
       { command: 'apt install nmap', description: 'Install nmap on the current machine' },
@@ -504,6 +582,10 @@ export const createAptCommand = (context: AptContext): Command => ({
       {
         command: 'apt list -i',
         description: 'List only installed packages',
+      },
+      {
+        command: 'apt list -u',
+        description: 'Show services on this machine needing upgrade',
       },
     ],
   },
@@ -520,12 +602,13 @@ export const createAptCommand = (context: AptContext): Command => ({
           '  apt install <package>  Install a package',
           '  apt list               List available packages',
           '  apt list -i            List installed packages',
+          '  apt list -u            List services on this machine with upgrade status',
         ].join('\n'),
       );
     }
 
     if (subcommand === 'list') {
-      return handleList(context.getNode, args.slice(1));
+      return handleList(context, args.slice(1));
     }
 
     if (subcommand === 'install') {
