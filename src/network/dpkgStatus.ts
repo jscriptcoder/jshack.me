@@ -73,9 +73,14 @@ export const buildEntry = (pkg: string, version: string): DpkgEntry => ({
 // `firmware` package is added alongside the service entries. apt upgrade
 // and findFirmwareCve consume this entry the same way they consume
 // regular service packages.
+//
+// When `libraryVersions` is supplied, one entry per system library is
+// added. Every machine carries the 8 system libraries (uniform starting
+// versions per the patch-delay design), so this is typically populated.
 export const buildInitialDpkgStatus = (
   ports: readonly { readonly service: string; readonly serviceVersion: string }[],
   firmwareVersion?: string,
+  libraryVersions?: Readonly<Record<string, string>>,
 ): string => {
   const seen = new Map<string, string>();
   for (const port of ports) {
@@ -83,6 +88,11 @@ export const buildInitialDpkgStatus = (
   }
   if (firmwareVersion !== undefined) {
     seen.set('firmware', firmwareVersion);
+  }
+  if (libraryVersions) {
+    for (const [lib, version] of Object.entries(libraryVersions)) {
+      seen.set(lib, version);
+    }
   }
   if (seen.size === 0) return '';
   const entries = Array.from(seen, ([pkg, version]) => buildEntry(pkg, version));

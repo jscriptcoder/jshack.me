@@ -3,10 +3,12 @@ import type { GameState } from '../game/types';
 import { createFileSystem, type MachineFileSystemConfig } from '../filesystem/fileSystemFactory';
 import {
   createBinaryEntries,
+  createLibraryEntries,
   SYSTEM_UTILITY_NAMES,
   SBIN_UTILITY_NAMES,
   LOCALHOST_PREINSTALLED_TOOLS,
 } from '../commands/availability';
+import { SYSTEM_LIBRARIES } from './pools/systemLibraryTemplates';
 import { md5 } from '../utils/md5';
 import { createPrng } from './prng';
 import { guestPasswords } from './pools';
@@ -173,6 +175,7 @@ export const generateLocalhost = (gameState: GameState): LocalhostResult => {
     binContent: createBinaryEntries(SYSTEM_UTILITY_NAMES),
     usrBinContent: createBinaryEntries(LOCALHOST_PREINSTALLED_TOOLS),
     usrSbinContent: createBinaryEntries(SBIN_UTILITY_NAMES),
+    libContent: createLibraryEntries(SYSTEM_LIBRARIES),
     passwdReadableBy: ['root', 'user'],
     etcExtraContent: {
       hostname: {

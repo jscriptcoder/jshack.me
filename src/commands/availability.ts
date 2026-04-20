@@ -198,6 +198,33 @@ export const createBinaryEntries = (names: readonly string[]): Readonly<Record<s
     ]),
   );
 
+// Creates shared-library FileNode entries for populating /lib/. Libraries
+// are root-owned, world-readable, and not executable as files (matching
+// real Linux /lib/*.so permissions). File presence is checked at command
+// dispatch time; missing library = dynamic-linker error.
+export const createLibraryEntries = (
+  libraries: readonly string[],
+): Readonly<Record<string, FileNode>> =>
+  Object.fromEntries(
+    libraries.map((lib) => {
+      const filename = `${lib}.so`;
+      return [
+        filename,
+        {
+          name: filename,
+          type: 'file' as const,
+          owner: 'root' as const,
+          permissions: {
+            read: ['root', 'user', 'guest'] as const,
+            write: ['root'] as const,
+            execute: [] as readonly UserType[],
+          },
+          content: BINARY_STUB,
+        },
+      ];
+    }),
+  );
+
 // Returns true if a command doesn't need a binary check (builtin or game command)
 const isAlwaysAvailable = (name: string): boolean =>
   SHELL_BUILTINS.has(name) || GAME_COMMANDS.has(name);

@@ -4,6 +4,7 @@ import type { GeneratedVersion } from './walker';
 import { pickEffect } from './effectPicker';
 import { serviceTemplates } from '../pools/serviceTemplates';
 import { firmwareTemplates } from '../pools/routerFirmware';
+import { systemLibraryTemplates } from '../pools/systemLibraryTemplates';
 import { describeEffect } from '../describeEffect';
 import { pickPatternForEffect } from '../attackPatterns';
 
@@ -13,7 +14,11 @@ import { pickPatternForEffect } from '../attackPatterns';
 // Sorted alphabetically so the map is deterministic regardless of insertion
 // order; safe because CVE ids are not persisted and are regenerated each run.
 const TEMPLATE_KEY_IDS: Readonly<Record<string, number>> = (() => {
-  const allKeys = [...Object.keys(serviceTemplates), ...Object.keys(firmwareTemplates)].sort();
+  const allKeys = [
+    ...Object.keys(serviceTemplates),
+    ...Object.keys(firmwareTemplates),
+    ...Object.keys(systemLibraryTemplates),
+  ].sort();
   return Object.fromEntries(allKeys.map((k, i) => [k, i]));
 })();
 
