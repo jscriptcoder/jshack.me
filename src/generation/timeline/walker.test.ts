@@ -174,16 +174,29 @@ describe('buildTimelineFromTemplate', () => {
 });
 
 describe('findLatestSafeVersion', () => {
-  it('skips the entry whose publishedAt exactly equals gameTime', () => {
-    // At the boundary, that entry's CVE is published *right now* — it's
-    // no longer safe. The returned version must be a strictly later one.
+  it('returns undefined during the patch-delay gap after a CVE publishes', () => {
+    // At the moment a version's CVE drops, its fix (the next timeline entry)
+    // has not yet been released — there is no safe upgrade target.
     const timeline = buildTimeline('http', 500, TIMING);
-    const boundary = timeline[3]!;
-    const safe = findLatestSafeVersion('http', boundary.publishedAt, TIMING);
-    expect(safe).toBeDefined();
-    expect(safe).not.toBe(boundary.version);
-    const safeEntry = timeline.find((e) => e.version === safe);
-    expect(safeEntry!.publishedAt).toBeGreaterThan(boundary.publishedAt);
+    const vulnerable = timeline[3]!;
+    expect(findLatestSafeVersion('http', vulnerable.publishedAt, TIMING)).toBeUndefined();
+  });
+
+  it('returns the fix once the patch delay has elapsed', () => {
+    // Release time for the next version = vulnerable.publishedAt + vulnerable.patchDelay.
+    // At that moment, the fix is available and still inside its safe window.
+    const timeline = buildTimeline('http', 500, TIMING);
+    const vulnerable = timeline[3]!;
+    const next = timeline[4]!;
+    const fixReleased = vulnerable.publishedAt + vulnerable.patchDelay;
+    expect(findLatestSafeVersion('http', fixReleased, TIMING)).toBe(next.version);
+  });
+
+  it('returns the starting version at gameTime 0 (always released, no prev)', () => {
+    // The timeline's first entry has no predecessor, so it is always available
+    // as an upgrade target — there's no prior CVE to wait out.
+    const timeline = buildTimeline('http', 100, TIMING);
+    expect(findLatestSafeVersion('http', 0, TIMING)).toBe(timeline[0]!.version);
   });
 
   it('returns undefined for services with no template', () => {

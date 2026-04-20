@@ -11,8 +11,13 @@ import {
   findLatestSafeFirmware,
   findPinnableFirmwareVersion,
 } from '../generation/firmwareLookup';
-import type { FirmwareVendor } from '../generation/pools/routerFirmware';
-import { getLatestSafeVersion, DEFAULT_LATEST_VERSION } from '../generation/timeline';
+import { firmwareTemplates, type FirmwareVendor } from '../generation/pools/routerFirmware';
+import { serviceTemplates } from '../generation/pools/serviceTemplates';
+import {
+  CVE_TIMING_CONFIG,
+  DEFAULT_LATEST_VERSION,
+  findLatestSafeVersion,
+} from '../generation/timeline';
 import { DPKG_STATUS_PATH, setDpkgVersion } from '../network/dpkgStatus';
 
 type AptContext = {
@@ -160,23 +165,70 @@ const DPKG_STATUS_PERMISSIONS: FilePermissions = {
 
 const OVERLAY_DELAY_MS = 250;
 
-// Phase 3 PR B: upgrade target is the newest version in the service's
-// pool whose CVE (if any) has publishedAt > currentGameTime — i.e., the
-// latest currently-safe version. Falls back to the DEFAULT_LATEST_VERSION
-// sentinel when the service has no pool or when every version in the pool
-// is currently vulnerable.
-const pickUpgradeTarget = (service: string, gameTime: number): string =>
-  getLatestSafeVersion(service, gameTime) ?? DEFAULT_LATEST_VERSION;
+// Average patch delay in days, displayed to the player as an ETA hint
+// when a service is in its patch-delay gap. Uses the config midpoint so
+// the value is stable regardless of which specific CVE is involved.
+const AVG_PATCH_DELAY_DAYS = Math.round(
+  (CVE_TIMING_CONFIG.minPatchDelayDays + CVE_TIMING_CONFIG.maxPatchDelayDays) / 2,
+);
+
+// Upgrade target resolution for a single vulnerable service/firmware:
+//   - target: a concrete version string is available, proceed with upgrade
+//   - no-fix-yet: the service is vulnerable but its fix is still inside the
+//     patch-delay gap; we emit a warning line instead of upgrading
+//   - no-template: the service has no procedural template (unknown to the
+//     pool). Falls back to the DEFAULT_LATEST_VERSION sentinel — preserves
+//     prior behaviour so apt still writes a dpkg entry for such packages.
+type UpgradeTarget =
+  | { readonly kind: 'target'; readonly version: string }
+  | { readonly kind: 'no-fix-yet' }
+  | { readonly kind: 'no-template' };
+
+const pickServiceUpgradeTarget = (service: string, gameTime: number): UpgradeTarget => {
+  if (!serviceTemplates[service]) return { kind: 'no-template' };
+  const version = findLatestSafeVersion(service, gameTime, CVE_TIMING_CONFIG);
+  if (version === undefined) return { kind: 'no-fix-yet' };
+  return { kind: 'target', version };
+};
+
+const pickFirmwareUpgradeTarget = (vendor: FirmwareVendor, gameTime: number): UpgradeTarget => {
+  if (!firmwareTemplates[vendor]) return { kind: 'no-template' };
+  const version = findLatestSafeFirmware(vendor, gameTime);
+  if (version === undefined) return { kind: 'no-fix-yet' };
+  return { kind: 'target', version };
+};
 
 const isVulnerable = (service: string, version: string, gameTime: number): boolean =>
   findVulnForService(service, version, gameTime) !== undefined;
 
-type UpgradeCandidate = {
-  readonly service: string;
-  readonly targetVersion: string;
-};
+// A candidate row produced by collectUpgradeCandidates. 'target' rows feed
+// the normal upgrade flow; 'no-fix-yet' rows become warning lines.
+type UpgradeCandidate =
+  | { readonly kind: 'target'; readonly service: string; readonly targetVersion: string }
+  | { readonly kind: 'no-fix-yet'; readonly service: string };
 
 const FIRMWARE_PACKAGE = 'firmware';
+
+const resolveServiceCandidate = (service: string, gameTime: number): UpgradeCandidate => {
+  const resolved = pickServiceUpgradeTarget(service, gameTime);
+  if (resolved.kind === 'no-fix-yet') return { kind: 'no-fix-yet', service };
+  const targetVersion = resolved.kind === 'target' ? resolved.version : DEFAULT_LATEST_VERSION;
+  return { kind: 'target', service, targetVersion };
+};
+
+// Firmware counterpart to resolveServiceCandidate. Note: the 'no-template'
+// fallback here is the currently-installed version rather than a sentinel —
+// preserves the prior "stay on current firmware" behaviour for unknown vendors.
+const resolveFirmwareCandidate = (
+  vendor: FirmwareVendor,
+  currentVersion: string,
+  gameTime: number,
+): UpgradeCandidate => {
+  const resolved = pickFirmwareUpgradeTarget(vendor, gameTime);
+  if (resolved.kind === 'no-fix-yet') return { kind: 'no-fix-yet', service: FIRMWARE_PACKAGE };
+  const targetVersion = resolved.kind === 'target' ? resolved.version : currentVersion;
+  return { kind: 'target', service: FIRMWARE_PACKAGE, targetVersion };
+};
 
 const collectUpgradeCandidates = (
   machine: RemoteMachine,
@@ -190,10 +242,7 @@ const collectUpgradeCandidates = (
     if (serviceFilter !== undefined && port.service !== serviceFilter) continue;
     if (!isVulnerable(port.service, port.serviceVersion, gameTime)) continue;
     seen.add(port.service);
-    candidates.push({
-      service: port.service,
-      targetVersion: pickUpgradeTarget(port.service, gameTime),
-    });
+    candidates.push(resolveServiceCandidate(port.service, gameTime));
   }
 
   // Router firmware is treated like a package named `firmware`. It's a
@@ -206,17 +255,20 @@ const collectUpgradeCandidates = (
     machine.firmwareVersion &&
     findFirmwareCve(machine.firmwareVendor as FirmwareVendor, machine.firmwareVersion, gameTime)
   ) {
-    const target =
-      findLatestSafeFirmware(machine.firmwareVendor as FirmwareVendor, gameTime) ??
-      machine.firmwareVersion;
-    candidates.push({
-      service: FIRMWARE_PACKAGE,
-      targetVersion: target,
-    });
+    candidates.push(
+      resolveFirmwareCandidate(
+        machine.firmwareVendor as FirmwareVendor,
+        machine.firmwareVersion,
+        gameTime,
+      ),
+    );
   }
 
   return candidates;
 };
+
+const formatNoFixWarning = (service: string): string =>
+  `W: ${service} is vulnerable but no fix has been released (ETA ~${AVG_PATCH_DELAY_DAYS} day${AVG_PATCH_DELAY_DAYS === 1 ? '' : 's'})`;
 
 // Returns the set of packages currently installed on the machine. Includes
 // one entry per unique service across all ports, plus `firmware` if the
@@ -271,15 +323,21 @@ const handleUpgrade = (
     throw new Error(`E: Package '${serviceFilter}' is not installed on this machine`);
   }
 
-  const candidates = collectUpgradeCandidates(machine, serviceFilter, gameTime);
+  const allCandidates = collectUpgradeCandidates(machine, serviceFilter, gameTime);
+  const targets = allCandidates.filter(
+    (c): c is Extract<UpgradeCandidate, { kind: 'target' }> => c.kind === 'target',
+  );
+  const noFixYet = allCandidates.filter((c) => c.kind === 'no-fix-yet');
 
-  if (candidates.length === 0) {
-    return [
-      'Reading package lists... Done',
-      'Building dependency tree... Done',
-      'Calculating upgrade... Done',
-      '0 upgraded, 0 newly installed, 0 to remove.',
-    ].join('\n');
+  const prelude = [
+    'Reading package lists... Done',
+    'Building dependency tree... Done',
+    'Calculating upgrade... Done',
+  ];
+  const warnings = noFixYet.map((c) => formatNoFixWarning(c.service));
+
+  if (targets.length === 0) {
+    return [...prelude, ...warnings, '0 upgraded, 0 newly installed, 0 to remove.'].join('\n');
   }
 
   const token = createCancellationToken();
@@ -288,14 +346,13 @@ const handleUpgrade = (
     __type: 'async',
     start: (onLine, onComplete) => {
       const headerLines = [
-        'Reading package lists... Done',
-        'Building dependency tree... Done',
-        'Calculating upgrade... Done',
+        ...prelude,
+        ...warnings,
         'The following packages will be upgraded:',
-        `  ${candidates.map((c) => c.service).join(' ')}`,
-        `${candidates.length} upgraded, 0 newly installed, 0 to remove.`,
+        `  ${targets.map((c) => c.service).join(' ')}`,
+        `${targets.length} upgraded, 0 newly installed, 0 to remove.`,
       ];
-      const setupLines = candidates.flatMap((c) => [
+      const setupLines = targets.flatMap((c) => [
         `Get: ${c.service} ${c.targetVersion}`,
         `Setting up ${c.service} (${c.targetVersion}) ...`,
       ]);
@@ -311,7 +368,7 @@ const handleUpgrade = (
             // Read current /var/lib/dpkg/status, fold in all upgraded
             // services, then write the whole file back in one shot.
             const currentContent = readFile ? (readFile(DPKG_STATUS_PATH) ?? '') : '';
-            const updatedContent = candidates.reduce(
+            const updatedContent = targets.reduce(
               (content, candidate) =>
                 setDpkgVersion(content, candidate.service, candidate.targetVersion),
               currentContent,

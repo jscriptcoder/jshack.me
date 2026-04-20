@@ -122,14 +122,13 @@ export const buildTimeline = (
 };
 
 // Returns the newest procedurally-generated version whose CVE has not yet
-// been "published" at the given gameTime. apt upgrade uses this to pick
-// its upgrade target. The semantics: the returned version is "just about
-// to become vulnerable" — its CVE has the smallest publishedAt that's
-// still strictly greater than gameTime.
+// been "published" at the given gameTime AND whose release has occurred.
+// A fix (the next entry after a vulnerable one) is only released once the
+// patch delay has elapsed: `prev.publishedAt + prev.patchDelay <= gameTime`.
+// During the gap, no fix is available — the function returns undefined.
 //
-// Under the 1:1 invariant, upgrading to this version gives the player the
-// longest possible breathing room until the next forced upgrade (because
-// subsequent versions have even later publishedAt values).
+// apt upgrade uses this to pick its upgrade target; undefined signals that
+// the service is in its patch-delay gap and must be defended by other means.
 export const findLatestSafeVersion = (
   service: string,
   gameTime: number,
@@ -139,9 +138,12 @@ export const findLatestSafeVersion = (
   if (!template) return undefined;
 
   const timeline = buildTimeline(service, gameTime, timing);
-  for (const entry of timeline) {
-    if (entry.publishedAt > gameTime) return entry.version;
-  }
+  const i = timeline.findIndex((e) => e.publishedAt > gameTime);
+  if (i === -1) return undefined;
+  const entry = timeline[i]!;
+  if (i === 0) return entry.version;
+  const prev = timeline[i - 1]!;
+  if (prev.publishedAt + prev.patchDelay <= gameTime) return entry.version;
   return undefined;
 };
 

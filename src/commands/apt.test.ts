@@ -4,6 +4,8 @@ import type { AsyncOutput } from '../components/Terminal/types';
 import type { RemoteMachine } from '../network/types';
 import { createAptCommand } from './apt';
 import { buildTimelineFromTemplate, CVE_TIMING_CONFIG } from '../generation/timeline';
+import { findLatestSafeVersion } from '../generation/timeline/walker';
+import { serviceTemplates } from '../generation/pools/serviceTemplates';
 import { firmwareTemplates } from '../generation/pools/routerFirmware';
 
 const mkBinaryNode = (name: string): FileNode => ({
@@ -674,9 +676,10 @@ Version: OpenSSH 9.6
         vendor: 'mikrotik',
         version: vuln.version,
       });
+      // gameTime is past the patch-delay gap so the fix is released.
       const { context, fileContents } = createMockAptContext({
         currentMachine: machine,
-        gameTime: vuln.publishedAt,
+        gameTime: vuln.publishedAt + vuln.patchDelay,
       });
       const apt = createAptCommand(context);
       const result = apt.fn('upgrade');
@@ -740,7 +743,7 @@ Version: OpenSSH 9.6
       });
       const { context } = createMockAptContext({
         currentMachine: machine,
-        gameTime: vuln.publishedAt,
+        gameTime: vuln.publishedAt + vuln.patchDelay,
       });
       const apt = createAptCommand(context);
       const result = apt.fn('upgrade', 'firmware');
@@ -767,7 +770,7 @@ Version: OpenSSH 9.6
       );
       const { context, fileContents } = createMockAptContext({
         currentMachine: machine,
-        gameTime: vuln.publishedAt,
+        gameTime: vuln.publishedAt + vuln.patchDelay,
       });
       const apt = createAptCommand(context);
       const result = apt.fn('upgrade', 'firmware');
@@ -783,6 +786,155 @@ Version: OpenSSH 9.6
       expect(statusContent).toContain('Package: firmware');
       // http was NOT upgraded because the filter was 'firmware'
       expect(statusContent).not.toContain('Package: http');
+    });
+  });
+
+  describe('apt upgrade — patch delay', () => {
+    // Pin gameTime to the publishedAt of an http procedural entry. At that
+    // exact moment, the entry is vulnerable but its fix (the next entry) has
+    // not been released yet — we are inside the patch-delay gap.
+    const httpGapTime = (): number => {
+      const timeline = buildTimelineFromTemplate(
+        serviceTemplates.http,
+        'timeline:http',
+        500,
+        CVE_TIMING_CONFIG,
+      );
+      return timeline[3]!.publishedAt;
+    };
+
+    // Finds an http gap-time at which mysql still has a safe+released fix
+    // available. Used by the mixed-service test to guarantee one service is
+    // blocked by patch delay while another upgrades normally.
+    const findHttpGapWhereMysqlIsUpgradable = (): number => {
+      const timeline = buildTimelineFromTemplate(
+        serviceTemplates.http,
+        'timeline:http',
+        2000,
+        CVE_TIMING_CONFIG,
+      );
+      for (const entry of timeline.slice(1)) {
+        const t = entry.publishedAt;
+        if (findLatestSafeVersion('mysql', t, CVE_TIMING_CONFIG) !== undefined) {
+          return t;
+        }
+      }
+      throw new Error('No gameTime found where http is in-gap but mysql is upgradable');
+    };
+
+    it('emits a warning and does not upgrade a service in the patch-delay gap', () => {
+      const machine = mkMachine([{ port: 80, service: 'http', serviceVersion: 'Apache/2.4.49' }]);
+      const { context, fileContents } = createMockAptContext({
+        currentMachine: machine,
+        gameTime: httpGapTime(),
+      });
+      const apt = createAptCommand(context);
+      const result = apt.fn('upgrade');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+        vi.advanceTimersByTime(5000);
+      } else if (typeof result === 'string') {
+        lines.push(result);
+      }
+
+      const output = lines.join('\n');
+      expect(output).toMatch(/W: http is vulnerable but no fix has been released/);
+      expect(output).toMatch(/ETA ~\d+ days?/);
+      // No status file written — the vulnerable service was NOT upgraded.
+      expect(fileContents['/var/lib/dpkg/status']).toBeUndefined();
+    });
+
+    it('surfaces the patch-delay average as the ETA in the warning line', () => {
+      const machine = mkMachine([{ port: 80, service: 'http', serviceVersion: 'Apache/2.4.49' }]);
+      const { context } = createMockAptContext({
+        currentMachine: machine,
+        gameTime: httpGapTime(),
+      });
+      const apt = createAptCommand(context);
+      const result = apt.fn('upgrade');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+        vi.advanceTimersByTime(5000);
+      } else if (typeof result === 'string') {
+        lines.push(result);
+      }
+
+      const expectedEta = Math.round(
+        (CVE_TIMING_CONFIG.minPatchDelayDays + CVE_TIMING_CONFIG.maxPatchDelayDays) / 2,
+      );
+      expect(lines.join('\n')).toContain(`ETA ~${expectedEta} day`);
+    });
+
+    it('upgrades a service with a released fix while warning about an in-gap service', () => {
+      const gapTime = findHttpGapWhereMysqlIsUpgradable();
+      const machine = mkMachine([
+        { port: 80, service: 'http', serviceVersion: 'Apache/2.4.49' },
+        { port: 3306, service: 'mysql', serviceVersion: 'MySQL 5.5.23' },
+      ]);
+      const { context, fileContents } = createMockAptContext({
+        currentMachine: machine,
+        gameTime: gapTime,
+      });
+      const apt = createAptCommand(context);
+      const result = apt.fn('upgrade');
+
+      const lines: string[] = [];
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {},
+        );
+        vi.advanceTimersByTime(5000);
+      }
+
+      const output = lines.join('\n');
+      expect(output).toMatch(/W: http is vulnerable but no fix has been released/);
+
+      const statusContent = fileContents['/var/lib/dpkg/status'] ?? '';
+      expect(statusContent).toContain('Package: mysql');
+      expect(statusContent).not.toContain('Package: http');
+    });
+
+    it('upgrades normally once the patch delay has elapsed', () => {
+      // Shift gameTime past the patch-delay window so the fix is released.
+      const timeline = buildTimelineFromTemplate(
+        serviceTemplates.http,
+        'timeline:http',
+        500,
+        CVE_TIMING_CONFIG,
+      );
+      const vulnerable = timeline[3]!;
+      const afterGap = vulnerable.publishedAt + vulnerable.patchDelay;
+
+      const machine = mkMachine([{ port: 80, service: 'http', serviceVersion: 'Apache/2.4.49' }]);
+      const { context, fileContents } = createMockAptContext({
+        currentMachine: machine,
+        gameTime: afterGap,
+      });
+      const apt = createAptCommand(context);
+      const result = apt.fn('upgrade');
+
+      if (!isAsyncOutput(result)) throw new Error('expected async output');
+      const lines: string[] = [];
+      result.start(
+        (line) => lines.push(line),
+        () => {},
+      );
+      vi.advanceTimersByTime(5000);
+
+      expect(lines.join('\n')).not.toMatch(/no fix has been released/);
+      const statusContent = fileContents['/var/lib/dpkg/status'] ?? '';
+      expect(statusContent).toContain('Package: http');
     });
   });
 
