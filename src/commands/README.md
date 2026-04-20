@@ -85,19 +85,21 @@ Tools like hydra and gobuster use filesystem-based wordlists installed via `apt 
 
 The `apt` command has three subcommands: `list`, `install`, and `upgrade`.
 
-**`apt list` / `apt list -i`** — list available or installed packages.
+**`apt list` / `apt list -i` / `apt list --installed`** — list available or installed apt packages (binary tools).
+
+**`apt list -u` / `apt list --upgradable`** — list services on the current machine with per-service upgrade status. Three possible states per row: `[upgradable → <version>]` (fix released), `[vulnerable, no fix yet — ETA ~N days]` (inside the patch-delay window), `[up to date]` (no live CVE). Includes a `firmware` row on routers.
 
 **`apt install <pkg>`** — install a binary tool (nmap, hydra, etc.) into `/usr/bin/`. Requires root and network connectivity.
 
 **`apt install <pkg>=<version>`** — pin a specific version of a service or router firmware. Uses scp-style syntax for the package name (e.g., `apt install http=Apache/2.4.49`, `apt install 'firmware=MikroTik RouterOS 7.14.3'`). Validates the version exists in the procedural timeline or hand-authored CVE table. Requires root.
 
-**`apt upgrade`** — upgrade all vulnerable services on the current machine to the latest safe version. Reads and writes `/var/lib/dpkg/status`. Requires root. Requires WiFi when running on localhost.
+**`apt upgrade`** — upgrade all vulnerable services on the current machine to the latest safe version. Reads and writes `/var/lib/dpkg/status`. Requires root. Requires WiFi when running on localhost. Services in the patch-delay window emit `W: <service> is vulnerable but no fix has been released (ETA ~N days)` and are skipped — other services in the same call still upgrade normally.
 
 **`apt upgrade <service>`** — upgrade only the named service (e.g., `apt upgrade http`).
 
 **`apt upgrade firmware`** — upgrade router firmware to the latest safe version (router machines only).
 
-Upgrade targets are computed via `getLatestSafeVersion()` from the procedural timeline — the newest version whose CVE (if any) has `publishedAt > currentGameTime`.
+Upgrade targets are computed via `findLatestSafeVersion()` against the procedural timeline — the newest version whose CVE has not yet published AND whose release time (`prev.publishedAt + prev.patchDelay`) is `<= currentGameTime`. When the next version is still inside the patch-delay gap, the lookup returns `undefined` and `apt upgrade` reports "no fix yet."
 
 ## Daemon
 

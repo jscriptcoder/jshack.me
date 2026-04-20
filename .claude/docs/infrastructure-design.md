@@ -205,11 +205,12 @@ Full SNMP configs (SNMP-variant gateways and border routers) also include `ifAdd
 
 ## Procedural Version Timelines
 
-Each service has a `VersionTemplate` (prefix, separator, startTuple) in `pools/serviceTemplates.ts`. The walker in `timeline/walker.ts` bumps the tuple forward with weighted-random bump types (80% patch, 15% minor, 5% major) and randomized day-gaps (3-14 days per `CVE_TIMING_CONFIG`).
+Each service has a `VersionTemplate` (prefix, separator, startTuple) in `pools/serviceTemplates.ts`. The walker in `timeline/walker.ts` bumps the tuple forward with weighted-random bump types (80% patch, 15% minor, 5% major) and randomized day-gaps (3-14 days per `CVE_TIMING_CONFIG`). Each entry also carries a `patchDelay` drawn from `[minPatchDelayDays, maxPatchDelayDays]` via a side-PRNG — the number of days a fix waits after its predecessor's CVE drops.
 
 - **Deterministic**: seeded PRNG keyed on service/vendor name. Same game always produces the same timeline.
 - **Cadence**: ~43 CVEs/year/service. Across ~15 services, ~1 new CVE somewhere on the network every 13 hours.
-- **Two-layer lookup** (`vulnerabilityLookup.ts`): hand-authored historical CVEs (39 entries, `publishedAt=0`) checked first, then procedural walker entries.
+- **Patch delay**: after a CVE publishes, its fix is not immediately available — `findLatestSafeVersion` returns `undefined` until `prev.publishedAt + prev.patchDelay <= gameTime`. The config invariant `minSafeWindowDays > maxPatchDelayDays` (asserted at module load) guarantees every released fix has a positive safe window.
+- **Two-layer lookup** (`vulnerabilityLookup.ts`): hand-authored historical CVEs (39 entries, `publishedAt=0`) checked first, then procedural walker entries. Hand-authored CVEs have no patch delay — they are immediately fixable.
 - **Generic walker**: `buildTimelineFromTemplate(template, prngKey, upTo, timing)` is reused by both service and firmware timelines — no duplication.
 
 ## Router Firmware
