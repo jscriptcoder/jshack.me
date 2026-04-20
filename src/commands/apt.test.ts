@@ -454,6 +454,24 @@ describe('apt command', () => {
       const result = apt.fn('list', '--upgradable') as string;
       expect(result).not.toMatch(/^\s*firmware\s/m);
     });
+
+    it('emits a "no services" message on localhost (no current machine)', () => {
+      // On localhost getCurrentMachine returns undefined because localhost is
+      // not in the remote-machine list. The listing should still explain why
+      // it's empty rather than just printing a bare header.
+      const { context } = createMockAptContext({ gameTime: 0 });
+      const apt = createAptCommand(context);
+      const result = apt.fn('list', '--upgradable') as string;
+      expect(result).toMatch(/no services on this machine/i);
+    });
+
+    it('emits a "no services" message when the machine has no ports or firmware', () => {
+      const machine = mkMachine([]);
+      const { context } = createMockAptContext({ currentMachine: machine, gameTime: 0 });
+      const apt = createAptCommand(context);
+      const result = apt.fn('list', '--upgradable') as string;
+      expect(result).toMatch(/no services on this machine/i);
+    });
   });
 
   describe('extra files', () => {

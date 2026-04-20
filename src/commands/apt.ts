@@ -305,11 +305,16 @@ const firmwareUpgradableStatus = (
   return `[upgradable → ${v}]`;
 };
 
+const NO_SERVICES_MESSAGE = '  (no services on this machine)';
+
 const renderUpgradableList = (context: AptContext): string => {
   const machine = context.getCurrentMachine?.();
   const gameTime = context.getGameTime?.() ?? 0;
+  // Localhost has no RemoteMachine entry (it's the player's workstation, not
+  // a remote target), so getCurrentMachine returns undefined. We still emit
+  // a listing-shaped response so the player understands the command ran.
   if (!machine) {
-    return ['Listing upgradable packages...', ''].join('\n');
+    return ['Listing upgradable packages...', '', NO_SERVICES_MESSAGE].join('\n');
   }
 
   const seen = new Set<string>();
@@ -335,7 +340,9 @@ const renderUpgradableList = (context: AptContext): string => {
         ]
       : [];
 
-  return ['Listing upgradable packages...', '', ...serviceLines, ...firmwareLines].join('\n');
+  const rows = [...serviceLines, ...firmwareLines];
+  const body = rows.length > 0 ? rows : [NO_SERVICES_MESSAGE];
+  return ['Listing upgradable packages...', '', ...body].join('\n');
 };
 
 // Returns the set of packages currently installed on the machine. Includes
