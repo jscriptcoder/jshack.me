@@ -114,6 +114,36 @@ describe('buildTimeline', () => {
     const timeline = buildTimeline('http', 200, TIMING);
     timeline.forEach((entry, i) => expect(entry.index).toBe(i));
   });
+
+  it('each entry carries a patchDelay in [minPatchDelayDays, maxPatchDelayDays]', () => {
+    const timeline = buildTimeline('http', 500, TIMING);
+    for (const entry of timeline) {
+      expect(entry.patchDelay).toBeGreaterThanOrEqual(TIMING.minPatchDelayDays);
+      expect(entry.patchDelay).toBeLessThanOrEqual(TIMING.maxPatchDelayDays);
+    }
+  });
+
+  it('patchDelay sequence is deterministic for the same service', () => {
+    const a = buildTimeline('http', 500, TIMING);
+    const b = buildTimeline('http', 500, TIMING);
+    expect(a.map((e) => e.patchDelay)).toEqual(b.map((e) => e.patchDelay));
+  });
+
+  it('patchDelay varies across entries (not pinned to a single value)', () => {
+    // Over a long walk we expect to see more than one distinct value drawn
+    // from the [min, max] range — otherwise the randomness is degenerate.
+    const timeline = buildTimeline('http', 2000, TIMING);
+    const unique = new Set(timeline.map((e) => e.patchDelay));
+    expect(unique.size).toBeGreaterThan(1);
+  });
+
+  it('patchDelay sequence differs across services (seeded per prngKey)', () => {
+    // Like publishedAt sequences, patchDelay draws are seeded off the prngKey
+    // so different services get independent CVE patch-delay sequences.
+    const http = buildTimeline('http', 1000, TIMING);
+    const mysql = buildTimeline('mysql', 1000, TIMING);
+    expect(http.map((e) => e.patchDelay)).not.toEqual(mysql.map((e) => e.patchDelay));
+  });
 });
 
 describe('buildTimelineFromTemplate', () => {

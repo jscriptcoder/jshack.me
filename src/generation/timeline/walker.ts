@@ -15,11 +15,18 @@ export type GeneratedVersion = {
   readonly tuple: readonly number[];
   readonly index: number;
   readonly publishedAt: number;
+  // Days between this version's CVE publishing and the *next* version
+  // becoming available as an upgrade target. Drawn once per CVE from the
+  // configured [minPatchDelayDays, maxPatchDelayDays] range using a
+  // side-PRNG so the main walk's gap/bump stream stays stable.
+  readonly patchDelay: number;
 };
 
 export type TimelineTiming = {
   readonly minSafeWindowDays: number;
   readonly maxSafeWindowDays: number;
+  readonly minPatchDelayDays: number;
+  readonly maxPatchDelayDays: number;
 };
 
 // Weighted random version-bumping. 80% of new releases are patch bumps,
@@ -73,6 +80,9 @@ export const buildTimelineFromTemplate = (
   timing: TimelineTiming,
 ): readonly GeneratedVersion[] => {
   const prng = createPrng(prngKey);
+  // Side-PRNG for patch-delay draws. Keyed off the same prngKey but distinct,
+  // so adding patchDelay leaves the main walk's gap/bump stream untouched.
+  const patchDelayPrng = createPrng(`${prngKey}:patchDelay`);
   const result: GeneratedVersion[] = [];
   let tuple: readonly number[] = template.startTuple;
   let publishedAt = 0;
@@ -81,12 +91,14 @@ export const buildTimelineFromTemplate = (
   while (publishedAt <= upToPublishedAt && index < MAX_WALK_STEPS) {
     const gap = prng.nextInt(timing.minSafeWindowDays, timing.maxSafeWindowDays);
     publishedAt += gap;
+    const patchDelay = patchDelayPrng.nextInt(timing.minPatchDelayDays, timing.maxPatchDelayDays);
 
     result.push({
       version: formatVersion(template, tuple),
       tuple: [...tuple],
       index,
       publishedAt,
+      patchDelay,
     });
 
     tuple = bumpTuple(tuple, pickBumpType(prng));
