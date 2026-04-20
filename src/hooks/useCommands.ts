@@ -231,6 +231,13 @@ export const useCommands = (): UseCommandsResult => {
         readFile: (path: string) => readFile(path, 'root'),
         createFile,
         writeFile,
+        deleteFile: (path: string, userType) =>
+          deleteNodeFromMachine({
+            machineId: session.machine,
+            path,
+            cwd: '/',
+            userType,
+          }),
         getUserType: () => session.userType,
         isWifiConnected: () => wifiConnected,
         getGameTime,

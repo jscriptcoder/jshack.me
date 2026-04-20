@@ -42,6 +42,29 @@ export const findLibraryCve = (
   return vuln;
 };
 
+// Looks up a specific library version in the procedural timeline. Returns
+// true if the version is reachable within the install walk budget. Used by
+// `apt install <library>=<version>` to validate a pinned version. Mirrors
+// findPinnableFirmwareVersion.
+const INSTALL_WALK_BUDGET_DAYS = 730;
+
+export const findPinnableLibraryVersion = (
+  library: SystemLibrary,
+  libraryVersion: string,
+  gameTime: number,
+): boolean => {
+  const template = systemLibraryTemplates[library];
+  if (!template) return false;
+
+  const timeline = buildTimelineFromTemplate(
+    template,
+    `library:${library}`,
+    gameTime + INSTALL_WALK_BUDGET_DAYS,
+    CVE_TIMING_CONFIG,
+  );
+  return timeline.some((e) => e.version === libraryVersion);
+};
+
 // Returns the newest library version whose CVE has not yet been "published"
 // AND whose release has occurred (prev.publishedAt + prev.patchDelay <= gameTime).
 // Returns undefined during the patch-delay gap when no fix is yet released.

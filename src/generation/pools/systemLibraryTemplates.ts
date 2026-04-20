@@ -36,3 +36,20 @@ export const systemLibraryTemplates: Readonly<Record<SystemLibrary, VersionTempl
 export const SYSTEM_LIBRARIES: readonly SystemLibrary[] = Object.keys(
   systemLibraryTemplates,
 ) as readonly SystemLibrary[];
+
+// Thematic meta-packages. `apt upgrade auth-libs` upgrades every library in
+// the bundle in one call — same ergonomic as Debian's real meta-packages,
+// though the game's groups are coarser than upstream.
+export type LibraryMetaPackage = 'auth-libs' | 'crypto-libs' | 'system-libs' | 'data-libs';
+
+export const LIBRARY_META_PACKAGES: Readonly<Record<LibraryMetaPackage, readonly SystemLibrary[]>> =
+  {
+    'auth-libs': ['libpam', 'libcrypt'],
+    'crypto-libs': ['libssl'],
+    'system-libs': ['libsystemd', 'libreadline'],
+    'data-libs': ['libz', 'libxml2', 'libpcre'],
+  };
+
+export const LIBRARY_META_PACKAGE_NAMES: readonly LibraryMetaPackage[] = Object.keys(
+  LIBRARY_META_PACKAGES,
+) as readonly LibraryMetaPackage[];
