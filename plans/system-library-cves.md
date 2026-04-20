@@ -19,24 +19,56 @@ Today all CVEs target network-exposed services (service version on a port) and r
 - **Library file model:** each library is a file in `/lib/<libname>.so`, root-owned. Before a dependent command runs, the dispatcher verifies every linked `.so` exists; if not, emits the glibc-style error `<command>: error while loading shared libraries: <lib>.so: cannot open shared object file: No such file or directory`. `apt remove <library>` deletes the file and breaks dependents.
 - **Effect dispatch:** each command carries its own effect pool (`effectPicker.ts` pattern). When a library CVE triggers exploitation, the effect is rolled from the _command's_ pool, not the library's. One libpcre CVE produces `dir_list` via `ls`, `file_read` via `grep`, `file_read`/`dir_list` via `find`.
 - **`ldd` command** ships alongside the runtime check — flavour/debug utility showing each command's linked libraries and whether the `.so` is present.
-- **Command → library manifest:**
+- **Command → library manifest:** libraries are treated as _thematic capability groupings_, not strict real-world dependency charts. Same principle we already used mapping `ls` → `libpcre` (real `ls` just calls `getdents(2)` but thematically it does pattern-driven traversal). Under this lens, most "classic utilities" that would otherwise link only `libc` get a meaningful library home.
 
-  | Command     | Libraries           | Effect pool                                       |
-  | ----------- | ------------------- | ------------------------------------------------- |
-  | `su`        | libpam, libcrypt    | `shell_full { root }`, `password_reset`           |
-  | `systemctl` | libsystemd          | `shell_full`, `backdoor_port_open`, `script_exec` |
-  | `nano`      | libreadline         | `file_read`, `file_write`                         |
-  | `ls`        | libpcre             | `dir_list`                                        |
-  | `find`      | libpcre             | `file_read`, `dir_list`                           |
-  | `grep`      | libpcre             | `file_read`                                       |
-  | `apt`       | libz, libxml2       | `file_read`, `file_write`, `script_exec`          |
-  | `ssh`       | libssl, libreadline | `shell_full`, `shell_limited`, `script_exec`      |
-  | `scp`       | libssl              | `file_read`, `file_write`, `shell_limited`        |
-  | `curl`      | libssl              | `file_read`, `shell_limited`                      |
+  | Command     | Libraries           | Effect pool                                       | Notes                                                 |
+  | ----------- | ------------------- | ------------------------------------------------- | ----------------------------------------------------- |
+  | `su`        | libpam, libcrypt    | `shell_full { root }`, `password_reset`           | Real deps; classic privesc                            |
+  | `systemctl` | libsystemd          | `shell_full`, `backdoor_port_open`, `script_exec` | Real deps                                             |
+  | `reboot`    | libsystemd          | `shell_full`, `script_exec`                       | Real dep (modern systemd-based systems)               |
+  | `kill`      | libsystemd          | `shell_full`                                      | Thematic (process hijack as target user)              |
+  | `nano`      | libreadline         | `file_read`, `file_write`                         | Real dep                                              |
+  | `ls`        | libpcre             | `dir_list`                                        | Thematic (pattern traversal)                          |
+  | `find`      | libpcre             | `file_read`, `dir_list`                           | Real-ish (find uses regex)                            |
+  | `grep`      | libpcre             | `file_read`                                       | Real dep                                              |
+  | `cat`       | libpcre             | `file_read`                                       | Thematic (content reader)                             |
+  | `strings`   | libpcre             | `file_read`                                       | Thematic (pattern extraction from binaries)           |
+  | `rm`        | libpcre             | `file_write`                                      | Thematic (glob-based deletion; file_write semantics)  |
+  | `chmod`     | libpcre             | `file_write`                                      | Thematic (pattern target + permission write)          |
+  | `ps`        | libpcre             | `file_read`                                       | Thematic (/proc pattern read; exposes process memory) |
+  | `apt`       | libz, libxml2       | `file_read`, `file_write`, `script_exec`          | Real-ish (package metadata XML + compressed payloads) |
+  | `ssh`       | libssl, libreadline | `shell_full`, `shell_limited`, `script_exec`      | Real deps                                             |
+  | `scp`       | libssl              | `file_read`, `file_write`, `shell_limited`        | Real dep                                              |
+  | `curl`      | libssl              | `file_read`, `shell_limited`                      | Real dep                                              |
 
-  Commands not in this table (`cat`, `strings`, `rm`, `chmod`, `mkdir`, `echo`, `ping`, `ifconfig`, `nmcli`, `man`, `reboot`, `ps`, `kill`, etc.) link only libc in reality and are left unmodelled in v1 — they still run, they just aren't attack surface until libc joins later.
+  Commands in `SYSTEM_UTILITY_NAMES` / `SBIN_UTILITY_NAMES` NOT in this table: `mkdir`, `echo`, `man`, `ping`, `ifconfig`, `nmcli`, `sshd`, `vsftpd`. `sshd`/`vsftpd` are daemons (CVEs already flow through the service model). The others (`mkdir`, `echo`, `man`, `ping`, `ifconfig`, `nmcli`) have weaker thematic fits and are left unmodelled in v1 — they still run, they just aren't attack surface. Can be added later if playtesting shows a gap.
 
-- **All 8 effects covered:** `shell_limited` (libssl, libreadline), `shell_full` (libpam, libsystemd, libssl), `file_read` (libpcre, libreadline, libxml2, libssl, libz), `dir_list` (libpcre), `file_write` (libreadline, libxml2, libssl), `password_reset` (libpam + libcrypt), `backdoor_port_open` (libsystemd), `script_exec` (libsystemd, libxml2, libreadline).
+- **All 8 effects covered (producer → command exploit path):**
+
+  | Effect               | Producing library | Commands that surface it     |
+  | -------------------- | ----------------- | ---------------------------- |
+  | `shell_limited`      | libssl            | ssh, scp, curl               |
+  | `shell_limited`      | libreadline       | ssh, nano                    |
+  | `shell_full`         | libpam            | su                           |
+  | `shell_full`         | libsystemd        | systemctl, reboot, kill      |
+  | `shell_full`         | libssl            | ssh                          |
+  | `file_read`          | libpcre           | grep, find, cat, strings, ps |
+  | `file_read`          | libreadline       | nano                         |
+  | `file_read`          | libssl            | scp, curl                    |
+  | `file_read`          | libxml2           | apt                          |
+  | `file_read`          | libz              | apt                          |
+  | `dir_list`           | libpcre           | ls, find                     |
+  | `file_write`         | libpcre           | rm, chmod                    |
+  | `file_write`         | libreadline       | nano                         |
+  | `file_write`         | libssl            | scp                          |
+  | `file_write`         | libxml2           | apt                          |
+  | `password_reset`     | libpam + libcrypt | su                           |
+  | `backdoor_port_open` | libsystemd        | systemctl                    |
+  | `script_exec`        | libsystemd        | systemctl, reboot            |
+  | `script_exec`        | libreadline       | ssh                          |
+  | `script_exec`        | libxml2           | apt                          |
+
+  A libpcre CVE now reaches 8 commands (ls, find, grep, cat, strings, ps, rm, chmod — patchable via one `apt upgrade data-libs`). A libsystemd CVE reaches 3 (systemctl, reboot, kill). This is the "one library patch heals many" dynamic the architecture was designed for.
 
 ## Acceptance Criteria
 
