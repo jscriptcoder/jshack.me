@@ -87,7 +87,7 @@ The `apt` command has three subcommands: `list`, `install`, and `upgrade`.
 
 **`apt list` / `apt list -i` / `apt list --installed`** — list available or installed apt packages (binary tools).
 
-**`apt list -u` / `apt list --upgradable`** — list services on the current machine with per-service upgrade status. Three possible states per row: `[upgradable → <version>]` (fix released), `[vulnerable, no fix yet — ETA ~N days]` (inside the patch-delay window), `[up to date]` (no live CVE). Includes a `firmware` row on routers.
+**`apt list -u` / `apt list --upgradable`** — list every upgradable package on the current machine: services (from open ports), router firmware, the 8 system libraries, and the 4 library meta-packages (`auth-libs`, `crypto-libs`, `system-libs`, `data-libs`). Each row shows one of three states: `[upgradable → <version>]` (fix released), `[vulnerable, no fix yet — ETA ~N days]` (inside the patch-delay window), `[up to date]` (no live CVE). Meta-package rows aggregate children — worst status wins.
 
 **`apt install <pkg>`** — install a binary tool (nmap, hydra, etc.) into `/usr/bin/`. Requires root and network connectivity.
 
@@ -99,7 +99,29 @@ The `apt` command has three subcommands: `list`, `install`, and `upgrade`.
 
 **`apt upgrade firmware`** — upgrade router firmware to the latest safe version (router machines only).
 
-Upgrade targets are computed via `findLatestSafeVersion()` against the procedural timeline — the newest version whose CVE has not yet published AND whose release time (`prev.publishedAt + prev.patchDelay`) is `<= currentGameTime`. When the next version is still inside the patch-delay gap, the lookup returns `undefined` and `apt upgrade` reports "no fix yet."
+**`apt upgrade <library>`** — upgrade one of the 8 system libraries (e.g., `apt upgrade libpam`). Uses `findLatestSafeLibrary()` with full patch-delay semantics.
+
+**`apt upgrade <meta-package>`** — expand to the bundle's libraries and upgrade each (e.g., `apt upgrade auth-libs` upgrades libpam + libcrypt in one call). Meta-packages: `auth-libs`, `crypto-libs`, `system-libs`, `data-libs`.
+
+**`apt install <library>=<version>`** — pin a specific library version. Validates via `findPinnableLibraryVersion()`. Lets players deliberately downgrade (useful for matching a known-good configuration) or install a specific future version they've discovered.
+
+**`apt remove <library>`** — delete `/lib/<lib>.so` and strip the library's dpkg entry. Every command that links the removed library now fails its runtime dependency check with the canonical glibc dynamic-linker error (`<command>: error while loading shared libraries: <lib>.so: cannot open shared object file: No such file or directory`). System libraries only in v1 — service/firmware removal isn't meaningful in the current model.
+
+Upgrade targets are computed via `findLatestSafeVersion()` / `findLatestSafeFirmware()` / `findLatestSafeLibrary()` against the procedural timeline — the newest version whose CVE has not yet published AND whose release time (`prev.publishedAt + prev.patchDelay`) is `<= currentGameTime`. When the next version is still inside the patch-delay gap, the lookup returns `undefined` and `apt upgrade` reports "no fix yet."
+
+### ldd (shared library inspector)
+
+**`ldd <command>`** — prints each library a command links, its resolved `/lib/<lib>.so` path, and a stable fake load address (ASLR-style hex). Missing library files show as `not found` — the same signal real Linux ldd gives when a shared object can't be resolved. Cheap self-audit tool: run `ldd /bin/su` to verify libpam and libcrypt are both present, or `ldd` anything to trace why a command refuses to start. Universally runnable (no root needed, matching real ldd).
+
+### msfconsole --local (library-CVE privilege escalation)
+
+**`msfconsole --local <command> [arg]`** — local exploitation path. Instead of a remote `<host> <port>` target, resolves the current machine's `/var/lib/dpkg/status` to find library versions, checks each library the command links (via `libraryDeps` manifest) for a live CVE, and rolls an effect from the command's effect pool (`systemCommandEffects.ts`). Reuses the same effect dispatch as network exploits — `shell_full` opens an exploit shell, `file_read` reads a target file, `backdoor_port_open` plants a listener, etc.
+
+- `msfconsole --local su` → typically `shell_full { tier: 'root' }` via libpam / libcrypt
+- `msfconsole --local ls /etc/shadow` → `dir_list` or `file_read` via libpcre
+- `msfconsole --local systemctl` → `shell_full`, `backdoor_port_open`, or `script_exec` via libsystemd
+
+Real Metasploit Framework uses per-CVE local modules (`use exploit/linux/local/...`) with a session requirement. The `--local` flag is the game's simplification, consistent with the existing "msfconsole = unified exploit verb" abstraction.
 
 ## Daemon
 

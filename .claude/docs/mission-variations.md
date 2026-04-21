@@ -432,6 +432,16 @@ Invariant: `minSafeWindowDays > maxPatchDelayDays` (asserted at module load) gua
 
 Hand-authored CVEs (above) have no patch delay — they are immediately fixable by design (they anchor day-0 exploit variety).
 
+The walker is reused by three different CVE pools:
+
+| Pool             | Templates                                                                                                                   | Exploit path                                                                                |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Services         | `pools/serviceTemplates.ts` — 20 services (http, ssh, mysql, redis, smtp, mqtt, etc.)                                       | `msfconsole <ip> <port>` — network exploit, effect rolled per-service                       |
+| Router firmware  | `pools/routerFirmware.ts` — 6 vendors (Cisco, MikroTik, DD-WRT, OpenWRT, pfSense, EdgeOS)                                   | `msfconsole <router-ip> <port>` via firmware CVE fallback in `findExploitableCve`           |
+| System libraries | `pools/systemLibraryTemplates.ts` — 8 libraries (libpam, libcrypt, libsystemd, libreadline, libssl, libz, libxml2, libpcre) | `msfconsole --local <command>` — library CVE with effect rolled from the command's own pool |
+
+Meta-packages group libraries for upgrade ergonomics: `auth-libs` (libpam + libcrypt), `crypto-libs` (libssl), `system-libs` (libsystemd + libreadline), `data-libs` (libz + libxml2 + libpcre). A single `apt upgrade auth-libs` patches every library in the bundle.
+
 ## Objective Types (14)
 
 | Type             | Description                                                    | Completion                             |

@@ -32,6 +32,7 @@ Start with `help` to see available commands. Good luck, hacker.
 - **Redis Service** - ~35% of database machines run Redis on port 6379; connect via `rediscli`, query key-value data, brute-force passwords with `hydra`
 - **Defense Treadmill** - Patch vulnerable services with `apt upgrade`. CVEs publish over real game time (~one new CVE every 13 hours across the network). When a CVE drops there's a 1–2 day patch-delay window where no fix exists yet — defend via `iptables`, `systemctl`, permissions, etc. Inspect per-service status with `apt list --upgradable` (or `-u`). Neglecting upgrades means re-exploitation
 - **Router Firmware** - Routers have vendor-stamped firmware (Cisco, MikroTik, DD-WRT, OpenWRT, pfSense, EdgeOS) that treadmills alongside services. Exploitable via `msfconsole`, patchable via `apt upgrade firmware`
+- **System Library CVEs** - 8 shared libraries (libpam, libcrypt, libsystemd, libreadline, libssl, libz, libxml2, libpcre) live in `/lib/` and back pre-installed commands. A CVE on a linked library makes the command locally exploitable: `msfconsole --local su`, `msfconsole --local ls`, etc. — the library carries the vulnerability, the command carries the effect. Patch via `apt upgrade <library>` or meta-package bundles (`apt upgrade auth-libs`). Inspect linkage with `ldd <command>`. Deleting a library via `apt remove` breaks every dependent command with the real glibc dynamic-linker error
 - **Typed Exploit Effects** - Each CVE produces one of 8 outcomes: full shell (tiered), restricted shell, file read, directory listing, file write, password reset, backdoor port, or script execution. The effect depends on the service being exploited
 - **Version Pinning** - `apt install http=Apache/2.4.49` pins a service to a specific version. Works for both services and router firmware. Deliberate downgrades allowed
 - **Connection Logging** - SSH, FTP, SCP, su, Redis, HTTP, msfconsole exploits, nc connects, and nmap scans are logged to target machine log files in realistic Linux formats (`auth.log`, `vsftpd.log`, `redis.log`, `access.log`, `syslog`)
@@ -130,12 +131,21 @@ msfconsole 10.0.0.5 21 /etc/passwd                        # file_read: dump a ta
 msfconsole 10.0.0.5 21 /root/shell.php:/var/www/html/s.php # file_write: upload
 msfconsole 10.0.0.5 6379 /root/payloads/dump.js           # script_exec: run a script
 
-# Patch vulnerable services
-apt list -u                      # Per-service upgrade status on this machine
-apt upgrade                      # Upgrade all vulnerable services + firmware
+# Patch vulnerable services + libraries
+apt list -u                      # Per-package upgrade status (services, firmware, libraries, meta-packages)
+apt upgrade                      # Upgrade everything vulnerable
 apt upgrade http                 # Upgrade only the http service
 apt upgrade firmware             # Upgrade only router firmware
-apt install http=Apache/2.4.60   # Pin a specific version
+apt upgrade libpam               # Upgrade a single library
+apt upgrade auth-libs            # Upgrade a meta-package (libpam + libcrypt)
+apt install http=Apache/2.4.60   # Pin a specific service version
+apt install libpam=libpam 1.5.3  # Pin a specific library version
+apt remove libpam                # Delete /lib/libpam.so — breaks every command linking it
+
+# Local privilege escalation (library CVEs)
+msfconsole --local su            # Exploit a linked library via su → typically shell_full as root
+msfconsole --local ls /etc/shadow # Exploit libpcre via ls → dir_list / file_read
+ldd /bin/su                      # Inspect which libraries a command links
 ```
 
 ### Scripting (`.js` files, executed via `node`)
