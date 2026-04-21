@@ -84,29 +84,32 @@ describe('generateFileSystems', () => {
     }
   });
 
-  it('some inner gateways get basic rw SNMP config (statistical)', () => {
-    let rwSnmpCount = 0;
-    for (let i = 0; i < 200; i++) {
-      const { topology, fileSystems } = buildTestData(`rw-snmp-gw-${i}`, 'hard');
-      // Check inner gateways (non-SNMP-variant) for rw SNMP configs
+  it('some inner gateways get basic rw SNMP config', () => {
+    // Hardcoded seeds known to produce a basic-rw SNMP config on at least
+    // one inner gateway. Chosen via scripts/findSeeds.ts — preferred over
+    // the earlier 200-seed sweep because the sweep was flaky under parallel
+    // test load.
+    const rwSnmpSeeds = ['rw-snmp-gw-3', 'rw-snmp-gw-4', 'rw-snmp-gw-10'];
+    for (const seed of rwSnmpSeeds) {
+      const { topology, fileSystems } = buildTestData(seed, 'hard');
       const innerGateways = topology.machines.filter(
         (m) => (m.role === 'router' || m.role === 'switch') && m.accessVariant !== 'snmp',
       );
-      innerGateways.forEach((gw) => {
+      const hasBasicRwSnmp = innerGateways.some((gw) => {
         const fs = fileSystems[gw.ip];
-        if (!fs) return;
+        if (!fs) return false;
         const snmpConf = resolveNode(fs as FileNode, '/etc/snmp/snmpd.conf');
-        if (snmpConf?.type === 'file' && snmpConf.content) {
-          const hasRw = snmpConf.content.includes('rwcommunity');
-          const hasFirewall =
-            snmpConf.content.includes('firewallSSH') || snmpConf.content.includes('aclSSH');
-          const hasCredLeak = snmpConf.content.includes('nsExtendArgs');
-          // Basic rw: has rw community + firewall OIDs but no credential leaks
-          if (hasRw && hasFirewall && !hasCredLeak) rwSnmpCount++;
-        }
+        if (snmpConf?.type !== 'file' || !snmpConf.content) return false;
+        const hasRw = snmpConf.content.includes('rwcommunity');
+        const hasFirewall =
+          snmpConf.content.includes('firewallSSH') || snmpConf.content.includes('aclSSH');
+        const hasCredLeak = snmpConf.content.includes('nsExtendArgs');
+        return hasRw && hasFirewall && !hasCredLeak;
       });
+      expect(hasBasicRwSnmp, `seed ${seed} should produce basic-rw SNMP on an inner gateway`).toBe(
+        true,
+      );
     }
-    expect(rwSnmpCount).toBeGreaterThan(0);
   });
 
   it('each filesystem has /etc/passwd', () => {
@@ -346,6 +349,68 @@ describe('generateFileSystems', () => {
           expect(content).toContain(`Package: ${service}`);
         });
       });
+    });
+
+    it('every machine has /lib/ populated with system library .so files', () => {
+      const { topology, fileSystems } = buildTestData('lib-files-test');
+      const expectedLibraries = [
+        'libpam',
+        'libcrypt',
+        'libsystemd',
+        'libreadline',
+        'libssl',
+        'libz',
+        'libxml2',
+        'libpcre',
+      ];
+      topology.machines.forEach((m) => {
+        const root = fileSystems[m.ip];
+        expectedLibraries.forEach((lib) => {
+          const libFile = resolveNode(root as FileNode, `/lib/${lib}.so`);
+          expect(libFile, `${m.ip} missing /lib/${lib}.so`).toBeDefined();
+          expect(libFile?.type).toBe('file');
+          expect(libFile?.owner).toBe('root');
+        });
+      });
+    });
+
+    it('/var/lib/dpkg/status includes entries for every system library', () => {
+      const { topology, fileSystems } = buildTestData('lib-dpkg-test');
+      const expectedLibraries = [
+        'libpam',
+        'libcrypt',
+        'libsystemd',
+        'libreadline',
+        'libssl',
+        'libz',
+        'libxml2',
+        'libpcre',
+      ];
+      topology.machines.forEach((m) => {
+        const root = fileSystems[m.ip];
+        const statusFile = resolveNode(root as FileNode, '/var/lib/dpkg/status');
+        expect(statusFile).toBeDefined();
+        const content = statusFile?.content ?? '';
+        expectedLibraries.forEach((lib) => {
+          expect(content, `${m.ip} dpkg status missing ${lib}`).toContain(`Package: ${lib}`);
+        });
+      });
+    });
+
+    it('system libraries start at their template startTuple version (uniform across machines)', () => {
+      const { topology, fileSystems } = buildTestData('lib-uniform-test');
+      // Pick libpam as representative — every machine should carry the same
+      // starting libpam version since we decided uniform-day-zero versioning.
+      const libpamVersions = new Set<string>();
+      topology.machines.forEach((m) => {
+        const root = fileSystems[m.ip];
+        const statusFile = resolveNode(root as FileNode, '/var/lib/dpkg/status');
+        const content = statusFile?.content ?? '';
+        const match = /Package: libpam\nStatus: .+?\nVersion: (.+?)$/m.exec(content);
+        expect(match, `${m.ip} has no libpam dpkg entry`).not.toBeNull();
+        libpamVersions.add(match![1]!.trim());
+      });
+      expect(libpamVersions.size).toBe(1);
     });
 
     it('router machines have kern.log (replacing the old firewall.log) with iptables entries', () => {

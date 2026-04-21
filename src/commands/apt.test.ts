@@ -7,6 +7,9 @@ import { buildTimelineFromTemplate, CVE_TIMING_CONFIG } from '../generation/time
 import { findLatestSafeVersion } from '../generation/timeline/walker';
 import { serviceTemplates } from '../generation/pools/serviceTemplates';
 import { firmwareTemplates } from '../generation/pools/routerFirmware';
+import { systemLibraryTemplates } from '../generation/pools/systemLibraryTemplates';
+import { formatVersion } from '../generation/pools/serviceTemplates';
+import { DPKG_STATUS_PATH, buildInitialDpkgStatus } from '../network/dpkgStatus';
 
 const mkBinaryNode = (name: string): FileNode => ({
   name,
@@ -83,6 +86,13 @@ const createMockAptContext = (config: MockAptConfig = {}) => {
       writeFile: (path: string, content: string, _userType: string) => {
         writtenFiles.push({ path, content });
         fileContents[path] = content;
+        return { allowed: true };
+      },
+      deleteFile: (path: string, _userType: string) => {
+        if (fileContents[path] === undefined) {
+          return { allowed: false, error: `${path}: No such file or directory` };
+        }
+        delete fileContents[path];
         return { allowed: true };
       },
       getUserType: () => userType,
@@ -465,12 +475,16 @@ describe('apt command', () => {
       expect(result).toMatch(/no services on this machine/i);
     });
 
-    it('emits a "no services" message when the machine has no ports or firmware', () => {
+    it('renders system library + meta-package rows even when the machine has no ports or firmware', () => {
+      // Library rows now populate the listing unconditionally, so a bare
+      // machine no longer hits the "no services" fallback — it still has
+      // 8 libraries + 4 meta-packages reported.
       const machine = mkMachine([]);
       const { context } = createMockAptContext({ currentMachine: machine, gameTime: 0 });
       const apt = createAptCommand(context);
       const result = apt.fn('list', '--upgradable') as string;
-      expect(result).toMatch(/no services on this machine/i);
+      expect(result).toMatch(/libpam/);
+      expect(result).toMatch(/auth-libs/);
     });
   });
 
@@ -573,7 +587,7 @@ describe('apt command', () => {
     it('throws for unknown subcommand', () => {
       const { context } = createMockAptContext();
       const apt = createAptCommand(context);
-      expect(() => apt.fn('remove')).toThrow("Invalid operation 'remove'");
+      expect(() => apt.fn('bogus-subcommand')).toThrow("Invalid operation 'bogus-subcommand'");
     });
   });
 
@@ -949,7 +963,11 @@ Version: OpenSSH 9.6
         gameTime: httpGapTime(),
       });
       const apt = createAptCommand(context);
-      const result = apt.fn('upgrade');
+      // Scope to http — a bare `apt upgrade` would also consider libraries,
+      // which may be independently upgradable at this gameTime and muddy
+      // the assertion. This test is specifically about http's patch-delay
+      // behaviour.
+      const result = apt.fn('upgrade', 'http');
 
       const lines: string[] = [];
       if (isAsyncOutput(result)) {
@@ -1052,7 +1070,10 @@ Version: OpenSSH 9.6
       );
       vi.advanceTimersByTime(5000);
 
-      expect(lines.join('\n')).not.toMatch(/no fix has been released/);
+      // Scope the no-warning check to http specifically — other libraries on
+      // the machine may independently be inside their own patch-delay gaps
+      // at this gameTime, which shouldn't fail a test about http.
+      expect(lines.join('\n')).not.toMatch(/W: http is vulnerable but no fix has been released/);
       const statusContent = fileContents['/var/lib/dpkg/status'] ?? '';
       expect(statusContent).toContain('Package: http');
     });
@@ -1162,5 +1183,192 @@ Version: OpenSSH 9.6
 
       expect(createdFiles.some((f) => f.path === '/usr/bin/nmap')).toBe(true);
     });
+  });
+
+  describe('apt — system library operations', () => {
+    // Walk libpam's procedural timeline to find a gameTime where the
+    // startTuple version has a live CVE. At that moment `apt upgrade libpam`
+    // on a machine still running the startTuple should bump it to the next
+    // released version.
+    const libpamFirstCve = () => {
+      const timeline = buildTimelineFromTemplate(
+        systemLibraryTemplates.libpam,
+        'library:libpam',
+        500,
+        CVE_TIMING_CONFIG,
+      );
+      return timeline[0]!;
+    };
+
+    const libpamStartVersion = () =>
+      formatVersion(systemLibraryTemplates.libpam, systemLibraryTemplates.libpam.startTuple);
+    const libcryptStartVersion = () =>
+      formatVersion(systemLibraryTemplates.libcrypt, systemLibraryTemplates.libcrypt.startTuple);
+
+    const initialDpkgStatus = () => {
+      const libraryVersions: Record<string, string> = {};
+      for (const [lib, tpl] of Object.entries(systemLibraryTemplates)) {
+        libraryVersions[lib] = formatVersion(tpl, tpl.startTuple);
+      }
+      return buildInitialDpkgStatus([], undefined, libraryVersions);
+    };
+
+    // Machine with a small port set — library-specific tests shouldn't depend
+    // on particular service versions.
+    const mkLibMachine = (): RemoteMachine =>
+      mkMachine([{ port: 22, service: 'ssh', serviceVersion: 'OpenSSH 9.9.9' }]);
+
+    it('apt upgrade libpam bumps the library version in /var/lib/dpkg/status', () => {
+      const entry = libpamFirstCve();
+      const machine = mkLibMachine();
+      const { context, fileContents } = createMockAptContext({
+        currentMachine: machine,
+        gameTime: entry.publishedAt + entry.patchDelay,
+        initialFiles: { [DPKG_STATUS_PATH]: initialDpkgStatus() },
+      });
+      const apt = createAptCommand(context);
+      const result = apt.fn('upgrade', 'libpam');
+
+      if (!isAsyncOutput(result)) throw new Error('expected async output');
+      result.start(
+        () => {},
+        () => {},
+      );
+      vi.advanceTimersByTime(5000);
+
+      const statusContent = fileContents[DPKG_STATUS_PATH] ?? '';
+      const pamMatch = /^Package: libpam\nStatus: .+?\nVersion: (.+?)$/m.exec(statusContent);
+      expect(pamMatch, 'libpam dpkg entry').not.toBeNull();
+      // New version must differ from the starting (vulnerable) one
+      expect(pamMatch?.[1]?.trim()).not.toBe(libpamStartVersion());
+    });
+
+    it('apt upgrade auth-libs upgrades both libpam and libcrypt', () => {
+      const entry = libpamFirstCve();
+      const machine = mkLibMachine();
+      const { context, fileContents } = createMockAptContext({
+        currentMachine: machine,
+        gameTime: entry.publishedAt + entry.patchDelay,
+        initialFiles: { [DPKG_STATUS_PATH]: initialDpkgStatus() },
+      });
+      const apt = createAptCommand(context);
+      const result = apt.fn('upgrade', 'auth-libs');
+
+      if (!isAsyncOutput(result)) throw new Error('expected async output');
+      result.start(
+        () => {},
+        () => {},
+      );
+      vi.advanceTimersByTime(5000);
+
+      const statusContent = fileContents[DPKG_STATUS_PATH] ?? '';
+      const pamMatch = /^Package: libpam\nStatus: .+?\nVersion: (.+?)$/m.exec(statusContent);
+      expect(pamMatch?.[1]?.trim(), 'libpam').not.toBe(libpamStartVersion());
+      // libcrypt's timeline is different from libpam's — at the libpam gap
+      // window, libcrypt might or might not be vulnerable. The test only
+      // asserts that libpam DID advance (auth-libs includes libpam).
+    });
+
+    it('apt list -u includes a row per system library', () => {
+      const machine = mkLibMachine();
+      const { context } = createMockAptContext({
+        currentMachine: machine,
+        gameTime: 0,
+        initialFiles: { [DPKG_STATUS_PATH]: initialDpkgStatus() },
+      });
+      const apt = createAptCommand(context);
+      const result = apt.fn('list', '-u') as string;
+      expect(result).toMatch(/^\s*libpam\s/m);
+      expect(result).toMatch(/^\s*libsystemd\s/m);
+      expect(result).toMatch(/^\s*libssl\s/m);
+    });
+
+    it('apt list -u includes meta-package rows (auth-libs, crypto-libs, system-libs, data-libs)', () => {
+      const machine = mkLibMachine();
+      const { context } = createMockAptContext({
+        currentMachine: machine,
+        gameTime: 0,
+        initialFiles: { [DPKG_STATUS_PATH]: initialDpkgStatus() },
+      });
+      const apt = createAptCommand(context);
+      const result = apt.fn('list', '-u') as string;
+      expect(result).toMatch(/^\s*auth-libs\s/m);
+      expect(result).toMatch(/^\s*crypto-libs\s/m);
+      expect(result).toMatch(/^\s*system-libs\s/m);
+      expect(result).toMatch(/^\s*data-libs\s/m);
+    });
+
+    it('apt install libpam=<pinnable version> writes that version to dpkg status', () => {
+      const machine = mkLibMachine();
+      // Pick a reachable procedural version (entry 5) to pin.
+      const timeline = buildTimelineFromTemplate(
+        systemLibraryTemplates.libpam,
+        'library:libpam',
+        500,
+        CVE_TIMING_CONFIG,
+      );
+      const pinned = timeline[5]!.version;
+      const { context, fileContents } = createMockAptContext({
+        currentMachine: machine,
+        gameTime: 0,
+        initialFiles: { [DPKG_STATUS_PATH]: initialDpkgStatus() },
+      });
+      const apt = createAptCommand(context);
+      const result = apt.fn('install', `libpam=${pinned}`);
+
+      if (!isAsyncOutput(result)) throw new Error('expected async output');
+      result.start(
+        () => {},
+        () => {},
+      );
+      vi.advanceTimersByTime(5000);
+
+      const statusContent = fileContents[DPKG_STATUS_PATH] ?? '';
+      const pamMatch = /^Package: libpam\nStatus: .+?\nVersion: (.+?)$/m.exec(statusContent);
+      expect(pamMatch?.[1]?.trim()).toBe(pinned);
+    });
+
+    it('apt install libpam=<unknown version> rejects the install', () => {
+      const machine = mkLibMachine();
+      const { context } = createMockAptContext({
+        currentMachine: machine,
+        gameTime: 0,
+        initialFiles: { [DPKG_STATUS_PATH]: initialDpkgStatus() },
+      });
+      const apt = createAptCommand(context);
+      expect(() => apt.fn('install', 'libpam=libpam 999.999.999')).toThrow(
+        /no installation candidate/i,
+      );
+    });
+
+    it('apt remove libpam deletes /lib/libpam.so and the dpkg entry', () => {
+      const machine = mkLibMachine();
+      const { context, fileContents } = createMockAptContext({
+        currentMachine: machine,
+        gameTime: 0,
+        initialFiles: {
+          [DPKG_STATUS_PATH]: initialDpkgStatus(),
+          '/lib/libpam.so': '\x7fELF',
+        },
+      });
+      const apt = createAptCommand(context);
+      const result = apt.fn('remove', 'libpam');
+
+      if (isAsyncOutput(result)) {
+        result.start(
+          () => {},
+          () => {},
+        );
+        vi.advanceTimersByTime(5000);
+      }
+
+      expect(fileContents['/lib/libpam.so']).toBeUndefined();
+      const statusContent = fileContents[DPKG_STATUS_PATH] ?? '';
+      expect(statusContent).not.toMatch(/^Package: libpam$/m);
+    });
+
+    // Silence unused-import warning from the library-start-version helper
+    // during the initial RED failure (some tests may not reach that code).
+    void libcryptStartVersion;
   });
 });

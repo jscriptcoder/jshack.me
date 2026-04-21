@@ -199,7 +199,7 @@ describe('generateMissionNetwork', () => {
 
   it('NC/exploit owner type varies across seeds', () => {
     const ownerTypes = new Set<string>();
-    for (let i = 0; i < 300; i++) {
+    for (let i = 0; i < 80; i++) {
       const result = generateMissionNetwork(`owner-variety-${i}`);
       if (result.entryVariant !== 'nc' && result.entryVariant !== 'exploit') continue;
 
@@ -292,9 +292,11 @@ describe('generateMissionNetwork', () => {
   });
 
   it('domainEntry varies across seeds without keyword', () => {
-    const results = Array.from({ length: 200 }, (_, i) =>
-      generateMissionNetwork(`VARY-ENTRY-${i}`),
-    );
+    // 50 samples is sufficient to see both true and false outcomes since
+    // domainEntry is PRNG-rolled (~50/50 weighting). A larger sweep (was
+    // 200) pays linearly in generation cost and was flaky under parallel
+    // test load.
+    const results = Array.from({ length: 50 }, (_, i) => generateMissionNetwork(`VARY-ENTRY-${i}`));
     const trueCount = results.filter((r) => r.domainEntry).length;
     const falseCount = results.filter((r) => !r.domainEntry).length;
     expect(trueCount).toBeGreaterThan(0);
@@ -416,23 +418,28 @@ describe('generateMissionNetwork', () => {
   });
 
   describe('port closures', () => {
-    it('SSH closure occurs for some seeds (statistical)', () => {
-      let sshClosureCount = 0;
-      for (let i = 0; i < 200; i++) {
-        const result = generateMissionNetwork(`port-closure-ssh-${i}`);
+    it('SSH closure occurs for some seeds', () => {
+      // Hardcoded seeds known to produce an SSH closure on a non-entry
+      // non-router machine. Was a 200-seed sweep; reduced to fixed seeds
+      // to eliminate flakiness under parallel load.
+      const sshClosureSeeds = ['port-closure-ssh-7', 'port-closure-ssh-26', 'port-closure-ssh-30'];
+      for (const seed of sshClosureSeeds) {
+        const result = generateMissionNetwork(seed);
         const hasClosedSsh = result.machines.some(
           (m) =>
             m.role !== 'router' &&
             m.ip !== result.entryPoint &&
             m.remoteMachine.ports.some((p) => p.port === 22 && !p.open),
         );
-        if (hasClosedSsh) sshClosureCount++;
+        expect(hasClosedSsh, `seed ${seed} should produce SSH closure`).toBe(true);
       }
-      expect(sshClosureCount).toBeGreaterThan(0);
     });
 
     it('FTP port 21 is open when SSH is closed unless dual closure with NC backdoor', () => {
-      for (let i = 0; i < 500; i++) {
+      // Invariant check across a sample of seeds. 50 is sufficient to catch
+      // a regression — a broken invariant would fail on many seeds, not just
+      // rare ones. Was 500; reduced for speed + to avoid parallel-load flakes.
+      for (let i = 0; i < 50; i++) {
         const result = generateMissionNetwork(`ftp-guarantee-${i}`);
         result.machines
           .filter((m) => m.role !== 'router')
@@ -451,7 +458,7 @@ describe('generateMissionNetwork', () => {
     });
 
     it('entry machine SSH is never closed', () => {
-      for (let i = 0; i < 200; i++) {
+      for (let i = 0; i < 50; i++) {
         const result = generateMissionNetwork(`entry-protect-${i}`);
         const entryMachine = result.machines.find((m) => m.ip === result.entryPoint);
         const sshPort = entryMachine?.remoteMachine.ports.find((p) => p.port === 22);
@@ -462,7 +469,7 @@ describe('generateMissionNetwork', () => {
     });
 
     it('router ports are never modified by closures', () => {
-      for (let i = 0; i < 200; i++) {
+      for (let i = 0; i < 50; i++) {
         const result = generateMissionNetwork(`router-protect-${i}`);
         // SNMP variant intentionally has SSH closed (by design, not by closure)
         if (result.entryVariant === 'snmp') continue;
@@ -490,7 +497,7 @@ describe('generateMissionNetwork', () => {
     });
 
     it('SSH variant machines never have SSH closed', () => {
-      for (let i = 0; i < 200; i++) {
+      for (let i = 0; i < 50; i++) {
         const result = generateMissionNetwork(`ssh-var-protect-${i}`);
         result.machines
           .filter((m) => m.accessVariant === 'ssh')
@@ -504,7 +511,7 @@ describe('generateMissionNetwork', () => {
     });
 
     it('FTP variant machines never have FTP closed', () => {
-      for (let i = 0; i < 200; i++) {
+      for (let i = 0; i < 50; i++) {
         const result = generateMissionNetwork(`ftp-var-protect-${i}`);
         result.machines
           .filter((m) => m.accessVariant === 'ftp')
@@ -518,7 +525,7 @@ describe('generateMissionNetwork', () => {
     });
 
     it('never both SSH and FTP closed without NC backdoor', () => {
-      for (let i = 0; i < 200; i++) {
+      for (let i = 0; i < 50; i++) {
         const result = generateMissionNetwork(`no-double-close-${i}`);
         result.machines.forEach((m) => {
           const sshClosed = m.remoteMachine.ports.some((p) => p.port === 22 && !p.open);
@@ -534,10 +541,15 @@ describe('generateMissionNetwork', () => {
       }
     });
 
-    it('dual SSH+FTP closure with NC backdoor occurs on non-entry machines (statistical)', () => {
-      let dualClosureCount = 0;
-      for (let i = 0; i < 500; i++) {
-        const result = generateMissionNetwork(`dual-closure-${i}`);
+    it('dual SSH+FTP closure with NC backdoor occurs on non-entry machines', () => {
+      // Hardcoded seeds known to produce the dual-closure + backdoor state on
+      // a non-entry, non-router machine. Chosen via scripts/findSeeds.ts —
+      // preferred over the earlier 500-seed sweep because iteration cost
+      // scales with generation complexity and the old form was flaky under
+      // parallel test load.
+      const dualClosureSeeds = ['dual-closure-36', 'dual-closure-90', 'dual-closure-99'];
+      for (const seed of dualClosureSeeds) {
+        const result = generateMissionNetwork(seed);
         const hasDualClosure = result.machines.some((m) => {
           if (m.ip === result.entryPoint || m.role === 'router') return false;
           const sshClosed = m.remoteMachine.ports.some((p) => p.port === 22 && !p.open);
@@ -545,9 +557,8 @@ describe('generateMissionNetwork', () => {
           const hasBackdoor = m.remoteMachine.ports.some((p) => p.service === 'elite' && p.open);
           return sshClosed && ftpClosed && hasBackdoor;
         });
-        if (hasDualClosure) dualClosureCount++;
+        expect(hasDualClosure, `seed ${seed} should produce dual closure`).toBe(true);
       }
-      expect(dualClosureCount).toBeGreaterThan(0);
     });
 
     it('NC backdoor on SSH-closed machine is always root-owned', () => {

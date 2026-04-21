@@ -402,6 +402,26 @@ export const useNetworkCommands = (): Map<string, Command> => {
           createMsfconsoleCommand({
             getMachine: getEffectiveMachine,
             getLocalIP,
+            getCurrentMachineId: () => session.machine,
+            // Localhost isn't in the remote-machines list (it's the player's
+            // workstation, generated separately via generateLocalhost), so
+            // we synthesize a minimal RemoteMachine for it on demand. The
+            // dispatch only needs `users` to resolve shell-effect tiers.
+            getCurrentMachine: () => {
+              if (session.machine !== 'localhost') {
+                return getEffectiveMachine(session.machine);
+              }
+              return {
+                ip: 'localhost',
+                hostname: session.hostname ?? 'localhost',
+                ports: [],
+                users: [
+                  { username: 'root', passwordHash: '', userType: 'root' },
+                  { username: session.username, passwordHash: '', userType: 'user' },
+                  { username: 'guest', passwordHash: '', userType: 'guest' },
+                ],
+              };
+            },
             resolveDomain,
             getGameTime,
             onExploitAttempt,

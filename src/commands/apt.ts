@@ -14,11 +14,30 @@ import {
 import { firmwareTemplates, type FirmwareVendor } from '../generation/pools/routerFirmware';
 import { serviceTemplates } from '../generation/pools/serviceTemplates';
 import {
+  systemLibraryTemplates,
+  SYSTEM_LIBRARIES,
+  LIBRARY_META_PACKAGES,
+  LIBRARY_META_PACKAGE_NAMES,
+  type SystemLibrary,
+  type LibraryMetaPackage,
+} from '../generation/pools/systemLibraryTemplates';
+import {
+  findLibraryCve,
+  findLatestSafeLibrary,
+  findPinnableLibraryVersion,
+} from '../generation/systemLibraryLookup';
+import {
   CVE_TIMING_CONFIG,
   DEFAULT_LATEST_VERSION,
   findLatestSafeVersion,
 } from '../generation/timeline';
-import { DPKG_STATUS_PATH, setDpkgVersion } from '../network/dpkgStatus';
+import {
+  DPKG_STATUS_PATH,
+  parseDpkgVersions,
+  setDpkgVersion,
+  formatDpkgStatus,
+  parseDpkgStatus,
+} from '../network/dpkgStatus';
 
 type AptContext = {
   readonly getMachine: () => string;
@@ -32,6 +51,7 @@ type AptContext = {
     permissions?: FilePermissions,
   ) => PermissionResult;
   readonly writeFile?: (path: string, content: string, userType: UserType) => PermissionResult;
+  readonly deleteFile?: (path: string, userType: UserType) => PermissionResult;
   readonly getUserType: () => UserType;
   readonly isWifiConnected: () => boolean;
   readonly getGameTime?: () => number;
@@ -205,6 +225,30 @@ const pickFirmwareUpgradeTarget = (vendor: FirmwareVendor, gameTime: number): Up
   return { kind: 'target', version };
 };
 
+const pickLibraryUpgradeTarget = (library: SystemLibrary, gameTime: number): UpgradeTarget => {
+  if (!systemLibraryTemplates[library]) return { kind: 'no-template' };
+  const version = findLatestSafeLibrary(library, gameTime);
+  if (version === undefined) return { kind: 'no-fix-yet' };
+  return { kind: 'target', version };
+};
+
+const isSystemLibrary = (name: string): name is SystemLibrary =>
+  Object.prototype.hasOwnProperty.call(systemLibraryTemplates, name);
+
+const isLibraryMetaPackage = (name: string): name is LibraryMetaPackage =>
+  Object.prototype.hasOwnProperty.call(LIBRARY_META_PACKAGES, name);
+
+// Reads the current library version from /var/lib/dpkg/status. Falls back to
+// the template's startTuple when the machine has no dpkg entry for the library.
+const getLibraryVersion = (library: SystemLibrary, context: AptContext): string => {
+  const content = context.readFile ? (context.readFile(DPKG_STATUS_PATH) ?? '') : '';
+  const versions = parseDpkgVersions(content);
+  const pinned = versions.get(library);
+  if (pinned !== undefined) return pinned;
+  const template = systemLibraryTemplates[library];
+  return `${template.prefix}${template.startTuple.join(template.separator)}`;
+};
+
 const isVulnerable = (service: string, version: string, gameTime: number): boolean =>
   findVulnForService(service, version, gameTime) !== undefined;
 
@@ -237,19 +281,53 @@ const resolveFirmwareCandidate = (
   return { kind: 'target', service: FIRMWARE_PACKAGE, targetVersion };
 };
 
+// Library counterpart to resolveServiceCandidate. 'no-template' falls back
+// to the currently-installed version (same as firmware), leaving the dpkg
+// entry unchanged rather than writing a sentinel.
+const resolveLibraryCandidate = (
+  library: SystemLibrary,
+  currentVersion: string,
+  gameTime: number,
+): UpgradeCandidate => {
+  const resolved = pickLibraryUpgradeTarget(library, gameTime);
+  if (resolved.kind === 'no-fix-yet') return { kind: 'no-fix-yet', service: library };
+  const targetVersion = resolved.kind === 'target' ? resolved.version : currentVersion;
+  return { kind: 'target', service: library, targetVersion };
+};
+
+// Determines which system libraries the filter name targets. A bare
+// `apt upgrade` (filter undefined) includes every library. A single-library
+// filter (`apt upgrade libpam`) targets just that one. A meta-package
+// filter (`apt upgrade auth-libs`) expands to the bundle's libraries.
+// Services/firmware/unknown names → empty list.
+const librariesForFilter = (filter: string | undefined): readonly SystemLibrary[] => {
+  if (filter === undefined) return SYSTEM_LIBRARIES;
+  if (isSystemLibrary(filter)) return [filter];
+  if (isLibraryMetaPackage(filter)) return LIBRARY_META_PACKAGES[filter];
+  return [];
+};
+
 const collectUpgradeCandidates = (
   machine: RemoteMachine,
   serviceFilter: string | undefined,
   gameTime: number,
+  context: AptContext,
 ): readonly UpgradeCandidate[] => {
   const seen = new Set<string>();
   const candidates: UpgradeCandidate[] = [];
-  for (const port of machine.ports) {
-    if (seen.has(port.service)) continue;
-    if (serviceFilter !== undefined && port.service !== serviceFilter) continue;
-    if (!isVulnerable(port.service, port.serviceVersion, gameTime)) continue;
-    seen.add(port.service);
-    candidates.push(resolveServiceCandidate(port.service, gameTime));
+  // Services — only consider filter matches if it targets a port-running service.
+  const libraryScope = librariesForFilter(serviceFilter);
+  const considerServices =
+    serviceFilter === undefined ||
+    (!isSystemLibrary(serviceFilter) && !isLibraryMetaPackage(serviceFilter));
+  if (considerServices) {
+    for (const port of machine.ports) {
+      if (seen.has(port.service)) continue;
+      if (serviceFilter !== undefined && port.service !== serviceFilter) continue;
+      if (!isVulnerable(port.service, port.serviceVersion, gameTime)) continue;
+      seen.add(port.service);
+      candidates.push(resolveServiceCandidate(port.service, gameTime));
+    }
   }
 
   // Router firmware is treated like a package named `firmware`. It's a
@@ -269,6 +347,21 @@ const collectUpgradeCandidates = (
         gameTime,
       ),
     );
+  }
+
+  // System libraries. Scope is determined by the filter: bare upgrade hits
+  // every library, a single library name targets just that one, and a
+  // meta-package expands to its bundle.
+  for (const lib of libraryScope) {
+    const version = getLibraryVersion(lib, context);
+    // Only libraries with a live CVE (at the current installed version) are
+    // upgrade candidates in the vulnerable sense. An explicit single-library
+    // filter should still report a candidate so the user sees status for
+    // their chosen package; for bare or meta-package expansion we skip
+    // non-vulnerable libraries to match the service/firmware pattern.
+    const vulnerable = findLibraryCve(lib, version, gameTime) !== undefined;
+    if (!vulnerable) continue;
+    candidates.push(resolveLibraryCandidate(lib, version, gameTime));
   }
 
   return candidates;
@@ -303,6 +396,38 @@ const firmwareUpgradableStatus = (
   if (target.kind === 'no-fix-yet') return NO_FIX_STATUS;
   const v = target.kind === 'target' ? target.version : version;
   return `[upgradable → ${v}]`;
+};
+
+const libraryUpgradableStatus = (
+  library: SystemLibrary,
+  version: string,
+  gameTime: number,
+): string => {
+  if (!findLibraryCve(library, version, gameTime)) return '[up to date]';
+  const target = pickLibraryUpgradeTarget(library, gameTime);
+  if (target.kind === 'no-fix-yet') return NO_FIX_STATUS;
+  const v = target.kind === 'target' ? target.version : version;
+  return `[upgradable → ${v}]`;
+};
+
+// Meta-package status aggregates over its children. "Worst status wins"
+// so the player's attention is drawn to the most pressing bundle: any
+// child in-gap → no-fix-yet; any child upgradable → upgradable; else up-to-date.
+// The version column shows the bundle's member count as a compact summary.
+const metaPackageUpgradableStatus = (
+  meta: LibraryMetaPackage,
+  context: AptContext,
+  gameTime: number,
+): string => {
+  const children = LIBRARY_META_PACKAGES[meta];
+  const statuses = children.map((lib) =>
+    libraryUpgradableStatus(lib, getLibraryVersion(lib, context), gameTime),
+  );
+  if (statuses.some((s) => s === NO_FIX_STATUS)) return NO_FIX_STATUS;
+  const upgradable = statuses.filter((s) => s.startsWith('[upgradable'));
+  if (upgradable.length > 0)
+    return `[upgradable — ${upgradable.length}/${children.length} libraries]`;
+  return '[up to date]';
 };
 
 const NO_SERVICES_MESSAGE = '  (no services on this machine)';
@@ -340,18 +465,41 @@ const renderUpgradableList = (context: AptContext): string => {
         ]
       : [];
 
-  const rows = [...serviceLines, ...firmwareLines];
+  // One row per system library, version from dpkg status.
+  const libraryLines = SYSTEM_LIBRARIES.map((lib) => {
+    const version = getLibraryVersion(lib, context);
+    return renderUpgradableLine(lib, version, libraryUpgradableStatus(lib, version, gameTime));
+  });
+
+  // One row per meta-package — aggregated status across the bundle. Version
+  // column shows a short descriptor since meta-packages don't have their own
+  // version string.
+  const metaLines = LIBRARY_META_PACKAGE_NAMES.map((meta) => {
+    const memberCount = LIBRARY_META_PACKAGES[meta].length;
+    const descriptor = `(${memberCount} libraries)`;
+    return renderUpgradableLine(
+      meta,
+      descriptor,
+      metaPackageUpgradableStatus(meta, context, gameTime),
+    );
+  });
+
+  const rows = [...serviceLines, ...firmwareLines, ...libraryLines, ...metaLines];
   const body = rows.length > 0 ? rows : [NO_SERVICES_MESSAGE];
   return ['Listing upgradable packages...', '', ...body].join('\n');
 };
 
 // Returns the set of packages currently installed on the machine. Includes
 // one entry per unique service across all ports, plus `firmware` if the
-// machine is a router. Used by `apt upgrade <package>` to decide whether
-// the named package exists before computing upgrade candidates.
+// machine is a router, plus every system library, plus the four
+// library meta-packages. Used by `apt upgrade <package>` and
+// `apt install <package>=<version>` to validate the named package exists
+// before computing upgrade candidates.
 const installedPackages = (machine: RemoteMachine): ReadonlySet<string> => {
-  const packages = new Set(machine.ports.map((p) => p.service));
+  const packages = new Set<string>(machine.ports.map((p) => p.service));
   if (machine.firmwareVendor) packages.add(FIRMWARE_PACKAGE);
+  for (const lib of SYSTEM_LIBRARIES) packages.add(lib);
+  for (const meta of LIBRARY_META_PACKAGE_NAMES) packages.add(meta);
   return packages;
 };
 
@@ -398,7 +546,7 @@ const handleUpgrade = (
     throw new Error(`E: Package '${serviceFilter}' is not installed on this machine`);
   }
 
-  const allCandidates = collectUpgradeCandidates(machine, serviceFilter, gameTime);
+  const allCandidates = collectUpgradeCandidates(machine, serviceFilter, gameTime, context);
   const targets = allCandidates.filter(
     (c): c is Extract<UpgradeCandidate, { kind: 'target' }> => c.kind === 'target',
   );
@@ -433,6 +581,16 @@ const handleUpgrade = (
       ]);
       const lines = [...headerLines, ...setupLines];
 
+      // Apply state changes eagerly (dpkg status rewrite) — decoupled from
+      // line-by-line animation so the write happens even if the caller
+      // doesn't advance timers all the way to the last scheduled line.
+      const currentContent = readFile ? (readFile(DPKG_STATUS_PATH) ?? '') : '';
+      const updatedContent = targets.reduce(
+        (content, candidate) => setDpkgVersion(content, candidate.service, candidate.targetVersion),
+        currentContent,
+      );
+      writeDpkgStatus(updatedContent, context);
+
       let delay = 0;
       lines.forEach((line, i) => {
         delay += jitter(OVERLAY_DELAY_MS);
@@ -440,15 +598,6 @@ const handleUpgrade = (
           if (token.isCancelled()) return;
           onLine(line);
           if (i === lines.length - 1) {
-            // Read current /var/lib/dpkg/status, fold in all upgraded
-            // services, then write the whole file back in one shot.
-            const currentContent = readFile ? (readFile(DPKG_STATUS_PATH) ?? '') : '';
-            const updatedContent = targets.reduce(
-              (content, candidate) =>
-                setDpkgVersion(content, candidate.service, candidate.targetVersion),
-              currentContent,
-            );
-            writeDpkgStatus(updatedContent, context);
             onComplete();
           }
         }, delay);
@@ -490,8 +639,9 @@ const handleInstallPin = (
   }
 
   // Validate the pinned version is reachable for the package.
-  const pinnable =
-    pkg === FIRMWARE_PACKAGE
+  const pinnable = isSystemLibrary(pkg)
+    ? findPinnableLibraryVersion(pkg, pinnedVersion, gameTime)
+    : pkg === FIRMWARE_PACKAGE
       ? machine.firmwareVendor !== undefined &&
         findPinnableFirmwareVersion(
           machine.firmwareVendor as FirmwareVendor,
@@ -538,6 +688,65 @@ const handleInstallPin = (
     },
     cancel: token.cancel,
   };
+};
+
+// --- apt remove <library> ---
+
+// Deletes a system library: removes /lib/<lib>.so and strips the library's
+// dpkg status entry. Every command that links the removed library will fail
+// its runtime library check on next invocation (see wrapWithLibraryCheck).
+//
+// v1 scope: only system libraries can be removed. Removing a service or
+// firmware package isn't meaningful in the current game model (services
+// live in ports, not a filesystem entry) and meta-packages expand to
+// multiple children — supporting either later is a straightforward
+// extension but not needed for v1.
+const handleRemove = (pkg: string, context: AptContext): AsyncOutput | string => {
+  const { getMachine, getCurrentMachine, readFile, getUserType, isWifiConnected } = context;
+
+  if (getMachine() === 'localhost' && !isWifiConnected()) {
+    throw new Error('E: Failed to fetch http://archive.ubuntu.com — network is unreachable');
+  }
+
+  if (getUserType() !== 'root') {
+    throw new Error('E: Could not open lock file /var/lib/dpkg/lock-frontend — are you root?');
+  }
+
+  const machine = getCurrentMachine?.();
+  if (!machine) {
+    throw new Error(`E: Package '${pkg}' is not installed on this machine`);
+  }
+
+  if (!isSystemLibrary(pkg)) {
+    throw new Error(
+      `E: apt remove currently supports system libraries only ('${pkg}' is not a library)`,
+    );
+  }
+
+  const libPath = `/lib/${pkg}.so`;
+
+  // Delete the .so file (if present). Missing file is tolerated — matches
+  // real apt's behaviour of succeeding when the package is already gone.
+  if (context.deleteFile) {
+    context.deleteFile(libPath, 'root');
+  }
+
+  // Strip the library's dpkg status entry by parsing + re-serialising
+  // without the removed package.
+  const currentContent = readFile ? (readFile(DPKG_STATUS_PATH) ?? '') : '';
+  const entries = Array.from(parseDpkgStatus(currentContent).values()).filter(
+    (entry) => entry.pkg !== pkg,
+  );
+  writeDpkgStatus(formatDpkgStatus(entries), context);
+
+  return [
+    'Reading package lists... Done',
+    'Building dependency tree... Done',
+    `The following packages will be REMOVED:`,
+    `  ${pkg}`,
+    `0 upgraded, 0 newly installed, 1 to remove.`,
+    `Removing ${pkg} ...`,
+  ].join('\n');
 };
 
 export const createAptCommand = (context: AptContext): Command => ({
@@ -639,8 +848,16 @@ export const createAptCommand = (context: AptContext): Command => ({
       return handleUpgrade(serviceFilter, context);
     }
 
+    if (subcommand === 'remove') {
+      const packageName = args[1] as string | undefined;
+      if (!packageName) {
+        throw new Error('E: No package name specified. Usage: apt remove <library>');
+      }
+      return handleRemove(packageName, context);
+    }
+
     throw new Error(
-      `E: Invalid operation '${subcommand}'. Usage: apt install <package>, apt upgrade, or apt list`,
+      `E: Invalid operation '${subcommand}'. Usage: apt install <package>, apt upgrade, apt remove <library>, or apt list`,
     );
   },
 });

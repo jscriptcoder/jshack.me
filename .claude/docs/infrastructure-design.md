@@ -221,6 +221,17 @@ Each router gets a `firmwareVendor` (Cisco IOS, MikroTik RouterOS, DD-WRT, OpenW
 - `findExploitableCve(machine, port, gameTime)` — layers service CVE over firmware CVE; used by msfconsole
 - `apt upgrade firmware` patches the router's firmware package in `/var/lib/dpkg/status`
 
+## System Libraries
+
+Every machine ships with 8 shared libraries (`libpam`, `libcrypt`, `libsystemd`, `libreadline`, `libssl`, `libz`, `libxml2`, `libpcre`) as files in `/lib/<libname>.so` — root-owned, world-readable, not executable (matches real Linux). Each library has its own procedural CVE timeline via the same walker (`pools/systemLibraryTemplates.ts`). libc is intentionally omitted from v1 (blast radius too broad).
+
+Pre-installed `/bin/` and `/usr/sbin/` commands map to libraries via a static manifest in `src/commands/libraryDeps.ts` — 17 commands across the 8 libraries. Libraries are treated as _thematic capability groupings_, not strict real-world dependency charts (e.g., `rm`/`chmod`/`ps` → libpcre because their thematic role is "pattern-driven ops," even though real `rm` just calls `unlink`).
+
+- **Runtime check** — before any command with a `libraryDeps` entry runs, the dispatcher verifies every linked `.so` exists. Missing file → glibc-style dynamic-linker error, command refuses to start. `ldd <command>` exposes this for inspection.
+- **Local exploitation** — `msfconsole --local <command>` resolves the command's libraries → checks for a live CVE via `findLibraryCve` → rolls an effect from the command's pool (`systemCommandEffects.ts`). The library carries the vulnerability; the command carries the effect. One libpcre CVE → `dir_list` via `ls`, `file_read` via `grep`, `file_write` via `rm`.
+- **Meta-packages** — `auth-libs` (libpam + libcrypt), `crypto-libs` (libssl), `system-libs` (libsystemd + libreadline), `data-libs` (libz + libxml2 + libpcre). `apt upgrade <meta-package>` expands to its children. `apt list -u` renders meta-package rows with aggregated status (worst-status-wins).
+- **Destruction** — `apt remove <library>` deletes `/lib/<lib>.so` and the dpkg entry. Subsequent invocations of any dependent command hit the runtime check and fail. Real destructive behaviour, same semantics as real apt.
+
 ## Game Time
 
 Real-world clock anchored at first game start (`src/session/gameTime.ts`). `getGameTime()` returns elapsed game days. Persisted in localStorage.

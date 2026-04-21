@@ -25,8 +25,10 @@ import { wrapInBinaryNoise } from '../binary';
 import { buildInitialDpkgStatus } from '../../network/dpkgStatus';
 import { firmwareTemplates, type FirmwareVendor } from '../pools/routerFirmware';
 import { formatVersion } from '../pools/serviceTemplates';
+import { SYSTEM_LIBRARIES, systemLibraryTemplates } from '../pools/systemLibraryTemplates';
 import {
   createBinaryEntries,
+  createLibraryEntries,
   SYSTEM_UTILITY_NAMES,
   SBIN_UTILITY_NAMES,
 } from '../../commands/availability';
@@ -42,6 +44,18 @@ import {
 import { generateRedisData } from '../generateRedisData';
 import { generateFtpVirtualUsers, formatVirtualUsersConf } from '../ftpCredentials';
 import type { SameLayerCredential } from './sameLayerCredentials';
+
+// Precomputed once at module load. Every machine shares the same day-zero
+// library versions + library file entries, so we avoid paying the cost
+// per-machine inside the hot generation path.
+const INITIAL_LIBRARY_VERSIONS: Readonly<Record<string, string>> = Object.fromEntries(
+  SYSTEM_LIBRARIES.map((lib) => [
+    lib,
+    formatVersion(systemLibraryTemplates[lib], systemLibraryTemplates[lib].startTuple),
+  ]),
+);
+
+const INITIAL_LIBRARY_CONTENT = createLibraryEntries(SYSTEM_LIBRARIES);
 
 // Infrastructure service PID file definitions. Maps service names to their
 // daemon binary, PID file name, and run user. SSH/FTP are handled separately
@@ -941,9 +955,13 @@ export const buildMachineConfig = (
     vendor && firmwareTemplates[vendor]
       ? formatVersion(firmwareTemplates[vendor], firmwareTemplates[vendor].startTuple)
       : undefined;
+  // Every machine starts with every system library at its template's
+  // startTuple version — uniform day-zero state per the patch-delay design.
+  const initialLibraryVersions = INITIAL_LIBRARY_VERSIONS;
   const dpkgStatusContent = buildInitialDpkgStatus(
     machine.remoteMachine.ports,
     initialFirmwareVersion,
+    initialLibraryVersions,
   );
   if (dpkgStatusContent.length > 0) {
     const statusFile = mkFile('status', dpkgStatusContent, 'guest');
@@ -982,6 +1000,7 @@ export const buildMachineConfig = (
     extraDirectories: Object.keys(extraDirectories).length > 0 ? extraDirectories : undefined,
     binContent: createBinaryEntries(SYSTEM_UTILITY_NAMES),
     usrSbinContent: createBinaryEntries(SBIN_UTILITY_NAMES),
+    libContent: INITIAL_LIBRARY_CONTENT,
     passwdReadableBy: ['root', 'user'],
   };
 };
