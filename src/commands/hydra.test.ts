@@ -732,4 +732,149 @@ describe('hydra command', () => {
       expect(lines.some((l) => l.includes('of 3 target users successfully cracked'))).toBe(true);
     });
   });
+
+  describe('onBruteForceAggregate callback (ssh + ftp default flow)', () => {
+    it('fires exactly once per attacked service when default mode attacks ssh and ftp', async () => {
+      const onBruteForceAggregate = vi.fn();
+      const machine = getMockRemoteMachine();
+      const hydra = createHydraCommand({
+        ...createMockContext({ machines: [machine] }),
+        onBruteForceAggregate,
+      });
+      const result = hydra.fn('192.168.1.50');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      await collectAsyncLines(result);
+
+      expect(onBruteForceAggregate).toHaveBeenCalledTimes(2);
+      const calls = onBruteForceAggregate.mock.calls.map((c) => ({
+        service: c[0].service,
+        port: c[0].port,
+      }));
+      expect(calls).toContainEqual({ service: 'ssh', port: 22 });
+      expect(calls).toContainEqual({ service: 'ftp', port: 21 });
+    });
+
+    it('reports the target IP and port actually attacked on each service', async () => {
+      const onBruteForceAggregate = vi.fn();
+      const machine = getMockRemoteMachine();
+      const hydra = createHydraCommand({
+        ...createMockContext({ machines: [machine] }),
+        onBruteForceAggregate,
+      });
+      const result = hydra.fn('192.168.1.50', 'ssh');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      await collectAsyncLines(result);
+
+      expect(onBruteForceAggregate).toHaveBeenCalledTimes(1);
+      expect(onBruteForceAggregate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetIp: '192.168.1.50',
+          port: 22,
+          service: 'ssh',
+        }),
+      );
+    });
+
+    it('reports attempts as users.length × ATTEMPTS_PER_USER', async () => {
+      const onBruteForceAggregate = vi.fn();
+      // Three users × 128 attempts = 384 expected.
+      const machine = getMockRemoteMachine();
+      const hydra = createHydraCommand({
+        ...createMockContext({ machines: [machine] }),
+        onBruteForceAggregate,
+      });
+      const result = hydra.fn('192.168.1.50', 'ssh');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      await collectAsyncLines(result);
+
+      expect(onBruteForceAggregate).toHaveBeenCalledWith(
+        expect.objectContaining({ attempts: 3 * 128 }),
+      );
+    });
+
+    it('populates successes with {username, password} for each cracked user', async () => {
+      const onBruteForceAggregate = vi.fn();
+      const machine = getMockRemoteMachine({
+        users: [
+          { username: 'guest', passwordHash: GUEST_PASSWORD_HASH, userType: 'guest' },
+          { username: 'ftpuser', passwordHash: WORDLIST_PASSWORD_HASH, userType: 'user' },
+          { username: 'root', passwordHash: NON_WORDLIST_PASSWORD_HASH, userType: 'root' },
+        ],
+      });
+      const hydra = createHydraCommand({
+        ...createMockContext({ machines: [machine] }),
+        onBruteForceAggregate,
+      });
+      const result = hydra.fn('192.168.1.50', 'ssh');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      await collectAsyncLines(result);
+
+      const [info] = onBruteForceAggregate.mock.calls[0]!;
+      expect(info.successes).toHaveLength(2);
+      expect(info.successes).toContainEqual({ username: 'guest', password: GUEST_PASSWORD });
+      expect(info.successes).toContainEqual({
+        username: 'ftpuser',
+        password: WORDLIST_PASSWORD,
+      });
+      // root password is not in the wordlist — must not appear as a success.
+      expect(info.successes.some((s: { username: string }) => s.username === 'root')).toBe(false);
+    });
+
+    it('fires with empty successes when no user is crackable', async () => {
+      const onBruteForceAggregate = vi.fn();
+      const machine = getMockRemoteMachine({
+        users: [{ username: 'root', passwordHash: NON_WORDLIST_PASSWORD_HASH, userType: 'root' }],
+      });
+      const hydra = createHydraCommand({
+        ...createMockContext({ machines: [machine] }),
+        onBruteForceAggregate,
+      });
+      const result = hydra.fn('192.168.1.50', 'ssh');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      await collectAsyncLines(result);
+
+      expect(onBruteForceAggregate).toHaveBeenCalledTimes(1);
+      expect(onBruteForceAggregate).toHaveBeenCalledWith(
+        expect.objectContaining({ service: 'ssh', attempts: 128, successes: [] }),
+      );
+    });
+
+    it('does NOT fire when hydra is cancelled before the service summary runs', () => {
+      const onBruteForceAggregate = vi.fn();
+      const machine = getMockRemoteMachine();
+      const hydra = createHydraCommand({
+        ...createMockContext({ machines: [machine] }),
+        onBruteForceAggregate,
+      });
+      const result = hydra.fn('192.168.1.50', 'ssh');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      result.start(
+        () => {},
+        () => {},
+      );
+      result.cancel?.();
+      vi.runAllTimers();
+
+      expect(onBruteForceAggregate).not.toHaveBeenCalled();
+    });
+
+    it('reports the resolved IP (not the hostname) when host is a domain', async () => {
+      const onBruteForceAggregate = vi.fn();
+      const machine = getMockRemoteMachine();
+      const dnsRecords: readonly DnsRecord[] = [
+        { domain: 'fileserver.local', ip: '192.168.1.50', type: 'A' },
+      ];
+      const hydra = createHydraCommand({
+        ...createMockContext({ machines: [machine], dnsRecords }),
+        onBruteForceAggregate,
+      });
+      const result = hydra.fn('fileserver.local', 'ssh');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      await collectAsyncLines(result);
+
+      expect(onBruteForceAggregate).toHaveBeenCalledWith(
+        expect.objectContaining({ targetIp: '192.168.1.50' }),
+      );
+    });
+  });
 });

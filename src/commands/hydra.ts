@@ -9,6 +9,22 @@ import { createCancellationToken, jitter } from '../utils/asyncCommand';
 import { resolveWordlist } from '../utils/wordlist';
 import { parseVirtualUsersConf } from '../generation/ftpCredentials';
 
+export type HydraService = 'ssh' | 'ftp' | 'mysql' | 'redis' | 'snmp';
+
+export type HydraSuccess = {
+  readonly username?: string;
+  readonly password?: string;
+  readonly community?: string;
+};
+
+export type HydraBruteForceInfo = {
+  readonly targetIp: string;
+  readonly port: number;
+  readonly service: HydraService;
+  readonly attempts: number;
+  readonly successes: readonly HydraSuccess[];
+};
+
 type HydraContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
   readonly getLocalIP: () => string;
@@ -18,6 +34,7 @@ type HydraContext = {
   readonly getNodeFromMachine: (machineIp: string, path: string, cwd: string) => FileNode | null;
   readonly getLocalNode: (path: string) => FileNode | null;
   readonly getCurrentPath: () => string;
+  readonly onBruteForceAggregate?: (info: HydraBruteForceInfo) => void;
 };
 
 type CrackResult = {
@@ -547,7 +564,11 @@ export const createHydraCommand = (context: HydraContext): Command => ({
             }, delay);
           });
 
-          // Service summary
+          // Service summary + aggregate log callback. One line per attacked
+          // service, fired once the sweep is complete. Successes carry the
+          // cracked credentials so the handler can emit one normal
+          // auth-success line per hit (indistinguishable from a legitimate
+          // login).
           delay += jitter(STATUS_DELAY_MS);
           token.schedule(() => {
             if (token.isCancelled()) return;
@@ -555,6 +576,16 @@ export const createHydraCommand = (context: HydraContext): Command => ({
             onLine(
               `${svcResults.length} of ${users.length} target user${users.length === 1 ? '' : 's'} successfully cracked`,
             );
+            context.onBruteForceAggregate?.({
+              targetIp: targetIP,
+              port: svc.port,
+              service: svc.service as HydraService,
+              attempts: totalAttempts,
+              successes: svcResults.map((r) => ({
+                username: r.username,
+                password: r.password,
+              })),
+            });
           }, delay);
         });
 
