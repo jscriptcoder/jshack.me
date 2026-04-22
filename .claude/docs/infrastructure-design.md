@@ -77,14 +77,17 @@ All machine filesystems are generated at runtime and built via `fileSystemFactor
 
 ### Dynamic Connection Logs
 
-When players connect to machines via SSH, FTP, or SCP, authentication events are logged to the target machine's filesystem in realistic Linux formats. `su` events are logged on the current machine. HTTP requests via `curl` log to the target's `/var/log/access.log`. Scan-style commands (`nmap`, `gobuster`) write a single aggregate entry per completed scan rather than one line per probed port / path.
+When players connect to machines via SSH, FTP, or SCP, authentication events are logged to the target machine's filesystem in realistic Linux formats. `su` events are logged on the current machine. HTTP requests via `curl` log to the target's `/var/log/access.log`. Scan and brute-force commands (`nmap`, `gobuster`, `hydra`) write a single aggregate entry per completed sweep rather than one line per probed port / path / credential. Hydra additionally writes one normal auth-success line per cracked credential (indistinguishable from a legitimate login — defenders must correlate the aggregate with the success line to trace a breach).
 
-| Log File              | Events                                     | Format                         |
-| --------------------- | ------------------------------------------ | ------------------------------ |
-| `/var/log/auth.log`   | SSH, SCP, su (success/fail)                | Syslog                         |
-| `/var/log/vsftpd.log` | FTP connect/login                          | vsftpd                         |
-| `/var/log/access.log` | HTTP requests (curl) + gobuster aggregates | Apache Combined / mod_security |
-| `/var/log/kern.log`   | nmap scan aggregates                       | iptables LOG                   |
+| Log File              | Events                                                                  | Format                         |
+| --------------------- | ----------------------------------------------------------------------- | ------------------------------ |
+| `/var/log/auth.log`   | SSH, SCP, su (success/fail) + hydra ssh aggregates & forged successes   | Syslog                         |
+| `/var/log/vsftpd.log` | FTP connect/login + hydra ftp aggregates & forged successes             | vsftpd                         |
+| `/var/log/access.log` | HTTP requests (curl) + gobuster aggregates                              | Apache Combined / mod_security |
+| `/var/log/mysql.log`  | MySQL connect/denied + hydra mysql aggregates & forged Connect lines    | MySQL general log              |
+| `/var/log/redis.log`  | Redis auth events + hydra redis aggregates & forged authenticated lines | Redis                          |
+| `/var/log/syslog`     | nc connect + hydra snmp aggregates & per-discovered-community lines     | Syslog                         |
+| `/var/log/kern.log`   | nmap scan aggregates                                                    | iptables LOG                   |
 
 Log files are created dynamically on first event (not pre-populated). They persist via IndexedDB patches and are world-readable. See `src/logging/README.md` for implementation details and `architecture.md` for integration.
 

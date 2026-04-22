@@ -1,6 +1,6 @@
 # Logging
 
-Dynamic connection logging — records SSH, FTP, SCP, su, MySQL, Redis, and HTTP authentication events to target machine log files in realistic Linux formats.
+Dynamic connection logging — records SSH, FTP, SCP, su, MySQL, Redis, and HTTP authentication events to target machine log files in realistic Linux formats, plus aggregate-style summaries for scan/brute-force tools (nmap, gobuster, hydra).
 
 ## Files
 
@@ -18,28 +18,45 @@ The `handlers/` subdirectory holds one factory per log event. Each factory
 takes its dependencies (session machine, NAT resolver, log filesystem, etc.)
 and returns a handler the UI layer wires into commands.
 
-| Handler                       | Triggered by | Log file              |
-| ----------------------------- | ------------ | --------------------- |
-| `createExploitAttemptHandler` | msfconsole   | per attack pattern    |
-| `createNcConnectHandler`      | nc connect   | `/var/log/syslog`     |
-| `createHttpRequestHandler`    | curl         | `/var/log/access.log` |
-| `createSshAuthHandler`        | ssh, scp     | `/var/log/auth.log`   |
-| `createFtpAuthHandler`        | ftp          | `/var/log/vsftpd.log` |
-| `createMysqlAuthHandler`      | mysql        | `/var/log/mysql.log`  |
+| Handler                       | Triggered by | Log file                      |
+| ----------------------------- | ------------ | ----------------------------- |
+| `createExploitAttemptHandler` | msfconsole   | per attack pattern            |
+| `createNcConnectHandler`      | nc connect   | `/var/log/syslog`             |
+| `createHttpRequestHandler`    | curl         | `/var/log/access.log`         |
+| `createSshAuthHandler`        | ssh, scp     | `/var/log/auth.log`           |
+| `createFtpAuthHandler`        | ftp          | `/var/log/vsftpd.log`         |
+| `createMysqlAuthHandler`      | mysql        | `/var/log/mysql.log`          |
+| `createHydraLogHandler`       | hydra        | per-service (see table below) |
 
-### Scan aggregates (inline in `useNetworkCommands.ts`)
+### Scan & brute-force aggregates
 
-Scan-style commands (`nmap`, `gobuster`) do not log one entry per probe — that
-would bury the target's log file under a wall of noise during wordlist/port
-sweeps. Instead, each scan fires a single aggregate callback when the sweep
-completes, and an inline handler in `useNetworkCommands.ts` writes one
-distinctive summary line per scan. This mirrors how real defensive tooling
-(netfilter LOG, mod_security, fail2ban) records enumeration bursts.
+Scan and brute-force commands (`nmap`, `gobuster`, `hydra`) do not log one
+entry per probe — that would bury the target's log file under a wall of noise
+during wordlist/port sweeps. Instead, each sweep fires a single aggregate
+callback when it completes, and a handler writes one distinctive summary line
+per sweep. This mirrors how real defensive tooling (netfilter LOG,
+mod_security, fail2ban) records enumeration bursts.
 
-| Callback           | Triggered by | Log file              | Format                                                                      |
-| ------------------ | ------------ | --------------------- | --------------------------------------------------------------------------- |
-| nmap aggregate     | nmap         | `/var/log/kern.log`   | iptables-style: `kernel: [iptables] Port scan from ... probed ports ...`    |
-| gobuster aggregate | gobuster     | `/var/log/access.log` | mod_security-style: `[mod_security] [client ...] Directory enumeration ...` |
+`hydra` additionally writes one normal auth-success line per cracked
+credential (reusing the _same_ formatters as legitimate logins —
+`formatSshAccepted`, `formatFtpLoginOk`, `formatMysqlConnect`,
+`formatRedisAuth`, or `formatSnmpCommunityDiscovered`). Defenders must
+correlate the aggregate with the success line to trace a breach.
+
+| Callback              | Triggered by | Log file              | Format                                                                                  |
+| --------------------- | ------------ | --------------------- | --------------------------------------------------------------------------------------- |
+| nmap aggregate        | nmap         | `/var/log/kern.log`   | iptables-style: `kernel: [iptables] Port scan from ... probed ports ...`                |
+| gobuster aggregate    | gobuster     | `/var/log/access.log` | mod_security-style: `[mod_security] [client ...] Directory enumeration ...`             |
+| hydra ssh aggregate   | hydra ssh    | `/var/log/auth.log`   | syslog `sshd[pid]: Brute-force attempt from ... N failures, K accepted`                 |
+| hydra ftp aggregate   | hydra ftp    | `/var/log/vsftpd.log` | vsftpd-style `BRUTE FORCE: Client "..." — N login attempts, K successful`               |
+| hydra mysql aggregate | hydra mysql  | `/var/log/mysql.log`  | MySQL general-log `Connect: Brute-force attempt from '...' — N attempts, K accepted`    |
+| hydra redis aggregate | hydra redis  | `/var/log/redis.log`  | Redis warning `# Client ... brute-force attempt — N password attempts, K authenticated` |
+| hydra snmp aggregate  | hydra snmp   | `/var/log/syslog`     | syslog `snmpd[pid]: Brute-force community string attempt from ... N probed, K found`    |
+
+The scan-aggregate inline handlers (nmap, gobuster) live in
+`useNetworkCommands.ts`; the hydra handler is the factory
+`createHydraLogHandler` in `handlers/hydraLog.ts` (5-service branching made
+factory extraction preferable to inlining).
 
 ### NAT-aware log destination
 
@@ -64,25 +81,31 @@ DNAT rules, so `resolveNat` is a no-op).
 
 ## Events Logged
 
-| Event                     | Formatter                     | Target Log File       | Where Logged    |
-| ------------------------- | ----------------------------- | --------------------- | --------------- |
-| SSH login success         | `formatSshAccepted`           | `/var/log/auth.log`   | Target machine  |
-| SSH key auth              | `formatSshAcceptedKey`        | `/var/log/auth.log`   | Target machine  |
-| SSH login failure         | `formatSshFailed`             | `/var/log/auth.log`   | Target machine  |
-| SCP auth success          | `formatScpAccepted`           | `/var/log/auth.log`   | Target machine  |
-| SCP auth failure          | `formatScpFailed`             | `/var/log/auth.log`   | Target machine  |
-| su success                | `formatSuSuccess`             | `/var/log/auth.log`   | Current machine |
-| su failure                | `formatSuFailed`              | `/var/log/auth.log`   | Current machine |
-| FTP connect               | `formatFtpConnect`            | `/var/log/vsftpd.log` | Target machine  |
-| FTP login success         | `formatFtpLoginOk`            | `/var/log/vsftpd.log` | Target machine  |
-| FTP login failure         | `formatFtpLoginFailed`        | `/var/log/vsftpd.log` | Target machine  |
-| MySQL connect             | `formatMysqlConnect`          | `/var/log/mysql.log`  | Target machine  |
-| MySQL auth fail           | `formatMysqlAccessDenied`     | `/var/log/mysql.log`  | Target machine  |
-| Redis connect             | `formatRedisConnect`          | `/var/log/redis.log`  | Target machine  |
-| Redis auth fail           | `formatRedisAuthFailed`       | `/var/log/redis.log`  | Target machine  |
-| HTTP request              | `formatAccessLog`             | `/var/log/access.log` | Target machine  |
-| nmap scan (aggregate)     | `formatNmapScanAggregate`     | `/var/log/kern.log`   | Target machine  |
-| gobuster scan (aggregate) | `formatGobusterScanAggregate` | `/var/log/access.log` | Target machine  |
+| Event                     | Formatter                       | Target Log File       | Where Logged    |
+| ------------------------- | ------------------------------- | --------------------- | --------------- |
+| SSH login success         | `formatSshAccepted`             | `/var/log/auth.log`   | Target machine  |
+| SSH key auth              | `formatSshAcceptedKey`          | `/var/log/auth.log`   | Target machine  |
+| SSH login failure         | `formatSshFailed`               | `/var/log/auth.log`   | Target machine  |
+| SCP auth success          | `formatScpAccepted`             | `/var/log/auth.log`   | Target machine  |
+| SCP auth failure          | `formatScpFailed`               | `/var/log/auth.log`   | Target machine  |
+| su success                | `formatSuSuccess`               | `/var/log/auth.log`   | Current machine |
+| su failure                | `formatSuFailed`                | `/var/log/auth.log`   | Current machine |
+| FTP connect               | `formatFtpConnect`              | `/var/log/vsftpd.log` | Target machine  |
+| FTP login success         | `formatFtpLoginOk`              | `/var/log/vsftpd.log` | Target machine  |
+| FTP login failure         | `formatFtpLoginFailed`          | `/var/log/vsftpd.log` | Target machine  |
+| MySQL connect             | `formatMysqlConnect`            | `/var/log/mysql.log`  | Target machine  |
+| MySQL auth fail           | `formatMysqlAccessDenied`       | `/var/log/mysql.log`  | Target machine  |
+| Redis connect             | `formatRedisConnect`            | `/var/log/redis.log`  | Target machine  |
+| Redis auth fail           | `formatRedisAuthFailed`         | `/var/log/redis.log`  | Target machine  |
+| HTTP request              | `formatAccessLog`               | `/var/log/access.log` | Target machine  |
+| nmap scan (aggregate)     | `formatNmapScanAggregate`       | `/var/log/kern.log`   | Target machine  |
+| gobuster scan (aggregate) | `formatGobusterScanAggregate`   | `/var/log/access.log` | Target machine  |
+| hydra ssh brute-force     | `formatHydraBruteForceSsh`      | `/var/log/auth.log`   | Target machine  |
+| hydra ftp brute-force     | `formatHydraBruteForceFtp`      | `/var/log/vsftpd.log` | Target machine  |
+| hydra mysql brute-force   | `formatHydraBruteForceMysql`    | `/var/log/mysql.log`  | Target machine  |
+| hydra redis brute-force   | `formatHydraBruteForceRedis`    | `/var/log/redis.log`  | Target machine  |
+| hydra snmp brute-force    | `formatHydraBruteForceSnmp`     | `/var/log/syslog`     | Target machine  |
+| hydra snmp discovered     | `formatSnmpCommunityDiscovered` | `/var/log/syslog`     | Target machine  |
 
 ## Source IP Resolution
 

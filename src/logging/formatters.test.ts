@@ -6,12 +6,18 @@ import {
   formatFtpLoginFailed,
   formatFtpLoginOk,
   formatGobusterScanAggregate,
+  formatHydraBruteForceFtp,
+  formatHydraBruteForceMysql,
+  formatHydraBruteForceRedis,
+  formatHydraBruteForceSnmp,
+  formatHydraBruteForceSsh,
   formatMysqlAccessDenied,
   formatMysqlConnect,
   formatRedisAuth,
   formatRedisAuthDenied,
   formatScpAccepted,
   formatScpFailed,
+  formatSnmpCommunityDiscovered,
   formatSshAccepted,
   formatSshAcceptedKey,
   formatSshFailed,
@@ -325,6 +331,189 @@ describe('formatGobusterScanAggregate', () => {
     });
     expect(result).toBe(
       '[05/Jan/2026:09:05:03 +0000] [mod_security] [client 10.0.0.5] Directory enumeration detected on port 8080 — 1 paths probed, 0 hits (gobuster)',
+    );
+  });
+});
+
+describe('formatHydraBruteForceSsh', () => {
+  it('formats an ssh brute-force aggregate with attempt and success counts', () => {
+    const date = new Date('2026-03-21T14:30:15Z');
+    const result = formatHydraBruteForceSsh({
+      date,
+      hostname: 'webserver',
+      pid: 2341,
+      sourceIp: '192.168.1.100',
+      attempts: 384,
+      successes: 2,
+    });
+    expect(result).toBe(
+      'Mar 21 14:30:15 webserver sshd[2341]: Brute-force attempt from 192.168.1.100 — 384 authentication failures, 2 accepted',
+    );
+  });
+
+  it('reports zero successes when no user cracked', () => {
+    const date = new Date('2026-03-21T14:30:15Z');
+    const result = formatHydraBruteForceSsh({
+      date,
+      hostname: 'webserver',
+      pid: 2341,
+      sourceIp: '192.168.1.100',
+      attempts: 128,
+      successes: 0,
+    });
+    expect(result).toBe(
+      'Mar 21 14:30:15 webserver sshd[2341]: Brute-force attempt from 192.168.1.100 — 128 authentication failures, 0 accepted',
+    );
+  });
+
+  it('space-pads single-digit days (syslog convention)', () => {
+    const date = new Date('2026-03-05T09:05:03Z');
+    const result = formatHydraBruteForceSsh({
+      date,
+      hostname: 'host',
+      pid: 1,
+      sourceIp: '10.0.0.5',
+      attempts: 1,
+      successes: 0,
+    });
+    expect(result).toBe(
+      'Mar  5 09:05:03 host sshd[1]: Brute-force attempt from 10.0.0.5 — 1 authentication failures, 0 accepted',
+    );
+  });
+});
+
+describe('formatHydraBruteForceFtp', () => {
+  it('formats an ftp brute-force aggregate in vsftpd style', () => {
+    const date = new Date('2026-03-21T14:30:15Z');
+    const result = formatHydraBruteForceFtp({
+      date,
+      sourceIp: '192.168.1.100',
+      attempts: 384,
+      successes: 2,
+    });
+    expect(result).toBe(
+      '[2026-03-21 14:30:15] BRUTE FORCE: Client "192.168.1.100" — 384 login attempts, 2 successful',
+    );
+  });
+
+  it('reports zero successes when no user cracked', () => {
+    const date = new Date('2026-03-21T14:30:15Z');
+    const result = formatHydraBruteForceFtp({
+      date,
+      sourceIp: '192.168.1.100',
+      attempts: 128,
+      successes: 0,
+    });
+    expect(result).toBe(
+      '[2026-03-21 14:30:15] BRUTE FORCE: Client "192.168.1.100" — 128 login attempts, 0 successful',
+    );
+  });
+});
+
+describe('formatHydraBruteForceMysql', () => {
+  it('formats a mysql brute-force aggregate as a Connect event', () => {
+    const date = new Date('2026-03-21T14:30:15Z');
+    const result = formatHydraBruteForceMysql({
+      date,
+      threadId: 42,
+      sourceIp: '192.168.1.100',
+      attempts: 256,
+      successes: 1,
+    });
+    expect(result).toBe(
+      "2026-03-21T14:30:15.000000Z\t42 Connect\tBrute-force attempt from '192.168.1.100' — 256 attempts, 1 accepted",
+    );
+  });
+
+  it('reports zero successes when no user cracked', () => {
+    const date = new Date('2026-03-21T14:30:15Z');
+    const result = formatHydraBruteForceMysql({
+      date,
+      threadId: 42,
+      sourceIp: '192.168.1.100',
+      attempts: 128,
+      successes: 0,
+    });
+    expect(result).toBe(
+      "2026-03-21T14:30:15.000000Z\t42 Connect\tBrute-force attempt from '192.168.1.100' — 128 attempts, 0 accepted",
+    );
+  });
+});
+
+describe('formatHydraBruteForceRedis', () => {
+  it('formats a redis brute-force aggregate as a warning-level entry', () => {
+    const date = new Date('2026-03-21T14:30:15Z');
+    const result = formatHydraBruteForceRedis({
+      date,
+      pid: 1234,
+      sourceIp: '192.168.1.100',
+      attempts: 60,
+      successes: 1,
+    });
+    expect(result).toBe(
+      '1234:M 21 Mar 2026 14:30:15.000 # Client 192.168.1.100 brute-force attempt — 60 password attempts, 1 authenticated',
+    );
+  });
+
+  it('reports zero successes when requirepass is not in the wordlist', () => {
+    const date = new Date('2026-03-21T14:30:15Z');
+    const result = formatHydraBruteForceRedis({
+      date,
+      pid: 1234,
+      sourceIp: '192.168.1.100',
+      attempts: 60,
+      successes: 0,
+    });
+    expect(result).toBe(
+      '1234:M 21 Mar 2026 14:30:15.000 # Client 192.168.1.100 brute-force attempt — 60 password attempts, 0 authenticated',
+    );
+  });
+});
+
+describe('formatHydraBruteForceSnmp', () => {
+  it('formats an snmp community-string brute-force aggregate', () => {
+    const date = new Date('2026-03-21T14:30:15Z');
+    const result = formatHydraBruteForceSnmp({
+      date,
+      hostname: 'iotcam',
+      pid: 987,
+      sourceIp: '192.168.1.100',
+      attempts: 12,
+      successes: 1,
+    });
+    expect(result).toBe(
+      'Mar 21 14:30:15 iotcam snmpd[987]: Brute-force community string attempt from 192.168.1.100 — 12 probed, 1 found',
+    );
+  });
+
+  it('reports zero successes when no community string matches', () => {
+    const date = new Date('2026-03-21T14:30:15Z');
+    const result = formatHydraBruteForceSnmp({
+      date,
+      hostname: 'iotcam',
+      pid: 987,
+      sourceIp: '192.168.1.100',
+      attempts: 12,
+      successes: 0,
+    });
+    expect(result).toBe(
+      'Mar 21 14:30:15 iotcam snmpd[987]: Brute-force community string attempt from 192.168.1.100 — 12 probed, 0 found',
+    );
+  });
+});
+
+describe('formatSnmpCommunityDiscovered', () => {
+  it('formats a discovered-community syslog entry', () => {
+    const date = new Date('2026-03-21T14:30:15Z');
+    const result = formatSnmpCommunityDiscovered({
+      date,
+      hostname: 'iotcam',
+      pid: 987,
+      sourceIp: '192.168.1.100',
+      community: 'private',
+    });
+    expect(result).toBe(
+      'Mar 21 14:30:15 iotcam snmpd[987]: Community string "private" accessed from 192.168.1.100',
     );
   });
 });
