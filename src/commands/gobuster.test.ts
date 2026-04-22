@@ -470,50 +470,83 @@ describe('gobuster command', () => {
     });
   });
 
-  describe('access logging callback', () => {
-    it('calls onHttpRequest for each discovered entry', () => {
-      const onHttpRequest = vi.fn();
-      const context = { ...createMockContext(), onHttpRequest };
+  describe('scan aggregate callback', () => {
+    it('calls onScanAggregate exactly once per scan with probed and hit counts', () => {
+      const onScanAggregate = vi.fn();
+      const context = { ...createMockContext(), onScanAggregate };
       const gobuster = createGobusterCommand(context);
       collectAsyncLines(gobuster.fn('dir', 'http://192.168.1.75'));
 
-      // defaultWebRoot has: /index.html, /status, /admin (dir), /admin/config.json
-      expect(onHttpRequest).toHaveBeenCalledWith(
-        '192.168.1.75',
-        80,
-        'GET',
-        '/index.html',
-        200,
-        expect.any(Number),
-      );
-      expect(onHttpRequest).toHaveBeenCalledWith(
-        '192.168.1.75',
-        80,
-        'GET',
-        '/status',
-        200,
-        expect.any(Number),
-      );
-      expect(onHttpRequest).toHaveBeenCalledWith('192.168.1.75', 80, 'GET', '/admin', 301, 0);
-      expect(onHttpRequest).toHaveBeenCalledWith(
-        '192.168.1.75',
-        80,
-        'GET',
-        '/admin/config.json',
-        200,
-        expect.any(Number),
-      );
-      expect(onHttpRequest).toHaveBeenCalledTimes(4);
+      // defaultWebRoot has: /index.html, /status, /admin (dir), /admin/config.json.
+      // DEFAULT_DIRLIST = 'index.html\nstatus\nadmin' → 3 probed entries.
+      // Hit count is 4 because /admin/config.json is reached via the 'admin' top-level match.
+      expect(onScanAggregate).toHaveBeenCalledTimes(1);
+      expect(onScanAggregate).toHaveBeenCalledWith({
+        targetIp: '192.168.1.75',
+        port: 80,
+        probedCount: 3,
+        hitCount: 4,
+      });
     });
 
-    it('does not call onHttpRequest when no entries found', () => {
-      const onHttpRequest = vi.fn();
-      const emptyRoot = makeDir('html', {});
-      const context = { ...createMockContext({ webRoot: emptyRoot }), onHttpRequest };
+    it('calls onScanAggregate with zero hits when no entries match', () => {
+      const onScanAggregate = vi.fn();
+      const context = {
+        ...createMockContext({
+          localFiles: {
+            '/usr/share/wordlists/dirlist.txt': mkDirlistNode('nonexistent'),
+          },
+        }),
+        onScanAggregate,
+      };
       const gobuster = createGobusterCommand(context);
       collectAsyncLines(gobuster.fn('dir', 'http://192.168.1.75'));
 
-      expect(onHttpRequest).not.toHaveBeenCalled();
+      expect(onScanAggregate).toHaveBeenCalledTimes(1);
+      expect(onScanAggregate).toHaveBeenCalledWith({
+        targetIp: '192.168.1.75',
+        port: 80,
+        probedCount: 1,
+        hitCount: 0,
+      });
+    });
+
+    it('reports the actual port scanned (not hardcoded 80)', () => {
+      const onScanAggregate = vi.fn();
+      const context = {
+        ...createMockContext({
+          machines: [
+            getMockMachine({
+              ports: [{ port: 8080, service: 'http-alt', serviceVersion: 'latest', open: true }],
+            }),
+          ],
+        }),
+        onScanAggregate,
+      };
+      const gobuster = createGobusterCommand(context);
+      collectAsyncLines(gobuster.fn('dir', 'http://192.168.1.75:8080'));
+
+      expect(onScanAggregate).toHaveBeenCalledWith(
+        expect.objectContaining({ port: 8080, targetIp: '192.168.1.75' }),
+      );
+    });
+
+    it('does not call onScanAggregate when the scan is cancelled before completion', () => {
+      const onScanAggregate = vi.fn();
+      const context = { ...createMockContext(), onScanAggregate };
+      const gobuster = createGobusterCommand(context);
+      const result = gobuster.fn('dir', 'http://192.168.1.75');
+
+      if (isAsyncOutput(result)) {
+        result.start(
+          () => {},
+          () => {},
+        );
+        result.cancel?.();
+        vi.advanceTimersByTime(30000);
+      }
+
+      expect(onScanAggregate).not.toHaveBeenCalled();
     });
   });
 });

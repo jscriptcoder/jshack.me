@@ -417,3 +417,31 @@ export const formatNmapScanAggregate = ({
   const portList = probedPorts.join(',');
   return `${month} ${day} ${hours}:${minutes}:${seconds} ${hostname} kernel: [iptables] Port scan from ${sourceIp} — probed ports ${portList} (${probedPorts.length} hits)`;
 };
+
+type GobusterScanLogOptions = {
+  readonly date: Date;
+  readonly sourceIp: string;
+  readonly port: number;
+  readonly probedCount: number;
+  readonly hitCount: number;
+};
+
+// Aggregated gobuster directory-enumeration scan — landed in /var/log/access.log
+// as a mod_security-style IDS line. Collapses the whole wordlist sweep into one
+// distinctive entry rather than one line per probed path, matching how real
+// WAFs (mod_security, fail2ban) summarise enumeration attacks.
+export const formatGobusterScanAggregate = ({
+  date,
+  sourceIp,
+  port,
+  probedCount,
+  hitCount,
+}: GobusterScanLogOptions): string => {
+  const day = date.getUTCDate().toString().padStart(2, '0');
+  const month = MONTHS[date.getUTCMonth()];
+  const year = date.getUTCFullYear();
+  const hours = date.getUTCHours().toString().padStart(2, '0');
+  const minutes = date.getUTCMinutes().toString().padStart(2, '0');
+  const seconds = date.getUTCSeconds().toString().padStart(2, '0');
+  return `[${day}/${month}/${year}:${hours}:${minutes}:${seconds} +0000] [mod_security] [client ${sourceIp}] Directory enumeration detected on port ${port} — ${probedCount} paths probed, ${hitCount} hits (gobuster)`;
+};

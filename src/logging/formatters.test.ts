@@ -5,6 +5,7 @@ import {
   formatFtpConnect,
   formatFtpLoginFailed,
   formatFtpLoginOk,
+  formatGobusterScanAggregate,
   formatMysqlAccessDenied,
   formatMysqlConnect,
   formatRedisAuth,
@@ -294,6 +295,36 @@ describe('formatAccessLog', () => {
     });
     expect(result).toBe(
       '10.0.0.5 - - [21/Mar/2026:14:30:15 +0000] "POST /api/login HTTP/1.1" 200 89',
+    );
+  });
+});
+
+describe('formatGobusterScanAggregate', () => {
+  it('formats a mod_security-style directory enumeration entry', () => {
+    const date = new Date('2026-03-21T14:30:15Z');
+    const result = formatGobusterScanAggregate({
+      date,
+      sourceIp: '192.168.1.100',
+      port: 80,
+      probedCount: 50,
+      hitCount: 12,
+    });
+    expect(result).toBe(
+      '[21/Mar/2026:14:30:15 +0000] [mod_security] [client 192.168.1.100] Directory enumeration detected on port 80 — 50 paths probed, 12 hits (gobuster)',
+    );
+  });
+
+  it('zero-pads single-digit day and time components', () => {
+    const date = new Date('2026-01-05T09:05:03Z');
+    const result = formatGobusterScanAggregate({
+      date,
+      sourceIp: '10.0.0.5',
+      port: 8080,
+      probedCount: 1,
+      hitCount: 0,
+    });
+    expect(result).toBe(
+      '[05/Jan/2026:09:05:03 +0000] [mod_security] [client 10.0.0.5] Directory enumeration detected on port 8080 — 1 paths probed, 0 hits (gobuster)',
     );
   });
 });

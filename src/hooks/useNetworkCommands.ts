@@ -29,7 +29,7 @@ import { createRediscliCommand } from '../commands/rediscli';
 import { wrapWithWifiCheck, wrapWithBrickedCheck } from '../commands/networkGuards';
 import type { Command } from '../components/Terminal/types';
 import { appendToMachineLog } from '../logging/appendToMachineLog';
-import { formatNmapScanAggregate } from '../logging/formatters';
+import { formatGobusterScanAggregate, formatNmapScanAggregate } from '../logging/formatters';
 import { resolveLogSourceIP, resolveHostname } from '../logging/utils';
 import { createExploitAttemptHandler } from '../logging/handlers/exploitAttempt';
 import { createHttpRequestHandler } from '../logging/handlers/httpRequest';
@@ -128,6 +128,29 @@ export const useNetworkCommands = (): Map<string, Command> => {
         probedPorts: info.probedPorts,
       });
       appendToMachineLog(info.targetIp, '/var/log/kern.log', line, logFs);
+    };
+
+    const onGobusterScanAggregate = (info: {
+      readonly targetIp: string;
+      readonly port: number;
+      readonly probedCount: number;
+      readonly hitCount: number;
+    }) => {
+      const { ip: logIp } = resolveNat(info.targetIp, info.port);
+      const sourceIp = resolveLogSourceIP(
+        session.machine,
+        info.targetIp,
+        getLocalIP(),
+        getPublicIP(),
+      );
+      const line = formatGobusterScanAggregate({
+        date: new Date(),
+        sourceIp,
+        port: info.port,
+        probedCount: info.probedCount,
+        hitCount: info.hitCount,
+      });
+      appendToMachineLog(logIp, '/var/log/access.log', line, logFs);
     };
 
     const commands = new Map<string, Command>();
@@ -510,7 +533,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
             getNodeFromMachine,
             getLocalNode: (path: string) => getNode(resolvePath(path)),
             getCurrentPath: () => session.currentPath,
-            onHttpRequest,
+            onScanAggregate: onGobusterScanAggregate,
           }),
           isWifiRequired,
         ),

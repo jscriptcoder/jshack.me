@@ -5,6 +5,13 @@ import { isValidIP } from '../utils/network';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 import { resolveWordlist } from '../utils/wordlist';
 
+export type GobusterScanAggregateInfo = {
+  readonly targetIp: string;
+  readonly port: number;
+  readonly probedCount: number;
+  readonly hitCount: number;
+};
+
 type GobusterContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
@@ -12,14 +19,7 @@ type GobusterContext = {
   readonly getNodeFromMachine: (machineId: string, path: string, cwd: string) => FileNode | null;
   readonly getLocalNode: (path: string) => FileNode | null;
   readonly getCurrentPath: () => string;
-  readonly onHttpRequest?: (
-    targetIP: string,
-    port: number,
-    method: string,
-    path: string,
-    status: number,
-    size: number,
-  ) => void;
+  readonly onScanAggregate?: (info: GobusterScanAggregateInfo) => void;
 };
 
 const HTTP_SERVICES = ['http', 'https', 'http-alt'] as const;
@@ -226,18 +226,25 @@ export const createGobusterCommand = (context: GobusterContext): Command => ({
           token.schedule(() => {
             if (token.isCancelled()) return;
             onLine(formatEntry(entry));
-            const status = entry.isDirectory ? 301 : 200;
-            context.onHttpRequest?.(targetIP, parsed.port, 'GET', entry.path, status, entry.size);
           }, delay);
         });
 
-        // Footer
+        // Footer + single aggregated scan log entry. One line on the target's
+        // access.log listing probed-vs-hit counts, matching how a WAF would
+        // summarise an enumeration burst rather than writing one entry per
+        // probed path.
         delay += jitter(HEADER_DELAY_MS);
         token.schedule(() => {
           if (token.isCancelled()) return;
           onLine('===============================================================');
           onLine(`Scan complete: ${entries.length} results found`);
           onLine('===============================================================');
+          context.onScanAggregate?.({
+            targetIp: targetIP,
+            port: parsed.port,
+            probedCount: dirlist.lines.length,
+            hitCount: entries.length,
+          });
           onComplete();
         }, delay);
       },

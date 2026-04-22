@@ -77,13 +77,14 @@ All machine filesystems are generated at runtime and built via `fileSystemFactor
 
 ### Dynamic Connection Logs
 
-When players connect to machines via SSH, FTP, or SCP, authentication events are logged to the target machine's filesystem in realistic Linux formats. `su` events are logged on the current machine. HTTP requests via `curl` log to the target's `/var/log/access.log`.
+When players connect to machines via SSH, FTP, or SCP, authentication events are logged to the target machine's filesystem in realistic Linux formats. `su` events are logged on the current machine. HTTP requests via `curl` log to the target's `/var/log/access.log`. Scan-style commands (`nmap`, `gobuster`) write a single aggregate entry per completed scan rather than one line per probed port / path.
 
-| Log File              | Events                      | Format          |
-| --------------------- | --------------------------- | --------------- |
-| `/var/log/auth.log`   | SSH, SCP, su (success/fail) | Syslog          |
-| `/var/log/vsftpd.log` | FTP connect/login           | vsftpd          |
-| `/var/log/access.log` | HTTP requests (curl)        | Apache Combined |
+| Log File              | Events                                     | Format                         |
+| --------------------- | ------------------------------------------ | ------------------------------ |
+| `/var/log/auth.log`   | SSH, SCP, su (success/fail)                | Syslog                         |
+| `/var/log/vsftpd.log` | FTP connect/login                          | vsftpd                         |
+| `/var/log/access.log` | HTTP requests (curl) + gobuster aggregates | Apache Combined / mod_security |
+| `/var/log/kern.log`   | nmap scan aggregates                       | iptables LOG                   |
 
 Log files are created dynamically on first event (not pre-populated). They persist via IndexedDB patches and are world-readable. See `src/logging/README.md` for implementation details and `architecture.md` for integration.
 

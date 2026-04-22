@@ -169,7 +169,8 @@ Unix-realistic permission model with owner-scoped access and directory traversal
 
 - `/var/log/auth.log` — SSH, SCP, su events (syslog format: `MMM DD HH:MM:SS hostname sshd[pid]: Accepted password for user from IP port PORT ssh2`)
 - `/var/log/vsftpd.log` — FTP events (vsftpd format: `[YYYY-MM-DD HH:MM:SS] OK LOGIN: Client "IP", user "name"`)
-- `/var/log/access.log` — HTTP requests via curl (Apache Combined format)
+- `/var/log/access.log` — HTTP requests via curl (Apache Combined format); also mod_security-style gobuster scan aggregates (one line per completed scan, not per probed path)
+- `/var/log/kern.log` — iptables-style aggregate entry per completed nmap scan (one line listing probed ports and source IP)
 
 **Integration:** Handlers in `src/logging/handlers/` (one factory per event type — exploit, nc, http, ssh, ftp, mysql) encapsulate log-writing logic. Terminal.tsx and useNetworkCommands.ts instantiate each factory with its dependencies and wire the resulting handler into the relevant command or auth flow. The `su` command still uses a small inline callback since it logs locally. Each handler formats the log line and calls `appendToMachineLog` to write it to the target machine's filesystem.
 

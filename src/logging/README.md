@@ -18,14 +18,28 @@ The `handlers/` subdirectory holds one factory per log event. Each factory
 takes its dependencies (session machine, NAT resolver, log filesystem, etc.)
 and returns a handler the UI layer wires into commands.
 
-| Handler                       | Triggered by   | Log file              |
-| ----------------------------- | -------------- | --------------------- |
-| `createExploitAttemptHandler` | msfconsole     | per attack pattern    |
-| `createNcConnectHandler`      | nc connect     | `/var/log/syslog`     |
-| `createHttpRequestHandler`    | curl, gobuster | `/var/log/access.log` |
-| `createSshAuthHandler`        | ssh, scp       | `/var/log/auth.log`   |
-| `createFtpAuthHandler`        | ftp            | `/var/log/vsftpd.log` |
-| `createMysqlAuthHandler`      | mysql          | `/var/log/mysql.log`  |
+| Handler                       | Triggered by | Log file              |
+| ----------------------------- | ------------ | --------------------- |
+| `createExploitAttemptHandler` | msfconsole   | per attack pattern    |
+| `createNcConnectHandler`      | nc connect   | `/var/log/syslog`     |
+| `createHttpRequestHandler`    | curl         | `/var/log/access.log` |
+| `createSshAuthHandler`        | ssh, scp     | `/var/log/auth.log`   |
+| `createFtpAuthHandler`        | ftp          | `/var/log/vsftpd.log` |
+| `createMysqlAuthHandler`      | mysql        | `/var/log/mysql.log`  |
+
+### Scan aggregates (inline in `useNetworkCommands.ts`)
+
+Scan-style commands (`nmap`, `gobuster`) do not log one entry per probe — that
+would bury the target's log file under a wall of noise during wordlist/port
+sweeps. Instead, each scan fires a single aggregate callback when the sweep
+completes, and an inline handler in `useNetworkCommands.ts` writes one
+distinctive summary line per scan. This mirrors how real defensive tooling
+(netfilter LOG, mod_security, fail2ban) records enumeration bursts.
+
+| Callback           | Triggered by | Log file              | Format                                                                      |
+| ------------------ | ------------ | --------------------- | --------------------------------------------------------------------------- |
+| nmap aggregate     | nmap         | `/var/log/kern.log`   | iptables-style: `kernel: [iptables] Port scan from ... probed ports ...`    |
+| gobuster aggregate | gobuster     | `/var/log/access.log` | mod_security-style: `[mod_security] [client ...] Directory enumeration ...` |
 
 ### NAT-aware log destination
 
@@ -38,33 +52,37 @@ DNAT rules, so `resolveNat` is a no-op).
 
 ## Log Formats
 
-| Format          | Log File              | Used By      | Example                                                                                             |
-| --------------- | --------------------- | ------------ | --------------------------------------------------------------------------------------------------- |
-| Syslog          | `/var/log/auth.log`   | SSH, SCP, su | `Mar 21 14:30:00 webserver sshd[1234]: Accepted password for admin from 10.0.1.100 port 45000 ssh2` |
-| vsftpd          | `/var/log/vsftpd.log` | FTP          | `[2026-03-21 14:30:00] OK LOGIN: Client "10.0.1.100", user "ftpuser"`                               |
-| MySQL general   | `/var/log/mysql.log`  | MySQL        | `2026-03-21T14:30:00.000000Z\t42 Connect\tadmin@10.0.1.100 on webapp_db using TCP/IP`               |
-| Redis           | `/var/log/redis.log`  | Redis        | `1234:M 21 Mar 2026 14:30:00.000 * Client connected from 10.0.1.100`                                |
-| Apache Combined | `/var/log/access.log` | curl         | `10.0.1.100 - - [21/Mar/2026:14:30:00 +0000] "GET /index.html HTTP/1.1" 200 1234`                   |
+| Format          | Log File              | Used By      | Example                                                                                                                                           |
+| --------------- | --------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Syslog          | `/var/log/auth.log`   | SSH, SCP, su | `Mar 21 14:30:00 webserver sshd[1234]: Accepted password for admin from 10.0.1.100 port 45000 ssh2`                                               |
+| vsftpd          | `/var/log/vsftpd.log` | FTP          | `[2026-03-21 14:30:00] OK LOGIN: Client "10.0.1.100", user "ftpuser"`                                                                             |
+| MySQL general   | `/var/log/mysql.log`  | MySQL        | `2026-03-21T14:30:00.000000Z\t42 Connect\tadmin@10.0.1.100 on webapp_db using TCP/IP`                                                             |
+| Redis           | `/var/log/redis.log`  | Redis        | `1234:M 21 Mar 2026 14:30:00.000 * Client connected from 10.0.1.100`                                                                              |
+| Apache Combined | `/var/log/access.log` | curl         | `10.0.1.100 - - [21/Mar/2026:14:30:00 +0000] "GET /index.html HTTP/1.1" 200 1234`                                                                 |
+| iptables LOG    | `/var/log/kern.log`   | nmap         | `Mar 21 14:30:00 webserver kernel: [iptables] Port scan from 10.0.1.100 — probed ports 22,80 (2 hits)`                                            |
+| mod_security    | `/var/log/access.log` | gobuster     | `[21/Mar/2026:14:30:00 +0000] [mod_security] [client 10.0.1.100] Directory enumeration detected on port 80 — 50 paths probed, 12 hits (gobuster)` |
 
 ## Events Logged
 
-| Event             | Formatter                 | Target Log File       | Where Logged    |
-| ----------------- | ------------------------- | --------------------- | --------------- |
-| SSH login success | `formatSshAccepted`       | `/var/log/auth.log`   | Target machine  |
-| SSH key auth      | `formatSshAcceptedKey`    | `/var/log/auth.log`   | Target machine  |
-| SSH login failure | `formatSshFailed`         | `/var/log/auth.log`   | Target machine  |
-| SCP auth success  | `formatScpAccepted`       | `/var/log/auth.log`   | Target machine  |
-| SCP auth failure  | `formatScpFailed`         | `/var/log/auth.log`   | Target machine  |
-| su success        | `formatSuSuccess`         | `/var/log/auth.log`   | Current machine |
-| su failure        | `formatSuFailed`          | `/var/log/auth.log`   | Current machine |
-| FTP connect       | `formatFtpConnect`        | `/var/log/vsftpd.log` | Target machine  |
-| FTP login success | `formatFtpLoginOk`        | `/var/log/vsftpd.log` | Target machine  |
-| FTP login failure | `formatFtpLoginFailed`    | `/var/log/vsftpd.log` | Target machine  |
-| MySQL connect     | `formatMysqlConnect`      | `/var/log/mysql.log`  | Target machine  |
-| MySQL auth fail   | `formatMysqlAccessDenied` | `/var/log/mysql.log`  | Target machine  |
-| Redis connect     | `formatRedisConnect`      | `/var/log/redis.log`  | Target machine  |
-| Redis auth fail   | `formatRedisAuthFailed`   | `/var/log/redis.log`  | Target machine  |
-| HTTP request      | `formatAccessLog`         | `/var/log/access.log` | Target machine  |
+| Event                     | Formatter                     | Target Log File       | Where Logged    |
+| ------------------------- | ----------------------------- | --------------------- | --------------- |
+| SSH login success         | `formatSshAccepted`           | `/var/log/auth.log`   | Target machine  |
+| SSH key auth              | `formatSshAcceptedKey`        | `/var/log/auth.log`   | Target machine  |
+| SSH login failure         | `formatSshFailed`             | `/var/log/auth.log`   | Target machine  |
+| SCP auth success          | `formatScpAccepted`           | `/var/log/auth.log`   | Target machine  |
+| SCP auth failure          | `formatScpFailed`             | `/var/log/auth.log`   | Target machine  |
+| su success                | `formatSuSuccess`             | `/var/log/auth.log`   | Current machine |
+| su failure                | `formatSuFailed`              | `/var/log/auth.log`   | Current machine |
+| FTP connect               | `formatFtpConnect`            | `/var/log/vsftpd.log` | Target machine  |
+| FTP login success         | `formatFtpLoginOk`            | `/var/log/vsftpd.log` | Target machine  |
+| FTP login failure         | `formatFtpLoginFailed`        | `/var/log/vsftpd.log` | Target machine  |
+| MySQL connect             | `formatMysqlConnect`          | `/var/log/mysql.log`  | Target machine  |
+| MySQL auth fail           | `formatMysqlAccessDenied`     | `/var/log/mysql.log`  | Target machine  |
+| Redis connect             | `formatRedisConnect`          | `/var/log/redis.log`  | Target machine  |
+| Redis auth fail           | `formatRedisAuthFailed`       | `/var/log/redis.log`  | Target machine  |
+| HTTP request              | `formatAccessLog`             | `/var/log/access.log` | Target machine  |
+| nmap scan (aggregate)     | `formatNmapScanAggregate`     | `/var/log/kern.log`   | Target machine  |
+| gobuster scan (aggregate) | `formatGobusterScanAggregate` | `/var/log/access.log` | Target machine  |
 
 ## Source IP Resolution
 
