@@ -33,6 +33,7 @@ import { formatGobusterScanAggregate, formatNmapScanAggregate } from '../logging
 import { resolveLogSourceIP, resolveHostname } from '../logging/utils';
 import { createExploitAttemptHandler } from '../logging/handlers/exploitAttempt';
 import { createHttpRequestHandler } from '../logging/handlers/httpRequest';
+import { createHydraLogHandler } from '../logging/handlers/hydraLog';
 import { createNcConnectHandler } from '../logging/handlers/ncConnect';
 import {
   chainForwardBackdoor,
@@ -107,6 +108,16 @@ export const useNetworkCommands = (): Map<string, Command> => {
       getPublicIP,
       resolveNat,
       getMachine,
+      logFs,
+    });
+
+    const onHydraBruteForceAggregate = createHydraLogHandler({
+      sessionMachine: session.machine,
+      getLocalIP,
+      getPublicIP,
+      resolveNat,
+      getMachine,
+      readFileFromMachine: (op) => readFileFromMachine(op),
       logFs,
     });
 
@@ -515,6 +526,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
             getNodeFromMachine,
             getLocalNode: (path: string) => getNode(resolvePath(path)),
             getCurrentPath: () => session.currentPath,
+            onBruteForceAggregate: onHydraBruteForceAggregate,
           }),
           isWifiRequired,
         ),
