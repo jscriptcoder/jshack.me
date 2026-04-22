@@ -65,23 +65,25 @@ const validatePassword = (value: string): string | null => {
 
 export const IntroScreen = ({ existingGame, onStart }: IntroScreenProps) => {
   const [screen, setScreen] = useState<Screen>('menu');
-  const [hostname, setHostname] = useState('');
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const [hostnamePreview, setHostnamePreview] = useState('');
+  const [usernamePreview, setUsernamePreview] = useState('');
   const [error, setError] = useState('');
-  const firstInputRef = useRef<HTMLInputElement>(null);
+
+  const hostnameRef = useRef<HTMLInputElement>(null);
+  const usernameRef = useRef<HTMLInputElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
+  const confirmPasswordRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (screen === 'new-game') {
-      firstInputRef.current?.focus();
+      hostnameRef.current?.focus();
     }
   }, [screen]);
 
   const handleNewGame = useCallback(() => {
     setScreen('new-game');
-    setHostname('');
-    setUsername('');
-    setPassword('');
+    setHostnamePreview('');
+    setUsernamePreview('');
     setError('');
   }, []);
 
@@ -92,8 +94,13 @@ export const IntroScreen = ({ existingGame, onStart }: IntroScreenProps) => {
   }, [existingGame, onStart]);
 
   const handleSubmit = useCallback(() => {
-    const trimmedHostname = hostname.trim().toLowerCase().replace(/\s+/g, '-');
-    const trimmedUsername = username.trim().toLowerCase().replace(/\s+/g, '');
+    const hostnameRaw = hostnameRef.current?.value ?? '';
+    const usernameRaw = usernameRef.current?.value ?? '';
+    const password = passwordRef.current?.value ?? '';
+    const confirmPassword = confirmPasswordRef.current?.value ?? '';
+
+    const trimmedHostname = hostnameRaw.trim().toLowerCase().replace(/\s+/g, '-');
+    const trimmedUsername = usernameRaw.trim().toLowerCase().replace(/\s+/g, '');
 
     const hostnameError = validateHostname(trimmedHostname);
     if (hostnameError) {
@@ -113,6 +120,11 @@ export const IntroScreen = ({ existingGame, onStart }: IntroScreenProps) => {
       return;
     }
 
+    if (password !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
     onStart(
       {
         seed: generateGameSeed(),
@@ -122,7 +134,7 @@ export const IntroScreen = ({ existingGame, onStart }: IntroScreenProps) => {
       },
       true,
     );
-  }, [hostname, username, password, onStart]);
+  }, [onStart]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -196,11 +208,11 @@ export const IntroScreen = ({ existingGame, onStart }: IntroScreenProps) => {
               Workstation
             </label>
             <input
-              ref={firstInputRef}
+              ref={hostnameRef}
               type="text"
-              value={hostname}
+              defaultValue=""
               onChange={(e) => {
-                setHostname(e.target.value);
+                setHostnamePreview(e.target.value);
                 setError('');
               }}
               onKeyDown={handleKeyDown}
@@ -217,10 +229,11 @@ export const IntroScreen = ({ existingGame, onStart }: IntroScreenProps) => {
               Username
             </label>
             <input
+              ref={usernameRef}
               type="text"
-              value={username}
+              defaultValue=""
               onChange={(e) => {
-                setUsername(e.target.value);
+                setUsernamePreview(e.target.value);
                 setError('');
               }}
               onKeyDown={handleKeyDown}
@@ -237,26 +250,42 @@ export const IntroScreen = ({ existingGame, onStart }: IntroScreenProps) => {
               Root password
             </label>
             <input
-              type="text"
-              value={password}
-              onChange={(e) => {
-                setPassword(e.target.value);
-                setError('');
-              }}
+              ref={passwordRef}
+              type="password"
+              defaultValue=""
+              onChange={() => setError('')}
               onKeyDown={handleKeyDown}
               placeholder="password"
               className="w-48 border-b bg-transparent px-1 py-0.5 font-mono text-sm outline-none"
               style={inputStyle}
-              autoComplete="off"
+              autoComplete="new-password"
+              spellCheck={false}
+            />
+
+            {/* Confirm password */}
+            <label className="text-right text-sm" style={{ color: 'var(--theme-text-dim)' }}>
+              Confirm password
+            </label>
+            <input
+              ref={confirmPasswordRef}
+              type="password"
+              defaultValue=""
+              onChange={() => setError('')}
+              onKeyDown={handleKeyDown}
+              placeholder="confirm password"
+              className="w-48 border-b bg-transparent px-1 py-0.5 font-mono text-sm outline-none"
+              style={inputStyle}
+              autoComplete="new-password"
               spellCheck={false}
             />
           </div>
 
           {/* Preview */}
-          {hostname.trim() && username.trim() && (
+          {hostnamePreview.trim() && usernamePreview.trim() && (
             <p className="text-sm" style={{ color: 'var(--theme-text-dim)' }}>
               <span style={{ color: 'var(--theme-text)' }}>
-                {username.trim().toLowerCase()}@{hostname.trim().toLowerCase().replace(/\s+/g, '-')}
+                {usernamePreview.trim().toLowerCase()}@
+                {hostnamePreview.trim().toLowerCase().replace(/\s+/g, '-')}
               </span>
               &gt;
             </p>

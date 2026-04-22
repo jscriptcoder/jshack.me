@@ -2,11 +2,19 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { IntroScreen } from './IntroScreen';
 
-const fillForm = (hostname: string, username: string, password: string) => {
+const fillForm = (
+  hostname: string,
+  username: string,
+  password: string,
+  confirmPassword: string = password,
+) => {
   fireEvent.click(screen.getByText('NEW GAME'));
   fireEvent.change(screen.getByPlaceholderText('my-machine'), { target: { value: hostname } });
   fireEvent.change(screen.getByPlaceholderText('hacker'), { target: { value: username } });
   fireEvent.change(screen.getByPlaceholderText('password'), { target: { value: password } });
+  fireEvent.change(screen.getByPlaceholderText('confirm password'), {
+    target: { value: confirmPassword },
+  });
 };
 
 describe('IntroScreen', () => {
@@ -52,7 +60,7 @@ describe('IntroScreen', () => {
     expect(onStart).toHaveBeenCalledWith(game, false);
   });
 
-  it('should show all three fields when NEW GAME clicked', () => {
+  it('should show all fields when NEW GAME clicked', () => {
     render(<IntroScreen existingGame={null} onStart={vi.fn()} />);
 
     fireEvent.click(screen.getByText('NEW GAME'));
@@ -60,6 +68,27 @@ describe('IntroScreen', () => {
     expect(screen.getByPlaceholderText('my-machine')).toBeDefined();
     expect(screen.getByPlaceholderText('hacker')).toBeDefined();
     expect(screen.getByPlaceholderText('password')).toBeDefined();
+    expect(screen.getByPlaceholderText('confirm password')).toBeDefined();
+  });
+
+  it('should mask the password fields', () => {
+    render(<IntroScreen existingGame={null} onStart={vi.fn()} />);
+
+    fireEvent.click(screen.getByText('NEW GAME'));
+
+    expect(screen.getByPlaceholderText('password').getAttribute('type')).toBe('password');
+    expect(screen.getByPlaceholderText('confirm password').getAttribute('type')).toBe('password');
+  });
+
+  it('should reject when passwords do not match', () => {
+    const onStart = vi.fn();
+    render(<IntroScreen existingGame={null} onStart={onStart} />);
+
+    fillForm('box', 'user', 'pass1234', 'different');
+    fireEvent.click(screen.getByText('START'));
+
+    expect(onStart).not.toHaveBeenCalled();
+    expect(screen.getByText('Passwords do not match')).toBeDefined();
   });
 
   it('should show error for empty hostname', () => {
