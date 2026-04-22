@@ -1,7 +1,7 @@
 # Plan: Hydra Brute-Force Logging
 
 **Branch**: feat/hydra-brute-force-logging
-**Status**: Active
+**Status**: Complete (delete this file on merge)
 
 ## Goal
 

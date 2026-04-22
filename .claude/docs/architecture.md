@@ -167,12 +167,15 @@ Unix-realistic permission model with owner-scoped access and directory traversal
 
 **Log files written:**
 
-- `/var/log/auth.log` — SSH, SCP, su events (syslog format: `MMM DD HH:MM:SS hostname sshd[pid]: Accepted password for user from IP port PORT ssh2`)
-- `/var/log/vsftpd.log` — FTP events (vsftpd format: `[YYYY-MM-DD HH:MM:SS] OK LOGIN: Client "IP", user "name"`)
+- `/var/log/auth.log` — SSH, SCP, su events (syslog format: `MMM DD HH:MM:SS hostname sshd[pid]: Accepted password for user from IP port PORT ssh2`); also hydra ssh brute-force aggregates + one forged `Accepted password` success line per cracked user
+- `/var/log/vsftpd.log` — FTP events (vsftpd format: `[YYYY-MM-DD HH:MM:SS] OK LOGIN: Client "IP", user "name"`); also hydra ftp brute-force aggregates + per-success lines
 - `/var/log/access.log` — HTTP requests via curl (Apache Combined format); also mod_security-style gobuster scan aggregates (one line per completed scan, not per probed path)
 - `/var/log/kern.log` — iptables-style aggregate entry per completed nmap scan (one line listing probed ports and source IP)
+- `/var/log/mysql.log` — MySQL connect/auth-denied events; also hydra mysql brute-force aggregates + per-success `Connect` lines
+- `/var/log/redis.log` — Redis auth success/failure events; also hydra redis brute-force aggregates + per-success auth lines
+- `/var/log/syslog` — nc connection attempts (xinetd-style); also hydra snmp brute-force aggregates + per-discovered-community lines
 
-**Integration:** Handlers in `src/logging/handlers/` (one factory per event type — exploit, nc, http, ssh, ftp, mysql) encapsulate log-writing logic. Terminal.tsx and useNetworkCommands.ts instantiate each factory with its dependencies and wire the resulting handler into the relevant command or auth flow. The `su` command still uses a small inline callback since it logs locally. Each handler formats the log line and calls `appendToMachineLog` to write it to the target machine's filesystem.
+**Integration:** Handlers in `src/logging/handlers/` (one factory per event type — exploit, nc, http, ssh, ftp, mysql, hydra) encapsulate log-writing logic. Terminal.tsx and useNetworkCommands.ts instantiate each factory with its dependencies and wire the resulting handler into the relevant command or auth flow. The `su` command still uses a small inline callback since it logs locally. Each handler formats the log line and calls `appendToMachineLog` to write it to the target machine's filesystem.
 
 **Source IP:** `resolveLogSourceIP()` in `src/logging/utils.ts` determines the correct source IP for log entries. When on a remote machine, its IP is used directly. When on localhost, same-subnet targets see the LAN IP (e.g., `10.45.12.100`), while cross-network targets (missions) see the home router's public IP (NAT'd through the gateway). `NetworkContext.getPublicIP()` provides the router's public IP.
 
