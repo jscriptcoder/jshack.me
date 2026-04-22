@@ -4,14 +4,15 @@ End-to-end tests using [Playwright](https://playwright.dev/) that verify the ful
 
 ## Files
 
-| File                     | Description                                                                    |
-| ------------------------ | ------------------------------------------------------------------------------ |
-| `helpers.ts`             | Shared constants, selectors, and helper functions used by all tests            |
-| `access-logging.spec.ts` | Verifies curl + gobuster wiring (both → target's `access.log`)                 |
-| `auth-logging.spec.ts`   | Verifies UI → session → auth-log wiring (e.g. `su root` → `/var/log/auth.log`) |
-| `ftp-logging.spec.ts`    | Verifies FTP connect + login wiring (`ftp <host>` → target's `vsftpd.log`)     |
-| `nc-logging.spec.ts`     | Verifies nc connect wiring (`nc <host> <port>` → target's `syslog`)            |
-| `scan-logging.spec.ts`   | Verifies scan-aggregate log wiring (e.g. `nmap <ip>` → target's `kern.log`)    |
+| File                     | Description                                                                 |
+| ------------------------ | --------------------------------------------------------------------------- |
+| `helpers.ts`             | Shared constants, selectors, and helper functions used by all tests         |
+| `access-logging.spec.ts` | Verifies curl + gobuster wiring (both → target's `access.log`)              |
+| `auth-logging.spec.ts`   | Verifies UI → session → auth-log wiring (su/ssh/scp → `/var/log/auth.log`)  |
+| `ftp-logging.spec.ts`    | Verifies FTP connect + login wiring (`ftp <host>` → target's `vsftpd.log`)  |
+| `mysql-logging.spec.ts`  | Verifies MySQL auth wiring (`mysql <host> <user>` → target's `mysql.log`)   |
+| `nc-logging.spec.ts`     | Verifies nc connect wiring (`nc <host> <port>` → target's `syslog`)         |
+| `scan-logging.spec.ts`   | Verifies scan-aggregate log wiring (e.g. `nmap <ip>` → target's `kern.log`) |
 
 E2E coverage is reserved for behavior Vitest can't reach — full UI-through-session-through-filesystem flows, real keyboard handling, the nano editor textarea, and mission playthroughs (added as missions are built out).
 

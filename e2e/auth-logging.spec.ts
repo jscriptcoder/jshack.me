@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 import {
+  ERROR,
   TYPE_DELAY,
+  countThenWait,
   loadSavedGame,
   readMachinePatch,
   runAndExpect,
@@ -9,6 +11,7 @@ import {
   sshTo,
   suFail,
   suTo,
+  typeCommand,
 } from './helpers';
 
 // Bump per-test timeout when typing visibly.
@@ -129,4 +132,77 @@ test('ssh login with a wrong password writes a Failed entry to the target /var/l
   expect(logContent).not.toBeNull();
   expect(logContent).toContain(`Failed password for ${SSH_USER}`);
   expect(logContent).toContain('ssh2');
+});
+
+// ---------------------------------------------------------------------------
+// auth.log — scp success + failure
+// ---------------------------------------------------------------------------
+// scp shares the SSH auth handler (formatScpAccepted = formatSshAccepted and
+// formatScpFailed = formatSshFailed), but lives on a different command path.
+// If scp's wiring ever stops firing onSshAuth, the ssh tests above won't
+// notice — these do. Uses inline-password form so no interactive prompt.
+// ---------------------------------------------------------------------------
+
+test('scp upload writes an Accepted entry to the target /var/log/auth.log', async ({ page }) => {
+  const SEED = 'abcd1234';
+  const WIFI = { essid: 'TYRELL-CORP', bssid: 'A4:CF:12:D3:8B:7A' };
+  const TARGET_HOST = '172.25.96.96'; // staging-ws, SSH open
+  const SSH_USER = 'guest';
+  const SSH_PASSWORD = 'public';
+
+  await loadSavedGame(page, {
+    gameState: {
+      seed: SEED,
+      workstationName: 'test-ws',
+      username: 'tester',
+      rootPassword: 'testpass',
+    },
+    wifi: WIFI,
+  });
+
+  await runAndExpect(
+    page,
+    `scp /etc/hostname ${SSH_USER}@${TARGET_HOST}:/tmp/hostname 22 ${SSH_PASSWORD}`,
+    `→ ${TARGET_HOST}`,
+    30_000,
+  );
+
+  const logContent = await readMachinePatch(page, TARGET_HOST, '/var/log/auth.log');
+  expect(logContent).not.toBeNull();
+  expect(logContent).toContain(`Accepted password for ${SSH_USER}`);
+});
+
+test('scp with a wrong password writes a Failed entry to the target /var/log/auth.log', async ({
+  page,
+}) => {
+  const SEED = 'abcd1234';
+  const WIFI = { essid: 'TYRELL-CORP', bssid: 'A4:CF:12:D3:8B:7A' };
+  const TARGET_HOST = '172.25.96.96';
+  const SSH_USER = 'guest';
+
+  await loadSavedGame(page, {
+    gameState: {
+      seed: SEED,
+      workstationName: 'test-ws',
+      username: 'tester',
+      rootPassword: 'testpass',
+    },
+    wifi: WIFI,
+  });
+
+  // Inline scp with a wrong password surfaces 'Permission denied' as an error.
+  const permDenied = page.locator(ERROR, { hasText: 'Permission denied, please try again.' });
+  await countThenWait(
+    permDenied,
+    () =>
+      typeCommand(
+        page,
+        `scp /etc/hostname ${SSH_USER}@${TARGET_HOST}:/tmp/hostname 22 not-the-password`,
+      ),
+    30_000,
+  );
+
+  const logContent = await readMachinePatch(page, TARGET_HOST, '/var/log/auth.log');
+  expect(logContent).not.toBeNull();
+  expect(logContent).toContain(`Failed password for ${SSH_USER}`);
 });

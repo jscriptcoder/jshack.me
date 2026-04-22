@@ -223,34 +223,46 @@ export type LoadSavedGameOptions = {
   readonly wifi?: SavedWifi;
 };
 
+// Narrow shape of `window.__jshackTest`, mirrored from src/testApi.ts. When
+// the storage layer migrates (e.g. Supabase for multiplayer), the src-side
+// implementation changes but this surface stays stable — so nothing in e2e
+// needs to know how state is persisted.
+type TestApiSurface = {
+  readonly setGameState: (state: SavedGameState) => Promise<void>;
+  readonly setWifiConnected: (wifi: SavedWifi | null) => Promise<void>;
+  readonly readFilesystemPatch: (machineId: string, path: string) => Promise<string | null>;
+};
+
+declare global {
+  interface Window {
+    __jshackTest?: TestApiSurface;
+  }
+}
+
+const MISSING_TEST_API =
+  'test API not installed on window — is Vite dev mode active? (import.meta.env.DEV)';
+
 /**
- * Pre-populate IndexedDB with a GameState (and optional WiFi connection) so the
- * app renders straight into the game, skipping the intro + boot + WiFi gate.
- * Lets tests pin a known seed — critical for scenarios that need deterministic
- * procedurally-generated machine IPs and credentials.
+ * Pre-populate the storage layer with a GameState (and optional WiFi
+ * connection) so the app renders straight into the game, skipping the intro +
+ * boot + WiFi gate. Lets tests pin a known seed — critical for scenarios that
+ * need deterministic procedurally-generated machine IPs and credentials.
  */
 export const loadSavedGame = async (page: Page, opts: LoadSavedGameOptions): Promise<void> => {
   await page.goto('/');
 
-  await page.evaluate(async (state) => {
-    const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open('jshack-db', 1);
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    });
+  // main.tsx's bootstrap is async and installs the test API only after
+  // initializeStorage resolves, which can land after the page `load` event.
+  await page.waitForFunction(() => Boolean(window.__jshackTest), null, { timeout: 10_000 });
 
-    const put = (key: string, value: unknown): Promise<void> =>
-      new Promise((resolve, reject) => {
-        const req = db.transaction('session', 'readwrite').objectStore('session').put(value, key);
-        req.onsuccess = () => resolve();
-        req.onerror = () => reject(req.error);
-      });
-
-    await put('gameState', state.gameState);
-    if (state.wifi) {
-      await put('wifiConnected', state.wifi);
-    }
-  }, opts);
+  await page.evaluate(
+    async ({ gameState, wifi, missingMessage }) => {
+      if (!window.__jshackTest) throw new Error(missingMessage);
+      await window.__jshackTest.setGameState(gameState);
+      if (wifi) await window.__jshackTest.setWifiConnected(wifi);
+    },
+    { gameState: opts.gameState, wifi: opts.wifi, missingMessage: MISSING_TEST_API },
+  );
 
   await page.reload();
   await page.locator(BANNER, { hasText: 'Type help' }).waitFor({ timeout: 30_000 });
@@ -258,9 +270,9 @@ export const loadSavedGame = async (page: Page, opts: LoadSavedGameOptions): Pro
 };
 
 /**
- * Read a file's content from a machine's filesystem directly from IndexedDB.
- * Necessary for asserting on log writes to machines whose credentials are
- * procedurally generated and not otherwise reachable from the player's UI.
+ * Read a file's content from a machine's filesystem. Necessary for asserting
+ * on log writes to machines whose credentials are procedurally generated and
+ * not otherwise reachable from the player's UI.
  */
 export const readMachinePatch = async (
   page: Page,
@@ -268,28 +280,11 @@ export const readMachinePatch = async (
   path: string,
 ): Promise<string | null> =>
   page.evaluate(
-    async ({ machineId: id, path: p }) => {
-      const db = await new Promise<IDBDatabase>((resolve, reject) => {
-        const req = indexedDB.open('jshack-db', 1);
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-      });
-
-      const patches = await new Promise<
-        readonly { machineId: string; path: string; content: string | null }[]
-      >((resolve, reject) => {
-        const req = db
-          .transaction('filesystem', 'readonly')
-          .objectStore('filesystem')
-          .get('patches');
-        req.onsuccess = () => resolve((req.result ?? []) as never);
-        req.onerror = () => reject(req.error);
-      });
-
-      const match = patches.find((patch) => patch.machineId === id && patch.path === p);
-      return match?.content ?? null;
+    async ({ machineId: id, path: p, missingMessage }) => {
+      if (!window.__jshackTest) throw new Error(missingMessage);
+      return window.__jshackTest.readFilesystemPatch(id, p);
     },
-    { machineId, path },
+    { machineId, path, missingMessage: MISSING_TEST_API },
   );
 
 // ---------------------------------------------------------------------------
