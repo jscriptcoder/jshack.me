@@ -64,6 +64,6 @@ export const createHelpCommand = (getCommands: () => Command[]): Command => ({
       formatCategory(CATEGORY_LABELS[cat], grouped.get(cat)!, maxSynopsisWidth),
     );
 
-    return ['', ...lines, ' Use man(command) for detailed help.'].join('\n');
+    return ['', ...lines, ' Use man <command> for detailed help.'].join('\n');
   },
 });

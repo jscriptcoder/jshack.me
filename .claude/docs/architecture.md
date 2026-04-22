@@ -259,7 +259,7 @@ Redis mode (when connected via rediscli): Raw Redis command input — KEYS, GET,
 
 ## Command Access Control
 
-Unified filesystem-based access model (`src/commands/availability.ts`). All commands visible in `help()` and tab-complete. Execution gated by binary file permissions. See `CLAUDE.md` for command categories (builtins, game, system utilities, apt-installable).
+Unified filesystem-based access model (`src/commands/availability.ts`). All commands visible in `help` and tab-complete. Execution gated by binary file permissions. See `CLAUDE.md` for command categories (builtins, game, system utilities, apt-installable).
 
 **Mechanism:** `wrapWithAccessCheck` HOF checks binary existence and execute permissions at execution time. Shell builtins and game commands bypass the check.
 

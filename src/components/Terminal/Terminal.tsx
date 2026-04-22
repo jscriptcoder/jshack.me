@@ -49,7 +49,7 @@ const BANNER = `
  ╚════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝╚═╝     ╚═╝╚══════╝
                                                               v${__APP_VERSION__}
 
-  Type help() for available commands
+  Type help for available commands
 `;
 
 const getInitialLines = (): readonly OutputLine[] => [{ id: 0, type: 'banner', content: BANNER }];

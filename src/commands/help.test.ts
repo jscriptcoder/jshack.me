@@ -124,7 +124,7 @@ describe('help command', () => {
     const help = createHelpCommand(() => []);
     const result = String(help.fn());
 
-    expect(result).toContain('man(command)');
+    expect(result).toContain('man <command>');
   });
 
   it('should display categories in fixed order', () => {
@@ -182,6 +182,6 @@ describe('help command', () => {
     const help = createHelpCommand(() => [getMockCommand()]);
     const result = String(help.fn());
 
-    expect(result).toContain('man(command)');
+    expect(result).toContain('man <command>');
   });
 });

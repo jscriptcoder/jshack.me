@@ -27,7 +27,7 @@ This is a JavaScript terminal — commands are function calls:
   cat("file")   not  cat file
   cd("/etc")    not  cd /etc
 
-Type help() to see all commands. Use man("cmd") for details.
+Type help to see all commands. Use man <cmd> for details.
 
 GETTING STARTED
   You will need root access to install tools and crack WiFi.

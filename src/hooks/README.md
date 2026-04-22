@@ -44,8 +44,8 @@ After assembly, all non-builtin/non-game commands are wrapped with a unified acc
 - `wrapWithAccessCheck` checks binary existence + execute permissions at execution time
 - Binary missing → `"command not found"` (with apt install hint for apt-installable tools)
 - Binary exists but no execute permission → `"Permission denied"`
-- All commands are visible to all users — no user-type filtering for tab autocomplete or `help()`
-- `man()` receives all commands regardless
+- All commands are visible to all users — no user-type filtering for tab autocomplete or `help`
+- `man` receives all commands regardless
 
 Returns `{ executionContext, commandNames }` where:
 
