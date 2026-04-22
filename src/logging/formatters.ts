@@ -445,3 +445,134 @@ export const formatGobusterScanAggregate = ({
   const seconds = date.getUTCSeconds().toString().padStart(2, '0');
   return `[${day}/${month}/${year}:${hours}:${minutes}:${seconds} +0000] [mod_security] [client ${sourceIp}] Directory enumeration detected on port ${port} — ${probedCount} paths probed, ${hitCount} hits (gobuster)`;
 };
+
+// --- Hydra brute-force aggregate formatters ---
+// One line per attacked service. Each service routes to its native log file
+// (see src/logging/README.md handler table). Collapses the whole N-attempt
+// sweep into one distinctive entry that carries the attacker's IP, attempt
+// count, and success count — the detection signature without the flood.
+
+type HydraSshLogOptions = {
+  readonly date: Date;
+  readonly hostname: string;
+  readonly pid: number;
+  readonly sourceIp: string;
+  readonly attempts: number;
+  readonly successes: number;
+};
+
+export const formatHydraBruteForceSsh = ({
+  date,
+  hostname,
+  pid,
+  sourceIp,
+  attempts,
+  successes,
+}: HydraSshLogOptions): string =>
+  formatSyslogLine({
+    date,
+    hostname,
+    service: 'sshd',
+    pid,
+    message: `Brute-force attempt from ${sourceIp} — ${attempts} authentication failures, ${successes} accepted`,
+  });
+
+type HydraFtpLogOptions = {
+  readonly date: Date;
+  readonly sourceIp: string;
+  readonly attempts: number;
+  readonly successes: number;
+};
+
+export const formatHydraBruteForceFtp = ({
+  date,
+  sourceIp,
+  attempts,
+  successes,
+}: HydraFtpLogOptions): string =>
+  `${formatVsftpdTimestamp(date)} BRUTE FORCE: Client "${sourceIp}" — ${attempts} login attempts, ${successes} successful`;
+
+type HydraMysqlLogOptions = {
+  readonly date: Date;
+  readonly threadId: number;
+  readonly sourceIp: string;
+  readonly attempts: number;
+  readonly successes: number;
+};
+
+export const formatHydraBruteForceMysql = ({
+  date,
+  threadId,
+  sourceIp,
+  attempts,
+  successes,
+}: HydraMysqlLogOptions): string =>
+  `${formatMysqlTimestamp(date)}\t${threadId} Connect\tBrute-force attempt from '${sourceIp}' — ${attempts} attempts, ${successes} accepted`;
+
+type HydraRedisLogOptions = {
+  readonly date: Date;
+  readonly pid: number;
+  readonly sourceIp: string;
+  readonly attempts: number;
+  readonly successes: number;
+};
+
+export const formatHydraBruteForceRedis = ({
+  date,
+  pid,
+  sourceIp,
+  attempts,
+  successes,
+}: HydraRedisLogOptions): string =>
+  `${pid}:M ${formatRedisTimestamp(date)} # Client ${sourceIp} brute-force attempt — ${attempts} password attempts, ${successes} authenticated`;
+
+type HydraSnmpLogOptions = {
+  readonly date: Date;
+  readonly hostname: string;
+  readonly pid: number;
+  readonly sourceIp: string;
+  readonly attempts: number;
+  readonly successes: number;
+};
+
+export const formatHydraBruteForceSnmp = ({
+  date,
+  hostname,
+  pid,
+  sourceIp,
+  attempts,
+  successes,
+}: HydraSnmpLogOptions): string =>
+  formatSyslogLine({
+    date,
+    hostname,
+    service: 'snmpd',
+    pid,
+    message: `Brute-force community string attempt from ${sourceIp} — ${attempts} probed, ${successes} found`,
+  });
+
+type SnmpCommunityDiscoveredOptions = {
+  readonly date: Date;
+  readonly hostname: string;
+  readonly pid: number;
+  readonly sourceIp: string;
+  readonly community: string;
+};
+
+// Per-success line written once per cracked community string — parallel to
+// formatSshAccepted / formatFtpLoginOk / formatMysqlConnect / formatRedisAuth
+// (all of which are reused directly for their respective hydra-success lines).
+export const formatSnmpCommunityDiscovered = ({
+  date,
+  hostname,
+  pid,
+  sourceIp,
+  community,
+}: SnmpCommunityDiscoveredOptions): string =>
+  formatSyslogLine({
+    date,
+    hostname,
+    service: 'snmpd',
+    pid,
+    message: `Community string "${community}" accessed from ${sourceIp}`,
+  });

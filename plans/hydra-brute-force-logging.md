@@ -65,13 +65,13 @@ Fired **once per attacked service** at the end of that service's sweep. Default-
 
 ### Per-service routing (inline handler in `useNetworkCommands.ts`)
 
-| Service | Aggregate log file      | Aggregate format style        | Success entry (existing formatter)      |
-| ------- | ----------------------- | ----------------------------- | --------------------------------------- |
-| ssh     | `/var/log/auth.log`     | syslog `sshd[pid]: Brute-force…` | `formatSshAccepted`                    |
-| ftp     | `/var/log/vsftpd.log`   | vsftpd `BRUTE FORCE: Client…` | `formatFtpLoginOk`                      |
-| mysql   | `/var/log/mysql.log`    | MySQL general-log "Connect"   | `formatMysqlConnect`                    |
-| redis   | `/var/log/redis.log`    | Redis `# Client … brute-force…` | `formatRedisAuth`                      |
-| snmp    | `/var/log/syslog`       | syslog `snmpd[pid]: Brute-force community…` | new `formatSnmpCommunityDiscovered` |
+| Service | Aggregate log file    | Aggregate format style                      | Success entry (existing formatter)  |
+| ------- | --------------------- | ------------------------------------------- | ----------------------------------- |
+| ssh     | `/var/log/auth.log`   | syslog `sshd[pid]: Brute-force…`            | `formatSshAccepted`                 |
+| ftp     | `/var/log/vsftpd.log` | vsftpd `BRUTE FORCE: Client…`               | `formatFtpLoginOk`                  |
+| mysql   | `/var/log/mysql.log`  | MySQL general-log "Connect"                 | `formatMysqlConnect`                |
+| redis   | `/var/log/redis.log`  | Redis `# Client … brute-force…`             | `formatRedisAuth`                   |
+| snmp    | `/var/log/syslog`     | syslog `snmpd[pid]: Brute-force community…` | new `formatSnmpCommunityDiscovered` |
 
 All use `resolveLogSourceIP` + NAT-aware `resolveNat` (same as existing handlers).
 
