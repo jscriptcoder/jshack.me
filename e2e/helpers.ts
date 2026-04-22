@@ -14,6 +14,7 @@ export const TYPE_DELAY = parseInt(process.env.TYPE_DELAY || '0', 10);
 export const INPUT = 'input[data-testid="terminal-input"]';
 export const BANNER = 'div[data-testid="terminal-banner"]';
 export const RESULT = 'div[data-testid="terminal-result"]';
+export const ERROR = 'div[data-testid="terminal-error"]';
 export const NANO_TEXTAREA = 'textarea[data-testid="nano-editor-textarea"]';
 
 // ---------------------------------------------------------------------------
@@ -97,6 +98,47 @@ export const ftpConnect = async (
   await countThenWait(nameLocator, () => typeCommand(page, `ftp ${host}`), 60_000);
   await countThenWait(pw331Locator, () => enterInput(page, user));
   await countThenWait(successLocator, () => enterInput(page, password));
+};
+
+// ---------------------------------------------------------------------------
+// Failure flows — exercise the rejected-auth paths for each service so the
+// failure-branch log line fires.
+// ---------------------------------------------------------------------------
+
+export const suFail = async (page: Page, user: string, wrongPassword: string): Promise<void> => {
+  const pwLocator = page.locator(RESULT, { hasText: /^Password:$/ });
+  const failLocator = page.locator(ERROR, { hasText: 'su: Authentication failure' });
+
+  await countThenWait(pwLocator, () => typeCommand(page, `su ${user}`));
+  await countThenWait(failLocator, () => enterInput(page, wrongPassword));
+};
+
+export const sshFail = async (
+  page: Page,
+  user: string,
+  host: string,
+  wrongPassword: string,
+): Promise<void> => {
+  const pwLocator = page.locator(RESULT, { hasText: `${user}@${host}'s password:` });
+  const failLocator = page.locator(ERROR, { hasText: 'Permission denied, please try again.' });
+
+  await countThenWait(pwLocator, () => typeCommand(page, `ssh ${user}@${host}`), 60_000);
+  await countThenWait(failLocator, () => enterInput(page, wrongPassword));
+};
+
+export const ftpFail = async (
+  page: Page,
+  host: string,
+  user: string,
+  wrongPassword: string,
+): Promise<void> => {
+  const nameLocator = page.locator(RESULT, { hasText: `Name (${host}:anonymous):` });
+  const pw331Locator = page.locator(RESULT, { hasText: '331 Please specify the password.' });
+  const failLocator = page.locator(ERROR, { hasText: '530 Login incorrect.' });
+
+  await countThenWait(nameLocator, () => typeCommand(page, `ftp ${host}`), 60_000);
+  await countThenWait(pw331Locator, () => enterInput(page, user));
+  await countThenWait(failLocator, () => enterInput(page, wrongPassword));
 };
 
 export const ncConnect = async (page: Page, host: string, port: number): Promise<void> => {

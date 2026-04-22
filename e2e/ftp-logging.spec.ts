@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   TYPE_DELAY,
   ftpConnect,
+  ftpFail,
   loadSavedGame,
   readMachinePatch,
   runAndExpect,
@@ -60,5 +61,45 @@ test('ftp login writes CONNECT + OK LOGIN entries to the target /var/log/vsftpd.
   expect(logContent).not.toBeNull();
   expect(logContent).toContain('CONNECT: Client');
   expect(logContent).toContain(`OK LOGIN: Client`);
+  expect(logContent).toContain(`user "${FTP_USER}"`);
+});
+
+// ---------------------------------------------------------------------------
+// vsftpd.log — ftp login failure
+// ---------------------------------------------------------------------------
+// A rejected FTP login still fires the createFtpAuthHandler callback with
+// `success: false`, producing a `FAIL LOGIN: Client "…", user "…"` line on
+// the target's vsftpd.log. CONNECT fires on socket open regardless of auth
+// outcome, so both lines should still appear.
+// ---------------------------------------------------------------------------
+
+test('ftp login with a wrong password writes a FAIL LOGIN entry to the target /var/log/vsftpd.log', async ({
+  page,
+}) => {
+  const SEED = 'abcd1234';
+  const WIFI = { essid: 'TYRELL-CORP', bssid: '0A:3F:E0:EE:91:68' };
+  const ROOT_PASSWORD = 'testpass';
+  const TARGET_HOST = '172.25.96.12';
+  const FTP_USER = 'guest';
+
+  await loadSavedGame(page, {
+    gameState: {
+      seed: SEED,
+      workstationName: 'test-ws',
+      username: 'tester',
+      rootPassword: ROOT_PASSWORD,
+    },
+    wifi: WIFI,
+  });
+
+  await suTo(page, 'root', ROOT_PASSWORD);
+  await runAndExpect(page, 'apt install ftp', 'Setting up ftp', 30_000);
+
+  await ftpFail(page, TARGET_HOST, FTP_USER, 'not-the-password');
+
+  const logContent = await readMachinePatch(page, TARGET_HOST, '/var/log/vsftpd.log');
+  expect(logContent).not.toBeNull();
+  expect(logContent).toContain('CONNECT: Client');
+  expect(logContent).toContain('FAIL LOGIN: Client');
   expect(logContent).toContain(`user "${FTP_USER}"`);
 });
