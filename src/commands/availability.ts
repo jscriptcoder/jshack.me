@@ -304,7 +304,7 @@ export const wrapWithAccessCheck = (
       const packageName = binaryToPackage.get(name);
       if (packageName) {
         throw new Error(
-          `bash: ${name}: command not found. Install with: apt('install', '${packageName}')`,
+          `bash: ${name}: command not found. Install with: apt install ${packageName}`,
         );
       }
       throw new Error(`bash: ${name}: command not found`);

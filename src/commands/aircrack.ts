@@ -19,7 +19,7 @@ export const createAircrackCommand = (context: AircrackContext): Command => ({
   manual: {
     synopsis: 'aircrack <bssid>',
     description:
-      'Attempt to crack the WPA/WPA2 key for a target wireless network using a wordlist attack. The BSSID can be found via airdump(). Requires monitor mode to be enabled.',
+      'Attempt to crack the WPA/WPA2 key for a target wireless network using a wordlist attack. The BSSID can be found via airdump. Requires monitor mode to be enabled.',
     arguments: [
       {
         name: 'bssid',
@@ -50,7 +50,7 @@ export const createAircrackCommand = (context: AircrackContext): Command => ({
     const network = networks.find((n: WifiNetwork) => n.bssid === bssid);
 
     if (!network) {
-      throw new Error(`aircrack: BSSID ${bssid} not found — run airdump() to scan for networks`);
+      throw new Error(`aircrack: BSSID ${bssid} not found — run airdump to scan for networks`);
     }
 
     const token = createCancellationToken();

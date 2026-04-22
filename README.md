@@ -174,7 +174,7 @@ writeFile('/tmp/backup.txt', cat('/etc/passwd'));
 
 Your machine has a wireless interface but it starts disconnected. Before you can reach the network, you'll need to crack a WiFi access point using the aircrack-ng-inspired command suite (`airmon`, `airdump`, `aircrack`).
 
-Once connected, you can install hacking tools (`apt('install', 'nmap')`, etc.), browse the darknet marketplace for contracts, and accept missions. Each mission generates a unique network with routers, servers, and targets to infiltrate.
+Once connected, you can install hacking tools (`apt install nmap`, etc.), browse the darknet marketplace for contracts, and accept missions. Each mission generates a unique network with routers, servers, and targets to infiltrate.
 
 Use network reconnaissance commands to:
 

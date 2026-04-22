@@ -275,7 +275,7 @@ describe('wrapWithAccessCheck', () => {
       permitted: false,
     }));
     expect(() => wrapped.fn()).toThrow(
-      "bash: nmap: command not found. Install with: apt('install', 'nmap')",
+      'bash: nmap: command not found. Install with: apt install nmap',
     );
   });
 

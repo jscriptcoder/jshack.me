@@ -40,7 +40,7 @@ describe('accept command', () => {
     const accept = createAcceptCommand({ startMission, isMissionActive: () => false });
     const result = accept.fn('test-exfiltrate-easy') as string;
 
-    expect(result).toContain('mail(');
+    expect(result).toContain('mail ');
   });
 
   it('shows mail example for script_fix objectives', () => {
@@ -48,9 +48,9 @@ describe('accept command', () => {
     const accept = createAcceptCommand({ startMission, isMissionActive: () => false });
     const result = accept.fn('test-script-fix-easy') as string;
 
-    expect(result).toContain('mail(');
-    expect(result).toContain('nano()');
-    expect(result).toContain('node()');
+    expect(result).toContain('mail ');
+    expect(result).toContain('nano');
+    expect(result).toContain('node');
     expect(result).toContain('done');
   });
 
@@ -67,8 +67,8 @@ describe('accept command', () => {
     const accept = createAcceptCommand({ startMission, isMissionActive: () => false });
     const result = accept.fn('test-script-auto-easy') as string;
 
-    expect(result).toContain('mail(');
-    expect(result).toContain('node()');
+    expect(result).toContain('mail ');
+    expect(result).toContain('node');
     expect(result).toContain('done');
     expect(result).toContain('Root password:');
   });
@@ -119,9 +119,9 @@ describe('accept command', () => {
     const accept = createAcceptCommand({ startMission, isMissionActive: () => false });
     const result = accept.fn('test-backdoor-easy') as string;
 
-    expect(result).toContain('mail(');
+    expect(result).toContain('mail ');
     expect(result).toContain('backdoor');
-    expect(result).toContain('nc(');
+    expect(result).toContain('nc -l');
     expect(result).toContain('done');
   });
 
@@ -130,7 +130,7 @@ describe('accept command', () => {
     const accept = createAcceptCommand({ startMission, isMissionActive: () => false });
     const result = accept.fn('test-sabotage-easy') as string;
 
-    expect(result).toContain('mail(');
+    expect(result).toContain('mail ');
     expect(result).toContain('boot files');
     expect(result).toContain('reboot');
     expect(result).toContain('done');
@@ -141,7 +141,7 @@ describe('accept command', () => {
     const accept = createAcceptCommand({ startMission, isMissionActive: () => false });
     const result = accept.fn('test-snmp-easy-portforward') as string;
 
-    expect(result).toContain('mail(');
+    expect(result).toContain('mail ');
     expect(result).toContain('NAT port forwarding');
     expect(result).toContain('done');
   });
@@ -183,8 +183,8 @@ describe('formatMissionBriefing', () => {
       expect(briefing).not.toContain('nmap(');
       expect(briefing).not.toContain('nslookup(');
       expect(briefing).not.toContain('ftp(');
-      // backdoor objectives legitimately contain nc("-l", ...) in the hint
-      if (!isBackdoor) expect(briefing).not.toContain('nc(');
+      // backdoor objectives legitimately contain `nc -l <port>` in the hint
+      if (!isBackdoor) expect(briefing).not.toContain('nc -l');
       expect(briefing).not.toContain('msfconsole(');
       expect(briefing).not.toContain('curl(');
     }

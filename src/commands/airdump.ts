@@ -56,7 +56,7 @@ export const createAirdumpCommand = (context: AirdumpContext): Command => ({
     }
 
     if (!isMonitorMode()) {
-      throw new Error('airdump: monitor mode not enabled — run airmon("start", "wlan0") first');
+      throw new Error('airdump: monitor mode not enabled — run airmon start wlan0 first');
     }
 
     const networks = getWifiNetworks();

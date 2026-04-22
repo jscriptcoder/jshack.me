@@ -708,13 +708,13 @@ Router-first mode only. The router has all TCP ports filtered and SNMP (UDP 161)
 
 ### Attack Chain
 
-1. `nmap(routerIP)` — all TCP ports filtered (dead end)
-2. `nmap("-sU", routerIP)` — discovers UDP 161 (snmp)
-3. `apt("install", "snmp")` — installs `snmpwalk` and `snmpset` binaries
-4. `snmpwalk(routerIP)` — public community shows basic system info (hostname, interfaces)
-5. `snmpwalk(routerIP, rwCommunity)` — RW community reveals leaked SSH credentials in extend script args + firewall OIDs (`firewallSSH deny`)
-6. `snmpset(routerIP, rwCommunity, "firewallSSH=permit")` — opens SSH through the firewall
-7. `ssh(user, routerIP)` — connects with leaked credentials
+1. `nmap <routerIP>` — all TCP ports filtered (dead end)
+2. `nmap -sU <routerIP>` — discovers UDP 161 (snmp)
+3. `apt install snmp` — installs `snmpwalk` and `snmpset` binaries
+4. `snmpwalk <routerIP>` — public community shows basic system info (hostname, interfaces)
+5. `snmpwalk <routerIP> <rwCommunity>` — RW community reveals leaked SSH credentials in extend script args + firewall OIDs (`firewallSSH deny`)
+6. `snmpset <routerIP> <rwCommunity> firewallSSH=permit` — opens SSH through the firewall
+7. `ssh <user>@<routerIP>` — connects with leaked credentials
 
 ### SNMP Config File
 
@@ -732,7 +732,7 @@ Router filesystem contains `/etc/snmp/snmpd.conf` with:
 
 ### Apt Multi-Binary Package
 
-`apt("install", "snmp")` installs both `/usr/bin/snmpwalk` and `/usr/bin/snmpset`. The `AptPackageInfo` type supports a `binaries` field for packages that install multiple commands.
+`apt install snmp` installs both `/usr/bin/snmpwalk` and `/usr/bin/snmpset`. The `AptPackageInfo` type supports a `binaries` field for packages that install multiple commands.
 
 ## Ideas for More Variety
 

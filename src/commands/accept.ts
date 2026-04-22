@@ -15,15 +15,15 @@ export const formatObjectiveHint = (mission: MissionNetwork): string => {
   if (objective.type === 'exfiltrate' && objective.encrypted) {
     return [
       '  Find the encrypted target file and the decryption key.',
-      "  You'll need root access to use gpg(). The key is on another machine.",
-      `  Example: mail("${email}", "ACCESS-XXXX-XXXX-XXXX")`,
+      "  You'll need root access to use gpg. The key is on another machine.",
+      `  Example: mail ${email} ACCESS-XXXX-XXXX-XXXX`,
     ].join('\n');
   }
 
   if (objective.type === 'exfiltrate') {
     return [
       '  Find the ACCESS-KEY in the target file and mail it to the client.',
-      `  Example: mail("${email}", "ACCESS-XXXX-XXXX-XXXX")`,
+      `  Example: mail ${email} ACCESS-XXXX-XXXX-XXXX`,
     ].join('\n');
   }
 
@@ -31,15 +31,15 @@ export const formatObjectiveHint = (mission: MissionNetwork): string => {
     return [
       `  Modify the target file: change "${objective.tamperOldValue}" to "${objective.tamperNewValue}".`,
       `  Then confirm by mailing the client.`,
-      `  Example: mail("${email}", "done")`,
+      `  Example: mail ${email} done`,
     ].join('\n');
   }
 
   if (objective.type === 'script_fix') {
     const lines = [
-      '  Find the broken script on the target machine. Fix it with nano()',
-      '  and test it with node(). When fixed, confirm to the client.',
-      `  Example: mail("${email}", "done")`,
+      '  Find the broken script on the target machine. Fix it with nano',
+      '  and test it with node. When fixed, confirm to the client.',
+      `  Example: mail ${email} done`,
     ];
     if (objective.scriptBugType === 'corrupted') {
       lines.push('  Look around the machine for the correct values.');
@@ -50,8 +50,8 @@ export const formatObjectiveHint = (mission: MissionNetwork): string => {
   if (objective.type === 'script_auto') {
     return [
       '  Write the automated script on the target machine. Follow the instructions',
-      '  in the stub file, then test it with node(). When working, confirm to the client.',
-      `  Example: mail("${email}", "done")`,
+      '  in the stub file, then test it with node. When working, confirm to the client.',
+      `  Example: mail ${email} done`,
     ].join('\n');
   }
 
@@ -59,7 +59,7 @@ export const formatObjectiveHint = (mission: MissionNetwork): string => {
     return [
       '  Destroy the target machine. Delete critical boot files and reboot it.',
       '  Then confirm the kill to the client.',
-      `  Example: mail("${email}", "done")`,
+      `  Example: mail ${email} done`,
     ].join('\n');
   }
 
@@ -73,8 +73,8 @@ export const formatObjectiveHint = (mission: MissionNetwork): string => {
           : '';
     return [
       `  Open a backdoor listener on port ${port}${userHint} on the target machine.`,
-      `  Install netcat and run nc("-l", ${port}). Then confirm to the client.`,
-      `  Example: mail("${email}", "done")`,
+      `  Install netcat and run nc -l ${port}. Then confirm to the client.`,
+      `  Example: mail ${email} done`,
     ].join('\n');
   }
 
@@ -82,7 +82,7 @@ export const formatObjectiveHint = (mission: MissionNetwork): string => {
     return [
       '  Hack the border router and set up NAT port forwarding.',
       '  Then confirm to the client.',
-      `  Example: mail("${email}", "done")`,
+      `  Example: mail ${email} done`,
     ].join('\n');
   }
 
@@ -90,7 +90,7 @@ export const formatObjectiveHint = (mission: MissionNetwork): string => {
     return [
       '  Investigate the breach. Search the logs across machines to trace the',
       "  attacker's path. Find their alias and origin IP.",
-      `  Example: mail("${email}", "<alias> <ip>")`,
+      `  Example: mail ${email} "<alias> <ip>"`,
     ].join('\n');
   }
 
@@ -98,14 +98,14 @@ export const formatObjectiveHint = (mission: MissionNetwork): string => {
     return [
       '  Find the malware, kill the process, and delete the malicious file',
       '  to prevent re-execution.',
-      `  Example: mail("${email}", "done")`,
+      `  Example: mail ${email} done`,
     ].join('\n');
   }
 
   if (objective.type === 'db_exfiltrate') {
     return [
       '  Extract the secret access key from the database on the target machine.',
-      `  Example: mail("${email}", "ACCESS-XXXX-XXXX-XXXX")`,
+      `  Example: mail ${email} ACCESS-XXXX-XXXX-XXXX`,
     ].join('\n');
   }
 
@@ -114,14 +114,14 @@ export const formatObjectiveHint = (mission: MissionNetwork): string => {
     return [
       `  Modify the database: change ${rowCtx}value from "${objective.dbTamperOldValue}" to "${objective.dbTamperNewValue}"`,
       `  in the ${objective.dbTargetTable} table. Then confirm to the client.`,
-      `  Example: mail("${email}", "done")`,
+      `  Example: mail ${email} done`,
     ].join('\n');
   }
 
   if (objective.type === 'db_sabotage') {
     return [
       `  Destroy the ${objective.dbTargetTable} table in the database on the target machine.`,
-      `  Example: mail("${email}", "done")`,
+      `  Example: mail ${email} done`,
     ].join('\n');
   }
 
@@ -130,14 +130,14 @@ export const formatObjectiveHint = (mission: MissionNetwork): string => {
     return [
       `  A deployment corrupted database records. Restore ${rowCtx}value from`,
       `  "${objective.dbTamperOldValue}" to "${objective.dbTamperNewValue}" in the ${objective.dbTargetTable} table.`,
-      `  Example: mail("${email}", "done")`,
+      `  Example: mail ${email} done`,
     ].join('\n');
   }
 
   // credential_theft
   return [
     '  Discover the root password on the target machine and mail it to the client.',
-    `  Example: mail("${email}", "<password>")`,
+    `  Example: mail ${email} <password>`,
   ].join('\n');
 };
 
@@ -158,7 +158,7 @@ export const formatMissionBriefing = (mission: MissionNetwork): string => {
     '',
     `  Target: ${target}`,
     '',
-    '  Use abort() to cancel the mission.',
+    '  Use abort to cancel the mission.',
     '============================================',
   ].join('\n');
 };
@@ -170,7 +170,7 @@ export const createAcceptCommand = (context: AcceptCommandContext): Command => (
   manual: {
     synopsis: 'accept <seed>',
     description:
-      'Accept a mission contract from the darknet marketplace. The seed determines the target network — same seed always generates the same mission. Use missions() to browse available contracts and find seeds.',
+      'Accept a mission contract from the darknet marketplace. The seed determines the target network — same seed always generates the same mission. Use missions to browse available contracts and find seeds.',
     examples: [{ command: 'accept MY-SEED-easy', description: 'Accept a mission with this seed' }],
   },
   fn: (seed: unknown): string => {
@@ -178,7 +178,7 @@ export const createAcceptCommand = (context: AcceptCommandContext): Command => (
       throw new Error('accept: missing seed\nUsage: accept <SEED-CODE>');
     }
     if (context.isMissionActive()) {
-      throw new Error('A mission is already active. Use abort() to cancel it first.');
+      throw new Error('A mission is already active. Use abort to cancel it first.');
     }
     const trimmed = seed.trim();
     const mission = generateMissionNetwork(trimmed, context.getUsedPublicIps?.());

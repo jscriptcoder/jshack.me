@@ -21,31 +21,28 @@ const buildHomeContent = (username: string): Readonly<Record<string, FileNode>> 
     permissions: { read: ['root', 'user'], write: ['root', 'user'], execute: ['root'] },
     content: `=== WELCOME TO JSHACK.ME ===
 
-This is a JavaScript terminal — commands are function calls:
-
-  ls()          not  ls
-  cat("file")   not  cat file
-  cd("/etc")    not  cd /etc
+You're at a Linux-style shell. Type commands with space-separated
+arguments, just like a real terminal.
 
 Type help to see all commands. Use man <cmd> for details.
 
 GETTING STARTED
   You will need root access to install tools and crack WiFi.
-  Switch to root: su("root")
+  Switch to root: su root
 
   Once you are root, check out the WiFi cracking cheatsheet:
-    cat("/home/${username}/downloads/wifi_tools.txt")
+    cat /home/${username}/downloads/wifi_tools.txt
 
   After connecting to WiFi, install your hacking toolkit:
-    apt("install", "nmap")
-    apt("list") to see all available packages
+    apt install nmap
+    apt list    (to see all available packages)
 
 CONTRACTS
-  Browse the darknet marketplace:  missions()
-  Accept a contract:               accept("<seed>")
+  Browse the darknet marketplace:  missions
+  Accept a contract:               accept <seed>
   Each contract gives you a target network to hack into.
   Follow the briefing, find the proof, and deliver it:
-    mail("<recipient>", "<proof>")
+    mail <recipient> <proof>
 `,
   },
   '.bash_history': {
@@ -53,12 +50,12 @@ CONTRACTS
     type: 'file',
     owner: 'user',
     permissions: { read: ['root', 'user'], write: ['root', 'user'], execute: ['root'] },
-    content: `ls()
-cat("README.txt")
-su("root")
-ifconfig()
-cat("downloads/wifi_tools.txt")
-airmon("start", "wlan0")
+    content: `ls
+cat README.txt
+su root
+ifconfig
+cat downloads/wifi_tools.txt
+airmon start wlan0
 `,
   },
   '.bashrc': {
@@ -112,12 +109,12 @@ Tips:
         permissions: { read: ['root', 'user'], write: ['root', 'user'], execute: ['root'] },
         content: `WIRELESS PENETRATION TESTING CHEATSHEET
 ========================================
-1. Enable monitor mode:  airmon("start", "wlan0")
-2. Scan for networks:    airdump()
-3. Crack target network: aircrack("<BSSID>")
-4. Connect to network:   nmcli("connect", "<ESSID>", "<password>")
-5. Check status:         nmcli("status")
-6. Disconnect:           nmcli("disconnect")
+1. Enable monitor mode:  airmon start wlan0
+2. Scan for networks:    airdump
+3. Crack target network: aircrack <BSSID>
+4. Connect to network:   nmcli connect <ESSID> <password>
+5. Check status:         nmcli status
+6. Disconnect:           nmcli disconnect
 `,
       },
     },
@@ -132,8 +129,8 @@ const buildRootContent = (username: string): Readonly<Record<string, FileNode>> 
     permissions: { read: ['root'], write: ['root'], execute: ['root'] },
     content: `Root access acquired. Next steps:
 1. Crack WiFi: see /home/${username}/downloads/wifi_tools.txt
-2. Install tools: apt("install", "nmap"), apt("list") to see all
-3. Browse contracts: missions()
+2. Install tools: apt install nmap   (apt list to see all)
+3. Browse contracts: missions
 `,
   },
 });

@@ -25,7 +25,7 @@ const formatCompletionDetails = (mission: MissionNetwork): readonly string[] => 
   `  Seed: ${mission.seed}`,
   `  Difficulty: ${mission.difficulty}`,
   '',
-  '  Contract fulfilled. Type missions() for more jobs.',
+  '  Contract fulfilled. Type missions for more jobs.',
   '============================================',
 ];
 
@@ -189,7 +189,7 @@ const verifyBackdoor = (
   });
 
   if (!pidContent) {
-    return `No listener detected on port ${port}. Run nc("-l", ${port}) on the target machine.`;
+    return `No listener detected on port ${port}. Run nc -l ${port} on the target machine.`;
   }
 
   if (objective.backdoorUser) {
@@ -287,7 +287,7 @@ const verifyMalware = (
       userType: 'root',
     });
     if (pidContent !== null) {
-      return 'Malware process is still running. Use ps() to find it and kill() to stop it.';
+      return 'Malware process is still running. Use ps to find it and kill to stop it.';
     }
   }
 

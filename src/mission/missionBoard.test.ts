@@ -35,6 +35,6 @@ describe('formatMissionBoard', () => {
     expect(output).toContain('Test Corp');
     expect(output).toContain('Test objective');
     expect(output).toContain('TEST-SEED');
-    expect(output).toContain('accept("SEED")');
+    expect(output).toContain('accept <SEED>');
   });
 });

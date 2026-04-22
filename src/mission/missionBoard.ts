@@ -71,7 +71,7 @@ export const formatMissionBoard = (listings: readonly MissionListing[]): string 
   const leftLines = buildColumn('DARKNET CONTRACTS', blackHat);
   const rightLines = buildColumn('SECURITY CONTRACTS', whiteHat);
 
-  const footer = ['', '> Type accept("SEED") to start a mission'];
+  const footer = ['', '> Type accept <SEED> to start a mission'];
 
   return [...mergeColumns(leftLines, rightLines), ...footer].join('\n');
 };

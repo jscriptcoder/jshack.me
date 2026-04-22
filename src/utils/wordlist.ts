@@ -29,7 +29,7 @@ export const resolveWordlist = (
   throw new Error(
     `wordlist not found: ${filename}\n` +
       `Searched: ${cwdPath}, ${sysPath}\n` +
-      `Install with: apt('install', 'hydra') or apt('install', 'gobuster')`,
+      `Install with: apt install hydra or apt install gobuster`,
   );
 };
 
