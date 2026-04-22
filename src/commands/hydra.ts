@@ -95,6 +95,7 @@ const createSnmpAttack = (
   targetIP: string,
   machine: RemoteMachine,
   getNodeFromMachine: HydraContext['getNodeFromMachine'],
+  onBruteForceAggregate: HydraContext['onBruteForceAggregate'],
 ): AsyncOutput => {
   const snmpPort = machine.ports.find(
     (p) => p.service === 'snmp' && p.open && p.protocol === 'udp',
@@ -154,12 +155,19 @@ const createSnmpAttack = (
         }, delay);
       });
 
-      // Summary
+      // Summary + aggregate log callback
       delay += jitter(STATUS_DELAY_MS);
       token.schedule(() => {
         if (token.isCancelled()) return;
         onLine('');
         onLine(`${found ? 1 : 0} valid community string${found ? '' : 's'} found`);
+        onBruteForceAggregate?.({
+          targetIp: targetIP,
+          port: snmpPort.port,
+          service: 'snmp',
+          attempts: total,
+          successes: found ? [{ community: found }] : [],
+        });
         onComplete();
       }, delay);
     },
@@ -172,6 +180,7 @@ const createRedisAttack = (
   targetIP: string,
   machine: RemoteMachine,
   getNodeFromMachine: HydraContext['getNodeFromMachine'],
+  onBruteForceAggregate: HydraContext['onBruteForceAggregate'],
 ): AsyncOutput => {
   const redisPort = machine.ports.find((p) => p.service === 'redis' && p.open);
   if (!redisPort) {
@@ -240,6 +249,13 @@ const createRedisAttack = (
         if (token.isCancelled()) return;
         onLine('');
         onLine(`${found ? 1 : 0} valid password${found ? '' : 's'} found`);
+        onBruteForceAggregate?.({
+          targetIp: targetIP,
+          port: redisPort.port,
+          service: 'redis',
+          attempts: total,
+          successes: found ? [{ password: found }] : [],
+        });
         onComplete();
       }, delay);
     },
@@ -256,6 +272,7 @@ const createMysqlAttack = (
   userFilter: string | undefined,
   wordlistHashes: ReadonlySet<string>,
   wordlistHashToPassword: ReadonlyMap<string, string>,
+  onBruteForceAggregate: HydraContext['onBruteForceAggregate'],
 ): AsyncOutput => {
   const mysqlPort = machine.ports.find((p) => p.service === 'mysql' && p.open);
   if (!mysqlPort) {
@@ -334,7 +351,7 @@ const createMysqlAttack = (
         }, delay);
       });
 
-      // Summary
+      // Summary + aggregate log callback
       delay += jitter(STATUS_DELAY_MS);
       token.schedule(() => {
         if (token.isCancelled()) return;
@@ -342,6 +359,13 @@ const createMysqlAttack = (
         onLine(
           `${results.length} of ${mysqlUsers.length} target user${mysqlUsers.length === 1 ? '' : 's'} successfully cracked`,
         );
+        onBruteForceAggregate?.({
+          targetIp: targetIP,
+          port: mysqlPort.port,
+          service: 'mysql',
+          attempts: totalAttempts,
+          successes: results.map((r) => ({ username: r.username, password: r.password })),
+        });
         onComplete();
       }, delay);
     },
@@ -436,12 +460,17 @@ export const createHydraCommand = (context: HydraContext): Command => ({
 
     // SNMP mode — separate flow, no users involved
     if (serviceFilter === 'snmp') {
-      return createSnmpAttack(targetIP, machine, getNodeFromMachine);
+      return createSnmpAttack(targetIP, machine, getNodeFromMachine, context.onBruteForceAggregate);
     }
 
     // Redis mode — brute-force requirepass (uses its own deterministic pool)
     if (serviceFilter === 'redis') {
-      return createRedisAttack(targetIP, machine, getNodeFromMachine);
+      return createRedisAttack(
+        targetIP,
+        machine,
+        getNodeFromMachine,
+        context.onBruteForceAggregate,
+      );
     }
 
     // Resolve the filesystem wordlist — shared by SSH/FTP/MySQL paths.
@@ -465,6 +494,7 @@ export const createHydraCommand = (context: HydraContext): Command => ({
         userFilter,
         wordlistHashes,
         wordlistHashToPassword,
+        context.onBruteForceAggregate,
       );
     }
 

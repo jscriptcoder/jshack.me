@@ -4,6 +4,7 @@ import type { AsyncOutput } from '../components/Terminal/types';
 import type { FileNode } from '../filesystem/types';
 import { createHydraCommand } from './hydra';
 import { md5 } from '../utils/md5';
+import { passwords as passwordPool } from '../generation/pools';
 
 // --- Factory Functions ---
 
@@ -874,6 +875,235 @@ describe('hydra command', () => {
 
       expect(onBruteForceAggregate).toHaveBeenCalledWith(
         expect.objectContaining({ targetIp: '192.168.1.50' }),
+      );
+    });
+  });
+
+  describe('onBruteForceAggregate callback (snmp mode)', () => {
+    const snmpdConf = (rwCommunity: string): FileNode => ({
+      name: 'snmpd.conf',
+      type: 'file',
+      owner: 'root',
+      permissions: { read: ['root'], write: ['root'], execute: [] },
+      content: `rocommunity public\nrwcommunity ${rwCommunity}\nsysDescr Router v1.0`,
+    });
+
+    const snmpMachine = (): RemoteMachine =>
+      getMockRemoteMachine({
+        ip: '10.0.0.1',
+        hostname: 'router01',
+        ports: [
+          { port: 161, service: 'snmp', serviceVersion: 'latest', open: true, protocol: 'udp' },
+        ],
+      });
+
+    it('fires once with service=snmp, port=161, and the discovered community on success', async () => {
+      const onBruteForceAggregate = vi.fn();
+      const hydra = createHydraCommand({
+        ...createMockContext({
+          machines: [snmpMachine()],
+          machineFiles: { '10.0.0.1': { '/etc/snmp/snmpd.conf': snmpdConf('private') } },
+        }),
+        onBruteForceAggregate,
+      });
+      const result = hydra.fn('10.0.0.1', 'snmp');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      await collectAsyncLines(result);
+
+      expect(onBruteForceAggregate).toHaveBeenCalledTimes(1);
+      expect(onBruteForceAggregate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetIp: '10.0.0.1',
+          port: 161,
+          service: 'snmp',
+          successes: [{ community: 'private' }],
+        }),
+      );
+    });
+
+    it('fires with empty successes when the rw community is not in the pool', async () => {
+      const onBruteForceAggregate = vi.fn();
+      const hydra = createHydraCommand({
+        ...createMockContext({
+          machines: [snmpMachine()],
+          machineFiles: {
+            '10.0.0.1': { '/etc/snmp/snmpd.conf': snmpdConf('not-a-real-community-string-xyz') },
+          },
+        }),
+        onBruteForceAggregate,
+      });
+      const result = hydra.fn('10.0.0.1', 'snmp');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      await collectAsyncLines(result);
+
+      expect(onBruteForceAggregate).toHaveBeenCalledTimes(1);
+      expect(onBruteForceAggregate).toHaveBeenCalledWith(
+        expect.objectContaining({ service: 'snmp', successes: [] }),
+      );
+    });
+  });
+
+  describe('onBruteForceAggregate callback (redis mode)', () => {
+    const redisConf = (requirepass: string): FileNode => ({
+      name: 'redis.conf',
+      type: 'file',
+      owner: 'root',
+      permissions: { read: ['root'], write: ['root'], execute: [] },
+      content: `bind 0.0.0.0\nport 6379\nrequirepass ${requirepass}\n`,
+    });
+
+    const redisMachine = (): RemoteMachine =>
+      getMockRemoteMachine({
+        ip: '10.0.0.7',
+        hostname: 'cache01',
+        ports: [{ port: 6379, service: 'redis', serviceVersion: 'latest', open: true }],
+      });
+
+    // Known-crackable password: first entry of the project-wide password pool.
+    // Import-derived rather than hardcoded so it stays correct if the pool is
+    // re-encoded.
+    const CRACKABLE_REDIS_PASSWORD = passwordPool[0]!;
+
+    it('fires once with service=redis, port=6379, and the discovered password on success', async () => {
+      const onBruteForceAggregate = vi.fn();
+      const hydra = createHydraCommand({
+        ...createMockContext({
+          machines: [redisMachine()],
+          machineFiles: {
+            '10.0.0.7': { '/etc/redis/redis.conf': redisConf(CRACKABLE_REDIS_PASSWORD) },
+          },
+        }),
+        onBruteForceAggregate,
+      });
+      const result = hydra.fn('10.0.0.7', 'redis');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      await collectAsyncLines(result);
+
+      expect(onBruteForceAggregate).toHaveBeenCalledTimes(1);
+      expect(onBruteForceAggregate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetIp: '10.0.0.7',
+          port: 6379,
+          service: 'redis',
+          successes: [{ password: CRACKABLE_REDIS_PASSWORD }],
+        }),
+      );
+    });
+
+    it('fires with empty successes when the requirepass is not in any pool', async () => {
+      const onBruteForceAggregate = vi.fn();
+      const hydra = createHydraCommand({
+        ...createMockContext({
+          machines: [redisMachine()],
+          machineFiles: {
+            '10.0.0.7': { '/etc/redis/redis.conf': redisConf('not-in-any-pool-xyz-abc-123') },
+          },
+        }),
+        onBruteForceAggregate,
+      });
+      const result = hydra.fn('10.0.0.7', 'redis');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      await collectAsyncLines(result);
+
+      expect(onBruteForceAggregate).toHaveBeenCalledTimes(1);
+      expect(onBruteForceAggregate).toHaveBeenCalledWith(
+        expect.objectContaining({ service: 'redis', successes: [] }),
+      );
+    });
+  });
+
+  describe('onBruteForceAggregate callback (mysql mode)', () => {
+    // md5('guest') = 084e0343a0486ff05530df6c705c8bb4 — 'guest' IS in the wordlist.
+    // md5('password') = 5f4dcc3b5aa765d61d8327deb882cf99 — 'password' IS in the wordlist.
+    // md5('s3cur3!notInList') = something else — not in wordlist.
+    const mysqlDataJson = (): FileNode => ({
+      name: 'data.json',
+      type: 'file',
+      owner: 'root',
+      permissions: { read: ['root'], write: ['root'], execute: [] },
+      content: JSON.stringify({
+        name: 'app_prod',
+        credentials: [
+          { username: 'root', passwordHash: md5('s3cur3!notInList'), userType: 'root' },
+          {
+            username: 'webapp',
+            passwordHash: '5f4dcc3b5aa765d61d8327deb882cf99',
+            userType: 'user',
+          },
+          {
+            username: 'readonly',
+            passwordHash: '084e0343a0486ff05530df6c705c8bb4',
+            userType: 'guest',
+          },
+        ],
+        tables: {},
+      }),
+    });
+
+    const mysqlMachine = (): RemoteMachine =>
+      getMockRemoteMachine({
+        ip: '10.0.0.5',
+        hostname: 'dbserver',
+        ports: [{ port: 3306, service: 'mysql', serviceVersion: 'latest', open: true }],
+      });
+
+    it('fires once with service=mysql, port=3306, and {username,password} per crack', async () => {
+      const onBruteForceAggregate = vi.fn();
+      const hydra = createHydraCommand({
+        ...createMockContext({
+          machines: [mysqlMachine()],
+          machineFiles: { '10.0.0.5': { '/var/lib/mysql/data.json': mysqlDataJson() } },
+        }),
+        onBruteForceAggregate,
+      });
+      const result = hydra.fn('10.0.0.5', 'mysql');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      await collectAsyncLines(result);
+
+      expect(onBruteForceAggregate).toHaveBeenCalledTimes(1);
+      const [info] = onBruteForceAggregate.mock.calls[0]!;
+      expect(info).toEqual(
+        expect.objectContaining({
+          targetIp: '10.0.0.5',
+          port: 3306,
+          service: 'mysql',
+        }),
+      );
+      // Two of the three users have wordlist-hit passwords.
+      expect(info.successes).toHaveLength(2);
+      expect(info.successes).toContainEqual({ username: 'webapp', password: 'password' });
+      expect(info.successes).toContainEqual({ username: 'readonly', password: 'guest' });
+    });
+
+    it('fires with empty successes when no user is crackable by the wordlist', async () => {
+      const onBruteForceAggregate = vi.fn();
+      const uncrackableJson: FileNode = {
+        name: 'data.json',
+        type: 'file',
+        owner: 'root',
+        permissions: { read: ['root'], write: ['root'], execute: [] },
+        content: JSON.stringify({
+          name: 'app_prod',
+          credentials: [
+            { username: 'root', passwordHash: md5('unguessable-xyz'), userType: 'root' },
+          ],
+          tables: {},
+        }),
+      };
+      const hydra = createHydraCommand({
+        ...createMockContext({
+          machines: [mysqlMachine()],
+          machineFiles: { '10.0.0.5': { '/var/lib/mysql/data.json': uncrackableJson } },
+        }),
+        onBruteForceAggregate,
+      });
+      const result = hydra.fn('10.0.0.5', 'mysql');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      await collectAsyncLines(result);
+
+      expect(onBruteForceAggregate).toHaveBeenCalledTimes(1);
+      expect(onBruteForceAggregate).toHaveBeenCalledWith(
+        expect.objectContaining({ service: 'mysql', successes: [] }),
       );
     });
   });
