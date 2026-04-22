@@ -7,7 +7,8 @@ import { parseRedisStore } from '../commands/redis/index';
 type RedisExecuteResult =
   | { readonly type: 'output'; readonly text: string }
   | { readonly type: 'quit' }
-  | { readonly type: 'auth_success' };
+  | { readonly type: 'auth_success' }
+  | { readonly type: 'auth_failed'; readonly text: string };
 
 export const useRedisCommands = (): {
   readonly redisExecute: ((input: string) => RedisExecuteResult) | null;
@@ -74,10 +75,13 @@ export const useRedisCommands = (): {
         authenticatedRef.current,
       );
 
-      // Track AUTH success
-      if (parseResult.command.type === 'auth' && result.output === 'OK') {
-        authenticatedRef.current = true;
-        return { type: 'auth_success' };
+      // Track AUTH outcome so the caller can fire the redis-auth log handler.
+      if (parseResult.command.type === 'auth') {
+        if (result.output === 'OK') {
+          authenticatedRef.current = true;
+          return { type: 'auth_success' };
+        }
+        return { type: 'auth_failed', text: result.output };
       }
 
       // Persist mutations

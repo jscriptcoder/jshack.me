@@ -14,6 +14,7 @@ import {
   formatMysqlAccessDenied,
   formatMysqlConnect,
   formatRedisAuth,
+  formatRedisConnect,
   formatRedisAuthDenied,
   formatScpAccepted,
   formatScpFailed,
@@ -237,6 +238,14 @@ describe('formatMysqlAccessDenied', () => {
     expect(result).toBe(
       "2026-03-21T14:30:15.000000Z\t42 Connect\tAccess denied for user 'admin'@'192.168.1.100' (using password: YES)",
     );
+  });
+});
+
+describe('formatRedisConnect', () => {
+  it('formats Redis client connection entry', () => {
+    const date = new Date('2026-03-21T14:30:15Z');
+    const result = formatRedisConnect({ date, pid: 1234, sourceIp: '192.168.1.100' });
+    expect(result).toBe('1234:M 21 Mar 2026 14:30:15.000 * Client connected from 192.168.1.100');
   });
 });
 

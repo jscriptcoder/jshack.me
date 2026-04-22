@@ -26,6 +26,8 @@ and returns a handler the UI layer wires into commands.
 | `createSshAuthHandler`        | ssh, scp     | `/var/log/auth.log`           |
 | `createFtpAuthHandler`        | ftp          | `/var/log/vsftpd.log`         |
 | `createMysqlAuthHandler`      | mysql        | `/var/log/mysql.log`          |
+| `createRedisConnectHandler`   | rediscli     | `/var/log/redis.log`          |
+| `createRedisAuthHandler`      | rediscli     | `/var/log/redis.log`          |
 | `createHydraLogHandler`       | hydra        | per-service (see table below) |
 
 ### Scan & brute-force aggregates
@@ -96,7 +98,8 @@ DNAT rules, so `resolveNat` is a no-op).
 | MySQL connect             | `formatMysqlConnect`            | `/var/log/mysql.log`  | Target machine  |
 | MySQL auth fail           | `formatMysqlAccessDenied`       | `/var/log/mysql.log`  | Target machine  |
 | Redis connect             | `formatRedisConnect`            | `/var/log/redis.log`  | Target machine  |
-| Redis auth fail           | `formatRedisAuthFailed`         | `/var/log/redis.log`  | Target machine  |
+| Redis auth success        | `formatRedisAuth`               | `/var/log/redis.log`  | Target machine  |
+| Redis auth fail           | `formatRedisAuthDenied`         | `/var/log/redis.log`  | Target machine  |
 | HTTP request              | `formatAccessLog`               | `/var/log/access.log` | Target machine  |
 | nmap scan (aggregate)     | `formatNmapScanAggregate`       | `/var/log/kern.log`   | Target machine  |
 | gobuster scan (aggregate) | `formatGobusterScanAggregate`   | `/var/log/access.log` | Target machine  |

@@ -17,6 +17,10 @@ import { formatSuSuccess, formatSuFailed } from '../../logging/formatters';
 import { generatePid, resolveHostname } from '../../logging/utils';
 import { createFtpAuthHandler } from '../../logging/handlers/ftpAuth';
 import { createMysqlAuthHandler } from '../../logging/handlers/mysqlAuth';
+import {
+  createRedisAuthHandler,
+  createRedisConnectHandler,
+} from '../../logging/handlers/redisAuth';
 import { createSshAuthHandler } from '../../logging/handlers/sshAuth';
 import { useNetwork } from '../../network';
 import type { OutputLine, AuthorData } from './types';
@@ -104,6 +108,7 @@ export const Terminal = () => {
     enterRedisMode,
     exitRedisMode,
     isInRedisMode,
+    redisSession,
     isMachineBricked,
   } = useSession();
   const { commands, commandNames } = useCommands();
@@ -225,6 +230,18 @@ export const Terminal = () => {
 
   const logFs = { readFileFromMachine, writeFileToMachine, createFileOnMachine };
 
+  // Hoisted so the AUTH-command branch below can fire it directly — the
+  // inline-password path reaches it through onRedisAuth on useAuthentication,
+  // but `AUTH <pw>` typed at the redis prompt is handled by useRedisCommands
+  // and the result lands back in this component.
+  const onRedisAuthHandler = createRedisAuthHandler({
+    sessionMachine: session.machine,
+    getLocalIP,
+    getPublicIP,
+    resolveNat,
+    logFs,
+  });
+
   const {
     passwordMode,
     ftpUsernameMode,
@@ -294,6 +311,14 @@ export const Terminal = () => {
       readFileFromMachine,
       logFs,
     }),
+    onRedisConnect: createRedisConnectHandler({
+      sessionMachine: session.machine,
+      getLocalIP,
+      getPublicIP,
+      resolveNat,
+      logFs,
+    }),
+    onRedisAuth: onRedisAuthHandler,
   });
 
   useEffect(() => {
@@ -313,6 +338,7 @@ export const Terminal = () => {
       try {
         // Redis mode: raw Redis command input, bypass the shell parser.
         if (isInRedisMode() && redisExecute) {
+          const redisTargetIP = redisSession?.targetIP ?? null;
           const result = redisExecute(trimmedCommand);
           if (result.type === 'quit') {
             exitRedisMode();
@@ -321,6 +347,12 @@ export const Terminal = () => {
           }
           if (result.type === 'auth_success') {
             addLine('result', 'OK');
+            if (redisTargetIP) onRedisAuthHandler(true, redisTargetIP, 6379);
+            return;
+          }
+          if (result.type === 'auth_failed') {
+            addLine('result', result.text);
+            if (redisTargetIP) onRedisAuthHandler(false, redisTargetIP, 6379);
             return;
           }
           if (result.text) {
@@ -581,6 +613,8 @@ export const Terminal = () => {
       authenticateMysqlInline,
       isInRedisMode,
       redisExecute,
+      redisSession,
+      onRedisAuthHandler,
       exitRedisMode,
       connectRedis,
     ],

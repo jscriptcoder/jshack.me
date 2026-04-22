@@ -58,6 +58,8 @@ type AuthenticationOptions = {
   ) => void;
   readonly onFtpAuth?: (success: boolean, user: string, targetIP: string, port: number) => void;
   readonly onMysqlAuth?: (success: boolean, user: string, targetIP: string, port: number) => void;
+  readonly onRedisConnect?: (targetIP: string, port: number) => void;
+  readonly onRedisAuth?: (success: boolean, targetIP: string, port: number) => void;
 };
 
 export const useAuthentication = ({
@@ -83,6 +85,8 @@ export const useAuthentication = ({
   onSshAuth,
   onFtpAuth,
   onMysqlAuth,
+  onRedisConnect,
+  onRedisAuth,
 }: AuthenticationOptions) => {
   const [passwordMode, setPasswordMode] = useState(false);
   const [targetUser, setTargetUser] = useState<string | null>(null);
@@ -481,6 +485,9 @@ export const useAuthentication = ({
         machineId: resolvedIp,
       };
       enterRedisMode(newRedisSession);
+      // Socket established — write the connect line regardless of how AUTH
+      // resolves below. Real Redis logs connect and auth as separate events.
+      onRedisConnect?.(targetIP, 6379);
 
       // Read config to check if auth is required
       const confContent = readFileFromMachine({
@@ -504,12 +511,14 @@ export const useAuthentication = ({
       } else if (requirepass && password) {
         if (password === requirepass) {
           addLine('result', 'OK');
+          onRedisAuth?.(true, targetIP, 6379);
         } else {
           addLine('error', '(error) ERR invalid password');
+          onRedisAuth?.(false, targetIP, 6379);
         }
       }
     },
-    [resolveNat, readFileFromMachine, addLine, enterRedisMode],
+    [resolveNat, readFileFromMachine, addLine, enterRedisMode, onRedisConnect, onRedisAuth],
   );
 
   const resetAuthState = useCallback(() => {

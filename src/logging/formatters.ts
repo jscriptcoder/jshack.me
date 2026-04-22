@@ -236,6 +236,9 @@ type RedisAuthOptions = {
   readonly sourceIp: string;
 };
 
+export const formatRedisConnect = ({ date, pid, sourceIp }: RedisAuthOptions): string =>
+  `${pid}:M ${formatRedisTimestamp(date)} * Client connected from ${sourceIp}`;
+
 export const formatRedisAuth = ({ date, pid, sourceIp }: RedisAuthOptions): string =>
   `${pid}:M ${formatRedisTimestamp(date)} * Client ${sourceIp} authenticated successfully`;
 
