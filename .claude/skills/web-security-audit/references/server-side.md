@@ -3,6 +3,7 @@
 This reference covers 14 server-side vulnerability categories. For each category, it describes what to look for in source code, common developer mistakes, and how to remediate.
 
 ## Table of Contents
+
 1. [SQL Injection](#sql-injection)
 2. [Authentication](#authentication)
 3. [Path Traversal](#path-traversal)
@@ -27,6 +28,7 @@ SQL injection (SQLi) occurs when user-controlled input is incorporated into data
 ### What to Look For in Code
 
 **String concatenation or interpolation in queries:**
+
 ```python
 # VULNERABLE — Python
 query = f"SELECT * FROM users WHERE username = '{username}'"
@@ -42,6 +44,7 @@ stmt.executeQuery(query);
 
 **ORM raw query methods:**
 Even with an ORM, raw/literal SQL bypasses protections:
+
 ```python
 # VULNERABLE — Django
 User.objects.raw(f"SELECT * FROM auth_user WHERE username = '{name}'")
@@ -53,13 +56,13 @@ db.session.execute(text(f"SELECT * FROM users WHERE id = {uid}"))
 
 ```typescript
 // VULNERABLE — TypeORM
-repository.query(`SELECT * FROM user WHERE name = '${name}'`)
+repository.query(`SELECT * FROM user WHERE name = '${name}'`);
 
 // VULNERABLE — Sequelize
-sequelize.query(`SELECT * FROM users WHERE id = ${id}`)
+sequelize.query(`SELECT * FROM users WHERE id = ${id}`);
 
 // VULNERABLE — Prisma raw
-prisma.$queryRawUnsafe(`SELECT * FROM users WHERE email = '${email}'`)
+prisma.$queryRawUnsafe(`SELECT * FROM users WHERE email = '${email}'`);
 ```
 
 **Stored procedures with dynamic SQL:**
@@ -72,6 +75,7 @@ User input is stored safely but later retrieved and used in a query without para
 SQLi can occur in ORDER BY, GROUP BY, LIMIT, table names, column names, INSERT VALUES, and UPDATE SET clauses. These are often overlooked because parameterized queries may not support dynamic identifiers.
 
 ### Remediation
+
 - Always use parameterized queries / prepared statements
 - For dynamic identifiers (table/column names, ORDER BY), use allowlists
 - Use ORM methods properly — avoid `.raw()`, `.extra()`, `$queryRawUnsafe()`
@@ -88,10 +92,10 @@ User.objects.filter(username=name)
 
 ```typescript
 // SAFE — parameterized in Node.js
-db.query("SELECT * FROM products WHERE id = $1", [req.params.id])
+db.query('SELECT * FROM products WHERE id = $1', [req.params.id]);
 
 // SAFE — Prisma
-prisma.user.findUnique({ where: { email } })
+prisma.user.findUnique({ where: { email } });
 ```
 
 ---
@@ -103,40 +107,47 @@ Authentication vulnerabilities allow attackers to compromise login mechanisms, b
 ### What to Look For in Code
 
 **Weak password policies:**
+
 - No minimum length or complexity requirements
 - No check against breached password lists
 - Allowing trivially guessable passwords
 
 **Brute-force unprotected login:**
+
 - No rate limiting on login endpoints
 - No account lockout after failed attempts
 - No CAPTCHA or progressive delays
 - Login responses that reveal whether the username or password was incorrect (username enumeration)
 
 **Session management flaws:**
+
 - Session tokens with insufficient entropy or predictable patterns
 - Sessions not invalidated on logout or password change
 - Session fixation — accepting session IDs from URL parameters or pre-authentication tokens
 - Missing `HttpOnly`, `Secure`, `SameSite` flags on session cookies
 
 **Remember-me / persistent login tokens:**
+
 - Tokens that encode predictable values (username, timestamp)
 - Tokens stored in plain text in the database
 - No expiration or rotation of persistent tokens
 
 **Password reset flaws:**
+
 - Reset tokens sent in URL query parameters (logged in referrer headers, browser history)
 - Tokens that don't expire or are reusable
 - Host header injection in password reset emails (attacker controls the reset link domain)
 - Lack of rate limiting on reset requests
 
 **MFA bypass patterns:**
+
 - MFA check happens on a separate page and can be skipped by navigating directly to the authenticated area
 - MFA status tracked client-side (cookies, hidden fields)
 - Brute-forceable TOTP codes without rate limiting
 - MFA not required for password reset flow
 
 ### Remediation
+
 - Enforce strong passwords, check against known breached lists (e.g., HaveIBeenPwned API)
 - Implement rate limiting and account lockout with exponential backoff
 - Use generic error messages: "Invalid username or password"
@@ -155,6 +166,7 @@ Path traversal (directory traversal) allows attackers to read or write arbitrary
 ### What to Look For in Code
 
 **User input in file operations:**
+
 ```python
 # VULNERABLE
 filename = request.args.get('file')
@@ -165,13 +177,14 @@ return send_file(f'/var/www/uploads/{filename}')
 
 ```typescript
 // VULNERABLE
-const filePath = path.join('/uploads', req.query.filename)
-res.sendFile(filePath)
+const filePath = path.join('/uploads', req.query.filename);
+res.sendFile(filePath);
 
 // Attack: ?filename=../../../etc/passwd
 ```
 
 **Bypass patterns to watch for:**
+
 - `../` and `..\\` sequences
 - URL-encoded variants: `%2e%2e%2f`, `%252e%252e%252f` (double encoding)
 - Null byte injection: `file.txt%00.png` (in older runtimes, truncates at null byte)
@@ -179,11 +192,13 @@ res.sendFile(filePath)
 - Nested sequences: `....//` which after stripping `../` still yields `../`
 
 **Common flawed defenses:**
+
 - Stripping `../` once (bypassed with `....//`)
 - Checking that the path starts with expected directory but not resolving symlinks
 - Extension validation without canonicalization
 
 ### Remediation
+
 - Canonicalize the path (resolve `.`, `..`, symlinks) then verify it starts with the intended base directory
 - Use an allowlist of permitted filenames or a mapping (ID → filename) instead of accepting filenames directly
 - Run the application with minimal filesystem permissions
@@ -199,10 +214,10 @@ if not requested.startswith(base + os.sep):
 
 ```typescript
 // SAFE — Node.js
-const base = path.resolve('/uploads')
-const requested = path.resolve(path.join('/uploads', filename))
+const base = path.resolve('/uploads');
+const requested = path.resolve(path.join('/uploads', filename));
 if (!requested.startsWith(base + path.sep)) {
-    return res.status(403).send('Forbidden')
+  return res.status(403).send('Forbidden');
 }
 ```
 
@@ -215,6 +230,7 @@ OS command injection occurs when user input is passed to system shell commands, 
 ### What to Look For in Code
 
 **Shell execution with user input:**
+
 ```python
 # VULNERABLE
 os.system(f"ping -c 1 {ip_address}")
@@ -225,11 +241,12 @@ subprocess.call(f"nslookup {domain}", shell=True)
 
 ```typescript
 // VULNERABLE
-exec(`convert ${inputFile} ${outputFile}`)
-execSync(`whois ${domain}`)
+exec(`convert ${inputFile} ${outputFile}`);
+execSync(`whois ${domain}`);
 ```
 
 **Dangerous functions by language:**
+
 - Python: `os.system()`, `os.popen()`, `subprocess.*` with `shell=True`, `eval()`, `exec()`
 - Node.js: `child_process.exec()`, `child_process.execSync()`, `eval()`
 - Java: `Runtime.exec()`, `ProcessBuilder` with shell interpretation
@@ -239,6 +256,7 @@ execSync(`whois ${domain}`)
 `;`, `&&`, `||`, `|`, `` ` `` (backtick substitution), `$(command)`, `\n` (newline in some contexts)
 
 ### Remediation
+
 - Avoid calling OS commands with user input entirely
 - If unavoidable, use parameterized APIs that don't invoke a shell:
   ```python
@@ -247,7 +265,7 @@ execSync(`whois ${domain}`)
   ```
   ```typescript
   // SAFE — no shell
-  execFile('ping', ['-c', '1', ipAddress])
+  execFile('ping', ['-c', '1', ipAddress]);
   ```
 - Validate input against strict allowlists (e.g., IP regex for ping)
 - Never use `shell=True` (Python) or `exec()` (Node.js) with user input
@@ -261,30 +279,36 @@ Business logic vulnerabilities arise from flawed assumptions in the application'
 ### What to Look For in Code
 
 **Price and quantity manipulation:**
+
 - Can a user submit a negative quantity or price?
 - Are calculations performed client-side and trusted by the server?
 - Can discounts exceed the order total, resulting in a credit?
 
 **Workflow bypass:**
+
 - Can multi-step processes be completed out of order?
 - Are intermediate steps validated server-side, or only by the client?
 - Can users skip required steps (e.g., payment, verification, MFA)?
 
 **Trust boundary violations:**
+
 - Does the app trust client-side values for roles, permissions, or pricing?
 - Are hidden form fields or cookies used to pass security-sensitive state?
 
 **Inconsistent validation:**
+
 - Are the same rules applied to all entry points for the same data?
 - Can truncation of overlong inputs bypass validation (e.g., email length limits)?
 - Are there integer overflow/underflow risks on quantity or amount fields?
 
 **Coupon / discount / referral abuse:**
+
 - Can a coupon code be reused? (See also: race conditions)
 - Can referral rewards be self-triggered?
 - Can free trials be extended indefinitely by re-registering?
 
 ### Remediation
+
 - Define and document the intended state machine for every critical workflow
 - Validate all state transitions server-side
 - Never trust client-side calculations for pricing, quantities, or authorization
@@ -300,16 +324,19 @@ Information disclosure occurs when an application unintentionally reveals sensit
 ### What to Look For in Code
 
 **Verbose error messages:**
+
 - Stack traces returned to the client in production
 - Database error messages revealing table/column names or query structure
 - Framework debug pages enabled in production (Django `DEBUG=True`, Express `app.set('env', 'development')`)
 
 **Sensitive data in responses:**
+
 - API responses that include fields not needed by the client (internal IDs, password hashes, tokens, other users' data)
 - Comments in HTML source containing internal information
 - Version numbers of frameworks, servers, libraries in headers or markup
 
 **Configuration exposure:**
+
 - `.env` files accessible via web
 - `/debug`, `/status`, `/metrics`, `/actuator` endpoints exposed without auth
 - Git directories (`.git/`) or backup files (`.bak`, `~`) accessible
@@ -317,11 +344,13 @@ Information disclosure occurs when an application unintentionally reveals sensit
 - Source maps (`.map` files) deployed to production
 
 **Metadata leakage:**
+
 - EXIF data in uploaded images containing geolocation
 - Timing differences revealing whether records exist (username enumeration)
 - HTTP headers like `X-Powered-By`, `Server` revealing technology stack
 
 ### Remediation
+
 - Configure separate error handling for production vs development — never expose stack traces
 - Use API response serializers/schemas that explicitly define which fields are returned
 - Strip unnecessary HTTP headers (`X-Powered-By`, `Server`)
@@ -338,6 +367,7 @@ Access control vulnerabilities (also called broken authorization, IDOR, BOLA) oc
 ### What to Look For in Code
 
 **Insecure direct object references (IDOR):**
+
 ```python
 # VULNERABLE — no authorization check
 @app.route('/api/user/<user_id>/profile')
@@ -347,29 +377,35 @@ def get_profile(user_id):
 ```
 
 **Missing authorization middleware:**
+
 - Routes that should require specific roles but only check authentication
 - Admin endpoints protected only by URL obscurity
 - Authorization checked in the UI but not enforced server-side
 
 **Horizontal privilege escalation:**
+
 - User A can access User B's data by changing an ID parameter
 - Predictable or sequential resource IDs making enumeration easy
 
 **Vertical privilege escalation:**
+
 - Regular users can access admin functionality by navigating to admin URLs
 - Role changes possible by modifying request parameters or cookies
 - API endpoints that don't enforce role-based restrictions
 
 **Missing function-level access control:**
+
 - Different access checks for GET vs POST/PUT/DELETE on the same resource
 - Bulk/batch endpoints that bypass per-resource authorization
 - Indirect references (looking up by email instead of ID) that bypass checks
 
 **Referer-based or URL-based access control:**
+
 - Authorization decisions based on the `Referer` header
 - Access control applied only at the URL routing level, not at the data layer
 
 ### Remediation
+
 - Implement authorization checks at the data access layer, not just routing
 - Deny by default — require explicit grants for every resource and action
 - Use unpredictable resource identifiers (UUIDs) to prevent enumeration (but still enforce authorization)
@@ -385,26 +421,31 @@ File upload vulnerabilities arise when applications accept files without adequat
 ### What to Look For in Code
 
 **Missing or client-side-only validation:**
+
 - File type checked only by extension or `Content-Type` header (both attacker-controlled)
 - Validation performed in JavaScript but not repeated server-side
 
 **Dangerous patterns:**
+
 - Uploaded files stored in a web-accessible directory and served directly
 - Original filenames used without sanitization (path traversal via filenames like `../../shell.php`)
 - No size limits on uploads (DoS vector)
 - Execution permissions on upload directories
 
 **Content-type confusion:**
+
 - Polyglot files (valid image that is also valid PHP/HTML)
 - SVG files containing embedded JavaScript
 - MIME type sniffing by the browser executing non-HTML as HTML
 
 **Metadata exploitation:**
+
 - Image metadata (EXIF) containing embedded scripts or large payloads
 - Archive files (ZIP) with path traversal in entry names (Zip Slip)
 - Office documents with macros or external entity references
 
 ### Remediation
+
 - Validate file type server-side by inspecting magic bytes, not just extension or Content-Type
 - Generate new random filenames — never use the user-provided filename
 - Store uploads outside the web root or on a separate storage service (S3, GCS)
@@ -424,6 +465,7 @@ Race conditions occur when an application processes concurrent requests without 
 
 **Limit overrun patterns (the most common type):**
 Any "check then act" sequence without atomicity:
+
 ```python
 # VULNERABLE — TOCTOU gap between check and update
 coupon = Coupon.query.get(code)
@@ -435,6 +477,7 @@ if not coupon.used:
 ```
 
 **Common limit overrun targets:**
+
 - Coupon/promo code redemption
 - Gift card / credit redemption
 - Rate limiting counters
@@ -455,6 +498,7 @@ Sending the same request twice simultaneously to an endpoint that accepts a list
 Object creation that involves multiple database writes can be exploited if the object is accessible in a partially constructed state (e.g., a user record exists but hasn't had its password set yet).
 
 ### Remediation
+
 - Use database-level atomic operations: `UPDATE ... WHERE used = false` returning the affected row count
 - Use database transactions with appropriate isolation levels (SERIALIZABLE for critical operations)
 - Implement distributed locks (Redis SETNX) for operations that must be single-threaded
@@ -481,6 +525,7 @@ Server-side request forgery occurs when an application makes HTTP requests to a 
 ### What to Look For in Code
 
 **User-controlled URLs in server-side requests:**
+
 ```python
 # VULNERABLE
 url = request.args.get('url')
@@ -490,11 +535,12 @@ return response.text
 
 ```typescript
 // VULNERABLE
-const url = req.body.webhookUrl
-const response = await fetch(url)
+const url = req.body.webhookUrl;
+const response = await fetch(url);
 ```
 
 **Common SSRF entry points:**
+
 - Webhook URLs configured by users
 - "Fetch URL" / "Import from URL" features
 - PDF generation from HTML with user-controlled URLs
@@ -503,6 +549,7 @@ const response = await fetch(url)
 - Redirect-following that resolves to internal addresses
 
 **Bypass techniques to account for:**
+
 - Alternative IP representations: `127.0.0.1`, `127.1`, `0`, `0x7f000001`, `2130706433`, `[::1]`
 - DNS rebinding: domain resolves to public IP first, then internal IP on subsequent lookup
 - Redirects: allowed domain redirects to `http://169.254.169.254/`
@@ -510,6 +557,7 @@ const response = await fetch(url)
 - Cloud metadata endpoints: `169.254.169.254` (AWS/GCP/Azure), `fd00:ec2::254`
 
 ### Remediation
+
 - Maintain an allowlist of permitted domains/IPs — deny by default
 - Resolve the hostname and validate the IP before making the request (not just the hostname)
 - Block private/reserved IP ranges: `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `127.0.0.0/8`, `169.254.0.0/16`, `fd00::/8`, `[::1]`
@@ -527,6 +575,7 @@ XML External Entity injection occurs when an application parses XML input that c
 
 **XML parsing with default settings:**
 Many XML parsers allow external entities by default:
+
 ```python
 # VULNERABLE — Python
 from lxml import etree
@@ -545,6 +594,7 @@ Document doc = builder.parse(inputStream);
 ```
 
 **Attack payloads to understand:**
+
 - File reading: `<!ENTITY xxe SYSTEM "file:///etc/passwd">`
 - SSRF: `<!ENTITY xxe SYSTEM "http://internal-server/">`
 - Blind XXE via out-of-band (OOB): entity points to attacker server
@@ -552,6 +602,7 @@ Document doc = builder.parse(inputStream);
 - XXE via file uploads: DOCX, XLSX, SVG are all XML-based formats
 
 **Hidden XML parsing:**
+
 - SOAP endpoints
 - SVG image processing
 - Office document parsing (OOXML)
@@ -560,20 +611,24 @@ Document doc = builder.parse(inputStream);
 - XML-based configuration imports
 
 ### Remediation
+
 - Disable external entities and DTD processing in the XML parser:
+
   ```python
   # SAFE — Python lxml
   parser = etree.XMLParser(resolve_entities=False, no_network=True)
-  
+
   # SAFE — Python defusedxml
   import defusedxml.ElementTree as ET
   ```
+
   ```java
   // SAFE — Java
   factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
   factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
   factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
   ```
+
 - Use JSON instead of XML where possible
 - For file uploads in XML-based formats, use libraries that don't resolve entities
 
@@ -586,22 +641,25 @@ NoSQL injection occurs when user input is incorporated into NoSQL database queri
 ### What to Look For in Code
 
 **Operator injection in MongoDB:**
+
 ```javascript
 // VULNERABLE — if req.body.password is {"$ne": ""}
 db.users.find({
-    username: req.body.username,
-    password: req.body.password
-})
+  username: req.body.username,
+  password: req.body.password,
+});
 // Matches any user where password is not empty — auth bypass
 ```
 
 **JavaScript expression injection:**
+
 ```javascript
 // VULNERABLE — $where with string evaluation
-db.users.find({ $where: `this.username == '${username}'` })
+db.users.find({ $where: `this.username == '${username}'` });
 ```
 
 **Common attack operators:**
+
 - `$ne` — not equal (bypass auth: `{"password": {"$ne": ""}}`)
 - `$gt` — greater than (match any value)
 - `$regex` — extract data character by character
@@ -609,15 +667,17 @@ db.users.find({ $where: `this.username == '${username}'` })
 - `$lookup` — in aggregation pipelines, can access other collections
 
 **Entry points:**
+
 - JSON body parameters that are passed directly to query methods
 - URL query parameters parsed into objects (Express `qs` parsing can create nested objects from `user[$ne]=1`)
 
 ### Remediation
+
 - Explicitly cast/validate input types before querying:
   ```typescript
   // SAFE — ensure values are strings, not objects
-  const username = String(req.body.username)
-  const password = String(req.body.password)
+  const username = String(req.body.username);
+  const password = String(req.body.password);
   ```
 - Use schema validation (Mongoose schemas with strict types)
 - Avoid `$where` and other JavaScript evaluation operators
@@ -639,34 +699,39 @@ The #1 API vulnerability — accessing resources by changing ID parameters witho
 Admin API endpoints accessible to regular users. Check that middleware enforces role checks on all routes, not just the UI-facing ones.
 
 **Mass assignment / excessive data exposure:**
+
 ```typescript
 // VULNERABLE — mass assignment
-const user = await User.create(req.body)
+const user = await User.create(req.body);
 // If req.body includes { role: "admin" }, the user becomes an admin
 
 // VULNERABLE — excessive data exposure
 app.get('/api/users/:id', (req, res) => {
-    const user = await User.findById(req.params.id)
-    res.json(user)  // Returns ALL fields including passwordHash, internalNotes, etc.
-})
+  const user = await User.findById(req.params.id);
+  res.json(user); // Returns ALL fields including passwordHash, internalNotes, etc.
+});
 ```
 
 **Missing rate limiting:**
+
 - No throttling on authentication endpoints
 - No per-user or per-IP rate limits on data-access endpoints
 - Pagination without limits allowing full database dumps
 
 **Undocumented endpoints:**
+
 - Debug or test endpoints left in production
 - Endpoints discoverable via API schema files (OpenAPI/Swagger, GraphQL introspection)
 - Version mismatch: `/api/v1/` has controls, `/api/v2/` doesn't
 
 **Improper input validation:**
+
 - No validation of request body schema
 - Accepting unexpected fields
 - No type checking on parameters
 
 ### Remediation
+
 - Implement object-level authorization on every endpoint
 - Use explicit allowlists for request body fields (don't pass `req.body` directly to ORM create/update)
 - Define explicit response schemas that only include needed fields
@@ -684,15 +749,18 @@ Web cache deception exploits discrepancies between how a cache server and origin
 
 **Path handling discrepancies:**
 The vulnerability arises when:
+
 1. The origin server serves dynamic content at a URL like `/account/settings`
 2. The cache interprets a URL like `/account/settings/nonexistent.css` as a static resource and caches it
 3. But the origin ignores the extra path segment and still serves the dynamic account page
 
 **Frameworks that ignore trailing path segments:**
+
 - REST frameworks with catch-all or prefix-based routing
 - Applications using path normalization that strips unknown segments
 
 **Cache rule misconfigurations:**
+
 - Caching based on file extension (`.css`, `.js`, `.png`) without validating the response
 - Caching based on directory prefixes (`/static/`) without verifying content type
 - Not using `Cache-Control: no-store` on authenticated/dynamic responses
@@ -701,6 +769,7 @@ The vulnerability arises when:
 Different servers treat path delimiters differently. A URL like `/account/settings;.css` might be interpreted as `/account/settings` by the origin (treating `;` as a parameter delimiter) but as a `.css` file by the cache.
 
 ### Remediation
+
 - Set `Cache-Control: no-store` on all authenticated/dynamic responses
 - Configure cache rules based on response headers (Content-Type, Cache-Control), not URL patterns
 - Ensure the origin returns 404 for paths it doesn't explicitly serve
