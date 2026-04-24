@@ -19,7 +19,11 @@
     "test:run": "vitest run",
     "pretest:coverage": "npm run encode",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "supabase:start": "supabase start",
+    "supabase:stop": "supabase stop",
+    "supabase:status": "supabase status",
+    "db:reset": "supabase db reset"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -45,6 +49,7 @@
     "globals": "^15.14.0",
     "jsdom": "^27.4.0",
     "prettier": "^3.8.1",
+    "supabase": "^2.95.2",
     "tailwindcss": "^4.1.18",
     "tsx": "^4.21.0",
     "typescript": "~5.6.2",
