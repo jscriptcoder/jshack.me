@@ -32,7 +32,9 @@ When the user provides code or asks for a security audit:
 ## Audit Workflow
 
 ### Step 1: Reconnaissance — Understand the Stack
+
 Before diving into vulnerabilities, understand what you're looking at:
+
 - Language and framework (Express/Fastify, Django/Flask, Spring, Rails, etc.)
 - Database layer (SQL, NoSQL, ORM usage)
 - Authentication mechanism (sessions, JWT, OAuth)
@@ -44,9 +46,11 @@ Before diving into vulnerabilities, understand what you're looking at:
 This determines which vulnerability categories are most relevant.
 
 ### Step 2: Triage — Prioritize by Risk
+
 Not all vulnerability classes apply equally to every app. Prioritize based on:
 
 **Critical (check first):**
+
 - Injection (SQL, NoSQL, command, template) — any app with user input + database/system interaction
 - Authentication and session management — any app with login
 - Access control / authorization — any app with roles or multi-tenancy
@@ -54,6 +58,7 @@ Not all vulnerability classes apply equally to every app. Prioritize based on:
 - SSRF — if the app makes outbound requests based on user input
 
 **High (check second):**
+
 - XSS — any app rendering user-controlled content
 - CSRF — any app with state-changing operations via cookies
 - Insecure deserialization — if the app deserializes user-controlled data
@@ -61,6 +66,7 @@ Not all vulnerability classes apply equally to every app. Prioritize based on:
 - JWT/OAuth flaws — if using these for auth
 
 **Medium (check based on stack):**
+
 - Prototype pollution — JavaScript/Node.js apps
 - Request smuggling — apps behind reverse proxies
 - Cache poisoning/deception — apps with caching layers
@@ -69,19 +75,24 @@ Not all vulnerability classes apply equally to every app. Prioritize based on:
 - Host header attacks — apps that use the Host header for routing or URL generation
 
 **Context-dependent:**
+
 - LLM attacks — apps integrating AI/LLM features
 - WebSocket vulnerabilities — apps using WebSockets
 - DOM-based vulnerabilities — SPAs with complex client-side routing
 
 ### Step 3: Systematic Review
+
 For each applicable vulnerability category, follow the detection patterns and code-level indicators described in the reference files. The references provide:
+
 - What to look for in code (patterns, anti-patterns, danger signals)
 - Common mistakes developers make
 - Specific remediation guidance with code examples
 - Edge cases and bypass techniques to be aware of
 
 ### Step 4: Report Findings
+
 Structure findings with:
+
 - **Severity**: Critical / High / Medium / Low / Informational
 - **Vulnerability class**: The specific category from this skill
 - **Location**: File, line, function where the issue exists
@@ -93,6 +104,7 @@ Structure findings with:
 ## Quick Reference — All 31 Vulnerability Categories
 
 ### Server-Side (14 categories)
+
 1. SQL Injection — `references/server-side.md#sql-injection`
 2. Authentication flaws — `references/server-side.md#authentication`
 3. Path traversal — `references/server-side.md#path-traversal`
@@ -109,6 +121,7 @@ Structure findings with:
 14. Web cache deception — `references/server-side.md#web-cache-deception`
 
 ### Client-Side (6 categories)
+
 15. Cross-site scripting (XSS) — `references/client-side.md#xss`
 16. Cross-site request forgery (CSRF) — `references/client-side.md#csrf`
 17. Cross-origin resource sharing (CORS) — `references/client-side.md#cors`
@@ -117,6 +130,7 @@ Structure findings with:
 20. WebSockets — `references/client-side.md#websockets`
 
 ### Advanced (11 categories)
+
 21. Insecure deserialization — `references/advanced.md#deserialization`
 22. Web LLM attacks — `references/advanced.md#llm-attacks`
 23. GraphQL API vulnerabilities — `references/advanced.md#graphql`
