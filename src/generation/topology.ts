@@ -374,9 +374,14 @@ export const generateTopology = (
 
   // Use a derived PRNG so the main topology PRNG sequence is unchanged by
   // firmware picks (keeps downstream generation deterministic-compatible).
-  const routerFirmwareVendor: FirmwareVendor = createPrng(`firmware-vendor:${routerPublicIp}`).pick(
-    FIRMWARE_VENDORS,
-  );
+  // Keyed on hostname (seed-derived, stable across instances) rather than IP
+  // so that two mission instances from the same template get the same
+  // firmware vendor — required by the "structurally identical instances"
+  // rule for Phase 5 multiplayer (see project_multiplayer_mission_instances
+  // memory).
+  const routerFirmwareVendor: FirmwareVendor = createPrng(
+    `firmware-vendor:router:${routerHostname}`,
+  ).pick(FIRMWARE_VENDORS);
   const routerMachine: GeneratedMachine = {
     ip: routerPublicIp,
     hostname: routerHostname,
@@ -418,9 +423,11 @@ export const generateTopology = (
             ? 'ssh'
             : downstreamLayer.entryVariant;
 
+      // Keyed on hostname (seed-stable) not IP — see the router comment above
+      // for why, and the project_multiplayer_mission_instances memory.
       const gatewayFirmwareVendor: FirmwareVendor | undefined =
         gatewayRole === 'router'
-          ? createPrng(`firmware-vendor:${gatewayUpstreamIp}`).pick(FIRMWARE_VENDORS)
+          ? createPrng(`firmware-vendor:gateway:${gatewayHostname}`).pick(FIRMWARE_VENDORS)
           : undefined;
       return {
         ip: gatewayUpstreamIp,
