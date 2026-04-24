@@ -15,21 +15,21 @@ import {
   collectAllFiles,
 } from './testHelpers';
 
-describe('generateFileSystems', () => {
-  it('produces deterministic output for the same seed', () => {
-    const a = buildTestData('fs-seed');
-    const b = buildTestData('fs-seed');
+describe('generateFileSystems', async () => {
+  it('produces deterministic output for the same seed', async () => {
+    const a = await buildTestData('fs-seed');
+    const b = await buildTestData('fs-seed');
     expect(a.fileSystems).toEqual(b.fileSystems);
   });
 
-  it('produces different output for different seeds', () => {
-    const a = buildTestData('fs-alpha');
-    const b = buildTestData('fs-beta');
+  it('produces different output for different seeds', async () => {
+    const a = await buildTestData('fs-alpha');
+    const b = await buildTestData('fs-beta');
     expect(a.fileSystems).not.toEqual(b.fileSystems);
   });
 
-  it('creates a filesystem for each machine', () => {
-    const { topology, fileSystems } = buildTestData('count-test');
+  it('creates a filesystem for each machine', async () => {
+    const { topology, fileSystems } = await buildTestData('count-test');
     topology.machines.forEach((m) => {
       expect(fileSystems[m.ip]).toBeDefined();
       expect(fileSystems[m.ip]?.type).toBe('directory');
@@ -37,8 +37,8 @@ describe('generateFileSystems', () => {
     });
   });
 
-  it('each filesystem has standard directories', () => {
-    const { topology, fileSystems } = buildTestData('dirs-test');
+  it('each filesystem has standard directories', async () => {
+    const { topology, fileSystems } = await buildTestData('dirs-test');
     topology.machines.forEach((m) => {
       const root = fileSystems[m.ip];
       expect(root?.children?.['root']).toBeDefined();
@@ -48,9 +48,9 @@ describe('generateFileSystems', () => {
     });
   });
 
-  it('machines with open SSH port have sshd.pid, closed SSH ports do not', () => {
+  it('machines with open SSH port have sshd.pid, closed SSH ports do not', async () => {
     for (let i = 0; i < 20; i++) {
-      const { topology, fileSystems } = buildTestData(`sshd-pid-${i}`);
+      const { topology, fileSystems } = await buildTestData(`sshd-pid-${i}`);
       const allMachines = [...topology.machines, topology.routerMachine];
       allMachines.forEach((m) => {
         const sshPort = m.remoteMachine.ports.find((p) => p.service === 'ssh');
@@ -66,9 +66,9 @@ describe('generateFileSystems', () => {
     }
   });
 
-  it('machines with open FTP port have vsftpd.pid, closed FTP ports do not', () => {
+  it('machines with open FTP port have vsftpd.pid, closed FTP ports do not', async () => {
     for (let i = 0; i < 20; i++) {
-      const { topology, fileSystems } = buildTestData(`ftpd-pid-${i}`);
+      const { topology, fileSystems } = await buildTestData(`ftpd-pid-${i}`);
       const allMachines = [...topology.machines, topology.routerMachine];
       allMachines.forEach((m) => {
         const ftpPort = m.remoteMachine.ports.find((p) => p.service === 'ftp');
@@ -84,14 +84,14 @@ describe('generateFileSystems', () => {
     }
   });
 
-  it('some inner gateways get basic rw SNMP config', () => {
+  it('some inner gateways get basic rw SNMP config', async () => {
     // Hardcoded seeds known to produce a basic-rw SNMP config on at least
     // one inner gateway. Chosen via scripts/findSeeds.ts — preferred over
     // the earlier 200-seed sweep because the sweep was flaky under parallel
     // test load.
     const rwSnmpSeeds = ['rw-snmp-gw-3', 'rw-snmp-gw-4', 'rw-snmp-gw-10'];
     for (const seed of rwSnmpSeeds) {
-      const { topology, fileSystems } = buildTestData(seed, 'hard');
+      const { topology, fileSystems } = await buildTestData(seed, 'hard');
       const innerGateways = topology.machines.filter(
         (m) => (m.role === 'router' || m.role === 'switch') && m.accessVariant !== 'snmp',
       );
@@ -112,8 +112,8 @@ describe('generateFileSystems', () => {
     }
   });
 
-  it('each filesystem has /etc/passwd', () => {
-    const { topology, fileSystems } = buildTestData('passwd-test');
+  it('each filesystem has /etc/passwd', async () => {
+    const { topology, fileSystems } = await buildTestData('passwd-test');
     topology.machines.forEach((m) => {
       const root = fileSystems[m.ip];
       const passwd = resolveNode(root as FileNode, '/etc/passwd');
@@ -123,9 +123,9 @@ describe('generateFileSystems', () => {
     });
   });
 
-  it('target machine has the target file for exfiltrate/tamper objectives', () => {
+  it('target machine has the target file for exfiltrate/tamper objectives', async () => {
     for (let i = 0; i < 200; i++) {
-      const { fileSystems, objective } = buildTestData(`target-file-${i}`);
+      const { fileSystems, objective } = await buildTestData(`target-file-${i}`);
       if (
         objective.type === 'credential_theft' ||
         objective.type === 'sabotage' ||
@@ -150,9 +150,9 @@ describe('generateFileSystems', () => {
     throw new Error('No exfiltrate/tamper objective found in 200 seeds');
   });
 
-  it('credential_theft objective skips target file placement', () => {
+  it('credential_theft objective skips target file placement', async () => {
     for (let i = 0; i < 100; i++) {
-      const { objective } = buildTestData(`cred-theft-fs-${i}`);
+      const { objective } = await buildTestData(`cred-theft-fs-${i}`);
       if (objective.type !== 'credential_theft') continue;
 
       expect(objective.targetPath).toBe('');
@@ -161,8 +161,8 @@ describe('generateFileSystems', () => {
     throw new Error('No credential_theft objective found in 100 seeds');
   });
 
-  it('non-target machines do not have a flag file in /root', () => {
-    const { topology, fileSystems, objective } = buildTestData('no-flag-test');
+  it('non-target machines do not have a flag file in /root', async () => {
+    const { topology, fileSystems, objective } = await buildTestData('no-flag-test');
     topology.machines
       .filter((m) => m.ip !== objective.targetMachine)
       .forEach((m) => {
@@ -172,8 +172,8 @@ describe('generateFileSystems', () => {
       });
   });
 
-  it('each filesystem has /etc/hostname', () => {
-    const { topology, fileSystems } = buildTestData('hostname-test');
+  it('each filesystem has /etc/hostname', async () => {
+    const { topology, fileSystems } = await buildTestData('hostname-test');
     topology.machines.forEach((m) => {
       const root = fileSystems[m.ip];
       const hostname = resolveNode(root as FileNode, '/etc/hostname');
@@ -182,8 +182,8 @@ describe('generateFileSystems', () => {
     });
   });
 
-  it('each filesystem has auth.log in /var/log', () => {
-    const { topology, fileSystems } = buildTestData('log-test');
+  it('each filesystem has auth.log in /var/log', async () => {
+    const { topology, fileSystems } = await buildTestData('log-test');
     topology.machines.forEach((m) => {
       const root = fileSystems[m.ip];
       const authLog = resolveNode(root as FileNode, '/var/log/auth.log');
@@ -192,9 +192,9 @@ describe('generateFileSystems', () => {
     });
   });
 
-  describe('log file seeding — realistic per-destination layout', () => {
-    it('every machine has auth.log, syslog, and kern.log', () => {
-      const { topology, fileSystems } = buildTestData('seeding-universal');
+  describe('log file seeding — realistic per-destination layout', async () => {
+    it('every machine has auth.log, syslog, and kern.log', async () => {
+      const { topology, fileSystems } = await buildTestData('seeding-universal');
       topology.machines.forEach((m) => {
         const root = fileSystems[m.ip];
         expect(resolveNode(root as FileNode, '/var/log/auth.log')?.content).toBeTruthy();
@@ -203,8 +203,8 @@ describe('generateFileSystems', () => {
       });
     });
 
-    it('auth.log only contains authentication-related lines', () => {
-      const { topology, fileSystems } = buildTestData('seeding-authlog');
+    it('auth.log only contains authentication-related lines', async () => {
+      const { topology, fileSystems } = await buildTestData('seeding-authlog');
       topology.machines.forEach((m) => {
         const root = fileSystems[m.ip];
         const content = resolveNode(root as FileNode, '/var/log/auth.log')?.content ?? '';
@@ -219,8 +219,8 @@ describe('generateFileSystems', () => {
       });
     });
 
-    it('kern.log only contains kernel-related lines', () => {
-      const { topology, fileSystems } = buildTestData('seeding-kernlog');
+    it('kern.log only contains kernel-related lines', async () => {
+      const { topology, fileSystems } = await buildTestData('seeding-kernlog');
       topology.machines.forEach((m) => {
         const root = fileSystems[m.ip];
         const content = resolveNode(root as FileNode, '/var/log/kern.log')?.content ?? '';
@@ -234,8 +234,8 @@ describe('generateFileSystems', () => {
       });
     });
 
-    it('syslog contains generic system messages and excludes auth lines', () => {
-      const { topology, fileSystems } = buildTestData('seeding-syslog');
+    it('syslog contains generic system messages and excludes auth lines', async () => {
+      const { topology, fileSystems } = await buildTestData('seeding-syslog');
       topology.machines.forEach((m) => {
         const root = fileSystems[m.ip];
         const content = resolveNode(root as FileNode, '/var/log/syslog')?.content ?? '';
@@ -245,8 +245,8 @@ describe('generateFileSystems', () => {
       });
     });
 
-    it('webserver role machines have access.log with Apache Combined entries', () => {
-      const { topology, fileSystems } = buildTestData('seeding-webserver');
+    it('webserver role machines have access.log with Apache Combined entries', async () => {
+      const { topology, fileSystems } = await buildTestData('seeding-webserver');
       const webservers = topology.machines.filter((m) => m.role === 'webserver');
       // Test seed should produce at least one webserver
       expect(webservers.length).toBeGreaterThan(0);
@@ -259,10 +259,10 @@ describe('generateFileSystems', () => {
       });
     });
 
-    it('fileserver role machines have vsftpd.log with vsftpd-format entries', () => {
+    it('fileserver role machines have vsftpd.log with vsftpd-format entries', async () => {
       let found = false;
       for (let i = 0; i < 30 && !found; i++) {
-        const { topology, fileSystems } = buildTestData(`seeding-fileserver-${i}`);
+        const { topology, fileSystems } = await buildTestData(`seeding-fileserver-${i}`);
         const fileservers = topology.machines.filter((m) => m.role === 'fileserver');
         if (fileservers.length === 0) continue;
         found = true;
@@ -279,10 +279,10 @@ describe('generateFileSystems', () => {
       expect(found).toBe(true);
     });
 
-    it('database role machines have mysql.log when MySQL port is open', () => {
+    it('database role machines have mysql.log when MySQL port is open', async () => {
       let found = false;
       for (let i = 0; i < 30 && !found; i++) {
-        const { topology, fileSystems } = buildTestData(`seeding-database-${i}`);
+        const { topology, fileSystems } = await buildTestData(`seeding-database-${i}`);
         const databasesWithMysql = topology.machines.filter(
           (m) =>
             m.role === 'database' &&
@@ -301,11 +301,11 @@ describe('generateFileSystems', () => {
       expect(found).toBe(true);
     });
 
-    it('mailserver role machines have mail.log with postfix entries', () => {
+    it('mailserver role machines have mail.log with postfix entries', async () => {
       // Force a mailserver by iterating many seeds until one shows up
       let found = false;
       for (let i = 0; i < 30 && !found; i++) {
-        const { topology, fileSystems } = buildTestData(`seeding-mailserver-${i}`);
+        const { topology, fileSystems } = await buildTestData(`seeding-mailserver-${i}`);
         const mailservers = topology.machines.filter((m) => m.role === 'mailserver');
         if (mailservers.length === 0) continue;
         found = true;
@@ -319,10 +319,10 @@ describe('generateFileSystems', () => {
       expect(found).toBe(true);
     });
 
-    it('workstation role machines do NOT have access.log, vsftpd.log, mysql.log, or mail.log', () => {
+    it('workstation role machines do NOT have access.log, vsftpd.log, mysql.log, or mail.log', async () => {
       let checked = 0;
       for (let i = 0; i < 30 && checked < 3; i++) {
-        const { topology, fileSystems } = buildTestData(`seeding-workstation-${i}`);
+        const { topology, fileSystems } = await buildTestData(`seeding-workstation-${i}`);
         const workstations = topology.machines.filter((m) => m.role === 'workstation');
         workstations.forEach((m) => {
           checked++;
@@ -336,8 +336,8 @@ describe('generateFileSystems', () => {
       expect(checked).toBeGreaterThan(0);
     });
 
-    it('every machine has /var/lib/dpkg/status with an entry per unique running service', () => {
-      const { topology, fileSystems } = buildTestData('dpkg-status-test');
+    it('every machine has /var/lib/dpkg/status with an entry per unique running service', async () => {
+      const { topology, fileSystems } = await buildTestData('dpkg-status-test');
       topology.machines.forEach((m) => {
         const root = fileSystems[m.ip];
         const statusFile = resolveNode(root as FileNode, '/var/lib/dpkg/status');
@@ -351,8 +351,8 @@ describe('generateFileSystems', () => {
       });
     });
 
-    it('every machine has /lib/ populated with system library .so files', () => {
-      const { topology, fileSystems } = buildTestData('lib-files-test');
+    it('every machine has /lib/ populated with system library .so files', async () => {
+      const { topology, fileSystems } = await buildTestData('lib-files-test');
       const expectedLibraries = [
         'libpam',
         'libcrypt',
@@ -374,8 +374,8 @@ describe('generateFileSystems', () => {
       });
     });
 
-    it('/var/lib/dpkg/status includes entries for every system library', () => {
-      const { topology, fileSystems } = buildTestData('lib-dpkg-test');
+    it('/var/lib/dpkg/status includes entries for every system library', async () => {
+      const { topology, fileSystems } = await buildTestData('lib-dpkg-test');
       const expectedLibraries = [
         'libpam',
         'libcrypt',
@@ -397,8 +397,8 @@ describe('generateFileSystems', () => {
       });
     });
 
-    it('system libraries start at their template startTuple version (uniform across machines)', () => {
-      const { topology, fileSystems } = buildTestData('lib-uniform-test');
+    it('system libraries start at their template startTuple version (uniform across machines)', async () => {
+      const { topology, fileSystems } = await buildTestData('lib-uniform-test');
       // Pick libpam as representative — every machine should carry the same
       // starting libpam version since we decided uniform-day-zero versioning.
       const libpamVersions = new Set<string>();
@@ -413,8 +413,8 @@ describe('generateFileSystems', () => {
       expect(libpamVersions.size).toBe(1);
     });
 
-    it('router machines have kern.log (replacing the old firewall.log) with iptables entries', () => {
-      const { topology, fileSystems } = buildTestData('seeding-router');
+    it('router machines have kern.log (replacing the old firewall.log) with iptables entries', async () => {
+      const { topology, fileSystems } = await buildTestData('seeding-router');
       const root = fileSystems[topology.routerMachine.ip];
       const kernLog = resolveNode(root as FileNode, '/var/log/kern.log')?.content ?? '';
       expect(kernLog).toBeTruthy();
@@ -425,10 +425,10 @@ describe('generateFileSystems', () => {
     });
   });
 
-  describe('web content for machines with HTTP ports', () => {
-    const buildWithRouter = (seed: string) => {
+  describe('web content for machines with HTTP ports', async () => {
+    const buildWithRouter = async (seed: string) => {
       const prng = createPrng(seed);
-      const topology = generateTopology(prng, 'medium');
+      const topology = await generateTopology(prng, 'medium');
       const { usersByMachine, credentials } = generateUsers(
         prng,
         topology.machines,
@@ -465,9 +465,9 @@ describe('generateFileSystems', () => {
       };
     }) => machine.remoteMachine.ports.some((p) => p.open && HTTP_SERVICES.includes(p.service));
 
-    it('every machine with an open HTTP port has /var/www/html/index.html', () => {
+    it('every machine with an open HTTP port has /var/www/html/index.html', async () => {
       for (let i = 0; i < 50; i++) {
-        const { topology, fileSystems } = buildWithRouter(`web-content-${i}`);
+        const { topology, fileSystems } = await buildWithRouter(`web-content-${i}`);
 
         // Check all internal machines
         topology.machines.filter(hasOpenHttpPort).forEach((m) => {
@@ -495,9 +495,9 @@ describe('generateFileSystems', () => {
       }
     });
 
-    it('router web content looks like an admin panel', () => {
+    it('router web content looks like an admin panel', async () => {
       for (let i = 0; i < 50; i++) {
-        const { topology, fileSystems } = buildWithRouter(`router-web-${i}`);
+        const { topology, fileSystems } = await buildWithRouter(`router-web-${i}`);
         if (!hasOpenHttpPort(topology.routerMachine)) continue;
 
         const routerFs = fileSystems[topology.routerMachine.ip];
@@ -511,9 +511,9 @@ describe('generateFileSystems', () => {
       throw new Error('No router with HTTP port found in 50 seeds');
     });
 
-    it('web content includes the machine hostname', () => {
+    it('web content includes the machine hostname', async () => {
       for (let i = 0; i < 50; i++) {
-        const { topology, fileSystems } = buildWithRouter(`web-hostname-${i}`);
+        const { topology, fileSystems } = await buildWithRouter(`web-hostname-${i}`);
         const httpMachines = topology.machines.filter(hasOpenHttpPort);
         httpMachines.forEach((m) => {
           const root = fileSystems[m.ip];
@@ -523,9 +523,9 @@ describe('generateFileSystems', () => {
       }
     });
 
-    it('web content is guest-readable', () => {
+    it('web content is guest-readable', async () => {
       for (let i = 0; i < 50; i++) {
-        const { topology, fileSystems } = buildWithRouter(`web-perms-${i}`);
+        const { topology, fileSystems } = await buildWithRouter(`web-perms-${i}`);
         const httpMachines = topology.machines.filter(hasOpenHttpPort);
         httpMachines.forEach((m) => {
           const root = fileSystems[m.ip];
@@ -538,8 +538,8 @@ describe('generateFileSystems', () => {
     });
   });
 
-  describe('credential leak placement', () => {
-    it('templates all have path and content with {{username}} and {{password}}', () => {
+  describe('credential leak placement', async () => {
+    it('templates all have path and content with {{username}} and {{password}}', async () => {
       credentialLeakTemplates.forEach((t) => {
         expect(t.path).toBeTruthy();
         expect(t.content).toContain('{{username}}');
@@ -547,7 +547,7 @@ describe('generateFileSystems', () => {
       });
     });
 
-    it('templates use guest-readable system paths (not /home/ or /root/)', () => {
+    it('templates use guest-readable system paths (not /home/ or /root/)', async () => {
       credentialLeakTemplates.forEach((t) => {
         expect(t.path).not.toMatch(/^\/home\//);
         expect(t.path).not.toMatch(/^\/root\//);
@@ -555,12 +555,12 @@ describe('generateFileSystems', () => {
       });
     });
 
-    it('places credential leaks on ~30% of machines across many seeds', () => {
+    it('places credential leaks on ~30% of machines across many seeds', async () => {
       let totalMachines = 0;
       let machinesWithLeaks = 0;
 
       for (let i = 0; i < 100; i++) {
-        const { topology, fileSystems, credentials } = buildTestData(`cred-leak-rate-${i}`);
+        const { topology, fileSystems, credentials } = await buildTestData(`cred-leak-rate-${i}`);
         topology.machines.forEach((m) => {
           totalMachines++;
           const creds = credentials[m.ip] ?? [];
@@ -585,9 +585,9 @@ describe('generateFileSystems', () => {
       expect(rate).toBeLessThan(0.45);
     });
 
-    it('leaked credentials belong to a user-type account (never root or guest)', () => {
+    it('leaked credentials belong to a user-type account (never root or guest)', async () => {
       for (let i = 0; i < 100; i++) {
-        const { topology, fileSystems, credentials } = buildTestData(`cred-leak-user-${i}`);
+        const { topology, fileSystems, credentials } = await buildTestData(`cred-leak-user-${i}`);
         topology.machines.forEach((m) => {
           const fs = fileSystems[m.ip];
           if (!fs) return;
@@ -615,9 +615,9 @@ describe('generateFileSystems', () => {
       }
     });
 
-    it('same-machine leaked files are guest-readable', () => {
+    it('same-machine leaked files are guest-readable', async () => {
       for (let i = 0; i < 50; i++) {
-        const { topology, fileSystems } = buildTestData(`cred-leak-perms-${i}`);
+        const { topology, fileSystems } = await buildTestData(`cred-leak-perms-${i}`);
         topology.machines.forEach((m) => {
           const fs = fileSystems[m.ip];
           if (!fs) return;
@@ -636,14 +636,14 @@ describe('generateFileSystems', () => {
       }
     });
 
-    it('binary templates produce files that contain credentials extractable via strings', () => {
+    it('binary templates produce files that contain credentials extractable via strings', async () => {
       const systemBinaryTemplates = credentialLeakTemplates.filter(
         (t) => t.binary && t.credentialType !== 'mysql',
       );
       expect(systemBinaryTemplates.length).toBeGreaterThanOrEqual(1);
 
       for (let i = 0; i < 100; i++) {
-        const { topology, fileSystems, credentials } = buildTestData(`cred-leak-binary-${i}`);
+        const { topology, fileSystems, credentials } = await buildTestData(`cred-leak-binary-${i}`);
         topology.machines.forEach((m) => {
           const fs = fileSystems[m.ip];
           if (!fs) return;
@@ -661,17 +661,17 @@ describe('generateFileSystems', () => {
       }
     });
 
-    it('produces deterministic output for the same seed', () => {
-      const a = buildTestData('cred-leak-deterministic');
-      const b = buildTestData('cred-leak-deterministic');
+    it('produces deterministic output for the same seed', async () => {
+      const a = await buildTestData('cred-leak-deterministic');
+      const b = await buildTestData('cred-leak-deterministic');
       expect(a.fileSystems).toEqual(b.fileSystems);
     });
   });
 
-  describe('HTTP entry credential placement', () => {
-    const buildWithHttpEntry = (seed: string) => {
+  describe('HTTP entry credential placement', async () => {
+    const buildWithHttpEntry = async (seed: string) => {
       const prng = createPrng(seed);
-      const topology = generateTopology(prng, 'medium', { entryVariantOverride: 'http' });
+      const topology = await generateTopology(prng, 'medium', { entryVariantOverride: 'http' });
       const { usersByMachine, credentials } = generateUsers(
         prng,
         topology.machines,
@@ -698,9 +698,9 @@ describe('generateFileSystems', () => {
       return { topology, fileSystems, credentials, usersByMachine };
     };
 
-    it('entry machine has credential content in /var/www/html/ beyond index.html', () => {
+    it('entry machine has credential content in /var/www/html/ beyond index.html', async () => {
       for (let i = 0; i < 50; i++) {
-        const { topology, fileSystems } = buildWithHttpEntry(`http-entry-cred-${i}`);
+        const { topology, fileSystems } = await buildWithHttpEntry(`http-entry-cred-${i}`);
         const entryFs = fileSystems[topology.entryPoint];
         const htmlDir = resolveNode(entryFs as FileNode, '/var/www/html');
 
@@ -716,9 +716,9 @@ describe('generateFileSystems', () => {
       }
     });
 
-    it('credential files contain SSH credentials for a user-type account', () => {
+    it('credential files contain SSH credentials for a user-type account', async () => {
       for (let i = 0; i < 50; i++) {
-        const { topology, fileSystems, credentials } = buildWithHttpEntry(
+        const { topology, fileSystems, credentials } = await buildWithHttpEntry(
           `http-entry-usercred-${i}`,
         );
         const entryFs = fileSystems[topology.entryPoint];
@@ -741,10 +741,10 @@ describe('generateFileSystems', () => {
       }
     });
 
-    it('header-based templates produce .headers sidecar files', () => {
+    it('header-based templates produce .headers sidecar files', async () => {
       let foundSidecar = false;
       for (let i = 0; i < 100; i++) {
-        const { topology, fileSystems } = buildWithHttpEntry(`http-entry-sidecar-${i}`);
+        const { topology, fileSystems } = await buildWithHttpEntry(`http-entry-sidecar-${i}`);
         const entryFs = fileSystems[topology.entryPoint];
         const htmlDir = resolveNode(entryFs as FileNode, '/var/www/html');
         if (!htmlDir?.children) continue;
@@ -758,9 +758,9 @@ describe('generateFileSystems', () => {
       expect(foundSidecar).toBe(true);
     });
 
-    it('credential files are root-owned (not guest-readable)', () => {
+    it('credential files are root-owned (not guest-readable)', async () => {
       for (let i = 0; i < 50; i++) {
-        const { topology, fileSystems } = buildWithHttpEntry(`http-entry-perms-${i}`);
+        const { topology, fileSystems } = await buildWithHttpEntry(`http-entry-perms-${i}`);
         const entryFs = fileSystems[topology.entryPoint];
         const htmlDir = resolveNode(entryFs as FileNode, '/var/www/html');
         if (!htmlDir?.children) continue;
@@ -774,7 +774,7 @@ describe('generateFileSystems', () => {
       }
     });
 
-    it('non-entry machines do not get HTTP entry credential files', () => {
+    it('non-entry machines do not get HTTP entry credential files', async () => {
       // Web credential webPaths that CAN appear on non-entry machines (~30% chance)
       const webCredPaths = new Set([
         '.env.bak',
@@ -789,7 +789,7 @@ describe('generateFileSystems', () => {
       ]);
 
       for (let i = 0; i < 20; i++) {
-        const { topology, fileSystems } = buildWithHttpEntry(`http-entry-nonentry-${i}`);
+        const { topology, fileSystems } = await buildWithHttpEntry(`http-entry-nonentry-${i}`);
         topology.machines
           .filter((m) => m.ip !== topology.entryPoint)
           .forEach((m) => {
@@ -814,17 +814,17 @@ describe('generateFileSystems', () => {
       }
     });
 
-    it('produces deterministic output for the same seed', () => {
-      const a = buildWithHttpEntry('http-entry-deterministic');
-      const b = buildWithHttpEntry('http-entry-deterministic');
+    it('produces deterministic output for the same seed', async () => {
+      const a = await buildWithHttpEntry('http-entry-deterministic');
+      const b = await buildWithHttpEntry('http-entry-deterministic');
       expect(a.fileSystems).toEqual(b.fileSystems);
     });
   });
 
-  describe('inner gateway filesystems', () => {
-    it('inner gateways have /etc/iptables/rules.v4', () => {
+  describe('inner gateway filesystems', async () => {
+    it('inner gateways have /etc/iptables/rules.v4', async () => {
       for (let i = 0; i < 20; i++) {
-        const { topology, fileSystems } = buildTestData(`gw-iptables-${i}`, 'hard');
+        const { topology, fileSystems } = await buildTestData(`gw-iptables-${i}`, 'hard');
         for (let j = 1; j < topology.layers.length; j++) {
           const gateway = topology.layers[j]!.gateway;
           const fs = fileSystems[gateway.ip];
@@ -836,10 +836,10 @@ describe('generateFileSystems', () => {
       }
     });
 
-    it('forwarded inner gateways have populated iptables rules', () => {
+    it('forwarded inner gateways have populated iptables rules', async () => {
       let found = false;
       for (let i = 0; i < 100; i++) {
-        const { topology, fileSystems } = buildTestData(`gw-nat-${i}`, 'medium');
+        const { topology, fileSystems } = await buildTestData(`gw-nat-${i}`, 'medium');
         for (let j = 1; j < topology.layers.length; j++) {
           const layer = topology.layers[j]!;
           if (!layer.isForwarded) continue;
@@ -860,10 +860,13 @@ describe('generateFileSystems', () => {
       expect(found).toBe(true);
     });
 
-    it('inner gateways with SNMP access variant have /etc/snmp/snmpd.conf', () => {
+    it('inner gateways with SNMP access variant have /etc/snmp/snmpd.conf', async () => {
       let found = false;
       for (let i = 0; i < 200; i++) {
-        const { topology, fileSystems, credentials } = buildTestData(`gw-snmp-${i}`, 'medium');
+        const { topology, fileSystems, credentials } = await buildTestData(
+          `gw-snmp-${i}`,
+          'medium',
+        );
         for (let j = 1; j < topology.layers.length; j++) {
           const layer = topology.layers[j]!;
           const gateway = layer.gateway;
@@ -903,9 +906,9 @@ describe('generateFileSystems', () => {
       expect(found).toBe(true);
     });
 
-    it('inner gateway /etc/hosts lists only downstream machines', () => {
+    it('inner gateway /etc/hosts lists only downstream machines', async () => {
       for (let i = 0; i < 20; i++) {
-        const { topology, fileSystems } = buildTestData(`gw-hosts-${i}`, 'hard');
+        const { topology, fileSystems } = await buildTestData(`gw-hosts-${i}`, 'hard');
         for (let j = 1; j < topology.layers.length; j++) {
           const gateway = topology.layers[j]!.gateway;
           const downstreamMachines = topology.layers[j]!.machines;
@@ -930,9 +933,9 @@ describe('generateFileSystems', () => {
       }
     });
 
-    it('border router /etc/hosts lists only layer 0 machines and first gateway', () => {
+    it('border router /etc/hosts lists only layer 0 machines and first gateway', async () => {
       for (let i = 0; i < 20; i++) {
-        const { topology, fileSystems } = buildTestData(`router-hosts-${i}`, 'hard');
+        const { topology, fileSystems } = await buildTestData(`router-hosts-${i}`, 'hard');
         const routerFs = fileSystems[topology.routerMachine.ip];
         if (!routerFs) continue;
         const hosts = resolveNode(routerFs, '/etc/hosts');
@@ -957,9 +960,9 @@ describe('generateFileSystems', () => {
       }
     });
 
-    it('gateway .1 alias IPs have filesystems matching their upstream IP', () => {
+    it('gateway .1 alias IPs have filesystems matching their upstream IP', async () => {
       for (let i = 0; i < 20; i++) {
-        const { topology, fileSystems } = buildTestData(`gw-alias-${i}`, 'hard');
+        const { topology, fileSystems } = await buildTestData(`gw-alias-${i}`, 'hard');
 
         // Border router: layer 0's .1 should alias the router filesystem
         const routerAliasIp = `${topology.layers[0]!.subnet}.1`;
@@ -979,10 +982,10 @@ describe('generateFileSystems', () => {
     });
   });
 
-  describe('script_auto data placement', () => {
-    it('places stub script in automation location on target machine', () => {
+  describe('script_auto data placement', async () => {
+    it('places stub script in automation location on target machine', async () => {
       for (let i = 0; i < 50; i++) {
-        const { fileSystems, objective } = buildTestDataWithOverride(
+        const { fileSystems, objective } = await buildTestDataWithOverride(
           `sa-stub-${i}`,
           'medium',
           'script_auto',
@@ -995,9 +998,9 @@ describe('generateFileSystems', () => {
       }
     });
 
-    it('local flavor places data JSON file on target machine', () => {
+    it('local flavor places data JSON file on target machine', async () => {
       for (let i = 0; i < 100; i++) {
-        const { fileSystems, objective } = buildTestDataWithOverride(
+        const { fileSystems, objective } = await buildTestDataWithOverride(
           `sa-local-fs-${i}`,
           'medium',
           'script_auto',
@@ -1013,9 +1016,9 @@ describe('generateFileSystems', () => {
       throw new Error('No local script_auto found in 100 seeds');
     });
 
-    it('remote flavor places API JSON on API machine', () => {
+    it('remote flavor places API JSON on API machine', async () => {
       for (let i = 0; i < 100; i++) {
-        const { fileSystems, objective } = buildTestDataWithOverride(
+        const { fileSystems, objective } = await buildTestDataWithOverride(
           `sa-remote-fs-${i}`,
           'medium',
           'script_auto',
@@ -1033,11 +1036,11 @@ describe('generateFileSystems', () => {
     });
   });
 
-  describe('cross-machine credential placement', () => {
-    it('cross-machine leak files reference a valid same-layer machine IP', () => {
+  describe('cross-machine credential placement', async () => {
+    it('cross-machine leak files reference a valid same-layer machine IP', async () => {
       let foundCrossMachineLeak = false;
       for (let i = 0; i < 100 && !foundCrossMachineLeak; i++) {
-        const { topology, fileSystems } = buildTestData(`xmachine-cred-${i}`, 'medium');
+        const { topology, fileSystems } = await buildTestData(`xmachine-cred-${i}`, 'medium');
         const allIps = new Set(topology.machines.map((m) => m.ip));
 
         for (const machine of topology.machines) {
@@ -1069,9 +1072,9 @@ describe('generateFileSystems', () => {
       expect(foundCrossMachineLeak).toBe(true);
     });
 
-    it('cross-machine leaks are not placed on target machines', () => {
+    it('cross-machine leaks are not placed on target machines', async () => {
       for (let i = 0; i < 50; i++) {
-        const { objective, fileSystems } = buildTestData(`xmachine-target-${i}`, 'medium');
+        const { objective, fileSystems } = await buildTestData(`xmachine-target-${i}`, 'medium');
         const targetFs = fileSystems[objective.targetMachine];
         if (!targetFs) continue;
 
@@ -1095,11 +1098,11 @@ describe('generateFileSystems', () => {
     });
   });
 
-  describe('web credential placement on non-entry machines', () => {
-    it('web-serving machines can have credential files in /var/www/html/', () => {
+  describe('web credential placement on non-entry machines', async () => {
+    it('web-serving machines can have credential files in /var/www/html/', async () => {
       let foundWebCred = false;
       for (let i = 0; i < 100 && !foundWebCred; i++) {
-        const { topology, fileSystems } = buildTestData(`webcred-${i}`, 'medium');
+        const { topology, fileSystems } = await buildTestData(`webcred-${i}`, 'medium');
         for (const machine of topology.machines) {
           const hasHttpPort = machine.remoteMachine.ports.some(
             (p) =>
@@ -1122,10 +1125,10 @@ describe('generateFileSystems', () => {
       expect(foundWebCred).toBe(true);
     });
 
-    it('header-based web credentials produce .headers sidecar files', () => {
+    it('header-based web credentials produce .headers sidecar files', async () => {
       let foundHeaders = false;
       for (let i = 0; i < 100 && !foundHeaders; i++) {
-        const { topology, fileSystems } = buildTestData(`webcred-header-${i}`, 'medium');
+        const { topology, fileSystems } = await buildTestData(`webcred-header-${i}`, 'medium');
         for (const machine of topology.machines) {
           const fs = fileSystems[machine.ip];
           const htmlDir = resolveNode(fs as FileNode, '/var/www/html');

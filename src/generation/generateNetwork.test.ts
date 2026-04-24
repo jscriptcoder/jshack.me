@@ -9,53 +9,53 @@ const generate = (seed: string, difficulty: Difficulty = 'medium') =>
 describe('generateNetwork', () => {
   // --- Determinism ---
 
-  it('produces deterministic output for the same seed and difficulty', () => {
-    const a = generate('det-seed');
-    const b = generate('det-seed');
+  it('produces deterministic output for the same seed and difficulty', async () => {
+    const a = await generate('det-seed');
+    const b = await generate('det-seed');
     expect(a.topology.routerPublicIp).toBe(b.topology.routerPublicIp);
     expect(a.machines.length).toBe(b.machines.length);
     expect(a.machines.map((m) => m.ip)).toEqual(b.machines.map((m) => m.ip));
   });
 
-  it('produces different output for different seeds', () => {
-    const a = generate('alpha');
-    const b = generate('beta');
+  it('produces different output for different seeds', async () => {
+    const a = await generate('alpha');
+    const b = await generate('beta');
     expect(a.topology.routerPublicIp).not.toBe(b.topology.routerPublicIp);
   });
 
   // --- Topology ---
 
-  it('generates layers matching difficulty config', () => {
-    expect(generate('easy-test', 'easy').topology.layers.length).toBe(1);
-    expect(generate('medium-test', 'medium').topology.layers.length).toBe(2);
-    expect(generate('hard-test', 'hard').topology.layers.length).toBe(3);
+  it('generates layers matching difficulty config', async () => {
+    expect((await generate('easy-test', 'easy')).topology.layers.length).toBe(1);
+    expect((await generate('medium-test', 'medium')).topology.layers.length).toBe(2);
+    expect((await generate('hard-test', 'hard')).topology.layers.length).toBe(3);
   });
 
-  it('generates a router with a public IP', () => {
-    const net = generate('router-test');
+  it('generates a router with a public IP', async () => {
+    const net = await generate('router-test');
     expect(net.topology.routerPublicIp).toMatch(/^\d+\.\d+\.\d+\.\d+$/);
     expect(net.routerMachine.role).toBe('router');
     expect(net.routerMachine.ip).toBe(net.topology.routerPublicIp);
   });
 
-  it('assigns an entry variant from the valid set', () => {
+  it('assigns an entry variant from the valid set', async () => {
     const validVariants = ['ssh', 'ftp', 'nc', 'exploit', 'http', 'snmp'];
     for (let i = 0; i < 20; i++) {
-      const net = generate(`variant-${i}`);
+      const net = await generate(`variant-${i}`);
       expect(validVariants).toContain(net.topology.entryVariant);
     }
   });
 
-  it('entry point is an IP of one of the generated machines', () => {
-    const net = generate('entry-pt');
+  it('entry point is an IP of one of the generated machines', async () => {
+    const net = await generate('entry-pt');
     const machineIps = net.machines.map((m) => m.ip);
     expect(machineIps).toContain(net.topology.entryPoint);
   });
 
   // --- Users ---
 
-  it('every machine has users including root', () => {
-    const net = generate('users-all');
+  it('every machine has users including root', async () => {
+    const net = await generate('users-all');
     for (const machine of net.machines) {
       const users = net.usersByMachine[machine.ip];
       expect(users).toBeDefined();
@@ -63,15 +63,15 @@ describe('generateNetwork', () => {
     }
   });
 
-  it('router has users', () => {
-    const net = generate('users-router');
+  it('router has users', async () => {
+    const net = await generate('users-router');
     const routerUsers = net.usersByMachine[net.routerMachine.ip];
     expect(routerUsers).toBeDefined();
     expect(routerUsers!.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('maps router internal .1 IP to router users', () => {
-    const net = generate('users-internal');
+  it('maps router internal .1 IP to router users', async () => {
+    const net = await generate('users-internal');
     const layer0Subnet = net.topology.layers[0]!.subnet;
     const routerInternalIp = `${layer0Subnet}.1`;
     const internalUsers = net.usersByMachine[routerInternalIp];
@@ -80,8 +80,8 @@ describe('generateNetwork', () => {
     expect(internalUsers).toEqual(publicUsers);
   });
 
-  it('maps inner gateway .1 IPs to gateway users for multi-layer networks', () => {
-    const net = generate('gateway-users', 'hard');
+  it('maps inner gateway .1 IPs to gateway users for multi-layer networks', async () => {
+    const net = await generate('gateway-users', 'hard');
     expect(net.topology.layers.length).toBe(3);
     for (const layer of net.topology.layers.slice(1)) {
       const downstreamIp = `${layer.subnet}.1`;
@@ -94,8 +94,8 @@ describe('generateNetwork', () => {
 
   // --- Credentials ---
 
-  it('generates credentials for every machine', () => {
-    const net = generate('creds-all');
+  it('generates credentials for every machine', async () => {
+    const net = await generate('creds-all');
     for (const machine of net.machines) {
       const creds = net.credentials[machine.ip];
       expect(creds).toBeDefined();
@@ -107,21 +107,21 @@ describe('generateNetwork', () => {
 
   // --- Enrichment ---
 
-  it('machines have users populated on remoteMachine', () => {
-    const net = generate('enrich-users');
+  it('machines have users populated on remoteMachine', async () => {
+    const net = await generate('enrich-users');
     for (const machine of net.machines) {
       expect(machine.remoteMachine.users.length).toBeGreaterThanOrEqual(1);
     }
   });
 
-  it('router has users populated on remoteMachine', () => {
-    const net = generate('enrich-router');
+  it('router has users populated on remoteMachine', async () => {
+    const net = await generate('enrich-router');
     expect(net.routerMachine.remoteMachine.users.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('machines with NC variant have backdoor port owner', () => {
+  it('machines with NC variant have backdoor port owner', async () => {
     for (let i = 0; i < 50; i++) {
-      const net = generate(`nc-enrich-${i}`);
+      const net = await generate(`nc-enrich-${i}`);
       for (const m of net.machines) {
         if (m.accessVariant !== 'nc') continue;
         const elite = m.remoteMachine.ports.find((p) => p.service === 'elite' && p.open);
@@ -134,16 +134,16 @@ describe('generateNetwork', () => {
 
   // --- Network config update ---
 
-  it('updated network config has a config entry for every machine and router', () => {
-    const net = generate('config-entries');
+  it('updated network config has a config entry for every machine and router', async () => {
+    const net = await generate('config-entries');
     for (const machine of net.machines) {
       expect(net.updatedNetworkConfig.machineConfigs[machine.ip]).toBeDefined();
     }
     expect(net.updatedNetworkConfig.machineConfigs[net.routerMachine.ip]).toBeDefined();
   });
 
-  it('updated config machines have users populated', () => {
-    const net = generate('config-users');
+  it('updated config machines have users populated', async () => {
+    const net = await generate('config-users');
     for (const config of Object.values(net.updatedNetworkConfig.machineConfigs)) {
       for (const rm of config.machines) {
         // Machines referenced by configs should have users
@@ -158,8 +158,8 @@ describe('generateNetwork', () => {
 
   // --- Filesystems ---
 
-  it('generates a filesystem for every machine and the router', () => {
-    const net = generate('fs-all');
+  it('generates a filesystem for every machine and the router', async () => {
+    const net = await generate('fs-all');
     for (const machine of net.machines) {
       expect(net.fileSystems[machine.ip]).toBeDefined();
       expect(net.fileSystems[machine.ip]!.type).toBe('directory');
@@ -167,8 +167,8 @@ describe('generateNetwork', () => {
     expect(net.fileSystems[net.routerMachine.ip]).toBeDefined();
   });
 
-  it('skips filesystem generation when skipFileSystems is true', () => {
-    const net = generateNetwork({
+  it('skips filesystem generation when skipFileSystems is true', async () => {
+    const net = await generateNetwork({
       prng: createPrng('skip-fs'),
       difficulty: 'medium',
       skipFileSystems: true,
@@ -176,8 +176,8 @@ describe('generateNetwork', () => {
     expect(Object.keys(net.fileSystems).length).toBe(0);
   });
 
-  it('machine filesystems contain /etc/hostname', () => {
-    const net = generate('fs-hostname');
+  it('machine filesystems contain /etc/hostname', async () => {
+    const net = await generate('fs-hostname');
     for (const machine of net.machines) {
       const fs = net.fileSystems[machine.ip];
       expect(fs).toBeDefined();
@@ -189,9 +189,9 @@ describe('generateNetwork', () => {
     }
   });
 
-  it('router /etc/hosts lists only layer 0 machines and first gateway', () => {
+  it('router /etc/hosts lists only layer 0 machines and first gateway', async () => {
     for (const diff of ['easy', 'medium', 'hard'] as const) {
-      const net = generate(`fs-router-hosts-${diff}`, diff);
+      const net = await generate(`fs-router-hosts-${diff}`, diff);
       const routerFs = net.fileSystems[net.routerMachine.ip];
       expect(routerFs).toBeDefined();
       const etc = routerFs?.type === 'directory' ? routerFs.children?.['etc'] : undefined;
@@ -220,8 +220,8 @@ describe('generateNetwork', () => {
     }
   });
 
-  it('machines with open SSH have sshd pid file', () => {
-    const net = generate('fs-sshd-pid');
+  it('machines with open SSH have sshd pid file', async () => {
+    const net = await generate('fs-sshd-pid');
     for (const machine of net.machines) {
       const hasSshOpen = machine.remoteMachine.ports.some((p) => p.service === 'ssh' && p.open);
       if (!hasSshOpen) continue;
@@ -236,10 +236,10 @@ describe('generateNetwork', () => {
 
   // --- Topology overrides ---
 
-  it('respects usedIps to avoid IP collisions', () => {
-    const net1 = generate('collision-test');
+  it('respects usedIps to avoid IP collisions', async () => {
+    const net1 = await generate('collision-test');
     const blocked = new Set([net1.topology.routerPublicIp]);
-    const net2 = generateNetwork({
+    const net2 = await generateNetwork({
       prng: createPrng('collision-test'),
       difficulty: 'medium',
       topologyOverrides: { usedIps: blocked },
@@ -247,9 +247,9 @@ describe('generateNetwork', () => {
     expect(net2.topology.routerPublicIp).not.toBe(net1.topology.routerPublicIp);
   });
 
-  it('passes objectiveType to port closures', () => {
+  it('passes objectiveType to port closures', async () => {
     // script_fix skips all closures — every machine keeps SSH open
-    const net = generateNetwork({
+    const net = await generateNetwork({
       prng: createPrng('obj-scriptfix'),
       difficulty: 'medium',
       objectiveType: 'script_fix',
@@ -264,9 +264,9 @@ describe('generateNetwork', () => {
 
   // --- SNMP variant handling ---
 
-  it('generates SNMP config for border router when entry variant is snmp', () => {
+  it('generates SNMP config for border router when entry variant is snmp', async () => {
     for (let i = 0; i < 50; i++) {
-      const net = generateNetwork({
+      const net = await generateNetwork({
         prng: createPrng(`snmp-router-${i}`),
         difficulty: 'easy',
         topologyOverrides: { entryVariantOverride: 'snmp' },

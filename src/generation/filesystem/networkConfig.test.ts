@@ -8,10 +8,10 @@ import { generateBasicRwSnmpConfig } from './networkConfig';
 import type { FileNode } from '../../filesystem/types';
 import { resolveNode } from './testHelpers';
 
-describe('iptables rules file on router', () => {
-  const buildWithRouter = (seed: string) => {
+describe('iptables rules file on router', async () => {
+  const buildWithRouter = async (seed: string) => {
     const prng = createPrng(seed);
-    const topology = generateTopology(prng, 'medium');
+    const topology = await generateTopology(prng, 'medium');
     const { usersByMachine, credentials } = generateUsers(
       prng,
       topology.machines,
@@ -36,8 +36,8 @@ describe('iptables rules file on router', () => {
     return { topology, fileSystems, objective };
   };
 
-  it('forwarded mode: router has /etc/iptables/rules.v4 with forward rules', () => {
-    const { topology, fileSystems } = buildWithRouter('iptables-forwarded-forwarded');
+  it('forwarded mode: router has /etc/iptables/rules.v4 with forward rules', async () => {
+    const { topology, fileSystems } = await buildWithRouter('iptables-forwarded-forwarded');
     // Find a seed that produces forwarded mode
     if (!topology.natForwarding) {
       // Skip if this seed doesn't produce forwarded mode — test with explicit seed
@@ -59,10 +59,10 @@ describe('iptables rules file on router', () => {
     }
   });
 
-  it('forwarded mode: rules match NAT forwarding exactly', () => {
+  it('forwarded mode: rules match NAT forwarding exactly', async () => {
     // Use explicit forwarded seed to guarantee forwarded mode
     for (let i = 0; i < 50; i++) {
-      const data = buildWithRouter(`iptables-fwd-exact-${i}-forwarded`);
+      const data = await buildWithRouter(`iptables-fwd-exact-${i}-forwarded`);
       if (!data.topology.natForwarding) continue;
 
       const routerFs = data.fileSystems[data.topology.routerMachine.ip];
@@ -78,9 +78,9 @@ describe('iptables rules file on router', () => {
     throw new Error('No forwarded mode found in 50 seeds');
   });
 
-  it('router-first mode: rules file exists but has no forward lines', () => {
+  it('router-first mode: rules file exists but has no forward lines', async () => {
     for (let i = 0; i < 50; i++) {
-      const data = buildWithRouter(`iptables-routerfirst-${i}-router-first`);
+      const data = await buildWithRouter(`iptables-routerfirst-${i}-router-first`);
       if (data.topology.natForwarding) continue; // skip forwarded seeds
 
       const routerFs = data.fileSystems[data.topology.routerMachine.ip];
@@ -100,8 +100,8 @@ describe('iptables rules file on router', () => {
     throw new Error('No router-first mode found in 50 seeds');
   });
 
-  it('iptables file is root-owned', () => {
-    const data = buildWithRouter('iptables-owner-test-forwarded');
+  it('iptables file is root-owned', async () => {
+    const data = await buildWithRouter('iptables-owner-test-forwarded');
     const routerFs = data.fileSystems[data.topology.routerMachine.ip];
     const rulesFile = resolveNode(routerFs as FileNode, '/etc/iptables/rules.v4');
 
@@ -112,10 +112,10 @@ describe('iptables rules file on router', () => {
   });
 });
 
-describe('SNMP config file on router', () => {
-  const buildWithSnmpRouter = (seed: string) => {
+describe('SNMP config file on router', async () => {
+  const buildWithSnmpRouter = async (seed: string) => {
     const prng = createPrng(seed);
-    const topology = generateTopology(prng, 'hard', { entryVariantOverride: 'snmp' });
+    const topology = await generateTopology(prng, 'hard', { entryVariantOverride: 'snmp' });
     const { usersByMachine, credentials } = generateUsers(
       prng,
       topology.machines,
@@ -149,8 +149,8 @@ describe('SNMP config file on router', () => {
     return { topology, fileSystems, credentials: allCredentials };
   };
 
-  it('SNMP router has /etc/snmp/snmpd.conf with community strings and OID data', () => {
-    const { topology, fileSystems, credentials } = buildWithSnmpRouter('snmp-fs-test');
+  it('SNMP router has /etc/snmp/snmpd.conf with community strings and OID data', async () => {
+    const { topology, fileSystems, credentials } = await buildWithSnmpRouter('snmp-fs-test');
     const routerFs = fileSystems[topology.routerMachine.ip];
     const snmpConf = resolveNode(routerFs as FileNode, '/etc/snmp/snmpd.conf');
 
@@ -176,9 +176,9 @@ describe('SNMP config file on router', () => {
     }
   });
 
-  it('snmpd.conf is deterministic for the same seed', () => {
-    const a = buildWithSnmpRouter('snmp-determ');
-    const b = buildWithSnmpRouter('snmp-determ');
+  it('snmpd.conf is deterministic for the same seed', async () => {
+    const a = await buildWithSnmpRouter('snmp-determ');
+    const b = await buildWithSnmpRouter('snmp-determ');
     const confA = resolveNode(
       a.fileSystems[a.topology.routerMachine.ip] as FileNode,
       '/etc/snmp/snmpd.conf',
@@ -191,8 +191,8 @@ describe('SNMP config file on router', () => {
   });
 });
 
-describe('basic read-write SNMP config on inner gateways', () => {
-  it('has rw community, firewall/ACL OIDs, but no credential leaks', () => {
+describe('basic read-write SNMP config on inner gateways', async () => {
+  it('has rw community, firewall/ACL OIDs, but no credential leaks', async () => {
     const config = generateBasicRwSnmpConfig(
       createPrng('rw-snmp-test'),
       'gateway01',
@@ -210,7 +210,7 @@ describe('basic read-write SNMP config on inner gateways', () => {
     expect(config).not.toContain('nsExtendArgs');
   });
 
-  it('uses ACL OIDs for switch gateways', () => {
+  it('uses ACL OIDs for switch gateways', async () => {
     const config = generateBasicRwSnmpConfig(
       createPrng('rw-snmp-switch'),
       'switch01',
@@ -223,7 +223,7 @@ describe('basic read-write SNMP config on inner gateways', () => {
     expect(config).not.toContain('firewallSSH');
   });
 
-  it('uses Cisco sysDescr for switch gateways', () => {
+  it('uses Cisco sysDescr for switch gateways', async () => {
     const config = generateBasicRwSnmpConfig(
       createPrng('rw-snmp-switch-desc'),
       'switch01',
