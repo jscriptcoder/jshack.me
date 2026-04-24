@@ -6,7 +6,8 @@ const mkDeps = (overrides: {
   readonly insertIp?: (row: unknown) => Promise<InsertResult>;
   readonly rollIp?: () => string;
 }) => ({
-  insertIp: overrides.insertIp ?? vi.fn<(row: unknown) => Promise<InsertResult>>().mockResolvedValue('ok'),
+  insertIp:
+    overrides.insertIp ?? vi.fn<(row: unknown) => Promise<InsertResult>>().mockResolvedValue('ok'),
   rollIp: overrides.rollIp ?? vi.fn<() => string>().mockReturnValue('51.1.2.3'),
 });
 

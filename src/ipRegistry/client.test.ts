@@ -81,9 +81,7 @@ describe('allocatePublicIp', () => {
   });
 
   it('propagates fetch errors (network failures)', async () => {
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockRejectedValue(new TypeError('network failure'));
+    const fetchMock = vi.fn<typeof fetch>().mockRejectedValue(new TypeError('network failure'));
 
     await expect(allocatePublicIp({ kind: 'mission_instance' }, fetchMock)).rejects.toThrow(
       'network failure',
