@@ -77,11 +77,11 @@ To wipe the cloud dev project without dropping the schema, paste `supabase/reset
 
 ## What's deployed where
 
-| Component | Location | Secret needed |
-|---|---|---|
-| Client app (React + Vite) | Vercel edge (static) | `SUPABASE_ANON_KEY` (baked into bundle via `import.meta.env`) |
-| `/api/allocate-ip` (and future functions) | Vercel serverless (Node) | `SUPABASE_SERVICE_ROLE_KEY` (runtime env var, never baked into bundle) |
-| Postgres + Realtime | Supabase cloud (or local Docker) | — |
+| Component                                 | Location                         | Secret needed                                                          |
+| ----------------------------------------- | -------------------------------- | ---------------------------------------------------------------------- |
+| Client app (React + Vite)                 | Vercel edge (static)             | `SUPABASE_ANON_KEY` (baked into bundle via `import.meta.env`)          |
+| `/api/allocate-ip` (and future functions) | Vercel serverless (Node)         | `SUPABASE_SERVICE_ROLE_KEY` (runtime env var, never baked into bundle) |
+| Postgres + Realtime                       | Supabase cloud (or local Docker) | —                                                                      |
 
 ## Troubleshooting
 

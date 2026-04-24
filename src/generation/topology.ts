@@ -334,13 +334,13 @@ export type TopologyOverrides = {
   readonly forwardedOverride?: boolean;
   readonly usedIps?: ReadonlySet<string>;
   readonly switchGateway?: boolean;
+  // Pre-allocated public IP for the outer router. When provided, topology
+  // skips its local PRNG roll and uses this value — this is the seam for
+  // Phase 5's server-authoritative IP allocator (see ipRegistry). When
+  // omitted (tests, offline single-player), generatePublicIp rolls locally.
+  readonly routerPublicIp?: string;
 };
 
-// NOTE: async even though the body is currently synchronous. Phase 5 will
-// introduce `await allocatePublicIp(...)` where generatePublicIp currently
-// rolls the outer router's IP (~line 369) — the signature is made async now
-// (B2) so the React + callers refactor lands in one focused PR, and B3 just
-// adds the actual await call without further signature churn.
 export const generateTopology = async (
   prng: Prng,
   difficulty: Difficulty,
@@ -370,8 +370,9 @@ export const generateTopology = async (
 
   const outerLayer = layerResults[0]!;
 
-  // 2. Generate outer router
-  const routerPublicIp = generatePublicIp(prng, overrides.usedIps);
+  // 2. Generate outer router. When caller pre-allocates the public IP (via
+  // server-side IP registry), use it directly; otherwise roll locally.
+  const routerPublicIp = overrides.routerPublicIp ?? generatePublicIp(prng, overrides.usedIps);
   const routerHostname = pickUniqueHostname(prng, 'router', usedHostnames);
   const routerAccessVariant: EntryVariant = outerLayer.isForwarded
     ? 'ssh'

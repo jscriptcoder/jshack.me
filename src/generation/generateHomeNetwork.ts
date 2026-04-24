@@ -37,11 +37,21 @@ const deriveDifficulty = (prng: { readonly next: () => number }): Difficulty => 
   return 'hard';
 };
 
+export type GenerateHomeNetworkOptions = {
+  // Phase 5 seam for server-allocated public IPs. When provided, the home
+  // router's public IP is pulled from this allocator (which hits the
+  // /api/allocate-ip registry and guarantees global uniqueness via the
+  // public_ips PK). When omitted, topology rolls the IP locally — the
+  // single-player / test default.
+  readonly allocateIp?: (kind: 'home_network') => Promise<string>;
+};
+
 export const generateHomeNetwork = async (
   gameSeed: string,
   wifiIndex: number,
   essid: string,
   usedIps?: ReadonlySet<string>,
+  options: GenerateHomeNetworkOptions = {},
 ): Promise<HomeNetwork> => {
   const prng = createPrng(`home-${gameSeed}-${wifiIndex}`);
   const difficulty = deriveDifficulty(prng);
@@ -50,11 +60,15 @@ export const generateHomeNetwork = async (
   // Only affects multi-layer networks (medium/hard difficulty).
   const switchGateway = prng.next() < 0.4;
 
+  // If an allocator is injected, reserve the router IP server-side before
+  // generating topology. Otherwise topology rolls the IP locally.
+  const routerPublicIp = options.allocateIp ? await options.allocateIp('home_network') : undefined;
+
   // Shared pipeline: topology → users → enrichment → port closures → configs → filesystems
   const network = await generateNetwork({
     prng,
     difficulty,
-    topologyOverrides: { usedIps, switchGateway },
+    topologyOverrides: { usedIps, switchGateway, routerPublicIp },
   });
 
   const { topology, machines, routerMachine } = network;

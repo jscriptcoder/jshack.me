@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { generateHomeNetwork } from './generateHomeNetwork';
 
 describe('generateHomeNetwork', () => {
@@ -173,5 +173,23 @@ describe('generateHomeNetwork', () => {
     }
     // If we didn't find a multi-layer network in 50 tries, the test still passes
     // (difficulty is random, so we can't guarantee it)
+  });
+
+  it('uses allocator-returned IP when allocateIp is provided', async () => {
+    const allocated = '198.50.51.52';
+    const allocateIp = vi
+      .fn<(kind: 'home_network') => Promise<string>>()
+      .mockResolvedValue(allocated);
+    const network = await generateHomeNetwork('alloc-home', 0, 'NET', undefined, { allocateIp });
+    expect(network.router.publicIp).toBe(allocated);
+    expect(network.routerMachine.ip).toBe(allocated);
+    expect(allocateIp).toHaveBeenCalledWith('home_network');
+  });
+
+  it('falls back to PRNG roll when allocateIp is omitted (single-player default)', async () => {
+    const a = await generateHomeNetwork('no-alloc-home', 0, 'NET');
+    const b = await generateHomeNetwork('no-alloc-home', 0, 'NET');
+    // Deterministic rolled IP for the same seed/index/essid
+    expect(a.router.publicIp).toBe(b.router.publicIp);
   });
 });

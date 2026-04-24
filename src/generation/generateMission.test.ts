@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { generateMissionNetwork, parseSeedOverrides } from './generateMission';
 import type { FileNode } from '../filesystem/types';
 import { parseIptablesRules } from '../network/iptablesParser';
@@ -772,6 +772,26 @@ describe('generateMissionNetwork usedIps', async () => {
     const mission1 = await generateMissionNetwork(seed);
     const mission2 = await generateMissionNetwork(seed, new Set());
     expect(mission2.routerPublicIp).toBe(mission1.routerPublicIp);
+  });
+});
+
+describe('generateMissionNetwork allocateIp', () => {
+  it('uses allocator-returned IP when allocateIp is provided', async () => {
+    const allocated = '203.1.2.3';
+    const allocateIp = vi
+      .fn<(kind: 'mission_instance') => Promise<string>>()
+      .mockResolvedValue(allocated);
+    const mission = await generateMissionNetwork('alloc-test', undefined, { allocateIp });
+    expect(mission.routerPublicIp).toBe(allocated);
+    expect(allocateIp).toHaveBeenCalledWith('mission_instance');
+  });
+
+  it('falls back to PRNG roll when allocateIp is omitted (single-player default)', async () => {
+    const seed = 'no-alloc';
+    const m1 = await generateMissionNetwork(seed);
+    const m2 = await generateMissionNetwork(seed);
+    // Deterministic rolled IP for the same seed
+    expect(m1.routerPublicIp).toBe(m2.routerPublicIp);
   });
 });
 

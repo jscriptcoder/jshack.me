@@ -121,9 +121,19 @@ const deriveDifficulty = (seed: string, overrides: SeedOverrides): Difficulty =>
 // addExploitVulnerability, enrichMachineWithUsers, applyPortClosures) are in
 // src/generation/enrichment.ts — shared between mission and home network generation.
 
+export type GenerateMissionOptions = {
+  // Phase 5 seam for server-allocated public IPs. When provided, the router's
+  // public IP is pulled from this allocator (which hits the /api/allocate-ip
+  // registry and guarantees global uniqueness via the public_ips PK).
+  // When omitted, topology rolls the IP locally via generatePublicIp — the
+  // single-player / test default.
+  readonly allocateIp?: (kind: 'mission_instance') => Promise<string>;
+};
+
 export const generateMissionNetwork = async (
   seed: string,
   usedIps?: ReadonlySet<string>,
+  options: GenerateMissionOptions = {},
 ): Promise<MissionNetwork> => {
   const prng = createPrng(seed);
   const overrides = parseSeedOverrides(seed);
@@ -142,11 +152,18 @@ export const generateMissionNetwork = async (
     overrides.objectiveType === 'db_fix';
   const effectiveEntryVariant = whiteHatObjective ? 'ssh' : overrides.entryVariant;
 
+  // If an allocator is injected, reserve the router IP server-side before
+  // generating topology. Otherwise topology rolls the IP locally.
+  const routerPublicIp = options.allocateIp
+    ? await options.allocateIp('mission_instance')
+    : undefined;
+
   const topology = await generateTopology(prng, difficulty, {
     entryVariantOverride: effectiveEntryVariant,
     forwardedOverride: effectiveForwarded,
     usedIps,
     switchGateway: overrides.switchGateway,
+    routerPublicIp,
   });
 
   // Generate users for internal machines
