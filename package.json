@@ -26,8 +26,10 @@
     "db:reset": "supabase db reset"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.104.1",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
@@ -39,6 +41,7 @@
     "@types/node": "^25.2.3",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
+    "@vercel/node": "^5.7.13",
     "@vitejs/plugin-react": "^4.3.4",
     "@vitest/coverage-v8": "^4.1.0",
     "eslint": "^9.17.0",
