@@ -6,9 +6,12 @@ import { generateFileSystems } from '.';
 import type { MissionObjectiveType } from '../types';
 import type { FileNode } from '../../filesystem/types';
 
-export const buildTestData = (seed: string, difficulty: 'easy' | 'medium' | 'hard' = 'medium') => {
+export const buildTestData = async (
+  seed: string,
+  difficulty: 'easy' | 'medium' | 'hard' = 'medium',
+) => {
   const prng = createPrng(seed);
-  const topology = generateTopology(prng, difficulty);
+  const topology = await generateTopology(prng, difficulty);
   const { usersByMachine, credentials } = generateUsers(
     prng,
     topology.machines,
@@ -34,13 +37,13 @@ export const buildTestData = (seed: string, difficulty: 'easy' | 'medium' | 'har
   return { topology, fileSystems, objective, credentials, usersByMachine };
 };
 
-export const buildTestDataWithOverride = (
+export const buildTestDataWithOverride = async (
   seed: string,
   difficulty: 'easy' | 'medium' | 'hard' = 'medium',
   objectiveTypeOverride?: MissionObjectiveType,
 ) => {
   const prng = createPrng(seed);
-  const topology = generateTopology(prng, difficulty);
+  const topology = await generateTopology(prng, difficulty);
   const { usersByMachine, credentials } = generateUsers(
     prng,
     topology.machines,

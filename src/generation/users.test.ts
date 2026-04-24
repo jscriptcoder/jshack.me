@@ -12,28 +12,28 @@ const wordlistPasswords: readonly string[] = JSON.parse(
 ) as readonly string[];
 const guestPasswords: readonly string[] = JSON.parse(secrets.GUEST_PASSWORDS) as readonly string[];
 
-const buildTestData = (seed: string) => {
+const buildTestData = async (seed: string) => {
   const prng = createPrng(seed);
-  const topology = generateTopology(prng, 'medium');
+  const topology = await generateTopology(prng, 'medium');
   const users = generateUsers(prng, topology.machines, topology.entryPoint);
   return { topology, users };
 };
 
 describe('generateUsers', () => {
-  it('produces deterministic output for the same seed', () => {
-    const a = buildTestData('users-seed');
-    const b = buildTestData('users-seed');
+  it('produces deterministic output for the same seed', async () => {
+    const a = await buildTestData('users-seed');
+    const b = await buildTestData('users-seed');
     expect(a.users).toEqual(b.users);
   });
 
-  it('produces different output for different seeds', () => {
-    const a = buildTestData('users-alpha');
-    const b = buildTestData('users-beta');
+  it('produces different output for different seeds', async () => {
+    const a = await buildTestData('users-alpha');
+    const b = await buildTestData('users-beta');
     expect(a.users.usersByMachine).not.toEqual(b.users.usersByMachine);
   });
 
-  it('every machine has a root user', () => {
-    const { topology, users } = buildTestData('root-test');
+  it('every machine has a root user', async () => {
+    const { topology, users } = await buildTestData('root-test');
     topology.machines.forEach((m) => {
       const machineUsers = users.usersByMachine[m.ip];
       expect(machineUsers).toBeDefined();
@@ -43,18 +43,18 @@ describe('generateUsers', () => {
     });
   });
 
-  it('entry machine always has a guest user', () => {
-    Array.from({ length: 10 }, (_, i) => {
-      const { topology, users } = buildTestData(`guest-entry-${i}`);
+  it('entry machine always has a guest user', async () => {
+    for (let i = 0; i < 10; i++) {
+      const { topology, users } = await buildTestData(`guest-entry-${i}`);
       const entryUsers = users.usersByMachine[topology.entryPoint];
       const guest = entryUsers?.find((u) => u.username === 'guest');
       expect(guest).toBeDefined();
       expect(guest?.userType).toBe('guest');
-    });
+    }
   });
 
-  it('each machine has 1-2 regular users from role pool', () => {
-    const { topology, users } = buildTestData('regular-test');
+  it('each machine has 1-2 regular users from role pool', async () => {
+    const { topology, users } = await buildTestData('regular-test');
     topology.machines.forEach((m) => {
       const machineUsers = users.usersByMachine[m.ip] ?? [];
       const regulars = machineUsers.filter((u) => u.userType === 'user');
@@ -67,8 +67,8 @@ describe('generateUsers', () => {
     });
   });
 
-  it('passwords are hashed with md5', () => {
-    const { topology, users } = buildTestData('hash-test');
+  it('passwords are hashed with md5', async () => {
+    const { topology, users } = await buildTestData('hash-test');
     topology.machines.forEach((m) => {
       const creds = users.credentials[m.ip] ?? [];
       const machineUsers = users.usersByMachine[m.ip] ?? [];
@@ -80,8 +80,8 @@ describe('generateUsers', () => {
     });
   });
 
-  it('credentials map includes all users', () => {
-    const { topology, users } = buildTestData('creds-test');
+  it('credentials map includes all users', async () => {
+    const { topology, users } = await buildTestData('creds-test');
     topology.machines.forEach((m) => {
       const machineUsers = users.usersByMachine[m.ip] ?? [];
       const creds = users.credentials[m.ip] ?? [];
@@ -92,8 +92,8 @@ describe('generateUsers', () => {
     });
   });
 
-  it('uses passwords from appropriate pool based on variant', () => {
-    const { topology, users } = buildTestData('pool-test');
+  it('uses passwords from appropriate pool based on variant', async () => {
+    const { topology, users } = await buildTestData('pool-test');
     topology.machines.forEach((m) => {
       const creds = users.credentials[m.ip] ?? [];
       creds
@@ -106,8 +106,8 @@ describe('generateUsers', () => {
     });
   });
 
-  it('guest passwords come from guestPasswords pool', () => {
-    const { topology, users } = buildTestData('guest-pool-test');
+  it('guest passwords come from guestPasswords pool', async () => {
+    const { topology, users } = await buildTestData('guest-pool-test');
     topology.machines.forEach((m) => {
       const creds = users.credentials[m.ip] ?? [];
       const guestCred = creds.find((c) => c.username === 'guest');
@@ -117,10 +117,10 @@ describe('generateUsers', () => {
     });
   });
 
-  it('guest passwords vary across seeds', () => {
+  it('guest passwords vary across seeds', async () => {
     const guestPassFromSeeds = new Set<string>();
     for (let i = 0; i < 50; i++) {
-      const { topology, users } = buildTestData(`guest-vary-${i}`);
+      const { topology, users } = await buildTestData(`guest-vary-${i}`);
       const entryCreds = users.credentials[topology.entryPoint] ?? [];
       const guestCred = entryCreds.find((c) => c.username === 'guest');
       if (guestCred) {

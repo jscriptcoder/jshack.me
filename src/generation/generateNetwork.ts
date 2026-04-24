@@ -58,11 +58,13 @@ export type GenerateNetworkOptions = {
   readonly skipFileSystems?: boolean;
 };
 
-export const generateNetwork = (options: GenerateNetworkOptions): GeneratedNetwork => {
+export const generateNetwork = async (
+  options: GenerateNetworkOptions,
+): Promise<GeneratedNetwork> => {
   const { prng, difficulty, topologyOverrides, objectiveType, skipFileSystems } = options;
 
   // 1. Generate layered topology
-  const topology = generateTopology(prng, difficulty, topologyOverrides);
+  const topology = await generateTopology(prng, difficulty, topologyOverrides);
 
   // 2. Generate users for internal machines + router
   const { usersByMachine, credentials } = generateUsers(

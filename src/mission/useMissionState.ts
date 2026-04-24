@@ -5,15 +5,6 @@ import { getCachedMissionSeed, getDatabase } from '../utils/storageCache';
 import { saveMissionSeed } from '../utils/storage';
 import { createSyncChannel, type SyncMessage } from '../utils/crossTabSync';
 
-// On reload, regenerate the full mission network from the persisted seed string.
-// Only the seed is stored in IndexedDB — the deterministic PRNG ensures the same
-// seed always produces an identical network, so we don't need to store the full state.
-const initializeMission = (usedPublicIps: ReadonlySet<string>): MissionNetwork | null => {
-  const cachedSeed = getCachedMissionSeed();
-  if (!cachedSeed) return null;
-  return generateMissionNetwork(cachedSeed, usedPublicIps);
-};
-
 export type MissionState = {
   readonly activeMission: MissionNetwork | null;
   readonly startMission: (mission: MissionNetwork) => void;
@@ -22,9 +13,7 @@ export type MissionState = {
 };
 
 export const useMissionState = (usedPublicIps: ReadonlySet<string>): MissionState => {
-  const [activeMission, setActiveMission] = useState<MissionNetwork | null>(() =>
-    initializeMission(usedPublicIps),
-  );
+  const [activeMission, setActiveMission] = useState<MissionNetwork | null>(null);
   // Create channel inside effect so StrictMode's cleanup + re-run cycle gets
   // a fresh (open) channel. The ref is updated so broadcast calls always use
   // the currently-active channel.
@@ -37,6 +26,23 @@ export const useMissionState = (usedPublicIps: ReadonlySet<string>): MissionStat
     usedPublicIpsRef.current = usedPublicIps;
   }, [usedPublicIps]);
 
+  // On reload, regenerate the full mission network from the persisted seed.
+  // Only the seed is stored; the deterministic PRNG reproduces the same
+  // network. Async from B2 onwards: Phase 5 adds a server round-trip for
+  // IP allocation inside generateMissionNetwork.
+  useEffect(() => {
+    const cachedSeed = getCachedMissionSeed();
+    if (!cachedSeed) return;
+
+    let cancelled = false;
+    void generateMissionNetwork(cachedSeed, usedPublicIpsRef.current).then((mission) => {
+      if (!cancelled) setActiveMission(mission);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Subscribe to mission changes from other tabs
   useEffect(() => {
     const channel = createSyncChannel();
@@ -45,10 +51,11 @@ export const useMissionState = (usedPublicIps: ReadonlySet<string>): MissionStat
       if (message.type !== 'mission-changed') return;
 
       if (message.seed) {
-        const mission = generateMissionNetwork(message.seed, usedPublicIpsRef.current);
-        setActiveMission(mission);
-        const db = getDatabase();
-        if (db) saveMissionSeed(db, message.seed);
+        void generateMissionNetwork(message.seed, usedPublicIpsRef.current).then((mission) => {
+          setActiveMission(mission);
+          const db = getDatabase();
+          if (db) saveMissionSeed(db, message.seed);
+        });
       } else {
         setActiveMission(null);
         const db = getDatabase();

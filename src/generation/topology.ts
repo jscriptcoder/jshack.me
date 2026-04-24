@@ -336,11 +336,16 @@ export type TopologyOverrides = {
   readonly switchGateway?: boolean;
 };
 
-export const generateTopology = (
+// NOTE: async even though the body is currently synchronous. Phase 5 will
+// introduce `await allocatePublicIp(...)` where generatePublicIp currently
+// rolls the outer router's IP (~line 369) — the signature is made async now
+// (B2) so the React + callers refactor lands in one focused PR, and B3 just
+// adds the actual await call without further signature churn.
+export const generateTopology = async (
   prng: Prng,
   difficulty: Difficulty,
   overrides: TopologyOverrides = {},
-): TopologyResult => {
+): Promise<TopologyResult> => {
   const { layerCount, machinesPerLayer } = difficultyConfig[difficulty];
   const [minMachines, maxMachines] = machinesPerLayer;
   const usedHostnames = new Set<string>();

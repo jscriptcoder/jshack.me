@@ -37,12 +37,12 @@ const deriveDifficulty = (prng: { readonly next: () => number }): Difficulty => 
   return 'hard';
 };
 
-export const generateHomeNetwork = (
+export const generateHomeNetwork = async (
   gameSeed: string,
   wifiIndex: number,
   essid: string,
   usedIps?: ReadonlySet<string>,
-): HomeNetwork => {
+): Promise<HomeNetwork> => {
   const prng = createPrng(`home-${gameSeed}-${wifiIndex}`);
   const difficulty = deriveDifficulty(prng);
 
@@ -51,7 +51,7 @@ export const generateHomeNetwork = (
   const switchGateway = prng.next() < 0.4;
 
   // Shared pipeline: topology → users → enrichment → port closures → configs → filesystems
-  const network = generateNetwork({
+  const network = await generateNetwork({
     prng,
     difficulty,
     topologyOverrides: { usedIps, switchGateway },

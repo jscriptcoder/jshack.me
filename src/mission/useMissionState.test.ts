@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { useMissionState } from './useMissionState';
 import { generateMissionNetwork } from '../generation/generateMission';
 
@@ -33,19 +33,24 @@ describe('useMissionState', () => {
     expect(result.current.activeMission).toBeNull();
   });
 
-  it('restores mission from cached seed on init', () => {
+  it('restores mission from cached seed on init', async () => {
     mockGetCachedMissionSeed.mockReturnValue('MEDTECH-4A7F-easy');
 
     const { result } = renderHook(() => useMissionState(new Set()));
 
-    expect(result.current.activeMission).not.toBeNull();
+    // Initial render is null — mission restoration happens asynchronously now
+    // (B2+) because generateMissionNetwork is async. Wait for the useEffect
+    // that runs the async restore to complete.
+    await waitFor(() => {
+      expect(result.current.activeMission).not.toBeNull();
+    });
     expect(result.current.activeMission?.seed).toBe('MEDTECH-4A7F-easy');
   });
 
-  it('startMission sets network and persists seed', () => {
+  it('startMission sets network and persists seed', async () => {
     mockGetDatabase.mockReturnValue(fakeDb);
     const { result } = renderHook(() => useMissionState(new Set()));
-    const mission = generateMissionNetwork('TEST-SEED');
+    const mission = await generateMissionNetwork('TEST-SEED');
 
     act(() => {
       result.current.startMission(mission);
@@ -56,10 +61,10 @@ describe('useMissionState', () => {
     expect(mockSaveMissionSeed).toHaveBeenCalledWith(fakeDb, 'TEST-SEED');
   });
 
-  it('abortMission clears state and persists null', () => {
+  it('abortMission clears state and persists null', async () => {
     mockGetDatabase.mockReturnValue(fakeDb);
     const { result } = renderHook(() => useMissionState(new Set()));
-    const mission = generateMissionNetwork('TEST-SEED');
+    const mission = await generateMissionNetwork('TEST-SEED');
 
     act(() => {
       result.current.startMission(mission);
@@ -74,10 +79,10 @@ describe('useMissionState', () => {
     expect(mockSaveMissionSeed).toHaveBeenCalledWith(fakeDb, null);
   });
 
-  it('completeMission clears state and persists null', () => {
+  it('completeMission clears state and persists null', async () => {
     mockGetDatabase.mockReturnValue(fakeDb);
     const { result } = renderHook(() => useMissionState(new Set()));
-    const mission = generateMissionNetwork('TEST-SEED');
+    const mission = await generateMissionNetwork('TEST-SEED');
 
     act(() => {
       result.current.startMission(mission);
@@ -91,10 +96,10 @@ describe('useMissionState', () => {
     expect(mockSaveMissionSeed).toHaveBeenCalledWith(fakeDb, null);
   });
 
-  it('skips persistence when database is unavailable', () => {
+  it('skips persistence when database is unavailable', async () => {
     mockGetDatabase.mockReturnValue(null);
     const { result } = renderHook(() => useMissionState(new Set()));
-    const mission = generateMissionNetwork('TEST-SEED');
+    const mission = await generateMissionNetwork('TEST-SEED');
 
     act(() => {
       result.current.startMission(mission);
@@ -104,9 +109,9 @@ describe('useMissionState', () => {
     expect(mockSaveMissionSeed).not.toHaveBeenCalled();
   });
 
-  it('preserves the exact network passed to startMission', () => {
+  it('preserves the exact network passed to startMission', async () => {
     const { result } = renderHook(() => useMissionState(new Set()));
-    const mission = generateMissionNetwork('DETERMINISM-TEST');
+    const mission = await generateMissionNetwork('DETERMINISM-TEST');
 
     act(() => {
       result.current.startMission(mission);

@@ -5,13 +5,13 @@ import { generateUsers } from './users';
 import { buildMissionObjective } from './attackChain';
 import type { MissionObjectiveType } from './types';
 
-const buildTestData = (
+const buildTestData = async (
   seed: string,
   difficulty: 'easy' | 'medium' | 'hard' = 'medium',
   objectiveTypeOverride?: MissionObjectiveType,
 ) => {
   const prng = createPrng(seed);
-  const topology = generateTopology(prng, difficulty);
+  const topology = await generateTopology(prng, difficulty);
   const { credentials } = generateUsers(prng, topology.machines, topology.entryPoint);
   const result = buildMissionObjective({
     prng,
@@ -26,20 +26,20 @@ const buildTestData = (
 };
 
 describe('buildMissionObjective', () => {
-  it('produces deterministic output for the same seed', () => {
-    const a = buildTestData('chain-seed');
-    const b = buildTestData('chain-seed');
+  it('produces deterministic output for the same seed', async () => {
+    const a = await buildTestData('chain-seed');
+    const b = await buildTestData('chain-seed');
     expect(a.result).toEqual(b.result);
   });
 
-  it('produces different output for different seeds', () => {
-    const a = buildTestData('chain-alpha');
-    const b = buildTestData('chain-gamma-distinct');
+  it('produces different output for different seeds', async () => {
+    const a = await buildTestData('chain-alpha');
+    const b = await buildTestData('chain-gamma-distinct');
     expect(a.result.clientEmail).not.toBe(b.result.clientEmail);
   });
 
-  it('objective has a valid type', () => {
-    const { result } = buildTestData('type-test');
+  it('objective has a valid type', async () => {
+    const { result } = await buildTestData('type-test');
     expect([
       'exfiltrate',
       'tamper',
@@ -53,9 +53,9 @@ describe('buildMissionObjective', () => {
     ]).toContain(result.objective.type);
   });
 
-  it('exfiltrate objective has ACCESS-KEY format expectedProof', () => {
+  it('exfiltrate objective has ACCESS-KEY format expectedProof', async () => {
     for (let i = 0; i < 100; i++) {
-      const { result } = buildTestData(`exfil-proof-${i}`);
+      const { result } = await buildTestData(`exfil-proof-${i}`);
       if (result.objective.type !== 'exfiltrate') continue;
 
       expect(result.objective.expectedProof).toMatch(
@@ -67,9 +67,9 @@ describe('buildMissionObjective', () => {
     throw new Error('No exfiltrate objective found in 100 seeds');
   });
 
-  it('tamper objective has tamperOldValue and tamperNewValue', () => {
+  it('tamper objective has tamperOldValue and tamperNewValue', async () => {
     for (let i = 0; i < 100; i++) {
-      const { result } = buildTestData(`tamper-proof-${i}`);
+      const { result } = await buildTestData(`tamper-proof-${i}`);
       if (result.objective.type !== 'tamper') continue;
 
       expect(result.objective.tamperOldValue).toBeTruthy();
@@ -81,9 +81,9 @@ describe('buildMissionObjective', () => {
     throw new Error('No tamper objective found in 100 seeds');
   });
 
-  it('credential_theft objective has password as expectedProof', () => {
+  it('credential_theft objective has password as expectedProof', async () => {
     for (let i = 0; i < 100; i++) {
-      const { result } = buildTestData(`cred-theft-${i}`);
+      const { result } = await buildTestData(`cred-theft-${i}`);
       if (result.objective.type !== 'credential_theft') continue;
 
       expect(result.objective.expectedProof).toBeTruthy();
@@ -94,15 +94,15 @@ describe('buildMissionObjective', () => {
     throw new Error('No credential_theft objective found in 100 seeds');
   });
 
-  it('objective has a clientEmail', () => {
-    const { result } = buildTestData('email-test');
+  it('objective has a clientEmail', async () => {
+    const { result } = await buildTestData('email-test');
     expect(result.objective.clientEmail).toMatch(/@darkmail\.onion$/);
     expect(result.clientEmail).toBe(result.objective.clientEmail);
   });
 
-  it('sabotage objective has empty path and content', () => {
+  it('sabotage objective has empty path and content', async () => {
     for (let i = 0; i < 100; i++) {
-      const { result } = buildTestData(`sabotage-${i}`);
+      const { result } = await buildTestData(`sabotage-${i}`);
       if (result.objective.type !== 'sabotage') continue;
 
       expect(result.objective.targetPath).toBe('');
@@ -114,8 +114,8 @@ describe('buildMissionObjective', () => {
     throw new Error('No sabotage objective found in 100 seeds');
   });
 
-  it('backdoor objective has port and user', () => {
-    const { result } = buildTestData('test-backdoor-easy', 'easy', 'backdoor');
+  it('backdoor objective has port and user', async () => {
+    const { result } = await buildTestData('test-backdoor-easy', 'easy', 'backdoor');
 
     expect(result.objective.type).toBe('backdoor');
     expect(result.objective.backdoorPort).toBeDefined();
@@ -130,25 +130,25 @@ describe('buildMissionObjective', () => {
     expect(result.objective.description).toContain('backdoor');
   });
 
-  it('easy backdoor picks guest or user', () => {
+  it('easy backdoor picks guest or user', async () => {
     const users = new Set<string>();
     for (let i = 0; i < 200; i++) {
-      const { result } = buildTestData(`backdoor-easy-user-${i}`, 'easy', 'backdoor');
+      const { result } = await buildTestData(`backdoor-easy-user-${i}`, 'easy', 'backdoor');
       if (result.objective.backdoorUser) users.add(result.objective.backdoorUser);
     }
     expect(users.has('guest') || users.has('user')).toBe(true);
     expect(users.has('root')).toBe(false);
   });
 
-  it('hard backdoor always picks root', () => {
+  it('hard backdoor always picks root', async () => {
     for (let i = 0; i < 100; i++) {
-      const { result } = buildTestData(`backdoor-hard-user-${i}`, 'hard', 'backdoor');
+      const { result } = await buildTestData(`backdoor-hard-user-${i}`, 'hard', 'backdoor');
       expect(result.objective.backdoorUser).toBe('root');
     }
   });
 
-  it('portforward objective has forward fields and empty targetPath/content', () => {
-    const { result } = buildTestData('test-portforward', 'medium', 'portforward');
+  it('portforward objective has forward fields and empty targetPath/content', async () => {
+    const { result } = await buildTestData('test-portforward', 'medium', 'portforward');
 
     expect(result.objective.type).toBe('portforward');
     expect(result.objective.forwardPublicPort).toBeDefined();
@@ -161,16 +161,16 @@ describe('buildMissionObjective', () => {
     expect(result.objective.description).toContain('NAT forwarding');
   });
 
-  it('portforward objective targets a non-router machine', () => {
+  it('portforward objective targets a non-router machine', async () => {
     for (let i = 0; i < 50; i++) {
-      const { topology, result } = buildTestData(`pf-target-${i}`, 'medium', 'portforward');
+      const { topology, result } = await buildTestData(`pf-target-${i}`, 'medium', 'portforward');
       const routerIp = topology.routerPublicIp;
       expect(result.objective.forwardInternalIp).not.toBe(routerIp);
     }
   });
 
-  it('forensics objective has attackerHandle, attackerIp, and description with root password', () => {
-    const { result } = buildTestData('test-forensics', 'medium', 'forensics');
+  it('forensics objective has attackerHandle, attackerIp, and description with root password', async () => {
+    const { result } = await buildTestData('test-forensics', 'medium', 'forensics');
 
     expect(result.objective.type).toBe('forensics');
     expect(result.objective.attackerHandle).toBeTruthy();
@@ -181,64 +181,68 @@ describe('buildMissionObjective', () => {
     expect(result.objective.description).toMatch(/Root password: \S+/);
   });
 
-  it('forensics attacker handle differs from mission client handle', () => {
+  it('forensics attacker handle differs from mission client handle', async () => {
     for (let i = 0; i < 50; i++) {
-      const { result } = buildTestData(`forensics-unique-${i}`, 'medium', 'forensics');
+      const { result } = await buildTestData(`forensics-unique-${i}`, 'medium', 'forensics');
       const clientHandle = result.clientEmail.split('@')[0];
       expect(result.objective.attackerHandle).not.toBe(clientHandle);
     }
   });
 
-  it('forensics objective is deterministic', () => {
-    const a = buildTestData('forensics-determ', 'easy', 'forensics');
-    const b = buildTestData('forensics-determ', 'easy', 'forensics');
+  it('forensics objective is deterministic', async () => {
+    const a = await buildTestData('forensics-determ', 'easy', 'forensics');
+    const b = await buildTestData('forensics-determ', 'easy', 'forensics');
     expect(a.result.objective).toEqual(b.result.objective);
   });
 
-  it('medium target is in the deepest layer', () => {
+  it('medium target is in the deepest layer', async () => {
     for (let i = 0; i < 30; i++) {
-      const { topology, result } = buildTestData(`deep-target-med-${i}`, 'medium', 'exfiltrate');
+      const { topology, result } = await buildTestData(
+        `deep-target-med-${i}`,
+        'medium',
+        'exfiltrate',
+      );
       const deepestLayer = topology.layers[topology.layers.length - 1]!;
       const deepestIps = deepestLayer.machines.map((m) => m.ip);
       expect(deepestIps).toContain(result.objective.targetMachine);
     }
   });
 
-  it('hard target is in the deepest layer', () => {
+  it('hard target is in the deepest layer', async () => {
     for (let i = 0; i < 30; i++) {
-      const { topology, result } = buildTestData(`deep-target-hard-${i}`, 'hard', 'tamper');
+      const { topology, result } = await buildTestData(`deep-target-hard-${i}`, 'hard', 'tamper');
       const deepestLayer = topology.layers[topology.layers.length - 1]!;
       const deepestIps = deepestLayer.machines.map((m) => m.ip);
       expect(deepestIps).toContain(result.objective.targetMachine);
     }
   });
 
-  it('easy target is in layer 0', () => {
+  it('easy target is in layer 0', async () => {
     for (let i = 0; i < 30; i++) {
-      const { topology, result } = buildTestData(`easy-target-${i}`, 'easy', 'exfiltrate');
+      const { topology, result } = await buildTestData(`easy-target-${i}`, 'easy', 'exfiltrate');
       const layer0Ips = topology.layers[0]!.machines.map((m) => m.ip);
       expect(layer0Ips).toContain(result.objective.targetMachine);
     }
   });
 
-  it('portforward target is in layer 0 (reachable from outer router)', () => {
+  it('portforward target is in layer 0 (reachable from outer router)', async () => {
     for (let i = 0; i < 30; i++) {
-      const { topology, result } = buildTestData(`pf-layer0-${i}`, 'hard', 'portforward');
+      const { topology, result } = await buildTestData(`pf-layer0-${i}`, 'hard', 'portforward');
       const layer0Ips = topology.layers[0]!.machines.map((m) => m.ip);
       expect(layer0Ips).toContain(result.objective.forwardInternalIp);
     }
   });
 
-  it('target is never a gateway machine', () => {
+  it('target is never a gateway machine', async () => {
     for (let i = 0; i < 30; i++) {
-      const { topology, result } = buildTestData(`no-gw-target-${i}`, 'hard');
+      const { topology, result } = await buildTestData(`no-gw-target-${i}`, 'hard');
       const gatewayIps = topology.layers.slice(1).map((l) => l.gateway.ip);
       expect(gatewayIps).not.toContain(result.objective.targetMachine);
     }
   });
 
-  it('script_auto objective has automation path, _system instructions, and script_auto fields', () => {
-    const { result } = buildTestData('test-script-auto', 'medium', 'script_auto');
+  it('script_auto objective has automation path, _system instructions, and script_auto fields', async () => {
+    const { result } = await buildTestData('test-script-auto', 'medium', 'script_auto');
 
     expect(result.objective.type).toBe('script_auto');
     expect(result.objective.expectedProof).toBe('');
@@ -252,15 +256,15 @@ describe('buildMissionObjective', () => {
     expect(result.objective.description).toContain('Root password:');
   });
 
-  it('script_auto is deterministic', () => {
-    const a = buildTestData('script-auto-determ', 'easy', 'script_auto');
-    const b = buildTestData('script-auto-determ', 'easy', 'script_auto');
+  it('script_auto is deterministic', async () => {
+    const a = await buildTestData('script-auto-determ', 'easy', 'script_auto');
+    const b = await buildTestData('script-auto-determ', 'easy', 'script_auto');
     expect(a.result.objective).toEqual(b.result.objective);
   });
 
-  it('script_auto local flavor has dataPath on target machine', () => {
+  it('script_auto local flavor has dataPath on target machine', async () => {
     for (let i = 0; i < 100; i++) {
-      const { result } = buildTestData(`sa-local-${i}`, 'medium', 'script_auto');
+      const { result } = await buildTestData(`sa-local-${i}`, 'medium', 'script_auto');
       if (result.objective.scriptAutoFlavor !== 'local') continue;
 
       expect(result.objective.scriptAutoDataPath).toMatch(/^\//);
@@ -271,9 +275,9 @@ describe('buildMissionObjective', () => {
     throw new Error('No local script_auto found in 100 seeds');
   });
 
-  it('script_auto remote flavor has apiMachine and dataPath', () => {
+  it('script_auto remote flavor has apiMachine and dataPath', async () => {
     for (let i = 0; i < 100; i++) {
-      const { result } = buildTestData(`sa-remote-${i}`, 'medium', 'script_auto');
+      const { result } = await buildTestData(`sa-remote-${i}`, 'medium', 'script_auto');
       if (result.objective.scriptAutoFlavor !== 'remote') continue;
 
       expect(result.objective.scriptAutoApiMachine).toBeTruthy();
@@ -284,8 +288,8 @@ describe('buildMissionObjective', () => {
     throw new Error('No remote script_auto found in 100 seeds');
   });
 
-  it('malware objective has targetPath, content, PID path, and root password in description', () => {
-    const { result } = buildTestData('test-malware', 'medium', 'malware');
+  it('malware objective has targetPath, content, PID path, and root password in description', async () => {
+    const { result } = await buildTestData('test-malware', 'medium', 'malware');
 
     expect(result.objective.type).toBe('malware');
     expect(result.objective.targetPath).toMatch(/^\//);
@@ -296,16 +300,16 @@ describe('buildMissionObjective', () => {
     expect(result.objective.description).toMatch(/Root password: \S+/);
   });
 
-  it('malware objective is deterministic', () => {
-    const a = buildTestData('malware-determ', 'easy', 'malware');
-    const b = buildTestData('malware-determ', 'easy', 'malware');
+  it('malware objective is deterministic', async () => {
+    const a = await buildTestData('malware-determ', 'easy', 'malware');
+    const b = await buildTestData('malware-determ', 'easy', 'malware');
     expect(a.result.objective).toEqual(b.result.objective);
   });
 
-  it('hard malware may use hidden dot-prefix in path', () => {
+  it('hard malware may use hidden dot-prefix in path', async () => {
     const hidden = new Set<boolean>();
     for (let i = 0; i < 100; i++) {
-      const { result } = buildTestData(`malware-hard-${i}`, 'hard', 'malware');
+      const { result } = await buildTestData(`malware-hard-${i}`, 'hard', 'malware');
       const fileName = result.objective.targetPath.split('/').pop() ?? '';
       hidden.add(fileName.startsWith('.'));
     }

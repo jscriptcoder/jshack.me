@@ -1,4 +1,4 @@
-import type { Command } from '../components/Terminal/types';
+import type { AsyncOutput, Command } from '../components/Terminal/types';
 import { generateMissionNetwork } from '../generation/generateMission';
 import type { MissionNetwork } from '../generation/types';
 
@@ -173,7 +173,7 @@ export const createAcceptCommand = (context: AcceptCommandContext): Command => (
       'Accept a mission contract from the darknet marketplace. The seed determines the target network — same seed always generates the same mission. Use missions to browse available contracts and find seeds.',
     examples: [{ command: 'accept MY-SEED-easy', description: 'Accept a mission with this seed' }],
   },
-  fn: (seed: unknown): string => {
+  fn: (seed: unknown): AsyncOutput => {
     if (typeof seed !== 'string' || !seed.trim()) {
       throw new Error('accept: missing seed\nUsage: accept <SEED-CODE>');
     }
@@ -181,8 +181,29 @@ export const createAcceptCommand = (context: AcceptCommandContext): Command => (
       throw new Error('A mission is already active. Use abort to cancel it first.');
     }
     const trimmed = seed.trim();
-    const mission = generateMissionNetwork(trimmed, context.getUsedPublicIps?.());
-    context.startMission(mission);
-    return formatMissionBriefing(mission);
+
+    // Wrap the async generation in an AsyncOutput — terminal supports these
+    // for commands that yield results off the main sync pipeline. Generation
+    // is near-instant in single-player today; in Phase 5 there's a server
+    // round-trip for IP allocation inside generateMissionNetwork, which is
+    // why this whole command chain is async now.
+    return {
+      __type: 'async',
+      start: (onLine, onComplete) => {
+        generateMissionNetwork(trimmed, context.getUsedPublicIps?.())
+          .then((mission) => {
+            context.startMission(mission);
+            formatMissionBriefing(mission)
+              .split('\n')
+              .forEach((line) => onLine(line));
+            onComplete();
+          })
+          .catch((err: unknown) => {
+            const message = err instanceof Error ? err.message : 'failed to generate mission';
+            onLine(`accept: ${message}`);
+            onComplete();
+          });
+      },
+    };
   },
 });

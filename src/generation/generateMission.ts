@@ -121,10 +121,10 @@ const deriveDifficulty = (seed: string, overrides: SeedOverrides): Difficulty =>
 // addExploitVulnerability, enrichMachineWithUsers, applyPortClosures) are in
 // src/generation/enrichment.ts — shared between mission and home network generation.
 
-export const generateMissionNetwork = (
+export const generateMissionNetwork = async (
   seed: string,
   usedIps?: ReadonlySet<string>,
-): MissionNetwork => {
+): Promise<MissionNetwork> => {
   const prng = createPrng(seed);
   const overrides = parseSeedOverrides(seed);
   const difficulty = deriveDifficulty(seed, overrides);
@@ -142,7 +142,7 @@ export const generateMissionNetwork = (
     overrides.objectiveType === 'db_fix';
   const effectiveEntryVariant = whiteHatObjective ? 'ssh' : overrides.entryVariant;
 
-  const topology = generateTopology(prng, difficulty, {
+  const topology = await generateTopology(prng, difficulty, {
     entryVariantOverride: effectiveEntryVariant,
     forwardedOverride: effectiveForwarded,
     usedIps,
