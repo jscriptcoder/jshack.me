@@ -1,142 +1,205 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { handleAllocateRequest } from './handler';
 import type { InsertResult } from './types';
 import type { RateLimiter } from './rateLimit';
 import { noopRateLimiter } from './rateLimit';
+import { noopNonceStore, type NonceStore } from '../signedRequest/nonceStore';
+import { generateIdentity, type Identity } from '../identity/identity';
+import { signRequest } from '../signedRequest/sign';
+
+// Real signing in tests — handler-side behaviour is tightly coupled to the
+// signing flow, so end-to-end tests are clearer than mocking verify().
+const FIXED_NOW = 1_700_000_000_000;
+
+const makeEnvelope = (
+  identity: Identity,
+  fields: Record<string, unknown> = { kind: 'mission_instance' },
+) => {
+  // Pin Date.now() during signing so the embedded ts matches our fixed now.
+  const realNow = Date.now;
+  Date.now = () => FIXED_NOW;
+  try {
+    return signRequest(identity, 'allocateIp', fields);
+  } finally {
+    Date.now = realNow;
+  }
+};
 
 const mkDeps = (overrides: {
   readonly insertIp?: (row: unknown) => Promise<InsertResult>;
   readonly rollIp?: () => string;
   readonly rateLimiter?: RateLimiter;
+  readonly nonceStore?: NonceStore;
+  readonly now?: () => number;
 }) => ({
   insertIp:
     overrides.insertIp ?? vi.fn<(row: unknown) => Promise<InsertResult>>().mockResolvedValue('ok'),
   rollIp: overrides.rollIp ?? vi.fn<() => string>().mockReturnValue('51.1.2.3'),
   rateLimiter: overrides.rateLimiter ?? noopRateLimiter,
+  nonceStore: overrides.nonceStore ?? noopNonceStore,
+  now: overrides.now ?? (() => FIXED_NOW),
 });
 
-const CALLER_IP = '1.2.3.4';
-
 describe('handleAllocateRequest', () => {
-  it('returns 200 with the allocated IP on success', async () => {
-    const deps = mkDeps({});
-    const result = await handleAllocateRequest({ kind: 'mission_instance' }, CALLER_IP, deps);
-    expect(result).toEqual({ status: 200, body: { ip: '51.1.2.3' } });
+  let identity: Identity;
+  beforeEach(() => {
+    identity = generateIdentity();
   });
 
-  it('accepts optional owner_key and instance_ref', async () => {
-    const insertIp = vi.fn<(row: unknown) => Promise<InsertResult>>().mockResolvedValue('ok');
-    const deps = mkDeps({ insertIp });
-
-    const result = await handleAllocateRequest(
-      { kind: 'home_network', owner_key: 'ed25519:abc', instance_ref: 'ref-xyz' },
-      CALLER_IP,
-      deps,
-    );
-
+  it('returns 200 with the allocated IP on a valid signed envelope', async () => {
+    const envelope = makeEnvelope(identity);
+    const result = await handleAllocateRequest(envelope, mkDeps({}));
     expect(result.status).toBe(200);
+    expect(result.body).toEqual({ ip: '51.1.2.3' });
+  });
+
+  it('stamps owner_key from verified public key (server-side, not client-trusted)', async () => {
+    const insertIp = vi.fn<(row: unknown) => Promise<InsertResult>>().mockResolvedValue('ok');
+    const envelope = makeEnvelope(identity, { kind: 'home_network' });
+
+    await handleAllocateRequest(envelope, mkDeps({ insertIp }));
+
     expect(insertIp).toHaveBeenCalledWith({
       ip: '51.1.2.3',
       kind: 'home_network',
-      owner_key: 'ed25519:abc',
-      instance_ref: 'ref-xyz',
+      owner_key: `ed25519:${identity.publicKeyHex}`,
     });
   });
 
-  it('returns 400 when body is missing kind', async () => {
-    const result = await handleAllocateRequest({}, CALLER_IP, mkDeps({}));
+  it('passes through instance_ref from the signed payload', async () => {
+    const insertIp = vi.fn<(row: unknown) => Promise<InsertResult>>().mockResolvedValue('ok');
+    const envelope = makeEnvelope(identity, {
+      kind: 'mission_instance',
+      instance_ref: 'ref-xyz',
+    });
+
+    await handleAllocateRequest(envelope, mkDeps({ insertIp }));
+
+    expect(insertIp).toHaveBeenCalledWith(expect.objectContaining({ instance_ref: 'ref-xyz' }));
+  });
+
+  it('ignores client-supplied owner_key (server stamps from verified pubkey)', async () => {
+    // A malicious client tries to claim a different owner. Strict schema
+    // rejects unknown fields, so this comes back as a 400 (payload_invalid).
+    const envelope = makeEnvelope(identity, {
+      kind: 'mission_instance',
+      owner_key: 'ed25519:attacker',
+    });
+    const result = await handleAllocateRequest(envelope, mkDeps({}));
     expect(result.status).toBe(400);
-    expect(result.body).toMatchObject({ error: 'invalid_request' });
+    expect(result.body).toMatchObject({ error: 'payload_invalid' });
   });
 
-  it('returns 400 when kind is not a known value', async () => {
-    const result = await handleAllocateRequest({ kind: 'malicious_kind' }, CALLER_IP, mkDeps({}));
-    expect(result.status).toBe(400);
-  });
+  describe('signature validation', () => {
+    it('returns 400 when envelope is not an object', async () => {
+      const result = await handleAllocateRequest('garbage', mkDeps({}));
+      expect(result.status).toBe(400);
+      expect(result.body).toMatchObject({ error: 'envelope_invalid' });
+    });
 
-  it('returns 400 when body has unknown extra fields (strict schema)', async () => {
-    const result = await handleAllocateRequest(
-      { kind: 'mission_instance', admin: true },
-      CALLER_IP,
-      mkDeps({}),
-    );
-    expect(result.status).toBe(400);
-  });
+    it('returns 400 when envelope is missing required fields', async () => {
+      const result = await handleAllocateRequest({}, mkDeps({}));
+      expect(result.status).toBe(400);
+      expect(result.body).toMatchObject({ error: 'envelope_invalid' });
+    });
 
-  it('returns 400 when body is not an object', async () => {
-    const result = await handleAllocateRequest('malicious', CALLER_IP, mkDeps({}));
-    expect(result.status).toBe(400);
-  });
+    it('returns 401 when signature does not match public key', async () => {
+      const stranger = generateIdentity();
+      const envelope = makeEnvelope(identity);
+      const tampered = { ...envelope, publicKey: stranger.publicKeyHex };
+      const result = await handleAllocateRequest(tampered, mkDeps({}));
+      expect(result.status).toBe(401);
+      expect(result.body).toMatchObject({ error: 'signature_invalid' });
+    });
 
-  it('returns 400 when body is null', async () => {
-    const result = await handleAllocateRequest(null, CALLER_IP, mkDeps({}));
-    expect(result.status).toBe(400);
-  });
+    it('returns 401 when payload is tampered after signing', async () => {
+      const envelope = makeEnvelope(identity, { kind: 'mission_instance' });
+      const tampered = {
+        ...envelope,
+        payload: envelope.payload.replace('mission_instance', 'home_network'),
+      };
+      const result = await handleAllocateRequest(tampered, mkDeps({}));
+      expect(result.status).toBe(401);
+    });
 
-  it('returns 500 when allocation exhausts retries', async () => {
-    const insertIp = vi.fn<(row: unknown) => Promise<InsertResult>>().mockResolvedValue('conflict');
-    const deps = mkDeps({ insertIp });
-    const result = await handleAllocateRequest({ kind: 'mission_instance' }, CALLER_IP, deps);
-    expect(result.status).toBe(500);
-    expect(result.body).toMatchObject({ error: 'exhausted' });
-  });
+    it('returns 400 when kind is not in the allowed enum', async () => {
+      const envelope = makeEnvelope(identity, { kind: 'evil_kind' });
+      const result = await handleAllocateRequest(envelope, mkDeps({}));
+      expect(result.status).toBe(400);
+      expect(result.body).toMatchObject({ error: 'payload_invalid' });
+    });
 
-  it('returns 500 when insert errors', async () => {
-    const insertIp = vi.fn<(row: unknown) => Promise<InsertResult>>().mockResolvedValue('error');
-    const deps = mkDeps({ insertIp });
-    const result = await handleAllocateRequest({ kind: 'mission_instance' }, CALLER_IP, deps);
-    expect(result.status).toBe(500);
-    expect(result.body).toMatchObject({ error: 'insert_failed' });
-  });
+    it('returns 401 when timestamp is too old (replay window exceeded)', async () => {
+      const envelope = makeEnvelope(identity);
+      // Server's now() is 200s after the embedded ts — outside the 120s window
+      const result = await handleAllocateRequest(
+        envelope,
+        mkDeps({ now: () => FIXED_NOW + 200_000 }),
+      );
+      expect(result.status).toBe(401);
+      expect(result.body).toMatchObject({ error: 'timestamp_skew' });
+    });
 
-  it('rejects oversized owner_key to prevent abuse', async () => {
-    const result = await handleAllocateRequest(
-      { kind: 'mission_instance', owner_key: 'x'.repeat(500) },
-      CALLER_IP,
-      mkDeps({}),
-    );
-    expect(result.status).toBe(400);
+    it('returns 401 when nonce store reports a replay (duplicate nonce)', async () => {
+      const envelope = makeEnvelope(identity);
+      const replayedStore: NonceStore = vi.fn().mockResolvedValue({ fresh: false });
+      const result = await handleAllocateRequest(envelope, mkDeps({ nonceStore: replayedStore }));
+      expect(result.status).toBe(401);
+      expect(result.body).toMatchObject({ error: 'replay' });
+    });
   });
 
   describe('rate limiting', () => {
-    it('returns 429 with Retry-After header when caller is rate-limited', async () => {
+    it('rate-limits on the verified public key (not the IP)', async () => {
+      const rateLimiter = vi.fn<RateLimiter>().mockResolvedValue({ allowed: true });
+      const envelope = makeEnvelope(identity);
+
+      await handleAllocateRequest(envelope, mkDeps({ rateLimiter }));
+
+      expect(rateLimiter).toHaveBeenCalledWith(identity.publicKeyHex);
+    });
+
+    it('returns 429 with Retry-After header when rate-limited', async () => {
       const insertIp = vi.fn<(row: unknown) => Promise<InsertResult>>().mockResolvedValue('ok');
-      const rateLimiter: RateLimiter = vi
+      const rateLimiter = vi
         .fn<RateLimiter>()
         .mockResolvedValue({ allowed: false, retryAfterSeconds: 42 });
-      const deps = mkDeps({ insertIp, rateLimiter });
+      const envelope = makeEnvelope(identity);
 
-      const result = await handleAllocateRequest({ kind: 'mission_instance' }, CALLER_IP, deps);
+      const result = await handleAllocateRequest(envelope, mkDeps({ insertIp, rateLimiter }));
 
       expect(result.status).toBe(429);
       expect(result.body).toMatchObject({ error: 'rate_limited' });
       expect(result.headers).toMatchObject({ 'Retry-After': '42' });
-      // Critically: insert never ran. Rate limit gates DB access.
       expect(insertIp).not.toHaveBeenCalled();
     });
 
-    it('rate-limits on caller key, not body content', async () => {
-      const rateLimiter = vi
-        .fn<RateLimiter>()
-        .mockResolvedValue({ allowed: false, retryAfterSeconds: 10 });
-      const deps = mkDeps({ rateLimiter });
+    it('rate-limit check runs after verification (does not run on garbage envelopes)', async () => {
+      // A flood of unsigned/malformed bodies should NOT consume rate-limit
+      // budget for anyone — those requests fail at envelope_invalid.
+      const rateLimiter = vi.fn<RateLimiter>().mockResolvedValue({ allowed: true });
+      await handleAllocateRequest('garbage', mkDeps({ rateLimiter }));
+      expect(rateLimiter).not.toHaveBeenCalled();
+    });
+  });
 
-      await handleAllocateRequest({ kind: 'mission_instance' }, '5.6.7.8', deps);
-
-      expect(rateLimiter).toHaveBeenCalledWith('5.6.7.8');
+  describe('allocator failures', () => {
+    it('returns 500 when allocation exhausts retries', async () => {
+      const insertIp = vi
+        .fn<(row: unknown) => Promise<InsertResult>>()
+        .mockResolvedValue('conflict');
+      const envelope = makeEnvelope(identity);
+      const result = await handleAllocateRequest(envelope, mkDeps({ insertIp }));
+      expect(result.status).toBe(500);
+      expect(result.body).toMatchObject({ error: 'exhausted' });
     });
 
-    it('rate-limit check runs before zod validation (protects CPU on garbage input)', async () => {
-      const rateLimiter = vi
-        .fn<RateLimiter>()
-        .mockResolvedValue({ allowed: false, retryAfterSeconds: 5 });
-      const deps = mkDeps({ rateLimiter });
-
-      // Even with malformed body, rate limit denies first → 429 not 400
-      const result = await handleAllocateRequest('garbage', CALLER_IP, deps);
-
-      expect(result.status).toBe(429);
-      expect(rateLimiter).toHaveBeenCalled();
+    it('returns 500 when insert errors', async () => {
+      const insertIp = vi.fn<(row: unknown) => Promise<InsertResult>>().mockResolvedValue('error');
+      const envelope = makeEnvelope(identity);
+      const result = await handleAllocateRequest(envelope, mkDeps({ insertIp }));
+      expect(result.status).toBe(500);
+      expect(result.body).toMatchObject({ error: 'insert_failed' });
     });
   });
 });

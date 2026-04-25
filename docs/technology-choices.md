@@ -4,15 +4,15 @@ This doc captures the non-obvious technology decisions made for JSHACK.ME's Phas
 
 ## Stack at a glance
 
-| Layer                | Choice                                        | Status                                            |
-| -------------------- | --------------------------------------------- | ------------------------------------------------- |
-| Frontend hosting     | Vercel                                        | Shipped (pre-Phase-5)                             |
-| Serverless functions | Vercel Functions (Node runtime)               | Shipped                                           |
-| Database + Realtime  | Supabase (Postgres + Realtime)                | Postgres shipped; Realtime planned                |
-| Rate limiting        | Upstash Ratelimit (Redis over HTTPS)          | Shipped                                           |
-| Input validation     | zod                                           | Shipped                                           |
-| Identity             | Ed25519 keypair (browser localStorage)        | Key gen + storage shipped; signed patches planned |
-| Wallet               | Separate Ed25519 keypair (in-game filesystem) | Planned                                           |
+| Layer                | Choice                                        | Status                                                                        |
+| -------------------- | --------------------------------------------- | ----------------------------------------------------------------------------- |
+| Frontend hosting     | Vercel                                        | Shipped (pre-Phase-5)                                                         |
+| Serverless functions | Vercel Functions (Node runtime)               | Shipped                                                                       |
+| Database + Realtime  | Supabase (Postgres + Realtime)                | Postgres shipped; Realtime planned                                            |
+| Rate limiting        | Upstash Ratelimit (Redis over HTTPS)          | Shipped                                                                       |
+| Input validation     | zod                                           | Shipped                                                                       |
+| Identity             | Ed25519 keypair (browser localStorage)        | Key gen + storage + signed `/api/allocate-ip` shipped; signed patches planned |
+| Wallet               | Separate Ed25519 keypair (in-game filesystem) | Planned                                                                       |
 
 ---
 
@@ -252,6 +252,66 @@ A **second** Ed25519 keypair lives in the in-game filesystem (`/home/<user>/.wal
 - Wallet key — lost on in-game permadeath or via theft (another player breaks in and reads the file).
 
 Defending the wallet key is gameplay; defending the identity key is the player's OPSEC.
+
+---
+
+## Authenticated requests (signed envelopes)
+
+### Choice
+
+Every Vercel function that mutates server state takes a **signed envelope**: `{ payload, publicKey, signature }`. The signed bytes are the literal `JSON.stringify(payload)` the client produced — not a re-canonicalized object. Replay protection is built into the payload itself (`nonce` + `ts`).
+
+First user: `/api/allocate-ip` (shipped). Sessions, patches, mission acceptance follow the same shape.
+
+### Why
+
+The big decision was **what gets signed**. Three options were on the table:
+
+1. Sign a canonical form of the object (RFC 8785 JCS, sorted keys, etc.). Both client and server have to implement identical canonicalization forever; subtle disagreements (number formatting, unicode normalization, undefined-vs-missing keys) break signing silently.
+2. Sign the bytes of `JSON.stringify(payload)` directly, then ship the stringified payload alongside the signature. The server never reproduces the canonical form — it verifies the bytes the client sent and parses them after.
+3. Same as (2) but base64-encode the payload string. Marginally more uniform, but makes log inspection require an extra decode step.
+
+We picked **(2)**. There's only one byte sequence in flight, so reordering / re-escaping is impossible by construction. JSON-string-inside-JSON is slightly ugly in logs but stays human-readable, which matters during the inevitable "why did the signature fail" debugging session.
+
+This is essentially how JWS compact serialization works, minus the base64 step.
+
+### Replay protection
+
+Every payload carries:
+
+- **`ts`** — client wall-clock at signing time. Server rejects if `|now - ts| > 120s`. Both directions matter: bounded future-timestamp attacks, and accommodates ±60s of clock skew either way.
+- **`nonce`** — 16 random bytes (128 bits, hex). Server records each in Upstash with a 120s TTL; duplicates are rejected.
+
+Both protections are necessary. `ts` alone allows in-window replay; `nonce` alone needs unbounded storage. Together they give finite storage with bounded replay risk.
+
+### Server-side check order (verify.ts)
+
+Cheapest checks first, so floods of garbage envelopes don't burn Upstash budget:
+
+1. Envelope structural shape (regex + zod, sub-µs)
+2. Ed25519 signature verify (~50µs CPU)
+3. `JSON.parse` the payload bytes
+4. Base + caller-provided action schemas
+5. Timestamp window check
+6. Nonce dedupe — single Upstash round-trip, only if everything else passed
+
+### Server-side trust model
+
+The server stamps `owner_key = ed25519:<verified pubkey>` itself. Clients can't claim ownership in someone else's name — even a custom Burp/curl client gets the verified pubkey, not whatever they put in the payload. The strict zod schemas reject unknown payload fields (including a client-supplied `owner_key`) with a 400 before allocation runs.
+
+Rate limiting is keyed on the verified public key, not the request IP. This is a deliberate switch — shared NAT (school networks, mobile carriers) made IP-based rate limiting collateral-damage prone, and a single attacker can no longer burn through someone's budget by rotating IPs.
+
+### Alternatives considered
+
+- **HMAC with a shared secret** — requires distributing the secret to the client. localStorage is no safer than the existing private key, and HMAC doesn't give us public verification (the server has to know the secret too).
+- **Vercel session cookies / JWTs** — adds a session layer we don't need yet. The Ed25519 signature _is_ the auth.
+- **Pre-canonicalize before signing** — see "Why" above. Reproducing canonical form on both sides is a deceptively-ongoing maintenance burden.
+
+### Trade-offs
+
+- The `payload` field is JSON-inside-JSON, which looks ugly when logging. Explicit choice — it's still grep-able and `jq`-friendly with one extra parse.
+- Schemas are duplicated: an action schema (e.g. `allocateIpSignedPayloadSchema`) needs `action`/`ts`/`nonce` declared alongside the action's own fields. We could merge schemas internally, but the explicit shape makes type narrowing trivial.
+- Nonce store needs Upstash. In local dev without Upstash configured we fall back to `noopNonceStore` and replay protection is effectively disabled — same caveat as `noopRateLimiter`. Production must have Upstash.
 
 ---
 
