@@ -10,6 +10,8 @@ import { createManCommand } from '../commands/man';
 import { createNodeCommand } from '../commands/node';
 import { createResetCommand } from '../commands/reset';
 import { createThemeCommand } from '../commands/theme';
+import { createIdentityCommand } from '../commands/identity';
+import { getIdentity } from '../identity';
 import { createMissionsCommand } from '../commands/missions';
 import { createAcceptCommand } from '../commands/accept';
 import { createAbortCommand } from '../commands/abort';
@@ -62,6 +64,7 @@ const SKIP_ACCESS_CHECK = new Set([
   'theme',
   'reset',
   'xterm',
+  'identity',
 ]);
 
 type UseCommandsResult = {
@@ -152,6 +155,7 @@ export const useCommands = (): UseCommandsResult => {
         getCurrentTheme: () => session.theme,
       }),
     );
+    commands.set('identity', createIdentityCommand({ getIdentity }));
 
     const logFs = { readFileFromMachine, writeFileToMachine, createFileOnMachine };
 
