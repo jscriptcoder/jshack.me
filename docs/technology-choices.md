@@ -1,0 +1,291 @@
+# Technology choices
+
+This doc captures the non-obvious technology decisions made for JSHACK.ME's Phase 5 multiplayer rollout — what was chosen, why, what was rejected, and the trade-offs we accepted. Decisions that came with the React + Vite + TypeScript baseline (i.e. anything pre-Phase-5) aren't covered here unless Phase 5 changed them.
+
+## Stack at a glance
+
+| Layer                | Choice                                        | Status                             |
+| -------------------- | --------------------------------------------- | ---------------------------------- |
+| Frontend hosting     | Vercel                                        | Shipped (pre-Phase-5)              |
+| Serverless functions | Vercel Functions (Node runtime)               | Shipped                            |
+| Database + Realtime  | Supabase (Postgres + Realtime)                | Postgres shipped; Realtime planned |
+| Rate limiting        | Upstash Ratelimit (Redis over HTTPS)          | Shipped                            |
+| Input validation     | zod                                           | Shipped                            |
+| Identity             | Ed25519 keypair (browser localStorage)        | Planned                            |
+| Wallet               | Separate Ed25519 keypair (in-game filesystem) | Planned                            |
+
+---
+
+## Backend: Supabase (Postgres + Realtime)
+
+### Choice
+
+A single Supabase project (Postgres + Realtime + Auth optional) is the canonical store for all Phase 5 server-authoritative state — public IP registry, mission instances, sessions, patches, etc.
+
+### Why
+
+- **Open-source + self-hostable**: Postgres is plain Postgres. Realtime is a separately-installable service. Supabase Auth uses standard JWT. If we ever need to leave Supabase, every piece is replaceable.
+- **Mature + well-documented**: most Stack Overflow answers, biggest community, best LLM coverage.
+- **Free tier sufficient**: 500MB DB, 200 concurrent Realtime connections, 50K monthly active users. Pre-launch and well into early launch, this covers everything.
+- **One platform for several needs**: DB, Realtime, Auth, Storage, Edge Functions all in one dashboard. Reduces operational sprawl.
+
+### Alternatives considered
+
+- **Convex** — strong reactive-first DX, but proprietary backend; rejected on lock-in.
+- **Firebase / Firestore** — battle-tested but Google-proprietary and NoSQL document model; rejected on lock-in + we want SQL.
+- **Cloudflare Durable Objects** — interesting for per-player isolation, but turns this into a split-stack project (Cloudflare for backend, Vercel for frontend) and DO has a limited query model; rejected on operational complexity.
+- **Self-hosted Postgres + Pusher/Ably for Realtime + custom auth** — most-portable-by-construction (each piece swappable independently), but high upfront wiring cost; rejected on solo-dev capacity.
+- **AppWrite** — open-source BaaS with own document model; less SQL-pure than Supabase.
+- **Nhost** — Hasura-based, GraphQL-first; valid but smaller community.
+
+### Trade-offs
+
+- Tied to Supabase's pace of API changes. Mitigated by keeping all access behind a thin client wrapper (`subscribeToNetwork(id, cb)`-style abstractions, planned).
+- Realtime subscriptions are scoped to Postgres rows; complex query subscriptions need extra design.
+- Free tier projects pause after 7 days of inactivity (real concern for low-traffic launch — bumping to Pro if it bites).
+
+### Discipline rules to keep portability
+
+- **Plain SQL only** — no Supabase-specific extensions, no `pg_*` system tables in app code.
+- **Wrap Realtime client** behind `subscribeToNetwork(id, cb)` so swapping the transport (Pusher, Ably, self-hosted) doesn't ripple.
+- **Ed25519 signature verify in our Vercel function**, not Supabase Auth (we don't fit their email/OAuth model).
+- **IP registry as a plain Postgres table** with a unique constraint — no Supabase-specific machinery.
+
+---
+
+## Hosting: Vercel
+
+### Choice
+
+Vercel hosts the static React app + serverless API functions. Already in place pre-Phase-5; reaffirmed for Phase 5.
+
+### Why
+
+- Static + serverless on the same domain — `/` serves the app, `/api/*` runs Node functions. No CORS headaches.
+- Zero-config Node runtime in `api/` directory.
+- Free tier covers hobby usage indefinitely.
+- Per-environment env vars (Production / Preview / Development) — clean separation when paired with cloud Supabase.
+
+### Alternatives considered
+
+- **Cloudflare Pages + Workers** — ruled out earlier when discussing Cloudflare Durable Objects.
+- **Netlify** — comparable but smaller serverless community.
+- **AWS Amplify / S3 + Lambda** — most flexible, most operational overhead.
+
+### Trade-offs
+
+- Function execution timeout (300s on current plan) — fine for our IP allocator and any future patch-validation function.
+- Cold starts on rarely-used endpoints — sub-second for our small functions.
+
+---
+
+## Rate limiting: Upstash Ratelimit
+
+### Choice
+
+Per-caller-IP sliding-window rate limit on `/api/allocate-ip`, backed by Upstash Redis over HTTPS, accessed via the `@upstash/ratelimit` npm package.
+
+### Why
+
+Vercel functions are stateless serverless — each invocation can run on a fresh process. A counter has to live **outside** the function. Of the available options:
+
+| Store               | Latency                     | Atomic ops | Verdict                                                     |
+| ------------------- | --------------------------- | ---------- | ----------------------------------------------------------- |
+| In-memory `Map`     | 0ms                         | ✅         | ❌ Doesn't survive between invocations                      |
+| Filesystem          | varies                      | ❌         | ❌ No shared filesystem in serverless                       |
+| Postgres            | 5–50ms                      | ✅         | ⚠️ Works, but slow + couples rate-limit pressure to game DB |
+| **Redis (Upstash)** | ~1ms                        | ✅         | ✅ Purpose-built for high-frequency small ops               |
+| Cloudflare KV       | ~50ms eventually consistent | ❌         | ❌ Rate limits need strong consistency                      |
+
+Plus: **Upstash exposes Redis over HTTPS**, so a stateless serverless function can `fetch(...)` it without TCP connection pooling. Plain Redis would need a persistent TCP socket — an awkward fit for serverless cold starts.
+
+The Vercel Marketplace Upstash integration auto-provisions env vars, so there's zero infra to manage on our side.
+
+### Alternatives considered
+
+- **In-memory Map** — broken on serverless (above).
+- **Postgres-based rate limit table** — works but adds query load on the same DB serving game data; conflates two concerns.
+- **Cloudflare Workers + KV** — eventual consistency means a sufficiently fast attacker could blow past the limit before KV propagation; bad fit.
+- **Vercel Edge Config** — read-only-fast, write-slow; not designed for this.
+- **Vercel's own WAF/rate limit** — only on Pro tier; we're on Hobby.
+
+### Trade-offs
+
+- New external service in the dependency graph. Mitigated by `noopRateLimiter` fallback when env vars aren't set (game continues, just unrate-limited).
+- Free tier: 10K commands/day. Comfortable headroom pre-launch; would exhaust under heavy multiplayer load. Plan: upgrade if we ever cross ~5K/day.
+- Marketplace integration provisions env vars under the legacy Vercel KV namespace (`KV_REST_API_URL`, `KV_REST_API_TOKEN`) rather than `UPSTASH_*`. Our function reads either name to stay flexible (see `api/allocate-ip.ts`).
+
+### Algorithm: sliding window
+
+`Ratelimit.slidingWindow(30, '1 m')` — at any moment, max 30 requests in the trailing 60 seconds per IP. Smoother than fixed-window (which has burst issues at boundaries).
+
+---
+
+## Input validation: zod
+
+### Choice
+
+zod for parsing untrusted input at API function boundaries. Strict schemas (`.strict()`) reject unknown fields.
+
+### Why
+
+- **Schema-first**: types come from the schema, not the other way around — single source of truth.
+- **Strict mode** rejects unknown fields, preventing prototype pollution and mass-assignment attacks (e.g., a payload tries to inject `{ admin: true }`).
+- **Type-narrowing**: after `safeParse()`, TypeScript knows the data is the validated shape.
+- **Battle-tested**: widely used, fast, no runtime gotchas.
+- Aligns with the security memory rule: "Strict input hygiene at the function boundary."
+
+### Alternatives considered
+
+- **Hand-written type guards** (the project's pre-Phase-5 pattern, e.g. `isValidPatch`) — fine for internal type narrowing, but less safe at the security boundary. Easy to forget a field check; no `.strict()` equivalent.
+- **io-ts / runtypes** — comparable, smaller community.
+- **Joi / yup** — less TypeScript-friendly.
+- **TypeBox** — fast, JSON-Schema based, but more verbose and less ergonomic for our small schemas.
+
+### Trade-offs
+
+- Adds a runtime dependency (~50KB minified). Acceptable for the security guarantees.
+- The existing project pattern of hand-written guards stays in place for _internal_ validation (filesystem patches, persisted state). zod is reserved for **external boundaries** — function bodies, future patch ingestion, etc.
+
+---
+
+## IP allocation: server-authoritative with PK uniqueness
+
+### Choice
+
+Public IPs for mission instances, home networks, and other shared-persistent network types are allocated by a Vercel function that INSERTs into a Postgres `public_ips` table with the IP as the primary key. On PK conflict, the function re-rolls and retries.
+
+### Why
+
+In multiplayer, two players can't end up on the same public IP — uniqueness has to be globally enforced, and the only authoritative location for "globally" is the server. The Postgres PK constraint **is** the enforcement mechanism — no app-level locking, no race conditions.
+
+The retry-on-conflict pattern is simple and self-correcting: pick a candidate, try to claim, lose the race? roll again. With a 195M-IP pool (12 first octets × 254 × 254 × 253), conflict rate is microscopic for any realistic player population.
+
+### Alternatives considered
+
+- **Client-rolled IPs** — rolling per-player and trusting clients not to collide. Fails the moment two players boot at the same time without coordination.
+- **Range partitioning per player** — give each player a slice of the IP pool. Wastes IPs, complicates "shared instance" cases like home networks.
+- **Sequential allocation from a counter** — `nextval('public_ips_seq')`-style. Predictable IPs (security-adjacent: enumeration attacks), and no realism (real public IPs aren't sequential by allocation order).
+- **Server-rolls vs. client-proposes** — we picked server-rolls so the client can't squat on "desirable" IPs.
+
+### Trade-offs
+
+- The IP pool is finite (~195M usable). For our scale, this is a non-issue. If the game grew to billions of networks, we'd need to expand `publicFirstOctets`.
+- The function makes one DB round-trip per allocation. Mitigated by the rate limiter and by the fact that allocation is rare (once per crack / mission accept, not per-action).
+
+### Why not assemble an IP from a hash
+
+Considered hashing `(seed, salt)` to produce a deterministic IP. Rejected because:
+
+- Two seeds could hash to the same IP — same race condition, just shifted.
+- We want IPs to be allocated, not derived. Allocation lets us track "who owns what" for billing / cleanup / orphaning.
+
+---
+
+## Identity: Ed25519 keypair (planned)
+
+### Choice
+
+Each player gets an Ed25519 keypair, generated client-side on first launch and stored in browser `localStorage`. Public key is the player's identity on the server. All write operations (patches, session creation, etc.) are signed by the private key; the server verifies signatures before accepting.
+
+### Why
+
+- **No accounts**: no email, no password, no OAuth flow. Just open the page and play.
+- **Tamper-proof**: signed payloads can't be forged without the private key.
+- **Server-side verify is fast**: Ed25519 is the fastest mainstream signature scheme (~50µs to verify on commodity hardware).
+- **Standardized**: every language has a library; nothing exotic to maintain.
+- **No PII**: the public key is opaque to anyone who hasn't seen it before.
+
+### Alternatives considered
+
+- **Email/password accounts** — requires password reset flow, email delivery, account recovery, GDPR considerations. Too much surface for a hobby project.
+- **OAuth (Google / GitHub / etc.)** — adds dependency on third-party identity, requires per-provider config, leaks identity to a third party.
+- **Sign in with Vercel** — interesting, but ties identity to a Vercel account.
+- **JWT-based session tokens** — orthogonal; we'd still need _something_ generating the tokens. Ed25519-signed payloads are simpler.
+
+### Trade-offs
+
+- **No password recovery**. Lose the device → lose the identity → lose the player's social graph and reputation. Documented as a deliberate gameplay choice. Recovery mechanisms (Shamir-style, multisig) deferred.
+- **localStorage isn't bulletproof** — clearing browser data wipes the identity. Acceptable for this player demographic (hacker-literate). See [identity vs wallet keys memory](../.claude/projects/...) for the manual-recovery escape hatch.
+
+### Wallet key separation
+
+A **second** Ed25519 keypair lives in the in-game filesystem (`/home/<user>/.wallet/priv.key` or similar — exact path TBD). Loss conditions are different:
+
+- Identity key — lost only via real-world events (clearing browser data, device loss).
+- Wallet key — lost on in-game permadeath or via theft (another player breaks in and reads the file).
+
+Defending the wallet key is gameplay; defending the identity key is the player's OPSEC.
+
+---
+
+## Async generation pipeline
+
+### Choice
+
+The whole network-generation pipeline (`generateTopology`, `generateNetwork`, `generateMissionNetwork`, `generateHomeNetwork`) returns `Promise<T>` and uses `await` internally, so any step can do server I/O without restructuring everything.
+
+### Why
+
+The IP-allocator step needs a server round-trip (`await allocatePublicIp(kind)`). Rather than bolt async I/O into a previously-synchronous codebase, we made the entire generation pipeline async in advance, so the actual wiring of `allocatePublicIp` is a one-line change later.
+
+### Alternatives considered
+
+- **Pre-allocate IPs and pass into generation synchronously** — works for missions (one IP per accept), but home networks generate multiple in a loop where each could need a fresh allocation. Awkward.
+- **Sync facade with internal async** — wrap the async call in `deasync` or similar. Hacky, anti-pattern.
+
+### Trade-offs
+
+- React hooks (`useHomeNetworks`, `useMissionState`) became `useState + useEffect` instead of `useMemo`. Slight UX shift: the network is briefly empty before the async generation resolves. Today (pre-server-allocator), this resolves in ~0ms (Promises are still synchronous under the hood). When server allocation is wired in, there's a real ~100-300ms window where the player sees "loading" — needs a small UX touch but not blocking.
+- All ~30 generation tests had to be migrated to `async/await`. One-time cost.
+
+---
+
+## Local dev env files: `.env.local` vs `.env.development.local`
+
+### Choice
+
+Two-file split for local development:
+
+- **`.env.local`** — managed by `vercel env pull`. Holds Vercel-side dev env vars (Upstash via Marketplace, OIDC token, etc.).
+- **`.env.development.local`** — manually maintained. Holds local-only overrides (local Docker Supabase URL/keys).
+
+The `npm run vercel:dev` script loads both via `dotenv-cli`:
+
+```
+"vercel:dev": "dotenv -e .env.local -e .env.development.local -- vercel dev"
+```
+
+### Why
+
+`vercel env pull` overwrites the entire target file. If everything lived in `.env.local`, every pull would wipe our manually-set local Supabase keys. Splitting means:
+
+- `.env.local` is auto-managed; pulls are safe.
+- `.env.development.local` is hand-managed; never touched by pulls.
+- Both are loaded at dev time; later file overrides earlier (matches Next.js / Vite convention).
+
+### Alternatives considered
+
+- **One file, manual re-paste after every pull** — works but error-prone; easy to forget a key.
+- **Manage local Supabase keys in `.env.local` and skip `vercel env pull`** — gives up the convenience of the Vercel-side workflow.
+- **Dynamic env-var loading at runtime** — overkill for a hobby project.
+
+### Trade-offs
+
+- Two files to track. The naming convention is standard (Next.js, Vite) so there's no confusion for someone familiar with the ecosystem.
+- The `vercel:dev` script is the only thing that knows to load both — direct invocation of `vercel dev` only loads its own resolution path. Scripted via `npm run` to make this invisible.
+
+---
+
+## What's not yet decided
+
+These are flagged but not yet committed:
+
+- **Sessions table schema** — server-authoritative session state (player_key, machine_id, hop chain). Memory captures the design; not implemented.
+- **Patch storage + Realtime fanout** — server-authoritative filesystem mutation log. Foundation for all multiplayer interaction.
+- **Rate-limit-per-Ed25519-key** — once identity exists, rate limit by player key (more meaningful than IP). Currently IP-only.
+- **Wallet key recovery** — explicit "no recovery" for now; revisit if real players accumulate funds.
+- **Two-Supabase-project split (`jshack-dev` + `jshack-prod`)** — single project for now; revisit at multiplayer announce.
+- **Two-Upstash-project split** — same reasoning as Supabase.
+
+See `.claude/projects/.../memory/MEMORY.md` for the full design backlog.

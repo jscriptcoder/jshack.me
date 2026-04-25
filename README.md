@@ -235,6 +235,17 @@ e2e/
 └── mission-playthrough.spec.ts # Playwright E2E (mission playthroughs — all entry variants)
 ```
 
+## Documentation
+
+In-depth project documentation lives under [`docs/`](./docs):
+
+- **[Architecture](./docs/architecture.md)** — High-level overview of the React app, virtual filesystem, and network simulation layers
+- **[Infrastructure design](./docs/infrastructure-design.md)** — How networks, machines, and filesystems are procedurally generated
+- **[Mission variations](./docs/mission-variations.md)** — Catalog of every generation axis (entry variants, objectives, difficulty modifiers)
+- **[Development guidelines](./docs/development-guidelines.md)** — TDD workflow, testing principles, and code-style enforcement
+- **[Technology choices](./docs/technology-choices.md)** — Phase 5 multiplayer stack decisions (Supabase, Vercel, Upstash, zod, etc.) with alternatives and trade-offs
+- **[Supabase setup](./docs/supabase-setup.md)** — Local Docker stack + cloud dev project onboarding for the multiplayer backend
+
 ## SEO & Social Sharing
 
 The site includes Open Graph and Twitter Card meta tags for rich social media previews when sharing the URL. The OG image features the CRT terminal aesthetic with a simulated network scan.
