@@ -24,7 +24,7 @@
     "supabase:stop": "supabase stop",
     "supabase:status": "supabase status",
     "db:reset": "supabase db reset",
-    "vercel:dev": "dotenv -e .env.local -- vercel dev"
+    "vercel:dev": "dotenv -e .env.local -e .env.development.local -- vercel dev"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.104.1",
