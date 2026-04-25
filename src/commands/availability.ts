@@ -16,6 +16,7 @@ const GAME_COMMANDS = new Set([
   'theme',
   'reset',
   'xterm',
+  'identity',
 ]);
 
 // Tools pre-installed on localhost — WiFi cracking tools (needed before
