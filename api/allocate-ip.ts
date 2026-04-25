@@ -27,8 +27,12 @@ import type { IpRow } from '../src/ipRegistry/types';
 const RATE_LIMIT_PER_MINUTE = 30;
 
 const buildRateLimiter = (): RateLimiter => {
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  // Accepts either naming convention:
+  //   - UPSTASH_REDIS_REST_URL/TOKEN — Upstash native, direct integration
+  //   - KV_REST_API_URL/TOKEN        — Vercel Marketplace Upstash integration
+  //                                     (legacy Vercel KV namespace; current default)
+  const url = process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN;
   if (!url || !token) {
     // Local dev / pre-Upstash-setup: don't rate-limit. The server is private
     // enough that this is fine. Production should always have Upstash set.
