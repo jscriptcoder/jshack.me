@@ -11,7 +11,7 @@
 - **Functional programming**: @.claude/skills/functional/SKILL.md
 - **TypeScript strict**: @.claude/skills/typescript-strict/SKILL.md
 
-Development guidelines (TDD, workflow, testing principles): @.claude/docs/development-guidelines.md
+Development guidelines (TDD, workflow, testing principles): @docs/development-guidelines.md
 
 Key rules (see skills for full details):
 
@@ -56,9 +56,10 @@ npx tsx scripts/simulateExploit.ts mission <seed> <ip> <port> [--gameTime <days>
 
 ## Key Architecture
 
-Detailed architecture: @.claude/docs/architecture.md
-Infrastructure design (network, machines, filesystems): @.claude/docs/infrastructure-design.md
-Mission variations catalog (all generation axes): @.claude/docs/mission-variations.md
+Detailed architecture: @docs/architecture.md
+Infrastructure design (network, machines, filesystems): @docs/infrastructure-design.md
+Mission variations catalog (all generation axes): @docs/mission-variations.md
+Phase 5 technology decisions: @docs/technology-choices.md
 
 ## Documentation Maintenance
 
@@ -66,9 +67,10 @@ When making any changes (adding/changing/deleting commands, hooks, machines, uti
 
 1. **Update `README.md`** if the change affects user-facing documentation (commands, features, setup, etc.)
 2. **Update project docs** — check if any of these files need updates:
-   - `.claude/docs/architecture.md` — architecture documentation
-   - `.claude/docs/infrastructure-design.md` — Infrastructure design documentation
-   - `.claude/docs/mission-variations.md` — mission generation variations catalog
+   - `docs/architecture.md` — architecture documentation
+   - `docs/infrastructure-design.md` — Infrastructure design documentation
+   - `docs/mission-variations.md` — mission generation variations catalog
+   - `docs/technology-choices.md` — Phase 5 stack decisions (rationale + alternatives)
    - `src/*/README.md` — per-module READMEs (commands, network, generation, hooks, etc.)
 
 ## Verification After Changes
