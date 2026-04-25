@@ -277,6 +277,53 @@ The `npm run vercel:dev` script loads both via `dotenv-cli`:
 
 ---
 
+## Production gotchas
+
+### Always use `.js` extensions in relative imports inside the `api/ → src/` chain
+
+**Convention**: any TypeScript file that the Vercel function (`api/*.ts`) loads — directly or transitively — must use `.js` extensions on its relative imports.
+
+```ts
+// ✅ Correct (works in dev AND prod)
+import { createPrng } from '../src/generation/prng.js';
+import type { Prng } from './prng.js';
+
+// ❌ Incorrect (works in dev, ERR_MODULE_NOT_FOUND in prod)
+import { createPrng } from '../src/generation/prng';
+import type { Prng } from './prng';
+```
+
+**Why this is needed:**
+
+1. **`package.json` declares `"type": "module"`** — the whole project is ESM.
+2. **Node's ESM resolver is strict** — it requires the literal file extension (`./prng.js`), unlike CommonJS which probes (`./prng` → finds `./prng.js`).
+3. **TypeScript doesn't add extensions** — `moduleResolution: "bundler"` (our tsconfig setting) assumes a downstream bundler will resolve extension-less imports. The compiler emits the path as-is.
+4. **Local `vercel dev` is forgiving** — it uses Vite's resolution, which handles missing extensions and `.ts → .js` mapping. Production deploys to raw Node ESM, which doesn't.
+
+So the hierarchy is:
+
+| Environment                     | Bundler / resolver        | Tolerates missing `.js`? |
+| ------------------------------- | ------------------------- | ------------------------ |
+| Vite build (browser app)        | Rollup / esbuild          | Yes                      |
+| `vitest`                        | Vite                      | Yes                      |
+| `vercel dev` (local serverless) | Vite (for the dev server) | Yes                      |
+| **Vercel production functions** | **Raw Node ESM**          | **No**                   |
+
+The browser app and tests stay clean either way. It's only the production Vercel function where strict ESM bites.
+
+**Why we don't just enable bundling on the function:** `@vercel/node` can use ncc to inline transitive imports, but with our `"type": "module"` + relative-path-into-`../src/` setup, ncc's behavior is fragile. Adding `.js` is a one-character-per-import fix that works deterministically, no build-config gymnastics required.
+
+**Files currently subject to this rule** (the chain reachable from `api/allocate-ip.ts`):
+
+- `api/allocate-ip.ts`
+- `src/generation/prng.ts` _(no relative imports yet)_
+- `src/generation/ip.ts`
+- `src/ipRegistry/{handler,allocate,supabaseInsert,rateLimit,types}.ts`
+
+When adding a new Vercel function or extending the chain, audit any new `from './...'` or `from '../...'` and add `.js`.
+
+---
+
 ## What's not yet decided
 
 These are flagged but not yet committed:
