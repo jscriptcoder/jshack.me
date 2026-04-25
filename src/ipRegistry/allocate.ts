@@ -1,4 +1,4 @@
-import type { AllocateIpRequest, InsertResult, IpRow } from './types';
+import type { AllocateIpRequest, InsertResult, IpRow } from './types.js';
 
 const MAX_ALLOCATION_ATTEMPTS = 10;
 

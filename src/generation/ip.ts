@@ -1,4 +1,4 @@
-import type { Prng } from './prng';
+import type { Prng } from './prng.js';
 
 // Realistic public IP first-octet pools (routable hosting/cloud prefixes)
 export const publicFirstOctets: readonly number[] = [

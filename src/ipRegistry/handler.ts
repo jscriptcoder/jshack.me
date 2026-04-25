@@ -1,6 +1,6 @@
-import { allocateIp, type AllocateIpDeps } from './allocate';
-import type { RateLimiter } from './rateLimit';
-import { allocateIpRequestSchema } from './types';
+import { allocateIp, type AllocateIpDeps } from './allocate.js';
+import type { RateLimiter } from './rateLimit.js';
+import { allocateIpRequestSchema } from './types.js';
 
 export type HandlerResponse = {
   readonly status: number;

@@ -1,4 +1,4 @@
-import type { InsertResult, IpRow } from './types';
+import type { InsertResult, IpRow } from './types.js';
 
 // Postgres error code for unique_violation — thrown when an INSERT hits the
 // PK constraint on public_ips.ip. Treat this as 'conflict' so the allocator
