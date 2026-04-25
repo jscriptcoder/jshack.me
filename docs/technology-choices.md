@@ -193,8 +193,44 @@ Each player gets an Ed25519 keypair, generated client-side on first launch and s
 - **No accounts**: no email, no password, no OAuth flow. Just open the page and play.
 - **Tamper-proof**: signed payloads can't be forged without the private key.
 - **Server-side verify is fast**: Ed25519 is the fastest mainstream signature scheme (~50µs to verify on commodity hardware).
+- **Compact**: 32-byte keys, 64-byte signatures — comfortably fit in DB rows and HTTP headers.
 - **Standardized**: every language has a library; nothing exotic to maintain.
 - **No PII**: the public key is opaque to anyone who hasn't seen it before.
+
+### How Ed25519 works (in brief)
+
+A digital signature scheme — turns a message into a small, unforgeable proof that the holder of a specific private key endorsed that exact message.
+
+**The objects involved:**
+
+- **Private key** (32 bytes) — random secret. Never leaves the owner.
+- **Public key** (32 bytes) — derived from the private key. Safe to share. Acts as the owner's identity.
+- **Signature** (64 bytes) — produced by `sign(privateKey, message)`. Verified by `verify(publicKey, signature, message) → boolean`.
+
+**The three guarantees we depend on:**
+
+1. **Unforgeability** — no one without the private key can produce a signature that verifies under the matching public key. (Cryptographic assumption: the discrete log problem on Curve25519 is hard.)
+2. **Message-binding** — change one bit of the signed bytes and verification fails. The signature is bound to the exact payload.
+3. **Public-key safety** — knowing the public key tells you nothing useful about the private key. Public keys can sit in DB rows visible to everyone.
+
+**Why it's small and fast:**
+
+- Built on **Curve25519**, an elliptic curve over the prime field 2²⁵⁵−19 (hence "25519"). Edwards form (hence "Ed").
+- Keys are 32 bytes, signatures 64 bytes — vs RSA's 256+ byte keys for similar security.
+- Verify is ~50 µs on commodity hardware: roughly 20× faster than RSA, 3× faster than ECDSA on P-256.
+- **Deterministic signing** — the signature for a given (key, message) pair is fixed. No randomness needed at sign time. This eliminates a class of bugs that has historically broken ECDSA implementations (a leaked nonce reveals the private key — see Sony PS3, 2010).
+- **Constant-time arithmetic** by construction → resistant to timing-based side-channel attacks.
+
+**How we use it in JSHACK.ME:**
+
+1. Player loads the game → `getOrCreateIdentity()` either reads the keypair from `localStorage` (under e.g. `jshack.identity`) or generates a fresh one and saves it.
+2. The public key is the player's identity on the server — stored in DB rows like `mission_instances.owner_key`, `home_network_occupants.player_key`, etc.
+3. When the player submits any mutation (patch, session creation, etc.), the client signs the canonicalized payload bytes with the private key and sends `{ payload, signature, publicKey }` to the Vercel function.
+4. Server: looks up the row by `owner_key`, calls `verify(publicKey, signature, canonicalize(payload))`. If true, the request is authentic; then the server checks authorization (does this player own this resource?) before applying the mutation.
+
+The server never has to trust a client's claim about identity. Only signature verification matters.
+
+**Library choice**: `@noble/ed25519` — pure JS, audited, ~10KB. Avoids Web Crypto API browser-version inconsistencies (Safari only added Ed25519 support in 17+; @noble works in every browser back to ES2020).
 
 ### Alternatives considered
 
