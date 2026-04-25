@@ -8,6 +8,7 @@ This doc covers the local dev loop and the cloud preview project. Production is 
 
 - **Docker Desktop** (running) — Supabase's local dev stack runs entirely in Docker.
 - **Supabase CLI** — already a devDep of this repo; run via `npx supabase` or the `supabase:*` npm scripts.
+- **Vercel CLI** (only if you want to run the `/api/allocate-ip` function locally) — `npm install -g vercel`. After install, `vercel link` once to associate the clone with the Vercel project. Then `npm run vercel:dev` (which loads `.env.local` via dotenv-cli) starts Vite + the function on `localhost:3000`. Plain `npm run dev` runs Vite only — no API functions.
 
 ## Local dev loop
 
@@ -31,10 +32,12 @@ After `supabase start`, the CLI prints:
 Write these to `.env.local` (gitignored by default):
 
 ```
-SUPABASE_URL=http://localhost:54321
+SUPABASE_URL=http://127.0.0.1:54321
 SUPABASE_ANON_KEY=<from supabase:status>
 SUPABASE_SERVICE_ROLE_KEY=<from supabase:status>
 ```
+
+> **Note**: `npm run vercel:dev` uses `dotenv-cli` to explicitly load `.env.local` before invoking `vercel dev`. The CLI's own env-file loading is bypassed — when a clone is linked to a cloud Vercel project, `vercel dev` would otherwise pull cloud-side dev env vars (which aren't relevant for local-Supabase development). The dotenv wrapper keeps local secrets local.
 
 ## Migrations
 
