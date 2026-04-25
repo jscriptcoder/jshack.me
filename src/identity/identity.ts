@@ -10,6 +10,7 @@
 
 import * as ed from '@noble/ed25519';
 import { sha512 } from '@noble/hashes/sha2.js';
+import { bytesToHex } from './hex.js';
 
 // @noble/ed25519 v3+ ships sync sign/verify but requires the caller to
 // provide a SHA-512 implementation (kept out of the core package to
@@ -20,14 +21,6 @@ export type Identity = {
   readonly privateKey: Uint8Array; // 32 bytes — never leaves the device
   readonly publicKey: Uint8Array; // 32 bytes — the player's identity
   readonly publicKeyHex: string; // 64-char lowercase hex, for display + storage
-};
-
-const bytesToHex = (bytes: Uint8Array): string => {
-  let out = '';
-  for (let i = 0; i < bytes.length; i++) {
-    out += bytes[i]!.toString(16).padStart(2, '0');
-  }
-  return out;
 };
 
 export const generateIdentity = (): Identity => {

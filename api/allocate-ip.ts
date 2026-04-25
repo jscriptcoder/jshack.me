@@ -12,6 +12,11 @@ import {
   noopRateLimiter,
   type RateLimiter,
 } from '../src/ipRegistry/rateLimit.js';
+import {
+  createUpstashNonceStore,
+  noopNonceStore,
+  type NonceStore,
+} from '../src/signedRequest/nonceStore.js';
 import type { IpRow } from '../src/ipRegistry/types.js';
 
 // Vercel adapter for POST /api/allocate-ip.
@@ -19,14 +24,18 @@ import type { IpRow } from '../src/ipRegistry/types.js';
 // Keeps the code in this file to the minimum necessary glue: method guard,
 // env-var lookup, Supabase + Upstash client construction, dependency wiring.
 // All validation and business logic live in handleAllocateRequest +
-// allocateIp + the rateLimit module, which are pure and unit-tested.
+// allocateIp + verifySignedRequest, which are pure and unit-tested.
 
-// Per-IP rate limit. 30 requests/minute is comfortably above any legitimate
-// flow (a player cracking a WiFi or accepting a mission triggers ~1 call)
-// while stopping a script that's hammering the endpoint.
+// Per-pubkey rate limit. 30 requests/minute is comfortably above any
+// legitimate flow (a player cracking a WiFi or accepting a mission triggers
+// ~1 call) while stopping a script that's hammering the endpoint. Switched
+// from per-IP to per-pubkey: shared NAT no longer causes collateral damage,
+// and a single attacker can't burn through the limit by rotating IPs.
 const RATE_LIMIT_PER_MINUTE = 30;
 
-const buildRateLimiter = (): RateLimiter => {
+// Both rate-limiting and nonce dedupe live in the same Upstash Redis. We
+// build one Redis client and split it across the two abstractions.
+const buildUpstashAdapters = (): { rateLimiter: RateLimiter; nonceStore: NonceStore } => {
   // Accepts either naming convention:
   //   - UPSTASH_REDIS_REST_URL/TOKEN — Upstash native, direct integration
   //   - KV_REST_API_URL/TOKEN        — Vercel Marketplace Upstash integration
@@ -34,28 +43,25 @@ const buildRateLimiter = (): RateLimiter => {
   const url = process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN;
   if (!url || !token) {
-    // Local dev / pre-Upstash-setup: don't rate-limit. The server is private
-    // enough that this is fine. Production should always have Upstash set.
-    console.warn('[allocate-ip] Upstash not configured — rate limiting disabled');
-    return noopRateLimiter;
+    // Local dev / pre-Upstash-setup: don't rate-limit, don't dedupe nonces.
+    // Replay protection is effectively disabled in this mode — the server is
+    // private enough that this is fine for dev. Production must have Upstash.
+    console.warn('[allocate-ip] Upstash not configured — rate limit + replay protection disabled');
+    return { rateLimiter: noopRateLimiter, nonceStore: noopNonceStore };
   }
+
+  const redis = new Redis({ url, token });
   const ratelimit = new Ratelimit({
-    redis: new Redis({ url, token }),
+    redis,
     limiter: Ratelimit.slidingWindow(RATE_LIMIT_PER_MINUTE, '1 m'),
     analytics: false,
     prefix: 'allocate-ip',
   });
-  return createUpstashRateLimiter((id) => ratelimit.limit(id));
-};
-
-// Vercel sets x-forwarded-for (the originating client IP, possibly via a
-// chain of proxies). The first comma-separated entry is the real caller.
-// Fall back to a constant when running locally without proxy headers — local
-// dev typically uses noopRateLimiter anyway, so this string is unused.
-const extractCallerKey = (req: VercelRequest): string => {
-  const forwarded = req.headers['x-forwarded-for'];
-  const headerValue = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-  return headerValue?.split(',')[0]?.trim() ?? 'unknown';
+  const rateLimiter = createUpstashRateLimiter((id) => ratelimit.limit(id));
+  const nonceStore = createUpstashNonceStore((key, value, opts) =>
+    redis.set(key, value, { ex: opts.ex, nx: opts.nx }),
+  );
+  return { rateLimiter, nonceStore };
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -84,13 +90,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // non-deterministic across requests even on the same process.
   const rollIp = () => generatePublicIp(createPrng(randomUUID()));
 
-  const callerKey = extractCallerKey(req);
-  const rateLimiter = buildRateLimiter();
+  const { rateLimiter, nonceStore } = buildUpstashAdapters();
 
-  const { status, body, headers } = await handleAllocateRequest(req.body, callerKey, {
+  const { status, body, headers } = await handleAllocateRequest(req.body, {
     insertIp,
     rollIp,
     rateLimiter,
+    nonceStore,
   });
 
   if (headers) {
