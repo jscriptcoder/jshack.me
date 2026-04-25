@@ -4,15 +4,15 @@ This doc captures the non-obvious technology decisions made for JSHACK.ME's Phas
 
 ## Stack at a glance
 
-| Layer                | Choice                                        | Status                             |
-| -------------------- | --------------------------------------------- | ---------------------------------- |
-| Frontend hosting     | Vercel                                        | Shipped (pre-Phase-5)              |
-| Serverless functions | Vercel Functions (Node runtime)               | Shipped                            |
-| Database + Realtime  | Supabase (Postgres + Realtime)                | Postgres shipped; Realtime planned |
-| Rate limiting        | Upstash Ratelimit (Redis over HTTPS)          | Shipped                            |
-| Input validation     | zod                                           | Shipped                            |
-| Identity             | Ed25519 keypair (browser localStorage)        | Planned                            |
-| Wallet               | Separate Ed25519 keypair (in-game filesystem) | Planned                            |
+| Layer                | Choice                                        | Status                                            |
+| -------------------- | --------------------------------------------- | ------------------------------------------------- |
+| Frontend hosting     | Vercel                                        | Shipped (pre-Phase-5)                             |
+| Serverless functions | Vercel Functions (Node runtime)               | Shipped                                           |
+| Database + Realtime  | Supabase (Postgres + Realtime)                | Postgres shipped; Realtime planned                |
+| Rate limiting        | Upstash Ratelimit (Redis over HTTPS)          | Shipped                                           |
+| Input validation     | zod                                           | Shipped                                           |
+| Identity             | Ed25519 keypair (browser localStorage)        | Key gen + storage shipped; signed patches planned |
+| Wallet               | Separate Ed25519 keypair (in-game filesystem) | Planned                                           |
 
 ---
 
@@ -182,7 +182,7 @@ Considered hashing `(seed, salt)` to produce a deterministic IP. Rejected becaus
 
 ---
 
-## Identity: Ed25519 keypair (planned)
+## Identity: Ed25519 keypair
 
 ### Choice
 
