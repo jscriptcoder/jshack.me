@@ -3,16 +3,16 @@ import { createClient } from '@supabase/supabase-js';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 import { randomUUID } from 'node:crypto';
-import { createPrng } from '../src/generation/prng';
-import { generatePublicIp } from '../src/generation/ip';
-import { handleAllocateRequest } from '../src/ipRegistry/handler';
-import { createSupabaseInsertIp } from '../src/ipRegistry/supabaseInsert';
+import { createPrng } from '../src/generation/prng.js';
+import { generatePublicIp } from '../src/generation/ip.js';
+import { handleAllocateRequest } from '../src/ipRegistry/handler.js';
+import { createSupabaseInsertIp } from '../src/ipRegistry/supabaseInsert.js';
 import {
   createUpstashRateLimiter,
   noopRateLimiter,
   type RateLimiter,
-} from '../src/ipRegistry/rateLimit';
-import type { IpRow } from '../src/ipRegistry/types';
+} from '../src/ipRegistry/rateLimit.js';
+import type { IpRow } from '../src/ipRegistry/types.js';
 
 // Vercel adapter for POST /api/allocate-ip.
 //
