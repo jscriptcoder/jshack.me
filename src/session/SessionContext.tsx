@@ -24,7 +24,9 @@ import { getIdentity } from '../identity';
 import {
   createSession as createServerSession,
   endSession as endServerSession,
+  listSessions as listServerSessions,
 } from '../sessionRegistry/client';
+import type { SessionSummary } from '../sessionRegistry/types';
 
 // Re-export for backward compatibility — consumed by storage.ts
 export { isValidPersistedState } from './sessionUtils';
@@ -117,6 +119,11 @@ export type PersistedState = {
 
 type SessionContextValue = {
   readonly session: Session;
+  // True between SessionProvider mount and the first listSessions resolve.
+  // Consumers can use this to render a "restoring sessions…" indicator if
+  // the brief delay is user-visible. False once rehydration completes
+  // (success or failure — local state is left untouched on failure).
+  readonly isRehydrating: boolean;
   readonly workstationName: string | undefined;
   readonly connectedWifi: WifiConnection | null;
   readonly wifiConnected: boolean;
@@ -192,6 +199,34 @@ type SessionProviderProps = {
   readonly username: string;
 };
 
+// Lossy reconstruction: server stores machine_id + credentials but not
+// hostname/currentPath/start_reason (those are client-side concerns we
+// don't persist). On rehydration we synthesize them from what we have:
+//   - currentPath: '/root' for root, '/home/<user>' otherwise
+//   - hostname: undefined (UI falls back to machine for display)
+//   - reason (snapshot only): default 'ssh' (cosmetic — affects exit msg)
+const homePathFor = (s: SessionSummary): string =>
+  s.credentials.userType === 'root' ? '/root' : `/home/${s.credentials.username}`;
+
+const summaryToSession = (s: SessionSummary, theme: ThemeId): Session => ({
+  username: s.credentials.username,
+  userType: s.credentials.userType,
+  machine: s.machine_id,
+  currentPath: homePathFor(s),
+  theme,
+  sessionId: s.session_id,
+});
+
+const summaryToSnapshot = (s: SessionSummary, theme: ThemeId): SessionSnapshot => ({
+  username: s.credentials.username,
+  userType: s.credentials.userType,
+  machine: s.machine_id,
+  currentPath: homePathFor(s),
+  theme,
+  reason: 'ssh',
+  sessionId: s.session_id,
+});
+
 export const SessionProvider = ({ children, workstationName, username }: SessionProviderProps) => {
   const [initialState] = useState(() => getInitialState(username));
   const [session, setSession] = useState<Session>(initialState.session);
@@ -209,6 +244,7 @@ export const SessionProvider = ({ children, workstationName, username }: Session
   const [brickedMachines, setBrickedMachines] = useState<ReadonlySet<string>>(
     () => new Set(getCachedBrickedMachines()),
   );
+  const [isRehydrating, setIsRehydrating] = useState(true);
   // Create channel inside effect so StrictMode's cleanup + re-run cycle gets
   // a fresh (open) channel. The ref is updated so broadcast calls always use
   // the currently-active channel.
@@ -216,6 +252,75 @@ export const SessionProvider = ({ children, workstationName, username }: Session
   // Stable ref for username — avoids re-creating the BroadcastChannel effect
   const usernameRef = useRef(username);
   usernameRef.current = username;
+
+  // Rehydrate session state from the server on mount. The server is the
+  // truth on "what sessions does this player currently have?" — local
+  // sessionStorage is just a UI cache. If the server says a session is
+  // gone, we discard the local view of it. Empty server response = reset
+  // to default localhost (overrides any stale sessionStorage).
+  //
+  // Lossy: see summaryToSession comment for what gets reconstructed vs
+  // defaulted. Multi-tab edge case (multiple chains) is deferred — for
+  // Phase 1+3 we assume single-tab single-chain.
+  useEffect(() => {
+    let cancelled = false;
+    void listServerSessions(getIdentity())
+      .then((sessions) => {
+        if (cancelled) return;
+        if (sessions.length === 0) {
+          // Server says no active sessions — reset to default localhost,
+          // discarding any stale local stack from sessionStorage.
+          setSessionStack([]);
+          setSession((prev) => ({
+            username,
+            userType: 'user' as const,
+            machine: 'localhost',
+            currentPath: `/home/${username}`,
+            theme: prev.theme,
+            sessionId: null,
+          }));
+          return;
+        }
+        // Build the chain locally: bottom (untracked localhost), then a
+        // snapshot per server session except the newest, which becomes the
+        // current Session. created_at ASC — server already orders, defensive.
+        const sortedSessions = [...sessions].sort((a, b) =>
+          a.created_at.localeCompare(b.created_at),
+        );
+        setSession((prev) => {
+          const newest = sortedSessions[sortedSessions.length - 1]!;
+          const bottom: SessionSnapshot = {
+            username,
+            userType: 'user',
+            machine: 'localhost',
+            currentPath: `/home/${username}`,
+            theme: prev.theme,
+            reason: 'ssh',
+            sessionId: null,
+          };
+          const stack: SessionSnapshot[] = [bottom];
+          for (let i = 0; i < sortedSessions.length - 1; i++) {
+            stack.push(summaryToSnapshot(sortedSessions[i]!, prev.theme));
+          }
+          setSessionStack(stack);
+          return summaryToSession(newest, prev.theme);
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error('[session] rehydration failed:', error);
+        // Leave local state untouched on failure — degraded experience but
+        // not broken. Player can still see whatever sessionStorage restored.
+      })
+      .finally(() => {
+        if (!cancelled) setIsRehydrating(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Mount-only — explicit empty deps. username doesn't change in practice.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Subscribe to WiFi and theme changes from other tabs.
   // BroadcastChannel does not deliver messages to the posting tab, so no echo guard needed.
@@ -601,6 +706,7 @@ export const SessionProvider = ({ children, workstationName, username }: Session
     <SessionContext.Provider
       value={{
         session,
+        isRehydrating,
         workstationName,
         connectedWifi,
         wifiConnected,
