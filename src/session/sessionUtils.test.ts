@@ -62,6 +62,7 @@ const validSession: Session = {
   machine: 'localhost',
   currentPath: '/home/jshacker',
   theme: 'amber',
+  sessionId: null,
 };
 
 describe('isValidSession', () => {
@@ -213,6 +214,7 @@ describe('createDefaultSession', () => {
       machine: 'localhost',
       currentPath: '/home/jshacker',
       theme: 'amber',
+      sessionId: null,
     });
   });
 

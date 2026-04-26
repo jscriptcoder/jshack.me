@@ -50,7 +50,12 @@ export const createSupabaseEndSession =
     if (namedAffected === 0) return { ok: true, affected: 0 };
 
     // 2. Recursively cascade to active descendants.
-    const cascade = await cascadeChildren(params.session_id, params.player_key, endRow, findChildren);
+    const cascade = await cascadeChildren(
+      params.session_id,
+      params.player_key,
+      endRow,
+      findChildren,
+    );
     if (!cascade.ok) return { ok: false };
 
     return { ok: true, affected: namedAffected + cascade.affected };

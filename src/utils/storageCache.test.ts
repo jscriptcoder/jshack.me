@@ -27,6 +27,7 @@ const validSession: PersistedState = {
     machine: '192.168.1.50',
     currentPath: '/root',
     theme: 'amber',
+    sessionId: null,
   },
   sessionStack: [
     {
@@ -36,6 +37,7 @@ const validSession: PersistedState = {
       currentPath: '/home/jshacker',
       theme: 'amber',
       reason: 'ssh',
+      sessionId: null,
     },
   ],
   ftpSession: null,

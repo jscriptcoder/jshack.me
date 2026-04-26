@@ -104,7 +104,9 @@ export type EndSessionParams = {
 //   - 1 → row was active and is now marked ended_at + end_reason
 // We collapse all 0-cases to 404; we don't distinguish "not yours" from
 // "not found" (avoids info leaks and keeps the SQL atomic).
-export type EndSessionResult = { readonly ok: true; readonly affected: number } | { readonly ok: false };
+export type EndSessionResult =
+  | { readonly ok: true; readonly affected: number }
+  | { readonly ok: false };
 
 // Public shape of an active session row, returned by listSessions. Omits
 // player_key (caller already knows their own key) and the ended_at /

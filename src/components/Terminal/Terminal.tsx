@@ -524,8 +524,18 @@ export const Terminal = () => {
 
                   if (isExploitShell(followUp)) {
                     const resolvedIP = resolveNat(followUp.targetIP, followUp.targetPort).ip;
-                    pushSession('exploit');
                     const targetMachine = findMachineByIp(resolvedIP);
+                    // Fire-and-forget pushSession; optimistic local update via
+                    // setX so the prompt swaps immediately on exploit success.
+                    void pushSession('exploit', {
+                      machine: resolvedIP,
+                      hostname: targetMachine?.hostname,
+                      username: followUp.username,
+                      userType: followUp.userType,
+                      currentPath: followUp.homePath,
+                    }).catch((error) => {
+                      console.error('[Terminal] pushSession exploit failed:', error);
+                    });
                     setUsername(followUp.username, followUp.userType);
                     setMachine(resolvedIP, targetMachine?.hostname);
                     setCurrentPath(followUp.homePath);

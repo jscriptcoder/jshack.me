@@ -76,22 +76,32 @@ export const createDefaultSession = (username: string): Session => ({
   machine: 'localhost',
   currentPath: `/home/${username}`,
   theme: DEFAULT_THEME_ID as ThemeId,
+  // Default localhost is the implicit untracked state — no server-side row.
+  sessionId: null,
 });
 
-export const normalizeSession = (session: Session): Session => ({
-  ...session,
-  theme: isValidThemeId(session.theme) ? session.theme : DEFAULT_THEME_ID,
-});
+// Persisted sessions from before the sessionId field was added may lack it —
+// default to null (untracked) so old saves keep working.
+export const normalizeSession = (session: Session): Session => {
+  const raw = session as Record<string, unknown>;
+  return {
+    ...session,
+    theme: isValidThemeId(session.theme) ? session.theme : DEFAULT_THEME_ID,
+    sessionId: typeof raw.sessionId === 'string' ? raw.sessionId : null,
+  };
+};
 
 export const isValidSessionReason = (value: unknown): value is 'ssh' | 'su' | 'exploit' =>
   value === 'ssh' || value === 'su' || value === 'exploit';
 
-// Old persisted snapshots may lack `reason` — default to 'ssh' for backward compatibility
+// Old persisted snapshots may lack `reason` or `sessionId` — default to 'ssh'
+// and null respectively for backward compatibility with pre-Phase-5 saves.
 export const normalizeSnapshot = (snapshot: SessionSnapshot): SessionSnapshot => {
   const raw = snapshot as Record<string, unknown>;
   return {
     ...snapshot,
     theme: isValidThemeId(snapshot.theme) ? snapshot.theme : DEFAULT_THEME_ID,
     reason: isValidSessionReason(raw.reason) ? raw.reason : 'ssh',
+    sessionId: typeof raw.sessionId === 'string' ? raw.sessionId : null,
   };
 };

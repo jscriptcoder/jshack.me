@@ -201,10 +201,7 @@ describe('handleSessionsRequest — createSession', () => {
     it('returns 401 when nonce store reports a replay', async () => {
       const envelope = makeEnvelope(identity);
       const replayedStore: NonceStore = vi.fn().mockResolvedValue({ fresh: false });
-      const result = await handleSessionsRequest(
-        envelope,
-        mkDeps({ nonceStore: replayedStore }),
-      );
+      const result = await handleSessionsRequest(envelope, mkDeps({ nonceStore: replayedStore }));
       expect(result.status).toBe(401);
       expect(result.body).toMatchObject({ error: 'replay' });
     });

@@ -37,7 +37,7 @@ const makeOptions = () => ({
   setUsername: vi.fn(),
   setMachine: vi.fn(),
   setCurrentPath: vi.fn(),
-  pushSession: vi.fn(),
+  pushSession: vi.fn().mockResolvedValue(undefined),
   enterFtpMode: vi.fn(),
   enterMysqlMode: vi.fn(),
   enterRedisMode: vi.fn(),
