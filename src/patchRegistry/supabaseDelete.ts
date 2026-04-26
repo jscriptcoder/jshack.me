@@ -1,4 +1,17 @@
-import type { RemovePatchParams, RemovePatchResult } from './types.js';
+import type {
+  ClearPatchesParams,
+  ClearPatchesResult,
+  RemovePatchParams,
+  RemovePatchResult,
+} from './types.js';
+
+// Server-side mirror of the client's PERSISTENT_MACHINE_KEYS filter
+// (FileSystemContext.tsx). Only `localhost` patches survive a mission/
+// home scene transition; every other machine_id is "transient" and gets
+// dropped by clearTransientPatches. Exported so the api/patches.ts
+// wiring layer applies the same literal in its `.neq('machine_id', ...)`
+// filter — single source of truth.
+export const PERSISTENT_MACHINE_ID = 'localhost';
 
 // Adapter for removing a patch by exact path AND descendants (paths
 // nested under it). The wiring layer issues a single DELETE with a
@@ -44,6 +57,60 @@ export const createSupabaseRemovePatch =
       path: params.path,
       path_prefix,
     });
+    if (error) return { ok: false };
+    return { ok: true, affected: data?.length ?? 0 };
+  };
+
+// -----------------------------------------------------------------------
+// Bulk-delete adapters: clearTransientPatches + clearAllPatches.
+//
+// Both translate a Supabase delete().select() response onto
+// ClearPatchesResult. The wiring layer issues the actual DELETE:
+//
+//   clearTransient: DELETE FROM patches
+//                    WHERE player_key = $player_key
+//                      AND machine_id <> $persistent_machine_id;
+//   clearAll:       DELETE FROM patches
+//                    WHERE player_key = $player_key;
+// -----------------------------------------------------------------------
+
+// Arg shape for the transient-clear underlying function. The adapter
+// passes the localhost literal through so the wiring layer doesn't need
+// its own copy of the constant.
+export type ClearTransientArg = {
+  readonly player_key: string;
+  readonly persistent_machine_id: string;
+};
+
+export type ClearTransientFn = (arg: ClearTransientArg) => Promise<{
+  readonly data: ReadonlyArray<{ readonly path: string }> | null;
+  readonly error: RowError;
+}>;
+
+export const createSupabaseClearTransientPatches =
+  (clearTransient: ClearTransientFn) =>
+  async (params: ClearPatchesParams): Promise<ClearPatchesResult> => {
+    const { data, error } = await clearTransient({
+      player_key: params.player_key,
+      persistent_machine_id: PERSISTENT_MACHINE_ID,
+    });
+    if (error) return { ok: false };
+    return { ok: true, affected: data?.length ?? 0 };
+  };
+
+export type ClearAllArg = {
+  readonly player_key: string;
+};
+
+export type ClearAllFn = (arg: ClearAllArg) => Promise<{
+  readonly data: ReadonlyArray<{ readonly path: string }> | null;
+  readonly error: RowError;
+}>;
+
+export const createSupabaseClearAllPatches =
+  (clearAll: ClearAllFn) =>
+  async (params: ClearPatchesParams): Promise<ClearPatchesResult> => {
+    const { data, error } = await clearAll({ player_key: params.player_key });
     if (error) return { ok: false };
     return { ok: true, affected: data?.length ?? 0 };
   };
