@@ -104,7 +104,7 @@ Every step follows RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR. No production code wi
 
 ### Step 7: Wire `createSession` into `SessionContext.pushSession`
 
-**Acceptance criteria**: `pushSession(reason)` becomes async, calls `createSession({machine_id, credentials, parent_session_id?, source_ip?})`, stores returned `session_id` in the local stack entry. Existing tests for the local stack still pass (with awaits added). New test: pushing creates a server record with the right shape.
+**Acceptance criteria**: `pushSession(reason, destination)` becomes async, takes the destination state as a second arg (machine + credentials + currentPath + hostname?), calls `createSession({machine_id, credentials, parent_session_id?, source_ip?})` with parent/source derived from the _current_ Session, stores returned `session_id` on the new current Session (NOT in the stack entry — the snapshot preserves whatever sessionId was current before the push). `Session` and `SessionSnapshot` types both gain `sessionId: string | null`. Callers (connectSsh, su flow, su command) pass the destination through and replace their previous `pushSession + setMachine/setUsername/setCurrentPath` clusters with a single `await pushSession(reason, destination)` call.
 **RED**: SessionContext test asserting `createSession` is called with correct payload on `pushSession`.
 **GREEN**: Update `SessionContext.tsx` to await server call before mutating local state. Update affected tests with `await`.
 **MUTATE**: Run mutation testing.

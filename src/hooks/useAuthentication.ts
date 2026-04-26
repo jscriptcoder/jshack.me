@@ -23,6 +23,7 @@ type AuthenticationOptions = {
     readonly username: string;
     readonly userType: UserType;
     readonly machine: string;
+    readonly hostname?: string;
     readonly currentPath: string;
   };
   readonly getMachine: (
@@ -36,7 +37,16 @@ type AuthenticationOptions = {
   readonly setUsername: (username: string, userType: UserType) => void;
   readonly setMachine: (machine: string, hostname?: string) => void;
   readonly setCurrentPath: (path: string) => void;
-  readonly pushSession: (reason: SessionReason) => void;
+  readonly pushSession: (
+    reason: SessionReason,
+    destination: {
+      readonly machine: string;
+      readonly hostname?: string;
+      readonly username: string;
+      readonly userType: UserType;
+      readonly currentPath: string;
+    },
+  ) => Promise<void>;
   readonly enterFtpMode: (session: FtpSession) => void;
   readonly enterMysqlMode: (session: MysqlSession) => void;
   readonly enterRedisMode: (session: RedisSession) => void;
@@ -181,11 +191,17 @@ export const useAuthentication = ({
     ],
   );
 
-  // Shared SSH session setup: pushes session stack and switches to remote machine
+  // Shared SSH session setup: optimistically updates local state via the
+  // sync setX setters (immediate UI feedback), and fires-and-forgets a
+  // server-side session-create. When the server returns, pushSession
+  // atomically pushes the prior snapshot to the stack and re-sets Session
+  // with the same destination plus the server-issued sessionId.
+  //
+  // The redundant setSession-via-pushSession is intentional — it's the only
+  // way to attach the sessionId without a follow-up setter, and the values
+  // overwritten match exactly what the optimistic setters wrote.
   const connectSsh = useCallback(
     (user: string, ip: string, port: number) => {
-      pushSession('ssh');
-
       const resolved = resolveNat(ip, port);
       const resolvedIp = resolved.ip;
       const users = findMachineUsers(resolvedIp);
@@ -196,6 +212,18 @@ export const useAuthentication = ({
       // not the gateway itself. findMachineByIp searches across all network configs.
       const targetMachine = findMachineByIp(resolvedIp) ?? getMachine(ip);
 
+      void pushSession('ssh', {
+        machine: resolvedIp,
+        hostname: targetMachine?.hostname,
+        username: user,
+        userType,
+        currentPath: homePath,
+      }).catch((error) => {
+        console.error('[useAuthentication] pushSession ssh failed:', error);
+      });
+      // Optimistic local update — keeps the prompt snappy during the server
+      // round-trip. pushSession overwrites these with the same values + sessionId
+      // when it resolves.
       setUsername(user, userType);
       setMachine(resolvedIp, targetMachine?.hostname);
       setCurrentPath(homePath);
@@ -714,7 +742,17 @@ export const useAuthentication = ({
             (targetUser === 'root' ? 'root' : targetUser === 'guest' ? 'guest' : 'user');
           const homePath = userType === 'root' ? '/root' : `/home/${targetUser}`;
 
-          pushSession('su');
+          // Fire-and-forget pushSession (server-side session record); local
+          // state updated optimistically below for snappy prompt response.
+          void pushSession('su', {
+            machine: session.machine,
+            hostname: session.hostname,
+            username: targetUser,
+            userType,
+            currentPath: homePath,
+          }).catch((error) => {
+            console.error('[useAuthentication] pushSession su failed:', error);
+          });
           setUsername(targetUser, userType);
           setCurrentPath(homePath);
           addLine('result', `Switched to user: ${targetUser}`);

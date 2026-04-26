@@ -20,6 +20,8 @@ import type { ThemeId } from '../theme/themes';
 import { applyTheme } from '../theme/applyTheme';
 import { createSyncChannel, type SyncMessage } from '../utils/crossTabSync';
 import { createDefaultSession, normalizeSession, normalizeSnapshot } from './sessionUtils';
+import { getIdentity } from '../identity';
+import { createSession as createServerSession } from '../sessionRegistry/client';
 
 // Re-export for backward compatibility — consumed by storage.ts
 export { isValidPersistedState } from './sessionUtils';
@@ -33,6 +35,9 @@ export type Session = {
   readonly hostname?: string;
   readonly currentPath: string;
   readonly theme: ThemeId;
+  // Server-tracked session identifier (UUID from /api/sessions). null = the
+  // implicit pre-push localhost state, never tracked server-side.
+  readonly sessionId: string | null;
 };
 
 export type SessionReason = 'ssh' | 'su' | 'exploit';
@@ -45,6 +50,22 @@ export type SessionSnapshot = {
   readonly currentPath: string;
   readonly theme: ThemeId;
   readonly reason: SessionReason;
+  // sessionId of THIS state when it was the current session (i.e., the value
+  // current.sessionId held at the moment of being snapshotted). null if it
+  // was the untracked default localhost.
+  readonly sessionId: string | null;
+};
+
+// Destination state for a pushSession call — the new presence the user is
+// transitioning into. pushSession atomically sends a createSession request,
+// snapshots the prior current Session onto the stack, and switches the local
+// current Session to this destination + the server-issued sessionId.
+export type PushDestination = {
+  readonly machine: string;
+  readonly hostname?: string;
+  readonly username: string;
+  readonly userType: UserType;
+  readonly currentPath: string;
 };
 
 export type FtpSession = {
@@ -105,7 +126,7 @@ type SessionContextValue = {
   readonly setMachine: (machine: string, hostname?: string) => void;
   readonly setCurrentPath: (path: string) => void;
   readonly getPrompt: () => string;
-  readonly pushSession: (reason: SessionReason) => void;
+  readonly pushSession: (reason: SessionReason, destination: PushDestination) => Promise<void>;
   readonly popSession: () => SessionSnapshot | null;
   readonly canReturn: () => boolean;
   readonly enterFtpMode: (ftpSession: FtpSession) => void;
@@ -210,6 +231,7 @@ export const SessionProvider = ({ children, workstationName, username }: Session
             machine: 'localhost',
             currentPath: prev.machine === 'localhost' ? prev.currentPath : `/home/${u}`,
             theme: prev.theme,
+            sessionId: null,
           }));
           setSessionStack([]);
           setFtpSession(null);
@@ -273,8 +295,18 @@ export const SessionProvider = ({ children, workstationName, username }: Session
     redisSession,
   ]);
 
+  // Push: snapshot the current Session onto the stack, then create a server-
+  // side session for the destination, then atomically switch local state. We
+  // server-first to keep local state and server truth in sync — if the
+  // server call fails, neither the stack nor the current Session is mutated,
+  // and the error propagates to the caller.
+  //
+  // parent_session_id chains the hop: each push references the prior current
+  // session's id (or undefined when leaving the untracked default localhost).
+  // source_ip is the prior current's machine — denormalized so future
+  // access.log realism doesn't have to walk the chain.
   const pushSession = useCallback(
-    (reason: SessionReason) => {
+    async (reason: SessionReason, destination: PushDestination): Promise<void> => {
       const snapshot: SessionSnapshot = {
         username: session.username,
         userType: session.userType,
@@ -283,8 +315,29 @@ export const SessionProvider = ({ children, workstationName, username }: Session
         currentPath: session.currentPath,
         theme: session.theme,
         reason,
+        sessionId: session.sessionId,
       };
+
+      const newSessionId = await createServerSession(getIdentity(), {
+        machine_id: destination.machine,
+        credentials: {
+          username: destination.username,
+          userType: destination.userType,
+        },
+        ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
+        source_ip: session.machine,
+      });
+
       setSessionStack((prev) => [...prev, snapshot]);
+      setSession({
+        machine: destination.machine,
+        hostname: destination.hostname,
+        username: destination.username,
+        userType: destination.userType,
+        currentPath: destination.currentPath,
+        theme: session.theme,
+        sessionId: newSessionId,
+      });
     },
     [
       session.username,
@@ -293,6 +346,7 @@ export const SessionProvider = ({ children, workstationName, username }: Session
       session.hostname,
       session.currentPath,
       session.theme,
+      session.sessionId,
     ],
   );
 
@@ -300,6 +354,7 @@ export const SessionProvider = ({ children, workstationName, username }: Session
     if (sessionStack.length === 0) return null;
 
     const snapshot = sessionStack[sessionStack.length - 1];
+    if (!snapshot) return null;
     setSessionStack((prev) => prev.slice(0, -1));
     setSession({
       username: snapshot.username,
@@ -308,6 +363,7 @@ export const SessionProvider = ({ children, workstationName, username }: Session
       hostname: snapshot.hostname,
       currentPath: snapshot.currentPath,
       theme: snapshot.theme,
+      sessionId: snapshot.sessionId,
     });
     return snapshot;
   }, [sessionStack]);
@@ -451,8 +507,10 @@ export const SessionProvider = ({ children, workstationName, username }: Session
         username: bottom.username,
         userType: bottom.userType,
         machine: bottom.machine,
+        hostname: bottom.hostname,
         currentPath: bottom.currentPath,
         theme: bottom.theme,
+        sessionId: bottom.sessionId,
       });
     }
   }, [sessionStack]);
@@ -476,6 +534,7 @@ export const SessionProvider = ({ children, workstationName, username }: Session
         machine: 'localhost',
         currentPath: localhostPath,
         theme: prev.theme,
+        sessionId: null,
       };
     });
     setSessionStack([]);

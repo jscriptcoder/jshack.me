@@ -261,9 +261,7 @@ describe('endSession', () => {
 describe('listSessions', () => {
   it('POSTs a signed envelope and returns the sessions array', async () => {
     const identity = generateIdentity();
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(ok({ sessions: [sampleSession] }));
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ sessions: [sampleSession] }));
 
     const sessions = await listSessions(identity, fetchMock);
 

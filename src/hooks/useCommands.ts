@@ -166,7 +166,18 @@ export const useCommands = (): UseCommandsResult => {
       findMachineUsers: () => findMachineUsers(session.machine),
       setUsername,
       setCurrentPath,
-      pushSession: () => pushSession('su'),
+      // Fire-and-forget: su.ts is a sync command; pushSession's local state
+      // update happens when the server call resolves. Race window is the
+      // server round-trip; acceptable for Phase 1+3.
+      pushSession: (destination) => {
+        void pushSession('su', {
+          machine: session.machine,
+          hostname: session.hostname,
+          ...destination,
+        }).catch((error) => {
+          console.error('[useCommands] pushSession su failed:', error);
+        });
+      },
       onAuthResult: (success, targetUser) => {
         const hostname = resolveHostname(session.machine, getMachineInfo);
         const formatter = success ? formatSuSuccess : formatSuFailed;
@@ -414,6 +425,7 @@ export const useCommands = (): UseCommandsResult => {
     session.username,
     session.userType,
     session.machine,
+    session.hostname,
     session.currentPath,
     session.theme,
     setTheme,

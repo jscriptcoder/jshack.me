@@ -18,7 +18,14 @@ type SuContext = {
   readonly findMachineUsers: () => readonly RemoteUserInfo[];
   readonly setUsername: (username: string, userType: UserType) => void;
   readonly setCurrentPath: (path: string) => void;
-  readonly pushSession: () => void;
+  // Wraps SessionContext.pushSession with the current machine baked in by
+  // the consumer (useCommands.ts). su.ts only needs to provide the
+  // destination's user-side fields; the wrapper fills in machine + hostname.
+  readonly pushSession: (destination: {
+    readonly username: string;
+    readonly userType: UserType;
+    readonly currentPath: string;
+  }) => void;
   readonly onAuthResult?: (success: boolean, targetUser: string) => void;
 };
 
@@ -96,7 +103,7 @@ export const createSuCommand = (context: SuContext): Command => ({
       const userType = resolveUserType(username, context.findMachineUsers());
       const homePath = userType === 'root' ? '/root' : `/home/${username}`;
 
-      context.pushSession();
+      context.pushSession({ username, userType, currentPath: homePath });
       context.setUsername(username, userType);
       context.setCurrentPath(homePath);
       context.onAuthResult?.(true, username);

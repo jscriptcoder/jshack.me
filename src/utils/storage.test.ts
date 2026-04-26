@@ -24,6 +24,7 @@ const validSession: PersistedState = {
     machine: 'localhost',
     currentPath: '/home/jshacker',
     theme: 'amber',
+    sessionId: null,
   },
   sessionStack: [],
   ftpSession: null,
@@ -92,6 +93,7 @@ describe('storage', () => {
             currentPath: '/home/admin',
             theme: 'amber',
             reason: 'ssh',
+            sessionId: null,
           },
         ],
       };

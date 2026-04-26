@@ -99,6 +99,7 @@ describe('useCommands', () => {
         machine: 'localhost',
         currentPath: '/home/guest',
         theme: 'amber',
+        sessionId: null,
       },
       sessionStack: [],
       ftpSession: null,
