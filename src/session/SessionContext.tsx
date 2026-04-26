@@ -21,7 +21,10 @@ import { applyTheme } from '../theme/applyTheme';
 import { createSyncChannel, type SyncMessage } from '../utils/crossTabSync';
 import { createDefaultSession, normalizeSession, normalizeSnapshot } from './sessionUtils';
 import { getIdentity } from '../identity';
-import { createSession as createServerSession } from '../sessionRegistry/client';
+import {
+  createSession as createServerSession,
+  endSession as endServerSession,
+} from '../sessionRegistry/client';
 
 // Re-export for backward compatibility — consumed by storage.ts
 export { isValidPersistedState } from './sessionUtils';
@@ -350,11 +353,27 @@ export const SessionProvider = ({ children, workstationName, username }: Session
     ],
   );
 
+  // popSession: end the current server-side session (if tracked), then
+  // restore Session from the top stack snapshot. Fire-and-forget — local
+  // state mutates synchronously regardless of server outcome. The current
+  // session is always a leaf in the DB tree (its only descendant could be
+  // the next push, which would be removed first), so no cascade is needed
+  // here — Step 5's cascade only matters when ending an ancestor.
   const popSession = useCallback((): SessionSnapshot | null => {
     if (sessionStack.length === 0) return null;
 
     const snapshot = sessionStack[sessionStack.length - 1];
     if (!snapshot) return null;
+
+    if (session.sessionId !== null) {
+      void endServerSession(getIdentity(), {
+        session_id: session.sessionId,
+        reason: 'user_exit',
+      }).catch((error) => {
+        console.error('[session] popSession endSession failed:', error);
+      });
+    }
+
     setSessionStack((prev) => prev.slice(0, -1));
     setSession({
       username: snapshot.username,
@@ -366,7 +385,7 @@ export const SessionProvider = ({ children, workstationName, username }: Session
       sessionId: snapshot.sessionId,
     });
     return snapshot;
-  }, [sessionStack]);
+  }, [sessionStack, session.sessionId]);
 
   const canReturn = useCallback(() => sessionStack.length > 0, [sessionStack.length]);
 
@@ -493,9 +512,37 @@ export const SessionProvider = ({ children, workstationName, username }: Session
   ]);
 
   // Resets to the bottom of the session stack (the original state before any SSH).
-  // Used by mission abort to return to localhost regardless of SSH nesting depth.
+  // Used by mission abort/complete to return to localhost regardless of SSH
+  // nesting depth. Server-side: ends the OLDEST tracked session in the chain
+  // (the root of the DB tree — descendants cascade-end via Step 5's logic).
+  // Falls back to current.sessionId if no intermediate stack entry is tracked
+  // (single-push case where stack only has the untracked bottom).
   const popAllSessions = useCallback(() => {
     if (sessionStack.length === 0) return;
+
+    // Find the oldest tracked session above the bottom (which we keep). The
+    // bottom is what we restore to — typically untracked localhost. The
+    // chain root is the first tracked snapshot above it; if none, current
+    // is the only tracked session.
+    let rootToEnd: string | null = null;
+    for (let i = 1; i < sessionStack.length; i++) {
+      const id = sessionStack[i]?.sessionId;
+      if (id) {
+        rootToEnd = id;
+        break;
+      }
+    }
+    if (rootToEnd === null) rootToEnd = session.sessionId;
+
+    if (rootToEnd !== null) {
+      void endServerSession(getIdentity(), {
+        session_id: rootToEnd,
+        reason: 'pop_all',
+      }).catch((error) => {
+        console.error('[session] popAllSessions endSession failed:', error);
+      });
+    }
+
     const bottom = sessionStack[0];
     setSessionStack([]);
     setFtpSession(null);
@@ -513,7 +560,7 @@ export const SessionProvider = ({ children, workstationName, username }: Session
         sessionId: bottom.sessionId,
       });
     }
-  }, [sessionStack]);
+  }, [sessionStack, session.sessionId]);
 
   // Atomically resets to localhost with WiFi off. Can be called while SSH'd into a remote
   // machine — finds the original localhost path from the bottom of the session stack
