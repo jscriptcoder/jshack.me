@@ -1,0 +1,190 @@
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { createClient } from '@supabase/supabase-js';
+import { Ratelimit } from '@upstash/ratelimit';
+import { Redis } from '@upstash/redis';
+import { handlePatchesRequest } from '../src/patchRegistry/handler.js';
+import { createSupabaseUpsertPatch } from '../src/patchRegistry/supabaseUpsert.js';
+import {
+  createSupabaseRemovePatch,
+  createSupabaseClearTransientPatches,
+  createSupabaseClearAllPatches,
+} from '../src/patchRegistry/supabaseDelete.js';
+import { createSupabaseListPatches } from '../src/patchRegistry/supabaseSelect.js';
+import type {
+  ClearAllArg,
+  ClearTransientArg,
+  DeletePatchesArg,
+} from '../src/patchRegistry/supabaseDelete.js';
+import type { PatchRow, ListPatchesParams } from '../src/patchRegistry/types.js';
+import {
+  createUpstashRateLimiter,
+  noopRateLimiter,
+  type RateLimiter,
+} from '../src/ipRegistry/rateLimit.js';
+import {
+  createUpstashNonceStore,
+  noopNonceStore,
+  type NonceStore,
+} from '../src/signedRequest/nonceStore.js';
+
+// Vercel adapter for POST /api/patches.
+//
+// Single endpoint, action-dispatched by the signed payload's `action`
+// field — upsertPatch / removePatch / listPatches /
+// clearTransientPatches / clearAllPatches. Same Supabase + Upstash
+// wiring pattern as /api/sessions and /api/allocate-ip.
+
+// Per-pubkey rate limit. Filesystem patches fire once per nano save,
+// once per cp/mv/rm, etc., and a busy editing session can write
+// dozens per minute. 120/min gives plenty of headroom for active
+// editing while still capping a runaway script. Separate `prefix`
+// keeps the budget distinct from sessions and allocate-ip.
+const RATE_LIMIT_PER_MINUTE = 120;
+
+const buildUpstashAdapters = (): { rateLimiter: RateLimiter; nonceStore: NonceStore } => {
+  const url = process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN;
+  if (!url || !token) {
+    console.warn('[patches] Upstash not configured — rate limit + replay protection disabled');
+    return { rateLimiter: noopRateLimiter, nonceStore: noopNonceStore };
+  }
+
+  const redis = new Redis({ url, token });
+  const ratelimit = new Ratelimit({
+    redis,
+    limiter: Ratelimit.slidingWindow(RATE_LIMIT_PER_MINUTE, '1 m'),
+    analytics: false,
+    prefix: 'patches',
+  });
+  const rateLimiter = createUpstashRateLimiter((id) => ratelimit.limit(id));
+  const nonceStore = createUpstashNonceStore((key, value, opts) =>
+    redis.set(key, value, { ex: opts.ex, nx: opts.nx }),
+  );
+  return { rateLimiter, nonceStore };
+};
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') {
+    res.status(405).json({ error: 'method_not_allowed' });
+    return;
+  }
+
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceRoleKey) {
+    res.status(500).json({ error: 'not_configured' });
+    return;
+  }
+
+  const supabase = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  const upsertPatch = createSupabaseUpsertPatch(async (row: PatchRow) => {
+    // ON CONFLICT (player_key, machine_id, path) DO UPDATE SET ... —
+    // matches the table's composite PK. The mutable fields (content,
+    // owner, permissions, is_new, node_type) get overwritten on
+    // collision; the key fields stay put by definition.
+    const { error } = await supabase
+      .from('patches')
+      .upsert(row, { onConflict: 'player_key,machine_id,path' });
+    if (error) console.error('[patches] supabase upsert error:', error);
+    return { error };
+  });
+
+  const removePatch = createSupabaseRemovePatch(async (arg: DeletePatchesArg) => {
+    // Two queries: exact path + descendants. Avoids fragile PostgREST
+    // .or() quoting when paths contain commas / special chars. The
+    // small extra round-trip is negligible at our scale.
+    //
+    // .like('path', '${prefix}%') has a known v1 caveat: '_' is a
+    // single-char SQL wildcard, so a prefix containing '_' could
+    // match sibling paths (e.g. '/etc/my_dir/' would also match
+    // '/etc/myXdir/foo'). Accepted for v1; future PR can switch to a
+    // range query (.gte/.lt) once we hit a real conflict.
+    const exact = await supabase
+      .from('patches')
+      .delete()
+      .eq('player_key', arg.player_key)
+      .eq('machine_id', arg.machine_id)
+      .eq('path', arg.path)
+      .select('path');
+    if (exact.error) {
+      console.error('[patches] supabase delete (exact) error:', exact.error);
+      return { data: null, error: exact.error };
+    }
+
+    const desc = await supabase
+      .from('patches')
+      .delete()
+      .eq('player_key', arg.player_key)
+      .eq('machine_id', arg.machine_id)
+      .like('path', `${arg.path_prefix}%`)
+      .select('path');
+    if (desc.error) {
+      console.error('[patches] supabase delete (descendants) error:', desc.error);
+      return { data: null, error: desc.error };
+    }
+
+    return { data: [...(exact.data ?? []), ...(desc.data ?? [])], error: null };
+  });
+
+  const listPatches = createSupabaseListPatches(async (params: ListPatchesParams) => {
+    // Omit player_key from the projection — the caller already knows
+    // their own key. created_at / updated_at not surfaced; replay only
+    // needs content + permissions.
+    const { data, error } = await supabase
+      .from('patches')
+      .select('machine_id, path, content, owner, permissions, is_new, node_type')
+      .eq('player_key', params.player_key);
+    if (error) console.error('[patches] supabase select error:', error);
+    return { data, error };
+  });
+
+  const clearTransientPatches = createSupabaseClearTransientPatches(
+    async (arg: ClearTransientArg) => {
+      // .neq('machine_id', persistent_machine_id) — drops everything
+      // except the persistent machine (currently 'localhost'). Mirrors
+      // the FileSystemContext PERSISTENT_MACHINE_KEYS filter.
+      const { data, error } = await supabase
+        .from('patches')
+        .delete()
+        .eq('player_key', arg.player_key)
+        .neq('machine_id', arg.persistent_machine_id)
+        .select('path');
+      if (error) console.error('[patches] supabase clearTransient error:', error);
+      return { data, error };
+    },
+  );
+
+  const clearAllPatches = createSupabaseClearAllPatches(async (arg: ClearAllArg) => {
+    // No machine filter — wipes the player's entire patch set. Used
+    // by `reset confirm` before page reload to defeat ghost-rehydration.
+    const { data, error } = await supabase
+      .from('patches')
+      .delete()
+      .eq('player_key', arg.player_key)
+      .select('path');
+    if (error) console.error('[patches] supabase clearAll error:', error);
+    return { data, error };
+  });
+
+  const { rateLimiter, nonceStore } = buildUpstashAdapters();
+
+  const { status, body, headers } = await handlePatchesRequest(req.body, {
+    upsertPatch,
+    removePatch,
+    listPatches,
+    clearTransientPatches,
+    clearAllPatches,
+    rateLimiter,
+    nonceStore,
+  });
+
+  if (headers) {
+    for (const [name, value] of Object.entries(headers)) {
+      res.setHeader(name, value);
+    }
+  }
+  res.status(status).json(body);
+}
