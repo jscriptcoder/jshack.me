@@ -10,7 +10,7 @@ Replace the client-side session stack with a server-authoritative `sessions` tab
 ## Acceptance Criteria
 
 - [ ] `sessions` table exists in Supabase with the planned columns + RLS (SELECT own rows; INSERT/UPDATE/DELETE denied for anon)
-- [ ] Three signed Vercel endpoints: `POST /api/sessions`, `DELETE /api/sessions/:id`, `GET /api/sessions` — each reuses `signedRequest` machinery
+- [ ] Single signed Vercel endpoint `POST /api/sessions` with action-dispatch (`createSession` / `endSession` / `listSessions`). One verify+rate-limit+nonce path, action-handler routing from there. Reuses `signedRequest` machinery.
 - [ ] Client wrappers (`createSession`, `endSession`, `listSessions`) with full unit tests
 - [ ] `SessionContext.pushSession` and `popSession` round-trip through the server
 - [ ] `popAllSessions` cascades end on the server (children inherit `end_reason='cascade'`)
