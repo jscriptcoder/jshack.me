@@ -3,12 +3,17 @@ import { clearAllData } from '../utils/storage';
 
 type ResetContext = {
   readonly getDatabase: () => IDBDatabase | null;
+  // Server-side wipe of this player's patch set. Optional — older test
+  // setups omit it; production wires it via the patchRegistry client.
+  // Best-effort: page reloads regardless of whether this resolves, so
+  // a server outage doesn't strand the user mid-reset.
+  readonly clearAllPatches?: () => Promise<void>;
 };
 
 const RELOAD_DELAY_MS = 500;
 
 const WARNING_MESSAGE =
-  '\u26a0 This will wipe ALL progress and return to the start screen.\n' +
+  '⚠ This will wipe ALL progress and return to the start screen.\n' +
   'Type reset("confirm") to proceed.';
 
 export const createResetCommand = (context: ResetContext): Command => ({
@@ -43,6 +48,15 @@ export const createResetCommand = (context: ResetContext): Command => ({
       __type: 'async',
       start: (onLine, onComplete) => {
         const db = context.getDatabase();
+
+        // Fire the server-side wipe in parallel with the local clear.
+        // Best-effort — a rejection just gets logged. The page reloads
+        // regardless, so a stranded clearAllPatches won't block reset.
+        if (context.clearAllPatches) {
+          void context.clearAllPatches().catch((error) => {
+            console.error('[reset] clearAllPatches failed:', error);
+          });
+        }
 
         const reloadAfterDelay = () => {
           onLine('Game reset. Reloading...');
