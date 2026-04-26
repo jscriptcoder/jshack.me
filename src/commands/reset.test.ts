@@ -152,5 +152,93 @@ describe('reset command', () => {
       expect(completed).toBe(true);
       expect(window.location.reload).toHaveBeenCalled();
     });
+
+    describe('server-side patch wipe (clearAllPatches)', () => {
+      it('invokes clearAllPatches on confirmed reset (with DB)', async () => {
+        const mockDb = {} as IDBDatabase;
+        const clearAllPatches = vi.fn().mockResolvedValue(undefined);
+        const reset = createResetCommand({ getDatabase: () => mockDb, clearAllPatches });
+        const result = reset.fn('confirm');
+
+        if (isAsyncOutput(result)) {
+          result.start(
+            () => {},
+            () => {},
+          );
+        }
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(clearAllPatches).toHaveBeenCalledTimes(1);
+      });
+
+      it('invokes clearAllPatches even when no DB connection', async () => {
+        const clearAllPatches = vi.fn().mockResolvedValue(undefined);
+        const reset = createResetCommand({ getDatabase: () => null, clearAllPatches });
+        const result = reset.fn('confirm');
+
+        if (isAsyncOutput(result)) {
+          result.start(
+            () => {},
+            () => {},
+          );
+        }
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(clearAllPatches).toHaveBeenCalledTimes(1);
+      });
+
+      it('reload still completes when clearAllPatches rejects', async () => {
+        const mockDb = {} as IDBDatabase;
+        const clearAllPatches = vi.fn().mockRejectedValue(new Error('server down'));
+        const reset = createResetCommand({ getDatabase: () => mockDb, clearAllPatches });
+        const result = reset.fn('confirm');
+
+        let completed = false;
+        if (isAsyncOutput(result)) {
+          result.start(
+            () => {},
+            () => {
+              completed = true;
+            },
+          );
+        }
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(500);
+
+        expect(completed).toBe(true);
+        expect(window.location.reload).toHaveBeenCalled();
+      });
+
+      it('does not invoke clearAllPatches without "confirm" argument', () => {
+        const clearAllPatches = vi.fn().mockResolvedValue(undefined);
+        const reset = createResetCommand({ getDatabase: () => null, clearAllPatches });
+
+        reset.fn();
+        reset.fn('yes');
+
+        expect(clearAllPatches).not.toHaveBeenCalled();
+      });
+
+      it('reset still works when clearAllPatches is omitted from context (back-compat)', async () => {
+        const mockDb = {} as IDBDatabase;
+        const reset = createResetCommand({ getDatabase: () => mockDb });
+        const result = reset.fn('confirm');
+
+        let completed = false;
+        if (isAsyncOutput(result)) {
+          result.start(
+            () => {},
+            () => {
+              completed = true;
+            },
+          );
+        }
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(500);
+
+        expect(completed).toBe(true);
+        expect(window.location.reload).toHaveBeenCalled();
+      });
+    });
   });
 });

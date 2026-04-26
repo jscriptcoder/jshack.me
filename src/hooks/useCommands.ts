@@ -12,6 +12,7 @@ import { createResetCommand } from '../commands/reset';
 import { createThemeCommand } from '../commands/theme';
 import { createIdentityCommand } from '../commands/identity';
 import { getIdentity } from '../identity';
+import { clearAllPatches as clearAllPatchesOnServer } from '../patchRegistry/client';
 import { createMissionsCommand } from '../commands/missions';
 import { createAcceptCommand } from '../commands/accept';
 import { createAbortCommand } from '../commands/abort';
@@ -147,7 +148,13 @@ export const useCommands = (): UseCommandsResult => {
     commands.set('clear', clearCommand);
     commands.set('exit', exitCommand);
     commands.set('xterm', xtermCommand);
-    commands.set('reset', createResetCommand({ getDatabase }));
+    commands.set(
+      'reset',
+      createResetCommand({
+        getDatabase,
+        clearAllPatches: () => clearAllPatchesOnServer(getIdentity()),
+      }),
+    );
     commands.set(
       'theme',
       createThemeCommand({
