@@ -4,16 +4,17 @@ This doc captures the non-obvious technology decisions made for JSHACK.ME's Phas
 
 ## Stack at a glance
 
-| Layer                | Choice                                        | Status                                                                                                 |
-| -------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Frontend hosting     | Vercel                                        | Shipped (pre-Phase-5)                                                                                  |
-| Serverless functions | Vercel Functions (Node runtime)               | Shipped                                                                                                |
-| Database + Realtime  | Supabase (Postgres + Realtime)                | Postgres shipped; Realtime planned                                                                     |
-| Rate limiting        | Upstash Ratelimit (Redis over HTTPS)          | Shipped                                                                                                |
-| Input validation     | zod                                           | Shipped                                                                                                |
-| Identity             | Ed25519 keypair (browser localStorage)        | Key gen + storage + signed `/api/allocate-ip` + signed `/api/sessions` shipped; signed patches planned |
-| Sessions             | Server-authoritative `sessions` table         | Shipped — push/pop/listSessions wired through SessionContext; Realtime live-death deferred             |
-| Wallet               | Separate Ed25519 keypair (in-game filesystem) | Planned                                                                                                |
+| Layer                | Choice                                        | Status                                                                                                    |
+| -------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Frontend hosting     | Vercel                                        | Shipped (pre-Phase-5)                                                                                     |
+| Serverless functions | Vercel Functions (Node runtime)               | Shipped                                                                                                   |
+| Database + Realtime  | Supabase (Postgres + Realtime)                | Postgres shipped; Realtime planned                                                                        |
+| Rate limiting        | Upstash Ratelimit (Redis over HTTPS)          | Shipped                                                                                                   |
+| Input validation     | zod                                           | Shipped                                                                                                   |
+| Identity             | Ed25519 keypair (browser localStorage)        | Key gen + storage + signed `/api/allocate-ip` + `/api/sessions` + `/api/patches` shipped                  |
+| Sessions             | Server-authoritative `sessions` table         | Shipped — push/pop/listSessions wired through SessionContext; Realtime live-death deferred                |
+| Patches              | Server-authoritative `patches` table          | Shipped — upsert/remove/list/clearTransient/clearAll wired through FileSystemContext; validation deferred |
+| Wallet               | Separate Ed25519 keypair (in-game filesystem) | Planned                                                                                                   |
 
 ---
 
@@ -362,6 +363,59 @@ The cosmetic loss is acceptable for Phase 1+3. A later migration could add `star
 - **Realtime session-death**: when another player kills your session (or NAT removes a port-forward), you don't see it until your next interaction triggers a server call. Phase 2 PR adds a Supabase Realtime subscription on `sessions WHERE player_key = me` with cascade-handling on the client.
 - **Patch authorization integration**: patches will look up `sessions` to authorize file/process mutations. Phase 4 PR.
 - **Multi-tab session reconciliation**: currently `listSessions` returns all of a player's active sessions; we reconstruct the linear chain by `created_at` order, which is correct for single-tab single-chain. Multi-tab edge case (multiple chains) is deferred.
+
+---
+
+## Patches: server-authoritative with two-call deletion
+
+### Choice
+
+A `patches` table on Supabase records each player's filesystem mutations — every file write, create, deletion, and permission change. Composite PK `(player_key, machine_id, path)` doubles as the natural-key for UPSERT. Clients call `/api/patches` (single endpoint, action-dispatched: `upsertPatch` / `removePatch` / `listPatches` / `clearTransientPatches` / `clearAllPatches`) via signed envelopes. Server is the single source of truth for "what's the player's view of the filesystem on machine X?".
+
+`FileSystemContext.broadcastAndRecordPatch` fires-and-forgets the right server call alongside its existing local-state update + IndexedDB cache write. On `FileSystemProvider` mount, `listPatches` rehydrates from server (skipped if local writes happened during the mount window — those upserts are already in flight, the next mount reconciles). IndexedDB stays as a sync-readable cache for fast initial paint.
+
+### Why
+
+Patches are the second multiplayer-load-bearing piece (after sessions): cross-device sync depends on them, future shared-network gameplay (mission instances, persistent darknet hubs) reads them, and patch validation against the `sessions` table is the actual security boundary protecting other players' filesystems.
+
+- **Cross-device sync** out of the box — write a file on device A, see it on device B after `listPatches` rehydration.
+- **Foundation for patch validation** (next PR) — once the Vercel function consults `sessions` to authorize each upsert, an attacker can't tamper with files on machines they don't have a session on.
+- **Foundation for Realtime fanout** (later PR) — the same row mutations stream as `postgres_changes` events to other clients on shared machines.
+
+### Two-call deletion strategy
+
+The client decides per case which server calls to fire:
+
+| Local action                               | Server                                                                         |
+| ------------------------------------------ | ------------------------------------------------------------------------------ |
+| Write/create (`content !== null`)          | `upsertPatch`                                                                  |
+| Delete a file the player created via patch | `removePatch` (one round-trip; handles descendants via `path_prefix`)          |
+| Delete a base-fs file/directory            | `removePatch` THEN `upsertPatch` (descendants gone, then null marker recorded) |
+
+The two-call sequence is for the rare "rm -rf a base directory you've been modifying" case. Three options were considered:
+
+1. **Single `applyPatch` action that branches server-side** — server queries `existing.is_new` first, then upserts or deletes. Simpler client, more server complexity.
+2. **Single `upsertPatch` that also deletes descendants when content=null** — couples two responsibilities in one action.
+3. **Client orchestrates two calls in the corner case** — extra round-trip in the rare path; keeps each server action single-purpose.
+
+Picked **(3)**. Server actions stay clean and orthogonal. The corner case is rare enough that one extra round-trip doesn't matter, and the client already has all the information needed to decide.
+
+### Mount-window race mitigation
+
+`listPatches` resolves ~hundreds of ms after mount. If the user types into a file before that resolves, the rehydration would clobber the local write. `FileSystemContext` tracks a `localWritesSinceMount` flag — if true when listPatches resolves, server-truth replacement is skipped. The local upsert is already on its way to the server fire-and-forget; the next mount sees the merged truth.
+
+Tradeoff: cross-device sync is slightly delayed in this case (one extra round-trip on the next mount). Strictly worse than blocking the user's first write on a server response, but acceptable.
+
+### LIKE wildcard caveat in descendant removal
+
+`removePatch` issues `.like('path', '${prefix}%')` for descendants. SQL LIKE treats `_` as a single-char wildcard, so a path containing `_` could match siblings (e.g. `/etc/my_dir/` would also match `/etc/myXdir/foo`). Acceptable for v1; future PR can switch to a `.gte/.lt` range query if it bites.
+
+### What's deferred
+
+- **Patch validation against `sessions`**: this PR records authoritatively but does NOT yet enforce "is this player allowed to mutate this path?". The follow-up PR makes the Vercel function read `sessions` and reject patches that don't have an active session + sufficient credentials on the target machine. **The actual security boundary lives there.**
+- **Mission-instance / shared-network scoping**: `machine_id` is the only scope today. When mission instances ship, `instance_id` (or similar) joins the natural key.
+- **Realtime fanout**: `postgres_changes` subscription on `patches WHERE player_key = me` for cross-tab/cross-device live updates. Phase later.
+- **IndexedDB removal**: still kept as a sync-readable cache for fast initial paint. Pruning happens once we're confident the server pipe handles every entry point.
 
 ---
 
