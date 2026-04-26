@@ -24,6 +24,13 @@ import { getDefaultHomePath, type MachineId } from './machineFileSystems';
 import { getCachedFilesystemPatches, getDatabase } from '../utils/storageCache';
 import { saveFilesystemPatches } from '../utils/storage';
 import { createSyncChannel, type SyncMessage } from '../utils/crossTabSync';
+import { getIdentity } from '../identity';
+import {
+  upsertPatch as upsertPatchOnServer,
+  removePatch as removePatchOnServer,
+  listPatches as listPatchesFromServer,
+  clearTransientPatches as clearTransientPatchesOnServer,
+} from '../patchRegistry/client';
 import {
   resolvePath as resolvePathUtil,
   getNodeAtPath,
@@ -84,6 +91,10 @@ type FileSystemContextValue = {
     path: string,
     userType: UserType,
   ) => PermissionResult;
+  // True between mount and the first listPatches resolve (success OR failure).
+  // No UI gates on this today (the IndexedDB cache covers initial paint), but
+  // exposed for future loading-indicator wiring.
+  readonly isRehydrating: boolean;
 };
 
 const FileSystemContext = createContext<FileSystemContextValue | null>(null);
@@ -109,10 +120,27 @@ export const FileSystemProvider = ({
     applyPatches({ localhost: localhostFileSystem }, getCachedFilesystemPatches()),
   );
   const [patches, setPatches] = useState<readonly FileSystemPatch[]>(getCachedFilesystemPatches);
+  // True between mount and the first listPatches resolve (success or failure).
+  const [isRehydrating, setIsRehydrating] = useState(true);
   // Create channel inside effect so StrictMode's cleanup + re-run cycle gets
   // a fresh (open) channel. The ref is updated so broadcastAndRecordPatch always
   // posts on the currently-active channel.
   const syncChannelRef = useRef<ReturnType<typeof createSyncChannel> | null>(null);
+  // patchesRef mirrors `patches` so broadcastAndRecordPatch can look up the
+  // existing patch (for the isNew vs base-file decision) without re-creating
+  // the callback on every patches change. See the useEffect below the state.
+  const patchesRef = useRef<readonly FileSystemPatch[]>(patches);
+  // propsRef captures the latest base/home/mission filesystems so the
+  // rehydration .then() can rebuild fileSystems from the freshest layered
+  // base, even if props changed during the in-flight listPatches.
+  const propsRef = useRef({ localhostFileSystem, homeFileSystems, missionFileSystems });
+  // Set to true the first time the user does any local write/delete after
+  // mount. The rehydration .then() reads this and SKIPS server-truth
+  // replacement when local writes are in flight — those upserts are already
+  // heading to the server fire-and-forget, the next mount will see the merged
+  // truth. Avoids clobbering a user's just-typed change if listPatches lands
+  // a few hundred ms after mount.
+  const localWritesSinceMount = useRef(false);
 
   // Subscribe to filesystem patches from other tabs.
   // BroadcastChannel does not deliver messages to the posting tab, so no echo guard needed.
@@ -154,6 +182,55 @@ export const FileSystemProvider = ({
     }
   }, [patches]);
 
+  // Keep patchesRef and propsRef in sync with the current state/props so
+  // ref-readers always observe the latest committed values.
+  useEffect(() => {
+    patchesRef.current = patches;
+  }, [patches]);
+  useEffect(() => {
+    propsRef.current = { localhostFileSystem, homeFileSystems, missionFileSystems };
+  }, [localhostFileSystem, homeFileSystems, missionFileSystems]);
+
+  // Mount rehydration — fetch the player's full patch set from the server
+  // and replace local state if no local writes have happened yet. The
+  // IndexedDB cache covers fast initial paint; this useEffect performs the
+  // cross-device sync once the network responds. Race window: a local
+  // write before listPatches resolves sets localWritesSinceMount and we
+  // skip replacement (the local upsert is already on its way to the
+  // server fire-and-forget, the next mount will reconcile).
+  useEffect(() => {
+    let cancelled = false;
+    void listPatchesFromServer(getIdentity())
+      .then((serverPatches) => {
+        if (cancelled) return;
+        if (localWritesSinceMount.current) return;
+        // Replace patches state + IndexedDB cache + rebuild fileSystems
+        // from the freshest layered base.
+        setPatches(serverPatches);
+        const db = getDatabase();
+        if (db) saveFilesystemPatches(db, [...serverPatches]);
+        const props = propsRef.current;
+        const base = { localhost: props.localhostFileSystem };
+        const withHome = props.homeFileSystems ? { ...base, ...props.homeFileSystems } : base;
+        const merged = props.missionFileSystems
+          ? { ...withHome, ...props.missionFileSystems }
+          : withHome;
+        setFileSystems(applyPatches(merged, serverPatches));
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error('[fs] patch rehydration failed:', error);
+      })
+      .finally(() => {
+        if (!cancelled) setIsRehydrating(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Mount-only — props are read via propsRef.current inside the .then()
+    // so we don't need them in deps.
+  }, []);
+
   // Track whether the missionFileSystems effect is running for the first time.
   // On initial mount with a persisted mission, we replay cached patches so the
   // user's in-progress work (apt installs, nano edits, etc.) survives page reload.
@@ -170,6 +247,12 @@ export const FileSystemProvider = ({
     // patches — they belong to the previous mission and shouldn't carry over.
     if (!isInitialMissionMount.current) {
       setPatches((prev) => prev.filter((p) => PERSISTENT_MACHINE_KEYS.has(p.machineId)));
+      // Mirror server-side: drop everything except localhost for this player.
+      // Fire-and-forget — failure is logged but shouldn't block the local
+      // filter from completing (worst case: stale rows get pruned next time).
+      void clearTransientPatchesOnServer(getIdentity()).catch((error) => {
+        console.error('[fs] clearTransientPatches failed:', error);
+      });
     }
 
     setFileSystems((prev) => {
@@ -329,24 +412,75 @@ export const FileSystemProvider = ({
     [readFileFromMachine, currentMachine, currentPath],
   );
 
-  // Broadcasts a patch to other tabs and updates local patch state.
-  // Deletion of a patch-created file (isNew) removes the patch entirely instead of
-  // recording a null patch — the file never existed in the base filesystem.
-  // Deletion of a base filesystem file records a null patch.
+  // Broadcasts a patch to other tabs, fires the right server-side call, and
+  // updates local patch state. The server-side dispatch is fire-and-forget —
+  // sync callers don't await; failures are logged but never block the UI.
+  // See feedback memory: feedback_react_context_server_integration.md.
+  //
+  // Deletion of a patch-created file (isNew) removes the patch entirely
+  // instead of recording a null patch — the file never existed in the base
+  // filesystem. Deletion of a base filesystem file records a null patch.
   // Both cases also remove any child patches under the deleted path.
+  //
+  // Server dispatch table:
+  //   write/create (content !== null)        → upsertPatchOnServer
+  //   delete isNew (content === null & isNew) → removePatchOnServer (handles
+  //                                              descendants via path_prefix)
+  //   delete base  (content === null & !isNew)→ removePatchOnServer THEN
+  //                                              upsertPatchOnServer (null
+  //                                              marker after descendant
+  //                                              cleanup)
+  //
+  // The existing-row lookup for the isNew vs base decision uses patchesRef,
+  // not the live setPatches prev. A rare race (rapid create+delete in the
+  // same tick) might pick the wrong branch and leave a stale null marker
+  // server-side; the local in-memory state is still correct, and the
+  // marker is harmless on the next rehydration (applyPatches treats it as
+  // a deletion — same outcome).
   const broadcastAndRecordPatch = useCallback((patch: FileSystemPatch) => {
     syncChannelRef.current?.broadcast({ type: 'filesystem-patch', patch });
+    localWritesSinceMount.current = true;
+
+    const existing = patchesRef.current.find(
+      (p) => p.machineId === patch.machineId && p.path === patch.path,
+    );
+    if (patch.content !== null) {
+      void upsertPatchOnServer(getIdentity(), patch).catch((error) => {
+        console.error('[fs] upsertPatch failed:', error);
+      });
+    } else if (existing?.isNew) {
+      void removePatchOnServer(getIdentity(), {
+        machineId: patch.machineId,
+        path: patch.path,
+      }).catch((error) => {
+        console.error('[fs] removePatch (isNew) failed:', error);
+      });
+    } else {
+      // Base-file deletion: drop descendants first (they don't make sense
+      // once the parent is marked deleted), then record the null marker.
+      void removePatchOnServer(getIdentity(), {
+        machineId: patch.machineId,
+        path: patch.path,
+      })
+        .then(() => upsertPatchOnServer(getIdentity(), patch))
+        .catch((error) => {
+          console.error('[fs] removePatch+upsertPatch failed:', error);
+        });
+    }
+
     setPatches((prev) => {
       if (patch.content !== null) return upsertPatch(prev, patch);
 
-      const existing = prev.find((p) => p.machineId === patch.machineId && p.path === patch.path);
+      const existingInPrev = prev.find(
+        (p) => p.machineId === patch.machineId && p.path === patch.path,
+      );
       const deletedPrefix = patch.path.endsWith('/') ? patch.path : patch.path + '/';
       const withoutChildren = prev.filter(
         (p) => !(p.machineId === patch.machineId && p.path.startsWith(deletedPrefix)),
       );
 
       // File was created via patch — just remove the patch (no null patch needed)
-      if (existing?.isNew) {
+      if (existingInPrev?.isNew) {
         return withoutChildren.filter(
           (p) => !(p.machineId === patch.machineId && p.path === patch.path),
         );
@@ -719,6 +853,7 @@ export const FileSystemProvider = ({
         updatePermissions,
         canTraverse: canTraverseFn,
         canTraverseOnMachine,
+        isRehydrating,
       }}
     >
       {children}
