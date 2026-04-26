@@ -50,11 +50,25 @@ export const endSessionSignedPayloadSchema = z
 
 export type EndSessionPayload = z.infer<typeof endSessionSignedPayloadSchema>;
 
+// Schema for listSessions — returns the caller's active sessions. No
+// filter parameters yet; future versions could add per-machine or
+// include-ended filters without breaking existing clients.
+export const listSessionsSignedPayloadSchema = z
+  .object({
+    action: z.literal('listSessions'),
+    ts: z.number().int(),
+    nonce: z.string().regex(/^[0-9a-f]{32}$/i),
+  })
+  .strict();
+
+export type ListSessionsPayload = z.infer<typeof listSessionsSignedPayloadSchema>;
+
 // Combined schema for /api/sessions — discriminated by `action`. Adding a
 // new action: extend this union and add a dispatch arm in handler.ts.
 export const sessionsSignedPayloadSchema = z.discriminatedUnion('action', [
   createSessionSignedPayloadSchema,
   endSessionSignedPayloadSchema,
+  listSessionsSignedPayloadSchema,
 ]);
 
 export type SessionsPayload = z.infer<typeof sessionsSignedPayloadSchema>;
@@ -91,3 +105,24 @@ export type EndSessionParams = {
 // We collapse all 0-cases to 404; we don't distinguish "not yours" from
 // "not found" (avoids info leaks and keeps the SQL atomic).
 export type EndSessionResult = { readonly ok: true; readonly affected: number } | { readonly ok: false };
+
+// Public shape of an active session row, returned by listSessions. Omits
+// player_key (caller already knows their own key) and the ended_at /
+// end_reason fields (only active rows are returned). created_at is the
+// Postgres TIMESTAMPTZ serialized as ISO 8601.
+export type SessionSummary = {
+  readonly session_id: string;
+  readonly machine_id: string;
+  readonly credentials: Credentials;
+  readonly parent_session_id: string | null;
+  readonly source_ip: string | null;
+  readonly created_at: string;
+};
+
+export type ListSessionsParams = {
+  readonly player_key: string;
+};
+
+export type ListSessionsResult =
+  | { readonly ok: true; readonly sessions: ReadonlyArray<SessionSummary> }
+  | { readonly ok: false };

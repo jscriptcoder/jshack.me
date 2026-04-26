@@ -5,7 +5,12 @@ import { Redis } from '@upstash/redis';
 import { handleSessionsRequest } from '../src/sessionRegistry/handler.js';
 import { createSupabaseInsertSession } from '../src/sessionRegistry/supabaseInsert.js';
 import { createSupabaseEndSession } from '../src/sessionRegistry/supabaseUpdate.js';
-import type { EndSessionParams, SessionRow } from '../src/sessionRegistry/types.js';
+import { createSupabaseListSessions } from '../src/sessionRegistry/supabaseSelect.js';
+import type {
+  EndSessionParams,
+  ListSessionsParams,
+  SessionRow,
+} from '../src/sessionRegistry/types.js';
 import {
   createUpstashRateLimiter,
   noopRateLimiter,
@@ -90,11 +95,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return { data, error };
   });
 
+  const listSessions = createSupabaseListSessions(async (params: ListSessionsParams) => {
+    const { data, error } = await supabase
+      .from('sessions')
+      .select('session_id, machine_id, credentials, parent_session_id, source_ip, created_at')
+      .eq('player_key', params.player_key)
+      .is('ended_at', null)
+      .order('created_at', { ascending: true });
+    if (error) console.error('[sessions] supabase select error:', error);
+    return { data, error };
+  });
+
   const { rateLimiter, nonceStore } = buildUpstashAdapters();
 
   const { status, body, headers } = await handleSessionsRequest(req.body, {
     insertSession,
     endSession,
+    listSessions,
     rateLimiter,
     nonceStore,
   });
