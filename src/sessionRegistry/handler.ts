@@ -1,10 +1,17 @@
 import {
-  createSessionSignedPayloadSchema,
+  sessionsSignedPayloadSchema,
+  type EndSessionParams,
+  type EndSessionResult,
   type InsertSessionResult,
+  type SessionsPayload,
   type SessionRow,
 } from './types.js';
 import type { RateLimiter } from '../ipRegistry/rateLimit.js';
-import { verifySignedRequest, type VerifyFailureReason } from '../signedRequest/verify.js';
+import {
+  verifySignedRequest,
+  type VerifyFailureReason,
+  type VerifyResult,
+} from '../signedRequest/verify.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 export type HandlerResponse = {
@@ -15,6 +22,7 @@ export type HandlerResponse = {
 
 export type HandlerDeps = {
   readonly insertSession: (row: SessionRow) => Promise<InsertSessionResult>;
+  readonly endSession: (params: EndSessionParams) => Promise<EndSessionResult>;
   readonly rateLimiter: RateLimiter;
   readonly nonceStore: NonceStore;
   readonly now?: () => number;
@@ -33,23 +41,22 @@ const STATUS_BY_VERIFY_REASON: Record<VerifyFailureReason, number> = {
   replay: 401,
 };
 
-// Pure request handler for POST /api/sessions. Order:
+// Pure request handler for POST /api/sessions. Single endpoint with
+// action-dispatch:
 //
-//   1. Verify signed envelope — Ed25519 signature, payload schema, ts
-//      window, nonce dedupe. Cheap CPU checks first; the nonce store
-//      hits Upstash only after everything else passed.
-//   2. Rate-limit on the verified public key (per-pubkey, like allocate-ip).
-//   3. Insert session row — player_key is server-stamped from the verified
-//      pubkey, never trusted from client claims.
+//   1. Verify the signed envelope against the discriminated-union schema
+//      (createSession / endSession / future actions). The verify path is
+//      shared — every action gets identical signature + replay + ts checks.
+//   2. Rate-limit on the verified pubkey (per-pubkey, like allocate-ip).
+//   3. Dispatch on `verified.payload.action` to the per-action branch.
 //
-// Action dispatch: this handler currently only accepts createSession.
-// endSession + listSessions will land in subsequent steps and switch to
-// a discriminated-union schema.
+// player_key on every write is server-stamped from the verified pubkey.
+// Strict schemas reject any client-supplied `player_key` field.
 export const handleSessionsRequest = async (
   envelope: unknown,
   deps: HandlerDeps,
 ): Promise<HandlerResponse> => {
-  const verified = await verifySignedRequest(envelope, createSessionSignedPayloadSchema, {
+  const verified = await verifySignedRequest(envelope, sessionsSignedPayloadSchema, {
     nonceStore: deps.nonceStore,
     now: deps.now,
   });
@@ -69,9 +76,32 @@ export const handleSessionsRequest = async (
     };
   }
 
-  const { machine_id, credentials, parent_session_id, source_ip } = verified.payload;
+  // verified is narrowed to VerifyResult<SessionsPayload> (success); the
+  // dispatch helpers narrow further by `action`.
+  return dispatchAction(verified, deps);
+};
+
+const dispatchAction = async (
+  verified: Extract<VerifyResult<SessionsPayload>, { ok: true }>,
+  deps: HandlerDeps,
+): Promise<HandlerResponse> => {
+  const { payload, publicKey } = verified;
+  switch (payload.action) {
+    case 'createSession':
+      return handleCreateSession(publicKey, payload, deps);
+    case 'endSession':
+      return handleEndSession(publicKey, payload, deps);
+  }
+};
+
+const handleCreateSession = async (
+  publicKey: string,
+  payload: Extract<SessionsPayload, { action: 'createSession' }>,
+  deps: HandlerDeps,
+): Promise<HandlerResponse> => {
+  const { machine_id, credentials, parent_session_id, source_ip } = payload;
   const row: SessionRow = {
-    player_key: verified.publicKey,
+    player_key: publicKey,
     machine_id,
     credentials,
     ...(parent_session_id !== undefined && { parent_session_id }),
@@ -82,6 +112,29 @@ export const handleSessionsRequest = async (
   if (!result.ok) {
     return { status: 500, body: { error: 'insert_failed' } };
   }
-
   return { status: 200, body: { session_id: result.session_id } };
+};
+
+const handleEndSession = async (
+  publicKey: string,
+  payload: Extract<SessionsPayload, { action: 'endSession' }>,
+  deps: HandlerDeps,
+): Promise<HandlerResponse> => {
+  const result = await deps.endSession({
+    session_id: payload.session_id,
+    player_key: publicKey,
+    reason: payload.reason,
+  });
+  if (!result.ok) {
+    return { status: 500, body: { error: 'update_failed' } };
+  }
+  if (result.affected === 0) {
+    // Collapses three cases into one 404 (intentional, see plan):
+    //   - session_id doesn't exist
+    //   - session belongs to another player_key
+    //   - session is already ended
+    // Atomic SQL UPDATE filter handles all three; no info leak.
+    return { status: 404, body: { error: 'session_not_found' } };
+  }
+  return { status: 200, body: {} };
 };

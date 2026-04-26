@@ -33,6 +33,32 @@ export const createSessionSignedPayloadSchema = z
 
 export type CreateSessionPayload = z.infer<typeof createSessionSignedPayloadSchema>;
 
+// Schema for endSession — marks an existing session ended_at + end_reason.
+// Server identifies the caller via the verified pubkey (must match the
+// row's player_key for the UPDATE to affect anything). The atomic UPDATE
+// in the adapter filters by player_key + ended_at IS NULL so non-owner
+// or already-ended attempts produce affected: 0 → 404.
+export const endSessionSignedPayloadSchema = z
+  .object({
+    action: z.literal('endSession'),
+    ts: z.number().int(),
+    nonce: z.string().regex(/^[0-9a-f]{32}$/i),
+    session_id: z.string().uuid(),
+    reason: z.string().min(1).max(64),
+  })
+  .strict();
+
+export type EndSessionPayload = z.infer<typeof endSessionSignedPayloadSchema>;
+
+// Combined schema for /api/sessions — discriminated by `action`. Adding a
+// new action: extend this union and add a dispatch arm in handler.ts.
+export const sessionsSignedPayloadSchema = z.discriminatedUnion('action', [
+  createSessionSignedPayloadSchema,
+  endSessionSignedPayloadSchema,
+]);
+
+export type SessionsPayload = z.infer<typeof sessionsSignedPayloadSchema>;
+
 // Internal allocator input — used between the handler and the
 // supabaseInsert adapter after the signed envelope has been verified
 // and player_key has been stamped from the verified pubkey.
@@ -49,3 +75,19 @@ export type SessionRow = {
 export type InsertSessionResult =
   | { readonly ok: true; readonly session_id: string }
   | { readonly ok: false };
+
+// Parameters for the atomic UPDATE that ends a session. player_key is
+// part of the WHERE filter (not just the SET) so a player can only end
+// their own sessions — non-owner attempts produce affected: 0.
+export type EndSessionParams = {
+  readonly session_id: string;
+  readonly player_key: string;
+  readonly reason: string;
+};
+
+// Result of the end-session UPDATE. affected = number of rows updated:
+//   - 0 → session doesn't exist, isn't owned by this player, or already ended
+//   - 1 → row was active and is now marked ended_at + end_reason
+// We collapse all 0-cases to 404; we don't distinguish "not yours" from
+// "not found" (avoids info leaks and keeps the SQL atomic).
+export type EndSessionResult = { readonly ok: true; readonly affected: number } | { readonly ok: false };

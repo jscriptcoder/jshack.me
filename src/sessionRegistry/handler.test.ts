@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { handleSessionsRequest } from './handler';
-import type { SessionRow, InsertSessionResult } from './types';
+import type {
+  SessionRow,
+  InsertSessionResult,
+  EndSessionParams,
+  EndSessionResult,
+} from './types';
 import type { RateLimiter } from '../ipRegistry/rateLimit';
 import { noopRateLimiter } from '../ipRegistry/rateLimit';
 import { noopNonceStore, type NonceStore } from '../signedRequest/nonceStore';
@@ -34,6 +39,7 @@ const makeEnvelope = (
 
 const mkDeps = (overrides: {
   readonly insertSession?: (row: SessionRow) => Promise<InsertSessionResult>;
+  readonly endSession?: (params: EndSessionParams) => Promise<EndSessionResult>;
   readonly rateLimiter?: RateLimiter;
   readonly nonceStore?: NonceStore;
   readonly now?: () => number;
@@ -43,6 +49,11 @@ const mkDeps = (overrides: {
     vi
       .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
       .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID }),
+  endSession:
+    overrides.endSession ??
+    vi
+      .fn<(params: EndSessionParams) => Promise<EndSessionResult>>()
+      .mockResolvedValue({ ok: true, affected: 1 }),
   rateLimiter: overrides.rateLimiter ?? noopRateLimiter,
   nonceStore: overrides.nonceStore ?? noopNonceStore,
   now: overrides.now ?? (() => FIXED_NOW),
@@ -233,6 +244,163 @@ describe('handleSessionsRequest — createSession', () => {
       const result = await handleSessionsRequest(envelope, mkDeps({ insertSession }));
       expect(result.status).toBe(500);
       expect(result.body).toMatchObject({ error: 'insert_failed' });
+    });
+  });
+});
+
+describe('handleSessionsRequest — endSession', () => {
+  let identity: Identity;
+  beforeEach(() => {
+    identity = generateIdentity();
+  });
+
+  const validEndPayload = {
+    action: 'endSession',
+    session_id: '11111111-2222-4333-8444-555555555555',
+    reason: 'user_exit',
+  };
+
+  it('returns 200 with empty body on a valid end of an active own session', async () => {
+    const envelope = makeEnvelope(identity, validEndPayload);
+    const result = await handleSessionsRequest(envelope, mkDeps({}));
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({});
+  });
+
+  it('calls endSession with verified pubkey as player_key (not client claim)', async () => {
+    const endSession = vi
+      .fn<(params: EndSessionParams) => Promise<EndSessionResult>>()
+      .mockResolvedValue({ ok: true, affected: 1 });
+    const envelope = makeEnvelope(identity, validEndPayload);
+
+    await handleSessionsRequest(envelope, mkDeps({ endSession }));
+
+    expect(endSession).toHaveBeenCalledWith({
+      session_id: validEndPayload.session_id,
+      player_key: identity.publicKeyHex,
+      reason: 'user_exit',
+    });
+  });
+
+  it('returns 404 when affected = 0 (not found, not yours, or already ended)', async () => {
+    const endSession = vi
+      .fn<(params: EndSessionParams) => Promise<EndSessionResult>>()
+      .mockResolvedValue({ ok: true, affected: 0 });
+    const envelope = makeEnvelope(identity, validEndPayload);
+
+    const result = await handleSessionsRequest(envelope, mkDeps({ endSession }));
+
+    expect(result.status).toBe(404);
+    expect(result.body).toMatchObject({ error: 'session_not_found' });
+  });
+
+  it('returns 500 when the DB update errors', async () => {
+    const endSession = vi
+      .fn<(params: EndSessionParams) => Promise<EndSessionResult>>()
+      .mockResolvedValue({ ok: false });
+    const envelope = makeEnvelope(identity, validEndPayload);
+
+    const result = await handleSessionsRequest(envelope, mkDeps({ endSession }));
+
+    expect(result.status).toBe(500);
+    expect(result.body).toMatchObject({ error: 'update_failed' });
+  });
+
+  describe('schema validation', () => {
+    it('returns 400 when session_id is not a UUID', async () => {
+      const envelope = makeEnvelope(identity, {
+        action: 'endSession',
+        session_id: 'not-a-uuid',
+        reason: 'user_exit',
+      });
+      const result = await handleSessionsRequest(envelope, mkDeps({}));
+      expect(result.status).toBe(400);
+    });
+
+    it('returns 400 when reason is missing', async () => {
+      const envelope = makeEnvelope(identity, {
+        action: 'endSession',
+        session_id: validEndPayload.session_id,
+      });
+      const result = await handleSessionsRequest(envelope, mkDeps({}));
+      expect(result.status).toBe(400);
+    });
+
+    it('returns 400 when reason exceeds max length', async () => {
+      const envelope = makeEnvelope(identity, {
+        action: 'endSession',
+        session_id: validEndPayload.session_id,
+        reason: 'x'.repeat(100),
+      });
+      const result = await handleSessionsRequest(envelope, mkDeps({}));
+      expect(result.status).toBe(400);
+    });
+
+    it('returns 400 when client supplies unknown extra fields', async () => {
+      const envelope = makeEnvelope(identity, {
+        action: 'endSession',
+        session_id: validEndPayload.session_id,
+        reason: 'user_exit',
+        admin: true,
+      });
+      const result = await handleSessionsRequest(envelope, mkDeps({}));
+      expect(result.status).toBe(400);
+    });
+  });
+
+  describe('cross-action isolation', () => {
+    it('does not call insertSession when action is endSession', async () => {
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const envelope = makeEnvelope(identity, validEndPayload);
+
+      await handleSessionsRequest(envelope, mkDeps({ insertSession }));
+
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+
+    it('does not call endSession when action is createSession', async () => {
+      const endSession = vi
+        .fn<(params: EndSessionParams) => Promise<EndSessionResult>>()
+        .mockResolvedValue({ ok: true, affected: 1 });
+      const envelope = makeEnvelope(identity); // default = createSession
+
+      await handleSessionsRequest(envelope, mkDeps({ endSession }));
+
+      expect(endSession).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('signature + rate-limit (parity with createSession)', () => {
+    it('returns 401 on bad signature for endSession too', async () => {
+      const stranger = generateIdentity();
+      const envelope = makeEnvelope(identity, validEndPayload);
+      const tampered = { ...envelope, publicKey: stranger.publicKeyHex };
+      const result = await handleSessionsRequest(tampered, mkDeps({}));
+      expect(result.status).toBe(401);
+    });
+
+    it('returns 429 when rate-limited (insert + update both blocked)', async () => {
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const endSession = vi
+        .fn<(params: EndSessionParams) => Promise<EndSessionResult>>()
+        .mockResolvedValue({ ok: true, affected: 1 });
+      const rateLimiter = vi
+        .fn<RateLimiter>()
+        .mockResolvedValue({ allowed: false, retryAfterSeconds: 30 });
+      const envelope = makeEnvelope(identity, validEndPayload);
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({ insertSession, endSession, rateLimiter }),
+      );
+
+      expect(result.status).toBe(429);
+      expect(insertSession).not.toHaveBeenCalled();
+      expect(endSession).not.toHaveBeenCalled();
     });
   });
 });
