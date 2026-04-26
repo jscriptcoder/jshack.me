@@ -8,15 +8,15 @@ See `docs/technology-choices.md` (Patches: server-authoritative with two-call de
 
 ## Files
 
-| File                | Description                                                                                                                                                |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `types.ts`          | zod schemas (5-action discriminated union: upsertPatch / removePatch / listPatches / clearTransientPatches / clearAllPatches), `PatchRow`, `PatchSummary`. |
-| `handler.ts`        | Single endpoint with action-dispatch: verify → rate-limit → branch into one of five action handlers. Server-stamps `player_key` on every write.            |
-| `supabaseUpsert.ts` | `INSERT ... ON CONFLICT (player_key, machine_id, path) DO UPDATE` adapter for upsertPatch.                                                                 |
-| `supabaseDelete.ts` | DELETE adapters for removePatch (exact + descendant prefix), clearTransientPatches (`machine_id <> 'localhost'`), and clearAllPatches.                     |
-| `supabaseSelect.ts` | `SELECT ... WHERE player_key = ...` adapter for listPatches; returns the per-row `PatchSummary` shape.                                                     |
-| `client.ts`         | Browser-side wrappers — sign envelope, POST, parse response. Handle camelCase ↔ snake_case translation so callers see `FileSystemPatch`.                   |
-| `*.test.ts`         | Unit tests for each module.                                                                                                                                |
+| File                | Description                                                                                                                                                           |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `types.ts`          | zod schemas (5-action discriminated union: upsertPatch / removePatch / listPatches / clearTransientPatches / clearOwnedPatches), `PatchRow`, `PatchSummary`.          |
+| `handler.ts`        | Single endpoint with action-dispatch: verify → rate-limit → branch into one of five action handlers. Server-stamps `player_key` on every write.                       |
+| `supabaseUpsert.ts` | `INSERT ... ON CONFLICT (player_key, machine_id, path) DO UPDATE` adapter for upsertPatch.                                                                            |
+| `supabaseDelete.ts` | DELETE adapters for removePatch (exact + descendant prefix), clearTransientPatches (`machine_id <> 'localhost'`), and clearOwnedPatches (`machine_id = 'localhost'`). |
+| `supabaseSelect.ts` | `SELECT ... WHERE player_key = ...` adapter for listPatches; returns the per-row `PatchSummary` shape.                                                                |
+| `client.ts`         | Browser-side wrappers — sign envelope, POST, parse response. Handle camelCase ↔ snake_case translation so callers see `FileSystemPatch`.                              |
+| `*.test.ts`         | Unit tests for each module.                                                                                                                                           |
 
 ## Action dispatch (`handler.ts`)
 
@@ -28,7 +28,7 @@ patchesSignedPayloadSchema = z.discriminatedUnion('action', [
   removePatchSignedPayloadSchema, // 'removePatch'
   listPatchesSignedPayloadSchema, // 'listPatches'
   clearTransientPatchesSignedPayloadSchema, // 'clearTransientPatches'
-  clearAllPatchesSignedPayloadSchema, // 'clearAllPatches'
+  clearOwnedPatchesSignedPayloadSchema, // 'clearOwnedPatches'
 ]);
 ```
 
@@ -40,7 +40,7 @@ verify → rate-limit → switch (action):
   removePatch           → DELETE exact + descendants               → 200 { affected }
   listPatches           → SELECT all rows for player_key           → 200 { patches: PatchSummary[] }
   clearTransientPatches → DELETE WHERE machine_id <> 'localhost'   → 200 { affected }
-  clearAllPatches       → DELETE WHERE player_key = me             → 200 { affected }
+  clearOwnedPatches     → DELETE WHERE machine_id = 'localhost'    → 200 { affected }
 ```
 
 Action-dispatch over URL-shape REST mirrors `/api/sessions` — every action POSTs (signed bodies require POST), so a single URL avoids duplicating the verify+rate-limit prelude.
@@ -101,7 +101,7 @@ upsertPatch(identity, patch: FileSystemPatch) → Promise<void>
 removePatch(identity, { machineId, path }) → Promise<void>
 listPatches(identity) → Promise<ReadonlyArray<FileSystemPatch>>
 clearTransientPatches(identity) → Promise<void>
-clearAllPatches(identity) → Promise<void>
+clearOwnedPatches(identity) → Promise<void>
 ```
 
 The wrappers handle camelCase ↔ snake_case translation in both directions so callers only ever see `FileSystemPatch`. `listPatches` converts wire→client defensively:
@@ -111,6 +111,16 @@ The wrappers handle camelCase ↔ snake_case translation in both directions so c
 - `node_type: 'file'` → omit (the implicit default)
 
 All throw on non-2xx with the status code in the error message.
+
+## Reset semantics: `clearOwnedPatches`, not `clearAllPatches`
+
+`clearOwnedPatches` (fired by `reset confirm`) wipes patches `WHERE player_key = me AND machine_id = 'localhost'`. It does NOT wipe patches the player applied to **other** players' machines — those are gameplay actions in the shared world, and undoing them on personal reset would be wrong.
+
+Concrete scenario: Player A roots Player B's box and `rm`s a file there. That creates a row `(player_key=A, machine_id=<B's IP>, content=null)`. If A resets, B's view of the deleted file MUST stay deleted — A's local game starts over, but A's actions in B's world persist.
+
+Currently the only "owned" machine is `localhost`. As more ownership concepts arrive (home network slots per the home-network model memory, mission instances per the mission-instances memory), the WHERE clause grows — but the semantic stays: "wipe machines I own, not the world I've touched".
+
+The reset flow in `src/commands/reset.ts` AWAITS the `clearOwnedPatches` Promise before triggering `window.location.reload()`. Earlier fire-and-forget timing let the page navigation abort the in-flight DELETE; the await + 500ms timer ordering ensures the request lands.
 
 ## Server-stamped `player_key`
 

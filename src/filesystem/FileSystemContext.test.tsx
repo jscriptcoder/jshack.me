@@ -11,7 +11,7 @@ vi.mock('../patchRegistry/client', () => ({
   removePatch: vi.fn(),
   listPatches: vi.fn(),
   clearTransientPatches: vi.fn(),
-  clearAllPatches: vi.fn(),
+  clearOwnedPatches: vi.fn(),
 }));
 
 import {

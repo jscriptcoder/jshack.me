@@ -7,11 +7,11 @@ import { createSupabaseUpsertPatch } from '../src/patchRegistry/supabaseUpsert.j
 import {
   createSupabaseRemovePatch,
   createSupabaseClearTransientPatches,
-  createSupabaseClearAllPatches,
+  createSupabaseClearOwnedPatches,
 } from '../src/patchRegistry/supabaseDelete.js';
 import { createSupabaseListPatches } from '../src/patchRegistry/supabaseSelect.js';
 import type {
-  ClearAllArg,
+  ClearOwnedArg,
   ClearTransientArg,
   DeletePatchesArg,
 } from '../src/patchRegistry/supabaseDelete.js';
@@ -157,15 +157,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     },
   );
 
-  const clearAllPatches = createSupabaseClearAllPatches(async (arg: ClearAllArg) => {
-    // No machine filter — wipes the player's entire patch set. Used
-    // by `reset confirm` before page reload to defeat ghost-rehydration.
+  const clearOwnedPatches = createSupabaseClearOwnedPatches(async (arg: ClearOwnedArg) => {
+    // .eq('machine_id', persistent_machine_id) — wipes ONLY this player's
+    // owned-machine patches (currently localhost). Cross-player patches
+    // (e.g., this player's mods on another player's machine) are part of
+    // the shared world and persist across reset, by design.
     const { data, error } = await supabase
       .from('patches')
       .delete()
       .eq('player_key', arg.player_key)
+      .eq('machine_id', arg.persistent_machine_id)
       .select('path');
-    if (error) console.error('[patches] supabase clearAll error:', error);
+    if (error) console.error('[patches] supabase clearOwned error:', error);
     return { data, error };
   });
 
@@ -176,7 +179,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     removePatch,
     listPatches,
     clearTransientPatches,
-    clearAllPatches,
+    clearOwnedPatches,
     rateLimiter,
     nonceStore,
   });

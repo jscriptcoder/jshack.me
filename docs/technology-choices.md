@@ -4,17 +4,17 @@ This doc captures the non-obvious technology decisions made for JSHACK.ME's Phas
 
 ## Stack at a glance
 
-| Layer                | Choice                                        | Status                                                                                                    |
-| -------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| Frontend hosting     | Vercel                                        | Shipped (pre-Phase-5)                                                                                     |
-| Serverless functions | Vercel Functions (Node runtime)               | Shipped                                                                                                   |
-| Database + Realtime  | Supabase (Postgres + Realtime)                | Postgres shipped; Realtime planned                                                                        |
-| Rate limiting        | Upstash Ratelimit (Redis over HTTPS)          | Shipped                                                                                                   |
-| Input validation     | zod                                           | Shipped                                                                                                   |
-| Identity             | Ed25519 keypair (browser localStorage)        | Key gen + storage + signed `/api/allocate-ip` + `/api/sessions` + `/api/patches` shipped                  |
-| Sessions             | Server-authoritative `sessions` table         | Shipped — push/pop/listSessions wired through SessionContext; Realtime live-death deferred                |
-| Patches              | Server-authoritative `patches` table          | Shipped — upsert/remove/list/clearTransient/clearAll wired through FileSystemContext; validation deferred |
-| Wallet               | Separate Ed25519 keypair (in-game filesystem) | Planned                                                                                                   |
+| Layer                | Choice                                        | Status                                                                                                      |
+| -------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Frontend hosting     | Vercel                                        | Shipped (pre-Phase-5)                                                                                       |
+| Serverless functions | Vercel Functions (Node runtime)               | Shipped                                                                                                     |
+| Database + Realtime  | Supabase (Postgres + Realtime)                | Postgres shipped; Realtime planned                                                                          |
+| Rate limiting        | Upstash Ratelimit (Redis over HTTPS)          | Shipped                                                                                                     |
+| Input validation     | zod                                           | Shipped                                                                                                     |
+| Identity             | Ed25519 keypair (browser localStorage)        | Key gen + storage + signed `/api/allocate-ip` + `/api/sessions` + `/api/patches` shipped                    |
+| Sessions             | Server-authoritative `sessions` table         | Shipped — push/pop/listSessions wired through SessionContext; Realtime live-death deferred                  |
+| Patches              | Server-authoritative `patches` table          | Shipped — upsert/remove/list/clearTransient/clearOwned wired through FileSystemContext; validation deferred |
+| Wallet               | Separate Ed25519 keypair (in-game filesystem) | Planned                                                                                                     |
 
 ---
 
@@ -370,7 +370,7 @@ The cosmetic loss is acceptable for Phase 1+3. A later migration could add `star
 
 ### Choice
 
-A `patches` table on Supabase records each player's filesystem mutations — every file write, create, deletion, and permission change. Composite PK `(player_key, machine_id, path)` doubles as the natural-key for UPSERT. Clients call `/api/patches` (single endpoint, action-dispatched: `upsertPatch` / `removePatch` / `listPatches` / `clearTransientPatches` / `clearAllPatches`) via signed envelopes. Server is the single source of truth for "what's the player's view of the filesystem on machine X?".
+A `patches` table on Supabase records each player's filesystem mutations — every file write, create, deletion, and permission change. Composite PK `(player_key, machine_id, path)` doubles as the natural-key for UPSERT. Clients call `/api/patches` (single endpoint, action-dispatched: `upsertPatch` / `removePatch` / `listPatches` / `clearTransientPatches` / `clearOwnedPatches`) via signed envelopes. Server is the single source of truth for "what's the player's view of the filesystem on machine X?".
 
 `FileSystemContext.broadcastAndRecordPatch` fires-and-forgets the right server call alongside its existing local-state update + IndexedDB cache write. On `FileSystemProvider` mount, `listPatches` rehydrates from server (skipped if local writes happened during the mount window — those upserts are already in flight, the next mount reconciles). IndexedDB stays as a sync-readable cache for fast initial paint.
 
@@ -399,6 +399,16 @@ The two-call sequence is for the rare "rm -rf a base directory you've been modif
 3. **Client orchestrates two calls in the corner case** — extra round-trip in the rare path; keeps each server action single-purpose.
 
 Picked **(3)**. Server actions stay clean and orthogonal. The corner case is rare enough that one extra round-trip doesn't matter, and the client already has all the information needed to decide.
+
+### Reset wipes "owned" patches, not "all" patches
+
+`reset confirm` fires `clearOwnedPatches` (`DELETE WHERE player_key = me AND machine_id = 'localhost'`), NOT a blanket wipe of every row keyed by the player. The semantic is: **reset wipes my own state, not my actions in the shared world**.
+
+Concrete: if Player A roots Player B's machine and `rm`s a file there, that's a row `(player_key=A, machine_id=B's IP, content=null)`. A's reset must NOT remove that row — undoing A's gameplay actions against B is wrong. A's reset only wipes A's localhost.
+
+Currently "owned" = localhost only. As more ownership concepts arrive (home network slots per the home-network model memory, mission instances per the mission-instances memory), the WHERE clause grows but the principle stays the same.
+
+The reload waits for `clearOwnedPatches` to settle via `Promise.all` before triggering `window.location.reload()` — earlier fire-and-forget timing let the page navigation abort the in-flight DELETE. There's a regression test pinning the new ordering in `reset.test.ts`.
 
 ### Mount-window race mitigation
 

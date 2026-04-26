@@ -3,11 +3,13 @@ import { clearAllData } from '../utils/storage';
 
 type ResetContext = {
   readonly getDatabase: () => IDBDatabase | null;
-  // Server-side wipe of this player's patch set. Optional — older test
-  // setups omit it; production wires it via the patchRegistry client.
-  // Best-effort: page reloads regardless of whether this resolves, so
-  // a server outage doesn't strand the user mid-reset.
-  readonly clearAllPatches?: () => Promise<void>;
+  // Server-side wipe of THIS player's patches on machines they own
+  // (currently `machine_id = 'localhost'`). Optional — older test setups
+  // omit it; production wires it via the patchRegistry client. The
+  // wrapper's rejection is swallowed and logged, but the reload waits
+  // for it to settle so an in-flight DELETE isn't aborted by the
+  // page navigation.
+  readonly clearOwnedPatches?: () => Promise<void>;
 };
 
 const RELOAD_DELAY_MS = 500;
@@ -49,33 +51,38 @@ export const createResetCommand = (context: ResetContext): Command => ({
       start: (onLine, onComplete) => {
         const db = context.getDatabase();
 
-        // Fire the server-side wipe in parallel with the local clear.
-        // Best-effort — a rejection just gets logged. The page reloads
-        // regardless, so a stranded clearAllPatches won't block reset.
-        if (context.clearAllPatches) {
-          void context.clearAllPatches().catch((error) => {
-            console.error('[reset] clearAllPatches failed:', error);
-          });
-        }
+        // Server-side wipe — fired in parallel with the local clear,
+        // BUT the reload waits for it to settle. Otherwise the page
+        // navigation aborts the in-flight DELETE and leaves rows
+        // server-side. Best-effort: a rejection is logged, the reload
+        // still happens.
+        const serverPromise = context.clearOwnedPatches
+          ? context.clearOwnedPatches().catch((error) => {
+              console.error('[reset] clearOwnedPatches failed:', error);
+            })
+          : Promise.resolve();
 
-        const reloadAfterDelay = () => {
-          onLine('Game reset. Reloading...');
-          setTimeout(() => {
-            window.location.reload();
-            onComplete();
-          }, RELOAD_DELAY_MS);
-        };
+        const localPromise = db
+          ? clearAllData(db).catch((error) => {
+              console.error('[reset] clearAllData failed:', error);
+            })
+          : Promise.resolve();
 
+        // Emit the no-DB line synchronously; the with-DB line waits
+        // until clearAllData completes (matches existing UX timing).
         if (!db) {
           onLine('No database connection. Reloading...');
+        }
+
+        void Promise.all([localPromise, serverPromise]).then(() => {
+          if (db) {
+            onLine('Game reset. Reloading...');
+          }
           setTimeout(() => {
             window.location.reload();
             onComplete();
           }, RELOAD_DELAY_MS);
-          return;
-        }
-
-        clearAllData(db).then(reloadAfterDelay).catch(reloadAfterDelay);
+        });
       },
     };
   },

@@ -88,16 +88,24 @@ export const clearTransientPatchesSignedPayloadSchema = z
 
 export type ClearTransientPatchesPayload = z.infer<typeof clearTransientPatchesSignedPayloadSchema>;
 
-// clearAllPatches — DELETE WHERE player_key=me. Fired by `reset confirm`
-// before page reload, defeating ghost-rehydration of pre-wipe rows.
-export const clearAllPatchesSignedPayloadSchema = z
+// clearOwnedPatches — DELETE WHERE player_key=me AND machine_id='localhost'.
+// Fired by `reset confirm` before page reload, wiping the player's own
+// localhost patches without touching the shared world.
+//
+// Why scoped to "owned" (currently localhost only): cross-player
+// patches — e.g., Player A deleted a file on Player B's machine —
+// represent gameplay actions in a shared world. A player resetting
+// their game shouldn't undo the things they did to OTHER players'
+// machines. As more "ownership" arrives (home network slots, mission
+// instances), the server-side WHERE will grow accordingly.
+export const clearOwnedPatchesSignedPayloadSchema = z
   .object({
-    action: z.literal('clearAllPatches'),
+    action: z.literal('clearOwnedPatches'),
     ...baseEnvelopeFields,
   })
   .strict();
 
-export type ClearAllPatchesPayload = z.infer<typeof clearAllPatchesSignedPayloadSchema>;
+export type ClearOwnedPatchesPayload = z.infer<typeof clearOwnedPatchesSignedPayloadSchema>;
 
 // Combined schema for /api/patches — discriminated by `action`. Adding
 // a new action: extend this union and add a dispatch arm in handler.ts.
@@ -106,7 +114,7 @@ export const patchesSignedPayloadSchema = z.discriminatedUnion('action', [
   removePatchSignedPayloadSchema,
   listPatchesSignedPayloadSchema,
   clearTransientPatchesSignedPayloadSchema,
-  clearAllPatchesSignedPayloadSchema,
+  clearOwnedPatchesSignedPayloadSchema,
 ]);
 
 export type PatchesPayload = z.infer<typeof patchesSignedPayloadSchema>;
