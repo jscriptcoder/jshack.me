@@ -3,6 +3,8 @@ import {
   type EndSessionParams,
   type EndSessionResult,
   type InsertSessionResult,
+  type ListSessionsParams,
+  type ListSessionsResult,
   type SessionsPayload,
   type SessionRow,
 } from './types.js';
@@ -23,6 +25,7 @@ export type HandlerResponse = {
 export type HandlerDeps = {
   readonly insertSession: (row: SessionRow) => Promise<InsertSessionResult>;
   readonly endSession: (params: EndSessionParams) => Promise<EndSessionResult>;
+  readonly listSessions: (params: ListSessionsParams) => Promise<ListSessionsResult>;
   readonly rateLimiter: RateLimiter;
   readonly nonceStore: NonceStore;
   readonly now?: () => number;
@@ -91,6 +94,8 @@ const dispatchAction = async (
       return handleCreateSession(publicKey, payload, deps);
     case 'endSession':
       return handleEndSession(publicKey, payload, deps);
+    case 'listSessions':
+      return handleListSessions(publicKey, deps);
   }
 };
 
@@ -137,4 +142,15 @@ const handleEndSession = async (
     return { status: 404, body: { error: 'session_not_found' } };
   }
   return { status: 200, body: {} };
+};
+
+const handleListSessions = async (
+  publicKey: string,
+  deps: HandlerDeps,
+): Promise<HandlerResponse> => {
+  const result = await deps.listSessions({ player_key: publicKey });
+  if (!result.ok) {
+    return { status: 500, body: { error: 'query_failed' } };
+  }
+  return { status: 200, body: { sessions: result.sessions } };
 };

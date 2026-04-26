@@ -5,6 +5,9 @@ import type {
   InsertSessionResult,
   EndSessionParams,
   EndSessionResult,
+  ListSessionsParams,
+  ListSessionsResult,
+  SessionSummary,
 } from './types';
 import type { RateLimiter } from '../ipRegistry/rateLimit';
 import { noopRateLimiter } from '../ipRegistry/rateLimit';
@@ -40,6 +43,7 @@ const makeEnvelope = (
 const mkDeps = (overrides: {
   readonly insertSession?: (row: SessionRow) => Promise<InsertSessionResult>;
   readonly endSession?: (params: EndSessionParams) => Promise<EndSessionResult>;
+  readonly listSessions?: (params: ListSessionsParams) => Promise<ListSessionsResult>;
   readonly rateLimiter?: RateLimiter;
   readonly nonceStore?: NonceStore;
   readonly now?: () => number;
@@ -54,6 +58,11 @@ const mkDeps = (overrides: {
     vi
       .fn<(params: EndSessionParams) => Promise<EndSessionResult>>()
       .mockResolvedValue({ ok: true, affected: 1 }),
+  listSessions:
+    overrides.listSessions ??
+    vi
+      .fn<(params: ListSessionsParams) => Promise<ListSessionsResult>>()
+      .mockResolvedValue({ ok: true, sessions: [] }),
   rateLimiter: overrides.rateLimiter ?? noopRateLimiter,
   nonceStore: overrides.nonceStore ?? noopNonceStore,
   now: overrides.now ?? (() => FIXED_NOW),
@@ -401,6 +410,143 @@ describe('handleSessionsRequest — endSession', () => {
       expect(result.status).toBe(429);
       expect(insertSession).not.toHaveBeenCalled();
       expect(endSession).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe('handleSessionsRequest — listSessions', () => {
+  let identity: Identity;
+  beforeEach(() => {
+    identity = generateIdentity();
+  });
+
+  const validListPayload = { action: 'listSessions' };
+
+  const sampleSession: SessionSummary = {
+    session_id: '11111111-2222-4333-8444-555555555555',
+    machine_id: '10.0.0.1',
+    credentials: { username: 'root', userType: 'root' },
+    parent_session_id: null,
+    source_ip: null,
+    created_at: '2026-04-26T10:00:00.000Z',
+  };
+
+  it('returns 200 with the active sessions array', async () => {
+    const listSessions = vi
+      .fn<(params: ListSessionsParams) => Promise<ListSessionsResult>>()
+      .mockResolvedValue({ ok: true, sessions: [sampleSession] });
+    const envelope = makeEnvelope(identity, validListPayload);
+
+    const result = await handleSessionsRequest(envelope, mkDeps({ listSessions }));
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ sessions: [sampleSession] });
+  });
+
+  it('returns 200 with empty array when player has no active sessions', async () => {
+    const listSessions = vi
+      .fn<(params: ListSessionsParams) => Promise<ListSessionsResult>>()
+      .mockResolvedValue({ ok: true, sessions: [] });
+    const envelope = makeEnvelope(identity, validListPayload);
+
+    const result = await handleSessionsRequest(envelope, mkDeps({ listSessions }));
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ sessions: [] });
+  });
+
+  it('queries with verified pubkey as player_key', async () => {
+    const listSessions = vi
+      .fn<(params: ListSessionsParams) => Promise<ListSessionsResult>>()
+      .mockResolvedValue({ ok: true, sessions: [] });
+    const envelope = makeEnvelope(identity, validListPayload);
+
+    await handleSessionsRequest(envelope, mkDeps({ listSessions }));
+
+    expect(listSessions).toHaveBeenCalledWith({ player_key: identity.publicKeyHex });
+  });
+
+  it('returns 500 when the DB query errors', async () => {
+    const listSessions = vi
+      .fn<(params: ListSessionsParams) => Promise<ListSessionsResult>>()
+      .mockResolvedValue({ ok: false });
+    const envelope = makeEnvelope(identity, validListPayload);
+
+    const result = await handleSessionsRequest(envelope, mkDeps({ listSessions }));
+
+    expect(result.status).toBe(500);
+    expect(result.body).toMatchObject({ error: 'query_failed' });
+  });
+
+  describe('schema validation', () => {
+    it('returns 400 when client supplies unknown extra fields', async () => {
+      const envelope = makeEnvelope(identity, {
+        action: 'listSessions',
+        machine_id: '10.0.0.1',
+      });
+      const result = await handleSessionsRequest(envelope, mkDeps({}));
+      expect(result.status).toBe(400);
+    });
+  });
+
+  describe('cross-action isolation', () => {
+    it('does not call insertSession or endSession on listSessions', async () => {
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const endSession = vi
+        .fn<(params: EndSessionParams) => Promise<EndSessionResult>>()
+        .mockResolvedValue({ ok: true, affected: 1 });
+      const envelope = makeEnvelope(identity, validListPayload);
+
+      await handleSessionsRequest(envelope, mkDeps({ insertSession, endSession }));
+
+      expect(insertSession).not.toHaveBeenCalled();
+      expect(endSession).not.toHaveBeenCalled();
+    });
+
+    it('does not call listSessions on createSession or endSession', async () => {
+      const listSessions = vi
+        .fn<(params: ListSessionsParams) => Promise<ListSessionsResult>>()
+        .mockResolvedValue({ ok: true, sessions: [] });
+      // createSession path
+      await handleSessionsRequest(makeEnvelope(identity), mkDeps({ listSessions }));
+      // endSession path
+      await handleSessionsRequest(
+        makeEnvelope(identity, {
+          action: 'endSession',
+          session_id: '11111111-2222-4333-8444-555555555555',
+          reason: 'user_exit',
+        }),
+        mkDeps({ listSessions }),
+      );
+
+      expect(listSessions).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('signature + rate-limit (parity)', () => {
+    it('returns 401 on bad signature for listSessions too', async () => {
+      const stranger = generateIdentity();
+      const envelope = makeEnvelope(identity, validListPayload);
+      const tampered = { ...envelope, publicKey: stranger.publicKeyHex };
+      const result = await handleSessionsRequest(tampered, mkDeps({}));
+      expect(result.status).toBe(401);
+    });
+
+    it('returns 429 when rate-limited (DB query blocked)', async () => {
+      const listSessions = vi
+        .fn<(params: ListSessionsParams) => Promise<ListSessionsResult>>()
+        .mockResolvedValue({ ok: true, sessions: [] });
+      const rateLimiter = vi
+        .fn<RateLimiter>()
+        .mockResolvedValue({ allowed: false, retryAfterSeconds: 30 });
+      const envelope = makeEnvelope(identity, validListPayload);
+
+      const result = await handleSessionsRequest(envelope, mkDeps({ listSessions, rateLimiter }));
+
+      expect(result.status).toBe(429);
+      expect(listSessions).not.toHaveBeenCalled();
     });
   });
 });
