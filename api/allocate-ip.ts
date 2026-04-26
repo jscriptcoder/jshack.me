@@ -83,6 +83,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const insertIp = createSupabaseInsertIp(async (row: IpRow) => {
     const { error } = await supabase.from('public_ips').insert(row);
+    if (error) console.error('[allocate-ip] supabase insert error:', error);
     return { error };
   });
 
