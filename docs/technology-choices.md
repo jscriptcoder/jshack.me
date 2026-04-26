@@ -4,15 +4,16 @@ This doc captures the non-obvious technology decisions made for JSHACK.ME's Phas
 
 ## Stack at a glance
 
-| Layer                | Choice                                        | Status                                                                        |
-| -------------------- | --------------------------------------------- | ----------------------------------------------------------------------------- |
-| Frontend hosting     | Vercel                                        | Shipped (pre-Phase-5)                                                         |
-| Serverless functions | Vercel Functions (Node runtime)               | Shipped                                                                       |
-| Database + Realtime  | Supabase (Postgres + Realtime)                | Postgres shipped; Realtime planned                                            |
-| Rate limiting        | Upstash Ratelimit (Redis over HTTPS)          | Shipped                                                                       |
-| Input validation     | zod                                           | Shipped                                                                       |
-| Identity             | Ed25519 keypair (browser localStorage)        | Key gen + storage + signed `/api/allocate-ip` shipped; signed patches planned |
-| Wallet               | Separate Ed25519 keypair (in-game filesystem) | Planned                                                                       |
+| Layer                | Choice                                        | Status                                                                                                 |
+| -------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Frontend hosting     | Vercel                                        | Shipped (pre-Phase-5)                                                                                  |
+| Serverless functions | Vercel Functions (Node runtime)               | Shipped                                                                                                |
+| Database + Realtime  | Supabase (Postgres + Realtime)                | Postgres shipped; Realtime planned                                                                     |
+| Rate limiting        | Upstash Ratelimit (Redis over HTTPS)          | Shipped                                                                                                |
+| Input validation     | zod                                           | Shipped                                                                                                |
+| Identity             | Ed25519 keypair (browser localStorage)        | Key gen + storage + signed `/api/allocate-ip` + signed `/api/sessions` shipped; signed patches planned |
+| Sessions             | Server-authoritative `sessions` table         | Shipped — push/pop/listSessions wired through SessionContext; Realtime live-death deferred             |
+| Wallet               | Separate Ed25519 keypair (in-game filesystem) | Planned                                                                                                |
 
 ---
 
@@ -312,6 +313,55 @@ Rate limiting is keyed on the verified public key, not the request IP. This is a
 - The `payload` field is JSON-inside-JSON, which looks ugly when logging. Explicit choice — it's still grep-able and `jq`-friendly with one extra parse.
 - Schemas are duplicated: an action schema (e.g. `allocateIpSignedPayloadSchema`) needs `action`/`ts`/`nonce` declared alongside the action's own fields. We could merge schemas internally, but the explicit shape makes type narrowing trivial.
 - Nonce store needs Upstash. In local dev without Upstash configured we fall back to `noopNonceStore` and replay protection is effectively disabled — same caveat as `noopRateLimiter`. Production must have Upstash.
+
+---
+
+## Sessions: server-authoritative with cascade-end
+
+### Choice
+
+A `sessions` table on Supabase records each player's "presence on a machine" — every SSH-into, `su`-on, or post-exploit-shell push creates a row, every `exit` / mission-abort / cascade-end marks one ended. Clients call `/api/sessions` (single endpoint, action-dispatched: `createSession` / `endSession` / `listSessions`) via signed envelopes. The server is the single source of truth for "does player X have an active session on machine Y?".
+
+`SessionContext.pushSession` / `popSession` / `popAllSessions` round-trip through this endpoint. On `SessionProvider` mount, `listSessions` rehydrates the local stack from server state — `sessionStorage` is a UI cache, server is the truth.
+
+### Why
+
+The session table is load-bearing for multiplayer — every patch validation will need to read it ("is this player allowed to delete this file? — yes if they have an active session on the target machine with sufficient credentials"). The reasoning to land it now (Phase 1+3 compressed):
+
+- **Cheap to deploy alongside identity-signed allocate-ip** — same `signedRequest` machinery, same RLS pattern, same Vercel function shape. Marginal cost is one migration + one handler module.
+- **Builds the muscle for patch validation** — once patches land, they'll cite `sessions` for authorization. Having sessions live first means patches integrate cleanly without retrofitting.
+- **Cross-tab consistency**: `listSessions` on mount means a refresh in one tab reflects what other tabs did. Without server truth, refresh would resurrect dead sessions from `sessionStorage`.
+
+### Cascade-end strategy: app-level recursion
+
+When a player ends a session, all active descendants (the hop chain below them) must also end. Three options:
+
+1. **Recursive CTE in raw SQL** — atomic, but supabase-js doesn't expose recursive UPDATE. Would need a stored procedure + `.rpc()` call.
+2. **App-level recursion** — end the named session, fetch active children, recurse for each. N+1 round-trips but plain TypeScript.
+3. **Postgres stored procedure** — atomic, fast, but introduces a new precedent (stored procs to maintain).
+
+Picked **(2)**. Tree depth is bounded in practice (1-3 hops typical); N+1 is fine. Race window where new child sessions created mid-cascade can be orphaned is acceptable for pre-launch scale — the orphan is a still-valid session, and a future periodic sweeper or upgrade to (3) fixes it without touching the adapter interface. Stored procs would be the right answer at production scale, but premature now.
+
+### Server-stamped `player_key` + cascade `end_reason`
+
+- Every write stamps `player_key` from the verified Ed25519 pubkey, never from a client claim. Strict zod schemas reject any client-supplied `player_key` field with 400.
+- Cascaded children end with `end_reason='cascade'`; the named session ends with the caller's reason (`'user_exit'` / `'pop_all'` / etc.). This audit trail will eventually feed kill-vs-exit distinction in `access.log` realism and player-facing "session terminated by …" UX.
+
+### Lossy rehydration
+
+Server stores `machine_id` + `credentials` but **not** `hostname`, `currentPath`, or the start `reason`. On rehydration we synthesize:
+
+- `hostname`: undefined (UI falls back to `machine`)
+- `currentPath`: `'/root'` for root, `'/home/<username>'` otherwise
+- `reason` (snapshot only): defaulted to `'ssh'` — affects exit-message UX (`'Connection closed.'` for everything) but not chain integrity
+
+The cosmetic loss is acceptable for Phase 1+3. A later migration could add `start_reason` and persist `hostname`/`currentPath` if they become important.
+
+### What's deferred
+
+- **Realtime session-death**: when another player kills your session (or NAT removes a port-forward), you don't see it until your next interaction triggers a server call. Phase 2 PR adds a Supabase Realtime subscription on `sessions WHERE player_key = me` with cascade-handling on the client.
+- **Patch authorization integration**: patches will look up `sessions` to authorize file/process mutations. Phase 4 PR.
+- **Multi-tab session reconciliation**: currently `listSessions` returns all of a player's active sessions; we reconstruct the linear chain by `created_at` order, which is correct for single-tab single-chain. Multi-tab edge case (multiple chains) is deferred.
 
 ---
 
