@@ -153,11 +153,11 @@ describe('reset command', () => {
       expect(window.location.reload).toHaveBeenCalled();
     });
 
-    describe('server-side patch wipe (clearAllPatches)', () => {
-      it('invokes clearAllPatches on confirmed reset (with DB)', async () => {
+    describe('server-side patch wipe (clearOwnedPatches)', () => {
+      it('invokes clearOwnedPatches on confirmed reset (with DB)', async () => {
         const mockDb = {} as IDBDatabase;
-        const clearAllPatches = vi.fn().mockResolvedValue(undefined);
-        const reset = createResetCommand({ getDatabase: () => mockDb, clearAllPatches });
+        const clearOwnedPatches = vi.fn().mockResolvedValue(undefined);
+        const reset = createResetCommand({ getDatabase: () => mockDb, clearOwnedPatches });
         const result = reset.fn('confirm');
 
         if (isAsyncOutput(result)) {
@@ -168,12 +168,12 @@ describe('reset command', () => {
         }
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(clearAllPatches).toHaveBeenCalledTimes(1);
+        expect(clearOwnedPatches).toHaveBeenCalledTimes(1);
       });
 
-      it('invokes clearAllPatches even when no DB connection', async () => {
-        const clearAllPatches = vi.fn().mockResolvedValue(undefined);
-        const reset = createResetCommand({ getDatabase: () => null, clearAllPatches });
+      it('invokes clearOwnedPatches even when no DB connection', async () => {
+        const clearOwnedPatches = vi.fn().mockResolvedValue(undefined);
+        const reset = createResetCommand({ getDatabase: () => null, clearOwnedPatches });
         const result = reset.fn('confirm');
 
         if (isAsyncOutput(result)) {
@@ -184,13 +184,13 @@ describe('reset command', () => {
         }
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(clearAllPatches).toHaveBeenCalledTimes(1);
+        expect(clearOwnedPatches).toHaveBeenCalledTimes(1);
       });
 
-      it('reload still completes when clearAllPatches rejects', async () => {
+      it('reload still completes when clearOwnedPatches rejects', async () => {
         const mockDb = {} as IDBDatabase;
-        const clearAllPatches = vi.fn().mockRejectedValue(new Error('server down'));
-        const reset = createResetCommand({ getDatabase: () => mockDb, clearAllPatches });
+        const clearOwnedPatches = vi.fn().mockRejectedValue(new Error('server down'));
+        const reset = createResetCommand({ getDatabase: () => mockDb, clearOwnedPatches });
         const result = reset.fn('confirm');
 
         let completed = false;
@@ -209,17 +209,17 @@ describe('reset command', () => {
         expect(window.location.reload).toHaveBeenCalled();
       });
 
-      it('does not invoke clearAllPatches without "confirm" argument', () => {
-        const clearAllPatches = vi.fn().mockResolvedValue(undefined);
-        const reset = createResetCommand({ getDatabase: () => null, clearAllPatches });
+      it('does not invoke clearOwnedPatches without "confirm" argument', () => {
+        const clearOwnedPatches = vi.fn().mockResolvedValue(undefined);
+        const reset = createResetCommand({ getDatabase: () => null, clearOwnedPatches });
 
         reset.fn();
         reset.fn('yes');
 
-        expect(clearAllPatches).not.toHaveBeenCalled();
+        expect(clearOwnedPatches).not.toHaveBeenCalled();
       });
 
-      it('reset still works when clearAllPatches is omitted from context (back-compat)', async () => {
+      it('reset still works when clearOwnedPatches is omitted from context (back-compat)', async () => {
         const mockDb = {} as IDBDatabase;
         const reset = createResetCommand({ getDatabase: () => mockDb });
         const result = reset.fn('confirm');
@@ -237,6 +237,43 @@ describe('reset command', () => {
         await vi.advanceTimersByTimeAsync(500);
 
         expect(completed).toBe(true);
+        expect(window.location.reload).toHaveBeenCalled();
+      });
+
+      it('does not reload until clearOwnedPatches has settled (regression for the abort-during-reload race)', async () => {
+        // Defer clearOwnedPatches resolution so we can observe the gating.
+        // If this test ever fails, somebody re-introduced the original bug
+        // where window.location.reload aborted the in-flight DELETE.
+        let resolveClear!: () => void;
+        const clearOwnedPatches = vi.fn(
+          () =>
+            new Promise<void>((resolve) => {
+              resolveClear = resolve;
+            }),
+        );
+        const mockDb = {} as IDBDatabase;
+        const reset = createResetCommand({ getDatabase: () => mockDb, clearOwnedPatches });
+        const result = reset.fn('confirm');
+
+        if (isAsyncOutput(result)) {
+          result.start(
+            () => {},
+            () => {},
+          );
+        }
+
+        // Local clearAllData resolves; clearOwnedPatches is still pending.
+        await vi.advanceTimersByTimeAsync(0);
+        // Even after the would-be reload-delay window, reload must NOT
+        // have fired — Promise.all is still waiting on the server side.
+        await vi.advanceTimersByTimeAsync(500);
+        expect(window.location.reload).not.toHaveBeenCalled();
+
+        // Now resolve the server side; reload should follow after the
+        // delay timer fires.
+        resolveClear();
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(500);
         expect(window.location.reload).toHaveBeenCalled();
       });
     });

@@ -48,7 +48,7 @@ const mkDeps = (overrides: {
   readonly removePatch?: (params: RemovePatchParams) => Promise<RemovePatchResult>;
   readonly listPatches?: (params: ListPatchesParams) => Promise<ListPatchesResult>;
   readonly clearTransientPatches?: (params: ClearPatchesParams) => Promise<ClearPatchesResult>;
-  readonly clearAllPatches?: (params: ClearPatchesParams) => Promise<ClearPatchesResult>;
+  readonly clearOwnedPatches?: (params: ClearPatchesParams) => Promise<ClearPatchesResult>;
   readonly rateLimiter?: RateLimiter;
   readonly nonceStore?: NonceStore;
   readonly now?: () => number;
@@ -71,8 +71,8 @@ const mkDeps = (overrides: {
     vi
       .fn<(params: ClearPatchesParams) => Promise<ClearPatchesResult>>()
       .mockResolvedValue({ ok: true, affected: 0 }),
-  clearAllPatches:
-    overrides.clearAllPatches ??
+  clearOwnedPatches:
+    overrides.clearOwnedPatches ??
     vi
       .fn<(params: ClearPatchesParams) => Promise<ClearPatchesResult>>()
       .mockResolvedValue({ ok: true, affected: 0 }),
@@ -493,47 +493,47 @@ describe('handlePatchesRequest — clearTransientPatches', () => {
 });
 
 // -----------------------------------------------------------------------
-// clearAllPatches
+// clearOwnedPatches
 // -----------------------------------------------------------------------
 
-describe('handlePatchesRequest — clearAllPatches', () => {
+describe('handlePatchesRequest — clearOwnedPatches', () => {
   let identity: Identity;
   beforeEach(() => {
     identity = generateIdentity();
   });
 
-  const validClearAllPayload = { action: 'clearAllPatches' };
+  const validClearOwnedPayload = { action: 'clearOwnedPatches' };
 
   it('returns 200 with affected count', async () => {
-    const clearAllPatches = vi
+    const clearOwnedPatches = vi
       .fn<(params: ClearPatchesParams) => Promise<ClearPatchesResult>>()
       .mockResolvedValue({ ok: true, affected: 42 });
-    const envelope = makeEnvelope(identity, validClearAllPayload);
+    const envelope = makeEnvelope(identity, validClearOwnedPayload);
 
-    const result = await handlePatchesRequest(envelope, mkDeps({ clearAllPatches }));
+    const result = await handlePatchesRequest(envelope, mkDeps({ clearOwnedPatches }));
 
     expect(result.status).toBe(200);
     expect(result.body).toEqual({ affected: 42 });
   });
 
   it('queries with verified pubkey as player_key', async () => {
-    const clearAllPatches = vi
+    const clearOwnedPatches = vi
       .fn<(params: ClearPatchesParams) => Promise<ClearPatchesResult>>()
       .mockResolvedValue({ ok: true, affected: 0 });
-    const envelope = makeEnvelope(identity, validClearAllPayload);
+    const envelope = makeEnvelope(identity, validClearOwnedPayload);
 
-    await handlePatchesRequest(envelope, mkDeps({ clearAllPatches }));
+    await handlePatchesRequest(envelope, mkDeps({ clearOwnedPatches }));
 
-    expect(clearAllPatches).toHaveBeenCalledWith({ player_key: identity.publicKeyHex });
+    expect(clearOwnedPatches).toHaveBeenCalledWith({ player_key: identity.publicKeyHex });
   });
 
   it('returns 500 when the DB delete errors', async () => {
-    const clearAllPatches = vi
+    const clearOwnedPatches = vi
       .fn<(params: ClearPatchesParams) => Promise<ClearPatchesResult>>()
       .mockResolvedValue({ ok: false });
-    const envelope = makeEnvelope(identity, validClearAllPayload);
+    const envelope = makeEnvelope(identity, validClearOwnedPayload);
 
-    const result = await handlePatchesRequest(envelope, mkDeps({ clearAllPatches }));
+    const result = await handlePatchesRequest(envelope, mkDeps({ clearOwnedPatches }));
 
     expect(result.status).toBe(500);
     expect(result.body).toMatchObject({ error: 'clear_failed' });
@@ -541,7 +541,7 @@ describe('handlePatchesRequest — clearAllPatches', () => {
 
   it('returns 400 when client supplies unknown extra fields', async () => {
     const envelope = makeEnvelope(identity, {
-      action: 'clearAllPatches',
+      action: 'clearOwnedPatches',
       foo: 'bar',
     });
     const result = await handlePatchesRequest(envelope, mkDeps({}));
@@ -574,7 +574,7 @@ describe('handlePatchesRequest — cross-action isolation', () => {
     clearTransientPatches: vi
       .fn<(params: ClearPatchesParams) => Promise<ClearPatchesResult>>()
       .mockResolvedValue({ ok: true, affected: 0 }),
-    clearAllPatches: vi
+    clearOwnedPatches: vi
       .fn<(params: ClearPatchesParams) => Promise<ClearPatchesResult>>()
       .mockResolvedValue({ ok: true, affected: 0 }),
     ...overrides,
@@ -588,7 +588,7 @@ describe('handlePatchesRequest — cross-action isolation', () => {
     expect(adapters.removePatch).not.toHaveBeenCalled();
     expect(adapters.listPatches).not.toHaveBeenCalled();
     expect(adapters.clearTransientPatches).not.toHaveBeenCalled();
-    expect(adapters.clearAllPatches).not.toHaveBeenCalled();
+    expect(adapters.clearOwnedPatches).not.toHaveBeenCalled();
   });
 
   it('removePatch action calls only removePatch adapter', async () => {
@@ -603,7 +603,7 @@ describe('handlePatchesRequest — cross-action isolation', () => {
     expect(adapters.upsertPatch).not.toHaveBeenCalled();
     expect(adapters.listPatches).not.toHaveBeenCalled();
     expect(adapters.clearTransientPatches).not.toHaveBeenCalled();
-    expect(adapters.clearAllPatches).not.toHaveBeenCalled();
+    expect(adapters.clearOwnedPatches).not.toHaveBeenCalled();
   });
 
   it('listPatches action calls only listPatches adapter', async () => {
@@ -614,7 +614,7 @@ describe('handlePatchesRequest — cross-action isolation', () => {
     expect(adapters.upsertPatch).not.toHaveBeenCalled();
     expect(adapters.removePatch).not.toHaveBeenCalled();
     expect(adapters.clearTransientPatches).not.toHaveBeenCalled();
-    expect(adapters.clearAllPatches).not.toHaveBeenCalled();
+    expect(adapters.clearOwnedPatches).not.toHaveBeenCalled();
   });
 
   it('clearTransientPatches action calls only clearTransientPatches adapter', async () => {
@@ -625,14 +625,14 @@ describe('handlePatchesRequest — cross-action isolation', () => {
     expect(adapters.upsertPatch).not.toHaveBeenCalled();
     expect(adapters.removePatch).not.toHaveBeenCalled();
     expect(adapters.listPatches).not.toHaveBeenCalled();
-    expect(adapters.clearAllPatches).not.toHaveBeenCalled();
+    expect(adapters.clearOwnedPatches).not.toHaveBeenCalled();
   });
 
-  it('clearAllPatches action calls only clearAllPatches adapter', async () => {
+  it('clearOwnedPatches action calls only clearOwnedPatches adapter', async () => {
     const adapters = otherAdapters({});
-    const envelope = makeEnvelope(identity, { action: 'clearAllPatches' });
+    const envelope = makeEnvelope(identity, { action: 'clearOwnedPatches' });
     await handlePatchesRequest(envelope, mkDeps(adapters));
-    expect(adapters.clearAllPatches).toHaveBeenCalled();
+    expect(adapters.clearOwnedPatches).toHaveBeenCalled();
     expect(adapters.upsertPatch).not.toHaveBeenCalled();
     expect(adapters.removePatch).not.toHaveBeenCalled();
     expect(adapters.listPatches).not.toHaveBeenCalled();

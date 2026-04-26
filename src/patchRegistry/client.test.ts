@@ -4,7 +4,7 @@ import {
   removePatch,
   listPatches,
   clearTransientPatches,
-  clearAllPatches,
+  clearOwnedPatches,
 } from './client';
 import { generateIdentity, verify } from '../identity/identity';
 import { hexToBytes } from '../identity/hex';
@@ -555,25 +555,25 @@ describe('clearTransientPatches', () => {
 });
 
 // -----------------------------------------------------------------------
-// clearAllPatches
+// clearOwnedPatches
 // -----------------------------------------------------------------------
 
-describe('clearAllPatches', () => {
-  it('POSTs action="clearAllPatches" with a valid envelope', async () => {
+describe('clearOwnedPatches', () => {
+  it('POSTs action="clearOwnedPatches" with a valid envelope', async () => {
     const identity = generateIdentity();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ affected: 0 }));
 
-    await clearAllPatches(identity, fetchMock);
+    await clearOwnedPatches(identity, fetchMock);
 
     const payload = getPayload(fetchMock);
-    expect(payload.action).toBe('clearAllPatches');
+    expect(payload.action).toBe('clearOwnedPatches');
   });
 
   it('signs with the provided identity', async () => {
     const identity = generateIdentity();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ affected: 0 }));
 
-    await clearAllPatches(identity, fetchMock);
+    await clearOwnedPatches(identity, fetchMock);
 
     const env = getEnvelope(fetchMock);
     expect(env.publicKey).toBe(identity.publicKeyHex);
@@ -587,13 +587,13 @@ describe('clearAllPatches', () => {
     const identity = generateIdentity();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ affected: 42 }));
 
-    expect(await clearAllPatches(identity, fetchMock)).toBeUndefined();
+    expect(await clearOwnedPatches(identity, fetchMock)).toBeUndefined();
   });
 
   it('throws on non-2xx', async () => {
     const identity = generateIdentity();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(errResponse(500));
 
-    await expect(clearAllPatches(identity, fetchMock)).rejects.toThrow(/500/);
+    await expect(clearOwnedPatches(identity, fetchMock)).rejects.toThrow(/500/);
   });
 });

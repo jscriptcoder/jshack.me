@@ -62,7 +62,7 @@ export const createSupabaseRemovePatch =
   };
 
 // -----------------------------------------------------------------------
-// Bulk-delete adapters: clearTransientPatches + clearAllPatches.
+// Bulk-delete adapters: clearTransientPatches + clearOwnedPatches.
 //
 // Both translate a Supabase delete().select() response onto
 // ClearPatchesResult. The wiring layer issues the actual DELETE:
@@ -70,13 +70,20 @@ export const createSupabaseRemovePatch =
 //   clearTransient: DELETE FROM patches
 //                    WHERE player_key = $player_key
 //                      AND machine_id <> $persistent_machine_id;
-//   clearAll:       DELETE FROM patches
-//                    WHERE player_key = $player_key;
+//   clearOwned:     DELETE FROM patches
+//                    WHERE player_key = $player_key
+//                      AND machine_id = $persistent_machine_id;
+//
+// Note that clearOwned and clearTransient are exact complements — their
+// machine_id filters are inverses. The split exists because each is
+// fired in a different gameplay flow: clearTransient on mission/home
+// scene change, clearOwned on `reset confirm`.
 // -----------------------------------------------------------------------
 
-// Arg shape for the transient-clear underlying function. The adapter
-// passes the localhost literal through so the wiring layer doesn't need
-// its own copy of the constant.
+// Arg shape shared by both adapters. The adapter passes the localhost
+// literal through so the wiring layer doesn't need its own copy of the
+// constant. clearOwnedPatches uses `=` against this id; clearTransient
+// uses `<>`.
 export type ClearTransientArg = {
   readonly player_key: string;
   readonly persistent_machine_id: string;
@@ -98,19 +105,23 @@ export const createSupabaseClearTransientPatches =
     return { ok: true, affected: data?.length ?? 0 };
   };
 
-export type ClearAllArg = {
+export type ClearOwnedArg = {
   readonly player_key: string;
+  readonly persistent_machine_id: string;
 };
 
-export type ClearAllFn = (arg: ClearAllArg) => Promise<{
+export type ClearOwnedFn = (arg: ClearOwnedArg) => Promise<{
   readonly data: ReadonlyArray<{ readonly path: string }> | null;
   readonly error: RowError;
 }>;
 
-export const createSupabaseClearAllPatches =
-  (clearAll: ClearAllFn) =>
+export const createSupabaseClearOwnedPatches =
+  (clearOwned: ClearOwnedFn) =>
   async (params: ClearPatchesParams): Promise<ClearPatchesResult> => {
-    const { data, error } = await clearAll({ player_key: params.player_key });
+    const { data, error } = await clearOwned({
+      player_key: params.player_key,
+      persistent_machine_id: PERSISTENT_MACHINE_ID,
+    });
     if (error) return { ok: false };
     return { ok: true, affected: data?.length ?? 0 };
   };

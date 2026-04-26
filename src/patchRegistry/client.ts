@@ -154,15 +154,18 @@ export const clearTransientPatches = async (
   }
 };
 
-// ---- clearAllPatches ------------------------------------------------------
+// ---- clearOwnedPatches ----------------------------------------------------
 
-export const clearAllPatches = async (
+// Wipes the player's patches on machines they own (currently localhost).
+// Cross-player patches on other players' machines persist — they're part
+// of the shared world. Fired by `reset confirm`.
+export const clearOwnedPatches = async (
   identity: Identity,
   fetchImpl: typeof fetch = fetch,
 ): Promise<void> => {
-  const envelope = signRequest(identity, 'clearAllPatches', {});
+  const envelope = signRequest(identity, 'clearOwnedPatches', {});
   const response = await postEnvelope(envelope, fetchImpl);
   if (!response.ok) {
-    throw new Error(`clearAllPatches failed with status ${response.status}`);
+    throw new Error(`clearOwnedPatches failed with status ${response.status}`);
   }
 };

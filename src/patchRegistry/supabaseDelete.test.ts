@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   createSupabaseRemovePatch,
   createSupabaseClearTransientPatches,
-  createSupabaseClearAllPatches,
+  createSupabaseClearOwnedPatches,
   PERSISTENT_MACHINE_ID,
 } from './supabaseDelete';
 import type { ClearPatchesParams, RemovePatchParams } from './types';
@@ -193,55 +193,65 @@ describe('createSupabaseClearTransientPatches', () => {
 });
 
 // -----------------------------------------------------------------------
-// clearAllPatches — DELETE WHERE player_key=me (no machine filter)
+// clearOwnedPatches — DELETE WHERE player_key=me AND machine_id='localhost'
+// (the player's own-machine patches, not the shared world)
 // -----------------------------------------------------------------------
 
-describe('createSupabaseClearAllPatches', () => {
+describe('createSupabaseClearOwnedPatches', () => {
   it('returns ok: true with affected = data.length when delete succeeds', async () => {
-    const clearAll = vi.fn().mockResolvedValue({
-      data: Array.from({ length: 42 }, (_, i) => ({ path: `/tmp/${i}` })),
+    const clearOwned = vi.fn().mockResolvedValue({
+      data: Array.from({ length: 7 }, (_, i) => ({ path: `/tmp/${i}` })),
       error: null,
     });
-    const clear = createSupabaseClearAllPatches(clearAll);
+    const clear = createSupabaseClearOwnedPatches(clearOwned);
 
-    expect(await clear(clearParams)).toEqual({ ok: true, affected: 42 });
+    expect(await clear(clearParams)).toEqual({ ok: true, affected: 7 });
   });
 
-  it('returns ok: true with affected = 0 when player has no patches', async () => {
-    const clearAll = vi.fn().mockResolvedValue({ data: [], error: null });
-    const clear = createSupabaseClearAllPatches(clearAll);
+  it('returns ok: true with affected = 0 when player has no owned-machine patches', async () => {
+    const clearOwned = vi.fn().mockResolvedValue({ data: [], error: null });
+    const clear = createSupabaseClearOwnedPatches(clearOwned);
 
     expect(await clear(clearParams)).toEqual({ ok: true, affected: 0 });
   });
 
   it('returns ok: true with affected = 0 when data is null and no error (defensive)', async () => {
-    const clearAll = vi.fn().mockResolvedValue({ data: null, error: null });
-    const clear = createSupabaseClearAllPatches(clearAll);
+    const clearOwned = vi.fn().mockResolvedValue({ data: null, error: null });
+    const clear = createSupabaseClearOwnedPatches(clearOwned);
 
     expect(await clear(clearParams)).toEqual({ ok: true, affected: 0 });
   });
 
   it('returns ok: false when supabase returns an error', async () => {
-    const clearAll = vi
+    const clearOwned = vi
       .fn()
       .mockResolvedValue({ data: null, error: { code: 'XX001', message: 'storage error' } });
-    const clear = createSupabaseClearAllPatches(clearAll);
+    const clear = createSupabaseClearOwnedPatches(clearOwned);
 
     expect(await clear(clearParams)).toEqual({ ok: false });
   });
 
-  it('passes only player_key to clearAll (no machine filter)', async () => {
-    const clearAll = vi.fn().mockResolvedValue({ data: [], error: null });
-    const clear = createSupabaseClearAllPatches(clearAll);
+  it('passes the localhost literal as persistent_machine_id (own-machine filter)', async () => {
+    const clearOwned = vi.fn().mockResolvedValue({ data: [], error: null });
+    const clear = createSupabaseClearOwnedPatches(clearOwned);
 
     await clear(clearParams);
 
-    expect(clearAll).toHaveBeenCalledWith({ player_key: 'pubkey-hex' });
-    // Pinned: clearAll args must not include any machine filter — that's
-    // the difference vs clearTransientPatches.
-    expect(clearAll).toHaveBeenCalledTimes(1);
-    const arg = clearAll.mock.calls[0][0];
-    expect(arg).not.toHaveProperty('persistent_machine_id');
-    expect(arg).not.toHaveProperty('machine_id');
+    expect(clearOwned).toHaveBeenCalledWith({
+      player_key: 'pubkey-hex',
+      persistent_machine_id: 'localhost',
+    });
+    // Pinned: cross-player patches on other machines must NOT be wiped
+    // by reset — that's the whole point of scoping to owned machines.
+    expect(clearOwned).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwards a different player_key verbatim', async () => {
+    const clearOwned = vi.fn().mockResolvedValue({ data: [], error: null });
+    const clear = createSupabaseClearOwnedPatches(clearOwned);
+
+    await clear({ player_key: 'another-key' });
+
+    expect(clearOwned).toHaveBeenCalledWith(expect.objectContaining({ player_key: 'another-key' }));
   });
 });

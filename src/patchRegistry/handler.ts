@@ -29,7 +29,7 @@ export type HandlerDeps = {
   readonly removePatch: (params: RemovePatchParams) => Promise<RemovePatchResult>;
   readonly listPatches: (params: ListPatchesParams) => Promise<ListPatchesResult>;
   readonly clearTransientPatches: (params: ClearPatchesParams) => Promise<ClearPatchesResult>;
-  readonly clearAllPatches: (params: ClearPatchesParams) => Promise<ClearPatchesResult>;
+  readonly clearOwnedPatches: (params: ClearPatchesParams) => Promise<ClearPatchesResult>;
   readonly rateLimiter: RateLimiter;
   readonly nonceStore: NonceStore;
   readonly now?: () => number;
@@ -102,8 +102,8 @@ const dispatchAction = async (
       return handleListPatches(publicKey, deps);
     case 'clearTransientPatches':
       return handleClearTransientPatches(publicKey, deps);
-    case 'clearAllPatches':
-      return handleClearAllPatches(publicKey, deps);
+    case 'clearOwnedPatches':
+      return handleClearOwnedPatches(publicKey, deps);
   }
 };
 
@@ -171,11 +171,11 @@ const handleClearTransientPatches = async (
   return { status: 200, body: { affected: result.affected } };
 };
 
-const handleClearAllPatches = async (
+const handleClearOwnedPatches = async (
   publicKey: string,
   deps: HandlerDeps,
 ): Promise<HandlerResponse> => {
-  const result = await deps.clearAllPatches({ player_key: publicKey });
+  const result = await deps.clearOwnedPatches({ player_key: publicKey });
   if (!result.ok) {
     return { status: 500, body: { error: 'clear_failed' } };
   }
