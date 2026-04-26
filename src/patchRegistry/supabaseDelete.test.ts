@@ -1,6 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createSupabaseRemovePatch } from './supabaseDelete';
-import type { RemovePatchParams } from './types';
+import {
+  createSupabaseRemovePatch,
+  createSupabaseClearTransientPatches,
+  createSupabaseClearAllPatches,
+  PERSISTENT_MACHINE_ID,
+} from './supabaseDelete';
+import type { ClearPatchesParams, RemovePatchParams } from './types';
 
 const params: RemovePatchParams = {
   player_key: 'pubkey-hex',
@@ -107,5 +112,136 @@ describe('createSupabaseRemovePatch', () => {
         }),
       );
     });
+  });
+});
+
+// -----------------------------------------------------------------------
+// Persistent-machine literal — single source of truth for the localhost
+// filter shared between adapter and api/patches.ts wiring layer.
+// -----------------------------------------------------------------------
+
+describe('PERSISTENT_MACHINE_ID', () => {
+  it('is "localhost" — mirrors PERSISTENT_MACHINE_KEYS in FileSystemContext', () => {
+    expect(PERSISTENT_MACHINE_ID).toBe('localhost');
+  });
+});
+
+// -----------------------------------------------------------------------
+// clearTransientPatches — DELETE WHERE machine_id <> 'localhost'
+// -----------------------------------------------------------------------
+
+const clearParams: ClearPatchesParams = {
+  player_key: 'pubkey-hex',
+};
+
+describe('createSupabaseClearTransientPatches', () => {
+  it('returns ok: true with affected = data.length when delete succeeds', async () => {
+    const clearTransient = vi.fn().mockResolvedValue({
+      data: [{ path: '/etc/passwd' }, { path: '/srv/data' }, { path: '/var/log/auth.log' }],
+      error: null,
+    });
+    const clear = createSupabaseClearTransientPatches(clearTransient);
+
+    expect(await clear(clearParams)).toEqual({ ok: true, affected: 3 });
+  });
+
+  it('returns ok: true with affected = 0 when no transient rows exist', async () => {
+    const clearTransient = vi.fn().mockResolvedValue({ data: [], error: null });
+    const clear = createSupabaseClearTransientPatches(clearTransient);
+
+    expect(await clear(clearParams)).toEqual({ ok: true, affected: 0 });
+  });
+
+  it('returns ok: true with affected = 0 when data is null and no error (defensive)', async () => {
+    const clearTransient = vi.fn().mockResolvedValue({ data: null, error: null });
+    const clear = createSupabaseClearTransientPatches(clearTransient);
+
+    expect(await clear(clearParams)).toEqual({ ok: true, affected: 0 });
+  });
+
+  it('returns ok: false when supabase returns an error', async () => {
+    const clearTransient = vi
+      .fn()
+      .mockResolvedValue({ data: null, error: { code: 'XX001', message: 'storage error' } });
+    const clear = createSupabaseClearTransientPatches(clearTransient);
+
+    expect(await clear(clearParams)).toEqual({ ok: false });
+  });
+
+  it('passes the localhost literal as persistent_machine_id to clearTransient', async () => {
+    const clearTransient = vi.fn().mockResolvedValue({ data: [], error: null });
+    const clear = createSupabaseClearTransientPatches(clearTransient);
+
+    await clear(clearParams);
+
+    expect(clearTransient).toHaveBeenCalledWith({
+      player_key: 'pubkey-hex',
+      persistent_machine_id: 'localhost',
+    });
+  });
+
+  it('forwards a different player_key verbatim', async () => {
+    const clearTransient = vi.fn().mockResolvedValue({ data: [], error: null });
+    const clear = createSupabaseClearTransientPatches(clearTransient);
+
+    await clear({ player_key: 'another-key' });
+
+    expect(clearTransient).toHaveBeenCalledWith(
+      expect.objectContaining({ player_key: 'another-key' }),
+    );
+  });
+});
+
+// -----------------------------------------------------------------------
+// clearAllPatches — DELETE WHERE player_key=me (no machine filter)
+// -----------------------------------------------------------------------
+
+describe('createSupabaseClearAllPatches', () => {
+  it('returns ok: true with affected = data.length when delete succeeds', async () => {
+    const clearAll = vi.fn().mockResolvedValue({
+      data: Array.from({ length: 42 }, (_, i) => ({ path: `/tmp/${i}` })),
+      error: null,
+    });
+    const clear = createSupabaseClearAllPatches(clearAll);
+
+    expect(await clear(clearParams)).toEqual({ ok: true, affected: 42 });
+  });
+
+  it('returns ok: true with affected = 0 when player has no patches', async () => {
+    const clearAll = vi.fn().mockResolvedValue({ data: [], error: null });
+    const clear = createSupabaseClearAllPatches(clearAll);
+
+    expect(await clear(clearParams)).toEqual({ ok: true, affected: 0 });
+  });
+
+  it('returns ok: true with affected = 0 when data is null and no error (defensive)', async () => {
+    const clearAll = vi.fn().mockResolvedValue({ data: null, error: null });
+    const clear = createSupabaseClearAllPatches(clearAll);
+
+    expect(await clear(clearParams)).toEqual({ ok: true, affected: 0 });
+  });
+
+  it('returns ok: false when supabase returns an error', async () => {
+    const clearAll = vi
+      .fn()
+      .mockResolvedValue({ data: null, error: { code: 'XX001', message: 'storage error' } });
+    const clear = createSupabaseClearAllPatches(clearAll);
+
+    expect(await clear(clearParams)).toEqual({ ok: false });
+  });
+
+  it('passes only player_key to clearAll (no machine filter)', async () => {
+    const clearAll = vi.fn().mockResolvedValue({ data: [], error: null });
+    const clear = createSupabaseClearAllPatches(clearAll);
+
+    await clear(clearParams);
+
+    expect(clearAll).toHaveBeenCalledWith({ player_key: 'pubkey-hex' });
+    // Pinned: clearAll args must not include any machine filter — that's
+    // the difference vs clearTransientPatches.
+    expect(clearAll).toHaveBeenCalledTimes(1);
+    const arg = clearAll.mock.calls[0][0];
+    expect(arg).not.toHaveProperty('persistent_machine_id');
+    expect(arg).not.toHaveProperty('machine_id');
   });
 });
