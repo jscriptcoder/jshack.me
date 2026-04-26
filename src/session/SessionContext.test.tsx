@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { SessionProvider, useSession } from './SessionContext';
+import type { SessionSummary } from '../sessionRegistry/types';
 
 // Mock the sessionRegistry client so we don't hit the network. Tests control
 // what createSession returns via the mock.
@@ -14,6 +15,7 @@ vi.mock('../sessionRegistry/client', () => ({
 import {
   createSession as mockedCreateSession,
   endSession as mockedEndSession,
+  listSessions as mockedListSessions,
 } from '../sessionRegistry/client';
 
 // Mock identity singleton so we don't depend on browser localStorage.
@@ -34,6 +36,8 @@ const wrapper =
 describe('SessionProvider — pushSession (server-aware)', () => {
   beforeEach(() => {
     vi.mocked(mockedCreateSession).mockReset();
+    vi.mocked(mockedListSessions).mockReset();
+    vi.mocked(mockedListSessions).mockResolvedValue([]);
     sessionStorage.clear();
   });
 
@@ -252,6 +256,8 @@ describe('SessionProvider — popSession (server-aware)', () => {
     vi.mocked(mockedCreateSession).mockResolvedValue('abc-session-id');
     vi.mocked(mockedEndSession).mockReset();
     vi.mocked(mockedEndSession).mockResolvedValue(undefined);
+    vi.mocked(mockedListSessions).mockReset();
+    vi.mocked(mockedListSessions).mockResolvedValue([]);
     sessionStorage.clear();
   });
 
@@ -332,6 +338,8 @@ describe('SessionProvider — popAllSessions (server-aware)', () => {
     vi.mocked(mockedCreateSession).mockReset();
     vi.mocked(mockedEndSession).mockReset();
     vi.mocked(mockedEndSession).mockResolvedValue(undefined);
+    vi.mocked(mockedListSessions).mockReset();
+    vi.mocked(mockedListSessions).mockResolvedValue([]);
     sessionStorage.clear();
   });
 
@@ -436,5 +444,154 @@ describe('SessionProvider — popAllSessions (server-aware)', () => {
     expect(result.current.session.username).toBe('alice');
     expect(result.current.session.sessionId).toBeNull();
     expect(result.current.sessionStack).toHaveLength(0);
+  });
+});
+
+describe('SessionProvider — rehydration on mount', () => {
+  beforeEach(() => {
+    vi.mocked(mockedCreateSession).mockReset();
+    vi.mocked(mockedEndSession).mockReset();
+    vi.mocked(mockedListSessions).mockReset();
+    sessionStorage.clear();
+  });
+
+  const sessionA: SessionSummary = {
+    session_id: 'aaa-id',
+    machine_id: '10.0.0.1',
+    credentials: { username: 'admin', userType: 'root' },
+    parent_session_id: null,
+    source_ip: 'localhost',
+    created_at: '2026-04-26T10:00:00.000Z',
+  };
+
+  const sessionB: SessionSummary = {
+    session_id: 'bbb-id',
+    machine_id: '10.0.0.2',
+    credentials: { username: 'bob', userType: 'user' },
+    parent_session_id: 'aaa-id',
+    source_ip: '10.0.0.1',
+    created_at: '2026-04-26T10:01:00.000Z',
+  };
+
+  const sessionC: SessionSummary = {
+    session_id: 'ccc-id',
+    machine_id: '10.0.0.2',
+    credentials: { username: 'root', userType: 'root' },
+    parent_session_id: 'bbb-id',
+    source_ip: '10.0.0.2',
+    created_at: '2026-04-26T10:02:00.000Z',
+  };
+
+  it('calls listSessions once on mount', async () => {
+    vi.mocked(mockedListSessions).mockResolvedValue([]);
+    renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await waitFor(() => {
+      expect(mockedListSessions).toHaveBeenCalled();
+    });
+    // StrictMode in tests may double-invoke; allow ≥1 call.
+    expect(vi.mocked(mockedListSessions).mock.calls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('isRehydrating starts true and flips false after listSessions resolves', async () => {
+    vi.mocked(mockedListSessions).mockResolvedValue([]);
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    expect(result.current.isRehydrating).toBe(true);
+    await waitFor(() => {
+      expect(result.current.isRehydrating).toBe(false);
+    });
+  });
+
+  it('empty server response leaves stack empty and current at default localhost', async () => {
+    vi.mocked(mockedListSessions).mockResolvedValue([]);
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await waitFor(() => {
+      expect(result.current.isRehydrating).toBe(false);
+    });
+
+    expect(result.current.sessionStack).toHaveLength(0);
+    expect(result.current.session.machine).toBe('localhost');
+    expect(result.current.session.sessionId).toBeNull();
+  });
+
+  it('1 server session: stack = [bottom], current = the session', async () => {
+    vi.mocked(mockedListSessions).mockResolvedValue([sessionA]);
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await waitFor(() => {
+      expect(result.current.session.sessionId).toBe('aaa-id');
+    });
+
+    expect(result.current.session.machine).toBe('10.0.0.1');
+    expect(result.current.session.username).toBe('admin');
+    expect(result.current.session.userType).toBe('root');
+    expect(result.current.session.currentPath).toBe('/root');
+
+    expect(result.current.sessionStack).toHaveLength(1);
+    const bottom = result.current.sessionStack[0]!;
+    expect(bottom.machine).toBe('localhost');
+    expect(bottom.username).toBe('alice');
+    expect(bottom.sessionId).toBeNull();
+  });
+
+  it('3 server sessions chain: stack = [bottom, A, B], current = C', async () => {
+    vi.mocked(mockedListSessions).mockResolvedValue([sessionA, sessionB, sessionC]);
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await waitFor(() => {
+      expect(result.current.session.sessionId).toBe('ccc-id');
+    });
+
+    expect(result.current.session.machine).toBe('10.0.0.2');
+    expect(result.current.session.username).toBe('root');
+
+    expect(result.current.sessionStack).toHaveLength(3);
+    expect(result.current.sessionStack[0]?.machine).toBe('localhost');
+    expect(result.current.sessionStack[0]?.sessionId).toBeNull();
+    expect(result.current.sessionStack[1]?.machine).toBe('10.0.0.1');
+    expect(result.current.sessionStack[1]?.sessionId).toBe('aaa-id');
+    expect(result.current.sessionStack[2]?.machine).toBe('10.0.0.2');
+    expect(result.current.sessionStack[2]?.sessionId).toBe('bbb-id');
+  });
+
+  it('derives currentPath from credentials.userType (root → /root)', async () => {
+    vi.mocked(mockedListSessions).mockResolvedValue([sessionA]);
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await waitFor(() => {
+      expect(result.current.session.sessionId).toBe('aaa-id');
+    });
+
+    expect(result.current.session.currentPath).toBe('/root');
+  });
+
+  it('derives currentPath from credentials.userType (user → /home/<username>)', async () => {
+    vi.mocked(mockedListSessions).mockResolvedValue([sessionB]);
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await waitFor(() => {
+      expect(result.current.session.sessionId).toBe('bbb-id');
+    });
+
+    expect(result.current.session.currentPath).toBe('/home/bob');
+  });
+
+  it('logs error and leaves local state untouched on listSessions failure', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(mockedListSessions).mockRejectedValue(new Error('network error'));
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await waitFor(() => {
+      expect(result.current.isRehydrating).toBe(false);
+    });
+
+    expect(consoleErrorSpy).toHaveBeenCalled();
+    expect(result.current.session.machine).toBe('localhost');
+    expect(result.current.session.sessionId).toBeNull();
+    expect(result.current.sessionStack).toHaveLength(0);
+
+    consoleErrorSpy.mockRestore();
   });
 });
