@@ -83,17 +83,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return { data, error };
   });
 
-  const endSession = createSupabaseEndSession(async (params: EndSessionParams) => {
-    const { data, error } = await supabase
-      .from('sessions')
-      .update({ ended_at: new Date().toISOString(), end_reason: params.reason })
-      .eq('session_id', params.session_id)
-      .eq('player_key', params.player_key)
-      .is('ended_at', null)
-      .select('session_id');
-    if (error) console.error('[sessions] supabase update error:', error);
-    return { data, error };
-  });
+  const endSession = createSupabaseEndSession(
+    async (params: EndSessionParams) => {
+      const { data, error } = await supabase
+        .from('sessions')
+        .update({ ended_at: new Date().toISOString(), end_reason: params.reason })
+        .eq('session_id', params.session_id)
+        .eq('player_key', params.player_key)
+        .is('ended_at', null)
+        .select('session_id');
+      if (error) console.error('[sessions] supabase update error:', error);
+      return { data, error };
+    },
+    async (parent_session_id: string) => {
+      const { data, error } = await supabase
+        .from('sessions')
+        .select('session_id')
+        .eq('parent_session_id', parent_session_id)
+        .is('ended_at', null);
+      if (error) console.error('[sessions] supabase find-children error:', error);
+      return { data, error };
+    },
+  );
 
   const listSessions = createSupabaseListSessions(async (params: ListSessionsParams) => {
     const { data, error } = await supabase
