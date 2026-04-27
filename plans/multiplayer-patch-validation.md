@@ -14,12 +14,14 @@ This is **the actual security boundary** for filesystem mutations in multiplayer
 - [ ] `upsertPatch` and `removePatch` handlers reject with 403 `no_session` when `machine_id !== 'localhost'` and the verified player has no active session on that machine
 - [ ] `localhost` patches bypass the session check (player always "owns" their localhost)
 - [ ] Active-session lookup hits the existing `sessions_active_by_player_idx` partial index
-- [ ] FTP login pushes a session row keyed on `(player_key, ftpSession.remoteMachine, ftp credentials)`; FTP logout ends it
-- [ ] mysql login pushes a session row; logout ends it
-- [ ] redis login pushes a session row; logout ends it
-- [ ] scp upload runs inside a `withTransientSession(...)` block that pushes-fires-ends
-- [ ] snmpset runs inside `withTransientSession(...)`
-- [ ] msfconsole one-shot effects (`file_write`, `password_reset`, `backdoor_port_open`) and script_exec daemon-pidfile writes (`sshd`, `vsftpd`, `nc -l`) run inside `withTransientSession(...)`
+- [ ] `sessions` table grows a `kind` column distinguishing `ssh` / `su` / `exploit` / `ftp` / `mysql` / `redis` / `scp` / `snmp` / `effect_one_shot`, plumbed through types/handler/adapter/client wrapper/pushSession
+- [ ] Rehydration filters `listSessions` results to shell-class kinds (`ssh` / `su` / `exploit`) before reconstructing the session stack — protocol sessions don't pollute the chain
+- [ ] FTP login pushes a session row (`kind='ftp'`) keyed on `(player_key, ftpSession.remoteMachine, ftp credentials)`; FTP logout ends it
+- [ ] mysql login pushes a session row (`kind='mysql'`); logout ends it
+- [ ] redis login pushes a session row (`kind='redis'`); logout ends it
+- [ ] scp upload runs inside a `withTransientSession(...)` block (`kind='scp'`)
+- [ ] snmpset runs inside `withTransientSession(...)` (`kind='snmp'`)
+- [ ] msfconsole one-shot effects and script_exec daemon-pidfile writes run inside `withTransientSession(...)` (`kind='effect_one_shot'`)
 - [ ] Smoke test on `vercel:dev`: each bucket-C flow succeeds end-to-end with the gate ON
 - [ ] Build, lint, format, full test suite, mutation testing all pass
 
@@ -27,7 +29,6 @@ This is **the actual security boundary** for filesystem mutations in multiplayer
 
 - **L2 permission walking**: server doesn't yet check that the session's `credentials.userType` has `write` permission on the target path. A guest-session player could still ask the server to delete root-owned files; the client's `canWrite` check is the only thing stopping them. Fixing this requires server-side FS state (deterministic regen + patch replay, OR a `machine_filesystems` table). Future PR.
 - **L3 "smart server" game-logic re-run**: server doesn't re-check whether the CVE leading to a session was actually published-by-now, etc. Way later.
-- **`kind` field on sessions**: validation doesn't need it; UX (e.g., distinguishing "FTP session expired" from "SSH killed") would. Add when first consumer arrives.
 - **Realtime fanout** on session deaths: a session ending on the server doesn't yet push a Realtime event to other tabs/clients. Phase later.
 - **Race between session-end and mid-flight upsert**: the player ends FTP, but a buffered `put` upsert lands at the server right after the `endSession`. Currently the upsert would 403. Tolerable for v1.
 
@@ -35,7 +36,7 @@ This is **the actual security boundary** for filesystem mutations in multiplayer
 
 Every step follows RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR. No production code without a failing test. Read `.claude/CLAUDE.md` and the testing rules before writing each step.
 
-**Important — game breaks between Step 1 and Step 7.** After Step 1 lands, every bucket-C flow (FTP put, scp upload, mysql UPDATE, redis writes, snmpset, msfconsole one-shot effects, script_exec daemon writes) returns 403 from the server. Steps 2-7 progressively restore them. This is acceptable per the user's call (no live players); each commit is still testable in isolation.
+**Important — game breaks between Step 1 and Step 8.** After Step 1 lands, every bucket-C flow (FTP put, scp upload, mysql UPDATE, redis writes, snmpset, msfconsole one-shot effects, script_exec daemon writes) returns 403 from the server. Step 2 lays groundwork (no behavior change for existing flows). Steps 3-8 progressively restore the bucket-C flows. This is acceptable per the user's call (no live players); each commit is still testable in isolation.
 
 ### Step 1: Server validation gate
 
@@ -70,55 +71,76 @@ Every step follows RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR. No production code wi
 
 **Done when**: All handler tests pass, mutation report clean, manual smoke: `curl` POST a signed `upsertPatch` envelope with a non-localhost machine_id and no session in DB → 403; insert a session row, retry → 200.
 
-### Step 2: FTP login pushes session
+### Step 2: Add `kind` column to `sessions` + plumb through
+
+The first protocol-session push lands in Step 3, but it can't ship cleanly without `kind` first — once FTP/mysql/etc. rows are in `sessions`, rehydration's `listSessions`-based linear-chain reconstruction would treat them as part of the SSH stack (wrong machine becomes "current", chain corrupted). Step 2 is the groundwork: add the column, plumb it through the registry, make rehydration filter to shell-class kinds. No behavior change for existing flows because everything defaults to `'ssh'`.
 
 **Acceptance criteria**:
 
-- FTP login command (find via `grep` for `setFtpSession(...)` with non-null arg) calls `pushSession(...)` with `machine: ftpSession.remoteMachine`, `username: ftpSession.remoteUsername`, `userType: ftpSession.remoteUserType`, `currentPath: ftpSession.remoteCwd`, `reason: 'ssh'` (placeholder; `kind` field deferred).
-- The push is fire-and-forget per the existing `feedback_react_context_server_integration` memory.
-- FTP logout (the `setFtpSession(null)` call sites — there are several per the audit) calls `endSession(...)` for the FTP session_id with `reason: 'user_exit'` (or `'ftp_disconnect'` if we want a distinct value — the schema accepts any short string).
-- The `ftpSession` state needs to track the server-issued session_id for the eventual `endSession`. Either extend `FtpSession` with `sessionId: string | null` or store the id separately. Mirrors what `Session.sessionId` does today.
-- Existing FTP tests pass; new tests cover the push/end pairing.
+- New migration `supabase/migrations/<ts>_sessions_kind.sql`: `ALTER TABLE sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'ssh';`. Existing rows backfill to `'ssh'` — functionally fine for back-compat (rehydration keeps treating them as part of the chain).
+- `src/sessionRegistry/types.ts`: new `SESSION_KINDS = ['ssh','su','exploit','ftp','mysql','redis','scp','snmp','effect_one_shot'] as const` + `SessionKind` type. `SessionRow` and `SessionSummary` gain `readonly kind: SessionKind`. `createSessionSignedPayloadSchema` gains optional `kind: z.enum(SESSION_KINDS)` (default applied server-side as `'ssh'`).
+- `src/sessionRegistry/handler.ts` — `handleCreateSession` passes `kind` through (defaults to `'ssh'` when payload omits it).
+- `src/sessionRegistry/supabaseInsert.ts` — insert payload includes `kind`.
+- `src/sessionRegistry/supabaseSelect.ts` — `listSessions` projection includes `kind`.
+- `src/sessionRegistry/client.ts` — `CreateSessionRequest` gains optional `kind`. Existing callers that omit it continue to default server-side to `'ssh'`.
+- `src/session/SessionContext.tsx` — `pushSession` derives `kind` from `reason` (the existing `'ssh' | 'su' | 'exploit'` discriminator already maps 1:1). Existing call sites need no changes.
+- `src/session/SessionContext.tsx` — rehydration `useEffect` filters `sessions` to those with `kind in ('ssh','su','exploit')` BEFORE the `created_at`-sorted chain reconstruction. Protocol sessions in the result are silently ignored.
+- All existing tests pass (back-compat via the default + reason-derived kind). New tests cover: kind round-trips through createSession + listSessions; rehydration ignores a session row with `kind='ftp'` even if it's the newest by created_at; the SSH chain is reconstructed correctly when a non-shell session is interleaved.
 
-**RED**: Tests in `ftp/login.test.ts` (or wherever the login lives) — assert `pushSession` mock called with the right args on connect; `endSession` mock called on quit/disconnect.
+**RED**: New tests in `sessionRegistry/handler.test.ts` (kind passes through), `sessionRegistry/supabaseInsert.test.ts` (kind in insert payload), `sessionRegistry/supabaseSelect.test.ts` (kind in projection), `sessionRegistry/client.test.ts` (kind in envelope), `SessionContext.test.tsx` (rehydration filter).
 
-**GREEN**: Wire `pushSession` + `endSession` into the FTP login/logout commands. Extend `FtpSession` with `sessionId` if we go that route.
+**GREEN**: Wire kind through each layer; default `'ssh'` server-side keeps existing call sites working unchanged.
 
-**MUTATE**: Run on the new wiring.
+**MUTATE**: Run on the rehydration filter (`kind in [...]`) and the default-derivation in pushSession.
 
-**KILL MUTANTS**: Address.
+**KILL MUTANTS**: Address. Notable: dropping the kind filter would cause rehydration to include non-shell sessions — must be caught.
 
-**REFACTOR**: Look for an "auxiliary session" abstraction emerging across FTP/mysql/redis. May be premature after just FTP — revisit at Step 4.
+**REFACTOR**: Assess. Likely no extraction yet; helpers crystallize around the protocol-session pattern in Steps 3-5.
+
+**Done when**: Migration applied to local Supabase; full test suite green; manual smoke: write a `kind='ftp'` row directly via Supabase Studio, refresh the app, verify the SSH chain rehydrates without that row in it.
+
+### Step 3: FTP login pushes session
+
+**Acceptance criteria**:
+
+- FTP login command (find via `grep` for `setFtpSession(...)` with non-null arg) creates a server session via `createServerSession` with `kind='ftp'`, `machine_id: ftpSession.remoteMachine`, `credentials: { username: ftpSession.remoteUsername, userType: ftpSession.remoteUserType }`, `parent_session_id: <current shell session.sessionId or null>`, `source_ip: <session.machine>`.
+- The push is fire-and-forget per the existing `feedback_react_context_server_integration` memory. The `sessionId` is backfilled into the `FtpSession` state via setter once the round-trip resolves.
+- `FtpSession` type extends with `readonly sessionId: string | null`.
+- `exitFtpMode` reads the captured FtpSession's `sessionId` and fire-and-forgets `endSession` for it (if non-null) before clearing local state.
+- Other `setFtpSession(null)` paths (rehydration force-clear, popSession-driven wipe) do NOT need to call endSession — the server-side cascade-end via parent_session_id chaining handles those, and any orphan rows are tolerable for v1.
+- Existing FTP tests pass; new tests cover the push/end pairing inside `enterFtpMode` / `exitFtpMode`.
+
+**RED**: Tests in `SessionContext.test.tsx` — assert `createSession` mock called on `enterFtpMode` with `kind='ftp'` + correct args; `endSession` called on `exitFtpMode` if a sessionId was backfilled.
+
+**GREEN**: Wire `createServerSession` / `endServerSession` into `enterFtpMode` / `exitFtpMode`. Extend `FtpSession` with `sessionId`.
+
+**MUTATE / KILL MUTANTS / REFACTOR**: As Step 1.
 
 **Done when**: FTP `put` smoke test on `vercel:dev` passes (would 403 before this step, succeeds after).
 
-### Step 3: mysql login pushes session
+### Step 4: mysql login pushes session
 
 **Acceptance criteria**:
 
-- Same pattern as Step 2, applied to mysql login/logout. The `MysqlSession` type extends with `sessionId`. mysql `EXIT`/`QUIT`/disconnect ends the session.
+- Same pattern as Step 3, applied to mysql login/logout. `MysqlSession` extends with `sessionId`. `enterMysqlMode` pushes with `kind='mysql'`. `exitMysqlMode` ends the session.
 - All existing mysql command tests still pass; new tests cover push/end.
-
-**RED**: Tests in `mysql.test.ts` (or wherever).
-
-**GREEN**: Wire push/end.
-
-**MUTATE / KILL MUTANTS / REFACTOR**: As Step 2.
-
-**Done when**: mysql `UPDATE` smoke test passes.
-
-### Step 4: redis login pushes session
-
-**Acceptance criteria**:
-
-- Same pattern, redis. `RedisSession` extends with `sessionId`.
-- After this step, the auxiliary-session abstraction is well-shaped — extract a small helper if the duplication is real (`useAuxiliarySession({ machine, credentials, ... })` or similar).
 
 **RED / GREEN / MUTATE / KILL MUTANTS / REFACTOR**: As Step 3.
 
+**Done when**: mysql `UPDATE` smoke test passes.
+
+### Step 5: redis login pushes session
+
+**Acceptance criteria**:
+
+- Same pattern, redis. `RedisSession` extends with `sessionId`. `kind='redis'`.
+- After this step, the protocol-session pattern is well-shaped. Refactor candidate: a `useProtocolSession` hook factory if the FTP / mysql / redis duplication justifies it. Decide based on diff at this point.
+
+**RED / GREEN / MUTATE / KILL MUTANTS / REFACTOR**: As Step 4.
+
 **Done when**: redis `SET key value` smoke test passes.
 
-### Step 5: scp transient session + `withTransientSession` helper
+### Step 6: scp transient session + `withTransientSession` helper
 
 **Acceptance criteria**:
 
@@ -126,12 +148,12 @@ Every step follows RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR. No production code wi
   ```ts
   withTransientSession<T>(
     identity: Identity,
-    params: { machine_id, credentials, parent_session_id?, source_ip? },
+    params: { machine_id, credentials, kind: SessionKind, parent_session_id?, source_ip? },
     body: (sessionId: string) => Promise<T>,
   ): Promise<T>
   ```
   Pushes a session, runs `body` (passing the new session_id in case the body wants to store it), ends the session in a `finally` block (ends regardless of body success/throw). Returns `body`'s result.
-- scp's transfer code wraps the `createFileOnMachine`/`writeFileToMachine` call in `withTransientSession`. Credentials come from the scp auth args.
+- scp's transfer code wraps the `createFileOnMachine`/`writeFileToMachine` call in `withTransientSession` with `kind='scp'`. Credentials come from the scp auth args.
 - `withTransientSession` has its own unit tests covering: happy path (push → run → end), body throws (push → end → re-throw), push fails (no end, error propagates), end fails (logged, doesn't shadow body's success/error).
 - scp existing tests pass; new tests confirm the wrapper is invoked with the right args.
 
@@ -143,26 +165,26 @@ Every step follows RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR. No production code wi
 
 **KILL MUTANTS**: Address.
 
-**REFACTOR**: The helper's signature crystallizes here for Steps 6 + 7 to reuse.
+**REFACTOR**: The helper's signature crystallizes here for Steps 7 + 8 to reuse.
 
 **Done when**: scp upload smoke test passes.
 
-### Step 6: snmpset transient session
+### Step 7: snmpset transient session
 
 **Acceptance criteria**:
 
-- snmpset's write code wrapped in `withTransientSession` from Step 5. Credentials inferred from the SNMP community string handling (or a fixed "snmp_admin"-style placeholder if the game model doesn't have user-level SNMP creds).
+- snmpset's write code wrapped in `withTransientSession` from Step 6 with `kind='snmp'`. Credentials inferred from the SNMP community string handling (or a fixed `'snmp_admin'`-style placeholder if the game model doesn't have user-level SNMP creds).
 - Existing snmpset tests pass; new tests confirm the wrapper invocation.
 
 **RED / GREEN / MUTATE / KILL MUTANTS / REFACTOR**: As prior.
 
 **Done when**: snmpset smoke test passes (write a value via snmpset, see the patch land server-side without 403).
 
-### Step 7: msfconsole one-shot effects + script_exec daemon writes
+### Step 8: msfconsole one-shot effects + script_exec daemon writes
 
 **Acceptance criteria**:
 
-- The `writeRemoteFile` (and any sibling `mutateRemote*`) callbacks in msfconsole's effect dispatcher (`useNetworkCommands.ts:471` and friends per the audit) wrap the underlying mutating call in `withTransientSession`. Credentials come from the effect's tier (`shell_full root` / `password_reset user` / etc.).
+- The `writeRemoteFile` (and any sibling `mutateRemote*`) callbacks in msfconsole's effect dispatcher (`useNetworkCommands.ts:471` and friends per the audit) wrap the underlying mutating call in `withTransientSession` with `kind='effect_one_shot'`. Credentials come from the effect's tier (`shell_full root` / `password_reset user` / etc.).
 - Effect kinds covered:
   - `file_write` — already calls writeRemoteFile, gets the wrapper.
   - `password_reset` — modifies `/etc/passwd` on the target.
@@ -182,7 +204,7 @@ Every step follows RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR. No production code wi
 
 **Done when**: For each of `file_write`, `password_reset`, `backdoor_port_open`, and `script_exec` (sshd / vsftpd / nc -l), trigger an exploit on `vercel:dev` and verify the resulting patches land server-side without 403.
 
-### Step 8: pre-PR quality gate
+### Step 9: pre-PR quality gate
 
 **Acceptance criteria**:
 
