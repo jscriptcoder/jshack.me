@@ -149,6 +149,21 @@ const requireActiveSession = async (
   return null;
 };
 
+// Postgres TEXT columns reject NUL bytes (U+0000) — error code 22P05
+// "unsupported Unicode escape sequence". Mock binary file contents in
+// the game (e.g., /usr/bin/nmap's '\x7fELF\0\0\0...' placeholder) carry
+// them. Replace with U+FFFD (Unicode REPLACEMENT CHARACTER) before
+// sending to the upsert adapter — lossy for binary fidelity but the
+// game doesn't depend on byte-exact round-trip; apt-installed binaries
+// stay executable from gameplay's perspective.
+//
+// Sanitization at the handler (vs the client wrapper) is defense-in-
+// depth: any signed envelope, including hand-crafted Burp/curl ones,
+// gets cleaned before the DB sees it. Attackers can't trigger 500s
+// with deliberate NUL injection.
+const sanitizeContent = (content: string | null): string | null =>
+  content === null ? null : content.replaceAll('\u0000', '\uFFFD');
+
 const handleUpsertPatch = async (
   publicKey: string,
   payload: Extract<PatchesPayload, { action: 'upsertPatch' }>,
@@ -162,7 +177,7 @@ const handleUpsertPatch = async (
     player_key: publicKey,
     machine_id,
     path,
-    content,
+    content: sanitizeContent(content),
     owner,
     ...(permissions !== undefined && { permissions }),
     ...(is_new !== undefined && { is_new }),

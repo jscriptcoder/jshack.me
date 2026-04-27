@@ -186,6 +186,34 @@ describe('handlePatchesRequest — upsertPatch', () => {
     expect(upsertPatch).toHaveBeenCalledWith(expect.objectContaining({ content: null }));
   });
 
+  it('replaces NUL bytes in content with U+FFFD (Postgres TEXT rejects U+0000)', async () => {
+    // Mock binary file contents in the game (e.g. /usr/bin/nmap's ELF
+    // placeholder) carry NUL bytes — Postgres rejects them with 22P05.
+    // Sanitization at the handler level (vs the client wrapper) is
+    // defense-in-depth: even hand-crafted Burp envelopes get cleaned.
+    const upsertPatch = vi
+      .fn<(row: PatchRow) => Promise<UpsertPatchResult>>()
+      .mockResolvedValue({ ok: true });
+    const NUL = String.fromCharCode(0);
+    const FFFD = String.fromCharCode(0xfffd);
+    const envelope = makeEnvelope(identity, {
+      action: 'upsertPatch',
+      machine_id: '10.0.0.1',
+      path: '/usr/bin/nmap',
+      content: `ELF${NUL}${NUL}${NUL}binary`,
+      owner: 'root',
+    });
+
+    const result = await handlePatchesRequest(envelope, mkDeps({ upsertPatch }));
+
+    expect(result.status).toBe(200);
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: `ELF${FFFD}${FFFD}${FFFD}binary`,
+      }),
+    );
+  });
+
   it('returns 500 when the supabase upsert fails', async () => {
     const upsertPatch = vi
       .fn<(row: PatchRow) => Promise<UpsertPatchResult>>()
