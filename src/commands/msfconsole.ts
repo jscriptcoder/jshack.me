@@ -44,12 +44,17 @@ type MsfconsoleContext = {
     tier?: 'guest' | 'user' | 'root',
   ) => string | null;
   readonly readLocalFile?: (path: string) => string | null;
+  // writeRemoteFile and runScriptOnTarget are async because the wiring
+  // layer wraps them in a transient server session (kind='effect_one_shot')
+  // for the L1 patch-validation gate. Tests that don't supply these
+  // callbacks see no behavioral change; tests that do must return
+  // promises. The switch cases below `await` them.
   readonly writeRemoteFile?: (
     machineId: string,
     path: string,
     content: string,
     tier?: 'guest' | 'user' | 'root',
-  ) => void;
+  ) => Promise<void>;
   readonly listRemoteDir?: (
     machineId: string,
     path: string,
@@ -59,7 +64,7 @@ type MsfconsoleContext = {
     machineId: string,
     scriptBody: string,
     tier: 'guest' | 'user' | 'root',
-  ) => { readonly error: string | null };
+  ) => Promise<{ readonly error: string | null }>;
   readonly openBackdoorForwards?: (
     machineIp: string,
     port: number,
@@ -370,153 +375,162 @@ const buildExploitOutput = (
       delay += jitter(MSFCONSOLE_PHASE_DELAY_MS);
       token.schedule(() => {
         if (token.isCancelled()) return;
-
-        switch (effect.kind) {
-          case 'shell_full': {
-            const shellUser = resolveShellFullUser(effect.tier);
-            onLine('[+] Exploit successful!');
-            onLine(`[+] Full shell as ${shellUser.username}@${targetIP}`);
-            onLine('');
-            const exploitShell: ExploitShellData = {
-              __type: 'exploit_shell',
-              targetIP,
-              targetPort: port,
-              service: targetPort.service,
-              username: shellUser.username,
-              userType: effect.tier,
-              homePath: shellUser.homePath,
-              tier: effect.tier,
-            };
-            onComplete(exploitShell);
-            break;
-          }
-          case 'file_read': {
-            const content = context.readRemoteFile?.(targetIP, thirdArg!, effect.tier) ?? null;
-            onLine('[+] Exploit successful!');
-            if (content !== null) {
-              onLine(`[+] Reading ${thirdArg} (as ${effect.tier}):`);
-              onLine('');
-              content.split('\n').forEach((line) => onLine(line));
-            } else {
-              onLine(`[-] File not found or permission denied (as ${effect.tier}): ${thirdArg}`);
-            }
-            onComplete();
-            break;
-          }
-          case 'dir_list': {
-            const entries = context.listRemoteDir?.(targetIP, thirdArg!, effect.tier) ?? null;
-            onLine('[+] Exploit successful!');
-            if (entries !== null) {
-              onLine(`[+] Listing ${thirdArg} (as ${effect.tier}):`);
-              onLine('');
-              entries.forEach((entry) => onLine(entry));
-            } else {
-              onLine(
-                `[-] Directory not found or permission denied (as ${effect.tier}): ${thirdArg}`,
-              );
-            }
-            onComplete();
-            break;
-          }
-          case 'file_write': {
-            const colonIdx = thirdArg!.indexOf(':');
-            const localPath = thirdArg!.slice(0, colonIdx);
-            const remotePath = thirdArg!.slice(colonIdx + 1);
-            const localContent = context.readLocalFile?.(localPath) ?? null;
-            if (localContent === null) {
-              onLine(`[-] Could not read local file: ${localPath}`);
-            } else {
-              context.writeRemoteFile?.(targetIP, remotePath, localContent, effect.tier);
+        // Async IIFE so the case bodies that await writeRemoteFile /
+        // runScriptOnTarget (wrapped in transient sessions for the L1
+        // patch-validation gate) don't block the schedule callback's
+        // sync return. The void marker keeps no-floating-promises happy.
+        void (async () => {
+          switch (effect.kind) {
+            case 'shell_full': {
+              const shellUser = resolveShellFullUser(effect.tier);
               onLine('[+] Exploit successful!');
-              onLine(
-                `[+] Uploaded ${localPath} → ${remotePath} as ${effect.tier} (${localContent.length} bytes)`,
-              );
+              onLine(`[+] Full shell as ${shellUser.username}@${targetIP}`);
+              onLine('');
+              const exploitShell: ExploitShellData = {
+                __type: 'exploit_shell',
+                targetIP,
+                targetPort: port,
+                service: targetPort.service,
+                username: shellUser.username,
+                userType: effect.tier,
+                homePath: shellUser.homePath,
+                tier: effect.tier,
+              };
+              onComplete(exploitShell);
+              break;
             }
-            onComplete();
-            break;
-          }
-          case 'password_reset': {
-            const tier = effect.tier;
-            const newPassword = `pwned-${vulnerability.cve.slice(-4)}-${tier}`;
-            const currentPasswd = context.readRemoteFile?.(targetIP, '/etc/passwd') ?? '';
-            const targetUser =
-              tier === 'root'
-                ? 'root'
-                : (machine.users.find((u) => u.userType === tier)?.username ?? tier);
-            const updatedPasswd = currentPasswd
-              .split('\n')
-              .map((line) => {
-                const parts = line.split(':');
-                if (parts[0] === targetUser) {
-                  return [parts[0], newPassword, ...parts.slice(2)].join(':');
-                }
-                return line;
-              })
-              .join('\n');
-            context.writeRemoteFile?.(targetIP, '/etc/passwd', updatedPasswd);
-            onLine('[+] Exploit successful!');
-            onLine(`[+] Password reset for '${targetUser}' — new password: ${newPassword}`);
-            onComplete();
-            break;
-          }
-          case 'backdoor_port_open': {
-            const backdoorPort = effect.port;
-            const pidPath = ncPidFilePath(backdoorPort);
-            const pidContent = createNcPidContent(backdoorPort, 'backdoor', effect.tier);
-            context.writeRemoteFile?.(targetIP, pidPath, pidContent, 'root');
-            onLine('[+] Exploit successful!');
-            onLine(
-              `[+] Backdoor planted on port ${backdoorPort} — connect with nc(target, ${backdoorPort})`,
-            );
-            const forwards = context.openBackdoorForwards?.(targetIP, backdoorPort);
-            if (forwards?.publicEdgeIp && forwards.publicEdgePort !== null) {
-              onLine(
-                `[+] NAT forwarding chain installed — reachable via ${forwards.publicEdgeIp}:${forwards.publicEdgePort} from outside`,
-              );
-            }
-            onComplete();
-            break;
-          }
-          case 'script_exec': {
-            const scriptBody = context.readLocalFile?.(thirdArg!) ?? null;
-            if (scriptBody === null) {
-              onLine(`[-] Could not open script file: ${thirdArg}`);
+            case 'file_read': {
+              const content = context.readRemoteFile?.(targetIP, thirdArg!, effect.tier) ?? null;
+              onLine('[+] Exploit successful!');
+              if (content !== null) {
+                onLine(`[+] Reading ${thirdArg} (as ${effect.tier}):`);
+                onLine('');
+                content.split('\n').forEach((line) => onLine(line));
+              } else {
+                onLine(`[-] File not found or permission denied (as ${effect.tier}): ${thirdArg}`);
+              }
               onComplete();
               break;
             }
-            // Blind injection — execute script for side effects only, no output
-            const scriptResult = context.runScriptOnTarget?.(targetIP, scriptBody, effect.tier) ?? {
-              error: null,
-            };
-            if (scriptResult.error) {
-              onLine(`[-] Script injection failed: ${scriptResult.error}`);
-            } else {
+            case 'dir_list': {
+              const entries = context.listRemoteDir?.(targetIP, thirdArg!, effect.tier) ?? null;
               onLine('[+] Exploit successful!');
-              onLine(`[+] Script injected on ${targetIP} as ${effect.tier}`);
+              if (entries !== null) {
+                onLine(`[+] Listing ${thirdArg} (as ${effect.tier}):`);
+                onLine('');
+                entries.forEach((entry) => onLine(entry));
+              } else {
+                onLine(
+                  `[-] Directory not found or permission denied (as ${effect.tier}): ${thirdArg}`,
+                );
+              }
+              onComplete();
+              break;
             }
-            onComplete();
-            break;
+            case 'file_write': {
+              const colonIdx = thirdArg!.indexOf(':');
+              const localPath = thirdArg!.slice(0, colonIdx);
+              const remotePath = thirdArg!.slice(colonIdx + 1);
+              const localContent = context.readLocalFile?.(localPath) ?? null;
+              if (localContent === null) {
+                onLine(`[-] Could not read local file: ${localPath}`);
+              } else {
+                await context.writeRemoteFile?.(targetIP, remotePath, localContent, effect.tier);
+                onLine('[+] Exploit successful!');
+                onLine(
+                  `[+] Uploaded ${localPath} → ${remotePath} as ${effect.tier} (${localContent.length} bytes)`,
+                );
+              }
+              onComplete();
+              break;
+            }
+            case 'password_reset': {
+              const tier = effect.tier;
+              const newPassword = `pwned-${vulnerability.cve.slice(-4)}-${tier}`;
+              const currentPasswd = context.readRemoteFile?.(targetIP, '/etc/passwd') ?? '';
+              const targetUser =
+                tier === 'root'
+                  ? 'root'
+                  : (machine.users.find((u) => u.userType === tier)?.username ?? tier);
+              const updatedPasswd = currentPasswd
+                .split('\n')
+                .map((line) => {
+                  const parts = line.split(':');
+                  if (parts[0] === targetUser) {
+                    return [parts[0], newPassword, ...parts.slice(2)].join(':');
+                  }
+                  return line;
+                })
+                .join('\n');
+              await context.writeRemoteFile?.(targetIP, '/etc/passwd', updatedPasswd);
+              onLine('[+] Exploit successful!');
+              onLine(`[+] Password reset for '${targetUser}' — new password: ${newPassword}`);
+              onComplete();
+              break;
+            }
+            case 'backdoor_port_open': {
+              const backdoorPort = effect.port;
+              const pidPath = ncPidFilePath(backdoorPort);
+              const pidContent = createNcPidContent(backdoorPort, 'backdoor', effect.tier);
+              await context.writeRemoteFile?.(targetIP, pidPath, pidContent, 'root');
+              onLine('[+] Exploit successful!');
+              onLine(
+                `[+] Backdoor planted on port ${backdoorPort} — connect with nc(target, ${backdoorPort})`,
+              );
+              const forwards = context.openBackdoorForwards?.(targetIP, backdoorPort);
+              if (forwards?.publicEdgeIp && forwards.publicEdgePort !== null) {
+                onLine(
+                  `[+] NAT forwarding chain installed — reachable via ${forwards.publicEdgeIp}:${forwards.publicEdgePort} from outside`,
+                );
+              }
+              onComplete();
+              break;
+            }
+            case 'script_exec': {
+              const scriptBody = context.readLocalFile?.(thirdArg!) ?? null;
+              if (scriptBody === null) {
+                onLine(`[-] Could not open script file: ${thirdArg}`);
+                onComplete();
+                break;
+              }
+              // Blind injection — execute script for side effects only, no output
+              const scriptResult = (await context.runScriptOnTarget?.(
+                targetIP,
+                scriptBody,
+                effect.tier,
+              )) ?? {
+                error: null,
+              };
+              if (scriptResult.error) {
+                onLine(`[-] Script injection failed: ${scriptResult.error}`);
+              } else {
+                onLine('[+] Exploit successful!');
+                onLine(`[+] Script injected on ${targetIP} as ${effect.tier}`);
+              }
+              onComplete();
+              break;
+            }
+            case 'shell_limited': {
+              // Use the effect's tier (not the port owner's) so nmap's "as X"
+              // hint matches the actual privilege level the player lands at.
+              const shellUser = resolveShellFullUser(effect.tier);
+              onLine('[+] Exploit successful!');
+              onLine(`[+] Got shell as ${shellUser.username}@${targetIP}`);
+              onLine('');
+              const ncPrompt: NcPromptData = {
+                __type: 'nc_prompt',
+                targetIP,
+                targetPort: port,
+                service: targetPort.service,
+                username: shellUser.username,
+                userType: effect.tier,
+                homePath: shellUser.homePath,
+              };
+              onComplete(ncPrompt);
+              break;
+            }
           }
-          case 'shell_limited': {
-            // Use the effect's tier (not the port owner's) so nmap's "as X"
-            // hint matches the actual privilege level the player lands at.
-            const shellUser = resolveShellFullUser(effect.tier);
-            onLine('[+] Exploit successful!');
-            onLine(`[+] Got shell as ${shellUser.username}@${targetIP}`);
-            onLine('');
-            const ncPrompt: NcPromptData = {
-              __type: 'nc_prompt',
-              targetIP,
-              targetPort: port,
-              service: targetPort.service,
-              username: shellUser.username,
-              userType: effect.tier,
-              homePath: shellUser.homePath,
-            };
-            onComplete(ncPrompt);
-            break;
-          }
-        }
+        })();
       }, delay);
     },
     cancel: token.cancel,

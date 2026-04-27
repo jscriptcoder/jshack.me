@@ -45,13 +45,13 @@ type MsfconsoleContextConfig = {
   }) => void;
   readonly readRemoteFile?: (machineId: string, path: string) => string | null;
   readonly readLocalFile?: (path: string) => string | null;
-  readonly writeRemoteFile?: (machineId: string, path: string, content: string) => void;
+  readonly writeRemoteFile?: (machineId: string, path: string, content: string) => Promise<void>;
   readonly listRemoteDir?: (machineId: string, path: string) => readonly string[] | null;
   readonly runScriptOnTarget?: (
     machineId: string,
     scriptBody: string,
     tier: 'guest' | 'user' | 'root',
-  ) => { readonly error: string | null };
+  ) => Promise<{ readonly error: string | null }>;
   readonly openBackdoorForwards?: (
     machineIp: string,
     port: number,
@@ -744,14 +744,14 @@ describe('msfconsole command', () => {
       expect(followUp).toBeUndefined();
     });
 
-    it('file_write uploads local content to target', () => {
+    it('file_write uploads local content to target', async () => {
       const { entry, machine } = mkMachineWithCve('file_write', 'ftp', 21);
       const written: Array<{ path: string; content: string }> = [];
       const context = createMockMsfconsoleContext({
         machines: [machine],
         gameTime: entry.publishedAt,
         readLocalFile: () => 'payload-content',
-        writeRemoteFile: (_id, path, content) => {
+        writeRemoteFile: async (_id, path, content) => {
           written.push({ path, content });
         },
       });
@@ -769,7 +769,7 @@ describe('msfconsole command', () => {
           followUp = fu;
         },
       );
-      vi.advanceTimersByTime(5000);
+      await vi.advanceTimersByTimeAsync(5000);
       expect(written).toHaveLength(1);
       expect(written[0]?.path).toBe('/var/www/p.txt');
       expect(followUp).toBeUndefined();
@@ -786,14 +786,14 @@ describe('msfconsole command', () => {
       );
     });
 
-    it('password_reset mutates /etc/passwd and prints new password', () => {
+    it('password_reset mutates /etc/passwd and prints new password', async () => {
       const { entry, machine } = mkMachineWithCve('password_reset', 'mysql', 3306);
       let written = '';
       const context = createMockMsfconsoleContext({
         machines: [machine],
         gameTime: entry.publishedAt,
         readRemoteFile: () => 'root:oldHash:0:0:root:/root:/bin/bash',
-        writeRemoteFile: (_id, _path, content) => {
+        writeRemoteFile: async (_id, _path, content) => {
           written = content;
         },
       });
@@ -808,7 +808,7 @@ describe('msfconsole command', () => {
           followUp = fu;
         },
       );
-      vi.advanceTimersByTime(5000);
+      await vi.advanceTimersByTimeAsync(5000);
       expect(lines.some((l) => /password.*reset/i.test(l) || /new password/i.test(l))).toBe(true);
       expect(written.length).toBeGreaterThan(0);
       expect(followUp).toBeUndefined();
@@ -816,7 +816,7 @@ describe('msfconsole command', () => {
   });
 
   describe('effect dispatch — backdoor_port_open', () => {
-    it('writes a nc pid file on the target and returns no follow-up', () => {
+    it('writes a nc pid file on the target and returns no follow-up', async () => {
       const { entry, vuln } = findCveWithEffect('ssh', 'backdoor_port_open');
       const machine = getMockRemoteMachine({
         ports: [
@@ -833,7 +833,7 @@ describe('msfconsole command', () => {
       const context = createMockMsfconsoleContext({
         machines: [machine],
         gameTime: entry.publishedAt,
-        writeRemoteFile: (machineId, path, content) => {
+        writeRemoteFile: async (machineId, path, content) => {
           written.push({ machineId, path, content });
         },
       });
@@ -851,7 +851,7 @@ describe('msfconsole command', () => {
           followUp = fu;
         },
       );
-      vi.advanceTimersByTime(5000);
+      await vi.advanceTimersByTimeAsync(5000);
 
       expect(written).toHaveLength(1);
       expect(written[0]?.path).toMatch(/\/var\/run\/nc-\d+\.pid/);
@@ -860,7 +860,7 @@ describe('msfconsole command', () => {
       expect(followUp).toBeUndefined();
     });
 
-    it('invokes openBackdoorForwards after planting the pid file and reports public-edge reach', () => {
+    it('invokes openBackdoorForwards after planting the pid file and reports public-edge reach', async () => {
       const { entry, vuln } = findCveWithEffect('ssh', 'backdoor_port_open');
       const machine = getMockRemoteMachine({
         ports: [
@@ -880,7 +880,7 @@ describe('msfconsole command', () => {
       const context = createMockMsfconsoleContext({
         machines: [machine],
         gameTime: entry.publishedAt,
-        writeRemoteFile: () => {},
+        writeRemoteFile: async () => {},
         openBackdoorForwards,
       });
       const msfconsole = createMsfconsoleCommand(context);
@@ -892,7 +892,7 @@ describe('msfconsole command', () => {
         (line) => lines.push(line),
         () => {},
       );
-      vi.advanceTimersByTime(5000);
+      await vi.advanceTimersByTimeAsync(5000);
 
       const backdoorPort = vuln.effect.kind === 'backdoor_port_open' ? vuln.effect.port : 0;
       expect(openBackdoorForwards).toHaveBeenCalledWith('10.50.100.10', backdoorPort);
@@ -900,7 +900,7 @@ describe('msfconsole command', () => {
       expect(lines.some((l) => /reachable/i.test(l))).toBe(true);
     });
 
-    it('omits the NAT-forward message when no gateway chain exists (home network target)', () => {
+    it('omits the NAT-forward message when no gateway chain exists (home network target)', async () => {
       const { entry, vuln } = findCveWithEffect('ssh', 'backdoor_port_open');
       const machine = getMockRemoteMachine({
         ports: [
@@ -920,7 +920,7 @@ describe('msfconsole command', () => {
       const context = createMockMsfconsoleContext({
         machines: [machine],
         gameTime: entry.publishedAt,
-        writeRemoteFile: () => {},
+        writeRemoteFile: async () => {},
         openBackdoorForwards,
       });
       const msfconsole = createMsfconsoleCommand(context);
@@ -932,7 +932,7 @@ describe('msfconsole command', () => {
         (line) => lines.push(line),
         () => {},
       );
-      vi.advanceTimersByTime(5000);
+      await vi.advanceTimersByTimeAsync(5000);
 
       expect(openBackdoorForwards).toHaveBeenCalled();
       expect(lines.some((l) => /reachable/i.test(l))).toBe(false);
@@ -940,7 +940,7 @@ describe('msfconsole command', () => {
   });
 
   describe('effect dispatch — script_exec', () => {
-    it('reads the local script, runs it blindly, and shows injection success', () => {
+    it('reads the local script, runs it blindly, and shows injection success', async () => {
       const { entry, vuln } = findCveWithEffect('redis', 'script_exec');
       const machine = getMockRemoteMachine({
         ports: [
@@ -953,7 +953,7 @@ describe('msfconsole command', () => {
           },
         ],
       });
-      const runScriptOnTarget = vi.fn(() => ({ error: null }));
+      const runScriptOnTarget = vi.fn(async () => ({ error: null }));
       const context = createMockMsfconsoleContext({
         machines: [machine],
         gameTime: entry.publishedAt,
@@ -974,7 +974,7 @@ describe('msfconsole command', () => {
           followUp = fu;
         },
       );
-      vi.advanceTimersByTime(5000);
+      await vi.advanceTimersByTimeAsync(5000);
 
       // Blind injection — no script output, just success message
       expect(lines.some((l) => l.includes('Script injected'))).toBe(true);
@@ -983,7 +983,7 @@ describe('msfconsole command', () => {
       expect(followUp).toBeUndefined();
     });
 
-    it('shows injection failure when script errors', () => {
+    it('shows injection failure when script errors', async () => {
       const { entry, vuln } = findCveWithEffect('redis', 'script_exec');
       const machine = getMockRemoteMachine({
         ports: [
@@ -1000,7 +1000,7 @@ describe('msfconsole command', () => {
         machines: [machine],
         gameTime: entry.publishedAt,
         readLocalFile: () => 'sshd()',
-        runScriptOnTarget: () => ({ error: 'sshd: permission denied' }),
+        runScriptOnTarget: async () => ({ error: 'sshd: permission denied' }),
       });
       const msfconsole = createMsfconsoleCommand(context);
       const result = msfconsole.fn('10.50.100.10', 6379, '/root/payloads/start_ssh.js');
@@ -1013,7 +1013,7 @@ describe('msfconsole command', () => {
         (line) => lines.push(line),
         () => {},
       );
-      vi.advanceTimersByTime(5000);
+      await vi.advanceTimersByTimeAsync(5000);
 
       expect(lines.some((l) => l.includes('Script injection failed'))).toBe(true);
       expect(lines.some((l) => l.includes('permission denied'))).toBe(true);

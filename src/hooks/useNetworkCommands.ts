@@ -470,12 +470,41 @@ export const useNetworkCommands = (): Map<string, Command> => {
                 cwd: '/',
                 userType: session.userType,
               }),
-            writeRemoteFile: (machineId, path, content, tier = 'root') =>
-              writeFileToMachine({ machineId, path, cwd: '/', userType: tier, content }),
+            // Wrap writeRemoteFile + runScriptOnTarget in transient
+            // sessions (kind='effect_one_shot') so the L1 patch-validation
+            // gate sees a session row at fire time. msfconsole's switch
+            // cases await these callbacks (they were sync before; see
+            // src/commands/msfconsole.ts MsfconsoleContext for the
+            // signature change).
+            writeRemoteFile: async (machineId, path, content, tier = 'root') => {
+              await withTransientSession(
+                getIdentity(),
+                {
+                  machine_id: machineId,
+                  credentials: { username: 'msf', userType: tier },
+                  kind: 'effect_one_shot',
+                  ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
+                  source_ip: session.machine,
+                },
+                () => {
+                  writeFileToMachine({ machineId, path, cwd: '/', userType: tier, content });
+                },
+              );
+            },
             listRemoteDir: (machineId, path, tier = 'root') =>
               listDirectoryFromMachine({ machineId, path, cwd: '/', userType: tier }),
-            runScriptOnTarget: (machineId, scriptBody, tier) =>
-              executeScriptOnTarget(scriptBody, buildTargetCommandContext(machineId, tier)),
+            runScriptOnTarget: async (machineId, scriptBody, tier) =>
+              await withTransientSession(
+                getIdentity(),
+                {
+                  machine_id: machineId,
+                  credentials: { username: 'msf', userType: tier },
+                  kind: 'effect_one_shot',
+                  ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
+                  source_ip: session.machine,
+                },
+                () => executeScriptOnTarget(scriptBody, buildTargetCommandContext(machineId, tier)),
+              ),
             openBackdoorForwards: (machineIp, port) => {
               const chain = getGatewayChainFor(machineIp);
               if (chain.length === 0) {
