@@ -21,6 +21,8 @@ import type { MachineId } from '../filesystem/machineFileSystems';
 import { createHydraCommand } from '../commands/hydra';
 import { createGobusterCommand } from '../commands/gobuster';
 import { createScpCommand } from '../commands/scp';
+import { withTransientSession } from '../session/withTransientSession';
+import { getIdentity } from '../identity';
 import { createDigCommand } from '../commands/dig';
 import { createSnmpwalkCommand } from '../commands/snmpwalk';
 import { createSnmpsetCommand } from '../commands/snmpset';
@@ -617,6 +619,23 @@ export const useNetworkCommands = (): Map<string, Command> => {
             getNodeFromMachine,
             createFileOnMachine,
             resolveNat,
+            // Wraps the actual createFileOnMachine call in a transient
+            // server session (kind='scp'). parent_session_id captures
+            // the current shell so the server cascade-ends if the
+            // player exits while scp is in flight; source_ip is the
+            // machine the player is sitting in.
+            withTransientSession: (params, body) =>
+              withTransientSession(
+                getIdentity(),
+                {
+                  machine_id: params.machine_id,
+                  credentials: params.credentials,
+                  kind: 'scp',
+                  ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
+                  source_ip: session.machine,
+                },
+                body,
+              ),
           }),
           isWifiRequired,
         ),
@@ -648,6 +667,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
     session.currentPath,
     session.username,
     session.userType,
+    session.sessionId,
     wifiConnected,
     isMachineBricked,
     findMachineByIp,

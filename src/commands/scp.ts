@@ -1,7 +1,20 @@
 import type { Command, AsyncOutput, ScpPromptData } from '../components/Terminal/types';
 import type { FileNode, MachineCreateOp, PermissionResult } from '../filesystem/types';
 import type { RemoteMachine } from '../network/types';
+import type { Credentials } from '../sessionRegistry/types';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
+
+// Transient-session wrapper: pushes a server session row, runs the
+// body, ends the session. Required post-Step-1 because scp's write
+// to the remote machine (via createFileOnMachine) creates a patch
+// that the L1 patch-validation gate rejects (403) without an active
+// session for the player on that machine. Optional to keep existing
+// tests that don't care about session pushing — production callers
+// in useNetworkCommands MUST supply it.
+export type ScpTransientSession = (
+  params: { readonly machine_id: string; readonly credentials: Credentials },
+  body: () => void,
+) => Promise<void>;
 
 type ScpContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
@@ -13,6 +26,7 @@ type ScpContext = {
   readonly getNodeFromMachine: (machineId: string, path: string, cwd: string) => FileNode | null;
   readonly createFileOnMachine: (op: MachineCreateOp) => PermissionResult;
   readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
+  readonly withTransientSession?: ScpTransientSession;
 };
 
 // Parses "user@host:path" into components
@@ -216,22 +230,48 @@ export const createScpCommand = (context: ScpContext): Command => ({
           transferToken.schedule(() => {
             if (transferToken.isCancelled()) return;
 
-            const result = createFileOnMachine({
-              machineId: resolvedHost,
-              path: destPath,
-              cwd: '/',
-              content,
-              userType: remoteUser.userType,
-              permissions: sourceNode.permissions,
-            });
+            // Run the createFileOnMachine + summary inside a transient
+            // session so the L1 gate sees a session row at fire time.
+            // If the context didn't supply withTransientSession (some
+            // tests), fall back to direct call — the gate may 403 in
+            // that path but tests with mocked filesystem don't care.
+            const doTransfer = () => {
+              const result = createFileOnMachine({
+                machineId: resolvedHost,
+                path: destPath,
+                cwd: '/',
+                content,
+                userType: remoteUser.userType,
+                permissions: sourceNode.permissions,
+              });
 
-            if (!result.allowed) {
-              onLine(`scp: ${destPath}: ${result.error}`);
+              if (!result.allowed) {
+                onLine(`scp: ${destPath}: ${result.error}`);
+              } else {
+                onLine(`${fileName}  ${bytes} bytes  ${currentMachine} → ${dest.host}`);
+              }
+            };
+
+            if (context.withTransientSession) {
+              void context
+                .withTransientSession(
+                  {
+                    machine_id: resolvedHost,
+                    credentials: { username: dest.user, userType: remoteUser.userType },
+                  },
+                  doTransfer,
+                )
+                .catch((error) => {
+                  console.error('[scp] transient session push failed:', error);
+                  onLine(`scp: ${destPath}: session error`);
+                })
+                .finally(() => {
+                  onComplete();
+                });
             } else {
-              onLine(`${fileName}  ${bytes} bytes  ${currentMachine} → ${dest.host}`);
+              doTransfer();
+              onComplete();
             }
-
-            onComplete();
           }, delay);
         },
         cancel: transferToken.cancel,
