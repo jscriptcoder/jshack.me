@@ -1,7 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { SessionProvider, useSession, type FtpSession, type MysqlSession } from './SessionContext';
+import {
+  SessionProvider,
+  useSession,
+  type FtpSession,
+  type MysqlSession,
+  type RedisSession,
+} from './SessionContext';
 import type { SessionSummary } from '../sessionRegistry/types';
 
 // Mock the sessionRegistry client so we don't hit the network. Tests control
@@ -735,6 +741,98 @@ describe('SessionProvider — enterMysqlMode / exitMysqlMode (server-aware)', ()
 
     expect(mockedEndSession).not.toHaveBeenCalled();
     expect(result.current.mysqlSession).toBeNull();
+  });
+});
+
+// -----------------------------------------------------------------------
+// redis enter/exit — protocol session push (kind='redis')
+// -----------------------------------------------------------------------
+
+describe('SessionProvider — enterRedisMode / exitRedisMode (server-aware)', () => {
+  beforeEach(() => {
+    vi.mocked(mockedCreateSession).mockReset();
+    vi.mocked(mockedEndSession).mockReset();
+    vi.mocked(mockedEndSession).mockResolvedValue(undefined);
+    vi.mocked(mockedListSessions).mockReset();
+    vi.mocked(mockedListSessions).mockResolvedValue([]);
+    sessionStorage.clear();
+  });
+
+  const buildRedisSession = (over: Partial<RedisSession> = {}): RedisSession => ({
+    targetIP: '10.0.0.7',
+    machineId: '10.0.0.7',
+    sessionId: null,
+    ...over,
+  });
+
+  it('enterRedisMode pushes server session with kind="redis"', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValue('redis-session-id');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterRedisMode(buildRedisSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(mockedCreateSession).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        machine_id: '10.0.0.7',
+        // RedisSession has no username — synthesized 'redis' for the
+        // session row's credentials. userType defaults 'user'.
+        credentials: { username: 'redis', userType: 'user' },
+        source_ip: 'localhost',
+        kind: 'redis',
+      }),
+    );
+  });
+
+  it('backfills the server-issued sessionId into redisSession state on resolve', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValue('redis-resolved-id');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterRedisMode(buildRedisSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(result.current.redisSession?.sessionId).toBe('redis-resolved-id');
+  });
+
+  it('exitRedisMode ends the server session when sessionId was backfilled', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValue('redis-end-me');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterRedisMode(buildRedisSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    act(() => {
+      result.current.exitRedisMode();
+    });
+
+    expect(mockedEndSession).toHaveBeenCalledWith(expect.anything(), {
+      session_id: 'redis-end-me',
+      reason: 'user_exit',
+    });
+    expect(result.current.redisSession).toBeNull();
+  });
+
+  it('exitRedisMode does NOT call endSession when push was still pending', async () => {
+    vi.mocked(mockedCreateSession).mockReturnValue(new Promise(() => {}));
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    act(() => {
+      result.current.enterRedisMode(buildRedisSession());
+    });
+
+    act(() => {
+      result.current.exitRedisMode();
+    });
+
+    expect(mockedEndSession).not.toHaveBeenCalled();
+    expect(result.current.redisSession).toBeNull();
   });
 });
 

@@ -119,6 +119,9 @@ export type MysqlSession = {
 export type RedisSession = {
   readonly targetIP: string;
   readonly machineId: string;
+  // Server-tracked session id for the redis connection. Same lifecycle
+  // as FtpSession.sessionId / MysqlSession.sessionId.
+  readonly sessionId: string | null;
 };
 
 export type PersistedState = {
@@ -654,13 +657,42 @@ export const SessionProvider = ({ children, workstationName, username }: Session
 
   const isInMysqlMode = useCallback(() => mysqlSession !== null, [mysqlSession]);
 
-  const enterRedisMode = useCallback((newRedisSession: RedisSession) => {
-    setRedisSession(newRedisSession);
-  }, []);
+  // RedisSession has no username field — redis in this game is
+  // password-only AUTH (newer ACL-with-username not modeled). For the
+  // L1 gate we synthesize 'redis' as the username and default
+  // userType: 'user'. Future L2 PR will need a real mapping if
+  // permissions become enforced.
+  const enterRedisMode = useCallback(
+    (newRedisSession: RedisSession) => {
+      setRedisSession(newRedisSession);
+      void createServerSession(getIdentity(), {
+        machine_id: newRedisSession.machineId,
+        credentials: { username: 'redis', userType: 'user' },
+        ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
+        source_ip: session.machine,
+        kind: 'redis',
+      })
+        .then((sessionId) => {
+          setRedisSession((prev) => (prev !== null ? { ...prev, sessionId } : prev));
+        })
+        .catch((error) => {
+          console.error('[session] redis createServerSession failed:', error);
+        });
+    },
+    [session.sessionId, session.machine],
+  );
 
   const exitRedisMode = useCallback((): RedisSession | null => {
     const current = redisSession;
     setRedisSession(null);
+    if (current?.sessionId) {
+      void endServerSession(getIdentity(), {
+        session_id: current.sessionId,
+        reason: 'user_exit',
+      }).catch((error) => {
+        console.error('[session] redis endServerSession failed:', error);
+      });
+    }
     return current;
   }, [redisSession]);
 

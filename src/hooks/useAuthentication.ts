@@ -515,6 +515,8 @@ export const useAuthentication = ({
       const newRedisSession: RedisSession = {
         targetIP,
         machineId: resolvedIp,
+        // Backfilled by enterRedisMode after the server push resolves.
+        sessionId: null,
       };
       enterRedisMode(newRedisSession);
       // Socket established — write the connect line regardless of how AUTH
