@@ -1062,3 +1062,116 @@ describe('handlePatchesRequest — session-existence gate (L1)', () => {
     });
   });
 });
+
+// -----------------------------------------------------------------------
+// L1 bypass for ambient log writes
+//
+// Recon (nmap, curl, hydra, gobuster, ssh-fail, etc.) leaves logs on
+// the target machine without the actor needing an active session there
+// — the network records the probe as a side effect. L1 was designed
+// for "I logged in, I'm mutating this machine" writes; ambient log
+// appends are a different write class. Bypass is path-prefix based,
+// server-controlled, and applies ONLY to upsertPatch (not removePatch
+// — covering tracks still requires real access).
+//
+// See project_multiplayer_cross_player_visibility memory.
+// -----------------------------------------------------------------------
+
+describe('handlePatchesRequest — log-path bypass on upsertPatch', () => {
+  let identity: Identity;
+  beforeEach(() => {
+    identity = generateIdentity();
+  });
+
+  const validLogUpsert = {
+    action: 'upsertPatch',
+    machine_id: '10.0.0.1',
+    path: '/var/log/access.log',
+    content: '[scan] 10.0.0.5 -> tcp/22\n',
+    owner: 'root',
+  };
+
+  it('returns 200 for /var/log/* upsert on remote without an active session', async () => {
+    const findActiveSession = vi
+      .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+      .mockResolvedValue({ ok: true, exists: false });
+    const upsertPatch = vi
+      .fn<(row: PatchRow) => Promise<UpsertPatchResult>>()
+      .mockResolvedValue({ ok: true });
+    const envelope = makeEnvelope(identity, validLogUpsert);
+
+    const result = await handlePatchesRequest(envelope, mkDeps({ findActiveSession, upsertPatch }));
+
+    expect(result.status).toBe(200);
+    expect(upsertPatch).toHaveBeenCalled();
+  });
+
+  it('does NOT consult findActiveSession for /var/log/* upsert (short-circuit)', async () => {
+    // Mutation-kill: a mutant that drops the early-return would call
+    // findActiveSession; with exists:false above it would 403.
+    const findActiveSession = vi
+      .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+      .mockResolvedValue({ ok: true, exists: false });
+    const envelope = makeEnvelope(identity, validLogUpsert);
+
+    await handlePatchesRequest(envelope, mkDeps({ findActiveSession }));
+
+    expect(findActiveSession).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    '/var/log/auth.log',
+    '/var/log/kern.log',
+    '/var/log/messages',
+    '/var/log/nginx/access.log',
+    '/var/log/subdir/deeper/file.log',
+  ])('bypasses the gate for path: %s', async (path) => {
+    const findActiveSession = vi
+      .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+      .mockResolvedValue({ ok: true, exists: false });
+    const envelope = makeEnvelope(identity, { ...validLogUpsert, path });
+
+    const result = await handlePatchesRequest(envelope, mkDeps({ findActiveSession }));
+
+    expect(result.status).toBe(200);
+    expect(findActiveSession).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    '/var/loganalyzer/foo.txt', // looks similar but isn't /var/log/
+    '/var/log', // exactly /var/log with no child component
+    '/etc/passwd', // entirely different path
+    '/foo/var/log/bar.log', // /var/log/ not at the start
+  ])('does NOT bypass the gate for non-log path: %s', async (path) => {
+    const findActiveSession = vi
+      .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+      .mockResolvedValue({ ok: true, exists: false });
+    const envelope = makeEnvelope(identity, { ...validLogUpsert, path });
+
+    const result = await handlePatchesRequest(envelope, mkDeps({ findActiveSession }));
+
+    expect(result.status).toBe(403);
+    expect(result.body).toMatchObject({ error: 'no_session' });
+    expect(findActiveSession).toHaveBeenCalled();
+  });
+
+  it('removePatch on /var/log/* is NOT bypassed (covering tracks still needs access)', async () => {
+    const findActiveSession = vi
+      .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+      .mockResolvedValue({ ok: true, exists: false });
+    const removePatch = vi
+      .fn<(p: RemovePatchParams) => Promise<RemovePatchResult>>()
+      .mockResolvedValue({ ok: true, affected: 0 });
+    const envelope = makeEnvelope(identity, {
+      action: 'removePatch',
+      machine_id: '10.0.0.1',
+      path: '/var/log/access.log',
+    });
+
+    const result = await handlePatchesRequest(envelope, mkDeps({ findActiveSession, removePatch }));
+
+    expect(result.status).toBe(403);
+    expect(result.body).toMatchObject({ error: 'no_session' });
+    expect(removePatch).not.toHaveBeenCalled();
+  });
+});

@@ -141,6 +141,14 @@ The gate is the **actual security boundary** for filesystem mutations. Before PR
 
 Reads (`listPatches`, `clearTransientPatches`, `clearOwnedPatches`) are NOT gated — they're scoped to the player's own data by `player_key` and don't depend on per-machine ownership.
 
+### Ambient log-path bypass
+
+`upsertPatch` writes to paths under `/var/log/` bypass L1 entirely (no session required). Recon actions like `nmap`, `curl`, `hydra`, `gobuster`, and ssh-failure logging trigger log appends on the target machine without the actor having a session there — the network records the probe as a side effect, that's the gameplay. L1 was designed for "I logged in, I'm mutating this machine" mutations; ambient log writes are a different class.
+
+The bypass is path-prefix based and server-controlled — the client cannot opt out of L1 by spoofing a non-log path; the predicate runs on the verified `payload.path`. Bypass applies ONLY to `upsertPatch`. `removePatch` on a `/var/log/...` path still requires a session (covering tracks needs real access to the box).
+
+This bypass exists to keep the gate compatible with the **cross-player log visibility** rule that ships with multiplayer (see `project_multiplayer_cross_player_visibility` memory). Future hardening: a dedicated server-composed event stream (forgery-resistant), at which point this bypass goes away.
+
 ### Layered defense (L1 / L2 / L3)
 
 This PR ships **L1** only. The full validation cake:

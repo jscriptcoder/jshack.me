@@ -164,13 +164,33 @@ const requireActiveSession = async (
 const sanitizeContent = (content: string | null): string | null =>
   content === null ? null : content.replaceAll('\u0000', '\uFFFD');
 
+// Ambient log-path predicate: writes under /var/log/ bypass L1.
+//
+// Recon (nmap, curl, hydra, gobuster, ssh-fail, etc.) leaves logs on
+// the target machine without the actor having an active session there
+// — the network records the probe as a side effect. L1 was designed
+// for "I logged in, I'm mutating this machine" mutations; ambient log
+// appends are a different write class.
+//
+// Server-controlled and path-prefix based: client cannot opt out of
+// L1 by spoofing a non-log path; the predicate runs on the verified
+// payload.path. Bypass applies ONLY to upsertPatch — covering tracks
+// (removePatch on a log file) still needs a real session on the box.
+//
+// See project_multiplayer_cross_player_visibility memory for the
+// broader "everyone sees everyone's changes" rule that makes log
+// trail-leaving load-bearing for multiplayer gameplay.
+const isAmbientLogPath = (path: string): boolean => path.startsWith('/var/log/');
+
 const handleUpsertPatch = async (
   publicKey: string,
   payload: Extract<PatchesPayload, { action: 'upsertPatch' }>,
   deps: HandlerDeps,
 ): Promise<HandlerResponse> => {
-  const gate = await requireActiveSession(publicKey, payload.machine_id, deps);
-  if (gate) return gate;
+  if (!isAmbientLogPath(payload.path)) {
+    const gate = await requireActiveSession(publicKey, payload.machine_id, deps);
+    if (gate) return gate;
+  }
 
   const { machine_id, path, content, owner, permissions, is_new, node_type } = payload;
   const row: PatchRow = {
