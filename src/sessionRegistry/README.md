@@ -1,22 +1,23 @@
 # Session Registry
 
-Server-authoritative session-existence registry. Backs `/api/sessions` — the Vercel function that records each player's "presence on a machine with credentials" (SSH-into-X-as-Y, or `su`-on-X-to-Z, or post-exploit shell).
+Server-authoritative session-existence registry. Backs `/api/sessions` — the Vercel function that records each player's "presence on a machine with credentials" across nine session kinds (SSH-into-X-as-Y, `su`-on-X-to-Z, post-exploit shell, FTP/mysql/redis/scp/snmp logins, msfconsole one-shot effects).
 
-The DB tree mirrors the player's hop chain via `parent_session_id`. The server is the single source of truth for "does player X have an active session on machine Y?" — patch authorization, hop-chain realism in `access.log`, and cross-player visibility all read from this table.
+The DB tree mirrors the player's hop chain via `parent_session_id`. The server is the single source of truth for "does player X have an active session on machine Y?" — **the L1 patch-validation gate in `/api/patches` consults this table on every mutating write**, hop-chain realism in `access.log` reads it, and cross-player visibility all flows from it.
 
 See `docs/technology-choices.md` (Authenticated requests + Backend) and the `project_multiplayer_sessions` memory for the broader design.
 
 ## Files
 
-| File                | Description                                                                                                          |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `types.ts`          | zod schemas (createSession / endSession / listSessions, all action-discriminated), `SessionRow`, `SessionSummary`.   |
-| `handler.ts`        | Single endpoint with action-dispatch: verify → rate-limit → branch into create/end/list. server-stamps `player_key`. |
-| `supabaseInsert.ts` | `INSERT INTO sessions ... RETURNING session_id` adapter for the createSession path.                                  |
-| `supabaseUpdate.ts` | `UPDATE sessions SET ended_at = NOW(), end_reason = ...` with WHERE filter, plus app-level cascade-end recursion.    |
-| `supabaseSelect.ts` | `SELECT ... WHERE player_key = ... AND ended_at IS NULL ORDER BY created_at ASC` adapter for listSessions.           |
-| `client.ts`         | Browser-side `createSession` / `endSession` / `listSessions` wrappers — sign envelope, POST, parse response.         |
-| `*.test.ts`         | Unit tests for each module.                                                                                          |
+| File                    | Description                                                                                                                                           |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `types.ts`              | zod schemas (createSession / endSession / listSessions, action-discriminated), `SESSION_KINDS` enum, `SessionRow`, `SessionSummary`.                  |
+| `handler.ts`            | Single endpoint with action-dispatch: verify → rate-limit → branch into create/end/list. server-stamps `player_key` and defaults `kind: 'ssh'`.       |
+| `supabaseInsert.ts`     | `INSERT INTO sessions ... RETURNING session_id` adapter (kind included in the row).                                                                   |
+| `supabaseUpdate.ts`     | `UPDATE sessions SET ended_at = NOW(), end_reason = ...` with WHERE filter, plus app-level cascade-end recursion.                                     |
+| `supabaseSelect.ts`     | `SELECT ... WHERE player_key = ... AND ended_at IS NULL ORDER BY created_at ASC` adapter for listSessions; returns kind in each row.                  |
+| `supabaseFindActive.ts` | `SELECT 1 FROM sessions WHERE player_key=me AND machine_id=X AND ended_at IS NULL LIMIT 1` — the L1 patch-validation gate's existence check (PR #78). |
+| `client.ts`             | Browser-side `createSession` / `endSession` / `listSessions` wrappers — sign envelope, POST, parse response.                                          |
+| `*.test.ts`             | Unit tests for each module.                                                                                                                           |
 
 ## Action dispatch (`handler.ts`)
 
@@ -58,6 +59,14 @@ CREATE TABLE sessions (
 ```
 
 RLS is enabled with **no policies** — anon/authenticated denied by default; only `service_role` (used by the Vercel function) can read/write. Mirrors `public_ips`.
+
+`kind` (added in this PR) distinguishes nine session categories so consumers can filter:
+
+- **Shell-class** — `'ssh'`, `'su'`, `'exploit'` — go on the SessionContext snapshot stack and rehydrate on mount.
+- **Protocol** — `'ftp'`, `'mysql'`, `'redis'` — live in their own client-side state field (`FtpSession`, `MysqlSession`, `RedisSession`); pushed/ended on login/logout.
+- **Transient one-shot** — `'scp'`, `'snmp'`, `'effect_one_shot'` — pushed via `withTransientSession` for the duration of a single patch fire, then ended.
+
+Rehydration filters to shell-class kinds before reconstructing the linear shell chain. The L1 patch-validation gate (`/api/patches`) doesn't care which kind — it only asks "does any active session row exist for `(player_key, machine_id)`?".
 
 ## Cascade-end (`supabaseUpdate.ts`)
 
