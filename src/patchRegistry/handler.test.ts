@@ -11,6 +11,10 @@ import type {
   RemovePatchResult,
   UpsertPatchResult,
 } from './types';
+import type {
+  FindActiveSessionParams,
+  FindActiveSessionResult,
+} from '../sessionRegistry/supabaseFindActive';
 import type { RateLimiter } from '../ipRegistry/rateLimit';
 import { noopRateLimiter } from '../ipRegistry/rateLimit';
 import { noopNonceStore, type NonceStore } from '../signedRequest/nonceStore';
@@ -49,6 +53,9 @@ const mkDeps = (overrides: {
   readonly listPatches?: (params: ListPatchesParams) => Promise<ListPatchesResult>;
   readonly clearTransientPatches?: (params: ClearPatchesParams) => Promise<ClearPatchesResult>;
   readonly clearOwnedPatches?: (params: ClearPatchesParams) => Promise<ClearPatchesResult>;
+  readonly findActiveSession?: (
+    params: FindActiveSessionParams,
+  ) => Promise<FindActiveSessionResult>;
   readonly rateLimiter?: RateLimiter;
   readonly nonceStore?: NonceStore;
   readonly now?: () => number;
@@ -76,6 +83,12 @@ const mkDeps = (overrides: {
     vi
       .fn<(params: ClearPatchesParams) => Promise<ClearPatchesResult>>()
       .mockResolvedValue({ ok: true, affected: 0 }),
+  // Default: gate always passes. Session-specific tests override per-case.
+  findActiveSession:
+    overrides.findActiveSession ??
+    vi
+      .fn<(params: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+      .mockResolvedValue({ ok: true, exists: true }),
   rateLimiter: overrides.rateLimiter ?? noopRateLimiter,
   nonceStore: overrides.nonceStore ?? noopNonceStore,
   now: overrides.now ?? (() => FIXED_NOW),
@@ -741,5 +754,283 @@ describe('handlePatchesRequest — rate limiting', () => {
 
     expect(result.status).toBe(429);
     expect(listPatches).not.toHaveBeenCalled();
+  });
+});
+
+// -----------------------------------------------------------------------
+// Session-existence gate (L1 patch validation)
+//
+// Mutations on non-localhost machines must be backed by an active
+// session row. Localhost is exempt (player always owns localhost).
+// L2 (permission walking inside the session's credentials) is deferred.
+// -----------------------------------------------------------------------
+
+describe('handlePatchesRequest — session-existence gate (L1)', () => {
+  let identity: Identity;
+  beforeEach(() => {
+    identity = generateIdentity();
+  });
+
+  const validUpsertRemote = {
+    action: 'upsertPatch',
+    machine_id: '10.0.0.1',
+    path: '/tmp/foo.txt',
+    content: 'hello',
+    owner: 'user',
+  };
+
+  const validUpsertLocalhost = {
+    action: 'upsertPatch',
+    machine_id: 'localhost',
+    path: '/home/me/notes.txt',
+    content: 'local hello',
+    owner: 'user',
+  };
+
+  const validRemovePayload = {
+    action: 'removePatch',
+    machine_id: '10.0.0.1',
+    path: '/tmp/foo.txt',
+  };
+
+  describe('upsertPatch', () => {
+    it('returns 200 on remote machine when player has an active session there', async () => {
+      const findActiveSession = vi
+        .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+        .mockResolvedValue({ ok: true, exists: true });
+      const upsertPatch = vi
+        .fn<(row: PatchRow) => Promise<UpsertPatchResult>>()
+        .mockResolvedValue({ ok: true });
+      const envelope = makeEnvelope(identity, validUpsertRemote);
+
+      const result = await handlePatchesRequest(
+        envelope,
+        mkDeps({ findActiveSession, upsertPatch }),
+      );
+
+      expect(result.status).toBe(200);
+      expect(upsertPatch).toHaveBeenCalled();
+    });
+
+    it('returns 403 no_session on remote machine when no active session exists', async () => {
+      const findActiveSession = vi
+        .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+        .mockResolvedValue({ ok: true, exists: false });
+      const upsertPatch = vi
+        .fn<(row: PatchRow) => Promise<UpsertPatchResult>>()
+        .mockResolvedValue({ ok: true });
+      const envelope = makeEnvelope(identity, validUpsertRemote);
+
+      const result = await handlePatchesRequest(
+        envelope,
+        mkDeps({ findActiveSession, upsertPatch }),
+      );
+
+      expect(result.status).toBe(403);
+      expect(result.body).toMatchObject({ error: 'no_session' });
+      // Critical: the upsert adapter MUST NOT be called when the gate
+      // rejects. A surviving mutant that drops the early-return would
+      // record the patch despite the 403.
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
+
+    it('returns 500 session_lookup_failed when findActiveSession itself errors (DB outage)', async () => {
+      // Distinct from 403: the lookup BROKE. Server can't decide.
+      // Don't fail-open by treating DB errors as "session exists",
+      // and don't fail-into-403 (would mask outages as auth failures).
+      const findActiveSession = vi
+        .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+        .mockResolvedValue({ ok: false });
+      const upsertPatch = vi
+        .fn<(row: PatchRow) => Promise<UpsertPatchResult>>()
+        .mockResolvedValue({ ok: true });
+      const envelope = makeEnvelope(identity, validUpsertRemote);
+
+      const result = await handlePatchesRequest(
+        envelope,
+        mkDeps({ findActiveSession, upsertPatch }),
+      );
+
+      expect(result.status).toBe(500);
+      expect(result.body).toMatchObject({ error: 'session_lookup_failed' });
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
+
+    it('skips the gate entirely on machine_id=localhost (player always owns own box)', async () => {
+      const findActiveSession = vi
+        .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+        .mockResolvedValue({ ok: true, exists: false });
+      const upsertPatch = vi
+        .fn<(row: PatchRow) => Promise<UpsertPatchResult>>()
+        .mockResolvedValue({ ok: true });
+      const envelope = makeEnvelope(identity, validUpsertLocalhost);
+
+      const result = await handlePatchesRequest(
+        envelope,
+        mkDeps({ findActiveSession, upsertPatch }),
+      );
+
+      expect(result.status).toBe(200);
+      // Critical: gate MUST NOT be consulted for localhost. A mutant
+      // that calls findActiveSession anyway (and gets exists:false above)
+      // would 403 — this test catches it.
+      expect(findActiveSession).not.toHaveBeenCalled();
+      expect(upsertPatch).toHaveBeenCalled();
+    });
+
+    it('passes verified pubkey + payload.machine_id to findActiveSession (not client-claimed)', async () => {
+      const findActiveSession = vi
+        .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+        .mockResolvedValue({ ok: true, exists: true });
+      const envelope = makeEnvelope(identity, validUpsertRemote);
+
+      await handlePatchesRequest(envelope, mkDeps({ findActiveSession }));
+
+      expect(findActiveSession).toHaveBeenCalledWith({
+        player_key: identity.publicKeyHex,
+        machine_id: '10.0.0.1',
+      });
+    });
+  });
+
+  describe('removePatch (parity with upsertPatch gate)', () => {
+    it('returns 200 on remote when active session exists', async () => {
+      const findActiveSession = vi
+        .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+        .mockResolvedValue({ ok: true, exists: true });
+      const removePatch = vi
+        .fn<(p: RemovePatchParams) => Promise<RemovePatchResult>>()
+        .mockResolvedValue({ ok: true, affected: 0 });
+      const envelope = makeEnvelope(identity, validRemovePayload);
+
+      const result = await handlePatchesRequest(
+        envelope,
+        mkDeps({ findActiveSession, removePatch }),
+      );
+
+      expect(result.status).toBe(200);
+      expect(removePatch).toHaveBeenCalled();
+    });
+
+    it('returns 403 no_session when no active session', async () => {
+      const findActiveSession = vi
+        .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+        .mockResolvedValue({ ok: true, exists: false });
+      const removePatch = vi
+        .fn<(p: RemovePatchParams) => Promise<RemovePatchResult>>()
+        .mockResolvedValue({ ok: true, affected: 0 });
+      const envelope = makeEnvelope(identity, validRemovePayload);
+
+      const result = await handlePatchesRequest(
+        envelope,
+        mkDeps({ findActiveSession, removePatch }),
+      );
+
+      expect(result.status).toBe(403);
+      expect(result.body).toMatchObject({ error: 'no_session' });
+      expect(removePatch).not.toHaveBeenCalled();
+    });
+
+    it('returns 500 session_lookup_failed when findActiveSession errors', async () => {
+      const findActiveSession = vi
+        .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+        .mockResolvedValue({ ok: false });
+      const removePatch = vi
+        .fn<(p: RemovePatchParams) => Promise<RemovePatchResult>>()
+        .mockResolvedValue({ ok: true, affected: 0 });
+      const envelope = makeEnvelope(identity, validRemovePayload);
+
+      const result = await handlePatchesRequest(
+        envelope,
+        mkDeps({ findActiveSession, removePatch }),
+      );
+
+      expect(result.status).toBe(500);
+      expect(result.body).toMatchObject({ error: 'session_lookup_failed' });
+      expect(removePatch).not.toHaveBeenCalled();
+    });
+
+    it('skips the gate on machine_id=localhost', async () => {
+      const findActiveSession = vi
+        .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+        .mockResolvedValue({ ok: true, exists: false });
+      const removePatch = vi
+        .fn<(p: RemovePatchParams) => Promise<RemovePatchResult>>()
+        .mockResolvedValue({ ok: true, affected: 0 });
+      const envelope = makeEnvelope(identity, {
+        action: 'removePatch',
+        machine_id: 'localhost',
+        path: '/home/me/dead.txt',
+      });
+
+      const result = await handlePatchesRequest(
+        envelope,
+        mkDeps({ findActiveSession, removePatch }),
+      );
+
+      expect(result.status).toBe(200);
+      expect(findActiveSession).not.toHaveBeenCalled();
+      expect(removePatch).toHaveBeenCalled();
+    });
+  });
+
+  describe('read / bulk-clear actions are NOT gated', () => {
+    // listPatches / clearTransient / clearOwned scope to the player's
+    // own patches by player_key — they don't depend on machine ownership.
+    // They MUST NOT consult findActiveSession.
+
+    it('listPatches does not invoke findActiveSession', async () => {
+      const findActiveSession = vi
+        .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+        .mockResolvedValue({ ok: true, exists: true });
+      const envelope = makeEnvelope(identity, { action: 'listPatches' });
+
+      await handlePatchesRequest(envelope, mkDeps({ findActiveSession }));
+
+      expect(findActiveSession).not.toHaveBeenCalled();
+    });
+
+    it('clearTransientPatches does not invoke findActiveSession', async () => {
+      const findActiveSession = vi
+        .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+        .mockResolvedValue({ ok: true, exists: true });
+      const envelope = makeEnvelope(identity, { action: 'clearTransientPatches' });
+
+      await handlePatchesRequest(envelope, mkDeps({ findActiveSession }));
+
+      expect(findActiveSession).not.toHaveBeenCalled();
+    });
+
+    it('clearOwnedPatches does not invoke findActiveSession', async () => {
+      const findActiveSession = vi
+        .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+        .mockResolvedValue({ ok: true, exists: true });
+      const envelope = makeEnvelope(identity, { action: 'clearOwnedPatches' });
+
+      await handlePatchesRequest(envelope, mkDeps({ findActiveSession }));
+
+      expect(findActiveSession).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('gate ordering', () => {
+    it('rate-limit fires BEFORE the gate (429 pre-empts session lookup)', async () => {
+      // Saves a DB hit on rate-limited callers.
+      const findActiveSession = vi
+        .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+        .mockResolvedValue({ ok: true, exists: true });
+      const rateLimiter = vi
+        .fn<RateLimiter>()
+        .mockResolvedValue({ allowed: false, retryAfterSeconds: 30 });
+      const envelope = makeEnvelope(identity, validUpsertRemote);
+
+      const result = await handlePatchesRequest(
+        envelope,
+        mkDeps({ findActiveSession, rateLimiter }),
+      );
+
+      expect(result.status).toBe(429);
+      expect(findActiveSession).not.toHaveBeenCalled();
+    });
   });
 });

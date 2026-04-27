@@ -16,6 +16,8 @@ import type {
   DeletePatchesArg,
 } from '../src/patchRegistry/supabaseDelete.js';
 import type { PatchRow, ListPatchesParams } from '../src/patchRegistry/types.js';
+import { createSupabaseFindActiveSession } from '../src/sessionRegistry/supabaseFindActive.js';
+import type { FindActiveSessionParams } from '../src/sessionRegistry/supabaseFindActive.js';
 import {
   createUpstashRateLimiter,
   noopRateLimiter,
@@ -172,6 +174,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return { data, error };
   });
 
+  const findActiveSession = createSupabaseFindActiveSession(
+    async (params: FindActiveSessionParams) => {
+      // L1 patch-validation gate query. Hits `sessions_active_by_player_idx`
+      // (partial index on player_key WHERE ended_at IS NULL). We only need
+      // existence — `.limit(1)` keeps the read tiny.
+      const { data, error } = await supabase
+        .from('sessions')
+        .select('session_id')
+        .eq('player_key', params.player_key)
+        .eq('machine_id', params.machine_id)
+        .is('ended_at', null)
+        .limit(1);
+      if (error) console.error('[patches] supabase findActiveSession error:', error);
+      return { data, error };
+    },
+  );
+
   const { rateLimiter, nonceStore } = buildUpstashAdapters();
 
   const { status, body, headers } = await handlePatchesRequest(req.body, {
@@ -180,6 +199,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     listPatches,
     clearTransientPatches,
     clearOwnedPatches,
+    findActiveSession,
     rateLimiter,
     nonceStore,
   });
