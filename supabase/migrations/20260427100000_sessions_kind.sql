@@ -1,0 +1,24 @@
+-- Add `kind` column to sessions.
+--
+-- Distinguishes SSH-class shell sessions (ssh / su / exploit — go on
+-- the SessionContext snapshot stack) from protocol sessions (ftp /
+-- mysql / redis / scp / snmp / effect_one_shot — live in their own
+-- client-side state). All kinds share the table because the L1
+-- patch-validation gate (api/patches.ts) only asks "does the player
+-- have an ANY active session on this machine?" — kind doesn't matter
+-- there.
+--
+-- Where kind DOES matter: rehydration in SessionContext.tsx queries
+-- listSessions on mount and reconstructs the linear shell chain from
+-- the result. Without filtering by kind, FTP/mysql/etc. rows would
+-- be pulled into the chain and break the UI (wrong machine becomes
+-- "current"). Rehydration filters to ('ssh','su','exploit') —
+-- protocol sessions are silently ignored there.
+--
+-- Existing rows default to 'ssh' — they were all shell-class anyway
+-- (table only existed for three kinds before this column).
+--
+-- See plans/multiplayer-patch-validation.md (Step 2) and
+-- project_multiplayer_security_model memory.
+
+ALTER TABLE sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'ssh';

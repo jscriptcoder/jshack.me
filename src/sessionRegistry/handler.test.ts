@@ -93,7 +93,39 @@ describe('handleSessionsRequest — createSession', () => {
       player_key: identity.publicKeyHex,
       machine_id: '10.0.0.1',
       credentials: { username: 'root', userType: 'root' },
+      // Defaulted server-side when payload omits kind — back-compat
+      // for existing pushSession callers (SSH/su/exploit). Pinned
+      // here so a regression that drops the default surfaces loudly.
+      kind: 'ssh',
     });
+  });
+
+  it('passes through explicit kind (e.g., ftp) instead of defaulting to ssh', async () => {
+    const insertSession = vi
+      .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+      .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+    const envelope = makeEnvelope(identity, {
+      action: 'createSession',
+      machine_id: '10.0.0.5',
+      credentials: { username: 'ftpuser', userType: 'user' },
+      kind: 'ftp',
+    });
+
+    await handleSessionsRequest(envelope, mkDeps({ insertSession }));
+
+    expect(insertSession).toHaveBeenCalledWith(expect.objectContaining({ kind: 'ftp' }));
+  });
+
+  it('rejects with 400 when client supplies an unknown kind value', async () => {
+    // Strict zod enum — only the 9 declared kinds are valid wire values.
+    const envelope = makeEnvelope(identity, {
+      action: 'createSession',
+      machine_id: '10.0.0.1',
+      credentials: { username: 'root', userType: 'root' },
+      kind: 'shellsh', // typo / attacker
+    });
+    const result = await handleSessionsRequest(envelope, mkDeps({}));
+    expect(result.status).toBe(400);
   });
 
   it('passes through optional parent_session_id and source_ip', async () => {
@@ -426,6 +458,7 @@ describe('handleSessionsRequest — listSessions', () => {
     parent_session_id: null,
     source_ip: null,
     created_at: '2026-04-26T10:00:00.000Z',
+    kind: 'ssh',
   };
 
   it('returns 200 with the active sessions array', async () => {

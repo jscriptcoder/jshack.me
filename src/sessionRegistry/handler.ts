@@ -104,11 +104,16 @@ const handleCreateSession = async (
   payload: Extract<SessionsPayload, { action: 'createSession' }>,
   deps: HandlerDeps,
 ): Promise<HandlerResponse> => {
-  const { machine_id, credentials, parent_session_id, source_ip } = payload;
+  const { machine_id, credentials, parent_session_id, source_ip, kind } = payload;
   const row: SessionRow = {
     player_key: publicKey,
     machine_id,
     credentials,
+    // Default to 'ssh' for back-compat with existing pushSession
+    // callers that predate the kind field. Protocol/transient sessions
+    // (FTP/mysql/redis/scp/snmp/effect_one_shot) MUST set kind
+    // explicitly so rehydration excludes them from the shell chain.
+    kind: kind ?? 'ssh',
     ...(parent_session_id !== undefined && { parent_session_id }),
     ...(source_ip !== undefined && { source_ip }),
   };

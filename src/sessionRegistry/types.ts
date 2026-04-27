@@ -5,6 +5,34 @@ import { z } from 'zod';
 export const USER_TYPES = ['root', 'user', 'guest'] as const;
 export type UserType = (typeof USER_TYPES)[number];
 
+// Session kinds — distinguishes how a session was opened. Two
+// categories with different rehydration semantics:
+//
+//   Shell-class:    'ssh' | 'su' | 'exploit'
+//     Go on the SessionContext snapshot stack. Reconstructed on mount
+//     by the rehydration useEffect (filtered to these kinds before
+//     the linear-chain reconstruction).
+//
+//   Protocol/transient:
+//     'ftp' | 'mysql' | 'redis' | 'scp' | 'snmp' | 'effect_one_shot'
+//     Live in their own client-side state field (FtpSession,
+//     MysqlSession, ...) or fire transient via withTransientSession.
+//     Excluded from rehydration's chain reconstruction. The L1
+//     patch-validation gate doesn't care which kind — only that an
+//     active row exists for (player_key, machine_id).
+export const SESSION_KINDS = [
+  'ssh',
+  'su',
+  'exploit',
+  'ftp',
+  'mysql',
+  'redis',
+  'scp',
+  'snmp',
+  'effect_one_shot',
+] as const;
+export type SessionKind = (typeof SESSION_KINDS)[number];
+
 export const credentialsSchema = z
   .object({
     username: z.string().min(1).max(64),
@@ -28,6 +56,10 @@ export const createSessionSignedPayloadSchema = z
     credentials: credentialsSchema,
     parent_session_id: z.string().uuid().optional(),
     source_ip: z.string().min(1).max(256).optional(),
+    // Optional — defaulted to 'ssh' server-side when absent. This keeps
+    // existing pushSession callers (SSH/su/exploit) working unchanged
+    // while letting protocol sessions specify their kind explicitly.
+    kind: z.enum(SESSION_KINDS).optional(),
   })
   .strict();
 
@@ -82,6 +114,10 @@ export type SessionRow = {
   readonly credentials: Credentials;
   readonly parent_session_id?: string;
   readonly source_ip?: string;
+  // Required at the row level so every insert specifies which session
+  // category. Handler defaults the wire-payload's optional kind to
+  // 'ssh' before constructing the row.
+  readonly kind: SessionKind;
 };
 
 // Result of attempting one INSERT. session_id comes back from the DB
@@ -119,6 +155,10 @@ export type SessionSummary = {
   readonly parent_session_id: string | null;
   readonly source_ip: string | null;
   readonly created_at: string;
+  // Returned by listSessions so consumers (notably SessionContext's
+  // rehydration) can filter by category. Always non-null at the DB
+  // level (NOT NULL DEFAULT 'ssh').
+  readonly kind: SessionKind;
 };
 
 export type ListSessionsParams = {

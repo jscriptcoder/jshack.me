@@ -90,6 +90,45 @@ describe('SessionProvider — pushSession (server-aware)', () => {
     expect(args.parent_session_id).toBeUndefined();
   });
 
+  it('passes kind to createSession matching the SessionReason (ssh / su / exploit)', async () => {
+    // Protects the 1:1 reason→kind pass-through. Without it, su and
+    // exploit pushes would silently land on the server as kind='ssh'
+    // (the handler default), and the rehydration filter still picks
+    // them up — but the audit trail would lose information.
+    vi.mocked(mockedCreateSession).mockResolvedValue('abc-session-id');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      await result.current.pushSession('su', {
+        machine: 'localhost',
+        username: 'root',
+        userType: 'root',
+        currentPath: '/root',
+      });
+    });
+
+    expect(mockedCreateSession).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ kind: 'su' }),
+    );
+
+    vi.mocked(mockedCreateSession).mockClear();
+    vi.mocked(mockedCreateSession).mockResolvedValue('exp-session-id');
+    await act(async () => {
+      await result.current.pushSession('exploit', {
+        machine: '10.0.0.5',
+        username: 'root',
+        userType: 'root',
+        currentPath: '/root',
+      });
+    });
+
+    expect(mockedCreateSession).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ kind: 'exploit' }),
+    );
+  });
+
   it('atomically updates current Session and stack on resolve', async () => {
     vi.mocked(mockedCreateSession).mockResolvedValue('abc-session-id');
     const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
@@ -462,6 +501,7 @@ describe('SessionProvider — rehydration on mount', () => {
     parent_session_id: null,
     source_ip: 'localhost',
     created_at: '2026-04-26T10:00:00.000Z',
+    kind: 'ssh',
   };
 
   const sessionB: SessionSummary = {
@@ -471,6 +511,7 @@ describe('SessionProvider — rehydration on mount', () => {
     parent_session_id: 'aaa-id',
     source_ip: '10.0.0.1',
     created_at: '2026-04-26T10:01:00.000Z',
+    kind: 'su',
   };
 
   const sessionC: SessionSummary = {
@@ -480,6 +521,7 @@ describe('SessionProvider — rehydration on mount', () => {
     parent_session_id: 'bbb-id',
     source_ip: '10.0.0.2',
     created_at: '2026-04-26T10:02:00.000Z',
+    kind: 'su',
   };
 
   it('calls listSessions once on mount', async () => {
@@ -576,6 +618,70 @@ describe('SessionProvider — rehydration on mount', () => {
     });
 
     expect(result.current.session.currentPath).toBe('/home/bob');
+  });
+
+  describe('kind filter (excludes protocol/transient sessions from chain)', () => {
+    // These tests pin the rehydration filter that drops non-shell
+    // session kinds before chain reconstruction. Without it, an active
+    // FTP / mysql / redis / scp / snmp / effect_one_shot row would be
+    // pulled into the SSH stack — wrong machine becomes "current",
+    // snapshot stack pollutes.
+
+    const ftpSession: SessionSummary = {
+      session_id: 'ftp-id',
+      machine_id: '192.168.50.10',
+      credentials: { username: 'ftpuser', userType: 'user' },
+      parent_session_id: 'aaa-id',
+      source_ip: '10.0.0.1',
+      // NEWER than sessionA — would become "current" if not filtered.
+      created_at: '2026-04-26T10:05:00.000Z',
+      kind: 'ftp',
+    };
+
+    it('ignores a kind=ftp row even when it is the newest by created_at', async () => {
+      vi.mocked(mockedListSessions).mockResolvedValue([sessionA, ftpSession]);
+      const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+      await waitFor(() => {
+        expect(result.current.session.sessionId).toBe('aaa-id');
+      });
+
+      // sessionA (kind='ssh') wins as current; ftpSession is filtered.
+      expect(result.current.session.machine).toBe('10.0.0.1');
+      // Stack: [bottom localhost only]. The ftp row is NOT in there.
+      expect(result.current.sessionStack).toHaveLength(1);
+      expect(result.current.sessionStack[0]?.machine).toBe('localhost');
+    });
+
+    it('falls back to default localhost when ALL returned sessions are non-shell kinds', async () => {
+      vi.mocked(mockedListSessions).mockResolvedValue([ftpSession]);
+      const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+      await waitFor(() => {
+        expect(result.current.isRehydrating).toBe(false);
+      });
+
+      // Same outcome as "no shell sessions returned" — default localhost.
+      expect(result.current.session.machine).toBe('localhost');
+      expect(result.current.session.sessionId).toBeNull();
+      expect(result.current.sessionStack).toHaveLength(0);
+    });
+
+    it('preserves chain integrity when shell + protocol sessions are interleaved by created_at', async () => {
+      // Order: A(ssh) at t=0, ftp at t=5, B(su) at t=1, C(su) at t=2.
+      // After filter + sort: A, B, C → stack [bottom, A, B], current C.
+      vi.mocked(mockedListSessions).mockResolvedValue([sessionA, ftpSession, sessionB, sessionC]);
+      const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+      await waitFor(() => {
+        expect(result.current.session.sessionId).toBe('ccc-id');
+      });
+
+      expect(result.current.sessionStack).toHaveLength(3);
+      expect(result.current.sessionStack[0]?.machine).toBe('localhost');
+      expect(result.current.sessionStack[1]?.sessionId).toBe('aaa-id');
+      expect(result.current.sessionStack[2]?.sessionId).toBe('bbb-id');
+    });
   });
 
   it('logs error and leaves local state untouched on listSessions failure', async () => {

@@ -267,9 +267,20 @@ export const SessionProvider = ({ children, workstationName, username }: Session
     void listServerSessions(getIdentity())
       .then((sessions) => {
         if (cancelled) return;
-        if (sessions.length === 0) {
-          // Server says no active sessions — reset to default localhost,
-          // discarding any stale local stack from sessionStorage.
+        // Filter to shell-class kinds before chain reconstruction.
+        // Protocol/transient sessions (FTP/mysql/redis/scp/snmp/effect_-
+        // one_shot) live in their own client-side state fields and
+        // don't belong on the shell stack — including them would put
+        // the wrong machine as "current" and pollute the snapshot stack.
+        const shellSessions = sessions.filter(
+          (s) => s.kind === 'ssh' || s.kind === 'su' || s.kind === 'exploit',
+        );
+        if (shellSessions.length === 0) {
+          // Server says no active SHELL sessions — reset to default
+          // localhost, discarding any stale local stack from sessionStorage.
+          // Note: the player may still have active protocol sessions on
+          // the server (FTP/mysql/etc.); those are restored elsewhere
+          // (or simply abandoned for now — see plan).
           setSessionStack([]);
           setSession((prev) => ({
             username,
@@ -282,9 +293,10 @@ export const SessionProvider = ({ children, workstationName, username }: Session
           return;
         }
         // Build the chain locally: bottom (untracked localhost), then a
-        // snapshot per server session except the newest, which becomes the
-        // current Session. created_at ASC — server already orders, defensive.
-        const sortedSessions = [...sessions].sort((a, b) =>
+        // snapshot per shell session except the newest, which becomes
+        // the current Session. created_at ASC — server already orders,
+        // defensive.
+        const sortedSessions = [...shellSessions].sort((a, b) =>
           a.created_at.localeCompare(b.created_at),
         );
         setSession((prev) => {
@@ -434,6 +446,12 @@ export const SessionProvider = ({ children, workstationName, username }: Session
         },
         ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
         source_ip: session.machine,
+        // SessionReason and SessionKind happen to share the same
+        // string values for shell-class kinds — pass through 1:1.
+        // Protocol/transient sessions go through different code paths
+        // (enterFtpMode, withTransientSession) and pass their kind
+        // explicitly there.
+        kind: reason,
       });
 
       setSessionStack((prev) => [...prev, snapshot]);

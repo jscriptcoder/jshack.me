@@ -24,6 +24,7 @@ const sampleSession: SessionSummary = {
   parent_session_id: null,
   source_ip: null,
   created_at: '2026-04-26T10:00:00.000Z',
+  kind: 'ssh',
 };
 
 const STUB_SESSION_ID = '11111111-2222-4333-8444-555555555555';
@@ -86,6 +87,45 @@ describe('createSession', () => {
     const pub = hexToBytes(env.publicKey)!;
     const msg = new TextEncoder().encode(env.payload);
     expect(verify(pub, sig, msg)).toBe(true);
+  });
+
+  it('embeds explicit kind in the signed payload when supplied', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ session_id: STUB_SESSION_ID }));
+
+    await createSession(
+      identity,
+      {
+        machine_id: '10.0.0.5',
+        credentials: { username: 'ftpuser', userType: 'user' },
+        kind: 'ftp',
+      },
+      fetchMock,
+    );
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const env = JSON.parse(init.body as string) as { payload: string };
+    const payload = JSON.parse(env.payload) as Record<string, unknown>;
+    expect(payload.kind).toBe('ftp');
+  });
+
+  it('omits kind from the signed payload when not supplied (server defaults to ssh)', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ session_id: STUB_SESSION_ID }));
+
+    await createSession(
+      identity,
+      {
+        machine_id: '10.0.0.1',
+        credentials: { username: 'root', userType: 'root' },
+      },
+      fetchMock,
+    );
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const env = JSON.parse(init.body as string) as { payload: string };
+    const payload = JSON.parse(env.payload) as Record<string, unknown>;
+    expect(payload).not.toHaveProperty('kind');
   });
 
   it('embeds action and request fields in the signed payload', async () => {
