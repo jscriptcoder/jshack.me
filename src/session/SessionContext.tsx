@@ -111,6 +111,9 @@ export type MysqlSession = {
   readonly machineId: string;
   readonly username: string;
   readonly databaseName: string;
+  // Server-tracked session id for the mysql login. null = push pending
+  // or failed. Same lifecycle as FtpSession.sessionId.
+  readonly sessionId: string | null;
 };
 
 export type RedisSession = {
@@ -607,13 +610,45 @@ export const SessionProvider = ({ children, workstationName, username }: Session
     setNcSession((prev) => (prev ? { ...prev, currentPath: cwd } : null));
   }, []);
 
-  const enterMysqlMode = useCallback((newMysqlSession: MysqlSession) => {
-    setMysqlSession(newMysqlSession);
-  }, []);
+  // mysql credentials lack a userType field client-side (the game model
+  // doesn't map mysql users to Unix users). For the L1 gate we just
+  // need a session row to exist — the userType isn't checked. We default
+  // to 'user'; the future L2 (permission walking) PR will need a real
+  // mapping.
+  const enterMysqlMode = useCallback(
+    (newMysqlSession: MysqlSession) => {
+      setMysqlSession(newMysqlSession);
+      void createServerSession(getIdentity(), {
+        machine_id: newMysqlSession.machineId,
+        credentials: {
+          username: newMysqlSession.username,
+          userType: 'user',
+        },
+        ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
+        source_ip: session.machine,
+        kind: 'mysql',
+      })
+        .then((sessionId) => {
+          setMysqlSession((prev) => (prev !== null ? { ...prev, sessionId } : prev));
+        })
+        .catch((error) => {
+          console.error('[session] mysql createServerSession failed:', error);
+        });
+    },
+    [session.sessionId, session.machine],
+  );
 
   const exitMysqlMode = useCallback((): MysqlSession | null => {
     const current = mysqlSession;
     setMysqlSession(null);
+    if (current?.sessionId) {
+      void endServerSession(getIdentity(), {
+        session_id: current.sessionId,
+        reason: 'user_exit',
+      }).catch((error) => {
+        console.error('[session] mysql endServerSession failed:', error);
+      });
+    }
     return current;
   }, [mysqlSession]);
 

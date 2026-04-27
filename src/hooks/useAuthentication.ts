@@ -447,6 +447,8 @@ export const useAuthentication = ({
         machineId: resolvedIp,
         username: user,
         databaseName: db.name,
+        // Backfilled by enterMysqlMode after the server push resolves.
+        sessionId: null,
       };
       enterMysqlMode(newMysqlSession);
       addLine(

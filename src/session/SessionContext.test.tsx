@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { SessionProvider, useSession, type FtpSession } from './SessionContext';
+import { SessionProvider, useSession, type FtpSession, type MysqlSession } from './SessionContext';
 import type { SessionSummary } from '../sessionRegistry/types';
 
 // Mock the sessionRegistry client so we don't hit the network. Tests control
@@ -641,6 +641,100 @@ describe('SessionProvider — enterFtpMode / exitFtpMode (server-aware)', () => 
     expect(result.current.ftpSession?.sessionId).toBeNull();
 
     consoleErrorSpy.mockRestore();
+  });
+});
+
+// -----------------------------------------------------------------------
+// mysql enter/exit — protocol session push (kind='mysql')
+// -----------------------------------------------------------------------
+
+describe('SessionProvider — enterMysqlMode / exitMysqlMode (server-aware)', () => {
+  beforeEach(() => {
+    vi.mocked(mockedCreateSession).mockReset();
+    vi.mocked(mockedEndSession).mockReset();
+    vi.mocked(mockedEndSession).mockResolvedValue(undefined);
+    vi.mocked(mockedListSessions).mockReset();
+    vi.mocked(mockedListSessions).mockResolvedValue([]);
+    sessionStorage.clear();
+  });
+
+  const buildMysqlSession = (over: Partial<MysqlSession> = {}): MysqlSession => ({
+    targetIP: '10.0.0.5',
+    machineId: '10.0.0.5',
+    username: 'dbuser',
+    databaseName: 'app',
+    sessionId: null,
+    ...over,
+  });
+
+  it('enterMysqlMode pushes server session with kind="mysql" and the mysql credentials', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValue('mysql-session-id');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterMysqlMode(buildMysqlSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(mockedCreateSession).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        machine_id: '10.0.0.5',
+        // userType defaults to 'user' — mysql credentials don't carry
+        // a Unix usertype today. Future L2 PR will need a mapping.
+        credentials: { username: 'dbuser', userType: 'user' },
+        source_ip: 'localhost',
+        kind: 'mysql',
+      }),
+    );
+  });
+
+  it('backfills the server-issued sessionId into mysqlSession state on resolve', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValue('mysql-resolved-id');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterMysqlMode(buildMysqlSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(result.current.mysqlSession?.sessionId).toBe('mysql-resolved-id');
+  });
+
+  it('exitMysqlMode ends the server session when sessionId was backfilled', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValue('mysql-end-me');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterMysqlMode(buildMysqlSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    act(() => {
+      result.current.exitMysqlMode();
+    });
+
+    expect(mockedEndSession).toHaveBeenCalledWith(expect.anything(), {
+      session_id: 'mysql-end-me',
+      reason: 'user_exit',
+    });
+    expect(result.current.mysqlSession).toBeNull();
+  });
+
+  it('exitMysqlMode does NOT call endSession when push was still pending', async () => {
+    vi.mocked(mockedCreateSession).mockReturnValue(new Promise(() => {}));
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    act(() => {
+      result.current.enterMysqlMode(buildMysqlSession());
+    });
+
+    act(() => {
+      result.current.exitMysqlMode();
+    });
+
+    expect(mockedEndSession).not.toHaveBeenCalled();
+    expect(result.current.mysqlSession).toBeNull();
   });
 });
 
