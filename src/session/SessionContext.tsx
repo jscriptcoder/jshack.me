@@ -19,7 +19,12 @@ import { THEMES } from '../theme/themes';
 import type { ThemeId } from '../theme/themes';
 import { applyTheme } from '../theme/applyTheme';
 import { createSyncChannel, type SyncMessage } from '../utils/crossTabSync';
-import { createDefaultSession, normalizeSession, normalizeSnapshot } from './sessionUtils';
+import {
+  createDefaultSession,
+  normalizeFtpSession,
+  normalizeSession,
+  normalizeSnapshot,
+} from './sessionUtils';
 import { getIdentity } from '../identity';
 import {
   createSession as createServerSession,
@@ -82,6 +87,11 @@ export type FtpSession = {
   readonly originUsername: string;
   readonly originUserType: UserType;
   readonly originCwd: string;
+  // Server-tracked session identifier for the FTP login. null means
+  // either the createSession push hasn't resolved yet (race window
+  // immediately after enterFtpMode) or the push failed. exitFtpMode
+  // calls endSession only when this is non-null.
+  readonly sessionId: string | null;
 };
 
 export type NcSession = {
@@ -171,6 +181,7 @@ const getInitialState = (username: string): PersistedState => {
       ...persisted,
       session: normalizeSession(persisted.session),
       sessionStack: persisted.sessionStack.map(normalizeSnapshot),
+      ftpSession: persisted.ftpSession ? normalizeFtpSession(persisted.ftpSession) : null,
       ncSession: persisted.ncSession
         ? {
             ...persisted.ncSession,
@@ -512,13 +523,61 @@ export const SessionProvider = ({ children, workstationName, username }: Session
 
   const canReturn = useCallback(() => sessionStack.length > 0, [sessionStack.length]);
 
-  const enterFtpMode = useCallback((newFtpSession: FtpSession) => {
-    setFtpSession(newFtpSession);
-  }, []);
+  // Pushes a server session for the FTP login (kind='ftp'), backfilling
+  // the resolved sessionId into local state. Local state is set
+  // optimistically — the UI doesn't wait for the server. If the push
+  // fails, we log and leave sessionId null; exitFtpMode will then skip
+  // the endSession call (orphan tolerable, swept later).
+  //
+  // Why this matters for L1 patch validation: FTP `put` writes a patch
+  // on `ftpSession.remoteMachine`. Without a session row on that
+  // machine, /api/patches returns 403. The push here is what makes
+  // those writes legal post-gate.
+  const enterFtpMode = useCallback(
+    (newFtpSession: FtpSession) => {
+      // Optimistic local state.
+      setFtpSession(newFtpSession);
+      // Fire-and-forget server push. parent_session_id captures the
+      // shell session the player is sitting in (null if untracked
+      // localhost). source_ip is the machine they're FTP'ing FROM.
+      void createServerSession(getIdentity(), {
+        machine_id: newFtpSession.remoteMachine,
+        credentials: {
+          username: newFtpSession.remoteUsername,
+          userType: newFtpSession.remoteUserType,
+        },
+        ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
+        source_ip: session.machine,
+        kind: 'ftp',
+      })
+        .then((sessionId) => {
+          // Backfill the server-issued id into the FtpSession state.
+          // Guard: state may have been cleared (exitFtpMode) before
+          // the push resolved — in that case we silently drop.
+          setFtpSession((prev) => (prev !== null ? { ...prev, sessionId } : prev));
+        })
+        .catch((error) => {
+          console.error('[session] ftp createServerSession failed:', error);
+        });
+    },
+    [session.sessionId, session.machine],
+  );
 
+  // Captures the current FtpSession, clears local state, and ends the
+  // server session if one was successfully pushed. If the push hadn't
+  // resolved yet (no sessionId), the row is orphaned — see
+  // enterFtpMode comment.
   const exitFtpMode = useCallback((): FtpSession | null => {
     const current = ftpSession;
     setFtpSession(null);
+    if (current?.sessionId) {
+      void endServerSession(getIdentity(), {
+        session_id: current.sessionId,
+        reason: 'user_exit',
+      }).catch((error) => {
+        console.error('[session] ftp endServerSession failed:', error);
+      });
+    }
     return current;
   }, [ftpSession]);
 

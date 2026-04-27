@@ -341,6 +341,8 @@ export const useAuthentication = ({
         originUsername: session.username,
         originUserType: session.userType,
         originCwd: session.currentPath,
+        // Backfilled by enterFtpMode after the server push resolves.
+        sessionId: null,
       };
 
       enterFtpMode(newFtpSession);
@@ -722,6 +724,8 @@ export const useAuthentication = ({
             originUsername: session.username,
             originUserType: session.userType,
             originCwd: session.currentPath,
+            // Backfilled by enterFtpMode after the server push resolves.
+            sessionId: null,
           };
 
           enterFtpMode(newFtpSession);

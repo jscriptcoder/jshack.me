@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { SessionProvider, useSession } from './SessionContext';
+import { SessionProvider, useSession, type FtpSession } from './SessionContext';
 import type { SessionSummary } from '../sessionRegistry/types';
 
 // Mock the sessionRegistry client so we don't hit the network. Tests control
@@ -483,6 +483,164 @@ describe('SessionProvider — popAllSessions (server-aware)', () => {
     expect(result.current.session.username).toBe('alice');
     expect(result.current.session.sessionId).toBeNull();
     expect(result.current.sessionStack).toHaveLength(0);
+  });
+});
+
+// -----------------------------------------------------------------------
+// FTP enter/exit — protocol session push (kind='ftp')
+// -----------------------------------------------------------------------
+
+describe('SessionProvider — enterFtpMode / exitFtpMode (server-aware)', () => {
+  beforeEach(() => {
+    vi.mocked(mockedCreateSession).mockReset();
+    vi.mocked(mockedEndSession).mockReset();
+    vi.mocked(mockedEndSession).mockResolvedValue(undefined);
+    vi.mocked(mockedListSessions).mockReset();
+    vi.mocked(mockedListSessions).mockResolvedValue([]);
+    sessionStorage.clear();
+  });
+
+  const buildFtpSession = (over: Partial<FtpSession> = {}): FtpSession => ({
+    remoteMachine: '192.168.50.10',
+    remoteUsername: 'ftpuser',
+    remoteUserType: 'user',
+    remoteCwd: '/home/ftpuser',
+    originMachine: 'localhost',
+    originUsername: 'alice',
+    originUserType: 'user',
+    originCwd: '/home/alice',
+    sessionId: null,
+    ...over,
+  });
+
+  it('enterFtpMode pushes server session with kind="ftp" and the ftp credentials', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValue('ftp-session-id');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterFtpMode(buildFtpSession());
+      // Flush the fire-and-forget createSession + setFtpSession backfill.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(mockedCreateSession).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        machine_id: '192.168.50.10',
+        credentials: { username: 'ftpuser', userType: 'user' },
+        source_ip: 'localhost',
+        kind: 'ftp',
+      }),
+    );
+  });
+
+  it('omits parent_session_id when current shell is untracked localhost', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValue('ftp-session-id');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterFtpMode(buildFtpSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const args = vi.mocked(mockedCreateSession).mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(args.parent_session_id).toBeUndefined();
+  });
+
+  it('uses current shell sessionId as parent_session_id when one exists', async () => {
+    // Setup: SSH first, then FTP from inside that SSH session.
+    vi.mocked(mockedCreateSession).mockResolvedValueOnce('ssh-id').mockResolvedValueOnce('ftp-id');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      await result.current.pushSession('ssh', {
+        machine: '10.0.0.1',
+        username: 'admin',
+        userType: 'root',
+        currentPath: '/root',
+      });
+    });
+    vi.mocked(mockedCreateSession).mockClear();
+
+    await act(async () => {
+      result.current.enterFtpMode(
+        buildFtpSession({ originMachine: '10.0.0.1', originUsername: 'admin' }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(mockedCreateSession).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        parent_session_id: 'ssh-id',
+        source_ip: '10.0.0.1',
+      }),
+    );
+  });
+
+  it('backfills the server-issued sessionId into ftpSession state on resolve', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValue('ftp-resolved-id');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterFtpMode(buildFtpSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(result.current.ftpSession?.sessionId).toBe('ftp-resolved-id');
+  });
+
+  it('exitFtpMode ends the server session when sessionId was backfilled', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValue('ftp-end-me');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterFtpMode(buildFtpSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    act(() => {
+      result.current.exitFtpMode();
+    });
+
+    expect(mockedEndSession).toHaveBeenCalledWith(expect.anything(), {
+      session_id: 'ftp-end-me',
+      reason: 'user_exit',
+    });
+    expect(result.current.ftpSession).toBeNull();
+  });
+
+  it('exitFtpMode does NOT call endSession when push was still pending (no sessionId)', async () => {
+    // Push hangs forever → sessionId stays null → exit shouldn't try to end.
+    vi.mocked(mockedCreateSession).mockReturnValue(new Promise(() => {}));
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    act(() => {
+      result.current.enterFtpMode(buildFtpSession());
+    });
+
+    act(() => {
+      result.current.exitFtpMode();
+    });
+
+    expect(mockedEndSession).not.toHaveBeenCalled();
+    expect(result.current.ftpSession).toBeNull();
+  });
+
+  it('logs error and leaves sessionId null when push rejects', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(mockedCreateSession).mockRejectedValue(new Error('network'));
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterFtpMode(buildFtpSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(consoleErrorSpy).toHaveBeenCalled();
+    expect(result.current.ftpSession?.sessionId).toBeNull();
+
+    consoleErrorSpy.mockRestore();
   });
 });
 
