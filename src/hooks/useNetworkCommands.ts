@@ -576,6 +576,18 @@ export const useNetworkCommands = (): Map<string, Command> => {
             resolveDomain,
             getNodeFromMachine,
             writeFileToMachine,
+            withTransientSession: (params, body) =>
+              withTransientSession(
+                getIdentity(),
+                {
+                  machine_id: params.machine_id,
+                  credentials: params.credentials,
+                  kind: 'snmp',
+                  ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
+                  source_ip: session.machine,
+                },
+                body,
+              ),
           }),
           isWifiRequired,
         ),
