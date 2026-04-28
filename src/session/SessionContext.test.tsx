@@ -6,6 +6,7 @@ import {
   useSession,
   type FtpSession,
   type MysqlSession,
+  type NcSession,
   type RedisSession,
 } from './SessionContext';
 import type { SessionSummary } from '../sessionRegistry/types';
@@ -645,6 +646,164 @@ describe('SessionProvider — enterFtpMode / exitFtpMode (server-aware)', () => 
 
     expect(consoleErrorSpy).toHaveBeenCalled();
     expect(result.current.ftpSession?.sessionId).toBeNull();
+
+    consoleErrorSpy.mockRestore();
+  });
+});
+
+// -----------------------------------------------------------------------
+// nc enter/exit — backdoor-shell session push (kind='nc')
+//
+// Mirror of the ftp pattern. nc shell is currently read-only recon, so
+// no upsertPatch fires from inside it — but the session row is still
+// load-bearing for: future cross-player listSessions visibility, the
+// hop-chain parent_session_id graph, and forwards-compat with any
+// future nc write capability that would re-engage the L1 gate.
+// -----------------------------------------------------------------------
+
+describe('SessionProvider — enterNcMode / exitNcMode (server-aware)', () => {
+  beforeEach(() => {
+    vi.mocked(mockedCreateSession).mockReset();
+    vi.mocked(mockedEndSession).mockReset();
+    vi.mocked(mockedEndSession).mockResolvedValue(undefined);
+    vi.mocked(mockedListSessions).mockReset();
+    vi.mocked(mockedListSessions).mockResolvedValue([]);
+    sessionStorage.clear();
+  });
+
+  const buildNcSession = (over: Partial<NcSession> = {}): NcSession => ({
+    targetIP: '10.0.0.5',
+    targetPort: 5555,
+    service: 'elite',
+    username: 'root',
+    userType: 'root',
+    currentPath: '/root',
+    machineId: '10.0.0.5',
+    sessionId: null,
+    ...over,
+  });
+
+  it('enterNcMode pushes server session with kind="nc" and the nc credentials', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValue('nc-session-id');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterNcMode(buildNcSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(mockedCreateSession).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        machine_id: '10.0.0.5',
+        credentials: { username: 'root', userType: 'root' },
+        source_ip: 'localhost',
+        kind: 'nc',
+      }),
+    );
+  });
+
+  it('omits parent_session_id when current shell is untracked localhost', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValue('nc-session-id');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterNcMode(buildNcSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const args = vi.mocked(mockedCreateSession).mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(args.parent_session_id).toBeUndefined();
+  });
+
+  it('uses current shell sessionId as parent_session_id when one exists', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValueOnce('ssh-id').mockResolvedValueOnce('nc-id');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      await result.current.pushSession('ssh', {
+        machine: '10.0.0.1',
+        username: 'admin',
+        userType: 'root',
+        currentPath: '/root',
+      });
+    });
+    vi.mocked(mockedCreateSession).mockClear();
+
+    await act(async () => {
+      result.current.enterNcMode(buildNcSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(mockedCreateSession).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        parent_session_id: 'ssh-id',
+        source_ip: '10.0.0.1',
+      }),
+    );
+  });
+
+  it('backfills the server-issued sessionId into ncSession state on resolve', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValue('nc-resolved-id');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterNcMode(buildNcSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(result.current.ncSession?.sessionId).toBe('nc-resolved-id');
+  });
+
+  it('exitNcMode ends the server session when sessionId was backfilled', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValue('nc-end-me');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterNcMode(buildNcSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    act(() => {
+      result.current.exitNcMode();
+    });
+
+    expect(mockedEndSession).toHaveBeenCalledWith(expect.anything(), {
+      session_id: 'nc-end-me',
+      reason: 'user_exit',
+    });
+    expect(result.current.ncSession).toBeNull();
+  });
+
+  it('exitNcMode does NOT call endSession when push was still pending (no sessionId)', async () => {
+    vi.mocked(mockedCreateSession).mockReturnValue(new Promise(() => {}));
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    act(() => {
+      result.current.enterNcMode(buildNcSession());
+    });
+
+    act(() => {
+      result.current.exitNcMode();
+    });
+
+    expect(mockedEndSession).not.toHaveBeenCalled();
+    expect(result.current.ncSession).toBeNull();
+  });
+
+  it('logs error and leaves sessionId null when push rejects', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(mockedCreateSession).mockRejectedValue(new Error('network'));
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterNcMode(buildNcSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(consoleErrorSpy).toHaveBeenCalled();
+    expect(result.current.ncSession?.sessionId).toBeNull();
 
     consoleErrorSpy.mockRestore();
   });

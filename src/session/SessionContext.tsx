@@ -104,6 +104,9 @@ export type NcSession = {
   // Filesystem key for the target machine. Usually equals targetIP, but
   // localhost uses "localhost" as its filesystem key rather than its network IP.
   readonly machineId: string;
+  // Server-tracked session id for the nc backdoor connection. null = push
+  // pending or failed. Same lifecycle as FtpSession.sessionId / etc.
+  readonly sessionId: string | null;
 };
 
 export type MysqlSession = {
@@ -597,13 +600,49 @@ export const SessionProvider = ({ children, workstationName, username }: Session
 
   const isInFtpMode = useCallback(() => ftpSession !== null, [ftpSession]);
 
-  const enterNcMode = useCallback((newNcSession: NcSession) => {
-    setNcSession(newNcSession);
-  }, []);
+  const enterNcMode = useCallback(
+    (newNcSession: NcSession) => {
+      // Optimistic local state.
+      setNcSession(newNcSession);
+      // Fire-and-forget server push. parent_session_id captures the
+      // shell session the player is sitting in (null if untracked
+      // localhost). source_ip is the machine they're nc'ing FROM.
+      // Mirrors enterFtpMode — kept symmetrical so the four enter
+      // helpers (ftp/nc/mysql/redis) can share extraction later.
+      void createServerSession(getIdentity(), {
+        machine_id: newNcSession.machineId,
+        credentials: {
+          username: newNcSession.username,
+          userType: newNcSession.userType,
+        },
+        ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
+        source_ip: session.machine,
+        kind: 'nc',
+      })
+        .then((sessionId) => {
+          // Backfill the server-issued id. Guard: state may have been
+          // cleared (exitNcMode) before the push resolved — in that
+          // case we silently drop.
+          setNcSession((prev) => (prev !== null ? { ...prev, sessionId } : prev));
+        })
+        .catch((error) => {
+          console.error('[session] nc createServerSession failed:', error);
+        });
+    },
+    [session.sessionId, session.machine],
+  );
 
   const exitNcMode = useCallback((): NcSession | null => {
     const current = ncSession;
     setNcSession(null);
+    if (current?.sessionId) {
+      void endServerSession(getIdentity(), {
+        session_id: current.sessionId,
+        reason: 'user_exit',
+      }).catch((error) => {
+        console.error('[session] nc endServerSession failed:', error);
+      });
+    }
     return current;
   }, [ncSession]);
 

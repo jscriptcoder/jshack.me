@@ -14,12 +14,12 @@ export type UserType = (typeof USER_TYPES)[number];
 //     the linear-chain reconstruction).
 //
 //   Protocol/transient:
-//     'ftp' | 'mysql' | 'redis' | 'scp' | 'snmp' | 'effect_one_shot'
+//     'ftp' | 'mysql' | 'redis' | 'nc' | 'scp' | 'snmp' | 'effect_one_shot'
 //     Live in their own client-side state field (FtpSession,
-//     MysqlSession, ...) or fire transient via withTransientSession.
-//     Excluded from rehydration's chain reconstruction. The L1
-//     patch-validation gate doesn't care which kind — only that an
-//     active row exists for (player_key, machine_id).
+//     MysqlSession, NcSession, ...) or fire transient via
+//     withTransientSession. Excluded from rehydration's chain
+//     reconstruction. The L1 patch-validation gate doesn't care which
+//     kind — only that an active row exists for (player_key, machine_id).
 export const SESSION_KINDS = [
   'ssh',
   'su',
@@ -27,6 +27,7 @@ export const SESSION_KINDS = [
   'ftp',
   'mysql',
   'redis',
+  'nc',
   'scp',
   'snmp',
   'effect_one_shot',
