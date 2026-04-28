@@ -321,4 +321,107 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       expect(node?.content).toBe('local-only');
     });
   });
+
+  // -----------------------------------------------------------------------
+  // flushPendingPatches — eliminates the transient-session race where
+  // endSession arrives at the server before the in-flight upsertPatch.
+  // Transient-session wrappers (scp, snmpset, msfconsole one-shots) call
+  // this after the body runs, before letting `withTransientSession` end.
+  // -----------------------------------------------------------------------
+
+  describe('flushPendingPatches', () => {
+    it('resolves immediately when no patches are in flight', async () => {
+      const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+
+      await expect(result.current.flushPendingPatches()).resolves.toBeUndefined();
+    });
+
+    it('waits for an in-flight upsertPatch to settle before resolving', async () => {
+      // Stuck upsert — only resolves when we say so. Lets us prove
+      // flushPendingPatches actually awaits, not just returns immediately.
+      let resolveUpsert: () => void = () => {};
+      vi.mocked(mockedUpsertPatch).mockReturnValue(
+        new Promise<void>((resolve) => {
+          resolveUpsert = () => resolve(undefined);
+        }),
+      );
+
+      const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+
+      act(() => {
+        result.current.writeFile('/tmp/base.txt', 'updated', 'user');
+      });
+
+      let flushResolved = false;
+      const flushPromise = result.current.flushPendingPatches().then(() => {
+        flushResolved = true;
+      });
+
+      // Microtask tick — flush has started but upsert is still stuck.
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(flushResolved).toBe(false);
+
+      resolveUpsert();
+      await flushPromise;
+      expect(flushResolved).toBe(true);
+    });
+
+    it('resolves even when in-flight upsertPatch rejects', async () => {
+      // The patch's catch handler swallows the error already; flush
+      // should still resolve cleanly so transient-session wrappers
+      // don't crash on a network blip.
+      let rejectUpsert: () => void = () => {};
+      vi.mocked(mockedUpsertPatch).mockReturnValue(
+        new Promise<void>((_resolve, reject) => {
+          rejectUpsert = () => reject(new Error('network down'));
+        }),
+      );
+
+      const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+
+      act(() => {
+        result.current.writeFile('/tmp/base.txt', 'updated', 'user');
+      });
+
+      const flushPromise = result.current.flushPendingPatches();
+      rejectUpsert();
+
+      await expect(flushPromise).resolves.toBeUndefined();
+    });
+
+    it('snapshots in-flight patches at call time — patches started after are not awaited', async () => {
+      // First write's upsert stalls; flush is called; second write
+      // starts AFTER flush call. Flush should resolve when the FIRST
+      // upsert resolves, regardless of the second.
+      let resolveFirst: () => void = () => {};
+      vi.mocked(mockedUpsertPatch)
+        .mockReturnValueOnce(
+          new Promise<void>((resolve) => {
+            resolveFirst = () => resolve(undefined);
+          }),
+        )
+        .mockReturnValueOnce(new Promise(() => {})); // second never resolves
+
+      const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+
+      act(() => {
+        result.current.writeFile('/tmp/base.txt', 'first', 'user');
+      });
+
+      const flushPromise = result.current.flushPendingPatches();
+
+      act(() => {
+        result.current.writeFile('/tmp/base.txt', 'second', 'user');
+      });
+
+      resolveFirst();
+
+      await expect(flushPromise).resolves.toBeUndefined();
+    });
+  });
 });

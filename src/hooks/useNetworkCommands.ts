@@ -70,6 +70,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
     writeFileToMachine,
     listDirectoryFromMachine,
     deleteNodeFromMachine,
+    flushPendingPatches,
   } = useFileSystem();
   const { session, wifiConnected, isMachineBricked } = useSession();
 
@@ -476,6 +477,13 @@ export const useNetworkCommands = (): Map<string, Command> => {
             // cases await these callbacks (they were sync before; see
             // src/commands/msfconsole.ts MsfconsoleContext for the
             // signature change).
+            //
+            // The body awaits flushPendingPatches() before returning so
+            // withTransientSession's `await body()` waits for in-flight
+            // upsertPatch / removePatch network calls to settle. Without
+            // this, the wrapping endSession can race the patch and
+            // arrive at the server first — patch sees an ended session
+            // and 403s on L1.
             writeRemoteFile: async (machineId, path, content, tier = 'root') => {
               await withTransientSession(
                 getIdentity(),
@@ -486,8 +494,9 @@ export const useNetworkCommands = (): Map<string, Command> => {
                   ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
                   source_ip: session.machine,
                 },
-                () => {
+                async () => {
                   writeFileToMachine({ machineId, path, cwd: '/', userType: tier, content });
+                  await flushPendingPatches();
                 },
               );
             },
@@ -503,7 +512,14 @@ export const useNetworkCommands = (): Map<string, Command> => {
                   ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
                   source_ip: session.machine,
                 },
-                () => executeScriptOnTarget(scriptBody, buildTargetCommandContext(machineId, tier)),
+                async () => {
+                  const result = executeScriptOnTarget(
+                    scriptBody,
+                    buildTargetCommandContext(machineId, tier),
+                  );
+                  await flushPendingPatches();
+                  return result;
+                },
               ),
             openBackdoorForwards: (machineIp, port) => {
               const chain = getGatewayChainFor(machineIp);
@@ -615,7 +631,10 @@ export const useNetworkCommands = (): Map<string, Command> => {
                   ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
                   source_ip: session.machine,
                 },
-                body,
+                async () => {
+                  body();
+                  await flushPendingPatches();
+                },
               ),
           }),
           isWifiRequired,
@@ -665,6 +684,11 @@ export const useNetworkCommands = (): Map<string, Command> => {
             // the current shell so the server cascade-ends if the
             // player exits while scp is in flight; source_ip is the
             // machine the player is sitting in.
+            //
+            // The body awaits flushPendingPatches() before returning so
+            // the wrapping endSession only fires after in-flight upserts
+            // settle — otherwise endSession can race the patch and the
+            // patch hits 403 no_session via the L1 gate.
             withTransientSession: (params, body) =>
               withTransientSession(
                 getIdentity(),
@@ -675,7 +699,10 @@ export const useNetworkCommands = (): Map<string, Command> => {
                   ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
                   source_ip: session.machine,
                 },
-                body,
+                async () => {
+                  body();
+                  await flushPendingPatches();
+                },
               ),
           }),
           isWifiRequired,
@@ -703,6 +730,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
     writeFileToMachine,
     deleteNodeFromMachine,
     listDirectoryFromMachine,
+    flushPendingPatches,
     session.machine,
     session.hostname,
     session.currentPath,
