@@ -390,10 +390,42 @@ export const generateMissionNetwork = async (
     serviceVersion: defaultServiceVersion('mysql'),
     open: true,
   };
+  // Sync the forced-effect stamping from machinesWithForcedEffect (which is
+  // used as MissionNetwork.machines) into the machineConfigs lineage (which
+  // is what runtime getMachine reads). Without this, the runtime's
+  // findExploitableCve sees the unstamped target port and reports no CVE,
+  // while the in-memory `machines` array shows the stamped CVE — silent
+  // drift between two parallel data structures.
+  //
+  // Surgical: only touches the target machine's entry. Other transforms on
+  // machineConfigs (snmp gateway ports, mysql injection below) are
+  // preserved on non-target machines because we leave their entries alone.
+  //
+  // The dual-structure is tech debt — see project_dual_machine_structure_drift
+  // memory for the proper-fix plan (collapse to a single source of truth).
+  // Until then, the property test in generateMission.test.ts is the tripwire
+  // that catches any future drift.
+  const configsWithForcedEffect =
+    overrides.forcedEffectKind && objective.targetMachine
+      ? Object.fromEntries(
+          Object.entries(finalMachineConfigs).map(([ip, config]) => [
+            ip,
+            {
+              ...config,
+              machines: config.machines.map((rm) => {
+                if (rm.ip !== objective.targetMachine) return rm;
+                const withFE = machinesWithForcedEffect.find((m) => m.ip === rm.ip);
+                return withFE ? { ...rm, ports: withFE.remoteMachine.ports } : rm;
+              }),
+            },
+          ]),
+        )
+      : finalMachineConfigs;
+
   const configsWithMysql =
     needsMysqlPort && objective.targetMachine
       ? Object.fromEntries(
-          Object.entries(finalMachineConfigs).map(([ip, config]) => [
+          Object.entries(configsWithForcedEffect).map(([ip, config]) => [
             ip,
             {
               ...config,
@@ -403,7 +435,7 @@ export const generateMissionNetwork = async (
             },
           ]),
         )
-      : finalMachineConfigs;
+      : configsWithForcedEffect;
 
   // Domain entry: when active, briefing shows router domain instead of IP.
   // Always consume a PRNG call to preserve sequence regardless of override.

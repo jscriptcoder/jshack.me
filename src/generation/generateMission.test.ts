@@ -1082,3 +1082,55 @@ describe('forced effect on target machine via seed keyword', async () => {
     expect(forcedPort?.forcedEffect).toEqual({ kind: 'file_read', tier: 'guest' });
   });
 });
+
+// -----------------------------------------------------------------------
+// Property invariant: MissionNetwork.machines and MissionNetwork.networkConfig
+// .machineConfigs[*].machines[*] must agree on ports for every machine.
+//
+// History: a real bug (forced-effect not visible at runtime) was caused by
+// drift between these two parallel data structures. The generator builds
+// machineConfigs early from one lineage (machinesWithRedis) and applies
+// later port mutations to a different lineage (machinesWithForcedEffect),
+// which never propagates back to machineConfigs. Runtime nmap/findExploitableCve
+// reads machineConfigs and silently misses the stamped CVE.
+//
+// This test is the tripwire: any future port mutation that updates one
+// side without the other will fail here.
+//
+// See project_dual_machine_structure_drift memory for the proper-fix plan.
+// -----------------------------------------------------------------------
+
+describe('property: machines and machineConfigs ports stay in sync', async () => {
+  const seeds = [
+    'password-reset-tier-root-easy', // forced-effect drift case
+    'script-exec-tier-root-easy',
+    'file-write-tier-user-easy',
+    'backdoor-port-easy',
+    'db-tamper-easy', // mysql-injection path
+    'test-plain-exfiltrate',
+    'test-easy-tamper',
+  ];
+
+  for (const seed of seeds) {
+    it(`seed "${seed}" — every machine's ports match between .machines and .networkConfig.machineConfigs`, async () => {
+      const mission = await generateMissionNetwork(seed);
+      const allConfigsMachines = Object.values(mission.networkConfig.machineConfigs).flatMap(
+        (cfg) => cfg.machines,
+      );
+
+      for (const m of mission.machines) {
+        const inConfig = allConfigsMachines.find((rm) => rm.ip === m.ip);
+        expect(
+          inConfig,
+          `seed "${seed}": machine ${m.ip} missing from networkConfig.machineConfigs`,
+        ).toBeDefined();
+        // toEqual compares structurally — drift on any field (forcedEffect,
+        // owner, serviceVersion, etc.) fails fast.
+        expect(
+          inConfig!.ports,
+          `seed "${seed}": ports drift on ${m.ip} (${m.hostname}) between .machines and .networkConfig.machineConfigs`,
+        ).toEqual(m.remoteMachine.ports);
+      }
+    });
+  }
+});
