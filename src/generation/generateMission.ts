@@ -331,12 +331,33 @@ export const generateMissionNetwork = async (
           // Pick the first open non-SSH port to stamp
           const targetPort = m.remoteMachine.ports.find((p) => p.open && p.port !== 22);
           if (!targetPort) return m;
+          // Also stamp `owner` on the port whose userType matches the
+          // effect's tier. msfconsole rejects forced-effect ports without
+          // an owner ("service not exploitable" — msfconsole.ts:172) and
+          // commands like password_reset target the user whose tier matches
+          // the effect. Forced-effect tier dominates any pre-existing
+          // owner: if the port already carried (say) an apache user but
+          // the seed-keyword effect is password_reset:root, the stamped
+          // owner is root — otherwise the forced effect would be
+          // semantically inconsistent with the port owner's tier.
+          // Falls back to the pre-existing owner if no user matches the
+          // tier on this machine (rare — most have root/user/guest).
+          const matchingUser = m.remoteMachine.users.find((u) => u.userType === tier);
+          const stampedOwner = matchingUser
+            ? {
+                username: matchingUser.username,
+                userType: tier,
+                homePath: tier === 'root' ? '/root' : `/home/${matchingUser.username}`,
+              }
+            : undefined;
           return {
             ...m,
             remoteMachine: {
               ...m.remoteMachine,
               ports: m.remoteMachine.ports.map((p) =>
-                p === targetPort ? { ...p, forcedEffect: effect } : p,
+                p === targetPort
+                  ? { ...p, forcedEffect: effect, owner: stampedOwner ?? p.owner }
+                  : p,
               ),
             },
           };

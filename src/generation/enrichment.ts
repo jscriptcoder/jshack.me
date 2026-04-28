@@ -219,13 +219,23 @@ export const applyPortClosures = (
   // Players may also recover via natural vulnerabilities on other ports
   // (shell_full, backdoor_port_open, password_reset, etc.) — this ensures
   // there's always at least one path to restart sshd when SSH is closed.
+  //
+  // Also stamps `owner` on the same port if it doesn't already carry one.
+  // msfconsole rejects ports without an owner ("service not exploitable")
+  // even when the CVE/forcedEffect is present — see msfconsole.ts:172.
+  // Pre-existing owners (e.g. on the elite backdoor) are preserved.
   const scriptExecRoot: VulnerabilityEffect = { kind: 'script_exec', tier: 'root' };
-  const stampForcedEffect = (ports: readonly Port[]): readonly Port[] => {
+  const stampForcedEffect = (
+    ports: readonly Port[],
+    owner: ServiceOwner | undefined,
+  ): readonly Port[] => {
     // Prefer FTP (guaranteed open on SSH-only closures), fall back to any open non-SSH port
     const target =
       ports.find((p) => p.port === 21 && p.open) ?? ports.find((p) => p.open && p.port !== 22);
     if (!target) return ports;
-    return ports.map((p) => (p === target ? { ...p, forcedEffect: scriptExecRoot } : p));
+    return ports.map((p) =>
+      p === target ? { ...p, forcedEffect: scriptExecRoot, owner: p.owner ?? owner } : p,
+    );
   };
 
   return machines.map((m) => {
@@ -299,7 +309,7 @@ export const applyPortClosures = (
 
       return {
         ...m,
-        remoteMachine: { ...m.remoteMachine, ports: stampForcedEffect(ports) },
+        remoteMachine: { ...m.remoteMachine, ports: stampForcedEffect(ports, rootOwner) },
       };
     }
 

@@ -1081,6 +1081,44 @@ describe('forced effect on target machine via seed keyword', async () => {
     const forcedPort = targetMachine?.remoteMachine.ports.find((p) => p.forcedEffect);
     expect(forcedPort?.forcedEffect).toEqual({ kind: 'file_read', tier: 'guest' });
   });
+
+  // msfconsole rejects ports without an `owner` ("service not exploitable").
+  // Forced-effect ports must therefore be stamped with an owner whose
+  // userType matches the effect's tier — otherwise the port is visible to
+  // nmap as a CVE but the exploit can't fire.
+  it('seed-keyword forced effect stamps owner with userType matching the effect tier', async () => {
+    const result = await generateMissionNetwork('test-password-reset-tier-root-exfiltrate');
+    const targetMachine = result.machines.find((m) => m.ip === result.objective.targetMachine);
+    const forcedPort = targetMachine?.remoteMachine.ports.find((p) => p.forcedEffect);
+    expect(forcedPort?.forcedEffect?.kind).toBe('password_reset');
+    expect(forcedPort?.owner).toBeDefined();
+    expect(forcedPort?.owner?.userType).toBe('root');
+    expect(forcedPort?.owner?.homePath).toBe('/root');
+    // Username must be a real user on the target machine.
+    const targetUserNames = targetMachine?.remoteMachine.users.map((u) => u.username) ?? [];
+    expect(targetUserNames).toContain(forcedPort?.owner?.username);
+  });
+
+  it('seed-keyword forced effect with tier-user stamps owner of userType=user with /home/<username> path', async () => {
+    const result = await generateMissionNetwork('test-file-write-tier-user-exfiltrate');
+    const targetMachine = result.machines.find((m) => m.ip === result.objective.targetMachine);
+    const forcedPort = targetMachine?.remoteMachine.ports.find((p) => p.forcedEffect);
+    expect(forcedPort?.owner).toBeDefined();
+    expect(forcedPort?.owner?.userType).toBe('user');
+    expect(forcedPort?.owner?.homePath).toBe(`/home/${forcedPort?.owner?.username}`);
+  });
+
+  it('seed-keyword forced effect tier dominates pre-existing owner userType', async () => {
+    // The "first open non-SSH" target port may already carry an owner
+    // from natural enrichment (e.g. an apache user on a webserver port).
+    // For forced-effect ports the effect's tier is authoritative — keep
+    // the owner aligned with the tier so the effect's semantics
+    // (password_reset:root resets root, etc.) match the port owner.
+    const result = await generateMissionNetwork('test-password-reset-tier-root-exfiltrate');
+    const targetMachine = result.machines.find((m) => m.ip === result.objective.targetMachine);
+    const forcedPort = targetMachine?.remoteMachine.ports.find((p) => p.forcedEffect);
+    expect(forcedPort?.owner?.userType).toBe('root');
+  });
 });
 
 // -----------------------------------------------------------------------
