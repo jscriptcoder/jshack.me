@@ -122,6 +122,45 @@ Currently the only "owned" machine is `localhost`. As more ownership concepts ar
 
 The reset flow in `src/commands/reset.ts` AWAITS the `clearOwnedPatches` Promise before triggering `window.location.reload()`. Earlier fire-and-forget timing let the page navigation abort the in-flight DELETE; the await + 500ms timer ordering ensures the request lands.
 
+## L1 patch-validation gate (PR #78)
+
+`upsertPatch` and `removePatch` now consult the `sessions` table before recording a mutation:
+
+```
+verify → rate-limit → if (machine_id != 'localhost'):
+                        find active session for (player_key, machine_id)
+                          - DB error           → 500 session_lookup_failed
+                          - no row             → 403 no_session
+                          - active row exists  → proceed
+                      ... existing handler logic
+```
+
+The gate is the **actual security boundary** for filesystem mutations. Before PR #78, an attacker with a legit Ed25519 keypair could record patches on any machine. After PR #78, they can only record patches on machines where they've established an active session via the legitimate auth flow (SSH/su/exploit/FTP/mysql/redis/scp/snmp/effect — all 9 kinds count).
+
+`localhost` is exempt — the player always owns their own box.
+
+Reads (`listPatches`, `clearTransientPatches`, `clearOwnedPatches`) are NOT gated — they're scoped to the player's own data by `player_key` and don't depend on per-machine ownership.
+
+### Ambient log-path bypass
+
+`upsertPatch` writes to paths under `/var/log/` bypass L1 entirely (no session required). Recon actions like `nmap`, `curl`, `hydra`, `gobuster`, and ssh-failure logging trigger log appends on the target machine without the actor having a session there — the network records the probe as a side effect, that's the gameplay. L1 was designed for "I logged in, I'm mutating this machine" mutations; ambient log writes are a different class.
+
+The bypass is path-prefix based and server-controlled — the client cannot opt out of L1 by spoofing a non-log path; the predicate runs on the verified `payload.path`. Bypass applies ONLY to `upsertPatch`. `removePatch` on a `/var/log/...` path still requires a session (covering tracks needs real access to the box).
+
+This bypass exists to keep the gate compatible with the **cross-player log visibility** rule that ships with multiplayer (see `project_multiplayer_cross_player_visibility` memory). Future hardening: a dedicated server-composed event stream (forgery-resistant), at which point this bypass goes away.
+
+### Layered defense (L1 / L2 / L3)
+
+This PR ships **L1** only. The full validation cake:
+
+| Layer | What it checks                                                                                                       | Status                                                                                                       |
+| ----- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| L1    | Active session exists on `machine_id` for `player_key`                                                               | ✅ shipped (PR #78)                                                                                          |
+| L2    | Session credentials have write permission on the target path (Unix permission walk on the target's filesystem state) | Deferred — needs server-side FS state (deterministic regen + patch replay, OR a `machine_filesystems` table) |
+| L3    | Game-logic re-run ("smart server") — was the CVE leading to this session published-by-now, etc.                      | Way later                                                                                                    |
+
+L2 closes privilege-escalation within a session (e.g., a guest-session player asking the server to delete root-owned files). L1 alone limits attackers to "legitimate access" but trusts the client's permission check.
+
 ## Server-stamped `player_key`
 
 Every write stamps `player_key` from the verified Ed25519 pubkey, never from a client claim. Strict zod schemas reject any client-supplied `player_key` field (400 `payload_invalid`). Even a malicious Burp/curl client can only register patches in their own name.

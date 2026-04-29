@@ -551,6 +551,7 @@ export const Terminal = () => {
                       userType: followUp.userType,
                       currentPath: followUp.homePath,
                       machineId: resolvedIP,
+                      sessionId: null,
                     };
                     enterNcMode(newNcSession);
                   }

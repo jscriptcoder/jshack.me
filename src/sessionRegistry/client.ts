@@ -1,6 +1,6 @@
 import type { Identity } from '../identity/identity.js';
 import { signRequest } from '../signedRequest/sign.js';
-import type { Credentials, SessionSummary } from './types.js';
+import type { Credentials, SessionKind, SessionSummary } from './types.js';
 
 // Browser-side wrappers for POST /api/sessions. Single endpoint with
 // action-dispatch — each wrapper signs an envelope with the matching
@@ -29,6 +29,12 @@ export type CreateSessionRequest = {
   readonly credentials: Credentials;
   readonly parent_session_id?: string;
   readonly source_ip?: string;
+  // Optional — server defaults to 'ssh' when omitted (back-compat for
+  // SSH-class pushSession callers that predate the kind field).
+  // Protocol/transient sessions (FTP, mysql, redis, scp, snmp,
+  // effect_one_shot) MUST set this so rehydration's chain
+  // reconstruction excludes them.
+  readonly kind?: SessionKind;
 };
 
 export const createSession = async (

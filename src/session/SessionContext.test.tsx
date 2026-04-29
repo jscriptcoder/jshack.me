@@ -1,7 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { SessionProvider, useSession } from './SessionContext';
+import {
+  SessionProvider,
+  useSession,
+  type FtpSession,
+  type MysqlSession,
+  type NcSession,
+  type RedisSession,
+} from './SessionContext';
 import type { SessionSummary } from '../sessionRegistry/types';
 
 // Mock the sessionRegistry client so we don't hit the network. Tests control
@@ -88,6 +95,45 @@ describe('SessionProvider — pushSession (server-aware)', () => {
     // parent_session_id should be absent (or undefined) since current sessionId is null
     const args = vi.mocked(mockedCreateSession).mock.calls[0]?.[1] as Record<string, unknown>;
     expect(args.parent_session_id).toBeUndefined();
+  });
+
+  it('passes kind to createSession matching the SessionReason (ssh / su / exploit)', async () => {
+    // Protects the 1:1 reason→kind pass-through. Without it, su and
+    // exploit pushes would silently land on the server as kind='ssh'
+    // (the handler default), and the rehydration filter still picks
+    // them up — but the audit trail would lose information.
+    vi.mocked(mockedCreateSession).mockResolvedValue('abc-session-id');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      await result.current.pushSession('su', {
+        machine: 'localhost',
+        username: 'root',
+        userType: 'root',
+        currentPath: '/root',
+      });
+    });
+
+    expect(mockedCreateSession).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ kind: 'su' }),
+    );
+
+    vi.mocked(mockedCreateSession).mockClear();
+    vi.mocked(mockedCreateSession).mockResolvedValue('exp-session-id');
+    await act(async () => {
+      await result.current.pushSession('exploit', {
+        machine: '10.0.0.5',
+        username: 'root',
+        userType: 'root',
+        currentPath: '/root',
+      });
+    });
+
+    expect(mockedCreateSession).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ kind: 'exploit' }),
+    );
   });
 
   it('atomically updates current Session and stack on resolve', async () => {
@@ -447,6 +493,508 @@ describe('SessionProvider — popAllSessions (server-aware)', () => {
   });
 });
 
+// -----------------------------------------------------------------------
+// FTP enter/exit — protocol session push (kind='ftp')
+// -----------------------------------------------------------------------
+
+describe('SessionProvider — enterFtpMode / exitFtpMode (server-aware)', () => {
+  beforeEach(() => {
+    vi.mocked(mockedCreateSession).mockReset();
+    vi.mocked(mockedEndSession).mockReset();
+    vi.mocked(mockedEndSession).mockResolvedValue(undefined);
+    vi.mocked(mockedListSessions).mockReset();
+    vi.mocked(mockedListSessions).mockResolvedValue([]);
+    sessionStorage.clear();
+  });
+
+  const buildFtpSession = (over: Partial<FtpSession> = {}): FtpSession => ({
+    remoteMachine: '192.168.50.10',
+    remoteUsername: 'ftpuser',
+    remoteUserType: 'user',
+    remoteCwd: '/home/ftpuser',
+    originMachine: 'localhost',
+    originUsername: 'alice',
+    originUserType: 'user',
+    originCwd: '/home/alice',
+    sessionId: null,
+    ...over,
+  });
+
+  it('enterFtpMode pushes server session with kind="ftp" and the ftp credentials', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValue('ftp-session-id');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterFtpMode(buildFtpSession());
+      // Flush the fire-and-forget createSession + setFtpSession backfill.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(mockedCreateSession).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        machine_id: '192.168.50.10',
+        credentials: { username: 'ftpuser', userType: 'user' },
+        source_ip: 'localhost',
+        kind: 'ftp',
+      }),
+    );
+  });
+
+  it('omits parent_session_id when current shell is untracked localhost', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValue('ftp-session-id');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterFtpMode(buildFtpSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const args = vi.mocked(mockedCreateSession).mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(args.parent_session_id).toBeUndefined();
+  });
+
+  it('uses current shell sessionId as parent_session_id when one exists', async () => {
+    // Setup: SSH first, then FTP from inside that SSH session.
+    vi.mocked(mockedCreateSession).mockResolvedValueOnce('ssh-id').mockResolvedValueOnce('ftp-id');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      await result.current.pushSession('ssh', {
+        machine: '10.0.0.1',
+        username: 'admin',
+        userType: 'root',
+        currentPath: '/root',
+      });
+    });
+    vi.mocked(mockedCreateSession).mockClear();
+
+    await act(async () => {
+      result.current.enterFtpMode(
+        buildFtpSession({ originMachine: '10.0.0.1', originUsername: 'admin' }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(mockedCreateSession).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        parent_session_id: 'ssh-id',
+        source_ip: '10.0.0.1',
+      }),
+    );
+  });
+
+  it('backfills the server-issued sessionId into ftpSession state on resolve', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValue('ftp-resolved-id');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterFtpMode(buildFtpSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(result.current.ftpSession?.sessionId).toBe('ftp-resolved-id');
+  });
+
+  it('exitFtpMode ends the server session when sessionId was backfilled', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValue('ftp-end-me');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterFtpMode(buildFtpSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    act(() => {
+      result.current.exitFtpMode();
+    });
+
+    expect(mockedEndSession).toHaveBeenCalledWith(expect.anything(), {
+      session_id: 'ftp-end-me',
+      reason: 'user_exit',
+    });
+    expect(result.current.ftpSession).toBeNull();
+  });
+
+  it('exitFtpMode does NOT call endSession when push was still pending (no sessionId)', async () => {
+    // Push hangs forever → sessionId stays null → exit shouldn't try to end.
+    vi.mocked(mockedCreateSession).mockReturnValue(new Promise(() => {}));
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    act(() => {
+      result.current.enterFtpMode(buildFtpSession());
+    });
+
+    act(() => {
+      result.current.exitFtpMode();
+    });
+
+    expect(mockedEndSession).not.toHaveBeenCalled();
+    expect(result.current.ftpSession).toBeNull();
+  });
+
+  it('logs error and leaves sessionId null when push rejects', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(mockedCreateSession).mockRejectedValue(new Error('network'));
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterFtpMode(buildFtpSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(consoleErrorSpy).toHaveBeenCalled();
+    expect(result.current.ftpSession?.sessionId).toBeNull();
+
+    consoleErrorSpy.mockRestore();
+  });
+});
+
+// -----------------------------------------------------------------------
+// nc enter/exit — backdoor-shell session push (kind='nc')
+//
+// Mirror of the ftp pattern. nc shell is currently read-only recon, so
+// no upsertPatch fires from inside it — but the session row is still
+// load-bearing for: future cross-player listSessions visibility, the
+// hop-chain parent_session_id graph, and forwards-compat with any
+// future nc write capability that would re-engage the L1 gate.
+// -----------------------------------------------------------------------
+
+describe('SessionProvider — enterNcMode / exitNcMode (server-aware)', () => {
+  beforeEach(() => {
+    vi.mocked(mockedCreateSession).mockReset();
+    vi.mocked(mockedEndSession).mockReset();
+    vi.mocked(mockedEndSession).mockResolvedValue(undefined);
+    vi.mocked(mockedListSessions).mockReset();
+    vi.mocked(mockedListSessions).mockResolvedValue([]);
+    sessionStorage.clear();
+  });
+
+  const buildNcSession = (over: Partial<NcSession> = {}): NcSession => ({
+    targetIP: '10.0.0.5',
+    targetPort: 5555,
+    service: 'elite',
+    username: 'root',
+    userType: 'root',
+    currentPath: '/root',
+    machineId: '10.0.0.5',
+    sessionId: null,
+    ...over,
+  });
+
+  it('enterNcMode pushes server session with kind="nc" and the nc credentials', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValue('nc-session-id');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterNcMode(buildNcSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(mockedCreateSession).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        machine_id: '10.0.0.5',
+        credentials: { username: 'root', userType: 'root' },
+        source_ip: 'localhost',
+        kind: 'nc',
+      }),
+    );
+  });
+
+  it('omits parent_session_id when current shell is untracked localhost', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValue('nc-session-id');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterNcMode(buildNcSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const args = vi.mocked(mockedCreateSession).mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(args.parent_session_id).toBeUndefined();
+  });
+
+  it('uses current shell sessionId as parent_session_id when one exists', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValueOnce('ssh-id').mockResolvedValueOnce('nc-id');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      await result.current.pushSession('ssh', {
+        machine: '10.0.0.1',
+        username: 'admin',
+        userType: 'root',
+        currentPath: '/root',
+      });
+    });
+    vi.mocked(mockedCreateSession).mockClear();
+
+    await act(async () => {
+      result.current.enterNcMode(buildNcSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(mockedCreateSession).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        parent_session_id: 'ssh-id',
+        source_ip: '10.0.0.1',
+      }),
+    );
+  });
+
+  it('backfills the server-issued sessionId into ncSession state on resolve', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValue('nc-resolved-id');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterNcMode(buildNcSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(result.current.ncSession?.sessionId).toBe('nc-resolved-id');
+  });
+
+  it('exitNcMode ends the server session when sessionId was backfilled', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValue('nc-end-me');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterNcMode(buildNcSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    act(() => {
+      result.current.exitNcMode();
+    });
+
+    expect(mockedEndSession).toHaveBeenCalledWith(expect.anything(), {
+      session_id: 'nc-end-me',
+      reason: 'user_exit',
+    });
+    expect(result.current.ncSession).toBeNull();
+  });
+
+  it('exitNcMode does NOT call endSession when push was still pending (no sessionId)', async () => {
+    vi.mocked(mockedCreateSession).mockReturnValue(new Promise(() => {}));
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    act(() => {
+      result.current.enterNcMode(buildNcSession());
+    });
+
+    act(() => {
+      result.current.exitNcMode();
+    });
+
+    expect(mockedEndSession).not.toHaveBeenCalled();
+    expect(result.current.ncSession).toBeNull();
+  });
+
+  it('logs error and leaves sessionId null when push rejects', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(mockedCreateSession).mockRejectedValue(new Error('network'));
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterNcMode(buildNcSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(consoleErrorSpy).toHaveBeenCalled();
+    expect(result.current.ncSession?.sessionId).toBeNull();
+
+    consoleErrorSpy.mockRestore();
+  });
+});
+
+// -----------------------------------------------------------------------
+// mysql enter/exit — protocol session push (kind='mysql')
+// -----------------------------------------------------------------------
+
+describe('SessionProvider — enterMysqlMode / exitMysqlMode (server-aware)', () => {
+  beforeEach(() => {
+    vi.mocked(mockedCreateSession).mockReset();
+    vi.mocked(mockedEndSession).mockReset();
+    vi.mocked(mockedEndSession).mockResolvedValue(undefined);
+    vi.mocked(mockedListSessions).mockReset();
+    vi.mocked(mockedListSessions).mockResolvedValue([]);
+    sessionStorage.clear();
+  });
+
+  const buildMysqlSession = (over: Partial<MysqlSession> = {}): MysqlSession => ({
+    targetIP: '10.0.0.5',
+    machineId: '10.0.0.5',
+    username: 'dbuser',
+    databaseName: 'app',
+    sessionId: null,
+    ...over,
+  });
+
+  it('enterMysqlMode pushes server session with kind="mysql" and the mysql credentials', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValue('mysql-session-id');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterMysqlMode(buildMysqlSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(mockedCreateSession).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        machine_id: '10.0.0.5',
+        // userType defaults to 'user' — mysql credentials don't carry
+        // a Unix usertype today. Future L2 PR will need a mapping.
+        credentials: { username: 'dbuser', userType: 'user' },
+        source_ip: 'localhost',
+        kind: 'mysql',
+      }),
+    );
+  });
+
+  it('backfills the server-issued sessionId into mysqlSession state on resolve', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValue('mysql-resolved-id');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterMysqlMode(buildMysqlSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(result.current.mysqlSession?.sessionId).toBe('mysql-resolved-id');
+  });
+
+  it('exitMysqlMode ends the server session when sessionId was backfilled', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValue('mysql-end-me');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterMysqlMode(buildMysqlSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    act(() => {
+      result.current.exitMysqlMode();
+    });
+
+    expect(mockedEndSession).toHaveBeenCalledWith(expect.anything(), {
+      session_id: 'mysql-end-me',
+      reason: 'user_exit',
+    });
+    expect(result.current.mysqlSession).toBeNull();
+  });
+
+  it('exitMysqlMode does NOT call endSession when push was still pending', async () => {
+    vi.mocked(mockedCreateSession).mockReturnValue(new Promise(() => {}));
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    act(() => {
+      result.current.enterMysqlMode(buildMysqlSession());
+    });
+
+    act(() => {
+      result.current.exitMysqlMode();
+    });
+
+    expect(mockedEndSession).not.toHaveBeenCalled();
+    expect(result.current.mysqlSession).toBeNull();
+  });
+});
+
+// -----------------------------------------------------------------------
+// redis enter/exit — protocol session push (kind='redis')
+// -----------------------------------------------------------------------
+
+describe('SessionProvider — enterRedisMode / exitRedisMode (server-aware)', () => {
+  beforeEach(() => {
+    vi.mocked(mockedCreateSession).mockReset();
+    vi.mocked(mockedEndSession).mockReset();
+    vi.mocked(mockedEndSession).mockResolvedValue(undefined);
+    vi.mocked(mockedListSessions).mockReset();
+    vi.mocked(mockedListSessions).mockResolvedValue([]);
+    sessionStorage.clear();
+  });
+
+  const buildRedisSession = (over: Partial<RedisSession> = {}): RedisSession => ({
+    targetIP: '10.0.0.7',
+    machineId: '10.0.0.7',
+    sessionId: null,
+    ...over,
+  });
+
+  it('enterRedisMode pushes server session with kind="redis"', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValue('redis-session-id');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterRedisMode(buildRedisSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(mockedCreateSession).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        machine_id: '10.0.0.7',
+        // RedisSession has no username — synthesized 'redis' for the
+        // session row's credentials. userType defaults 'user'.
+        credentials: { username: 'redis', userType: 'user' },
+        source_ip: 'localhost',
+        kind: 'redis',
+      }),
+    );
+  });
+
+  it('backfills the server-issued sessionId into redisSession state on resolve', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValue('redis-resolved-id');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterRedisMode(buildRedisSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(result.current.redisSession?.sessionId).toBe('redis-resolved-id');
+  });
+
+  it('exitRedisMode ends the server session when sessionId was backfilled', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValue('redis-end-me');
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      result.current.enterRedisMode(buildRedisSession());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    act(() => {
+      result.current.exitRedisMode();
+    });
+
+    expect(mockedEndSession).toHaveBeenCalledWith(expect.anything(), {
+      session_id: 'redis-end-me',
+      reason: 'user_exit',
+    });
+    expect(result.current.redisSession).toBeNull();
+  });
+
+  it('exitRedisMode does NOT call endSession when push was still pending', async () => {
+    vi.mocked(mockedCreateSession).mockReturnValue(new Promise(() => {}));
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    act(() => {
+      result.current.enterRedisMode(buildRedisSession());
+    });
+
+    act(() => {
+      result.current.exitRedisMode();
+    });
+
+    expect(mockedEndSession).not.toHaveBeenCalled();
+    expect(result.current.redisSession).toBeNull();
+  });
+});
+
 describe('SessionProvider — rehydration on mount', () => {
   beforeEach(() => {
     vi.mocked(mockedCreateSession).mockReset();
@@ -462,6 +1010,7 @@ describe('SessionProvider — rehydration on mount', () => {
     parent_session_id: null,
     source_ip: 'localhost',
     created_at: '2026-04-26T10:00:00.000Z',
+    kind: 'ssh',
   };
 
   const sessionB: SessionSummary = {
@@ -471,6 +1020,7 @@ describe('SessionProvider — rehydration on mount', () => {
     parent_session_id: 'aaa-id',
     source_ip: '10.0.0.1',
     created_at: '2026-04-26T10:01:00.000Z',
+    kind: 'su',
   };
 
   const sessionC: SessionSummary = {
@@ -480,6 +1030,7 @@ describe('SessionProvider — rehydration on mount', () => {
     parent_session_id: 'bbb-id',
     source_ip: '10.0.0.2',
     created_at: '2026-04-26T10:02:00.000Z',
+    kind: 'su',
   };
 
   it('calls listSessions once on mount', async () => {
@@ -576,6 +1127,70 @@ describe('SessionProvider — rehydration on mount', () => {
     });
 
     expect(result.current.session.currentPath).toBe('/home/bob');
+  });
+
+  describe('kind filter (excludes protocol/transient sessions from chain)', () => {
+    // These tests pin the rehydration filter that drops non-shell
+    // session kinds before chain reconstruction. Without it, an active
+    // FTP / mysql / redis / scp / snmp / effect_one_shot row would be
+    // pulled into the SSH stack — wrong machine becomes "current",
+    // snapshot stack pollutes.
+
+    const ftpSession: SessionSummary = {
+      session_id: 'ftp-id',
+      machine_id: '192.168.50.10',
+      credentials: { username: 'ftpuser', userType: 'user' },
+      parent_session_id: 'aaa-id',
+      source_ip: '10.0.0.1',
+      // NEWER than sessionA — would become "current" if not filtered.
+      created_at: '2026-04-26T10:05:00.000Z',
+      kind: 'ftp',
+    };
+
+    it('ignores a kind=ftp row even when it is the newest by created_at', async () => {
+      vi.mocked(mockedListSessions).mockResolvedValue([sessionA, ftpSession]);
+      const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+      await waitFor(() => {
+        expect(result.current.session.sessionId).toBe('aaa-id');
+      });
+
+      // sessionA (kind='ssh') wins as current; ftpSession is filtered.
+      expect(result.current.session.machine).toBe('10.0.0.1');
+      // Stack: [bottom localhost only]. The ftp row is NOT in there.
+      expect(result.current.sessionStack).toHaveLength(1);
+      expect(result.current.sessionStack[0]?.machine).toBe('localhost');
+    });
+
+    it('falls back to default localhost when ALL returned sessions are non-shell kinds', async () => {
+      vi.mocked(mockedListSessions).mockResolvedValue([ftpSession]);
+      const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+      await waitFor(() => {
+        expect(result.current.isRehydrating).toBe(false);
+      });
+
+      // Same outcome as "no shell sessions returned" — default localhost.
+      expect(result.current.session.machine).toBe('localhost');
+      expect(result.current.session.sessionId).toBeNull();
+      expect(result.current.sessionStack).toHaveLength(0);
+    });
+
+    it('preserves chain integrity when shell + protocol sessions are interleaved by created_at', async () => {
+      // Order: A(ssh) at t=0, ftp at t=5, B(su) at t=1, C(su) at t=2.
+      // After filter + sort: A, B, C → stack [bottom, A, B], current C.
+      vi.mocked(mockedListSessions).mockResolvedValue([sessionA, ftpSession, sessionB, sessionC]);
+      const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+      await waitFor(() => {
+        expect(result.current.session.sessionId).toBe('ccc-id');
+      });
+
+      expect(result.current.sessionStack).toHaveLength(3);
+      expect(result.current.sessionStack[0]?.machine).toBe('localhost');
+      expect(result.current.sessionStack[1]?.sessionId).toBe('aaa-id');
+      expect(result.current.sessionStack[2]?.sessionId).toBe('bbb-id');
+    });
   });
 
   it('logs error and leaves local state untouched on listSessions failure', async () => {

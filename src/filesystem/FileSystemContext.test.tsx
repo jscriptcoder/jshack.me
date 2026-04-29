@@ -176,6 +176,90 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       );
       expect(mockedRemovePatch).not.toHaveBeenCalled();
     });
+
+    // upsertFileOnMachine — handles both write-existing and create-new in
+    // a single call. msfconsole's writeRemoteFile uses this so file_write,
+    // password_reset, and backdoor_port_open all work whether the target
+    // path exists or not.
+    it('upsertFileOnMachine creates a new file when path does not exist (fires isNew=true)', async () => {
+      const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+
+      let opResult: { allowed: boolean } | undefined;
+      act(() => {
+        opResult = result.current.upsertFileOnMachine({
+          machineId: 'localhost',
+          path: '/tmp/created-by-upsert.txt',
+          cwd: '/',
+          content: 'fresh',
+          userType: 'user',
+        });
+      });
+
+      expect(opResult?.allowed).toBe(true);
+      expect(mockedUpsertPatch).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          machineId: 'localhost',
+          path: '/tmp/created-by-upsert.txt',
+          content: 'fresh',
+          owner: 'user',
+          isNew: true,
+        }),
+      );
+    });
+
+    it('upsertFileOnMachine overwrites an existing file (fires upsertPatch without isNew, preserves owner)', async () => {
+      const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+
+      let opResult: { allowed: boolean } | undefined;
+      act(() => {
+        opResult = result.current.upsertFileOnMachine({
+          machineId: 'localhost',
+          path: '/tmp/base.txt', // exists in baseLocalhost, owner=user
+          cwd: '/',
+          content: 'overwritten',
+          userType: 'user',
+        });
+      });
+
+      expect(opResult?.allowed).toBe(true);
+      expect(mockedUpsertPatch).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          machineId: 'localhost',
+          path: '/tmp/base.txt',
+          content: 'overwritten',
+          owner: 'user', // preserved from existing
+        }),
+      );
+      // Existing-file overwrite does NOT set isNew=true
+      const upsertCalls = vi.mocked(mockedUpsertPatch).mock.calls;
+      const lastCall = upsertCalls[upsertCalls.length - 1];
+      expect((lastCall?.[1] as Record<string, unknown>)?.isNew).toBeFalsy();
+    });
+
+    it('upsertFileOnMachine returns {allowed: false} when parent directory is unwritable (no patch fired)', async () => {
+      const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+
+      let opResult: { allowed: boolean; error?: string } | undefined;
+      act(() => {
+        opResult = result.current.upsertFileOnMachine({
+          // /etc doesn't exist in baseLocalhost — guest can't create files in /
+          // (root-only write on root dir).
+          machineId: 'localhost',
+          path: '/forbidden/new.txt',
+          cwd: '/',
+          content: 'denied',
+          userType: 'guest',
+        });
+      });
+
+      expect(opResult?.allowed).toBe(false);
+      expect(mockedUpsertPatch).not.toHaveBeenCalled();
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -319,6 +403,109 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       const node = result.current.getNode('/tmp/local.txt');
       expect(node).not.toBeNull();
       expect(node?.content).toBe('local-only');
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // flushPendingPatches — eliminates the transient-session race where
+  // endSession arrives at the server before the in-flight upsertPatch.
+  // Transient-session wrappers (scp, snmpset, msfconsole one-shots) call
+  // this after the body runs, before letting `withTransientSession` end.
+  // -----------------------------------------------------------------------
+
+  describe('flushPendingPatches', () => {
+    it('resolves immediately when no patches are in flight', async () => {
+      const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+
+      await expect(result.current.flushPendingPatches()).resolves.toBeUndefined();
+    });
+
+    it('waits for an in-flight upsertPatch to settle before resolving', async () => {
+      // Stuck upsert — only resolves when we say so. Lets us prove
+      // flushPendingPatches actually awaits, not just returns immediately.
+      let resolveUpsert: () => void = () => {};
+      vi.mocked(mockedUpsertPatch).mockReturnValue(
+        new Promise<void>((resolve) => {
+          resolveUpsert = () => resolve(undefined);
+        }),
+      );
+
+      const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+
+      act(() => {
+        result.current.writeFile('/tmp/base.txt', 'updated', 'user');
+      });
+
+      let flushResolved = false;
+      const flushPromise = result.current.flushPendingPatches().then(() => {
+        flushResolved = true;
+      });
+
+      // Microtask tick — flush has started but upsert is still stuck.
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(flushResolved).toBe(false);
+
+      resolveUpsert();
+      await flushPromise;
+      expect(flushResolved).toBe(true);
+    });
+
+    it('resolves even when in-flight upsertPatch rejects', async () => {
+      // The patch's catch handler swallows the error already; flush
+      // should still resolve cleanly so transient-session wrappers
+      // don't crash on a network blip.
+      let rejectUpsert: () => void = () => {};
+      vi.mocked(mockedUpsertPatch).mockReturnValue(
+        new Promise<void>((_resolve, reject) => {
+          rejectUpsert = () => reject(new Error('network down'));
+        }),
+      );
+
+      const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+
+      act(() => {
+        result.current.writeFile('/tmp/base.txt', 'updated', 'user');
+      });
+
+      const flushPromise = result.current.flushPendingPatches();
+      rejectUpsert();
+
+      await expect(flushPromise).resolves.toBeUndefined();
+    });
+
+    it('snapshots in-flight patches at call time — patches started after are not awaited', async () => {
+      // First write's upsert stalls; flush is called; second write
+      // starts AFTER flush call. Flush should resolve when the FIRST
+      // upsert resolves, regardless of the second.
+      let resolveFirst: () => void = () => {};
+      vi.mocked(mockedUpsertPatch)
+        .mockReturnValueOnce(
+          new Promise<void>((resolve) => {
+            resolveFirst = () => resolve(undefined);
+          }),
+        )
+        .mockReturnValueOnce(new Promise(() => {})); // second never resolves
+
+      const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+
+      act(() => {
+        result.current.writeFile('/tmp/base.txt', 'first', 'user');
+      });
+
+      const flushPromise = result.current.flushPendingPatches();
+
+      act(() => {
+        result.current.writeFile('/tmp/base.txt', 'second', 'user');
+      });
+
+      resolveFirst();
+
+      await expect(flushPromise).resolves.toBeUndefined();
     });
   });
 });

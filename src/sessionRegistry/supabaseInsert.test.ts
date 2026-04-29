@@ -6,6 +6,7 @@ const row: SessionRow = {
   player_key: 'pubkey-hex',
   machine_id: '10.0.0.1',
   credentials: { username: 'root', userType: 'root' },
+  kind: 'ssh',
 };
 
 describe('createSupabaseInsertSession', () => {

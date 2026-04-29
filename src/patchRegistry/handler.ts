@@ -10,6 +10,7 @@ import {
   type RemovePatchResult,
   type UpsertPatchResult,
 } from './types.js';
+import { PERSISTENT_MACHINE_ID } from './supabaseDelete.js';
 import type { RateLimiter } from '../ipRegistry/rateLimit.js';
 import {
   verifySignedRequest,
@@ -17,6 +18,10 @@ import {
   type VerifyResult,
 } from '../signedRequest/verify.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import type {
+  FindActiveSessionParams,
+  FindActiveSessionResult,
+} from '../sessionRegistry/supabaseFindActive.js';
 
 export type HandlerResponse = {
   readonly status: number;
@@ -30,6 +35,12 @@ export type HandlerDeps = {
   readonly listPatches: (params: ListPatchesParams) => Promise<ListPatchesResult>;
   readonly clearTransientPatches: (params: ClearPatchesParams) => Promise<ClearPatchesResult>;
   readonly clearOwnedPatches: (params: ClearPatchesParams) => Promise<ClearPatchesResult>;
+  // L1 of the patch-validation layer cake: confirms the verified player
+  // has an active session on the target machine before we record the
+  // mutation. Read of the existing `sessions` table — see
+  // sessionRegistry/supabaseFindActive.ts for the adapter and
+  // project_multiplayer_security_model memory for the broader design.
+  readonly findActiveSession: (params: FindActiveSessionParams) => Promise<FindActiveSessionResult>;
   readonly rateLimiter: RateLimiter;
   readonly nonceStore: NonceStore;
   readonly now?: () => number;
@@ -107,17 +118,86 @@ const dispatchAction = async (
   }
 };
 
+// L1 patch-validation gate: every mutating action (upsertPatch /
+// removePatch) on a non-localhost machine MUST be backed by an active
+// session row for this player on that machine. localhost is exempt —
+// the player always "owns" their own box.
+//
+// Returns a HandlerResponse to short-circuit the caller, or null to
+// allow the caller to proceed. Centralized here so both upsert and
+// remove gate identically and a future fourth mutating action would
+// just call this same helper.
+//
+// Distinguished failure modes:
+//   - findActiveSession returns ok: false → 500 session_lookup_failed
+//     (the lookup itself broke; we can't decide either way safely)
+//   - findActiveSession returns ok: true, exists: false → 403 no_session
+//     (lookup succeeded; player has no session on this machine)
+const requireActiveSession = async (
+  publicKey: string,
+  machine_id: string,
+  deps: HandlerDeps,
+): Promise<HandlerResponse | null> => {
+  if (machine_id === PERSISTENT_MACHINE_ID) return null;
+  const result = await deps.findActiveSession({ player_key: publicKey, machine_id });
+  if (!result.ok) {
+    return { status: 500, body: { error: 'session_lookup_failed' } };
+  }
+  if (!result.exists) {
+    return { status: 403, body: { error: 'no_session' } };
+  }
+  return null;
+};
+
+// Postgres TEXT columns reject NUL bytes (U+0000) — error code 22P05
+// "unsupported Unicode escape sequence". Mock binary file contents in
+// the game (e.g., /usr/bin/nmap's '\x7fELF\0\0\0...' placeholder) carry
+// them. Replace with U+FFFD (Unicode REPLACEMENT CHARACTER) before
+// sending to the upsert adapter — lossy for binary fidelity but the
+// game doesn't depend on byte-exact round-trip; apt-installed binaries
+// stay executable from gameplay's perspective.
+//
+// Sanitization at the handler (vs the client wrapper) is defense-in-
+// depth: any signed envelope, including hand-crafted Burp/curl ones,
+// gets cleaned before the DB sees it. Attackers can't trigger 500s
+// with deliberate NUL injection.
+const sanitizeContent = (content: string | null): string | null =>
+  content === null ? null : content.replaceAll('\u0000', '\uFFFD');
+
+// Ambient log-path predicate: writes under /var/log/ bypass L1.
+//
+// Recon (nmap, curl, hydra, gobuster, ssh-fail, etc.) leaves logs on
+// the target machine without the actor having an active session there
+// — the network records the probe as a side effect. L1 was designed
+// for "I logged in, I'm mutating this machine" mutations; ambient log
+// appends are a different write class.
+//
+// Server-controlled and path-prefix based: client cannot opt out of
+// L1 by spoofing a non-log path; the predicate runs on the verified
+// payload.path. Bypass applies ONLY to upsertPatch — covering tracks
+// (removePatch on a log file) still needs a real session on the box.
+//
+// See project_multiplayer_cross_player_visibility memory for the
+// broader "everyone sees everyone's changes" rule that makes log
+// trail-leaving load-bearing for multiplayer gameplay.
+const isAmbientLogPath = (path: string): boolean => path.startsWith('/var/log/');
+
 const handleUpsertPatch = async (
   publicKey: string,
   payload: Extract<PatchesPayload, { action: 'upsertPatch' }>,
   deps: HandlerDeps,
 ): Promise<HandlerResponse> => {
+  if (!isAmbientLogPath(payload.path)) {
+    const gate = await requireActiveSession(publicKey, payload.machine_id, deps);
+    if (gate) return gate;
+  }
+
   const { machine_id, path, content, owner, permissions, is_new, node_type } = payload;
   const row: PatchRow = {
     player_key: publicKey,
     machine_id,
     path,
-    content,
+    content: sanitizeContent(content),
     owner,
     ...(permissions !== undefined && { permissions }),
     ...(is_new !== undefined && { is_new }),
@@ -136,6 +216,9 @@ const handleRemovePatch = async (
   payload: Extract<PatchesPayload, { action: 'removePatch' }>,
   deps: HandlerDeps,
 ): Promise<HandlerResponse> => {
+  const gate = await requireActiveSession(publicKey, payload.machine_id, deps);
+  if (gate) return gate;
+
   const result = await deps.removePatch({
     player_key: publicKey,
     machine_id: payload.machine_id,

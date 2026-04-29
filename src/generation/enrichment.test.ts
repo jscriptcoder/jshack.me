@@ -495,6 +495,30 @@ describe('applyPortClosures', () => {
     }
   });
 
+  it('stamped forcedEffect ports also get an owner whose userType matches the effect tier', () => {
+    // msfconsole rejects ports without an owner ("service not exploitable").
+    // SSH-closure forced-effect always lands as root (script_exec:root); the
+    // stamped port must carry an owner with userType=root so the exploit
+    // can fire.
+    for (let i = 0; i < 100; i++) {
+      const prng = createPrng(`closure-owner-${i}`);
+      const machines = buildMachines(4, '10.0.0.10');
+      const result = applyPortClosures(prng, machines, '10.0.0.10');
+
+      for (const m of result) {
+        const sshClosed = m.remoteMachine.ports.some((p) => p.port === 22 && !p.open);
+        if (!sshClosed) continue;
+
+        const forcedPort = m.remoteMachine.ports.find((p) => p.forcedEffect);
+        expect(forcedPort?.owner).toBeDefined();
+        expect(forcedPort?.owner?.userType).toBe('root');
+        expect(forcedPort?.owner?.homePath).toBe('/root');
+        const usernames = m.remoteMachine.users.map((u) => u.username);
+        expect(usernames).toContain(forcedPort?.owner?.username);
+      }
+    }
+  });
+
   it('does not stamp forcedEffect on machines without SSH closure', () => {
     for (let i = 0; i < 50; i++) {
       const prng = createPrng(`closure-no-forced-${i}`);

@@ -52,6 +52,10 @@ npx tsx scripts/dumpHomeNetwork.ts <gameSeed> <wifiIndex> --cat <ip|hostname>:<p
 # Simulate msfconsole(ip, port): reports CVE, effect, attack pattern, NAT chain — without running the game
 npx tsx scripts/simulateExploit.ts home <gameSeed> <wifiIndex> <ip> <port> [--gameTime <days>]
 npx tsx scripts/simulateExploit.ts mission <seed> <ip> <port> [--gameTime <days>]
+
+# Inspect a single mission machine's port state — forcedEffect, version, findExploitableCve result per open port.
+# Useful for verifying CVE/effect assignment when the runtime disagrees with expectations.
+npx tsx scripts/inspectPort.ts <seed> <targetIp> [<gameTimeDays>]
 ```
 
 ## Key Architecture

@@ -78,6 +78,12 @@ type FileSystemContextValue = {
   readonly readFileFromMachine: (op: MachineFileOp) => string | null;
   readonly writeFileToMachine: (op: MachineWriteOp) => PermissionResult;
   readonly createFileOnMachine: (op: MachineCreateOp) => PermissionResult;
+  // Write-or-create: existing files get the writeFileToMachine path
+  // (overwrite content, preserve owner/permissions); missing paths get
+  // the createFileOnMachine path (new file owned by `userType`). Used by
+  // msfconsole's writeRemoteFile so effects that target new paths
+  // (file_write, backdoor_port_open) actually fire upsertPatch.
+  readonly upsertFileOnMachine: (op: MachineWriteOp) => PermissionResult;
   readonly createDirectoryOnMachine: (op: MachineMkdirOp) => PermissionResult;
   readonly deleteNodeFromMachine: (op: MachineDeleteOp) => PermissionResult;
   readonly updatePermissions: (
@@ -95,6 +101,13 @@ type FileSystemContextValue = {
   // No UI gates on this today (the IndexedDB cache covers initial paint), but
   // exposed for future loading-indicator wiring.
   readonly isRehydrating: boolean;
+  // Resolves when every patch network call that was in flight at the
+  // moment of the call has settled. Used by transient-session wrappers
+  // (scp/snmpset/msfconsole one-shots) to wait for fire-and-forget
+  // upsertPatch / removePatch calls before the wrapping endSession
+  // fires — otherwise endSession can land at the server first and the
+  // patch hits 403 no_session via the L1 gate.
+  readonly flushPendingPatches: () => Promise<void>;
 };
 
 const FileSystemContext = createContext<FileSystemContextValue | null>(null);
@@ -141,6 +154,12 @@ export const FileSystemProvider = ({
   // truth. Avoids clobbering a user's just-typed change if listPatches lands
   // a few hundred ms after mount.
   const localWritesSinceMount = useRef(false);
+  // In-flight patch network calls. Each upsertPatch/removePatch promise
+  // gets registered here on dispatch and removed on settle. Used by
+  // flushPendingPatches() to let transient-session wrappers wait for
+  // fire-and-forget patches to land before they end the session — see
+  // the FileSystemContextValue.flushPendingPatches doc-comment.
+  const pendingPatchesRef = useRef<Set<Promise<unknown>>>(new Set());
 
   // Subscribe to filesystem patches from other tabs.
   // BroadcastChannel does not deliver messages to the posting tab, so no echo guard needed.
@@ -437,6 +456,17 @@ export const FileSystemProvider = ({
   // server-side; the local in-memory state is still correct, and the
   // marker is harmless on the next rehydration (applyPatches treats it as
   // a deletion — same outcome).
+  // Registers a fire-and-forget patch network promise into the pending
+  // set so flushPendingPatches() can await it. The promise is removed
+  // on settle (success OR rejection) so the set always reflects only
+  // currently-in-flight calls.
+  const trackPending = (promise: Promise<unknown>): void => {
+    pendingPatchesRef.current.add(promise);
+    void promise.finally(() => {
+      pendingPatchesRef.current.delete(promise);
+    });
+  };
+
   const broadcastAndRecordPatch = useCallback((patch: FileSystemPatch) => {
     syncChannelRef.current?.broadcast({ type: 'filesystem-patch', patch });
     localWritesSinceMount.current = true;
@@ -445,27 +475,33 @@ export const FileSystemProvider = ({
       (p) => p.machineId === patch.machineId && p.path === patch.path,
     );
     if (patch.content !== null) {
-      void upsertPatchOnServer(getIdentity(), patch).catch((error) => {
-        console.error('[fs] upsertPatch failed:', error);
-      });
+      trackPending(
+        upsertPatchOnServer(getIdentity(), patch).catch((error) => {
+          console.error('[fs] upsertPatch failed:', error);
+        }),
+      );
     } else if (existing?.isNew) {
-      void removePatchOnServer(getIdentity(), {
-        machineId: patch.machineId,
-        path: patch.path,
-      }).catch((error) => {
-        console.error('[fs] removePatch (isNew) failed:', error);
-      });
+      trackPending(
+        removePatchOnServer(getIdentity(), {
+          machineId: patch.machineId,
+          path: patch.path,
+        }).catch((error) => {
+          console.error('[fs] removePatch (isNew) failed:', error);
+        }),
+      );
     } else {
       // Base-file deletion: drop descendants first (they don't make sense
       // once the parent is marked deleted), then record the null marker.
-      void removePatchOnServer(getIdentity(), {
-        machineId: patch.machineId,
-        path: patch.path,
-      })
-        .then(() => upsertPatchOnServer(getIdentity(), patch))
-        .catch((error) => {
-          console.error('[fs] removePatch+upsertPatch failed:', error);
-        });
+      trackPending(
+        removePatchOnServer(getIdentity(), {
+          machineId: patch.machineId,
+          path: patch.path,
+        })
+          .then(() => upsertPatchOnServer(getIdentity(), patch))
+          .catch((error) => {
+            console.error('[fs] removePatch+upsertPatch failed:', error);
+          }),
+      );
     }
 
     setPatches((prev) => {
@@ -588,6 +624,29 @@ export const FileSystemProvider = ({
       return { allowed: true };
     },
     [resolvePathForMachine, canWriteFromMachine, getNodeFromMachine, broadcastAndRecordPatch],
+  );
+
+  // Either-or: writes if the file exists, creates if it doesn't.
+  // msfconsole's writeRemoteFile uses this so file_write / password_reset /
+  // backdoor_port_open all work whether the destination path exists or not
+  // (file_write and backdoor_port_open typically write brand-new paths).
+  // Existing-file branch preserves the file's owner; new-file branch sets
+  // owner to `userType`.
+  const upsertFileOnMachine = useCallback(
+    (op: MachineWriteOp): PermissionResult => {
+      const node = getNodeFromMachine(op.machineId, op.path, op.cwd);
+      if (node && node.type === 'file') {
+        return writeFileToMachine(op);
+      }
+      return createFileOnMachine({
+        machineId: op.machineId,
+        path: op.path,
+        cwd: op.cwd,
+        content: op.content,
+        userType: op.userType,
+      });
+    },
+    [getNodeFromMachine, writeFileToMachine, createFileOnMachine],
   );
 
   const createDirectoryOnMachine = useCallback(
@@ -825,6 +884,17 @@ export const FileSystemProvider = ({
     return getDefaultHomePath(machineId, username);
   }, []);
 
+  // Snapshots the in-flight set at call time, then awaits all of them.
+  // Patches dispatched AFTER the snapshot are not awaited (they belong to
+  // a later body, not this transient-session body). allSettled — we don't
+  // care if individual patches reject; the inner .catch already swallows
+  // network errors, this is a safety net so flush never throws.
+  const flushPendingPatches = useCallback(async (): Promise<void> => {
+    const inflight = [...pendingPatchesRef.current];
+    if (inflight.length === 0) return;
+    await Promise.allSettled(inflight);
+  }, []);
+
   return (
     <FileSystemContext.Provider
       value={{
@@ -848,12 +918,14 @@ export const FileSystemProvider = ({
         readFileFromMachine,
         writeFileToMachine,
         createFileOnMachine,
+        upsertFileOnMachine,
         createDirectoryOnMachine,
         deleteNodeFromMachine,
         updatePermissions,
         canTraverse: canTraverseFn,
         canTraverseOnMachine,
         isRehydrating,
+        flushPendingPatches,
       }}
     >
       {children}

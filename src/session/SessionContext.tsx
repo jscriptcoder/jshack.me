@@ -19,7 +19,12 @@ import { THEMES } from '../theme/themes';
 import type { ThemeId } from '../theme/themes';
 import { applyTheme } from '../theme/applyTheme';
 import { createSyncChannel, type SyncMessage } from '../utils/crossTabSync';
-import { createDefaultSession, normalizeSession, normalizeSnapshot } from './sessionUtils';
+import {
+  createDefaultSession,
+  normalizeFtpSession,
+  normalizeSession,
+  normalizeSnapshot,
+} from './sessionUtils';
 import { getIdentity } from '../identity';
 import {
   createSession as createServerSession,
@@ -82,6 +87,11 @@ export type FtpSession = {
   readonly originUsername: string;
   readonly originUserType: UserType;
   readonly originCwd: string;
+  // Server-tracked session identifier for the FTP login. null means
+  // either the createSession push hasn't resolved yet (race window
+  // immediately after enterFtpMode) or the push failed. exitFtpMode
+  // calls endSession only when this is non-null.
+  readonly sessionId: string | null;
 };
 
 export type NcSession = {
@@ -94,6 +104,9 @@ export type NcSession = {
   // Filesystem key for the target machine. Usually equals targetIP, but
   // localhost uses "localhost" as its filesystem key rather than its network IP.
   readonly machineId: string;
+  // Server-tracked session id for the nc backdoor connection. null = push
+  // pending or failed. Same lifecycle as FtpSession.sessionId / etc.
+  readonly sessionId: string | null;
 };
 
 export type MysqlSession = {
@@ -101,11 +114,17 @@ export type MysqlSession = {
   readonly machineId: string;
   readonly username: string;
   readonly databaseName: string;
+  // Server-tracked session id for the mysql login. null = push pending
+  // or failed. Same lifecycle as FtpSession.sessionId.
+  readonly sessionId: string | null;
 };
 
 export type RedisSession = {
   readonly targetIP: string;
   readonly machineId: string;
+  // Server-tracked session id for the redis connection. Same lifecycle
+  // as FtpSession.sessionId / MysqlSession.sessionId.
+  readonly sessionId: string | null;
 };
 
 export type PersistedState = {
@@ -171,6 +190,7 @@ const getInitialState = (username: string): PersistedState => {
       ...persisted,
       session: normalizeSession(persisted.session),
       sessionStack: persisted.sessionStack.map(normalizeSnapshot),
+      ftpSession: persisted.ftpSession ? normalizeFtpSession(persisted.ftpSession) : null,
       ncSession: persisted.ncSession
         ? {
             ...persisted.ncSession,
@@ -267,9 +287,20 @@ export const SessionProvider = ({ children, workstationName, username }: Session
     void listServerSessions(getIdentity())
       .then((sessions) => {
         if (cancelled) return;
-        if (sessions.length === 0) {
-          // Server says no active sessions — reset to default localhost,
-          // discarding any stale local stack from sessionStorage.
+        // Filter to shell-class kinds before chain reconstruction.
+        // Protocol/transient sessions (FTP/mysql/redis/scp/snmp/effect_-
+        // one_shot) live in their own client-side state fields and
+        // don't belong on the shell stack — including them would put
+        // the wrong machine as "current" and pollute the snapshot stack.
+        const shellSessions = sessions.filter(
+          (s) => s.kind === 'ssh' || s.kind === 'su' || s.kind === 'exploit',
+        );
+        if (shellSessions.length === 0) {
+          // Server says no active SHELL sessions — reset to default
+          // localhost, discarding any stale local stack from sessionStorage.
+          // Note: the player may still have active protocol sessions on
+          // the server (FTP/mysql/etc.); those are restored elsewhere
+          // (or simply abandoned for now — see plan).
           setSessionStack([]);
           setSession((prev) => ({
             username,
@@ -282,9 +313,10 @@ export const SessionProvider = ({ children, workstationName, username }: Session
           return;
         }
         // Build the chain locally: bottom (untracked localhost), then a
-        // snapshot per server session except the newest, which becomes the
-        // current Session. created_at ASC — server already orders, defensive.
-        const sortedSessions = [...sessions].sort((a, b) =>
+        // snapshot per shell session except the newest, which becomes
+        // the current Session. created_at ASC — server already orders,
+        // defensive.
+        const sortedSessions = [...shellSessions].sort((a, b) =>
           a.created_at.localeCompare(b.created_at),
         );
         setSession((prev) => {
@@ -434,6 +466,12 @@ export const SessionProvider = ({ children, workstationName, username }: Session
         },
         ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
         source_ip: session.machine,
+        // SessionReason and SessionKind happen to share the same
+        // string values for shell-class kinds — pass through 1:1.
+        // Protocol/transient sessions go through different code paths
+        // (enterFtpMode, withTransientSession) and pass their kind
+        // explicitly there.
+        kind: reason,
       });
 
       setSessionStack((prev) => [...prev, snapshot]);
@@ -494,13 +532,61 @@ export const SessionProvider = ({ children, workstationName, username }: Session
 
   const canReturn = useCallback(() => sessionStack.length > 0, [sessionStack.length]);
 
-  const enterFtpMode = useCallback((newFtpSession: FtpSession) => {
-    setFtpSession(newFtpSession);
-  }, []);
+  // Pushes a server session for the FTP login (kind='ftp'), backfilling
+  // the resolved sessionId into local state. Local state is set
+  // optimistically — the UI doesn't wait for the server. If the push
+  // fails, we log and leave sessionId null; exitFtpMode will then skip
+  // the endSession call (orphan tolerable, swept later).
+  //
+  // Why this matters for L1 patch validation: FTP `put` writes a patch
+  // on `ftpSession.remoteMachine`. Without a session row on that
+  // machine, /api/patches returns 403. The push here is what makes
+  // those writes legal post-gate.
+  const enterFtpMode = useCallback(
+    (newFtpSession: FtpSession) => {
+      // Optimistic local state.
+      setFtpSession(newFtpSession);
+      // Fire-and-forget server push. parent_session_id captures the
+      // shell session the player is sitting in (null if untracked
+      // localhost). source_ip is the machine they're FTP'ing FROM.
+      void createServerSession(getIdentity(), {
+        machine_id: newFtpSession.remoteMachine,
+        credentials: {
+          username: newFtpSession.remoteUsername,
+          userType: newFtpSession.remoteUserType,
+        },
+        ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
+        source_ip: session.machine,
+        kind: 'ftp',
+      })
+        .then((sessionId) => {
+          // Backfill the server-issued id into the FtpSession state.
+          // Guard: state may have been cleared (exitFtpMode) before
+          // the push resolved — in that case we silently drop.
+          setFtpSession((prev) => (prev !== null ? { ...prev, sessionId } : prev));
+        })
+        .catch((error) => {
+          console.error('[session] ftp createServerSession failed:', error);
+        });
+    },
+    [session.sessionId, session.machine],
+  );
 
+  // Captures the current FtpSession, clears local state, and ends the
+  // server session if one was successfully pushed. If the push hadn't
+  // resolved yet (no sessionId), the row is orphaned — see
+  // enterFtpMode comment.
   const exitFtpMode = useCallback((): FtpSession | null => {
     const current = ftpSession;
     setFtpSession(null);
+    if (current?.sessionId) {
+      void endServerSession(getIdentity(), {
+        session_id: current.sessionId,
+        reason: 'user_exit',
+      }).catch((error) => {
+        console.error('[session] ftp endServerSession failed:', error);
+      });
+    }
     return current;
   }, [ftpSession]);
 
@@ -514,13 +600,49 @@ export const SessionProvider = ({ children, workstationName, username }: Session
 
   const isInFtpMode = useCallback(() => ftpSession !== null, [ftpSession]);
 
-  const enterNcMode = useCallback((newNcSession: NcSession) => {
-    setNcSession(newNcSession);
-  }, []);
+  const enterNcMode = useCallback(
+    (newNcSession: NcSession) => {
+      // Optimistic local state.
+      setNcSession(newNcSession);
+      // Fire-and-forget server push. parent_session_id captures the
+      // shell session the player is sitting in (null if untracked
+      // localhost). source_ip is the machine they're nc'ing FROM.
+      // Mirrors enterFtpMode — kept symmetrical so the four enter
+      // helpers (ftp/nc/mysql/redis) can share extraction later.
+      void createServerSession(getIdentity(), {
+        machine_id: newNcSession.machineId,
+        credentials: {
+          username: newNcSession.username,
+          userType: newNcSession.userType,
+        },
+        ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
+        source_ip: session.machine,
+        kind: 'nc',
+      })
+        .then((sessionId) => {
+          // Backfill the server-issued id. Guard: state may have been
+          // cleared (exitNcMode) before the push resolved — in that
+          // case we silently drop.
+          setNcSession((prev) => (prev !== null ? { ...prev, sessionId } : prev));
+        })
+        .catch((error) => {
+          console.error('[session] nc createServerSession failed:', error);
+        });
+    },
+    [session.sessionId, session.machine],
+  );
 
   const exitNcMode = useCallback((): NcSession | null => {
     const current = ncSession;
     setNcSession(null);
+    if (current?.sessionId) {
+      void endServerSession(getIdentity(), {
+        session_id: current.sessionId,
+        reason: 'user_exit',
+      }).catch((error) => {
+        console.error('[session] nc endServerSession failed:', error);
+      });
+    }
     return current;
   }, [ncSession]);
 
@@ -530,25 +652,86 @@ export const SessionProvider = ({ children, workstationName, username }: Session
     setNcSession((prev) => (prev ? { ...prev, currentPath: cwd } : null));
   }, []);
 
-  const enterMysqlMode = useCallback((newMysqlSession: MysqlSession) => {
-    setMysqlSession(newMysqlSession);
-  }, []);
+  // mysql credentials lack a userType field client-side (the game model
+  // doesn't map mysql users to Unix users). For the L1 gate we just
+  // need a session row to exist — the userType isn't checked. We default
+  // to 'user'; the future L2 (permission walking) PR will need a real
+  // mapping.
+  const enterMysqlMode = useCallback(
+    (newMysqlSession: MysqlSession) => {
+      setMysqlSession(newMysqlSession);
+      void createServerSession(getIdentity(), {
+        machine_id: newMysqlSession.machineId,
+        credentials: {
+          username: newMysqlSession.username,
+          userType: 'user',
+        },
+        ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
+        source_ip: session.machine,
+        kind: 'mysql',
+      })
+        .then((sessionId) => {
+          setMysqlSession((prev) => (prev !== null ? { ...prev, sessionId } : prev));
+        })
+        .catch((error) => {
+          console.error('[session] mysql createServerSession failed:', error);
+        });
+    },
+    [session.sessionId, session.machine],
+  );
 
   const exitMysqlMode = useCallback((): MysqlSession | null => {
     const current = mysqlSession;
     setMysqlSession(null);
+    if (current?.sessionId) {
+      void endServerSession(getIdentity(), {
+        session_id: current.sessionId,
+        reason: 'user_exit',
+      }).catch((error) => {
+        console.error('[session] mysql endServerSession failed:', error);
+      });
+    }
     return current;
   }, [mysqlSession]);
 
   const isInMysqlMode = useCallback(() => mysqlSession !== null, [mysqlSession]);
 
-  const enterRedisMode = useCallback((newRedisSession: RedisSession) => {
-    setRedisSession(newRedisSession);
-  }, []);
+  // RedisSession has no username field — redis in this game is
+  // password-only AUTH (newer ACL-with-username not modeled). For the
+  // L1 gate we synthesize 'redis' as the username and default
+  // userType: 'user'. Future L2 PR will need a real mapping if
+  // permissions become enforced.
+  const enterRedisMode = useCallback(
+    (newRedisSession: RedisSession) => {
+      setRedisSession(newRedisSession);
+      void createServerSession(getIdentity(), {
+        machine_id: newRedisSession.machineId,
+        credentials: { username: 'redis', userType: 'user' },
+        ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
+        source_ip: session.machine,
+        kind: 'redis',
+      })
+        .then((sessionId) => {
+          setRedisSession((prev) => (prev !== null ? { ...prev, sessionId } : prev));
+        })
+        .catch((error) => {
+          console.error('[session] redis createServerSession failed:', error);
+        });
+    },
+    [session.sessionId, session.machine],
+  );
 
   const exitRedisMode = useCallback((): RedisSession | null => {
     const current = redisSession;
     setRedisSession(null);
+    if (current?.sessionId) {
+      void endServerSession(getIdentity(), {
+        session_id: current.sessionId,
+        reason: 'user_exit',
+      }).catch((error) => {
+        console.error('[session] redis endServerSession failed:', error);
+      });
+    }
     return current;
   }, [redisSession]);
 

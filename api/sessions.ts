@@ -109,7 +109,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const listSessions = createSupabaseListSessions(async (params: ListSessionsParams) => {
     const { data, error } = await supabase
       .from('sessions')
-      .select('session_id, machine_id, credentials, parent_session_id, source_ip, created_at')
+      .select('session_id, machine_id, credentials, parent_session_id, source_ip, created_at, kind')
       .eq('player_key', params.player_key)
       .is('ended_at', null)
       .order('created_at', { ascending: true });

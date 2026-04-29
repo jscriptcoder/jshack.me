@@ -211,7 +211,7 @@ if (!seed) {
   process.exit(1);
 }
 
-const net = generateMissionNetwork(seed);
+const net = await generateMissionNetwork(seed);
 
 // --cat mode: just print the file and exit
 if (catTarget) {

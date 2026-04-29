@@ -11,6 +11,7 @@ const sample: SessionSummary = {
   parent_session_id: null,
   source_ip: null,
   created_at: '2026-04-26T10:00:00.000Z',
+  kind: 'ssh',
 };
 
 describe('createSupabaseListSessions', () => {

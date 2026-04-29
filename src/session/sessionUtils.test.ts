@@ -109,6 +109,7 @@ const validFtpSession = {
   originUsername: 'jshacker',
   originUserType: 'user' as const,
   originCwd: '/home/jshacker',
+  sessionId: null,
 };
 
 describe('isValidFtpSession', () => {

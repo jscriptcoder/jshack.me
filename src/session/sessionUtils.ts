@@ -105,3 +105,15 @@ export const normalizeSnapshot = (snapshot: SessionSnapshot): SessionSnapshot =>
     sessionId: typeof raw.sessionId === 'string' ? raw.sessionId : null,
   };
 };
+
+// Persisted FTP sessions from before sessionId was added may lack it —
+// default to null. The previous server-side session row (if any) is
+// orphaned and will be cleaned up by a future sweeper. Acceptable for
+// pre-launch.
+export const normalizeFtpSession = (ftp: FtpSession): FtpSession => {
+  const raw = ftp as Record<string, unknown>;
+  return {
+    ...ftp,
+    sessionId: typeof raw.sessionId === 'string' ? raw.sessionId : null,
+  };
+};

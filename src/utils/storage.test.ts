@@ -114,6 +114,7 @@ describe('storage', () => {
           originUsername: 'jshacker',
           originUserType: 'user',
           originCwd: '/home/jshacker',
+          sessionId: null,
         },
       };
       saveSessionToTab(withFtp);

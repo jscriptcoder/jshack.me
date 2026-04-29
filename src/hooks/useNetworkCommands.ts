@@ -21,6 +21,8 @@ import type { MachineId } from '../filesystem/machineFileSystems';
 import { createHydraCommand } from '../commands/hydra';
 import { createGobusterCommand } from '../commands/gobuster';
 import { createScpCommand } from '../commands/scp';
+import { withTransientSession } from '../session/withTransientSession';
+import { getIdentity } from '../identity';
 import { createDigCommand } from '../commands/dig';
 import { createSnmpwalkCommand } from '../commands/snmpwalk';
 import { createSnmpsetCommand } from '../commands/snmpset';
@@ -35,11 +37,6 @@ import { createExploitAttemptHandler } from '../logging/handlers/exploitAttempt'
 import { createHttpRequestHandler } from '../logging/handlers/httpRequest';
 import { createHydraLogHandler } from '../logging/handlers/hydraLog';
 import { createNcConnectHandler } from '../logging/handlers/ncConnect';
-import {
-  chainForwardBackdoor,
-  IPTABLES_PATH,
-  type BackdoorForwardDeps,
-} from '../network/backdoorForwarding';
 import { applyVersionOverlay } from '../network/applyVersionOverlay';
 import type { RemoteMachine } from '../network/types';
 import { getGameTime } from '../session/gameTime';
@@ -57,7 +54,6 @@ export const useNetworkCommands = (): Map<string, Command> => {
     resolveNat,
     findMachineUsers,
     findMachineByIp,
-    getGatewayChainFor,
   } = useNetwork();
   const {
     resolvePath,
@@ -66,8 +62,10 @@ export const useNetworkCommands = (): Map<string, Command> => {
     getNodeFromMachine,
     createFileOnMachine,
     writeFileToMachine,
+    upsertFileOnMachine,
     listDirectoryFromMachine,
     deleteNodeFromMachine,
+    flushPendingPatches,
   } = useFileSystem();
   const { session, wifiConnected, isMachineBricked } = useSession();
 
@@ -435,7 +433,17 @@ export const useNetworkCommands = (): Map<string, Command> => {
         wrapWithWifiCheck(
           createMsfconsoleCommand({
             getMachine: getEffectiveMachine,
+            // Whole-mission lookup so the post-NAT internal target is
+            // reachable when the player is on localhost (where getMachine
+            // would return undefined for LAN IPs).
+            findMachineByIp: findEffectiveMachineByIp,
             getLocalIP,
+            // NAT resolver: when player runs msfconsole publicIP forwardedPort,
+            // msfconsole resolves to the actual internal target so all
+            // effect-phase ops (writes, script-exec, gateway-chain lookup)
+            // operate on the right machine instead of the public-IP router.
+            // Identity passthrough for direct LAN-internal exploits.
+            resolveNat,
             getCurrentMachineId: () => session.machine,
             // Localhost isn't in the remote-machines list (it's the player's
             // workstation, generated separately via generateLocalhost), so
@@ -468,44 +476,70 @@ export const useNetworkCommands = (): Map<string, Command> => {
                 cwd: '/',
                 userType: session.userType,
               }),
-            writeRemoteFile: (machineId, path, content, tier = 'root') =>
-              writeFileToMachine({ machineId, path, cwd: '/', userType: tier, content }),
-            listRemoteDir: (machineId, path, tier = 'root') =>
-              listDirectoryFromMachine({ machineId, path, cwd: '/', userType: tier }),
-            runScriptOnTarget: (machineId, scriptBody, tier) =>
-              executeScriptOnTarget(scriptBody, buildTargetCommandContext(machineId, tier)),
-            openBackdoorForwards: (machineIp, port) => {
-              const chain = getGatewayChainFor(machineIp);
-              if (chain.length === 0) {
-                return { publicEdgeIp: null, publicEdgePort: null };
-              }
-              const deps: BackdoorForwardDeps = {
-                readIptables: (gwIp) =>
-                  readFileFromMachine({
-                    machineId: gwIp,
-                    path: IPTABLES_PATH,
+            // Wrap writeRemoteFile + runScriptOnTarget in transient
+            // sessions (kind='effect_one_shot') so the L1 patch-validation
+            // gate sees a session row at fire time. msfconsole's switch
+            // cases await these callbacks (they were sync before; see
+            // src/commands/msfconsole.ts MsfconsoleContext for the
+            // signature change).
+            //
+            // The body awaits flushPendingPatches() before returning so
+            // withTransientSession's `await body()` waits for in-flight
+            // upsertPatch / removePatch network calls to settle. Without
+            // this, the wrapping endSession can race the patch and
+            // arrive at the server first — patch sees an ended session
+            // and 403s on L1.
+            // Returns the underlying upsertFileOnMachine result so callers
+            // (msfconsole's file_write / password_reset / backdoor_port_open)
+            // can surface failure instead of silently printing "Exploit
+            // successful". Uses upsertFileOnMachine (vs writeFileToMachine)
+            // so brand-new paths actually get a patch — file_write and
+            // backdoor_port_open typically target paths that don't exist.
+            writeRemoteFile: async (machineId, path, content, tier = 'root') => {
+              let writeResult: { allowed: boolean; error?: string } = { allowed: false };
+              await withTransientSession(
+                getIdentity(),
+                {
+                  machine_id: machineId,
+                  credentials: { username: 'msf', userType: tier },
+                  kind: 'effect_one_shot',
+                  ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
+                  source_ip: session.machine,
+                },
+                async () => {
+                  writeResult = upsertFileOnMachine({
+                    machineId,
+                    path,
                     cwd: '/',
-                    userType: 'root',
-                  }),
-                writeIptables: (gwIp, content) => {
-                  writeFileToMachine({
-                    machineId: gwIp,
-                    path: IPTABLES_PATH,
-                    cwd: '/',
-                    userType: 'root',
+                    userType: tier,
                     content,
                   });
+                  await flushPendingPatches();
                 },
-              };
-              const result = chainForwardBackdoor({
-                machineIp,
-                internalPort: port,
-                gatewayChain: chain,
-                deps,
-              });
-              const edge = chain[chain.length - 1]!;
-              return { publicEdgeIp: edge.ip, publicEdgePort: result.publicEdgePort };
+              );
+              return writeResult;
             },
+            listRemoteDir: (machineId, path, tier = 'root') =>
+              listDirectoryFromMachine({ machineId, path, cwd: '/', userType: tier }),
+            runScriptOnTarget: async (machineId, scriptBody, tier) =>
+              await withTransientSession(
+                getIdentity(),
+                {
+                  machine_id: machineId,
+                  credentials: { username: 'msf', userType: tier },
+                  kind: 'effect_one_shot',
+                  ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
+                  source_ip: session.machine,
+                },
+                async () => {
+                  const result = executeScriptOnTarget(
+                    scriptBody,
+                    buildTargetCommandContext(machineId, tier),
+                  );
+                  await flushPendingPatches();
+                  return result;
+                },
+              ),
           }),
           isWifiRequired,
         ),
@@ -574,6 +608,21 @@ export const useNetworkCommands = (): Map<string, Command> => {
             resolveDomain,
             getNodeFromMachine,
             writeFileToMachine,
+            withTransientSession: (params, body) =>
+              withTransientSession(
+                getIdentity(),
+                {
+                  machine_id: params.machine_id,
+                  credentials: params.credentials,
+                  kind: 'snmp',
+                  ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
+                  source_ip: session.machine,
+                },
+                async () => {
+                  body();
+                  await flushPendingPatches();
+                },
+              ),
           }),
           isWifiRequired,
         ),
@@ -617,6 +666,31 @@ export const useNetworkCommands = (): Map<string, Command> => {
             getNodeFromMachine,
             createFileOnMachine,
             resolveNat,
+            // Wraps the actual createFileOnMachine call in a transient
+            // server session (kind='scp'). parent_session_id captures
+            // the current shell so the server cascade-ends if the
+            // player exits while scp is in flight; source_ip is the
+            // machine the player is sitting in.
+            //
+            // The body awaits flushPendingPatches() before returning so
+            // the wrapping endSession only fires after in-flight upserts
+            // settle — otherwise endSession can race the patch and the
+            // patch hits 403 no_session via the L1 gate.
+            withTransientSession: (params, body) =>
+              withTransientSession(
+                getIdentity(),
+                {
+                  machine_id: params.machine_id,
+                  credentials: params.credentials,
+                  kind: 'scp',
+                  ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
+                  source_ip: session.machine,
+                },
+                async () => {
+                  body();
+                  await flushPendingPatches();
+                },
+              ),
           }),
           isWifiRequired,
         ),
@@ -641,17 +715,19 @@ export const useNetworkCommands = (): Map<string, Command> => {
     getNodeFromMachine,
     createFileOnMachine,
     writeFileToMachine,
+    upsertFileOnMachine,
     deleteNodeFromMachine,
     listDirectoryFromMachine,
+    flushPendingPatches,
     session.machine,
     session.hostname,
     session.currentPath,
     session.username,
     session.userType,
+    session.sessionId,
     wifiConnected,
     isMachineBricked,
     findMachineByIp,
-    getGatewayChainFor,
     getPublicIP,
   ]);
 };

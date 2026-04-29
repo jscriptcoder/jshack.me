@@ -4,17 +4,17 @@ This doc captures the non-obvious technology decisions made for JSHACK.ME's Phas
 
 ## Stack at a glance
 
-| Layer                | Choice                                        | Status                                                                                                      |
-| -------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Frontend hosting     | Vercel                                        | Shipped (pre-Phase-5)                                                                                       |
-| Serverless functions | Vercel Functions (Node runtime)               | Shipped                                                                                                     |
-| Database + Realtime  | Supabase (Postgres + Realtime)                | Postgres shipped; Realtime planned                                                                          |
-| Rate limiting        | Upstash Ratelimit (Redis over HTTPS)          | Shipped                                                                                                     |
-| Input validation     | zod                                           | Shipped                                                                                                     |
-| Identity             | Ed25519 keypair (browser localStorage)        | Key gen + storage + signed `/api/allocate-ip` + `/api/sessions` + `/api/patches` shipped                    |
-| Sessions             | Server-authoritative `sessions` table         | Shipped — push/pop/listSessions wired through SessionContext; Realtime live-death deferred                  |
-| Patches              | Server-authoritative `patches` table          | Shipped — upsert/remove/list/clearTransient/clearOwned wired through FileSystemContext; validation deferred |
-| Wallet               | Separate Ed25519 keypair (in-game filesystem) | Planned                                                                                                     |
+| Layer                | Choice                                        | Status                                                                                                                                                                    |
+| -------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frontend hosting     | Vercel                                        | Shipped (pre-Phase-5)                                                                                                                                                     |
+| Serverless functions | Vercel Functions (Node runtime)               | Shipped                                                                                                                                                                   |
+| Database + Realtime  | Supabase (Postgres + Realtime)                | Postgres shipped; Realtime planned                                                                                                                                        |
+| Rate limiting        | Upstash Ratelimit (Redis over HTTPS)          | Shipped                                                                                                                                                                   |
+| Input validation     | zod                                           | Shipped                                                                                                                                                                   |
+| Identity             | Ed25519 keypair (browser localStorage)        | Key gen + storage + signed `/api/allocate-ip` + `/api/sessions` + `/api/patches` shipped                                                                                  |
+| Sessions             | Server-authoritative `sessions` table         | Shipped — push/pop/listSessions wired through SessionContext; Realtime live-death deferred                                                                                |
+| Patches              | Server-authoritative `patches` table          | Shipped — upsert/remove/list/clearTransient/clearOwned wired through FileSystemContext. **L1 validation (session-existence gate)** shipped; L2 (permission walk) deferred |
+| Wallet               | Separate Ed25519 keypair (in-game filesystem) | Planned                                                                                                                                                                   |
 
 ---
 
@@ -422,10 +422,49 @@ Tradeoff: cross-device sync is slightly delayed in this case (one extra round-tr
 
 ### What's deferred
 
-- **Patch validation against `sessions`**: this PR records authoritatively but does NOT yet enforce "is this player allowed to mutate this path?". The follow-up PR makes the Vercel function read `sessions` and reject patches that don't have an active session + sufficient credentials on the target machine. **The actual security boundary lives there.**
+- ~~**Patch validation against `sessions`**: this PR records authoritatively but does NOT yet enforce "is this player allowed to mutate this path?".~~ **L1 (session existence) shipped in PR #78** — see "Patch validation: L1 session-existence gate" section below.
 - **Mission-instance / shared-network scoping**: `machine_id` is the only scope today. When mission instances ship, `instance_id` (or similar) joins the natural key.
 - **Realtime fanout**: `postgres_changes` subscription on `patches WHERE player_key = me` for cross-tab/cross-device live updates. Phase later.
 - **IndexedDB removal**: still kept as a sync-readable cache for fast initial paint. Pruning happens once we're confident the server pipe handles every entry point.
+
+---
+
+## Patch validation: L1 session-existence gate, L2 permission-walk deferred
+
+### Choice
+
+`/api/patches`'s `upsertPatch` and `removePatch` consult the `sessions` table before recording a mutation: if `machine_id != 'localhost'` and the verified player has no active session row on that machine, return `403 no_session`. This is **the actual security boundary** for filesystem mutations.
+
+### Why
+
+Before this layer, an attacker with a legit Ed25519 keypair could sign a patch claiming to write to any machine and the server would accept it. The signature only proved "this came from key X", not "key X has access to machine Y". Now the server cross-references the `sessions` table — the player must have established an active session via the legitimate auth flow (SSH password, `su`, exploit shell, FTP login, mysql / redis login, scp transient, snmpset transient, or a one-shot exploit effect) to mutate any non-localhost machine.
+
+### Layered defense (L1 / L2 / L3)
+
+This PR ships **L1** only:
+
+| Layer  | Checks                                                                | Status                                                                     |
+| ------ | --------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| **L1** | active session row exists for `(player_key, machine_id)`              | ✅ Shipped (PR #78)                                                        |
+| **L2** | session credentials have write permission on the target path          | Deferred — needs server-side FS state (deterministic regen + patch replay) |
+| **L3** | game-logic re-run ("smart server") — was the CVE published-by-now etc | Way later                                                                  |
+
+L1 alone catches ~90% of the threat surface — an attacker can no longer write to machines they haven't legitimately accessed. L2 closes privilege-escalation within a session (a guest-session player can still ask the server to delete root-owned files; only the client-side `canWrite` check stops them today). L3 is the "smart server" principle from `project_multiplayer_security_model`.
+
+### Bucket-C audit + 9-kind plumb
+
+Adding L1 broke every client write path that wasn't already pushing a session — FTP `put`, scp upload, mysql UPDATE, redis SET, snmpset, msfconsole one-shot effects (`file_write` / `password_reset` / `backdoor_port_open`), script_exec daemon writes (sshd / vsftpd / nc -l). Each was audited and fixed by either:
+
+1. **Login-style push** (FTP / mysql / redis): `enterXMode` pushes a session; `exitXMode` ends it.
+2. **Transient one-shot wrap** (scp / snmp / msfconsole effects): `withTransientSession(...)` helper pushes, runs body, ends in `finally`.
+
+`sessions.kind` (added to disambiguate categories) is a `TEXT` enum across nine values: `ssh` / `su` / `exploit` for shell-class (go on the SessionContext snapshot stack, rehydrated on mount), `ftp` / `mysql` / `redis` for protocol logins, `scp` / `snmp` / `effect_one_shot` for transient one-shots. Rehydration filters to shell-class kinds before reconstructing the linear chain — protocol/transient sessions don't pollute the SSH stack.
+
+### What's deferred
+
+- **L2 (permission walking)**: server doesn't yet check whether the session's credentials have write permission on the target path. A guest-session player could ask the server to delete root-owned files; the client's `canWrite` check is the only thing stopping them. Fixing this requires server-side FS state — either deterministic regen (run the same generator as the client, replay patches) or persisted base FS rows. Future PR.
+- **`openBackdoorForwards.writeIptables`**: writes iptables config on gateway IPs for NAT-forward chaining. These would need per-gateway sessions for strict L1 correctness. Currently flagged as risky-but-gated (the exploit chain typically presupposes the player has gone through the gateways), but not enforced. Follow-up PR.
+- **Race between session-end and mid-flight upsert**: player ends FTP, but a buffered `put` upsert lands at the server right after the `endSession`. Currently 403's. Tolerable for v1.
 
 ---
 
