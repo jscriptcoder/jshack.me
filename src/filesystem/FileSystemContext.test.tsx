@@ -10,6 +10,7 @@ vi.mock('../patchRegistry/client', () => ({
   upsertPatch: vi.fn(),
   removePatch: vi.fn(),
   listPatches: vi.fn(),
+  listPatchesForMachines: vi.fn(),
   clearTransientPatches: vi.fn(),
   clearOwnedPatches: vi.fn(),
 }));
@@ -17,7 +18,7 @@ vi.mock('../patchRegistry/client', () => ({
 import {
   upsertPatch as mockedUpsertPatch,
   removePatch as mockedRemovePatch,
-  listPatches as mockedListPatches,
+  listPatchesForMachines as mockedListPatchesForMachines,
   clearTransientPatches as mockedClearTransientPatches,
 } from '../patchRegistry/client';
 
@@ -95,11 +96,11 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
   beforeEach(() => {
     vi.mocked(mockedUpsertPatch).mockReset();
     vi.mocked(mockedRemovePatch).mockReset();
-    vi.mocked(mockedListPatches).mockReset();
+    vi.mocked(mockedListPatchesForMachines).mockReset();
     vi.mocked(mockedClearTransientPatches).mockReset();
     vi.mocked(mockedUpsertPatch).mockResolvedValue(undefined);
     vi.mocked(mockedRemovePatch).mockResolvedValue(undefined);
-    vi.mocked(mockedListPatches).mockResolvedValue([]);
+    vi.mocked(mockedListPatchesForMachines).mockResolvedValue([]);
     vi.mocked(mockedClearTransientPatches).mockResolvedValue(undefined);
   });
 
@@ -108,14 +109,68 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
   // -----------------------------------------------------------------------
 
   describe('mount rehydration', () => {
-    it('calls listPatches on mount', async () => {
+    it('calls listPatchesForMachines on mount', async () => {
       renderHook(() => useFileSystem(), { wrapper: wrap() });
       await waitFor(() => {
-        expect(mockedListPatches).toHaveBeenCalled();
+        expect(mockedListPatchesForMachines).toHaveBeenCalled();
       });
     });
 
-    it('exposes isRehydrating: true initially, transitions to false after listPatches resolves', async () => {
+    it('passes only [localhost] when no home/mission filesystems supplied', async () => {
+      renderHook(() => useFileSystem(), { wrapper: wrap() });
+      await waitFor(() => {
+        expect(mockedListPatchesForMachines).toHaveBeenCalled();
+      });
+      const machineIds = vi.mocked(mockedListPatchesForMachines).mock.calls[0][1];
+      expect(machineIds).toEqual(['localhost']);
+    });
+
+    it('includes home filesystem keys in machine_ids when supplied', async () => {
+      renderHook(() => useFileSystem(), {
+        wrapper: wrap({
+          homeFileSystems: { '192.168.1.50': baseLocalhost, '192.168.1.51': baseLocalhost },
+        }),
+      });
+      await waitFor(() => {
+        expect(mockedListPatchesForMachines).toHaveBeenCalled();
+      });
+      const machineIds = vi.mocked(mockedListPatchesForMachines).mock.calls[0][1];
+      expect(machineIds).toEqual(
+        expect.arrayContaining(['localhost', '192.168.1.50', '192.168.1.51']),
+      );
+    });
+
+    it('includes mission filesystem keys in machine_ids when supplied', async () => {
+      renderHook(() => useFileSystem(), {
+        wrapper: wrap({
+          missionFileSystems: { '10.0.0.1': baseLocalhost, '10.0.0.2': baseLocalhost },
+        }),
+      });
+      await waitFor(() => {
+        expect(mockedListPatchesForMachines).toHaveBeenCalled();
+      });
+      const machineIds = vi.mocked(mockedListPatchesForMachines).mock.calls[0][1];
+      expect(machineIds).toEqual(expect.arrayContaining(['localhost', '10.0.0.1', '10.0.0.2']));
+    });
+
+    it('deduplicates machine_ids across home + mission', async () => {
+      renderHook(() => useFileSystem(), {
+        wrapper: wrap({
+          homeFileSystems: { '10.0.0.1': baseLocalhost },
+          missionFileSystems: { '10.0.0.1': baseLocalhost, '10.0.0.2': baseLocalhost },
+        }),
+      });
+      await waitFor(() => {
+        expect(mockedListPatchesForMachines).toHaveBeenCalled();
+      });
+      const machineIds = vi.mocked(mockedListPatchesForMachines).mock.calls[0][1];
+      const counts: Record<string, number> = {};
+      for (const id of machineIds) counts[id] = (counts[id] ?? 0) + 1;
+      expect(counts['10.0.0.1']).toBe(1);
+      expect(counts['localhost']).toBe(1);
+    });
+
+    it('exposes isRehydrating: true initially, transitions to false after listPatchesForMachines resolves', async () => {
       const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
       expect(result.current.isRehydrating).toBe(true);
       await waitFor(() => {
@@ -123,12 +178,38 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       });
     });
 
-    it('still sets isRehydrating: false when listPatches rejects', async () => {
-      vi.mocked(mockedListPatches).mockRejectedValueOnce(new Error('network'));
+    it('still sets isRehydrating: false when listPatchesForMachines rejects', async () => {
+      vi.mocked(mockedListPatchesForMachines).mockRejectedValueOnce(new Error('network'));
       const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
       await waitFor(() => {
         expect(result.current.isRehydrating).toBe(false);
       });
+    });
+
+    it('applies multi-author patches in array order — last write wins on (machine_id, path) collision', async () => {
+      // Server returns two rows for the same path written by different
+      // players, ordered by updated_at ASC (the patch from B is newer).
+      // applyPatches reduces in array order, so B's content overwrites A's.
+      vi.mocked(mockedListPatchesForMachines).mockResolvedValueOnce([
+        {
+          machineId: 'localhost',
+          path: '/tmp/base.txt',
+          content: 'older from player A',
+          owner: 'user',
+        },
+        {
+          machineId: 'localhost',
+          path: '/tmp/base.txt',
+          content: 'newer from player B',
+          owner: 'user',
+        },
+      ]);
+
+      const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+
+      const node = result.current.getNode('/tmp/base.txt');
+      expect(node?.content).toBe('newer from player B');
     });
   });
 
@@ -333,7 +414,7 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
           missionFileSystems: { '10.0.0.1': baseLocalhost },
         }),
       });
-      await waitFor(() => expect(mockedListPatches).toHaveBeenCalled());
+      await waitFor(() => expect(mockedListPatchesForMachines).toHaveBeenCalled());
       // Initial mount must not trigger the transient cleanup — that's the
       // existing isInitialMissionMount guard.
       expect(mockedClearTransientPatches).not.toHaveBeenCalled();
@@ -374,10 +455,10 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
   // -----------------------------------------------------------------------
 
   describe('rehydration race', () => {
-    it('skips replacement when a local write happened before listPatches resolved', async () => {
-      // Defer the listPatches resolution until we explicitly trigger it.
+    it('skips replacement when a local write happened before listPatchesForMachines resolved', async () => {
+      // Defer the listPatchesForMachines resolution until we explicitly trigger it.
       let resolveListPatches!: (patches: never[]) => void;
-      vi.mocked(mockedListPatches).mockImplementationOnce(
+      vi.mocked(mockedListPatchesForMachines).mockImplementationOnce(
         () =>
           new Promise<never[]>((resolve) => {
             resolveListPatches = resolve;
@@ -390,8 +471,9 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
         result.current.createFile('/tmp/local.txt', 'local-only', 'user');
       });
 
-      // Now resolve listPatches with an EMPTY server response (would normally
-      // wipe local state). Race-mitigation should keep our local write.
+      // Now resolve listPatchesForMachines with an EMPTY server response
+      // (would normally wipe local state). Race-mitigation should keep our
+      // local write.
       await act(async () => {
         resolveListPatches([]);
         await new Promise((resolve) => setTimeout(resolve, 0));
