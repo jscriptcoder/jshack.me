@@ -85,6 +85,14 @@ type MsfconsoleContext = {
     ip: string,
     port: number,
   ) => { readonly ip: string; readonly port: number };
+  // Whole-mission machine lookup, regardless of the player's current view.
+  // After NAT resolution the internal target may not be visible via
+  // `getMachine` — that returns machines reachable from session.machine,
+  // which excludes the LAN when player is on localhost. Without this
+  // fallback the post-NAT effectiveMachine ends up as the router and
+  // tier-user lookups pick router users that don't exist on the actual
+  // target. Optional for tests; falls back to getMachine when not provided.
+  readonly findMachineByIp?: (ip: string) => RemoteMachine | undefined;
 };
 
 const MSFCONSOLE_PHASE_DELAY_MS = 600;
@@ -205,7 +213,13 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
     // diverge from the public-IP machine for the EFFECT phase below.
     const resolved = context.resolveNat?.(targetIP, port) ?? { ip: targetIP, port };
     const effectiveIp = resolved.ip;
-    const effectiveMachine = getMachine(effectiveIp) ?? machine;
+    // findMachineByIp searches the whole mission so the internal target
+    // is reachable even when the player is on localhost (where getMachine
+    // would return undefined for the LAN's IPs). Falls back to getMachine
+    // for tests that don't supply findMachineByIp; ultimately to `machine`
+    // (the router-with-merged) as a safety net.
+    const effectiveMachine =
+      context.findMachineByIp?.(effectiveIp) ?? getMachine(effectiveIp) ?? machine;
 
     onExploitAttempt?.({
       targetIp: targetIP,

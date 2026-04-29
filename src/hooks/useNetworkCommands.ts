@@ -439,6 +439,10 @@ export const useNetworkCommands = (): Map<string, Command> => {
         wrapWithWifiCheck(
           createMsfconsoleCommand({
             getMachine: getEffectiveMachine,
+            // Whole-mission lookup so the post-NAT internal target is
+            // reachable when the player is on localhost (where getMachine
+            // would return undefined for LAN IPs).
+            findMachineByIp: findEffectiveMachineByIp,
             getLocalIP,
             // NAT resolver: when player runs msfconsole publicIP forwardedPort,
             // msfconsole resolves to the actual internal target so all

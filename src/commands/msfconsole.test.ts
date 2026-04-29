@@ -65,6 +65,7 @@ type MsfconsoleContextConfig = {
     ip: string,
     port: number,
   ) => { readonly ip: string; readonly port: number };
+  readonly findMachineByIp?: (ip: string) => RemoteMachine | undefined;
 };
 
 const createMockMsfconsoleContext = (config: MsfconsoleContextConfig = {}) => {
@@ -81,6 +82,7 @@ const createMockMsfconsoleContext = (config: MsfconsoleContextConfig = {}) => {
     runScriptOnTarget,
     openBackdoorForwards,
     resolveNat,
+    findMachineByIp,
   } = config;
 
   const { currentMachineId } = config;
@@ -99,6 +101,7 @@ const createMockMsfconsoleContext = (config: MsfconsoleContextConfig = {}) => {
     runScriptOnTarget,
     openBackdoorForwards,
     resolveNat,
+    findMachineByIp,
   };
 };
 
@@ -938,6 +941,45 @@ describe('msfconsole command', () => {
       // Critical: write target is the resolved internal IP, not the public IP.
       expect(writes[0]?.machineId).toBe('10.50.100.10');
       expect(writes[0]?.path).toBe('/etc/passwd');
+    });
+
+    it('uses findMachineByIp to resolve the post-NAT internal target when getMachine cannot see internal IPs (localhost attacker)', async () => {
+      // Real bug: when the player runs msfconsole from localhost against a
+      // public IP, getMachine(internalIP) returns undefined because the LAN
+      // isn't visible from localhost. Without findMachineByIp, the post-NAT
+      // effectiveMachine falls back to the router (machine), tier-matching
+      // picks a router user (e.g., snmpadm) that doesn't exist on the actual
+      // internal target — the substitution loop finds no matching row and
+      // /etc/passwd is written unchanged.
+      const { entry, machine: routerWithCve } = mkMachineWithCve('password_reset', 'mysql', 3306);
+      const router: RemoteMachine = { ...routerWithCve, ip: '203.0.113.5', hostname: 'router' };
+      const findMachineByIp = vi.fn((ip: string) =>
+        ip === '10.50.100.10' ? routerWithCve : undefined,
+      );
+      const context = createMockMsfconsoleContext({
+        // getMachine returns ONLY the router — internal LAN not visible
+        // (mirrors the localhost-attacker reality where the player's view
+        // doesn't include LAN machines).
+        machines: [router],
+        gameTime: entry.publishedAt,
+        readRemoteFile: () => 'root:oldHash:0:0:root:/root:/bin/bash',
+        writeRemoteFile: async () => ({ allowed: true }),
+        resolveNat: (ip, port) =>
+          ip === '203.0.113.5' && port === 3306 ? { ip: '10.50.100.10', port: 3306 } : { ip, port },
+        findMachineByIp,
+      });
+      const result = createMsfconsoleCommand(context).fn('203.0.113.5', 3306);
+      if (!isAsyncOutput(result)) throw new Error('expected async');
+      result.start(
+        () => {},
+        () => {},
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+
+      // The wiring asserts the fix: findMachineByIp gets called with the
+      // resolved internal IP, so effectiveMachine comes from the
+      // whole-mission lookup instead of the limited getMachine view.
+      expect(findMachineByIp).toHaveBeenCalledWith('10.50.100.10');
     });
 
     it('file_write on a NAT-forwarded public port uploads to the resolved internal target', async () => {

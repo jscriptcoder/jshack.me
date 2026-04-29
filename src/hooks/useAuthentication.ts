@@ -582,26 +582,42 @@ export const useAuthentication = ({
         return validateMysqlPassword(targetUser, mysqlTargetIP, password);
       }
 
-      if (scpTargetIP) {
-        const resolvedIp = resolveNat(scpTargetIP, scpTargetPort ?? 22).ip;
+      // SSH/SCP auth: read /etc/passwd from the resolved target instead of
+      // the static users[].passwordHash. The static list is captured at
+      // mission generation; password_reset (and any other write that
+      // mutates /etc/passwd) doesn't update it. Reading /etc/passwd makes
+      // the rolled credential actually unlock the account.
+      //
+      // Falls back to users[].passwordHash if /etc/passwd is missing or
+      // doesn't have a row for the target user — defensive, the file
+      // should always exist on a generated machine.
+      const validateAgainstEtcPasswd = (resolvedIp: string): boolean => {
         const users = findMachineUsers(resolvedIp);
-
         const remoteUser = users.find((u) => u.username === targetUser);
         if (!remoteUser) return false;
 
         const inputHash = md5(password);
+
+        const passwdContent = readFileFromMachine({
+          machineId: resolvedIp,
+          path: '/etc/passwd',
+          cwd: '/',
+          userType: 'root',
+        });
+        if (passwdContent) {
+          const entry = passwdContent.split('\n').find((line) => line.split(':')[0] === targetUser);
+          const storedHash = entry?.split(':')[1];
+          if (storedHash) return storedHash === inputHash;
+        }
         return remoteUser.passwordHash === inputHash;
+      };
+
+      if (scpTargetIP) {
+        return validateAgainstEtcPasswd(resolveNat(scpTargetIP, scpTargetPort ?? 22).ip);
       }
 
       if (sshTargetIP) {
-        const resolvedIp = resolveNat(sshTargetIP, sshTargetPort ?? 22).ip;
-        const users = findMachineUsers(resolvedIp);
-
-        const remoteUser = users.find((u) => u.username === targetUser);
-        if (!remoteUser) return false;
-
-        const inputHash = md5(password);
-        return remoteUser.passwordHash === inputHash;
+        return validateAgainstEtcPasswd(resolveNat(sshTargetIP, sshTargetPort ?? 22).ip);
       }
 
       if (ftpTargetIP) {

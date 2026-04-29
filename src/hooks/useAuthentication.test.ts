@@ -41,7 +41,7 @@ const makeOptions = () => ({
   enterFtpMode: vi.fn(),
   enterMysqlMode: vi.fn(),
   enterRedisMode: vi.fn(),
-  readFileFromMachine: vi.fn(() => null),
+  readFileFromMachine: vi.fn((_op: { path: string }) => null as string | null),
   createFile: vi.fn(() => ({ allowed: true })),
   writeFile: vi.fn(() => ({ allowed: true })),
 });
@@ -260,6 +260,38 @@ describe('useAuthentication', () => {
       expect(opts.pushSession).not.toHaveBeenCalled();
       expect(opts.addLine).toHaveBeenCalledWith('error', 'Permission denied, please try again.');
       expect(result.current.passwordMode).toBe(false);
+    });
+
+    it('reads /etc/passwd from the target — accepts a password that differs from the static users[].passwordHash (post password_reset)', () => {
+      // After password_reset rolls a new credential it writes /etc/passwd
+      // but doesn't update the static users[].passwordHash. SSH auth must
+      // read /etc/passwd directly so the rolled password actually unlocks
+      // the account; otherwise the player sees a fresh credential that
+      // never works.
+      const newPassword = 'pwned-9012-user';
+      const newHash = md5(newPassword);
+      // Static users carries the original (pre-reset) hash.
+      const remoteUser = makeRemoteUser({ password: 'original-pre-reset' });
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd' ? `bob:${newHash}:1001:1001:bob:/home/bob:/bin/bash` : null,
+      );
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => result.current.startSshPrompt('bob', TARGET_IP, 22));
+      act(() => {
+        result.current.handlePasswordSubmit(newPassword, vi.fn());
+      });
+
+      // /etc/passwd has the new hash → md5(newPassword) matches → auth succeeds
+      // even though users[].passwordHash is stale.
+      expect(opts.pushSession).toHaveBeenCalled();
+      expect(opts.addLine).not.toHaveBeenCalledWith(
+        'error',
+        'Permission denied, please try again.',
+      );
     });
   });
 
@@ -678,6 +710,37 @@ describe('useAuthentication', () => {
 
       expect(performTransfer).not.toHaveBeenCalled();
       expect(opts.addLine).toHaveBeenCalledWith('error', 'Permission denied, please try again.');
+    });
+
+    it('reads /etc/passwd from the target — accepts a password that differs from the static users[].passwordHash (post password_reset)', () => {
+      const newPassword = 'pwned-9012-user';
+      const newHash = md5(newPassword);
+      const remoteUser = makeRemoteUser({ password: 'original-pre-reset' });
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd' ? `bob:${newHash}:1001:1001:bob:/home/bob:/bin/bash` : null,
+      );
+
+      const transfer = makeAsyncOutput();
+      const performTransfer = vi.fn(() => transfer);
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => {
+        result.current.startScpPrompt('bob', TARGET_IP, 22, performTransfer);
+      });
+      let output: AsyncOutput | undefined;
+      act(() => {
+        output = result.current.handlePasswordSubmit(newPassword, vi.fn());
+      });
+
+      expect(output).toBe(transfer);
+      expect(performTransfer).toHaveBeenCalled();
+      expect(opts.addLine).not.toHaveBeenCalledWith(
+        'error',
+        'Permission denied, please try again.',
+      );
     });
   });
 
