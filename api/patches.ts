@@ -10,12 +10,17 @@ import {
   createSupabaseClearOwnedPatches,
 } from '../src/patchRegistry/supabaseDelete.js';
 import { createSupabaseListPatches } from '../src/patchRegistry/supabaseSelect.js';
+import { createSupabaseListPatchesForMachines } from '../src/patchRegistry/supabaseSelectByMachine.js';
 import type {
   ClearOwnedArg,
   ClearTransientArg,
   DeletePatchesArg,
 } from '../src/patchRegistry/supabaseDelete.js';
-import type { PatchRow, ListPatchesParams } from '../src/patchRegistry/types.js';
+import type {
+  PatchRow,
+  ListPatchesParams,
+  ListPatchesForMachinesParams,
+} from '../src/patchRegistry/types.js';
 import { createSupabaseFindActiveSession } from '../src/sessionRegistry/supabaseFindActive.js';
 import type { FindActiveSessionParams } from '../src/sessionRegistry/supabaseFindActive.js';
 import {
@@ -143,6 +148,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return { data, error };
   });
 
+  const listPatchesForMachines = createSupabaseListPatchesForMachines(
+    async (params: ListPatchesForMachinesParams) => {
+      // Cross-player read: no player_key filter — return rows from any
+      // author for the requested machines. ORDER BY updated_at ASC is
+      // load-bearing: client-side `applyPatches` reduces in array order,
+      // so the latest write per (machine_id, path) wins automatically.
+      const { data, error } = await supabase
+        .from('patches')
+        .select('machine_id, path, content, owner, permissions, is_new, node_type')
+        .in('machine_id', [...params.machine_ids])
+        .order('updated_at', { ascending: true });
+      if (error) console.error('[patches] supabase selectByMachine error:', error);
+      return { data, error };
+    },
+  );
+
   const clearTransientPatches = createSupabaseClearTransientPatches(
     async (arg: ClearTransientArg) => {
       // .neq('machine_id', persistent_machine_id) — drops everything
@@ -197,6 +218,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     upsertPatch,
     removePatch,
     listPatches,
+    listPatchesForMachines,
     clearTransientPatches,
     clearOwnedPatches,
     findActiveSession,

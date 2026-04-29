@@ -2,6 +2,8 @@ import {
   patchesSignedPayloadSchema,
   type ClearPatchesParams,
   type ClearPatchesResult,
+  type ListPatchesForMachinesParams,
+  type ListPatchesForMachinesResult,
   type ListPatchesParams,
   type ListPatchesResult,
   type PatchRow,
@@ -33,6 +35,9 @@ export type HandlerDeps = {
   readonly upsertPatch: (row: PatchRow) => Promise<UpsertPatchResult>;
   readonly removePatch: (params: RemovePatchParams) => Promise<RemovePatchResult>;
   readonly listPatches: (params: ListPatchesParams) => Promise<ListPatchesResult>;
+  readonly listPatchesForMachines: (
+    params: ListPatchesForMachinesParams,
+  ) => Promise<ListPatchesForMachinesResult>;
   readonly clearTransientPatches: (params: ClearPatchesParams) => Promise<ClearPatchesResult>;
   readonly clearOwnedPatches: (params: ClearPatchesParams) => Promise<ClearPatchesResult>;
   // L1 of the patch-validation layer cake: confirms the verified player
@@ -112,10 +117,7 @@ const dispatchAction = async (
     case 'listPatches':
       return handleListPatches(publicKey, deps);
     case 'listPatchesForMachines':
-      // Stub: schema arm exists so the discriminated union compiles, but
-      // the cross-player adapter + dispatch land in a follow-up step.
-      // Returns 501 until then; no client wires this action yet.
-      return { status: 501, body: { error: 'not_implemented' } };
+      return handleListPatchesForMachines(payload, deps);
     case 'clearTransientPatches':
       return handleClearTransientPatches(publicKey, deps);
     case 'clearOwnedPatches':
@@ -242,6 +244,27 @@ const handleListPatches = async (
   deps: HandlerDeps,
 ): Promise<HandlerResponse> => {
   const result = await deps.listPatches({ player_key: publicKey });
+  if (!result.ok) {
+    return { status: 500, body: { error: 'query_failed' } };
+  }
+  return { status: 200, body: { patches: result.patches } };
+};
+
+// Cross-player read path: returns all patches written to the supplied
+// machines from any author. No L1 session gate — the world's
+// persistent state on a shared machine is visible to everyone who can
+// route to it. Knowing the machine_id is the gate; visibility-rule
+// enforcement lands in a future PR (blocked on the home-network
+// occupants table).
+//
+// publicKey is intentionally unused for filtering — `verifySignedRequest`
+// already gated on auth, so the caller is some authenticated player; the
+// rows returned do not depend on which.
+const handleListPatchesForMachines = async (
+  payload: Extract<PatchesPayload, { action: 'listPatchesForMachines' }>,
+  deps: HandlerDeps,
+): Promise<HandlerResponse> => {
+  const result = await deps.listPatchesForMachines({ machine_ids: payload.machine_ids });
   if (!result.ok) {
     return { status: 500, body: { error: 'query_failed' } };
   }

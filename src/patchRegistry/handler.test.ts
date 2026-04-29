@@ -3,6 +3,8 @@ import { handlePatchesRequest } from './handler';
 import type {
   ClearPatchesParams,
   ClearPatchesResult,
+  ListPatchesForMachinesParams,
+  ListPatchesForMachinesResult,
   ListPatchesParams,
   ListPatchesResult,
   PatchRow,
@@ -51,6 +53,9 @@ const mkDeps = (overrides: {
   readonly upsertPatch?: (row: PatchRow) => Promise<UpsertPatchResult>;
   readonly removePatch?: (params: RemovePatchParams) => Promise<RemovePatchResult>;
   readonly listPatches?: (params: ListPatchesParams) => Promise<ListPatchesResult>;
+  readonly listPatchesForMachines?: (
+    params: ListPatchesForMachinesParams,
+  ) => Promise<ListPatchesForMachinesResult>;
   readonly clearTransientPatches?: (params: ClearPatchesParams) => Promise<ClearPatchesResult>;
   readonly clearOwnedPatches?: (params: ClearPatchesParams) => Promise<ClearPatchesResult>;
   readonly findActiveSession?: (
@@ -72,6 +77,11 @@ const mkDeps = (overrides: {
     overrides.listPatches ??
     vi
       .fn<(params: ListPatchesParams) => Promise<ListPatchesResult>>()
+      .mockResolvedValue({ ok: true, patches: [] }),
+  listPatchesForMachines:
+    overrides.listPatchesForMachines ??
+    vi
+      .fn<(params: ListPatchesForMachinesParams) => Promise<ListPatchesForMachinesResult>>()
       .mockResolvedValue({ ok: true, patches: [] }),
   clearTransientPatches:
     overrides.clearTransientPatches ??
@@ -469,6 +479,119 @@ describe('handlePatchesRequest — listPatches', () => {
       action: 'listPatches',
       machine_id: '10.0.0.1',
     });
+    const result = await handlePatchesRequest(envelope, mkDeps({}));
+    expect(result.status).toBe(400);
+  });
+});
+
+// -----------------------------------------------------------------------
+// listPatchesForMachines (cross-player read)
+// -----------------------------------------------------------------------
+
+describe('handlePatchesRequest — listPatchesForMachines', () => {
+  let identity: Identity;
+  beforeEach(() => {
+    identity = generateIdentity();
+  });
+
+  const validPayload = {
+    action: 'listPatchesForMachines',
+    machine_ids: ['10.0.0.1', 'localhost'],
+  };
+
+  // Two patches at the same path on the same machine, written by
+  // different players — exactly what cross-player read needs to surface.
+  const patchFromPlayerA: PatchSummary = {
+    machine_id: '10.0.0.1',
+    path: '/etc/hosts',
+    content: '127.0.0.1 localhost\n10.0.0.1 from-A',
+    owner: 'root',
+    permissions: null,
+    is_new: false,
+    node_type: 'file',
+  };
+
+  const patchFromPlayerB: PatchSummary = {
+    machine_id: '10.0.0.1',
+    path: '/etc/hosts',
+    content: '127.0.0.1 localhost\n10.0.0.1 from-B',
+    owner: 'root',
+    permissions: null,
+    is_new: false,
+    node_type: 'file',
+  };
+
+  it('returns 200 with multi-author patches array', async () => {
+    const listPatchesForMachines = vi
+      .fn<(params: ListPatchesForMachinesParams) => Promise<ListPatchesForMachinesResult>>()
+      .mockResolvedValue({ ok: true, patches: [patchFromPlayerA, patchFromPlayerB] });
+    const envelope = makeEnvelope(identity, validPayload);
+
+    const result = await handlePatchesRequest(envelope, mkDeps({ listPatchesForMachines }));
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ patches: [patchFromPlayerA, patchFromPlayerB] });
+  });
+
+  it('returns 200 with empty array when no patches exist for those machines', async () => {
+    const envelope = makeEnvelope(identity, validPayload);
+
+    const result = await handlePatchesRequest(envelope, mkDeps({}));
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ patches: [] });
+  });
+
+  it('forwards machine_ids verbatim to the adapter', async () => {
+    const listPatchesForMachines = vi
+      .fn<(params: ListPatchesForMachinesParams) => Promise<ListPatchesForMachinesResult>>()
+      .mockResolvedValue({ ok: true, patches: [] });
+    const envelope = makeEnvelope(identity, {
+      action: 'listPatchesForMachines',
+      machine_ids: ['10.0.0.5', '10.0.0.6', '10.0.0.7'],
+    });
+
+    await handlePatchesRequest(envelope, mkDeps({ listPatchesForMachines }));
+
+    expect(listPatchesForMachines).toHaveBeenCalledWith({
+      machine_ids: ['10.0.0.5', '10.0.0.6', '10.0.0.7'],
+    });
+  });
+
+  it('returns 500 when the DB query errors', async () => {
+    const listPatchesForMachines = vi
+      .fn<(params: ListPatchesForMachinesParams) => Promise<ListPatchesForMachinesResult>>()
+      .mockResolvedValue({ ok: false });
+    const envelope = makeEnvelope(identity, validPayload);
+
+    const result = await handlePatchesRequest(envelope, mkDeps({ listPatchesForMachines }));
+
+    expect(result.status).toBe(500);
+    expect(result.body).toMatchObject({ error: 'query_failed' });
+  });
+
+  it('does NOT call findActiveSession (no L1 gate on reads)', async () => {
+    const findActiveSession = vi
+      .fn<(params: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+      .mockResolvedValue({ ok: true, exists: true });
+    const envelope = makeEnvelope(identity, validPayload);
+
+    await handlePatchesRequest(envelope, mkDeps({ findActiveSession }));
+
+    expect(findActiveSession).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when machine_ids is empty', async () => {
+    const envelope = makeEnvelope(identity, {
+      action: 'listPatchesForMachines',
+      machine_ids: [],
+    });
+    const result = await handlePatchesRequest(envelope, mkDeps({}));
+    expect(result.status).toBe(400);
+  });
+
+  it('returns 400 when machine_ids is missing', async () => {
+    const envelope = makeEnvelope(identity, { action: 'listPatchesForMachines' });
     const result = await handlePatchesRequest(envelope, mkDeps({}));
     expect(result.status).toBe(400);
   });
