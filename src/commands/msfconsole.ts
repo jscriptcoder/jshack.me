@@ -71,10 +71,6 @@ type MsfconsoleContext = {
     scriptBody: string,
     tier: 'guest' | 'user' | 'root',
   ) => Promise<{ readonly error: string | null }>;
-  readonly openBackdoorForwards?: (
-    machineIp: string,
-    port: number,
-  ) => { readonly publicEdgeIp: string | null; readonly publicEdgePort: number | null };
   // Resolves a (host, port) pair through any NAT-forwarding rule on the
   // network. When the player runs `msfconsole publicIP forwardedPort`,
   // this returns the actual internal target (ip + port). Without it,
@@ -576,18 +572,7 @@ const buildExploitOutput = (
                 break;
               }
               onLine('[+] Exploit successful!');
-              onLine(
-                `[+] Backdoor planted on port ${backdoorPort} — connect with nc(target, ${backdoorPort})`,
-              );
-              // Gateway chain lookup needs the internal target's IP so
-              // forwards land on the right router(s) between attacker and
-              // the actual machine — not on the public-IP router itself.
-              const forwards = context.openBackdoorForwards?.(effectiveIp, backdoorPort);
-              if (forwards?.publicEdgeIp && forwards.publicEdgePort !== null) {
-                onLine(
-                  `[+] NAT forwarding chain installed — reachable via ${forwards.publicEdgeIp}:${forwards.publicEdgePort} from outside`,
-                );
-              }
+              onLine(`[+] Backdoor planted on port ${backdoorPort}`);
               onComplete();
               break;
             }

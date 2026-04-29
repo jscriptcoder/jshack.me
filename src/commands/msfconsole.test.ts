@@ -57,10 +57,6 @@ type MsfconsoleContextConfig = {
     scriptBody: string,
     tier: 'guest' | 'user' | 'root',
   ) => Promise<{ readonly error: string | null }>;
-  readonly openBackdoorForwards?: (
-    machineIp: string,
-    port: number,
-  ) => { readonly publicEdgeIp: string | null; readonly publicEdgePort: number | null };
   readonly resolveNat?: (
     ip: string,
     port: number,
@@ -80,7 +76,6 @@ const createMockMsfconsoleContext = (config: MsfconsoleContextConfig = {}) => {
     writeRemoteFile,
     listRemoteDir,
     runScriptOnTarget,
-    openBackdoorForwards,
     resolveNat,
     findMachineByIp,
   } = config;
@@ -99,7 +94,6 @@ const createMockMsfconsoleContext = (config: MsfconsoleContextConfig = {}) => {
     writeRemoteFile,
     listRemoteDir,
     runScriptOnTarget,
-    openBackdoorForwards,
     resolveNat,
     findMachineByIp,
   };
@@ -1099,10 +1093,6 @@ describe('msfconsole command', () => {
       });
       const router: RemoteMachine = { ...machine, ip: '203.0.113.5', hostname: 'router' };
       const writes: Array<{ machineId: string; path: string }> = [];
-      const openBackdoorForwards = vi.fn(() => ({
-        publicEdgeIp: '203.0.113.5',
-        publicEdgePort: 4444,
-      }));
       const context = createMockMsfconsoleContext({
         machines: [machine, router],
         gameTime: entry.publishedAt,
@@ -1110,7 +1100,6 @@ describe('msfconsole command', () => {
           writes.push({ machineId, path });
           return { allowed: true };
         },
-        openBackdoorForwards,
         // 203.0.113.5:22 (public) → 10.50.100.10:22 (internal)
         resolveNat: (ip, port) =>
           ip === '203.0.113.5' && port === 22 ? { ip: '10.50.100.10', port: 22 } : { ip, port },
@@ -1126,10 +1115,6 @@ describe('msfconsole command', () => {
       // pid file lands on the internal target, not the router's public IP.
       expect(writes).toHaveLength(1);
       expect(writes[0]?.machineId).toBe('10.50.100.10');
-      // openBackdoorForwards is called with the internal IP so the gateway
-      // chain lookup can find the right router(s) to install forwards on.
-      const backdoorPort = vuln.effect.kind === 'backdoor_port_open' ? vuln.effect.port : 0;
-      expect(openBackdoorForwards).toHaveBeenCalledWith('10.50.100.10', backdoorPort);
     });
 
     it('backdoor_port_open surfaces failure when the nc pid file write returns {allowed: false}', async () => {
@@ -1165,84 +1150,6 @@ describe('msfconsole command', () => {
       expect(lines.some((l) => /exploit successful/i.test(l))).toBe(false);
       // The "Backdoor planted" message must NOT print on a failed write.
       expect(lines.some((l) => /backdoor planted/i.test(l))).toBe(false);
-    });
-
-    it('invokes openBackdoorForwards after planting the pid file and reports public-edge reach', async () => {
-      const { entry, vuln } = findCveWithEffect('ssh', 'backdoor_port_open');
-      const machine = getMockRemoteMachine({
-        ports: [
-          {
-            port: 22,
-            service: 'ssh',
-            serviceVersion: vuln.serviceVersion,
-            open: true,
-            owner: { username: 'root', userType: 'root', homePath: '/root' },
-          },
-        ],
-      });
-      const openBackdoorForwards = vi.fn(() => ({
-        publicEdgeIp: '203.0.113.5',
-        publicEdgePort: 4444,
-      }));
-      const context = createMockMsfconsoleContext({
-        machines: [machine],
-        gameTime: entry.publishedAt,
-        writeRemoteFile: async () => ({ allowed: true }),
-        openBackdoorForwards,
-      });
-      const msfconsole = createMsfconsoleCommand(context);
-      const result = msfconsole.fn('10.50.100.10', 22);
-
-      if (!isAsyncOutput(result)) throw new Error('expected async');
-      const lines: string[] = [];
-      result.start(
-        (line) => lines.push(line),
-        () => {},
-      );
-      await vi.advanceTimersByTimeAsync(5000);
-
-      const backdoorPort = vuln.effect.kind === 'backdoor_port_open' ? vuln.effect.port : 0;
-      expect(openBackdoorForwards).toHaveBeenCalledWith('10.50.100.10', backdoorPort);
-      expect(lines.some((l) => l.includes('203.0.113.5:4444'))).toBe(true);
-      expect(lines.some((l) => /reachable/i.test(l))).toBe(true);
-    });
-
-    it('omits the NAT-forward message when no gateway chain exists (home network target)', async () => {
-      const { entry, vuln } = findCveWithEffect('ssh', 'backdoor_port_open');
-      const machine = getMockRemoteMachine({
-        ports: [
-          {
-            port: 22,
-            service: 'ssh',
-            serviceVersion: vuln.serviceVersion,
-            open: true,
-            owner: { username: 'root', userType: 'root', homePath: '/root' },
-          },
-        ],
-      });
-      const openBackdoorForwards = vi.fn(() => ({
-        publicEdgeIp: null,
-        publicEdgePort: null,
-      }));
-      const context = createMockMsfconsoleContext({
-        machines: [machine],
-        gameTime: entry.publishedAt,
-        writeRemoteFile: async () => ({ allowed: true }),
-        openBackdoorForwards,
-      });
-      const msfconsole = createMsfconsoleCommand(context);
-      const result = msfconsole.fn('10.50.100.10', 22);
-
-      if (!isAsyncOutput(result)) throw new Error('expected async');
-      const lines: string[] = [];
-      result.start(
-        (line) => lines.push(line),
-        () => {},
-      );
-      await vi.advanceTimersByTimeAsync(5000);
-
-      expect(openBackdoorForwards).toHaveBeenCalled();
-      expect(lines.some((l) => /reachable/i.test(l))).toBe(false);
     });
   });
 
