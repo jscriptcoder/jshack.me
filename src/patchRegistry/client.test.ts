@@ -3,6 +3,7 @@ import {
   upsertPatch,
   removePatch,
   listPatches,
+  listPatchesForMachines,
   clearTransientPatches,
   clearOwnedPatches,
 } from './client';
@@ -506,6 +507,137 @@ describe('listPatches', () => {
     const fetchMock = vi.fn<typeof fetch>().mockRejectedValue(new TypeError('network failure'));
 
     await expect(listPatches(identity, fetchMock)).rejects.toThrow('network failure');
+  });
+});
+
+// -----------------------------------------------------------------------
+// listPatchesForMachines (cross-player read) — same wire→client conversion
+// -----------------------------------------------------------------------
+
+describe('listPatchesForMachines', () => {
+  it('POSTs action="listPatchesForMachines" with the supplied machine_ids', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ patches: [] }));
+
+    await listPatchesForMachines(identity, ['10.0.0.1', 'localhost'], fetchMock);
+
+    const payload = getPayload(fetchMock);
+    expect(payload.action).toBe('listPatchesForMachines');
+    expect(payload.machine_ids).toEqual(['10.0.0.1', 'localhost']);
+  });
+
+  it('signs with the provided identity', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ patches: [] }));
+
+    await listPatchesForMachines(identity, ['10.0.0.1'], fetchMock);
+
+    const env = getEnvelope(fetchMock);
+    expect(env.publicKey).toBe(identity.publicKeyHex);
+    const sig = hexToBytes(env.signature)!;
+    const pub = hexToBytes(env.publicKey)!;
+    const msg = new TextEncoder().encode(env.payload);
+    expect(verify(pub, sig, msg)).toBe(true);
+  });
+
+  it('returns empty array when server has no patches', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ patches: [] }));
+
+    expect(await listPatchesForMachines(identity, ['10.0.0.1'], fetchMock)).toEqual([]);
+  });
+
+  it('returns multi-author patches in the order received from the server', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      ok({
+        patches: [
+          {
+            machine_id: '10.0.0.1',
+            path: '/etc/hosts',
+            content: 'older write from A',
+            owner: 'root',
+            permissions: null,
+            is_new: false,
+            node_type: 'file',
+          },
+          {
+            machine_id: '10.0.0.1',
+            path: '/etc/hosts',
+            content: 'newer write from B',
+            owner: 'root',
+            permissions: null,
+            is_new: false,
+            node_type: 'file',
+          },
+        ],
+      }),
+    );
+
+    const patches = await listPatchesForMachines(identity, ['10.0.0.1'], fetchMock);
+
+    expect(patches).toEqual([
+      { machineId: '10.0.0.1', path: '/etc/hosts', content: 'older write from A', owner: 'root' },
+      { machineId: '10.0.0.1', path: '/etc/hosts', content: 'newer write from B', owner: 'root' },
+    ]);
+  });
+
+  it('applies wire→client conversion (machine_id → machineId, omits permissions=null)', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      ok({
+        patches: [
+          {
+            machine_id: '10.0.0.1',
+            path: '/tmp/foo',
+            content: 'hello',
+            owner: 'user',
+            permissions: null,
+            is_new: false,
+            node_type: 'file',
+          },
+        ],
+      }),
+    );
+
+    const patches = await listPatchesForMachines(identity, ['10.0.0.1'], fetchMock);
+
+    expect(patches).toEqual([
+      { machineId: '10.0.0.1', path: '/tmp/foo', content: 'hello', owner: 'user' },
+    ]);
+    expect(patches[0]).not.toHaveProperty('permissions');
+  });
+
+  describe('malformed responses', () => {
+    it('throws when response is missing patches field', async () => {
+      const identity = generateIdentity();
+      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({}));
+
+      await expect(listPatchesForMachines(identity, ['10.0.0.1'], fetchMock)).rejects.toThrow();
+    });
+
+    it('throws when patches is not an array', async () => {
+      const identity = generateIdentity();
+      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ patches: 'oops' }));
+
+      await expect(listPatchesForMachines(identity, ['10.0.0.1'], fetchMock)).rejects.toThrow();
+    });
+  });
+
+  it('throws on non-2xx with status code in message', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(errResponse(500));
+
+    await expect(listPatchesForMachines(identity, ['10.0.0.1'], fetchMock)).rejects.toThrow(/500/);
+  });
+
+  it('propagates fetch errors', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockRejectedValue(new TypeError('network failure'));
+
+    await expect(listPatchesForMachines(identity, ['10.0.0.1'], fetchMock)).rejects.toThrow(
+      'network failure',
+    );
   });
 });
 

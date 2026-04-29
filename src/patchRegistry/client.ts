@@ -141,6 +141,39 @@ export const listPatches = async (
   return (patches as ReadonlyArray<WirePatch>).map(toFileSystemPatch);
 };
 
+// ---- listPatchesForMachines -----------------------------------------------
+
+// Cross-player read: returns all patches for the supplied machines from
+// any author. The single-player listPatches above filters server-side
+// to player_key=me; this one trusts machine_id as the filter so the
+// shared world surfaces. Server orders by updated_at ASC so the array
+// order is the application order — `applyPatches` reduce-order yields
+// last-write-wins per (machine_id, path).
+//
+// See memory: project_multiplayer_cross_player_visibility.md.
+export const listPatchesForMachines = async (
+  identity: Identity,
+  machine_ids: ReadonlyArray<string>,
+  fetchImpl: typeof fetch = fetch,
+): Promise<ReadonlyArray<FileSystemPatch>> => {
+  const envelope = signRequest(identity, 'listPatchesForMachines', {
+    machine_ids: [...machine_ids],
+  });
+  const response = await postEnvelope(envelope, fetchImpl);
+  if (!response.ok) {
+    throw new Error(`listPatchesForMachines failed with status ${response.status}`);
+  }
+  const data: unknown = await response.json();
+  if (typeof data !== 'object' || data === null || !('patches' in data)) {
+    throw new Error('listPatchesForMachines returned malformed response (missing patches)');
+  }
+  const patches = (data as { readonly patches: unknown }).patches;
+  if (!Array.isArray(patches)) {
+    throw new Error('listPatchesForMachines returned malformed response (patches is not an array)');
+  }
+  return (patches as ReadonlyArray<WirePatch>).map(toFileSystemPatch);
+};
+
 // ---- clearTransientPatches ------------------------------------------------
 
 export const clearTransientPatches = async (
