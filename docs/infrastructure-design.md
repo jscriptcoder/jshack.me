@@ -91,6 +91,8 @@ When players connect to machines via SSH, FTP, or SCP, authentication events are
 
 Log files are created dynamically on first event (not pre-populated). They persist via IndexedDB patches and are world-readable. See `src/logging/README.md` for implementation details and `architecture.md` for integration.
 
+**Multiplayer note (Phase 5):** writes to any path under `/var/log/...` bypass the server-side L1 patch-validation gate. Recon actions (nmap, curl, hydra, ssh-fail) leave logs on machines the actor doesn't have a session on — that's the gameplay (the network records probes as a side effect). L1 was designed for "I logged in, I'm mutating this machine" writes; ambient log appends are a different write class. The bypass is path-prefix based and server-controlled — clients can't smuggle non-log writes through it. See `src/patchRegistry/README.md` for the gate flow.
+
 ## Network Topology
 
 There is no static LAN. All network machines come from procedurally generated home networks (per WiFi connection) and mission networks. Localhost starts disconnected (wlan0 DOWN) until the player cracks a WiFi network.
