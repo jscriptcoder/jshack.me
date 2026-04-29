@@ -76,6 +76,26 @@ export const listPatchesSignedPayloadSchema = z
 
 export type ListPatchesPayload = z.infer<typeof listPatchesSignedPayloadSchema>;
 
+// listPatchesForMachines — return all patches for the supplied machines
+// from any author. Cross-player read path: the world is one shared
+// persistent state, so rehydration on a shared machine should surface
+// every player's mutations, not just my own. Capped at 100 machine_ids
+// per request — the player's current view (localhost + home + mission
+// machines) is well under that today.
+//
+// See memory: project_multiplayer_cross_player_visibility.md.
+export const listPatchesForMachinesSignedPayloadSchema = z
+  .object({
+    action: z.literal('listPatchesForMachines'),
+    ...baseEnvelopeFields,
+    machine_ids: z.array(z.string().min(1).max(256)).min(1).max(100),
+  })
+  .strict();
+
+export type ListPatchesForMachinesPayload = z.infer<
+  typeof listPatchesForMachinesSignedPayloadSchema
+>;
+
 // clearTransientPatches — DELETE WHERE machine_id <> 'localhost'. Fired
 // on mission/home scene transitions; mirrors the existing PERSISTENT_-
 // MACHINE_KEYS filter in FileSystemContext.tsx.
@@ -113,6 +133,7 @@ export const patchesSignedPayloadSchema = z.discriminatedUnion('action', [
   upsertPatchSignedPayloadSchema,
   removePatchSignedPayloadSchema,
   listPatchesSignedPayloadSchema,
+  listPatchesForMachinesSignedPayloadSchema,
   clearTransientPatchesSignedPayloadSchema,
   clearOwnedPatchesSignedPayloadSchema,
 ]);
@@ -172,6 +193,22 @@ export type PatchSummary = {
 };
 
 export type ListPatchesResult =
+  | { readonly ok: true; readonly patches: ReadonlyArray<PatchSummary> }
+  | { readonly ok: false };
+
+// Cross-player read params: caller supplies the set of machines they
+// want patches for. Server returns rows from any author for those
+// machines (no player_key filter). Visibility rule enforcement is a
+// future PR — for now, knowing the machine_id is the gate.
+export type ListPatchesForMachinesParams = {
+  readonly machine_ids: ReadonlyArray<string>;
+};
+
+// Result mirrors ListPatchesResult — same PatchSummary shape, but the
+// returned rows can come from multiple players. Server orders by
+// updated_at ASC so client `applyPatches` reduce-order yields
+// last-write-wins per (machine_id, path).
+export type ListPatchesForMachinesResult =
   | { readonly ok: true; readonly patches: ReadonlyArray<PatchSummary> }
   | { readonly ok: false };
 

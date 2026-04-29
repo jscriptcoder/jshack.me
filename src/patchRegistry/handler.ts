@@ -111,6 +111,11 @@ const dispatchAction = async (
       return handleRemovePatch(publicKey, payload, deps);
     case 'listPatches':
       return handleListPatches(publicKey, deps);
+    case 'listPatchesForMachines':
+      // Stub: schema arm exists so the discriminated union compiles, but
+      // the cross-player adapter + dispatch land in a follow-up step.
+      // Returns 501 until then; no client wires this action yet.
+      return { status: 501, body: { error: 'not_implemented' } };
     case 'clearTransientPatches':
       return handleClearTransientPatches(publicKey, deps);
     case 'clearOwnedPatches':
