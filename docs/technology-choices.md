@@ -370,17 +370,22 @@ The cosmetic loss is acceptable for Phase 1+3. A later migration could add `star
 
 ### Choice
 
-A `patches` table on Supabase records each player's filesystem mutations — every file write, create, deletion, and permission change. Composite PK `(player_key, machine_id, path)` doubles as the natural-key for UPSERT. Clients call `/api/patches` (single endpoint, action-dispatched: `upsertPatch` / `removePatch` / `listPatches` / `clearTransientPatches` / `clearOwnedPatches`) via signed envelopes. Server is the single source of truth for "what's the player's view of the filesystem on machine X?".
+A `patches` table on Supabase records every player's filesystem mutations — every file write, create, deletion, and permission change. Composite PK `(player_key, machine_id, path)` doubles as the natural-key for UPSERT and lets multiple authors keep their own row per file. Clients call `/api/patches` (single endpoint, action-dispatched: `upsertPatch` / `removePatch` / `listPatchesForMachines` / `clearTransientPatches` / `clearOwnedPatches`) via signed envelopes. Server is the single source of truth for "what's everyone's view of the filesystem on machine X?".
 
-`FileSystemContext.broadcastAndRecordPatch` fires-and-forgets the right server call alongside its existing local-state update + IndexedDB cache write. On `FileSystemProvider` mount, `listPatches` rehydrates from server (skipped if local writes happened during the mount window — those upserts are already in flight, the next mount reconciles). IndexedDB stays as a sync-readable cache for fast initial paint.
+`FileSystemContext.broadcastAndRecordPatch` fires-and-forgets the right server call alongside its existing local-state update + IndexedDB cache write. On `FileSystemProvider` mount, `listPatchesForMachines(machine_ids)` rehydrates the cross-player view for the machines in scope (localhost + home + mission keysets), skipped if local writes happened during the mount window — those upserts are already in flight, the next mount reconciles. The server orders by `updated_at ASC` so the client-side `applyPatches` reduce-order yields last-write-wins per `(machine_id, path)` automatically.
+
+`localhost` is a special case: every player's workstation uses the same literal `machine_id`, so the read filters localhost rows to the calling player only (`WHERE machine_id <> 'localhost' OR player_key = $me`). Other machines use unique IDs per player (allocated by the IP registry for missions, future home-network slots) so the cross-player read needs no special handling there.
+
+IndexedDB stays as a sync-readable cache for fast initial paint.
 
 ### Why
 
 Patches are the second multiplayer-load-bearing piece (after sessions): cross-device sync depends on them, future shared-network gameplay (mission instances, persistent darknet hubs) reads them, and patch validation against the `sessions` table is the actual security boundary protecting other players' filesystems.
 
-- **Cross-device sync** out of the box — write a file on device A, see it on device B after `listPatches` rehydration.
-- **Foundation for patch validation** (next PR) — once the Vercel function consults `sessions` to authorize each upsert, an attacker can't tamper with files on machines they don't have a session on.
-- **Foundation for Realtime fanout** (later PR) — the same row mutations stream as `postgres_changes` events to other clients on shared machines.
+- **Cross-device sync** out of the box — write a file on device A, see it on device B after `listPatchesForMachines` rehydration.
+- **Cross-player visibility** on shared persistent networks — Player A's writes on machine X are visible to Player B via the same rehydration. The world is one shared persistent state, not per-player overlays.
+- **Patch validation (L1)** shipped in PR #78 — the Vercel function consults `sessions` to authorize each upsert, so an attacker can't tamper with files on machines they don't have a session on. `/var/log/*` writes bypass the gate (ambient log appends from recon don't require a session).
+- **Foundation for Realtime fanout** (later PR) — the same row mutations stream as `postgres_changes` events to other clients on shared machines, eliminating the next-page-reload wait.
 
 ### Two-call deletion strategy
 
@@ -412,7 +417,7 @@ The reload waits for `clearOwnedPatches` to settle via `Promise.all` before trig
 
 ### Mount-window race mitigation
 
-`listPatches` resolves ~hundreds of ms after mount. If the user types into a file before that resolves, the rehydration would clobber the local write. `FileSystemContext` tracks a `localWritesSinceMount` flag — if true when listPatches resolves, server-truth replacement is skipped. The local upsert is already on its way to the server fire-and-forget; the next mount sees the merged truth.
+`listPatchesForMachines` resolves ~hundreds of ms after mount. If the user types into a file before that resolves, the rehydration would clobber the local write. `FileSystemContext` tracks a `localWritesSinceMount` flag — if true when the response lands, server-truth replacement is skipped. The local upsert is already on its way to the server fire-and-forget; the next mount sees the merged truth.
 
 Tradeoff: cross-device sync is slightly delayed in this case (one extra round-trip on the next mount). Strictly worse than blocking the user's first write on a server response, but acceptable.
 

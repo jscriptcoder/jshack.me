@@ -8,14 +8,15 @@ import {
   createSupabaseRemovePatch,
   createSupabaseClearTransientPatches,
   createSupabaseClearOwnedPatches,
+  PERSISTENT_MACHINE_ID,
 } from '../src/patchRegistry/supabaseDelete.js';
-import { createSupabaseListPatches } from '../src/patchRegistry/supabaseSelect.js';
+import { createSupabaseListPatchesForMachines } from '../src/patchRegistry/supabaseSelectByMachine.js';
 import type {
   ClearOwnedArg,
   ClearTransientArg,
   DeletePatchesArg,
 } from '../src/patchRegistry/supabaseDelete.js';
-import type { PatchRow, ListPatchesParams } from '../src/patchRegistry/types.js';
+import type { PatchRow, ListPatchesForMachinesParams } from '../src/patchRegistry/types.js';
 import { createSupabaseFindActiveSession } from '../src/sessionRegistry/supabaseFindActive.js';
 import type { FindActiveSessionParams } from '../src/sessionRegistry/supabaseFindActive.js';
 import {
@@ -32,8 +33,8 @@ import {
 // Vercel adapter for POST /api/patches.
 //
 // Single endpoint, action-dispatched by the signed payload's `action`
-// field — upsertPatch / removePatch / listPatches /
-// clearTransientPatches / clearAllPatches. Same Supabase + Upstash
+// field — upsertPatch / removePatch / listPatchesForMachines /
+// clearTransientPatches / clearOwnedPatches. Same Supabase + Upstash
 // wiring pattern as /api/sessions and /api/allocate-ip.
 
 // Per-pubkey rate limit. Filesystem patches fire once per nano save,
@@ -131,17 +132,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return { data: [...(exact.data ?? []), ...(desc.data ?? [])], error: null };
   });
 
-  const listPatches = createSupabaseListPatches(async (params: ListPatchesParams) => {
-    // Omit player_key from the projection — the caller already knows
-    // their own key. created_at / updated_at not surfaced; replay only
-    // needs content + permissions.
-    const { data, error } = await supabase
-      .from('patches')
-      .select('machine_id, path, content, owner, permissions, is_new, node_type')
-      .eq('player_key', params.player_key);
-    if (error) console.error('[patches] supabase select error:', error);
-    return { data, error };
-  });
+  const listPatchesForMachines = createSupabaseListPatchesForMachines(
+    async (params: ListPatchesForMachinesParams) => {
+      // Cross-player read for the requested machines, EXCEPT localhost.
+      // localhost is shared as a literal machine_id across all players
+      // but is conceptually each player's own workstation, so its rows
+      // get a player_key filter. Other machines (mission instances,
+      // future home-network slots) use unique IDs per player so the
+      // cross-player read is safe there.
+      //
+      //   WHERE machine_id IN (...)
+      //     AND (machine_id <> 'localhost' OR player_key = $me)
+      //
+      // ORDER BY updated_at ASC is load-bearing: client-side
+      // `applyPatches` reduces in array order, so the latest write per
+      // (machine_id, path) wins automatically.
+      //
+      // params.player_key is hex-only (Ed25519 pubkey, 64 chars), safe
+      // to inline into the .or() string without escaping.
+      const { data, error } = await supabase
+        .from('patches')
+        .select('machine_id, path, content, owner, permissions, is_new, node_type')
+        .in('machine_id', [...params.machine_ids])
+        .or(`machine_id.neq.${PERSISTENT_MACHINE_ID},player_key.eq.${params.player_key}`)
+        .order('updated_at', { ascending: true });
+      if (error) console.error('[patches] supabase selectByMachine error:', error);
+      return { data, error };
+    },
+  );
 
   const clearTransientPatches = createSupabaseClearTransientPatches(
     async (arg: ClearTransientArg) => {
@@ -196,7 +214,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { status, body, headers } = await handlePatchesRequest(req.body, {
     upsertPatch,
     removePatch,
-    listPatches,
+    listPatchesForMachines,
     clearTransientPatches,
     clearOwnedPatches,
     findActiveSession,

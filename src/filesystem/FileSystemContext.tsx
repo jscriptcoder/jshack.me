@@ -28,7 +28,7 @@ import { getIdentity } from '../identity';
 import {
   upsertPatch as upsertPatchOnServer,
   removePatch as removePatchOnServer,
-  listPatches as listPatchesFromServer,
+  listPatchesForMachines as listPatchesForMachinesFromServer,
   clearTransientPatches as clearTransientPatchesOnServer,
 } from '../patchRegistry/client';
 import {
@@ -97,7 +97,7 @@ type FileSystemContextValue = {
     path: string,
     userType: UserType,
   ) => PermissionResult;
-  // True between mount and the first listPatches resolve (success OR failure).
+  // True between mount and the first listPatchesForMachines resolve (success OR failure).
   // No UI gates on this today (the IndexedDB cache covers initial paint), but
   // exposed for future loading-indicator wiring.
   readonly isRehydrating: boolean;
@@ -133,7 +133,7 @@ export const FileSystemProvider = ({
     applyPatches({ localhost: localhostFileSystem }, getCachedFilesystemPatches()),
   );
   const [patches, setPatches] = useState<readonly FileSystemPatch[]>(getCachedFilesystemPatches);
-  // True between mount and the first listPatches resolve (success or failure).
+  // True between mount and the first listPatchesForMachines resolve (success or failure).
   const [isRehydrating, setIsRehydrating] = useState(true);
   // Create channel inside effect so StrictMode's cleanup + re-run cycle gets
   // a fresh (open) channel. The ref is updated so broadcastAndRecordPatch always
@@ -145,13 +145,13 @@ export const FileSystemProvider = ({
   const patchesRef = useRef<readonly FileSystemPatch[]>(patches);
   // propsRef captures the latest base/home/mission filesystems so the
   // rehydration .then() can rebuild fileSystems from the freshest layered
-  // base, even if props changed during the in-flight listPatches.
+  // base, even if props changed during the in-flight listPatchesForMachines.
   const propsRef = useRef({ localhostFileSystem, homeFileSystems, missionFileSystems });
   // Set to true the first time the user does any local write/delete after
   // mount. The rehydration .then() reads this and SKIPS server-truth
   // replacement when local writes are in flight — those upserts are already
   // heading to the server fire-and-forget, the next mount will see the merged
-  // truth. Avoids clobbering a user's just-typed change if listPatches lands
+  // truth. Avoids clobbering a user's just-typed change if listPatchesForMachines lands
   // a few hundred ms after mount.
   const localWritesSinceMount = useRef(false);
   // In-flight patch network calls. Each upsertPatch/removePatch promise
@@ -210,16 +210,39 @@ export const FileSystemProvider = ({
     propsRef.current = { localhostFileSystem, homeFileSystems, missionFileSystems };
   }, [localhostFileSystem, homeFileSystems, missionFileSystems]);
 
-  // Mount rehydration — fetch the player's full patch set from the server
-  // and replace local state if no local writes have happened yet. The
-  // IndexedDB cache covers fast initial paint; this useEffect performs the
-  // cross-device sync once the network responds. Race window: a local
-  // write before listPatches resolves sets localWritesSinceMount and we
-  // skip replacement (the local upsert is already on its way to the
-  // server fire-and-forget, the next mount will reconcile).
+  // Mount rehydration — fetch the cross-player patch set for the
+  // machines in our current view and replace local state if no local
+  // writes have happened yet. The IndexedDB cache covers fast initial
+  // paint; this useEffect performs the cross-device + cross-player sync
+  // once the network responds.
+  //
+  // machine_ids is computed from the props at mount time: localhost is
+  // always present; home and mission keysets are added when supplied.
+  // De-duplicated via Set in case home and mission overlap (e.g. shared
+  // public IP).
+  //
+  // Race window: a local write before listPatchesForMachines resolves
+  // sets localWritesSinceMount and we skip replacement (the local upsert
+  // is already on its way to the server fire-and-forget, the next mount
+  // will reconcile).
+  //
+  // Mid-session limitation: when home or mission filesystems mount
+  // AFTER initial rehydration (e.g. player cracks a new WiFi mid-session),
+  // those machines aren't fetched here. Cross-player patches for them
+  // surface on next page reload. Live-fetch on transition is a tracked
+  // follow-up.
   useEffect(() => {
+    const props = propsRef.current;
+    const machineIds = Array.from(
+      new Set([
+        'localhost',
+        ...Object.keys(props.homeFileSystems ?? {}),
+        ...Object.keys(props.missionFileSystems ?? {}),
+      ]),
+    );
+
     let cancelled = false;
-    void listPatchesFromServer(getIdentity())
+    void listPatchesForMachinesFromServer(getIdentity(), machineIds)
       .then((serverPatches) => {
         if (cancelled) return;
         if (localWritesSinceMount.current) return;

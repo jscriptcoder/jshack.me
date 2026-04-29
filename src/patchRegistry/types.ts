@@ -66,15 +66,25 @@ export const removePatchSignedPayloadSchema = z
 
 export type RemovePatchPayload = z.infer<typeof removePatchSignedPayloadSchema>;
 
-// listPatches — return all patches for this player on rehydration.
-export const listPatchesSignedPayloadSchema = z
+// listPatchesForMachines — return all patches for the supplied machines
+// from any author. Cross-player read path: the world is one shared
+// persistent state, so rehydration on a shared machine should surface
+// every player's mutations, not just my own. Capped at 100 machine_ids
+// per request — the player's current view (localhost + home + mission
+// machines) is well under that today.
+//
+// See memory: project_multiplayer_cross_player_visibility.md.
+export const listPatchesForMachinesSignedPayloadSchema = z
   .object({
-    action: z.literal('listPatches'),
+    action: z.literal('listPatchesForMachines'),
     ...baseEnvelopeFields,
+    machine_ids: z.array(z.string().min(1).max(256)).min(1).max(100),
   })
   .strict();
 
-export type ListPatchesPayload = z.infer<typeof listPatchesSignedPayloadSchema>;
+export type ListPatchesForMachinesPayload = z.infer<
+  typeof listPatchesForMachinesSignedPayloadSchema
+>;
 
 // clearTransientPatches — DELETE WHERE machine_id <> 'localhost'. Fired
 // on mission/home scene transitions; mirrors the existing PERSISTENT_-
@@ -112,7 +122,7 @@ export type ClearOwnedPatchesPayload = z.infer<typeof clearOwnedPatchesSignedPay
 export const patchesSignedPayloadSchema = z.discriminatedUnion('action', [
   upsertPatchSignedPayloadSchema,
   removePatchSignedPayloadSchema,
-  listPatchesSignedPayloadSchema,
+  listPatchesForMachinesSignedPayloadSchema,
   clearTransientPatchesSignedPayloadSchema,
   clearOwnedPatchesSignedPayloadSchema,
 ]);
@@ -152,15 +162,11 @@ export type RemovePatchResult =
   | { readonly ok: true; readonly affected: number }
   | { readonly ok: false };
 
-export type ListPatchesParams = {
-  readonly player_key: string;
-};
-
-// Public shape returned from listPatches. Omits player_key (caller
-// already knows their own key) and timestamps. Permissions and is_new /
-// node_type are returned in their DB-default-applied shape so the
-// client wrapper has fewer special cases when converting back to the
-// FileSystemPatch type.
+// Public shape returned from listPatchesForMachines. Omits player_key
+// (caller doesn't need to know who wrote each row at this layer) and
+// timestamps. Permissions and is_new / node_type are returned in their
+// DB-default-applied shape so the client wrapper has fewer special
+// cases when converting back to the FileSystemPatch type.
 export type PatchSummary = {
   readonly machine_id: string;
   readonly path: string;
@@ -171,7 +177,32 @@ export type PatchSummary = {
   readonly node_type: NodeType;
 };
 
-export type ListPatchesResult =
+// Cross-player read params. Caller (handler) supplies:
+//   - machine_ids: the set of machines whose patches the player wants.
+//   - player_key:  the verified caller pubkey, server-stamped (NOT
+//                  present on the wire envelope). Used to filter
+//                  "owned" machines whose machine_id is shared as a
+//                  literal across players — currently localhost only.
+//                  The wiring SQL applies:
+//                    WHERE machine_id IN (...)
+//                      AND (machine_id <> 'localhost' OR player_key = $me)
+//                  so the cross-player read on shared machines stays
+//                  multi-author, while localhost rows from other players
+//                  don't leak into this player's view.
+//
+// Future shared surfaces (home networks, mission instances) use unique
+// machine_ids per player allocated by the IP registry, so the
+// localhost special case won't generalize — knowing the machine_id IS
+// the gate everywhere else.
+export type ListPatchesForMachinesParams = {
+  readonly machine_ids: ReadonlyArray<string>;
+  readonly player_key: string;
+};
+
+// Result: rows can come from multiple players for the requested
+// machines. Server orders by updated_at ASC so client `applyPatches`
+// reduce-order yields last-write-wins per (machine_id, path).
+export type ListPatchesForMachinesResult =
   | { readonly ok: true; readonly patches: ReadonlyArray<PatchSummary> }
   | { readonly ok: false };
 

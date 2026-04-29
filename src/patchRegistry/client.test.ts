@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   upsertPatch,
   removePatch,
-  listPatches,
+  listPatchesForMachines,
   clearTransientPatches,
   clearOwnedPatches,
 } from './client';
@@ -249,26 +249,26 @@ describe('removePatch', () => {
 });
 
 // -----------------------------------------------------------------------
-// listPatches — includes wire→client conversion
+// listPatchesForMachines (cross-player read) — includes wire→client conversion
 // -----------------------------------------------------------------------
 
-describe('listPatches', () => {
-  it('POSTs action="listPatches" with a valid envelope', async () => {
+describe('listPatchesForMachines', () => {
+  it('POSTs action="listPatchesForMachines" with the supplied machine_ids', async () => {
     const identity = generateIdentity();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ patches: [] }));
 
-    await listPatches(identity, fetchMock);
+    await listPatchesForMachines(identity, ['10.0.0.1', 'localhost'], fetchMock);
 
     const payload = getPayload(fetchMock);
-    expect(payload.action).toBe('listPatches');
-    expect(payload).not.toHaveProperty('machine_id');
+    expect(payload.action).toBe('listPatchesForMachines');
+    expect(payload.machine_ids).toEqual(['10.0.0.1', 'localhost']);
   });
 
   it('signs with the provided identity', async () => {
     const identity = generateIdentity();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ patches: [] }));
 
-    await listPatches(identity, fetchMock);
+    await listPatchesForMachines(identity, ['10.0.0.1'], fetchMock);
 
     const env = getEnvelope(fetchMock);
     expect(env.publicKey).toBe(identity.publicKeyHex);
@@ -282,7 +282,42 @@ describe('listPatches', () => {
     const identity = generateIdentity();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ patches: [] }));
 
-    expect(await listPatches(identity, fetchMock)).toEqual([]);
+    expect(await listPatchesForMachines(identity, ['10.0.0.1'], fetchMock)).toEqual([]);
+  });
+
+  it('returns multi-author patches in the order received from the server', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      ok({
+        patches: [
+          {
+            machine_id: '10.0.0.1',
+            path: '/etc/hosts',
+            content: 'older write from A',
+            owner: 'root',
+            permissions: null,
+            is_new: false,
+            node_type: 'file',
+          },
+          {
+            machine_id: '10.0.0.1',
+            path: '/etc/hosts',
+            content: 'newer write from B',
+            owner: 'root',
+            permissions: null,
+            is_new: false,
+            node_type: 'file',
+          },
+        ],
+      }),
+    );
+
+    const patches = await listPatchesForMachines(identity, ['10.0.0.1'], fetchMock);
+
+    expect(patches).toEqual([
+      { machineId: '10.0.0.1', path: '/etc/hosts', content: 'older write from A', owner: 'root' },
+      { machineId: '10.0.0.1', path: '/etc/hosts', content: 'newer write from B', owner: 'root' },
+    ]);
   });
 
   describe('wire→client conversion', () => {
@@ -304,7 +339,7 @@ describe('listPatches', () => {
         }),
       );
 
-      const patches = await listPatches(identity, fetchMock);
+      const patches = await listPatchesForMachines(identity, ['10.0.0.1'], fetchMock);
 
       expect(patches).toEqual([
         {
@@ -334,7 +369,7 @@ describe('listPatches', () => {
         }),
       );
 
-      const patches = await listPatches(identity, fetchMock);
+      const patches = await listPatchesForMachines(identity, ['10.0.0.1'], fetchMock);
 
       expect(patches[0]).not.toHaveProperty('permissions');
     });
@@ -357,7 +392,7 @@ describe('listPatches', () => {
         }),
       );
 
-      const patches = await listPatches(identity, fetchMock);
+      const patches = await listPatchesForMachines(identity, ['10.0.0.1'], fetchMock);
 
       expect(patches[0].permissions).toEqual(samplePermissions);
     });
@@ -380,7 +415,7 @@ describe('listPatches', () => {
         }),
       );
 
-      const patches = await listPatches(identity, fetchMock);
+      const patches = await listPatchesForMachines(identity, ['10.0.0.1'], fetchMock);
 
       expect(patches[0]).not.toHaveProperty('isNew');
     });
@@ -403,7 +438,7 @@ describe('listPatches', () => {
         }),
       );
 
-      const patches = await listPatches(identity, fetchMock);
+      const patches = await listPatchesForMachines(identity, ['10.0.0.1'], fetchMock);
 
       expect(patches[0].isNew).toBe(true);
     });
@@ -426,7 +461,7 @@ describe('listPatches', () => {
         }),
       );
 
-      const patches = await listPatches(identity, fetchMock);
+      const patches = await listPatchesForMachines(identity, ['10.0.0.1'], fetchMock);
 
       expect(patches[0]).not.toHaveProperty('nodeType');
     });
@@ -449,7 +484,7 @@ describe('listPatches', () => {
         }),
       );
 
-      const patches = await listPatches(identity, fetchMock);
+      const patches = await listPatchesForMachines(identity, ['10.0.0.1'], fetchMock);
 
       expect(patches[0].nodeType).toBe('directory');
     });
@@ -472,7 +507,7 @@ describe('listPatches', () => {
         }),
       );
 
-      const patches = await listPatches(identity, fetchMock);
+      const patches = await listPatchesForMachines(identity, ['10.0.0.1'], fetchMock);
 
       expect(patches[0].content).toBeNull();
     });
@@ -483,14 +518,14 @@ describe('listPatches', () => {
       const identity = generateIdentity();
       const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({}));
 
-      await expect(listPatches(identity, fetchMock)).rejects.toThrow();
+      await expect(listPatchesForMachines(identity, ['10.0.0.1'], fetchMock)).rejects.toThrow();
     });
 
     it('throws when patches is not an array', async () => {
       const identity = generateIdentity();
       const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ patches: 'oops' }));
 
-      await expect(listPatches(identity, fetchMock)).rejects.toThrow();
+      await expect(listPatchesForMachines(identity, ['10.0.0.1'], fetchMock)).rejects.toThrow();
     });
   });
 
@@ -498,14 +533,16 @@ describe('listPatches', () => {
     const identity = generateIdentity();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(errResponse(500));
 
-    await expect(listPatches(identity, fetchMock)).rejects.toThrow(/500/);
+    await expect(listPatchesForMachines(identity, ['10.0.0.1'], fetchMock)).rejects.toThrow(/500/);
   });
 
   it('propagates fetch errors', async () => {
     const identity = generateIdentity();
     const fetchMock = vi.fn<typeof fetch>().mockRejectedValue(new TypeError('network failure'));
 
-    await expect(listPatches(identity, fetchMock)).rejects.toThrow('network failure');
+    await expect(listPatchesForMachines(identity, ['10.0.0.1'], fetchMock)).rejects.toThrow(
+      'network failure',
+    );
   });
 });
 

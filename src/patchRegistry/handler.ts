@@ -2,8 +2,8 @@ import {
   patchesSignedPayloadSchema,
   type ClearPatchesParams,
   type ClearPatchesResult,
-  type ListPatchesParams,
-  type ListPatchesResult,
+  type ListPatchesForMachinesParams,
+  type ListPatchesForMachinesResult,
   type PatchRow,
   type PatchesPayload,
   type RemovePatchParams,
@@ -32,7 +32,9 @@ export type HandlerResponse = {
 export type HandlerDeps = {
   readonly upsertPatch: (row: PatchRow) => Promise<UpsertPatchResult>;
   readonly removePatch: (params: RemovePatchParams) => Promise<RemovePatchResult>;
-  readonly listPatches: (params: ListPatchesParams) => Promise<ListPatchesResult>;
+  readonly listPatchesForMachines: (
+    params: ListPatchesForMachinesParams,
+  ) => Promise<ListPatchesForMachinesResult>;
   readonly clearTransientPatches: (params: ClearPatchesParams) => Promise<ClearPatchesResult>;
   readonly clearOwnedPatches: (params: ClearPatchesParams) => Promise<ClearPatchesResult>;
   // L1 of the patch-validation layer cake: confirms the verified player
@@ -63,8 +65,8 @@ const STATUS_BY_VERIFY_REASON: Record<VerifyFailureReason, number> = {
 // action-dispatch:
 //
 //   1. Verify the signed envelope against the discriminated-union
-//      schema (upsertPatch / removePatch / listPatches /
-//      clearTransientPatches / clearAllPatches). The verify path is
+//      schema (upsertPatch / removePatch / listPatchesForMachines /
+//      clearTransientPatches / clearOwnedPatches). The verify path is
 //      shared — every action gets identical signature + replay + ts
 //      checks.
 //   2. Rate-limit on the verified pubkey (per-pubkey, like sessions).
@@ -109,8 +111,8 @@ const dispatchAction = async (
       return handleUpsertPatch(publicKey, payload, deps);
     case 'removePatch':
       return handleRemovePatch(publicKey, payload, deps);
-    case 'listPatches':
-      return handleListPatches(publicKey, deps);
+    case 'listPatchesForMachines':
+      return handleListPatchesForMachines(publicKey, payload, deps);
     case 'clearTransientPatches':
       return handleClearTransientPatches(publicKey, deps);
     case 'clearOwnedPatches':
@@ -232,11 +234,27 @@ const handleRemovePatch = async (
   return { status: 200, body: { affected: result.affected } };
 };
 
-const handleListPatches = async (
+// Cross-player read path: returns all patches written to the supplied
+// machines from any author. No L1 session gate — the world's
+// persistent state on a shared machine is visible to everyone who can
+// route to it. Knowing the machine_id is the gate; visibility-rule
+// enforcement lands in a future PR (blocked on the home-network
+// occupants table).
+//
+// publicKey is forwarded to the adapter so the wiring SQL can filter
+// "owned" machines whose machine_id is shared as a literal across
+// players (currently just `localhost`). For those rows, only the
+// caller's own writes are returned. See ListPatchesForMachinesParams
+// for the SQL shape.
+const handleListPatchesForMachines = async (
   publicKey: string,
+  payload: Extract<PatchesPayload, { action: 'listPatchesForMachines' }>,
   deps: HandlerDeps,
 ): Promise<HandlerResponse> => {
-  const result = await deps.listPatches({ player_key: publicKey });
+  const result = await deps.listPatchesForMachines({
+    machine_ids: payload.machine_ids,
+    player_key: publicKey,
+  });
   if (!result.ok) {
     return { status: 500, body: { error: 'query_failed' } };
   }

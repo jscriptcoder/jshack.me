@@ -2,21 +2,21 @@
 
 Server-authoritative filesystem patch registry. Backs `/api/patches` — the Vercel function that records each player's filesystem mutations (file writes, creates, deletions, permission changes) on every machine they've touched.
 
-The DB row is keyed on `(player_key, machine_id, path)`. The server is the source of truth for "what patches has player X applied to machine Y at path Z?" — cross-device sync, eventual cross-player visibility on shared networks (mission instances, persistent darknet hubs), and pre-reload ghost-rehydration defense all flow from this table.
+The DB row is keyed on `(player_key, machine_id, path)`. The server is the source of truth for "what patches has player X applied to machine Y at path Z?" — cross-device sync, cross-player visibility on shared networks (mission instances, home networks, persistent darknet hubs), and pre-reload ghost-rehydration defense all flow from this table. Reads at the rehydration boundary go through `listPatchesForMachines(machine_ids[])`, which returns rows from any author for the supplied machines (ordered `updated_at ASC` so client-side `applyPatches` reduce-order yields last-write-wins per `(machine_id, path)`).
 
 See `docs/technology-choices.md` (Patches: server-authoritative with two-call deletion) and the `project_multiplayer_security_model` memory for the broader design.
 
 ## Files
 
-| File                | Description                                                                                                                                                           |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `types.ts`          | zod schemas (5-action discriminated union: upsertPatch / removePatch / listPatches / clearTransientPatches / clearOwnedPatches), `PatchRow`, `PatchSummary`.          |
-| `handler.ts`        | Single endpoint with action-dispatch: verify → rate-limit → branch into one of five action handlers. Server-stamps `player_key` on every write.                       |
-| `supabaseUpsert.ts` | `INSERT ... ON CONFLICT (player_key, machine_id, path) DO UPDATE` adapter for upsertPatch.                                                                            |
-| `supabaseDelete.ts` | DELETE adapters for removePatch (exact + descendant prefix), clearTransientPatches (`machine_id <> 'localhost'`), and clearOwnedPatches (`machine_id = 'localhost'`). |
-| `supabaseSelect.ts` | `SELECT ... WHERE player_key = ...` adapter for listPatches; returns the per-row `PatchSummary` shape.                                                                |
-| `client.ts`         | Browser-side wrappers — sign envelope, POST, parse response. Handle camelCase ↔ snake_case translation so callers see `FileSystemPatch`.                              |
-| `*.test.ts`         | Unit tests for each module.                                                                                                                                           |
+| File                         | Description                                                                                                                                                             |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `types.ts`                   | zod schemas (5-action discriminated union: upsertPatch / removePatch / listPatchesForMachines / clearTransientPatches / clearOwnedPatches), `PatchRow`, `PatchSummary`. |
+| `handler.ts`                 | Single endpoint with action-dispatch: verify → rate-limit → branch into one of five action handlers. Server-stamps `player_key` on every write.                         |
+| `supabaseUpsert.ts`          | `INSERT ... ON CONFLICT (player_key, machine_id, path) DO UPDATE` adapter for upsertPatch.                                                                              |
+| `supabaseDelete.ts`          | DELETE adapters for removePatch (exact + descendant prefix), clearTransientPatches (`machine_id <> 'localhost'`), and clearOwnedPatches (`machine_id = 'localhost'`).   |
+| `supabaseSelectByMachine.ts` | `SELECT ... WHERE machine_id IN (...) ORDER BY updated_at ASC` adapter for listPatchesForMachines (cross-player read); returns the per-row `PatchSummary` shape.        |
+| `client.ts`                  | Browser-side wrappers — sign envelope, POST, parse response. Handle camelCase ↔ snake_case translation so callers see `FileSystemPatch`.                                |
+| `*.test.ts`                  | Unit tests for each module.                                                                                                                                             |
 
 ## Action dispatch (`handler.ts`)
 
@@ -26,7 +26,7 @@ A single Vercel function (`/api/patches`) handles five logical actions, discrimi
 patchesSignedPayloadSchema = z.discriminatedUnion('action', [
   upsertPatchSignedPayloadSchema, // 'upsertPatch'
   removePatchSignedPayloadSchema, // 'removePatch'
-  listPatchesSignedPayloadSchema, // 'listPatches'
+  listPatchesForMachinesSignedPayloadSchema, // 'listPatchesForMachines'
   clearTransientPatchesSignedPayloadSchema, // 'clearTransientPatches'
   clearOwnedPatchesSignedPayloadSchema, // 'clearOwnedPatches'
 ]);
@@ -36,11 +36,11 @@ The handler verifies once (envelope shape, signature, schema, ts window, nonce d
 
 ```
 verify → rate-limit → switch (action):
-  upsertPatch           → UPSERT (server-stamps player_key)        → 200 {}
-  removePatch           → DELETE exact + descendants               → 200 { affected }
-  listPatches           → SELECT all rows for player_key           → 200 { patches: PatchSummary[] }
-  clearTransientPatches → DELETE WHERE machine_id <> 'localhost'   → 200 { affected }
-  clearOwnedPatches     → DELETE WHERE machine_id = 'localhost'    → 200 { affected }
+  upsertPatch            → UPSERT (server-stamps player_key)                      → 200 {}
+  removePatch            → DELETE exact + descendants                             → 200 { affected }
+  listPatchesForMachines → SELECT WHERE machine_id IN (...) ORDER BY updated_at   → 200 { patches: PatchSummary[] }
+  clearTransientPatches  → DELETE WHERE machine_id <> 'localhost'                 → 200 { affected }
+  clearOwnedPatches      → DELETE WHERE machine_id = 'localhost'                  → 200 { affected }
 ```
 
 Action-dispatch over URL-shape REST mirrors `/api/sessions` — every action POSTs (signed bodies require POST), so a single URL avoids duplicating the verify+rate-limit prelude.
@@ -99,12 +99,12 @@ Five thin browser-side functions. All sign via `signedRequest.signRequest` and P
 ```ts
 upsertPatch(identity, patch: FileSystemPatch) → Promise<void>
 removePatch(identity, { machineId, path }) → Promise<void>
-listPatches(identity) → Promise<ReadonlyArray<FileSystemPatch>>
+listPatchesForMachines(identity, machine_ids: ReadonlyArray<string>) → Promise<ReadonlyArray<FileSystemPatch>>
 clearTransientPatches(identity) → Promise<void>
 clearOwnedPatches(identity) → Promise<void>
 ```
 
-The wrappers handle camelCase ↔ snake_case translation in both directions so callers only ever see `FileSystemPatch`. `listPatches` converts wire→client defensively:
+The wrappers handle camelCase ↔ snake_case translation in both directions so callers only ever see `FileSystemPatch`. `listPatchesForMachines` converts wire→client defensively:
 
 - `permissions: null` → omit (`FileSystemPatch.permissions` is optional)
 - `is_new: false` → omit (`FileSystemPatch.isNew` is the literal `?: true`)
@@ -139,7 +139,18 @@ The gate is the **actual security boundary** for filesystem mutations. Before PR
 
 `localhost` is exempt — the player always owns their own box.
 
-Reads (`listPatches`, `clearTransientPatches`, `clearOwnedPatches`) are NOT gated — they're scoped to the player's own data by `player_key` and don't depend on per-machine ownership.
+Reads and bulk clears (`listPatchesForMachines`, `clearTransientPatches`, `clearOwnedPatches`) are NOT gated. `listPatchesForMachines` is a cross-player read — knowing the `machine_id` is the gate, since the world is one shared persistent state (see `project_multiplayer_cross_player_visibility` memory). The clears are scoped to the player's own data by `player_key`. None of these depend on per-machine session ownership.
+
+### `localhost` exception in `listPatchesForMachines`
+
+Every player's workstation uses the literal string `'localhost'` as its `machine_id`, so the cross-player read would otherwise leak Player A's localhost mutations into Player B's view. The wiring SQL applies a guard:
+
+```sql
+WHERE machine_id IN (...)
+  AND (machine_id <> 'localhost' OR player_key = $verified_pubkey)
+```
+
+Localhost rows are filtered to the calling player's writes; every other machine still gets the multi-author read. Future shared surfaces (home networks, mission instances) use unique IDs per player allocated by the IP registry, so they don't need this special case.
 
 ### Ambient log-path bypass
 
