@@ -7,6 +7,7 @@ import { buildTimelineFromTemplate } from '../generation/timeline';
 import { systemLibraryTemplates } from '../generation/pools/systemLibraryTemplates';
 import { buildInitialDpkgStatus } from '../network/dpkgStatus';
 import { formatVersion } from '../generation/pools/serviceTemplates';
+import { md5 } from '../utils/md5';
 
 // --- Factory Functions ---
 
@@ -854,6 +855,45 @@ describe('msfconsole command', () => {
       expect(lines.some((l) => /password.*reset/i.test(l) || /new password/i.test(l))).toBe(true);
       expect(written.length).toBeGreaterThan(0);
       expect(followUp).toBeUndefined();
+    });
+
+    it('password_reset writes md5(newPassword) into /etc/passwd, not the plaintext', async () => {
+      // /etc/passwd stores md5 hashes everywhere else (per CLAUDE.md
+      // "/etc/passwd (not /etc/shadow) for password storage"). password_reset
+      // used to substitute the plaintext password directly, which broke
+      // subsequent auth: the auth code md5s the player's typed password and
+      // compares against /etc/passwd, but the column held plaintext.
+      const { entry, machine } = mkMachineWithCve('password_reset', 'mysql', 3306);
+      let written = '';
+      const context = createMockMsfconsoleContext({
+        machines: [machine],
+        gameTime: entry.publishedAt,
+        readRemoteFile: () => 'root:oldHash:0:0:root:/root:/bin/bash',
+        writeRemoteFile: async (_id, _path, content) => {
+          written = content;
+          return { allowed: true };
+        },
+      });
+      const result = createMsfconsoleCommand(context).fn('10.50.100.10', 3306);
+      if (!isAsyncOutput(result)) throw new Error('expected async');
+      const lines: string[] = [];
+      result.start(
+        (line) => lines.push(line),
+        () => {},
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+
+      // The plaintext password is surfaced to the player so they know what
+      // to type at the next auth prompt.
+      const newPasswordLine = lines.find((l) => /new password:/.test(l));
+      const newPassword = newPasswordLine?.match(/new password:\s*(\S+)/)?.[1];
+      expect(newPassword).toBeDefined();
+
+      // Critical: /etc/passwd must NOT contain the plaintext.
+      expect(written).not.toContain(newPassword!);
+      // It MUST contain the md5 hash so auth succeeds when the player
+      // types the plaintext (auth code md5s input and compares).
+      expect(written).toContain(md5(newPassword!));
     });
 
     it('password_reset surfaces failure when /etc/passwd write returns {allowed: false}', async () => {

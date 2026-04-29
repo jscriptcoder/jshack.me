@@ -12,6 +12,7 @@ import { createPrng } from '../generation/prng';
 import { parseDpkgVersions, DPKG_STATUS_PATH } from '../network/dpkgStatus';
 import { libraryDeps } from './libraryDeps';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
+import { md5 } from '../utils/md5';
 import { ncPidFilePath, createNcPidContent } from './nc';
 
 export type ExploitAttemptInfo = {
@@ -466,12 +467,17 @@ const buildExploitOutput = (
                 tier === 'root'
                   ? 'root'
                   : (machine.users.find((u) => u.userType === tier)?.username ?? tier);
+              // /etc/passwd stores md5 hashes — the player's typed password
+              // is md5'd by the auth code and compared against this column.
+              // Storing plaintext here would break subsequent auth even though
+              // the message below tells the player the correct value to type.
+              const newPasswordHash = md5(newPassword);
               const updatedPasswd = currentPasswd
                 .split('\n')
                 .map((line) => {
                   const parts = line.split(':');
                   if (parts[0] === targetUser) {
-                    return [parts[0], newPassword, ...parts.slice(2)].join(':');
+                    return [parts[0], newPasswordHash, ...parts.slice(2)].join(':');
                   }
                   return line;
                 })
