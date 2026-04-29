@@ -352,6 +352,61 @@ describe('applyPatches', () => {
     expect(getNodeAtPath(result['localhost'], '/home/jshacker/notes.txt')).toBeNull();
   });
 
+  // Cross-player last-write-wins contract — load-bearing for shared
+  // persistent state. Server returns rows ORDER BY updated_at ASC, so
+  // the array order IS the application order. Two players writing to
+  // the same path must resolve to the latest write's content, not
+  // interleave or skip-by-deduplication. If a refactor introduces e.g.
+  // Set-by-path dedup, this test fails immediately.
+  //
+  // Owner is NOT asserted: writing to an existing file doesn't transfer
+  // ownership in the simulated filesystem (chown / chmod are the only
+  // ownership-changing operations). Only content is the LWW surface.
+  it('two patches at the same (machineId, path) resolve last-write-wins on content', () => {
+    const patches: FileSystemPatch[] = [
+      {
+        machineId: 'localhost',
+        path: '/home/jshacker/notes.txt',
+        content: 'older write from player A',
+        owner: 'user',
+      },
+      {
+        machineId: 'localhost',
+        path: '/home/jshacker/notes.txt',
+        content: 'newer write from player B',
+        owner: 'user',
+      },
+    ];
+    const result = applyPatches(baseState, patches);
+    const node = getNodeAtPath(result['localhost'], '/home/jshacker/notes.txt');
+    expect(node?.content).toBe('newer write from player B');
+  });
+
+  // Companion case: explicit permissions on the later patch DO override.
+  // applyPatches updates permissions on existing files only when the
+  // patch supplies them — without this, a permissions change can't
+  // propagate cross-player.
+  it('two patches at the same path apply last-supplied explicit permissions', () => {
+    const patches: FileSystemPatch[] = [
+      {
+        machineId: 'localhost',
+        path: '/home/jshacker/notes.txt',
+        content: 'older',
+        owner: 'user',
+      },
+      {
+        machineId: 'localhost',
+        path: '/home/jshacker/notes.txt',
+        content: 'newer',
+        owner: 'user',
+        permissions: { read: ['root'], write: ['root'], execute: ['root'] },
+      },
+    ];
+    const result = applyPatches(baseState, patches);
+    const node = getNodeAtPath(result['localhost'], '/home/jshacker/notes.txt');
+    expect(node?.permissions.read).toEqual(['root']);
+  });
+
   it('ignores patches for unknown machines', () => {
     const patch: FileSystemPatch = {
       machineId: 'unknown',
