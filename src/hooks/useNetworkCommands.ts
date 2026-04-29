@@ -440,6 +440,12 @@ export const useNetworkCommands = (): Map<string, Command> => {
           createMsfconsoleCommand({
             getMachine: getEffectiveMachine,
             getLocalIP,
+            // NAT resolver: when player runs msfconsole publicIP forwardedPort,
+            // msfconsole resolves to the actual internal target so all
+            // effect-phase ops (writes, script-exec, gateway-chain lookup)
+            // operate on the right machine instead of the public-IP router.
+            // Identity passthrough for direct LAN-internal exploits.
+            resolveNat,
             getCurrentMachineId: () => session.machine,
             // Localhost isn't in the remote-machines list (it's the player's
             // workstation, generated separately via generateLocalhost), so

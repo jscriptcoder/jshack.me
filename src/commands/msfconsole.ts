@@ -75,6 +75,16 @@ type MsfconsoleContext = {
     machineIp: string,
     port: number,
   ) => { readonly publicEdgeIp: string | null; readonly publicEdgePort: number | null };
+  // Resolves a (host, port) pair through any NAT-forwarding rule on the
+  // network. When the player runs `msfconsole publicIP forwardedPort`,
+  // this returns the actual internal target (ip + port). Without it,
+  // effects would fire against the public-IP router's filesystem instead
+  // of the internal target. Optional for tests; defaults to identity
+  // (the LAN-internal-IP case is unaffected).
+  readonly resolveNat?: (
+    ip: string,
+    port: number,
+  ) => { readonly ip: string; readonly port: number };
 };
 
 const MSFCONSOLE_PHASE_DELAY_MS = 600;
@@ -186,6 +196,17 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
       throw new Error(`msfconsole: exploit failed — service not exploitable`);
     }
 
+    // NAT resolution: when the player ran `msfconsole publicIP forwardedPort`,
+    // resolve to the actual internal target so effects mutate the right
+    // machine. For LAN-internal IPs (no NAT rule), resolveNat returns the
+    // input unchanged, so behavior here is invariant for direct exploits.
+    // The CVE detection above used the merged router port's metadata
+    // (which inherited from the internal port via networkUtils), so we only
+    // diverge from the public-IP machine for the EFFECT phase below.
+    const resolved = context.resolveNat?.(targetIP, port) ?? { ip: targetIP, port };
+    const effectiveIp = resolved.ip;
+    const effectiveMachine = getMachine(effectiveIp) ?? machine;
+
     onExploitAttempt?.({
       targetIp: targetIP,
       port,
@@ -195,7 +216,15 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
     });
 
     return buildExploitOutput(
-      { machine, targetIP, port, targetPort, vulnerability },
+      {
+        machine,
+        targetIP,
+        effectiveIp,
+        effectiveMachine,
+        port,
+        targetPort,
+        vulnerability,
+      },
       thirdArg,
       context,
     );
@@ -206,9 +235,18 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
 // returns the AsyncOutput that drives the exploit UI (payload phases,
 // effect application, final shell/data delivery). Used by both the remote
 // host/port path and the --local library-CVE path.
+//
+// `targetIP` / `machine` are the player-input view (public IP, possibly
+// router-with-merged-ports). `effectiveIp` / `effectiveMachine` are the
+// NAT-resolved actual target — equal to the player view for direct
+// LAN-internal exploits, or the internal target for NAT-forwarded ones.
+// Use `targetIP` / `machine` for player-facing log lines; use the
+// `effective*` for any read/write/script-exec that mutates real state.
 type ExploitTarget = {
   readonly machine: RemoteMachine;
   readonly targetIP: string;
+  readonly effectiveIp: string;
+  readonly effectiveMachine: RemoteMachine;
   readonly port: number;
   readonly targetPort: Port;
   readonly vulnerability: Vulnerability;
@@ -307,6 +345,10 @@ const runLocalExploit = (args: readonly unknown[], context: MsfconsoleContext): 
     {
       machine,
       targetIP: currentMachineId,
+      // --local exploits run on the current machine — no NAT translation
+      // applies. effective* fields equal the player-input view.
+      effectiveIp: currentMachineId,
+      effectiveMachine: machine,
       port: 0,
       targetPort: syntheticTargetPort,
       vulnerability,
@@ -321,7 +363,7 @@ const buildExploitOutput = (
   thirdArg: string | undefined,
   context: MsfconsoleContext,
 ): AsyncOutput => {
-  const { machine, targetIP, port, targetPort, vulnerability } = target;
+  const { targetIP, effectiveIp, effectiveMachine, port, targetPort, vulnerability } = target;
   const { effect } = vulnerability;
 
   const requiresPath = effect.kind === 'file_read' || effect.kind === 'dir_list';
@@ -347,7 +389,9 @@ const buildExploitOutput = (
     tier: 'guest' | 'user' | 'root',
   ): { readonly username: string; readonly homePath: string } => {
     if (tier === 'root') return { username: 'root', homePath: '/root' };
-    const matchingUser = machine.users.find((u) => u.userType === tier);
+    // shell_full lands on the actual target machine — match its user list
+    // (effectiveMachine), not the public-IP router-with-merged users.
+    const matchingUser = effectiveMachine.users.find((u) => u.userType === tier);
     if (matchingUser) {
       return { username: matchingUser.username, homePath: `/home/${matchingUser.username}` };
     }
@@ -394,7 +438,9 @@ const buildExploitOutput = (
               onLine('');
               const exploitShell: ExploitShellData = {
                 __type: 'exploit_shell',
-                targetIP,
+                // Shell lands on the actual target machine; the public-IP
+                // alias was only for the connection grammar.
+                targetIP: effectiveIp,
                 targetPort: port,
                 service: targetPort.service,
                 username: shellUser.username,
@@ -406,7 +452,7 @@ const buildExploitOutput = (
               break;
             }
             case 'file_read': {
-              const content = context.readRemoteFile?.(targetIP, thirdArg!, effect.tier) ?? null;
+              const content = context.readRemoteFile?.(effectiveIp, thirdArg!, effect.tier) ?? null;
               onLine('[+] Exploit successful!');
               if (content !== null) {
                 onLine(`[+] Reading ${thirdArg} (as ${effect.tier}):`);
@@ -419,7 +465,7 @@ const buildExploitOutput = (
               break;
             }
             case 'dir_list': {
-              const entries = context.listRemoteDir?.(targetIP, thirdArg!, effect.tier) ?? null;
+              const entries = context.listRemoteDir?.(effectiveIp, thirdArg!, effect.tier) ?? null;
               onLine('[+] Exploit successful!');
               if (entries !== null) {
                 onLine(`[+] Listing ${thirdArg} (as ${effect.tier}):`);
@@ -442,7 +488,7 @@ const buildExploitOutput = (
                 onLine(`[-] Could not read local file: ${localPath}`);
               } else {
                 const writeResult = await context.writeRemoteFile?.(
-                  targetIP,
+                  effectiveIp,
                   remotePath,
                   localContent,
                   effect.tier,
@@ -462,11 +508,15 @@ const buildExploitOutput = (
             case 'password_reset': {
               const tier = effect.tier;
               const newPassword = `pwned-${vulnerability.cve.slice(-4)}-${tier}`;
-              const currentPasswd = context.readRemoteFile?.(targetIP, '/etc/passwd') ?? '';
+              // Read /etc/passwd from the resolved internal target so the
+              // tier-matching user lookup picks a username that actually
+              // exists on that machine — the public-IP router may share
+              // none of the same users.
+              const currentPasswd = context.readRemoteFile?.(effectiveIp, '/etc/passwd') ?? '';
               const targetUser =
                 tier === 'root'
                   ? 'root'
-                  : (machine.users.find((u) => u.userType === tier)?.username ?? tier);
+                  : (effectiveMachine.users.find((u) => u.userType === tier)?.username ?? tier);
               // /etc/passwd stores md5 hashes — the player's typed password
               // is md5'd by the auth code and compared against this column.
               // Storing plaintext here would break subsequent auth even though
@@ -483,7 +533,7 @@ const buildExploitOutput = (
                 })
                 .join('\n');
               const passwdResult = await context.writeRemoteFile?.(
-                targetIP,
+                effectiveIp,
                 '/etc/passwd',
                 updatedPasswd,
               );
@@ -501,7 +551,7 @@ const buildExploitOutput = (
               const pidPath = ncPidFilePath(backdoorPort);
               const pidContent = createNcPidContent(backdoorPort, 'backdoor', effect.tier);
               const pidResult = await context.writeRemoteFile?.(
-                targetIP,
+                effectiveIp,
                 pidPath,
                 pidContent,
                 'root',
@@ -515,7 +565,10 @@ const buildExploitOutput = (
               onLine(
                 `[+] Backdoor planted on port ${backdoorPort} — connect with nc(target, ${backdoorPort})`,
               );
-              const forwards = context.openBackdoorForwards?.(targetIP, backdoorPort);
+              // Gateway chain lookup needs the internal target's IP so
+              // forwards land on the right router(s) between attacker and
+              // the actual machine — not on the public-IP router itself.
+              const forwards = context.openBackdoorForwards?.(effectiveIp, backdoorPort);
               if (forwards?.publicEdgeIp && forwards.publicEdgePort !== null) {
                 onLine(
                   `[+] NAT forwarding chain installed — reachable via ${forwards.publicEdgeIp}:${forwards.publicEdgePort} from outside`,
@@ -533,7 +586,7 @@ const buildExploitOutput = (
               }
               // Blind injection — execute script for side effects only, no output
               const scriptResult = (await context.runScriptOnTarget?.(
-                targetIP,
+                effectiveIp,
                 scriptBody,
                 effect.tier,
               )) ?? {
@@ -557,7 +610,8 @@ const buildExploitOutput = (
               onLine('');
               const ncPrompt: NcPromptData = {
                 __type: 'nc_prompt',
-                targetIP,
+                // Shell lands on the actual target, not the public-IP alias.
+                targetIP: effectiveIp,
                 targetPort: port,
                 service: targetPort.service,
                 username: shellUser.username,

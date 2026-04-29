@@ -61,6 +61,10 @@ type MsfconsoleContextConfig = {
     machineIp: string,
     port: number,
   ) => { readonly publicEdgeIp: string | null; readonly publicEdgePort: number | null };
+  readonly resolveNat?: (
+    ip: string,
+    port: number,
+  ) => { readonly ip: string; readonly port: number };
 };
 
 const createMockMsfconsoleContext = (config: MsfconsoleContextConfig = {}) => {
@@ -76,6 +80,7 @@ const createMockMsfconsoleContext = (config: MsfconsoleContextConfig = {}) => {
     listRemoteDir,
     runScriptOnTarget,
     openBackdoorForwards,
+    resolveNat,
   } = config;
 
   const { currentMachineId } = config;
@@ -93,6 +98,7 @@ const createMockMsfconsoleContext = (config: MsfconsoleContextConfig = {}) => {
     listRemoteDir,
     runScriptOnTarget,
     openBackdoorForwards,
+    resolveNat,
   };
 };
 
@@ -896,6 +902,76 @@ describe('msfconsole command', () => {
       expect(written).toContain(md5(newPassword!));
     });
 
+    // NAT resolution: when the player runs `msfconsole publicIP forwardedPort`
+    // (NAT-forwarded port from outside), the effect must operate on the
+    // internal target machine, not on the public-IP router. Without this,
+    // password_reset writes /etc/passwd on the router (where the chosen
+    // user may not even exist), and ssh against public:22 → internal:22
+    // can't authenticate with the rolled credential.
+    it('password_reset on a NAT-forwarded public port writes /etc/passwd on the resolved internal target', async () => {
+      const { entry, machine } = mkMachineWithCve('password_reset', 'mysql', 3306);
+      // machine.ip is '10.50.100.10' (internal). Player runs against '203.0.113.5' (public).
+      // Mirror the runtime: getMachine(publicIP) returns the router with the
+      // forwarded port merged in (same port + CVE inheritance from internal).
+      const router: RemoteMachine = { ...machine, ip: '203.0.113.5', hostname: 'router' };
+      const writes: Array<{ machineId: string; path: string }> = [];
+      const context = createMockMsfconsoleContext({
+        machines: [machine, router],
+        gameTime: entry.publishedAt,
+        readRemoteFile: () => 'root:oldHash:0:0:root:/root:/bin/bash',
+        writeRemoteFile: async (machineId, path, _content) => {
+          writes.push({ machineId, path });
+          return { allowed: true };
+        },
+        resolveNat: (ip, port) =>
+          ip === '203.0.113.5' && port === 3306 ? { ip: '10.50.100.10', port: 3306 } : { ip, port },
+      });
+      const result = createMsfconsoleCommand(context).fn('203.0.113.5', 3306);
+      if (!isAsyncOutput(result)) throw new Error('expected async');
+      result.start(
+        () => {},
+        () => {},
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+
+      expect(writes).toHaveLength(1);
+      // Critical: write target is the resolved internal IP, not the public IP.
+      expect(writes[0]?.machineId).toBe('10.50.100.10');
+      expect(writes[0]?.path).toBe('/etc/passwd');
+    });
+
+    it('file_write on a NAT-forwarded public port uploads to the resolved internal target', async () => {
+      const { entry, machine } = mkMachineWithCve('file_write', 'ftp', 21);
+      const router: RemoteMachine = { ...machine, ip: '203.0.113.5', hostname: 'router' };
+      const writes: Array<{ machineId: string; path: string }> = [];
+      const context = createMockMsfconsoleContext({
+        machines: [machine, router],
+        gameTime: entry.publishedAt,
+        readLocalFile: () => 'payload',
+        writeRemoteFile: async (machineId, path, _content) => {
+          writes.push({ machineId, path });
+          return { allowed: true };
+        },
+        resolveNat: (ip, port) =>
+          ip === '203.0.113.5' && port === 21 ? { ip: '10.50.100.10', port: 21 } : { ip, port },
+      });
+      const result = createMsfconsoleCommand(context).fn(
+        '203.0.113.5',
+        21,
+        '/local.txt:/var/www/uploaded.txt',
+      );
+      if (!isAsyncOutput(result)) throw new Error('expected async');
+      result.start(
+        () => {},
+        () => {},
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+
+      expect(writes).toHaveLength(1);
+      expect(writes[0]?.machineId).toBe('10.50.100.10');
+      expect(writes[0]?.path).toBe('/var/www/uploaded.txt');
+    });
+
     it('password_reset surfaces failure when /etc/passwd write returns {allowed: false}', async () => {
       const { entry, machine } = mkMachineWithCve('password_reset', 'mysql', 3306);
       const context = createMockMsfconsoleContext({
@@ -964,6 +1040,54 @@ describe('msfconsole command', () => {
       expect(written[0]?.content).toContain('nc:port=');
       expect(lines.some((l) => /backdoor.*port/i.test(l))).toBe(true);
       expect(followUp).toBeUndefined();
+    });
+
+    it('backdoor_port_open on a NAT-forwarded public port plants the pid file on the resolved internal target', async () => {
+      const { entry, vuln } = findCveWithEffect('ssh', 'backdoor_port_open');
+      const machine = getMockRemoteMachine({
+        ports: [
+          {
+            port: 22,
+            service: 'ssh',
+            serviceVersion: vuln.serviceVersion,
+            open: true,
+            owner: { username: 'root', userType: 'root', homePath: '/root' },
+          },
+        ],
+      });
+      const router: RemoteMachine = { ...machine, ip: '203.0.113.5', hostname: 'router' };
+      const writes: Array<{ machineId: string; path: string }> = [];
+      const openBackdoorForwards = vi.fn(() => ({
+        publicEdgeIp: '203.0.113.5',
+        publicEdgePort: 4444,
+      }));
+      const context = createMockMsfconsoleContext({
+        machines: [machine, router],
+        gameTime: entry.publishedAt,
+        writeRemoteFile: async (machineId, path, _content) => {
+          writes.push({ machineId, path });
+          return { allowed: true };
+        },
+        openBackdoorForwards,
+        // 203.0.113.5:22 (public) → 10.50.100.10:22 (internal)
+        resolveNat: (ip, port) =>
+          ip === '203.0.113.5' && port === 22 ? { ip: '10.50.100.10', port: 22 } : { ip, port },
+      });
+      const result = createMsfconsoleCommand(context).fn('203.0.113.5', 22);
+      if (!isAsyncOutput(result)) throw new Error('expected async');
+      result.start(
+        () => {},
+        () => {},
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+
+      // pid file lands on the internal target, not the router's public IP.
+      expect(writes).toHaveLength(1);
+      expect(writes[0]?.machineId).toBe('10.50.100.10');
+      // openBackdoorForwards is called with the internal IP so the gateway
+      // chain lookup can find the right router(s) to install forwards on.
+      const backdoorPort = vuln.effect.kind === 'backdoor_port_open' ? vuln.effect.port : 0;
+      expect(openBackdoorForwards).toHaveBeenCalledWith('10.50.100.10', backdoorPort);
     });
 
     it('backdoor_port_open surfaces failure when the nc pid file write returns {allowed: false}', async () => {
