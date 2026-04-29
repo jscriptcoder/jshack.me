@@ -209,6 +209,41 @@ Terminal.tsx triggers auth flows via `startPasswordPrompt()` (from `su` command)
 
 For SSH/SCP, string args are disambiguated from port numbers by type: a string 2nd/3rd arg is a password, a number is a port. SSH keys are saved on programmatic auth just like interactive auth. `su` is unique in that it performs auth synchronously within `fn()` so subsequent script lines run as the new user; the others embed credentials in their async follow-up prompt data for Terminal.tsx to handle.
 
+## Server-Authoritative Sessions & L1 Patch Validation (Phase 5)
+
+In addition to the per-tab `SessionContext` described above, sessions are
+recorded server-side in a `sessions` table on Supabase. The server is the
+authority on "does this player have an active session on machine X?" — the
+client view is a UI projection of the server truth, rehydrated on mount via
+`listSessions WHERE player_key = me`.
+
+Three categories of session, by lifecycle:
+
+- **Shell-class** (`ssh`, `su`, `exploit`) — go on the snapshot stack;
+  rehydration filters to these before linear-chain reconstruction
+- **Protocol** (`ftp`, `mysql`, `redis`, `nc`) — own client-side state
+  field; pushed on login, ended on `exit`/`quit`
+- **Transient one-shot** (`scp`, `snmp`, `effect_one_shot`) — opened and
+  closed around a single mutation via `withTransientSession`; lifespan
+  measured in milliseconds. See `src/session/withTransientSession.ts` —
+  it awaits `flushPendingPatches` before letting the wrapping `endSession`
+  fire, eliminating a race where the patch could 403 against an already-
+  ended session.
+
+**L1 patch validation (the security boundary).** Every `upsertPatch` /
+`removePatch` on a non-localhost machine consults the `sessions` table
+before recording the mutation. No active session row → 403 `no_session`.
+This is what makes filesystem mutations actually authenticated; before
+PR #78 a legit Ed25519 keypair could record patches on any machine. See
+`src/patchRegistry/README.md` for the gate flow and the `/var/log/*`
+ambient-write bypass (recon actions like nmap/curl/hydra leave logs on
+the target without establishing a session, so log paths are exempt).
+
+**Deferred: L2 (server-side permission walking) and L3 (game-logic
+re-run).** L2 needs server-side filesystem state — plan in the
+`project_l2_plan` memo. L3 is "the smart server" that re-runs game
+logic against every action; piecemeal, per-feature.
+
 ## Async Output Pattern
 
 Network commands (ping, nmap, ssh, nslookup) and WiFi commands (airdump, aircrack) return `AsyncOutput` with `start(onLine, onComplete)` and optional `cancel()`. Terminal disables input during execution. The `onComplete` callback can trigger a password prompt (used by SSH/FTP via `useAuthentication`).
