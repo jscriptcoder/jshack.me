@@ -4,6 +4,7 @@ import type { ListPatchesForMachinesParams, PatchSummary } from './types';
 
 const params: ListPatchesForMachinesParams = {
   machine_ids: ['10.0.0.1', 'localhost'],
+  player_key: 'aa'.repeat(32),
 };
 
 // Two patches at the same path on the same machine, different authors —
@@ -94,12 +95,15 @@ describe('createSupabaseListPatchesForMachines', () => {
     expect(await listForMachines(params)).toEqual({ ok: false });
   });
 
-  it('forwards the machine_ids array verbatim to selectRows', async () => {
+  it('forwards the params object (machine_ids + player_key) verbatim to selectRows', async () => {
     const selectRows = vi.fn().mockResolvedValue({ data: [], error: null });
     const listForMachines = createSupabaseListPatchesForMachines(selectRows);
 
-    await listForMachines({ machine_ids: ['a', 'b', 'c'] });
+    await listForMachines({ machine_ids: ['a', 'b', 'c'], player_key: 'bb'.repeat(32) });
 
-    expect(selectRows).toHaveBeenCalledWith({ machine_ids: ['a', 'b', 'c'] });
+    expect(selectRows).toHaveBeenCalledWith({
+      machine_ids: ['a', 'b', 'c'],
+      player_key: 'bb'.repeat(32),
+    });
   });
 });

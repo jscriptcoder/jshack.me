@@ -458,7 +458,7 @@ describe('handlePatchesRequest — listPatchesForMachines', () => {
     expect(result.body).toEqual({ patches: [] });
   });
 
-  it('forwards machine_ids verbatim to the adapter', async () => {
+  it('forwards machine_ids verbatim and stamps verified player_key onto adapter call', async () => {
     const listPatchesForMachines = vi
       .fn<(params: ListPatchesForMachinesParams) => Promise<ListPatchesForMachinesResult>>()
       .mockResolvedValue({ ok: true, patches: [] });
@@ -471,7 +471,23 @@ describe('handlePatchesRequest — listPatchesForMachines', () => {
 
     expect(listPatchesForMachines).toHaveBeenCalledWith({
       machine_ids: ['10.0.0.5', '10.0.0.6', '10.0.0.7'],
+      player_key: identity.publicKeyHex,
     });
+  });
+
+  it('stamps player_key from verified pubkey, never client-trusted', async () => {
+    // Even if a client-side payload could carry a player_key (it can't —
+    // schema rejects it via .strict()), the handler must always derive
+    // player_key from verifySignedRequest, not the wire envelope.
+    const listPatchesForMachines = vi
+      .fn<(params: ListPatchesForMachinesParams) => Promise<ListPatchesForMachinesResult>>()
+      .mockResolvedValue({ ok: true, patches: [] });
+    const envelope = makeEnvelope(identity, validPayload);
+
+    await handlePatchesRequest(envelope, mkDeps({ listPatchesForMachines }));
+
+    const call = listPatchesForMachines.mock.calls[0][0];
+    expect(call.player_key).toBe(identity.publicKeyHex);
   });
 
   it('returns 500 when the DB query errors', async () => {

@@ -177,12 +177,26 @@ export type PatchSummary = {
   readonly node_type: NodeType;
 };
 
-// Cross-player read params: caller supplies the set of machines they
-// want patches for. Server returns rows from any author for those
-// machines (no player_key filter). Visibility rule enforcement is a
-// future PR — for now, knowing the machine_id is the gate.
+// Cross-player read params. Caller (handler) supplies:
+//   - machine_ids: the set of machines whose patches the player wants.
+//   - player_key:  the verified caller pubkey, server-stamped (NOT
+//                  present on the wire envelope). Used to filter
+//                  "owned" machines whose machine_id is shared as a
+//                  literal across players — currently localhost only.
+//                  The wiring SQL applies:
+//                    WHERE machine_id IN (...)
+//                      AND (machine_id <> 'localhost' OR player_key = $me)
+//                  so the cross-player read on shared machines stays
+//                  multi-author, while localhost rows from other players
+//                  don't leak into this player's view.
+//
+// Future shared surfaces (home networks, mission instances) use unique
+// machine_ids per player allocated by the IP registry, so the
+// localhost special case won't generalize — knowing the machine_id IS
+// the gate everywhere else.
 export type ListPatchesForMachinesParams = {
   readonly machine_ids: ReadonlyArray<string>;
+  readonly player_key: string;
 };
 
 // Result: rows can come from multiple players for the requested

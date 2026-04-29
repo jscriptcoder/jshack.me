@@ -8,6 +8,7 @@ import {
   createSupabaseRemovePatch,
   createSupabaseClearTransientPatches,
   createSupabaseClearOwnedPatches,
+  PERSISTENT_MACHINE_ID,
 } from '../src/patchRegistry/supabaseDelete.js';
 import { createSupabaseListPatchesForMachines } from '../src/patchRegistry/supabaseSelectByMachine.js';
 import type {
@@ -133,14 +134,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const listPatchesForMachines = createSupabaseListPatchesForMachines(
     async (params: ListPatchesForMachinesParams) => {
-      // Cross-player read: no player_key filter — return rows from any
-      // author for the requested machines. ORDER BY updated_at ASC is
-      // load-bearing: client-side `applyPatches` reduces in array order,
-      // so the latest write per (machine_id, path) wins automatically.
+      // Cross-player read for the requested machines, EXCEPT localhost.
+      // localhost is shared as a literal machine_id across all players
+      // but is conceptually each player's own workstation, so its rows
+      // get a player_key filter. Other machines (mission instances,
+      // future home-network slots) use unique IDs per player so the
+      // cross-player read is safe there.
+      //
+      //   WHERE machine_id IN (...)
+      //     AND (machine_id <> 'localhost' OR player_key = $me)
+      //
+      // ORDER BY updated_at ASC is load-bearing: client-side
+      // `applyPatches` reduces in array order, so the latest write per
+      // (machine_id, path) wins automatically.
+      //
+      // params.player_key is hex-only (Ed25519 pubkey, 64 chars), safe
+      // to inline into the .or() string without escaping.
       const { data, error } = await supabase
         .from('patches')
         .select('machine_id, path, content, owner, permissions, is_new, node_type')
         .in('machine_id', [...params.machine_ids])
+        .or(`machine_id.neq.${PERSISTENT_MACHINE_ID},player_key.eq.${params.player_key}`)
         .order('updated_at', { ascending: true });
       if (error) console.error('[patches] supabase selectByMachine error:', error);
       return { data, error };

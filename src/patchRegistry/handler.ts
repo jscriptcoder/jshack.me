@@ -112,7 +112,7 @@ const dispatchAction = async (
     case 'removePatch':
       return handleRemovePatch(publicKey, payload, deps);
     case 'listPatchesForMachines':
-      return handleListPatchesForMachines(payload, deps);
+      return handleListPatchesForMachines(publicKey, payload, deps);
     case 'clearTransientPatches':
       return handleClearTransientPatches(publicKey, deps);
     case 'clearOwnedPatches':
@@ -241,14 +241,20 @@ const handleRemovePatch = async (
 // enforcement lands in a future PR (blocked on the home-network
 // occupants table).
 //
-// publicKey is intentionally unused for filtering — `verifySignedRequest`
-// already gated on auth, so the caller is some authenticated player; the
-// rows returned do not depend on which.
+// publicKey is forwarded to the adapter so the wiring SQL can filter
+// "owned" machines whose machine_id is shared as a literal across
+// players (currently just `localhost`). For those rows, only the
+// caller's own writes are returned. See ListPatchesForMachinesParams
+// for the SQL shape.
 const handleListPatchesForMachines = async (
+  publicKey: string,
   payload: Extract<PatchesPayload, { action: 'listPatchesForMachines' }>,
   deps: HandlerDeps,
 ): Promise<HandlerResponse> => {
-  const result = await deps.listPatchesForMachines({ machine_ids: payload.machine_ids });
+  const result = await deps.listPatchesForMachines({
+    machine_ids: payload.machine_ids,
+    player_key: publicKey,
+  });
   if (!result.ok) {
     return { status: 500, body: { error: 'query_failed' } };
   }

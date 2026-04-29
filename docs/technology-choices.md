@@ -372,7 +372,11 @@ The cosmetic loss is acceptable for Phase 1+3. A later migration could add `star
 
 A `patches` table on Supabase records every player's filesystem mutations — every file write, create, deletion, and permission change. Composite PK `(player_key, machine_id, path)` doubles as the natural-key for UPSERT and lets multiple authors keep their own row per file. Clients call `/api/patches` (single endpoint, action-dispatched: `upsertPatch` / `removePatch` / `listPatchesForMachines` / `clearTransientPatches` / `clearOwnedPatches`) via signed envelopes. Server is the single source of truth for "what's everyone's view of the filesystem on machine X?".
 
-`FileSystemContext.broadcastAndRecordPatch` fires-and-forgets the right server call alongside its existing local-state update + IndexedDB cache write. On `FileSystemProvider` mount, `listPatchesForMachines(machine_ids)` rehydrates the cross-player view for the machines in scope (localhost + home + mission keysets), skipped if local writes happened during the mount window — those upserts are already in flight, the next mount reconciles. The server orders by `updated_at ASC` so the client-side `applyPatches` reduce-order yields last-write-wins per `(machine_id, path)` automatically. IndexedDB stays as a sync-readable cache for fast initial paint.
+`FileSystemContext.broadcastAndRecordPatch` fires-and-forgets the right server call alongside its existing local-state update + IndexedDB cache write. On `FileSystemProvider` mount, `listPatchesForMachines(machine_ids)` rehydrates the cross-player view for the machines in scope (localhost + home + mission keysets), skipped if local writes happened during the mount window — those upserts are already in flight, the next mount reconciles. The server orders by `updated_at ASC` so the client-side `applyPatches` reduce-order yields last-write-wins per `(machine_id, path)` automatically.
+
+`localhost` is a special case: every player's workstation uses the same literal `machine_id`, so the read filters localhost rows to the calling player only (`WHERE machine_id <> 'localhost' OR player_key = $me`). Other machines use unique IDs per player (allocated by the IP registry for missions, future home-network slots) so the cross-player read needs no special handling there.
+
+IndexedDB stays as a sync-readable cache for fast initial paint.
 
 ### Why
 

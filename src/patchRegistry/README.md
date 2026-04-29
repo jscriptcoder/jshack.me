@@ -141,6 +141,17 @@ The gate is the **actual security boundary** for filesystem mutations. Before PR
 
 Reads and bulk clears (`listPatchesForMachines`, `clearTransientPatches`, `clearOwnedPatches`) are NOT gated. `listPatchesForMachines` is a cross-player read — knowing the `machine_id` is the gate, since the world is one shared persistent state (see `project_multiplayer_cross_player_visibility` memory). The clears are scoped to the player's own data by `player_key`. None of these depend on per-machine session ownership.
 
+### `localhost` exception in `listPatchesForMachines`
+
+Every player's workstation uses the literal string `'localhost'` as its `machine_id`, so the cross-player read would otherwise leak Player A's localhost mutations into Player B's view. The wiring SQL applies a guard:
+
+```sql
+WHERE machine_id IN (...)
+  AND (machine_id <> 'localhost' OR player_key = $verified_pubkey)
+```
+
+Localhost rows are filtered to the calling player's writes; every other machine still gets the multi-author read. Future shared surfaces (home networks, mission instances) use unique IDs per player allocated by the IP registry, so they don't need this special case.
+
 ### Ambient log-path bypass
 
 `upsertPatch` writes to paths under `/var/log/` bypass L1 entirely (no session required). Recon actions like `nmap`, `curl`, `hydra`, `gobuster`, and ssh-failure logging trigger log appends on the target machine without the actor having a session there — the network records the probe as a side effect, that's the gameplay. L1 was designed for "I logged in, I'm mutating this machine" mutations; ambient log writes are a different class.
