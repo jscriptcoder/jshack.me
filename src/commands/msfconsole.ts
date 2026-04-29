@@ -49,12 +49,17 @@ type MsfconsoleContext = {
   // for the L1 patch-validation gate. Tests that don't supply these
   // callbacks see no behavioral change; tests that do must return
   // promises. The switch cases below `await` them.
+  // Returns { allowed: true } on success, { allowed: false, error } when the
+  // underlying write was rejected (permission denied, parent dir missing,
+  // etc.). Callers MUST surface `error` instead of unconditionally printing
+  // "Exploit successful" — silently swallowing failure is how the file_write
+  // and backdoor_port_open effects pretended to work without firing patches.
   readonly writeRemoteFile?: (
     machineId: string,
     path: string,
     content: string,
     tier?: 'guest' | 'user' | 'root',
-  ) => Promise<void>;
+  ) => Promise<{ readonly allowed: boolean; readonly error?: string }>;
   readonly listRemoteDir?: (
     machineId: string,
     path: string,
@@ -435,11 +440,20 @@ const buildExploitOutput = (
               if (localContent === null) {
                 onLine(`[-] Could not read local file: ${localPath}`);
               } else {
-                await context.writeRemoteFile?.(targetIP, remotePath, localContent, effect.tier);
-                onLine('[+] Exploit successful!');
-                onLine(
-                  `[+] Uploaded ${localPath} → ${remotePath} as ${effect.tier} (${localContent.length} bytes)`,
+                const writeResult = await context.writeRemoteFile?.(
+                  targetIP,
+                  remotePath,
+                  localContent,
+                  effect.tier,
                 );
+                if (writeResult && !writeResult.allowed) {
+                  onLine(`[-] Exploit failed: ${writeResult.error ?? 'remote write rejected'}`);
+                } else {
+                  onLine('[+] Exploit successful!');
+                  onLine(
+                    `[+] Uploaded ${localPath} → ${remotePath} as ${effect.tier} (${localContent.length} bytes)`,
+                  );
+                }
               }
               onComplete();
               break;
@@ -462,9 +476,17 @@ const buildExploitOutput = (
                   return line;
                 })
                 .join('\n');
-              await context.writeRemoteFile?.(targetIP, '/etc/passwd', updatedPasswd);
-              onLine('[+] Exploit successful!');
-              onLine(`[+] Password reset for '${targetUser}' — new password: ${newPassword}`);
+              const passwdResult = await context.writeRemoteFile?.(
+                targetIP,
+                '/etc/passwd',
+                updatedPasswd,
+              );
+              if (passwdResult && !passwdResult.allowed) {
+                onLine(`[-] Exploit failed: ${passwdResult.error ?? 'remote write rejected'}`);
+              } else {
+                onLine('[+] Exploit successful!');
+                onLine(`[+] Password reset for '${targetUser}' — new password: ${newPassword}`);
+              }
               onComplete();
               break;
             }
@@ -472,7 +494,17 @@ const buildExploitOutput = (
               const backdoorPort = effect.port;
               const pidPath = ncPidFilePath(backdoorPort);
               const pidContent = createNcPidContent(backdoorPort, 'backdoor', effect.tier);
-              await context.writeRemoteFile?.(targetIP, pidPath, pidContent, 'root');
+              const pidResult = await context.writeRemoteFile?.(
+                targetIP,
+                pidPath,
+                pidContent,
+                'root',
+              );
+              if (pidResult && !pidResult.allowed) {
+                onLine(`[-] Exploit failed: ${pidResult.error ?? 'remote write rejected'}`);
+                onComplete();
+                break;
+              }
               onLine('[+] Exploit successful!');
               onLine(
                 `[+] Backdoor planted on port ${backdoorPort} — connect with nc(target, ${backdoorPort})`,

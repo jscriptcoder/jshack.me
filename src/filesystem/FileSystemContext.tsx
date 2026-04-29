@@ -78,6 +78,12 @@ type FileSystemContextValue = {
   readonly readFileFromMachine: (op: MachineFileOp) => string | null;
   readonly writeFileToMachine: (op: MachineWriteOp) => PermissionResult;
   readonly createFileOnMachine: (op: MachineCreateOp) => PermissionResult;
+  // Write-or-create: existing files get the writeFileToMachine path
+  // (overwrite content, preserve owner/permissions); missing paths get
+  // the createFileOnMachine path (new file owned by `userType`). Used by
+  // msfconsole's writeRemoteFile so effects that target new paths
+  // (file_write, backdoor_port_open) actually fire upsertPatch.
+  readonly upsertFileOnMachine: (op: MachineWriteOp) => PermissionResult;
   readonly createDirectoryOnMachine: (op: MachineMkdirOp) => PermissionResult;
   readonly deleteNodeFromMachine: (op: MachineDeleteOp) => PermissionResult;
   readonly updatePermissions: (
@@ -620,6 +626,29 @@ export const FileSystemProvider = ({
     [resolvePathForMachine, canWriteFromMachine, getNodeFromMachine, broadcastAndRecordPatch],
   );
 
+  // Either-or: writes if the file exists, creates if it doesn't.
+  // msfconsole's writeRemoteFile uses this so file_write / password_reset /
+  // backdoor_port_open all work whether the destination path exists or not
+  // (file_write and backdoor_port_open typically write brand-new paths).
+  // Existing-file branch preserves the file's owner; new-file branch sets
+  // owner to `userType`.
+  const upsertFileOnMachine = useCallback(
+    (op: MachineWriteOp): PermissionResult => {
+      const node = getNodeFromMachine(op.machineId, op.path, op.cwd);
+      if (node && node.type === 'file') {
+        return writeFileToMachine(op);
+      }
+      return createFileOnMachine({
+        machineId: op.machineId,
+        path: op.path,
+        cwd: op.cwd,
+        content: op.content,
+        userType: op.userType,
+      });
+    },
+    [getNodeFromMachine, writeFileToMachine, createFileOnMachine],
+  );
+
   const createDirectoryOnMachine = useCallback(
     ({
       machineId,
@@ -889,6 +918,7 @@ export const FileSystemProvider = ({
         readFileFromMachine,
         writeFileToMachine,
         createFileOnMachine,
+        upsertFileOnMachine,
         createDirectoryOnMachine,
         deleteNodeFromMachine,
         updatePermissions,

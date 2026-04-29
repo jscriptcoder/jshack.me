@@ -176,6 +176,90 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       );
       expect(mockedRemovePatch).not.toHaveBeenCalled();
     });
+
+    // upsertFileOnMachine — handles both write-existing and create-new in
+    // a single call. msfconsole's writeRemoteFile uses this so file_write,
+    // password_reset, and backdoor_port_open all work whether the target
+    // path exists or not.
+    it('upsertFileOnMachine creates a new file when path does not exist (fires isNew=true)', async () => {
+      const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+
+      let opResult: { allowed: boolean } | undefined;
+      act(() => {
+        opResult = result.current.upsertFileOnMachine({
+          machineId: 'localhost',
+          path: '/tmp/created-by-upsert.txt',
+          cwd: '/',
+          content: 'fresh',
+          userType: 'user',
+        });
+      });
+
+      expect(opResult?.allowed).toBe(true);
+      expect(mockedUpsertPatch).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          machineId: 'localhost',
+          path: '/tmp/created-by-upsert.txt',
+          content: 'fresh',
+          owner: 'user',
+          isNew: true,
+        }),
+      );
+    });
+
+    it('upsertFileOnMachine overwrites an existing file (fires upsertPatch without isNew, preserves owner)', async () => {
+      const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+
+      let opResult: { allowed: boolean } | undefined;
+      act(() => {
+        opResult = result.current.upsertFileOnMachine({
+          machineId: 'localhost',
+          path: '/tmp/base.txt', // exists in baseLocalhost, owner=user
+          cwd: '/',
+          content: 'overwritten',
+          userType: 'user',
+        });
+      });
+
+      expect(opResult?.allowed).toBe(true);
+      expect(mockedUpsertPatch).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          machineId: 'localhost',
+          path: '/tmp/base.txt',
+          content: 'overwritten',
+          owner: 'user', // preserved from existing
+        }),
+      );
+      // Existing-file overwrite does NOT set isNew=true
+      const upsertCalls = vi.mocked(mockedUpsertPatch).mock.calls;
+      const lastCall = upsertCalls[upsertCalls.length - 1];
+      expect((lastCall?.[1] as Record<string, unknown>)?.isNew).toBeFalsy();
+    });
+
+    it('upsertFileOnMachine returns {allowed: false} when parent directory is unwritable (no patch fired)', async () => {
+      const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+
+      let opResult: { allowed: boolean; error?: string } | undefined;
+      act(() => {
+        opResult = result.current.upsertFileOnMachine({
+          // /etc doesn't exist in baseLocalhost — guest can't create files in /
+          // (root-only write on root dir).
+          machineId: 'localhost',
+          path: '/forbidden/new.txt',
+          cwd: '/',
+          content: 'denied',
+          userType: 'guest',
+        });
+      });
+
+      expect(opResult?.allowed).toBe(false);
+      expect(mockedUpsertPatch).not.toHaveBeenCalled();
+    });
   });
 
   // -----------------------------------------------------------------------

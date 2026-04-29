@@ -45,7 +45,11 @@ type MsfconsoleContextConfig = {
   }) => void;
   readonly readRemoteFile?: (machineId: string, path: string) => string | null;
   readonly readLocalFile?: (path: string) => string | null;
-  readonly writeRemoteFile?: (machineId: string, path: string, content: string) => Promise<void>;
+  readonly writeRemoteFile?: (
+    machineId: string,
+    path: string,
+    content: string,
+  ) => Promise<{ readonly allowed: boolean; readonly error?: string }>;
   readonly listRemoteDir?: (machineId: string, path: string) => readonly string[] | null;
   readonly runScriptOnTarget?: (
     machineId: string,
@@ -753,6 +757,7 @@ describe('msfconsole command', () => {
         readLocalFile: () => 'payload-content',
         writeRemoteFile: async (_id, path, content) => {
           written.push({ path, content });
+          return { allowed: true };
         },
       });
       const result = createMsfconsoleCommand(context).fn(
@@ -775,6 +780,42 @@ describe('msfconsole command', () => {
       expect(followUp).toBeUndefined();
     });
 
+    it('file_write surfaces failure when the underlying write returns {allowed: false}', async () => {
+      // Real bug: msfconsole's file_write case used to print "Exploit
+      // successful" unconditionally, even when the remote write failed
+      // (e.g., target path's parent dir unwritable). The user only
+      // discovered it via the network tab showing no patch.
+      const { entry, machine } = mkMachineWithCve('file_write', 'ftp', 21);
+      const context = createMockMsfconsoleContext({
+        machines: [machine],
+        gameTime: entry.publishedAt,
+        readLocalFile: () => 'payload-content',
+        writeRemoteFile: async () => ({
+          allowed: false,
+          error: 'Permission denied: /readonly/p.txt',
+        }),
+      });
+      const result = createMsfconsoleCommand(context).fn(
+        '10.50.100.10',
+        21,
+        '/root/p.txt:/readonly/p.txt',
+      );
+      expect(isAsyncOutput(result)).toBe(true);
+      if (!isAsyncOutput(result)) return;
+      const lines: string[] = [];
+      result.start(
+        (line) => lines.push(line),
+        () => {},
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+      // Failure must surface — "Exploit failed" with the underlying error.
+      expect(lines.some((l) => /exploit failed/i.test(l) && /permission denied/i.test(l))).toBe(
+        true,
+      );
+      // Critical: the success message must NOT print on a failed write.
+      expect(lines.some((l) => /exploit successful/i.test(l))).toBe(false);
+    });
+
     it('file_write throws when local:remote syntax is missing', () => {
       const { entry, machine } = mkMachineWithCve('file_write', 'ftp', 21);
       const context = createMockMsfconsoleContext({
@@ -795,6 +836,7 @@ describe('msfconsole command', () => {
         readRemoteFile: () => 'root:oldHash:0:0:root:/root:/bin/bash',
         writeRemoteFile: async (_id, _path, content) => {
           written = content;
+          return { allowed: true };
         },
       });
       const result = createMsfconsoleCommand(context).fn('10.50.100.10', 3306);
@@ -812,6 +854,29 @@ describe('msfconsole command', () => {
       expect(lines.some((l) => /password.*reset/i.test(l) || /new password/i.test(l))).toBe(true);
       expect(written.length).toBeGreaterThan(0);
       expect(followUp).toBeUndefined();
+    });
+
+    it('password_reset surfaces failure when /etc/passwd write returns {allowed: false}', async () => {
+      const { entry, machine } = mkMachineWithCve('password_reset', 'mysql', 3306);
+      const context = createMockMsfconsoleContext({
+        machines: [machine],
+        gameTime: entry.publishedAt,
+        readRemoteFile: () => 'root:oldHash:0:0:root:/root:/bin/bash',
+        writeRemoteFile: async () => ({ allowed: false, error: 'Permission denied: /etc/passwd' }),
+      });
+      const result = createMsfconsoleCommand(context).fn('10.50.100.10', 3306);
+      expect(isAsyncOutput(result)).toBe(true);
+      if (!isAsyncOutput(result)) return;
+      const lines: string[] = [];
+      result.start(
+        (line) => lines.push(line),
+        () => {},
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(lines.some((l) => /exploit failed/i.test(l) && /permission denied/i.test(l))).toBe(
+        true,
+      );
+      expect(lines.some((l) => /exploit successful/i.test(l))).toBe(false);
     });
   });
 
@@ -835,6 +900,7 @@ describe('msfconsole command', () => {
         gameTime: entry.publishedAt,
         writeRemoteFile: async (machineId, path, content) => {
           written.push({ machineId, path, content });
+          return { allowed: true };
         },
       });
       const msfconsole = createMsfconsoleCommand(context);
@@ -860,6 +926,41 @@ describe('msfconsole command', () => {
       expect(followUp).toBeUndefined();
     });
 
+    it('backdoor_port_open surfaces failure when the nc pid file write returns {allowed: false}', async () => {
+      const { entry, vuln } = findCveWithEffect('ssh', 'backdoor_port_open');
+      const machine = getMockRemoteMachine({
+        ports: [
+          {
+            port: 22,
+            service: 'ssh',
+            serviceVersion: vuln.serviceVersion,
+            open: true,
+            owner: { username: 'root', userType: 'root', homePath: '/root' },
+          },
+        ],
+      });
+      const context = createMockMsfconsoleContext({
+        machines: [machine],
+        gameTime: entry.publishedAt,
+        writeRemoteFile: async () => ({ allowed: false, error: 'Permission denied: /var/run' }),
+      });
+      const result = createMsfconsoleCommand(context).fn('10.50.100.10', 22);
+      expect(isAsyncOutput(result)).toBe(true);
+      if (!isAsyncOutput(result)) return;
+      const lines: string[] = [];
+      result.start(
+        (line) => lines.push(line),
+        () => {},
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(lines.some((l) => /exploit failed/i.test(l) && /permission denied/i.test(l))).toBe(
+        true,
+      );
+      expect(lines.some((l) => /exploit successful/i.test(l))).toBe(false);
+      // The "Backdoor planted" message must NOT print on a failed write.
+      expect(lines.some((l) => /backdoor planted/i.test(l))).toBe(false);
+    });
+
     it('invokes openBackdoorForwards after planting the pid file and reports public-edge reach', async () => {
       const { entry, vuln } = findCveWithEffect('ssh', 'backdoor_port_open');
       const machine = getMockRemoteMachine({
@@ -880,7 +981,7 @@ describe('msfconsole command', () => {
       const context = createMockMsfconsoleContext({
         machines: [machine],
         gameTime: entry.publishedAt,
-        writeRemoteFile: async () => {},
+        writeRemoteFile: async () => ({ allowed: true }),
         openBackdoorForwards,
       });
       const msfconsole = createMsfconsoleCommand(context);
@@ -920,7 +1021,7 @@ describe('msfconsole command', () => {
       const context = createMockMsfconsoleContext({
         machines: [machine],
         gameTime: entry.publishedAt,
-        writeRemoteFile: async () => {},
+        writeRemoteFile: async () => ({ allowed: true }),
         openBackdoorForwards,
       });
       const msfconsole = createMsfconsoleCommand(context);

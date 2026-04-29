@@ -68,6 +68,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
     getNodeFromMachine,
     createFileOnMachine,
     writeFileToMachine,
+    upsertFileOnMachine,
     listDirectoryFromMachine,
     deleteNodeFromMachine,
     flushPendingPatches,
@@ -484,7 +485,14 @@ export const useNetworkCommands = (): Map<string, Command> => {
             // this, the wrapping endSession can race the patch and
             // arrive at the server first — patch sees an ended session
             // and 403s on L1.
+            // Returns the underlying upsertFileOnMachine result so callers
+            // (msfconsole's file_write / password_reset / backdoor_port_open)
+            // can surface failure instead of silently printing "Exploit
+            // successful". Uses upsertFileOnMachine (vs writeFileToMachine)
+            // so brand-new paths actually get a patch — file_write and
+            // backdoor_port_open typically target paths that don't exist.
             writeRemoteFile: async (machineId, path, content, tier = 'root') => {
+              let writeResult: { allowed: boolean; error?: string } = { allowed: false };
               await withTransientSession(
                 getIdentity(),
                 {
@@ -495,10 +503,17 @@ export const useNetworkCommands = (): Map<string, Command> => {
                   source_ip: session.machine,
                 },
                 async () => {
-                  writeFileToMachine({ machineId, path, cwd: '/', userType: tier, content });
+                  writeResult = upsertFileOnMachine({
+                    machineId,
+                    path,
+                    cwd: '/',
+                    userType: tier,
+                    content,
+                  });
                   await flushPendingPatches();
                 },
               );
+              return writeResult;
             },
             listRemoteDir: (machineId, path, tier = 'root') =>
               listDirectoryFromMachine({ machineId, path, cwd: '/', userType: tier }),
@@ -728,6 +743,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
     getNodeFromMachine,
     createFileOnMachine,
     writeFileToMachine,
+    upsertFileOnMachine,
     deleteNodeFromMachine,
     listDirectoryFromMachine,
     flushPendingPatches,
