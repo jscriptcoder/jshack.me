@@ -9,7 +9,6 @@ import type { FileNode } from './types';
 vi.mock('../patchRegistry/client', () => ({
   upsertPatch: vi.fn(),
   removePatch: vi.fn(),
-  listPatches: vi.fn(),
   listPatchesForMachines: vi.fn(),
   clearTransientPatches: vi.fn(),
   clearOwnedPatches: vi.fn(),

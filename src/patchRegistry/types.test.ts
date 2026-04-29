@@ -139,15 +139,6 @@ describe('existing schema arms still parse (regression)', () => {
     ).not.toThrow();
   });
 
-  it('parses listPatches', () => {
-    expect(() =>
-      patchesSignedPayloadSchema.parse({
-        action: 'listPatches',
-        ...baseEnvelope,
-      }),
-    ).not.toThrow();
-  });
-
   it('parses clearTransientPatches', () => {
     expect(() =>
       patchesSignedPayloadSchema.parse({

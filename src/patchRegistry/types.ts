@@ -66,16 +66,6 @@ export const removePatchSignedPayloadSchema = z
 
 export type RemovePatchPayload = z.infer<typeof removePatchSignedPayloadSchema>;
 
-// listPatches — return all patches for this player on rehydration.
-export const listPatchesSignedPayloadSchema = z
-  .object({
-    action: z.literal('listPatches'),
-    ...baseEnvelopeFields,
-  })
-  .strict();
-
-export type ListPatchesPayload = z.infer<typeof listPatchesSignedPayloadSchema>;
-
 // listPatchesForMachines — return all patches for the supplied machines
 // from any author. Cross-player read path: the world is one shared
 // persistent state, so rehydration on a shared machine should surface
@@ -132,7 +122,6 @@ export type ClearOwnedPatchesPayload = z.infer<typeof clearOwnedPatchesSignedPay
 export const patchesSignedPayloadSchema = z.discriminatedUnion('action', [
   upsertPatchSignedPayloadSchema,
   removePatchSignedPayloadSchema,
-  listPatchesSignedPayloadSchema,
   listPatchesForMachinesSignedPayloadSchema,
   clearTransientPatchesSignedPayloadSchema,
   clearOwnedPatchesSignedPayloadSchema,
@@ -173,15 +162,11 @@ export type RemovePatchResult =
   | { readonly ok: true; readonly affected: number }
   | { readonly ok: false };
 
-export type ListPatchesParams = {
-  readonly player_key: string;
-};
-
-// Public shape returned from listPatches. Omits player_key (caller
-// already knows their own key) and timestamps. Permissions and is_new /
-// node_type are returned in their DB-default-applied shape so the
-// client wrapper has fewer special cases when converting back to the
-// FileSystemPatch type.
+// Public shape returned from listPatchesForMachines. Omits player_key
+// (caller doesn't need to know who wrote each row at this layer) and
+// timestamps. Permissions and is_new / node_type are returned in their
+// DB-default-applied shape so the client wrapper has fewer special
+// cases when converting back to the FileSystemPatch type.
 export type PatchSummary = {
   readonly machine_id: string;
   readonly path: string;
@@ -192,10 +177,6 @@ export type PatchSummary = {
   readonly node_type: NodeType;
 };
 
-export type ListPatchesResult =
-  | { readonly ok: true; readonly patches: ReadonlyArray<PatchSummary> }
-  | { readonly ok: false };
-
 // Cross-player read params: caller supplies the set of machines they
 // want patches for. Server returns rows from any author for those
 // machines (no player_key filter). Visibility rule enforcement is a
@@ -204,10 +185,9 @@ export type ListPatchesForMachinesParams = {
   readonly machine_ids: ReadonlyArray<string>;
 };
 
-// Result mirrors ListPatchesResult — same PatchSummary shape, but the
-// returned rows can come from multiple players. Server orders by
-// updated_at ASC so client `applyPatches` reduce-order yields
-// last-write-wins per (machine_id, path).
+// Result: rows can come from multiple players for the requested
+// machines. Server orders by updated_at ASC so client `applyPatches`
+// reduce-order yields last-write-wins per (machine_id, path).
 export type ListPatchesForMachinesResult =
   | { readonly ok: true; readonly patches: ReadonlyArray<PatchSummary> }
   | { readonly ok: false };

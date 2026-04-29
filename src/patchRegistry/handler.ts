@@ -4,8 +4,6 @@ import {
   type ClearPatchesResult,
   type ListPatchesForMachinesParams,
   type ListPatchesForMachinesResult,
-  type ListPatchesParams,
-  type ListPatchesResult,
   type PatchRow,
   type PatchesPayload,
   type RemovePatchParams,
@@ -34,7 +32,6 @@ export type HandlerResponse = {
 export type HandlerDeps = {
   readonly upsertPatch: (row: PatchRow) => Promise<UpsertPatchResult>;
   readonly removePatch: (params: RemovePatchParams) => Promise<RemovePatchResult>;
-  readonly listPatches: (params: ListPatchesParams) => Promise<ListPatchesResult>;
   readonly listPatchesForMachines: (
     params: ListPatchesForMachinesParams,
   ) => Promise<ListPatchesForMachinesResult>;
@@ -68,8 +65,8 @@ const STATUS_BY_VERIFY_REASON: Record<VerifyFailureReason, number> = {
 // action-dispatch:
 //
 //   1. Verify the signed envelope against the discriminated-union
-//      schema (upsertPatch / removePatch / listPatches /
-//      clearTransientPatches / clearAllPatches). The verify path is
+//      schema (upsertPatch / removePatch / listPatchesForMachines /
+//      clearTransientPatches / clearOwnedPatches). The verify path is
 //      shared — every action gets identical signature + replay + ts
 //      checks.
 //   2. Rate-limit on the verified pubkey (per-pubkey, like sessions).
@@ -114,8 +111,6 @@ const dispatchAction = async (
       return handleUpsertPatch(publicKey, payload, deps);
     case 'removePatch':
       return handleRemovePatch(publicKey, payload, deps);
-    case 'listPatches':
-      return handleListPatches(publicKey, deps);
     case 'listPatchesForMachines':
       return handleListPatchesForMachines(payload, deps);
     case 'clearTransientPatches':
@@ -237,17 +232,6 @@ const handleRemovePatch = async (
   // affected = 0 is success — idempotent removal of a path that already
   // had no patches (and no descendants).
   return { status: 200, body: { affected: result.affected } };
-};
-
-const handleListPatches = async (
-  publicKey: string,
-  deps: HandlerDeps,
-): Promise<HandlerResponse> => {
-  const result = await deps.listPatches({ player_key: publicKey });
-  if (!result.ok) {
-    return { status: 500, body: { error: 'query_failed' } };
-  }
-  return { status: 200, body: { patches: result.patches } };
 };
 
 // Cross-player read path: returns all patches written to the supplied

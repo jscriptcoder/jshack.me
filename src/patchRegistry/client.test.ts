@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   upsertPatch,
   removePatch,
-  listPatches,
   listPatchesForMachines,
   clearTransientPatches,
   clearOwnedPatches,
@@ -250,268 +249,7 @@ describe('removePatch', () => {
 });
 
 // -----------------------------------------------------------------------
-// listPatches — includes wire→client conversion
-// -----------------------------------------------------------------------
-
-describe('listPatches', () => {
-  it('POSTs action="listPatches" with a valid envelope', async () => {
-    const identity = generateIdentity();
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ patches: [] }));
-
-    await listPatches(identity, fetchMock);
-
-    const payload = getPayload(fetchMock);
-    expect(payload.action).toBe('listPatches');
-    expect(payload).not.toHaveProperty('machine_id');
-  });
-
-  it('signs with the provided identity', async () => {
-    const identity = generateIdentity();
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ patches: [] }));
-
-    await listPatches(identity, fetchMock);
-
-    const env = getEnvelope(fetchMock);
-    expect(env.publicKey).toBe(identity.publicKeyHex);
-    const sig = hexToBytes(env.signature)!;
-    const pub = hexToBytes(env.publicKey)!;
-    const msg = new TextEncoder().encode(env.payload);
-    expect(verify(pub, sig, msg)).toBe(true);
-  });
-
-  it('returns empty array when server has no patches', async () => {
-    const identity = generateIdentity();
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ patches: [] }));
-
-    expect(await listPatches(identity, fetchMock)).toEqual([]);
-  });
-
-  describe('wire→client conversion', () => {
-    it('converts machine_id → machineId on a minimal patch', async () => {
-      const identity = generateIdentity();
-      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-        ok({
-          patches: [
-            {
-              machine_id: '10.0.0.1',
-              path: '/tmp/foo.txt',
-              content: 'hello',
-              owner: 'user',
-              permissions: null,
-              is_new: false,
-              node_type: 'file',
-            },
-          ],
-        }),
-      );
-
-      const patches = await listPatches(identity, fetchMock);
-
-      expect(patches).toEqual([
-        {
-          machineId: '10.0.0.1',
-          path: '/tmp/foo.txt',
-          content: 'hello',
-          owner: 'user',
-        },
-      ]);
-    });
-
-    it('omits permissions when wire returns null', async () => {
-      const identity = generateIdentity();
-      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-        ok({
-          patches: [
-            {
-              machine_id: '10.0.0.1',
-              path: '/x',
-              content: 'x',
-              owner: 'user',
-              permissions: null,
-              is_new: false,
-              node_type: 'file',
-            },
-          ],
-        }),
-      );
-
-      const patches = await listPatches(identity, fetchMock);
-
-      expect(patches[0]).not.toHaveProperty('permissions');
-    });
-
-    it('includes permissions when wire returns a non-null object', async () => {
-      const identity = generateIdentity();
-      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-        ok({
-          patches: [
-            {
-              machine_id: '10.0.0.1',
-              path: '/x',
-              content: 'x',
-              owner: 'user',
-              permissions: samplePermissions,
-              is_new: false,
-              node_type: 'file',
-            },
-          ],
-        }),
-      );
-
-      const patches = await listPatches(identity, fetchMock);
-
-      expect(patches[0].permissions).toEqual(samplePermissions);
-    });
-
-    it('omits isNew when wire returns is_new === false', async () => {
-      const identity = generateIdentity();
-      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-        ok({
-          patches: [
-            {
-              machine_id: '10.0.0.1',
-              path: '/x',
-              content: 'x',
-              owner: 'user',
-              permissions: null,
-              is_new: false,
-              node_type: 'file',
-            },
-          ],
-        }),
-      );
-
-      const patches = await listPatches(identity, fetchMock);
-
-      expect(patches[0]).not.toHaveProperty('isNew');
-    });
-
-    it('sets isNew: true when wire returns is_new === true', async () => {
-      const identity = generateIdentity();
-      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-        ok({
-          patches: [
-            {
-              machine_id: '10.0.0.1',
-              path: '/x',
-              content: 'x',
-              owner: 'user',
-              permissions: null,
-              is_new: true,
-              node_type: 'file',
-            },
-          ],
-        }),
-      );
-
-      const patches = await listPatches(identity, fetchMock);
-
-      expect(patches[0].isNew).toBe(true);
-    });
-
-    it('omits nodeType when wire returns node_type === "file" (the default)', async () => {
-      const identity = generateIdentity();
-      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-        ok({
-          patches: [
-            {
-              machine_id: '10.0.0.1',
-              path: '/x',
-              content: 'x',
-              owner: 'user',
-              permissions: null,
-              is_new: false,
-              node_type: 'file',
-            },
-          ],
-        }),
-      );
-
-      const patches = await listPatches(identity, fetchMock);
-
-      expect(patches[0]).not.toHaveProperty('nodeType');
-    });
-
-    it('sets nodeType: "directory" when wire returns node_type === "directory"', async () => {
-      const identity = generateIdentity();
-      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-        ok({
-          patches: [
-            {
-              machine_id: '10.0.0.1',
-              path: '/srv/data',
-              content: null,
-              owner: 'root',
-              permissions: null,
-              is_new: true,
-              node_type: 'directory',
-            },
-          ],
-        }),
-      );
-
-      const patches = await listPatches(identity, fetchMock);
-
-      expect(patches[0].nodeType).toBe('directory');
-    });
-
-    it('passes content === null through verbatim (deletion marker)', async () => {
-      const identity = generateIdentity();
-      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-        ok({
-          patches: [
-            {
-              machine_id: '10.0.0.1',
-              path: '/etc/passwd',
-              content: null,
-              owner: 'root',
-              permissions: null,
-              is_new: false,
-              node_type: 'file',
-            },
-          ],
-        }),
-      );
-
-      const patches = await listPatches(identity, fetchMock);
-
-      expect(patches[0].content).toBeNull();
-    });
-  });
-
-  describe('malformed responses', () => {
-    it('throws when response is missing patches field', async () => {
-      const identity = generateIdentity();
-      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({}));
-
-      await expect(listPatches(identity, fetchMock)).rejects.toThrow();
-    });
-
-    it('throws when patches is not an array', async () => {
-      const identity = generateIdentity();
-      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ patches: 'oops' }));
-
-      await expect(listPatches(identity, fetchMock)).rejects.toThrow();
-    });
-  });
-
-  it('throws on non-2xx with status code in message', async () => {
-    const identity = generateIdentity();
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(errResponse(500));
-
-    await expect(listPatches(identity, fetchMock)).rejects.toThrow(/500/);
-  });
-
-  it('propagates fetch errors', async () => {
-    const identity = generateIdentity();
-    const fetchMock = vi.fn<typeof fetch>().mockRejectedValue(new TypeError('network failure'));
-
-    await expect(listPatches(identity, fetchMock)).rejects.toThrow('network failure');
-  });
-});
-
-// -----------------------------------------------------------------------
-// listPatchesForMachines (cross-player read) — same wire→client conversion
+// listPatchesForMachines (cross-player read) — includes wire→client conversion
 // -----------------------------------------------------------------------
 
 describe('listPatchesForMachines', () => {
@@ -582,30 +320,197 @@ describe('listPatchesForMachines', () => {
     ]);
   });
 
-  it('applies wire→client conversion (machine_id → machineId, omits permissions=null)', async () => {
-    const identity = generateIdentity();
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-      ok({
-        patches: [
-          {
-            machine_id: '10.0.0.1',
-            path: '/tmp/foo',
-            content: 'hello',
-            owner: 'user',
-            permissions: null,
-            is_new: false,
-            node_type: 'file',
-          },
-        ],
-      }),
-    );
+  describe('wire→client conversion', () => {
+    it('converts machine_id → machineId on a minimal patch', async () => {
+      const identity = generateIdentity();
+      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+        ok({
+          patches: [
+            {
+              machine_id: '10.0.0.1',
+              path: '/tmp/foo.txt',
+              content: 'hello',
+              owner: 'user',
+              permissions: null,
+              is_new: false,
+              node_type: 'file',
+            },
+          ],
+        }),
+      );
 
-    const patches = await listPatchesForMachines(identity, ['10.0.0.1'], fetchMock);
+      const patches = await listPatchesForMachines(identity, ['10.0.0.1'], fetchMock);
 
-    expect(patches).toEqual([
-      { machineId: '10.0.0.1', path: '/tmp/foo', content: 'hello', owner: 'user' },
-    ]);
-    expect(patches[0]).not.toHaveProperty('permissions');
+      expect(patches).toEqual([
+        {
+          machineId: '10.0.0.1',
+          path: '/tmp/foo.txt',
+          content: 'hello',
+          owner: 'user',
+        },
+      ]);
+    });
+
+    it('omits permissions when wire returns null', async () => {
+      const identity = generateIdentity();
+      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+        ok({
+          patches: [
+            {
+              machine_id: '10.0.0.1',
+              path: '/x',
+              content: 'x',
+              owner: 'user',
+              permissions: null,
+              is_new: false,
+              node_type: 'file',
+            },
+          ],
+        }),
+      );
+
+      const patches = await listPatchesForMachines(identity, ['10.0.0.1'], fetchMock);
+
+      expect(patches[0]).not.toHaveProperty('permissions');
+    });
+
+    it('includes permissions when wire returns a non-null object', async () => {
+      const identity = generateIdentity();
+      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+        ok({
+          patches: [
+            {
+              machine_id: '10.0.0.1',
+              path: '/x',
+              content: 'x',
+              owner: 'user',
+              permissions: samplePermissions,
+              is_new: false,
+              node_type: 'file',
+            },
+          ],
+        }),
+      );
+
+      const patches = await listPatchesForMachines(identity, ['10.0.0.1'], fetchMock);
+
+      expect(patches[0].permissions).toEqual(samplePermissions);
+    });
+
+    it('omits isNew when wire returns is_new === false', async () => {
+      const identity = generateIdentity();
+      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+        ok({
+          patches: [
+            {
+              machine_id: '10.0.0.1',
+              path: '/x',
+              content: 'x',
+              owner: 'user',
+              permissions: null,
+              is_new: false,
+              node_type: 'file',
+            },
+          ],
+        }),
+      );
+
+      const patches = await listPatchesForMachines(identity, ['10.0.0.1'], fetchMock);
+
+      expect(patches[0]).not.toHaveProperty('isNew');
+    });
+
+    it('sets isNew: true when wire returns is_new === true', async () => {
+      const identity = generateIdentity();
+      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+        ok({
+          patches: [
+            {
+              machine_id: '10.0.0.1',
+              path: '/x',
+              content: 'x',
+              owner: 'user',
+              permissions: null,
+              is_new: true,
+              node_type: 'file',
+            },
+          ],
+        }),
+      );
+
+      const patches = await listPatchesForMachines(identity, ['10.0.0.1'], fetchMock);
+
+      expect(patches[0].isNew).toBe(true);
+    });
+
+    it('omits nodeType when wire returns node_type === "file" (the default)', async () => {
+      const identity = generateIdentity();
+      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+        ok({
+          patches: [
+            {
+              machine_id: '10.0.0.1',
+              path: '/x',
+              content: 'x',
+              owner: 'user',
+              permissions: null,
+              is_new: false,
+              node_type: 'file',
+            },
+          ],
+        }),
+      );
+
+      const patches = await listPatchesForMachines(identity, ['10.0.0.1'], fetchMock);
+
+      expect(patches[0]).not.toHaveProperty('nodeType');
+    });
+
+    it('sets nodeType: "directory" when wire returns node_type === "directory"', async () => {
+      const identity = generateIdentity();
+      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+        ok({
+          patches: [
+            {
+              machine_id: '10.0.0.1',
+              path: '/srv/data',
+              content: null,
+              owner: 'root',
+              permissions: null,
+              is_new: true,
+              node_type: 'directory',
+            },
+          ],
+        }),
+      );
+
+      const patches = await listPatchesForMachines(identity, ['10.0.0.1'], fetchMock);
+
+      expect(patches[0].nodeType).toBe('directory');
+    });
+
+    it('passes content === null through verbatim (deletion marker)', async () => {
+      const identity = generateIdentity();
+      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+        ok({
+          patches: [
+            {
+              machine_id: '10.0.0.1',
+              path: '/etc/passwd',
+              content: null,
+              owner: 'root',
+              permissions: null,
+              is_new: false,
+              node_type: 'file',
+            },
+          ],
+        }),
+      );
+
+      const patches = await listPatchesForMachines(identity, ['10.0.0.1'], fetchMock);
+
+      expect(patches[0].content).toBeNull();
+    });
   });
 
   describe('malformed responses', () => {

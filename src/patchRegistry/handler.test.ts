@@ -5,8 +5,6 @@ import type {
   ClearPatchesResult,
   ListPatchesForMachinesParams,
   ListPatchesForMachinesResult,
-  ListPatchesParams,
-  ListPatchesResult,
   PatchRow,
   PatchSummary,
   RemovePatchParams,
@@ -52,7 +50,6 @@ const makeEnvelope = (
 const mkDeps = (overrides: {
   readonly upsertPatch?: (row: PatchRow) => Promise<UpsertPatchResult>;
   readonly removePatch?: (params: RemovePatchParams) => Promise<RemovePatchResult>;
-  readonly listPatches?: (params: ListPatchesParams) => Promise<ListPatchesResult>;
   readonly listPatchesForMachines?: (
     params: ListPatchesForMachinesParams,
   ) => Promise<ListPatchesForMachinesResult>;
@@ -73,11 +70,6 @@ const mkDeps = (overrides: {
     vi
       .fn<(params: RemovePatchParams) => Promise<RemovePatchResult>>()
       .mockResolvedValue({ ok: true, affected: 1 }),
-  listPatches:
-    overrides.listPatches ??
-    vi
-      .fn<(params: ListPatchesParams) => Promise<ListPatchesResult>>()
-      .mockResolvedValue({ ok: true, patches: [] }),
   listPatchesForMachines:
     overrides.listPatchesForMachines ??
     vi
@@ -409,82 +401,6 @@ describe('handlePatchesRequest — removePatch', () => {
 });
 
 // -----------------------------------------------------------------------
-// listPatches
-// -----------------------------------------------------------------------
-
-describe('handlePatchesRequest — listPatches', () => {
-  let identity: Identity;
-  beforeEach(() => {
-    identity = generateIdentity();
-  });
-
-  const validListPayload = { action: 'listPatches' };
-
-  const samplePatch: PatchSummary = {
-    machine_id: '10.0.0.1',
-    path: '/tmp/foo.txt',
-    content: 'hello',
-    owner: 'user',
-    permissions: null,
-    is_new: false,
-    node_type: 'file',
-  };
-
-  it('returns 200 with the patches array', async () => {
-    const listPatches = vi
-      .fn<(params: ListPatchesParams) => Promise<ListPatchesResult>>()
-      .mockResolvedValue({ ok: true, patches: [samplePatch] });
-    const envelope = makeEnvelope(identity, validListPayload);
-
-    const result = await handlePatchesRequest(envelope, mkDeps({ listPatches }));
-
-    expect(result.status).toBe(200);
-    expect(result.body).toEqual({ patches: [samplePatch] });
-  });
-
-  it('returns 200 with empty array when player has no patches', async () => {
-    const envelope = makeEnvelope(identity, validListPayload);
-
-    const result = await handlePatchesRequest(envelope, mkDeps({}));
-
-    expect(result.status).toBe(200);
-    expect(result.body).toEqual({ patches: [] });
-  });
-
-  it('queries with verified pubkey as player_key', async () => {
-    const listPatches = vi
-      .fn<(params: ListPatchesParams) => Promise<ListPatchesResult>>()
-      .mockResolvedValue({ ok: true, patches: [] });
-    const envelope = makeEnvelope(identity, validListPayload);
-
-    await handlePatchesRequest(envelope, mkDeps({ listPatches }));
-
-    expect(listPatches).toHaveBeenCalledWith({ player_key: identity.publicKeyHex });
-  });
-
-  it('returns 500 when the DB query errors', async () => {
-    const listPatches = vi
-      .fn<(params: ListPatchesParams) => Promise<ListPatchesResult>>()
-      .mockResolvedValue({ ok: false });
-    const envelope = makeEnvelope(identity, validListPayload);
-
-    const result = await handlePatchesRequest(envelope, mkDeps({ listPatches }));
-
-    expect(result.status).toBe(500);
-    expect(result.body).toMatchObject({ error: 'query_failed' });
-  });
-
-  it('returns 400 when client supplies unknown extra fields', async () => {
-    const envelope = makeEnvelope(identity, {
-      action: 'listPatches',
-      machine_id: '10.0.0.1',
-    });
-    const result = await handlePatchesRequest(envelope, mkDeps({}));
-    expect(result.status).toBe(400);
-  });
-});
-
-// -----------------------------------------------------------------------
 // listPatchesForMachines (cross-player read)
 // -----------------------------------------------------------------------
 
@@ -732,8 +648,8 @@ describe('handlePatchesRequest — cross-action isolation', () => {
     removePatch: vi
       .fn<(params: RemovePatchParams) => Promise<RemovePatchResult>>()
       .mockResolvedValue({ ok: true, affected: 1 }),
-    listPatches: vi
-      .fn<(params: ListPatchesParams) => Promise<ListPatchesResult>>()
+    listPatchesForMachines: vi
+      .fn<(params: ListPatchesForMachinesParams) => Promise<ListPatchesForMachinesResult>>()
       .mockResolvedValue({ ok: true, patches: [] }),
     clearTransientPatches: vi
       .fn<(params: ClearPatchesParams) => Promise<ClearPatchesResult>>()
@@ -750,7 +666,7 @@ describe('handlePatchesRequest — cross-action isolation', () => {
     await handlePatchesRequest(envelope, mkDeps(adapters));
     expect(adapters.upsertPatch).toHaveBeenCalled();
     expect(adapters.removePatch).not.toHaveBeenCalled();
-    expect(adapters.listPatches).not.toHaveBeenCalled();
+    expect(adapters.listPatchesForMachines).not.toHaveBeenCalled();
     expect(adapters.clearTransientPatches).not.toHaveBeenCalled();
     expect(adapters.clearOwnedPatches).not.toHaveBeenCalled();
   });
@@ -765,16 +681,19 @@ describe('handlePatchesRequest — cross-action isolation', () => {
     await handlePatchesRequest(envelope, mkDeps(adapters));
     expect(adapters.removePatch).toHaveBeenCalled();
     expect(adapters.upsertPatch).not.toHaveBeenCalled();
-    expect(adapters.listPatches).not.toHaveBeenCalled();
+    expect(adapters.listPatchesForMachines).not.toHaveBeenCalled();
     expect(adapters.clearTransientPatches).not.toHaveBeenCalled();
     expect(adapters.clearOwnedPatches).not.toHaveBeenCalled();
   });
 
-  it('listPatches action calls only listPatches adapter', async () => {
+  it('listPatchesForMachines action calls only listPatchesForMachines adapter', async () => {
     const adapters = otherAdapters({});
-    const envelope = makeEnvelope(identity, { action: 'listPatches' });
+    const envelope = makeEnvelope(identity, {
+      action: 'listPatchesForMachines',
+      machine_ids: ['10.0.0.1'],
+    });
     await handlePatchesRequest(envelope, mkDeps(adapters));
-    expect(adapters.listPatches).toHaveBeenCalled();
+    expect(adapters.listPatchesForMachines).toHaveBeenCalled();
     expect(adapters.upsertPatch).not.toHaveBeenCalled();
     expect(adapters.removePatch).not.toHaveBeenCalled();
     expect(adapters.clearTransientPatches).not.toHaveBeenCalled();
@@ -788,7 +707,7 @@ describe('handlePatchesRequest — cross-action isolation', () => {
     expect(adapters.clearTransientPatches).toHaveBeenCalled();
     expect(adapters.upsertPatch).not.toHaveBeenCalled();
     expect(adapters.removePatch).not.toHaveBeenCalled();
-    expect(adapters.listPatches).not.toHaveBeenCalled();
+    expect(adapters.listPatchesForMachines).not.toHaveBeenCalled();
     expect(adapters.clearOwnedPatches).not.toHaveBeenCalled();
   });
 
@@ -799,7 +718,7 @@ describe('handlePatchesRequest — cross-action isolation', () => {
     expect(adapters.clearOwnedPatches).toHaveBeenCalled();
     expect(adapters.upsertPatch).not.toHaveBeenCalled();
     expect(adapters.removePatch).not.toHaveBeenCalled();
-    expect(adapters.listPatches).not.toHaveBeenCalled();
+    expect(adapters.listPatchesForMachines).not.toHaveBeenCalled();
     expect(adapters.clearTransientPatches).not.toHaveBeenCalled();
   });
 });
@@ -892,19 +811,25 @@ describe('handlePatchesRequest — rate limiting', () => {
     expect(rateLimiter).not.toHaveBeenCalled();
   });
 
-  it('rate-limits the read path (listPatches) too', async () => {
-    const listPatches = vi
-      .fn<(params: ListPatchesParams) => Promise<ListPatchesResult>>()
+  it('rate-limits the read path (listPatchesForMachines) too', async () => {
+    const listPatchesForMachines = vi
+      .fn<(params: ListPatchesForMachinesParams) => Promise<ListPatchesForMachinesResult>>()
       .mockResolvedValue({ ok: true, patches: [] });
     const rateLimiter = vi
       .fn<RateLimiter>()
       .mockResolvedValue({ allowed: false, retryAfterSeconds: 5 });
-    const envelope = makeEnvelope(identity, { action: 'listPatches' });
+    const envelope = makeEnvelope(identity, {
+      action: 'listPatchesForMachines',
+      machine_ids: ['10.0.0.1'],
+    });
 
-    const result = await handlePatchesRequest(envelope, mkDeps({ listPatches, rateLimiter }));
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({ listPatchesForMachines, rateLimiter }),
+    );
 
     expect(result.status).toBe(429);
-    expect(listPatches).not.toHaveBeenCalled();
+    expect(listPatchesForMachines).not.toHaveBeenCalled();
   });
 });
 
@@ -1126,15 +1051,19 @@ describe('handlePatchesRequest — session-existence gate (L1)', () => {
   });
 
   describe('read / bulk-clear actions are NOT gated', () => {
-    // listPatches / clearTransient / clearOwned scope to the player's
-    // own patches by player_key — they don't depend on machine ownership.
-    // They MUST NOT consult findActiveSession.
+    // listPatchesForMachines is a cross-player read — knowing the
+    // machine_id is the gate, not session ownership. clearTransient /
+    // clearOwned scope to the player's own patches by player_key.
+    // None of them consult findActiveSession.
 
-    it('listPatches does not invoke findActiveSession', async () => {
+    it('listPatchesForMachines does not invoke findActiveSession', async () => {
       const findActiveSession = vi
         .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
         .mockResolvedValue({ ok: true, exists: true });
-      const envelope = makeEnvelope(identity, { action: 'listPatches' });
+      const envelope = makeEnvelope(identity, {
+        action: 'listPatchesForMachines',
+        machine_ids: ['10.0.0.1'],
+      });
 
       await handlePatchesRequest(envelope, mkDeps({ findActiveSession }));
 

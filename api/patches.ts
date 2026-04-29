@@ -9,18 +9,13 @@ import {
   createSupabaseClearTransientPatches,
   createSupabaseClearOwnedPatches,
 } from '../src/patchRegistry/supabaseDelete.js';
-import { createSupabaseListPatches } from '../src/patchRegistry/supabaseSelect.js';
 import { createSupabaseListPatchesForMachines } from '../src/patchRegistry/supabaseSelectByMachine.js';
 import type {
   ClearOwnedArg,
   ClearTransientArg,
   DeletePatchesArg,
 } from '../src/patchRegistry/supabaseDelete.js';
-import type {
-  PatchRow,
-  ListPatchesParams,
-  ListPatchesForMachinesParams,
-} from '../src/patchRegistry/types.js';
+import type { PatchRow, ListPatchesForMachinesParams } from '../src/patchRegistry/types.js';
 import { createSupabaseFindActiveSession } from '../src/sessionRegistry/supabaseFindActive.js';
 import type { FindActiveSessionParams } from '../src/sessionRegistry/supabaseFindActive.js';
 import {
@@ -37,8 +32,8 @@ import {
 // Vercel adapter for POST /api/patches.
 //
 // Single endpoint, action-dispatched by the signed payload's `action`
-// field — upsertPatch / removePatch / listPatches /
-// clearTransientPatches / clearAllPatches. Same Supabase + Upstash
+// field — upsertPatch / removePatch / listPatchesForMachines /
+// clearTransientPatches / clearOwnedPatches. Same Supabase + Upstash
 // wiring pattern as /api/sessions and /api/allocate-ip.
 
 // Per-pubkey rate limit. Filesystem patches fire once per nano save,
@@ -136,18 +131,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return { data: [...(exact.data ?? []), ...(desc.data ?? [])], error: null };
   });
 
-  const listPatches = createSupabaseListPatches(async (params: ListPatchesParams) => {
-    // Omit player_key from the projection — the caller already knows
-    // their own key. created_at / updated_at not surfaced; replay only
-    // needs content + permissions.
-    const { data, error } = await supabase
-      .from('patches')
-      .select('machine_id, path, content, owner, permissions, is_new, node_type')
-      .eq('player_key', params.player_key);
-    if (error) console.error('[patches] supabase select error:', error);
-    return { data, error };
-  });
-
   const listPatchesForMachines = createSupabaseListPatchesForMachines(
     async (params: ListPatchesForMachinesParams) => {
       // Cross-player read: no player_key filter — return rows from any
@@ -217,7 +200,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { status, body, headers } = await handlePatchesRequest(req.body, {
     upsertPatch,
     removePatch,
-    listPatches,
     listPatchesForMachines,
     clearTransientPatches,
     clearOwnedPatches,

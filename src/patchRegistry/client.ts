@@ -49,8 +49,8 @@ const toUpsertPayload = (patch: FileSystemPatch): UpsertPayload => ({
 
 // ---- snake_case → camelCase (wire → client) -------------------------------
 
-// Wire shape returned from listPatches. Mirrors the server's PatchSummary
-// type exactly — kept local to avoid a server→client type leak.
+// Wire shape returned from listPatchesForMachines. Mirrors the server's
+// PatchSummary type exactly — kept local to avoid a server→client type leak.
 type WirePatch = {
   readonly machine_id: string;
   readonly path: string;
@@ -118,37 +118,13 @@ export const removePatch = async (
   // fire-and-forget pattern. Discard.
 };
 
-// ---- listPatches ----------------------------------------------------------
-
-export const listPatches = async (
-  identity: Identity,
-  fetchImpl: typeof fetch = fetch,
-): Promise<ReadonlyArray<FileSystemPatch>> => {
-  const envelope = signRequest(identity, 'listPatches', {});
-  const response = await postEnvelope(envelope, fetchImpl);
-  if (!response.ok) {
-    throw new Error(`listPatches failed with status ${response.status}`);
-  }
-  const data: unknown = await response.json();
-  if (typeof data !== 'object' || data === null || !('patches' in data)) {
-    throw new Error('listPatches returned malformed response (missing patches)');
-  }
-  const patches = (data as { readonly patches: unknown }).patches;
-  if (!Array.isArray(patches)) {
-    throw new Error('listPatches returned malformed response (patches is not an array)');
-  }
-  // Trust the row shape (server-produced). Future hardening could zod-validate.
-  return (patches as ReadonlyArray<WirePatch>).map(toFileSystemPatch);
-};
-
 // ---- listPatchesForMachines -----------------------------------------------
 
 // Cross-player read: returns all patches for the supplied machines from
-// any author. The single-player listPatches above filters server-side
-// to player_key=me; this one trusts machine_id as the filter so the
-// shared world surfaces. Server orders by updated_at ASC so the array
-// order is the application order — `applyPatches` reduce-order yields
-// last-write-wins per (machine_id, path).
+// any author. machine_id is the filter so the shared world surfaces.
+// Server orders by updated_at ASC so the array order is the application
+// order — `applyPatches` reduce-order yields last-write-wins per
+// (machine_id, path).
 //
 // See memory: project_multiplayer_cross_player_visibility.md.
 export const listPatchesForMachines = async (

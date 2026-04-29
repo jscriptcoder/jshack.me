@@ -97,7 +97,7 @@ type FileSystemContextValue = {
     path: string,
     userType: UserType,
   ) => PermissionResult;
-  // True between mount and the first listPatches resolve (success OR failure).
+  // True between mount and the first listPatchesForMachines resolve (success OR failure).
   // No UI gates on this today (the IndexedDB cache covers initial paint), but
   // exposed for future loading-indicator wiring.
   readonly isRehydrating: boolean;
@@ -133,7 +133,7 @@ export const FileSystemProvider = ({
     applyPatches({ localhost: localhostFileSystem }, getCachedFilesystemPatches()),
   );
   const [patches, setPatches] = useState<readonly FileSystemPatch[]>(getCachedFilesystemPatches);
-  // True between mount and the first listPatches resolve (success or failure).
+  // True between mount and the first listPatchesForMachines resolve (success or failure).
   const [isRehydrating, setIsRehydrating] = useState(true);
   // Create channel inside effect so StrictMode's cleanup + re-run cycle gets
   // a fresh (open) channel. The ref is updated so broadcastAndRecordPatch always
@@ -145,13 +145,13 @@ export const FileSystemProvider = ({
   const patchesRef = useRef<readonly FileSystemPatch[]>(patches);
   // propsRef captures the latest base/home/mission filesystems so the
   // rehydration .then() can rebuild fileSystems from the freshest layered
-  // base, even if props changed during the in-flight listPatches.
+  // base, even if props changed during the in-flight listPatchesForMachines.
   const propsRef = useRef({ localhostFileSystem, homeFileSystems, missionFileSystems });
   // Set to true the first time the user does any local write/delete after
   // mount. The rehydration .then() reads this and SKIPS server-truth
   // replacement when local writes are in flight — those upserts are already
   // heading to the server fire-and-forget, the next mount will see the merged
-  // truth. Avoids clobbering a user's just-typed change if listPatches lands
+  // truth. Avoids clobbering a user's just-typed change if listPatchesForMachines lands
   // a few hundred ms after mount.
   const localWritesSinceMount = useRef(false);
   // In-flight patch network calls. Each upsertPatch/removePatch promise
