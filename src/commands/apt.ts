@@ -338,14 +338,10 @@ const collectUpgradeCandidates = (
     includeFirmware &&
     machine.firmwareVendor &&
     machine.firmwareVersion &&
-    findFirmwareCve(machine.firmwareVendor as FirmwareVendor, machine.firmwareVersion, gameTime)
+    findFirmwareCve(machine.firmwareVendor, machine.firmwareVersion, gameTime)
   ) {
     candidates.push(
-      resolveFirmwareCandidate(
-        machine.firmwareVendor as FirmwareVendor,
-        machine.firmwareVersion,
-        gameTime,
-      ),
+      resolveFirmwareCandidate(machine.firmwareVendor, machine.firmwareVersion, gameTime),
     );
   }
 
@@ -456,11 +452,7 @@ const renderUpgradableList = (context: AptContext): string => {
           renderUpgradableLine(
             FIRMWARE_PACKAGE,
             machine.firmwareVersion,
-            firmwareUpgradableStatus(
-              machine.firmwareVendor as FirmwareVendor,
-              machine.firmwareVersion,
-              gameTime,
-            ),
+            firmwareUpgradableStatus(machine.firmwareVendor, machine.firmwareVersion, gameTime),
           ),
         ]
       : [];
@@ -643,11 +635,7 @@ const handleInstallPin = (
     ? findPinnableLibraryVersion(pkg, pinnedVersion, gameTime)
     : pkg === FIRMWARE_PACKAGE
       ? machine.firmwareVendor !== undefined &&
-        findPinnableFirmwareVersion(
-          machine.firmwareVendor as FirmwareVendor,
-          pinnedVersion,
-          gameTime,
-        )
+        findPinnableFirmwareVersion(machine.firmwareVendor, pinnedVersion, gameTime)
       : findPinnableServiceVersion(pkg, pinnedVersion, gameTime);
 
   if (!pinnable) {

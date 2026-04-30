@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getRealtimeClient } from '../patchRegistry/realtime.js';
-import type { WorldNetwork } from './types.js';
+import { WorldNetworkSchema, type WorldNetwork } from './types.js';
 
 // Direct anon-key read of the world_networks table. Bypasses the
 // usual Vercel-function pattern because:
@@ -30,5 +30,10 @@ export const listWorldNetworks = async (
     console.error('[worldNetworks] list error:', error);
     return [];
   }
-  return (data ?? []) as ReadonlyArray<WorldNetwork>;
+  return (data ?? []).flatMap((row): readonly WorldNetwork[] => {
+    const parsed = WorldNetworkSchema.safeParse(row);
+    if (parsed.success) return [parsed.data];
+    console.error('[worldNetworks] dropping malformed row:', parsed.error.issues);
+    return [];
+  });
 };
