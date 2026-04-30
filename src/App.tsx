@@ -10,6 +10,7 @@ import { getCachedGameState, getDatabase, resetSessionCache } from './utils/stor
 import { saveGameState, clearAllData } from './utils/storage';
 import { useHomeNetworks } from './game/useHomeNetworks';
 import { generateLocalhost } from './generation/generateLocalhost';
+import { useTestNetworks } from './testNetworks/useTestNetworks';
 import type { GameState } from './game/types';
 
 function GameSession({ gameState }: { readonly gameState: GameState }) {
@@ -22,12 +23,22 @@ function GameSession({ gameState }: { readonly gameState: GameState }) {
   const missionState = useMissionState(usedPublicIps);
   const localhostResult = useMemo(() => generateLocalhost(gameState), [gameState]);
 
+  // Dev-only test networks (shared across players). Merged into
+  // homeFileSystems so cross-player visibility plumbing in
+  // FileSystemContext picks them up via the existing machineIds
+  // computation. Removed entirely at game release.
+  const testNetworkFileSystems = useTestNetworks();
+  const mergedHomeFileSystems = useMemo(
+    () => ({ ...activeNetwork?.fileSystems, ...testNetworkFileSystems }),
+    [activeNetwork?.fileSystems, testNetworkFileSystems],
+  );
+
   return (
     <MissionProvider state={missionState} usedPublicIps={usedPublicIps}>
       <FileSystemProvider
         localhostFileSystem={localhostResult.fileSystem}
         missionFileSystems={missionState.activeMission?.fileSystems}
-        homeFileSystems={activeNetwork?.fileSystems}
+        homeFileSystems={mergedHomeFileSystems}
       >
         <NetworkProvider
           missionNetworkConfig={missionState.activeMission?.networkConfig}
