@@ -8,15 +8,17 @@ See `docs/technology-choices.md` (Patches: server-authoritative with two-call de
 
 ## Files
 
-| File                         | Description                                                                                                                                                             |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `types.ts`                   | zod schemas (5-action discriminated union: upsertPatch / removePatch / listPatchesForMachines / clearTransientPatches / clearOwnedPatches), `PatchRow`, `PatchSummary`. |
-| `handler.ts`                 | Single endpoint with action-dispatch: verify → rate-limit → branch into one of five action handlers. Server-stamps `player_key` on every write.                         |
-| `supabaseUpsert.ts`          | `INSERT ... ON CONFLICT (player_key, machine_id, path) DO UPDATE` adapter for upsertPatch.                                                                              |
-| `supabaseDelete.ts`          | DELETE adapters for removePatch (exact + descendant prefix), clearTransientPatches (`machine_id <> 'localhost'`), and clearOwnedPatches (`machine_id = 'localhost'`).   |
-| `supabaseSelectByMachine.ts` | `SELECT ... WHERE machine_id IN (...) ORDER BY updated_at ASC` adapter for listPatchesForMachines (cross-player read); returns the per-row `PatchSummary` shape.        |
-| `client.ts`                  | Browser-side wrappers — sign envelope, POST, parse response. Handle camelCase ↔ snake_case translation so callers see `FileSystemPatch`.                                |
-| `*.test.ts`                  | Unit tests for each module.                                                                                                                                             |
+| File                         | Description                                                                                                                                                                       |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `types.ts`                   | zod schemas (5-action discriminated union: upsertPatch / removePatch / listPatchesForMachines / clearTransientPatches / clearOwnedPatches), `PatchRow`, `PatchSummary`.           |
+| `handler.ts`                 | Single endpoint with action-dispatch: verify → rate-limit → branch into one of five action handlers. Server-stamps `player_key` on every write.                                   |
+| `supabaseUpsert.ts`          | `INSERT ... ON CONFLICT (player_key, machine_id, path) DO UPDATE` adapter for upsertPatch.                                                                                        |
+| `supabaseDelete.ts`          | DELETE adapters for removePatch (exact + descendant prefix), clearTransientPatches (`machine_id <> 'localhost'`), and clearOwnedPatches (`machine_id = 'localhost'`).             |
+| `supabaseSelectByMachine.ts` | `SELECT ... WHERE machine_id IN (...) ORDER BY updated_at ASC` adapter for listPatchesForMachines (cross-player read); returns the per-row `PatchSummary` shape.                  |
+| `broadcast.ts`               | Server-side `publishPatchChange` — fires a Supabase Realtime broadcast (`patches:<machine_id>` channel, `patch_change` event) after every successful mutation. Fire-and-forget.   |
+| `realtime.ts`                | Client-side `subscribeToMachine` wrapper + lazy anon-key Supabase client. Receives broadcasts, converts wire payloads to `FileSystemPatch`, hands them to the caller's `onPatch`. |
+| `client.ts`                  | Browser-side wrappers — sign envelope, POST, parse response. Handle camelCase ↔ snake_case translation so callers see `FileSystemPatch`.                                          |
+| `*.test.ts`                  | Unit tests for each module.                                                                                                                                                       |
 
 ## Action dispatch (`handler.ts`)
 
@@ -44,6 +46,20 @@ verify → rate-limit → switch (action):
 ```
 
 Action-dispatch over URL-shape REST mirrors `/api/sessions` — every action POSTs (signed bodies require POST), so a single URL avoids duplicating the verify+rate-limit prelude.
+
+## Realtime broadcasts
+
+After every successful `upsertPatch` / `removePatch`, the handler fires a fire-and-forget `publishPatchChange` to a per-machine Supabase Realtime broadcast channel:
+
+```
+verify → rate-limit → mutate → if ok: broadcast(`patches:${machine_id}`, 'patch_change', payload)
+```
+
+Subscribers (`subscribeToMachine` in `realtime.ts`, wired into `FileSystemContext`) receive the event, convert the wire payload to `FileSystemPatch`, and apply it via the same `applyExternalPatch` callback used by the cross-tab `BroadcastChannel`. Result: cross-player writes appear live without page reload.
+
+Trust model: client-side anon key allows publishing to broadcast channels too, so a malicious player could in principle forge a `patch_change` event. We accept transient local divergence — the next page reload's `listPatchesForMachines` call returns server truth and overwrites any forgery. Hardening (signed events, channel publish authorization rules) is a future PR.
+
+Server-to-Realtime path: `api/patches.ts` POSTs directly to `${SUPABASE_URL}/realtime/v1/api/broadcast` with the `service_role` key. Direct fetch beats opening a WebSocket per Vercel function invocation — these functions are short-lived.
 
 ## Schema
 
