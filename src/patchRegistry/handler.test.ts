@@ -58,6 +58,7 @@ const mkDeps = (overrides: {
   readonly findActiveSession?: (
     params: FindActiveSessionParams,
   ) => Promise<FindActiveSessionResult>;
+  readonly publishPatchChange?: (machine_id: string, payload: PatchSummary) => Promise<void>;
   readonly rateLimiter?: RateLimiter;
   readonly nonceStore?: NonceStore;
   readonly now?: () => number;
@@ -91,6 +92,11 @@ const mkDeps = (overrides: {
     vi
       .fn<(params: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
       .mockResolvedValue({ ok: true, exists: true }),
+  publishPatchChange:
+    overrides.publishPatchChange ??
+    vi
+      .fn<(machine_id: string, payload: PatchSummary) => Promise<void>>()
+      .mockResolvedValue(undefined),
   rateLimiter: overrides.rateLimiter ?? noopRateLimiter,
   nonceStore: overrides.nonceStore ?? noopNonceStore,
   now: overrides.now ?? (() => FIXED_NOW),
@@ -1241,5 +1247,205 @@ describe('handlePatchesRequest — log-path bypass on upsertPatch', () => {
     expect(result.status).toBe(403);
     expect(result.body).toMatchObject({ error: 'no_session' });
     expect(removePatch).not.toHaveBeenCalled();
+  });
+});
+
+// -----------------------------------------------------------------------
+// Realtime broadcast on successful mutation
+//
+// Every successful upsertPatch / removePatch fires
+// deps.publishPatchChange with the affected machine_id and a wire-shaped
+// payload. Subscribers (other clients on shared machines) apply the
+// patch live without page reload.
+//
+// Broadcast must NOT fire when the DB op fails — we don't want
+// subscribers reacting to a write that didn't happen.
+// -----------------------------------------------------------------------
+
+describe('handlePatchesRequest — broadcast on successful mutation', () => {
+  let identity: Identity;
+  beforeEach(() => {
+    identity = generateIdentity();
+  });
+
+  it('fires publishPatchChange after successful upsertPatch with the row payload', async () => {
+    const publishPatchChange = vi
+      .fn<(machine_id: string, payload: PatchSummary) => Promise<void>>()
+      .mockResolvedValue(undefined);
+    const envelope = makeEnvelope(identity, {
+      action: 'upsertPatch',
+      machine_id: '10.0.0.5',
+      path: '/etc/hosts',
+      content: 'shared world',
+      owner: 'root',
+    });
+
+    await handlePatchesRequest(envelope, mkDeps({ publishPatchChange }));
+
+    expect(publishPatchChange).toHaveBeenCalledTimes(1);
+    expect(publishPatchChange).toHaveBeenCalledWith(
+      '10.0.0.5',
+      expect.objectContaining({
+        machine_id: '10.0.0.5',
+        path: '/etc/hosts',
+        content: 'shared world',
+        owner: 'root',
+      }),
+    );
+  });
+
+  it('publishPatchChange payload populates DB-default fields (permissions=null, is_new=false, node_type=file)', async () => {
+    const publishPatchChange = vi
+      .fn<(machine_id: string, payload: PatchSummary) => Promise<void>>()
+      .mockResolvedValue(undefined);
+    const envelope = makeEnvelope(identity, {
+      action: 'upsertPatch',
+      machine_id: '10.0.0.5',
+      path: '/x',
+      content: 'x',
+      owner: 'user',
+    });
+
+    await handlePatchesRequest(envelope, mkDeps({ publishPatchChange }));
+
+    const payload = publishPatchChange.mock.calls[0][1];
+    expect(payload.permissions).toBeNull();
+    expect(payload.is_new).toBe(false);
+    expect(payload.node_type).toBe('file');
+  });
+
+  it('publishPatchChange payload uses sanitized content (NUL→U+FFFD), matching what the DB stored', async () => {
+    // The handler sanitizes content before upserting (NUL bytes →
+    // U+FFFD, since Postgres TEXT rejects U+0000). Broadcast must emit
+    // the SAME sanitized string the DB persisted, otherwise subscribers
+    // would see different content from rehydrators after refresh.
+    const publishPatchChange = vi
+      .fn<(machine_id: string, payload: PatchSummary) => Promise<void>>()
+      .mockResolvedValue(undefined);
+    const NUL = String.fromCharCode(0);
+    const FFFD = String.fromCharCode(0xfffd);
+    const envelope = makeEnvelope(identity, {
+      action: 'upsertPatch',
+      machine_id: '10.0.0.5',
+      path: '/usr/bin/nmap',
+      content: `ELF${NUL}${NUL}${NUL}binary`,
+      owner: 'root',
+    });
+
+    await handlePatchesRequest(envelope, mkDeps({ publishPatchChange }));
+
+    const broadcastPayload = publishPatchChange.mock.calls[0][1];
+    expect(broadcastPayload.content).toBe(`ELF${FFFD}${FFFD}${FFFD}binary`);
+  });
+
+  it('publishPatchChange forwards explicit permissions / is_new / node_type when supplied', async () => {
+    const publishPatchChange = vi
+      .fn<(machine_id: string, payload: PatchSummary) => Promise<void>>()
+      .mockResolvedValue(undefined);
+    const envelope = makeEnvelope(identity, {
+      action: 'upsertPatch',
+      machine_id: '10.0.0.5',
+      path: '/srv/data',
+      content: null,
+      owner: 'root',
+      permissions: { read: ['root'], write: ['root'], execute: ['root'] },
+      is_new: true,
+      node_type: 'directory',
+    });
+
+    await handlePatchesRequest(envelope, mkDeps({ publishPatchChange }));
+
+    expect(publishPatchChange).toHaveBeenCalledWith(
+      '10.0.0.5',
+      expect.objectContaining({
+        permissions: { read: ['root'], write: ['root'], execute: ['root'] },
+        is_new: true,
+        node_type: 'directory',
+        content: null,
+      }),
+    );
+  });
+
+  it('does NOT fire publishPatchChange when upsertPatch DB op fails', async () => {
+    const upsertPatch = vi
+      .fn<(row: PatchRow) => Promise<UpsertPatchResult>>()
+      .mockResolvedValue({ ok: false });
+    const publishPatchChange = vi
+      .fn<(machine_id: string, payload: PatchSummary) => Promise<void>>()
+      .mockResolvedValue(undefined);
+    const envelope = makeEnvelope(identity);
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({ upsertPatch, publishPatchChange }),
+    );
+
+    expect(result.status).toBe(500);
+    expect(publishPatchChange).not.toHaveBeenCalled();
+  });
+
+  it('fires publishPatchChange after successful removePatch with content=null tombstone', async () => {
+    const publishPatchChange = vi
+      .fn<(machine_id: string, payload: PatchSummary) => Promise<void>>()
+      .mockResolvedValue(undefined);
+    const envelope = makeEnvelope(identity, {
+      action: 'removePatch',
+      machine_id: '10.0.0.5',
+      path: '/etc/hosts',
+    });
+
+    await handlePatchesRequest(envelope, mkDeps({ publishPatchChange }));
+
+    expect(publishPatchChange).toHaveBeenCalledTimes(1);
+    expect(publishPatchChange).toHaveBeenCalledWith(
+      '10.0.0.5',
+      expect.objectContaining({
+        machine_id: '10.0.0.5',
+        path: '/etc/hosts',
+        content: null,
+      }),
+    );
+  });
+
+  it('does NOT fire publishPatchChange when removePatch DB op fails', async () => {
+    const removePatch = vi
+      .fn<(params: RemovePatchParams) => Promise<RemovePatchResult>>()
+      .mockResolvedValue({ ok: false });
+    const publishPatchChange = vi
+      .fn<(machine_id: string, payload: PatchSummary) => Promise<void>>()
+      .mockResolvedValue(undefined);
+    const envelope = makeEnvelope(identity, {
+      action: 'removePatch',
+      machine_id: '10.0.0.1',
+      path: '/tmp/foo.txt',
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({ removePatch, publishPatchChange }),
+    );
+
+    expect(result.status).toBe(500);
+    expect(publishPatchChange).not.toHaveBeenCalled();
+  });
+
+  it('does NOT fire publishPatchChange on read actions (listPatchesForMachines / clears)', async () => {
+    const publishPatchChange = vi
+      .fn<(machine_id: string, payload: PatchSummary) => Promise<void>>()
+      .mockResolvedValue(undefined);
+
+    const listEnvelope = makeEnvelope(identity, {
+      action: 'listPatchesForMachines',
+      machine_ids: ['10.0.0.1'],
+    });
+    await handlePatchesRequest(listEnvelope, mkDeps({ publishPatchChange }));
+
+    const clearEnvelope = makeEnvelope(identity, { action: 'clearTransientPatches' });
+    await handlePatchesRequest(clearEnvelope, mkDeps({ publishPatchChange }));
+
+    const clearOwnedEnvelope = makeEnvelope(identity, { action: 'clearOwnedPatches' });
+    await handlePatchesRequest(clearOwnedEnvelope, mkDeps({ publishPatchChange }));
+
+    expect(publishPatchChange).not.toHaveBeenCalled();
   });
 });

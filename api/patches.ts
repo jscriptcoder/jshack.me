@@ -11,12 +11,18 @@ import {
   PERSISTENT_MACHINE_ID,
 } from '../src/patchRegistry/supabaseDelete.js';
 import { createSupabaseListPatchesForMachines } from '../src/patchRegistry/supabaseSelectByMachine.js';
+import { publishPatchChange as publishPatchChangeHelper } from '../src/patchRegistry/broadcast.js';
+import type { BroadcastFn } from '../src/patchRegistry/broadcast.js';
 import type {
   ClearOwnedArg,
   ClearTransientArg,
   DeletePatchesArg,
 } from '../src/patchRegistry/supabaseDelete.js';
-import type { PatchRow, ListPatchesForMachinesParams } from '../src/patchRegistry/types.js';
+import type {
+  PatchRow,
+  PatchSummary,
+  ListPatchesForMachinesParams,
+} from '../src/patchRegistry/types.js';
 import { createSupabaseFindActiveSession } from '../src/sessionRegistry/supabaseFindActive.js';
 import type { FindActiveSessionParams } from '../src/sessionRegistry/supabaseFindActive.js';
 import {
@@ -192,6 +198,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return { data, error };
   });
 
+  // Realtime broadcast adapter — POSTs to Supabase's broadcast REST
+  // endpoint with the service_role key. We use direct fetch instead of
+  // supabase-js's channel().send() because Vercel functions are
+  // short-lived and opening a WebSocket per request just to fan out one
+  // message is wasteful. The REST endpoint is one-shot, idiomatic for
+  // server-side publish.
+  //
+  // See: https://supabase.com/docs/guides/realtime/broadcast (REST API).
+  const broadcastViaRest: BroadcastFn = async (channel, event, payload) => {
+    const response = await fetch(`${supabaseUrl}/realtime/v1/api/broadcast`, {
+      method: 'POST',
+      headers: {
+        apikey: serviceRoleKey,
+        Authorization: `Bearer ${serviceRoleKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messages: [{ topic: channel, event, payload }],
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(`broadcast REST returned ${response.status}`);
+    }
+  };
+
+  const publishPatchChange = (machine_id: string, payload: PatchSummary) =>
+    publishPatchChangeHelper(broadcastViaRest, machine_id, payload);
+
   const findActiveSession = createSupabaseFindActiveSession(
     async (params: FindActiveSessionParams) => {
       // L1 patch-validation gate query. Hits `sessions_active_by_player_idx`
@@ -218,6 +252,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     clearTransientPatches,
     clearOwnedPatches,
     findActiveSession,
+    publishPatchChange,
     rateLimiter,
     nonceStore,
   });
