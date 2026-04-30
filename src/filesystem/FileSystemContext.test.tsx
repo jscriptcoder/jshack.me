@@ -14,12 +14,24 @@ vi.mock('../patchRegistry/client', () => ({
   clearOwnedPatches: vi.fn(),
 }));
 
+// Mock the realtime subscription module — tests inject a fake Supabase
+// client (or null) and assert subscribe/unsubscribe behaviour without a
+// live WebSocket.
+vi.mock('../patchRegistry/realtime', () => ({
+  getRealtimeClient: vi.fn(),
+  subscribeToMachine: vi.fn(),
+}));
+
 import {
   upsertPatch as mockedUpsertPatch,
   removePatch as mockedRemovePatch,
   listPatchesForMachines as mockedListPatchesForMachines,
   clearTransientPatches as mockedClearTransientPatches,
 } from '../patchRegistry/client';
+import {
+  getRealtimeClient as mockedGetRealtimeClient,
+  subscribeToMachine as mockedSubscribeToMachine,
+} from '../patchRegistry/realtime';
 
 // Mock identity singleton so we don't depend on browser localStorage.
 vi.mock('../identity', () => ({
@@ -97,10 +109,16 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
     vi.mocked(mockedRemovePatch).mockReset();
     vi.mocked(mockedListPatchesForMachines).mockReset();
     vi.mocked(mockedClearTransientPatches).mockReset();
+    vi.mocked(mockedGetRealtimeClient).mockReset();
+    vi.mocked(mockedSubscribeToMachine).mockReset();
     vi.mocked(mockedUpsertPatch).mockResolvedValue(undefined);
     vi.mocked(mockedRemovePatch).mockResolvedValue(undefined);
     vi.mocked(mockedListPatchesForMachines).mockResolvedValue([]);
     vi.mocked(mockedClearTransientPatches).mockResolvedValue(undefined);
+    // Default: realtime client unavailable (most existing tests don't care
+    // about subscriptions). Tests that exercise realtime override per-case.
+    vi.mocked(mockedGetRealtimeClient).mockReturnValue(null);
+    vi.mocked(mockedSubscribeToMachine).mockReturnValue(() => {});
   });
 
   // -----------------------------------------------------------------------
@@ -587,6 +605,179 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       resolveFirst();
 
       await expect(flushPromise).resolves.toBeUndefined();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Realtime subscriptions
+  //
+  // FileSystemContext subscribes to per-machine broadcast channels for
+  // every machine in the player's view. Inbound `patch_change` events
+  // apply via the same applyExternalPatch path that the BroadcastChannel
+  // handler uses.
+  // -----------------------------------------------------------------------
+
+  describe('realtime subscriptions', () => {
+    type SubscribeMockArgs = readonly [
+      unknown,
+      string,
+      (patch: import('./types').FileSystemPatch) => void,
+    ];
+
+    it('does NOT subscribe when getRealtimeClient returns null (env vars missing)', async () => {
+      vi.mocked(mockedGetRealtimeClient).mockReturnValue(null);
+      const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+
+      expect(mockedSubscribeToMachine).not.toHaveBeenCalled();
+    });
+
+    it('subscribes to every machine_id in current view on mount', async () => {
+      const fakeClient = {} as Parameters<typeof mockedSubscribeToMachine>[0];
+      vi.mocked(mockedGetRealtimeClient).mockReturnValue(fakeClient);
+
+      const { result } = renderHook(() => useFileSystem(), {
+        wrapper: wrap({
+          homeFileSystems: { '192.168.1.50': baseLocalhost },
+          missionFileSystems: { '10.0.0.1': baseLocalhost },
+        }),
+      });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+
+      const calledMachineIds = vi
+        .mocked(mockedSubscribeToMachine)
+        .mock.calls.map((call) => (call as unknown as SubscribeMockArgs)[1]);
+      expect(calledMachineIds).toEqual(
+        expect.arrayContaining(['localhost', '192.168.1.50', '10.0.0.1']),
+      );
+      expect(calledMachineIds).toHaveLength(3);
+    });
+
+    it('passes the supabase client from getRealtimeClient to subscribeToMachine', async () => {
+      const fakeClient = { id: 'fake-supabase' } as unknown as Parameters<
+        typeof mockedSubscribeToMachine
+      >[0];
+      vi.mocked(mockedGetRealtimeClient).mockReturnValue(fakeClient);
+
+      const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+
+      const firstCall = vi.mocked(mockedSubscribeToMachine).mock
+        .calls[0] as unknown as SubscribeMockArgs;
+      expect(firstCall[0]).toBe(fakeClient);
+    });
+
+    it('unsubscribes all on unmount', async () => {
+      const fakeClient = {} as Parameters<typeof mockedSubscribeToMachine>[0];
+      vi.mocked(mockedGetRealtimeClient).mockReturnValue(fakeClient);
+      const unsubscribers = [vi.fn(), vi.fn(), vi.fn()];
+      let i = 0;
+      vi.mocked(mockedSubscribeToMachine).mockImplementation(() => unsubscribers[i++]);
+
+      const { result, unmount } = renderHook(() => useFileSystem(), {
+        wrapper: wrap({
+          homeFileSystems: { '192.168.1.50': baseLocalhost },
+          missionFileSystems: { '10.0.0.1': baseLocalhost },
+        }),
+      });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+
+      unmount();
+
+      for (const unsub of unsubscribers) {
+        expect(unsub).toHaveBeenCalled();
+      }
+    });
+
+    it('applies an inbound patch to local state (file appears without reload)', async () => {
+      const fakeClient = {} as Parameters<typeof mockedSubscribeToMachine>[0];
+      vi.mocked(mockedGetRealtimeClient).mockReturnValue(fakeClient);
+      let capturedOnPatch: ((patch: import('./types').FileSystemPatch) => void) | null = null;
+      vi.mocked(mockedSubscribeToMachine).mockImplementation((_client, machineId, onPatch) => {
+        if (machineId === 'localhost') capturedOnPatch = onPatch;
+        return () => {};
+      });
+
+      const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+
+      expect(capturedOnPatch).not.toBeNull();
+      act(() => {
+        capturedOnPatch!({
+          machineId: 'localhost',
+          path: '/tmp/from-other-player.txt',
+          content: 'hello',
+          owner: 'user',
+          isNew: true,
+        });
+      });
+
+      const node = result.current.getNode('/tmp/from-other-player.txt');
+      expect(node?.content).toBe('hello');
+    });
+
+    it('applies an inbound tombstone (content=null) — file disappears without reload', async () => {
+      const fakeClient = {} as Parameters<typeof mockedSubscribeToMachine>[0];
+      vi.mocked(mockedGetRealtimeClient).mockReturnValue(fakeClient);
+      let capturedOnPatch: ((patch: import('./types').FileSystemPatch) => void) | null = null;
+      vi.mocked(mockedSubscribeToMachine).mockImplementation((_client, machineId, onPatch) => {
+        if (machineId === 'localhost') capturedOnPatch = onPatch;
+        return () => {};
+      });
+
+      const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+      // Sanity: base file exists pre-event
+      expect(result.current.getNode('/tmp/base.txt')).not.toBeNull();
+
+      act(() => {
+        capturedOnPatch!({
+          machineId: 'localhost',
+          path: '/tmp/base.txt',
+          content: null,
+          owner: 'user',
+        });
+      });
+
+      expect(result.current.getNode('/tmp/base.txt')).toBeNull();
+    });
+
+    it('resubscribes when the machine_ids keyset changes (mid-session mission load)', async () => {
+      const fakeClient = {} as Parameters<typeof mockedSubscribeToMachine>[0];
+      vi.mocked(mockedGetRealtimeClient).mockReturnValue(fakeClient);
+
+      let setMissionFilesystems!: (fs: Record<string, FileNode> | undefined) => void;
+      const Outer = ({ children }: { children: ReactNode }) => {
+        const [missionFs, setMissionFs] = useState<Record<string, FileNode> | undefined>();
+        setMissionFilesystems = setMissionFs;
+        return (
+          <FileSystemProvider localhostFileSystem={baseLocalhost} missionFileSystems={missionFs}>
+            {children}
+          </FileSystemProvider>
+        );
+      };
+
+      const { result } = renderHook(() => useFileSystem(), { wrapper: Outer });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+
+      // Initial mount: subscribe to localhost only.
+      const initialMachineIds = vi
+        .mocked(mockedSubscribeToMachine)
+        .mock.calls.map((c) => (c as unknown as SubscribeMockArgs)[1]);
+      expect(initialMachineIds).toEqual(['localhost']);
+
+      // Mission loads — keyset grows. New subscription expected.
+      vi.mocked(mockedSubscribeToMachine).mockClear();
+      act(() => {
+        setMissionFilesystems({ '10.0.0.42': baseLocalhost });
+      });
+
+      await waitFor(() => {
+        const newMachineIds = vi
+          .mocked(mockedSubscribeToMachine)
+          .mock.calls.map((c) => (c as unknown as SubscribeMockArgs)[1]);
+        expect(newMachineIds).toEqual(expect.arrayContaining(['localhost', '10.0.0.42']));
+      });
     });
   });
 });

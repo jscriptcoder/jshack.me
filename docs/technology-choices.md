@@ -385,7 +385,7 @@ Patches are the second multiplayer-load-bearing piece (after sessions): cross-de
 - **Cross-device sync** out of the box — write a file on device A, see it on device B after `listPatchesForMachines` rehydration.
 - **Cross-player visibility** on shared persistent networks — Player A's writes on machine X are visible to Player B via the same rehydration. The world is one shared persistent state, not per-player overlays.
 - **Patch validation (L1)** shipped in PR #78 — the Vercel function consults `sessions` to authorize each upsert, so an attacker can't tamper with files on machines they don't have a session on. `/var/log/*` writes bypass the gate (ambient log appends from recon don't require a session).
-- **Foundation for Realtime fanout** (later PR) — the same row mutations stream as `postgres_changes` events to other clients on shared machines, eliminating the next-page-reload wait.
+- **Live cross-player updates via Realtime broadcast** — every successful `upsertPatch` / `removePatch` fan-outs a `patch_change` event on a `patches:<machine_id>` broadcast channel. Clients subscribed to that machine receive the event and apply via the same `applyExternalPatch` callback used by the in-browser `BroadcastChannel` cross-tab path. Forged events are tolerated transiently (next page reload corrects them via `listPatchesForMachines`).
 
 ### Two-call deletion strategy
 

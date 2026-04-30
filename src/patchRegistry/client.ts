@@ -49,9 +49,10 @@ const toUpsertPayload = (patch: FileSystemPatch): UpsertPayload => ({
 
 // ---- snake_case → camelCase (wire → client) -------------------------------
 
-// Wire shape returned from listPatchesForMachines. Mirrors the server's
-// PatchSummary type exactly — kept local to avoid a server→client type leak.
-type WirePatch = {
+// Wire shape returned from listPatchesForMachines (and the broadcast
+// payload in realtime.ts). Mirrors the server's PatchSummary type
+// exactly — kept local to avoid a server→client type leak.
+export type WirePatch = {
   readonly machine_id: string;
   readonly path: string;
   readonly content: string | null;
@@ -69,7 +70,10 @@ type WirePatch = {
 //   permissions === null         → omit (FileSystemPatch.permissions is optional)
 //   is_new === false             → omit (FileSystemPatch.isNew is `?: true` literal)
 //   node_type === 'file'         → omit (the implicit default)
-const toFileSystemPatch = (wire: WirePatch): FileSystemPatch => ({
+//
+// Exported so the realtime subscription path (subscribeToMachine) can
+// reuse the same conversion — broadcast payloads share the wire shape.
+export const toFileSystemPatch = (wire: WirePatch): FileSystemPatch => ({
   machineId: wire.machine_id,
   path: wire.path,
   content: wire.content,

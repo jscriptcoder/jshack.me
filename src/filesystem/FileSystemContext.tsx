@@ -31,6 +31,7 @@ import {
   listPatchesForMachines as listPatchesForMachinesFromServer,
   clearTransientPatches as clearTransientPatchesOnServer,
 } from '../patchRegistry/client';
+import { getRealtimeClient, subscribeToMachine } from '../patchRegistry/realtime';
 import {
   resolvePath as resolvePathUtil,
   getNodeAtPath,
@@ -161,36 +162,44 @@ export const FileSystemProvider = ({
   // the FileSystemContextValue.flushPendingPatches doc-comment.
   const pendingPatchesRef = useRef<Set<Promise<unknown>>>(new Set());
 
-  // Subscribe to filesystem patches from other tabs.
+  // Apply a patch that originated outside this React tree — from another
+  // tab via BroadcastChannel, or from another player via Supabase
+  // Realtime. Updates fileSystems + patches state. Idempotent: applying
+  // the same patch twice produces the same result (applyPatches reduce
+  // is order-deterministic, the patches state is keyed by
+  // (machineId, path) via upsertPatch).
+  const applyExternalPatch = useCallback((patch: FileSystemPatch) => {
+    setFileSystems((prev) => applyPatches(prev, [patch]));
+    setPatches((prev) => {
+      if (patch.content !== null) return upsertPatch(prev, patch);
+
+      const existing = prev.find((p) => p.machineId === patch.machineId && p.path === patch.path);
+      const deletedPrefix = patch.path.endsWith('/') ? patch.path : patch.path + '/';
+      const withoutChildren = prev.filter(
+        (p) => !(p.machineId === patch.machineId && p.path.startsWith(deletedPrefix)),
+      );
+
+      if (existing?.isNew) {
+        return withoutChildren.filter(
+          (p) => !(p.machineId === patch.machineId && p.path === patch.path),
+        );
+      }
+
+      return upsertPatch(withoutChildren, patch);
+    });
+  }, []);
+
+  // Subscribe to filesystem patches from other tabs in the same browser.
   // BroadcastChannel does not deliver messages to the posting tab, so no echo guard needed.
   useEffect(() => {
     const channel = createSyncChannel();
     syncChannelRef.current = channel;
     channel.onMessage((message: SyncMessage) => {
       if (message.type !== 'filesystem-patch') return;
-      const patch = message.patch;
-
-      setFileSystems((prev) => applyPatches(prev, [patch]));
-      setPatches((prev) => {
-        if (patch.content !== null) return upsertPatch(prev, patch);
-
-        const existing = prev.find((p) => p.machineId === patch.machineId && p.path === patch.path);
-        const deletedPrefix = patch.path.endsWith('/') ? patch.path : patch.path + '/';
-        const withoutChildren = prev.filter(
-          (p) => !(p.machineId === patch.machineId && p.path.startsWith(deletedPrefix)),
-        );
-
-        if (existing?.isNew) {
-          return withoutChildren.filter(
-            (p) => !(p.machineId === patch.machineId && p.path === patch.path),
-          );
-        }
-
-        return upsertPatch(withoutChildren, patch);
-      });
+      applyExternalPatch(message.patch);
     });
     return () => channel.close();
-  }, []);
+  }, [applyExternalPatch]);
 
   // Persist all patches (static + mission) to IndexedDB. Mission patches are replayed
   // on top of regenerated filesystems when the page reloads with an active mission seed.
@@ -272,6 +281,42 @@ export const FileSystemProvider = ({
     // Mount-only — props are read via propsRef.current inside the .then()
     // so we don't need them in deps.
   }, []);
+
+  // Realtime: subscribe to per-machine broadcast channels for every
+  // machine in the current view. Inbound `patch_change` events apply
+  // via the shared applyExternalPatch path. Pairs with the server-side
+  // publishPatchChange in api/patches.ts that fires after every
+  // successful upsertPatch / removePatch.
+  //
+  // The keyset signature (sorted-joined string) is the dep — when home
+  // or mission filesystems change keys, we tear down all channels and
+  // resubscribe to the new set. Mid-session WiFi crack / mission
+  // accept therefore picks up live updates without page reload.
+  //
+  // Graceful degradation: getRealtimeClient() returns null when
+  // VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY are missing. The app
+  // keeps working — page-reload-driven rehydration still surfaces
+  // cross-player changes.
+  const machineIdsKey = useMemo(() => {
+    const ids = new Set<string>(['localhost']);
+    if (homeFileSystems) for (const id of Object.keys(homeFileSystems)) ids.add(id);
+    if (missionFileSystems) for (const id of Object.keys(missionFileSystems)) ids.add(id);
+    return [...ids].sort().join(',');
+  }, [homeFileSystems, missionFileSystems]);
+
+  useEffect(() => {
+    const client = getRealtimeClient();
+    if (!client) return;
+
+    const machineIds = machineIdsKey.split(',').filter(Boolean);
+    const unsubscribers = machineIds.map((id) =>
+      subscribeToMachine(client, id, applyExternalPatch),
+    );
+
+    return () => {
+      for (const unsubscribe of unsubscribers) unsubscribe();
+    };
+  }, [machineIdsKey, applyExternalPatch]);
 
   // Track whether the missionFileSystems effect is running for the first time.
   // On initial mount with a persisted mission, we replay cached patches so the
