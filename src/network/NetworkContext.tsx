@@ -436,9 +436,17 @@ export const NetworkProvider = ({
         return homeNetwork.routerMachine.remoteMachine.users;
       }
 
+      // Search world networks. Without this, SSH/SCP/FTP/MySQL auth on
+      // a world machine bails early — validateAgainstEtcPasswd looks up
+      // the user via findMachineUsers, returns [] for unknown IPs,
+      // fails the lookup, and rejects the password before even reading
+      // /etc/passwd. Mirrors the world-network branch in findMachineByIp.
+      const worldMatch = findMachineInWorldNetworks(ip, worldNetworks ?? []);
+      if (worldMatch) return worldMatch.users;
+
       return [];
     },
-    [homeNetwork, missionNetworkConfig, missionRouterMachine],
+    [homeNetwork, missionNetworkConfig, missionRouterMachine, worldNetworks],
   );
 
   // Searches for a machine by IP across all network configs (home +
