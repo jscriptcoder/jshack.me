@@ -25,17 +25,21 @@ npm run supabase:stop      # shut down when done
 
 After `supabase start`, the CLI prints:
 
-- `API URL` — point `SUPABASE_URL` here for local dev
-- `anon key` — point `SUPABASE_ANON_KEY` here
-- `service_role key` — point `SUPABASE_SERVICE_ROLE_KEY` here (in Vercel dev functions only)
+- `API URL` — point `SUPABASE_URL` (server) and `VITE_SUPABASE_URL` (client) here
+- `anon key` — point `VITE_SUPABASE_ANON_KEY` here (Vite exposes only `VITE_`-prefixed vars to the browser bundle)
+- `service_role key` — point `SUPABASE_SERVICE_ROLE_KEY` here (Vercel dev functions only — NEVER exposed to the client)
 
 Write these to `.env.local` (gitignored by default):
 
 ```
 SUPABASE_URL=http://127.0.0.1:54321
-SUPABASE_ANON_KEY=<from supabase:status>
 SUPABASE_SERVICE_ROLE_KEY=<from supabase:status>
+
+VITE_SUPABASE_URL=http://127.0.0.1:54321
+VITE_SUPABASE_ANON_KEY=<from supabase:status>
 ```
+
+The `VITE_*` pair is needed by the browser-side Realtime subscriptions (`src/patchRegistry/realtime.ts`). If they're missing, the app still runs — it just falls back to refresh-driven cross-player updates without live broadcasts.
 
 > **Note**: `npm run vercel:dev` uses `dotenv-cli` to explicitly load `.env.local` before invoking `vercel dev`. The CLI's own env-file loading is bypassed — when a clone is linked to a cloud Vercel project, `vercel dev` would otherwise pull cloud-side dev env vars (which aren't relevant for local-Supabase development). The dotenv wrapper keeps local secrets local.
 
@@ -60,9 +64,10 @@ One-time setup (user action — not automated):
 1. Create a free-tier Supabase project at https://supabase.com/dashboard. Name it `jshack-dev`.
 2. Copy the project's `URL`, `anon` key, and `service_role` key from project settings.
 3. Add them to Vercel project env vars (Preview + Production scopes):
-   - `SUPABASE_URL`
-   - `SUPABASE_ANON_KEY` (safe to expose to browsers — public by design)
+   - `SUPABASE_URL` (server-only)
    - `SUPABASE_SERVICE_ROLE_KEY` (**NEVER exposed to browsers** — server-side only)
+   - `VITE_SUPABASE_URL` (client — duplicate of the URL but with the `VITE_` prefix Vite needs to expose it to the bundle)
+   - `VITE_SUPABASE_ANON_KEY` (client — safe to expose to browsers; public by design)
 4. Push migrations to the cloud project:
    ```bash
    npx supabase login
@@ -80,11 +85,11 @@ To wipe the cloud dev project without dropping the schema, paste `supabase/reset
 
 ## What's deployed where
 
-| Component                                 | Location                         | Secret needed                                                          |
-| ----------------------------------------- | -------------------------------- | ---------------------------------------------------------------------- |
-| Client app (React + Vite)                 | Vercel edge (static)             | `SUPABASE_ANON_KEY` (baked into bundle via `import.meta.env`)          |
-| `/api/allocate-ip` (and future functions) | Vercel serverless (Node)         | `SUPABASE_SERVICE_ROLE_KEY` (runtime env var, never baked into bundle) |
-| Postgres + Realtime                       | Supabase cloud (or local Docker) | —                                                                      |
+| Component                                  | Location                         | Secret needed                                                                                |
+| ------------------------------------------ | -------------------------------- | -------------------------------------------------------------------------------------------- |
+| Client app (React + Vite)                  | Vercel edge (static)             | `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` (baked into bundle via `import.meta.env`)     |
+| `/api/allocate-ip` etc. (Vercel functions) | Vercel serverless (Node)         | `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` (runtime env vars, never baked into the bundle) |
+| Postgres + Realtime                        | Supabase cloud (or local Docker) | —                                                                                            |
 
 ## Troubleshooting
 

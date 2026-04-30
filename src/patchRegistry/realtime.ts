@@ -1,4 +1,4 @@
-import type { SupabaseClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { FileSystemPatch } from '../filesystem/types.js';
 import { toFileSystemPatch, type WirePatch } from './client.js';
 
@@ -39,4 +39,38 @@ export const subscribeToMachine = (
   return () => {
     channel.unsubscribe();
   };
+};
+
+// Lazy singleton anon-key Supabase client for browser-side subscriptions.
+// Reads VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY from the build-time
+// env. Returns null if either is missing — caller (FileSystemContext)
+// gracefully degrades to no live updates rather than crashing the app.
+//
+// Constructed lazily so unit tests that don't import this directly
+// don't pay the cost or hit env-var assertion paths. The client uses
+// the public anon key, NOT service_role — service_role lives only in
+// Vercel functions (api/patches.ts) and never ships to the browser.
+let cachedClient: SupabaseClient | null | undefined;
+let warnedAboutMissingEnv = false;
+
+export const getRealtimeClient = (): SupabaseClient | null => {
+  if (cachedClient !== undefined) return cachedClient;
+
+  const url = import.meta.env?.VITE_SUPABASE_URL as string | undefined;
+  const anonKey = import.meta.env?.VITE_SUPABASE_ANON_KEY as string | undefined;
+  if (!url || !anonKey) {
+    if (!warnedAboutMissingEnv) {
+      console.warn(
+        '[realtime] VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY missing — live cross-player updates disabled',
+      );
+      warnedAboutMissingEnv = true;
+    }
+    cachedClient = null;
+    return null;
+  }
+
+  cachedClient = createClient(url, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  return cachedClient;
 };
