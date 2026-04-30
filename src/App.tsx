@@ -10,7 +10,9 @@ import { getCachedGameState, getDatabase, resetSessionCache } from './utils/stor
 import { saveGameState, clearAllData } from './utils/storage';
 import { useHomeNetworks } from './game/useHomeNetworks';
 import { generateLocalhost } from './generation/generateLocalhost';
+import { useWorldNetworks } from './worldNetworks/useWorldNetworks';
 import type { GameState } from './game/types';
+import type { FileNode } from './filesystem/types';
 
 function GameSession({ gameState }: { readonly gameState: GameState }) {
   const { connectedWifi } = useSession();
@@ -22,12 +24,26 @@ function GameSession({ gameState }: { readonly gameState: GameState }) {
   const missionState = useMissionState(usedPublicIps);
   const localhostResult = useMemo(() => generateLocalhost(gameState), [gameState]);
 
+  // World networks (shared persistent content visible to every player —
+  // playground, future themed locales). Each network's fileSystems are
+  // merged into homeFileSystems for FileSystemProvider; the full array
+  // is passed to NetworkProvider so commands like nmap/ssh/curl can
+  // resolve their machines.
+  const worldNetworks = useWorldNetworks();
+  const mergedHomeFileSystems = useMemo(() => {
+    const base: Record<string, FileNode> = { ...(activeNetwork?.fileSystems ?? {}) };
+    for (const wn of worldNetworks) {
+      Object.assign(base, wn.fileSystems);
+    }
+    return base;
+  }, [activeNetwork?.fileSystems, worldNetworks]);
+
   return (
     <MissionProvider state={missionState} usedPublicIps={usedPublicIps}>
       <FileSystemProvider
         localhostFileSystem={localhostResult.fileSystem}
         missionFileSystems={missionState.activeMission?.fileSystems}
-        homeFileSystems={activeNetwork?.fileSystems}
+        homeFileSystems={mergedHomeFileSystems}
       >
         <NetworkProvider
           missionNetworkConfig={missionState.activeMission?.networkConfig}
@@ -37,6 +53,7 @@ function GameSession({ gameState }: { readonly gameState: GameState }) {
           }
           missionLayers={missionState.activeMission?.layers}
           homeNetwork={activeNetwork}
+          worldNetworks={worldNetworks}
         >
           <Terminal />
         </NetworkProvider>
