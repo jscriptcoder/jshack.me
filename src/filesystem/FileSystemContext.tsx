@@ -219,42 +219,52 @@ export const FileSystemProvider = ({
     propsRef.current = { localhostFileSystem, homeFileSystems, missionFileSystems };
   }, [localhostFileSystem, homeFileSystems, missionFileSystems]);
 
-  // Mount rehydration — fetch the cross-player patch set for the
-  // machines in our current view and replace local state if no local
-  // writes have happened yet. The IndexedDB cache covers fast initial
-  // paint; this useEffect performs the cross-device + cross-player sync
-  // once the network responds.
+  // Stable signature of the current machine_ids set: localhost +
+  // homeFileSystems keys + missionFileSystems keys, deduped + sorted.
+  // Used as the dep for both the rehydration fetch and the Realtime
+  // subscription effects so they re-run together when the keyset
+  // changes (mid-session WiFi crack, mission accept, world networks
+  // resolving after mount).
+  const machineIdsKey = useMemo(() => {
+    const ids = new Set<string>(['localhost']);
+    if (homeFileSystems) for (const id of Object.keys(homeFileSystems)) ids.add(id);
+    if (missionFileSystems) for (const id of Object.keys(missionFileSystems)) ids.add(id);
+    return [...ids].sort().join(',');
+  }, [homeFileSystems, missionFileSystems]);
+
+  // Tracks whether the next rehydration fetch is the very first one.
+  // The localWritesSinceMount guard (which skips server-truth
+  // replacement when the user has already typed something locally) is
+  // only honored on the initial fetch — subsequent keyset-change
+  // refetches always merge so late-loading machines (worlds, missions
+  // accepted mid-session, etc.) surface their cross-player patches.
+  const isInitialFetch = useRef(true);
+
+  // Rehydration fetch — fires on initial mount AND whenever the
+  // machine_ids keyset changes (worlds resolve after mount, mission
+  // accept, mid-session WiFi crack). The IndexedDB cache covers fast
+  // initial paint; this useEffect performs the cross-device +
+  // cross-player sync once the network responds.
   //
-  // machine_ids is computed from the props at mount time: localhost is
-  // always present; home and mission keysets are added when supplied.
-  // De-duplicated via Set in case home and mission overlap (e.g. shared
-  // public IP).
-  //
-  // Race window: a local write before listPatchesForMachines resolves
-  // sets localWritesSinceMount and we skip replacement (the local upsert
-  // is already on its way to the server fire-and-forget, the next mount
-  // will reconcile).
-  //
-  // Mid-session limitation: when home or mission filesystems mount
-  // AFTER initial rehydration (e.g. player cracks a new WiFi mid-session),
-  // those machines aren't fetched here. Cross-player patches for them
-  // surface on next page reload. Live-fetch on transition is a tracked
-  // follow-up.
+  // Race window (initial mount only): a local write before
+  // listPatchesForMachines resolves sets localWritesSinceMount and we
+  // skip replacement. The local upsert is already on its way to the
+  // server fire-and-forget; the next fetch reconciles. We deliberately
+  // don't apply this guard to keyset-change refetches — those need to
+  // populate state for newly-loaded machines, and "the user typed
+  // before any keyset change ever happened" doesn't usefully imply
+  // "all subsequent keyset changes should skip the fetch."
   useEffect(() => {
-    const props = propsRef.current;
-    const machineIds = Array.from(
-      new Set([
-        'localhost',
-        ...Object.keys(props.homeFileSystems ?? {}),
-        ...Object.keys(props.missionFileSystems ?? {}),
-      ]),
-    );
+    const wasInitial = isInitialFetch.current;
+    isInitialFetch.current = false;
+
+    const machineIds = machineIdsKey.split(',').filter(Boolean);
 
     let cancelled = false;
     void listPatchesForMachinesFromServer(getIdentity(), machineIds)
       .then((serverPatches) => {
         if (cancelled) return;
-        if (localWritesSinceMount.current) return;
+        if (wasInitial && localWritesSinceMount.current) return;
         // Replace patches state + IndexedDB cache + rebuild fileSystems
         // from the freshest layered base.
         setPatches(serverPatches);
@@ -273,14 +283,16 @@ export const FileSystemProvider = ({
         console.error('[fs] patch rehydration failed:', error);
       })
       .finally(() => {
-        if (!cancelled) setIsRehydrating(false);
+        // isRehydrating is the "first load not yet complete" flag —
+        // only flips on the initial fetch. Subsequent refetches don't
+        // toggle it (UI shouldn't re-show a rehydration spinner on
+        // every late-arriving network).
+        if (!cancelled && wasInitial) setIsRehydrating(false);
       });
     return () => {
       cancelled = true;
     };
-    // Mount-only — props are read via propsRef.current inside the .then()
-    // so we don't need them in deps.
-  }, []);
+  }, [machineIdsKey]);
 
   // Realtime: subscribe to per-machine broadcast channels for every
   // machine in the current view. Inbound `patch_change` events apply
@@ -297,13 +309,6 @@ export const FileSystemProvider = ({
   // VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY are missing. The app
   // keeps working — page-reload-driven rehydration still surfaces
   // cross-player changes.
-  const machineIdsKey = useMemo(() => {
-    const ids = new Set<string>(['localhost']);
-    if (homeFileSystems) for (const id of Object.keys(homeFileSystems)) ids.add(id);
-    if (missionFileSystems) for (const id of Object.keys(missionFileSystems)) ids.add(id);
-    return [...ids].sort().join(',');
-  }, [homeFileSystems, missionFileSystems]);
-
   useEffect(() => {
     const client = getRealtimeClient();
     if (!client) return;

@@ -77,4 +77,28 @@ describe('allocateIp', () => {
     expect(result.ok).toBe(false);
     expect(insertIp).toHaveBeenCalledOnce();
   });
+
+  // Contract tripwire: world_network IPs (seeded via the world_networks
+  // migration) are reserved in public_ips with kind='world_network'.
+  // Any allocator roll that lands on a reserved IP MUST return PK
+  // conflict and trigger a retry — otherwise world content fixtures
+  // (playground, future themed locales) could be handed out to real
+  // mission/home allocations and leak into per-player gameplay. This
+  // test pins that contract explicitly in world-network terms (the
+  // existing "retries on conflict" test covers the mechanism abstractly).
+  it('skips world_network reserved IPs via PK conflict retry', async () => {
+    const insertIp = vi
+      .fn<(row: unknown) => Promise<InsertResult>>()
+      .mockResolvedValueOnce('conflict') // 203.0.113.42 reserved in public_ips
+      .mockResolvedValueOnce('ok'); // next roll is free
+    const rollIp = vi
+      .fn<() => string>()
+      .mockReturnValueOnce('203.0.113.42')
+      .mockReturnValueOnce('51.1.2.3');
+
+    const result = await allocateIp({ kind: 'mission_instance' }, { insertIp, rollIp });
+
+    expect(result).toEqual({ ok: true, ip: '51.1.2.3' });
+    expect(insertIp).toHaveBeenCalledTimes(2);
+  });
 });
