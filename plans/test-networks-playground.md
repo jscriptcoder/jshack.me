@@ -44,18 +44,14 @@ Every step follows RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR.
 **GREEN**: Likely no production code change (existing behavior already handles this).
 **Done when**: Test passes, locks the contract.
 
-### Step 3: `GET /api/test-networks` endpoint
+### Step 3: Client wrapper that reads `test_networks` directly via the anon-key Supabase client
 
-**Acceptance criteria**: New endpoint returns `{ networks: [{ public_ip, seed, name, description }] }`. Joins `test_networks` with `public_ips` (ip → public_ip). Anon-readable (no auth). Empty list when no seeds present is `200 { networks: [] }`. DB error → 500.
-**RED**: Handler test — mock select adapter, verify response shape.
-**GREEN**: New module `src/testNetworks/handler.ts` + adapter. Wire `api/test-networks.ts` Vercel function.
-**Done when**: tests green, mutation report clean, human approves commit.
+**Acceptance criteria**: New module `src/testNetworks/client.ts` exports `listTestNetworks() → Promise<ReadonlyArray<TestNetwork>>`. Uses the existing anon-key Supabase client from `src/patchRegistry/realtime.ts` (`getRealtimeClient()`) to query `test_networks` directly — RLS already allows anon SELECT. No new Vercel function. Failures degrade gracefully (logged, returns empty array, app continues).
 
-### Step 4: Client wrapper + boot-time fetch
+This skips the traditional endpoint pattern because the data is intentionally public (RLS-allowed for anon), the table is dev-only (deleted at release), and adding a server function would just be a pass-through wrapper. The "direct anon read from client" pattern is honest about what test_networks actually is.
 
-**Acceptance criteria**: New client wrapper `listTestNetworks() → Promise<TestNetwork[]>`. Called at app boot (likely in `App.tsx` or a hook similar to `useHomeNetworks`). Failures degrade gracefully (logged, app continues without test networks).
-**RED**: Wrapper test — mock fetch, verify shape parsing.
-**GREEN**: New module `src/testNetworks/client.ts` + a hook `useTestNetworks` that fetches at mount.
+**RED**: Wrapper test — mock Supabase client, verify select call shape, verify return type, verify error handling (logs + returns []).
+**GREEN**: New file `src/testNetworks/client.ts` with the wrapper. Plus `src/testNetworks/types.ts` for the `TestNetwork` shape.
 **Done when**: tests green, mutation report clean, human approves commit.
 
 ### Step 5: Generate each test network and merge into FileSystemProvider
