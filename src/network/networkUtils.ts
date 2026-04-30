@@ -1,5 +1,10 @@
 import type { RemoteMachine } from './types';
-import type { GeneratedMachine, NatForwardingRule, SubnetLayer } from '../generation/types';
+import type {
+  GeneratedMachine,
+  MissionNetwork,
+  NatForwardingRule,
+  SubnetLayer,
+} from '../generation/types';
 import type { SnmpFirewallOverride } from './snmpFirewallParser';
 import type { AclRule } from './aclParser';
 import { isPortDeniedByAcl } from './aclParser';
@@ -153,6 +158,60 @@ export const collectGatewayIps = (
   return ips;
 };
 
+// Collects gateway IPs across all world networks (each is a full
+// MissionNetwork-shaped instance with one router + optional inner
+// gateways). Used by NetworkContext to extend gatewayIps so iptables/
+// SNMP/ACL parsers run on world routers too — without this, NAT
+// resolution wouldn't work for forwarded ports on world machines.
+export const collectWorldGatewayIps = (
+  worldNetworks: ReadonlyArray<MissionNetwork>,
+): readonly string[] => {
+  const ips: string[] = [];
+  worldNetworks.forEach((wn) => {
+    ips.push(wn.routerMachine.ip);
+    if (wn.layers.length > 1) {
+      wn.layers.slice(1).forEach((layer) => ips.push(layer.gateway.ip));
+    }
+  });
+  return ips;
+};
+
+// Builds the localhost-visible RemoteMachine view for each world
+// network's router. Mirrors buildRouterRemoteView but iterates and
+// pulls per-router rules / overrides from the gateway-keyed maps. Used
+// by NetworkContext to surface world routers in the localhost view.
+export const buildWorldRouterRemoteViews = (
+  worldNetworks: ReadonlyArray<MissionNetwork>,
+  allIptablesRules: ReadonlyMap<string, readonly NatForwardingRule[]>,
+  allSnmpOverrides: ReadonlyMap<string, readonly SnmpFirewallOverride[]>,
+): ReadonlyArray<RemoteMachine> =>
+  worldNetworks.map((wn) =>
+    buildRouterRemoteView(
+      wn.routerMachine,
+      wn.machines,
+      allIptablesRules.get(wn.routerMachine.ip) ?? [],
+      allSnmpOverrides.get(wn.routerMachine.ip) ?? [],
+    ),
+  );
+
+// Searches every world network's machineConfigs and routerMachine for
+// a matching IP. Used by findMachineByIp in NetworkContext so commands
+// like `nmap`, `ssh`, and `curl` can resolve world machine IPs the
+// same way they resolve mission/home IPs.
+export const findMachineInWorldNetworks = (
+  ip: string,
+  worldNetworks: ReadonlyArray<MissionNetwork>,
+): RemoteMachine | undefined => {
+  for (const wn of worldNetworks) {
+    const internal = Object.values(wn.networkConfig.machineConfigs)
+      .flatMap((mc) => mc.machines)
+      .find((m) => m.ip === ip);
+    if (internal) return internal;
+    if (wn.routerMachine.ip === ip) return wn.routerMachine.remoteMachine;
+  }
+  return undefined;
+};
+
 // Maps gateway .1 alias IPs to their GeneratedMachine. The border router and
 // inner gateways are visible at .1 IPs from inside the network, but their
 // GeneratedMachine uses the primary IP. This bridges the gap for merged views.
@@ -205,6 +264,15 @@ export type DynamicOverrideContext = {
   readonly missionLayers?: readonly SubnetLayer[];
   readonly homeMachines?: readonly GeneratedMachine[];
   readonly homeLayers?: readonly SubnetLayer[];
+  // World networks contribute machines + layers for daemon state
+  // lookups + gateway NAT merging. Each network's full (machines,
+  // layers) tuple is kept distinct so applyDynamicOverrides can resolve
+  // a gateway to its own network's machines (avoiding false positives
+  // from cross-network IP collisions).
+  readonly worldNetworks?: ReadonlyArray<{
+    readonly machines: readonly GeneratedMachine[];
+    readonly layers: readonly SubnetLayer[];
+  }>;
   readonly homeGatewayByAliasIp: ReadonlyMap<string, GeneratedMachine>;
   readonly readNode: NodeReader;
 };
@@ -299,6 +367,17 @@ export const applyDynamicOverrides = (
       if (homeGateway && ctx.homeMachines) {
         const merged = buildMergedRouterView(homeGateway, ctx.homeMachines, gatewayRules);
         result = { ...merged, ip: machine.ip };
+      } else {
+        // Search world networks. Each tuple is searched independently
+        // so a gateway resolves against its own network's machines —
+        // no cross-network leakage.
+        for (const wn of ctx.worldNetworks ?? []) {
+          const worldGateway = wn.machines.find((m) => m.ip === machine.ip);
+          if (worldGateway) {
+            result = buildMergedRouterView(worldGateway, wn.machines, gatewayRules);
+            break;
+          }
+        }
       }
     }
   }

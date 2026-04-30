@@ -13,8 +13,12 @@ import {
   buildMergedRouterView,
   buildRouterRemoteView,
   collectGatewayIps,
+  collectWorldGatewayIps,
   buildGatewayAliasMap,
+  buildWorldRouterRemoteViews,
+  findMachineInWorldNetworks,
 } from './networkUtils';
+import type { MissionNetwork } from '../generation/types';
 
 // -- Factories --
 
@@ -522,6 +526,36 @@ const createHomeNetwork = (overrides: Partial<HomeNetwork> = {}): HomeNetwork =>
   ...overrides,
 });
 
+const createWorldNetwork = (overrides: Partial<MissionNetwork> = {}): MissionNetwork => ({
+  seed: 'world-seed',
+  difficulty: 'easy',
+  entryPoint: '203.0.113.42',
+  entryVariant: 'ssh',
+  machines: [],
+  fileSystems: {},
+  networkConfig: { machineConfigs: {} },
+  objective: {
+    type: 'tamper',
+    description: 'unused for world networks',
+    targetMachine: '203.0.113.42',
+    targetPath: '/dev/null',
+    targetContent: '',
+    clientEmail: 'world@example.com',
+    expectedProof: '',
+  },
+  clientEmail: 'world@example.com',
+  routerPublicIp: '203.0.113.42',
+  routerMachine: createGeneratedMachine({
+    ip: '203.0.113.42',
+    hostname: 'world-router',
+    role: 'router',
+  }),
+  routerDomain: 'world.example',
+  domainEntry: false,
+  layers: [createSubnetLayer({ subnet: '10.0.0' })],
+  ...overrides,
+});
+
 describe('collectGatewayIps', () => {
   it('should return empty array when no networks provided', () => {
     expect(collectGatewayIps(undefined, undefined, null)).toEqual([]);
@@ -879,5 +913,157 @@ describe('applyDynamicOverrides', () => {
         open: true,
       }),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// World networks helpers
+// ---------------------------------------------------------------------------
+
+describe('collectWorldGatewayIps', () => {
+  it('returns an empty array when no world networks supplied', () => {
+    expect(collectWorldGatewayIps([])).toEqual([]);
+  });
+
+  it('includes each world router public IP', () => {
+    const a = createWorldNetwork({
+      routerMachine: createGeneratedMachine({ ip: '203.0.113.42', role: 'router' }),
+    });
+    const b = createWorldNetwork({
+      routerMachine: createGeneratedMachine({ ip: '203.0.113.43', role: 'router' }),
+    });
+
+    const result = collectWorldGatewayIps([a, b]);
+
+    expect(result).toEqual(expect.arrayContaining(['203.0.113.42', '203.0.113.43']));
+  });
+
+  it('includes inner gateway IPs when world networks have multiple layers', () => {
+    const inner = createGeneratedMachine({ ip: '10.0.0.50', role: 'router' });
+    const wn = createWorldNetwork({
+      layers: [
+        createSubnetLayer({ subnet: '10.0.0' }),
+        createSubnetLayer({ subnet: '10.0.1', gateway: inner }),
+      ],
+    });
+
+    const result = collectWorldGatewayIps([wn]);
+
+    expect(result).toContain('10.0.0.50');
+  });
+});
+
+describe('buildWorldRouterRemoteViews', () => {
+  it('returns an empty array when no world networks supplied', () => {
+    expect(buildWorldRouterRemoteViews([], new Map(), new Map())).toEqual([]);
+  });
+
+  it('returns one RemoteMachine view per world network router', () => {
+    const a = createWorldNetwork({
+      routerMachine: createGeneratedMachine({
+        ip: '203.0.113.42',
+        hostname: 'gw-a',
+        remoteMachine: createMachine({ ip: '203.0.113.42', hostname: 'gw-a' }),
+      }),
+    });
+    const b = createWorldNetwork({
+      routerMachine: createGeneratedMachine({
+        ip: '203.0.113.43',
+        hostname: 'gw-b',
+        remoteMachine: createMachine({ ip: '203.0.113.43', hostname: 'gw-b' }),
+      }),
+    });
+
+    const result = buildWorldRouterRemoteViews([a, b], new Map(), new Map());
+
+    expect(result).toHaveLength(2);
+    expect(result[0]?.ip).toBe('203.0.113.42');
+    expect(result[1]?.ip).toBe('203.0.113.43');
+  });
+
+  it('applies iptables NAT merge when rules exist for the world router', () => {
+    const target = createGeneratedMachine({
+      ip: '10.0.0.5',
+      remoteMachine: createMachine({
+        ip: '10.0.0.5',
+        ports: [createPort({ port: 80, service: 'http', serviceVersion: 'latest', open: true })],
+      }),
+    });
+    const wn = createWorldNetwork({
+      machines: [target],
+      routerMachine: createGeneratedMachine({
+        ip: '203.0.113.42',
+        remoteMachine: createMachine({
+          ip: '203.0.113.42',
+          ports: [createPort({ port: 22, service: 'ssh', serviceVersion: 'latest', open: false })],
+        }),
+      }),
+    });
+    const allIptablesRules = new Map<string, readonly NatForwardingRule[]>([
+      ['203.0.113.42', [{ publicPort: 8080, internalIp: '10.0.0.5', internalPort: 80 }]],
+    ]);
+
+    const result = buildWorldRouterRemoteViews([wn], allIptablesRules, new Map());
+
+    // NAT merge surfaces the forwarded port on the world router
+    expect(result[0]?.ports).toContainEqual(
+      expect.objectContaining({ port: 8080, service: 'http' }),
+    );
+  });
+});
+
+describe('findMachineInWorldNetworks', () => {
+  it('returns undefined when no world networks contain the IP', () => {
+    const wn = createWorldNetwork();
+    expect(findMachineInWorldNetworks('1.2.3.4', [wn])).toBeUndefined();
+  });
+
+  it('returns undefined when world networks list is empty', () => {
+    expect(findMachineInWorldNetworks('203.0.113.42', [])).toBeUndefined();
+  });
+
+  it('finds a machine reachable from a world network internal config', () => {
+    const internal = createMachine({ ip: '10.0.0.5', hostname: 'inner' });
+    const wn = createWorldNetwork({
+      networkConfig: {
+        machineConfigs: {
+          '10.0.0.5': { interfaces: [], machines: [internal], dnsRecords: [] },
+        },
+      },
+    });
+
+    const result = findMachineInWorldNetworks('10.0.0.5', [wn]);
+
+    expect(result?.ip).toBe('10.0.0.5');
+  });
+
+  it('finds the world router by its public IP', () => {
+    const router = createGeneratedMachine({
+      ip: '203.0.113.42',
+      remoteMachine: createMachine({ ip: '203.0.113.42', hostname: 'world-gw' }),
+    });
+    const wn = createWorldNetwork({ routerMachine: router });
+
+    const result = findMachineInWorldNetworks('203.0.113.42', [wn]);
+
+    expect(result?.ip).toBe('203.0.113.42');
+    expect(result?.hostname).toBe('world-gw');
+  });
+
+  it('searches across multiple world networks and returns the first match', () => {
+    const a = createWorldNetwork({
+      routerMachine: createGeneratedMachine({
+        ip: '203.0.113.42',
+        remoteMachine: createMachine({ ip: '203.0.113.42', hostname: 'a-gw' }),
+      }),
+    });
+    const b = createWorldNetwork({
+      routerMachine: createGeneratedMachine({
+        ip: '203.0.113.43',
+        remoteMachine: createMachine({ ip: '203.0.113.43', hostname: 'b-gw' }),
+      }),
+    });
+
+    expect(findMachineInWorldNetworks('203.0.113.43', [a, b])?.hostname).toBe('b-gw');
   });
 });

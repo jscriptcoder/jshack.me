@@ -7,7 +7,12 @@ import type {
   RemoteUser,
   DnsRecord,
 } from './types';
-import type { GeneratedMachine, NatForwardingRule, SubnetLayer } from '../generation/types';
+import type {
+  GeneratedMachine,
+  MissionNetwork,
+  NatForwardingRule,
+  SubnetLayer,
+} from '../generation/types';
 import { localhostDisconnectedInterfaces, localhostWlan0Down } from './initialNetwork';
 import type { HomeNetwork } from '../generation/generateHomeNetwork';
 import { useSession } from '../session/SessionContext';
@@ -22,8 +27,11 @@ import { parseSnmpAclConfig } from './snmpAclParser';
 import type { SnmpAclOverride } from './snmpAclParser';
 import {
   collectGatewayIps,
+  collectWorldGatewayIps,
   buildGatewayAliasMap,
   buildRouterRemoteView,
+  buildWorldRouterRemoteViews,
+  findMachineInWorldNetworks,
   applyDynamicOverrides,
   type DynamicOverrideContext,
 } from './networkUtils';
@@ -59,6 +67,10 @@ type NetworkProviderProps = {
   readonly missionRouterMachine?: GeneratedMachine;
   readonly missionLayers?: readonly SubnetLayer[];
   readonly homeNetwork?: HomeNetwork | null;
+  // World networks: persistent shared content visible to every player.
+  // Their routers + inner gateways are appended to the localhost-visible
+  // machine list so commands like nmap/ssh/curl can reach them.
+  readonly worldNetworks?: ReadonlyArray<MissionNetwork>;
 };
 
 export const NetworkProvider = ({
@@ -68,6 +80,7 @@ export const NetworkProvider = ({
   missionRouterMachine,
   missionLayers,
   homeNetwork,
+  worldNetworks,
 }: NetworkProviderProps) => {
   const { session, wifiConnected } = useSession();
   const { getNodeFromMachine } = useFileSystem();
@@ -75,8 +88,11 @@ export const NetworkProvider = ({
   const isLocalhostDisconnected = session.machine === 'localhost' && !wifiConnected;
 
   const gatewayIps = useMemo(
-    () => collectGatewayIps(missionRouterMachine, missionLayers, homeNetwork),
-    [missionRouterMachine, missionLayers, homeNetwork],
+    () => [
+      ...collectGatewayIps(missionRouterMachine, missionLayers, homeNetwork),
+      ...collectWorldGatewayIps(worldNetworks ?? []),
+    ],
+    [missionRouterMachine, missionLayers, homeNetwork, worldNetworks],
   );
 
   const homeGatewayByAliasIp = useMemo(() => buildGatewayAliasMap(homeNetwork), [homeNetwork]);
@@ -175,11 +191,22 @@ export const NetworkProvider = ({
     return [loopback, wlan0];
   }, [homeNetwork]);
 
+  // World network routers, NAT/SNMP overlays applied. Computed once and
+  // appended to the localhost-visible machine list when the player has
+  // any kind of internet reach (with-home or with-mission). Not shown
+  // in localhost-disconnected — consistent with "no internet =
+  // unreachable public IPs."
+  const worldRouterViews = useMemo(
+    () => buildWorldRouterRemoteViews(worldNetworks ?? [], allIptablesRules, allSnmpOverrides),
+    [worldNetworks, allIptablesRules, allSnmpOverrides],
+  );
+
   // Multi-tier network config resolution for the current machine:
   // 1. Mission config (if on a mission-generated machine)
   // 2. Home network config (if on a home network machine)
-  // 3. Localhost with home network → home network machines + optional mission router
-  // 4. Localhost disconnected → disconnected interfaces, no machines
+  // 3. Localhost with home network → home network machines + optional mission router + world routers
+  // 4. Localhost with mission no home → mission router + world routers
+  // 5. Localhost disconnected → disconnected interfaces, no machines (no world routers — no internet)
   const baseConfig = useMemo((): MachineNetworkConfig => {
     const missionConfig = missionNetworkConfig?.machineConfigs[session.machine];
     if (missionConfig) return missionConfig;
@@ -213,7 +240,7 @@ export const NetworkProvider = ({
 
       const homeBase: MachineNetworkConfig = {
         interfaces: localhostHomeInterfaces,
-        machines: visibleMachines,
+        machines: [...visibleMachines, ...worldRouterViews],
         dnsRecords: sampleConfig?.dnsRecords ?? [],
       };
 
@@ -242,7 +269,7 @@ export const NetworkProvider = ({
       return homeBase;
     }
 
-    // Localhost with mission but no WiFi — mission router visible
+    // Localhost with mission but no WiFi — mission router + world routers visible
     if (session.machine === 'localhost' && missionNetworkConfig && missionRouterMachine) {
       const routerRemote = buildRouterRemoteView(
         missionRouterMachine,
@@ -259,7 +286,7 @@ export const NetworkProvider = ({
       ];
       return {
         interfaces: localhostDisconnectedInterfaces,
-        machines: [routerRemote],
+        machines: [routerRemote, ...worldRouterViews],
         dnsRecords: externalDns,
       };
     }
@@ -275,6 +302,7 @@ export const NetworkProvider = ({
     missionRouterMachine,
     homeNetwork,
     localhostHomeInterfaces,
+    worldRouterViews,
   ]);
 
   // Dynamic overrides: for each visible machine, apply gateway enhancements
@@ -289,6 +317,10 @@ export const NetworkProvider = ({
       missionLayers,
       homeMachines: homeNetwork?.machines,
       homeLayers: homeNetwork?.layers,
+      worldNetworks: worldNetworks?.map((wn) => ({
+        machines: wn.machines,
+        layers: wn.layers,
+      })),
       homeGatewayByAliasIp,
       readNode: getNodeFromMachine,
     }),
@@ -300,6 +332,7 @@ export const NetworkProvider = ({
       missionMachines,
       missionLayers,
       homeNetwork,
+      worldNetworks,
       homeGatewayByAliasIp,
       getNodeFromMachine,
     ],
@@ -408,10 +441,11 @@ export const NetworkProvider = ({
     [homeNetwork, missionNetworkConfig, missionRouterMachine],
   );
 
-  // Searches for a machine by IP across all network configs (home + mission).
-  // Unlike getMachine which only returns machines visible from the current position,
-  // this searches globally — needed for NAT-forwarded SSH where the resolved target
-  // is behind a gateway and not directly visible.
+  // Searches for a machine by IP across all network configs (home +
+  // mission + world). Unlike getMachine which only returns machines
+  // visible from the current position, this searches globally — needed
+  // for NAT-forwarded SSH where the resolved target is behind a gateway
+  // and not directly visible.
   const findMachineByIp = useCallback(
     (ip: string): RemoteMachine | undefined => {
       const searchConfigs = (networkConfig: NetworkConfig): RemoteMachine | undefined =>
@@ -437,9 +471,12 @@ export const NetworkProvider = ({
         return homeNetwork.routerMachine.remoteMachine;
       }
 
+      const worldMatch = findMachineInWorldNetworks(ip, worldNetworks ?? []);
+      if (worldMatch) return worldMatch;
+
       return undefined;
     },
-    [homeNetwork, missionNetworkConfig, missionRouterMachine],
+    [homeNetwork, missionNetworkConfig, missionRouterMachine, worldNetworks],
   );
 
   // Port-aware NAT resolution: translates any gateway's IP + port to the
