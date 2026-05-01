@@ -11,7 +11,7 @@ import { bytesToHex } from '../identity/hex.js';
 // pairwise collision probability under 0.05% in 8-slot LANs while leaving
 // the suffix short enough for humans to read.
 //
-// See plans/home-network-occupants.md (Design Decisions §2) for rationale.
+// See README.md "Design rules" for the full rationale.
 
 export const deriveHostnameSuffix = (playerKey: string): string => {
   const bytes = new TextEncoder().encode(playerKey);

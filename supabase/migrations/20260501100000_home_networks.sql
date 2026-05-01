@@ -5,7 +5,7 @@
 -- occupants. The occupant table is the source of truth for "which slot do
 -- I own on this LAN" — the join endpoint is idempotent against it.
 --
--- See plans/home-network-occupants.md for the full design and the rationale
+-- See src/homeNetworks/README.md for the full design and the rationale
 -- behind: identity-derived hostname suffixes, random-within-range slot
 -- allocation, and idempotent join semantics.
 --

@@ -12,8 +12,7 @@ import type { Prng } from '../generation/prng';
 //
 // Flat range across all density tiers is deliberate: a tier-narrowed
 // range would leak crowdedness information from the assigned IP to anyone
-// observing it. See plans/home-network-occupants.md (Out of Scope §
-// Tier-influenced LAN address ranges).
+// observing it. See README.md "Design rules" for the full rationale.
 
 export const pickRandomLanIp = (prng: Prng): string => {
   return `.${prng.nextInt(10, 250)}`;
