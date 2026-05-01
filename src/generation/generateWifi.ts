@@ -1,4 +1,5 @@
 import type { WifiNetwork, WifiTier } from '../network/wifiNetworks';
+import { bssidFromEssid } from '../network/bssidFromEssid';
 import { createPrng } from './prng';
 import { secrets } from '../secrets/__encoded';
 
@@ -136,11 +137,6 @@ export const noiseEssidPool: readonly string[] = [
   'BROTHER-PRINTER',
 ];
 
-const generateMac = (prng: ReturnType<typeof createPrng>): string => {
-  const hex = () => prng.nextInt(0, 255).toString(16).padStart(2, '0').toUpperCase();
-  return `${hex()}:${hex()}:${hex()}:${hex()}:${hex()}:${hex()}`;
-};
-
 const allChannels: readonly number[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 
 type NoiseReason = 'wpa3' | 'weak-signal' | 'hidden';
@@ -164,7 +160,8 @@ export const generateWifiNetworks = (seed: string): readonly WifiNetwork[] => {
   };
 
   const crackable: readonly WifiNetwork[] = pickedEntries.map((entry, i) => ({
-    bssid: generateMac(prng),
+    // BSSID derived from ESSID — same AP across all players who see it.
+    bssid: bssidFromEssid(entry.essid),
     essid: entry.essid,
     power: prng.nextInt(-65, -35),
     channel: pickChannel(),
@@ -182,7 +179,10 @@ export const generateWifiNetworks = (seed: string): readonly WifiNetwork[] => {
     const reason = prng.pick(noiseReasons);
     const isHidden = reason === 'hidden';
     return {
-      bssid: generateMac(prng),
+      // Derive from the ORIGINAL essid (before the `<hidden>` placeholder
+      // is substituted) — otherwise every hidden entry would collide on
+      // the same BSSID.
+      bssid: bssidFromEssid(essid),
       essid: isHidden ? '<hidden>' : essid,
       power: reason === 'weak-signal' ? prng.nextInt(-95, -81) : prng.nextInt(-78, -65),
       channel: pickChannel(),
