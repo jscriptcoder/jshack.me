@@ -126,8 +126,10 @@ DNAT rules, so `resolveNat` is a no-op).
 1. **Terminal.tsx** and **useNetworkCommands.ts** instantiate the handler factories from `handlers/` with their dependencies
 2. Commands trigger the handlers on auth / exploit / connect / HTTP events
 3. Each handler resolves NAT and source IP, builds a formatted log line, and calls `appendToMachineLog`
-4. `appendToMachineLog` reads the existing log file (as root), appends the new line, and writes back
+4. `appendToMachineLog` reads the existing log file (as root), appends the new line(s), and writes back
 5. If the log file doesn't exist, it's created with world-readable permissions
+
+`appendToMachineLog` accepts either a single string or `readonly string[]`. **Use the array form whenever a handler needs to emit more than one line in the same React tick** (e.g. `hydraLog.ts` emits an aggregate brute-force line plus per-success login lines). All lines are joined with `\n` and committed as a single read-modify-write so the underlying filesystem patch upserts atomically. Two separate `appendToMachineLog` calls in one tick race: both see the same pre-batch state and the second write clobbers the first via the `(player_key, machine_id, path)` upsert key.
 
 ## Persistence
 

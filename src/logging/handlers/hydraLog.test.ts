@@ -21,8 +21,10 @@ const makeDeps = (overrides: Partial<HydraLogDeps> = {}): HydraLogDeps => ({
 });
 
 // Helper: read back what the handler wrote to a given log file path.
-// The handler calls createFileOnMachine for the first write and
-// writeFileToMachine for subsequent appends on the same file.
+// The handler now composes all lines per (machineId, path) and calls
+// appendToMachineLog once, so each path produces a single fs op (create
+// when the file is new, write when it already exists). Multiple lines for
+// the same path land inside that op's `content` joined with `\n`.
 const writesTo = (
   logFs: ReturnType<typeof makeLogFs>,
   path: string,
@@ -59,10 +61,11 @@ describe('createHydraLogHandler', () => {
       );
 
       const writes = writesTo(logFs, '/var/log/auth.log');
-      expect(writes).toHaveLength(2); // 1 aggregate + 1 success
+      expect(writes).toHaveLength(1); // aggregate + per-success composed in one append
       expect(writes[0]!.content).toMatch(
         /Brute-force attempt.*384 authentication failures, 1 accepted/,
       );
+      expect(writes[0]!.content).toMatch(/Accepted password for guest/);
     });
 
     it('writes one Accepted password line per cracked user', () => {
@@ -112,8 +115,9 @@ describe('createHydraLogHandler', () => {
       );
 
       const writes = writesTo(logFs, '/var/log/vsftpd.log');
-      expect(writes).toHaveLength(2);
+      expect(writes).toHaveLength(1);
       expect(writes[0]!.content).toMatch(/BRUTE FORCE.*256 login attempts, 1 successful/);
+      expect(writes[0]!.content).toMatch(/OK LOGIN.*user "ftpuser"/);
     });
 
     it('writes one OK LOGIN line per cracked user', () => {
@@ -153,8 +157,9 @@ describe('createHydraLogHandler', () => {
       );
 
       const writes = writesTo(logFs, '/var/log/mysql.log');
-      expect(writes).toHaveLength(2);
+      expect(writes).toHaveLength(1);
       expect(writes[0]!.content).toMatch(/Brute-force attempt.*128 attempts, 1 accepted/);
+      expect(writes[0]!.content).toMatch(/Connect.*webapp@/);
     });
 
     it('looks up database name from the backend data.json for the Connect line', () => {
@@ -193,10 +198,11 @@ describe('createHydraLogHandler', () => {
       );
 
       const writes = writesTo(logFs, '/var/log/redis.log');
-      expect(writes).toHaveLength(2);
+      expect(writes).toHaveLength(1);
       expect(writes[0]!.content).toMatch(
         /brute-force attempt.*60 password attempts, 1 authenticated/,
       );
+      expect(writes[0]!.content).toMatch(/authenticated successfully/);
     });
 
     it('writes an authenticated successfully line on crack', () => {
@@ -249,10 +255,11 @@ describe('createHydraLogHandler', () => {
       );
 
       const writes = writesTo(logFs, '/var/log/syslog');
-      expect(writes).toHaveLength(2);
+      expect(writes).toHaveLength(1);
       expect(writes[0]!.content).toMatch(
         /Brute-force community string attempt.*12 probed, 1 found/,
       );
+      expect(writes[0]!.content).toMatch(/Community string "private" accessed/);
     });
 
     it('writes a Community string accessed line per discovered community', () => {
@@ -297,6 +304,45 @@ describe('createHydraLogHandler', () => {
 
       const writes = writesTo(logFs, '/var/log/auth.log');
       writes.forEach((w) => expect(w.machineId).toBe('10.0.1.20'));
+    });
+  });
+
+  describe('atomic burst', () => {
+    // Regression: hydra previously emitted aggregate + per-success lines as
+    // two separate appendToMachineLog calls in one React tick. Both reads
+    // observed the same pre-batch state and both writes upserted the same
+    // (player_key, machine_id, path) row, so the second call clobbered the
+    // first. Now hydra composes all lines and appends once. This pins that
+    // contract: one fs op per (machineId, path), regardless of how many
+    // success lines fire.
+    it('emits a single fs op per log path even with many cracked credentials', () => {
+      const logFs = makeLogFs();
+      const handler = createHydraLogHandler(makeDeps({ logFs }));
+
+      handler(
+        bruteForceInfo({
+          service: 'ssh',
+          successes: [
+            { username: 'alice', password: 'a' },
+            { username: 'bob', password: 'b' },
+            { username: 'carol', password: 'c' },
+            { username: 'dave', password: 'd' },
+          ],
+        }),
+      );
+
+      const totalCalls =
+        logFs.createFileOnMachine.mock.calls.length + logFs.writeFileToMachine.mock.calls.length;
+      expect(totalCalls).toBe(1);
+
+      const writes = writesTo(logFs, '/var/log/auth.log');
+      expect(writes).toHaveLength(1);
+      const content = writes[0]!.content;
+      expect(content).toMatch(/Brute-force attempt/);
+      expect(content).toMatch(/Accepted password for alice/);
+      expect(content).toMatch(/Accepted password for bob/);
+      expect(content).toMatch(/Accepted password for carol/);
+      expect(content).toMatch(/Accepted password for dave/);
     });
   });
 
