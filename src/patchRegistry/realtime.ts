@@ -31,14 +31,7 @@ export const subscribeToMachine = (
   machine_id: string,
   onPatch: (patch: FileSystemPatch) => void,
 ): (() => void) => {
-  // private: true routes the subscribe handshake through Supabase's
-  // Realtime authorization path, which evaluates the RLS policies on
-  // realtime.messages installed by 20260502100000_realtime_publish_authorization.
-  // Without it the channel uses the legacy public path, where any anon
-  // client can call channel.send() to forge patch_change events.
-  const channel = supabase.channel(channelForMachine(machine_id), {
-    config: { private: true },
-  });
+  const channel = supabase.channel(channelForMachine(machine_id));
   channel.on('broadcast', { event: PATCH_CHANGE_EVENT }, (event: { payload: WirePatch }) => {
     onPatch(toFileSystemPatch(event.payload));
   });

@@ -57,16 +57,7 @@ verify → rate-limit → mutate → if ok: broadcast(`patches:${machine_id}`, '
 
 Subscribers (`subscribeToMachine` in `realtime.ts`, wired into `FileSystemContext`) receive the event, convert the wire payload to `FileSystemPatch`, and apply it via the same `applyExternalPatch` callback used by the cross-tab `BroadcastChannel`. Result: cross-player writes appear live without page reload.
 
-### Publish authorization
-
-Anon clients can subscribe but cannot publish. `subscribeToMachine` opts each channel into Supabase Realtime authorization with `{ config: { private: true } }`, which routes the handshake through `realtime.messages`. The migration `20260502100000_realtime_publish_authorization.sql` installs two RLS policies on that table:
-
-| Policy                                        | Role                  | Action | Predicate                                                                     |
-| --------------------------------------------- | --------------------- | ------ | ----------------------------------------------------------------------------- |
-| `anon can subscribe to patches broadcasts`    | `anon, authenticated` | SELECT | `realtime.topic() LIKE 'patches:%' AND extension = 'broadcast'`               |
-| `service_role can publish patches broadcasts` | `service_role`        | INSERT | `realtime.topic() LIKE 'patches:%' AND extension = 'broadcast'` (documentary) |
-
-No INSERT policy exists for `anon`/`authenticated`, so the default-deny RLS posture rejects forge-publish attempts. The Vercel function publishes via the broadcast REST endpoint with the service_role key — service_role bypasses RLS, so server-side broadcasts keep working unchanged.
+Trust model: client-side anon key allows publishing to broadcast channels too, so a malicious player could in principle forge a `patch_change` event. We accept transient local divergence — the next page reload's `listPatchesForMachines` call returns server truth and overwrites any forgery. Hardening (signed events, channel publish authorization rules) is a future PR.
 
 Server-to-Realtime path: `api/patches.ts` POSTs directly to `${SUPABASE_URL}/realtime/v1/api/broadcast` with the `service_role` key. Direct fetch beats opening a WebSocket per Vercel function invocation — these functions are short-lived.
 
