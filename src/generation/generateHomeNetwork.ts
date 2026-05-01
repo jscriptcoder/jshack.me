@@ -72,8 +72,18 @@ export type GenerateHomeNetworkParams = {
   readonly usedIps?: ReadonlySet<string>;
   // Server-side IP allocator seam. When provided, the router IP comes
   // from the registry (`/api/allocate-ip` flow) instead of a local PRNG
-  // roll. Used by the multiplayer join flow.
+  // roll. Used by the single-player generation pipeline that needs a
+  // unique IP allocated at generation time.
   readonly allocateIp?: (kind: 'home_network') => Promise<string>;
+  // Pre-allocated router public IP, supplied by the multiplayer join
+  // handler (`/api/join-home-network` returns it as `result.public_ip`).
+  // Takes precedence over `allocateIp` — the server has already done
+  // the allocation and stored it in `home_networks.public_ip`. Without
+  // this override the local PRNG would derive a different value than
+  // the server's row, and any cross-player flow keyed on the public
+  // IP (occupant lookups, WAN-side curl/nmap to the router) would
+  // miss because clients query the wrong network_id.
+  readonly routerPublicIp?: string;
 };
 
 export const generateHomeNetwork = async (
@@ -87,7 +97,11 @@ export const generateHomeNetwork = async (
   // Only affects multi-layer networks (medium/hard difficulty).
   const switchGateway = prng.next() < 0.4;
 
-  const routerPublicIp = allocateIp ? await allocateIp('home_network') : undefined;
+  // Resolution order: explicit override (multiplayer — server already
+  // allocated) > allocateIp callback (single-player generation pipeline)
+  // > undefined (PRNG rolls one inside generateNetwork).
+  const routerPublicIp =
+    params.routerPublicIp ?? (allocateIp ? await allocateIp('home_network') : undefined);
 
   const network = await generateNetwork({
     prng,

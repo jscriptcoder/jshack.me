@@ -45,6 +45,23 @@ export type HandlerDeps = {
   // 'exhausted' bucket).
   readonly allocatePublicIp: () => Promise<string | null>;
   readonly pickLanIp: () => string;
+  // Realtime hint broadcast: fired after a successful occupant INSERT
+  // so subscribed clients on the same LAN refetch live. The payload is
+  // just (network_id, originator_key) — receivers do the actual data
+  // fetch via listOccupants. Forging the hint cannot corrupt UI state
+  // because there's no row content to inject. Fire-and-forget —
+  // broadcast failures are swallowed inside publishOccupantChange and
+  // don't affect the HTTP response.
+  //
+  // Optional: tests + alternate adapters that don't care about
+  // broadcasts can skip wiring the dep. NOT called on the idempotent
+  // existing-row return (nothing changed) or on any failure path
+  // (lan_ip_conflict-exhausted, hostname_conflict, insert error,
+  // ip_allocation_exhausted).
+  //
+  // See homeNetworks/broadcast.ts and project_realtime_publish_-
+  // authorization memory.
+  readonly publishOccupantChange?: (network_id: string, originator_key: string) => Promise<void>;
   readonly rateLimiter: RateLimiter;
   readonly nonceStore: NonceStore;
   readonly now?: () => number;
@@ -150,6 +167,12 @@ export const handleJoinHomeNetworkRequest = async (
     };
     const result = await deps.insertOccupant(occupant);
     if (result === 'ok') {
+      // Realtime hint: notify other LAN occupants that membership
+      // changed. Receivers refetch via listOccupants for authoritative
+      // state. Self-skip uses originator_key === own player_key.
+      if (deps.publishOccupantChange) {
+        await deps.publishOccupantChange(network.public_ip, playerKey);
+      }
       return {
         status: 200,
         body: {
