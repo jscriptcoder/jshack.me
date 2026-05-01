@@ -86,6 +86,29 @@ describe('generateWifiNetworks', () => {
       noise.some((n) => n.essid === '<hidden>');
     expect(hasVariety).toBe(true);
   });
+
+  it('produces the same BSSID for the same crackable ESSID across different seeds', () => {
+    // Cross-seed search: find a crackable ESSID that appears in two
+    // different seed rolls, and assert both rolls produced the same
+    // BSSID. With 50 templates and ~2-3 picks per seed, we'll usually
+    // hit a match within the first handful of seeds.
+    const seedA = 'cross-seed-a';
+    const aCrackable = generateWifiNetworks(seedA).filter((n) => n.crackable);
+    let matched = false;
+    for (let i = 0; i < 50; i++) {
+      const otherCrackable = generateWifiNetworks(`cross-seed-other-${i}`).filter(
+        (n) => n.crackable,
+      );
+      for (const a of aCrackable) {
+        const b = otherCrackable.find((n) => n.essid === a.essid);
+        if (!b) continue;
+        expect(b.bssid).toBe(a.bssid);
+        matched = true;
+      }
+      if (matched) break;
+    }
+    expect(matched).toBe(true);
+  });
 });
 
 describe('crackableEssidPool', () => {
