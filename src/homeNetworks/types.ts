@@ -48,13 +48,19 @@ export type HomeNetworkOccupantRow = {
   readonly hostname: string;
 };
 
-// Response payload returned to the client on a successful join.
-export type JoinResult = {
-  readonly public_ip: string;
-  readonly lan_ip: string;
-  readonly hostname: string;
-  readonly network_seed: string;
-};
+// Response payload returned to the client on a successful join. Schema is
+// the source of truth — derive the type so the client wrapper can validate
+// untrusted server responses with the same shape the handler returns.
+export const joinResultSchema = z
+  .object({
+    public_ip: z.string(),
+    lan_ip: z.string(),
+    hostname: z.string(),
+    network_seed: z.string(),
+  })
+  .strict();
+
+export type JoinResult = z.infer<typeof joinResultSchema>;
 
 // Outcome of attempting one occupant INSERT. The storage adapter (Step 4)
 // classifies Postgres unique-constraint violations into these buckets so
