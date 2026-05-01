@@ -86,18 +86,6 @@ export type ListPatchesForMachinesPayload = z.infer<
   typeof listPatchesForMachinesSignedPayloadSchema
 >;
 
-// clearTransientPatches — DELETE WHERE machine_id <> 'localhost'. Fired
-// on mission/home scene transitions; mirrors the existing PERSISTENT_-
-// MACHINE_KEYS filter in FileSystemContext.tsx.
-export const clearTransientPatchesSignedPayloadSchema = z
-  .object({
-    action: z.literal('clearTransientPatches'),
-    ...baseEnvelopeFields,
-  })
-  .strict();
-
-export type ClearTransientPatchesPayload = z.infer<typeof clearTransientPatchesSignedPayloadSchema>;
-
 // clearOwnedPatches — DELETE WHERE player_key=me AND machine_id='localhost'.
 // Fired by `reset confirm` before page reload, wiping the player's own
 // localhost patches without touching the shared world.
@@ -123,7 +111,6 @@ export const patchesSignedPayloadSchema = z.discriminatedUnion('action', [
   upsertPatchSignedPayloadSchema,
   removePatchSignedPayloadSchema,
   listPatchesForMachinesSignedPayloadSchema,
-  clearTransientPatchesSignedPayloadSchema,
   clearOwnedPatchesSignedPayloadSchema,
 ]);
 
@@ -175,6 +162,25 @@ export type PatchSummary = {
   readonly permissions: FilePermissions | null;
   readonly is_new: boolean;
   readonly node_type: NodeType;
+};
+
+// Realtime broadcast payload — a HINT, not a full patch. After every
+// successful upsertPatch / removePatch the server publishes
+// `{ machine_id, originator_key }` on `patches:<machine_id>`. Receivers
+// trigger a `listPatchesForMachines` refetch to obtain authoritative
+// state for the affected machine; receivers whose `originator_key`
+// matches their own pubkey skip the refetch (their local optimistic
+// apply + cross-tab BroadcastChannel already covered it).
+//
+// Why a hint, not the full payload: the broadcast channel is anon-
+// publishable from the browser bundle, so any client could forge a
+// `patch_change` event with fake content. By shipping only "something
+// changed" + "who changed it", forgery becomes harmless — a forged
+// hint just causes a refetch that returns server truth. See
+// project_realtime_publish_authorization memory for the threat model.
+export type PatchHint = {
+  readonly machine_id: string;
+  readonly originator_key: string;
 };
 
 // Cross-player read params. Caller (handler) supplies:

@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
 import { subscribeToMachine } from './realtime';
-import type { FileSystemPatch } from '../filesystem/types';
 
 // Mock supabase client shape we depend on. The real SupabaseClient
 // has a much wider surface, but the helper only touches `.channel()`
@@ -32,23 +31,15 @@ const makeMocks = () => {
   return { supabase, channel };
 };
 
-const wirePayload = {
-  machine_id: '10.0.0.1',
-  path: '/etc/hosts',
-  content: 'shared world',
-  owner: 'root' as const,
-  permissions: null,
-  is_new: false,
-  node_type: 'file' as const,
-};
+const ORIGINATOR_KEY = 'aa'.repeat(32);
 
 describe('subscribeToMachine', () => {
   it('creates a channel named "patches:<machine_id>"', () => {
     const { supabase } = makeMocks();
-    const onPatch = vi.fn();
+    const onHint = vi.fn();
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    subscribeToMachine(supabase as any, '10.0.0.1', onPatch);
+    subscribeToMachine(supabase as any, '10.0.0.1', onHint);
 
     expect(supabase.channel).toHaveBeenCalledWith('patches:10.0.0.1');
   });
@@ -84,60 +75,50 @@ describe('subscribeToMachine', () => {
     expect(channel.subscribe).toHaveBeenCalled();
   });
 
-  it('invokes onPatch with the converted FileSystemPatch when the broadcast fires', () => {
+  it('invokes onHint with { machineId, originatorKey } when the broadcast fires', async () => {
+    // Wire shape (snake_case from the server) → client shape (camelCase).
+    // No content / path / owner — hint-only design. See
+    // project_realtime_publish_authorization memory.
     const { supabase, channel } = makeMocks();
-    const onPatch = vi.fn();
+    const onHint = vi.fn();
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    subscribeToMachine(supabase as any, '10.0.0.1', onPatch);
+    subscribeToMachine(supabase as any, '10.0.0.1', onHint);
 
     // Pull out the registered broadcast callback and trigger it
     const broadcastCallback = channel.on.mock.calls[0][2] as (event: {
-      readonly payload: typeof wirePayload;
-    }) => void;
-    broadcastCallback({ payload: wirePayload });
-
-    const expected: FileSystemPatch = {
-      machineId: '10.0.0.1',
-      path: '/etc/hosts',
-      content: 'shared world',
-      owner: 'root',
-    };
-    expect(onPatch).toHaveBeenCalledWith(expected);
-  });
-
-  it('preserves wire→client conversion (is_new=true → isNew=true; node_type="directory" → nodeType="directory")', () => {
-    const { supabase, channel } = makeMocks();
-    const onPatch = vi.fn();
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    subscribeToMachine(supabase as any, '10.0.0.1', onPatch);
-
-    const broadcastCallback = channel.on.mock.calls[0][2] as (event: {
-      readonly payload: Record<string, unknown>;
+      readonly payload: { readonly machine_id: string; readonly originator_key: string };
     }) => void;
     broadcastCallback({
-      payload: {
-        machine_id: '10.0.0.1',
-        path: '/srv/data',
-        content: null,
-        owner: 'root',
-        permissions: null,
-        is_new: true,
-        node_type: 'directory',
-      },
+      payload: { machine_id: '10.0.0.1', originator_key: ORIGINATOR_KEY },
     });
 
-    expect(onPatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        machineId: '10.0.0.1',
-        path: '/srv/data',
-        content: null,
-        owner: 'root',
-        isNew: true,
-        nodeType: 'directory',
-      }),
-    );
+    expect(onHint).toHaveBeenCalledWith({
+      machineId: '10.0.0.1',
+      originatorKey: ORIGINATOR_KEY,
+    });
+  });
+
+  it('preserves machine_id and originator_key through the wire→client conversion', () => {
+    // Mutation-kill: a mutant that swapped the two fields, dropped
+    // either, or substituted a constant should fail this test.
+    const { supabase, channel } = makeMocks();
+    const onHint = vi.fn();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    subscribeToMachine(supabase as any, '10.0.0.5', onHint);
+
+    const broadcastCallback = channel.on.mock.calls[0][2] as (event: {
+      readonly payload: { readonly machine_id: string; readonly originator_key: string };
+    }) => void;
+    broadcastCallback({
+      payload: { machine_id: '10.0.0.5', originator_key: 'cc'.repeat(32) },
+    });
+
+    expect(onHint).toHaveBeenCalledWith({
+      machineId: '10.0.0.5',
+      originatorKey: 'cc'.repeat(32),
+    });
   });
 
   it('returned function calls channel.unsubscribe() when invoked', () => {

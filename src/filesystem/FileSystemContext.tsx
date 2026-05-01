@@ -29,9 +29,8 @@ import {
   upsertPatch as upsertPatchOnServer,
   removePatch as removePatchOnServer,
   listPatchesForMachines as listPatchesForMachinesFromServer,
-  clearTransientPatches as clearTransientPatchesOnServer,
 } from '../patchRegistry/client';
-import { getRealtimeClient, subscribeToMachine } from '../patchRegistry/realtime';
+import { getRealtimeClient, subscribeToMachine, type PatchHint } from '../patchRegistry/realtime';
 import {
   resolvePath as resolvePathUtil,
   getNodeAtPath,
@@ -116,6 +115,63 @@ const FileSystemContext = createContext<FileSystemContextValue | null>(null);
 // Only localhost persists across WiFi/mission transitions
 const PERSISTENT_MACHINE_KEYS = new Set(['localhost']);
 
+// Debounce window for Realtime hint refetches. Multiple hints arriving
+// within this window coalesce into a single listPatchesForMachines
+// call covering all affected machines. Tuned for "feels live" cross-
+// player updates (~150ms is below the human eye's continuous-motion
+// threshold of ~200ms) while still batching simultaneous edits.
+const HINT_REFETCH_DEBOUNCE_MS = 150;
+
+// Debounce window for the rehydration fetch. The machineIdsKey changes
+// 2-3 times during initial mount as different providers resolve at
+// different times (HomeNetworksContext + WorldNetworks ~immediate from
+// cache; MissionProvider ~seconds later from server). Without
+// debouncing, each keyset change spawns its own listPatchesForMachines
+// round-trip, and the first 1-2 fetches are wasted (the next-arriving
+// keyset's fetch supersedes them). 150ms coalesces the home/world
+// arrivals; mission state typically arrives well past this window
+// and gets its own fetch (which is correct — we couldn't have known
+// to wait for it).
+//
+// Initial paint is unaffected — the IndexedDB cache (read synchronously
+// in the FileSystemProvider's useState initializer) covers the gap
+// before the server's authoritative response.
+const REHYDRATION_DEBOUNCE_MS = 150;
+
+// Pure reducer: apply a single FileSystemPatch onto a patches list.
+// Used by every path that mutates the patches list — local writes
+// (broadcastAndRecordPatch), cross-tab BroadcastChannel arrivals
+// (applyExternalPatch), and hint-refetch pending-write replay
+// (refetchMachines). Centralizes the null-content / isNew /
+// descendant-cleanup branching so all three paths stay in sync.
+//
+//   content !== null              → upsert the patch (write/create)
+//   content === null && isNew     → drop the patch + descendants
+//                                   (created-via-patch file deleted;
+//                                    no tombstone needed since the row
+//                                    never reflected base FS state)
+//   content === null && !isNew    → drop descendants, then upsert the
+//                                   null-marker (base file deletion)
+const applyPatchToList = (
+  prev: readonly FileSystemPatch[],
+  patch: FileSystemPatch,
+): readonly FileSystemPatch[] => {
+  if (patch.content !== null) return upsertPatch(prev, patch);
+
+  const existing = prev.find((p) => p.machineId === patch.machineId && p.path === patch.path);
+  const deletedPrefix = patch.path.endsWith('/') ? patch.path : patch.path + '/';
+  const withoutChildren = prev.filter(
+    (p) => !(p.machineId === patch.machineId && p.path.startsWith(deletedPrefix)),
+  );
+
+  if (existing?.isNew) {
+    return withoutChildren.filter(
+      (p) => !(p.machineId === patch.machineId && p.path === patch.path),
+    );
+  }
+  return upsertPatch(withoutChildren, patch);
+};
+
 type FileSystemProviderProps = {
   readonly children: ReactNode;
   readonly localhostFileSystem: FileNode;
@@ -162,31 +218,38 @@ export const FileSystemProvider = ({
   // the FileSystemContextValue.flushPendingPatches doc-comment.
   const pendingPatchesRef = useRef<Set<Promise<unknown>>>(new Set());
 
-  // Apply a patch that originated outside this React tree — from another
-  // tab via BroadcastChannel, or from another player via Supabase
-  // Realtime. Updates fileSystems + patches state. Idempotent: applying
-  // the same patch twice produces the same result (applyPatches reduce
-  // is order-deterministic, the patches state is keyed by
-  // (machineId, path) via upsertPatch).
+  // In-flight LOCAL writes, keyed by `${machineId}::${path}` →
+  // FileSystemPatch. A patch enters when broadcastAndRecordPatch dispatches
+  // its server POST; it leaves on POST settle (success or failure). Used by
+  // hint-driven refetches to replay pending writes on top of the
+  // server-truth result, so a cross-player edit on the same machine
+  // doesn't clobber what the user just typed but hasn't yet persisted.
+  // Without this, race scenario:
+  //   1. I type "abc" optimistically; POST in flight
+  //   2. Player B writes elsewhere on same machine; their server hint
+  //      arrives with a different originator_key, so I refetch
+  //   3. My refetch returns server state without my "abc"
+  //   4. Without replay, my local "abc" gets overwritten by truth
+  // Replay reapplies the pending patch on top, preserving local state
+  // until the POST settles and the next refetch sees server agreement.
+  const pendingWritesRef = useRef<Map<string, FileSystemPatch>>(new Map());
+
+  // Pending machine_ids queued for hint-driven refetch. Multiple hints
+  // within the debounce window accumulate here and get flushed in one
+  // listPatchesForMachines call.
+  const pendingHintMachinesRef = useRef<Set<string>>(new Set());
+  // Active debounce timer for hint refetch. Cleared on cleanup.
+  const hintDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Apply a patch that originated outside this React tree — currently
+  // only from another tab via BroadcastChannel (cross-tab same-identity
+  // sync). Realtime cross-player updates flow through the hint-refetch
+  // path (handlePatchHint below) instead, which fetches authoritative
+  // server state rather than trusting an unsignable broadcast payload.
+  // Idempotent: applying the same patch twice produces the same result.
   const applyExternalPatch = useCallback((patch: FileSystemPatch) => {
     setFileSystems((prev) => applyPatches(prev, [patch]));
-    setPatches((prev) => {
-      if (patch.content !== null) return upsertPatch(prev, patch);
-
-      const existing = prev.find((p) => p.machineId === patch.machineId && p.path === patch.path);
-      const deletedPrefix = patch.path.endsWith('/') ? patch.path : patch.path + '/';
-      const withoutChildren = prev.filter(
-        (p) => !(p.machineId === patch.machineId && p.path.startsWith(deletedPrefix)),
-      );
-
-      if (existing?.isNew) {
-        return withoutChildren.filter(
-          (p) => !(p.machineId === patch.machineId && p.path === patch.path),
-        );
-      }
-
-      return upsertPatch(withoutChildren, patch);
-    });
+    setPatches((prev) => applyPatchToList(prev, patch));
   }, []);
 
   // Subscribe to filesystem patches from other tabs in the same browser.
@@ -246,6 +309,13 @@ export const FileSystemProvider = ({
   // initial paint; this useEffect performs the cross-device +
   // cross-player sync once the network responds.
   //
+  // Debounced via REHYDRATION_DEBOUNCE_MS so the rapid keyset changes
+  // during initial mount (home/world arrive ~immediately, then mission
+  // ~seconds later) don't spawn a wasted localhost-only fetch first.
+  // isInitialFetch.current is flipped INSIDE the timer callback so a
+  // cancelled-before-fire fetch doesn't burn the "initial" marker —
+  // the next surviving fetch still runs as the initial one.
+  //
   // Race window (initial mount only): a local write before
   // listPatchesForMachines resolves sets localWritesSinceMount and we
   // skip replacement. The local upsert is already on its way to the
@@ -255,50 +325,107 @@ export const FileSystemProvider = ({
   // before any keyset change ever happened" doesn't usefully imply
   // "all subsequent keyset changes should skip the fetch."
   useEffect(() => {
-    const wasInitial = isInitialFetch.current;
-    isInitialFetch.current = false;
-
     const machineIds = machineIdsKey.split(',').filter(Boolean);
 
     let cancelled = false;
-    void listPatchesForMachinesFromServer(getIdentity(), machineIds)
-      .then((serverPatches) => {
-        if (cancelled) return;
-        if (wasInitial && localWritesSinceMount.current) return;
-        // Replace patches state + IndexedDB cache + rebuild fileSystems
-        // from the freshest layered base.
-        setPatches(serverPatches);
-        const db = getDatabase();
-        if (db) saveFilesystemPatches(db, [...serverPatches]);
-        const props = propsRef.current;
-        const base = { localhost: props.localhostFileSystem };
-        const withHome = props.homeFileSystems ? { ...base, ...props.homeFileSystems } : base;
-        const merged = props.missionFileSystems
-          ? { ...withHome, ...props.missionFileSystems }
-          : withHome;
-        setFileSystems(applyPatches(merged, serverPatches));
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        console.error('[fs] patch rehydration failed:', error);
-      })
-      .finally(() => {
-        // isRehydrating is the "first load not yet complete" flag —
-        // only flips on the initial fetch. Subsequent refetches don't
-        // toggle it (UI shouldn't re-show a rehydration spinner on
-        // every late-arriving network).
-        if (!cancelled && wasInitial) setIsRehydrating(false);
-      });
+    const timer = setTimeout(() => {
+      if (cancelled) return;
+      const wasInitial = isInitialFetch.current;
+      isInitialFetch.current = false;
+
+      void listPatchesForMachinesFromServer(getIdentity(), machineIds)
+        .then((serverPatches) => {
+          if (cancelled) return;
+          if (wasInitial && localWritesSinceMount.current) return;
+          // Replace patches state + IndexedDB cache + rebuild fileSystems
+          // from the freshest layered base.
+          setPatches(serverPatches);
+          const db = getDatabase();
+          if (db) saveFilesystemPatches(db, [...serverPatches]);
+          const props = propsRef.current;
+          const base = { localhost: props.localhostFileSystem };
+          const withHome = props.homeFileSystems ? { ...base, ...props.homeFileSystems } : base;
+          const merged = props.missionFileSystems
+            ? { ...withHome, ...props.missionFileSystems }
+            : withHome;
+          setFileSystems(applyPatches(merged, serverPatches));
+        })
+        .catch((error) => {
+          if (cancelled) return;
+          console.error('[fs] patch rehydration failed:', error);
+        })
+        .finally(() => {
+          // isRehydrating is the "first load not yet complete" flag —
+          // only flips on the initial fetch. Subsequent refetches don't
+          // toggle it (UI shouldn't re-show a rehydration spinner on
+          // every late-arriving network).
+          if (!cancelled && wasInitial) setIsRehydrating(false);
+        });
+    }, REHYDRATION_DEBOUNCE_MS);
+
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [machineIdsKey]);
 
+  // Hint-driven refetch: snapshot the pending machine_ids set, fetch
+  // authoritative state for those machines via listPatchesForMachines,
+  // splice the result into patches state (leaving unaffected machines
+  // untouched), and replay any in-flight local writes on top.
+  //
+  // Why a hint refetch instead of applying the broadcast payload
+  // directly: the prior design shipped the full PatchSummary in the
+  // Realtime event, but the broadcast channel is anon-publishable from
+  // the browser bundle, so any client could forge a patch_change with
+  // fake content. Hints carry only `(machine_id, originator_key)`;
+  // forgery is harmless because the actual data fetch goes through the
+  // signed /api/patches endpoint which returns server truth. See
+  // project_realtime_publish_authorization memory.
+  const refetchAffectedMachines = useCallback(async (machineIds: ReadonlyArray<string>) => {
+    if (machineIds.length === 0) return;
+    let serverPatches: ReadonlyArray<FileSystemPatch>;
+    try {
+      serverPatches = await listPatchesForMachinesFromServer(getIdentity(), machineIds);
+    } catch (error) {
+      console.error('[fs] hint refetch failed:', error);
+      return;
+    }
+    const affected = new Set(machineIds);
+    setPatches((prev) => {
+      // Drop existing patches for the affected machines, splice in the
+      // server-truth rows for those machines, then replay any pending
+      // local writes (so an in-flight POST that hasn't reached the DB
+      // yet doesn't get clobbered by the cross-player refetch).
+      const others = prev.filter((p) => !affected.has(p.machineId));
+      let next: readonly FileSystemPatch[] = [...others, ...serverPatches];
+      for (const pending of pendingWritesRef.current.values()) {
+        if (affected.has(pending.machineId)) {
+          next = applyPatchToList(next, pending);
+        }
+      }
+      const props = propsRef.current;
+      const base = { localhost: props.localhostFileSystem };
+      const withHome = props.homeFileSystems ? { ...base, ...props.homeFileSystems } : base;
+      const merged = props.missionFileSystems
+        ? { ...withHome, ...props.missionFileSystems }
+        : withHome;
+      setFileSystems(applyPatches(merged, next));
+      const db = getDatabase();
+      if (db) saveFilesystemPatches(db, [...next]);
+      return next;
+    });
+  }, []);
+
+  // Identity is stable for the session; capture once and read from a
+  // ref so the hint handler's identity check can't race with mid-
+  // session re-renders. (Identity itself never changes within a tab.)
+  const ownPubkeyRef = useRef<string>(getIdentity().publicKeyHex);
+
   // Realtime: subscribe to per-machine broadcast channels for every
-  // machine in the current view. Inbound `patch_change` events apply
-  // via the shared applyExternalPatch path. Pairs with the server-side
-  // publishPatchChange in api/patches.ts that fires after every
-  // successful upsertPatch / removePatch.
+  // machine in the current view. Inbound events are HINTS — receivers
+  // refetch authoritative state via listPatchesForMachines instead of
+  // trusting an unsignable broadcast payload.
   //
   // The keyset signature (sorted-joined string) is the dep — when home
   // or mission filesystems change keys, we tear down all channels and
@@ -306,12 +433,12 @@ export const FileSystemProvider = ({
   // accept therefore picks up live updates without page reload.
   //
   // Localhost is deliberately skipped: localhost patches are per-player-
-  // private (the server-side read filter at api/patches.ts:163 enforces
+  // private (the server-side read filter at api/patches.ts enforces
   // `machine_id <> 'localhost' OR player_key = $verified_pubkey`), but
   // the Realtime broadcast carries no player_key filter — subscribing
-  // would leak each player's localhost mutations to every neighbor on
-  // the same LAN. Same-player cross-tab sync uses BroadcastChannel
-  // instead, which stays inside one browser.
+  // would leak each player's localhost change-notifications to every
+  // neighbor on the same LAN. Same-player cross-tab sync uses
+  // BroadcastChannel instead, which stays inside one browser.
   //
   // Graceful degradation: getRealtimeClient() returns null when
   // VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY are missing. The app
@@ -321,15 +448,50 @@ export const FileSystemProvider = ({
     const client = getRealtimeClient();
     if (!client) return;
 
+    // Capture the ref-held Set into a local const so the cleanup
+    // closure references the same object the effect body uses (and
+    // satisfies react-hooks/exhaustive-deps without disabling). The
+    // ref is stable across effect re-runs by construction.
+    const pendingMachines = pendingHintMachinesRef.current;
+
+    const handleHint = (hint: PatchHint) => {
+      // Self-skip: the local optimistic apply + cross-tab BroadcastChannel
+      // already covered our own writes. Without this, every keystroke
+      // would echo back through Realtime and trigger a refetch — wasted
+      // round-trips and a real risk of clobbering an in-flight POST that
+      // hasn't yet reached the DB.
+      //
+      // A forger can spoof originator_key to make the victim skip ONE
+      // refetch per forged hint; authentic hints from real writers will
+      // still trigger refetches. No data corruption, just delayed
+      // visibility on one specific change. Documented in
+      // project_realtime_publish_authorization memory.
+      if (hint.originatorKey === ownPubkeyRef.current) return;
+
+      pendingMachines.add(hint.machineId);
+      if (hintDebounceTimerRef.current !== null) {
+        clearTimeout(hintDebounceTimerRef.current);
+      }
+      hintDebounceTimerRef.current = setTimeout(() => {
+        hintDebounceTimerRef.current = null;
+        const machineIds = [...pendingMachines];
+        pendingMachines.clear();
+        void refetchAffectedMachines(machineIds);
+      }, HINT_REFETCH_DEBOUNCE_MS);
+    };
+
     const machineIds = machineIdsKey.split(',').filter((id) => id && id !== 'localhost');
-    const unsubscribers = machineIds.map((id) =>
-      subscribeToMachine(client, id, applyExternalPatch),
-    );
+    const unsubscribers = machineIds.map((id) => subscribeToMachine(client, id, handleHint));
 
     return () => {
       for (const unsubscribe of unsubscribers) unsubscribe();
+      if (hintDebounceTimerRef.current !== null) {
+        clearTimeout(hintDebounceTimerRef.current);
+        hintDebounceTimerRef.current = null;
+      }
+      pendingMachines.clear();
     };
-  }, [machineIdsKey, applyExternalPatch]);
+  }, [machineIdsKey, refetchAffectedMachines]);
 
   // Track whether the missionFileSystems effect is running for the first time.
   // On initial mount with a persisted mission, we replay cached patches so the
@@ -340,21 +502,17 @@ export const FileSystemProvider = ({
   // mission replay and never updated, avoiding a stale dependency in the effect.
   const cachedPatchesAtMount = useMemo(() => getCachedFilesystemPatches(), []);
 
-  // When a mission starts/ends, merge or remove mission filesystems.
-  // Static machine filesystems are always preserved; mission ones are overlaid on top.
+  // When a mission starts/ends, OR when the home network arrives async
+  // on initial page load, OR when world networks resolve — re-merge the
+  // base + home + mission filesystems. Patches are NEVER wiped here:
+  // mission instances are permanent (per project_multiplayer_mission_-
+  // instances memory — once accepted, the seed retires but the instance
+  // and its patches persist forever for anyone who can route to it),
+  // home networks are shared persistent infrastructure, and
+  // cross-player writes on shared machines are part of the world.
+  // Rehydration naturally scopes local patches state to whatever
+  // machines are currently in view.
   useEffect(() => {
-    // On runtime mission transitions (not initial mount), clean up old mission
-    // patches — they belong to the previous mission and shouldn't carry over.
-    if (!isInitialMissionMount.current) {
-      setPatches((prev) => prev.filter((p) => PERSISTENT_MACHINE_KEYS.has(p.machineId)));
-      // Mirror server-side: drop everything except localhost for this player.
-      // Fire-and-forget — failure is logged but shouldn't block the local
-      // filter from completing (worst case: stale rows get pruned next time).
-      void clearTransientPatchesOnServer(getIdentity()).catch((error) => {
-        console.error('[fs] clearTransientPatches failed:', error);
-      });
-    }
-
     setFileSystems((prev) => {
       const staticOnly = Object.fromEntries(
         Object.entries(prev).filter(([key]) => PERSISTENT_MACHINE_KEYS.has(key)),
@@ -549,6 +707,22 @@ export const FileSystemProvider = ({
     });
   };
 
+  // Register a local write into pendingWritesRef so any cross-player
+  // hint refetch in flight can replay it on top of the server-truth
+  // result. The entry is only cleared if THIS patch is still the
+  // latest at this (machineId, path) — a subsequent write on the
+  // same path will have replaced it, and that newer entry's own
+  // settle handler is responsible for cleanup.
+  const trackPendingWrite = (patch: FileSystemPatch, settled: Promise<unknown>): void => {
+    const key = `${patch.machineId}::${patch.path}`;
+    pendingWritesRef.current.set(key, patch);
+    void settled.finally(() => {
+      if (pendingWritesRef.current.get(key) === patch) {
+        pendingWritesRef.current.delete(key);
+      }
+    });
+  };
+
   const broadcastAndRecordPatch = useCallback((patch: FileSystemPatch) => {
     syncChannelRef.current?.broadcast({ type: 'filesystem-patch', patch });
     localWritesSinceMount.current = true;
@@ -556,57 +730,34 @@ export const FileSystemProvider = ({
     const existing = patchesRef.current.find(
       (p) => p.machineId === patch.machineId && p.path === patch.path,
     );
+    let serverPromise: Promise<unknown>;
     if (patch.content !== null) {
-      trackPending(
-        upsertPatchOnServer(getIdentity(), patch).catch((error) => {
-          console.error('[fs] upsertPatch failed:', error);
-        }),
-      );
+      serverPromise = upsertPatchOnServer(getIdentity(), patch).catch((error) => {
+        console.error('[fs] upsertPatch failed:', error);
+      });
     } else if (existing?.isNew) {
-      trackPending(
-        removePatchOnServer(getIdentity(), {
-          machineId: patch.machineId,
-          path: patch.path,
-        }).catch((error) => {
-          console.error('[fs] removePatch (isNew) failed:', error);
-        }),
-      );
+      serverPromise = removePatchOnServer(getIdentity(), {
+        machineId: patch.machineId,
+        path: patch.path,
+      }).catch((error) => {
+        console.error('[fs] removePatch (isNew) failed:', error);
+      });
     } else {
       // Base-file deletion: drop descendants first (they don't make sense
       // once the parent is marked deleted), then record the null marker.
-      trackPending(
-        removePatchOnServer(getIdentity(), {
-          machineId: patch.machineId,
-          path: patch.path,
-        })
-          .then(() => upsertPatchOnServer(getIdentity(), patch))
-          .catch((error) => {
-            console.error('[fs] removePatch+upsertPatch failed:', error);
-          }),
-      );
+      serverPromise = removePatchOnServer(getIdentity(), {
+        machineId: patch.machineId,
+        path: patch.path,
+      })
+        .then(() => upsertPatchOnServer(getIdentity(), patch))
+        .catch((error) => {
+          console.error('[fs] removePatch+upsertPatch failed:', error);
+        });
     }
+    trackPending(serverPromise);
+    trackPendingWrite(patch, serverPromise);
 
-    setPatches((prev) => {
-      if (patch.content !== null) return upsertPatch(prev, patch);
-
-      const existingInPrev = prev.find(
-        (p) => p.machineId === patch.machineId && p.path === patch.path,
-      );
-      const deletedPrefix = patch.path.endsWith('/') ? patch.path : patch.path + '/';
-      const withoutChildren = prev.filter(
-        (p) => !(p.machineId === patch.machineId && p.path.startsWith(deletedPrefix)),
-      );
-
-      // File was created via patch — just remove the patch (no null patch needed)
-      if (existingInPrev?.isNew) {
-        return withoutChildren.filter(
-          (p) => !(p.machineId === patch.machineId && p.path === patch.path),
-        );
-      }
-
-      // Base filesystem file — record a null patch to mark deletion
-      return upsertPatch(withoutChildren, patch);
-    });
+    setPatches((prev) => applyPatchToList(prev, patch));
   }, []);
 
   const writeFileToMachine = useCallback(

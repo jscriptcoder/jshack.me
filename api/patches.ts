@@ -6,23 +6,14 @@ import { handlePatchesRequest } from '../src/patchRegistry/handler.js';
 import { createSupabaseUpsertPatch } from '../src/patchRegistry/supabaseUpsert.js';
 import {
   createSupabaseRemovePatch,
-  createSupabaseClearTransientPatches,
   createSupabaseClearOwnedPatches,
   PERSISTENT_MACHINE_ID,
 } from '../src/patchRegistry/supabaseDelete.js';
 import { createSupabaseListPatchesForMachines } from '../src/patchRegistry/supabaseSelectByMachine.js';
 import { publishPatchChange as publishPatchChangeHelper } from '../src/patchRegistry/broadcast.js';
 import type { BroadcastFn } from '../src/patchRegistry/broadcast.js';
-import type {
-  ClearOwnedArg,
-  ClearTransientArg,
-  DeletePatchesArg,
-} from '../src/patchRegistry/supabaseDelete.js';
-import type {
-  PatchRow,
-  PatchSummary,
-  ListPatchesForMachinesParams,
-} from '../src/patchRegistry/types.js';
+import type { ClearOwnedArg, DeletePatchesArg } from '../src/patchRegistry/supabaseDelete.js';
+import type { PatchRow, ListPatchesForMachinesParams } from '../src/patchRegistry/types.js';
 import { createSupabaseFindActiveSession } from '../src/sessionRegistry/supabaseFindActive.js';
 import type { FindActiveSessionParams } from '../src/sessionRegistry/supabaseFindActive.js';
 import {
@@ -40,8 +31,8 @@ import {
 //
 // Single endpoint, action-dispatched by the signed payload's `action`
 // field — upsertPatch / removePatch / listPatchesForMachines /
-// clearTransientPatches / clearOwnedPatches. Same Supabase + Upstash
-// wiring pattern as /api/sessions and /api/allocate-ip.
+// clearOwnedPatches. Same Supabase + Upstash wiring pattern as
+// /api/sessions and /api/allocate-ip.
 
 // Per-pubkey rate limit. Filesystem patches fire once per nano save,
 // once per cp/mv/rm, etc., and a busy editing session can write
@@ -167,22 +158,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     },
   );
 
-  const clearTransientPatches = createSupabaseClearTransientPatches(
-    async (arg: ClearTransientArg) => {
-      // .neq('machine_id', persistent_machine_id) — drops everything
-      // except the persistent machine (currently 'localhost'). Mirrors
-      // the FileSystemContext PERSISTENT_MACHINE_KEYS filter.
-      const { data, error } = await supabase
-        .from('patches')
-        .delete()
-        .eq('player_key', arg.player_key)
-        .neq('machine_id', arg.persistent_machine_id)
-        .select('path');
-      if (error) console.error('[patches] supabase clearTransient error:', error);
-      return { data, error };
-    },
-  );
-
   const clearOwnedPatches = createSupabaseClearOwnedPatches(async (arg: ClearOwnedArg) => {
     // .eq('machine_id', persistent_machine_id) — wipes ONLY this player's
     // owned-machine patches (currently localhost). Cross-player patches
@@ -223,8 +198,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
   };
 
-  const publishPatchChange = (machine_id: string, payload: PatchSummary) =>
-    publishPatchChangeHelper(broadcastViaRest, machine_id, payload);
+  const publishPatchChange = (machine_id: string, originator_key: string) =>
+    publishPatchChangeHelper(broadcastViaRest, machine_id, originator_key);
 
   const findActiveSession = createSupabaseFindActiveSession(
     async (params: FindActiveSessionParams) => {
@@ -249,7 +224,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     upsertPatch,
     removePatch,
     listPatchesForMachines,
-    clearTransientPatches,
     clearOwnedPatches,
     findActiveSession,
     publishPatchChange,

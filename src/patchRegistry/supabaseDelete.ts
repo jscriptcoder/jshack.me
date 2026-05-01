@@ -6,11 +6,12 @@ import type {
 } from './types.js';
 
 // Server-side mirror of the client's PERSISTENT_MACHINE_KEYS filter
-// (FileSystemContext.tsx). Only `localhost` patches survive a mission/
-// home scene transition; every other machine_id is "transient" and gets
-// dropped by clearTransientPatches. Exported so the api/patches.ts
-// wiring layer applies the same literal in its `.neq('machine_id', ...)`
-// filter — single source of truth.
+// (FileSystemContext.tsx). The literal `localhost` machine_id is what
+// `clearOwnedPatches` (fired by `reset confirm`) targets, and what
+// `listPatchesForMachines` filters per-player to prevent leaking each
+// player's localhost mutations to neighbors on the same LAN. Exported
+// so the api/patches.ts wiring layer can reference it without
+// duplicating the constant.
 export const PERSISTENT_MACHINE_ID = 'localhost';
 
 // Adapter for removing a patch by exact path AND descendants (paths
@@ -62,48 +63,17 @@ export const createSupabaseRemovePatch =
   };
 
 // -----------------------------------------------------------------------
-// Bulk-delete adapters: clearTransientPatches + clearOwnedPatches.
+// clearOwnedPatches — DELETE FROM patches
+//                      WHERE player_key = $player_key
+//                        AND machine_id = $persistent_machine_id;
 //
-// Both translate a Supabase delete().select() response onto
-// ClearPatchesResult. The wiring layer issues the actual DELETE:
-//
-//   clearTransient: DELETE FROM patches
-//                    WHERE player_key = $player_key
-//                      AND machine_id <> $persistent_machine_id;
-//   clearOwned:     DELETE FROM patches
-//                    WHERE player_key = $player_key
-//                      AND machine_id = $persistent_machine_id;
-//
-// Note that clearOwned and clearTransient are exact complements — their
-// machine_id filters are inverses. The split exists because each is
-// fired in a different gameplay flow: clearTransient on mission/home
-// scene change, clearOwned on `reset confirm`.
+// Fired by `reset confirm` to wipe the player's own localhost patches
+// before reload. Cross-player patches on shared machines (other players'
+// machines, mission instances, home networks, world networks) are NOT
+// wiped — they're part of the shared persistent world and undoing them
+// on a personal reset would be wrong (see the README "Reset semantics"
+// section).
 // -----------------------------------------------------------------------
-
-// Arg shape shared by both adapters. The adapter passes the localhost
-// literal through so the wiring layer doesn't need its own copy of the
-// constant. clearOwnedPatches uses `=` against this id; clearTransient
-// uses `<>`.
-export type ClearTransientArg = {
-  readonly player_key: string;
-  readonly persistent_machine_id: string;
-};
-
-export type ClearTransientFn = (arg: ClearTransientArg) => Promise<{
-  readonly data: ReadonlyArray<{ readonly path: string }> | null;
-  readonly error: RowError;
-}>;
-
-export const createSupabaseClearTransientPatches =
-  (clearTransient: ClearTransientFn) =>
-  async (params: ClearPatchesParams): Promise<ClearPatchesResult> => {
-    const { data, error } = await clearTransient({
-      player_key: params.player_key,
-      persistent_machine_id: PERSISTENT_MACHINE_ID,
-    });
-    if (error) return { ok: false };
-    return { ok: true, affected: data?.length ?? 0 };
-  };
 
 export type ClearOwnedArg = {
   readonly player_key: string;

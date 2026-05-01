@@ -154,19 +154,6 @@ export const listPatchesForMachines = async (
   return (patches as ReadonlyArray<WirePatch>).map(toFileSystemPatch);
 };
 
-// ---- clearTransientPatches ------------------------------------------------
-
-export const clearTransientPatches = async (
-  identity: Identity,
-  fetchImpl: typeof fetch = fetch,
-): Promise<void> => {
-  const envelope = signRequest(identity, 'clearTransientPatches', {});
-  const response = await postEnvelope(envelope, fetchImpl);
-  if (!response.ok) {
-    throw new Error(`clearTransientPatches failed with status ${response.status}`);
-  }
-};
-
 // ---- clearOwnedPatches ----------------------------------------------------
 
 // Wipes the player's patches on machines they own (currently localhost).

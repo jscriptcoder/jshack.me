@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   createSupabaseRemovePatch,
-  createSupabaseClearTransientPatches,
   createSupabaseClearOwnedPatches,
   PERSISTENT_MACHINE_ID,
 } from './supabaseDelete';
@@ -127,75 +126,13 @@ describe('PERSISTENT_MACHINE_ID', () => {
 });
 
 // -----------------------------------------------------------------------
-// clearTransientPatches — DELETE WHERE machine_id <> 'localhost'
+// clearOwnedPatches — DELETE WHERE player_key=me AND machine_id='localhost'
+// (the player's own-machine patches, not the shared world)
 // -----------------------------------------------------------------------
 
 const clearParams: ClearPatchesParams = {
   player_key: 'pubkey-hex',
 };
-
-describe('createSupabaseClearTransientPatches', () => {
-  it('returns ok: true with affected = data.length when delete succeeds', async () => {
-    const clearTransient = vi.fn().mockResolvedValue({
-      data: [{ path: '/etc/passwd' }, { path: '/srv/data' }, { path: '/var/log/auth.log' }],
-      error: null,
-    });
-    const clear = createSupabaseClearTransientPatches(clearTransient);
-
-    expect(await clear(clearParams)).toEqual({ ok: true, affected: 3 });
-  });
-
-  it('returns ok: true with affected = 0 when no transient rows exist', async () => {
-    const clearTransient = vi.fn().mockResolvedValue({ data: [], error: null });
-    const clear = createSupabaseClearTransientPatches(clearTransient);
-
-    expect(await clear(clearParams)).toEqual({ ok: true, affected: 0 });
-  });
-
-  it('returns ok: true with affected = 0 when data is null and no error (defensive)', async () => {
-    const clearTransient = vi.fn().mockResolvedValue({ data: null, error: null });
-    const clear = createSupabaseClearTransientPatches(clearTransient);
-
-    expect(await clear(clearParams)).toEqual({ ok: true, affected: 0 });
-  });
-
-  it('returns ok: false when supabase returns an error', async () => {
-    const clearTransient = vi
-      .fn()
-      .mockResolvedValue({ data: null, error: { code: 'XX001', message: 'storage error' } });
-    const clear = createSupabaseClearTransientPatches(clearTransient);
-
-    expect(await clear(clearParams)).toEqual({ ok: false });
-  });
-
-  it('passes the localhost literal as persistent_machine_id to clearTransient', async () => {
-    const clearTransient = vi.fn().mockResolvedValue({ data: [], error: null });
-    const clear = createSupabaseClearTransientPatches(clearTransient);
-
-    await clear(clearParams);
-
-    expect(clearTransient).toHaveBeenCalledWith({
-      player_key: 'pubkey-hex',
-      persistent_machine_id: 'localhost',
-    });
-  });
-
-  it('forwards a different player_key verbatim', async () => {
-    const clearTransient = vi.fn().mockResolvedValue({ data: [], error: null });
-    const clear = createSupabaseClearTransientPatches(clearTransient);
-
-    await clear({ player_key: 'another-key' });
-
-    expect(clearTransient).toHaveBeenCalledWith(
-      expect.objectContaining({ player_key: 'another-key' }),
-    );
-  });
-});
-
-// -----------------------------------------------------------------------
-// clearOwnedPatches — DELETE WHERE player_key=me AND machine_id='localhost'
-// (the player's own-machine patches, not the shared world)
-// -----------------------------------------------------------------------
 
 describe('createSupabaseClearOwnedPatches', () => {
   it('returns ok: true with affected = data.length when delete succeeds', async () => {

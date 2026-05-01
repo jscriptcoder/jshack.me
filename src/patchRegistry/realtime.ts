@@ -1,13 +1,19 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import type { FileSystemPatch } from '../filesystem/types.js';
-import { toFileSystemPatch, type WirePatch } from './client.js';
 
 // Client-side subscription wrapper for the per-machine Realtime
 // broadcast channel. Pairs with the server-side publishPatchChange
 // helper (broadcast.ts): every successful upsertPatch / removePatch
-// emits a `patch_change` event on `patches:<machine_id>`, and this
-// wrapper converts the wire-shaped payload back to a FileSystemPatch
-// before delivering it to the caller.
+// emits a `patch_change` HINT event on `patches:<machine_id>`, and
+// this wrapper converts the wire-shaped payload (snake_case) to the
+// client-shaped hint (camelCase) before delivering it to the caller.
+//
+// Hint design: the broadcast carries only `{ machineId, originatorKey }`
+// — no content, no path, no owner. Receivers refetch authoritative
+// state via listPatchesForMachines. This closes the broadcast forgery
+// vector accepted by PR #81 architecturally — there's nothing forge-
+// able to inject; a forged hint just causes a no-op refetch that
+// returns server truth. See project_realtime_publish_authorization
+// memory for the full threat model.
 //
 // Why a thin wrapper:
 //   - portability: the rest of the app only needs to know
@@ -26,14 +32,33 @@ const channelForMachine = (machine_id: string): string => `patches:${machine_id}
 
 const PATCH_CHANGE_EVENT = 'patch_change';
 
+// Wire shape received from the server's publishPatchChange. Kept local
+// so the realtime module owns its own protocol-translation layer
+// (mirrors the WirePatch pattern in client.ts).
+type WirePatchHint = {
+  readonly machine_id: string;
+  readonly originator_key: string;
+};
+
+// Client-side hint shape — camelCase, what callers consume.
+export type PatchHint = {
+  readonly machineId: string;
+  readonly originatorKey: string;
+};
+
+const toPatchHint = (wire: WirePatchHint): PatchHint => ({
+  machineId: wire.machine_id,
+  originatorKey: wire.originator_key,
+});
+
 export const subscribeToMachine = (
   supabase: SupabaseClient,
   machine_id: string,
-  onPatch: (patch: FileSystemPatch) => void,
+  onHint: (hint: PatchHint) => void,
 ): (() => void) => {
   const channel = supabase.channel(channelForMachine(machine_id));
-  channel.on('broadcast', { event: PATCH_CHANGE_EVENT }, (event: { payload: WirePatch }) => {
-    onPatch(toFileSystemPatch(event.payload));
+  channel.on('broadcast', { event: PATCH_CHANGE_EVENT }, (event: { payload: WirePatchHint }) => {
+    onHint(toPatchHint(event.payload));
   });
   channel.subscribe();
   return () => {
