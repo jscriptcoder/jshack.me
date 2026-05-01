@@ -1,6 +1,6 @@
 # Home Networks
 
-Cracked-WiFi LANs as **shared persistent networks**. When two players crack the same WiFi (e.g. `ACME-CORP`), the server allocates each one a separate slot on the same `/24` subnet. Each player gets a unique LAN IP and an identity-derived hostname suffix; trail-leaving (logs, file writes) flows through the existing cross-player visibility plumbing.
+Cracked-WiFi LANs as **shared persistent networks**. When two players crack the same WiFi (e.g. `ACME-CORP`), the server allocates each one a separate slot on the same `/24` subnet. Each player gets a unique LAN IP and an identity-derived hostname suffix; from inside the LAN, `nmap` discovers every other player; trail-leaving (logs, file writes) flows through the existing cross-player visibility plumbing.
 
 Replaces the previous single-player model where `localhostIp` was hardcoded to `${subnet}.100` in `generateHomeNetwork.ts`. The shipped design + rationale lives in this README; see "Design rules" below.
 
@@ -37,12 +37,15 @@ Replaces the previous single-player model where `localhostIp` was hardcoded to `
                               │
                               ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│  GameInner effect: sync session.hostname from activeNetwork       │
-│    → prompt shows user@skylab-9k3                                 │
-│    → SSH/log handlers (resolveLogSourceIP, useAuthentication)     │
-│      observe the suffixed hostname through session.hostname        │
+│  HomeNetworksProvider polls home_network_occupants every 30s      │
+│    → lanOccupants (excluding self) flow to NetworkContext         │
+│    → each occupant renders as an alive RemoteMachine in nmap      │
+│      with hostname `${prefix}-${suffix}`, IP `${subnet}${.X}`,    │
+│      no open ports (closed-laptop default)                        │
 └──────────────────────────────────────────────────────────────────┘
 ```
+
+**Hostname is set permanently at game start** (`computePlayerHostname(workstationName, identity)` in `App.tsx`), not on WiFi connect. Real laptops don't rename themselves on WiFi connect; ours don't either. The suffix is identity-derived, so it's the same on every LAN — a stable cross-LAN attribution handle.
 
 ## Schema
 
@@ -100,16 +103,18 @@ The server is the source of truth for "did I already join this LAN." Client neve
 
 ## Files
 
-| File                      | Description                                                                                                                                                      |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `types.ts`                | `DENSITY_TIERS`, `MAX_SLOTS_BY_TIER`, the strict Zod payload schema, row shapes, `JoinResult` (Zod-derived), `InsertOccupantResult` discriminator.               |
-| `deriveHostnameSuffix.ts` | Pure: `playerKey → first-4-hex-chars-of-sha256(utf8(playerKey))`. Stable per identity.                                                                           |
-| `pickRandomLanIp.ts`      | Pure: `prng → '.X'` where X is a random integer in `[10, 250]`.                                                                                                  |
-| `handler.ts`              | `handleJoinHomeNetworkRequest(envelope, deps)` — pure orchestration. Verify → rate-limit → idempotent return → find-or-create → slot allocation loop with retry. |
-| `createInsertOccupant.ts` | Postgres unique-constraint parser — maps `23505` errors onto `lan_ip_conflict` / `hostname_conflict` / `error` by substring matching the constraint message.     |
-| `client.ts`               | `joinHomeNetwork(identity, request, fetchImpl?)` — browser-side wrapper. Signs envelope, POSTs, validates response with `joinResultSchema`.                      |
-| `*.test.ts`               | Unit tests. Real Ed25519 signing in handler tests; mocked Supabase + Upstash deps.                                                                               |
-| `README.md`               | This file.                                                                                                                                                       |
+| File                       | Description                                                                                                                                                      |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `types.ts`                 | `DENSITY_TIERS`, `MAX_SLOTS_BY_TIER`, the strict Zod payload schema, row shapes, `JoinResult` (Zod-derived), `InsertOccupantResult` discriminator.               |
+| `deriveHostnameSuffix.ts`  | Pure: `playerKey → first-4-hex-chars-of-sha256(utf8(playerKey))`. Stable per identity.                                                                           |
+| `pickRandomLanIp.ts`       | Pure: `prng → '.X'` where X is a random integer in `[10, 250]`.                                                                                                  |
+| `handler.ts`               | `handleJoinHomeNetworkRequest(envelope, deps)` — pure orchestration. Verify → rate-limit → idempotent return → find-or-create → slot allocation loop with retry. |
+| `createInsertOccupant.ts`  | Postgres unique-constraint parser — maps `23505` errors onto `lan_ip_conflict` / `hostname_conflict` / `error` by substring matching the constraint message.     |
+| `client.ts`                | `joinHomeNetwork(identity, request, fetchImpl?)` — browser-side wrapper. Signs envelope, POSTs, validates response with `joinResultSchema`.                      |
+| `listOccupants.ts`         | Anon-key Supabase read of `home_network_occupants` for a given network_id. Polled every 30s by `HomeNetworksProvider` so other LAN players appear in nmap.       |
+| `computePlayerHostname.ts` | `(workstationName, identity) → '${workstationName}-${suffix}'`. Computed once at game start; same hostname on every LAN.                                         |
+| `*.test.ts`                | Unit tests. Real Ed25519 signing in handler tests; mocked Supabase + Upstash deps.                                                                               |
+| `README.md`                | This file.                                                                                                                                                       |
 
 Plus:
 
@@ -118,7 +123,8 @@ Plus:
 - `src/game/HomeNetworksContext.tsx` — `HomeNetworksProvider` + `useHomeNetworks()` hook. Cache via ref + version counter; `inFlightRef` coalesces concurrent ensureJoined calls; rehydration `useEffect` materializes on mount when `connectedWifi` is restored from storage.
 - `src/generation/generateHomeNetwork.ts` — `generateHomeNetwork({ seed, essid, slotIp?, hostname?, ... })` accepts the server-supplied slot/hostname (single-player path defaults to `slotIp='.100'`)
 - `src/commands/nmcli.ts` — `connect` awaits `ensureJoined`, displays `assigned <hostname> (<lan_ip>)`; `status` reads dynamic LAN IP from the active home network
-- `src/App.tsx` — `GameInner` wires `activeNetwork.hostname` into `session.hostname` so the prompt and log writers observe the suffixed hostname
+- `src/App.tsx` — computes the suffixed hostname once at game start via `computePlayerHostname`, threads it through `SessionProvider`, `BootScreen`, and `generateLocalhost` so /etc/hostname + sample log entries + prompt all reflect the same name; passes `lanOccupants` from `useHomeNetworks()` to `NetworkProvider`
+- `src/network/NetworkContext.tsx` — extends localhost-with-home-network machine resolution to include occupants as alive `RemoteMachine`s + DNS records
 
 ## Manual smoke check
 
@@ -146,3 +152,7 @@ Headlines (the design discussion behind each is captured in commit history; the 
 - **Slot tombstones / inactivity reclaim** — occupant rows persist forever. Crowded LANs can fill up permanently (allocator falls through to creating a new row with the same essid_template).
 - **Router ownership semantics** — the home router is unowned shared infrastructure.
 - **Permadeath rejoin policy** — a fresh identity gets a fresh occupancy roll.
+- **Less-obvious hostname suffix format** — current `${prefix}-${4-hex}` makes it visually obvious that a LAN host is another player (vs an NPC machine). A future PR could move to less-distinguishable formats (pronounceable words, naming conventions matching the surrounding NPCs per WiFi tier, etc.).
+- **Realtime occupant subscription** — currently polled every 30s. Supabase Realtime on `home_network_occupants` would surface joins/leaves immediately.
+- **Hostname-aware logs** — log formatters use source IP via `resolveLogSourceIP`; could add hostname alongside for richer attribution. Touches every log formatter.
+- **PvP-on-localhost** — other players' localhost shows as alive but with no open ports. A future PR could add an "open service" mechanic where players opt into being attackable.
