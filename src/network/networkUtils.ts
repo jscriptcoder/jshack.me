@@ -140,22 +140,19 @@ export const collectGatewayIps = (
   missionLayers: readonly SubnetLayer[] | undefined,
   homeNetwork: HomeNetwork | null | undefined,
 ): readonly string[] => {
-  const ips: string[] = [];
-  if (missionRouterMachine) ips.push(missionRouterMachine.ip);
-  if (missionLayers && missionLayers.length > 1) {
-    missionLayers.slice(1).forEach((layer) => ips.push(layer.gateway.ip));
-  }
-  if (homeNetwork) {
-    ips.push(homeNetwork.routerMachine.ip);
-    ips.push(homeNetwork.router.internalIp);
-    if (homeNetwork.layers.length > 1) {
-      homeNetwork.layers.slice(1).forEach((layer) => {
-        ips.push(layer.gateway.ip);
-        ips.push(`${layer.subnet}.1`);
-      });
-    }
-  }
-  return ips;
+  const missionRouterIp = missionRouterMachine ? [missionRouterMachine.ip] : [];
+  const missionInnerGatewayIps =
+    missionLayers && missionLayers.length > 1
+      ? missionLayers.slice(1).map((layer) => layer.gateway.ip)
+      : [];
+  const homeRouterIps = homeNetwork
+    ? [homeNetwork.routerMachine.ip, homeNetwork.router.internalIp]
+    : [];
+  const homeInnerGatewayIps =
+    homeNetwork && homeNetwork.layers.length > 1
+      ? homeNetwork.layers.slice(1).flatMap((layer) => [layer.gateway.ip, `${layer.subnet}.1`])
+      : [];
+  return [...missionRouterIp, ...missionInnerGatewayIps, ...homeRouterIps, ...homeInnerGatewayIps];
 };
 
 // Collects gateway IPs across all world networks (each is a full
@@ -165,16 +162,11 @@ export const collectGatewayIps = (
 // resolution wouldn't work for forwarded ports on world machines.
 export const collectWorldGatewayIps = (
   worldNetworks: ReadonlyArray<MissionNetwork>,
-): readonly string[] => {
-  const ips: string[] = [];
-  worldNetworks.forEach((wn) => {
-    ips.push(wn.routerMachine.ip);
-    if (wn.layers.length > 1) {
-      wn.layers.slice(1).forEach((layer) => ips.push(layer.gateway.ip));
-    }
-  });
-  return ips;
-};
+): readonly string[] =>
+  worldNetworks.flatMap((wn) => [
+    wn.routerMachine.ip,
+    ...(wn.layers.length > 1 ? wn.layers.slice(1).map((layer) => layer.gateway.ip) : []),
+  ]);
 
 // Builds the localhost-visible RemoteMachine view for each world
 // network's router. Mirrors buildRouterRemoteView but iterates and

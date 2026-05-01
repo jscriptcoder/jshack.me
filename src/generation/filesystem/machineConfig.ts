@@ -23,7 +23,7 @@ import {
 } from '../pools';
 import { wrapInBinaryNoise } from '../binary';
 import { buildInitialDpkgStatus } from '../../network/dpkgStatus';
-import { firmwareTemplates, type FirmwareVendor } from '../pools/routerFirmware';
+import { firmwareTemplates } from '../pools/routerFirmware';
 import { formatVersion } from '../pools/serviceTemplates';
 import { SYSTEM_LIBRARIES, systemLibraryTemplates } from '../pools/systemLibraryTemplates';
 import {
@@ -950,7 +950,7 @@ export const buildMachineConfig = (
   // Routers get an additional `firmware` package seeded with the vendor's
   // starting-tuple version. Non-routers pass undefined and the helper omits
   // the firmware entry entirely.
-  const vendor = machine.remoteMachine.firmwareVendor as FirmwareVendor | undefined;
+  const vendor = machine.remoteMachine.firmwareVendor;
   const initialFirmwareVersion =
     vendor && firmwareTemplates[vendor]
       ? formatVersion(firmwareTemplates[vendor], firmwareTemplates[vendor].startTuple)

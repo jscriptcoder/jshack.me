@@ -313,58 +313,43 @@ const collectUpgradeCandidates = (
   gameTime: number,
   context: AptContext,
 ): readonly UpgradeCandidate[] => {
-  const seen = new Set<string>();
-  const candidates: UpgradeCandidate[] = [];
-  // Services — only consider filter matches if it targets a port-running service.
   const libraryScope = librariesForFilter(serviceFilter);
   const considerServices =
     serviceFilter === undefined ||
     (!isSystemLibrary(serviceFilter) && !isLibraryMetaPackage(serviceFilter));
-  if (considerServices) {
-    for (const port of machine.ports) {
-      if (seen.has(port.service)) continue;
-      if (serviceFilter !== undefined && port.service !== serviceFilter) continue;
-      if (!isVulnerable(port.service, port.serviceVersion, gameTime)) continue;
-      seen.add(port.service);
-      candidates.push(resolveServiceCandidate(port.service, gameTime));
-    }
-  }
 
-  // Router firmware is treated like a package named `firmware`. It's a
-  // candidate only when the machine actually has a firmware vendor AND its
-  // current firmware version has a live CVE.
+  // Services — filter by name (when set) + vulnerability, then dedupe by
+  // service name so two ports running the same service don't double-count.
+  const serviceCandidates: readonly UpgradeCandidate[] = considerServices
+    ? machine.ports
+        .filter((port) => serviceFilter === undefined || port.service === serviceFilter)
+        .filter((port) => isVulnerable(port.service, port.serviceVersion, gameTime))
+        .filter((port, index, all) => all.findIndex((p) => p.service === port.service) === index)
+        .map((port) => resolveServiceCandidate(port.service, gameTime))
+    : [];
+
+  // Router firmware is treated like a package named `firmware`. At most one
+  // candidate, and only when the machine has a vendor AND its current firmware
+  // version has a live CVE.
   const includeFirmware = serviceFilter === undefined || serviceFilter === FIRMWARE_PACKAGE;
-  if (
+  const firmwareCandidates: readonly UpgradeCandidate[] =
     includeFirmware &&
     machine.firmwareVendor &&
     machine.firmwareVersion &&
-    findFirmwareCve(machine.firmwareVendor as FirmwareVendor, machine.firmwareVersion, gameTime)
-  ) {
-    candidates.push(
-      resolveFirmwareCandidate(
-        machine.firmwareVendor as FirmwareVendor,
-        machine.firmwareVersion,
-        gameTime,
-      ),
-    );
-  }
+    findFirmwareCve(machine.firmwareVendor, machine.firmwareVersion, gameTime)
+      ? [resolveFirmwareCandidate(machine.firmwareVendor, machine.firmwareVersion, gameTime)]
+      : [];
 
   // System libraries. Scope is determined by the filter: bare upgrade hits
   // every library, a single library name targets just that one, and a
-  // meta-package expands to its bundle.
-  for (const lib of libraryScope) {
+  // meta-package expands to its bundle. Only libraries with a live CVE survive.
+  const libraryCandidates: readonly UpgradeCandidate[] = libraryScope.flatMap((lib) => {
     const version = getLibraryVersion(lib, context);
-    // Only libraries with a live CVE (at the current installed version) are
-    // upgrade candidates in the vulnerable sense. An explicit single-library
-    // filter should still report a candidate so the user sees status for
-    // their chosen package; for bare or meta-package expansion we skip
-    // non-vulnerable libraries to match the service/firmware pattern.
-    const vulnerable = findLibraryCve(lib, version, gameTime) !== undefined;
-    if (!vulnerable) continue;
-    candidates.push(resolveLibraryCandidate(lib, version, gameTime));
-  }
+    if (!findLibraryCve(lib, version, gameTime)) return [];
+    return [resolveLibraryCandidate(lib, version, gameTime)];
+  });
 
-  return candidates;
+  return [...serviceCandidates, ...firmwareCandidates, ...libraryCandidates];
 };
 
 const AVG_PATCH_DELAY_LABEL = `${AVG_PATCH_DELAY_DAYS} day${AVG_PATCH_DELAY_DAYS === 1 ? '' : 's'}`;
@@ -456,11 +441,7 @@ const renderUpgradableList = (context: AptContext): string => {
           renderUpgradableLine(
             FIRMWARE_PACKAGE,
             machine.firmwareVersion,
-            firmwareUpgradableStatus(
-              machine.firmwareVendor as FirmwareVendor,
-              machine.firmwareVersion,
-              gameTime,
-            ),
+            firmwareUpgradableStatus(machine.firmwareVendor, machine.firmwareVersion, gameTime),
           ),
         ]
       : [];
@@ -643,11 +624,7 @@ const handleInstallPin = (
     ? findPinnableLibraryVersion(pkg, pinnedVersion, gameTime)
     : pkg === FIRMWARE_PACKAGE
       ? machine.firmwareVendor !== undefined &&
-        findPinnableFirmwareVersion(
-          machine.firmwareVendor as FirmwareVendor,
-          pinnedVersion,
-          gameTime,
-        )
+        findPinnableFirmwareVersion(machine.firmwareVendor, pinnedVersion, gameTime)
       : findPinnableServiceVersion(pkg, pinnedVersion, gameTime);
 
   if (!pinnable) {

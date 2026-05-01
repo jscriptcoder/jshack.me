@@ -24,7 +24,7 @@ export const useNcCommands = (): Map<string, Command> | null => {
     const commands = new Map<string, Command>();
 
     // Context getters
-    const getMachine = () => ncSession.machineId as MachineId;
+    const getMachine = (): MachineId => ncSession.machineId;
     const getCwd = () => ncSession.currentPath;
     const getUserType = () => ncSession.userType;
     const getUsername = () => ncSession.username;

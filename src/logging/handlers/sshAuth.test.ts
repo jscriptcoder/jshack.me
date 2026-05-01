@@ -30,7 +30,13 @@ describe('createSshAuthHandler', () => {
       }),
     );
 
-    handler(true, 'admin', '203.0.113.5', 2222, 'password');
+    handler({
+      success: true,
+      user: 'admin',
+      targetIP: '203.0.113.5',
+      port: 2222,
+      method: 'password',
+    });
 
     expect(logFs.createFileOnMachine).toHaveBeenCalledWith(
       expect.objectContaining({ machineId: '10.0.1.20', path: '/var/log/auth.log' }),
@@ -47,7 +53,13 @@ describe('createSshAuthHandler', () => {
       }),
     );
 
-    handler(false, 'root', '203.0.113.5', 22, 'password');
+    handler({
+      success: false,
+      user: 'root',
+      targetIP: '203.0.113.5',
+      port: 22,
+      method: 'password',
+    });
 
     expect(logFs.createFileOnMachine).toHaveBeenCalledWith(
       expect.objectContaining({ machineId: '203.0.113.5' }),
@@ -65,7 +77,13 @@ describe('createSshAuthHandler', () => {
       }),
     );
 
-    handler(true, 'admin', '203.0.113.5', 2222, 'publickey');
+    handler({
+      success: true,
+      user: 'admin',
+      targetIP: '203.0.113.5',
+      port: 2222,
+      method: 'publickey',
+    });
 
     const call = logFs.createFileOnMachine.mock.calls[0]?.[0] as { readonly content: string };
     expect(call.content).toContain('backend');
@@ -78,9 +96,15 @@ describe('createSshAuthHandler', () => {
       makeDeps({ getMachine: () => ({ hostname: 'host' }), logFs }),
     );
 
-    handler(true, 'alice', '10.0.1.20', 22, 'publickey');
-    handler(true, 'bob', '10.0.1.20', 22, 'password');
-    handler(false, 'eve', '10.0.1.20', 22, 'password');
+    handler({
+      success: true,
+      user: 'alice',
+      targetIP: '10.0.1.20',
+      port: 22,
+      method: 'publickey',
+    });
+    handler({ success: true, user: 'bob', targetIP: '10.0.1.20', port: 22, method: 'password' });
+    handler({ success: false, user: 'eve', targetIP: '10.0.1.20', port: 22, method: 'password' });
 
     const contents = logFs.createFileOnMachine.mock.calls
       .concat(logFs.writeFileToMachine.mock.calls)

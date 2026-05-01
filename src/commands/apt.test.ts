@@ -6,7 +6,7 @@ import { createAptCommand } from './apt';
 import { buildTimelineFromTemplate, CVE_TIMING_CONFIG } from '../generation/timeline';
 import { findLatestSafeVersion } from '../generation/timeline/walker';
 import { serviceTemplates } from '../generation/pools/serviceTemplates';
-import { firmwareTemplates } from '../generation/pools/routerFirmware';
+import { firmwareTemplates, type FirmwareVendor } from '../generation/pools/routerFirmware';
 import { systemLibraryTemplates } from '../generation/pools/systemLibraryTemplates';
 import { formatVersion } from '../generation/pools/serviceTemplates';
 import { DPKG_STATUS_PATH, buildInitialDpkgStatus } from '../network/dpkgStatus';
@@ -113,7 +113,7 @@ const mkMachine = (
     readonly serviceVersion: string;
     readonly open?: boolean;
   }[],
-  firmware?: { readonly vendor: string; readonly version: string },
+  firmware?: { readonly vendor: FirmwareVendor; readonly version: string },
 ): RemoteMachine => ({
   ip: '10.0.0.1',
   hostname: 'test-host',

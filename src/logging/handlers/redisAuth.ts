@@ -13,15 +13,19 @@ export type RedisAuthDeps = {
 export type RedisConnectHandler = (targetIP: string, port: number) => void;
 export type RedisAuthHandler = (success: boolean, targetIP: string, port: number) => void;
 
+type WriteRedisLogOptions = {
+  readonly targetIP: string;
+  readonly port: number;
+  readonly build: (sourceIp: string, pid: number) => string;
+};
+
 // Real Redis treats socket-open and AUTH as two events, one line each. The
 // MySQL handler collapses both into a single callback because the MySQL
 // protocol sends credentials in the connect handshake — for Redis we keep
 // them separate so the log matches what a live `redis-server` would write.
 const writeRedisLog = (
   deps: RedisAuthDeps,
-  targetIP: string,
-  port: number,
-  build: (sourceIp: string, pid: number) => string,
+  { targetIP, port, build }: WriteRedisLogOptions,
 ): void => {
   const { ip: logIp } = deps.resolveNat(targetIP, port);
   const sourceIp = resolveLogSourceIP(
@@ -37,18 +41,24 @@ const writeRedisLog = (
 export const createRedisConnectHandler =
   (deps: RedisAuthDeps): RedisConnectHandler =>
   (targetIP, port) => {
-    writeRedisLog(deps, targetIP, port, (sourceIp, pid) =>
-      formatRedisConnect({ date: new Date(), pid, sourceIp }),
-    );
+    writeRedisLog(deps, {
+      targetIP,
+      port,
+      build: (sourceIp, pid) => formatRedisConnect({ date: new Date(), pid, sourceIp }),
+    });
   };
 
 export const createRedisAuthHandler =
   (deps: RedisAuthDeps): RedisAuthHandler =>
   (success, targetIP, port) => {
-    writeRedisLog(deps, targetIP, port, (sourceIp, pid) => {
-      const date = new Date();
-      return success
-        ? formatRedisAuth({ date, pid, sourceIp })
-        : formatRedisAuthDenied({ date, pid, sourceIp });
+    writeRedisLog(deps, {
+      targetIP,
+      port,
+      build: (sourceIp, pid) => {
+        const date = new Date();
+        return success
+          ? formatRedisAuth({ date, pid, sourceIp })
+          : formatRedisAuthDenied({ date, pid, sourceIp });
+      },
     });
   };

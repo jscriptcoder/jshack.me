@@ -378,8 +378,9 @@ export const FileSystemProvider = ({
   }, [missionFileSystems, homeFileSystems, cachedPatchesAtMount]);
 
   // session.machine is typed as string but always holds a valid MachineId at runtime
-  // (set by SSH/session logic). The assertion avoids threading MachineId through SessionContext.
-  const currentMachine = session.machine as MachineId;
+  // (set by SSH/session logic). MachineId is currently a string alias, so no cast
+  // is needed; the named type just documents the intent.
+  const currentMachine: MachineId = session.machine;
   const currentPath = session.currentPath;
   // Fallback to localhost as a safety net — in practice currentMachine always matches
   // a key in fileSystems because SSH only connects to known machines

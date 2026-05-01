@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 // Public shape of a world_networks row returned by listWorldNetworks.
 // Mirrors the table columns we project in the SELECT.
 //
@@ -8,10 +10,12 @@
 // (new migration row), not a code change.
 //
 // Wire shape uses snake_case to match the DB; consumers keep it as-is.
-export type WorldNetwork = {
-  readonly public_ip: string;
-  readonly seed: string;
-  readonly name: string;
-  readonly description: string | null;
-  readonly theme: string;
-};
+export const WorldNetworkSchema = z.object({
+  public_ip: z.string().min(1),
+  seed: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().nullable(),
+  theme: z.string().min(1),
+});
+
+export type WorldNetwork = z.infer<typeof WorldNetworkSchema>;

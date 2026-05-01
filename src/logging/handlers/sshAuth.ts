@@ -13,19 +13,21 @@ export type SshAuthDeps = {
   readonly logFs: LogFileSystemDeps;
 };
 
-export type SshAuthHandler = (
-  success: boolean,
-  user: string,
-  targetIP: string,
-  port: number,
-  method: SshAuthMethod,
-) => void;
+export type SshAuthEvent = {
+  readonly success: boolean;
+  readonly user: string;
+  readonly targetIP: string;
+  readonly port: number;
+  readonly method: SshAuthMethod;
+};
+
+export type SshAuthHandler = (event: SshAuthEvent) => void;
 
 // Writes an auth.log entry to the SSH daemon's host. When the public
 // port is NAT-forwarded, the log lands on the backend where sshd runs.
 export const createSshAuthHandler =
   (deps: SshAuthDeps): SshAuthHandler =>
-  (success, user, targetIP, port, method) => {
+  ({ success, user, targetIP, port, method }) => {
     const { ip: logIp } = deps.resolveNat(targetIP, port);
     const hostname = resolveHostname(logIp, deps.getMachine);
     const pid = generatePid();
