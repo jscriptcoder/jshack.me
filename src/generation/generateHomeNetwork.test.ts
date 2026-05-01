@@ -1,90 +1,109 @@
 import { describe, it, expect, vi } from 'vitest';
-import { generateHomeNetwork } from './generateHomeNetwork';
+import { generateHomeNetwork, homeNetworkSeed } from './generateHomeNetwork';
+
+// Helper: derive a single-player-style seed from gameSeed + wifiIndex.
+const seedOf = (gameSeed: string, wifiIndex: number) => homeNetworkSeed(gameSeed, wifiIndex);
 
 describe('generateHomeNetwork', () => {
-  it('should produce deterministic output for same inputs', async () => {
-    const a = await generateHomeNetwork('seed-a', 0, 'NET-A');
-    const b = await generateHomeNetwork('seed-a', 0, 'NET-A');
+  it('produces deterministic output for the same seed and essid', async () => {
+    const a = await generateHomeNetwork({ seed: seedOf('seed-a', 0), essid: 'NET-A' });
+    const b = await generateHomeNetwork({ seed: seedOf('seed-a', 0), essid: 'NET-A' });
     expect(a.router.publicIp).toBe(b.router.publicIp);
     expect(a.machines.length).toBe(b.machines.length);
     expect(a.layers.length).toBe(b.layers.length);
     expect(a.difficulty).toBe(b.difficulty);
   });
 
-  it('should produce different output for different seeds', async () => {
-    const a = await generateHomeNetwork('seed-a', 0, 'NET-A');
-    const b = await generateHomeNetwork('seed-b', 0, 'NET-B');
+  it('produces different output for different seeds', async () => {
+    const a = await generateHomeNetwork({ seed: seedOf('seed-a', 0), essid: 'NET-A' });
+    const b = await generateHomeNetwork({ seed: seedOf('seed-b', 0), essid: 'NET-B' });
     expect(a.router.publicIp).not.toBe(b.router.publicIp);
   });
 
-  it('should produce different output for different WiFi indices', async () => {
-    const a = await generateHomeNetwork('same-seed', 0, 'NET-0');
-    const b = await generateHomeNetwork('same-seed', 1, 'NET-1');
+  it('produces different output for different WiFi indices via the seed helper', async () => {
+    const a = await generateHomeNetwork({ seed: seedOf('same-seed', 0), essid: 'NET-0' });
+    const b = await generateHomeNetwork({ seed: seedOf('same-seed', 1), essid: 'NET-1' });
     expect(a.router.publicIp).not.toBe(b.router.publicIp);
   });
 
-  it('should have a router with public IP', async () => {
-    const network = await generateHomeNetwork('test', 0, 'TEST');
+  it('has a router with a public IP outside the private ranges', async () => {
+    const network = await generateHomeNetwork({ seed: seedOf('test', 0), essid: 'TEST' });
     expect(network.router.publicIp).toMatch(/^\d+\.\d+\.\d+\.\d+$/);
-    // Public IP should not be in private ranges
     expect(network.router.publicIp).not.toMatch(/^10\./);
     expect(network.router.publicIp).not.toMatch(/^192\.168\./);
     expect(network.router.publicIp).not.toMatch(/^172\.(1[6-9]|2\d|3[01])\./);
   });
 
-  it('should have unique IPs across all machines', async () => {
-    const network = await generateHomeNetwork('unique-ip', 0, 'TEST');
+  it('has unique IPs across all machines', async () => {
+    const network = await generateHomeNetwork({ seed: seedOf('unique-ip', 0), essid: 'TEST' });
     const ips = network.machines.map((m) => m.ip);
     expect(new Set(ips).size).toBe(ips.length);
   });
 
-  it('should set localhostIp in the outermost subnet', async () => {
-    const network = await generateHomeNetwork('test', 0, 'TEST');
+  it('defaults localhostIp to .100 in the outermost subnet when slotIp is not provided', async () => {
+    const network = await generateHomeNetwork({ seed: seedOf('test', 0), essid: 'TEST' });
     const layer0Subnet = network.layers[0]!.subnet;
-    expect(network.localhostIp).toMatch(new RegExp(`^${layer0Subnet.replace(/\./g, '\\.')}\\.`));
-    expect(network.localhostIp.endsWith('.100')).toBe(true);
+    expect(network.localhostIp).toBe(`${layer0Subnet}.100`);
   });
 
-  it('should store essid', async () => {
-    const network = await generateHomeNetwork('test', 0, 'MY-WIFI');
+  it('uses the supplied slotIp for localhostIp instead of the default .100', async () => {
+    const network = await generateHomeNetwork({
+      seed: seedOf('slot-ip-test', 0),
+      essid: 'TEST',
+      slotIp: '.187',
+    });
+    const layer0Subnet = network.layers[0]!.subnet;
+    expect(network.localhostIp).toBe(`${layer0Subnet}.187`);
+  });
+
+  it('exposes the supplied hostname on the returned network', async () => {
+    const network = await generateHomeNetwork({
+      seed: seedOf('hostname-test', 0),
+      essid: 'TEST',
+      hostname: 'skylab-9k3',
+    });
+    expect(network.hostname).toBe('skylab-9k3');
+  });
+
+  it('leaves hostname undefined when none is supplied (single-player path)', async () => {
+    const network = await generateHomeNetwork({ seed: seedOf('no-hostname', 0), essid: 'TEST' });
+    expect(network.hostname).toBeUndefined();
+  });
+
+  it('stores essid', async () => {
+    const network = await generateHomeNetwork({ seed: seedOf('test', 0), essid: 'MY-WIFI' });
     expect(network.essid).toBe('MY-WIFI');
   });
 
-  it('should generate network configs for all machines + router', async () => {
-    const network = await generateHomeNetwork('config-test', 0, 'TEST');
-    // Every machine should have a config
+  it('generates network configs for all machines + router', async () => {
+    const network = await generateHomeNetwork({ seed: seedOf('config-test', 0), essid: 'TEST' });
     for (const machine of network.machines) {
       expect(network.networkConfig.machineConfigs[machine.ip]).toBeDefined();
     }
-    // Router config exists under public IP
     expect(network.networkConfig.machineConfigs[network.router.publicIp]).toBeDefined();
-    // Router config also aliased under internal .1 IP
     expect(network.networkConfig.machineConfigs[network.router.internalIp]).toBeDefined();
   });
 
-  it('should generate filesystems for all machines + router', async () => {
-    const network = await generateHomeNetwork('fs-test', 0, 'TEST');
+  it('generates filesystems for all machines + router', async () => {
+    const network = await generateHomeNetwork({ seed: seedOf('fs-test', 0), essid: 'TEST' });
     for (const machine of network.machines) {
       expect(network.fileSystems[machine.ip]).toBeDefined();
       expect(network.fileSystems[machine.ip]!.type).toBe('directory');
     }
-    // Router filesystem exists
     expect(network.fileSystems[network.router.publicIp]).toBeDefined();
-    // Router filesystem aliased under internal .1 IP
     expect(network.fileSystems[network.router.internalIp]).toBeDefined();
   });
 
-  it('should have machines with users', async () => {
-    const network = await generateHomeNetwork('users-test', 0, 'TEST');
+  it('has machines with users', async () => {
+    const network = await generateHomeNetwork({ seed: seedOf('users-test', 0), essid: 'TEST' });
     for (const machine of network.machines) {
       expect(machine.remoteMachine.users.length).toBeGreaterThanOrEqual(2);
-      // Should have root
       expect(machine.remoteMachine.users.some((u) => u.userType === 'root')).toBe(true);
     }
   });
 
-  it('should set a serviceVersion on every port of every generated machine', async () => {
-    const network = await generateHomeNetwork('version-audit', 0, 'TEST');
+  it('sets a serviceVersion on every port of every generated machine', async () => {
+    const network = await generateHomeNetwork({ seed: seedOf('version-audit', 0), essid: 'TEST' });
     const allMachines = [network.routerMachine, ...network.machines];
     for (const machine of allMachines) {
       for (const port of machine.remoteMachine.ports) {
@@ -95,25 +114,36 @@ describe('generateHomeNetwork', () => {
     }
   });
 
-  it('should avoid public IPs in the usedIps set', async () => {
-    const network = await generateHomeNetwork('collision-seed', 0, 'NET-0');
+  it('avoids public IPs in the usedIps set', async () => {
+    const network = await generateHomeNetwork({
+      seed: seedOf('collision-seed', 0),
+      essid: 'NET-0',
+    });
     const blocked = new Set([network.router.publicIp]);
-    const network2 = await generateHomeNetwork('collision-seed', 0, 'NET-0', blocked);
+    const network2 = await generateHomeNetwork({
+      seed: seedOf('collision-seed', 0),
+      essid: 'NET-0',
+      usedIps: blocked,
+    });
     expect(network2.router.publicIp).not.toBe(network.router.publicIp);
   });
 
-  it('should produce unique public IPs across multiple WiFi indices', async () => {
+  it('produces unique public IPs across multiple WiFi indices', async () => {
     const publicIps = new Set<string>();
     for (let i = 0; i < 10; i++) {
-      const network = await generateHomeNetwork('multi-wifi', i, `NET-${i}`, publicIps);
+      const network = await generateHomeNetwork({
+        seed: seedOf('multi-wifi', i),
+        essid: `NET-${i}`,
+        usedIps: publicIps,
+      });
       expect(publicIps).not.toContain(network.router.publicIp);
       publicIps.add(network.router.publicIp);
     }
     expect(publicIps.size).toBe(10);
   });
 
-  it('should have DNS records for layer machines', async () => {
-    const network = await generateHomeNetwork('dns-test', 0, 'TEST');
+  it('has DNS records for layer machines', async () => {
+    const network = await generateHomeNetwork({ seed: seedOf('dns-test', 0), essid: 'TEST' });
     const layer0 = network.layers[0]!;
     const sampleIp = layer0.machines[0]?.ip ?? '';
     const sampleConfig = network.networkConfig.machineConfigs[sampleIp];
@@ -121,58 +151,56 @@ describe('generateHomeNetwork', () => {
     expect(sampleConfig!.dnsRecords.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('should have layers based on difficulty', async () => {
-    // Generate many networks to cover different difficulties
+  it('has layers based on difficulty', async () => {
     const layerCounts = new Set<number>();
     for (let i = 0; i < 30; i++) {
-      const network = await generateHomeNetwork(`layer-seed-${i}`, 0, 'TEST');
+      const network = await generateHomeNetwork({
+        seed: seedOf(`layer-seed-${i}`, 0),
+        essid: 'TEST',
+      });
       layerCounts.add(network.layers.length);
-      // Easy=1, medium=2, hard=3
       expect(network.layers.length).toBeGreaterThanOrEqual(1);
       expect(network.layers.length).toBeLessThanOrEqual(3);
     }
-    // Across 30 seeds, we should see at least 2 different layer counts
     expect(layerCounts.size).toBeGreaterThanOrEqual(2);
   });
 
-  it('should have machines with access variants', async () => {
-    const network = await generateHomeNetwork('variant-test', 0, 'TEST');
+  it('has machines with access variants', async () => {
+    const network = await generateHomeNetwork({ seed: seedOf('variant-test', 0), essid: 'TEST' });
     for (const machine of network.machines) {
       expect(machine.accessVariant).toBeDefined();
       expect(['ssh', 'ftp', 'nc', 'exploit', 'http', 'snmp']).toContain(machine.accessVariant);
     }
   });
 
-  it('should have an entry variant and entry point', async () => {
-    const network = await generateHomeNetwork('entry-test', 0, 'TEST');
+  it('has an entry variant and entry point', async () => {
+    const network = await generateHomeNetwork({ seed: seedOf('entry-test', 0), essid: 'TEST' });
     expect(network.entryVariant).toBeDefined();
     expect(['ssh', 'ftp', 'nc', 'exploit', 'http', 'snmp']).toContain(network.entryVariant);
     expect(network.entryPoint).toMatch(/^\d+\.\d+\.\d+\.\d+$/);
   });
 
-  it('should have a routerMachine with users', async () => {
-    const network = await generateHomeNetwork('router-test', 0, 'TEST');
+  it('has a routerMachine with users', async () => {
+    const network = await generateHomeNetwork({ seed: seedOf('router-test', 0), essid: 'TEST' });
     expect(network.routerMachine).toBeDefined();
     expect(network.routerMachine.role).toBe('router');
     expect(network.routerMachine.remoteMachine.users.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('should alias inner gateway configs under downstream .1 IPs for multi-layer networks', async () => {
-    // Find a network with multiple layers
+  it('aliases inner gateway configs under downstream .1 IPs for multi-layer networks', async () => {
     for (let i = 0; i < 50; i++) {
-      const network = await generateHomeNetwork(`gateway-alias-${i}`, 0, 'TEST');
+      const network = await generateHomeNetwork({
+        seed: seedOf(`gateway-alias-${i}`, 0),
+        essid: 'TEST',
+      });
       if (network.layers.length > 1) {
         const layer1 = network.layers[1]!;
         const downstreamGatewayIp = `${layer1.subnet}.1`;
-        // Config should exist under the .1 IP
         expect(network.networkConfig.machineConfigs[downstreamGatewayIp]).toBeDefined();
-        // Filesystem should exist under the .1 IP
         expect(network.fileSystems[downstreamGatewayIp]).toBeDefined();
         return;
       }
     }
-    // If we didn't find a multi-layer network in 50 tries, the test still passes
-    // (difficulty is random, so we can't guarantee it)
   });
 
   it('uses allocator-returned IP when allocateIp is provided', async () => {
@@ -180,16 +208,33 @@ describe('generateHomeNetwork', () => {
     const allocateIp = vi
       .fn<(kind: 'home_network') => Promise<string>>()
       .mockResolvedValue(allocated);
-    const network = await generateHomeNetwork('alloc-home', 0, 'NET', undefined, { allocateIp });
+    const network = await generateHomeNetwork({
+      seed: seedOf('alloc-home', 0),
+      essid: 'NET',
+      allocateIp,
+    });
     expect(network.router.publicIp).toBe(allocated);
     expect(network.routerMachine.ip).toBe(allocated);
     expect(allocateIp).toHaveBeenCalledWith('home_network');
   });
 
   it('falls back to PRNG roll when allocateIp is omitted (single-player default)', async () => {
-    const a = await generateHomeNetwork('no-alloc-home', 0, 'NET');
-    const b = await generateHomeNetwork('no-alloc-home', 0, 'NET');
-    // Deterministic rolled IP for the same seed/index/essid
+    const a = await generateHomeNetwork({ seed: seedOf('no-alloc-home', 0), essid: 'NET' });
+    const b = await generateHomeNetwork({ seed: seedOf('no-alloc-home', 0), essid: 'NET' });
     expect(a.router.publicIp).toBe(b.router.publicIp);
+  });
+});
+
+describe('homeNetworkSeed', () => {
+  it('builds a stable seed for the (gameSeed, wifiIndex) pair', () => {
+    expect(homeNetworkSeed('alpha', 0)).toBe(homeNetworkSeed('alpha', 0));
+  });
+
+  it('changes when gameSeed changes', () => {
+    expect(homeNetworkSeed('alpha', 0)).not.toBe(homeNetworkSeed('beta', 0));
+  });
+
+  it('changes when wifiIndex changes', () => {
+    expect(homeNetworkSeed('alpha', 0)).not.toBe(homeNetworkSeed('alpha', 1));
   });
 });

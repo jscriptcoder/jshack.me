@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { generateWifiNetworks } from '../generation/generateWifi';
-import { generateHomeNetwork, type HomeNetwork } from '../generation/generateHomeNetwork';
+import {
+  generateHomeNetwork,
+  homeNetworkSeed,
+  type HomeNetwork,
+} from '../generation/generateHomeNetwork';
 import type { WifiConnection } from '../network/wifiTypes';
 
 // Generates all home networks for a game seed and provides the active one
@@ -35,7 +39,11 @@ export const useHomeNetworks = (
       const networks: HomeNetwork[] = [];
       for (let i = 0; i < crackable.length; i++) {
         const wifi = crackable[i]!;
-        const network = await generateHomeNetwork(gameSeed, i, wifi.essid, usedIps);
+        const network = await generateHomeNetwork({
+          seed: homeNetworkSeed(gameSeed, i),
+          essid: wifi.essid,
+          usedIps,
+        });
         if (cancelled) return;
         usedIps.add(network.router.publicIp);
         networks.push(network);

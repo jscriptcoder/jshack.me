@@ -13,6 +13,10 @@ import type {
 export type HomeNetwork = {
   readonly essid: string;
   readonly localhostIp: string;
+  // Server-assigned hostname (`${prefix}-${suffix}`) when joining via the
+  // Phase 5 occupant flow. Undefined for the single-player static-fallback
+  // path where the workstation name is used directly.
+  readonly hostname?: string;
   readonly router: {
     readonly publicIp: string;
     readonly hostname: string;
@@ -29,7 +33,13 @@ export type HomeNetwork = {
   readonly difficulty: Difficulty;
 };
 
-// Derives difficulty from PRNG. Consumes 1 PRNG call.
+// Seed format for single-player home networks: derived from gameSeed +
+// wifiIndex so each (game, WiFi slot) pair generates a stable topology.
+// Multiplayer callers derive their seed differently (`home-${publicIp}`)
+// so a shared LAN has identical topology across all occupants.
+export const homeNetworkSeed = (gameSeed: string, wifiIndex: number): string =>
+  `home-${gameSeed}-${wifiIndex}`;
+
 const deriveDifficulty = (prng: { readonly next: () => number }): Difficulty => {
   const roll = prng.next();
   if (roll < 0.33) return 'easy';
@@ -37,34 +47,48 @@ const deriveDifficulty = (prng: { readonly next: () => number }): Difficulty => 
   return 'hard';
 };
 
-export type GenerateHomeNetworkOptions = {
-  // Phase 5 seam for server-allocated public IPs. When provided, the home
-  // router's public IP is pulled from this allocator (which hits the
-  // /api/allocate-ip registry and guarantees global uniqueness via the
-  // public_ips PK). When omitted, topology rolls the IP locally — the
-  // single-player / test default.
+// Default host octet for localhost on a home network. Used when no
+// server-allocated slot is supplied (single-player / test fallback).
+// In multiplayer, the server picks a random host octet via pickRandomLanIp
+// and supplies it as `slotIp`.
+const DEFAULT_SLOT_IP = '.100';
+
+export type GenerateHomeNetworkParams = {
+  // PRNG seed driving topology. Single-player callers use
+  // `homeNetworkSeed(gameSeed, wifiIndex)`; multiplayer callers use
+  // `home-${publicIp}` so all players sharing a LAN see the same topology.
+  readonly seed: string;
+  readonly essid: string;
+  // Pre-allocated host octet for localhost on this LAN (e.g. '.187').
+  // Must include the leading dot — concatenated directly with the layer-0
+  // subnet to form the full IP. Defaults to '.100' if omitted.
+  readonly slotIp?: string;
+  // Pre-assigned hostname for the player on this LAN (e.g. 'skylab-9k3').
+  // Multiplayer-only; undefined for the single-player path.
+  readonly hostname?: string;
+  // Public IPs already taken by sibling networks in the same generation
+  // pass — passed to topology so the router IP roll avoids collisions.
+  // Multiplayer ignores this (the server allocator owns uniqueness).
+  readonly usedIps?: ReadonlySet<string>;
+  // Server-side IP allocator seam. When provided, the router IP comes
+  // from the registry (`/api/allocate-ip` flow) instead of a local PRNG
+  // roll. Used by the multiplayer join flow.
   readonly allocateIp?: (kind: 'home_network') => Promise<string>;
 };
 
 export const generateHomeNetwork = async (
-  gameSeed: string,
-  wifiIndex: number,
-  essid: string,
-  usedIps?: ReadonlySet<string>,
-  options: GenerateHomeNetworkOptions = {},
+  params: GenerateHomeNetworkParams,
 ): Promise<HomeNetwork> => {
-  const prng = createPrng(`home-${gameSeed}-${wifiIndex}`);
+  const { seed, essid, slotIp, hostname, usedIps, allocateIp } = params;
+  const prng = createPrng(seed);
   const difficulty = deriveDifficulty(prng);
 
   // ~40% chance inner gateways are managed switches instead of routers.
   // Only affects multi-layer networks (medium/hard difficulty).
   const switchGateway = prng.next() < 0.4;
 
-  // If an allocator is injected, reserve the router IP server-side before
-  // generating topology. Otherwise topology rolls the IP locally.
-  const routerPublicIp = options.allocateIp ? await options.allocateIp('home_network') : undefined;
+  const routerPublicIp = allocateIp ? await allocateIp('home_network') : undefined;
 
-  // Shared pipeline: topology → users → enrichment → port closures → configs → filesystems
   const network = await generateNetwork({
     prng,
     difficulty,
@@ -74,17 +98,16 @@ export const generateHomeNetwork = async (
   const { topology, machines, routerMachine } = network;
   const layer0 = topology.layers[0]!;
   const routerInternalIp = `${layer0.subnet}.1`;
-  const localhostIp = `${layer0.subnet}.100`;
+  const localhostIp = `${layer0.subnet}${slotIp ?? DEFAULT_SLOT_IP}`;
 
   // Alias gateway configs under their internal .1 IPs so players can SSH
-  // into gateways from inside the network (they see the .1 address, not the
-  // upstream IP or public IP).
+  // into gateways from inside the network (they see the .1 address, not
+  // the upstream IP or public IP).
   const machineConfigs: Record<string, MachineNetworkConfig> = {
     ...network.updatedNetworkConfig.machineConfigs,
   };
   const fileSystems: Record<string, FileNode> = { ...network.fileSystems };
 
-  // Router: alias public IP config/filesystem under internal .1 IP
   const routerPublicConfig = machineConfigs[topology.routerPublicIp];
   if (routerPublicConfig) {
     machineConfigs[routerInternalIp] = routerPublicConfig;
@@ -94,7 +117,6 @@ export const generateHomeNetwork = async (
     fileSystems[routerInternalIp] = routerPublicFs;
   }
 
-  // Inner gateways: alias downstream .1 IPs
   topology.layers.slice(1).forEach((layer) => {
     const downstreamGatewayIp = `${layer.subnet}.1`;
     const gatewayConfig = machineConfigs[layer.gateway.ip];
@@ -110,6 +132,7 @@ export const generateHomeNetwork = async (
   return {
     essid,
     localhostIp,
+    ...(hostname !== undefined && { hostname }),
     router: {
       publicIp: topology.routerPublicIp,
       hostname: routerMachine.hostname,
