@@ -18,11 +18,7 @@ import type {
   ClearTransientArg,
   DeletePatchesArg,
 } from '../src/patchRegistry/supabaseDelete.js';
-import type {
-  PatchRow,
-  PatchSummary,
-  ListPatchesForMachinesParams,
-} from '../src/patchRegistry/types.js';
+import type { PatchRow, ListPatchesForMachinesParams } from '../src/patchRegistry/types.js';
 import { createSupabaseFindActiveSession } from '../src/sessionRegistry/supabaseFindActive.js';
 import type { FindActiveSessionParams } from '../src/sessionRegistry/supabaseFindActive.js';
 import {
@@ -223,8 +219,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
   };
 
-  const publishPatchChange = (machine_id: string, payload: PatchSummary) =>
-    publishPatchChangeHelper(broadcastViaRest, machine_id, payload);
+  const publishPatchChange = (machine_id: string, originator_key: string) =>
+    publishPatchChangeHelper(broadcastViaRest, machine_id, originator_key);
 
   const findActiveSession = createSupabaseFindActiveSession(
     async (params: FindActiveSessionParams) => {

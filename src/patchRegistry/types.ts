@@ -177,6 +177,25 @@ export type PatchSummary = {
   readonly node_type: NodeType;
 };
 
+// Realtime broadcast payload — a HINT, not a full patch. After every
+// successful upsertPatch / removePatch the server publishes
+// `{ machine_id, originator_key }` on `patches:<machine_id>`. Receivers
+// trigger a `listPatchesForMachines` refetch to obtain authoritative
+// state for the affected machine; receivers whose `originator_key`
+// matches their own pubkey skip the refetch (their local optimistic
+// apply + cross-tab BroadcastChannel already covered it).
+//
+// Why a hint, not the full payload: the broadcast channel is anon-
+// publishable from the browser bundle, so any client could forge a
+// `patch_change` event with fake content. By shipping only "something
+// changed" + "who changed it", forgery becomes harmless — a forged
+// hint just causes a refetch that returns server truth. See
+// project_realtime_publish_authorization memory for the threat model.
+export type PatchHint = {
+  readonly machine_id: string;
+  readonly originator_key: string;
+};
+
 // Cross-player read params. Caller (handler) supplies:
 //   - machine_ids: the set of machines whose patches the player wants.
 //   - player_key:  the verified caller pubkey, server-stamped (NOT

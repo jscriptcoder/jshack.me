@@ -5,7 +5,6 @@ import {
   type ListPatchesForMachinesParams,
   type ListPatchesForMachinesResult,
   type PatchRow,
-  type PatchSummary,
   type PatchesPayload,
   type RemovePatchParams,
   type RemovePatchResult,
@@ -44,12 +43,16 @@ export type HandlerDeps = {
   // sessionRegistry/supabaseFindActive.ts for the adapter and
   // project_multiplayer_security_model memory for the broader design.
   readonly findActiveSession: (params: FindActiveSessionParams) => Promise<FindActiveSessionResult>;
-  // Realtime broadcast: fired after each successful upsertPatch /
-  // removePatch so subscribed clients on shared machines apply the
-  // change live. Fire-and-forget — broadcast failures are swallowed
-  // inside publishPatchChange and don't affect the HTTP response.
-  // See patchRegistry/broadcast.ts.
-  readonly publishPatchChange: (machine_id: string, payload: PatchSummary) => Promise<void>;
+  // Realtime hint broadcast: fired after each successful upsertPatch /
+  // removePatch so subscribed clients on shared machines refetch live.
+  // The payload is just (machine_id, originator_key) — receivers do
+  // the actual data fetch via listPatchesForMachines. Forging the hint
+  // cannot corrupt UI state because there's no content to inject. Fire-
+  // and-forget — broadcast failures are swallowed inside
+  // publishPatchChange and don't affect the HTTP response.
+  // See patchRegistry/broadcast.ts and the
+  // project_realtime_publish_authorization memory.
+  readonly publishPatchChange: (machine_id: string, originator_key: string) => Promise<void>;
   readonly rateLimiter: RateLimiter;
   readonly nonceStore: NonceStore;
   readonly now?: () => number;
@@ -217,19 +220,11 @@ const handleUpsertPatch = async (
   if (!result.ok) {
     return { status: 500, body: { error: 'upsert_failed' } };
   }
-  // Realtime: notify subscribers on this machine. Wire shape mirrors
-  // PatchSummary (DB-default fields applied) so the client receives the
-  // same shape as a listPatchesForMachines row and can run it through
-  // the existing wire→FileSystemPatch converter unchanged.
-  await deps.publishPatchChange(machine_id, {
-    machine_id,
-    path,
-    content: row.content,
-    owner,
-    permissions: permissions ?? null,
-    is_new: is_new ?? false,
-    node_type: node_type ?? 'file',
-  });
+  // Realtime hint: notify subscribers that this machine has changes,
+  // along with who originated the change. Receivers use originator_key
+  // to skip self-induced refetches; everyone else refetches via
+  // listPatchesForMachines for authoritative state.
+  await deps.publishPatchChange(machine_id, publicKey);
   return { status: 200, body: {} };
 };
 
@@ -249,20 +244,11 @@ const handleRemovePatch = async (
   if (!result.ok) {
     return { status: 500, body: { error: 'remove_failed' } };
   }
-  // Realtime tombstone: content=null tells subscribers' applyPatches to
-  // remove the node (and any descendants — the helper's deletion branch
-  // is recursive). Other fields are placeholders required by
-  // PatchSummary's readonly shape; applyPatches ignores them on the
-  // null-content path.
-  await deps.publishPatchChange(payload.machine_id, {
-    machine_id: payload.machine_id,
-    path: payload.path,
-    content: null,
-    owner: 'root',
-    permissions: null,
-    is_new: false,
-    node_type: 'file',
-  });
+  // Realtime hint: notify subscribers that this machine changed.
+  // Receivers refetch via listPatchesForMachines and the absence of
+  // the row in the response is the deletion signal — no need to ship
+  // a tombstone payload over Realtime.
+  await deps.publishPatchChange(payload.machine_id, publicKey);
   // affected = 0 is success — idempotent removal of a path that already
   // had no patches (and no descendants).
   return { status: 200, body: { affected: result.affected } };

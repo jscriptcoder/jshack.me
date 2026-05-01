@@ -8,17 +8,17 @@ See `docs/technology-choices.md` (Patches: server-authoritative with two-call de
 
 ## Files
 
-| File                         | Description                                                                                                                                                                       |
-| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `types.ts`                   | zod schemas (5-action discriminated union: upsertPatch / removePatch / listPatchesForMachines / clearTransientPatches / clearOwnedPatches), `PatchRow`, `PatchSummary`.           |
-| `handler.ts`                 | Single endpoint with action-dispatch: verify → rate-limit → branch into one of five action handlers. Server-stamps `player_key` on every write.                                   |
-| `supabaseUpsert.ts`          | `INSERT ... ON CONFLICT (player_key, machine_id, path) DO UPDATE` adapter for upsertPatch.                                                                                        |
-| `supabaseDelete.ts`          | DELETE adapters for removePatch (exact + descendant prefix), clearTransientPatches (`machine_id <> 'localhost'`), and clearOwnedPatches (`machine_id = 'localhost'`).             |
-| `supabaseSelectByMachine.ts` | `SELECT ... WHERE machine_id IN (...) ORDER BY updated_at ASC` adapter for listPatchesForMachines (cross-player read); returns the per-row `PatchSummary` shape.                  |
-| `broadcast.ts`               | Server-side `publishPatchChange` — fires a Supabase Realtime broadcast (`patches:<machine_id>` channel, `patch_change` event) after every successful mutation. Fire-and-forget.   |
-| `realtime.ts`                | Client-side `subscribeToMachine` wrapper + lazy anon-key Supabase client. Receives broadcasts, converts wire payloads to `FileSystemPatch`, hands them to the caller's `onPatch`. |
-| `client.ts`                  | Browser-side wrappers — sign envelope, POST, parse response. Handle camelCase ↔ snake_case translation so callers see `FileSystemPatch`.                                          |
-| `*.test.ts`                  | Unit tests for each module.                                                                                                                                                       |
+| File                         | Description                                                                                                                                                                                                                    |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `types.ts`                   | zod schemas (5-action discriminated union: upsertPatch / removePatch / listPatchesForMachines / clearTransientPatches / clearOwnedPatches), `PatchRow`, `PatchSummary`.                                                        |
+| `handler.ts`                 | Single endpoint with action-dispatch: verify → rate-limit → branch into one of five action handlers. Server-stamps `player_key` on every write.                                                                                |
+| `supabaseUpsert.ts`          | `INSERT ... ON CONFLICT (player_key, machine_id, path) DO UPDATE` adapter for upsertPatch.                                                                                                                                     |
+| `supabaseDelete.ts`          | DELETE adapters for removePatch (exact + descendant prefix), clearTransientPatches (`machine_id <> 'localhost'`), and clearOwnedPatches (`machine_id = 'localhost'`).                                                          |
+| `supabaseSelectByMachine.ts` | `SELECT ... WHERE machine_id IN (...) ORDER BY updated_at ASC` adapter for listPatchesForMachines (cross-player read); returns the per-row `PatchSummary` shape.                                                               |
+| `broadcast.ts`               | Server-side `publishPatchChange` — fires a Supabase Realtime HINT broadcast (`patches:<machine_id>` channel, `patch_change` event, `{ machine_id, originator_key }` payload) after every successful mutation. Fire-and-forget. |
+| `realtime.ts`                | Client-side `subscribeToMachine` wrapper + lazy anon-key Supabase client. Receives hints, converts wire shape (snake_case) to `PatchHint` (camelCase), hands them to the caller's `onHint`.                                    |
+| `client.ts`                  | Browser-side wrappers — sign envelope, POST, parse response. Handle camelCase ↔ snake_case translation so callers see `FileSystemPatch`.                                                                                       |
+| `*.test.ts`                  | Unit tests for each module.                                                                                                                                                                                                    |
 
 ## Action dispatch (`handler.ts`)
 
@@ -47,17 +47,33 @@ verify → rate-limit → switch (action):
 
 Action-dispatch over URL-shape REST mirrors `/api/sessions` — every action POSTs (signed bodies require POST), so a single URL avoids duplicating the verify+rate-limit prelude.
 
-## Realtime broadcasts
+## Realtime hint broadcasts
 
-After every successful `upsertPatch` / `removePatch`, the handler fires a fire-and-forget `publishPatchChange` to a per-machine Supabase Realtime broadcast channel:
+After every successful `upsertPatch` / `removePatch`, the handler fires a fire-and-forget `publishPatchChange` to a per-machine Supabase Realtime broadcast channel. The payload is a HINT — just `{ machine_id, originator_key }` — not the full patch:
 
 ```
-verify → rate-limit → mutate → if ok: broadcast(`patches:${machine_id}`, 'patch_change', payload)
+verify → rate-limit → mutate → if ok: broadcast(`patches:${machine_id}`, 'patch_change', { machine_id, originator_key })
 ```
 
-Subscribers (`subscribeToMachine` in `realtime.ts`, wired into `FileSystemContext`) receive the event, convert the wire payload to `FileSystemPatch`, and apply it via the same `applyExternalPatch` callback used by the cross-tab `BroadcastChannel`. Result: cross-player writes appear live without page reload.
+Subscribers (`subscribeToMachine` in `realtime.ts`, wired into `FileSystemContext`) receive the hint and:
 
-Trust model: client-side anon key allows publishing to broadcast channels too, so a malicious player could in principle forge a `patch_change` event. We accept transient local divergence — the next page reload's `listPatchesForMachines` call returns server truth and overwrites any forgery. Hardening (signed events, channel publish authorization rules) is a future PR.
+1. Skip the hint if `originator_key === own_pubkey` (the local optimistic apply + cross-tab `BroadcastChannel` already covered same-identity writes).
+2. Otherwise, accumulate `machine_id` into a debounced (~150ms) refetch set.
+3. On debounce flush, fire `listPatchesForMachines([...affectedMachineIds])` against the signed `/api/patches` endpoint and splice the authoritative result into local `patches` state. Pending in-flight local writes (tracked in a `Map<key, FileSystemPatch>`) are replayed on top so a cross-player refetch doesn't clobber what the user just typed.
+
+Result: cross-player writes appear within ~300-500ms (debounce + round-trip), with zero risk of forged content corrupting local state.
+
+### Trust model — closed by hint architecture
+
+The Realtime broadcast channel is anon-publishable from the browser bundle (the anon key ships in the bundle by design), so any client can call `channel.send()`. Under the prior design (full `PatchSummary` payload), a malicious player could forge a `patch_change` event with fake content; the local view diverged from server truth until the next page reload's `listPatchesForMachines` call.
+
+Hint-only payload defangs this architecturally:
+
+- There's no content / path / owner in the broadcast — nothing to inject.
+- Forged hints just trigger a refetch via the signed endpoint, which returns server truth.
+- Spamming forged hints with `originator_key = victim_pubkey` makes the victim skip ONE refetch per forgery; authentic hints from real writers (different `originator_key`) still trigger refetches. Net effect: harmless DoS-style noise, no data corruption.
+
+The previous attempt to close the vector via Supabase Realtime authorization rules (`private: true` channels + RLS on `realtime.messages`) was reverted — the new `sb_publishable_*` key format and unspecified `setAuth()` requirements made the configuration brittle. See `project_realtime_publish_authorization` memory for the post-mortem.
 
 Server-to-Realtime path: `api/patches.ts` POSTs directly to `${SUPABASE_URL}/realtime/v1/api/broadcast` with the `service_role` key. Direct fetch beats opening a WebSocket per Vercel function invocation — these functions are short-lived.
 

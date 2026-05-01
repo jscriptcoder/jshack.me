@@ -609,20 +609,24 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
   });
 
   // -----------------------------------------------------------------------
-  // Realtime subscriptions
+  // Realtime hint subscriptions
   //
   // FileSystemContext subscribes to per-machine broadcast channels for
   // every machine in the player's view. Inbound `patch_change` events
-  // apply via the same applyExternalPatch path that the BroadcastChannel
-  // handler uses.
+  // are HINTS (machineId + originatorKey) — receivers refetch
+  // authoritative state via listPatchesForMachines. Hints whose
+  // originatorKey matches the local pubkey are skipped (the local
+  // optimistic apply / cross-tab BroadcastChannel already covered the
+  // change). See project_realtime_publish_authorization memory.
   // -----------------------------------------------------------------------
 
-  describe('realtime subscriptions', () => {
-    type SubscribeMockArgs = readonly [
-      unknown,
-      string,
-      (patch: import('./types').FileSystemPatch) => void,
-    ];
+  describe('realtime hint subscriptions', () => {
+    type Hint = { readonly machineId: string; readonly originatorKey: string };
+    type SubscribeMockArgs = readonly [unknown, string, (hint: Hint) => void];
+
+    // Identity mock pubkey (see vi.mock('../identity') above).
+    const OWN_KEY = 'aa'.repeat(32);
+    const OTHER_KEY = 'bb'.repeat(32);
 
     it('does NOT subscribe when getRealtimeClient returns null (env vars missing)', async () => {
       vi.mocked(mockedGetRealtimeClient).mockReturnValue(null);
@@ -703,45 +707,75 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       }
     });
 
-    it('applies an inbound patch to local state (file appears without reload)', async () => {
+    it('triggers refetch after debounce when hint arrives from another player', async () => {
       const fakeClient = {} as Parameters<typeof mockedSubscribeToMachine>[0];
       vi.mocked(mockedGetRealtimeClient).mockReturnValue(fakeClient);
-      let capturedOnPatch: ((patch: import('./types').FileSystemPatch) => void) | null = null;
-      vi.mocked(mockedSubscribeToMachine).mockImplementation((_client, machineId, onPatch) => {
-        if (machineId === '192.168.1.50') capturedOnPatch = onPatch;
+      let capturedOnHint: ((hint: Hint) => void) | null = null;
+      vi.mocked(mockedSubscribeToMachine).mockImplementation((_client, machineId, onHint) => {
+        if (machineId === '192.168.1.50') capturedOnHint = onHint as (hint: Hint) => void;
         return () => {};
       });
+      // Server returns a fresh patch from the other player on refetch.
+      // Mount does an initial listPatchesForMachines call; the hint-
+      // triggered refetch is a SECOND call.
+      vi.mocked(mockedListPatchesForMachines)
+        .mockResolvedValueOnce([]) // mount-time rehydration
+        .mockResolvedValueOnce([
+          {
+            machineId: '192.168.1.50',
+            path: '/tmp/from-other-player.txt',
+            content: 'hello from B',
+            owner: 'user',
+            isNew: true,
+          },
+        ]);
 
       const { result } = renderHook(() => useFileSystem(), {
         wrapper: wrap({ homeFileSystems: { '192.168.1.50': baseLocalhost } }),
       });
       await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+      expect(capturedOnHint).not.toBeNull();
+      const callsAfterMount = vi.mocked(mockedListPatchesForMachines).mock.calls.length;
 
-      expect(capturedOnPatch).not.toBeNull();
+      // Hint from another player.
       act(() => {
-        capturedOnPatch!({
-          machineId: '192.168.1.50',
-          path: '/tmp/from-other-player.txt',
-          content: 'hello',
-          owner: 'user',
-          isNew: true,
-        });
+        capturedOnHint!({ machineId: '192.168.1.50', originatorKey: OTHER_KEY });
       });
 
-      const node = result.current.getNodeFromMachine(
-        '192.168.1.50',
-        '/tmp/from-other-player.txt',
-        '/',
+      // Refetch fires after the debounce window. Generous timeout —
+      // production debounce is 150ms.
+      await waitFor(
+        () => {
+          expect(vi.mocked(mockedListPatchesForMachines).mock.calls.length).toBe(
+            callsAfterMount + 1,
+          );
+        },
+        { timeout: 1500 },
       );
-      expect(node?.content).toBe('hello');
+      // Refetch was scoped to the affected machine only.
+      const refetchArgs = vi.mocked(mockedListPatchesForMachines).mock.calls[callsAfterMount];
+      expect(refetchArgs[1]).toEqual(['192.168.1.50']);
+
+      await waitFor(() => {
+        const node = result.current.getNodeFromMachine(
+          '192.168.1.50',
+          '/tmp/from-other-player.txt',
+          '/',
+        );
+        expect(node?.content).toBe('hello from B');
+      });
     });
 
-    it('applies an inbound tombstone (content=null) — file disappears without reload', async () => {
+    it('skips refetch when hint originatorKey matches own pubkey (self-induced echo)', async () => {
+      // Self-skip: the local optimistic apply + cross-tab BroadcastChannel
+      // already covered this change. A refetch here would risk clobbering
+      // the writer's in-flight state if the upsert hasn't fully settled
+      // yet, AND it would waste a round-trip.
       const fakeClient = {} as Parameters<typeof mockedSubscribeToMachine>[0];
       vi.mocked(mockedGetRealtimeClient).mockReturnValue(fakeClient);
-      let capturedOnPatch: ((patch: import('./types').FileSystemPatch) => void) | null = null;
-      vi.mocked(mockedSubscribeToMachine).mockImplementation((_client, machineId, onPatch) => {
-        if (machineId === '192.168.1.50') capturedOnPatch = onPatch;
+      let capturedOnHint: ((hint: Hint) => void) | null = null;
+      vi.mocked(mockedSubscribeToMachine).mockImplementation((_client, machineId, onHint) => {
+        if (machineId === '192.168.1.50') capturedOnHint = onHint as (hint: Hint) => void;
         return () => {};
       });
 
@@ -749,21 +783,248 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
         wrapper: wrap({ homeFileSystems: { '192.168.1.50': baseLocalhost } }),
       });
       await waitFor(() => expect(result.current.isRehydrating).toBe(false));
-      // Sanity: base file exists pre-event on the home machine.
-      expect(
-        result.current.getNodeFromMachine('192.168.1.50', '/tmp/base.txt', '/'),
-      ).not.toBeNull();
+      const callsAfterMount = vi.mocked(mockedListPatchesForMachines).mock.calls.length;
 
+      // Hint with own pubkey — should be a no-op.
       act(() => {
-        capturedOnPatch!({
+        capturedOnHint!({ machineId: '192.168.1.50', originatorKey: OWN_KEY });
+      });
+
+      // Wait WELL past the debounce window. No refetch should fire.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(vi.mocked(mockedListPatchesForMachines).mock.calls.length).toBe(callsAfterMount);
+    });
+
+    it('coalesces hints to multiple machines within debounce window into ONE refetch', async () => {
+      // Debounce + batching: multiple hints accumulate into one refetch
+      // covering all affected machines, instead of one round-trip per
+      // hint. Lets active multi-machine missions stay efficient.
+      const fakeClient = {} as Parameters<typeof mockedSubscribeToMachine>[0];
+      vi.mocked(mockedGetRealtimeClient).mockReturnValue(fakeClient);
+      const onHintByMachine = new Map<string, (hint: Hint) => void>();
+      vi.mocked(mockedSubscribeToMachine).mockImplementation((_client, machineId, onHint) => {
+        onHintByMachine.set(machineId, onHint as (hint: Hint) => void);
+        return () => {};
+      });
+      vi.mocked(mockedListPatchesForMachines).mockResolvedValue([]);
+
+      const { result } = renderHook(() => useFileSystem(), {
+        wrapper: wrap({
+          homeFileSystems: { '192.168.1.50': baseLocalhost },
+          missionFileSystems: { '10.0.0.1': baseLocalhost },
+        }),
+      });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+      const callsAfterMount = vi.mocked(mockedListPatchesForMachines).mock.calls.length;
+
+      // Fire two hints for two different machines back-to-back.
+      act(() => {
+        onHintByMachine.get('192.168.1.50')!({
           machineId: '192.168.1.50',
-          path: '/tmp/base.txt',
-          content: null,
-          owner: 'user',
+          originatorKey: OTHER_KEY,
+        });
+        onHintByMachine.get('10.0.0.1')!({
+          machineId: '10.0.0.1',
+          originatorKey: OTHER_KEY,
         });
       });
 
-      expect(result.current.getNodeFromMachine('192.168.1.50', '/tmp/base.txt', '/')).toBeNull();
+      await waitFor(
+        () => {
+          expect(vi.mocked(mockedListPatchesForMachines).mock.calls.length).toBe(
+            callsAfterMount + 1,
+          );
+        },
+        { timeout: 1500 },
+      );
+      const refetchCall = vi.mocked(mockedListPatchesForMachines).mock.calls[callsAfterMount];
+      const refetchedIds = [...refetchCall[1]].sort();
+      expect(refetchedIds).toEqual(['10.0.0.1', '192.168.1.50']);
+    });
+
+    it('refetch leaves patches for unaffected machines untouched', async () => {
+      const fakeClient = {} as Parameters<typeof mockedSubscribeToMachine>[0];
+      vi.mocked(mockedGetRealtimeClient).mockReturnValue(fakeClient);
+      const onHintByMachine = new Map<string, (hint: Hint) => void>();
+      vi.mocked(mockedSubscribeToMachine).mockImplementation((_client, machineId, onHint) => {
+        onHintByMachine.set(machineId, onHint as (hint: Hint) => void);
+        return () => {};
+      });
+      // Mount returns patches for both machines, then a hint refetch
+      // for machine A returns only A's patches (B's are NOT cleared).
+      vi.mocked(mockedListPatchesForMachines)
+        .mockResolvedValueOnce([
+          {
+            machineId: '192.168.1.50',
+            path: '/tmp/a.txt',
+            content: 'a-original',
+            owner: 'user',
+            isNew: true,
+          },
+          {
+            machineId: '10.0.0.1',
+            path: '/tmp/b.txt',
+            content: 'b-original',
+            owner: 'user',
+            isNew: true,
+          },
+        ])
+        .mockResolvedValueOnce([
+          {
+            machineId: '192.168.1.50',
+            path: '/tmp/a.txt',
+            content: 'a-updated',
+            owner: 'user',
+            isNew: true,
+          },
+        ]);
+
+      const { result } = renderHook(() => useFileSystem(), {
+        wrapper: wrap({
+          homeFileSystems: { '192.168.1.50': baseLocalhost },
+          missionFileSystems: { '10.0.0.1': baseLocalhost },
+        }),
+      });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+      await waitFor(() => {
+        expect(result.current.getNodeFromMachine('10.0.0.1', '/tmp/b.txt', '/')?.content).toBe(
+          'b-original',
+        );
+      });
+
+      // Hint for machine A only.
+      act(() => {
+        onHintByMachine.get('192.168.1.50')!({
+          machineId: '192.168.1.50',
+          originatorKey: OTHER_KEY,
+        });
+      });
+
+      // After refetch: A is updated, B is unchanged.
+      await waitFor(
+        () => {
+          expect(
+            result.current.getNodeFromMachine('192.168.1.50', '/tmp/a.txt', '/')?.content,
+          ).toBe('a-updated');
+        },
+        { timeout: 1500 },
+      );
+      expect(result.current.getNodeFromMachine('10.0.0.1', '/tmp/b.txt', '/')?.content).toBe(
+        'b-original',
+      );
+    });
+
+    it('replays in-flight local writes on top of refetch result (cross-player race protection)', async () => {
+      // Race: I'm typing locally on machine X (POST in flight).
+      // Another player edits machine X — hint arrives, refetch fires,
+      // returns server state which doesn't yet reflect my pending write.
+      // Without replay, my optimistic local change would be clobbered.
+      // With replay, my pending write is preserved on top of the
+      // refetch result.
+      const fakeClient = {} as Parameters<typeof mockedSubscribeToMachine>[0];
+      vi.mocked(mockedGetRealtimeClient).mockReturnValue(fakeClient);
+      let capturedOnHint: ((hint: Hint) => void) | null = null;
+      vi.mocked(mockedSubscribeToMachine).mockImplementation((_client, machineId, onHint) => {
+        if (machineId === '192.168.1.50') capturedOnHint = onHint as (hint: Hint) => void;
+        return () => {};
+      });
+      // Mount: empty server state.
+      // Refetch (after the user has typed locally + another player
+      // wrote): server returns the OTHER player's write only — the
+      // local in-flight write hasn't landed in DB yet.
+      vi.mocked(mockedListPatchesForMachines)
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          {
+            machineId: '192.168.1.50',
+            path: '/tmp/from-other.txt',
+            content: 'other player wrote',
+            owner: 'user',
+            isNew: true,
+          },
+        ]);
+      // upsertPatch never resolves — simulates an in-flight POST.
+      vi.mocked(mockedUpsertPatch).mockReturnValue(new Promise(() => {}));
+
+      const { result } = renderHook(() => useFileSystem(), {
+        wrapper: wrap({ homeFileSystems: { '192.168.1.50': baseLocalhost } }),
+      });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+
+      // Local write: optimistically applies, registers in pendingWrites.
+      act(() => {
+        result.current.upsertFileOnMachine({
+          machineId: '192.168.1.50',
+          path: '/tmp/my-write.txt',
+          cwd: '/',
+          content: 'my pending content',
+          userType: 'user',
+        });
+      });
+      // Sanity: local write visible immediately.
+      expect(
+        result.current.getNodeFromMachine('192.168.1.50', '/tmp/my-write.txt', '/')?.content,
+      ).toBe('my pending content');
+
+      // Hint from the other player → refetch.
+      act(() => {
+        capturedOnHint!({ machineId: '192.168.1.50', originatorKey: OTHER_KEY });
+      });
+
+      // Both files exist after refetch — the other player's write was
+      // applied AND my pending write survived.
+      await waitFor(
+        () => {
+          expect(
+            result.current.getNodeFromMachine('192.168.1.50', '/tmp/from-other.txt', '/')?.content,
+          ).toBe('other player wrote');
+        },
+        { timeout: 1500 },
+      );
+      expect(
+        result.current.getNodeFromMachine('192.168.1.50', '/tmp/my-write.txt', '/')?.content,
+      ).toBe('my pending content');
+    });
+
+    it('hint refetch failure logs but does not crash', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const fakeClient = {} as Parameters<typeof mockedSubscribeToMachine>[0];
+        vi.mocked(mockedGetRealtimeClient).mockReturnValue(fakeClient);
+        let capturedOnHint: ((hint: Hint) => void) | null = null;
+        vi.mocked(mockedSubscribeToMachine).mockImplementation((_client, machineId, onHint) => {
+          if (machineId === '192.168.1.50') capturedOnHint = onHint as (hint: Hint) => void;
+          return () => {};
+        });
+        vi.mocked(mockedListPatchesForMachines)
+          .mockResolvedValueOnce([])
+          .mockRejectedValueOnce(new Error('network down'));
+
+        const { result } = renderHook(() => useFileSystem(), {
+          wrapper: wrap({ homeFileSystems: { '192.168.1.50': baseLocalhost } }),
+        });
+        await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+
+        act(() => {
+          capturedOnHint!({ machineId: '192.168.1.50', originatorKey: OTHER_KEY });
+        });
+
+        await waitFor(
+          () => {
+            expect(consoleErrorSpy).toHaveBeenCalledWith(
+              expect.stringContaining('[fs] hint refetch failed'),
+              expect.any(Error),
+            );
+          },
+          { timeout: 1500 },
+        );
+        // The hook is still alive — local reads still work.
+        expect(
+          result.current.getNodeFromMachine('192.168.1.50', '/tmp/base.txt', '/'),
+        ).not.toBeNull();
+      } finally {
+        consoleErrorSpy.mockRestore();
+      }
     });
 
     it('resubscribes when the machine_ids keyset changes (mid-session mission load)', async () => {
