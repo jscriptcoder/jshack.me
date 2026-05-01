@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 
 type BootScreenProps = {
-  readonly workstationName: string;
+  readonly hostname: string;
   readonly username: string;
   readonly onComplete: () => void;
 };
@@ -65,13 +65,13 @@ const buildBootSequence = (hostname: string, username: string): readonly BootLin
   { text: '', delay: 200 },
 ];
 
-export const BootScreen = ({ workstationName, username, onComplete }: BootScreenProps) => {
+export const BootScreen = ({ hostname, username, onComplete }: BootScreenProps) => {
   const [lines, setLines] = useState<readonly string[]>([]);
   const [colors, setColors] = useState<readonly (string | undefined)[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const sequence = buildBootSequence(workstationName, username);
+    const sequence = buildBootSequence(hostname, username);
     let currentDelay = 0;
     const timeouts: ReturnType<typeof setTimeout>[] = [];
 
@@ -91,7 +91,7 @@ export const BootScreen = ({ workstationName, username, onComplete }: BootScreen
     });
 
     return () => timeouts.forEach(clearTimeout);
-  }, [workstationName, username, onComplete]);
+  }, [hostname, username, onComplete]);
 
   // Auto-scroll to bottom
   useEffect(() => {

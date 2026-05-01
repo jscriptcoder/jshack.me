@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { Terminal } from './components/Terminal';
 import { IntroScreen } from './components/IntroScreen';
 import { BootScreen } from './components/BootScreen';
@@ -11,10 +11,18 @@ import { saveGameState, clearAllData } from './utils/storage';
 import { HomeNetworksProvider, useHomeNetworks } from './game/HomeNetworksContext';
 import { generateLocalhost } from './generation/generateLocalhost';
 import { useWorldNetworks } from './worldNetworks/useWorldNetworks';
+import { computePlayerHostname } from './homeNetworks/computePlayerHostname';
+import { getIdentity } from './identity';
 import type { GameState } from './game/types';
 import type { FileNode } from './filesystem/types';
 
-function GameSession({ gameState }: { readonly gameState: GameState }) {
+function GameSession({
+  gameState,
+  hostname,
+}: {
+  readonly gameState: GameState;
+  readonly hostname: string;
+}) {
   const { connectedWifi } = useSession();
   return (
     <HomeNetworksProvider
@@ -22,39 +30,29 @@ function GameSession({ gameState }: { readonly gameState: GameState }) {
       workstationPrefix={gameState.workstationName}
       connectedWifi={connectedWifi}
     >
-      <GameInner gameState={gameState} />
+      <GameInner gameState={gameState} hostname={hostname} />
     </HomeNetworksProvider>
   );
 }
 
-function GameInner({ gameState }: { readonly gameState: GameState }) {
+function GameInner({
+  gameState,
+  hostname,
+}: {
+  readonly gameState: GameState;
+  readonly hostname: string;
+}) {
   const { activeNetwork, joinedNetworks } = useHomeNetworks();
-  const { session, setMachine } = useSession();
-
-  // Reflect the active network's assigned hostname (e.g., 'skylab-9k3') in
-  // session.hostname when on localhost. SessionContext's own effect handles
-  // the no-network fallback (back to workstationName); this effect adds the
-  // multiplayer suffix on top whenever activeNetwork.hostname is set.
-  useEffect(() => {
-    if (session.machine !== 'localhost') return;
-    const desired = activeNetwork?.hostname ?? gameState.workstationName;
-    if (session.hostname !== desired) {
-      setMachine('localhost', desired);
-    }
-  }, [
-    activeNetwork?.hostname,
-    session.machine,
-    session.hostname,
-    gameState.workstationName,
-    setMachine,
-  ]);
 
   const usedPublicIps = useMemo(
     () => new Set(joinedNetworks.map((n) => n.router.publicIp)),
     [joinedNetworks],
   );
   const missionState = useMissionState(usedPublicIps);
-  const localhostResult = useMemo(() => generateLocalhost(gameState), [gameState]);
+  const localhostResult = useMemo(
+    () => generateLocalhost(gameState, hostname),
+    [gameState, hostname],
+  );
 
   // World networks (shared persistent content visible to every player —
   // playground, future themed locales). Each network's fileSystems are
@@ -101,6 +99,17 @@ function App() {
   const [gameState, setGameState] = useState<GameState | null>(cachedGame);
   const [screen, setScreen] = useState<AppScreen>(cachedGame ? 'game' : 'intro');
 
+  // Compute the player's full hostname (workstationName + identity-derived
+  // suffix) once per gameState. Threaded through to every consumer so
+  // /etc/hostname, sample log entries, the prompt, and the boot screen
+  // all reflect the same name. The suffix is stable per identity — same
+  // player always gets the same suffix on every LAN — so the hostname is
+  // a permanent property of the player's machine, not WiFi state.
+  const hostname = useMemo(
+    () => (gameState ? computePlayerHostname(gameState.workstationName, getIdentity()) : null),
+    [gameState],
+  );
+
   const handleStart = useCallback(async (state: GameState, isNewGame: boolean) => {
     if (isNewGame) {
       const db = getDatabase();
@@ -118,14 +127,14 @@ function App() {
     setScreen('game');
   }, []);
 
-  if (screen === 'intro' || !gameState) {
+  if (screen === 'intro' || !gameState || !hostname) {
     return <IntroScreen existingGame={cachedGame} onStart={handleStart} />;
   }
 
   if (screen === 'booting') {
     return (
       <BootScreen
-        workstationName={gameState.workstationName}
+        hostname={hostname}
         username={gameState.username}
         onComplete={handleBootComplete}
       />
@@ -133,8 +142,8 @@ function App() {
   }
 
   return (
-    <SessionProvider workstationName={gameState.workstationName} username={gameState.username}>
-      <GameSession gameState={gameState} />
+    <SessionProvider hostname={hostname} username={gameState.username}>
+      <GameSession gameState={gameState} hostname={hostname} />
     </SessionProvider>
   );
 }

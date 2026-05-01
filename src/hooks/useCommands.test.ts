@@ -41,7 +41,11 @@ const testGameState = {
   rootPassword: 'testpass',
 };
 
-const testLocalhost = generateLocalhost(testGameState);
+// Test fixture: a synthetic suffixed hostname. Real production code computes
+// this via computePlayerHostname(workstationName, identity); tests just hand
+// in a static value so the localhost FS generation has a hostname to render
+// into /etc/hostname and sample log entries.
+const testLocalhost = generateLocalhost(testGameState, 'testbox-0000');
 
 const createWrapper =
   () =>
