@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { generateWifiNetworks } from './generateWifi';
+import { generateWifiNetworks, crackableEssidPool, noiseEssidPool } from './generateWifi';
+import type { WifiTier } from '../network/wifiNetworks';
 
 describe('generateWifiNetworks', () => {
   it('should produce deterministic output for same seed', () => {
@@ -84,5 +85,72 @@ describe('generateWifiNetworks', () => {
       noise.some((n) => n.power < -80) ||
       noise.some((n) => n.essid === '<hidden>');
     expect(hasVariety).toBe(true);
+  });
+});
+
+describe('crackableEssidPool', () => {
+  it('should contain exactly 50 entries', () => {
+    expect(crackableEssidPool.length).toBe(50);
+  });
+
+  it('should have unique ESSIDs across the pool', () => {
+    const essids = crackableEssidPool.map((e) => e.essid);
+    expect(new Set(essids).size).toBe(essids.length);
+  });
+
+  it('should tag every entry with a valid tier', () => {
+    const validTiers: readonly WifiTier[] = ['crowded', 'shared', 'solo'];
+    expect(
+      crackableEssidPool.every((e) => (validTiers as readonly string[]).includes(e.tier)),
+    ).toBe(true);
+  });
+
+  it('should include at least one entry for each tier', () => {
+    const tiers = new Set(crackableEssidPool.map((e) => e.tier));
+    expect(tiers.has('crowded')).toBe(true);
+    expect(tiers.has('shared')).toBe(true);
+    expect(tiers.has('solo')).toBe(true);
+  });
+});
+
+describe('noiseEssidPool', () => {
+  it('should contain exactly 40 entries', () => {
+    expect(noiseEssidPool.length).toBe(40);
+  });
+
+  it('should have unique ESSIDs across the pool', () => {
+    expect(new Set(noiseEssidPool).size).toBe(noiseEssidPool.length);
+  });
+});
+
+describe('generateWifiNetworks tier emission', () => {
+  it('should set a valid tier on every crackable network', () => {
+    const validTiers: readonly WifiTier[] = ['crowded', 'shared', 'solo'];
+    for (const seed of ['t1', 't2', 't3', 't4', 't5']) {
+      const networks = generateWifiNetworks(seed);
+      const crackable = networks.filter((n) => n.crackable);
+      for (const net of crackable) {
+        expect(net.tier).toBeDefined();
+        expect((validTiers as readonly string[]).includes(net.tier as string)).toBe(true);
+      }
+    }
+  });
+
+  it('should leave tier undefined on every noise network', () => {
+    for (const seed of ['t1', 't2', 't3', 't4', 't5']) {
+      const networks = generateWifiNetworks(seed);
+      const noise = networks.filter((n) => !n.crackable);
+      expect(noise.every((n) => n.tier === undefined)).toBe(true);
+    }
+  });
+
+  it('should match the catalog tier for each emitted crackable network', () => {
+    const networks = generateWifiNetworks('tier-match-seed');
+    const crackable = networks.filter((n) => n.crackable);
+    for (const net of crackable) {
+      const poolEntry = crackableEssidPool.find((e) => e.essid === net.essid);
+      expect(poolEntry).toBeDefined();
+      expect(net.tier).toBe(poolEntry!.tier);
+    }
   });
 });

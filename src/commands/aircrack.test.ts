@@ -1,21 +1,22 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { AsyncOutput } from '../components/Terminal/types';
 import { secrets } from '../secrets/secrets';
-import { WIFI_NETWORKS } from '../network/wifiNetworks';
+import { WIFI_NETWORKS, type WifiNetwork } from '../network/wifiNetworks';
 import { createAircrackCommand } from './aircrack';
 
 type AircrackContextConfig = {
   readonly isOnLocalhost?: boolean;
   readonly isMonitorMode?: boolean;
+  readonly networks?: readonly WifiNetwork[];
 };
 
 const createMockContext = (config: AircrackContextConfig = {}) => {
-  const { isOnLocalhost = true, isMonitorMode = true } = config;
+  const { isOnLocalhost = true, isMonitorMode = true, networks = WIFI_NETWORKS } = config;
 
   return {
     isOnLocalhost: () => isOnLocalhost,
     isMonitorMode: () => isMonitorMode,
-    getWifiNetworks: () => WIFI_NETWORKS,
+    getWifiNetworks: () => networks,
   };
 };
 
@@ -141,6 +142,46 @@ describe('aircrack command', () => {
 
       expect(completed).toBe(true);
       expect(lines.some((l) => l.includes('Signal too weak'))).toBe(true);
+    });
+
+    it('should fail with a clear diagnostic for hidden ESSID at normal power', () => {
+      // Hidden + normal-power network — without an explicit gate, this would
+      // run the full cracking animation and complete silently with no
+      // diagnostic. Verifies the gate fires before that wasted UX.
+      const hiddenNetwork: WifiNetwork = {
+        bssid: 'AA:BB:CC:DD:EE:FF',
+        essid: '<hidden>',
+        power: -55,
+        channel: 6,
+        encryption: 'WPA2',
+        crackable: false,
+      };
+      const context = createMockContext({ networks: [hiddenNetwork] });
+      const aircrack = createAircrackCommand(context);
+      const result = aircrack.fn('AA:BB:CC:DD:EE:FF');
+
+      const lines: string[] = [];
+      let completed = false;
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {
+            completed = true;
+          },
+        );
+      }
+
+      vi.advanceTimersByTime(5000);
+
+      expect(completed).toBe(true);
+      // The new diagnostic must surface — checked via a phrase that is unique
+      // to the gate, not the literal "<hidden>" which also appears in the
+      // opening "Opening capture file for <hidden>..." line.
+      expect(lines.some((l) => l.includes('no probing clients'))).toBe(true);
+      // And we must bail before wasting the 12s cracking animation — no
+      // "keys tested" progress lines should appear.
+      expect(lines.some((l) => l.includes('keys tested'))).toBe(false);
+      expect(lines.some((l) => l.includes('KEY FOUND'))).toBe(false);
     });
   });
 });

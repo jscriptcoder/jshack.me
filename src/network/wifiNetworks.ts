@@ -1,5 +1,11 @@
 import { secrets } from '../secrets/__encoded';
 
+// Density tier on a crackable AP. Drives the planned home-network occupant
+// allocator: crowded = public-hotspot-like (4-8 slots), shared = apartment-
+// building-like (2-3 slots), solo = strong/rare AP (1 slot). Tag is set on
+// crackable WiFis only; noise networks leave it undefined.
+export type WifiTier = 'crowded' | 'shared' | 'solo';
+
 export type WifiNetwork = {
   readonly bssid: string;
   readonly essid: string;
@@ -8,6 +14,7 @@ export type WifiNetwork = {
   readonly encryption: 'WPA2' | 'WPA3' | 'WEP' | 'OPEN';
   readonly crackable: boolean;
   readonly password?: string;
+  readonly tier?: WifiTier;
 };
 
 export const WIFI_NETWORKS: readonly WifiNetwork[] = [
@@ -19,6 +26,7 @@ export const WIFI_NETWORKS: readonly WifiNetwork[] = [
     encryption: 'WPA2',
     crackable: true,
     password: secrets.WIFI_PASSWORD,
+    tier: 'solo',
   },
   {
     bssid: '8E:1F:64:A7:22:9C',
