@@ -8,6 +8,10 @@ import { generatePublicIp } from '../src/generation/ip.js';
 import { handleJoinHomeNetworkRequest } from '../src/homeNetworks/handler.js';
 import { createInsertOccupant } from '../src/homeNetworks/createInsertOccupant.js';
 import { pickRandomLanIp } from '../src/homeNetworks/pickRandomLanIp.js';
+import {
+  publishOccupantChange as publishOccupantChangeHelper,
+  type BroadcastFn as OccupantBroadcastFn,
+} from '../src/homeNetworks/broadcast.js';
 import type {
   DensityTier,
   HomeNetworkOccupantRow,
@@ -213,6 +217,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // the same process. Same posture as rollIp in api/allocate-ip.ts.
   const pickLanIp = () => pickRandomLanIp(createPrng(randomUUID()));
 
+  // Realtime broadcast adapter — POSTs to Supabase's broadcast REST
+  // endpoint with the service_role key. Mirrors api/patches.ts's
+  // broadcastViaRest exactly: direct fetch beats opening a WebSocket
+  // per Vercel function invocation, since these functions are
+  // short-lived. See: https://supabase.com/docs/guides/realtime/broadcast.
+  const broadcastViaRest: OccupantBroadcastFn = async (channel, event, payload) => {
+    const response = await fetch(`${supabaseUrl}/realtime/v1/api/broadcast`, {
+      method: 'POST',
+      headers: {
+        apikey: serviceRoleKey,
+        Authorization: `Bearer ${serviceRoleKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messages: [{ topic: channel, event, payload }],
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(`broadcast REST returned ${response.status}`);
+    }
+  };
+
+  const publishOccupantChange = (network_id: string, originator_key: string) =>
+    publishOccupantChangeHelper(broadcastViaRest, network_id, originator_key);
+
   const { rateLimiter, nonceStore } = buildUpstashAdapters();
 
   const { status, body, headers } = await handleJoinHomeNetworkRequest(req.body, {
@@ -222,6 +251,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     insertOccupant,
     allocatePublicIp: allocateHomeNetworkPublicIp(supabase),
     pickLanIp,
+    publishOccupantChange,
     rateLimiter,
     nonceStore,
   });

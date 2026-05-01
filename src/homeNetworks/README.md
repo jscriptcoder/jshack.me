@@ -38,13 +38,27 @@ Replaces the previous single-player model where `localhostIp` was hardcoded to `
                               ▼
 ┌──────────────────────────────────────────────────────────────────┐
 │  HomeNetworksProvider fetches home_network_occupants once on      │
-│  activeNetwork resolve (no polling — Realtime takes over later)   │
+│  activeNetwork resolve, then SUBSCRIBES to                        │
+│  `occupants:<network_id>` for live updates (hint broadcasts)      │
 │    → lanOccupants (excluding self) flow to NetworkContext         │
 │    → each occupant renders as an alive RemoteMachine in nmap      │
 │      with hostname `${prefix}-${suffix}`, IP `${subnet}${.X}`,    │
 │      no open ports (closed-laptop default)                        │
 └──────────────────────────────────────────────────────────────────┘
 ```
+
+## Live LAN occupant updates (Realtime hint broadcasts)
+
+Each successful occupant INSERT publishes `{ network_id, originator_key }` on `occupants:<network_id>` (event `occupant_change`). Subscribed clients on the same LAN receive the hint and refetch via `listOccupants` for authoritative state.
+
+Hint architecture (mirrors `patches:*` from `src/patchRegistry/`):
+
+- **Wire payload is forge-resistant by design** — only `{ network_id, originator_key }`. There's no occupant-row content to inject; a forged hint just causes a no-op refetch that returns DB truth.
+- **Self-skip**: hints whose `originator_key` matches the receiver's own player_key are ignored. Own join was already materialized locally via the post-`joinHomeNetwork` flow + the initial-fetch effect.
+- **150ms debounce**: rapid hints (e.g., a burst of joins on a busy LAN) coalesce into one `listOccupants` SELECT.
+- **Spam-forge mitigation**: per-receiver impact bounded by debounce (~6 fetches/sec/receiver max). Aggregate Supabase load bounded by anon throttling. If it ever bites, move `listOccupants` behind a server endpoint with a rate limit.
+
+See `src/homeNetworks/broadcast.ts` (server publish), `src/homeNetworks/realtime.ts` (client subscribe), `project_realtime_publish_authorization` memory (full threat model).
 
 **Hostname is set permanently at game start** (`computePlayerHostname(workstationName, identity)` in `App.tsx`), not on WiFi connect. Real laptops don't rename themselves on WiFi connect; ours don't either. The suffix is identity-derived, so it's the same on every LAN — a stable cross-LAN attribution handle.
 
@@ -112,7 +126,9 @@ The server is the source of truth for "did I already join this LAN." Client neve
 | `handler.ts`               | `handleJoinHomeNetworkRequest(envelope, deps)` — pure orchestration. Verify → rate-limit → idempotent return → find-or-create → slot allocation loop with retry. |
 | `createInsertOccupant.ts`  | Postgres unique-constraint parser — maps `23505` errors onto `lan_ip_conflict` / `hostname_conflict` / `error` by substring matching the constraint message.     |
 | `client.ts`                | `joinHomeNetwork(identity, request, fetchImpl?)` — browser-side wrapper. Signs envelope, POSTs, validates response with `joinResultSchema`.                      |
-| `listOccupants.ts`         | Anon-key Supabase read of `home_network_occupants` for a given network_id. Fetched once by `HomeNetworksProvider` when activeNetwork resolves; no polling.       |
+| `listOccupants.ts`         | Anon-key Supabase read of `home_network_occupants` for a given network_id. Initial fetch on connect + hint-driven refetch on Realtime updates.                   |
+| `broadcast.ts`             | Server-side `publishOccupantChange` — fires a Supabase Realtime HINT (`occupants:<network_id>` channel, `occupant_change` event, `{ network_id, originator_key }` payload) after every successful insert. Fire-and-forget. |
+| `realtime.ts`              | Client-side `subscribeToNetworkOccupants` wrapper. Receives hints, converts wire shape (snake_case) to `OccupantHint` (camelCase), hands them to the caller's `onHint`.                                                    |
 | `computePlayerHostname.ts` | `(workstationName, identity) → '${workstationName}-${suffix}'`. Computed once at game start; same hostname on every LAN.                                         |
 | `*.test.ts`                | Unit tests. Real Ed25519 signing in handler tests; mocked Supabase + Upstash deps.                                                                               |
 | `README.md`                | This file.                                                                                                                                                       |
@@ -154,6 +170,6 @@ Headlines (the design discussion behind each is captured in commit history; the 
 - **Router ownership semantics** — the home router is unowned shared infrastructure.
 - **Permadeath rejoin policy** — a fresh identity gets a fresh occupancy roll.
 - **Less-obvious hostname suffix format** — current `${prefix}-${4-hex}` makes it visually obvious that a LAN host is another player (vs an NPC machine). A future PR could move to less-distinguishable formats (pronounceable words, naming conventions matching the surrounding NPCs per WiFi tier, etc.).
-- **Live occupant updates** — currently fetched once when activeNetwork resolves. Late-joiners require a reconnect to appear. Supabase Realtime on `home_network_occupants` is the planned live-update mechanism (instant joins/leaves) — gated on the broadcast forgery vector being closed first (see `project_realtime_publish_authorization` memory).
+- **Live occupant updates — SHIPPED**. Each successful occupant INSERT publishes a hint on `occupants:<network_id>`; subscribed clients refetch via `listOccupants`. Self-skip + 150ms debounce. See "Live LAN occupant updates" section above and `project_realtime_publish_authorization` memory for the threat model.
 - **Hostname-aware logs** — log formatters use source IP via `resolveLogSourceIP`; could add hostname alongside for richer attribution. Touches every log formatter.
 - **PvP-on-localhost** — other players' localhost shows as alive but with no open ports. A future PR could add an "open service" mechanic where players opt into being attackable.

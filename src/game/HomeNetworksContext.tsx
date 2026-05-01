@@ -12,9 +12,16 @@ import { generateWifiNetworks } from '../generation/generateWifi';
 import { generateHomeNetwork, type HomeNetwork } from '../generation/generateHomeNetwork';
 import { joinHomeNetwork } from '../homeNetworks/client';
 import { listOccupants } from '../homeNetworks/listOccupants';
+import { subscribeToNetworkOccupants, type OccupantHint } from '../homeNetworks/realtime';
+import { getRealtimeClient } from '../patchRegistry/realtime';
 import type { OccupantSummary } from '../homeNetworks/types';
 import { getIdentity } from '../identity';
 import type { WifiConnection } from '../network/wifiTypes';
+
+// Debounce window for hint-driven occupant refetches. Multiple hints
+// arriving within this window coalesce into a single listOccupants
+// SELECT. Mirrors HINT_REFETCH_DEBOUNCE_MS in FileSystemContext.
+const OCCUPANT_HINT_DEBOUNCE_MS = 150;
 
 // React Context for cracked-WiFi home networks. The cache lives in a ref
 // (mutated synchronously) so concurrent ensureJoined calls observe each
@@ -146,37 +153,98 @@ export const HomeNetworksProvider = ({
   // filtered out — the local player is implicit in the rendered network
   // view, not a discoverable peer.
   //
-  // No polling: the previous 30s setInterval was burning anon SELECT
-  // quota for a single observable improvement (seeing late-joiners
-  // without reconnect). Live updates are deferred to the Realtime path
-  // (see project_realtime_publish_authorization memory) — once the
-  // broadcast forgery vector is closed, a Supabase Realtime
-  // subscription on home_network_occupants gives instant joins/leaves
-  // without polling. Until then: occupants snapshot at connect; any
-  // late-joiners require a reconnect to become visible.
+  // Live updates: subscribed to `occupants:<network_id>` Realtime
+  // broadcast channel (subscription effect below). Each successful
+  // server-side INSERT into home_network_occupants publishes a HINT
+  // `{ network_id, originator_key }`; the hint handler refetches via
+  // listOccupants for authoritative state. Self-skip on
+  // originatorKey === own player_key (own join already updated local
+  // state via the post-joinHomeNetwork flow).
   const [lanOccupants, setLanOccupants] = useState<readonly OccupantSummary[]>([]);
-  useEffect(() => {
+
+  // Active LAN network_id (the public_ip of the home network we're
+  // currently connected to). Both the initial fetch and the hint
+  // subscription depend on this; deriving once keeps the two effects
+  // in sync.
+  const activeNetworkId = useMemo(() => {
     const active = connectedWifi ? (cacheRef.current.get(connectedWifi.essid) ?? null) : null;
-    const networkId = active?.router.publicIp ?? null;
-    if (!networkId) {
+    return active?.router.publicIp ?? null;
+    // version is the cache-mutation tracker — recompute when the active
+    // network finishes materializing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectedWifi, version]);
+
+  const ownPlayerKey = useMemo(() => `ed25519:${getIdentity().publicKeyHex}`, []);
+
+  // Refetch occupants for the active LAN. Filters self before storing.
+  // Used both by the initial-on-connect fetch and the hint-driven
+  // refetch (debounced).
+  const refetchOccupants = useCallback(
+    async (networkId: string): Promise<void> => {
+      const occupants = await listOccupants(networkId);
+      setLanOccupants(occupants.filter((o) => o.player_key !== ownPlayerKey));
+    },
+    [ownPlayerKey],
+  );
+
+  // Initial fetch on connect / active-network materialize.
+  useEffect(() => {
+    if (!activeNetworkId) {
       setLanOccupants([]);
       return;
     }
-
-    const ownKey = `ed25519:${getIdentity().publicKeyHex}`;
     let cancelled = false;
-
-    void listOccupants(networkId).then((occupants) => {
-      if (cancelled) return;
-      setLanOccupants(occupants.filter((o) => o.player_key !== ownKey));
-    });
-
+    void refetchOccupants(activeNetworkId).then(
+      () => {},
+      (err: unknown) => {
+        if (cancelled) return;
+        console.error('[HomeNetworksContext] initial occupants fetch failed:', err);
+      },
+    );
     return () => {
       cancelled = true;
     };
-    // version is the cache-mutation tracker — re-run when the active
-    // network finishes materializing.
-  }, [connectedWifi, version]);
+  }, [activeNetworkId, refetchOccupants]);
+
+  // Hint subscription: live occupant updates. See homeNetworks/realtime.ts
+  // for the wire protocol and project_realtime_publish_authorization
+  // memory for the threat model.
+  const hintDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!activeNetworkId) return;
+    const client = getRealtimeClient();
+    if (!client) return;
+
+    const handleHint = (hint: OccupantHint) => {
+      // Self-skip: own join was already materialized locally via the
+      // post-joinHomeNetwork flow + the initial-fetch effect above.
+      // A redundant refetch here would burn an anon SELECT for nothing.
+      // A forger spoofing originatorKey can suppress ONE refetch on the
+      // victim's side; authentic hints from real writers (different
+      // originatorKey) still trigger refetches. No data corruption,
+      // bounded harm — same model as the patches hint flow.
+      if (hint.originatorKey === ownPlayerKey) return;
+
+      if (hintDebounceTimerRef.current !== null) {
+        clearTimeout(hintDebounceTimerRef.current);
+      }
+      hintDebounceTimerRef.current = setTimeout(() => {
+        hintDebounceTimerRef.current = null;
+        void refetchOccupants(activeNetworkId).catch((err: unknown) => {
+          console.error('[HomeNetworksContext] hint refetch failed:', err);
+        });
+      }, OCCUPANT_HINT_DEBOUNCE_MS);
+    };
+
+    const unsubscribe = subscribeToNetworkOccupants(client, activeNetworkId, handleHint);
+    return () => {
+      unsubscribe();
+      if (hintDebounceTimerRef.current !== null) {
+        clearTimeout(hintDebounceTimerRef.current);
+        hintDebounceTimerRef.current = null;
+      }
+    };
+  }, [activeNetworkId, ownPlayerKey, refetchOccupants]);
 
   const value = useMemo<HomeNetworksContextValue>(
     () => ({
