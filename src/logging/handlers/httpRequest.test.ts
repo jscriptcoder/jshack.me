@@ -28,7 +28,14 @@ describe('createHttpRequestHandler', () => {
       }),
     );
 
-    handler('203.0.113.5', 8080, 'GET', '/admin', 200, 1234);
+    handler({
+      targetIP: '203.0.113.5',
+      port: 8080,
+      method: 'GET',
+      path: '/admin',
+      status: 200,
+      size: 1234,
+    });
 
     expect(logFs.createFileOnMachine).toHaveBeenCalledWith(
       expect.objectContaining({ machineId: '10.0.1.20', path: '/var/log/access.log' }),
@@ -48,7 +55,14 @@ describe('createHttpRequestHandler', () => {
       }),
     );
 
-    handler('203.0.113.5', 8443, 'GET', '/', 200, 100);
+    handler({
+      targetIP: '203.0.113.5',
+      port: 8443,
+      method: 'GET',
+      path: '/',
+      status: 200,
+      size: 100,
+    });
 
     expect(logFs.createFileOnMachine).toHaveBeenCalledWith(
       expect.objectContaining({ machineId: '10.0.1.30' }),
@@ -64,7 +78,14 @@ describe('createHttpRequestHandler', () => {
       }),
     );
 
-    handler('192.168.1.75', 80, 'GET', '/index.html', 200, 500);
+    handler({
+      targetIP: '192.168.1.75',
+      port: 80,
+      method: 'GET',
+      path: '/index.html',
+      status: 200,
+      size: 500,
+    });
 
     expect(logFs.createFileOnMachine).toHaveBeenCalledWith(
       expect.objectContaining({ machineId: '192.168.1.75' }),

@@ -454,12 +454,12 @@ export const Terminal = () => {
 
                   if (isSshPrompt(followUp)) {
                     if (followUp.password !== undefined) {
-                      authenticateSshInline(
-                        followUp.targetUser,
-                        followUp.targetIP,
-                        followUp.targetPort,
-                        followUp.password,
-                      );
+                      authenticateSshInline({
+                        user: followUp.targetUser,
+                        targetIP: followUp.targetIP,
+                        port: followUp.targetPort,
+                        password: followUp.password,
+                      });
                     } else {
                       startSshPrompt(followUp.targetUser, followUp.targetIP, followUp.targetPort);
                     }
@@ -468,19 +468,19 @@ export const Terminal = () => {
                   if (isScpPrompt(followUp)) {
                     const transferAsync =
                       followUp.password !== undefined
-                        ? authenticateScpInline(
-                            followUp.targetUser,
-                            followUp.targetIP,
-                            followUp.targetPort,
-                            followUp.password,
-                            followUp.performTransfer,
-                          )
-                        : startScpPrompt(
-                            followUp.targetUser,
-                            followUp.targetIP,
-                            followUp.targetPort,
-                            followUp.performTransfer,
-                          );
+                        ? authenticateScpInline({
+                            user: followUp.targetUser,
+                            targetIP: followUp.targetIP,
+                            port: followUp.targetPort,
+                            password: followUp.password,
+                            performTransfer: followUp.performTransfer,
+                          })
+                        : startScpPrompt({
+                            user: followUp.targetUser,
+                            targetIP: followUp.targetIP,
+                            port: followUp.targetPort,
+                            performTransfer: followUp.performTransfer,
+                          });
                     if (transferAsync) {
                       setAsyncRunning(true);
                       asyncCancelRef.current = transferAsync.cancel ?? null;

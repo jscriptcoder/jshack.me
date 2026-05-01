@@ -28,7 +28,7 @@ describe('createFtpAuthHandler', () => {
       }),
     );
 
-    handler(true, 'ftpuser', '203.0.113.5', 21);
+    handler({ success: true, user: 'ftpuser', targetIP: '203.0.113.5', port: 21 });
 
     expect(logFs.createFileOnMachine).toHaveBeenCalledWith(
       expect.objectContaining({ machineId: '10.0.1.20', path: '/var/log/vsftpd.log' }),
@@ -44,7 +44,7 @@ describe('createFtpAuthHandler', () => {
       }),
     );
 
-    handler(false, 'anonymous', '192.168.1.50', 21);
+    handler({ success: false, user: 'anonymous', targetIP: '192.168.1.50', port: 21 });
 
     expect(logFs.createFileOnMachine).toHaveBeenCalledWith(
       expect.objectContaining({ machineId: '192.168.1.50' }),
@@ -55,7 +55,7 @@ describe('createFtpAuthHandler', () => {
     const logFs = makeLogFs();
     const handler = createFtpAuthHandler(makeDeps({ logFs }));
 
-    handler(true, 'alice', '10.0.1.20', 21);
+    handler({ success: true, user: 'alice', targetIP: '10.0.1.20', port: 21 });
 
     const call = logFs.createFileOnMachine.mock.calls[0]?.[0] as { readonly content: string };
     expect(call.content).toContain('CONNECT');
@@ -67,7 +67,7 @@ describe('createFtpAuthHandler', () => {
     const logFs = makeLogFs();
     const handler = createFtpAuthHandler(makeDeps({ logFs }));
 
-    handler(false, 'eve', '10.0.1.20', 21);
+    handler({ success: false, user: 'eve', targetIP: '10.0.1.20', port: 21 });
 
     const call = logFs.createFileOnMachine.mock.calls[0]?.[0] as { readonly content: string };
     expect(call.content).toContain('FAIL LOGIN');

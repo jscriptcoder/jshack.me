@@ -2,6 +2,7 @@ import type { Command, AsyncOutput } from '../components/Terminal/types';
 import type { RemoteMachine, DnsRecord } from '../network/types';
 import type { MachineId } from '../filesystem/machineFileSystems';
 import type { MachineFileOp } from '../filesystem/types';
+import type { HttpRequestHandler } from '../logging/handlers/httpRequest';
 import { isValidIP } from '../utils/network';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
@@ -10,14 +11,7 @@ type CurlContext = {
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
   readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
   readonly readFileFromMachine: (op: MachineFileOp) => string | null;
-  readonly onHttpRequest?: (
-    targetIP: string,
-    port: number,
-    method: string,
-    path: string,
-    status: number,
-    size: number,
-  ) => void;
+  readonly onHttpRequest?: HttpRequestHandler;
 };
 
 type ParsedUrl = {
@@ -312,14 +306,14 @@ export const createCurlCommand = (context: CurlContext): Command => ({
             ? handlePost(context, filesystemIP, parsed.path)
             : handleGet(context, filesystemIP, parsed.path);
 
-          context.onHttpRequest?.(
+          context.onHttpRequest?.({
             targetIP,
-            parsed.port,
-            isPost ? 'POST' : 'GET',
-            parsed.path,
-            response.statusCode,
-            response.body.length,
-          );
+            port: parsed.port,
+            method: isPost ? 'POST' : 'GET',
+            path: parsed.path,
+            status: response.statusCode,
+            size: response.body.length,
+          });
 
           const output = formatResponse(response, includeHeaders);
           output.split('\n').forEach((line) => onLine(line));

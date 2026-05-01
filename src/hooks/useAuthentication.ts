@@ -11,6 +11,9 @@ import { parseMysqlDatabase } from '../commands/mysql/types';
 import { parseVirtualUsersConf } from '../generation/ftpCredentials';
 import type { AsyncOutput } from '../components/Terminal/types';
 import type { PermissionResult } from '../filesystem/types';
+import type { SshAuthHandler } from '../logging/handlers/sshAuth';
+import type { FtpAuthHandler } from '../logging/handlers/ftpAuth';
+import type { MysqlAuthHandler } from '../logging/handlers/mysqlAuth';
 import { md5 } from '../utils/md5';
 
 type AuthenticationOptions = {
@@ -59,15 +62,9 @@ type AuthenticationOptions = {
   readonly createFile: (path: string, content: string, userType: UserType) => PermissionResult;
   readonly writeFile: (path: string, content: string, userType: UserType) => PermissionResult;
   readonly onSuAuth?: (success: boolean, targetUser: string) => void;
-  readonly onSshAuth?: (
-    success: boolean,
-    user: string,
-    targetIP: string,
-    port: number,
-    method: 'password' | 'publickey',
-  ) => void;
-  readonly onFtpAuth?: (success: boolean, user: string, targetIP: string, port: number) => void;
-  readonly onMysqlAuth?: (success: boolean, user: string, targetIP: string, port: number) => void;
+  readonly onSshAuth?: SshAuthHandler;
+  readonly onFtpAuth?: FtpAuthHandler;
+  readonly onMysqlAuth?: MysqlAuthHandler;
   readonly onRedisConnect?: (targetIP: string, port: number) => void;
   readonly onRedisAuth?: (success: boolean, targetIP: string, port: number) => void;
 };
@@ -246,8 +243,18 @@ export const useAuthentication = ({
 
   // Validates a remote user's password against their stored hash
   const validateRemotePassword = useCallback(
-    (user: string, ip: string, port: number, password: string): boolean => {
-      const resolvedIp = resolveNat(ip, port).ip;
+    ({
+      user,
+      targetIP,
+      port,
+      password,
+    }: {
+      readonly user: string;
+      readonly targetIP: string;
+      readonly port: number;
+      readonly password: string;
+    }): boolean => {
+      const resolvedIp = resolveNat(targetIP, port).ip;
       const users = findMachineUsers(resolvedIp);
       const remoteUser = users.find((u) => u.username === user);
       if (!remoteUser) return false;
@@ -258,21 +265,31 @@ export const useAuthentication = ({
 
   // Inline SSH auth: validates password, saves key, and connects without interactive prompt
   const authenticateSshInline = useCallback(
-    (user: string, targetIP: string, targetPort: number, password: string) => {
-      if (hasAuthorizedKey(user, targetIP, targetPort)) {
+    ({
+      user,
+      targetIP,
+      port,
+      password,
+    }: {
+      readonly user: string;
+      readonly targetIP: string;
+      readonly port: number;
+      readonly password: string;
+    }) => {
+      if (hasAuthorizedKey(user, targetIP, port)) {
         addLine('result', 'Authenticated with saved key.');
-        connectSsh(user, targetIP, targetPort);
-        onSshAuth?.(true, user, targetIP, targetPort, 'publickey');
+        connectSsh(user, targetIP, port);
+        onSshAuth?.({ success: true, user, targetIP, port, method: 'publickey' });
         return;
       }
 
-      if (validateRemotePassword(user, targetIP, targetPort, password)) {
-        saveAuthorizedKey(user, targetIP, targetPort);
-        connectSsh(user, targetIP, targetPort);
-        onSshAuth?.(true, user, targetIP, targetPort, 'password');
+      if (validateRemotePassword({ user, targetIP, port, password })) {
+        saveAuthorizedKey(user, targetIP, port);
+        connectSsh(user, targetIP, port);
+        onSshAuth?.({ success: true, user, targetIP, port, method: 'password' });
       } else {
         addLine('error', 'Permission denied, please try again.');
-        onSshAuth?.(false, user, targetIP, targetPort, 'password');
+        onSshAuth?.({ success: false, user, targetIP, port, method: 'password' });
       }
     },
     [hasAuthorizedKey, validateRemotePassword, addLine, connectSsh, saveAuthorizedKey, onSshAuth],
@@ -283,7 +300,13 @@ export const useAuthentication = ({
       if (hasAuthorizedKey(user, targetIP, targetPort)) {
         addLine('result', 'Authenticated with saved key.');
         connectSsh(user, targetIP, targetPort);
-        onSshAuth?.(true, user, targetIP, targetPort, 'publickey');
+        onSshAuth?.({
+          success: true,
+          user,
+          targetIP,
+          port: targetPort,
+          method: 'publickey',
+        });
         return;
       }
 
@@ -307,7 +330,7 @@ export const useAuthentication = ({
 
       if (!remoteUser) {
         addLine('error', '530 Login incorrect.');
-        onFtpAuth?.(false, username, targetIP, 21);
+        onFtpAuth?.({ success: false, user: username, targetIP, port: 21 });
         return;
       }
 
@@ -325,7 +348,7 @@ export const useAuthentication = ({
 
       if (expectedHash !== md5(password)) {
         addLine('error', '530 Login incorrect.');
-        onFtpAuth?.(false, username, targetIP, 21);
+        onFtpAuth?.({ success: false, user: username, targetIP, port: 21 });
         return;
       }
 
@@ -347,7 +370,7 @@ export const useAuthentication = ({
 
       enterFtpMode(newFtpSession);
       addLine('result', '230 Login successful.');
-      onFtpAuth?.(true, username, targetIP, 21);
+      onFtpAuth?.({ success: true, user: username, targetIP, port: 21 });
     },
     [
       resolveNat,
@@ -372,26 +395,32 @@ export const useAuthentication = ({
 
   // Inline SCP auth: validates password, saves key, and returns transfer AsyncOutput (or undefined on failure)
   const authenticateScpInline = useCallback(
-    (
-      user: string,
-      ip: string,
-      port: number,
-      password: string,
-      performTransfer: () => AsyncOutput,
-    ): AsyncOutput | undefined => {
-      if (hasAuthorizedKey(user, ip, port)) {
+    ({
+      user,
+      targetIP,
+      port,
+      password,
+      performTransfer,
+    }: {
+      readonly user: string;
+      readonly targetIP: string;
+      readonly port: number;
+      readonly password: string;
+      readonly performTransfer: () => AsyncOutput;
+    }): AsyncOutput | undefined => {
+      if (hasAuthorizedKey(user, targetIP, port)) {
         addLine('result', 'Authenticated with saved key.');
-        onSshAuth?.(true, user, ip, port, 'publickey');
+        onSshAuth?.({ success: true, user, targetIP, port, method: 'publickey' });
         return performTransfer();
       }
 
-      if (validateRemotePassword(user, ip, port, password)) {
-        saveAuthorizedKey(user, ip, port);
-        onSshAuth?.(true, user, ip, port, 'password');
+      if (validateRemotePassword({ user, targetIP, port, password })) {
+        saveAuthorizedKey(user, targetIP, port);
+        onSshAuth?.({ success: true, user, targetIP, port, method: 'password' });
         return performTransfer();
       } else {
         addLine('error', 'Permission denied, please try again.');
-        onSshAuth?.(false, user, ip, port, 'password');
+        onSshAuth?.({ success: false, user, targetIP, port, method: 'password' });
         return undefined;
       }
     },
@@ -399,25 +428,30 @@ export const useAuthentication = ({
   );
 
   const startScpPrompt = useCallback(
-    (
-      user: string,
-      ip: string,
-      port: number,
-      performTransfer: () => AsyncOutput,
-    ): AsyncOutput | undefined => {
-      if (hasAuthorizedKey(user, ip, port)) {
+    ({
+      user,
+      targetIP,
+      port,
+      performTransfer,
+    }: {
+      readonly user: string;
+      readonly targetIP: string;
+      readonly port: number;
+      readonly performTransfer: () => AsyncOutput;
+    }): AsyncOutput | undefined => {
+      if (hasAuthorizedKey(user, targetIP, port)) {
         addLine('result', 'Authenticated with saved key.');
-        onSshAuth?.(true, user, ip, port, 'publickey');
+        onSshAuth?.({ success: true, user, targetIP, port, method: 'publickey' });
         return performTransfer();
       }
 
       setTargetUser(user);
-      setScpTargetIP(ip);
+      setScpTargetIP(targetIP);
       setScpTargetPort(port);
       // Wrap in thunk to avoid React treating the function as a state updater
       setScpPerformTransfer(() => performTransfer);
       setPasswordMode(true);
-      addLine('result', `${user}@${ip}'s password:`);
+      addLine('result', `${user}@${targetIP}'s password:`);
       return undefined;
     },
     [hasAuthorizedKey, addLine, onSshAuth],
@@ -485,13 +519,13 @@ export const useAuthentication = ({
     (user: string, targetIP: string, password: string) => {
       if (validateMysqlPassword(user, targetIP, password)) {
         connectMysql(user, targetIP);
-        onMysqlAuth?.(true, user, targetIP, 3306);
+        onMysqlAuth?.({ success: true, user, targetIP, port: 3306 });
       } else {
         addLine(
           'error',
           `ERROR 1045 (28000): Access denied for user '${user}'@'${targetIP}' (using password: YES)`,
         );
-        onMysqlAuth?.(false, user, targetIP, 3306);
+        onMysqlAuth?.({ success: false, user, targetIP, port: 3306 });
       }
     },
     [validateMysqlPassword, connectMysql, addLine, onMysqlAuth],
@@ -683,7 +717,7 @@ export const useAuthentication = ({
       const remoteUser = users.find((u) => u.username === username);
       if (!remoteUser) {
         addLine('error', '530 Login incorrect.');
-        onFtpAuth?.(false, username, ftpTargetIP, 21);
+        onFtpAuth?.({ success: false, user: username, targetIP: ftpTargetIP, port: 21 });
         setFtpTargetIP(null);
         setFtpUsernameMode(false);
         clearInput();
@@ -721,10 +755,21 @@ export const useAuthentication = ({
 
         if (mysqlTargetIP) {
           connectMysql(targetUser, mysqlTargetIP);
-          onMysqlAuth?.(true, targetUser, mysqlTargetIP, 3306);
+          onMysqlAuth?.({
+            success: true,
+            user: targetUser,
+            targetIP: mysqlTargetIP,
+            port: 3306,
+          });
         } else if (scpTargetIP) {
           saveAuthorizedKey(targetUser, scpTargetIP, scpTargetPort ?? 22);
-          onSshAuth?.(true, targetUser, scpTargetIP, scpTargetPort ?? 22, 'password');
+          onSshAuth?.({
+            success: true,
+            user: targetUser,
+            targetIP: scpTargetIP,
+            port: scpTargetPort ?? 22,
+            method: 'password',
+          });
           if (scpPerformTransfer) {
             scpTransferAsync = scpPerformTransfer();
           }
@@ -750,11 +795,22 @@ export const useAuthentication = ({
 
           enterFtpMode(newFtpSession);
           addLine('result', '230 Login successful.');
-          onFtpAuth?.(true, targetUser, ftpTargetIP, 21);
+          onFtpAuth?.({
+            success: true,
+            user: targetUser,
+            targetIP: ftpTargetIP,
+            port: 21,
+          });
         } else if (sshTargetIP) {
           saveAuthorizedKey(targetUser, sshTargetIP, sshTargetPort ?? 22);
           connectSsh(targetUser, sshTargetIP, sshTargetPort ?? 22);
-          onSshAuth?.(true, targetUser, sshTargetIP, sshTargetPort ?? 22, 'password');
+          onSshAuth?.({
+            success: true,
+            user: targetUser,
+            targetIP: sshTargetIP,
+            port: sshTargetPort ?? 22,
+            method: 'password',
+          });
         } else {
           // su (local user switch) — look up user type from the machine's user list.
           // findMachineUsers checks both the current network view and all mission
@@ -788,18 +844,44 @@ export const useAuthentication = ({
             'error',
             `ERROR 1045 (28000): Access denied for user '${targetUser}'@'${mysqlTargetIP}' (using password: YES)`,
           );
-          if (targetUser) onMysqlAuth?.(false, targetUser, mysqlTargetIP, 3306);
+          if (targetUser) {
+            onMysqlAuth?.({
+              success: false,
+              user: targetUser,
+              targetIP: mysqlTargetIP,
+              port: 3306,
+            });
+          }
         } else if (scpTargetIP) {
           addLine('error', `Permission denied, please try again.`);
           if (targetUser)
-            onSshAuth?.(false, targetUser, scpTargetIP, scpTargetPort ?? 22, 'password');
+            onSshAuth?.({
+              success: false,
+              user: targetUser,
+              targetIP: scpTargetIP,
+              port: scpTargetPort ?? 22,
+              method: 'password',
+            });
         } else if (ftpTargetIP) {
           addLine('error', '530 Login incorrect.');
-          if (targetUser) onFtpAuth?.(false, targetUser, ftpTargetIP, 21);
+          if (targetUser) {
+            onFtpAuth?.({
+              success: false,
+              user: targetUser,
+              targetIP: ftpTargetIP,
+              port: 21,
+            });
+          }
         } else if (sshTargetIP) {
           addLine('error', `Permission denied, please try again.`);
           if (targetUser)
-            onSshAuth?.(false, targetUser, sshTargetIP, sshTargetPort ?? 22, 'password');
+            onSshAuth?.({
+              success: false,
+              user: targetUser,
+              targetIP: sshTargetIP,
+              port: sshTargetPort ?? 22,
+              method: 'password',
+            });
         } else {
           addLine('error', 'su: Authentication failure');
           if (targetUser) onSuAuth?.(false, targetUser);

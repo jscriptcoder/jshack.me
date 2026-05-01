@@ -20,12 +20,14 @@ export type MysqlAuthDeps = {
   readonly logFs: LogFileSystemDeps;
 };
 
-export type MysqlAuthHandler = (
-  success: boolean,
-  user: string,
-  targetIP: string,
-  port: number,
-) => void;
+export type MysqlAuthEvent = {
+  readonly success: boolean;
+  readonly user: string;
+  readonly targetIP: string;
+  readonly port: number;
+};
+
+export type MysqlAuthHandler = (event: MysqlAuthEvent) => void;
 
 // Writes a mysql.log entry to the MySQL daemon's host. When the public
 // port is NAT-forwarded, the log lands on the backend where mysqld runs.
@@ -33,7 +35,7 @@ export type MysqlAuthHandler = (
 // backend's /var/lib/mysql/data.json after NAT translation.
 export const createMysqlAuthHandler =
   (deps: MysqlAuthDeps): MysqlAuthHandler =>
-  (success, user, targetIP, port) => {
+  ({ success, user, targetIP, port }) => {
     const { ip: logIp } = deps.resolveNat(targetIP, port);
     const sourceIp = resolveLogSourceIP(
       deps.sessionMachine,

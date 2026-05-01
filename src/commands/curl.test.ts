@@ -492,14 +492,14 @@ describe('curl command', () => {
       const curl = createCurlCommand(context);
       collectAsyncLines(curl.fn('http://192.168.1.75/index.html'));
 
-      expect(onHttpRequest).toHaveBeenCalledWith(
-        '192.168.1.75',
-        80,
-        'GET',
-        '/index.html',
-        200,
-        expect.any(Number),
-      );
+      expect(onHttpRequest).toHaveBeenCalledWith({
+        targetIP: '192.168.1.75',
+        port: 80,
+        method: 'GET',
+        path: '/index.html',
+        status: 200,
+        size: expect.any(Number),
+      });
     });
 
     it('calls onHttpRequest with 404 on missing file', () => {
@@ -508,7 +508,14 @@ describe('curl command', () => {
       const curl = createCurlCommand(context);
       collectAsyncLines(curl.fn('http://192.168.1.75/missing'));
 
-      expect(onHttpRequest).toHaveBeenCalledWith('192.168.1.75', 80, 'GET', '/missing', 404, 48);
+      expect(onHttpRequest).toHaveBeenCalledWith({
+        targetIP: '192.168.1.75',
+        port: 80,
+        method: 'GET',
+        path: '/missing',
+        status: 404,
+        size: 48,
+      });
     });
 
     it('calls onHttpRequest with POST method', () => {
@@ -517,14 +524,14 @@ describe('curl command', () => {
       const curl = createCurlCommand(context);
       collectAsyncLines(curl.fn('-X POST', 'http://192.168.1.75/api/users'));
 
-      expect(onHttpRequest).toHaveBeenCalledWith(
-        '192.168.1.75',
-        80,
-        'POST',
-        '/api/users',
-        200,
-        expect.any(Number),
-      );
+      expect(onHttpRequest).toHaveBeenCalledWith({
+        targetIP: '192.168.1.75',
+        port: 80,
+        method: 'POST',
+        path: '/api/users',
+        status: 200,
+        size: expect.any(Number),
+      });
     });
   });
 });

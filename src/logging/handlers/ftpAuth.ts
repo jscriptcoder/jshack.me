@@ -10,18 +10,20 @@ export type FtpAuthDeps = {
   readonly logFs: LogFileSystemDeps;
 };
 
-export type FtpAuthHandler = (
-  success: boolean,
-  user: string,
-  targetIP: string,
-  port: number,
-) => void;
+export type FtpAuthEvent = {
+  readonly success: boolean;
+  readonly user: string;
+  readonly targetIP: string;
+  readonly port: number;
+};
+
+export type FtpAuthHandler = (event: FtpAuthEvent) => void;
 
 // Writes a vsftpd.log entry to the FTP daemon's host. When the public
 // port is NAT-forwarded, the log lands on the backend where vsftpd runs.
 export const createFtpAuthHandler =
   (deps: FtpAuthDeps): FtpAuthHandler =>
-  (success, user, targetIP, port) => {
+  ({ success, user, targetIP, port }) => {
     const { ip: logIp } = deps.resolveNat(targetIP, port);
     const now = new Date();
     const sourceIp = resolveLogSourceIP(

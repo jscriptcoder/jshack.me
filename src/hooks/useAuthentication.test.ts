@@ -307,7 +307,14 @@ describe('useAuthentication', () => {
 
       const { result } = renderHook(() => useAuthentication(opts));
 
-      act(() => result.current.authenticateSshInline('bob', TARGET_IP, 22, 'irrelevant'));
+      act(() =>
+        result.current.authenticateSshInline({
+          user: 'bob',
+          targetIP: TARGET_IP,
+          port: 22,
+          password: 'irrelevant',
+        }),
+      );
 
       expect(opts.addLine).toHaveBeenCalledWith('result', 'Authenticated with saved key.');
       expect(opts.pushSession).toHaveBeenCalled();
@@ -320,7 +327,14 @@ describe('useAuthentication', () => {
 
       const { result } = renderHook(() => useAuthentication(opts));
 
-      act(() => result.current.authenticateSshInline('bob', TARGET_IP, 22, PASSWORD));
+      act(() =>
+        result.current.authenticateSshInline({
+          user: 'bob',
+          targetIP: TARGET_IP,
+          port: 22,
+          password: PASSWORD,
+        }),
+      );
 
       expect(opts.pushSession).toHaveBeenCalled();
       expect(opts.setUsername).toHaveBeenCalledWith('bob', 'user');
@@ -334,7 +348,14 @@ describe('useAuthentication', () => {
 
       const { result } = renderHook(() => useAuthentication(opts));
 
-      act(() => result.current.authenticateSshInline('bob', TARGET_IP, 22, 'wrong'));
+      act(() =>
+        result.current.authenticateSshInline({
+          user: 'bob',
+          targetIP: TARGET_IP,
+          port: 22,
+          password: 'wrong',
+        }),
+      );
 
       expect(opts.pushSession).not.toHaveBeenCalled();
       expect(opts.addLine).toHaveBeenCalledWith('error', 'Permission denied, please try again.');
@@ -354,9 +375,22 @@ describe('useAuthentication', () => {
 
       const { result } = renderHook(() => useAuthentication({ ...opts, onSshAuth }));
 
-      act(() => result.current.authenticateSshInline('bob', TARGET_IP, 22, 'irrelevant'));
+      act(() =>
+        result.current.authenticateSshInline({
+          user: 'bob',
+          targetIP: TARGET_IP,
+          port: 22,
+          password: 'irrelevant',
+        }),
+      );
 
-      expect(onSshAuth).toHaveBeenCalledWith(true, 'bob', TARGET_IP, 22, 'publickey');
+      expect(onSshAuth).toHaveBeenCalledWith({
+        success: true,
+        user: 'bob',
+        targetIP: TARGET_IP,
+        port: 22,
+        method: 'publickey',
+      });
     });
 
     it('calls onSshAuth on inline password success', () => {
@@ -367,9 +401,22 @@ describe('useAuthentication', () => {
 
       const { result } = renderHook(() => useAuthentication({ ...opts, onSshAuth }));
 
-      act(() => result.current.authenticateSshInline('bob', TARGET_IP, 22, PASSWORD));
+      act(() =>
+        result.current.authenticateSshInline({
+          user: 'bob',
+          targetIP: TARGET_IP,
+          port: 22,
+          password: PASSWORD,
+        }),
+      );
 
-      expect(onSshAuth).toHaveBeenCalledWith(true, 'bob', TARGET_IP, 22, 'password');
+      expect(onSshAuth).toHaveBeenCalledWith({
+        success: true,
+        user: 'bob',
+        targetIP: TARGET_IP,
+        port: 22,
+        method: 'password',
+      });
     });
 
     it('calls onSshAuth on inline password failure', () => {
@@ -380,9 +427,22 @@ describe('useAuthentication', () => {
 
       const { result } = renderHook(() => useAuthentication({ ...opts, onSshAuth }));
 
-      act(() => result.current.authenticateSshInline('bob', TARGET_IP, 22, 'wrong'));
+      act(() =>
+        result.current.authenticateSshInline({
+          user: 'bob',
+          targetIP: TARGET_IP,
+          port: 22,
+          password: 'wrong',
+        }),
+      );
 
-      expect(onSshAuth).toHaveBeenCalledWith(false, 'bob', TARGET_IP, 22, 'password');
+      expect(onSshAuth).toHaveBeenCalledWith({
+        success: false,
+        user: 'bob',
+        targetIP: TARGET_IP,
+        port: 22,
+        method: 'password',
+      });
     });
 
     it('calls onSshAuth on interactive key auth', () => {
@@ -399,7 +459,13 @@ describe('useAuthentication', () => {
 
       act(() => result.current.startSshPrompt('bob', TARGET_IP, 22));
 
-      expect(onSshAuth).toHaveBeenCalledWith(true, 'bob', TARGET_IP, 22, 'publickey');
+      expect(onSshAuth).toHaveBeenCalledWith({
+        success: true,
+        user: 'bob',
+        targetIP: TARGET_IP,
+        port: 22,
+        method: 'publickey',
+      });
     });
 
     it('calls onSshAuth on interactive password success', () => {
@@ -413,7 +479,13 @@ describe('useAuthentication', () => {
       act(() => result.current.startSshPrompt('bob', TARGET_IP, 22));
       act(() => result.current.handlePasswordSubmit(PASSWORD, vi.fn()));
 
-      expect(onSshAuth).toHaveBeenCalledWith(true, 'bob', TARGET_IP, 22, 'password');
+      expect(onSshAuth).toHaveBeenCalledWith({
+        success: true,
+        user: 'bob',
+        targetIP: TARGET_IP,
+        port: 22,
+        method: 'password',
+      });
     });
 
     it('calls onSshAuth on interactive password failure', () => {
@@ -427,7 +499,13 @@ describe('useAuthentication', () => {
       act(() => result.current.startSshPrompt('bob', TARGET_IP, 22));
       act(() => result.current.handlePasswordSubmit('wrong', vi.fn()));
 
-      expect(onSshAuth).toHaveBeenCalledWith(false, 'bob', TARGET_IP, 22, 'password');
+      expect(onSshAuth).toHaveBeenCalledWith({
+        success: false,
+        user: 'bob',
+        targetIP: TARGET_IP,
+        port: 22,
+        method: 'password',
+      });
     });
   });
 
@@ -572,7 +650,12 @@ describe('useAuthentication', () => {
 
       act(() => result.current.authenticateFtpInline(TARGET_IP, 'bob', PASSWORD));
 
-      expect(onFtpAuth).toHaveBeenCalledWith(true, 'bob', TARGET_IP, 21);
+      expect(onFtpAuth).toHaveBeenCalledWith({
+        success: true,
+        user: 'bob',
+        targetIP: TARGET_IP,
+        port: 21,
+      });
     });
 
     it('calls onFtpAuth on inline user-not-found failure', () => {
@@ -583,7 +666,12 @@ describe('useAuthentication', () => {
 
       act(() => result.current.authenticateFtpInline(TARGET_IP, 'nobody', PASSWORD));
 
-      expect(onFtpAuth).toHaveBeenCalledWith(false, 'nobody', TARGET_IP, 21);
+      expect(onFtpAuth).toHaveBeenCalledWith({
+        success: false,
+        user: 'nobody',
+        targetIP: TARGET_IP,
+        port: 21,
+      });
     });
 
     it('calls onFtpAuth on inline wrong-password failure', () => {
@@ -596,7 +684,12 @@ describe('useAuthentication', () => {
 
       act(() => result.current.authenticateFtpInline(TARGET_IP, 'bob', 'wrong'));
 
-      expect(onFtpAuth).toHaveBeenCalledWith(false, 'bob', TARGET_IP, 21);
+      expect(onFtpAuth).toHaveBeenCalledWith({
+        success: false,
+        user: 'bob',
+        targetIP: TARGET_IP,
+        port: 21,
+      });
     });
 
     it('calls onFtpAuth on interactive login success', () => {
@@ -611,7 +704,12 @@ describe('useAuthentication', () => {
       act(() => result.current.handleFtpUsernameSubmit('bob', vi.fn()));
       act(() => result.current.handlePasswordSubmit(PASSWORD, vi.fn()));
 
-      expect(onFtpAuth).toHaveBeenCalledWith(true, 'bob', TARGET_IP, 21);
+      expect(onFtpAuth).toHaveBeenCalledWith({
+        success: true,
+        user: 'bob',
+        targetIP: TARGET_IP,
+        port: 21,
+      });
     });
 
     it('calls onFtpAuth on interactive username failure', () => {
@@ -623,7 +721,12 @@ describe('useAuthentication', () => {
       act(() => result.current.startFtpPrompt(TARGET_IP));
       act(() => result.current.handleFtpUsernameSubmit('nobody', vi.fn()));
 
-      expect(onFtpAuth).toHaveBeenCalledWith(false, 'nobody', TARGET_IP, 21);
+      expect(onFtpAuth).toHaveBeenCalledWith({
+        success: false,
+        user: 'nobody',
+        targetIP: TARGET_IP,
+        port: 21,
+      });
     });
 
     it('calls onFtpAuth on interactive password failure', () => {
@@ -638,7 +741,12 @@ describe('useAuthentication', () => {
       act(() => result.current.handleFtpUsernameSubmit('bob', vi.fn()));
       act(() => result.current.handlePasswordSubmit('wrong', vi.fn()));
 
-      expect(onFtpAuth).toHaveBeenCalledWith(false, 'bob', TARGET_IP, 21);
+      expect(onFtpAuth).toHaveBeenCalledWith({
+        success: false,
+        user: 'bob',
+        targetIP: TARGET_IP,
+        port: 21,
+      });
     });
   });
 
@@ -659,7 +767,12 @@ describe('useAuthentication', () => {
 
       let output: AsyncOutput | undefined;
       act(() => {
-        output = result.current.startScpPrompt('bob', TARGET_IP, 22, performTransfer);
+        output = result.current.startScpPrompt({
+          user: 'bob',
+          targetIP: TARGET_IP,
+          port: 22,
+          performTransfer,
+        });
       });
 
       expect(output).toBe(transfer);
@@ -678,7 +791,12 @@ describe('useAuthentication', () => {
       const { result } = renderHook(() => useAuthentication(opts));
 
       act(() => {
-        result.current.startScpPrompt('bob', TARGET_IP, 22, performTransfer);
+        result.current.startScpPrompt({
+          user: 'bob',
+          targetIP: TARGET_IP,
+          port: 22,
+          performTransfer,
+        });
       });
       expect(result.current.passwordMode).toBe(true);
 
@@ -702,7 +820,12 @@ describe('useAuthentication', () => {
       const { result } = renderHook(() => useAuthentication(opts));
 
       act(() => {
-        result.current.startScpPrompt('bob', TARGET_IP, 22, performTransfer);
+        result.current.startScpPrompt({
+          user: 'bob',
+          targetIP: TARGET_IP,
+          port: 22,
+          performTransfer,
+        });
       });
       act(() => {
         result.current.handlePasswordSubmit('wrong', vi.fn());
@@ -728,7 +851,12 @@ describe('useAuthentication', () => {
       const { result } = renderHook(() => useAuthentication(opts));
 
       act(() => {
-        result.current.startScpPrompt('bob', TARGET_IP, 22, performTransfer);
+        result.current.startScpPrompt({
+          user: 'bob',
+          targetIP: TARGET_IP,
+          port: 22,
+          performTransfer,
+        });
       });
       let output: AsyncOutput | undefined;
       act(() => {
@@ -761,13 +889,13 @@ describe('useAuthentication', () => {
 
       let output: AsyncOutput | undefined;
       act(() => {
-        output = result.current.authenticateScpInline(
-          'bob',
-          TARGET_IP,
-          22,
-          PASSWORD,
+        output = result.current.authenticateScpInline({
+          user: 'bob',
+          targetIP: TARGET_IP,
+          port: 22,
+          password: PASSWORD,
           performTransfer,
-        );
+        });
       });
 
       expect(output).toBe(transfer);
@@ -786,13 +914,13 @@ describe('useAuthentication', () => {
 
       let output: AsyncOutput | undefined;
       act(() => {
-        output = result.current.authenticateScpInline(
-          'bob',
-          TARGET_IP,
-          22,
-          PASSWORD,
+        output = result.current.authenticateScpInline({
+          user: 'bob',
+          targetIP: TARGET_IP,
+          port: 22,
+          password: PASSWORD,
           performTransfer,
-        );
+        });
       });
 
       expect(output).toBe(transfer);
@@ -810,13 +938,13 @@ describe('useAuthentication', () => {
 
       let output: AsyncOutput | undefined;
       act(() => {
-        output = result.current.authenticateScpInline(
-          'bob',
-          TARGET_IP,
-          22,
-          'wrong',
+        output = result.current.authenticateScpInline({
+          user: 'bob',
+          targetIP: TARGET_IP,
+          port: 22,
+          password: 'wrong',
           performTransfer,
-        );
+        });
       });
 
       expect(output).toBeUndefined();
@@ -837,9 +965,23 @@ describe('useAuthentication', () => {
 
       const { result } = renderHook(() => useAuthentication({ ...opts, onSshAuth }));
 
-      act(() => result.current.authenticateScpInline('bob', TARGET_IP, 22, 'any', vi.fn()));
+      act(() =>
+        result.current.authenticateScpInline({
+          user: 'bob',
+          targetIP: TARGET_IP,
+          port: 22,
+          password: 'any',
+          performTransfer: vi.fn(),
+        }),
+      );
 
-      expect(onSshAuth).toHaveBeenCalledWith(true, 'bob', TARGET_IP, 22, 'publickey');
+      expect(onSshAuth).toHaveBeenCalledWith({
+        success: true,
+        user: 'bob',
+        targetIP: TARGET_IP,
+        port: 22,
+        method: 'publickey',
+      });
     });
 
     it('calls onSshAuth on inline password success for SCP', () => {
@@ -850,9 +992,23 @@ describe('useAuthentication', () => {
 
       const { result } = renderHook(() => useAuthentication({ ...opts, onSshAuth }));
 
-      act(() => result.current.authenticateScpInline('bob', TARGET_IP, 22, PASSWORD, vi.fn()));
+      act(() =>
+        result.current.authenticateScpInline({
+          user: 'bob',
+          targetIP: TARGET_IP,
+          port: 22,
+          password: PASSWORD,
+          performTransfer: vi.fn(),
+        }),
+      );
 
-      expect(onSshAuth).toHaveBeenCalledWith(true, 'bob', TARGET_IP, 22, 'password');
+      expect(onSshAuth).toHaveBeenCalledWith({
+        success: true,
+        user: 'bob',
+        targetIP: TARGET_IP,
+        port: 22,
+        method: 'password',
+      });
     });
 
     it('calls onSshAuth on inline password failure for SCP', () => {
@@ -863,9 +1019,23 @@ describe('useAuthentication', () => {
 
       const { result } = renderHook(() => useAuthentication({ ...opts, onSshAuth }));
 
-      act(() => result.current.authenticateScpInline('bob', TARGET_IP, 22, 'wrong', vi.fn()));
+      act(() =>
+        result.current.authenticateScpInline({
+          user: 'bob',
+          targetIP: TARGET_IP,
+          port: 22,
+          password: 'wrong',
+          performTransfer: vi.fn(),
+        }),
+      );
 
-      expect(onSshAuth).toHaveBeenCalledWith(false, 'bob', TARGET_IP, 22, 'password');
+      expect(onSshAuth).toHaveBeenCalledWith({
+        success: false,
+        user: 'bob',
+        targetIP: TARGET_IP,
+        port: 22,
+        method: 'password',
+      });
     });
 
     it('calls onSshAuth on interactive key auth for SCP', () => {
@@ -880,9 +1050,22 @@ describe('useAuthentication', () => {
 
       const { result } = renderHook(() => useAuthentication({ ...opts, onSshAuth }));
 
-      act(() => result.current.startScpPrompt('bob', TARGET_IP, 22, vi.fn()));
+      act(() =>
+        result.current.startScpPrompt({
+          user: 'bob',
+          targetIP: TARGET_IP,
+          port: 22,
+          performTransfer: vi.fn(),
+        }),
+      );
 
-      expect(onSshAuth).toHaveBeenCalledWith(true, 'bob', TARGET_IP, 22, 'publickey');
+      expect(onSshAuth).toHaveBeenCalledWith({
+        success: true,
+        user: 'bob',
+        targetIP: TARGET_IP,
+        port: 22,
+        method: 'publickey',
+      });
     });
 
     it('calls onSshAuth on interactive password success for SCP', () => {
@@ -893,10 +1076,23 @@ describe('useAuthentication', () => {
 
       const { result } = renderHook(() => useAuthentication({ ...opts, onSshAuth }));
 
-      act(() => result.current.startScpPrompt('bob', TARGET_IP, 22, vi.fn()));
+      act(() =>
+        result.current.startScpPrompt({
+          user: 'bob',
+          targetIP: TARGET_IP,
+          port: 22,
+          performTransfer: vi.fn(),
+        }),
+      );
       act(() => result.current.handlePasswordSubmit(PASSWORD, vi.fn()));
 
-      expect(onSshAuth).toHaveBeenCalledWith(true, 'bob', TARGET_IP, 22, 'password');
+      expect(onSshAuth).toHaveBeenCalledWith({
+        success: true,
+        user: 'bob',
+        targetIP: TARGET_IP,
+        port: 22,
+        method: 'password',
+      });
     });
 
     it('calls onSshAuth on interactive password failure for SCP', () => {
@@ -907,10 +1103,23 @@ describe('useAuthentication', () => {
 
       const { result } = renderHook(() => useAuthentication({ ...opts, onSshAuth }));
 
-      act(() => result.current.startScpPrompt('bob', TARGET_IP, 22, vi.fn()));
+      act(() =>
+        result.current.startScpPrompt({
+          user: 'bob',
+          targetIP: TARGET_IP,
+          port: 22,
+          performTransfer: vi.fn(),
+        }),
+      );
       act(() => result.current.handlePasswordSubmit('wrong', vi.fn()));
 
-      expect(onSshAuth).toHaveBeenCalledWith(false, 'bob', TARGET_IP, 22, 'password');
+      expect(onSshAuth).toHaveBeenCalledWith({
+        success: false,
+        user: 'bob',
+        targetIP: TARGET_IP,
+        port: 22,
+        method: 'password',
+      });
     });
   });
 
@@ -922,7 +1131,14 @@ describe('useAuthentication', () => {
 
       const { result } = renderHook(() => useAuthentication(opts));
 
-      act(() => result.current.authenticateSshInline('bob', TARGET_IP, 22, PASSWORD));
+      act(() =>
+        result.current.authenticateSshInline({
+          user: 'bob',
+          targetIP: TARGET_IP,
+          port: 22,
+          password: PASSWORD,
+        }),
+      );
 
       const expectedEntry = makeKeyEntry('bob', TARGET_IP, PASSWORD_HASH);
       expect(opts.createFile).toHaveBeenCalledWith('/home/alice/.ssh_keys', expectedEntry, 'user');
@@ -939,7 +1155,14 @@ describe('useAuthentication', () => {
 
       const { result } = renderHook(() => useAuthentication(opts));
 
-      act(() => result.current.authenticateSshInline('bob', TARGET_IP, 22, PASSWORD));
+      act(() =>
+        result.current.authenticateSshInline({
+          user: 'bob',
+          targetIP: TARGET_IP,
+          port: 22,
+          password: PASSWORD,
+        }),
+      );
 
       const expectedEntry = makeKeyEntry('bob', TARGET_IP, PASSWORD_HASH);
       expect(opts.writeFile).toHaveBeenCalledWith(
@@ -961,7 +1184,14 @@ describe('useAuthentication', () => {
       const { result } = renderHook(() => useAuthentication(opts));
 
       // Key exists, so inline auth uses saved key — no write needed
-      act(() => result.current.authenticateSshInline('bob', TARGET_IP, 22, PASSWORD));
+      act(() =>
+        result.current.authenticateSshInline({
+          user: 'bob',
+          targetIP: TARGET_IP,
+          port: 22,
+          password: PASSWORD,
+        }),
+      );
 
       expect(opts.createFile).not.toHaveBeenCalled();
       expect(opts.writeFile).not.toHaveBeenCalled();
@@ -979,7 +1209,14 @@ describe('useAuthentication', () => {
 
       const { result } = renderHook(() => useAuthentication(opts));
 
-      act(() => result.current.authenticateSshInline('bob', '10.0.0.1', 22, PASSWORD));
+      act(() =>
+        result.current.authenticateSshInline({
+          user: 'bob',
+          targetIP: '10.0.0.1',
+          port: 22,
+          password: PASSWORD,
+        }),
+      );
 
       expect(opts.resolveNat).toHaveBeenCalledWith('10.0.0.1', 22);
       expect(opts.pushSession).toHaveBeenCalled();

@@ -29,7 +29,7 @@ describe('createMysqlAuthHandler', () => {
       }),
     );
 
-    handler(true, 'dbadmin', '203.0.113.5', 3306);
+    handler({ success: true, user: 'dbadmin', targetIP: '203.0.113.5', port: 3306 });
 
     expect(logFs.createFileOnMachine).toHaveBeenCalledWith(
       expect.objectContaining({ machineId: '10.0.1.20', path: '/var/log/mysql.log' }),
@@ -46,7 +46,7 @@ describe('createMysqlAuthHandler', () => {
       }),
     );
 
-    handler(true, 'dbadmin', '203.0.113.5', 3306);
+    handler({ success: true, user: 'dbadmin', targetIP: '203.0.113.5', port: 3306 });
 
     expect(readFileFromMachine).toHaveBeenCalledWith(
       expect.objectContaining({ machineId: '10.0.1.20' }),
@@ -62,7 +62,7 @@ describe('createMysqlAuthHandler', () => {
       }),
     );
 
-    handler(true, 'alice', '10.0.1.20', 3306);
+    handler({ success: true, user: 'alice', targetIP: '10.0.1.20', port: 3306 });
 
     const call = logFs.createFileOnMachine.mock.calls[0]?.[0] as { readonly content: string };
     expect(call.content).toContain('webapp_db');
@@ -78,7 +78,7 @@ describe('createMysqlAuthHandler', () => {
       }),
     );
 
-    handler(false, 'eve', '203.0.113.5', 3306);
+    handler({ success: false, user: 'eve', targetIP: '203.0.113.5', port: 3306 });
 
     expect(logFs.createFileOnMachine).toHaveBeenCalledWith(
       expect.objectContaining({ machineId: '10.0.1.20', path: '/var/log/mysql.log' }),
@@ -96,7 +96,7 @@ describe('createMysqlAuthHandler', () => {
       }),
     );
 
-    handler(true, 'root', '192.168.1.50', 3306);
+    handler({ success: true, user: 'root', targetIP: '192.168.1.50', port: 3306 });
 
     expect(logFs.createFileOnMachine).toHaveBeenCalledWith(
       expect.objectContaining({ machineId: '192.168.1.50' }),
