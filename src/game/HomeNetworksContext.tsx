@@ -41,10 +41,10 @@ type HomeNetworksContextValue = {
   // mission-network generator's collision-avoidance (each home network's
   // public IP is taken).
   readonly joinedNetworks: readonly HomeNetwork[];
-  // Other players on the active LAN (excluding self). Polled every
-  // OCCUPANT_POLL_MS while connected; refetched when activeNetwork
-  // changes. Surfaced to NetworkContext so they appear as alive hosts in
-  // nmap output.
+  // Other players on the active LAN at the moment we connected
+  // (excluding self). Fetched once when activeNetwork resolves; no
+  // polling. Late-joiners require a reconnect to appear. Live updates
+  // will land via the deferred Realtime subscription.
   readonly lanOccupants: readonly OccupantSummary[];
   // Idempotent: returns the cached network if already joined; otherwise
   // calls /api/join-home-network, generates the topology with the server-
@@ -52,11 +52,6 @@ type HomeNetworksContextValue = {
   // or server error.
   readonly ensureJoined: (essid: string) => Promise<HomeNetwork>;
 };
-
-// Poll cadence for the occupant list. 30s gives "neighbor joined" /
-// "neighbor left" feedback within a usable window without burning the
-// anon SELECT quota. Realtime subscription is a nice-to-have follow-up.
-const OCCUPANT_POLL_MS = 30_000;
 
 const HomeNetworksContext = createContext<HomeNetworksContextValue | null>(null);
 
@@ -146,10 +141,19 @@ export const HomeNetworksProvider = ({
     });
   }, [connectedWifi, ensureJoined]);
 
-  // Other-players-on-the-LAN polling. Triggers on (connectedWifi, version)
-  // so it re-fires when the active network's cache entry materializes.
-  // Self is filtered out — the local player is implicit in the rendered
-  // network view, not a discoverable peer.
+  // Other-players-on-the-LAN fetch. Fires once per active network (on
+  // connect, or when an existing cached network resolves). Self is
+  // filtered out — the local player is implicit in the rendered network
+  // view, not a discoverable peer.
+  //
+  // No polling: the previous 30s setInterval was burning anon SELECT
+  // quota for a single observable improvement (seeing late-joiners
+  // without reconnect). Live updates are deferred to the Realtime path
+  // (see project_realtime_publish_authorization memory) — once the
+  // broadcast forgery vector is closed, a Supabase Realtime
+  // subscription on home_network_occupants gives instant joins/leaves
+  // without polling. Until then: occupants snapshot at connect; any
+  // late-joiners require a reconnect to become visible.
   const [lanOccupants, setLanOccupants] = useState<readonly OccupantSummary[]>([]);
   useEffect(() => {
     const active = connectedWifi ? (cacheRef.current.get(connectedWifi.essid) ?? null) : null;
@@ -162,17 +166,13 @@ export const HomeNetworksProvider = ({
     const ownKey = `ed25519:${getIdentity().publicKeyHex}`;
     let cancelled = false;
 
-    const refetch = async () => {
-      const occupants = await listOccupants(networkId);
+    void listOccupants(networkId).then((occupants) => {
       if (cancelled) return;
       setLanOccupants(occupants.filter((o) => o.player_key !== ownKey));
-    };
+    });
 
-    void refetch();
-    const interval = setInterval(() => void refetch(), OCCUPANT_POLL_MS);
     return () => {
       cancelled = true;
-      clearInterval(interval);
     };
     // version is the cache-mutation tracker — re-run when the active
     // network finishes materializing.
