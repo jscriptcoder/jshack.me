@@ -29,6 +29,7 @@ export default tseslint.config(
             'useFileSystem',
             'useNetwork',
             'useMission',
+            'useHomeNetworks',
             'isValidPatch',
             'isValidPersistedState',
           ],

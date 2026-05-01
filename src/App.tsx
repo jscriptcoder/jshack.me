@@ -8,7 +8,7 @@ import { NetworkProvider } from './network';
 import { MissionProvider, useMissionState } from './mission';
 import { getCachedGameState, getDatabase, resetSessionCache } from './utils/storageCache';
 import { saveGameState, clearAllData } from './utils/storage';
-import { useHomeNetworks } from './game/useHomeNetworks';
+import { HomeNetworksProvider, useHomeNetworks } from './game/HomeNetworksContext';
 import { generateLocalhost } from './generation/generateLocalhost';
 import { useWorldNetworks } from './worldNetworks/useWorldNetworks';
 import type { GameState } from './game/types';
@@ -16,10 +16,22 @@ import type { FileNode } from './filesystem/types';
 
 function GameSession({ gameState }: { readonly gameState: GameState }) {
   const { connectedWifi } = useSession();
-  const { activeNetwork, allNetworks } = useHomeNetworks(gameState.seed, connectedWifi);
+  return (
+    <HomeNetworksProvider
+      gameSeed={gameState.seed}
+      workstationPrefix={gameState.workstationName}
+      connectedWifi={connectedWifi}
+    >
+      <GameInner gameState={gameState} />
+    </HomeNetworksProvider>
+  );
+}
+
+function GameInner({ gameState }: { readonly gameState: GameState }) {
+  const { activeNetwork, joinedNetworks } = useHomeNetworks();
   const usedPublicIps = useMemo(
-    () => new Set(allNetworks.map((n) => n.router.publicIp)),
-    [allNetworks],
+    () => new Set(joinedNetworks.map((n) => n.router.publicIp)),
+    [joinedNetworks],
   );
   const missionState = useMissionState(usedPublicIps);
   const localhostResult = useMemo(() => generateLocalhost(gameState), [gameState]);
