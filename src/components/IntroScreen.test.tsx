@@ -168,13 +168,16 @@ describe('IntroScreen', () => {
     expect(onStart).toHaveBeenCalledTimes(1);
   });
 
-  it('should show prompt preview when hostname and username are filled', () => {
+  it('should show prompt preview with the identity-derived hostname suffix', () => {
     render(<IntroScreen existingGame={null} onStart={vi.fn()} />);
 
     fireEvent.click(screen.getByText('NEW GAME'));
     fireEvent.change(screen.getByPlaceholderText('my-machine'), { target: { value: 'mybox' } });
     fireEvent.change(screen.getByPlaceholderText('hacker'), { target: { value: 'alice' } });
 
-    expect(screen.getByText('alice@mybox')).toBeDefined();
+    // Match alice@mybox-<4 hex chars> — exact suffix depends on the
+    // localStorage-stored identity, which is per-test and would make a
+    // hard-coded assertion brittle.
+    expect(screen.getByText(/^alice@mybox-[0-9a-f]{4}$/)).toBeDefined();
   });
 });

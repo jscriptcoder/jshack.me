@@ -1,6 +1,8 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import type { GameState } from '../game/types';
 import { generateGameSeed } from '../game/gameSeed';
+import { computePlayerHostname } from '../homeNetworks/computePlayerHostname';
+import { getIdentity } from '../identity';
 
 type IntroScreenProps = {
   readonly existingGame: GameState | null;
@@ -68,6 +70,17 @@ export const IntroScreen = ({ existingGame, onStart }: IntroScreenProps) => {
   const [hostnamePreview, setHostnamePreview] = useState('');
   const [usernamePreview, setUsernamePreview] = useState('');
   const [error, setError] = useState('');
+
+  // Show the player's full hostname (workstationName + identity-derived
+  // suffix) in the prompt preview so they see exactly what their prompt
+  // will look like in-game. getIdentity() lazy-creates the keypair on
+  // first call; calling it during intro is benign (the identity is just
+  // a localStorage-stored Ed25519 keypair, no server-side commitment).
+  const previewHostname = useMemo(() => {
+    const trimmed = hostnamePreview.trim().toLowerCase().replace(/\s+/g, '-');
+    if (!trimmed) return '';
+    return computePlayerHostname(trimmed, getIdentity());
+  }, [hostnamePreview]);
 
   const hostnameRef = useRef<HTMLInputElement>(null);
   const usernameRef = useRef<HTMLInputElement>(null);
@@ -284,8 +297,7 @@ export const IntroScreen = ({ existingGame, onStart }: IntroScreenProps) => {
           {hostnamePreview.trim() && usernamePreview.trim() && (
             <p className="text-sm" style={{ color: 'var(--theme-text-dim)' }}>
               <span style={{ color: 'var(--theme-text)' }}>
-                {usernamePreview.trim().toLowerCase()}@
-                {hostnamePreview.trim().toLowerCase().replace(/\s+/g, '-')}
+                {usernamePreview.trim().toLowerCase()}@{previewHostname}
               </span>
               &gt;
             </p>
