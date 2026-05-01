@@ -37,7 +37,8 @@ Replaces the previous single-player model where `localhostIp` was hardcoded to `
                               │
                               ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│  HomeNetworksProvider polls home_network_occupants every 30s      │
+│  HomeNetworksProvider fetches home_network_occupants once on      │
+│  activeNetwork resolve (no polling — Realtime takes over later)   │
 │    → lanOccupants (excluding self) flow to NetworkContext         │
 │    → each occupant renders as an alive RemoteMachine in nmap      │
 │      with hostname `${prefix}-${suffix}`, IP `${subnet}${.X}`,    │
@@ -111,7 +112,7 @@ The server is the source of truth for "did I already join this LAN." Client neve
 | `handler.ts`               | `handleJoinHomeNetworkRequest(envelope, deps)` — pure orchestration. Verify → rate-limit → idempotent return → find-or-create → slot allocation loop with retry. |
 | `createInsertOccupant.ts`  | Postgres unique-constraint parser — maps `23505` errors onto `lan_ip_conflict` / `hostname_conflict` / `error` by substring matching the constraint message.     |
 | `client.ts`                | `joinHomeNetwork(identity, request, fetchImpl?)` — browser-side wrapper. Signs envelope, POSTs, validates response with `joinResultSchema`.                      |
-| `listOccupants.ts`         | Anon-key Supabase read of `home_network_occupants` for a given network_id. Polled every 30s by `HomeNetworksProvider` so other LAN players appear in nmap.       |
+| `listOccupants.ts`         | Anon-key Supabase read of `home_network_occupants` for a given network_id. Fetched once by `HomeNetworksProvider` when activeNetwork resolves; no polling.       |
 | `computePlayerHostname.ts` | `(workstationName, identity) → '${workstationName}-${suffix}'`. Computed once at game start; same hostname on every LAN.                                         |
 | `*.test.ts`                | Unit tests. Real Ed25519 signing in handler tests; mocked Supabase + Upstash deps.                                                                               |
 | `README.md`                | This file.                                                                                                                                                       |
@@ -153,6 +154,6 @@ Headlines (the design discussion behind each is captured in commit history; the 
 - **Router ownership semantics** — the home router is unowned shared infrastructure.
 - **Permadeath rejoin policy** — a fresh identity gets a fresh occupancy roll.
 - **Less-obvious hostname suffix format** — current `${prefix}-${4-hex}` makes it visually obvious that a LAN host is another player (vs an NPC machine). A future PR could move to less-distinguishable formats (pronounceable words, naming conventions matching the surrounding NPCs per WiFi tier, etc.).
-- **Realtime occupant subscription** — currently polled every 30s. Supabase Realtime on `home_network_occupants` would surface joins/leaves immediately.
+- **Live occupant updates** — currently fetched once when activeNetwork resolves. Late-joiners require a reconnect to appear. Supabase Realtime on `home_network_occupants` is the planned live-update mechanism (instant joins/leaves) — gated on the broadcast forgery vector being closed first (see `project_realtime_publish_authorization` memory).
 - **Hostname-aware logs** — log formatters use source IP via `resolveLogSourceIP`; could add hostname alongside for richer attribution. Touches every log formatter.
 - **PvP-on-localhost** — other players' localhost shows as alive but with no open ports. A future PR could add an "open service" mechanic where players opt into being attackable.
