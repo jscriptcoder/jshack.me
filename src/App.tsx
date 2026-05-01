@@ -42,7 +42,7 @@ function GameInner({
   readonly gameState: GameState;
   readonly hostname: string;
 }) {
-  const { activeNetwork, joinedNetworks } = useHomeNetworks();
+  const { activeNetwork, joinedNetworks, lanOccupants } = useHomeNetworks();
 
   const usedPublicIps = useMemo(
     () => new Set(joinedNetworks.map((n) => n.router.publicIp)),
@@ -84,6 +84,7 @@ function GameInner({
           missionLayers={missionState.activeMission?.layers}
           homeNetwork={activeNetwork}
           worldNetworks={worldNetworks}
+          lanOccupants={lanOccupants}
         >
           <Terminal />
         </NetworkProvider>

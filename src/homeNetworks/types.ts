@@ -68,3 +68,18 @@ export type JoinResult = z.infer<typeof joinResultSchema>;
 // a new IP; hostname_conflict is deterministic (suffix is identity-derived,
 // retrying lan_ip won't change it) and returns immediately.
 export type InsertOccupantResult = 'ok' | 'lan_ip_conflict' | 'hostname_conflict' | 'error';
+
+// Public-readable shape of a home_network_occupants row. Used by
+// listOccupants (anon SELECT) so HomeNetworksProvider can render other
+// players on the active LAN as discoverable machines in nmap. Schema is
+// runtime-validated before the data hits React state.
+export const occupantSummarySchema = z
+  .object({
+    network_id: z.string(),
+    player_key: z.string(),
+    lan_ip: z.string(),
+    hostname: z.string(),
+  })
+  .strict();
+
+export type OccupantSummary = z.infer<typeof occupantSummarySchema>;

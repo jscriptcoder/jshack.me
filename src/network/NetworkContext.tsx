@@ -15,6 +15,7 @@ import type {
 } from '../generation/types';
 import { localhostDisconnectedInterfaces, localhostWlan0Down } from './initialNetwork';
 import type { HomeNetwork } from '../generation/generateHomeNetwork';
+import type { OccupantSummary } from '../homeNetworks/types';
 import { useSession } from '../session/SessionContext';
 import { useFileSystem } from '../filesystem';
 import { findGatewayChainFor } from './gatewayChain';
@@ -71,6 +72,11 @@ type NetworkProviderProps = {
   // Their routers + inner gateways are appended to the localhost-visible
   // machine list so commands like nmap/ssh/curl can reach them.
   readonly worldNetworks?: ReadonlyArray<MissionNetwork>;
+  // Other players on the active home LAN (excluding self). Each occupant
+  // appears as an alive host (closed services — no open ports, no remote
+  // login) at `${layer0_subnet}${occupant.lan_ip}` with hostname
+  // `occupant.hostname`. Sourced from HomeNetworksProvider's polling.
+  readonly lanOccupants?: readonly OccupantSummary[];
 };
 
 export const NetworkProvider = ({
@@ -81,6 +87,7 @@ export const NetworkProvider = ({
   missionLayers,
   homeNetwork,
   worldNetworks,
+  lanOccupants,
 }: NetworkProviderProps) => {
   const { session, wifiConnected } = useSession();
   const { getNodeFromMachine } = useFileSystem();
@@ -238,10 +245,28 @@ export const NetworkProvider = ({
         ? [...sampleConfig.machines, ...(sampleMachine ? [sampleMachine.remoteMachine] : [])]
         : [];
 
+      // Other LAN occupants — render as alive hosts with no open ports
+      // (closed laptop default). Their assigned host octet is combined
+      // with layer-0 subnet to form a full IP.
+      const subnet = layer0?.subnet ?? '';
+      const occupantMachines: readonly RemoteMachine[] = subnet
+        ? (lanOccupants ?? []).map((o) => ({
+            ip: `${subnet}${o.lan_ip}`,
+            hostname: o.hostname,
+            ports: [],
+            users: [],
+          }))
+        : [];
+      const occupantDns: readonly DnsRecord[] = occupantMachines.map((m) => ({
+        domain: m.hostname,
+        ip: m.ip,
+        type: 'A' as const,
+      }));
+
       const homeBase: MachineNetworkConfig = {
         interfaces: localhostHomeInterfaces,
-        machines: [...visibleMachines, ...worldRouterViews],
-        dnsRecords: sampleConfig?.dnsRecords ?? [],
+        machines: [...visibleMachines, ...occupantMachines, ...worldRouterViews],
+        dnsRecords: [...(sampleConfig?.dnsRecords ?? []), ...occupantDns],
       };
 
       // If mission is active, also make mission router visible from localhost
@@ -303,6 +328,7 @@ export const NetworkProvider = ({
     homeNetwork,
     localhostHomeInterfaces,
     worldRouterViews,
+    lanOccupants,
   ]);
 
   // Dynamic overrides: for each visible machine, apply gateway enhancements
