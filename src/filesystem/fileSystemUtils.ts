@@ -42,19 +42,27 @@ export const checkTraversal = (
     return { allowed: false, error: 'Permission denied: /' };
   }
 
-  // Walk each parent directory (all segments except the last, which is the target)
-  let current: FileNode = fs;
-  for (let i = 0; i < parts.length - 1; i++) {
-    if (!current.children) return { allowed: true };
-    const next = current.children[parts[i] as string];
+  // Walk each parent directory (all segments except the last, which is the target).
+  // A missing child (or a non-directory node with no children) ends the walk
+  // with allowed: true — non-existence is a "no such file" condition for the
+  // caller, not a permission denial.
+  const walkParents = (
+    node: FileNode,
+    remaining: readonly string[],
+    consumed: readonly string[],
+  ): PermissionResult => {
+    if (remaining.length === 0) return { allowed: true };
+    if (!node.children) return { allowed: true };
+    const [part, ...rest] = remaining;
+    const next = node.children[part];
     if (!next) return { allowed: true };
     if (next.type === 'directory' && !next.permissions.execute.includes(userType)) {
-      return { allowed: false, error: `Permission denied: /${parts.slice(0, i + 1).join('/')}` };
+      return { allowed: false, error: `Permission denied: /${[...consumed, part].join('/')}` };
     }
-    current = next;
-  }
+    return walkParents(next, rest, [...consumed, part]);
+  };
 
-  return { allowed: true };
+  return walkParents(fs, parts.slice(0, -1), []);
 };
 
 export const getNodeAtPath = (fs: FileNode, resolvedPath: string): FileNode | null => {
