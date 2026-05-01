@@ -70,6 +70,55 @@ describe('generateHomeNetwork', () => {
     expect(network.hostname).toBeUndefined();
   });
 
+  it('uses the supplied routerPublicIp instead of the PRNG-derived one (multiplayer path)', async () => {
+    // The multiplayer join handler stores the router IP in
+    // home_networks.public_ip. The client must derive network.router.publicIp
+    // from that server value, not from the local PRNG — otherwise
+    // home_network_occupants lookups (keyed on network_id = public_ip)
+    // miss with the wrong IP, and any cross-player WAN-side flow
+    // (curl/nmap to the public router IP) targets the wrong host.
+    const network = await generateHomeNetwork({
+      seed: seedOf('mp-test', 0),
+      essid: 'TEST',
+      routerPublicIp: '45.112.92.132',
+    });
+    expect(network.router.publicIp).toBe('45.112.92.132');
+  });
+
+  it('routerPublicIp override takes precedence over allocateIp callback', async () => {
+    // If both seams are wired (rare but possible), the explicit override
+    // wins — the server-allocated IP is the canonical truth.
+    const allocateIp = vi.fn(async () => 'wrong.allocator.value');
+    const network = await generateHomeNetwork({
+      seed: seedOf('mp-precedence', 0),
+      essid: 'TEST',
+      routerPublicIp: '45.112.92.132',
+      allocateIp,
+    });
+    expect(network.router.publicIp).toBe('45.112.92.132');
+    expect(allocateIp).not.toHaveBeenCalled();
+  });
+
+  it('two clients with the same seed but the same routerPublicIp see the same router', async () => {
+    // The bug this fix addresses: two players on the same LAN have the
+    // same seed (`home-${publicIp}`) but were getting their own PRNG-
+    // derived router IP, which differed from the server's stored
+    // public_ip. Passing the server's public_ip as the override aligns
+    // both clients with each other AND with the home_networks row.
+    const a = await generateHomeNetwork({
+      seed: 'home-45.112.92.132',
+      essid: 'TEST',
+      routerPublicIp: '45.112.92.132',
+    });
+    const b = await generateHomeNetwork({
+      seed: 'home-45.112.92.132',
+      essid: 'TEST',
+      routerPublicIp: '45.112.92.132',
+    });
+    expect(a.router.publicIp).toBe('45.112.92.132');
+    expect(b.router.publicIp).toBe('45.112.92.132');
+  });
+
   it('stores essid', async () => {
     const network = await generateHomeNetwork({ seed: seedOf('test', 0), essid: 'MY-WIFI' });
     expect(network.essid).toBe('MY-WIFI');

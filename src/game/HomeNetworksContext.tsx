@@ -122,6 +122,12 @@ export const HomeNetworksProvider = ({
             essid,
             slotIp: result.lan_ip,
             hostname: result.hostname,
+            // The server's allocator owns the canonical public IP and
+            // stored it in home_networks.public_ip. Without this override,
+            // the local PRNG would derive a different value than the
+            // server's row, and home_network_occupants lookups (keyed on
+            // network_id = public_ip) would miss with the wrong IP.
+            routerPublicIp: result.public_ip,
           });
           cacheRef.current.set(essid, network);
           setVersion((v) => v + 1);
