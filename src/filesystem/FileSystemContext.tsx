@@ -305,6 +305,14 @@ export const FileSystemProvider = ({
   // resubscribe to the new set. Mid-session WiFi crack / mission
   // accept therefore picks up live updates without page reload.
   //
+  // Localhost is deliberately skipped: localhost patches are per-player-
+  // private (the server-side read filter at api/patches.ts:163 enforces
+  // `machine_id <> 'localhost' OR player_key = $verified_pubkey`), but
+  // the Realtime broadcast carries no player_key filter — subscribing
+  // would leak each player's localhost mutations to every neighbor on
+  // the same LAN. Same-player cross-tab sync uses BroadcastChannel
+  // instead, which stays inside one browser.
+  //
   // Graceful degradation: getRealtimeClient() returns null when
   // VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY are missing. The app
   // keeps working — page-reload-driven rehydration still surfaces
@@ -313,7 +321,7 @@ export const FileSystemProvider = ({
     const client = getRealtimeClient();
     if (!client) return;
 
-    const machineIds = machineIdsKey.split(',').filter(Boolean);
+    const machineIds = machineIdsKey.split(',').filter((id) => id && id !== 'localhost');
     const unsubscribers = machineIds.map((id) =>
       subscribeToMachine(client, id, applyExternalPatch),
     );

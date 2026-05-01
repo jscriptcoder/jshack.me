@@ -632,7 +632,7 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       expect(mockedSubscribeToMachine).not.toHaveBeenCalled();
     });
 
-    it('subscribes to every machine_id in current view on mount', async () => {
+    it('subscribes to every machine_id in current view on mount, EXCLUDING localhost', async () => {
       const fakeClient = {} as Parameters<typeof mockedSubscribeToMachine>[0];
       vi.mocked(mockedGetRealtimeClient).mockReturnValue(fakeClient);
 
@@ -647,10 +647,22 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       const calledMachineIds = vi
         .mocked(mockedSubscribeToMachine)
         .mock.calls.map((call) => (call as unknown as SubscribeMockArgs)[1]);
-      expect(calledMachineIds).toEqual(
-        expect.arrayContaining(['localhost', '192.168.1.50', '10.0.0.1']),
-      );
-      expect(calledMachineIds).toHaveLength(3);
+      expect(calledMachineIds).toEqual(expect.arrayContaining(['192.168.1.50', '10.0.0.1']));
+      expect(calledMachineIds).not.toContain('localhost');
+      expect(calledMachineIds).toHaveLength(2);
+    });
+
+    it('NEVER subscribes to localhost (per-player private — Realtime broadcast carries no player_key filter, would leak across LAN occupants)', async () => {
+      const fakeClient = {} as Parameters<typeof mockedSubscribeToMachine>[0];
+      vi.mocked(mockedGetRealtimeClient).mockReturnValue(fakeClient);
+
+      const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+
+      const calledMachineIds = vi
+        .mocked(mockedSubscribeToMachine)
+        .mock.calls.map((call) => (call as unknown as SubscribeMockArgs)[1]);
+      expect(calledMachineIds).not.toContain('localhost');
     });
 
     it('passes the supabase client from getRealtimeClient to subscribeToMachine', async () => {
@@ -659,7 +671,9 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       >[0];
       vi.mocked(mockedGetRealtimeClient).mockReturnValue(fakeClient);
 
-      const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
+      const { result } = renderHook(() => useFileSystem(), {
+        wrapper: wrap({ homeFileSystems: { '192.168.1.50': baseLocalhost } }),
+      });
       await waitFor(() => expect(result.current.isRehydrating).toBe(false));
 
       const firstCall = vi.mocked(mockedSubscribeToMachine).mock
@@ -670,7 +684,7 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
     it('unsubscribes all on unmount', async () => {
       const fakeClient = {} as Parameters<typeof mockedSubscribeToMachine>[0];
       vi.mocked(mockedGetRealtimeClient).mockReturnValue(fakeClient);
-      const unsubscribers = [vi.fn(), vi.fn(), vi.fn()];
+      const unsubscribers = [vi.fn(), vi.fn()];
       let i = 0;
       vi.mocked(mockedSubscribeToMachine).mockImplementation(() => unsubscribers[i++]);
 
@@ -694,17 +708,19 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       vi.mocked(mockedGetRealtimeClient).mockReturnValue(fakeClient);
       let capturedOnPatch: ((patch: import('./types').FileSystemPatch) => void) | null = null;
       vi.mocked(mockedSubscribeToMachine).mockImplementation((_client, machineId, onPatch) => {
-        if (machineId === 'localhost') capturedOnPatch = onPatch;
+        if (machineId === '192.168.1.50') capturedOnPatch = onPatch;
         return () => {};
       });
 
-      const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
+      const { result } = renderHook(() => useFileSystem(), {
+        wrapper: wrap({ homeFileSystems: { '192.168.1.50': baseLocalhost } }),
+      });
       await waitFor(() => expect(result.current.isRehydrating).toBe(false));
 
       expect(capturedOnPatch).not.toBeNull();
       act(() => {
         capturedOnPatch!({
-          machineId: 'localhost',
+          machineId: '192.168.1.50',
           path: '/tmp/from-other-player.txt',
           content: 'hello',
           owner: 'user',
@@ -712,7 +728,11 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
         });
       });
 
-      const node = result.current.getNode('/tmp/from-other-player.txt');
+      const node = result.current.getNodeFromMachine(
+        '192.168.1.50',
+        '/tmp/from-other-player.txt',
+        '/',
+      );
       expect(node?.content).toBe('hello');
     });
 
@@ -721,25 +741,29 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       vi.mocked(mockedGetRealtimeClient).mockReturnValue(fakeClient);
       let capturedOnPatch: ((patch: import('./types').FileSystemPatch) => void) | null = null;
       vi.mocked(mockedSubscribeToMachine).mockImplementation((_client, machineId, onPatch) => {
-        if (machineId === 'localhost') capturedOnPatch = onPatch;
+        if (machineId === '192.168.1.50') capturedOnPatch = onPatch;
         return () => {};
       });
 
-      const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
+      const { result } = renderHook(() => useFileSystem(), {
+        wrapper: wrap({ homeFileSystems: { '192.168.1.50': baseLocalhost } }),
+      });
       await waitFor(() => expect(result.current.isRehydrating).toBe(false));
-      // Sanity: base file exists pre-event
-      expect(result.current.getNode('/tmp/base.txt')).not.toBeNull();
+      // Sanity: base file exists pre-event on the home machine.
+      expect(
+        result.current.getNodeFromMachine('192.168.1.50', '/tmp/base.txt', '/'),
+      ).not.toBeNull();
 
       act(() => {
         capturedOnPatch!({
-          machineId: 'localhost',
+          machineId: '192.168.1.50',
           path: '/tmp/base.txt',
           content: null,
           owner: 'user',
         });
       });
 
-      expect(result.current.getNode('/tmp/base.txt')).toBeNull();
+      expect(result.current.getNodeFromMachine('192.168.1.50', '/tmp/base.txt', '/')).toBeNull();
     });
 
     it('resubscribes when the machine_ids keyset changes (mid-session mission load)', async () => {
@@ -760,13 +784,15 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       const { result } = renderHook(() => useFileSystem(), { wrapper: Outer });
       await waitFor(() => expect(result.current.isRehydrating).toBe(false));
 
-      // Initial mount: subscribe to localhost only.
+      // Initial mount: localhost-only view → no subscriptions (localhost is
+      // skipped to avoid leaking per-player patches across LAN occupants).
       const initialMachineIds = vi
         .mocked(mockedSubscribeToMachine)
         .mock.calls.map((c) => (c as unknown as SubscribeMockArgs)[1]);
-      expect(initialMachineIds).toEqual(['localhost']);
+      expect(initialMachineIds).toEqual([]);
 
-      // Mission loads — keyset grows. New subscription expected.
+      // Mission loads — keyset grows with a non-localhost machine. New
+      // subscription expected for that machine only (localhost still skipped).
       vi.mocked(mockedSubscribeToMachine).mockClear();
       act(() => {
         setMissionFilesystems({ '10.0.0.42': baseLocalhost });
@@ -776,7 +802,7 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
         const newMachineIds = vi
           .mocked(mockedSubscribeToMachine)
           .mock.calls.map((c) => (c as unknown as SubscribeMockArgs)[1]);
-        expect(newMachineIds).toEqual(expect.arrayContaining(['localhost', '10.0.0.42']));
+        expect(newMachineIds).toEqual(['10.0.0.42']);
       });
     });
   });
