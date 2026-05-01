@@ -4,7 +4,7 @@
 
 import type { ServiceOwner } from './types';
 import type { FileNode } from '../filesystem/types';
-import type { UserType } from '../session/SessionContext';
+import { isValidUserType } from '../session/sessionUtils';
 
 export type NcPortOverride = {
   readonly port: number;
@@ -12,8 +12,6 @@ export type NcPortOverride = {
   readonly open: true;
   readonly owner: ServiceOwner;
 };
-
-const VALID_USER_TYPES: ReadonlySet<string> = new Set(['root', 'user', 'guest']);
 
 const PID_PATTERN = /^nc:port=(\d+),user=([^,]+),userType=([^,]+),home=(.+)$/;
 
@@ -26,14 +24,14 @@ export const parseNcPidContent = (content: string | undefined): readonly NcPortO
   const [, portStr, username, userType, homePath] = match;
   const port = Number(portStr);
   if (!Number.isInteger(port) || port < 1 || port > 65535) return [];
-  if (!VALID_USER_TYPES.has(userType)) return [];
+  if (!isValidUserType(userType)) return [];
 
   return [
     {
       port,
       service: 'elite',
       open: true,
-      owner: { username, userType: userType as UserType, homePath },
+      owner: { username, userType, homePath },
     },
   ];
 };

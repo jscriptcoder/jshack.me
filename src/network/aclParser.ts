@@ -20,10 +20,14 @@ const parseAclLine = (line: string): AclRule | null => {
   const port = Number(match[4]);
   if (port < 1 || port > 65535) return null;
 
+  // The regex's first capture group is `(allow|deny)` so `match[1]` is one of
+  // those two literals — narrow via comparison rather than asserting.
+  const action: AclAction = match[1] === 'allow' ? 'allow' : 'deny';
+
   return {
-    action: match[1] as AclAction,
-    protocol: match[2] as string,
-    destination: match[3] as string,
+    action,
+    protocol: match[2],
+    destination: match[3],
     port,
   };
 };
