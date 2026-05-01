@@ -2,13 +2,32 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { secrets } from '../secrets/secrets';
 import { WIFI_NETWORKS } from '../network/wifiNetworks';
 import type { AsyncOutput } from '../components/Terminal/types';
+import type { HomeNetwork } from '../generation/generateHomeNetwork';
 import { createNmcliCommand } from './nmcli';
 
 type MockContextConfig = {
   readonly isOnLocalhost?: boolean;
   readonly isWifiConnected?: boolean;
   readonly connectedEssid?: string | null;
+  readonly ensureJoined?: (essid: string) => Promise<HomeNetwork>;
 };
+
+const stubHomeNetwork = (overrides: Partial<HomeNetwork> = {}): HomeNetwork =>
+  ({
+    essid: 'JSHACK-CORP',
+    localhostIp: '10.0.0.187',
+    hostname: 'skylab-9k3',
+    machines: [],
+    layers: [],
+    networkConfig: { machineConfigs: {} },
+    fileSystems: {},
+    router: { publicIp: '203.0.113.42', hostname: 'router', internalIp: '10.0.0.1' },
+    routerMachine: {} as HomeNetwork['routerMachine'],
+    entryPoint: '10.0.0.2',
+    entryVariant: 'ssh',
+    difficulty: 'easy',
+    ...overrides,
+  }) as HomeNetwork;
 
 const createMockContext = (config: MockContextConfig = {}) => {
   const { isOnLocalhost = true, isWifiConnected = false, connectedEssid = null } = config;
@@ -20,6 +39,8 @@ const createMockContext = (config: MockContextConfig = {}) => {
     setWifiConnected: vi.fn(),
     disconnectWifi: vi.fn(),
     getWifiNetworks: () => WIFI_NETWORKS,
+    ensureJoined: config.ensureJoined ?? vi.fn().mockResolvedValue(stubHomeNetwork()),
+    getActiveHomeNetwork: () => null,
   };
 };
 
@@ -29,7 +50,10 @@ const isAsyncOutput = (value: unknown): value is AsyncOutput =>
   '__type' in value &&
   (value as AsyncOutput).__type === 'async';
 
-const collectAsyncLines = (result: unknown): readonly string[] => {
+// Async lines now drain a real Promise from ensureJoined — flush the
+// microtask queue with vi.runAllTimersAsync() so resolved promises and
+// scheduled callbacks both complete before assertion.
+const collectAsyncLines = async (result: unknown): Promise<readonly string[]> => {
   const lines: string[] = [];
   if (isAsyncOutput(result)) {
     result.start(
@@ -37,7 +61,7 @@ const collectAsyncLines = (result: unknown): readonly string[] => {
       () => {},
     );
   }
-  vi.advanceTimersByTime(5000);
+  await vi.runAllTimersAsync();
   return lines;
 };
 
@@ -91,7 +115,7 @@ describe('nmcli command', () => {
       expect(context.setWifiConnected).not.toHaveBeenCalled();
     });
 
-    it('should auto-disconnect when switching to different network', () => {
+    it('should auto-disconnect when switching to different network', async () => {
       const context = createMockContext({
         isWifiConnected: true,
         connectedEssid: 'OLD-NETWORK',
@@ -99,7 +123,7 @@ describe('nmcli command', () => {
       const nmcli = createNmcliCommand(context);
 
       const result = nmcli.fn('connect', 'JSHACK-CORP', secrets.WIFI_PASSWORD);
-      const lines = collectAsyncLines(result);
+      const lines = await collectAsyncLines(result);
 
       expect(lines.join('\n')).toContain('Disconnected from OLD-NETWORK');
       expect(lines.join('\n')).toContain('Connected to JSHACK-CORP');
@@ -139,12 +163,12 @@ describe('nmcli command', () => {
       );
     });
 
-    it('should connect with correct credentials', () => {
+    it('should connect with correct credentials', async () => {
       const context = createMockContext();
       const nmcli = createNmcliCommand(context);
 
       const result = nmcli.fn('connect', 'JSHACK-CORP', secrets.WIFI_PASSWORD);
-      const lines = collectAsyncLines(result);
+      const lines = await collectAsyncLines(result);
 
       expect(lines.join('\n')).toContain('Connecting to JSHACK-CORP...');
       expect(lines.join('\n')).toContain('Connected to JSHACK-CORP');
@@ -154,12 +178,50 @@ describe('nmcli command', () => {
       });
     });
 
-    it('should not set wifi connected until after delay', () => {
-      const context = createMockContext();
+    it('should display the assigned hostname and lan IP from the join response', async () => {
+      const context = createMockContext({
+        ensureJoined: vi
+          .fn()
+          .mockResolvedValue(
+            stubHomeNetwork({ hostname: 'skylab-9k3', localhostIp: '10.0.0.187' }),
+          ),
+      });
       const nmcli = createNmcliCommand(context);
 
       const result = nmcli.fn('connect', 'JSHACK-CORP', secrets.WIFI_PASSWORD);
+      const lines = await collectAsyncLines(result);
 
+      expect(lines.join('\n')).toContain(
+        'Connected to JSHACK-CORP — assigned skylab-9k3 (10.0.0.187)',
+      );
+    });
+
+    it('should fall back to lan IP only when no hostname is assigned (single-player path)', async () => {
+      const context = createMockContext({
+        ensureJoined: vi
+          .fn()
+          .mockResolvedValue(stubHomeNetwork({ hostname: undefined, localhostIp: '10.0.0.100' })),
+      });
+      const nmcli = createNmcliCommand(context);
+
+      const result = nmcli.fn('connect', 'JSHACK-CORP', secrets.WIFI_PASSWORD);
+      const lines = await collectAsyncLines(result);
+
+      expect(lines.join('\n')).toContain('Connected to JSHACK-CORP — assigned 10.0.0.100');
+    });
+
+    it('should not set wifi connected until ensureJoined resolves', async () => {
+      let resolveJoin!: (network: HomeNetwork) => void;
+      const ensureJoined = vi.fn<(essid: string) => Promise<HomeNetwork>>().mockImplementation(
+        () =>
+          new Promise<HomeNetwork>((res) => {
+            resolveJoin = res;
+          }),
+      );
+      const context = createMockContext({ ensureJoined });
+      const nmcli = createNmcliCommand(context);
+
+      const result = nmcli.fn('connect', 'JSHACK-CORP', secrets.WIFI_PASSWORD);
       if (isAsyncOutput(result)) {
         result.start(
           () => {},
@@ -167,15 +229,32 @@ describe('nmcli command', () => {
         );
       }
 
-      // Before the connect delay fires
+      // While ensureJoined is in flight, setWifiConnected should not have fired.
+      await Promise.resolve();
       expect(context.setWifiConnected).not.toHaveBeenCalled();
 
-      vi.advanceTimersByTime(5000);
-
+      // After ensureJoined resolves, setWifiConnected fires.
+      resolveJoin(stubHomeNetwork());
+      await vi.runAllTimersAsync();
       expect(context.setWifiConnected).toHaveBeenCalledWith({
         essid: 'JSHACK-CORP',
         bssid: 'A4:CF:12:D3:8B:7A',
       });
+    });
+
+    it('should surface a usable error when ensureJoined fails', async () => {
+      const ensureJoined = vi
+        .fn<(essid: string) => Promise<HomeNetwork>>()
+        .mockRejectedValue(new Error('rate_limited'));
+      const context = createMockContext({ ensureJoined });
+      const nmcli = createNmcliCommand(context);
+
+      const result = nmcli.fn('connect', 'JSHACK-CORP', secrets.WIFI_PASSWORD);
+      const lines = await collectAsyncLines(result);
+
+      expect(lines.join('\n')).toContain('failed to join JSHACK-CORP');
+      expect(lines.join('\n')).toContain('rate_limited');
+      expect(context.setWifiConnected).not.toHaveBeenCalled();
     });
   });
 
@@ -224,6 +303,23 @@ describe('nmcli command', () => {
       const result = nmcli.fn('status') as string;
 
       expect(result).toContain('connected to JSHACK-CORP');
+    });
+
+    it('should include the assigned LAN IP from the active home network', () => {
+      const baseContext = createMockContext({
+        isWifiConnected: true,
+        connectedEssid: 'JSHACK-CORP',
+      });
+      const context = {
+        ...baseContext,
+        getActiveHomeNetwork: () => stubHomeNetwork({ localhostIp: '10.0.0.187' }),
+      };
+      const nmcli = createNmcliCommand(context);
+
+      const result = nmcli.fn('status') as string;
+
+      expect(result).toContain('10.0.0.187/24');
+      expect(result).not.toContain('192.168.1.100');
     });
 
     it('should show disconnected status', () => {

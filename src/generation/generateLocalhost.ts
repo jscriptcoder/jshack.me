@@ -141,8 +141,13 @@ export type LocalhostResult = {
   readonly guestPassword: string;
 };
 
-export const generateLocalhost = (gameState: GameState): LocalhostResult => {
-  const { workstationName, username, rootPassword, seed } = gameState;
+// `hostname` is the player's full machine name including the identity-
+// derived suffix (e.g., 'skylab-9k3'). Computed once at game start by
+// computePlayerHostname and threaded down here so the localhost
+// filesystem (/etc/hostname, sample log entries) reflects the same name
+// the prompt and server-side occupant rows resolve to.
+export const generateLocalhost = (gameState: GameState, hostname: string): LocalhostResult => {
+  const { username, rootPassword, seed } = gameState;
   const prng = createPrng(`localhost-${seed}`);
   const guestPassword = prng.pick(guestPasswords);
 
@@ -180,7 +185,7 @@ export const generateLocalhost = (gameState: GameState): LocalhostResult => {
         type: 'file',
         owner: 'root',
         permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] },
-        content: `${workstationName}\n`,
+        content: `${hostname}\n`,
       },
       hosts: {
         name: 'hosts',
@@ -212,10 +217,10 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
         type: 'file',
         owner: 'root',
         permissions: { read: ['root', 'user'], write: ['root'], execute: ['root'] },
-        content: `Mar 15 08:30:00 ${workstationName} sshd[2341]: Starting OpenSSH server
-Mar 15 09:15:22 ${workstationName} sshd[2345]: Accepted password for ${username}
-Mar 16 02:00:00 ${workstationName} cron[2500]: Running scheduled backup
-Mar 16 14:22:10 ${workstationName} kernel: [42891.33] wlan0: link is not ready
+        content: `Mar 15 08:30:00 ${hostname} sshd[2341]: Starting OpenSSH server
+Mar 15 09:15:22 ${hostname} sshd[2345]: Accepted password for ${username}
+Mar 16 02:00:00 ${hostname} cron[2500]: Running scheduled backup
+Mar 16 14:22:10 ${hostname} kernel: [42891.33] wlan0: link is not ready
 `,
       },
       syslog: {
@@ -223,14 +228,14 @@ Mar 16 14:22:10 ${workstationName} kernel: [42891.33] wlan0: link is not ready
         type: 'file',
         owner: 'root',
         permissions: { read: ['root', 'user'], write: ['root'], execute: ['root'] },
-        content: `Mar 15 08:29:50 ${workstationName} kernel: [    0.000000] Linux version 5.15.0-91-generic
-Mar 15 08:29:51 ${workstationName} systemd[1]: Started Journal Service.
-Mar 15 08:29:52 ${workstationName} systemd[1]: Starting Network Manager...
-Mar 15 08:29:53 ${workstationName} NetworkManager[845]: <info> NetworkManager is starting
-Mar 15 08:29:55 ${workstationName} systemd[1]: Started OpenSSH server daemon.
-Mar 15 08:29:56 ${workstationName} systemd[1]: Reached target Multi-User System.
-Mar 15 08:30:00 ${workstationName} CRON[2500]: (root) CMD (/usr/local/bin/backup.sh)
-Mar 16 08:30:00 ${workstationName} CRON[3100]: (root) CMD (/usr/local/bin/backup.sh)
+        content: `Mar 15 08:29:50 ${hostname} kernel: [    0.000000] Linux version 5.15.0-91-generic
+Mar 15 08:29:51 ${hostname} systemd[1]: Started Journal Service.
+Mar 15 08:29:52 ${hostname} systemd[1]: Starting Network Manager...
+Mar 15 08:29:53 ${hostname} NetworkManager[845]: <info> NetworkManager is starting
+Mar 15 08:29:55 ${hostname} systemd[1]: Started OpenSSH server daemon.
+Mar 15 08:29:56 ${hostname} systemd[1]: Reached target Multi-User System.
+Mar 15 08:30:00 ${hostname} CRON[2500]: (root) CMD (/usr/local/bin/backup.sh)
+Mar 16 08:30:00 ${hostname} CRON[3100]: (root) CMD (/usr/local/bin/backup.sh)
 `,
       },
     },

@@ -143,7 +143,7 @@ type SessionContextValue = {
   // the brief delay is user-visible. False once rehydration completes
   // (success or failure — local state is left untouched on failure).
   readonly isRehydrating: boolean;
-  readonly workstationName: string | undefined;
+  readonly hostname: string | undefined;
   readonly connectedWifi: WifiConnection | null;
   readonly wifiConnected: boolean;
   readonly sessionStack: readonly SessionSnapshot[];
@@ -215,7 +215,14 @@ const getInitialState = (username: string): PersistedState => {
 
 type SessionProviderProps = {
   readonly children: ReactNode;
-  readonly workstationName?: string;
+  // Player's full machine name including the identity-derived suffix
+  // (e.g., 'skylab-9k3'). Computed once at game start by
+  // computePlayerHostname; threaded down here so session.hostname on
+  // localhost reflects the same name as /etc/hostname and the
+  // server-stamped occupant row. The suffix is stable per identity, so
+  // hostname doesn't change on WiFi connect/disconnect — it's a
+  // permanent property of the player's machine.
+  readonly hostname?: string;
   readonly username: string;
 };
 
@@ -247,7 +254,7 @@ const summaryToSnapshot = (s: SessionSummary, theme: ThemeId): SessionSnapshot =
   sessionId: s.session_id,
 });
 
-export const SessionProvider = ({ children, workstationName, username }: SessionProviderProps) => {
+export const SessionProvider = ({ children, hostname, username }: SessionProviderProps) => {
   const [initialState] = useState(() => getInitialState(username));
   const [session, setSession] = useState<Session>(initialState.session);
   const [connectedWifi, setConnectedWifiState] = useState<WifiConnection | null>(
@@ -390,17 +397,19 @@ export const SessionProvider = ({ children, workstationName, username }: Session
     return () => channel.close();
   }, []);
 
-  // Sync workstationName into session.hostname when on localhost.
-  // Handles all reset paths (WiFi disconnect, session pop, initial load).
+  // Sync hostname into session.hostname whenever it diverges from the
+  // hostname prop while on localhost. The hostname prop is the already-
+  // suffixed full name (e.g., 'skylab-9k3') — computed once at game
+  // start, stable across the session. The session.hostname dep is
+  // load-bearing: the listSessions rehydration below replaces the whole
+  // session object (no hostname field), so we re-fire to put the
+  // suffixed name back. The functional setSession returns prev when
+  // the value already matches, so this doesn't loop.
   useEffect(() => {
-    if (
-      session.machine === 'localhost' &&
-      workstationName &&
-      session.hostname !== workstationName
-    ) {
-      setSession((prev) => ({ ...prev, hostname: workstationName }));
+    if (session.machine === 'localhost' && hostname) {
+      setSession((prev) => (prev.hostname === hostname ? prev : { ...prev, hostname }));
     }
-  }, [session.machine, session.hostname, workstationName]);
+  }, [session.machine, session.hostname, hostname]);
 
   // Session state persists to sessionStorage (per-tab)
   useEffect(() => {
@@ -890,7 +899,7 @@ export const SessionProvider = ({ children, workstationName, username }: Session
       value={{
         session,
         isRehydrating,
-        workstationName,
+        hostname,
         connectedWifi,
         wifiConnected,
         sessionStack,

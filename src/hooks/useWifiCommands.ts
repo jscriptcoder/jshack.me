@@ -1,5 +1,6 @@
 import { useMemo, useRef } from 'react';
 import { useSession } from '../session/SessionContext';
+import { useHomeNetworks } from '../game/HomeNetworksContext';
 import { createAirmonCommand } from '../commands/airmon';
 import { createAirdumpCommand } from '../commands/airdump';
 import { createAircrackCommand } from '../commands/aircrack';
@@ -13,6 +14,7 @@ import { getCachedGameState } from '../utils/storageCache';
 export const useWifiCommands = (): Map<string, Command> => {
   const gameSeed = getCachedGameState()?.seed ?? null;
   const { session, connectedWifi, wifiConnected, setWifiConnected, disconnectWifi } = useSession();
+  const { ensureJoined, activeNetwork } = useHomeNetworks();
   // Monitor mode is transient (not persisted) — resets on page refresh. Using useRef
   // instead of useState because it shouldn't trigger re-renders or persist to IndexedDB.
   const monitorModeRef = useRef(false);
@@ -71,6 +73,8 @@ export const useWifiCommands = (): Map<string, Command> => {
         setWifiConnected,
         disconnectWifi,
         getWifiNetworks,
+        ensureJoined,
+        getActiveHomeNetwork: () => activeNetwork,
       }),
     );
 
@@ -82,5 +86,7 @@ export const useWifiCommands = (): Map<string, Command> => {
     setWifiConnected,
     disconnectWifi,
     wifiNetworks,
+    ensureJoined,
+    activeNetwork,
   ]);
 };

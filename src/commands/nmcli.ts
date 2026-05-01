@@ -1,7 +1,8 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
 import type { WifiConnection } from '../network/wifiTypes';
 import type { WifiNetwork } from '../network/wifiNetworks';
-import { createCancellationToken, jitter } from '../utils/asyncCommand';
+import type { HomeNetwork } from '../generation/generateHomeNetwork';
+import { createCancellationToken } from '../utils/asyncCommand';
 
 type NmcliContext = {
   readonly isOnLocalhost: () => boolean;
@@ -10,6 +11,13 @@ type NmcliContext = {
   readonly setWifiConnected: (connection: WifiConnection | null) => void;
   readonly disconnectWifi: () => void;
   readonly getWifiNetworks: () => readonly WifiNetwork[];
+  // Materializes the home network for the cracked WiFi (server-allocated
+  // slot + identity-derived hostname). Idempotent — cache hit on rejoin.
+  readonly ensureJoined: (essid: string) => Promise<HomeNetwork>;
+  // The currently-resolved home network (cache hit by connectedEssid). Null
+  // when not connected or while the cache is materializing. Used by status
+  // to surface the assigned LAN IP without re-calling ensureJoined.
+  readonly getActiveHomeNetwork: () => HomeNetwork | null;
 };
 
 const USAGE = [
@@ -54,29 +62,33 @@ const handleConnect = (
   return {
     __type: 'async',
     start: (onLine, onComplete) => {
-      let delay = 0;
-
       if (previousEssid) {
-        delay += jitter(300);
-        token.schedule(() => {
-          if (token.isCancelled()) return;
-          onLine(`Disconnected from ${previousEssid}`);
-        }, delay);
+        onLine(`Disconnected from ${previousEssid}`);
       }
+      onLine(`Connecting to ${essid}...`);
 
-      delay += jitter(400);
-      token.schedule(() => {
-        if (token.isCancelled()) return;
-        onLine(`Connecting to ${essid}...`);
-      }, delay);
-
-      delay += jitter(1500);
-      token.schedule(() => {
-        if (token.isCancelled()) return;
-        context.setWifiConnected({ essid: network.essid, bssid: network.bssid });
-        onLine(`Connected to ${essid}`);
-        onComplete();
-      }, delay);
+      // ensureJoined hits /api/join-home-network — real network round-trip
+      // replaces the previous fake jitter delays. The cancellation token
+      // suppresses output if the player aborts mid-flight; the request
+      // itself isn't currently abortable (the server's idempotency makes
+      // an orphan join harmless on retry).
+      void (async () => {
+        try {
+          const homeNetwork = await context.ensureJoined(essid);
+          if (token.isCancelled()) return;
+          context.setWifiConnected({ essid: network.essid, bssid: network.bssid });
+          const display = homeNetwork.hostname
+            ? `${homeNetwork.hostname} (${homeNetwork.localhostIp})`
+            : homeNetwork.localhostIp;
+          onLine(`Connected to ${essid} — assigned ${display}`);
+          onComplete();
+        } catch (err) {
+          if (token.isCancelled()) return;
+          const msg = err instanceof Error ? err.message : String(err);
+          onLine(`nmcli: failed to join ${essid} — ${msg}`);
+          onComplete();
+        }
+      })();
     },
     cancel: token.cancel,
   };
@@ -108,7 +120,11 @@ const handleStatus = (context: NmcliContext): string => {
 
   if (context.isWifiConnected()) {
     const current = context.connectedEssid() ?? 'unknown';
-    return `wlan0: connected to ${current} (192.168.1.100/24)`;
+    const network = context.getActiveHomeNetwork();
+    // Fall back to the bare ESSID line while the home network is still
+    // materializing (rehydration in flight on a fresh page load).
+    if (!network) return `wlan0: connected to ${current}`;
+    return `wlan0: connected to ${current} (${network.localhostIp}/24)`;
   }
 
   return 'wlan0: disconnected';

@@ -12,7 +12,11 @@
  */
 
 import { generateWifiNetworks } from '../src/generation/generateWifi';
-import { generateHomeNetwork, type HomeNetwork } from '../src/generation/generateHomeNetwork';
+import {
+  generateHomeNetwork,
+  homeNetworkSeed,
+  type HomeNetwork,
+} from '../src/generation/generateHomeNetwork';
 import {
   bold,
   cyan,
@@ -177,7 +181,10 @@ if (catTarget) {
     process.exit(1);
   }
   const wifi = crackable[idx]!;
-  const net = await generateHomeNetwork(gameSeed, idx, wifi.essid);
+  const net = await generateHomeNetwork({
+    seed: homeNetworkSeed(gameSeed, idx),
+    essid: wifi.essid,
+  });
   handleCat(catTarget, net.fileSystems, net.machines, net.routerMachine);
   process.exit(0);
 }
@@ -215,7 +222,11 @@ for (const idx of indicesToDump) {
   console.log(bold(magenta(`║     WIFI ${idx}: ${wifi.essid.padEnd(25)}║`)));
   console.log(bold(magenta(`╚══════════════════════════════════════╝`)));
 
-  const net = await generateHomeNetwork(gameSeed, idx, wifi.essid, usedIps);
+  const net = await generateHomeNetwork({
+    seed: homeNetworkSeed(gameSeed, idx),
+    essid: wifi.essid,
+    usedIps,
+  });
   usedIps.add(net.router.publicIp);
 
   printOverview(net, idx);
