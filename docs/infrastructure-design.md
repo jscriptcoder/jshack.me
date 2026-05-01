@@ -8,8 +8,8 @@ Before the player can access the network from localhost, they must crack a WiFi 
 
 WiFi networks are generated deterministically from the game seed via `generateWifiNetworks(seed)` in `src/generation/generateWifi.ts`. Each game produces:
 
-- **2-3 crackable networks** — WPA2, strong signal (-35 to -65 dBm), unique ESSIDs from a corporate name pool, passwords from encoded secrets (`WIFI_PASSWORDS`)
-- **3-5 noise networks** — mix of WPA3 (uncrackable), weak signal (< -80 dBm), and hidden networks
+- **2-3 crackable networks** — WPA2, strong signal (-35 to -65 dBm), unique ESSIDs picked from a 50-entry pool across 7 categories (corporate parody, café, residential, university, public infrastructure, IoT defaults, hacker scene). Each entry is tagged with a `WifiTier` (`'crowded' | 'shared' | 'solo'`) on the `WifiNetwork` type — feeds the planned home-network occupant allocator (slot density per tier). Passwords from encoded secrets (`WIFI_PASSWORDS`).
+- **3-5 noise networks** — picked from a 40-entry pool. Each rolls one of three reasons rendering it uncrackable: WPA3 encryption, weak signal (< -80 dBm), or hidden ESSID. `aircrack` surfaces a clear diagnostic for each reason rather than completing silently.
 
 A legacy static network list (`src/network/wifiNetworks.ts`) serves as fallback when no game seed exists.
 
