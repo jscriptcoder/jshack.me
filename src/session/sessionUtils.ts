@@ -1,4 +1,3 @@
-import type { ThemeId } from '../theme/themes';
 import { DEFAULT_THEME_ID, isValidThemeId } from '../theme/themes';
 import type {
   Session,
@@ -75,7 +74,7 @@ export const createDefaultSession = (username: string): Session => ({
   userType: 'user',
   machine: 'localhost',
   currentPath: `/home/${username}`,
-  theme: DEFAULT_THEME_ID as ThemeId,
+  theme: DEFAULT_THEME_ID,
   // Default localhost is the implicit untracked state — no server-side row.
   sessionId: null,
 });
