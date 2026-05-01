@@ -41,6 +41,12 @@ export type HydraLogHandler = (info: HydraBruteForceInfo) => void;
 // so defenders must correlate the aggregate with the success entries to
 // trace a breach.
 //
+// All lines for a given (machineId, logPath) are composed up-front and
+// emitted via a single appendToMachineLog call. Splitting the burst into
+// multiple synchronous appends would race: both reads observe the same
+// pre-batch React state, both writes upsert the same patch row, and only
+// the last line survives.
+//
 // NAT-aware: when the service port is forwarded (router:2222 → backend:22),
 // all writes land on the backend where the daemon actually runs.
 export const createHydraLogHandler =
@@ -88,119 +94,137 @@ type HostnameCtx = BaseCtx & { readonly hostname: string };
 const randomEphemeralPort = (): number => Math.floor(Math.random() * 25536) + 40000;
 
 const writeSsh = (deps: HydraLogDeps, info: HydraBruteForceInfo, ctx: HostnameCtx): void => {
-  const aggregate = formatHydraBruteForceSsh({
-    date: ctx.date,
-    hostname: ctx.hostname,
-    pid: generatePid(),
-    sourceIp: ctx.sourceIp,
-    attempts: info.attempts,
-    successes: ctx.successes,
-  });
-  appendToMachineLog(ctx.logIp, '/var/log/auth.log', aggregate, deps.logFs);
-
-  info.successes.forEach((s: HydraSuccess) => {
-    if (!s.username) return;
-    const line = formatSshAccepted({
+  const lines: string[] = [
+    formatHydraBruteForceSsh({
       date: ctx.date,
       hostname: ctx.hostname,
       pid: generatePid(),
-      user: s.username,
-      fromIp: ctx.sourceIp,
-      port: randomEphemeralPort(),
-    });
-    appendToMachineLog(ctx.logIp, '/var/log/auth.log', line, deps.logFs);
+      sourceIp: ctx.sourceIp,
+      attempts: info.attempts,
+      successes: ctx.successes,
+    }),
+  ];
+
+  info.successes.forEach((s: HydraSuccess) => {
+    if (!s.username) return;
+    lines.push(
+      formatSshAccepted({
+        date: ctx.date,
+        hostname: ctx.hostname,
+        pid: generatePid(),
+        user: s.username,
+        fromIp: ctx.sourceIp,
+        port: randomEphemeralPort(),
+      }),
+    );
   });
+
+  appendToMachineLog(ctx.logIp, '/var/log/auth.log', lines, deps.logFs);
 };
 
 const writeFtp = (deps: HydraLogDeps, info: HydraBruteForceInfo, ctx: BaseCtx): void => {
-  const aggregate = formatHydraBruteForceFtp({
-    date: ctx.date,
-    sourceIp: ctx.sourceIp,
-    attempts: info.attempts,
-    successes: ctx.successes,
-  });
-  appendToMachineLog(ctx.logIp, '/var/log/vsftpd.log', aggregate, deps.logFs);
+  const lines: string[] = [
+    formatHydraBruteForceFtp({
+      date: ctx.date,
+      sourceIp: ctx.sourceIp,
+      attempts: info.attempts,
+      successes: ctx.successes,
+    }),
+  ];
 
   info.successes.forEach((s: HydraSuccess) => {
     if (!s.username) return;
-    const line = formatFtpLoginOk({ date: ctx.date, clientIp: ctx.sourceIp, user: s.username });
-    appendToMachineLog(ctx.logIp, '/var/log/vsftpd.log', line, deps.logFs);
+    lines.push(formatFtpLoginOk({ date: ctx.date, clientIp: ctx.sourceIp, user: s.username }));
   });
+
+  appendToMachineLog(ctx.logIp, '/var/log/vsftpd.log', lines, deps.logFs);
 };
 
 const writeMysql = (deps: HydraLogDeps, info: HydraBruteForceInfo, ctx: BaseCtx): void => {
-  const aggregate = formatHydraBruteForceMysql({
-    date: ctx.date,
-    threadId: generatePid(),
-    sourceIp: ctx.sourceIp,
-    attempts: info.attempts,
-    successes: ctx.successes,
-  });
-  appendToMachineLog(ctx.logIp, '/var/log/mysql.log', aggregate, deps.logFs);
-
-  if (info.successes.length === 0) return;
-
-  const dbJson = deps.readFileFromMachine({
-    machineId: ctx.logIp,
-    path: '/var/lib/mysql/data.json',
-    cwd: '/',
-    userType: 'root',
-  });
-  const dbName = dbJson ? (parseMysqlDatabase(dbJson)?.name ?? 'unknown') : 'unknown';
-
-  info.successes.forEach((s: HydraSuccess) => {
-    if (!s.username) return;
-    const line = formatMysqlConnect({
+  const lines: string[] = [
+    formatHydraBruteForceMysql({
       date: ctx.date,
       threadId: generatePid(),
-      user: s.username,
       sourceIp: ctx.sourceIp,
-      dbName,
+      attempts: info.attempts,
+      successes: ctx.successes,
+    }),
+  ];
+
+  if (info.successes.length > 0) {
+    const dbJson = deps.readFileFromMachine({
+      machineId: ctx.logIp,
+      path: '/var/lib/mysql/data.json',
+      cwd: '/',
+      userType: 'root',
     });
-    appendToMachineLog(ctx.logIp, '/var/log/mysql.log', line, deps.logFs);
-  });
+    const dbName = dbJson ? (parseMysqlDatabase(dbJson)?.name ?? 'unknown') : 'unknown';
+
+    info.successes.forEach((s: HydraSuccess) => {
+      if (!s.username) return;
+      lines.push(
+        formatMysqlConnect({
+          date: ctx.date,
+          threadId: generatePid(),
+          user: s.username,
+          sourceIp: ctx.sourceIp,
+          dbName,
+        }),
+      );
+    });
+  }
+
+  appendToMachineLog(ctx.logIp, '/var/log/mysql.log', lines, deps.logFs);
 };
 
 const writeRedis = (deps: HydraLogDeps, info: HydraBruteForceInfo, ctx: BaseCtx): void => {
-  const aggregate = formatHydraBruteForceRedis({
-    date: ctx.date,
-    pid: generatePid(),
-    sourceIp: ctx.sourceIp,
-    attempts: info.attempts,
-    successes: ctx.successes,
-  });
-  appendToMachineLog(ctx.logIp, '/var/log/redis.log', aggregate, deps.logFs);
-
-  info.successes.forEach(() => {
-    const line = formatRedisAuth({
+  const lines: string[] = [
+    formatHydraBruteForceRedis({
       date: ctx.date,
       pid: generatePid(),
       sourceIp: ctx.sourceIp,
-    });
-    appendToMachineLog(ctx.logIp, '/var/log/redis.log', line, deps.logFs);
+      attempts: info.attempts,
+      successes: ctx.successes,
+    }),
+  ];
+
+  info.successes.forEach(() => {
+    lines.push(
+      formatRedisAuth({
+        date: ctx.date,
+        pid: generatePid(),
+        sourceIp: ctx.sourceIp,
+      }),
+    );
   });
+
+  appendToMachineLog(ctx.logIp, '/var/log/redis.log', lines, deps.logFs);
 };
 
 const writeSnmp = (deps: HydraLogDeps, info: HydraBruteForceInfo, ctx: HostnameCtx): void => {
-  const aggregate = formatHydraBruteForceSnmp({
-    date: ctx.date,
-    hostname: ctx.hostname,
-    pid: generatePid(),
-    sourceIp: ctx.sourceIp,
-    attempts: info.attempts,
-    successes: ctx.successes,
-  });
-  appendToMachineLog(ctx.logIp, '/var/log/syslog', aggregate, deps.logFs);
-
-  info.successes.forEach((s: HydraSuccess) => {
-    if (!s.community) return;
-    const line = formatSnmpCommunityDiscovered({
+  const lines: string[] = [
+    formatHydraBruteForceSnmp({
       date: ctx.date,
       hostname: ctx.hostname,
       pid: generatePid(),
       sourceIp: ctx.sourceIp,
-      community: s.community,
-    });
-    appendToMachineLog(ctx.logIp, '/var/log/syslog', line, deps.logFs);
+      attempts: info.attempts,
+      successes: ctx.successes,
+    }),
+  ];
+
+  info.successes.forEach((s: HydraSuccess) => {
+    if (!s.community) return;
+    lines.push(
+      formatSnmpCommunityDiscovered({
+        date: ctx.date,
+        hostname: ctx.hostname,
+        pid: generatePid(),
+        sourceIp: ctx.sourceIp,
+        community: s.community,
+      }),
+    );
   });
+
+  appendToMachineLog(ctx.logIp, '/var/log/syslog', lines, deps.logFs);
 };

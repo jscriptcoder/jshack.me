@@ -19,13 +19,23 @@ const LOG_FILE_PERMISSIONS: FilePermissions = {
   execute: ['root'],
 };
 
-/** Append a log line to a file on a remote machine, creating it if missing. */
+// Append one or more log lines to a file on a remote machine, creating it if
+// missing. Pass an array when emitting a burst of related lines from the same
+// React tick (e.g. hydra's aggregate + per-success lines): they are joined
+// with `\n` and committed in a single read-modify-write cycle so the
+// underlying patch upsert sees one atomic content update. Two separate
+// `appendToMachineLog` calls in the same tick still race because both observe
+// the pre-batch React state — collect the lines into an array instead.
 export const appendToMachineLog = (
   machineId: string,
   logPath: string,
-  logLine: string,
+  logLines: string | readonly string[],
   fs: LogFileSystemDeps,
 ): void => {
+  const lines = typeof logLines === 'string' ? [logLines] : logLines;
+  if (lines.length === 0) return;
+
+  const joined = lines.join('\n');
   const existing = fs.readFileFromMachine({ machineId, path: logPath, cwd: '/', userType: 'root' });
 
   if (existing === null) {
@@ -33,7 +43,7 @@ export const appendToMachineLog = (
       machineId,
       path: logPath,
       cwd: '/',
-      content: logLine,
+      content: joined,
       userType: 'root',
       permissions: LOG_FILE_PERMISSIONS,
     });
@@ -41,7 +51,7 @@ export const appendToMachineLog = (
   }
 
   const base = existing.replace(/\n$/, '');
-  const newContent = base === '' ? logLine : `${base}\n${logLine}`;
+  const newContent = base === '' ? joined : `${base}\n${joined}`;
   fs.writeFileToMachine({
     machineId,
     path: logPath,
