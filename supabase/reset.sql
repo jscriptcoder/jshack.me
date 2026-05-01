@@ -8,9 +8,10 @@
 -- Safe to run repeatedly. Never run this against a production project.
 
 TRUNCATE TABLE public_ips CASCADE;
+TRUNCATE TABLE home_network_occupants CASCADE;
+TRUNCATE TABLE home_networks CASCADE;
 
 -- Future tables (uncomment as they land in later PRs):
 -- TRUNCATE TABLE patches CASCADE;
 -- TRUNCATE TABLE mission_instances CASCADE;
 -- TRUNCATE TABLE sessions CASCADE;
--- TRUNCATE TABLE home_network_occupants CASCADE;
