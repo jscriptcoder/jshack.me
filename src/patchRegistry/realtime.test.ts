@@ -50,7 +50,10 @@ describe('subscribeToMachine', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     subscribeToMachine(supabase as any, '10.0.0.1', onPatch);
 
-    expect(supabase.channel).toHaveBeenCalledWith('patches:10.0.0.1');
+    expect(supabase.channel).toHaveBeenCalledWith(
+      'patches:10.0.0.1',
+      expect.objectContaining({ config: expect.objectContaining({ private: true }) }),
+    );
   });
 
   it('uses machine_id verbatim — "localhost" produces "patches:localhost"', () => {
@@ -59,7 +62,26 @@ describe('subscribeToMachine', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     subscribeToMachine(supabase as any, 'localhost', vi.fn());
 
-    expect(supabase.channel).toHaveBeenCalledWith('patches:localhost');
+    expect(supabase.channel).toHaveBeenCalledWith(
+      'patches:localhost',
+      expect.objectContaining({ config: expect.objectContaining({ private: true }) }),
+    );
+  });
+
+  it('opts the channel into Realtime authorization (private: true) so RLS evaluates', () => {
+    // The realtime.messages RLS policies installed by
+    // 20260502100000_realtime_publish_authorization.sql only run when
+    // the subscribe handshake is on the authorized path. private: true
+    // is the client-side flag that selects that path. Without it, the
+    // anon-key forgery vector remains open.
+    const { supabase } = makeMocks();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    subscribeToMachine(supabase as any, '10.0.0.1', vi.fn());
+
+    expect(supabase.channel).toHaveBeenCalledTimes(1);
+    const [, opts] = supabase.channel.mock.calls[0] as [string, { config: { private: boolean } }];
+    expect(opts.config.private).toBe(true);
   });
 
   it('registers a broadcast listener for event "patch_change"', () => {
