@@ -397,17 +397,19 @@ export const SessionProvider = ({ children, hostname, username }: SessionProvide
     return () => channel.close();
   }, []);
 
-  // Sync hostname into session.hostname when transitioning to localhost
-  // (or when hostname itself changes). The hostname prop is the
-  // already-suffixed full name (e.g., 'skylab-9k3') — computed once at
-  // game start, stable across the session. So this effect just ensures
-  // session.hostname snaps back to it when SSH'ing returns to localhost
-  // and on initial mount.
+  // Sync hostname into session.hostname whenever it diverges from the
+  // hostname prop while on localhost. The hostname prop is the already-
+  // suffixed full name (e.g., 'skylab-9k3') — computed once at game
+  // start, stable across the session. The session.hostname dep is
+  // load-bearing: the listSessions rehydration below replaces the whole
+  // session object (no hostname field), so we re-fire to put the
+  // suffixed name back. The functional setSession returns prev when
+  // the value already matches, so this doesn't loop.
   useEffect(() => {
     if (session.machine === 'localhost' && hostname) {
       setSession((prev) => (prev.hostname === hostname ? prev : { ...prev, hostname }));
     }
-  }, [session.machine, hostname]);
+  }, [session.machine, session.hostname, hostname]);
 
   // Session state persists to sessionStorage (per-tab)
   useEffect(() => {
