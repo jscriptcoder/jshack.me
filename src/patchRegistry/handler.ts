@@ -35,7 +35,6 @@ export type HandlerDeps = {
   readonly listPatchesForMachines: (
     params: ListPatchesForMachinesParams,
   ) => Promise<ListPatchesForMachinesResult>;
-  readonly clearTransientPatches: (params: ClearPatchesParams) => Promise<ClearPatchesResult>;
   readonly clearOwnedPatches: (params: ClearPatchesParams) => Promise<ClearPatchesResult>;
   // L1 of the patch-validation layer cake: confirms the verified player
   // has an active session on the target machine before we record the
@@ -76,9 +75,8 @@ const STATUS_BY_VERIFY_REASON: Record<VerifyFailureReason, number> = {
 //
 //   1. Verify the signed envelope against the discriminated-union
 //      schema (upsertPatch / removePatch / listPatchesForMachines /
-//      clearTransientPatches / clearOwnedPatches). The verify path is
-//      shared — every action gets identical signature + replay + ts
-//      checks.
+//      clearOwnedPatches). The verify path is shared — every action
+//      gets identical signature + replay + ts checks.
 //   2. Rate-limit on the verified pubkey (per-pubkey, like sessions).
 //   3. Dispatch on `verified.payload.action` to the per-action branch.
 //
@@ -123,8 +121,6 @@ const dispatchAction = async (
       return handleRemovePatch(publicKey, payload, deps);
     case 'listPatchesForMachines':
       return handleListPatchesForMachines(publicKey, payload, deps);
-    case 'clearTransientPatches':
-      return handleClearTransientPatches(publicKey, deps);
     case 'clearOwnedPatches':
       return handleClearOwnedPatches(publicKey, deps);
   }
@@ -279,17 +275,6 @@ const handleListPatchesForMachines = async (
     return { status: 500, body: { error: 'query_failed' } };
   }
   return { status: 200, body: { patches: result.patches } };
-};
-
-const handleClearTransientPatches = async (
-  publicKey: string,
-  deps: HandlerDeps,
-): Promise<HandlerResponse> => {
-  const result = await deps.clearTransientPatches({ player_key: publicKey });
-  if (!result.ok) {
-    return { status: 500, body: { error: 'clear_failed' } };
-  }
-  return { status: 200, body: { affected: result.affected } };
 };
 
 const handleClearOwnedPatches = async (

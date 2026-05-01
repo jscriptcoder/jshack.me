@@ -1,11 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import {
-  upsertPatch,
-  removePatch,
-  listPatchesForMachines,
-  clearTransientPatches,
-  clearOwnedPatches,
-} from './client';
+import { upsertPatch, removePatch, listPatchesForMachines, clearOwnedPatches } from './client';
 import { generateIdentity, verify } from '../identity/identity';
 import { hexToBytes } from '../identity/hex';
 import { signedEnvelopeSchema } from '../signedRequest/types';
@@ -543,51 +537,6 @@ describe('listPatchesForMachines', () => {
     await expect(listPatchesForMachines(identity, ['10.0.0.1'], fetchMock)).rejects.toThrow(
       'network failure',
     );
-  });
-});
-
-// -----------------------------------------------------------------------
-// clearTransientPatches
-// -----------------------------------------------------------------------
-
-describe('clearTransientPatches', () => {
-  it('POSTs action="clearTransientPatches" with a valid envelope', async () => {
-    const identity = generateIdentity();
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ affected: 0 }));
-
-    await clearTransientPatches(identity, fetchMock);
-
-    const payload = getPayload(fetchMock);
-    expect(payload.action).toBe('clearTransientPatches');
-    expect(payload).not.toHaveProperty('machine_id');
-  });
-
-  it('signs with the provided identity', async () => {
-    const identity = generateIdentity();
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ affected: 0 }));
-
-    await clearTransientPatches(identity, fetchMock);
-
-    const env = getEnvelope(fetchMock);
-    expect(env.publicKey).toBe(identity.publicKeyHex);
-    const sig = hexToBytes(env.signature)!;
-    const pub = hexToBytes(env.publicKey)!;
-    const msg = new TextEncoder().encode(env.payload);
-    expect(verify(pub, sig, msg)).toBe(true);
-  });
-
-  it('resolves to undefined on 200', async () => {
-    const identity = generateIdentity();
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ affected: 5 }));
-
-    expect(await clearTransientPatches(identity, fetchMock)).toBeUndefined();
-  });
-
-  it('throws on non-2xx', async () => {
-    const identity = generateIdentity();
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(errResponse(500));
-
-    await expect(clearTransientPatches(identity, fetchMock)).rejects.toThrow(/500/);
   });
 });
 

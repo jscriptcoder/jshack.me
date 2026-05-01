@@ -10,7 +10,6 @@ vi.mock('../patchRegistry/client', () => ({
   upsertPatch: vi.fn(),
   removePatch: vi.fn(),
   listPatchesForMachines: vi.fn(),
-  clearTransientPatches: vi.fn(),
   clearOwnedPatches: vi.fn(),
 }));
 
@@ -26,7 +25,6 @@ import {
   upsertPatch as mockedUpsertPatch,
   removePatch as mockedRemovePatch,
   listPatchesForMachines as mockedListPatchesForMachines,
-  clearTransientPatches as mockedClearTransientPatches,
 } from '../patchRegistry/client';
 import {
   getRealtimeClient as mockedGetRealtimeClient,
@@ -108,13 +106,11 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
     vi.mocked(mockedUpsertPatch).mockReset();
     vi.mocked(mockedRemovePatch).mockReset();
     vi.mocked(mockedListPatchesForMachines).mockReset();
-    vi.mocked(mockedClearTransientPatches).mockReset();
     vi.mocked(mockedGetRealtimeClient).mockReset();
     vi.mocked(mockedSubscribeToMachine).mockReset();
     vi.mocked(mockedUpsertPatch).mockResolvedValue(undefined);
     vi.mocked(mockedRemovePatch).mockResolvedValue(undefined);
     vi.mocked(mockedListPatchesForMachines).mockResolvedValue([]);
-    vi.mocked(mockedClearTransientPatches).mockResolvedValue(undefined);
     // Default: realtime client unavailable (most existing tests don't care
     // about subscriptions). Tests that exercise realtime override per-case.
     vi.mocked(mockedGetRealtimeClient).mockReturnValue(null);
@@ -421,25 +417,52 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
   });
 
   // -----------------------------------------------------------------------
-  // Mission/home transition
+  // Mission/home transitions do NOT wipe patches
+  //
+  // Mission instances are permanent (project_multiplayer_mission_instances
+  // memory) — once accepted, the seed retires but the instance and all
+  // its patches persist forever. Home networks and world networks are
+  // shared persistent infrastructure. Cross-player writes on shared
+  // machines are part of the world. So a mission accept / abort, or
+  // home-network async arrival on initial page load, must NOT trigger
+  // any server-side patch cleanup. The only legitimate "wipe" left is
+  // clearOwnedPatches, fired by `reset confirm` (player-initiated full
+  // restart, scoped to localhost).
   // -----------------------------------------------------------------------
 
-  describe('mission/home transition → clearTransientPatchesOnServer', () => {
-    it('does not fire on initial mount (isInitialMissionMount guard)', async () => {
-      renderHook(() => useFileSystem(), {
-        wrapper: wrap({
-          missionFileSystems: { '10.0.0.1': baseLocalhost },
-        }),
+  describe('mission/home transition does NOT clear patches', () => {
+    it('home network arriving async after initial mount does not call any clear', async () => {
+      // This was the bug: mergedHomeFileSystems starts as {} on App
+      // mount, then resolves to a populated object after useHomeNetworks
+      // fetches. The mission useEffect's dep includes homeFileSystems, so
+      // it re-fired and (under the old code) treated this as a "runtime
+      // mission transition" and wiped non-localhost patches. Under the
+      // new model, mission instances are permanent — nothing should be
+      // wiped.
+      let setHome: ((fs: Record<string, FileNode> | undefined) => void) | null = null;
+      const Outer = ({ children }: { children: ReactNode }) => {
+        const [home, setter] = useState<Record<string, FileNode> | undefined>(undefined);
+        setHome = setter;
+        return (
+          <FileSystemProvider localhostFileSystem={baseLocalhost} homeFileSystems={home}>
+            {children}
+          </FileSystemProvider>
+        );
+      };
+      const { result } = renderHook(() => useFileSystem(), { wrapper: Outer });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+
+      act(() => {
+        setHome?.({ '192.168.1.50': baseLocalhost });
       });
-      await waitFor(() => expect(mockedListPatchesForMachines).toHaveBeenCalled());
-      // Initial mount must not trigger the transient cleanup — that's the
-      // existing isInitialMissionMount guard.
-      expect(mockedClearTransientPatches).not.toHaveBeenCalled();
+
+      // No clear of any kind — flushPendingPatches resolving immediately
+      // is the proxy for "no in-flight POST was kicked off."
+      await result.current.flushPendingPatches();
+      expect(mockedRemovePatch).not.toHaveBeenCalled();
     });
 
-    it('fires when missionFileSystems is added at runtime (after initial mount)', async () => {
-      // State-driven wrapper toggles missionFileSystems so the FSC's
-      // mission/home transition useEffect fires with !isInitialMissionMount.
+    it('runtime mission accept does not wipe non-localhost patches (instances are permanent)', async () => {
       let setMissionEnabled: ((b: boolean) => void) | null = null;
       const Outer = ({ children }: { children: ReactNode }) => {
         const [enabled, setter] = useState(false);
@@ -455,15 +478,13 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       };
       const { result } = renderHook(() => useFileSystem(), { wrapper: Outer });
       await waitFor(() => expect(result.current.isRehydrating).toBe(false));
-      vi.mocked(mockedClearTransientPatches).mockClear();
 
       act(() => {
         setMissionEnabled?.(true);
       });
 
-      await waitFor(() => {
-        expect(mockedClearTransientPatches).toHaveBeenCalled();
-      });
+      await result.current.flushPendingPatches();
+      expect(mockedRemovePatch).not.toHaveBeenCalled();
     });
   });
 

@@ -29,7 +29,6 @@ import {
   upsertPatch as upsertPatchOnServer,
   removePatch as removePatchOnServer,
   listPatchesForMachines as listPatchesForMachinesFromServer,
-  clearTransientPatches as clearTransientPatchesOnServer,
 } from '../patchRegistry/client';
 import { getRealtimeClient, subscribeToMachine, type PatchHint } from '../patchRegistry/realtime';
 import {
@@ -475,21 +474,17 @@ export const FileSystemProvider = ({
   // mission replay and never updated, avoiding a stale dependency in the effect.
   const cachedPatchesAtMount = useMemo(() => getCachedFilesystemPatches(), []);
 
-  // When a mission starts/ends, merge or remove mission filesystems.
-  // Static machine filesystems are always preserved; mission ones are overlaid on top.
+  // When a mission starts/ends, OR when the home network arrives async
+  // on initial page load, OR when world networks resolve — re-merge the
+  // base + home + mission filesystems. Patches are NEVER wiped here:
+  // mission instances are permanent (per project_multiplayer_mission_-
+  // instances memory — once accepted, the seed retires but the instance
+  // and its patches persist forever for anyone who can route to it),
+  // home networks are shared persistent infrastructure, and
+  // cross-player writes on shared machines are part of the world.
+  // Rehydration naturally scopes local patches state to whatever
+  // machines are currently in view.
   useEffect(() => {
-    // On runtime mission transitions (not initial mount), clean up old mission
-    // patches — they belong to the previous mission and shouldn't carry over.
-    if (!isInitialMissionMount.current) {
-      setPatches((prev) => prev.filter((p) => PERSISTENT_MACHINE_KEYS.has(p.machineId)));
-      // Mirror server-side: drop everything except localhost for this player.
-      // Fire-and-forget — failure is logged but shouldn't block the local
-      // filter from completing (worst case: stale rows get pruned next time).
-      void clearTransientPatchesOnServer(getIdentity()).catch((error) => {
-        console.error('[fs] clearTransientPatches failed:', error);
-      });
-    }
-
     setFileSystems((prev) => {
       const staticOnly = Object.fromEntries(
         Object.entries(prev).filter(([key]) => PERSISTENT_MACHINE_KEYS.has(key)),

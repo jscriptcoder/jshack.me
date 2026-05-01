@@ -54,7 +54,6 @@ const mkDeps = (overrides: {
   readonly listPatchesForMachines?: (
     params: ListPatchesForMachinesParams,
   ) => Promise<ListPatchesForMachinesResult>;
-  readonly clearTransientPatches?: (params: ClearPatchesParams) => Promise<ClearPatchesResult>;
   readonly clearOwnedPatches?: (params: ClearPatchesParams) => Promise<ClearPatchesResult>;
   readonly findActiveSession?: (
     params: FindActiveSessionParams,
@@ -77,11 +76,6 @@ const mkDeps = (overrides: {
     vi
       .fn<(params: ListPatchesForMachinesParams) => Promise<ListPatchesForMachinesResult>>()
       .mockResolvedValue({ ok: true, patches: [] }),
-  clearTransientPatches:
-    overrides.clearTransientPatches ??
-    vi
-      .fn<(params: ClearPatchesParams) => Promise<ClearPatchesResult>>()
-      .mockResolvedValue({ ok: true, affected: 0 }),
   clearOwnedPatches:
     overrides.clearOwnedPatches ??
     vi
@@ -534,65 +528,6 @@ describe('handlePatchesRequest — listPatchesForMachines', () => {
 });
 
 // -----------------------------------------------------------------------
-// clearTransientPatches
-// -----------------------------------------------------------------------
-
-describe('handlePatchesRequest — clearTransientPatches', () => {
-  let identity: Identity;
-  beforeEach(() => {
-    identity = generateIdentity();
-  });
-
-  const validClearTransientPayload = { action: 'clearTransientPatches' };
-
-  it('returns 200 with affected count', async () => {
-    const clearTransientPatches = vi
-      .fn<(params: ClearPatchesParams) => Promise<ClearPatchesResult>>()
-      .mockResolvedValue({ ok: true, affected: 7 });
-    const envelope = makeEnvelope(identity, validClearTransientPayload);
-
-    const result = await handlePatchesRequest(envelope, mkDeps({ clearTransientPatches }));
-
-    expect(result.status).toBe(200);
-    expect(result.body).toEqual({ affected: 7 });
-  });
-
-  it('queries with verified pubkey as player_key', async () => {
-    const clearTransientPatches = vi
-      .fn<(params: ClearPatchesParams) => Promise<ClearPatchesResult>>()
-      .mockResolvedValue({ ok: true, affected: 0 });
-    const envelope = makeEnvelope(identity, validClearTransientPayload);
-
-    await handlePatchesRequest(envelope, mkDeps({ clearTransientPatches }));
-
-    expect(clearTransientPatches).toHaveBeenCalledWith({
-      player_key: identity.publicKeyHex,
-    });
-  });
-
-  it('returns 500 when the DB delete errors', async () => {
-    const clearTransientPatches = vi
-      .fn<(params: ClearPatchesParams) => Promise<ClearPatchesResult>>()
-      .mockResolvedValue({ ok: false });
-    const envelope = makeEnvelope(identity, validClearTransientPayload);
-
-    const result = await handlePatchesRequest(envelope, mkDeps({ clearTransientPatches }));
-
-    expect(result.status).toBe(500);
-    expect(result.body).toMatchObject({ error: 'clear_failed' });
-  });
-
-  it('returns 400 when client supplies unknown extra fields', async () => {
-    const envelope = makeEnvelope(identity, {
-      action: 'clearTransientPatches',
-      machine_id: '10.0.0.1',
-    });
-    const result = await handlePatchesRequest(envelope, mkDeps({}));
-    expect(result.status).toBe(400);
-  });
-});
-
-// -----------------------------------------------------------------------
 // clearOwnedPatches
 // -----------------------------------------------------------------------
 
@@ -671,9 +606,6 @@ describe('handlePatchesRequest — cross-action isolation', () => {
     listPatchesForMachines: vi
       .fn<(params: ListPatchesForMachinesParams) => Promise<ListPatchesForMachinesResult>>()
       .mockResolvedValue({ ok: true, patches: [] }),
-    clearTransientPatches: vi
-      .fn<(params: ClearPatchesParams) => Promise<ClearPatchesResult>>()
-      .mockResolvedValue({ ok: true, affected: 0 }),
     clearOwnedPatches: vi
       .fn<(params: ClearPatchesParams) => Promise<ClearPatchesResult>>()
       .mockResolvedValue({ ok: true, affected: 0 }),
@@ -687,7 +619,6 @@ describe('handlePatchesRequest — cross-action isolation', () => {
     expect(adapters.upsertPatch).toHaveBeenCalled();
     expect(adapters.removePatch).not.toHaveBeenCalled();
     expect(adapters.listPatchesForMachines).not.toHaveBeenCalled();
-    expect(adapters.clearTransientPatches).not.toHaveBeenCalled();
     expect(adapters.clearOwnedPatches).not.toHaveBeenCalled();
   });
 
@@ -702,7 +633,6 @@ describe('handlePatchesRequest — cross-action isolation', () => {
     expect(adapters.removePatch).toHaveBeenCalled();
     expect(adapters.upsertPatch).not.toHaveBeenCalled();
     expect(adapters.listPatchesForMachines).not.toHaveBeenCalled();
-    expect(adapters.clearTransientPatches).not.toHaveBeenCalled();
     expect(adapters.clearOwnedPatches).not.toHaveBeenCalled();
   });
 
@@ -716,18 +646,6 @@ describe('handlePatchesRequest — cross-action isolation', () => {
     expect(adapters.listPatchesForMachines).toHaveBeenCalled();
     expect(adapters.upsertPatch).not.toHaveBeenCalled();
     expect(adapters.removePatch).not.toHaveBeenCalled();
-    expect(adapters.clearTransientPatches).not.toHaveBeenCalled();
-    expect(adapters.clearOwnedPatches).not.toHaveBeenCalled();
-  });
-
-  it('clearTransientPatches action calls only clearTransientPatches adapter', async () => {
-    const adapters = otherAdapters({});
-    const envelope = makeEnvelope(identity, { action: 'clearTransientPatches' });
-    await handlePatchesRequest(envelope, mkDeps(adapters));
-    expect(adapters.clearTransientPatches).toHaveBeenCalled();
-    expect(adapters.upsertPatch).not.toHaveBeenCalled();
-    expect(adapters.removePatch).not.toHaveBeenCalled();
-    expect(adapters.listPatchesForMachines).not.toHaveBeenCalled();
     expect(adapters.clearOwnedPatches).not.toHaveBeenCalled();
   });
 
@@ -739,7 +657,6 @@ describe('handlePatchesRequest — cross-action isolation', () => {
     expect(adapters.upsertPatch).not.toHaveBeenCalled();
     expect(adapters.removePatch).not.toHaveBeenCalled();
     expect(adapters.listPatchesForMachines).not.toHaveBeenCalled();
-    expect(adapters.clearTransientPatches).not.toHaveBeenCalled();
   });
 });
 
@@ -1072,9 +989,9 @@ describe('handlePatchesRequest — session-existence gate (L1)', () => {
 
   describe('read / bulk-clear actions are NOT gated', () => {
     // listPatchesForMachines is a cross-player read — knowing the
-    // machine_id is the gate, not session ownership. clearTransient /
-    // clearOwned scope to the player's own patches by player_key.
-    // None of them consult findActiveSession.
+    // machine_id is the gate, not session ownership. clearOwnedPatches
+    // scopes to the player's own localhost patches by player_key.
+    // Neither consults findActiveSession.
 
     it('listPatchesForMachines does not invoke findActiveSession', async () => {
       const findActiveSession = vi
@@ -1084,17 +1001,6 @@ describe('handlePatchesRequest — session-existence gate (L1)', () => {
         action: 'listPatchesForMachines',
         machine_ids: ['10.0.0.1'],
       });
-
-      await handlePatchesRequest(envelope, mkDeps({ findActiveSession }));
-
-      expect(findActiveSession).not.toHaveBeenCalled();
-    });
-
-    it('clearTransientPatches does not invoke findActiveSession', async () => {
-      const findActiveSession = vi
-        .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
-        .mockResolvedValue({ ok: true, exists: true });
-      const envelope = makeEnvelope(identity, { action: 'clearTransientPatches' });
 
       await handlePatchesRequest(envelope, mkDeps({ findActiveSession }));
 
@@ -1376,7 +1282,7 @@ describe('handlePatchesRequest — hint broadcast on successful mutation', () =>
     expect(publishPatchChange).not.toHaveBeenCalled();
   });
 
-  it('does NOT fire publishPatchChange on read actions (listPatchesForMachines / clears)', async () => {
+  it('does NOT fire publishPatchChange on read / clear actions (listPatchesForMachines / clearOwnedPatches)', async () => {
     const publishPatchChange = vi.fn<PublishPatchChange>().mockResolvedValue(undefined);
 
     const listEnvelope = makeEnvelope(identity, {
@@ -1384,9 +1290,6 @@ describe('handlePatchesRequest — hint broadcast on successful mutation', () =>
       machine_ids: ['10.0.0.1'],
     });
     await handlePatchesRequest(listEnvelope, mkDeps({ publishPatchChange }));
-
-    const clearEnvelope = makeEnvelope(identity, { action: 'clearTransientPatches' });
-    await handlePatchesRequest(clearEnvelope, mkDeps({ publishPatchChange }));
 
     const clearOwnedEnvelope = makeEnvelope(identity, { action: 'clearOwnedPatches' });
     await handlePatchesRequest(clearOwnedEnvelope, mkDeps({ publishPatchChange }));

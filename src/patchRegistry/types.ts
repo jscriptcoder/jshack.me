@@ -86,18 +86,6 @@ export type ListPatchesForMachinesPayload = z.infer<
   typeof listPatchesForMachinesSignedPayloadSchema
 >;
 
-// clearTransientPatches — DELETE WHERE machine_id <> 'localhost'. Fired
-// on mission/home scene transitions; mirrors the existing PERSISTENT_-
-// MACHINE_KEYS filter in FileSystemContext.tsx.
-export const clearTransientPatchesSignedPayloadSchema = z
-  .object({
-    action: z.literal('clearTransientPatches'),
-    ...baseEnvelopeFields,
-  })
-  .strict();
-
-export type ClearTransientPatchesPayload = z.infer<typeof clearTransientPatchesSignedPayloadSchema>;
-
 // clearOwnedPatches — DELETE WHERE player_key=me AND machine_id='localhost'.
 // Fired by `reset confirm` before page reload, wiping the player's own
 // localhost patches without touching the shared world.
@@ -123,7 +111,6 @@ export const patchesSignedPayloadSchema = z.discriminatedUnion('action', [
   upsertPatchSignedPayloadSchema,
   removePatchSignedPayloadSchema,
   listPatchesForMachinesSignedPayloadSchema,
-  clearTransientPatchesSignedPayloadSchema,
   clearOwnedPatchesSignedPayloadSchema,
 ]);
 
