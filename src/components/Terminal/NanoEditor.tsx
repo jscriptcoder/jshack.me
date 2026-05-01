@@ -45,10 +45,9 @@ export const NanoEditor = ({
   });
 
   useEffect(() => {
-    if (statusMessage) {
-      const timer = setTimeout(() => setStatusMessage(''), 3000);
-      return () => clearTimeout(timer);
-    }
+    if (!statusMessage) return undefined;
+    const timer = setTimeout(() => setStatusMessage(''), 3000);
+    return () => clearTimeout(timer);
   }, [statusMessage]);
 
   const updateCursorPosition = useCallback(() => {
