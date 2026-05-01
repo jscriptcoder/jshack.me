@@ -489,6 +489,90 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
   });
 
   // -----------------------------------------------------------------------
+  // Rehydration debounce — coalesces rapid keyset changes into one fetch
+  //
+  // During initial mount the keyset changes 2-3 times as different
+  // providers resolve at different times (HomeNetworksContext +
+  // WorldNetworks ~immediate; MissionProvider ~seconds later). Without
+  // debouncing, each change spawns its own listPatchesForMachines round-
+  // trip, with the early ones superseded almost immediately. The
+  // debounce coalesces sub-window changes into a single fetch.
+  // -----------------------------------------------------------------------
+
+  describe('rehydration debounce', () => {
+    it('coalesces rapid keyset changes during initial mount into a single fetch', async () => {
+      // Outer wrapper toggles homeFileSystems shortly after mount —
+      // mirrors HomeNetworksContext resolving async after the initial
+      // (localhost-only) render. Without debounce, the localhost-only
+      // fetch fires first, then the home-included fetch fires next;
+      // with debounce, only the home-included fetch fires.
+      let setHome: ((fs: Record<string, FileNode> | undefined) => void) | null = null;
+      const Outer = ({ children }: { children: ReactNode }) => {
+        const [home, setter] = useState<Record<string, FileNode> | undefined>(undefined);
+        setHome = setter;
+        return (
+          <FileSystemProvider localhostFileSystem={baseLocalhost} homeFileSystems={home}>
+            {children}
+          </FileSystemProvider>
+        );
+      };
+
+      const { result } = renderHook(() => useFileSystem(), { wrapper: Outer });
+      // Update the home prop within the debounce window (well before 150ms).
+      // setTimeout(0) yields to the microtask queue so React commits the
+      // initial render's effects first; the keyset change happens before
+      // the initial debounce timer fires.
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 0));
+        setHome?.({ '192.168.1.50': baseLocalhost });
+      });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+
+      // Coalesced into one fetch — and that fetch covers the FULL keyset
+      // (localhost + home), not just the initial localhost-only one.
+      expect(mockedListPatchesForMachines).toHaveBeenCalledTimes(1);
+      const machineIds = vi.mocked(mockedListPatchesForMachines).mock.calls[0][1];
+      expect([...machineIds].sort()).toEqual(['192.168.1.50', 'localhost']);
+    });
+
+    it('keyset changes outside the debounce window each get their own fetch (mission load case)', async () => {
+      // The mission state typically arrives well past the debounce window
+      // (~3-4s after mount in production). That fetch is genuinely
+      // separate — we couldn't have known to wait for it.
+      let setMission: ((fs: Record<string, FileNode> | undefined) => void) | null = null;
+      const Outer = ({ children }: { children: ReactNode }) => {
+        const [mission, setter] = useState<Record<string, FileNode> | undefined>(undefined);
+        setMission = setter;
+        return (
+          <FileSystemProvider localhostFileSystem={baseLocalhost} missionFileSystems={mission}>
+            {children}
+          </FileSystemProvider>
+        );
+      };
+
+      const { result } = renderHook(() => useFileSystem(), { wrapper: Outer });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+      const callsAfterInitial = vi.mocked(mockedListPatchesForMachines).mock.calls.length;
+
+      // Mission filesystems arrive much later — outside the debounce
+      // window. Should trigger a separate fetch.
+      act(() => {
+        setMission?.({ '10.0.0.42': baseLocalhost });
+      });
+
+      await waitFor(() => {
+        expect(vi.mocked(mockedListPatchesForMachines).mock.calls.length).toBe(
+          callsAfterInitial + 1,
+        );
+      });
+      const lastCall = vi
+        .mocked(mockedListPatchesForMachines)
+        .mock.calls.at(-1) as readonly unknown[];
+      expect([...(lastCall[1] as readonly string[])].sort()).toEqual(['10.0.0.42', 'localhost']);
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // Race mitigation: local writes during rehydration window
   // -----------------------------------------------------------------------
 
@@ -504,10 +588,16 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       );
 
       const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
-      // Local write BEFORE rehydration resolves — sets localWritesSinceMount
+      // Local write BEFORE rehydration resolves — sets localWritesSinceMount.
+      // Local create works against the cached/initial state without needing
+      // the rehydration to have fired or resolved.
       act(() => {
         result.current.createFile('/tmp/local.txt', 'local-only', 'user');
       });
+
+      // Wait for the debounced rehydration fetch to actually fire — only
+      // after this is `resolveListPatches` bound by the mock implementation.
+      await waitFor(() => expect(mockedListPatchesForMachines).toHaveBeenCalled());
 
       // Now resolve listPatchesForMachines with an EMPTY server response
       // (would normally wipe local state). Race-mitigation should keep our

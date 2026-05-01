@@ -122,6 +122,22 @@ const PERSISTENT_MACHINE_KEYS = new Set(['localhost']);
 // threshold of ~200ms) while still batching simultaneous edits.
 const HINT_REFETCH_DEBOUNCE_MS = 150;
 
+// Debounce window for the rehydration fetch. The machineIdsKey changes
+// 2-3 times during initial mount as different providers resolve at
+// different times (HomeNetworksContext + WorldNetworks ~immediate from
+// cache; MissionProvider ~seconds later from server). Without
+// debouncing, each keyset change spawns its own listPatchesForMachines
+// round-trip, and the first 1-2 fetches are wasted (the next-arriving
+// keyset's fetch supersedes them). 150ms coalesces the home/world
+// arrivals; mission state typically arrives well past this window
+// and gets its own fetch (which is correct — we couldn't have known
+// to wait for it).
+//
+// Initial paint is unaffected — the IndexedDB cache (read synchronously
+// in the FileSystemProvider's useState initializer) covers the gap
+// before the server's authoritative response.
+const REHYDRATION_DEBOUNCE_MS = 150;
+
 // Pure reducer: apply a single FileSystemPatch onto a patches list.
 // Used by every path that mutates the patches list — local writes
 // (broadcastAndRecordPatch), cross-tab BroadcastChannel arrivals
@@ -293,6 +309,13 @@ export const FileSystemProvider = ({
   // initial paint; this useEffect performs the cross-device +
   // cross-player sync once the network responds.
   //
+  // Debounced via REHYDRATION_DEBOUNCE_MS so the rapid keyset changes
+  // during initial mount (home/world arrive ~immediately, then mission
+  // ~seconds later) don't spawn a wasted localhost-only fetch first.
+  // isInitialFetch.current is flipped INSIDE the timer callback so a
+  // cancelled-before-fire fetch doesn't burn the "initial" marker —
+  // the next surviving fetch still runs as the initial one.
+  //
   // Race window (initial mount only): a local write before
   // listPatchesForMachines resolves sets localWritesSinceMount and we
   // skip replacement. The local upsert is already on its way to the
@@ -302,42 +325,47 @@ export const FileSystemProvider = ({
   // before any keyset change ever happened" doesn't usefully imply
   // "all subsequent keyset changes should skip the fetch."
   useEffect(() => {
-    const wasInitial = isInitialFetch.current;
-    isInitialFetch.current = false;
-
     const machineIds = machineIdsKey.split(',').filter(Boolean);
 
     let cancelled = false;
-    void listPatchesForMachinesFromServer(getIdentity(), machineIds)
-      .then((serverPatches) => {
-        if (cancelled) return;
-        if (wasInitial && localWritesSinceMount.current) return;
-        // Replace patches state + IndexedDB cache + rebuild fileSystems
-        // from the freshest layered base.
-        setPatches(serverPatches);
-        const db = getDatabase();
-        if (db) saveFilesystemPatches(db, [...serverPatches]);
-        const props = propsRef.current;
-        const base = { localhost: props.localhostFileSystem };
-        const withHome = props.homeFileSystems ? { ...base, ...props.homeFileSystems } : base;
-        const merged = props.missionFileSystems
-          ? { ...withHome, ...props.missionFileSystems }
-          : withHome;
-        setFileSystems(applyPatches(merged, serverPatches));
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        console.error('[fs] patch rehydration failed:', error);
-      })
-      .finally(() => {
-        // isRehydrating is the "first load not yet complete" flag —
-        // only flips on the initial fetch. Subsequent refetches don't
-        // toggle it (UI shouldn't re-show a rehydration spinner on
-        // every late-arriving network).
-        if (!cancelled && wasInitial) setIsRehydrating(false);
-      });
+    const timer = setTimeout(() => {
+      if (cancelled) return;
+      const wasInitial = isInitialFetch.current;
+      isInitialFetch.current = false;
+
+      void listPatchesForMachinesFromServer(getIdentity(), machineIds)
+        .then((serverPatches) => {
+          if (cancelled) return;
+          if (wasInitial && localWritesSinceMount.current) return;
+          // Replace patches state + IndexedDB cache + rebuild fileSystems
+          // from the freshest layered base.
+          setPatches(serverPatches);
+          const db = getDatabase();
+          if (db) saveFilesystemPatches(db, [...serverPatches]);
+          const props = propsRef.current;
+          const base = { localhost: props.localhostFileSystem };
+          const withHome = props.homeFileSystems ? { ...base, ...props.homeFileSystems } : base;
+          const merged = props.missionFileSystems
+            ? { ...withHome, ...props.missionFileSystems }
+            : withHome;
+          setFileSystems(applyPatches(merged, serverPatches));
+        })
+        .catch((error) => {
+          if (cancelled) return;
+          console.error('[fs] patch rehydration failed:', error);
+        })
+        .finally(() => {
+          // isRehydrating is the "first load not yet complete" flag —
+          // only flips on the initial fetch. Subsequent refetches don't
+          // toggle it (UI shouldn't re-show a rehydration spinner on
+          // every late-arriving network).
+          if (!cancelled && wasInitial) setIsRehydrating(false);
+        });
+    }, REHYDRATION_DEBOUNCE_MS);
+
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [machineIdsKey]);
 
