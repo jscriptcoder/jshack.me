@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { Terminal } from './components/Terminal';
 import { IntroScreen } from './components/IntroScreen';
 import { BootScreen } from './components/BootScreen';
@@ -29,6 +29,26 @@ function GameSession({ gameState }: { readonly gameState: GameState }) {
 
 function GameInner({ gameState }: { readonly gameState: GameState }) {
   const { activeNetwork, joinedNetworks } = useHomeNetworks();
+  const { session, setMachine } = useSession();
+
+  // Reflect the active network's assigned hostname (e.g., 'skylab-9k3') in
+  // session.hostname when on localhost. SessionContext's own effect handles
+  // the no-network fallback (back to workstationName); this effect adds the
+  // multiplayer suffix on top whenever activeNetwork.hostname is set.
+  useEffect(() => {
+    if (session.machine !== 'localhost') return;
+    const desired = activeNetwork?.hostname ?? gameState.workstationName;
+    if (session.hostname !== desired) {
+      setMachine('localhost', desired);
+    }
+  }, [
+    activeNetwork?.hostname,
+    session.machine,
+    session.hostname,
+    gameState.workstationName,
+    setMachine,
+  ]);
+
   const usedPublicIps = useMemo(
     () => new Set(joinedNetworks.map((n) => n.router.publicIp)),
     [joinedNetworks],

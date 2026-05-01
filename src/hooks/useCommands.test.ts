@@ -6,6 +6,7 @@ import { SessionProvider } from '../session/SessionContext';
 import { MissionProvider } from '../mission/MissionContext';
 import { FileSystemProvider } from '../filesystem/FileSystemContext';
 import { NetworkProvider } from '../network/NetworkContext';
+import { HomeNetworksProvider } from '../game/HomeNetworksContext';
 import type { MissionState } from '../mission/useMissionState';
 import { generateLocalhost } from '../generation/generateLocalhost';
 
@@ -49,12 +50,21 @@ const createWrapper =
       SessionProvider,
       { username: 'testuser', children: null },
       createElement(
-        MissionProvider,
-        { state: mockMissionState, usedPublicIps: new Set<string>(), children: null },
+        HomeNetworksProvider,
+        {
+          gameSeed: null,
+          workstationPrefix: null,
+          connectedWifi: null,
+          children: null,
+        },
         createElement(
-          FileSystemProvider,
-          { localhostFileSystem: testLocalhost.fileSystem, children: null },
-          createElement(NetworkProvider, null, children),
+          MissionProvider,
+          { state: mockMissionState, usedPublicIps: new Set<string>(), children: null },
+          createElement(
+            FileSystemProvider,
+            { localhostFileSystem: testLocalhost.fileSystem, children: null },
+            createElement(NetworkProvider, null, children),
+          ),
         ),
       ),
     );

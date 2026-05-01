@@ -390,17 +390,19 @@ export const SessionProvider = ({ children, workstationName, username }: Session
     return () => channel.close();
   }, []);
 
-  // Sync workstationName into session.hostname when on localhost.
-  // Handles all reset paths (WiFi disconnect, session pop, initial load).
+  // Sync workstationName into session.hostname when transitioning to
+  // localhost (or when the workstationName itself changes). Deliberately
+  // does NOT depend on session.hostname so external syncers (App.tsx
+  // GameInner reflecting activeNetwork.hostname for the multiplayer LAN
+  // suffix) can update hostname without this effect immediately
+  // resetting it back to workstationName.
   useEffect(() => {
-    if (
-      session.machine === 'localhost' &&
-      workstationName &&
-      session.hostname !== workstationName
-    ) {
-      setSession((prev) => ({ ...prev, hostname: workstationName }));
+    if (session.machine === 'localhost' && workstationName) {
+      setSession((prev) =>
+        prev.hostname === workstationName ? prev : { ...prev, hostname: workstationName },
+      );
     }
-  }, [session.machine, session.hostname, workstationName]);
+  }, [session.machine, workstationName]);
 
   // Session state persists to sessionStorage (per-tab)
   useEffect(() => {
