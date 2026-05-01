@@ -118,20 +118,20 @@ The server is the source of truth for "did I already join this LAN." Client neve
 
 ## Files
 
-| File                       | Description                                                                                                                                                      |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `types.ts`                 | `DENSITY_TIERS`, `MAX_SLOTS_BY_TIER`, the strict Zod payload schema, row shapes, `JoinResult` (Zod-derived), `InsertOccupantResult` discriminator.               |
-| `deriveHostnameSuffix.ts`  | Pure: `playerKey → first-4-hex-chars-of-sha256(utf8(playerKey))`. Stable per identity.                                                                           |
-| `pickRandomLanIp.ts`       | Pure: `prng → '.X'` where X is a random integer in `[10, 250]`.                                                                                                  |
-| `handler.ts`               | `handleJoinHomeNetworkRequest(envelope, deps)` — pure orchestration. Verify → rate-limit → idempotent return → find-or-create → slot allocation loop with retry. |
-| `createInsertOccupant.ts`  | Postgres unique-constraint parser — maps `23505` errors onto `lan_ip_conflict` / `hostname_conflict` / `error` by substring matching the constraint message.     |
-| `client.ts`                | `joinHomeNetwork(identity, request, fetchImpl?)` — browser-side wrapper. Signs envelope, POSTs, validates response with `joinResultSchema`.                      |
-| `listOccupants.ts`         | Anon-key Supabase read of `home_network_occupants` for a given network_id. Initial fetch on connect + hint-driven refetch on Realtime updates.                   |
+| File                       | Description                                                                                                                                                                                                                |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `types.ts`                 | `DENSITY_TIERS`, `MAX_SLOTS_BY_TIER`, the strict Zod payload schema, row shapes, `JoinResult` (Zod-derived), `InsertOccupantResult` discriminator.                                                                         |
+| `deriveHostnameSuffix.ts`  | Pure: `playerKey → first-4-hex-chars-of-sha256(utf8(playerKey))`. Stable per identity.                                                                                                                                     |
+| `pickRandomLanIp.ts`       | Pure: `prng → '.X'` where X is a random integer in `[10, 250]`.                                                                                                                                                            |
+| `handler.ts`               | `handleJoinHomeNetworkRequest(envelope, deps)` — pure orchestration. Verify → rate-limit → idempotent return → find-or-create → slot allocation loop with retry.                                                           |
+| `createInsertOccupant.ts`  | Postgres unique-constraint parser — maps `23505` errors onto `lan_ip_conflict` / `hostname_conflict` / `error` by substring matching the constraint message.                                                               |
+| `client.ts`                | `joinHomeNetwork(identity, request, fetchImpl?)` — browser-side wrapper. Signs envelope, POSTs, validates response with `joinResultSchema`.                                                                                |
+| `listOccupants.ts`         | Anon-key Supabase read of `home_network_occupants` for a given network_id. Initial fetch on connect + hint-driven refetch on Realtime updates.                                                                             |
 | `broadcast.ts`             | Server-side `publishOccupantChange` — fires a Supabase Realtime HINT (`occupants:<network_id>` channel, `occupant_change` event, `{ network_id, originator_key }` payload) after every successful insert. Fire-and-forget. |
 | `realtime.ts`              | Client-side `subscribeToNetworkOccupants` wrapper. Receives hints, converts wire shape (snake_case) to `OccupantHint` (camelCase), hands them to the caller's `onHint`.                                                    |
-| `computePlayerHostname.ts` | `(workstationName, identity) → '${workstationName}-${suffix}'`. Computed once at game start; same hostname on every LAN.                                         |
-| `*.test.ts`                | Unit tests. Real Ed25519 signing in handler tests; mocked Supabase + Upstash deps.                                                                               |
-| `README.md`                | This file.                                                                                                                                                       |
+| `computePlayerHostname.ts` | `(workstationName, identity) → '${workstationName}-${suffix}'`. Computed once at game start; same hostname on every LAN.                                                                                                   |
+| `*.test.ts`                | Unit tests. Real Ed25519 signing in handler tests; mocked Supabase + Upstash deps.                                                                                                                                         |
+| `README.md`                | This file.                                                                                                                                                                                                                 |
 
 Plus:
 
