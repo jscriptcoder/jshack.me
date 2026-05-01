@@ -85,6 +85,17 @@ export const createAircrackCommand = (context: AircrackContext): Command => ({
               return;
             }
 
+            // Hidden ESSID: real aircrack-ng can't derive a PSK without the
+            // ESSID itself. Bail with a clear diagnostic instead of running
+            // the full animation to a silent no-result completion.
+            if (network.essid === '<hidden>') {
+              onLine(`ESSID hidden for ${bssid} — no probing clients seen, cannot derive key`);
+              onLine('');
+              onLine('Quitting aircrack...');
+              onComplete();
+              return;
+            }
+
             const steps = 6;
             const keysPerStep = Math.floor(TOTAL_KEYS / steps);
 
