@@ -307,7 +307,7 @@ export const applyPatches = (
   patches: readonly FileSystemPatch[],
 ): FileSystemsState =>
   patches.reduce<FileSystemsState>((state, patch) => {
-    const machineId = patch.machineId as MachineId;
+    const machineId: MachineId = patch.machineId;
     const machineFs = state[machineId];
     if (!machineFs) return state;
 

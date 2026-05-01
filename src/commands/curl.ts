@@ -300,7 +300,7 @@ export const createCurlCommand = (context: CurlContext): Command => ({
 
           // NAT resolution: in forwarded mode, the router's public IP maps to the
           // internal entry machine. Filesystem reads must target the actual machine.
-          const filesystemIP = context.resolveNat(targetIP, parsed.port ?? 80).ip as MachineId;
+          const filesystemIP: MachineId = context.resolveNat(targetIP, parsed.port ?? 80).ip;
 
           const response = isPost
             ? handlePost(context, filesystemIP, parsed.path)

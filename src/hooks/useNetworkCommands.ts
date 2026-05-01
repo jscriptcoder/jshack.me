@@ -294,7 +294,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
       machineId: string,
       tier: UserType,
     ): Readonly<Record<string, (...args: readonly unknown[]) => unknown>> => {
-      const mid = machineId as MachineId;
+      const mid: MachineId = machineId;
       const machineInfo = getMachine(machineId);
 
       const sshdFn = (...args: unknown[]): string => {

@@ -35,10 +35,10 @@ export const useFtpCommands = (): Map<string, Command> | null => {
     const commands = new Map<string, Command>();
 
     // Context getters
-    const getRemoteMachine = () => ftpSession.remoteMachine as MachineId;
+    const getRemoteMachine = (): MachineId => ftpSession.remoteMachine;
     const getRemoteCwd = () => ftpSession.remoteCwd;
     const getRemoteUserType = () => ftpSession.remoteUserType;
-    const getOriginMachine = () => ftpSession.originMachine as MachineId;
+    const getOriginMachine = (): MachineId => ftpSession.originMachine;
     const getOriginCwd = () => ftpSession.originCwd;
     const getOriginUserType = () => ftpSession.originUserType;
 
