@@ -13,6 +13,7 @@ export type MysqlAuthReadFile = (op: {
 
 export type MysqlAuthDeps = {
   readonly sessionMachine: string;
+  readonly ownWorkstationId: string;
   readonly getLocalIP: () => string;
   readonly getPublicIP: () => string | null;
   readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
@@ -39,7 +40,7 @@ export const createMysqlAuthHandler =
     const { ip: logIp } = deps.resolveNat(targetIP, port);
     const sourceIp = resolveLogSourceIP(
       deps.sessionMachine,
-      targetIP,
+      deps.ownWorkstationId,
       deps.getLocalIP(),
       deps.getPublicIP(),
     );

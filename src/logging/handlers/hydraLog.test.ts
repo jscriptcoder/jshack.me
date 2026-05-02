@@ -11,6 +11,7 @@ const makeLogFs = () => ({
 
 const makeDeps = (overrides: Partial<HydraLogDeps> = {}): HydraLogDeps => ({
   sessionMachine: 'localhost',
+  ownWorkstationId: 'localhost',
   getLocalIP: () => '10.45.12.100',
   getPublicIP: () => '198.51.100.42',
   resolveNat: (ip, port) => ({ ip, port }),
@@ -352,6 +353,7 @@ describe('createHydraLogHandler', () => {
       const handler = createHydraLogHandler(
         makeDeps({
           sessionMachine: 'localhost',
+          ownWorkstationId: 'localhost',
           getLocalIP: () => '192.168.0.10', // home LAN
           getPublicIP: () => '203.0.113.99', // router WAN
           logFs,

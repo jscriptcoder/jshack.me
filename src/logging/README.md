@@ -114,12 +114,13 @@ DNAT rules, so `resolveNat` is a no-op).
 
 `resolveLogSourceIP()` determines the correct source IP for log entries:
 
-- **From a remote machine** (not localhost) — uses the machine's IP directly (already correct)
-- **From localhost → same /24 subnet** (home network machine) — uses the LAN IP (e.g., `10.45.12.100`)
-- **From localhost → different network** (mission machine) — uses the home router's public IP (e.g., `203.45.67.89`), since traffic is NAT'd through the gateway
-- **Fallback** (no home network) — uses the LAN IP
+- **From a remote machine** (SSH session) — uses the remote machine's IP directly (already in `sessionMachine`).
+- **From the player's own workstation** — always the home router's public IP (e.g., `203.45.67.89`). A single public-IP identity makes player tracking consistent across every log file in the world. Same-/24 LAN IPs are deliberately not used here: LAN ranges aren't unique across players, so the public IP is the only stable identifier.
+- **Fallback** (own workstation, no home network connected) — uses the LAN IP since there's no public IP available.
 
-`NetworkContext.getPublicIP()` provides the home router's public IP for cross-network resolution.
+The "own workstation" check is `sessionMachine === ownWorkstationId`, where `ownWorkstationId` is the player's identity-derived hostname (e.g., `skylab-aabbccdd`). Pre-PR-#94 this was the literal string `'localhost'`; the explicit comparison parameter prevents that bug from regressing.
+
+`NetworkContext.getPublicIP()` provides the home router's public IP.
 
 ## How It Works
 

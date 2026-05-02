@@ -4,6 +4,7 @@ import { generatePid, resolveLogSourceIP } from '../utils';
 
 export type RedisAuthDeps = {
   readonly sessionMachine: string;
+  readonly ownWorkstationId: string;
   readonly getLocalIP: () => string;
   readonly getPublicIP: () => string | null;
   readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
@@ -30,7 +31,7 @@ const writeRedisLog = (
   const { ip: logIp } = deps.resolveNat(targetIP, port);
   const sourceIp = resolveLogSourceIP(
     deps.sessionMachine,
-    targetIP,
+    deps.ownWorkstationId,
     deps.getLocalIP(),
     deps.getPublicIP(),
   );

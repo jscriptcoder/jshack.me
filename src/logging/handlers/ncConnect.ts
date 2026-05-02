@@ -11,6 +11,7 @@ export type NcConnectInfo = {
 
 export type NcConnectDeps = {
   readonly sessionMachine: string;
+  readonly ownWorkstationId: string;
   readonly getLocalIP: () => string;
   readonly getPublicIP: () => string | null;
   readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
@@ -27,7 +28,7 @@ export const createNcConnectHandler =
     const { ip: logIp } = deps.resolveNat(info.targetIp, info.port);
     const sourceIp = resolveLogSourceIP(
       deps.sessionMachine,
-      info.targetIp,
+      deps.ownWorkstationId,
       deps.getLocalIP(),
       deps.getPublicIP(),
     );

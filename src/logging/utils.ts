@@ -10,26 +10,29 @@ export const resolveHostname = (
   return getMachine(machineId)?.hostname ?? machineId;
 };
 
-/** Extract the /24 subnet prefix from an IP address (e.g., "10.45.12.100" → "10.45.12"). */
-const getSubnet = (ip: string): string => ip.split('.').slice(0, 3).join('.');
-
 /**
  * Resolve the source IP that should appear in remote machine logs.
- * - On a remote machine (not localhost): the machine's IP is already correct.
- * - On localhost, same /24 subnet as target: LAN IP (direct local network visibility).
- * - On localhost, different network: router's public IP (NAT'd through gateway).
+ * - On a remote machine (SSH session): the remote machine's IP is
+ *   already in `sessionMachine` — pass through.
+ * - On the player's own workstation: always the home network's public
+ *   IP. We deliberately do NOT use the LAN IP for same-/24 targets:
+ *   a single public-IP identity makes player tracking consistent across
+ *   every log file in the world (mission, themed, home), and avoids
+ *   leaking ambiguous LAN IPs that aren't unique across players. Falls
+ *   back to localIP only when no home network is connected.
+ *
+ * Pre-PR-#94 the "on own workstation" check used the literal string
+ * 'localhost'. After workstations got identity-derived hostnames
+ * (workstation_id), that check silently failed and the function
+ * leaked the workstation hostname into logs. The fix takes
+ * `ownWorkstationId` explicitly so the comparison stays correct.
  */
 export const resolveLogSourceIP = (
   sessionMachine: string,
-  targetIP: string,
+  ownWorkstationId: string,
   localIP: string,
   publicIP: string | null,
 ): string => {
-  if (sessionMachine !== 'localhost') return sessionMachine;
-
-  // Same /24 subnet → target sees our LAN IP
-  if (getSubnet(localIP) === getSubnet(targetIP)) return localIP;
-
-  // Different network → target sees our router's public IP
+  if (sessionMachine !== ownWorkstationId) return sessionMachine;
   return publicIP ?? localIP;
 };

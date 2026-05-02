@@ -10,6 +10,7 @@ const makeLogFs = () => ({
 
 const makeDeps = (overrides: Partial<MysqlAuthDeps> = {}): MysqlAuthDeps => ({
   sessionMachine: 'localhost',
+  ownWorkstationId: 'localhost',
   getLocalIP: () => '10.45.12.100',
   getPublicIP: () => '198.51.100.42',
   resolveNat: (ip, port) => ({ ip, port }),
