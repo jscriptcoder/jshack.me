@@ -111,6 +111,19 @@ describe('generateSearchEngineNetwork — filesystem', () => {
     expect(landing).toContain('findit.io');
   });
 
+  it('landing page is a real HTML form — players read the markup to discover the URL pattern', async () => {
+    const row = buildRow();
+    const network = await generateSearchEngineNetwork(row, buildCtx([row]));
+    const landing = readFileFromTree(
+      network.fileSystems['192.0.2.80']!,
+      '/var/www/html/index.html',
+    );
+
+    expect(landing).toContain('<form action="/" method="GET">');
+    expect(landing).toContain('name="q"');
+    expect(landing).toContain('type="submit"');
+  });
+
   it('writes the index file at the path the search handler reads', async () => {
     const row = buildRow();
     const network = await generateSearchEngineNetwork(row, buildCtx([row]));

@@ -49,15 +49,23 @@ const buildIndexEntries = (rows: ReadonlyArray<WorldNetwork>): readonly SearchIn
     ];
   });
 
+// In-world content shipped to /var/www/html/index.html. The page is
+// authored as if intended for a graphical browser — players read the
+// raw HTML through curl, see the form (action="/" method="GET",
+// name="q"), and infer the URL pattern from the markup the same way
+// real recon does. Deliberately no curl-flavored tutorial copy: the
+// form IS the documentation.
 const renderLandingPage = (domain: string): string =>
   `<!DOCTYPE html>
 <html>
-  <head><title>${domain} — search the public web</title></head>
+  <head><title>${domain}</title></head>
   <body>
     <h1>${domain}</h1>
-    <p>Find websites, services, and themed networks across the public internet.</p>
-    <p>Usage:</p>
-    <pre>curl http://${domain}/?q=keyword</pre>
+    <p>Find websites and services across the public web.</p>
+    <form action="/" method="GET">
+      <input type="text" name="q" placeholder="Search the public web">
+      <button type="submit">Search</button>
+    </form>
   </body>
 </html>
 `;

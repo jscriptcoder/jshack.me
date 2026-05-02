@@ -24,15 +24,54 @@ const IndexSchema = z.array(IndexEntrySchema);
 
 type IndexEntry = z.infer<typeof IndexEntrySchema>;
 
-const errorResponse = (statusCode: number, statusText: string, body: string): HandlerResponse => ({
+// HTML escape — defends against an attacker-controlled query (or
+// search_metadata) injecting markup that breaks the page or smuggles
+// content into other entries. Cheap; better to escape everywhere we
+// interpolate user-or-data-supplied strings into HTML.
+const escapeHtml = (s: string): string =>
+  s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+// Standard envelope for every response findit.io's handler emits —
+// search results, no-results, and errors. Re-renders the search form
+// at the top so players can refine queries by reading the markup.
+const wrapHtml = (title: string, body: string, queryValue: string = ''): string =>
+  `<!DOCTYPE html>
+<html>
+  <head><title>${escapeHtml(title)}</title></head>
+  <body>
+    <h1>findit.io</h1>
+    <form action="/" method="GET">
+      <input type="text" name="q" value="${escapeHtml(queryValue)}" placeholder="Search the public web">
+      <button type="submit">Search</button>
+    </form>
+    <hr>
+${body}
+  </body>
+</html>
+`;
+
+const errorResponse = (
+  statusCode: number,
+  statusText: string,
+  bodyHtml: string,
+): HandlerResponse => ({
   statusCode,
   statusText,
-  contentType: 'text/plain',
-  body,
+  contentType: 'text/html',
+  body: wrapHtml(`${statusCode} ${statusText}`, bodyHtml),
 });
 
 const indexUnavailable = (): HandlerResponse =>
-  errorResponse(500, 'Internal Server Error', 'Search index unavailable.');
+  errorResponse(
+    500,
+    'Internal Server Error',
+    '    <p><strong>Search index unavailable.</strong></p>',
+  );
 
 // Splits a decoded query string on whitespace, lowercases, drops
 // empties. URLSearchParams already decoded `+` → space and `%XX` →
@@ -59,15 +98,25 @@ const scoreEntry = (entry: IndexEntry, terms: readonly string[]): number => {
   }, 0);
 };
 
-const formatEntry = (entry: IndexEntry, position: number): string =>
-  `${position}. ${entry.title} — ${entry.domain}\n   ${entry.description}`;
+// Each result is a self-contained list item with a clickable link
+// (pointless in a terminal but read by `gobuster`-style recon as a
+// recognizable href) plus the domain on its own line and the blurb.
+const formatEntry = (entry: IndexEntry): string =>
+  `      <li>
+        <h2><a href="http://${escapeHtml(entry.domain)}/">${escapeHtml(entry.title)}</a></h2>
+        <p class="domain">${escapeHtml(entry.domain)}</p>
+        <p class="description">${escapeHtml(entry.description)}</p>
+      </li>`;
 
 const formatResults = (
   results: readonly { readonly entry: IndexEntry; readonly score: number }[],
   decodedQuery: string,
 ): string => {
-  if (results.length === 0) return `No matches for "${decodedQuery}".`;
-  return results.map(({ entry }, i) => formatEntry(entry, i + 1)).join('\n\n');
+  if (results.length === 0) {
+    return `    <p>No matches for &quot;${escapeHtml(decodedQuery)}&quot;.</p>`;
+  }
+  const items = results.map(({ entry }) => formatEntry(entry)).join('\n');
+  return `    <ol>\n${items}\n    </ol>`;
 };
 
 export const searchEngineHandler: RequestHandler = (args, fs) => {
@@ -104,7 +153,7 @@ export const searchEngineHandler: RequestHandler = (args, fs) => {
   return {
     statusCode: 200,
     statusText: 'OK',
-    contentType: 'text/plain',
-    body: formatResults(scored, q),
+    contentType: 'text/html',
+    body: wrapHtml(`findit.io — results for "${q}"`, formatResults(scored, q), q),
   };
 };

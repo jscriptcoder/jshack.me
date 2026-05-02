@@ -91,7 +91,7 @@ describe('searchEngineHandler — error handling', () => {
   it('returns 500 when index file is missing', () => {
     const result = searchEngineHandler(buildRequest({ query: 'q=foo' }), buildFs({}));
     expect(result?.statusCode).toBe(500);
-    expect(result?.contentType).toBe('text/plain');
+    expect(result?.contentType).toBe('text/html');
   });
 
   it('returns 500 when index JSON is malformed', () => {
@@ -129,18 +129,30 @@ describe('searchEngineHandler — search results', () => {
       buildFs({ [INDEX_PATH]: sampleIndex }),
     );
     expect(result?.statusCode).toBe(200);
-    expect(result?.contentType).toBe('text/plain');
+    expect(result?.contentType).toBe('text/html');
     expect(result?.body).toContain('Tech Parts Store');
     expect(result?.body).toContain('techparts.io');
   });
 
-  it('formats results with title, domain, and description', () => {
+  it('renders results as HTML — title link, domain, description in list items', () => {
     const result = searchEngineHandler(
       buildRequest({ query: 'q=gpu' }),
       buildFs({ [INDEX_PATH]: sampleIndex }),
     );
-    expect(result?.body).toContain('1. Tech Parts Store — techparts.io');
+    expect(result?.body).toContain('<ol>');
+    expect(result?.body).toContain('<li>');
+    expect(result?.body).toContain('<a href="http://techparts.io/">Tech Parts Store</a>');
     expect(result?.body).toContain('Quality computer components and peripherals.');
+  });
+
+  it('re-renders the search form on the results page so players can refine', () => {
+    const result = searchEngineHandler(
+      buildRequest({ query: 'q=gpu' }),
+      buildFs({ [INDEX_PATH]: sampleIndex }),
+    );
+    expect(result?.body).toContain('<form action="/" method="GET">');
+    expect(result?.body).toContain('name="q"');
+    expect(result?.body).toContain('value="gpu"');
   });
 
   it('returns "no matches" body when no entry scores', () => {
@@ -246,8 +258,8 @@ describe('searchEngineHandler — search results', () => {
       buildRequest({ query: 'q=foo' }),
       buildFs({ [INDEX_PATH]: indexJson(entries) }),
     );
-    // Count numbered list entries — should be exactly 10.
-    const matches = result?.body.match(/^\d+\./gm) ?? [];
+    // Count <li> entries — should be exactly 10.
+    const matches = result?.body.match(/<li>/g) ?? [];
     expect(matches.length).toBe(10);
   });
 
@@ -281,5 +293,32 @@ describe('searchEngineHandler — search results', () => {
     );
     expect(result?.statusCode).toBe(200);
     expect(result?.body).toContain('No matches');
+  });
+
+  it('escapes HTML in the query value when re-rendering the form', () => {
+    const result = searchEngineHandler(
+      buildRequest({ query: 'q=%3Cscript%3Ealert(1)%3C/script%3E' }),
+      buildFs({ [INDEX_PATH]: indexJson([]) }),
+    );
+    // No raw <script> tag in the rendered HTML — must be escaped.
+    expect(result?.body).not.toContain('<script>alert(1)</script>');
+    expect(result?.body).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+  });
+
+  it('escapes HTML in entry fields so a malicious search_metadata cannot break the page', () => {
+    const idx = indexJson([
+      {
+        domain: 'evil.io',
+        title: '<img src=x onerror=alert(1)>',
+        description: 'plain',
+        keywords: ['evil'],
+      },
+    ]);
+    const result = searchEngineHandler(
+      buildRequest({ query: 'q=evil' }),
+      buildFs({ [INDEX_PATH]: idx }),
+    );
+    expect(result?.body).not.toContain('<img src=x onerror=alert(1)>');
+    expect(result?.body).toContain('&lt;img src=x onerror=alert(1)&gt;');
   });
 });
