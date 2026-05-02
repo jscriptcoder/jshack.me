@@ -32,6 +32,7 @@ import {
   collectWorldGatewayIps,
   buildGatewayAliasMap,
   buildRouterRemoteView,
+  buildWorldExternalDnsRecords,
   buildWorldRouterRemoteViews,
   findMachineInWorldNetworks,
   applyDynamicOverrides,
@@ -213,6 +214,16 @@ export const NetworkProvider = ({
     [worldNetworks, allIptablesRules, allSnmpOverrides],
   );
 
+  // External DNS records for world networks: one A record per network,
+  // routerMachine.hostname → routerMachine.ip. Merged into localhost's
+  // dnsRecords on every internet-connected branch so `dig findit.io`
+  // and `curl http://findit.io` resolve. Skipped on localhost-
+  // disconnected for the same "no internet" reason as worldRouterViews.
+  const worldExternalDns = useMemo(
+    () => buildWorldExternalDnsRecords(worldNetworks ?? []),
+    [worldNetworks],
+  );
+
   // Multi-tier network config resolution for the current machine:
   // 1. Mission config (if on a mission-generated machine)
   // 2. Home network config (if on a home network machine)
@@ -272,7 +283,7 @@ export const NetworkProvider = ({
       const homeBase: MachineNetworkConfig = {
         interfaces: localhostHomeInterfaces,
         machines: [...visibleMachines, ...occupantMachines, ...worldRouterViews],
-        dnsRecords: [...(sampleConfig?.dnsRecords ?? []), ...occupantDns],
+        dnsRecords: [...(sampleConfig?.dnsRecords ?? []), ...occupantDns, ...worldExternalDns],
       };
 
       // If mission is active, also make mission router visible from localhost
@@ -319,7 +330,7 @@ export const NetworkProvider = ({
       return {
         interfaces: localhostDisconnectedInterfaces,
         machines: [routerRemote, ...worldRouterViews],
-        dnsRecords: externalDns,
+        dnsRecords: [...externalDns, ...worldExternalDns],
       };
     }
 
@@ -336,6 +347,7 @@ export const NetworkProvider = ({
     homeNetwork,
     localhostHomeInterfaces,
     worldRouterViews,
+    worldExternalDns,
     lanOccupants,
   ]);
 

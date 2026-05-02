@@ -12,6 +12,7 @@ import {
   applyDynamicOverrides,
   buildMergedRouterView,
   buildRouterRemoteView,
+  buildWorldExternalDnsRecords,
   collectGatewayIps,
   collectWorldGatewayIps,
   buildGatewayAliasMap,
@@ -1065,5 +1066,49 @@ describe('findMachineInWorldNetworks', () => {
     });
 
     expect(findMachineInWorldNetworks('203.0.113.43', [a, b])?.hostname).toBe('b-gw');
+  });
+});
+
+describe('buildWorldExternalDnsRecords', () => {
+  it('returns an empty array when no world networks supplied', () => {
+    expect(buildWorldExternalDnsRecords([])).toEqual([]);
+  });
+
+  it('emits one A record per world network — hostname → public IP', () => {
+    const a = createWorldNetwork({
+      routerMachine: createGeneratedMachine({ ip: '203.0.113.42', hostname: 'findit.io' }),
+    });
+    const b = createWorldNetwork({
+      routerMachine: createGeneratedMachine({ ip: '203.0.113.43', hostname: 'techparts.io' }),
+    });
+
+    expect(buildWorldExternalDnsRecords([a, b])).toEqual([
+      { domain: 'findit.io', ip: '203.0.113.42', type: 'A' },
+      { domain: 'techparts.io', ip: '203.0.113.43', type: 'A' },
+    ]);
+  });
+
+  it('preserves input order so themed-UX sorting upstream stays deterministic', () => {
+    const ordered = ['203.0.113.50', '203.0.113.10', '203.0.113.30'].map((ip, i) =>
+      createWorldNetwork({
+        routerMachine: createGeneratedMachine({ ip, hostname: `host${i}.io` }),
+      }),
+    );
+
+    const result = buildWorldExternalDnsRecords(ordered);
+
+    expect(result.map((r) => r.ip)).toEqual(['203.0.113.50', '203.0.113.10', '203.0.113.30']);
+  });
+
+  it('uses the hostname as the full domain — no TLD synthesis', () => {
+    // Themed-network generators are expected to put the full public
+    // domain (with TLD) into routerMachine.hostname directly.
+    const wn = createWorldNetwork({
+      routerMachine: createGeneratedMachine({ ip: '203.0.113.42', hostname: 'findit.io' }),
+    });
+
+    const [record] = buildWorldExternalDnsRecords([wn]);
+
+    expect(record?.domain).toBe('findit.io');
   });
 });
