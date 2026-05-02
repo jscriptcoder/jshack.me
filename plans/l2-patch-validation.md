@@ -5,6 +5,18 @@
 
 > This work is exploratory. The user may abandon the L2 attempt at any step if scope balloons, determinism doesn't hold, or the cost outweighs the benefit pre-launch. If abandoned, the entire branch is reverted and project memory is unchanged. **No memory entries should be updated until the user explicitly confirms the attempt has succeeded and is being kept.**
 
+## Deferred follow-up — full L2 for mission machines
+
+When this attempt ships, capture as memory: **mission machines remain leaf-only (permissive fallback for unpatched paths) until server-side `mission_instances` lands.** Today, mission state lives client-side only — the seed isn't stored server-side, so the L2 walker can't regenerate a mission's base FS to populate `machine_filesystems`. Home networks and world networks store the seed server-side and CAN be base-FS-backfilled (Step 7's modest extension below).
+
+The full closure work after L2 ships:
+
+1. Build server-side `mission_instances` (decided 2026-04-23 in `project_multiplayer_mission_instances` memory; not yet implemented).
+2. Hook FS-generation into mission instance creation, mirroring the home-network and world-network backfill from Step 7.
+3. One-time migration to populate `machine_filesystems` for existing mission instances once they're persisted server-side.
+
+Estimated 2–4 weeks beyond L2 ship; properly belongs to the multiplayer-mission-instances chunk, not the L2 plan.
+
 ## Goal
 
 Close within-session privilege escalation in multiplayer by checking, server-side, that the active session's credentials actually have permission for the requested filesystem mutation on the target machine — completing the security posture started by L1 (PR #78).
