@@ -43,6 +43,7 @@ import {
   planDirectoryCreation,
   type FileSystemsState,
 } from './fileSystemUtils';
+import { canRead as canReadPerms, canWrite as canWritePerms } from './permissionWalker';
 
 type FileSystemContextValue = {
   readonly fileSystem: FileNode;
@@ -607,8 +608,12 @@ export const FileSystemProvider = ({
       if (!traversal.allowed) return { allowed: false, error: `Permission denied: ${path}` };
       const node = getNodeAtPath(fs, resolvedPath);
       if (!node) return { allowed: false, error: `No such file or directory: ${path}` };
-      if (!node.permissions.read.includes(userType))
-        return { allowed: false, error: `Permission denied: ${path}` };
+      // Leaf check delegated to the shared L2 walker. parentChain is empty
+      // here because checkTraversal above already validated the chain;
+      // server-side L2 will populate parentChain from machine_filesystems
+      // rows since it doesn't have a tree to walk.
+      const leaf = canReadPerms({ userType, target: node.permissions, parentChain: [] });
+      if (!leaf.allowed) return { allowed: false, error: `Permission denied: ${path}` };
       return { allowed: true };
     },
     [fileSystems],
@@ -623,8 +628,8 @@ export const FileSystemProvider = ({
       if (!traversal.allowed) return { allowed: false, error: `Permission denied: ${path}` };
       const node = getNodeAtPath(fs, resolvedPath);
       if (!node) return { allowed: false, error: `No such file or directory: ${path}` };
-      if (!node.permissions.write.includes(userType))
-        return { allowed: false, error: `Permission denied: ${path}` };
+      const leaf = canWritePerms({ userType, target: node.permissions, parentChain: [] });
+      if (!leaf.allowed) return { allowed: false, error: `Permission denied: ${path}` };
       return { allowed: true };
     },
     [fileSystems],
