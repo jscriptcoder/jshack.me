@@ -43,6 +43,7 @@ describe('generateWorldNetworks', () => {
         name: 'Playground',
         description: null,
         theme: 'playground',
+        search_metadata: null,
       },
       {
         public_ip: '203.0.113.43',
@@ -50,6 +51,7 @@ describe('generateWorldNetworks', () => {
         name: 'Office',
         description: null,
         theme: 'office',
+        search_metadata: null,
       },
     ];
 
@@ -79,8 +81,16 @@ describe('generateWorldNetworks', () => {
         name: 'A',
         description: null,
         theme: 'playground',
+        search_metadata: null,
       },
-      { public_ip: '203.0.113.43', seed: 's2', name: 'B', description: null, theme: 'office' },
+      {
+        public_ip: '203.0.113.43',
+        seed: 's2',
+        name: 'B',
+        description: null,
+        theme: 'office',
+        search_metadata: null,
+      },
     ];
 
     const result = await generateWorldNetworks(rows, generator);
@@ -110,9 +120,30 @@ describe('generateWorldNetworks', () => {
       )
       .mockResolvedValueOnce(c);
     const rows: WorldNetwork[] = [
-      { public_ip: '203.0.113.10', seed: 's1', name: 'A', description: null, theme: 'playground' },
-      { public_ip: '203.0.113.11', seed: 's2', name: 'B', description: null, theme: 'playground' },
-      { public_ip: '203.0.113.12', seed: 's3', name: 'C', description: null, theme: 'playground' },
+      {
+        public_ip: '203.0.113.10',
+        seed: 's1',
+        name: 'A',
+        description: null,
+        theme: 'playground',
+        search_metadata: null,
+      },
+      {
+        public_ip: '203.0.113.11',
+        seed: 's2',
+        name: 'B',
+        description: null,
+        theme: 'playground',
+        search_metadata: null,
+      },
+      {
+        public_ip: '203.0.113.12',
+        seed: 's3',
+        name: 'C',
+        description: null,
+        theme: 'playground',
+        search_metadata: null,
+      },
     ];
 
     const promise = generateWorldNetworks(rows, generator);

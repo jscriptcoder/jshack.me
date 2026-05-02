@@ -17,6 +17,7 @@ const seedRows: WorldNetwork[] = [
     name: 'Playground',
     description: 'Shared playground for multiplayer smoke tests.',
     theme: 'playground',
+    search_metadata: null,
   },
 ];
 
@@ -55,14 +56,64 @@ describe('listWorldNetworks', () => {
     expect(result[0]?.theme).toBe('playground');
   });
 
-  it('queries the world_networks table with the expected field projection (includes theme)', async () => {
+  it('queries the world_networks table with the expected field projection (includes theme + search_metadata)', async () => {
     const { client, selectSpy } = makeSupabaseMock({ data: [], error: null });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await listWorldNetworks(client as any);
 
     expect(client.from).toHaveBeenCalledWith('world_networks');
-    expect(selectSpy).toHaveBeenCalledWith('public_ip, seed, name, description, theme');
+    expect(selectSpy).toHaveBeenCalledWith(
+      'public_ip, seed, name, description, theme, search_metadata',
+    );
+  });
+
+  it('passes through rows whose search_metadata is populated', async () => {
+    const indexedRow: WorldNetwork = {
+      public_ip: '203.0.113.43',
+      seed: 'findit-basic',
+      name: 'findit.io',
+      description: 'Search engine.',
+      theme: 'search-engine',
+      search_metadata: {
+        title: 'findit.io',
+        description: 'Search the web.',
+        keywords: ['search', 'find', 'engine'],
+      },
+    };
+    const { client } = makeSupabaseMock({ data: [indexedRow], error: null });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await listWorldNetworks(client as any);
+
+    expect(result).toEqual([indexedRow]);
+    expect(result[0]?.search_metadata?.keywords).toContain('search');
+  });
+
+  it('drops rows whose search_metadata fails schema validation', async () => {
+    const malformed = {
+      public_ip: '203.0.113.44',
+      seed: 'bad-seed',
+      name: 'Bad',
+      description: null,
+      theme: 'search-engine',
+      // Missing required title/description/keywords
+      search_metadata: { keywords: 'not an array' },
+    };
+    const { client } = makeSupabaseMock({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      data: [malformed as any],
+      error: null,
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await listWorldNetworks(client as any);
+
+    expect(result).toEqual([]);
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[worldNetworks] dropping malformed row:'),
+      expect.anything(),
+    );
   });
 
   it('returns [] when getRealtimeClient returns null (env vars missing)', async () => {

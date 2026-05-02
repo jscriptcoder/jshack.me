@@ -57,6 +57,7 @@ const buildRow = (overrides: Partial<WorldNetwork> = {}): WorldNetwork => ({
   name: 'Test',
   description: null,
   theme: 'playground',
+  search_metadata: null,
   ...overrides,
 });
 
