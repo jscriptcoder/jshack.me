@@ -41,6 +41,7 @@ Start with `help` to see available commands. Good luck, hacker.
 - **Session Persistence** - Your location and files are saved; return where you left off after refresh
 - **SEO & Social Sharing** - Open Graph and Twitter Card meta tags for rich link previews
 - **Anti-Cheat** - Filesystem content and secrets encoded at build time; flags and passwords can't be found by searching the JS bundle
+- **Server-Side Patch Validation (L1 + L2)** - Every filesystem mutation is gated by two layers on the server. **L1**: the active session must exist on the target machine for the player's verified Ed25519 key. **L2**: the session's verified `userType` must have permission to write the path, checked against a server-stored projection of the FS in `machine_filesystems`. A guest session can't overwrite root-owned files even with a forged client. Walker code is shared between client and server so allow/deny decisions are byte-identical by construction
 - **Color Themes** - 4 persistent terminal themes (amber, green, cyan, light) via `theme()` command
 - **Retro CRT Theme** - Classic amber-on-black terminal aesthetic (default)
 

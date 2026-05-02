@@ -8,16 +8,16 @@ See `docs/technology-choices.md` (Authenticated requests + Backend) and the `pro
 
 ## Files
 
-| File                    | Description                                                                                                                                           |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `types.ts`              | zod schemas (createSession / endSession / listSessions, action-discriminated), `SESSION_KINDS` enum, `SessionRow`, `SessionSummary`.                  |
-| `handler.ts`            | Single endpoint with action-dispatch: verify → rate-limit → branch into create/end/list. server-stamps `player_key` and defaults `kind: 'ssh'`.       |
-| `supabaseInsert.ts`     | `INSERT INTO sessions ... RETURNING session_id` adapter (kind included in the row).                                                                   |
-| `supabaseUpdate.ts`     | `UPDATE sessions SET ended_at = NOW(), end_reason = ...` with WHERE filter, plus app-level cascade-end recursion.                                     |
-| `supabaseSelect.ts`     | `SELECT ... WHERE player_key = ... AND ended_at IS NULL ORDER BY created_at ASC` adapter for listSessions; returns kind in each row.                  |
-| `supabaseFindActive.ts` | `SELECT 1 FROM sessions WHERE player_key=me AND machine_id=X AND ended_at IS NULL LIMIT 1` — the L1 patch-validation gate's existence check (PR #78). |
-| `client.ts`             | Browser-side `createSession` / `endSession` / `listSessions` wrappers — sign envelope, POST, parse response.                                          |
-| `*.test.ts`             | Unit tests for each module.                                                                                                                           |
+| File                    | Description                                                                                                                                                                                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `types.ts`              | zod schemas (createSession / endSession / listSessions, action-discriminated), `SESSION_KINDS` enum, `SessionRow`, `SessionSummary`.                                                                                                             |
+| `handler.ts`            | Single endpoint with action-dispatch: verify → rate-limit → branch into create/end/list. server-stamps `player_key` and defaults `kind: 'ssh'`.                                                                                                  |
+| `supabaseInsert.ts`     | `INSERT INTO sessions ... RETURNING session_id` adapter (kind included in the row).                                                                                                                                                              |
+| `supabaseUpdate.ts`     | `UPDATE sessions SET ended_at = NOW(), end_reason = ...` with WHERE filter, plus app-level cascade-end recursion.                                                                                                                                |
+| `supabaseSelect.ts`     | `SELECT ... WHERE player_key = ... AND ended_at IS NULL ORDER BY created_at ASC` adapter for listSessions; returns kind in each row.                                                                                                             |
+| `supabaseFindActive.ts` | `SELECT session_id, credentials FROM sessions WHERE player_key=me AND machine_id=X AND ended_at IS NULL LIMIT 1` — feeds both L1 (existence) and L2 (verified credentials → walker). Strict zod parse on the JSONB; mis-shapen rows fail closed. |
+| `client.ts`             | Browser-side `createSession` / `endSession` / `listSessions` wrappers — sign envelope, POST, parse response.                                                                                                                                     |
+| `*.test.ts`             | Unit tests for each module.                                                                                                                                                                                                                      |
 
 ## Action dispatch (`handler.ts`)
 
