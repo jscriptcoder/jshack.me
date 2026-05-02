@@ -41,12 +41,12 @@ Behaviour-driven, observable from the wire / from the player's perspective. Ever
 
 ## Risks and Exit Ramps
 
-| Risk | Mitigation | Exit ramp if it bites |
-| --- | --- | --- |
-| Determinism mismatch (FS generator differs Node vs browser) | Step 1 gate: 1k-seed cross-check before any other code lands. | Drop to **L2-leaf** (3–4 weeks): full table + dual-write, but only check leaf-file owner+perms. Skip parent-chain walk. |
-| Permission walker drifts client vs server | Single shared module both sides import. Watch bundle size. | Drop to **L2-narrow** (1–2 weeks): hardcode checks on `/etc/passwd`, `/etc/shadow`, `/root/*`, `/boot/*`. No walker, no shared module. |
-| 50–100 existing tests break (they simulate remote-machine patches with no matching session credentials) | Update test factories to stamp matching credentials. Address in waves per step. | None — this is unavoidable cleanup. |
-| Backfill misses edge cases on live machines (nulls, malformed permissions) | Idempotent script + dry-run mode + small-batch staging run before prod. | Re-run with stricter validation. |
+| Risk                                                                                                    | Mitigation                                                                      | Exit ramp if it bites                                                                                                                  |
+| ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Determinism mismatch (FS generator differs Node vs browser)                                             | Step 1 gate: 1k-seed cross-check before any other code lands.                   | Drop to **L2-leaf** (3–4 weeks): full table + dual-write, but only check leaf-file owner+perms. Skip parent-chain walk.                |
+| Permission walker drifts client vs server                                                               | Single shared module both sides import. Watch bundle size.                      | Drop to **L2-narrow** (1–2 weeks): hardcode checks on `/etc/passwd`, `/etc/shadow`, `/root/*`, `/boot/*`. No walker, no shared module. |
+| 50–100 existing tests break (they simulate remote-machine patches with no matching session credentials) | Update test factories to stamp matching credentials. Address in waves per step. | None — this is unavoidable cleanup.                                                                                                    |
+| Backfill misses edge cases on live machines (nulls, malformed permissions)                              | Idempotent script + dry-run mode + small-batch staging run before prod.         | Re-run with stricter validation.                                                                                                       |
 
 If at any step the work balloons beyond estimate, **stop and re-evaluate** with the user. The exit ramps above are pre-approved fallbacks; do not silently expand scope. Abandoning the attempt entirely (revert the branch, return to L1-only) is also a valid outcome at any decision point — this is an attempt, not a commitment.
 
@@ -54,17 +54,17 @@ If at any step the work balloons beyond estimate, **stop and re-evaluate** with 
 
 The plan-only PR (this file) is **PR 0**. Implementation lands in 8 follow-up PRs on the same branch, each independently reviewable and revertable.
 
-| # | Title | Step |
-| --- | --- | --- |
-| 0 | `plan: L2 patch validation` | This file |
-| 1 | `chore(security): determinism cross-check for FS generator` | Step 1 |
-| 2 | `feat(security): machine_filesystems schema + RLS` | Step 2 |
-| 3 | `feat(security): dual-write patches → machine_filesystems` | Step 3 |
-| 4 | `feat(security): shared FS permission walker` | Step 4 |
-| 5 | `feat(security): stamp verified credentials on session create` | Step 5 |
-| 6 | `feat(security): wire L2 permission walk in handler` | Step 6 |
-| 7 | `chore(security): backfill machine_filesystems for live data` | Step 7 |
-| 8 | `docs(security): L2 architecture + tech-choices update` | Step 8 |
+| #   | Title                                                          | Step      |
+| --- | -------------------------------------------------------------- | --------- |
+| 0   | `plan: L2 patch validation`                                    | This file |
+| 1   | `chore(security): determinism cross-check for FS generator`    | Step 1    |
+| 2   | `feat(security): machine_filesystems schema + RLS`             | Step 2    |
+| 3   | `feat(security): dual-write patches → machine_filesystems`     | Step 3    |
+| 4   | `feat(security): shared FS permission walker`                  | Step 4    |
+| 5   | `feat(security): stamp verified credentials on session create` | Step 5    |
+| 6   | `feat(security): wire L2 permission walk in handler`           | Step 6    |
+| 7   | `chore(security): backfill machine_filesystems for live data`  | Step 7    |
+| 8   | `docs(security): L2 architecture + tech-choices update`        | Step 8    |
 
 ## Steps
 
@@ -97,6 +97,7 @@ This is a **gate**, not a feature. If determinism doesn't hold, Pattern A is at 
 ### Step 2: `machine_filesystems` schema + migration + RLS
 
 **RED**: An integration test (real Supabase via the project's existing test fixtures) that:
+
 - Asserts the `machine_filesystems` table exists with the expected columns and PK.
 - Asserts that an attempt to `INSERT` from an anon-keyed client is rejected by RLS.
 - Asserts that an attempt to `SELECT` from anon is rejected (server-only table).
@@ -141,6 +142,7 @@ ALTER TABLE machine_filesystems ENABLE ROW LEVEL SECURITY;
 ### Step 3: Dual-write `patches` → `machine_filesystems`
 
 **RED**: Integration tests against a real Supabase test instance:
+
 - A successful `upsertPatch` results in a row in `machine_filesystems` with matching `(machine_id, path, owner, permissions, node_type, content)`. Subsequent `upsertPatch` on the same path replaces the row.
 - A successful `removePatch` for an exact path removes the matching `machine_filesystems` row.
 - A `removePatch` with a path-prefix cascade (e.g. `rm -rf /foo`) removes all `machine_filesystems` rows under `/foo/`.
@@ -166,6 +168,7 @@ ALTER TABLE machine_filesystems ENABLE ROW LEVEL SECURITY;
 ### Step 4: Shared FS permission walker
 
 **RED**: Property-style tests for a single shared `walkPermission(node, parentChain, requester)` function. Cases include:
+
 - Owner read/write/execute matches `permissions.owner` bits.
 - Group membership matches `permissions.group` bits.
 - Other falls back to `permissions.other` bits.
@@ -194,11 +197,13 @@ The test corpus is generated from the existing client-side fixtures so client an
 ### Step 5: Stamp verified credentials on session create
 
 **RED**: An integration test that creates a session via the existing flow (login / `su` / exploit) and asserts:
+
 - The persisted session row contains the resolved `uid` (numeric) and `groups` (array) for that user on that machine, derived from `/etc/passwd` + `/etc/group` at session creation time.
 - A subsequent `su` session inherits the new uid/groups, not the parent's.
 - Reading the session back via `findActiveSession` returns the credentials in a typed shape consumable by the L2 walker.
 
-**GREEN**: 
+**GREEN**:
+
 - Migration: add `uid INTEGER NOT NULL`, `groups TEXT[] NOT NULL DEFAULT '{}'` to `sessions`.
 - Modify session-create paths to resolve uid/groups from `/etc/passwd` / `/etc/group` at creation. (These are server-side reads against `machine_filesystems` once Step 3 has landed — explicit dependency.)
 - Update `findActiveSession` return shape and consumers.
@@ -220,12 +225,14 @@ The test corpus is generated from the existing client-side fixtures so client an
 ### Step 6: Wire L2 permission walk in handler
 
 **RED**: Handler-level tests against a real Supabase test instance:
+
 - Guest session on remote machine attempts to write to `/etc/shadow` → 403 `permission_denied`. No row in `patches` or `machine_filesystems`. Audit log entry written.
 - Root session on same remote machine writes to `/etc/shadow` → success. Rows in both tables.
 - Player writes to their own workstation as guest → success (own-box bypass; L2 skipped).
 - Walker rejection vs. session rejection are distinguishable in the response (`reason` field).
 
 **GREEN**: Insert L2 check in `src/patchRegistry/handler.ts` immediately after `requireActiveSession` returns. The check:
+
 1. Looks up the target node in `machine_filesystems` (path + parent chain).
 2. Calls `walkPermission(...)` with the verified credentials from the session.
 3. On deny: returns 403 with `reason: 'permission_denied'`, writes audit log, no DB mutation.
@@ -249,6 +256,7 @@ The test corpus is generated from the existing client-side fixtures so client an
 ### Step 7: Backfill `machine_filesystems` for live data
 
 **RED**: An integration test that runs the backfill script against a fixture DB containing:
+
 - Patches on a normal mission machine → `machine_filesystems` rows match exactly.
 - Patches on a player's own workstation → no rows written (own-box bypass).
 - Re-running the script is idempotent (no duplicates, no diffs).
