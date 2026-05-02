@@ -42,6 +42,7 @@ import { useSession } from '../session/SessionContext';
 import { getGameTime } from '../session/gameTime';
 import { useNetwork } from '../network';
 import { useFileSystem } from '../filesystem';
+import { isOwnWorkstation } from '../homeNetworks/homeNetworkHelpers';
 import { getDatabase } from '../utils/storageCache';
 import { appendToMachineLog } from '../logging/appendToMachineLog';
 import { formatSuSuccess, formatSuFailed } from '../logging/formatters';
@@ -90,6 +91,7 @@ export const useCommands = (): UseCommandsResult => {
     markMachineBricked,
     isMachineBricked,
     wifiConnected,
+    hostname,
   } = useSession();
   const { findMachineUsers, getMachine: getMachineInfo } = useNetwork();
   const {
@@ -115,10 +117,12 @@ export const useCommands = (): UseCommandsResult => {
   } = useMission();
 
   const getUsers = useCallback((): readonly string[] => {
-    if (session.machine === 'localhost') {
-      // Parse usernames from /etc/passwd on the localhost filesystem
+    if (isOwnWorkstation(session.machine, hostname)) {
+      // Parse usernames from /etc/passwd on the player's own workstation
+      // filesystem. machineId is the workstation_id (= hostname); the
+      // legacy `'localhost'` literal is no longer a valid storage key.
       const passwdContent = readFileFromMachine({
-        machineId: 'localhost',
+        machineId: hostname,
         path: '/etc/passwd',
         cwd: '/',
         userType: 'root',
@@ -132,7 +136,7 @@ export const useCommands = (): UseCommandsResult => {
       return ['root', session.username, 'guest'];
     }
     return findMachineUsers(session.machine).map((u) => u.username);
-  }, [session.machine, session.username, findMachineUsers, readFileFromMachine]);
+  }, [session.machine, session.username, hostname, findMachineUsers, readFileFromMachine]);
 
   return useMemo(() => {
     // Circular dependency workaround: node(path) needs the full execution context
@@ -152,7 +156,7 @@ export const useCommands = (): UseCommandsResult => {
       'reset',
       createResetCommand({
         getDatabase,
-        clearOwnedPatches: () => clearOwnedPatchesOnServer(getIdentity()),
+        clearOwnedPatches: () => clearOwnedPatchesOnServer(getIdentity(), hostname),
       }),
     );
     commands.set(
@@ -249,6 +253,7 @@ export const useCommands = (): UseCommandsResult => {
       createAptCommand({
         getMachine: () => session.machine,
         getCurrentMachine: () => getMachineInfo(session.machine),
+        getOwnHostname: () => hostname,
         getNode,
         readFile: (path: string) => readFile(path, 'root'),
         createFile,
@@ -435,6 +440,7 @@ export const useCommands = (): UseCommandsResult => {
     session.hostname,
     session.currentPath,
     session.theme,
+    hostname,
     setTheme,
     resolvePath,
     getNode,

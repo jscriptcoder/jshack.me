@@ -139,11 +139,12 @@ describe('existing schema arms still parse (regression)', () => {
     ).not.toThrow();
   });
 
-  it('parses clearOwnedPatches', () => {
+  it('parses clearOwnedPatches with workstation_id', () => {
     expect(() =>
       patchesSignedPayloadSchema.parse({
         action: 'clearOwnedPatches',
         ...baseEnvelope,
+        workstation_id: 'skylab-aabbccdd',
       }),
     ).not.toThrow();
   });

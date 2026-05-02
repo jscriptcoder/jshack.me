@@ -1,7 +1,7 @@
 # Plan: Eliminate `'localhost'` as a machine_id
 
-**Branch**: `plan/eliminate-localhost-machine-id` (plan only; implementation branch will be separate)
-**Status**: Draft (awaiting approval)
+**Branch**: `plan/eliminate-localhost-machine-id`
+**Status**: Approved — implementing as a single PR (no migration needed; Phases 2 & 3 folded together)
 
 ## Problem
 
@@ -17,7 +17,7 @@ The asymmetry exists at every layer:
 - `patches` table — A writes rows keyed `192.168.90.195`, B reads rows keyed `localhost`. Two disjoint rowsets.
 - `home_network_occupants` — works correctly (already keyed by network_id + lan_ip).
 - `sessions` table — same per-player private semantics as patches.
-- The `WHERE machine_id <> 'localhost' OR player_key = me` filter at `api/patches.ts:142` only exists *because* localhost was a magic shared literal — it stops cross-player reads from leaking neighbors' localhost mutations.
+- The `WHERE machine_id <> 'localhost' OR player_key = me` filter at `api/patches.ts:142` only exists _because_ localhost was a magic shared literal — it stops cross-player reads from leaking neighbors' localhost mutations.
 
 ## Goal
 
@@ -26,29 +26,37 @@ Stop using the literal `'localhost'` as a machine_id anywhere in storage. Each w
 - Is the same across sessions (survives reload, reset of in-game state, WiFi disconnect/reconnect).
 - Is unique per player (so two browsers on the same LAN don't collide).
 - Is the same value regardless of which home network the player is currently on.
-- Is what *both* the player AND any other player on the LAN agree to use when storing/reading patches and sessions for that workstation.
+- Is what _both_ the player AND any other player on the LAN agree to use when storing/reading patches and sessions for that workstation.
 
 The `'localhost'` literal stays as a **UI/CLI affordance** (terminal prompt, `ssh localhost`, etc.) — it just resolves to the workstation_id internally.
 
 ## Model
 
-**Workstation machine_id = `ws-${first-12-hex(player_key)}`** (e.g., `ws-aabbccddee01`).
+**Workstation machine_id = the player's hostname.**
 
-- Identity-derived → stable per player, no DB allocation needed.
-- 12 hex chars = 48 bits of pubkey entropy → collision probability vanishing.
-- `ws-` prefix makes the format easy to grep, distinct from IP addresses.
-- Independent of WiFi state, home network membership, or anything else that changes mid-session.
+```
+machine_id = `${workstation_name}-${first-8-hex(player_key)}`
+```
+
+E.g., `skylab-aabbccdd`. Same value used everywhere — patches table, sessions table, Realtime channels, occupant rows, nmap output, /etc/hostname, ssh banner.
+
+- Identity-derived (suffix is `first-8-hex(sha256(player_key))`) → stable per player.
+- 8 hex chars = 32 bits of suffix entropy → ~65k players sharing the SAME workstation_name before 50% birthday collision. Plenty for any realistic player base; can lengthen later under no-backward-compat if needed.
+- Globally unique under the existing UNIQUE(network_id, hostname) constraint (which still catches the ultra-rare collision case at LAN-join time).
+- Available pre-WiFi (workstation_name + identity are both set at intro screen).
+- Independent of WiFi state, home network membership.
+- The occupant row already stores this as `hostname`, so cross-player addressing needs no schema additions.
 
 **Other-player addressing:** When A nmaps B's workstation at `${subnet}${B.lan_ip}`:
 
-1. A's `NetworkContext` already exposes B as an `OccupantMachine` (per PR #93's `lanOccupants` flow).
-2. The occupant entry carries `player_key`. A's client derives `ws-${first-12-hex(player_key)}` to get B's canonical machine_id.
-3. Any side-effect write A's command performs on the target (log appends, file writes via exploit, etc.) goes through `appendToMachineLog(workstationIdFor(targetIp), ...)` — the helper looks up the IP in lanOccupants and translates.
-4. Patches land in DB rows keyed `('ws-bbcc...', ...)`. B subscribed to `patches:ws-bbcc...` (their own workstation). Hint fires, B refetches, sees A's write. Symmetry restored.
+1. A's `NetworkContext` exposes B as an `OccupantMachine` (per PR #93's `lanOccupants` flow).
+2. The occupant entry carries `hostname` (= B's workstation_id) directly. No derivation needed.
+3. Any side-effect write A's command performs on the target goes through `appendToMachineLog(targetMachineIdFor(targetIp, lanOccupants, ownWorkstationId), ...)`. Helper logic: if `targetIp` matches an occupant's LAN IP, return `occupant.hostname`; else return `targetIp` verbatim.
+4. Patches land in DB rows keyed `('skylab-aabbccdd', ...)`. B subscribed to `patches:skylab-aabbccdd` (their own workstation). Hint fires, B refetches, sees A's write. Symmetry restored.
 
-**Loopback CLI affordance:** `ssh localhost`, `ping localhost`, `nc -l 127.0.0.1 ...` all keep working. The string `'localhost'` (and `'127.0.0.1'`) stays a recognized loopback alias in command parsers, but resolves to the workstation_id internally for any storage operation. No user-visible change.
+**Loopback CLI affordance:** `ssh localhost`, `ping localhost`, `nc -l 127.0.0.1 ...` all keep working. The strings `'localhost'` and `'127.0.0.1'` stay recognized loopback aliases in command parsers, but resolve to the workstation_id internally for any storage operation. No user-visible change.
 
-**Terminal prompt:** unchanged — keeps showing whatever it shows today (hostname-derived). This is a display-only string, not a machine_id.
+**Terminal prompt sanitized — display strips the suffix.** The prompt format `${username}@${strip-suffix(hostname)}:${cwd}$` shows `alice@skylab:~$` instead of `alice@skylab-aabbccdd:~$`. Strip regex: `/-[0-9a-f]{8}$/`. The full hostname stays visible everywhere else (nmap output, `cat /etc/hostname`, ssh banner, log lines) — that's the network identity players need to address each other.
 
 ## Threat model
 
@@ -56,22 +64,27 @@ The `WHERE machine_id <> 'localhost' OR player_key = me` filter (api/patches.ts:
 
 > Player A on the same LAN as Player B reads patches for `'localhost'` (literal) and sees B's localhost mutations because they share the literal machine_id.
 
-Under workstation_id, A and B have *different* machine_ids (`ws-aa...` vs `ws-bb...`). Cross-player reads on `ws-aa...` only return A's rows because B never wrote to that machine_id. The filter becomes structurally unnecessary — the IDs themselves are per-player private.
+Under workstation_id (= hostname), A and B have _different_ machine_ids (`alice-skylab-aabbccdd` vs `bob-rocket-bbccdd11`). Cross-player reads only return rows for the requested machine_id. The filter becomes structurally unnecessary — the IDs themselves are per-player private.
 
 Forgery / spam threats unchanged from PR #92's hint architecture.
 
 ## Acceptance criteria
 
-- [ ] New helper `workstationMachineId(identity): string` returns `ws-${first-12-hex(identity.publicKeyHex)}`. Pure, fully tested.
-- [ ] New helper `isOwnWorkstation(machineId, identity): boolean` returns true iff `machineId === workstationMachineId(identity)`.
-- [ ] `SessionContext` initializes `session.machine = workstationMachineId(identity)` instead of literal `'localhost'`. All `session.machine === 'localhost'` checks use `isOwnWorkstation()`.
-- [ ] `FileSystemContext` keys the player's own filesystem under `workstationMachineId(identity)` instead of `'localhost'`. The Realtime subscription effect *includes* the workstation_id (no longer filtered out).
+- [ ] `deriveHostnameSuffix` bumped from 4 hex to 8 hex.
+- [ ] New helper `workstationMachineId(workstationName, identity): string` returns `${workstationName}-${first-8-hex(identity.publicKeyHex)}`. Pure, fully tested.
+- [ ] New helper `isOwnWorkstation(machineId, workstationName, identity): boolean`.
+- [ ] New helper `displayPromptHostname(hostname): string` strips `-${8-hex}$` for the prompt.
+- [ ] New helper `targetMachineIdFor(targetIp, lanOccupants, ownWorkstationId): string` for cross-player side-effect routing.
+- [ ] `SessionContext` initializes `session.machine = workstationMachineId(...)` instead of literal `'localhost'`. All `session.machine === 'localhost'` checks use `isOwnWorkstation()`.
+- [ ] `FileSystemContext` keys the player's own filesystem under `workstationMachineId(...)` instead of `'localhost'`. The Realtime subscription effect _includes_ the workstation_id (no longer filtered out).
+- [ ] `MissionContext.PERSISTENT_MACHINES` becomes identity-derived.
 - [ ] `NetworkContext` resolves `'localhost'` and `'127.0.0.1'` aliases to the workstation_id when used in a command target.
-- [ ] Cross-player commands (nmap, ssh, scp, ftp, mysql, redis, hydra, msfconsole, nc, snmpset, snmpwalk, apt, ping, dig) use a `targetMachineId(targetIp, lanOccupants, workstationId)` helper that returns the canonical machine_id for storage operations: `ws-...` for occupant LAN IPs, the literal IP for everything else.
-- [ ] `clearOwnedPatches` parameterizes on the workstation_id instead of hardcoding `PERSISTENT_MACHINE_ID = 'localhost'`. Server derives it from the verified player_key.
+- [ ] Cross-player commands (nmap, ssh, scp, ftp, mysql, redis, hydra, msfconsole, nc, snmpset, snmpwalk, apt, ping, dig) use `targetMachineIdFor(...)` for log/file side-effects on remote machines.
+- [ ] Terminal prompt rendering uses `displayPromptHostname()`.
+- [ ] `clearOwnedPatches` parameterizes on the workstation_id instead of hardcoding `PERSISTENT_MACHINE_ID = 'localhost'`. Server derives it from the verified player_key + workstation_name (or accepts it as a payload field).
 - [ ] `api/patches.ts` drops the `WHERE machine_id <> 'localhost' OR player_key = me` filter — no longer load-bearing.
-- [ ] Migration: existing rows keyed `'localhost'` are dropped (per `feedback_no_backward_compat` memory — no live players).
-- [ ] All existing tests pass; new tests cover the workstation_id helper, the IP→ws-id translation, the FileSystemContext localhost-key replacement, and the cross-player smoke (A writes to B's workstation, B refetches via hint).
+- [ ] No migration needed (DB wiped pre-launch).
+- [ ] All existing tests pass; new tests cover the workstation_id helper, the IP→workstation_id translation, the FileSystemContext storage-key replacement, and the prompt sanitizer.
 
 ## Out of scope
 
@@ -83,88 +96,35 @@ Forgery / spam threats unchanged from PR #92's hint architecture.
 
 ## Phasing
 
-Three PRs, each shippable independently.
+**One PR for the whole change.** No migration step needed (DB wiped pre-launch). Phases 1+2+3 ship atomically — keeps review coherent and avoids leaving the helper as unused infrastructure on main between PRs.
 
-### Phase 1 — Workstation ID infrastructure (small, additive)
+### Implementation order within the PR
 
-Adds the helper + plumbing without changing storage keys yet. This PR is a no-op behaviorally; subsequent PRs flip the switch.
+1. **Helpers + suffix bump** — `workstationMachineId`, `isOwnWorkstation`, `displayPromptHostname`, `targetMachineIdFor`. Bump `deriveHostnameSuffix` from 4 to 8 hex.
+2. **Storage layer** — `SessionContext.tsx`, `sessionUtils.ts`, `FileSystemContext.tsx`, `MissionContext.tsx`, `NetworkContext.tsx`. Replace literal `'localhost'` machine_id with workstation_id. `PERSISTENT_MACHINE_KEYS` / `PERSISTENT_MACHINES` become identity-derived. Realtime subscription effect _includes_ the workstation_id (the localhost-leak filter is no longer needed).
+3. **Command + hook layer** — `Terminal.tsx`, `useCommands.ts`, `useNetworkCommands.ts`, `useWifiCommands.ts`, all command files. Replace `session.machine === 'localhost'` with `isOwnWorkstation(...)`. Loopback CLI aliases stay; resolve to workstation_id internally.
+4. **Cross-player target translation** — wire `targetMachineIdFor(targetIp, lanOccupants, ownWorkstationId)` into nmap and other commands that side-effect on remote machines (the `appendToMachineLog` path). This is the load-bearing fix for "A writes to B's workstation, B refetches via hint."
+5. **Prompt sanitization** — Terminal prompt rendering uses `displayPromptHostname()` to strip the suffix.
+6. **Server-side cleanup** — `api/patches.ts` drops the `WHERE machine_id <> 'localhost' OR player_key = me` filter (no longer load-bearing). `patchRegistry/supabaseDelete.ts` drops `PERSISTENT_MACHINE_ID`. `clearOwnedPatches` parameterizes on workstation_id.
+7. **Docs + memory** — `src/patchRegistry/README.md`, `src/session/README.md`, `src/homeNetworks/README.md` (mention 8-hex suffix). Update `project_multiplayer_cross_player_visibility` memory (localhost special case gone). Update `project_multiplayer_home_network_model` memory (suffix length).
 
-- New module `src/identity/workstationId.ts` exporting `workstationMachineId(identity)` + `isOwnWorkstation(machineId, identity)`.
-- `IdentityContext` (or wherever identity is resolved at the App level) exposes the workstation_id alongside the existing identity object so consumers can read it without re-deriving.
-- Tests: helper purity, stability across calls, format conformance, distinctness across identities.
+**Acceptance**: full test suite green. Two-browser smoke: A writes to B's workstation → B receives hint and refetches → cross-player log entries appear live.
 
-**Acceptance**: helper exists, is exported, has test coverage. No call site uses it yet.
+## Risks & known caveats
 
-### Phase 2 — Replace `'localhost'` machine_id with workstation_id (the meat)
+1. **`getDefaultHomePath(machineId, username)`** — used to resolve `~` for cd. Currently checks `machineId === 'localhost'` for the localhost-specific fallback. Becomes `isOwnWorkstation(machineId, ...)`. Need to confirm this doesn't break any deeper machine-path resolution.
+2. **`PERSISTENT_MACHINE_KEYS` is also referenced in mission/home transition logic** — patches for "persistent" machines survive transitions. With workstation_id replacing localhost, the set is `new Set([workstationMachineId(...)])`. Needs to be derived per-render (or memoized) since identity is in scope.
+3. **Tests using `'localhost'` literal** — many tests explicitly construct sessions or patches with `machine: 'localhost'`. We'll need to update these to use the workstation_id helper or a test fixture identity. Likely the bulk of test churn.
+4. **In-game fixture content with `localhost` strings** (`$db_host = "localhost"` in `generation/pools/credentials.ts`) — these are unrelated; they're the IN-GAME machines' generated config files. Not touched.
+5. **Router/internal IPs (`10.0.0.1`)** — unrelated; these are real IPs, not the literal `'localhost'`. Not touched.
 
-The bulk of the change. Touches:
+## Locked-in decisions
 
-- `SessionContext.tsx` (5 hardcoded `'localhost'` defaults + 1 conditional comparison).
-- `FileSystemContext.tsx` — `PERSISTENT_MACHINE_KEYS` becomes a function of identity; the Realtime subscription effect filter no longer excludes the workstation; the `fileSystems[currentMachine] ?? fileSystems['localhost']` fallback uses workstation_id.
-- `MissionContext.tsx` — `PERSISTENT_MACHINES` set becomes identity-derived.
-- `sessionUtils.ts` — `defaultSession()` uses workstation_id.
-- `NetworkContext.tsx` — `isLocalhostDisconnected` and the two localhost-conditional branches use `isOwnWorkstation()`.
-- `Terminal.tsx`, `useCommands.ts`, `useNetworkCommands.ts`, `useWifiCommands.ts` — all `session.machine === 'localhost'` checks → `isOwnWorkstation(session.machine)`.
-- All command files (`apt`, `dig`, `ftp`, `hydra`, `msfconsole`, `mysql`, `nc`, `ping`, `rediscli`, `scp`, `snmpset`, `snmpwalk`, `ssh`) — the loopback CLI alias matching is preserved, but resolution to a machine_id uses the workstation_id helper.
-- `logging/utils.ts` — display formatting unchanged; storage routing uses workstation_id.
-- New helper `targetMachineIdFor(targetIp, lanOccupants, ownWorkstationId)` for commands that write side-effects on remote machines (the appendToMachineLog path). Returns the canonical machine_id: `ws-...` if `targetIp` matches an occupant LAN IP; the literal IP otherwise.
-- nmap and other commands that write logs on the target call `appendToMachineLog(targetMachineIdFor(targetIp, ...), ...)` so cross-player writes to a workstation land under the canonical `ws-...` key.
-
-**Acceptance**: full test suite green. Two-browser smoke verifies A writes to B's workstation → B receives hint and refetches.
-
-**Migration step (one-shot SQL):**
-
-```sql
--- Wipe old localhost-keyed rows; players will rehydrate fresh with their
--- new workstation_id. Per feedback_no_backward_compat memory: no live
--- players, free to drop.
-DELETE FROM patches WHERE machine_id = 'localhost';
-DELETE FROM sessions WHERE machine_id = 'localhost';
-```
-
-(In practice this happens at any local Supabase reset; for cloud, run once before first deploy.)
-
-### Phase 3 — Server-side cleanup
-
-Drops the now-unnecessary localhost guard.
-
-- `api/patches.ts` — remove the `WHERE machine_id <> 'localhost' OR player_key = me` filter at line 142.
-- `patchRegistry/types.ts` — update the `ListPatchesForMachinesParams` doc-comment to reflect the new model.
-- `patchRegistry/supabaseDelete.ts` — `PERSISTENT_MACHINE_ID` constant goes away. `clearOwnedPatches` accepts the workstation_id from the handler.
-- `patchRegistry/handler.ts` — the `clearOwnedPatches` action passes the verified player's workstation_id as the deletion target.
-- README updates: `src/patchRegistry/README.md` (the localhost-special-case section), `src/session/README.md`.
-- Memory updates: `project_multiplayer_cross_player_visibility` (the localhost special case is gone).
-
-**Acceptance**: full test suite green. Cross-player visibility regression check: A still sees B's writes on shared mission/home machines, B doesn't see A's workstation_id rows (because they have different ws-ids).
-
-## Risks & open questions
-
-1. **Existing IndexedDB caches.** Each player's local IndexedDB cache has patches under the old `'localhost'` key. On first load post-update, those won't be replayed against the new workstation_id base. Players will see their localhost files reset to base. Per no-backward-compat: acceptable. Could add a one-shot migration in the cache layer if disruptive.
-
-2. **Mid-session state during the upgrade.** A player loaded with the old code has `session.machine = 'localhost'`; their next mutation goes to `'localhost'` keyed rows. After upgrade, the new code reads/writes `ws-...` rows. Storage doesn't merge. Per no-backward-compat: hard cutover, fine.
-
-3. **The `getDefaultHomePath(machineId, username)` call** — used to resolve `~` for cd. Currently checks `machineId === 'localhost'` for the localhost-specific fallback. Becomes `isOwnWorkstation(machineId, identity)`. Need to confirm this doesn't break any deeper machine-path resolution.
-
-4. **`PERSISTENT_MACHINE_KEYS` is also referenced in mission/home transition logic** — patches for "persistent" machines survive transitions. With workstation_id replacing localhost, the set is `new Set([workstationMachineId(identity)])`. Needs to be derived per-render (or memoized) since identity is in scope.
-
-5. **Tests using `'localhost'` literal** — many tests explicitly construct sessions or patches with `machine: 'localhost'`. Per the project's no-mocks-of-storage rule, we'll need to update these to use the workstation_id helper or a test fixture identity.
-
-6. **`'localhost'` in router/internal IPs** — the home network's router has both a `publicIp` AND an `internalIp` (e.g., `10.0.0.1`). Neither is `'localhost'`, so this is unrelated. Just confirming.
+1. **Workstation_id format**: `${workstation_name}-${first-8-hex(player_key)}`. Same as the hostname (occupant.hostname column already stores this — no schema change).
+2. **Migration**: none — DB wiped pre-launch.
+3. **Display strings**: prompt strips suffix → `${username}@${workstation_name}` (e.g. `alice@skylab:~$`). All other surfaces (nmap, /etc/hostname, ssh, logs) show the full hostname unchanged.
+4. **Phasing**: single atomic PR.
 
 ## Estimated effort
 
-- Phase 1: ~half-day (helper + tests + identity wiring).
-- Phase 2: ~1-2 days (the meat — careful per-file changes + test updates + smoke).
-- Phase 3: ~half-day (cleanup + docs + memory).
-
-Total: ~2-3 days of focused work. Each phase ships independently.
-
-## Decision points needing user input
-
-1. **Workstation_id format.** Proposed: `ws-${first-12-hex(player_key)}`. Alternatives: full pubkey hex (long), or shorter (collision risk). Or human-readable like `${workstation_name}-${hex}` for debugging at the cost of stability across name changes.
-
-2. **Migration strategy.** Proposed: SQL DELETE on existing `'localhost'` rows, no migration. Alternatives: migrate (complex, low value given no live players); or leave orphaned (free but cluttered).
-
-3. **`logging/utils.ts` display strings.** The `formatHostname(machineId)` helper currently returns `'localhost'` for the `'localhost'` machine_id. Should it now return `'localhost'` for the workstation_id, or the raw `ws-...`, or the player's hostname? Probably `'localhost'` for display continuity.
-
-4. **Phase 3 separately or fold into Phase 2.** Keeping the localhost-filter through Phase 2 means there's a brief window where the filter is dead code. Folding Phase 3 into Phase 2 ships everything atomically. Trade-off: PR size vs. atomicity.
+~1-2 days of focused work for the whole PR. The bulk is per-file edits + test fixture updates.

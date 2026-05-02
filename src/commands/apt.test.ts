@@ -31,6 +31,7 @@ const isAsyncOutput = (value: unknown): value is AsyncOutput =>
 
 type MockAptConfig = {
   readonly machine?: string;
+  readonly ownHostname?: string;
   readonly userType?: 'root' | 'user' | 'guest';
   readonly installedTools?: readonly string[];
   readonly wifiConnected?: boolean;
@@ -38,6 +39,11 @@ type MockAptConfig = {
   readonly initialFiles?: Readonly<Record<string, string>>;
   readonly gameTime?: number;
 };
+
+// Fixture workstation_id used as the default for "I'm on the player's
+// own workstation" tests. Real value is computePlayerHostname's output;
+// the synthetic suffix here is just so the format matches.
+const TEST_OWN_HOSTNAME = 'workstation-aabbccdd';
 
 type CreatedFile = {
   readonly path: string;
@@ -48,6 +54,7 @@ type CreatedFile = {
 const createMockAptContext = (config: MockAptConfig = {}) => {
   const {
     machine = '10.0.0.1',
+    ownHostname = TEST_OWN_HOSTNAME,
     userType = 'root',
     installedTools = [],
     wifiConnected = true,
@@ -65,6 +72,7 @@ const createMockAptContext = (config: MockAptConfig = {}) => {
     context: {
       getMachine: () => machine,
       getCurrentMachine: () => currentMachine,
+      getOwnHostname: () => ownHostname,
       getNode: (path: string): FileNode | null => {
         const name = path.replace('/usr/bin/', '');
         if (installedTools.includes(name)) return mkBinaryNode(name);
@@ -151,18 +159,18 @@ describe('apt command', () => {
       expect(() => apt.fn('install')).toThrow('No package name specified');
     });
 
-    it('throws network error on localhost when WiFi is not connected', () => {
+    it('throws network error on the player workstation when WiFi is not connected', () => {
       const { context } = createMockAptContext({
-        machine: 'localhost',
+        machine: TEST_OWN_HOSTNAME,
         wifiConnected: false,
       });
       const apt = createAptCommand(context);
       expect(() => apt.fn('install', 'nmap')).toThrow('network is unreachable');
     });
 
-    it('installs on localhost when WiFi is connected', () => {
+    it('installs on the player workstation when WiFi is connected', () => {
       const { context } = createMockAptContext({
-        machine: 'localhost',
+        machine: TEST_OWN_HOSTNAME,
         wifiConnected: true,
       });
       const apt = createAptCommand(context);
@@ -525,6 +533,7 @@ describe('apt command', () => {
 
       const context = {
         getMachine: () => '10.0.0.1',
+        getOwnHostname: () => TEST_OWN_HOSTNAME,
         getNode: (path: string): FileNode | null => {
           if (existingFiles.has(path)) return mkBinaryNode('passwords.txt');
           if (createdFiles.some((f) => f.path === path)) return mkBinaryNode('file');
@@ -599,10 +608,10 @@ describe('apt command', () => {
       expect(() => apt.fn('upgrade')).toThrow('are you root?');
     });
 
-    it('requires WiFi on localhost', () => {
+    it('requires WiFi on the player workstation', () => {
       const machine = mkMachine([{ port: 80, service: 'http', serviceVersion: 'Apache/2.4.49' }]);
       const { context } = createMockAptContext({
-        machine: 'localhost',
+        machine: TEST_OWN_HOSTNAME,
         wifiConnected: false,
         currentMachine: machine,
       });

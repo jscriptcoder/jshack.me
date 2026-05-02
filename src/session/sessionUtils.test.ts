@@ -208,11 +208,16 @@ describe('isValidPersistedState', () => {
 });
 
 describe('createDefaultSession', () => {
-  it('has the expected default values', () => {
-    expect(createDefaultSession('jshacker')).toEqual({
+  // The hostname argument is the player's workstation_id (= suffixed
+  // hostname). createDefaultSession uses it as session.machine and
+  // session.hostname so the storage layer keys patches under the same
+  // value the Realtime channel and home_network_occupants row use.
+  it('uses the provided hostname as session.machine and session.hostname', () => {
+    expect(createDefaultSession('jshacker', 'jshacker-aabbccdd')).toEqual({
       username: 'jshacker',
       userType: 'user',
-      machine: 'localhost',
+      machine: 'jshacker-aabbccdd',
+      hostname: 'jshacker-aabbccdd',
       currentPath: '/home/jshacker',
       theme: 'amber',
       sessionId: null,
@@ -220,7 +225,7 @@ describe('createDefaultSession', () => {
   });
 
   it('uses the provided username', () => {
-    const session = createDefaultSession('testuser');
+    const session = createDefaultSession('testuser', 'testuser-aabbccdd');
     expect(session.username).toBe('testuser');
     expect(session.currentPath).toBe('/home/testuser');
   });

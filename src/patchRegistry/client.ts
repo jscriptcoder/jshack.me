@@ -156,14 +156,23 @@ export const listPatchesForMachines = async (
 
 // ---- clearOwnedPatches ----------------------------------------------------
 
-// Wipes the player's patches on machines they own (currently localhost).
-// Cross-player patches on other players' machines persist — they're part
-// of the shared world. Fired by `reset confirm`.
+// Wipes the player's patches on the workstation they own. Cross-player
+// patches on other players' machines persist — they're part of the
+// shared world. Fired by `reset confirm`.
+//
+// `workstationId` is the player's suffixed hostname (computePlayerHostname's
+// output) — same value used as the storage key for the player's own
+// filesystem. Server cross-checks it against the verified player_key
+// (the suffix is identity-derived, so only the real owner can target
+// the right rows; a forged value DELETEs nothing).
 export const clearOwnedPatches = async (
   identity: Identity,
+  workstationId: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<void> => {
-  const envelope = signRequest(identity, 'clearOwnedPatches', {});
+  const envelope = signRequest(identity, 'clearOwnedPatches', {
+    workstation_id: workstationId,
+  });
   const response = await postEnvelope(envelope, fetchImpl);
   if (!response.ok) {
     throw new Error(`clearOwnedPatches failed with status ${response.status}`);

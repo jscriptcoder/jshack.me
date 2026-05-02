@@ -175,9 +175,9 @@ describe('IntroScreen', () => {
     fireEvent.change(screen.getByPlaceholderText('my-machine'), { target: { value: 'mybox' } });
     fireEvent.change(screen.getByPlaceholderText('hacker'), { target: { value: 'alice' } });
 
-    // Match alice@mybox-<4 hex chars> — exact suffix depends on the
+    // Match alice@mybox-<8 hex chars> — exact suffix depends on the
     // localStorage-stored identity, which is per-test and would make a
     // hard-coded assertion brittle.
-    expect(screen.getByText(/^alice@mybox-[0-9a-f]{4}$/)).toBeDefined();
+    expect(screen.getByText(/^alice@mybox-[0-9a-f]{8}$/)).toBeDefined();
   });
 });

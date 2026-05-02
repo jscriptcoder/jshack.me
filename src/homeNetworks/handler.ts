@@ -9,7 +9,7 @@ import {
 import type { RateLimiter } from '../ipRegistry/rateLimit.js';
 import { verifySignedRequest, type VerifyFailureReason } from '../signedRequest/verify.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
-import { deriveHostnameSuffix } from './deriveHostnameSuffix.js';
+import { deriveHostnameSuffix } from './homeNetworkHelpers.js';
 
 export type HandlerResponse = {
   readonly status: number;

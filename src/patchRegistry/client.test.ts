@@ -545,21 +545,28 @@ describe('listPatchesForMachines', () => {
 // -----------------------------------------------------------------------
 
 describe('clearOwnedPatches', () => {
-  it('POSTs action="clearOwnedPatches" with a valid envelope', async () => {
+  // The workstation_id is the player's suffixed hostname — sent in the
+  // signed envelope so the server scopes the DELETE correctly. Real
+  // value comes from computePlayerHostname(workstationName, identity);
+  // tests pass a static fixture.
+  const TEST_WORKSTATION_ID = 'skylab-aabbccdd';
+
+  it('POSTs action="clearOwnedPatches" with the workstation_id in the payload', async () => {
     const identity = generateIdentity();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ affected: 0 }));
 
-    await clearOwnedPatches(identity, fetchMock);
+    await clearOwnedPatches(identity, TEST_WORKSTATION_ID, fetchMock);
 
     const payload = getPayload(fetchMock);
     expect(payload.action).toBe('clearOwnedPatches');
+    expect(payload.workstation_id).toBe(TEST_WORKSTATION_ID);
   });
 
   it('signs with the provided identity', async () => {
     const identity = generateIdentity();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ affected: 0 }));
 
-    await clearOwnedPatches(identity, fetchMock);
+    await clearOwnedPatches(identity, TEST_WORKSTATION_ID, fetchMock);
 
     const env = getEnvelope(fetchMock);
     expect(env.publicKey).toBe(identity.publicKeyHex);
@@ -573,13 +580,15 @@ describe('clearOwnedPatches', () => {
     const identity = generateIdentity();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ affected: 42 }));
 
-    expect(await clearOwnedPatches(identity, fetchMock)).toBeUndefined();
+    expect(await clearOwnedPatches(identity, TEST_WORKSTATION_ID, fetchMock)).toBeUndefined();
   });
 
   it('throws on non-2xx', async () => {
     const identity = generateIdentity();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(errResponse(500));
 
-    await expect(clearOwnedPatches(identity, fetchMock)).rejects.toThrow(/500/);
+    await expect(clearOwnedPatches(identity, TEST_WORKSTATION_ID, fetchMock)).rejects.toThrow(
+      /500/,
+    );
   });
 });

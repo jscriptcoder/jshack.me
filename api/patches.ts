@@ -7,7 +7,6 @@ import { createSupabaseUpsertPatch } from '../src/patchRegistry/supabaseUpsert.j
 import {
   createSupabaseRemovePatch,
   createSupabaseClearOwnedPatches,
-  PERSISTENT_MACHINE_ID,
 } from '../src/patchRegistry/supabaseDelete.js';
 import { createSupabaseListPatchesForMachines } from '../src/patchRegistry/supabaseSelectByMachine.js';
 import { publishPatchChange as publishPatchChangeHelper } from '../src/patchRegistry/broadcast.js';
@@ -131,27 +130,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const listPatchesForMachines = createSupabaseListPatchesForMachines(
     async (params: ListPatchesForMachinesParams) => {
-      // Cross-player read for the requested machines, EXCEPT localhost.
-      // localhost is shared as a literal machine_id across all players
-      // but is conceptually each player's own workstation, so its rows
-      // get a player_key filter. Other machines (mission instances,
-      // future home-network slots) use unique IDs per player so the
-      // cross-player read is safe there.
-      //
-      //   WHERE machine_id IN (...)
-      //     AND (machine_id <> 'localhost' OR player_key = $me)
+      // Cross-player read for the requested machines, no per-player
+      // filter. Under the eliminated-localhost model every machine_id
+      // is per-player unique by construction (workstations are keyed
+      // by suffixed hostname, mission instances by IP-registry-allocated
+      // public IP, home-network LAN occupants by hostname column).
+      // The legacy `machine_id <> 'localhost' OR player_key = me` guard
+      // existed only to stop neighbors from leaking each other's
+      // localhost mutations through a shared literal machine_id; it's
+      // no longer load-bearing.
       //
       // ORDER BY updated_at ASC is load-bearing: client-side
       // `applyPatches` reduces in array order, so the latest write per
       // (machine_id, path) wins automatically.
-      //
-      // params.player_key is hex-only (Ed25519 pubkey, 64 chars), safe
-      // to inline into the .or() string without escaping.
       const { data, error } = await supabase
         .from('patches')
         .select('machine_id, path, content, owner, permissions, is_new, node_type')
         .in('machine_id', [...params.machine_ids])
-        .or(`machine_id.neq.${PERSISTENT_MACHINE_ID},player_key.eq.${params.player_key}`)
         .order('updated_at', { ascending: true });
       if (error) console.error('[patches] supabase selectByMachine error:', error);
       return { data, error };
@@ -159,15 +154,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   );
 
   const clearOwnedPatches = createSupabaseClearOwnedPatches(async (arg: ClearOwnedArg) => {
-    // .eq('machine_id', persistent_machine_id) — wipes ONLY this player's
-    // owned-machine patches (currently localhost). Cross-player patches
-    // (e.g., this player's mods on another player's machine) are part of
-    // the shared world and persist across reset, by design.
+    // Wipes ONLY this player's own workstation patches. Cross-player
+    // patches (e.g., this player's mods on another player's workstation
+    // or a mission instance) are part of the shared world and persist
+    // across reset, by design.
+    //
+    // Both filters are load-bearing: player_key alone would match this
+    // player's writes on OTHER machines (mission gateways, peers'
+    // workstations); workstation_id alone would match other players'
+    // writes on the same workstation_id (impossible in practice — the
+    // suffix is identity-derived — but the filter belt-and-braces it).
     const { data, error } = await supabase
       .from('patches')
       .delete()
       .eq('player_key', arg.player_key)
-      .eq('machine_id', arg.persistent_machine_id)
+      .eq('machine_id', arg.workstation_id)
       .select('path');
     if (error) console.error('[patches] supabase clearOwned error:', error);
     return { data, error };

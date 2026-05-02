@@ -1,9 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import {
-  createSupabaseRemovePatch,
-  createSupabaseClearOwnedPatches,
-  PERSISTENT_MACHINE_ID,
-} from './supabaseDelete';
+import { createSupabaseRemovePatch, createSupabaseClearOwnedPatches } from './supabaseDelete';
 import type { ClearPatchesParams, RemovePatchParams } from './types';
 
 const params: RemovePatchParams = {
@@ -115,23 +111,17 @@ describe('createSupabaseRemovePatch', () => {
 });
 
 // -----------------------------------------------------------------------
-// Persistent-machine literal — single source of truth for the localhost
-// filter shared between adapter and api/patches.ts wiring layer.
-// -----------------------------------------------------------------------
-
-describe('PERSISTENT_MACHINE_ID', () => {
-  it('is "localhost" — mirrors PERSISTENT_MACHINE_KEYS in FileSystemContext', () => {
-    expect(PERSISTENT_MACHINE_ID).toBe('localhost');
-  });
-});
-
-// -----------------------------------------------------------------------
-// clearOwnedPatches — DELETE WHERE player_key=me AND machine_id='localhost'
-// (the player's own-machine patches, not the shared world)
+// clearOwnedPatches — DELETE WHERE player_key=me AND
+//   machine_id=$workstation_id  (the player's own-workstation patches,
+//   not the shared world). The workstation_id arrives in the signed
+//   envelope; under the eliminated-localhost model it IS the suffixed
+//   hostname computed from the player_key, so a forged value won't
+//   match any rows owned by the verified player_key.
 // -----------------------------------------------------------------------
 
 const clearParams: ClearPatchesParams = {
   player_key: 'pubkey-hex',
+  workstation_id: 'skylab-aabbccdd',
 };
 
 describe('createSupabaseClearOwnedPatches', () => {
@@ -145,7 +135,7 @@ describe('createSupabaseClearOwnedPatches', () => {
     expect(await clear(clearParams)).toEqual({ ok: true, affected: 7 });
   });
 
-  it('returns ok: true with affected = 0 when player has no owned-machine patches', async () => {
+  it('returns ok: true with affected = 0 when player has no own-workstation patches', async () => {
     const clearOwned = vi.fn().mockResolvedValue({ data: [], error: null });
     const clear = createSupabaseClearOwnedPatches(clearOwned);
 
@@ -168,7 +158,7 @@ describe('createSupabaseClearOwnedPatches', () => {
     expect(await clear(clearParams)).toEqual({ ok: false });
   });
 
-  it('passes the localhost literal as persistent_machine_id (own-machine filter)', async () => {
+  it('passes the workstation_id verbatim as the machine_id filter', async () => {
     const clearOwned = vi.fn().mockResolvedValue({ data: [], error: null });
     const clear = createSupabaseClearOwnedPatches(clearOwned);
 
@@ -176,19 +166,22 @@ describe('createSupabaseClearOwnedPatches', () => {
 
     expect(clearOwned).toHaveBeenCalledWith({
       player_key: 'pubkey-hex',
-      persistent_machine_id: 'localhost',
+      workstation_id: 'skylab-aabbccdd',
     });
     // Pinned: cross-player patches on other machines must NOT be wiped
     // by reset — that's the whole point of scoping to owned machines.
     expect(clearOwned).toHaveBeenCalledTimes(1);
   });
 
-  it('forwards a different player_key verbatim', async () => {
+  it('forwards a different player_key + workstation_id verbatim', async () => {
     const clearOwned = vi.fn().mockResolvedValue({ data: [], error: null });
     const clear = createSupabaseClearOwnedPatches(clearOwned);
 
-    await clear({ player_key: 'another-key' });
+    await clear({ player_key: 'another-key', workstation_id: 'rocket-bbccdd11' });
 
-    expect(clearOwned).toHaveBeenCalledWith(expect.objectContaining({ player_key: 'another-key' }));
+    expect(clearOwned).toHaveBeenCalledWith({
+      player_key: 'another-key',
+      workstation_id: 'rocket-bbccdd11',
+    });
   });
 });

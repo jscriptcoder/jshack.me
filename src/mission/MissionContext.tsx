@@ -2,11 +2,7 @@ import { createContext, useContext, useEffect, useRef, type ReactNode } from 're
 import type { MissionNetwork } from '../generation/types';
 import type { MissionState } from './useMissionState';
 import { useSession } from '../session/SessionContext';
-
-// Persistent machines that exist outside of missions — used to detect if the
-// session is on a mission machine when a cross-tab mission abort arrives.
-// Only localhost persists; home network machines are dynamic per WiFi connection.
-const PERSISTENT_MACHINES = new Set(['localhost']);
+import { isOwnWorkstation } from '../homeNetworks/homeNetworkHelpers';
 
 type MissionContextValue = {
   readonly activeMission: MissionNetwork | null;
@@ -26,23 +22,34 @@ type MissionProviderProps = {
 };
 
 export const MissionProvider = ({ children, state, usedPublicIps }: MissionProviderProps) => {
-  const { session, popAllSessions } = useSession();
+  const { session, popAllSessions, hostname } = useSession();
   const prevMissionRef = useRef(state.activeMission);
   const isMissionActive = () => state.activeMission !== null;
 
-  // When a cross-tab abort clears the mission while this tab is SSH'd into a
-  // mission machine, reset the session back to localhost. Local aborts already
-  // call popAllSessions() before clearing activeMission, so the session will
-  // already be on localhost — this only triggers for remote changes.
+  // When a cross-tab abort clears the mission while this tab is SSH'd into
+  // a mission machine, reset the session back to the player's own
+  // workstation. Local aborts already call popAllSessions() before clearing
+  // activeMission, so the session will already be on the workstation —
+  // this only triggers for remote changes.
+  //
+  // The player's workstation is the only "persistent" machine outside
+  // missions; home network machines are dynamic per WiFi connection.
+  // hostname is the workstation_id (set once at App.tsx); compare via
+  // isOwnWorkstation rather than the legacy localhost literal.
   useEffect(() => {
     const wasMissionActive = prevMissionRef.current !== null;
     const isMissionNowInactive = state.activeMission === null;
     prevMissionRef.current = state.activeMission;
 
-    if (wasMissionActive && isMissionNowInactive && !PERSISTENT_MACHINES.has(session.machine)) {
+    if (
+      wasMissionActive &&
+      isMissionNowInactive &&
+      hostname !== undefined &&
+      !isOwnWorkstation(session.machine, hostname)
+    ) {
       popAllSessions();
     }
-  }, [state.activeMission, session.machine, popAllSessions]);
+  }, [state.activeMission, session.machine, popAllSessions, hostname]);
 
   return (
     <MissionContext.Provider

@@ -2,6 +2,8 @@ import { useMemo } from 'react';
 import { useNetwork } from '../network';
 import { useFileSystem } from '../filesystem';
 import { useSession } from '../session/SessionContext';
+import { useHomeNetworks } from '../game/HomeNetworksContext';
+import { isOwnWorkstation, targetMachineIdFor } from '../homeNetworks/homeNetworkHelpers';
 import { createIfconfigCommand } from '../commands/ifconfig';
 import { createPingCommand } from '../commands/ping';
 import { createNmapCommand } from '../commands/nmap';
@@ -67,11 +69,41 @@ export const useNetworkCommands = (): Map<string, Command> => {
     deleteNodeFromMachine,
     flushPendingPatches,
   } = useFileSystem();
-  const { session, wifiConnected, isMachineBricked } = useSession();
+  const { session, wifiConnected, isMachineBricked, hostname } = useSession();
+  const { activeNetwork, lanOccupants } = useHomeNetworks();
 
   return useMemo(() => {
-    const isWifiRequired = () => session.machine === 'localhost' && !wifiConnected;
-    const logFs = { readFileFromMachine, writeFileToMachine, createFileOnMachine };
+    // WiFi is required only when the player is sitting on their own
+    // workstation and not connected to a network. Once SSH'd into a
+    // remote, the network commands operate from the remote's perspective
+    // and don't need a WiFi link from the workstation.
+    const isWifiRequired = () => isOwnWorkstation(session.machine, hostname) && !wifiConnected;
+
+    // Translate a target IP into the canonical machine_id storage key
+    // before any patch/log write. For LAN occupants the IP-form
+    // (e.g., 10.0.0.42) maps to the occupant's hostname (= their
+    // workstation_id) so cross-player writes land where the target
+    // player is subscribed via patches:<workstation_id>. For mission/
+    // world/off-LAN IPs the input passes through unchanged.
+    const activeSubnet = activeNetwork?.layers[0]?.subnet ?? null;
+    const ownLanIp = activeNetwork?.localhostIp ?? null;
+    const resolveTargetMachineId = (targetIp: string): string =>
+      targetMachineIdFor(targetIp, lanOccupants, activeSubnet, ownLanIp, hostname);
+
+    // logFs auto-translates the machineId on every read/write/create so
+    // any log-writing handler (sshAuth, ftpAuth, hydraLog, etc.) that
+    // hands an IP-form machineId routes the patch under the occupant's
+    // workstation_id when applicable. Non-occupant IPs (mission, world,
+    // off-LAN) pass through unchanged. Reads MUST go through the same
+    // translation so writers and readers agree on the storage key.
+    const logFs = {
+      readFileFromMachine: (op: Parameters<typeof readFileFromMachine>[0]) =>
+        readFileFromMachine({ ...op, machineId: resolveTargetMachineId(op.machineId) }),
+      writeFileToMachine: (op: Parameters<typeof writeFileToMachine>[0]) =>
+        writeFileToMachine({ ...op, machineId: resolveTargetMachineId(op.machineId) }),
+      createFileOnMachine: (op: Parameters<typeof createFileOnMachine>[0]) =>
+        createFileOnMachine({ ...op, machineId: resolveTargetMachineId(op.machineId) }),
+    };
 
     // Phase 3 Step A: apply the /var/lib/apt/service_versions/<service> overlay
     // when reading any machine's ports. Commands (nmap, msfconsole) receive
@@ -445,17 +477,19 @@ export const useNetworkCommands = (): Map<string, Command> => {
             // Identity passthrough for direct LAN-internal exploits.
             resolveNat,
             getCurrentMachineId: () => session.machine,
-            // Localhost isn't in the remote-machines list (it's the player's
-            // workstation, generated separately via generateLocalhost), so
+            // The player's own workstation isn't in the remote-machines
+            // list (it's generated separately via generateLocalhost), so
             // we synthesize a minimal RemoteMachine for it on demand. The
             // dispatch only needs `users` to resolve shell-effect tiers.
+            // session.machine === hostname when the player is sitting on
+            // their own workstation under the eliminated-localhost model.
             getCurrentMachine: () => {
-              if (session.machine !== 'localhost') {
+              if (!isOwnWorkstation(session.machine, hostname)) {
                 return getEffectiveMachine(session.machine);
               }
               return {
-                ip: 'localhost',
-                hostname: session.hostname ?? 'localhost',
+                ip: hostname,
+                hostname: session.hostname ?? hostname,
                 ports: [],
                 users: [
                   { username: 'root', passwordHash: '', userType: 'root' },
@@ -725,6 +759,9 @@ export const useNetworkCommands = (): Map<string, Command> => {
     session.username,
     session.userType,
     session.sessionId,
+    hostname,
+    activeNetwork,
+    lanOccupants,
     wifiConnected,
     isMachineBricked,
     findMachineByIp,

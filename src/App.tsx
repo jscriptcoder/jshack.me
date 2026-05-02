@@ -11,7 +11,7 @@ import { saveGameState, clearAllData } from './utils/storage';
 import { HomeNetworksProvider, useHomeNetworks } from './game/HomeNetworksContext';
 import { generateLocalhost } from './generation/generateLocalhost';
 import { useWorldNetworks } from './worldNetworks/useWorldNetworks';
-import { computePlayerHostname } from './homeNetworks/computePlayerHostname';
+import { computePlayerHostname } from './homeNetworks/homeNetworkHelpers';
 import { getIdentity } from './identity';
 import type { GameState } from './game/types';
 import type { FileNode } from './filesystem/types';

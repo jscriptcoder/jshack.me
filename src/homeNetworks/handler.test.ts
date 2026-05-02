@@ -10,7 +10,7 @@ import { noopRateLimiter, type RateLimiter } from '../ipRegistry/rateLimit';
 import { noopNonceStore } from '../signedRequest/nonceStore';
 import { generateIdentity, type Identity } from '../identity/identity';
 import { signRequest } from '../signedRequest/sign';
-import { deriveHostnameSuffix } from './deriveHostnameSuffix';
+import { deriveHostnameSuffix } from './homeNetworkHelpers';
 
 // Real signing in tests — handler-side behavior is tightly coupled to the
 // signing flow (player_key derivation, idempotency keying), so end-to-end
@@ -338,7 +338,7 @@ describe('handleJoinHomeNetworkRequest', () => {
       const secondCall = insertOccupant2.mock.calls[0]![0];
 
       expect(firstCall.hostname).toBe(secondCall.hostname);
-      expect(firstCall.hostname).toMatch(/^skylab-[0-9a-f]{4}$/);
+      expect(firstCall.hostname).toMatch(/^skylab-[0-9a-f]{8}$/);
     });
   });
 

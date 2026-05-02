@@ -112,9 +112,6 @@ type FileSystemContextValue = {
 
 const FileSystemContext = createContext<FileSystemContextValue | null>(null);
 
-// Only localhost persists across WiFi/mission transitions
-const PERSISTENT_MACHINE_KEYS = new Set(['localhost']);
-
 // Debounce window for Realtime hint refetches. Multiple hints arriving
 // within this window coalesce into a single listPatchesForMachines
 // call covering all affected machines. Tuned for "feels live" cross-
@@ -185,9 +182,21 @@ export const FileSystemProvider = ({
   missionFileSystems,
   homeFileSystems,
 }: FileSystemProviderProps) => {
-  const { session } = useSession();
+  const { session, hostname } = useSession();
+  // The player's workstation filesystem is keyed under their workstation_id
+  // (= suffixed hostname). Same value used for storage (patches.machine_id),
+  // Realtime channel name, and the home_network_occupants.hostname column
+  // others see. The legacy 'localhost' literal is gone from storage; the
+  // localhostFileSystem PROP name is kept for now to keep this PR focused
+  // — its content is the player's workstation filesystem.
+  const workstationId = hostname;
+  // Set of machine_ids whose patches survive WiFi/mission transitions.
+  // Currently only the player's own workstation; home network and mission
+  // machines come and go with WiFi connect / mission accept. Recomputed
+  // per render because workstationId is per-player at the prop layer.
+  const persistentMachineKeys = useMemo(() => new Set([workstationId]), [workstationId]);
   const [fileSystems, setFileSystems] = useState<FileSystemsState>(() =>
-    applyPatches({ localhost: localhostFileSystem }, getCachedFilesystemPatches()),
+    applyPatches({ [workstationId]: localhostFileSystem }, getCachedFilesystemPatches()),
   );
   const [patches, setPatches] = useState<readonly FileSystemPatch[]>(getCachedFilesystemPatches);
   // True between mount and the first listPatchesForMachines resolve (success or failure).
@@ -282,18 +291,18 @@ export const FileSystemProvider = ({
     propsRef.current = { localhostFileSystem, homeFileSystems, missionFileSystems };
   }, [localhostFileSystem, homeFileSystems, missionFileSystems]);
 
-  // Stable signature of the current machine_ids set: localhost +
+  // Stable signature of the current machine_ids set: workstation +
   // homeFileSystems keys + missionFileSystems keys, deduped + sorted.
   // Used as the dep for both the rehydration fetch and the Realtime
   // subscription effects so they re-run together when the keyset
   // changes (mid-session WiFi crack, mission accept, world networks
   // resolving after mount).
   const machineIdsKey = useMemo(() => {
-    const ids = new Set<string>(['localhost']);
+    const ids = new Set<string>([workstationId]);
     if (homeFileSystems) for (const id of Object.keys(homeFileSystems)) ids.add(id);
     if (missionFileSystems) for (const id of Object.keys(missionFileSystems)) ids.add(id);
     return [...ids].sort().join(',');
-  }, [homeFileSystems, missionFileSystems]);
+  }, [homeFileSystems, missionFileSystems, workstationId]);
 
   // Tracks whether the next rehydration fetch is the very first one.
   // The localWritesSinceMount guard (which skips server-truth
@@ -343,7 +352,7 @@ export const FileSystemProvider = ({
           const db = getDatabase();
           if (db) saveFilesystemPatches(db, [...serverPatches]);
           const props = propsRef.current;
-          const base = { localhost: props.localhostFileSystem };
+          const base = { [workstationId]: props.localhostFileSystem };
           const withHome = props.homeFileSystems ? { ...base, ...props.homeFileSystems } : base;
           const merged = props.missionFileSystems
             ? { ...withHome, ...props.missionFileSystems }
@@ -367,7 +376,7 @@ export const FileSystemProvider = ({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [machineIdsKey]);
+  }, [machineIdsKey, workstationId]);
 
   // Hint-driven refetch: snapshot the pending machine_ids set, fetch
   // authoritative state for those machines via listPatchesForMachines,
@@ -382,40 +391,43 @@ export const FileSystemProvider = ({
   // forgery is harmless because the actual data fetch goes through the
   // signed /api/patches endpoint which returns server truth. See
   // project_realtime_publish_authorization memory.
-  const refetchAffectedMachines = useCallback(async (machineIds: ReadonlyArray<string>) => {
-    if (machineIds.length === 0) return;
-    let serverPatches: ReadonlyArray<FileSystemPatch>;
-    try {
-      serverPatches = await listPatchesForMachinesFromServer(getIdentity(), machineIds);
-    } catch (error) {
-      console.error('[fs] hint refetch failed:', error);
-      return;
-    }
-    const affected = new Set(machineIds);
-    setPatches((prev) => {
-      // Drop existing patches for the affected machines, splice in the
-      // server-truth rows for those machines, then replay any pending
-      // local writes (so an in-flight POST that hasn't reached the DB
-      // yet doesn't get clobbered by the cross-player refetch).
-      const others = prev.filter((p) => !affected.has(p.machineId));
-      let next: readonly FileSystemPatch[] = [...others, ...serverPatches];
-      for (const pending of pendingWritesRef.current.values()) {
-        if (affected.has(pending.machineId)) {
-          next = applyPatchToList(next, pending);
-        }
+  const refetchAffectedMachines = useCallback(
+    async (machineIds: ReadonlyArray<string>) => {
+      if (machineIds.length === 0) return;
+      let serverPatches: ReadonlyArray<FileSystemPatch>;
+      try {
+        serverPatches = await listPatchesForMachinesFromServer(getIdentity(), machineIds);
+      } catch (error) {
+        console.error('[fs] hint refetch failed:', error);
+        return;
       }
-      const props = propsRef.current;
-      const base = { localhost: props.localhostFileSystem };
-      const withHome = props.homeFileSystems ? { ...base, ...props.homeFileSystems } : base;
-      const merged = props.missionFileSystems
-        ? { ...withHome, ...props.missionFileSystems }
-        : withHome;
-      setFileSystems(applyPatches(merged, next));
-      const db = getDatabase();
-      if (db) saveFilesystemPatches(db, [...next]);
-      return next;
-    });
-  }, []);
+      const affected = new Set(machineIds);
+      setPatches((prev) => {
+        // Drop existing patches for the affected machines, splice in the
+        // server-truth rows for those machines, then replay any pending
+        // local writes (so an in-flight POST that hasn't reached the DB
+        // yet doesn't get clobbered by the cross-player refetch).
+        const others = prev.filter((p) => !affected.has(p.machineId));
+        let next: readonly FileSystemPatch[] = [...others, ...serverPatches];
+        for (const pending of pendingWritesRef.current.values()) {
+          if (affected.has(pending.machineId)) {
+            next = applyPatchToList(next, pending);
+          }
+        }
+        const props = propsRef.current;
+        const base = { [workstationId]: props.localhostFileSystem };
+        const withHome = props.homeFileSystems ? { ...base, ...props.homeFileSystems } : base;
+        const merged = props.missionFileSystems
+          ? { ...withHome, ...props.missionFileSystems }
+          : withHome;
+        setFileSystems(applyPatches(merged, next));
+        const db = getDatabase();
+        if (db) saveFilesystemPatches(db, [...next]);
+        return next;
+      });
+    },
+    [workstationId],
+  );
 
   // Identity is stable for the session; capture once and read from a
   // ref so the hint handler's identity check can't race with mid-
@@ -423,8 +435,9 @@ export const FileSystemProvider = ({
   const ownPubkeyRef = useRef<string>(getIdentity().publicKeyHex);
 
   // Realtime: subscribe to per-machine broadcast channels for every
-  // machine in the current view. Inbound events are HINTS — receivers
-  // refetch authoritative state via listPatchesForMachines instead of
+  // machine in the current view, INCLUDING the player's own
+  // workstation. Inbound events are HINTS — receivers refetch
+  // authoritative state via listPatchesForMachines instead of
   // trusting an unsignable broadcast payload.
   //
   // The keyset signature (sorted-joined string) is the dep — when home
@@ -432,13 +445,17 @@ export const FileSystemProvider = ({
   // resubscribe to the new set. Mid-session WiFi crack / mission
   // accept therefore picks up live updates without page reload.
   //
-  // Localhost is deliberately skipped: localhost patches are per-player-
-  // private (the server-side read filter at api/patches.ts enforces
-  // `machine_id <> 'localhost' OR player_key = $verified_pubkey`), but
-  // the Realtime broadcast carries no player_key filter — subscribing
-  // would leak each player's localhost change-notifications to every
-  // neighbor on the same LAN. Same-player cross-tab sync uses
-  // BroadcastChannel instead, which stays inside one browser.
+  // The workstation channel is INCLUDED here. Under the eliminated-
+  // localhost model, the player's workstation_id is unique per player,
+  // so subscribing to patches:<workstation_id> doesn't leak neighbors'
+  // changes — each player's workstation has its own channel. This is
+  // the load-bearing piece of cross-player workstation visibility:
+  // when player A nmaps player B's workstation, A's write lands as
+  // patches.machine_id=<B.workstation_id>, fires a hint on
+  // patches:<B.workstation_id>, and B (subscribed) refetches and sees
+  // it. Same-tab sync still flows through BroadcastChannel; the
+  // self-skip check below filters out our own broadcasts so we don't
+  // refetch our own keystrokes.
   //
   // Graceful degradation: getRealtimeClient() returns null when
   // VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY are missing. The app
@@ -480,7 +497,7 @@ export const FileSystemProvider = ({
       }, HINT_REFETCH_DEBOUNCE_MS);
     };
 
-    const machineIds = machineIdsKey.split(',').filter((id) => id && id !== 'localhost');
+    const machineIds = machineIdsKey.split(',').filter(Boolean);
     const unsubscribers = machineIds.map((id) => subscribeToMachine(client, id, handleHint));
 
     return () => {
@@ -515,10 +532,10 @@ export const FileSystemProvider = ({
   useEffect(() => {
     setFileSystems((prev) => {
       const staticOnly = Object.fromEntries(
-        Object.entries(prev).filter(([key]) => PERSISTENT_MACHINE_KEYS.has(key)),
+        Object.entries(prev).filter(([key]) => persistentMachineKeys.has(key)),
       );
 
-      // Layer: static (localhost) + home network + mission network
+      // Layer: static (player's workstation) + home network + mission network
       const withHome = homeFileSystems ? { ...staticOnly, ...homeFileSystems } : staticOnly;
       const merged = missionFileSystems ? { ...withHome, ...missionFileSystems } : withHome;
 
@@ -532,7 +549,7 @@ export const FileSystemProvider = ({
       if (isInitialMissionMount.current) {
         isInitialMissionMount.current = false;
         const dynamicPatches = cachedPatchesAtMount.filter(
-          (p) => !PERSISTENT_MACHINE_KEYS.has(p.machineId),
+          (p) => !persistentMachineKeys.has(p.machineId),
         );
         if (dynamicPatches.length > 0) {
           return applyPatches(merged, dynamicPatches);
@@ -541,16 +558,17 @@ export const FileSystemProvider = ({
 
       return merged;
     });
-  }, [missionFileSystems, homeFileSystems, cachedPatchesAtMount]);
+  }, [missionFileSystems, homeFileSystems, cachedPatchesAtMount, persistentMachineKeys]);
 
   // session.machine is typed as string but always holds a valid MachineId at runtime
   // (set by SSH/session logic). MachineId is currently a string alias, so no cast
   // is needed; the named type just documents the intent.
   const currentMachine: MachineId = session.machine;
   const currentPath = session.currentPath;
-  // Fallback to localhost as a safety net — in practice currentMachine always matches
-  // a key in fileSystems because SSH only connects to known machines
-  const fileSystem = fileSystems[currentMachine] ?? fileSystems['localhost'];
+  // Fallback to the player's own workstation as a safety net — in practice
+  // currentMachine always matches a key in fileSystems because SSH only
+  // connects to known machines.
+  const fileSystem = fileSystems[currentMachine] ?? fileSystems[workstationId];
 
   const resolvePathForMachine = useCallback(
     (path: string, cwd: string): string => resolvePathUtil(path, cwd),

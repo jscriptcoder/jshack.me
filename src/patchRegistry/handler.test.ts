@@ -21,6 +21,7 @@ import { noopRateLimiter } from '../ipRegistry/rateLimit';
 import { noopNonceStore, type NonceStore } from '../signedRequest/nonceStore';
 import { generateIdentity, type Identity } from '../identity/identity';
 import { signRequest } from '../signedRequest/sign';
+import { deriveHostnameSuffix } from '../homeNetworks/homeNetworkHelpers';
 
 // Real signing in tests — handler-side behaviour is tightly coupled to
 // the signing flow, so end-to-end tests are clearer than mocking verify.
@@ -537,7 +538,14 @@ describe('handlePatchesRequest — clearOwnedPatches', () => {
     identity = generateIdentity();
   });
 
-  const validClearOwnedPayload = { action: 'clearOwnedPatches' };
+  // Tests carry a static workstation_id in the signed payload — server-
+  // side handler forwards it verbatim to the clearOwnedPatches adapter
+  // alongside the verified player_key.
+  const TEST_WORKSTATION_ID = 'skylab-aabbccdd';
+  const validClearOwnedPayload = {
+    action: 'clearOwnedPatches',
+    workstation_id: TEST_WORKSTATION_ID,
+  };
 
   it('returns 200 with affected count', async () => {
     const clearOwnedPatches = vi
@@ -551,7 +559,7 @@ describe('handlePatchesRequest — clearOwnedPatches', () => {
     expect(result.body).toEqual({ affected: 42 });
   });
 
-  it('queries with verified pubkey as player_key', async () => {
+  it('queries with verified pubkey as player_key and the supplied workstation_id', async () => {
     const clearOwnedPatches = vi
       .fn<(params: ClearPatchesParams) => Promise<ClearPatchesResult>>()
       .mockResolvedValue({ ok: true, affected: 0 });
@@ -559,7 +567,10 @@ describe('handlePatchesRequest — clearOwnedPatches', () => {
 
     await handlePatchesRequest(envelope, mkDeps({ clearOwnedPatches }));
 
-    expect(clearOwnedPatches).toHaveBeenCalledWith({ player_key: identity.publicKeyHex });
+    expect(clearOwnedPatches).toHaveBeenCalledWith({
+      player_key: identity.publicKeyHex,
+      workstation_id: TEST_WORKSTATION_ID,
+    });
   });
 
   it('returns 500 when the DB delete errors', async () => {
@@ -577,8 +588,15 @@ describe('handlePatchesRequest — clearOwnedPatches', () => {
   it('returns 400 when client supplies unknown extra fields', async () => {
     const envelope = makeEnvelope(identity, {
       action: 'clearOwnedPatches',
+      workstation_id: TEST_WORKSTATION_ID,
       foo: 'bar',
     });
+    const result = await handlePatchesRequest(envelope, mkDeps({}));
+    expect(result.status).toBe(400);
+  });
+
+  it('returns 400 when workstation_id is missing', async () => {
+    const envelope = makeEnvelope(identity, { action: 'clearOwnedPatches' });
     const result = await handlePatchesRequest(envelope, mkDeps({}));
     expect(result.status).toBe(400);
   });
@@ -651,7 +669,10 @@ describe('handlePatchesRequest — cross-action isolation', () => {
 
   it('clearOwnedPatches action calls only clearOwnedPatches adapter', async () => {
     const adapters = otherAdapters({});
-    const envelope = makeEnvelope(identity, { action: 'clearOwnedPatches' });
+    const envelope = makeEnvelope(identity, {
+      action: 'clearOwnedPatches',
+      workstation_id: 'skylab-aabbccdd',
+    });
     await handlePatchesRequest(envelope, mkDeps(adapters));
     expect(adapters.clearOwnedPatches).toHaveBeenCalled();
     expect(adapters.upsertPatch).not.toHaveBeenCalled();
@@ -780,8 +801,22 @@ describe('handlePatchesRequest — rate limiting', () => {
 
 describe('handlePatchesRequest — session-existence gate (L1)', () => {
   let identity: Identity;
+  // Build a workstation_id that ends with the identity's expected
+  // suffix — this is what the server-side bypass check is looking for.
+  // The prefix part doesn't matter (the player picks any
+  // workstation_name); the suffix is the load-bearing identity-derived
+  // part.
+  let validUpsertOwnWorkstation: Record<string, unknown>;
   beforeEach(() => {
     identity = generateIdentity();
+    const suffix = deriveHostnameSuffix(`ed25519:${identity.publicKeyHex}`);
+    validUpsertOwnWorkstation = {
+      action: 'upsertPatch',
+      machine_id: `skylab-${suffix}`,
+      path: '/home/me/notes.txt',
+      content: 'local hello',
+      owner: 'user',
+    };
   });
 
   const validUpsertRemote = {
@@ -789,14 +824,6 @@ describe('handlePatchesRequest — session-existence gate (L1)', () => {
     machine_id: '10.0.0.1',
     path: '/tmp/foo.txt',
     content: 'hello',
-    owner: 'user',
-  };
-
-  const validUpsertLocalhost = {
-    action: 'upsertPatch',
-    machine_id: 'localhost',
-    path: '/home/me/notes.txt',
-    content: 'local hello',
     owner: 'user',
   };
 
@@ -869,14 +896,18 @@ describe('handlePatchesRequest — session-existence gate (L1)', () => {
       expect(upsertPatch).not.toHaveBeenCalled();
     });
 
-    it('skips the gate entirely on machine_id=localhost (player always owns own box)', async () => {
+    it('skips the gate entirely when machine_id is the player own workstation (suffix matches identity)', async () => {
+      // Bypass condition under the eliminated-localhost model: the
+      // machine_id ends with the identity-derived suffix, so it can
+      // ONLY refer to the verified player's own workstation. No
+      // session lookup needed.
       const findActiveSession = vi
         .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
         .mockResolvedValue({ ok: true, exists: false });
       const upsertPatch = vi
         .fn<(row: PatchRow) => Promise<UpsertPatchResult>>()
         .mockResolvedValue({ ok: true });
-      const envelope = makeEnvelope(identity, validUpsertLocalhost);
+      const envelope = makeEnvelope(identity, validUpsertOwnWorkstation);
 
       const result = await handlePatchesRequest(
         envelope,
@@ -884,11 +915,39 @@ describe('handlePatchesRequest — session-existence gate (L1)', () => {
       );
 
       expect(result.status).toBe(200);
-      // Critical: gate MUST NOT be consulted for localhost. A mutant
-      // that calls findActiveSession anyway (and gets exists:false above)
-      // would 403 — this test catches it.
+      // Critical: gate MUST NOT be consulted for the own-workstation
+      // bypass. A mutant that calls findActiveSession anyway (and gets
+      // exists:false above) would 403 — this test catches it.
       expect(findActiveSession).not.toHaveBeenCalled();
       expect(upsertPatch).toHaveBeenCalled();
+    });
+
+    it('still gates a workstation_id-shaped machine_id whose suffix belongs to a DIFFERENT player', async () => {
+      // Cross-player workstation write: A targets B's workstation_id
+      // (`skylab-<B.suffix>`). The suffix doesn't match A's identity so
+      // the bypass doesn't fire; A must have an active session on B's
+      // box (e.g., from an SSH push) to mutate it.
+      const someoneElsesSuffix = 'deadbeef';
+      const otherWorkstationId = `skylab-${someoneElsesSuffix}`;
+      const findActiveSession = vi
+        .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+        .mockResolvedValue({ ok: true, exists: false });
+      const upsertPatch = vi
+        .fn<(row: PatchRow) => Promise<UpsertPatchResult>>()
+        .mockResolvedValue({ ok: true });
+      const envelope = makeEnvelope(identity, {
+        ...validUpsertOwnWorkstation,
+        machine_id: otherWorkstationId,
+      });
+
+      const result = await handlePatchesRequest(
+        envelope,
+        mkDeps({ findActiveSession, upsertPatch }),
+      );
+
+      expect(result.status).toBe(403);
+      expect(findActiveSession).toHaveBeenCalled();
+      expect(upsertPatch).not.toHaveBeenCalled();
     });
 
     it('passes verified pubkey + payload.machine_id to findActiveSession (not client-claimed)', async () => {
@@ -963,7 +1022,8 @@ describe('handlePatchesRequest — session-existence gate (L1)', () => {
       expect(removePatch).not.toHaveBeenCalled();
     });
 
-    it('skips the gate on machine_id=localhost', async () => {
+    it('skips the gate when machine_id is the player own workstation (suffix matches identity)', async () => {
+      const suffix = deriveHostnameSuffix(`ed25519:${identity.publicKeyHex}`);
       const findActiveSession = vi
         .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
         .mockResolvedValue({ ok: true, exists: false });
@@ -972,7 +1032,7 @@ describe('handlePatchesRequest — session-existence gate (L1)', () => {
         .mockResolvedValue({ ok: true, affected: 0 });
       const envelope = makeEnvelope(identity, {
         action: 'removePatch',
-        machine_id: 'localhost',
+        machine_id: `skylab-${suffix}`,
         path: '/home/me/dead.txt',
       });
 

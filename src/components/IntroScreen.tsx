@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import type { GameState } from '../game/types';
 import { generateGameSeed } from '../game/gameSeed';
-import { computePlayerHostname } from '../homeNetworks/computePlayerHostname';
+import { computePlayerHostname } from '../homeNetworks/homeNetworkHelpers';
 import { getIdentity } from '../identity';
 
 type IntroScreenProps = {

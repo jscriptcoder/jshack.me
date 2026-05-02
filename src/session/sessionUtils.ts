@@ -69,13 +69,22 @@ export const isValidPersistedState = (value: unknown): value is PersistedState =
   );
 };
 
-export const createDefaultSession = (username: string): Session => ({
+// hostname is the player's workstation_id (workstationName + 8-hex
+// identity suffix). It IS the machine_id of the player's workstation —
+// stored in patches.machine_id, sessions.machine_id, used as the
+// patches:<id> Realtime channel name, and exposed to other players via
+// the home_network_occupants.hostname column. Same value everywhere;
+// the literal `'localhost'` no longer appears in storage.
+export const createDefaultSession = (username: string, hostname: string): Session => ({
   username,
   userType: 'user',
-  machine: 'localhost',
+  machine: hostname,
+  hostname,
   currentPath: `/home/${username}`,
   theme: DEFAULT_THEME_ID,
-  // Default localhost is the implicit untracked state — no server-side row.
+  // Default workstation state is implicit (no server-side session row);
+  // the player isn't pushed onto any tracked SSH chain until they SSH
+  // into a remote machine.
   sessionId: null,
 });
 

@@ -10,7 +10,6 @@ import {
   type RemovePatchResult,
   type UpsertPatchResult,
 } from './types.js';
-import { PERSISTENT_MACHINE_ID } from './supabaseDelete.js';
 import type { RateLimiter } from '../ipRegistry/rateLimit.js';
 import {
   verifySignedRequest,
@@ -22,6 +21,7 @@ import type {
   FindActiveSessionParams,
   FindActiveSessionResult,
 } from '../sessionRegistry/supabaseFindActive.js';
+import { deriveHostnameSuffix } from '../homeNetworks/homeNetworkHelpers.js';
 
 export type HandlerResponse = {
   readonly status: number;
@@ -122,14 +122,32 @@ const dispatchAction = async (
     case 'listPatchesForMachines':
       return handleListPatchesForMachines(publicKey, payload, deps);
     case 'clearOwnedPatches':
-      return handleClearOwnedPatches(publicKey, deps);
+      return handleClearOwnedPatches(publicKey, payload, deps);
   }
 };
 
+// Detects whether a machine_id refers to the verified player's OWN
+// workstation. Under the eliminated-localhost model the workstation_id
+// is `${workstationName}-${first-8-hex(sha256(player_key))}` (computed
+// client-side by computePlayerHostname). The suffix is identity-derived,
+// so we can verify ownership server-side without knowing the workstation
+// name — any machine_id ending in the player's expected suffix can ONLY
+// be that player's workstation (other players have different suffixes;
+// mission/world IPs don't carry the suffix shape at all).
+//
+// Pre-elimination this check was a literal `=== 'localhost'` bypass.
+// The new shape preserves the gameplay invariant ("a player owns their
+// own workstation, no session needed for self-writes") while also being
+// per-player unique in storage.
+const isOwnWorkstationOnServer = (machineId: string, playerKey: string): boolean => {
+  const expectedSuffix = deriveHostnameSuffix(`ed25519:${playerKey}`);
+  return machineId.endsWith(`-${expectedSuffix}`);
+};
+
 // L1 patch-validation gate: every mutating action (upsertPatch /
-// removePatch) on a non-localhost machine MUST be backed by an active
-// session row for this player on that machine. localhost is exempt —
-// the player always "owns" their own box.
+// removePatch) on a remote machine MUST be backed by an active session
+// row for this player on that machine. The player's own workstation is
+// exempt — the player always "owns" their own box, no session needed.
 //
 // Returns a HandlerResponse to short-circuit the caller, or null to
 // allow the caller to proceed. Centralized here so both upsert and
@@ -146,7 +164,7 @@ const requireActiveSession = async (
   machine_id: string,
   deps: HandlerDeps,
 ): Promise<HandlerResponse | null> => {
-  if (machine_id === PERSISTENT_MACHINE_ID) return null;
+  if (isOwnWorkstationOnServer(machine_id, publicKey)) return null;
   const result = await deps.findActiveSession({ player_key: publicKey, machine_id });
   if (!result.ok) {
     return { status: 500, body: { error: 'session_lookup_failed' } };
@@ -257,11 +275,11 @@ const handleRemovePatch = async (
 // enforcement lands in a future PR (blocked on the home-network
 // occupants table).
 //
-// publicKey is forwarded to the adapter so the wiring SQL can filter
-// "owned" machines whose machine_id is shared as a literal across
-// players (currently just `localhost`). For those rows, only the
-// caller's own writes are returned. See ListPatchesForMachinesParams
-// for the SQL shape.
+// publicKey is forwarded to the adapter for telemetry/audit but no
+// longer narrows the SQL — every machine_id is per-player unique by
+// construction now (workstation = suffixed hostname; mission instance =
+// IP registry; LAN occupant = hostname column). See
+// ListPatchesForMachinesParams for the rationale.
 const handleListPatchesForMachines = async (
   publicKey: string,
   payload: Extract<PatchesPayload, { action: 'listPatchesForMachines' }>,
@@ -277,11 +295,24 @@ const handleListPatchesForMachines = async (
   return { status: 200, body: { patches: result.patches } };
 };
 
+// Cross-checks the supplied workstation_id against the verified
+// player_key — under the eliminated-localhost model the workstation_id
+// IS derived from the player_key (computePlayerHostname →
+// `${workstationName}-${first-8-hex(player_key)}`), so a forged
+// workstation_id from another player wouldn't have its suffix match.
+// We don't reject hard on mismatch (could be a legitimate name change
+// in the future, or a renamed workstation); we just rely on the
+// natural no-op behavior — DELETE filters BOTH player_key AND
+// workstation_id, so a wrong workstation_id deletes nothing.
 const handleClearOwnedPatches = async (
   publicKey: string,
+  payload: Extract<PatchesPayload, { action: 'clearOwnedPatches' }>,
   deps: HandlerDeps,
 ): Promise<HandlerResponse> => {
-  const result = await deps.clearOwnedPatches({ player_key: publicKey });
+  const result = await deps.clearOwnedPatches({
+    player_key: publicKey,
+    workstation_id: payload.workstation_id,
+  });
   if (!result.ok) {
     return { status: 500, body: { error: 'clear_failed' } };
   }
