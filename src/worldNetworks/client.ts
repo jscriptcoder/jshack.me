@@ -17,7 +17,7 @@ import { WorldNetworkSchema, type WorldNetwork } from './types.js';
 // supabaseClient is injectable for tests; production callers omit it
 // and pick up the singleton via getRealtimeClient().
 
-const PROJECTION = 'public_ip, seed, name, description, theme';
+const PROJECTION = 'public_ip, seed, name, description, theme, public_domain, search_metadata';
 
 export const listWorldNetworks = async (
   supabaseClient?: SupabaseClient,

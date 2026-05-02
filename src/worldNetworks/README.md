@@ -35,14 +35,14 @@ Used today for the multiplayer **playground** (smoke-test surface). Designed to 
 
 ## Files
 
-| File                  | Description                                                                                                                                                                         |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `client.ts`           | `listWorldNetworks()` — direct anon-key Supabase read of the `world_networks` table.                                                                                                |
-| `generate.ts`         | `generateWorldNetworks(rows, generator)` — runs the (injected) mission generator per row with a fake allocator pinning each row's `public_ip`. Returns the full `MissionNetwork[]`. |
-| `useWorldNetworks.ts` | React hook — fetches at mount, generates, exposes `ReadonlyArray<MissionNetwork>`.                                                                                                  |
-| `types.ts`            | `WorldNetwork` row shape.                                                                                                                                                           |
-| `*.test.ts`           | Unit tests.                                                                                                                                                                         |
-| `README.md`           | This file.                                                                                                                                                                          |
+| File                  | Description                                                                                                                                                                                                                               |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `client.ts`           | `listWorldNetworks()` — direct anon-key Supabase read of the `world_networks` table.                                                                                                                                                      |
+| `generate.ts`         | `generateWorldNetworks(rows, selectGenerator)` — runs the per-theme generator with a fake allocator pinning each row's `public_ip`. Returns the full `MissionNetwork[]`. Theme dispatch lives in `themedNetworks/generators/registry.ts`. |
+| `useWorldNetworks.ts` | React hook — fetches at mount, generates, exposes `{ networks, handlers }` (handlers map themed-network requests via `themedNetworks/handlerRegistry`).                                                                                   |
+| `types.ts`            | `WorldNetwork` row shape (nullable `public_domain` for FQDN networks like findit.io; nullable `search_metadata` for findit.io indexing) and `SearchMetadata`.                                                                             |
+| `*.test.ts`           | Unit tests.                                                                                                                                                                                                                               |
+| `README.md`           | This file.                                                                                                                                                                                                                                |
 
 Plus:
 
@@ -59,13 +59,20 @@ Write a new migration:
 INSERT INTO public_ips (ip, kind, owner_key)
   VALUES ('203.0.113.43', 'world_network', NULL);
 
-INSERT INTO world_networks (public_ip, seed, name, description, theme)
+-- Optional search_metadata: include for indexable themed networks
+-- (findit.io will pick them up); leave NULL for debug surfaces.
+INSERT INTO world_networks (public_ip, seed, name, description, theme, search_metadata)
   VALUES (
     '203.0.113.43',
     'office-template-1',
     'ACME Corp HQ',
     'Standard enterprise LAN — workstations, file servers, internal wiki.',
-    'office'
+    'office',
+    jsonb_build_object(
+      'title', 'ACME Corp HQ',
+      'description', 'Standard enterprise LAN — workstations, file servers, internal wiki.',
+      'keywords', jsonb_build_array('acme', 'enterprise', 'office', 'corp')
+    )
   );
 ```
 

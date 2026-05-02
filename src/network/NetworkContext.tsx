@@ -13,6 +13,7 @@ import type {
   NatForwardingRule,
   SubnetLayer,
 } from '../generation/types';
+import type { RequestHandler } from '../themedNetworks/types';
 import { localhostDisconnectedInterfaces, localhostWlan0Down } from './initialNetwork';
 import type { HomeNetwork } from '../generation/generateHomeNetwork';
 import type { OccupantSummary } from '../homeNetworks/types';
@@ -32,6 +33,7 @@ import {
   collectWorldGatewayIps,
   buildGatewayAliasMap,
   buildRouterRemoteView,
+  buildWorldExternalDnsRecords,
   buildWorldRouterRemoteViews,
   findMachineInWorldNetworks,
   applyDynamicOverrides,
@@ -52,6 +54,11 @@ type NetworkContextType = {
   readonly getPublicIP: () => string | null;
   readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
   readonly getGatewayChainFor: (machineIp: string) => readonly GeneratedMachine[];
+  // Returns the themed-network request handler for a target machine,
+  // or undefined when no handler is registered. Curl uses this to
+  // dispatch dynamic HTTP behavior (e.g., findit.io search) before
+  // falling back to /var/www/html static files.
+  readonly getHandler: (machineIp: string) => RequestHandler | undefined;
 };
 
 const NetworkContext = createContext<NetworkContextType | null>(null);
@@ -73,6 +80,11 @@ type NetworkProviderProps = {
   // Their routers + inner gateways are appended to the localhost-visible
   // machine list so commands like nmap/ssh/curl can reach them.
   readonly worldNetworks?: ReadonlyArray<MissionNetwork>;
+  // Public-IP → request-handler map for themed world networks (search
+  // engine, etc.). Built upstream by useWorldNetworks from each row's
+  // theme; consumed here to expose getHandler on context for curl
+  // dispatch.
+  readonly worldHandlers?: ReadonlyMap<string, RequestHandler>;
   // Other players on the active home LAN (excluding self). Each occupant
   // appears as an alive host (closed services — no open ports, no remote
   // login) at `${layer0_subnet}${occupant.lan_ip}` with hostname
@@ -88,6 +100,7 @@ export const NetworkProvider = ({
   missionLayers,
   homeNetwork,
   worldNetworks,
+  worldHandlers,
   lanOccupants,
 }: NetworkProviderProps) => {
   const { session, wifiConnected, hostname } = useSession();
@@ -213,6 +226,16 @@ export const NetworkProvider = ({
     [worldNetworks, allIptablesRules, allSnmpOverrides],
   );
 
+  // External DNS records for world networks: one A record per network,
+  // routerMachine.hostname → routerMachine.ip. Merged into localhost's
+  // dnsRecords on every internet-connected branch so `dig findit.io`
+  // and `curl http://findit.io` resolve. Skipped on localhost-
+  // disconnected for the same "no internet" reason as worldRouterViews.
+  const worldExternalDns = useMemo(
+    () => buildWorldExternalDnsRecords(worldNetworks ?? []),
+    [worldNetworks],
+  );
+
   // Multi-tier network config resolution for the current machine:
   // 1. Mission config (if on a mission-generated machine)
   // 2. Home network config (if on a home network machine)
@@ -272,7 +295,7 @@ export const NetworkProvider = ({
       const homeBase: MachineNetworkConfig = {
         interfaces: localhostHomeInterfaces,
         machines: [...visibleMachines, ...occupantMachines, ...worldRouterViews],
-        dnsRecords: [...(sampleConfig?.dnsRecords ?? []), ...occupantDns],
+        dnsRecords: [...(sampleConfig?.dnsRecords ?? []), ...occupantDns, ...worldExternalDns],
       };
 
       // If mission is active, also make mission router visible from localhost
@@ -319,7 +342,7 @@ export const NetworkProvider = ({
       return {
         interfaces: localhostDisconnectedInterfaces,
         machines: [routerRemote, ...worldRouterViews],
-        dnsRecords: externalDns,
+        dnsRecords: [...externalDns, ...worldExternalDns],
       };
     }
 
@@ -336,6 +359,7 @@ export const NetworkProvider = ({
     homeNetwork,
     localhostHomeInterfaces,
     worldRouterViews,
+    worldExternalDns,
     lanOccupants,
   ]);
 
@@ -544,6 +568,11 @@ export const NetworkProvider = ({
     [missionLayers],
   );
 
+  const getHandler = useCallback(
+    (machineIp: string): RequestHandler | undefined => worldHandlers?.get(machineIp),
+    [worldHandlers],
+  );
+
   return (
     <NetworkContext.Provider
       value={{
@@ -560,6 +589,7 @@ export const NetworkProvider = ({
         findMachineByIp,
         resolveNat,
         getGatewayChainFor,
+        getHandler,
       }}
     >
       {children}

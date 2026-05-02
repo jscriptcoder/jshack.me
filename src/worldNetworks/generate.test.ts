@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { generateWorldNetworks } from './generate';
+import { generateWorldNetworks, type ThemedGenerator } from './generate';
 import type { WorldNetwork } from './types';
 import type { FileNode } from '../filesystem/types';
 
@@ -24,48 +24,69 @@ const makeFakeNetwork = (publicIp: string, machineName: string) => ({
   layers: [],
 });
 
+const buildRow = (overrides: Partial<WorldNetwork> = {}): WorldNetwork => ({
+  public_ip: '203.0.113.42',
+  seed: 'whatever',
+  name: 'Test',
+  description: null,
+  theme: 'playground',
+  public_domain: null,
+  search_metadata: null,
+  ...overrides,
+});
+
 describe('generateWorldNetworks', () => {
   it('returns an empty array when input is empty', async () => {
     const generator = vi.fn();
+    const select = vi.fn().mockReturnValue(generator);
 
-    const result = await generateWorldNetworks([], generator);
+    const result = await generateWorldNetworks([], select);
 
     expect(result).toEqual([]);
+    expect(select).not.toHaveBeenCalled();
     expect(generator).not.toHaveBeenCalled();
   });
 
-  it('calls generator once per row with seed + allocator returning that row public_ip', async () => {
-    const generator = vi.fn().mockResolvedValue(makeFakeNetwork('203.0.113.42', 'placeholder'));
+  it('dispatches per row by theme — selectGenerator receives row.theme', async () => {
+    const generator: ThemedGenerator = vi
+      .fn()
+      .mockResolvedValue(makeFakeNetwork('203.0.113.42', 'placeholder'));
+    const select = vi.fn().mockReturnValue(generator);
     const rows: WorldNetwork[] = [
-      {
-        public_ip: '203.0.113.42',
-        seed: 'playground-basic',
-        name: 'Playground',
-        description: null,
-        theme: 'playground',
-      },
-      {
-        public_ip: '203.0.113.43',
-        seed: 'office-template',
-        name: 'Office',
-        description: null,
-        theme: 'office',
-      },
+      buildRow({ public_ip: '203.0.113.42', seed: 'playground-basic', theme: 'playground' }),
+      buildRow({ public_ip: '203.0.113.43', seed: 'office-template', theme: 'office' }),
     ];
 
-    await generateWorldNetworks(rows, generator);
+    await generateWorldNetworks(rows, select);
+
+    expect(select).toHaveBeenNthCalledWith(1, 'playground');
+    expect(select).toHaveBeenNthCalledWith(2, 'office');
+  });
+
+  it('passes the row + ctx (allocateIp pinned to row.public_ip + allRows) to the generator', async () => {
+    const generator = vi.fn().mockResolvedValue(makeFakeNetwork('203.0.113.42', 'placeholder'));
+    const rows: WorldNetwork[] = [
+      buildRow({ public_ip: '203.0.113.42', seed: 'playground-basic', theme: 'playground' }),
+      buildRow({ public_ip: '203.0.113.43', seed: 'office-template', theme: 'office' }),
+    ];
+
+    await generateWorldNetworks(rows, () => generator);
 
     expect(generator).toHaveBeenCalledTimes(2);
-    const firstCall = generator.mock.calls[0];
-    expect(firstCall[0]).toBe('playground-basic');
-    expect(firstCall[1]).toBeUndefined();
-    const firstAllocator = (firstCall[2] as { allocateIp: () => Promise<string> }).allocateIp;
-    await expect(firstAllocator()).resolves.toBe('203.0.113.42');
 
-    const secondCall = generator.mock.calls[1];
-    expect(secondCall[0]).toBe('office-template');
-    const secondAllocator = (secondCall[2] as { allocateIp: () => Promise<string> }).allocateIp;
-    await expect(secondAllocator()).resolves.toBe('203.0.113.43');
+    const [firstRow, firstCtx] = generator.mock.calls[0] as [
+      WorldNetwork,
+      { allocateIp: () => Promise<string>; allRows: ReadonlyArray<WorldNetwork> },
+    ];
+    expect(firstRow.seed).toBe('playground-basic');
+    expect(firstCtx.allRows).toEqual(rows);
+    await expect(firstCtx.allocateIp()).resolves.toBe('203.0.113.42');
+
+    const [, secondCtx] = generator.mock.calls[1] as [
+      WorldNetwork,
+      { allocateIp: () => Promise<string> },
+    ];
+    await expect(secondCtx.allocateIp()).resolves.toBe('203.0.113.43');
   });
 
   it('returns the full generated networks (machines + networkConfig + routerMachine, not just fileSystems)', async () => {
@@ -73,22 +94,13 @@ describe('generateWorldNetworks', () => {
     const network2 = makeFakeNetwork('203.0.113.43', 'office');
     const generator = vi.fn().mockResolvedValueOnce(network1).mockResolvedValueOnce(network2);
     const rows: WorldNetwork[] = [
-      {
-        public_ip: '203.0.113.42',
-        seed: 's1',
-        name: 'A',
-        description: null,
-        theme: 'playground',
-      },
-      { public_ip: '203.0.113.43', seed: 's2', name: 'B', description: null, theme: 'office' },
+      buildRow({ public_ip: '203.0.113.42', seed: 's1', name: 'A', theme: 'playground' }),
+      buildRow({ public_ip: '203.0.113.43', seed: 's2', name: 'B', theme: 'office' }),
     ];
 
-    const result = await generateWorldNetworks(rows, generator);
+    const result = await generateWorldNetworks(rows, () => generator);
 
     expect(result).toHaveLength(2);
-    // The whole network shape passes through — not just fileSystems.
-    // This is the corrected behaviour vs the abandoned PR #83 helper,
-    // which only returned a merged Record<string, FileNode>.
     expect(result[0]).toBe(network1);
     expect(result[1]).toBe(network2);
   });
@@ -97,8 +109,6 @@ describe('generateWorldNetworks', () => {
     const a = makeFakeNetwork('203.0.113.10', 'first');
     const b = makeFakeNetwork('203.0.113.11', 'second');
     const c = makeFakeNetwork('203.0.113.12', 'third');
-    // Resolve out-of-order to make sure we don't accidentally use
-    // settle order vs input order.
     let resolveB!: (v: typeof b) => void;
     const generator = vi
       .fn()
@@ -110,18 +120,16 @@ describe('generateWorldNetworks', () => {
       )
       .mockResolvedValueOnce(c);
     const rows: WorldNetwork[] = [
-      { public_ip: '203.0.113.10', seed: 's1', name: 'A', description: null, theme: 'playground' },
-      { public_ip: '203.0.113.11', seed: 's2', name: 'B', description: null, theme: 'playground' },
-      { public_ip: '203.0.113.12', seed: 's3', name: 'C', description: null, theme: 'playground' },
+      buildRow({ public_ip: '203.0.113.10', seed: 's1', name: 'A' }),
+      buildRow({ public_ip: '203.0.113.11', seed: 's2', name: 'B' }),
+      buildRow({ public_ip: '203.0.113.12', seed: 's3', name: 'C' }),
     ];
 
-    const promise = generateWorldNetworks(rows, generator);
-    // Resolve B AFTER C (out of input order).
+    const promise = generateWorldNetworks(rows, () => generator);
     setTimeout(() => resolveB(b), 0);
 
     const result = await promise;
 
-    // Order in result MUST match input order, not settle order.
     expect(result.map((n) => n.routerMachine?.hostname)).toEqual(['first', 'second', 'third']);
   });
 });

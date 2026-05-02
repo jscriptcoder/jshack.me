@@ -1,4 +1,4 @@
-import type { RemoteMachine } from './types';
+import type { RemoteMachine, DnsRecord } from './types';
 import type {
   GeneratedMachine,
   MissionNetwork,
@@ -185,6 +185,23 @@ export const buildWorldRouterRemoteViews = (
       allSnmpOverrides.get(wn.routerMachine.ip) ?? [],
     ),
   );
+
+// Builds the set of externally-resolvable DNS records that world
+// networks contribute to localhost's view. One A record per world
+// network: routerMachine.hostname → routerMachine.ip. Themed-network
+// generators are expected to put the full public domain (with TLD)
+// into routerMachine.hostname directly — the helper does not synthesize
+// a TLD. Mirrors the mission-side externalDns synthesis in
+// NetworkContext (`${missionRouterMachine.hostname}.mission`), but
+// scoped to world networks where the hostname carries the TLD itself.
+export const buildWorldExternalDnsRecords = (
+  worldNetworks: ReadonlyArray<MissionNetwork>,
+): readonly DnsRecord[] =>
+  worldNetworks.map((wn) => ({
+    domain: wn.routerMachine.hostname,
+    ip: wn.routerMachine.ip,
+    type: 'A' as const,
+  }));
 
 // Searches every world network's machineConfigs and routerMachine for
 // a matching IP. Used by findMachineByIp in NetworkContext so commands

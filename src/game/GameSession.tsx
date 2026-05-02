@@ -52,8 +52,10 @@ function GameProviders({
   // playground, future themed locales). Each network's fileSystems are
   // merged into homeFileSystems for FileSystemProvider; the full array
   // is passed to NetworkProvider so commands like nmap/ssh/curl can
-  // resolve their machines.
-  const worldNetworks = useWorldNetworks();
+  // resolve their machines. The handlers map dispatches dynamic HTTP
+  // behavior on themed networks (search engine, etc.) — handlers are
+  // looked up by router IP via NetworkProvider's getHandler.
+  const { networks: worldNetworks, handlers: worldHandlers } = useWorldNetworks();
   const mergedHomeFileSystems = useMemo(() => {
     const base: Record<string, FileNode> = { ...(activeNetwork?.fileSystems ?? {}) };
     for (const wn of worldNetworks) {
@@ -78,6 +80,7 @@ function GameProviders({
           missionLayers={missionState.activeMission?.layers}
           homeNetwork={activeNetwork}
           worldNetworks={worldNetworks}
+          worldHandlers={worldHandlers}
           lanOccupants={lanOccupants}
         >
           <Terminal />
