@@ -71,7 +71,7 @@ describe('listWorldNetworks', () => {
 
   it('passes through rows whose search_metadata is populated', async () => {
     const indexedRow: WorldNetwork = {
-      public_ip: '203.0.113.43',
+      public_ip: '192.0.2.80',
       seed: 'findit-basic',
       name: 'findit.io',
       description: 'Search engine.',

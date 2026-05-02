@@ -7,7 +7,7 @@ import type { FileNode } from '../../filesystem/types';
 // --- Factories ---
 
 const buildRow = (overrides: Partial<WorldNetwork> = {}): WorldNetwork => ({
-  public_ip: '203.0.113.43',
+  public_ip: '192.0.2.80',
   seed: 'findit-basic',
   name: 'findit.io',
   description: 'Search engine',
@@ -22,7 +22,7 @@ const buildRow = (overrides: Partial<WorldNetwork> = {}): WorldNetwork => ({
 });
 
 const buildCtx = (allRows: ReadonlyArray<WorldNetwork>) => ({
-  allocateIp: async () => '203.0.113.43',
+  allocateIp: async () => '192.0.2.80',
   allRows,
 });
 
@@ -45,8 +45,8 @@ describe('generateSearchEngineNetwork — network shape', () => {
     const network = await generateSearchEngineNetwork(row, buildCtx([row]));
 
     expect(network.machines).toEqual([]);
-    expect(network.routerMachine.ip).toBe('203.0.113.43');
-    expect(network.routerPublicIp).toBe('203.0.113.43');
+    expect(network.routerMachine.ip).toBe('192.0.2.80');
+    expect(network.routerPublicIp).toBe('192.0.2.80');
   });
 
   it('uses public_domain as the router hostname', async () => {
@@ -75,7 +75,7 @@ describe('generateSearchEngineNetwork — network shape', () => {
     const row = buildRow();
     const network = await generateSearchEngineNetwork(row, buildCtx([row]));
 
-    expect(network.networkConfig.machineConfigs['203.0.113.43']).toBeDefined();
+    expect(network.networkConfig.machineConfigs['192.0.2.80']).toBeDefined();
   });
 
   it('uses the row seed', async () => {
@@ -104,7 +104,7 @@ describe('generateSearchEngineNetwork — filesystem', () => {
     const row = buildRow();
     const network = await generateSearchEngineNetwork(row, buildCtx([row]));
 
-    const fs = network.fileSystems['203.0.113.43'];
+    const fs = network.fileSystems['192.0.2.80'];
     expect(fs).toBeDefined();
     const landing = readFileFromTree(fs!, '/var/www/html/index.html');
     expect(landing).not.toBeNull();
@@ -115,7 +115,7 @@ describe('generateSearchEngineNetwork — filesystem', () => {
     const row = buildRow();
     const network = await generateSearchEngineNetwork(row, buildCtx([row]));
 
-    const fs = network.fileSystems['203.0.113.43'];
+    const fs = network.fileSystems['192.0.2.80'];
     expect(readFileFromTree(fs!, INDEX_PATH)).not.toBeNull();
   });
 });
@@ -127,7 +127,7 @@ describe('generateSearchEngineNetwork — index building', () => {
     const row = buildRow();
     const network = await generateSearchEngineNetwork(row, buildCtx([row]));
 
-    const fs = network.fileSystems['203.0.113.43'];
+    const fs = network.fileSystems['192.0.2.80'];
     const indexJson = readFileFromTree(fs!, INDEX_PATH);
     expect(indexJson).not.toBeNull();
     const parsed = JSON.parse(indexJson!) as ReadonlyArray<{ readonly domain: string }>;
@@ -150,7 +150,7 @@ describe('generateSearchEngineNetwork — index building', () => {
     });
 
     const network = await generateSearchEngineNetwork(findit, buildCtx([findit, techparts]));
-    const fs = network.fileSystems['203.0.113.43'];
+    const fs = network.fileSystems['192.0.2.80'];
     const parsed = JSON.parse(readFileFromTree(fs!, INDEX_PATH)!) as ReadonlyArray<{
       readonly domain: string;
       readonly title: string;
@@ -173,7 +173,7 @@ describe('generateSearchEngineNetwork — index building', () => {
     });
 
     const network = await generateSearchEngineNetwork(findit, buildCtx([findit, playground]));
-    const fs = network.fileSystems['203.0.113.43'];
+    const fs = network.fileSystems['192.0.2.80'];
     const parsed = JSON.parse(readFileFromTree(fs!, INDEX_PATH)!) as ReadonlyArray<{
       readonly domain: string;
     }>;
@@ -195,7 +195,7 @@ describe('generateSearchEngineNetwork — index building', () => {
     });
 
     const network = await generateSearchEngineNetwork(findit, buildCtx([findit, ghostRow]));
-    const fs = network.fileSystems['203.0.113.43'];
+    const fs = network.fileSystems['192.0.2.80'];
     const parsed = JSON.parse(readFileFromTree(fs!, INDEX_PATH)!);
     expect(JSON.stringify(parsed)).not.toContain('Ghost');
   });
@@ -203,7 +203,7 @@ describe('generateSearchEngineNetwork — index building', () => {
   it('emits valid JSON for the index file', async () => {
     const row = buildRow();
     const network = await generateSearchEngineNetwork(row, buildCtx([row]));
-    const fs = network.fileSystems['203.0.113.43'];
+    const fs = network.fileSystems['192.0.2.80'];
     const raw = readFileFromTree(fs!, INDEX_PATH)!;
 
     expect(() => JSON.parse(raw)).not.toThrow();

@@ -12,15 +12,17 @@ ALTER TABLE world_networks
 
 -- Seed: the findit.io search engine. Single-machine themed network
 -- with theme='search-engine' that the request-handler registry maps
--- to searchEngineHandler. Lives at 203.0.113.43 (TEST-NET-3 docs
--- range, sequential to the playground at .42).
+-- to searchEngineHandler. Lives at 192.0.2.80 (TEST-NET-1 docs range,
+-- intentionally in a different /24 from the playground so the two
+-- read as separate parts of the internet rather than adjacent rows
+-- in a debug pool — port 80 nods to the HTTP service).
 
 INSERT INTO public_ips (ip, kind, owner_key)
-  VALUES ('203.0.113.43', 'world_network', NULL);
+  VALUES ('192.0.2.80', 'world_network', NULL);
 
 INSERT INTO world_networks (public_ip, seed, name, description, theme, public_domain, search_metadata)
   VALUES (
-    '203.0.113.43',
+    '192.0.2.80',
     'findit-basic',
     'findit.io',
     'Search engine for the public web — index of every themed network in the world.',
