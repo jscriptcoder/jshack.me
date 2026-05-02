@@ -56,6 +56,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
     resolveNat,
     findMachineUsers,
     findMachineByIp,
+    getHandler,
   } = useNetwork();
   const {
     resolvePath,
@@ -312,6 +313,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
             resolveNat,
             readFileFromMachine,
             onHttpRequest,
+            getHandler,
           }),
           isWifiRequired,
         ),
@@ -766,5 +768,6 @@ export const useNetworkCommands = (): Map<string, Command> => {
     isMachineBricked,
     findMachineByIp,
     getPublicIP,
+    getHandler,
   ]);
 };

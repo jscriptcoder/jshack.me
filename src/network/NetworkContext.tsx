@@ -13,6 +13,7 @@ import type {
   NatForwardingRule,
   SubnetLayer,
 } from '../generation/types';
+import type { RequestHandler } from '../themedNetworks/types';
 import { localhostDisconnectedInterfaces, localhostWlan0Down } from './initialNetwork';
 import type { HomeNetwork } from '../generation/generateHomeNetwork';
 import type { OccupantSummary } from '../homeNetworks/types';
@@ -53,6 +54,11 @@ type NetworkContextType = {
   readonly getPublicIP: () => string | null;
   readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
   readonly getGatewayChainFor: (machineIp: string) => readonly GeneratedMachine[];
+  // Returns the themed-network request handler for a target machine,
+  // or undefined when no handler is registered. Curl uses this to
+  // dispatch dynamic HTTP behavior (e.g., findit.io search) before
+  // falling back to /var/www/html static files.
+  readonly getHandler: (machineIp: string) => RequestHandler | undefined;
 };
 
 const NetworkContext = createContext<NetworkContextType | null>(null);
@@ -74,6 +80,11 @@ type NetworkProviderProps = {
   // Their routers + inner gateways are appended to the localhost-visible
   // machine list so commands like nmap/ssh/curl can reach them.
   readonly worldNetworks?: ReadonlyArray<MissionNetwork>;
+  // Public-IP → request-handler map for themed world networks (search
+  // engine, etc.). Built upstream by useWorldNetworks from each row's
+  // theme; consumed here to expose getHandler on context for curl
+  // dispatch.
+  readonly worldHandlers?: ReadonlyMap<string, RequestHandler>;
   // Other players on the active home LAN (excluding self). Each occupant
   // appears as an alive host (closed services — no open ports, no remote
   // login) at `${layer0_subnet}${occupant.lan_ip}` with hostname
@@ -89,6 +100,7 @@ export const NetworkProvider = ({
   missionLayers,
   homeNetwork,
   worldNetworks,
+  worldHandlers,
   lanOccupants,
 }: NetworkProviderProps) => {
   const { session, wifiConnected, hostname } = useSession();
@@ -556,6 +568,11 @@ export const NetworkProvider = ({
     [missionLayers],
   );
 
+  const getHandler = useCallback(
+    (machineIp: string): RequestHandler | undefined => worldHandlers?.get(machineIp),
+    [worldHandlers],
+  );
+
   return (
     <NetworkContext.Provider
       value={{
@@ -572,6 +589,7 @@ export const NetworkProvider = ({
         findMachineByIp,
         resolveNat,
         getGatewayChainFor,
+        getHandler,
       }}
     >
       {children}

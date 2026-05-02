@@ -1,27 +1,42 @@
 import { useEffect, useState } from 'react';
 import { generateMissionNetwork } from '../generation/generateMission';
 import type { MissionNetwork } from '../generation/types';
+import { buildWorldHandlerMap } from '../themedNetworks/handlerRegistry';
+import type { RequestHandler } from '../themedNetworks/types';
 import { listWorldNetworks } from './client';
 import { generateWorldNetworks } from './generate';
+
+export type WorldNetworkState = {
+  readonly networks: ReadonlyArray<MissionNetwork>;
+  // Public-IP → handler map derived from the row.theme of each loaded
+  // network. Empty until generation completes; stays empty for rows
+  // whose theme has no registered handler.
+  readonly handlers: ReadonlyMap<string, RequestHandler>;
+};
+
+const EMPTY_STATE: WorldNetworkState = {
+  networks: [],
+  handlers: new Map(),
+};
 
 // Hook for the production world_networks feature. Fetches the list at
 // mount, generates each row's full network via the mission generator
 // (with a fake allocator pinning the row's public_ip so all players
-// get identical machine_ids), and exposes the array.
+// get identical machine_ids), builds the theme-keyed handler map, and
+// exposes both.
 //
-// Returns an empty array while the fetch + generation are in flight,
-// or if env vars / DB are unavailable. Graceful degradation matches
+// Returns empty state while the fetch + generation are in flight, or
+// if env vars / DB are unavailable. Graceful degradation matches
 // listWorldNetworks's behaviour — the app keeps working without world
 // networks if the table can't be reached.
 //
-// Consumers (App.tsx) destructure each network's fileSystems for
-// FileSystemProvider AND pass the whole array to NetworkProvider so
-// network commands (nmap / ssh / curl / etc.) can resolve world
-// machine IPs. Returning the full MissionNetwork array (not just a
-// merged Record<string, FileNode>) is the correction vs the
-// abandoned PR #83.
-export const useWorldNetworks = (): ReadonlyArray<MissionNetwork> => {
-  const [networks, setNetworks] = useState<ReadonlyArray<MissionNetwork>>([]);
+// Consumers (GameSession) destructure each network's fileSystems for
+// FileSystemProvider, pass the networks to NetworkProvider so network
+// commands (nmap / ssh / curl / etc.) can resolve world machine IPs,
+// and pass the handlers so curl can dispatch to themed-network logic
+// (search engine, future shop/forum themes, etc.).
+export const useWorldNetworks = (): WorldNetworkState => {
+  const [state, setState] = useState<WorldNetworkState>(EMPTY_STATE);
 
   useEffect(() => {
     let cancelled = false;
@@ -31,7 +46,10 @@ export const useWorldNetworks = (): ReadonlyArray<MissionNetwork> => {
       if (cancelled || rows.length === 0) return;
       const generated = await generateWorldNetworks(rows, generateMissionNetwork);
       if (cancelled) return;
-      setNetworks(generated);
+      setState({
+        networks: generated,
+        handlers: buildWorldHandlerMap(rows, generated),
+      });
     };
 
     void fetchAndGenerate();
@@ -40,5 +58,5 @@ export const useWorldNetworks = (): ReadonlyArray<MissionNetwork> => {
     };
   }, []);
 
-  return networks;
+  return state;
 };

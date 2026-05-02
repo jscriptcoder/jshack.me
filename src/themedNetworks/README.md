@@ -26,14 +26,15 @@ Used by themed networks like the search engine (`findit.io`) — when a player r
    HttpResponse
 ```
 
-The handler registry (forthcoming `handlerRegistry.ts`) maps `world_networks.theme` → `RequestHandler`. NetworkContext consults it when building `getHandler` for the curl context.
+The handler registry (`handlerRegistry.ts`) maps `world_networks.theme` → `RequestHandler`. `useWorldNetworks` builds an IP→handler map from rows + generated networks; `NetworkProvider` exposes `getHandler(ip)` on context for curl dispatch.
 
 ## Files
 
-| File                       | Description                                                                                                                                                  |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `types.ts`                 | `RequestHandler`, `RequestArgs`, `MachineFsAccess`, `HandlerResponse`. Shared contract between curl and theme-specific handlers.                             |
-| `handlers/searchEngine.ts` | findit.io search handler. Reads `/etc/findit/index.json`, scores entries by keyword/title/description substring match against the `q` param, returns top 10. |
+| File                       | Description                                                                                                                                                                         |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `types.ts`                 | `RequestHandler`, `RequestArgs`, `MachineFsAccess`, `HandlerResponse`. Shared contract between curl and theme-specific handlers.                                                    |
+| `handlerRegistry.ts`       | `THEME_HANDLERS` map (theme → handler) + `buildWorldHandlerMap(rows, networks)` which pairs each row's theme with its generated network's router IP and returns the IP→handler map. |
+| `handlers/searchEngine.ts` | findit.io search handler. Reads `/etc/findit/index.json`, scores entries by keyword/title/description substring match against the `q` param, returns top 10.                        |
 
 ## Handler authoring rules
 
