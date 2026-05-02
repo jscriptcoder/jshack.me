@@ -112,10 +112,11 @@ DNAT rules, so `resolveNat` is a no-op).
 
 ## Source IP Resolution
 
-`resolveLogSourceIP()` determines the correct source IP for log entries:
+`resolveLogSourceIP()` determines the correct source IP for log entries — mirrors how a real network would record the source of an incoming packet:
 
 - **From a remote machine** (SSH session) — uses the remote machine's IP directly (already in `sessionMachine`).
-- **From the player's own workstation** — always the home router's public IP (e.g., `203.45.67.89`). A single public-IP identity makes player tracking consistent across every log file in the world. Same-/24 LAN IPs are deliberately not used here: LAN ranges aren't unique across players, so the public IP is the only stable identifier.
+- **From own workstation → same /24 subnet** — uses the LAN IP (e.g., `10.45.12.100`). Same-LAN traffic doesn't traverse a NAT, so the target sees the LAN IP directly. Gameplay-relevant: a defender watching logs on a machine they share a LAN with sees the actual LAN IP of the attacker.
+- **From own workstation → different network** — uses the home router's public IP (e.g., `203.45.67.89`), since traffic is NAT'd through the gateway.
 - **Fallback** (own workstation, no home network connected) — uses the LAN IP since there's no public IP available.
 
 The "own workstation" check is `sessionMachine === ownWorkstationId`, where `ownWorkstationId` is the player's identity-derived hostname (e.g., `skylab-aabbccdd`). Pre-PR-#94 this was the literal string `'localhost'`; the explicit comparison parameter prevents that bug from regressing.

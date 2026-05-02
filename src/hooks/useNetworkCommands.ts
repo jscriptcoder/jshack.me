@@ -160,7 +160,13 @@ export const useNetworkCommands = (): Map<string, Command> => {
       readonly targetIp: string;
       readonly probedPorts: readonly number[];
     }) => {
-      const sourceIp = resolveLogSourceIP(session.machine, hostname, getLocalIP(), getPublicIP());
+      const sourceIp = resolveLogSourceIP(
+        session.machine,
+        hostname,
+        info.targetIp,
+        getLocalIP(),
+        getPublicIP(),
+      );
       const targetHostname = resolveHostname(info.targetIp, getMachine);
       const line = formatNmapScanAggregate({
         date: new Date(),
@@ -178,7 +184,13 @@ export const useNetworkCommands = (): Map<string, Command> => {
       readonly hitCount: number;
     }) => {
       const { ip: logIp } = resolveNat(info.targetIp, info.port);
-      const sourceIp = resolveLogSourceIP(session.machine, hostname, getLocalIP(), getPublicIP());
+      const sourceIp = resolveLogSourceIP(
+        session.machine,
+        hostname,
+        info.targetIp,
+        getLocalIP(),
+        getPublicIP(),
+      );
       const line = formatGobusterScanAggregate({
         date: new Date(),
         sourceIp,
