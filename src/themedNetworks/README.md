@@ -30,9 +30,10 @@ The handler registry (forthcoming `handlerRegistry.ts`) maps `world_networks.the
 
 ## Files
 
-| File       | Description                                                                                                                      |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `types.ts` | `RequestHandler`, `RequestArgs`, `MachineFsAccess`, `HandlerResponse`. Shared contract between curl and theme-specific handlers. |
+| File                       | Description                                                                                                                                                  |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `types.ts`                 | `RequestHandler`, `RequestArgs`, `MachineFsAccess`, `HandlerResponse`. Shared contract between curl and theme-specific handlers.                             |
+| `handlers/searchEngine.ts` | findit.io search handler. Reads `/etc/findit/index.json`, scores entries by keyword/title/description substring match against the `q` param, returns top 10. |
 
 ## Handler authoring rules
 
