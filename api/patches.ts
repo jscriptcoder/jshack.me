@@ -203,12 +203,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const findActiveSession = createSupabaseFindActiveSession(
     async (params: FindActiveSessionParams) => {
-      // L1 patch-validation gate query. Hits `sessions_active_by_player_idx`
-      // (partial index on player_key WHERE ended_at IS NULL). We only need
-      // existence — `.limit(1)` keeps the read tiny.
+      // L1 + L2 patch-validation query. Hits `sessions_active_by_player_idx`
+      // (partial index on player_key WHERE ended_at IS NULL). L1 only
+      // needs the existence boolean; L2 (Step 6+) consumes the verified
+      // credentials JSONB so the permission walker can key its decision
+      // on a server-side projection (not a client claim). `.limit(1)`
+      // keeps the read tiny.
       const { data, error } = await supabase
         .from('sessions')
-        .select('session_id')
+        .select('session_id, credentials')
         .eq('player_key', params.player_key)
         .eq('machine_id', params.machine_id)
         .is('ended_at', null)
