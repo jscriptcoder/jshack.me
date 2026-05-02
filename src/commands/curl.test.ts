@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { RemoteMachine, DnsRecord } from '../network/types';
 import type { AsyncOutput } from '../components/Terminal/types';
-import { createCurlCommand } from './curl';
+import { createCurlCommand, parseUrl } from './curl';
 
 // --- Factory Functions ---
 
@@ -532,6 +532,117 @@ describe('curl command', () => {
         status: 200,
         size: expect.any(Number),
       });
+    });
+  });
+});
+
+describe('parseUrl', () => {
+  describe('without query string', () => {
+    it('parses full URL with path — query is empty', () => {
+      expect(parseUrl('http://192.168.1.1/index.html')).toEqual({
+        protocol: 'http',
+        host: '192.168.1.1',
+        port: 80,
+        path: '/index.html',
+        query: '',
+      });
+    });
+
+    it('parses URL with no path — path defaults to "/", query empty', () => {
+      expect(parseUrl('http://findit.io')).toEqual({
+        protocol: 'http',
+        host: 'findit.io',
+        port: 80,
+        path: '/',
+        query: '',
+      });
+    });
+
+    it('parses https default port', () => {
+      const result = parseUrl('https://findit.io/');
+      expect(result?.port).toBe(443);
+      expect(result?.protocol).toBe('https');
+    });
+
+    it('parses explicit port', () => {
+      const result = parseUrl('http://findit.io:8080/');
+      expect(result?.port).toBe(8080);
+    });
+
+    it('parses shorthand without protocol', () => {
+      expect(parseUrl('192.168.1.1/index.html')).toEqual({
+        protocol: 'http',
+        host: '192.168.1.1',
+        port: 80,
+        path: '/index.html',
+        query: '',
+      });
+    });
+
+    it('returns null for invalid URLs', () => {
+      expect(parseUrl('')).toBeNull();
+    });
+  });
+
+  describe('with query string', () => {
+    it('extracts single-param query from URL with no path', () => {
+      expect(parseUrl('http://findit.io?q=graphic+card')).toEqual({
+        protocol: 'http',
+        host: 'findit.io',
+        port: 80,
+        path: '/',
+        query: 'q=graphic+card',
+      });
+    });
+
+    it('extracts query from URL with explicit "/" path', () => {
+      const result = parseUrl('http://findit.io/?q=foo');
+      expect(result?.path).toBe('/');
+      expect(result?.query).toBe('q=foo');
+    });
+
+    it('extracts query from URL with non-root path', () => {
+      const result = parseUrl('http://findit.io/search?q=foo');
+      expect(result?.path).toBe('/search');
+      expect(result?.query).toBe('q=foo');
+    });
+
+    it('extracts multi-param query', () => {
+      const result = parseUrl('http://findit.io?q=foo&page=2&sort=date');
+      expect(result?.query).toBe('q=foo&page=2&sort=date');
+    });
+
+    it('extracts query alongside explicit port', () => {
+      const result = parseUrl('http://findit.io:8080/search?q=foo');
+      expect(result).toEqual({
+        protocol: 'http',
+        host: 'findit.io',
+        port: 8080,
+        path: '/search',
+        query: 'q=foo',
+      });
+    });
+
+    it('extracts query from shorthand URL without protocol', () => {
+      const result = parseUrl('findit.io?q=foo');
+      expect(result).toEqual({
+        protocol: 'http',
+        host: 'findit.io',
+        port: 80,
+        path: '/',
+        query: 'q=foo',
+      });
+    });
+
+    it('keeps URL-encoded characters in query string verbatim', () => {
+      // Query parsing/decoding is the handler's job — parseUrl just splits.
+      const result = parseUrl('http://findit.io?q=hello%20world');
+      expect(result?.query).toBe('q=hello%20world');
+    });
+
+    it('treats empty query as empty string, not undefined', () => {
+      const result = parseUrl('http://findit.io/?');
+      expect(result?.query).toBe('');
     });
   });
 });

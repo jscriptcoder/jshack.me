@@ -14,11 +14,15 @@ type CurlContext = {
   readonly onHttpRequest?: HttpRequestHandler;
 };
 
-type ParsedUrl = {
+export type ParsedUrl = {
   readonly protocol: string;
   readonly host: string;
   readonly port: number;
   readonly path: string;
+  // Raw query string (everything after `?`, no leading `?`). Empty
+  // string when the URL has no query. Decoding/key-splitting is the
+  // caller's job — parseUrl only splits.
+  readonly query: string;
 };
 
 type ServerConfig = {
@@ -48,23 +52,24 @@ const CONTENT_TYPES: Readonly<Record<string, string>> = {
   '.json': 'application/json',
 };
 
-const parseUrl = (urlStr: string): ParsedUrl | null => {
-  const fullMatch = urlStr.match(/^(https?):\/\/([^:/]+)(?::(\d+))?(\/.*)?$/);
+export const parseUrl = (urlStr: string): ParsedUrl | null => {
+  const fullMatch = urlStr.match(/^(https?):\/\/([^:/?]+)(?::(\d+))?(\/[^?]*)?(?:\?(.*))?$/);
   if (fullMatch) {
-    const [, protocol, host, portStr, path] = fullMatch;
+    const [, protocol, host, portStr, path, query] = fullMatch;
     return {
       protocol,
       host,
       port: portStr ? parseInt(portStr, 10) : protocol === 'https' ? 443 : 80,
       path: path || '/',
+      query: query ?? '',
     };
   }
 
   // Shorthand: "hostname/path" without protocol — defaults to HTTP (like real curl)
-  const shortMatch = urlStr.match(/^([^:/]+)(\/.*)?$/);
+  const shortMatch = urlStr.match(/^([^:/?]+)(\/[^?]*)?(?:\?(.*))?$/);
   if (shortMatch) {
-    const [, host, path] = shortMatch;
-    return { protocol: 'http', host, port: 80, path: path || '/' };
+    const [, host, path, query] = shortMatch;
+    return { protocol: 'http', host, port: 80, path: path || '/', query: query ?? '' };
   }
 
   return null;
