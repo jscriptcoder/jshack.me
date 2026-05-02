@@ -168,16 +168,16 @@ describe('IntroScreen', () => {
     expect(onStart).toHaveBeenCalledTimes(1);
   });
 
-  it('should show prompt preview with the identity-derived hostname suffix', () => {
+  it('should show a prompt preview that mirrors the in-game prompt (suffix stripped)', () => {
     render(<IntroScreen existingGame={null} onStart={vi.fn()} />);
 
     fireEvent.click(screen.getByText('NEW GAME'));
     fireEvent.change(screen.getByPlaceholderText('my-machine'), { target: { value: 'mybox' } });
     fireEvent.change(screen.getByPlaceholderText('hacker'), { target: { value: 'alice' } });
 
-    // Match alice@mybox-<8 hex chars> — exact suffix depends on the
-    // localStorage-stored identity, which is per-test and would make a
-    // hard-coded assertion brittle.
-    expect(screen.getByText(/^alice@mybox-[0-9a-f]{8}$/)).toBeDefined();
+    // Preview matches the in-game prompt exactly — suffix stripped.
+    // The full workstation_id (mybox-<8 hex>) is what storage uses
+    // under the hood; we just keep it out of the displayed prompt.
+    expect(screen.getByText('alice@mybox')).toBeDefined();
   });
 });
