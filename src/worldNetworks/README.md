@@ -35,14 +35,14 @@ Used today for the multiplayer **playground** (smoke-test surface). Designed to 
 
 ## Files
 
-| File                  | Description                                                                                                                                                                         |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `client.ts`           | `listWorldNetworks()` — direct anon-key Supabase read of the `world_networks` table.                                                                                                |
-| `generate.ts`         | `generateWorldNetworks(rows, generator)` — runs the (injected) mission generator per row with a fake allocator pinning each row's `public_ip`. Returns the full `MissionNetwork[]`. |
-| `useWorldNetworks.ts` | React hook — fetches at mount, generates, exposes `{ networks, handlers }` (handlers map themed-network requests via `themedNetworks/handlerRegistry`).                             |
-| `types.ts`            | `WorldNetwork` row shape (incl. nullable `search_metadata` for findit.io indexing) and `SearchMetadata`.                                                                            |
-| `*.test.ts`           | Unit tests.                                                                                                                                                                         |
-| `README.md`           | This file.                                                                                                                                                                          |
+| File                  | Description                                                                                                                                                                                                                               |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `client.ts`           | `listWorldNetworks()` — direct anon-key Supabase read of the `world_networks` table.                                                                                                                                                      |
+| `generate.ts`         | `generateWorldNetworks(rows, selectGenerator)` — runs the per-theme generator with a fake allocator pinning each row's `public_ip`. Returns the full `MissionNetwork[]`. Theme dispatch lives in `themedNetworks/generators/registry.ts`. |
+| `useWorldNetworks.ts` | React hook — fetches at mount, generates, exposes `{ networks, handlers }` (handlers map themed-network requests via `themedNetworks/handlerRegistry`).                                                                                   |
+| `types.ts`            | `WorldNetwork` row shape (nullable `public_domain` for FQDN networks like findit.io; nullable `search_metadata` for findit.io indexing) and `SearchMetadata`.                                                                             |
+| `*.test.ts`           | Unit tests.                                                                                                                                                                                                                               |
+| `README.md`           | This file.                                                                                                                                                                                                                                |
 
 Plus:
 

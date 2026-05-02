@@ -16,12 +16,13 @@ export type SearchMetadata = z.infer<typeof SearchMetadataSchema>;
 // Public shape of a world_networks row returned by listWorldNetworks.
 // Mirrors the table columns we project in the SELECT.
 //
-// description and search_metadata are nullable in the DB; the others
-// are NOT NULL per the migration. theme is a free-form tag
-// (`'playground'`, `'office'`, `'police'`, `'university'`, `'cafe'`,
+// description, public_domain, and search_metadata are nullable in the
+// DB; the others are NOT NULL per the migration. theme is a free-form
+// tag (`'playground'`, `'office'`, `'police'`, `'university'`, `'cafe'`,
 // `'search-engine'`, ...) — string rather than a TS enum to keep
 // adding new themes a content change (new migration row), not a code
-// change.
+// change. public_domain is the FQDN themed networks expose (e.g.,
+// 'findit.io'); rows without a public-facing domain leave it null.
 //
 // Wire shape uses snake_case to match the DB; consumers keep it as-is.
 export const WorldNetworkSchema = z.object({
@@ -30,6 +31,7 @@ export const WorldNetworkSchema = z.object({
   name: z.string().min(1),
   description: z.string().nullable(),
   theme: z.string().min(1),
+  public_domain: z.string().nullable(),
   search_metadata: SearchMetadataSchema.nullable(),
 });
 

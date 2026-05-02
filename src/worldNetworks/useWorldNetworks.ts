@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { generateMissionNetwork } from '../generation/generateMission';
 import type { MissionNetwork } from '../generation/types';
+import { selectGenerator } from '../themedNetworks/generators/registry';
 import { buildWorldHandlerMap } from '../themedNetworks/handlerRegistry';
 import type { RequestHandler } from '../themedNetworks/types';
 import { listWorldNetworks } from './client';
@@ -44,7 +44,7 @@ export const useWorldNetworks = (): WorldNetworkState => {
     const fetchAndGenerate = async (): Promise<void> => {
       const rows = await listWorldNetworks();
       if (cancelled || rows.length === 0) return;
-      const generated = await generateWorldNetworks(rows, generateMissionNetwork);
+      const generated = await generateWorldNetworks(rows, selectGenerator);
       if (cancelled) return;
       setState({
         networks: generated,

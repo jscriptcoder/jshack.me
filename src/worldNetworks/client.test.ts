@@ -17,6 +17,7 @@ const seedRows: WorldNetwork[] = [
     name: 'Playground',
     description: 'Shared playground for multiplayer smoke tests.',
     theme: 'playground',
+    public_domain: null,
     search_metadata: null,
   },
 ];
@@ -56,7 +57,7 @@ describe('listWorldNetworks', () => {
     expect(result[0]?.theme).toBe('playground');
   });
 
-  it('queries the world_networks table with the expected field projection (includes theme + search_metadata)', async () => {
+  it('queries the world_networks table with the expected field projection (includes theme + public_domain + search_metadata)', async () => {
     const { client, selectSpy } = makeSupabaseMock({ data: [], error: null });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -64,7 +65,7 @@ describe('listWorldNetworks', () => {
 
     expect(client.from).toHaveBeenCalledWith('world_networks');
     expect(selectSpy).toHaveBeenCalledWith(
-      'public_ip, seed, name, description, theme, search_metadata',
+      'public_ip, seed, name, description, theme, public_domain, search_metadata',
     );
   });
 
@@ -75,6 +76,7 @@ describe('listWorldNetworks', () => {
       name: 'findit.io',
       description: 'Search engine.',
       theme: 'search-engine',
+      public_domain: 'findit.io',
       search_metadata: {
         title: 'findit.io',
         description: 'Search the web.',
@@ -97,6 +99,7 @@ describe('listWorldNetworks', () => {
       name: 'Bad',
       description: null,
       theme: 'search-engine',
+      public_domain: null,
       // Missing required title/description/keywords
       search_metadata: { keywords: 'not an array' },
     };
