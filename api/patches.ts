@@ -15,6 +15,8 @@ import type { ClearOwnedArg, DeletePatchesArg } from '../src/patchRegistry/supab
 import type { PatchRow, ListPatchesForMachinesParams } from '../src/patchRegistry/types.js';
 import { createSupabaseFindActiveSession } from '../src/sessionRegistry/supabaseFindActive.js';
 import type { FindActiveSessionParams } from '../src/sessionRegistry/supabaseFindActive.js';
+import { createSupabaseFindMachineFs } from '../src/patchRegistry/supabaseFindMachineFs.js';
+import type { FindMachineFsParams } from '../src/patchRegistry/supabaseFindMachineFs.js';
 import {
   createUpstashRateLimiter,
   noopRateLimiter,
@@ -221,6 +223,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     },
   );
 
+  const findMachineFs = createSupabaseFindMachineFs(async (params: FindMachineFsParams) => {
+    // L2 lookup. Hits the (machine_id, path) PK directly. We only need
+    // the projected node fields the walker uses; row absence is normal
+    // (unpatched paths) and handled permissively at the handler layer.
+    const { data, error } = await supabase
+      .from('machine_filesystems')
+      .select('owner, permissions, node_type')
+      .eq('machine_id', params.machine_id)
+      .eq('path', params.path)
+      .limit(1);
+    if (error) console.error('[patches] supabase findMachineFs error:', error);
+    return { data, error };
+  });
+
   const { rateLimiter, nonceStore } = buildUpstashAdapters();
 
   const { status, body, headers } = await handlePatchesRequest(req.body, {
@@ -229,6 +245,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     listPatchesForMachines,
     clearOwnedPatches,
     findActiveSession,
+    findMachineFs,
     publishPatchChange,
     rateLimiter,
     nonceStore,

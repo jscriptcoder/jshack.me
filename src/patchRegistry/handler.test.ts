@@ -16,6 +16,7 @@ import type {
   FindActiveSessionParams,
   FindActiveSessionResult,
 } from '../sessionRegistry/supabaseFindActive';
+import type { FindMachineFsParams, FindMachineFsResult } from './supabaseFindMachineFs';
 import type { RateLimiter } from '../ipRegistry/rateLimit';
 import { noopRateLimiter } from '../ipRegistry/rateLimit';
 import { noopNonceStore, type NonceStore } from '../signedRequest/nonceStore';
@@ -59,6 +60,7 @@ const mkDeps = (overrides: {
   readonly findActiveSession?: (
     params: FindActiveSessionParams,
   ) => Promise<FindActiveSessionResult>;
+  readonly findMachineFs?: (params: FindMachineFsParams) => Promise<FindMachineFsResult>;
   readonly publishPatchChange?: PublishPatchChange;
   readonly rateLimiter?: RateLimiter;
   readonly nonceStore?: NonceStore;
@@ -85,11 +87,24 @@ const mkDeps = (overrides: {
       .fn<(params: ClearPatchesParams) => Promise<ClearPatchesResult>>()
       .mockResolvedValue({ ok: true, affected: 0 }),
   // Default: gate always passes. Session-specific tests override per-case.
+  // Default credentials are user-typed for cross-machine sessions; L2-specific
+  // tests override to root or guest as needed.
   findActiveSession:
     overrides.findActiveSession ??
     vi
       .fn<(params: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
-      .mockResolvedValue({ ok: true, exists: true }),
+      .mockResolvedValue({
+        ok: true,
+        exists: true,
+        credentials: { username: 'alice', userType: 'user' },
+      }),
+  // Default: machine_filesystems has no row → permissive fallback. L2-specific
+  // tests override to inject a target row with explicit permissions.
+  findMachineFs:
+    overrides.findMachineFs ??
+    vi
+      .fn<(params: FindMachineFsParams) => Promise<FindMachineFsResult>>()
+      .mockResolvedValue({ ok: true, found: false }),
   publishPatchChange:
     overrides.publishPatchChange ?? vi.fn<PublishPatchChange>().mockResolvedValue(undefined),
   rateLimiter: overrides.rateLimiter ?? noopRateLimiter,
@@ -1375,5 +1390,470 @@ describe('handlePatchesRequest — hint broadcast on successful mutation', () =>
     await handlePatchesRequest(clearOwnedEnvelope, mkDeps({ publishPatchChange }));
 
     expect(publishPatchChange).not.toHaveBeenCalled();
+  });
+});
+
+// -----------------------------------------------------------------------
+// L2 patch validation — walker decision on machine_filesystems target
+//
+// L2 sits after L1 (which checked "session exists") and before the DB
+// mutation. It looks up the target path in machine_filesystems and runs
+// the shared walker against the active session's verified userType.
+//
+// Today's wiring is leaf-only: target.write is the only check. Parent-
+// chain enforcement is deferred to a later step that requires base-FS
+// backfill of machine_filesystems (Pattern A's projection only contains
+// patched files; untouched files have no row).
+//
+// Permissive fallback: when machine_filesystems has no row for the path,
+// L2 allows the mutation. This is a documented gap — closing it requires
+// machine_filesystems to contain the full base FS, not just patches.
+// -----------------------------------------------------------------------
+
+describe('handlePatchesRequest — L2 walker enforcement', () => {
+  let identity: Identity;
+  beforeEach(() => {
+    identity = generateIdentity();
+  });
+
+  const rootOnlyPerms = { read: ['root'], write: ['root'], execute: ['root'] };
+  const userWritablePerms = {
+    read: ['root', 'user'],
+    write: ['root', 'user'],
+    execute: ['root', 'user'],
+  };
+
+  describe('upsertPatch', () => {
+    const validUpsert = {
+      action: 'upsertPatch',
+      machine_id: '10.0.0.1',
+      path: '/etc/shadow',
+      content: 'pwn',
+      owner: 'root',
+    };
+
+    it('returns 403 permission_denied when guest tries to write a root-only file', async () => {
+      // The flagship L2 attack: guest holds a legitimate session on the
+      // remote machine (L1 passes), but tries to overwrite /etc/shadow.
+      // Server's stored row has write=['root']; walker denies.
+      const findActiveSession = vi
+        .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+        .mockResolvedValue({
+          ok: true,
+          exists: true,
+          credentials: { username: 'guest', userType: 'guest' },
+        });
+      const findMachineFs = vi
+        .fn<(p: FindMachineFsParams) => Promise<FindMachineFsResult>>()
+        .mockResolvedValue({
+          ok: true,
+          found: true,
+          node: { owner: 'root', permissions: rootOnlyPerms, node_type: 'file' },
+        });
+      const upsertPatch = vi
+        .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
+        .mockResolvedValue({ ok: true });
+
+      const envelope = makeEnvelope(identity, validUpsert);
+      const result = await handlePatchesRequest(
+        envelope,
+        mkDeps({ findActiveSession, findMachineFs, upsertPatch }),
+      );
+
+      expect(result.status).toBe(403);
+      expect(result.body).toMatchObject({ error: 'permission_denied' });
+      // Critical: no DB mutation when L2 denies. A surviving mutant that
+      // dropped the early-return would let the patch land despite the 403.
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
+
+    it('returns 200 when root tries to write a root-only file (walker allows)', async () => {
+      const findActiveSession = vi
+        .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+        .mockResolvedValue({
+          ok: true,
+          exists: true,
+          credentials: { username: 'root', userType: 'root' },
+        });
+      const findMachineFs = vi
+        .fn<(p: FindMachineFsParams) => Promise<FindMachineFsResult>>()
+        .mockResolvedValue({
+          ok: true,
+          found: true,
+          node: { owner: 'root', permissions: rootOnlyPerms, node_type: 'file' },
+        });
+      const upsertPatch = vi
+        .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
+        .mockResolvedValue({ ok: true });
+
+      const envelope = makeEnvelope(identity, validUpsert);
+      const result = await handlePatchesRequest(
+        envelope,
+        mkDeps({ findActiveSession, findMachineFs, upsertPatch }),
+      );
+
+      expect(result.status).toBe(200);
+      expect(upsertPatch).toHaveBeenCalled();
+    });
+
+    it('uses target.write (not target.read) for mode dispatch', async () => {
+      // Pinned: a mutant that called canRead instead of canWrite would
+      // pass this guest: target.read includes guest, but target.write
+      // doesn't. The handler MUST consult target.write for mutating
+      // actions, otherwise overwrite-via-readable becomes a free attack.
+      const findActiveSession = vi
+        .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+        .mockResolvedValue({
+          ok: true,
+          exists: true,
+          credentials: { username: 'guest', userType: 'guest' },
+        });
+      const findMachineFs = vi
+        .fn<(p: FindMachineFsParams) => Promise<FindMachineFsResult>>()
+        .mockResolvedValue({
+          ok: true,
+          found: true,
+          node: {
+            owner: 'root',
+            permissions: {
+              read: ['root', 'user', 'guest'], // guest can read
+              write: ['root', 'user'], // guest CANNOT write
+              execute: ['root'],
+            },
+            node_type: 'file',
+          },
+        });
+      const upsertPatch = vi
+        .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
+        .mockResolvedValue({ ok: true });
+
+      const envelope = makeEnvelope(identity, validUpsert);
+      const result = await handlePatchesRequest(
+        envelope,
+        mkDeps({ findActiveSession, findMachineFs, upsertPatch }),
+      );
+
+      expect(result.status).toBe(403);
+      expect(result.body).toMatchObject({ error: 'permission_denied' });
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
+
+    it('returns 200 when user is in target.write list', async () => {
+      const findActiveSession = vi
+        .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+        .mockResolvedValue({
+          ok: true,
+          exists: true,
+          credentials: { username: 'alice', userType: 'user' },
+        });
+      const findMachineFs = vi
+        .fn<(p: FindMachineFsParams) => Promise<FindMachineFsResult>>()
+        .mockResolvedValue({
+          ok: true,
+          found: true,
+          node: { owner: 'user', permissions: userWritablePerms, node_type: 'file' },
+        });
+      const upsertPatch = vi
+        .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
+        .mockResolvedValue({ ok: true });
+
+      const envelope = makeEnvelope(identity, validUpsert);
+      const result = await handlePatchesRequest(
+        envelope,
+        mkDeps({ findActiveSession, findMachineFs, upsertPatch }),
+      );
+
+      expect(result.status).toBe(200);
+      expect(upsertPatch).toHaveBeenCalled();
+    });
+
+    it('allows the mutation (permissive fallback) when machine_filesystems has no row for the path', async () => {
+      // Documented Pattern A gap: untouched paths have no row, so L2 has
+      // no perms to check. Future step closes this with base-FS backfill.
+      const findMachineFs = vi
+        .fn<(p: FindMachineFsParams) => Promise<FindMachineFsResult>>()
+        .mockResolvedValue({ ok: true, found: false });
+      const upsertPatch = vi
+        .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
+        .mockResolvedValue({ ok: true });
+
+      const envelope = makeEnvelope(identity, validUpsert);
+      const result = await handlePatchesRequest(envelope, mkDeps({ findMachineFs, upsertPatch }));
+
+      expect(result.status).toBe(200);
+      expect(upsertPatch).toHaveBeenCalled();
+    });
+
+    it('returns 500 fs_lookup_failed when findMachineFs DB op errors', async () => {
+      // Distinguished from 403 (walker denied) — the lookup itself
+      // failed, server can't decide. Don't fail-open by treating DB
+      // errors as found:false → would silently skip L2.
+      const findMachineFs = vi
+        .fn<(p: FindMachineFsParams) => Promise<FindMachineFsResult>>()
+        .mockResolvedValue({ ok: false });
+      const upsertPatch = vi
+        .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
+        .mockResolvedValue({ ok: true });
+
+      const envelope = makeEnvelope(identity, validUpsert);
+      const result = await handlePatchesRequest(envelope, mkDeps({ findMachineFs, upsertPatch }));
+
+      expect(result.status).toBe(500);
+      expect(result.body).toMatchObject({ error: 'fs_lookup_failed' });
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
+
+    it('skips L2 entirely when machine_id is the player own workstation', async () => {
+      // Own-workstation bypass — no L2 row should be fetched at all,
+      // and a (synthetic) restrictive row would not block the mutation.
+      const suffix = deriveHostnameSuffix(`ed25519:${identity.publicKeyHex}`);
+      const findMachineFs = vi
+        .fn<(p: FindMachineFsParams) => Promise<FindMachineFsResult>>()
+        .mockResolvedValue({
+          ok: true,
+          found: true,
+          node: { owner: 'root', permissions: rootOnlyPerms, node_type: 'file' },
+        });
+      const upsertPatch = vi
+        .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
+        .mockResolvedValue({ ok: true });
+
+      const envelope = makeEnvelope(identity, {
+        action: 'upsertPatch',
+        machine_id: `kali-${suffix}`,
+        path: '/home/me/notes.txt',
+        content: 'self',
+        owner: 'user',
+      });
+      const result = await handlePatchesRequest(envelope, mkDeps({ findMachineFs, upsertPatch }));
+
+      expect(result.status).toBe(200);
+      expect(upsertPatch).toHaveBeenCalled();
+      // Pinned: own-workstation bypass MUST short-circuit before L2.
+      // A mutant that dropped the bypass would fetch the synthetic
+      // restrictive row above and 403.
+      expect(findMachineFs).not.toHaveBeenCalled();
+    });
+
+    it('skips both L1 and L2 for /var/log/* (ambient log writes)', async () => {
+      const findActiveSession = vi
+        .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+        .mockResolvedValue({
+          ok: true,
+          exists: true,
+          credentials: { username: 'guest', userType: 'guest' },
+        });
+      const findMachineFs = vi
+        .fn<(p: FindMachineFsParams) => Promise<FindMachineFsResult>>()
+        .mockResolvedValue({
+          ok: true,
+          found: true,
+          node: { owner: 'root', permissions: rootOnlyPerms, node_type: 'file' },
+        });
+      const envelope = makeEnvelope(identity, {
+        action: 'upsertPatch',
+        machine_id: '10.0.0.1',
+        path: '/var/log/auth.log',
+        content: '[scan] 10.0.0.5 -> tcp/22\n',
+        owner: 'root',
+      });
+
+      const result = await handlePatchesRequest(
+        envelope,
+        mkDeps({ findActiveSession, findMachineFs }),
+      );
+
+      expect(result.status).toBe(200);
+      // Critical: ambient log path bypasses BOTH gates. A mutant that
+      // moved the L2 check outside the !isAmbientLogPath block would
+      // 403 here on the rootOnlyPerms target.
+      expect(findActiveSession).not.toHaveBeenCalled();
+      expect(findMachineFs).not.toHaveBeenCalled();
+    });
+
+    it('returns 403 no_session (L1) before consulting findMachineFs at all', async () => {
+      // Pinned: L2 must run AFTER L1. A mutant that ran them in
+      // parallel or swapped the order would fetch machine_filesystems
+      // for unauthenticated requests.
+      const findActiveSession = vi
+        .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+        .mockResolvedValue({ ok: true, exists: false });
+      const findMachineFs = vi
+        .fn<(p: FindMachineFsParams) => Promise<FindMachineFsResult>>()
+        .mockResolvedValue({ ok: true, found: false });
+
+      const envelope = makeEnvelope(identity, validUpsert);
+      const result = await handlePatchesRequest(
+        envelope,
+        mkDeps({ findActiveSession, findMachineFs }),
+      );
+
+      expect(result.status).toBe(403);
+      expect(result.body).toMatchObject({ error: 'no_session' });
+      expect(findMachineFs).not.toHaveBeenCalled();
+    });
+
+    it('passes verified userType from session credentials to walker (not client-claimed)', async () => {
+      // Mutation-kill: a mutant that used a hardcoded userType (e.g.
+      // 'root') would let any session pass L2 here. The walker decision
+      // depends on the session's credentials.userType being plumbed
+      // through.
+      const findActiveSession = vi
+        .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+        .mockResolvedValue({
+          ok: true,
+          exists: true,
+          credentials: { username: 'guest', userType: 'guest' },
+        });
+      const findMachineFs = vi
+        .fn<(p: FindMachineFsParams) => Promise<FindMachineFsResult>>()
+        .mockResolvedValue({
+          ok: true,
+          found: true,
+          node: {
+            owner: 'user',
+            permissions: { read: ['root', 'user'], write: ['root', 'user'], execute: ['root'] },
+            node_type: 'file',
+          },
+        });
+      const upsertPatch = vi
+        .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
+        .mockResolvedValue({ ok: true });
+
+      const envelope = makeEnvelope(identity, validUpsert);
+      const result = await handlePatchesRequest(
+        envelope,
+        mkDeps({ findActiveSession, findMachineFs, upsertPatch }),
+      );
+
+      expect(result.status).toBe(403);
+      expect(result.body).toMatchObject({ error: 'permission_denied' });
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('removePatch (parity with upsertPatch)', () => {
+    const validRemove = {
+      action: 'removePatch',
+      machine_id: '10.0.0.1',
+      path: '/etc/shadow',
+    };
+
+    it('returns 403 permission_denied when guest tries to remove a root-only file', async () => {
+      const findActiveSession = vi
+        .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+        .mockResolvedValue({
+          ok: true,
+          exists: true,
+          credentials: { username: 'guest', userType: 'guest' },
+        });
+      const findMachineFs = vi
+        .fn<(p: FindMachineFsParams) => Promise<FindMachineFsResult>>()
+        .mockResolvedValue({
+          ok: true,
+          found: true,
+          node: { owner: 'root', permissions: rootOnlyPerms, node_type: 'file' },
+        });
+      const removePatch = vi
+        .fn<(p: RemovePatchParams) => Promise<RemovePatchResult>>()
+        .mockResolvedValue({ ok: true, affected: 0 });
+
+      const envelope = makeEnvelope(identity, validRemove);
+      const result = await handlePatchesRequest(
+        envelope,
+        mkDeps({ findActiveSession, findMachineFs, removePatch }),
+      );
+
+      expect(result.status).toBe(403);
+      expect(result.body).toMatchObject({ error: 'permission_denied' });
+      expect(removePatch).not.toHaveBeenCalled();
+    });
+
+    it('returns 200 when root removes a root-only file', async () => {
+      const findActiveSession = vi
+        .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+        .mockResolvedValue({
+          ok: true,
+          exists: true,
+          credentials: { username: 'root', userType: 'root' },
+        });
+      const findMachineFs = vi
+        .fn<(p: FindMachineFsParams) => Promise<FindMachineFsResult>>()
+        .mockResolvedValue({
+          ok: true,
+          found: true,
+          node: { owner: 'root', permissions: rootOnlyPerms, node_type: 'file' },
+        });
+      const removePatch = vi
+        .fn<(p: RemovePatchParams) => Promise<RemovePatchResult>>()
+        .mockResolvedValue({ ok: true, affected: 1 });
+
+      const envelope = makeEnvelope(identity, validRemove);
+      const result = await handlePatchesRequest(
+        envelope,
+        mkDeps({ findActiveSession, findMachineFs, removePatch }),
+      );
+
+      expect(result.status).toBe(200);
+      expect(removePatch).toHaveBeenCalled();
+    });
+
+    it('skips L2 entirely on the player own workstation', async () => {
+      const suffix = deriveHostnameSuffix(`ed25519:${identity.publicKeyHex}`);
+      const findMachineFs = vi
+        .fn<(p: FindMachineFsParams) => Promise<FindMachineFsResult>>()
+        .mockResolvedValue({
+          ok: true,
+          found: true,
+          node: { owner: 'root', permissions: rootOnlyPerms, node_type: 'file' },
+        });
+      const removePatch = vi
+        .fn<(p: RemovePatchParams) => Promise<RemovePatchResult>>()
+        .mockResolvedValue({ ok: true, affected: 1 });
+
+      const envelope = makeEnvelope(identity, {
+        action: 'removePatch',
+        machine_id: `kali-${suffix}`,
+        path: '/home/me/dead.txt',
+      });
+      const result = await handlePatchesRequest(envelope, mkDeps({ findMachineFs, removePatch }));
+
+      expect(result.status).toBe(200);
+      expect(removePatch).toHaveBeenCalled();
+      expect(findMachineFs).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('read / clear actions are NOT subject to L2', () => {
+    // listPatchesForMachines and clearOwnedPatches don't touch
+    // machine_filesystems and don't call findMachineFs. Cross-player
+    // visibility on shared machines is by design; clearOwnedPatches is
+    // already scoped to the player's own workstation by player_key +
+    // workstation_id filter at the SQL layer.
+
+    it('listPatchesForMachines does not invoke findMachineFs', async () => {
+      const findMachineFs = vi
+        .fn<(p: FindMachineFsParams) => Promise<FindMachineFsResult>>()
+        .mockResolvedValue({ ok: true, found: false });
+      const envelope = makeEnvelope(identity, {
+        action: 'listPatchesForMachines',
+        machine_ids: ['10.0.0.1'],
+      });
+
+      await handlePatchesRequest(envelope, mkDeps({ findMachineFs }));
+
+      expect(findMachineFs).not.toHaveBeenCalled();
+    });
+
+    it('clearOwnedPatches does not invoke findMachineFs', async () => {
+      const findMachineFs = vi
+        .fn<(p: FindMachineFsParams) => Promise<FindMachineFsResult>>()
+        .mockResolvedValue({ ok: true, found: false });
+      const envelope = makeEnvelope(identity, { action: 'clearOwnedPatches' });
+
+      await handlePatchesRequest(envelope, mkDeps({ findMachineFs }));
+
+      expect(findMachineFs).not.toHaveBeenCalled();
+    });
   });
 });

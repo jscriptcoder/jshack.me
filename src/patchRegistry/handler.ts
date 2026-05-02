@@ -21,6 +21,9 @@ import type {
   FindActiveSessionParams,
   FindActiveSessionResult,
 } from '../sessionRegistry/supabaseFindActive.js';
+import type { Credentials } from '../sessionRegistry/types.js';
+import type { FindMachineFsParams, FindMachineFsResult } from './supabaseFindMachineFs.js';
+import { canWrite } from '../filesystem/permissionWalker.js';
 import { deriveHostnameSuffix } from '../homeNetworks/homeNetworkHelpers.js';
 
 export type HandlerResponse = {
@@ -41,7 +44,16 @@ export type HandlerDeps = {
   // mutation. Read of the existing `sessions` table — see
   // sessionRegistry/supabaseFindActive.ts for the adapter and
   // project_multiplayer_security_model memory for the broader design.
+  // The returned credentials (when exists: true) feed L2's walker.
   readonly findActiveSession: (params: FindActiveSessionParams) => Promise<FindActiveSessionResult>;
+  // L2 of the patch-validation layer cake: confirms the active session's
+  // credentials have permission for the requested mutation on the
+  // target file. Read of `machine_filesystems` — see
+  // supabaseFindMachineFs.ts for the adapter. Today's wiring is
+  // leaf-only (target check, no parent chain) and permissive when no row
+  // exists; full enforcement requires base-FS backfill of
+  // machine_filesystems (see Step 7+ of the L2 plan).
+  readonly findMachineFs: (params: FindMachineFsParams) => Promise<FindMachineFsResult>;
   // Realtime hint broadcast: fired after each successful upsertPatch /
   // removePatch so subscribed clients on shared machines refetch live.
   // The payload is just (machine_id, originator_key) — receivers do
@@ -144,21 +156,32 @@ const isOwnWorkstationOnServer = (machineId: string, playerKey: string): boolean
   return machineId.endsWith(`-${expectedSuffix}`);
 };
 
-// L1 patch-validation gate: every mutating action (upsertPatch /
-// removePatch) on a remote machine MUST be backed by an active session
-// row for this player on that machine. The player's own workstation is
-// exempt — the player always "owns" their own box, no session needed.
+// L1 + L2 patch-validation gate.
 //
-// Returns a HandlerResponse to short-circuit the caller, or null to
-// allow the caller to proceed. Centralized here so both upsert and
-// remove gate identically and a future fourth mutating action would
-// just call this same helper.
+// L1: every mutating action on a remote machine MUST be backed by an
+// active session row for this player on that machine. The player's own
+// workstation is exempt — the player always "owns" their own box, no
+// session needed.
 //
-// Distinguished failure modes:
+// L2: the session's verified credentials MUST have permission for the
+// requested mutation on the target path. Looks up the target node in
+// machine_filesystems and runs the shared permission walker
+// (filesystem/permissionWalker). Today's check is leaf-only (no parent
+// chain) and permissive when the target has no row in
+// machine_filesystems — full parent-chain enforcement requires base-FS
+// backfill into machine_filesystems (Step 7+ of the L2 plan, currently
+// scoped to backfill from existing patches only).
+//
+// Both gates short-circuit by returning a HandlerResponse; a successful
+// gate returns null. Distinguished failure modes (so client/playtest
+// can tell what went wrong without leaking implementation details):
 //   - findActiveSession returns ok: false → 500 session_lookup_failed
-//     (the lookup itself broke; we can't decide either way safely)
 //   - findActiveSession returns ok: true, exists: false → 403 no_session
-//     (lookup succeeded; player has no session on this machine)
+//   - findMachineFs returns ok: false → 500 fs_lookup_failed
+//   - walker denies → 403 permission_denied
+//
+// Reason field distinguishes L1 ('no_session') from L2
+// ('permission_denied') — load-bearing for telemetry / playtest debugging.
 const requireActiveSession = async (
   publicKey: string,
   machine_id: string,
@@ -171,6 +194,55 @@ const requireActiveSession = async (
   }
   if (!result.exists) {
     return { status: 403, body: { error: 'no_session' } };
+  }
+  return null;
+};
+
+// Fetches the active session's credentials for L2. Returns null when the
+// caller is on their own workstation (own-box bypass — L2 not applicable)
+// or when the lookup fails — caller must already have run requireActiveSession,
+// so a missing session here is treated as a server error rather than 403.
+const fetchSessionCredentials = async (
+  publicKey: string,
+  machine_id: string,
+  deps: HandlerDeps,
+): Promise<
+  { readonly response: HandlerResponse } | { readonly credentials: Credentials | null }
+> => {
+  if (isOwnWorkstationOnServer(machine_id, publicKey)) return { credentials: null };
+  const result = await deps.findActiveSession({ player_key: publicKey, machine_id });
+  if (!result.ok) {
+    return { response: { status: 500, body: { error: 'session_lookup_failed' } } };
+  }
+  if (!result.exists) {
+    // Should be unreachable if requireActiveSession ran first. Fail closed.
+    return { response: { status: 403, body: { error: 'no_session' } } };
+  }
+  return { credentials: result.credentials };
+};
+
+// L2 enforcement: walker decision on (target, mode, userType). Skipped
+// when credentials is null (own-workstation bypass). Permissive fallback
+// when machine_filesystems has no row for the path (documented gap).
+const enforceL2 = async (
+  credentials: Credentials | null,
+  machine_id: string,
+  path: string,
+  deps: HandlerDeps,
+): Promise<HandlerResponse | null> => {
+  if (!credentials) return null;
+  const fsResult = await deps.findMachineFs({ machine_id, path });
+  if (!fsResult.ok) {
+    return { status: 500, body: { error: 'fs_lookup_failed' } };
+  }
+  if (!fsResult.found) return null;
+  const decision = canWrite({
+    userType: credentials.userType,
+    target: fsResult.node.permissions,
+    parentChain: [],
+  });
+  if (!decision.allowed) {
+    return { status: 403, body: { error: 'permission_denied' } };
   }
   return null;
 };
@@ -216,6 +288,13 @@ const handleUpsertPatch = async (
   if (!isAmbientLogPath(payload.path)) {
     const gate = await requireActiveSession(publicKey, payload.machine_id, deps);
     if (gate) return gate;
+
+    // L2: walker decision on the target path's stored permissions.
+    // Ambient log writes bypass both L1 and L2 (no associated session).
+    const credsResult = await fetchSessionCredentials(publicKey, payload.machine_id, deps);
+    if ('response' in credsResult) return credsResult.response;
+    const l2Gate = await enforceL2(credsResult.credentials, payload.machine_id, payload.path, deps);
+    if (l2Gate) return l2Gate;
   }
 
   const { machine_id, path, content, owner, permissions, is_new, node_type } = payload;
@@ -253,6 +332,17 @@ const handleRemovePatch = async (
 ): Promise<HandlerResponse> => {
   const gate = await requireActiveSession(publicKey, payload.machine_id, deps);
   if (gate) return gate;
+
+  // L2: walker decision on the target path's stored permissions. Remove
+  // is a write operation per the gameplay model — you need write on the
+  // file (for content removal) or on the parent dir (for unlinking).
+  // The leaf-only check focuses on the file's own write list; parent-dir
+  // enforcement is deferred to a future step that requires base-FS
+  // backfill of machine_filesystems.
+  const credsResult = await fetchSessionCredentials(publicKey, payload.machine_id, deps);
+  if ('response' in credsResult) return credsResult.response;
+  const l2Gate = await enforceL2(credsResult.credentials, payload.machine_id, payload.path, deps);
+  if (l2Gate) return l2Gate;
 
   const result = await deps.removePatch({
     player_key: publicKey,
