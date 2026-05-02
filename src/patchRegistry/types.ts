@@ -86,20 +86,27 @@ export type ListPatchesForMachinesPayload = z.infer<
   typeof listPatchesForMachinesSignedPayloadSchema
 >;
 
-// clearOwnedPatches — DELETE WHERE player_key=me AND machine_id='localhost'.
+// clearOwnedPatches — DELETE WHERE player_key=me AND machine_id=$workstation_id.
 // Fired by `reset confirm` before page reload, wiping the player's own
-// localhost patches without touching the shared world.
+// workstation patches without touching the shared world. The client sends
+// its workstation_id (= suffixed hostname) explicitly; the server cross-
+// checks it against the verified player_key (the workstation_id IS
+// derived from the player_key, so a forged workstation_id would not match
+// and we'd no-op silently).
 //
-// Why scoped to "owned" (currently localhost only): cross-player
-// patches — e.g., Player A deleted a file on Player B's machine —
-// represent gameplay actions in a shared world. A player resetting
-// their game shouldn't undo the things they did to OTHER players'
-// machines. As more "ownership" arrives (home network slots, mission
-// instances), the server-side WHERE will grow accordingly.
+// Why scoped to "owned": cross-player patches — e.g., Player A deleted
+// a file on Player B's workstation — represent gameplay actions in a
+// shared world. A player resetting their game shouldn't undo the things
+// they did to OTHER players' machines. The workstation_id is what makes
+// this scoping correct under the eliminated-localhost model: the player
+// can only wipe rows that THEIR identity owns AND whose machine_id is
+// THEIR workstation. As more "ownership" arrives (home network slots,
+// mission instances), the server-side WHERE will grow accordingly.
 export const clearOwnedPatchesSignedPayloadSchema = z
   .object({
     action: z.literal('clearOwnedPatches'),
     ...baseEnvelopeFields,
+    workstation_id: z.string().min(1).max(256),
   })
   .strict();
 
@@ -186,20 +193,16 @@ export type PatchHint = {
 // Cross-player read params. Caller (handler) supplies:
 //   - machine_ids: the set of machines whose patches the player wants.
 //   - player_key:  the verified caller pubkey, server-stamped (NOT
-//                  present on the wire envelope). Used to filter
-//                  "owned" machines whose machine_id is shared as a
-//                  literal across players — currently localhost only.
-//                  The wiring SQL applies:
-//                    WHERE machine_id IN (...)
-//                      AND (machine_id <> 'localhost' OR player_key = $me)
-//                  so the cross-player read on shared machines stays
-//                  multi-author, while localhost rows from other players
-//                  don't leak into this player's view.
+//                  present on the wire envelope). Retained for telemetry/
+//                  audit; the SQL no longer filters on it now that
+//                  every machine_id is per-player unique by construction
+//                  (workstation = suffixed hostname; mission instance =
+//                  IP registry; LAN occupant = hostname column).
 //
-// Future shared surfaces (home networks, mission instances) use unique
-// machine_ids per player allocated by the IP registry, so the
-// localhost special case won't generalize — knowing the machine_id IS
-// the gate everywhere else.
+//                  Pre-elimination, this filter blocked neighbors from
+//                  reading each other's localhost rows through the
+//                  shared 'localhost' literal — that special case is
+//                  gone. See plan/eliminate-localhost-machine-id.md.
 export type ListPatchesForMachinesParams = {
   readonly machine_ids: ReadonlyArray<string>;
   readonly player_key: string;
@@ -212,8 +215,15 @@ export type ListPatchesForMachinesResult =
   | { readonly ok: true; readonly patches: ReadonlyArray<PatchSummary> }
   | { readonly ok: false };
 
+// Params for clearOwnedPatches. The workstation_id is supplied by the
+// client (sent in the signed envelope) and matched against the player_key
+// the server verified — under the eliminated-localhost model the
+// workstation_id IS derived from the player_key (computePlayerHostname),
+// so a forged workstation_id won't have rows owned by THIS player_key
+// and the DELETE is a harmless no-op.
 export type ClearPatchesParams = {
   readonly player_key: string;
+  readonly workstation_id: string;
 };
 
 export type ClearPatchesResult =

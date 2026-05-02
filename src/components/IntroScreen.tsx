@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import type { GameState } from '../game/types';
 import { generateGameSeed } from '../game/gameSeed';
-import { computePlayerHostname } from '../homeNetworks/computePlayerHostname';
+import { computePlayerHostname, displayPromptHostname } from '../homeNetworks/homeNetworkHelpers';
 import { getIdentity } from '../identity';
 
 type IntroScreenProps = {
@@ -71,15 +71,19 @@ export const IntroScreen = ({ existingGame, onStart }: IntroScreenProps) => {
   const [usernamePreview, setUsernamePreview] = useState('');
   const [error, setError] = useState('');
 
-  // Show the player's full hostname (workstationName + identity-derived
-  // suffix) in the prompt preview so they see exactly what their prompt
-  // will look like in-game. getIdentity() lazy-creates the keypair on
-  // first call; calling it during intro is benign (the identity is just
-  // a localStorage-stored Ed25519 keypair, no server-side commitment).
+  // Mirror the in-game prompt exactly — compute the full workstation_id
+  // (workstationName + identity-derived suffix) and run it through the
+  // same suffix-stripping the SessionContext prompt uses, so the
+  // preview shows `alice@skylab` not `alice@skylab-aabbccdd`. The
+  // suffix is real and load-bearing for storage; we just keep it out
+  // of the prompt to avoid clutter (see homeNetworkHelpers comments).
+  // getIdentity() lazy-creates the keypair on first call; calling it
+  // during intro is benign (the identity is just a localStorage-stored
+  // Ed25519 keypair, no server-side commitment).
   const previewHostname = useMemo(() => {
     const trimmed = hostnamePreview.trim().toLowerCase().replace(/\s+/g, '-');
     if (!trimmed) return '';
-    return computePlayerHostname(trimmed, getIdentity());
+    return displayPromptHostname(computePlayerHostname(trimmed, getIdentity()));
   }, [hostnamePreview]);
 
   const hostnameRef = useRef<HTMLInputElement>(null);

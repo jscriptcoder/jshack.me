@@ -73,10 +73,18 @@ export type InsertOccupantResult = 'ok' | 'lan_ip_conflict' | 'hostname_conflict
 // listOccupants (anon SELECT) so HomeNetworksProvider can render other
 // players on the active LAN as discoverable machines in nmap. Schema is
 // runtime-validated before the data hits React state.
+//
+// player_key is intentionally NOT projected — public keys are
+// cryptographically safe to share, but exposing them lets any LAN peer
+// link a player across other networks they share. The hostname column
+// (workstation_id, identity-derived) already supports cross-player
+// addressing for gameplay; the player_key adds nothing the client uses
+// and a future "rename workstation" feature shouldn't be defeated by a
+// stale field nobody actually consumes. Self-filtering uses hostname
+// comparison instead — see HomeNetworksContext.
 export const occupantSummarySchema = z
   .object({
     network_id: z.string(),
-    player_key: z.string(),
     lan_ip: z.string(),
     hostname: z.string(),
   })

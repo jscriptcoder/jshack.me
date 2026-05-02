@@ -42,6 +42,12 @@ import {
 type AptContext = {
   readonly getMachine: () => string;
   readonly getCurrentMachine?: () => RemoteMachine | undefined;
+  // Player's own workstation_id (= hostname). When `getMachine() ===
+  // getOwnHostname()` the apt fetches go through the workstation's
+  // network link, which depends on WiFi connectivity. Once SSH'd into
+  // a remote, fetches go through the remote's own connectivity (we
+  // assume the remote is internet-reachable from inside its LAN).
+  readonly getOwnHostname: () => string;
   readonly getNode: (path: string) => FileNode | null;
   readonly readFile?: (path: string) => string | null;
   readonly createFile: (
@@ -101,7 +107,7 @@ const handleInstall = (packageName: string, context: AptContext): AsyncOutput | 
   const { getMachine, getNode, createFile, getUserType, isWifiConnected } = context;
   const machine = getMachine();
 
-  if (machine === 'localhost' && !isWifiConnected()) {
+  if (machine === context.getOwnHostname() && !isWifiConnected()) {
     throw new Error('E: Failed to fetch http://archive.ubuntu.com — network is unreachable');
   }
 
@@ -509,7 +515,7 @@ const handleUpgrade = (
   const gameTime = context.getGameTime?.() ?? 0;
   const machineId = getMachine();
 
-  if (machineId === 'localhost' && !isWifiConnected()) {
+  if (machineId === context.getOwnHostname() && !isWifiConnected()) {
     throw new Error('E: Failed to fetch http://archive.ubuntu.com — network is unreachable');
   }
 
@@ -602,7 +608,7 @@ const handleInstallPin = (
   const { getMachine, getCurrentMachine, readFile, getUserType, isWifiConnected } = context;
   const gameTime = context.getGameTime?.() ?? 0;
 
-  if (getMachine() === 'localhost' && !isWifiConnected()) {
+  if (getMachine() === context.getOwnHostname() && !isWifiConnected()) {
     throw new Error('E: Failed to fetch http://archive.ubuntu.com — network is unreachable');
   }
 
@@ -681,7 +687,7 @@ const handleInstallPin = (
 const handleRemove = (pkg: string, context: AptContext): AsyncOutput | string => {
   const { getMachine, getCurrentMachine, readFile, getUserType, isWifiConnected } = context;
 
-  if (getMachine() === 'localhost' && !isWifiConnected()) {
+  if (getMachine() === context.getOwnHostname() && !isWifiConnected()) {
     throw new Error('E: Failed to fetch http://archive.ubuntu.com — network is unreachable');
   }
 

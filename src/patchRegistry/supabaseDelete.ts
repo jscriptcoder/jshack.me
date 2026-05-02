@@ -5,15 +5,6 @@ import type {
   RemovePatchResult,
 } from './types.js';
 
-// Server-side mirror of the client's PERSISTENT_MACHINE_KEYS filter
-// (FileSystemContext.tsx). The literal `localhost` machine_id is what
-// `clearOwnedPatches` (fired by `reset confirm`) targets, and what
-// `listPatchesForMachines` filters per-player to prevent leaking each
-// player's localhost mutations to neighbors on the same LAN. Exported
-// so the api/patches.ts wiring layer can reference it without
-// duplicating the constant.
-export const PERSISTENT_MACHINE_ID = 'localhost';
-
 // Adapter for removing a patch by exact path AND descendants (paths
 // nested under it). The wiring layer issues a single DELETE with a
 // PostgREST `.or()` filter:
@@ -65,19 +56,26 @@ export const createSupabaseRemovePatch =
 // -----------------------------------------------------------------------
 // clearOwnedPatches — DELETE FROM patches
 //                      WHERE player_key = $player_key
-//                        AND machine_id = $persistent_machine_id;
+//                        AND machine_id = $workstation_id;
 //
-// Fired by `reset confirm` to wipe the player's own localhost patches
+// Fired by `reset confirm` to wipe the player's own workstation patches
 // before reload. Cross-player patches on shared machines (other players'
-// machines, mission instances, home networks, world networks) are NOT
-// wiped — they're part of the shared persistent world and undoing them
-// on a personal reset would be wrong (see the README "Reset semantics"
-// section).
+// workstations, mission instances, home networks, world networks) are
+// NOT wiped — they're part of the shared persistent world and undoing
+// them on a personal reset would be wrong (see the README "Reset
+// semantics" section).
+//
+// The workstation_id is supplied by the client (sent in the signed
+// envelope) — under the eliminated-localhost model it IS the suffixed
+// hostname computed from the verified player_key. A forged
+// workstation_id from another player won't match any rows owned by the
+// caller's player_key, so the DELETE is a harmless no-op even if the
+// client lies.
 // -----------------------------------------------------------------------
 
 export type ClearOwnedArg = {
   readonly player_key: string;
-  readonly persistent_machine_id: string;
+  readonly workstation_id: string;
 };
 
 export type ClearOwnedFn = (arg: ClearOwnedArg) => Promise<{
@@ -90,7 +88,7 @@ export const createSupabaseClearOwnedPatches =
   async (params: ClearPatchesParams): Promise<ClearPatchesResult> => {
     const { data, error } = await clearOwned({
       player_key: params.player_key,
-      persistent_machine_id: PERSISTENT_MACHINE_ID,
+      workstation_id: params.workstation_id,
     });
     if (error) return { ok: false };
     return { ok: true, affected: data?.length ?? 0 };

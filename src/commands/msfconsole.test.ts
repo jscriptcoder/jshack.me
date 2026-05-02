@@ -1432,13 +1432,17 @@ describe('msfconsole command', () => {
       expect(() => msfconsole.fn('--local', 'su')).toThrow();
     });
 
-    it('resolves the current machine via getCurrentMachine for localhost (not in remote machines list)', () => {
-      // Localhost isn't in the remote-machines list — it's generated
-      // separately. getCurrentMachine is the escape hatch for --local.
+    it('resolves the current machine via getCurrentMachine for the player workstation (not in remote machines list)', () => {
+      // The player's own workstation isn't in the remote-machines list —
+      // it's generated separately. getCurrentMachine is the escape hatch
+      // for --local. Under the eliminated-localhost model, currentMachineId
+      // is the workstation_id (= hostname), not the legacy 'localhost'
+      // literal.
       const entry = libpamFirstCveEntry();
-      const localhostMachine: RemoteMachine = {
-        ip: 'localhost',
-        hostname: 'workstation',
+      const ownWorkstationId = 'workstation-aabbccdd';
+      const ownMachine: RemoteMachine = {
+        ip: ownWorkstationId,
+        hostname: ownWorkstationId,
         ports: [],
         users: [
           { username: 'root', passwordHash: '', userType: 'root' },
@@ -1448,12 +1452,12 @@ describe('msfconsole command', () => {
       };
       const context = {
         ...createMockMsfconsoleContext({
-          machines: [], // no remote machines, localhost is NOT in this list
-          currentMachineId: 'localhost',
+          machines: [], // no remote machines; the player's workstation is NOT in this list
+          currentMachineId: ownWorkstationId,
           gameTime: entry.publishedAt,
           readRemoteFile: () => initialDpkgStatus(),
         }),
-        getCurrentMachine: () => localhostMachine,
+        getCurrentMachine: () => ownMachine,
       };
       const msfconsole = createMsfconsoleCommand(context);
       const result = msfconsole.fn('--local', 'su');

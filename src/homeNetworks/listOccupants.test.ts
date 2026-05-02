@@ -22,17 +22,18 @@ const fakeSupabase = (
 
 describe('listOccupants', () => {
   it('returns parsed occupant rows for the requested network_id', async () => {
+    // No player_key — the projection deliberately omits it (see
+    // occupantSummarySchema). Schema is .strict() so a stray player_key
+    // would fail validation here.
     const supabase = fakeSupabase({
       data: [
         {
           network_id: '203.0.113.42',
-          player_key: 'ed25519:a',
           lan_ip: '.187',
           hostname: 'skylab-9k3',
         },
         {
           network_id: '203.0.113.42',
-          player_key: 'ed25519:b',
           lan_ip: '.43',
           hostname: 'rocket-7c',
         },
@@ -68,14 +69,12 @@ describe('listOccupants', () => {
       data: [
         {
           network_id: '203.0.113.42',
-          player_key: 'ed25519:a',
           lan_ip: '.187',
           hostname: 'skylab-9k3',
         },
         // Invalid: missing hostname
         {
           network_id: '203.0.113.42',
-          player_key: 'ed25519:b',
           lan_ip: '.43',
         },
       ],
@@ -84,7 +83,7 @@ describe('listOccupants', () => {
 
     const result = await listOccupants('203.0.113.42', supabase);
     expect(result).toHaveLength(1);
-    expect(result[0]?.player_key).toBe('ed25519:a');
+    expect(result[0]?.hostname).toBe('skylab-9k3');
   });
 
   it('returns empty list when no supabase client is provided (env-vars missing)', async () => {

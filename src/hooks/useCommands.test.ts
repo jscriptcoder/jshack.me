@@ -6,7 +6,7 @@ import { SessionProvider } from '../session/SessionContext';
 import { MissionProvider } from '../mission/MissionContext';
 import { FileSystemProvider } from '../filesystem/FileSystemContext';
 import { NetworkProvider } from '../network/NetworkContext';
-import { HomeNetworksProvider } from '../game/HomeNetworksContext';
+import { HomeNetworksProvider } from '../homeNetworks/HomeNetworksContext';
 import type { MissionState } from '../mission/useMissionState';
 import { generateLocalhost } from '../generation/generateLocalhost';
 
@@ -44,15 +44,19 @@ const testGameState = {
 // Test fixture: a synthetic suffixed hostname. Real production code computes
 // this via computePlayerHostname(workstationName, identity); tests just hand
 // in a static value so the localhost FS generation has a hostname to render
-// into /etc/hostname and sample log entries.
-const testLocalhost = generateLocalhost(testGameState, 'testbox-0000');
+// into /etc/hostname and sample log entries. The same value flows into
+// SessionProvider as `hostname` — under the eliminated-localhost model it
+// IS the workstation_id (storage key for the player's filesystem, value
+// session.machine takes when on the player's own workstation).
+const TEST_HOSTNAME = 'testbox-aabbccdd';
+const testLocalhost = generateLocalhost(testGameState, TEST_HOSTNAME);
 
 const createWrapper =
   () =>
   ({ children }: { readonly children: ReactNode }) =>
     createElement(
       SessionProvider,
-      { username: 'testuser', children: null },
+      { username: 'testuser', hostname: TEST_HOSTNAME, children: null },
       createElement(
         HomeNetworksProvider,
         {
@@ -104,13 +108,14 @@ describe('useCommands', () => {
     expect(names).not.toContain('nmap');
   });
 
-  it('shows all commands to guest on localhost', async () => {
+  it('shows all commands to guest on the player workstation', async () => {
     const { getCachedSessionState } = await import('../utils/storageCache');
     vi.mocked(getCachedSessionState).mockReturnValue({
       session: {
         username: 'guest',
         userType: 'guest',
-        machine: 'localhost',
+        machine: TEST_HOSTNAME,
+        hostname: TEST_HOSTNAME,
         currentPath: '/home/guest',
         theme: 'amber',
         sessionId: null,

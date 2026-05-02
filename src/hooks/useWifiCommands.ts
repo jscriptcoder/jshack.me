@@ -1,6 +1,7 @@
 import { useMemo, useRef } from 'react';
 import { useSession } from '../session/SessionContext';
-import { useHomeNetworks } from '../game/HomeNetworksContext';
+import { useHomeNetworks } from '../homeNetworks/HomeNetworksContext';
+import { isOwnWorkstation } from '../homeNetworks/homeNetworkHelpers';
 import { createAirmonCommand } from '../commands/airmon';
 import { createAirdumpCommand } from '../commands/airdump';
 import { createAircrackCommand } from '../commands/aircrack';
@@ -13,7 +14,8 @@ import { getCachedGameState } from '../utils/storageCache';
 
 export const useWifiCommands = (): Map<string, Command> => {
   const gameSeed = getCachedGameState()?.seed ?? null;
-  const { session, connectedWifi, wifiConnected, setWifiConnected, disconnectWifi } = useSession();
+  const { session, connectedWifi, wifiConnected, setWifiConnected, disconnectWifi, hostname } =
+    useSession();
   const { ensureJoined, activeNetwork } = useHomeNetworks();
   // Monitor mode is transient (not persisted) — resets on page refresh. Using useRef
   // instead of useState because it shouldn't trigger re-renders or persist to IndexedDB.
@@ -26,7 +28,12 @@ export const useWifiCommands = (): Map<string, Command> => {
   );
 
   return useMemo(() => {
-    const isOnLocalhost = () => session.machine === 'localhost';
+    // "On localhost" in the WiFi-command sense = on the player's own
+    // workstation (the only place WiFi commands work). The legacy
+    // 'localhost' literal is no longer the storage key — session.machine
+    // holds the workstation_id (= hostname) when sitting on the player's
+    // own machine.
+    const isOnLocalhost = () => isOwnWorkstation(session.machine, hostname);
     const isWifiConnected = () => wifiConnected;
     const isMonitorMode = () => monitorModeRef.current;
     const setMonitorMode = (enabled: boolean) => {
@@ -81,6 +88,7 @@ export const useWifiCommands = (): Map<string, Command> => {
     return commands;
   }, [
     session.machine,
+    hostname,
     connectedWifi,
     wifiConnected,
     setWifiConnected,

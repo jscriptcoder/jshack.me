@@ -34,10 +34,19 @@ vi.mock('../identity', () => ({
   }),
 }));
 
+// Tests use a fixed test hostname (the workstation_id under the
+// eliminated-localhost model). Real value is computePlayerHostname's
+// output for (workstationName, identity); fixture suffices here because
+// no test asserts on the value's specific shape — just on storage and
+// stack semantics keying off it.
+const TEST_HOSTNAME = 'test-workstation-aabbccdd';
+
 const wrapper =
-  (username: string) =>
+  (username: string, hostname: string = TEST_HOSTNAME) =>
   ({ children }: { children: ReactNode }) => (
-    <SessionProvider username={username}>{children}</SessionProvider>
+    <SessionProvider username={username} hostname={hostname}>
+      {children}
+    </SessionProvider>
   );
 
 describe('SessionProvider — pushSession (server-aware)', () => {
@@ -89,7 +98,7 @@ describe('SessionProvider — pushSession (server-aware)', () => {
       expect.objectContaining({
         machine_id: '10.0.0.1',
         credentials: { username: 'admin', userType: 'root' },
-        source_ip: 'localhost',
+        source_ip: TEST_HOSTNAME,
       }),
     );
     // parent_session_id should be absent (or undefined) since current sessionId is null
@@ -107,7 +116,7 @@ describe('SessionProvider — pushSession (server-aware)', () => {
 
     await act(async () => {
       await result.current.pushSession('su', {
-        machine: 'localhost',
+        machine: TEST_HOSTNAME,
         username: 'root',
         userType: 'root',
         currentPath: '/root',
@@ -157,7 +166,7 @@ describe('SessionProvider — pushSession (server-aware)', () => {
 
     expect(result.current.sessionStack).toHaveLength(1);
     const snapshot = result.current.sessionStack[0]!;
-    expect(snapshot.machine).toBe('localhost');
+    expect(snapshot.machine).toBe(TEST_HOSTNAME);
     expect(snapshot.username).toBe('alice');
     expect(snapshot.reason).toBe('ssh');
     expect(snapshot.sessionId).toBeNull();
@@ -325,7 +334,7 @@ describe('SessionProvider — popSession (server-aware)', () => {
     });
 
     expect(popped).toBeTruthy();
-    expect(result.current.session.machine).toBe('localhost');
+    expect(result.current.session.machine).toBe(TEST_HOSTNAME);
     expect(result.current.session.sessionId).toBeNull();
     expect(result.current.sessionStack).toHaveLength(0);
   });
@@ -486,7 +495,7 @@ describe('SessionProvider — popAllSessions (server-aware)', () => {
       result.current.popAllSessions();
     });
 
-    expect(result.current.session.machine).toBe('localhost');
+    expect(result.current.session.machine).toBe(TEST_HOSTNAME);
     expect(result.current.session.username).toBe('alice');
     expect(result.current.session.sessionId).toBeNull();
     expect(result.current.sessionStack).toHaveLength(0);
@@ -512,7 +521,7 @@ describe('SessionProvider — enterFtpMode / exitFtpMode (server-aware)', () => 
     remoteUsername: 'ftpuser',
     remoteUserType: 'user',
     remoteCwd: '/home/ftpuser',
-    originMachine: 'localhost',
+    originMachine: TEST_HOSTNAME,
     originUsername: 'alice',
     originUserType: 'user',
     originCwd: '/home/alice',
@@ -535,7 +544,7 @@ describe('SessionProvider — enterFtpMode / exitFtpMode (server-aware)', () => 
       expect.objectContaining({
         machine_id: '192.168.50.10',
         credentials: { username: 'ftpuser', userType: 'user' },
-        source_ip: 'localhost',
+        source_ip: TEST_HOSTNAME,
         kind: 'ftp',
       }),
     );
@@ -697,7 +706,7 @@ describe('SessionProvider — enterNcMode / exitNcMode (server-aware)', () => {
       expect.objectContaining({
         machine_id: '10.0.0.5',
         credentials: { username: 'root', userType: 'root' },
-        source_ip: 'localhost',
+        source_ip: TEST_HOSTNAME,
         kind: 'nc',
       }),
     );
@@ -848,7 +857,7 @@ describe('SessionProvider — enterMysqlMode / exitMysqlMode (server-aware)', ()
         // userType defaults to 'user' — mysql credentials don't carry
         // a Unix usertype today. Future L2 PR will need a mapping.
         credentials: { username: 'dbuser', userType: 'user' },
-        source_ip: 'localhost',
+        source_ip: TEST_HOSTNAME,
         kind: 'mysql',
       }),
     );
@@ -940,7 +949,7 @@ describe('SessionProvider — enterRedisMode / exitRedisMode (server-aware)', ()
         // RedisSession has no username — synthesized 'redis' for the
         // session row's credentials. userType defaults 'user'.
         credentials: { username: 'redis', userType: 'user' },
-        source_ip: 'localhost',
+        source_ip: TEST_HOSTNAME,
         kind: 'redis',
       }),
     );
@@ -1008,7 +1017,7 @@ describe('SessionProvider — rehydration on mount', () => {
     machine_id: '10.0.0.1',
     credentials: { username: 'admin', userType: 'root' },
     parent_session_id: null,
-    source_ip: 'localhost',
+    source_ip: TEST_HOSTNAME,
     created_at: '2026-04-26T10:00:00.000Z',
     kind: 'ssh',
   };
@@ -1063,7 +1072,7 @@ describe('SessionProvider — rehydration on mount', () => {
     });
 
     expect(result.current.sessionStack).toHaveLength(0);
-    expect(result.current.session.machine).toBe('localhost');
+    expect(result.current.session.machine).toBe(TEST_HOSTNAME);
     expect(result.current.session.sessionId).toBeNull();
   });
 
@@ -1082,7 +1091,7 @@ describe('SessionProvider — rehydration on mount', () => {
 
     expect(result.current.sessionStack).toHaveLength(1);
     const bottom = result.current.sessionStack[0]!;
-    expect(bottom.machine).toBe('localhost');
+    expect(bottom.machine).toBe(TEST_HOSTNAME);
     expect(bottom.username).toBe('alice');
     expect(bottom.sessionId).toBeNull();
   });
@@ -1099,7 +1108,7 @@ describe('SessionProvider — rehydration on mount', () => {
     expect(result.current.session.username).toBe('root');
 
     expect(result.current.sessionStack).toHaveLength(3);
-    expect(result.current.sessionStack[0]?.machine).toBe('localhost');
+    expect(result.current.sessionStack[0]?.machine).toBe(TEST_HOSTNAME);
     expect(result.current.sessionStack[0]?.sessionId).toBeNull();
     expect(result.current.sessionStack[1]?.machine).toBe('10.0.0.1');
     expect(result.current.sessionStack[1]?.sessionId).toBe('aaa-id');
@@ -1159,7 +1168,7 @@ describe('SessionProvider — rehydration on mount', () => {
       expect(result.current.session.machine).toBe('10.0.0.1');
       // Stack: [bottom localhost only]. The ftp row is NOT in there.
       expect(result.current.sessionStack).toHaveLength(1);
-      expect(result.current.sessionStack[0]?.machine).toBe('localhost');
+      expect(result.current.sessionStack[0]?.machine).toBe(TEST_HOSTNAME);
     });
 
     it('falls back to default localhost when ALL returned sessions are non-shell kinds', async () => {
@@ -1171,7 +1180,7 @@ describe('SessionProvider — rehydration on mount', () => {
       });
 
       // Same outcome as "no shell sessions returned" — default localhost.
-      expect(result.current.session.machine).toBe('localhost');
+      expect(result.current.session.machine).toBe(TEST_HOSTNAME);
       expect(result.current.session.sessionId).toBeNull();
       expect(result.current.sessionStack).toHaveLength(0);
     });
@@ -1187,7 +1196,7 @@ describe('SessionProvider — rehydration on mount', () => {
       });
 
       expect(result.current.sessionStack).toHaveLength(3);
-      expect(result.current.sessionStack[0]?.machine).toBe('localhost');
+      expect(result.current.sessionStack[0]?.machine).toBe(TEST_HOSTNAME);
       expect(result.current.sessionStack[1]?.sessionId).toBe('aaa-id');
       expect(result.current.sessionStack[2]?.sessionId).toBe('bbb-id');
     });
@@ -1203,7 +1212,7 @@ describe('SessionProvider — rehydration on mount', () => {
     });
 
     expect(consoleErrorSpy).toHaveBeenCalled();
-    expect(result.current.session.machine).toBe('localhost');
+    expect(result.current.session.machine).toBe(TEST_HOSTNAME);
     expect(result.current.session.sessionId).toBeNull();
     expect(result.current.sessionStack).toHaveLength(0);
 

@@ -40,10 +40,17 @@ vi.mock('../identity', () => ({
   }),
 }));
 
-// Mock useSession — FileSystemContext only reads session.machine + currentPath.
+// Mock useSession — FileSystemContext reads session.machine + currentPath
+// + hostname. The hostname IS the workstation_id (the storage key for the
+// player's filesystem) under the eliminated-localhost model. Tests use a
+// fixed value so all `'localhost'` literals removed from production code
+// can be referenced via TEST_HOSTNAME.
+const TEST_HOSTNAME = 'workstation-aabbccdd';
+
 vi.mock('../session/SessionContext', () => ({
   useSession: () => ({
-    session: { machine: 'localhost', currentPath: '/' },
+    session: { machine: 'workstation-aabbccdd', currentPath: '/' },
+    hostname: 'workstation-aabbccdd',
   }),
 }));
 
@@ -135,7 +142,7 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
         expect(mockedListPatchesForMachines).toHaveBeenCalled();
       });
       const machineIds = vi.mocked(mockedListPatchesForMachines).mock.calls[0][1];
-      expect(machineIds).toEqual(['localhost']);
+      expect(machineIds).toEqual([TEST_HOSTNAME]);
     });
 
     it('includes home filesystem keys in machine_ids when supplied', async () => {
@@ -149,7 +156,7 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       });
       const machineIds = vi.mocked(mockedListPatchesForMachines).mock.calls[0][1];
       expect(machineIds).toEqual(
-        expect.arrayContaining(['localhost', '192.168.1.50', '192.168.1.51']),
+        expect.arrayContaining([TEST_HOSTNAME, '192.168.1.50', '192.168.1.51']),
       );
     });
 
@@ -163,7 +170,7 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
         expect(mockedListPatchesForMachines).toHaveBeenCalled();
       });
       const machineIds = vi.mocked(mockedListPatchesForMachines).mock.calls[0][1];
-      expect(machineIds).toEqual(expect.arrayContaining(['localhost', '10.0.0.1', '10.0.0.2']));
+      expect(machineIds).toEqual(expect.arrayContaining([TEST_HOSTNAME, '10.0.0.1', '10.0.0.2']));
     });
 
     it('deduplicates machine_ids across home + mission', async () => {
@@ -180,7 +187,7 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       const counts: Record<string, number> = {};
       for (const id of machineIds) counts[id] = (counts[id] ?? 0) + 1;
       expect(counts['10.0.0.1']).toBe(1);
-      expect(counts['localhost']).toBe(1);
+      expect(counts[TEST_HOSTNAME]).toBe(1);
     });
 
     it('exposes isRehydrating: true initially, transitions to false after listPatchesForMachines resolves', async () => {
@@ -205,13 +212,13 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       // applyPatches reduces in array order, so B's content overwrites A's.
       vi.mocked(mockedListPatchesForMachines).mockResolvedValueOnce([
         {
-          machineId: 'localhost',
+          machineId: TEST_HOSTNAME,
           path: '/tmp/base.txt',
           content: 'older from player A',
           owner: 'user',
         },
         {
-          machineId: 'localhost',
+          machineId: TEST_HOSTNAME,
           path: '/tmp/base.txt',
           content: 'newer from player B',
           owner: 'user',
@@ -242,7 +249,7 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       expect(mockedUpsertPatch).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({
-          machineId: 'localhost',
+          machineId: TEST_HOSTNAME,
           path: '/tmp/new.txt',
           content: 'hello',
           owner: 'user',
@@ -263,7 +270,7 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       expect(mockedUpsertPatch).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({
-          machineId: 'localhost',
+          machineId: TEST_HOSTNAME,
           path: '/tmp/base.txt',
           content: 'modified',
         }),
@@ -282,7 +289,7 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       let opResult: { allowed: boolean } | undefined;
       act(() => {
         opResult = result.current.upsertFileOnMachine({
-          machineId: 'localhost',
+          machineId: TEST_HOSTNAME,
           path: '/tmp/created-by-upsert.txt',
           cwd: '/',
           content: 'fresh',
@@ -294,7 +301,7 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       expect(mockedUpsertPatch).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({
-          machineId: 'localhost',
+          machineId: TEST_HOSTNAME,
           path: '/tmp/created-by-upsert.txt',
           content: 'fresh',
           owner: 'user',
@@ -310,7 +317,7 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       let opResult: { allowed: boolean } | undefined;
       act(() => {
         opResult = result.current.upsertFileOnMachine({
-          machineId: 'localhost',
+          machineId: TEST_HOSTNAME,
           path: '/tmp/base.txt', // exists in baseLocalhost, owner=user
           cwd: '/',
           content: 'overwritten',
@@ -322,7 +329,7 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       expect(mockedUpsertPatch).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({
-          machineId: 'localhost',
+          machineId: TEST_HOSTNAME,
           path: '/tmp/base.txt',
           content: 'overwritten',
           owner: 'user', // preserved from existing
@@ -343,7 +350,7 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
         opResult = result.current.upsertFileOnMachine({
           // /etc doesn't exist in baseLocalhost — guest can't create files in /
           // (root-only write on root dir).
-          machineId: 'localhost',
+          machineId: TEST_HOSTNAME,
           path: '/forbidden/new.txt',
           cwd: '/',
           content: 'denied',
@@ -376,7 +383,7 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       });
 
       expect(mockedRemovePatch).toHaveBeenCalledWith(expect.anything(), {
-        machineId: 'localhost',
+        machineId: TEST_HOSTNAME,
         path: '/tmp/scratch.txt',
       });
       // No upsertPatch in the isNew deletion path — the file never existed
@@ -398,13 +405,13 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       });
 
       expect(mockedRemovePatch).toHaveBeenCalledWith(expect.anything(), {
-        machineId: 'localhost',
+        machineId: TEST_HOSTNAME,
         path: '/tmp/base.txt',
       });
       expect(mockedUpsertPatch).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({
-          machineId: 'localhost',
+          machineId: TEST_HOSTNAME,
           path: '/tmp/base.txt',
           content: null,
         }),
@@ -532,7 +539,7 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       // (localhost + home), not just the initial localhost-only one.
       expect(mockedListPatchesForMachines).toHaveBeenCalledTimes(1);
       const machineIds = vi.mocked(mockedListPatchesForMachines).mock.calls[0][1];
-      expect([...machineIds].sort()).toEqual(['192.168.1.50', 'localhost']);
+      expect([...machineIds].sort()).toEqual(['192.168.1.50', TEST_HOSTNAME].sort());
     });
 
     it('keyset changes outside the debounce window each get their own fetch (mission load case)', async () => {
@@ -568,7 +575,9 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       const lastCall = vi
         .mocked(mockedListPatchesForMachines)
         .mock.calls.at(-1) as readonly unknown[];
-      expect([...(lastCall[1] as readonly string[])].sort()).toEqual(['10.0.0.42', 'localhost']);
+      expect([...(lastCall[1] as readonly string[])].sort()).toEqual(
+        ['10.0.0.42', TEST_HOSTNAME].sort(),
+      );
     });
   });
 
@@ -747,7 +756,14 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       expect(mockedSubscribeToMachine).not.toHaveBeenCalled();
     });
 
-    it('subscribes to every machine_id in current view on mount, EXCLUDING localhost', async () => {
+    it('subscribes to every machine_id in current view on mount, INCLUDING the player workstation', async () => {
+      // Under the eliminated-localhost model the player's workstation_id
+      // is unique per player, so subscribing to its patches:<id> channel
+      // doesn't leak neighbors' changes — each player has a private
+      // channel name. This is load-bearing for cross-player workstation
+      // visibility (A nmaps B's workstation → A writes to
+      // patches.machine_id=<B.workstation_id> → hint fires on
+      // patches:<B.workstation_id> → B refetches).
       const fakeClient = {} as Parameters<typeof mockedSubscribeToMachine>[0];
       vi.mocked(mockedGetRealtimeClient).mockReturnValue(fakeClient);
 
@@ -762,12 +778,13 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       const calledMachineIds = vi
         .mocked(mockedSubscribeToMachine)
         .mock.calls.map((call) => (call as unknown as SubscribeMockArgs)[1]);
-      expect(calledMachineIds).toEqual(expect.arrayContaining(['192.168.1.50', '10.0.0.1']));
-      expect(calledMachineIds).not.toContain('localhost');
-      expect(calledMachineIds).toHaveLength(2);
+      expect(calledMachineIds).toEqual(
+        expect.arrayContaining([TEST_HOSTNAME, '192.168.1.50', '10.0.0.1']),
+      );
+      expect(calledMachineIds).toHaveLength(3);
     });
 
-    it('NEVER subscribes to localhost (per-player private — Realtime broadcast carries no player_key filter, would leak across LAN occupants)', async () => {
+    it('subscribes to the workstation channel even when no home/mission is loaded (cross-player nmap arrives via this channel)', async () => {
       const fakeClient = {} as Parameters<typeof mockedSubscribeToMachine>[0];
       vi.mocked(mockedGetRealtimeClient).mockReturnValue(fakeClient);
 
@@ -777,7 +794,7 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       const calledMachineIds = vi
         .mocked(mockedSubscribeToMachine)
         .mock.calls.map((call) => (call as unknown as SubscribeMockArgs)[1]);
-      expect(calledMachineIds).not.toContain('localhost');
+      expect(calledMachineIds).toContain(TEST_HOSTNAME);
     });
 
     it('passes the supabase client from getRealtimeClient to subscribeToMachine', async () => {
@@ -799,7 +816,10 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
     it('unsubscribes all on unmount', async () => {
       const fakeClient = {} as Parameters<typeof mockedSubscribeToMachine>[0];
       vi.mocked(mockedGetRealtimeClient).mockReturnValue(fakeClient);
-      const unsubscribers = [vi.fn(), vi.fn()];
+      // Three channels under the eliminated-localhost model:
+      // workstation_id + home machine + mission machine. Each subscription
+      // returns its own unsubscribe; cleanup must call all of them.
+      const unsubscribers = [vi.fn(), vi.fn(), vi.fn()];
       let i = 0;
       vi.mocked(mockedSubscribeToMachine).mockImplementation(() => unsubscribers[i++]);
 
@@ -1141,6 +1161,9 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
     it('resubscribes when the machine_ids keyset changes (mid-session mission load)', async () => {
       const fakeClient = {} as Parameters<typeof mockedSubscribeToMachine>[0];
       vi.mocked(mockedGetRealtimeClient).mockReturnValue(fakeClient);
+      // Return a noop unsubscribe so the cleanup that runs on resubscription
+      // doesn't blow up calling unsubscribe()-as-undefined.
+      vi.mocked(mockedSubscribeToMachine).mockReturnValue(() => {});
 
       let setMissionFilesystems!: (fs: Record<string, FileNode> | undefined) => void;
       const Outer = ({ children }: { children: ReactNode }) => {
@@ -1156,15 +1179,17 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       const { result } = renderHook(() => useFileSystem(), { wrapper: Outer });
       await waitFor(() => expect(result.current.isRehydrating).toBe(false));
 
-      // Initial mount: localhost-only view → no subscriptions (localhost is
-      // skipped to avoid leaking per-player patches across LAN occupants).
+      // Initial mount: workstation-only view → exactly one subscription
+      // (the player's own workstation_id channel — needed so cross-player
+      // writes to the workstation can fire hint-driven refetches).
       const initialMachineIds = vi
         .mocked(mockedSubscribeToMachine)
         .mock.calls.map((c) => (c as unknown as SubscribeMockArgs)[1]);
-      expect(initialMachineIds).toEqual([]);
+      expect(initialMachineIds).toEqual([TEST_HOSTNAME]);
 
-      // Mission loads — keyset grows with a non-localhost machine. New
-      // subscription expected for that machine only (localhost still skipped).
+      // Mission loads — keyset grows with a mission machine. The whole
+      // subscription set is torn down and rebuilt: workstation_id +
+      // mission machine.
       vi.mocked(mockedSubscribeToMachine).mockClear();
       act(() => {
         setMissionFilesystems({ '10.0.0.42': baseLocalhost });
@@ -1174,7 +1199,7 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
         const newMachineIds = vi
           .mocked(mockedSubscribeToMachine)
           .mock.calls.map((c) => (c as unknown as SubscribeMockArgs)[1]);
-        expect(newMachineIds).toEqual(['10.0.0.42']);
+        expect(newMachineIds.sort()).toEqual([TEST_HOSTNAME, '10.0.0.42'].sort());
       });
     });
   });

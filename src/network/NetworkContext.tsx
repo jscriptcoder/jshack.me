@@ -18,6 +18,7 @@ import type { HomeNetwork } from '../generation/generateHomeNetwork';
 import type { OccupantSummary } from '../homeNetworks/types';
 import { useSession } from '../session/SessionContext';
 import { useFileSystem } from '../filesystem';
+import { isOwnWorkstation } from '../homeNetworks/homeNetworkHelpers';
 import { findGatewayChainFor } from './gatewayChain';
 import { parseIptablesRules } from './iptablesParser';
 import { parseSnmpFirewallConfig } from './snmpFirewallParser';
@@ -89,10 +90,14 @@ export const NetworkProvider = ({
   worldNetworks,
   lanOccupants,
 }: NetworkProviderProps) => {
-  const { session, wifiConnected } = useSession();
+  const { session, wifiConnected, hostname } = useSession();
   const { getNodeFromMachine } = useFileSystem();
 
-  const isLocalhostDisconnected = session.machine === 'localhost' && !wifiConnected;
+  // True when the player is sitting on their own workstation with no
+  // active WiFi link — used to render the "no internet" interface set
+  // and skip world-router exposure.
+  const isOnOwnWorkstation = isOwnWorkstation(session.machine, hostname);
+  const isLocalhostDisconnected = isOnOwnWorkstation && !wifiConnected;
 
   const gatewayIps = useMemo(
     () => [
@@ -230,9 +235,10 @@ export const NetworkProvider = ({
       };
     }
 
-    // Localhost with home network connected — show layer 0 machines only.
-    // Deeper layers are reached by pivoting through gateways.
-    if (session.machine === 'localhost' && homeNetwork && localhostHomeInterfaces) {
+    // Player workstation with home network connected — show layer 0
+    // machines only. Deeper layers are reached by pivoting through
+    // gateways.
+    if (isOnOwnWorkstation && homeNetwork && localhostHomeInterfaces) {
       // Grab a layer 0 machine's config — it already has the right visibility
       // (layer 0 peers + router at .1 + inner gateway if multi-layer).
       const layer0 = homeNetwork.layers[0];
@@ -294,8 +300,9 @@ export const NetworkProvider = ({
       return homeBase;
     }
 
-    // Localhost with mission but no WiFi — mission router + world routers visible
-    if (session.machine === 'localhost' && missionNetworkConfig && missionRouterMachine) {
+    // Player workstation with mission but no WiFi — mission router +
+    // world routers visible.
+    if (isOnOwnWorkstation && missionNetworkConfig && missionRouterMachine) {
       const routerRemote = buildRouterRemoteView(
         missionRouterMachine,
         missionMachines ?? [],
@@ -319,6 +326,7 @@ export const NetworkProvider = ({
     return defaultMachineConfig;
   }, [
     session.machine,
+    isOnOwnWorkstation,
     isLocalhostDisconnected,
     missionNetworkConfig,
     missionMachines,

@@ -4,11 +4,11 @@ import { type ReactNode } from 'react';
 import type { WifiConnection } from '../network/wifiTypes';
 import type { WifiNetwork } from '../network/wifiNetworks';
 import type { HomeNetwork } from '../generation/generateHomeNetwork';
-import type { JoinResult, OccupantSummary } from '../homeNetworks/types';
+import type { JoinResult, OccupantSummary } from './types';
 
 // --- Module mocks ---
 
-vi.mock('../homeNetworks/client', () => ({
+vi.mock('./client', () => ({
   joinHomeNetwork: vi.fn(),
 }));
 
@@ -34,11 +34,11 @@ vi.mock('../identity', () => ({
   }),
 }));
 
-vi.mock('../homeNetworks/listOccupants', () => ({
+vi.mock('./listOccupants', () => ({
   listOccupants: vi.fn(),
 }));
 
-vi.mock('../homeNetworks/realtime', () => ({
+vi.mock('./realtime', () => ({
   subscribeToNetworkOccupants: vi.fn(),
 }));
 
@@ -46,11 +46,11 @@ vi.mock('../patchRegistry/realtime', () => ({
   getRealtimeClient: vi.fn(),
 }));
 
-import { joinHomeNetwork as mockedJoinHomeNetwork } from '../homeNetworks/client';
+import { joinHomeNetwork as mockedJoinHomeNetwork } from './client';
 import { generateHomeNetwork as mockedGenerateHomeNetwork } from '../generation/generateHomeNetwork';
 import { generateWifiNetworks as mockedGenerateWifiNetworks } from '../generation/generateWifi';
-import { listOccupants as mockedListOccupants } from '../homeNetworks/listOccupants';
-import { subscribeToNetworkOccupants as mockedSubscribeToNetworkOccupants } from '../homeNetworks/realtime';
+import { listOccupants as mockedListOccupants } from './listOccupants';
+import { subscribeToNetworkOccupants as mockedSubscribeToNetworkOccupants } from './realtime';
 import { getRealtimeClient as mockedGetRealtimeClient } from '../patchRegistry/realtime';
 import { HomeNetworksProvider, useHomeNetworks } from './HomeNetworksContext';
 
@@ -269,12 +269,17 @@ describe('HomeNetworksContext', () => {
 
     // Identity mock pubkey is 'aa'.repeat(32). Server prefixes with
     // 'ed25519:' when storing player_key on the row + when broadcasting.
+    // These keys appear ONLY in Realtime hint payloads (originator_key) —
+    // the occupant ROW shape no longer carries player_key.
     const OWN_KEY = 'ed25519:' + 'aa'.repeat(32);
     const OTHER_KEY = 'ed25519:' + 'bb'.repeat(32);
 
+    // Other-player occupant fixture. Hostname differs from the player's
+    // own (`computePlayerHostname('skylab', mockIdentity)` would yield
+    // `skylab-<own suffix>`, distinct from `mainframe-1a2`), so the
+    // hostname-based self-filter keeps this row.
     const otherOccupant = (overrides: Partial<OccupantSummary> = {}): OccupantSummary => ({
       network_id: '203.0.113.42',
-      player_key: OTHER_KEY,
       lan_ip: '.42',
       hostname: 'mainframe-1a2',
       ...overrides,

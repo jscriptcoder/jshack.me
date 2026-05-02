@@ -26,6 +26,7 @@ import {
   normalizeSnapshot,
 } from './sessionUtils';
 import { getIdentity } from '../identity';
+import { displayPromptHostname } from '../homeNetworks/homeNetworkHelpers';
 import {
   createSession as createServerSession,
   endSession as endServerSession,
@@ -46,7 +47,7 @@ export type Session = {
   readonly currentPath: string;
   readonly theme: ThemeId;
   // Server-tracked session identifier (UUID from /api/sessions). null = the
-  // implicit pre-push localhost state, never tracked server-side.
+  // implicit pre-push workstation state, never tracked server-side.
   readonly sessionId: string | null;
 };
 
@@ -101,8 +102,10 @@ export type NcSession = {
   readonly username: string;
   readonly userType: UserType;
   readonly currentPath: string;
-  // Filesystem key for the target machine. Usually equals targetIP, but
-  // localhost uses "localhost" as its filesystem key rather than its network IP.
+  // Filesystem key for the target machine. Equals the target's
+  // workstation_id when nc'ing into the player's own loopback (the
+  // value of session.hostname); otherwise equals targetIP for remote
+  // machines.
   readonly machineId: string;
   // Server-tracked session id for the nc backdoor connection. null = push
   // pending or failed. Same lifecycle as FtpSession.sessionId / etc.
@@ -143,7 +146,10 @@ type SessionContextValue = {
   // the brief delay is user-visible. False once rehydration completes
   // (success or failure — local state is left untouched on failure).
   readonly isRehydrating: boolean;
-  readonly hostname: string | undefined;
+  // Player's workstation_id (suffixed hostname). Always defined — App.tsx
+  // gates SessionProvider mount on hostname being computed. Storage keys,
+  // Realtime channel names, and own-workstation comparisons all use this.
+  readonly hostname: string;
   readonly connectedWifi: WifiConnection | null;
   readonly wifiConnected: boolean;
   readonly sessionStack: readonly SessionSnapshot[];
@@ -183,7 +189,7 @@ type SessionContextValue = {
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
-const getInitialState = (username: string): PersistedState => {
+const getInitialState = (username: string, hostname: string): PersistedState => {
   const persisted = getCachedSessionState();
   if (persisted) {
     return {
@@ -204,7 +210,7 @@ const getInitialState = (username: string): PersistedState => {
     };
   }
   return {
-    session: createDefaultSession(username),
+    session: createDefaultSession(username, hostname),
     sessionStack: [],
     ftpSession: null,
     ncSession: null,
@@ -216,13 +222,15 @@ const getInitialState = (username: string): PersistedState => {
 type SessionProviderProps = {
   readonly children: ReactNode;
   // Player's full machine name including the identity-derived suffix
-  // (e.g., 'skylab-9k3'). Computed once at game start by
-  // computePlayerHostname; threaded down here so session.hostname on
-  // localhost reflects the same name as /etc/hostname and the
-  // server-stamped occupant row. The suffix is stable per identity, so
-  // hostname doesn't change on WiFi connect/disconnect — it's a
-  // permanent property of the player's machine.
-  readonly hostname?: string;
+  // (e.g., 'skylab-aabbccdd'). Computed once at game start by
+  // computePlayerHostname; threaded through here. This value IS the
+  // player's workstation_id — same string used as the storage key for
+  // the player's filesystem (FileSystemContext.tsx), the patches
+  // table machine_id, the patches:<id> Realtime channel name, and the
+  // home_network_occupants.hostname column other players see. Required
+  // (no default) because every storage operation depends on it; App.tsx
+  // guards against rendering SessionProvider before hostname resolves.
+  readonly hostname: string;
   readonly username: string;
 };
 
@@ -255,7 +263,7 @@ const summaryToSnapshot = (s: SessionSummary, theme: ThemeId): SessionSnapshot =
 });
 
 export const SessionProvider = ({ children, hostname, username }: SessionProviderProps) => {
-  const [initialState] = useState(() => getInitialState(username));
+  const [initialState] = useState(() => getInitialState(username, hostname));
   const [session, setSession] = useState<Session>(initialState.session);
   const [connectedWifi, setConnectedWifiState] = useState<WifiConnection | null>(
     getCachedWifiState,
@@ -276,9 +284,14 @@ export const SessionProvider = ({ children, hostname, username }: SessionProvide
   // a fresh (open) channel. The ref is updated so broadcast calls always use
   // the currently-active channel.
   const syncChannelRef = useRef<ReturnType<typeof createSyncChannel> | null>(null);
-  // Stable ref for username — avoids re-creating the BroadcastChannel effect
+  // Stable refs for username and hostname — both are read by the
+  // BroadcastChannel cross-tab WiFi listener, which is mounted once
+  // and must always observe the latest values rather than what was
+  // closed over at mount time.
   const usernameRef = useRef(username);
   usernameRef.current = username;
+  const hostnameRef = useRef(hostname);
+  hostnameRef.current = hostname;
 
   // Rehydrate session state from the server on mount. The server is the
   // truth on "what sessions does this player currently have?" — local
@@ -303,16 +316,17 @@ export const SessionProvider = ({ children, hostname, username }: SessionProvide
           (s) => s.kind === 'ssh' || s.kind === 'su' || s.kind === 'exploit',
         );
         if (shellSessions.length === 0) {
-          // Server says no active SHELL sessions — reset to default
-          // localhost, discarding any stale local stack from sessionStorage.
-          // Note: the player may still have active protocol sessions on
-          // the server (FTP/mysql/etc.); those are restored elsewhere
-          // (or simply abandoned for now — see plan).
+          // Server says no active SHELL sessions — reset to the default
+          // workstation state, discarding any stale local stack from
+          // sessionStorage. Note: the player may still have active
+          // protocol sessions on the server (FTP/mysql/etc.); those are
+          // restored elsewhere (or simply abandoned for now — see plan).
           setSessionStack([]);
           setSession((prev) => ({
             username,
             userType: 'user' as const,
-            machine: 'localhost',
+            machine: hostname,
+            hostname,
             currentPath: `/home/${username}`,
             theme: prev.theme,
             sessionId: null,
@@ -331,7 +345,8 @@ export const SessionProvider = ({ children, hostname, username }: SessionProvide
           const bottom: SessionSnapshot = {
             username,
             userType: 'user',
-            machine: 'localhost',
+            machine: hostname,
+            hostname,
             currentPath: `/home/${username}`,
             theme: prev.theme,
             reason: 'ssh',
@@ -370,13 +385,18 @@ export const SessionProvider = ({ children, hostname, username }: SessionProvide
       if (message.type === 'wifi-changed') {
         setConnectedWifiState(message.connection);
         if (!message.connection) {
-          // When another tab disconnects WiFi, reset this tab to localhost too
+          // When another tab disconnects WiFi, reset this tab to its
+          // own workstation too. We capture refs (username, hostname)
+          // because this listener is mounted once and must always read
+          // the latest values, not the values closed over at mount time.
           const u = usernameRef.current;
+          const h = hostnameRef.current;
           setSession((prev) => ({
             username: u,
             userType: 'user' as const,
-            machine: 'localhost',
-            currentPath: prev.machine === 'localhost' ? prev.currentPath : `/home/${u}`,
+            machine: h,
+            hostname: h,
+            currentPath: prev.machine === h ? prev.currentPath : `/home/${u}`,
             theme: prev.theme,
             sessionId: null,
           }));
@@ -398,15 +418,16 @@ export const SessionProvider = ({ children, hostname, username }: SessionProvide
   }, []);
 
   // Sync hostname into session.hostname whenever it diverges from the
-  // hostname prop while on localhost. The hostname prop is the already-
-  // suffixed full name (e.g., 'skylab-9k3') — computed once at game
-  // start, stable across the session. The session.hostname dep is
-  // load-bearing: the listSessions rehydration below replaces the whole
-  // session object (no hostname field), so we re-fire to put the
-  // suffixed name back. The functional setSession returns prev when
-  // the value already matches, so this doesn't loop.
+  // hostname prop while sitting on the player's own workstation. The
+  // hostname prop is the already-suffixed full name
+  // (e.g., 'skylab-aabbccdd') — computed once at game start, stable
+  // across the session. The session.hostname dep is load-bearing: the
+  // listSessions rehydration above replaces the whole session object
+  // and may not carry hostname through, so we re-fire to put it back.
+  // The functional setSession returns prev when the value already
+  // matches, so this doesn't loop.
   useEffect(() => {
-    if (session.machine === 'localhost' && hostname) {
+    if (session.machine === hostname) {
       setSession((prev) => (prev.hostname === hostname ? prev : { ...prev, hostname }));
     }
   }, [session.machine, session.hostname, hostname]);
@@ -433,7 +454,14 @@ export const SessionProvider = ({ children, hostname, username }: SessionProvide
     if (mysqlSession) return 'mysql>';
     if (ftpSession) return 'ftp>';
     if (ncSession) return '$';
-    return `${session.username}@${session.hostname ?? session.machine}>`;
+    // Strip the identity-derived 8-hex suffix from the displayed
+    // hostname — `alice@skylab>` reads better than
+    // `alice@skylab-aabbccdd>`. Other surfaces (nmap output,
+    // /etc/hostname, ssh banner, log lines) keep showing the full
+    // hostname; the suffix only matters for storage uniqueness, not
+    // for the prompt.
+    const displayHost = displayPromptHostname(session.hostname ?? session.machine);
+    return `${session.username}@${displayHost}>`;
   }, [
     session.username,
     session.machine,
@@ -784,9 +812,11 @@ export const SessionProvider = ({ children, hostname, username }: SessionProvide
     applyTheme(THEMES[session.theme]);
   }, [session.theme]);
 
-  // Dynamic browser tab title so users can identify tabs at a glance
+  // Dynamic browser tab title so users can identify tabs at a glance.
+  // Mirrors the prompt's suffix-stripped form so the tab title isn't
+  // cluttered with the workstation_id suffix.
   useEffect(() => {
-    const displayMachine = session.hostname ?? session.machine;
+    const displayMachine = displayPromptHostname(session.hostname ?? session.machine);
     const modeLabels: readonly (readonly [unknown, string])[] = [
       [redisSession, 'redis>'],
       [mysqlSession, 'mysql>'],
@@ -859,24 +889,27 @@ export const SessionProvider = ({ children, hostname, username }: SessionProvide
     }
   }, [sessionStack, session.sessionId]);
 
-  // Atomically resets to localhost with WiFi off. Can be called while SSH'd into a remote
-  // machine — finds the original localhost path from the bottom of the session stack
-  // (the state before the first SSH), or uses the current path if already on localhost.
+  // Atomically resets to the player's own workstation with WiFi off.
+  // Can be called while SSH'd into a remote machine — finds the
+  // original workstation path from the bottom of the session stack
+  // (the state before the first SSH), or uses the current path if
+  // already on the player's workstation.
   const disconnectWifi = useCallback(() => {
     setConnectedWifiState(null);
     const defaultHome = `/home/${username}`;
     setSession((prev) => {
-      const localhostPath =
+      const workstationPath =
         sessionStack.length > 0
           ? (sessionStack[0]?.currentPath ?? defaultHome)
-          : prev.machine === 'localhost'
+          : prev.machine === hostname
             ? prev.currentPath
             : defaultHome;
       return {
         username,
         userType: 'user' as const,
-        machine: 'localhost',
-        currentPath: localhostPath,
+        machine: hostname,
+        hostname,
+        currentPath: workstationPath,
         theme: prev.theme,
         sessionId: null,
       };
@@ -892,7 +925,7 @@ export const SessionProvider = ({ children, hostname, username }: SessionProvide
       saveWifiState(db, null);
     }
     syncChannelRef.current?.broadcast({ type: 'wifi-changed', connection: null });
-  }, [sessionStack, username]);
+  }, [sessionStack, username, hostname]);
 
   return (
     <SessionContext.Provider
