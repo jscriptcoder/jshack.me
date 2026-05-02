@@ -79,53 +79,52 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  const upsertPatch = createSupabaseUpsertPatch(async (row: PatchRow) => {
-    // ON CONFLICT (player_key, machine_id, path) DO UPDATE SET ... —
-    // matches the table's composite PK. The mutable fields (content,
-    // owner, permissions, is_new, node_type) get overwritten on
-    // collision; the key fields stay put by definition.
-    const { error } = await supabase
-      .from('patches')
-      .upsert(row, { onConflict: 'player_key,machine_id,path' });
-    if (error) console.error('[patches] supabase upsert error:', error);
+  const upsertPatch = createSupabaseUpsertPatch(async (row: PatchRow, dualWrite: boolean) => {
+    // L2 dual-write: a single RPC call writes to `patches` and (if
+    // dualWrite) projects onto `machine_filesystems` in the same
+    // transaction. Function signature + ON CONFLICT semantics live in
+    // 20260502230000_l2_dual_write_functions.sql.
+    const { error } = await supabase.rpc('upsert_patch_with_fs', {
+      p_player_key: row.player_key,
+      p_machine_id: row.machine_id,
+      p_path: row.path,
+      p_content: row.content,
+      p_owner: row.owner,
+      p_permissions: row.permissions ?? null,
+      p_is_new: row.is_new ?? null,
+      p_node_type: row.node_type ?? null,
+      p_dual_write: dualWrite,
+    });
+    if (error) console.error('[patches] rpc upsert_patch_with_fs error:', error);
     return { error };
   });
 
   const removePatch = createSupabaseRemovePatch(async (arg: DeletePatchesArg) => {
-    // Two queries: exact path + descendants. Avoids fragile PostgREST
-    // .or() quoting when paths contain commas / special chars. The
-    // small extra round-trip is negligible at our scale.
+    // L2 dual-delete: a single RPC call deletes from `patches` (exact
+    // path + descendant prefix) and (if dual_write) cascades the same
+    // delete to `machine_filesystems`. Function returns the deleted
+    // patches paths so the adapter can compute `affected`.
     //
-    // .like('path', '${prefix}%') has a known v1 caveat: '_' is a
-    // single-char SQL wildcard, so a prefix containing '_' could
-    // match sibling paths (e.g. '/etc/my_dir/' would also match
-    // '/etc/myXdir/foo'). Accepted for v1; future PR can switch to a
-    // range query (.gte/.lt) once we hit a real conflict.
-    const exact = await supabase
-      .from('patches')
-      .delete()
-      .eq('player_key', arg.player_key)
-      .eq('machine_id', arg.machine_id)
-      .eq('path', arg.path)
-      .select('path');
-    if (exact.error) {
-      console.error('[patches] supabase delete (exact) error:', exact.error);
-      return { data: null, error: exact.error };
+    // .like 'prefix%' caveat (now inside SQL): '_' is a single-char
+    // wildcard, so a prefix containing '_' could match sibling paths
+    // (e.g. '/etc/my_dir/' would also match '/etc/myXdir/foo').
+    // Accepted for v1; future PR can switch to a range condition
+    // (>= prefix AND < successor) once we hit a real conflict.
+    const { data, error } = await supabase.rpc('remove_patches_with_fs', {
+      p_player_key: arg.player_key,
+      p_machine_id: arg.machine_id,
+      p_path: arg.path,
+      p_path_prefix: arg.path_prefix,
+      p_dual_write: arg.dual_write,
+    });
+    if (error) {
+      console.error('[patches] rpc remove_patches_with_fs error:', error);
+      return { data: null, error };
     }
-
-    const desc = await supabase
-      .from('patches')
-      .delete()
-      .eq('player_key', arg.player_key)
-      .eq('machine_id', arg.machine_id)
-      .like('path', `${arg.path_prefix}%`)
-      .select('path');
-    if (desc.error) {
-      console.error('[patches] supabase delete (descendants) error:', desc.error);
-      return { data: null, error: desc.error };
-    }
-
-    return { data: [...(exact.data ?? []), ...(desc.data ?? [])], error: null };
+    // RPC returns rows with column `deleted_path` (per the SQL function
+    // definition). Map to the adapter's expected `{ path }` shape.
+    const paths = (data ?? []).map((row: { deleted_path: string }) => ({ path: row.deleted_path }));
+    return { data: paths, error: null };
   });
 
   const listPatchesForMachines = createSupabaseListPatchesForMachines(
