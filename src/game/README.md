@@ -28,7 +28,8 @@ Game state management — the bootstrap layer that owns the player's identity an
 
 ## Files
 
-| File          | Description                    |
-| ------------- | ------------------------------ |
-| `types.ts`    | `GameState` type definition    |
-| `gameSeed.ts` | Seed generation and validation |
+| File              | Description                                                                                                                                   |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `types.ts`        | `GameState` type definition                                                                                                                   |
+| `gameSeed.ts`     | Seed generation and validation                                                                                                                |
+| `GameSession.tsx` | Provider tree wrapping `<Terminal />` post-boot — composes `HomeNetworksProvider`, `MissionProvider`, `FileSystemProvider`, `NetworkProvider` |
