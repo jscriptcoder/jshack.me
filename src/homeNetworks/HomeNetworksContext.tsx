@@ -10,11 +10,12 @@ import {
 } from 'react';
 import { generateWifiNetworks } from '../generation/generateWifi';
 import { generateHomeNetwork, type HomeNetwork } from '../generation/generateHomeNetwork';
-import { joinHomeNetwork } from '../homeNetworks/client';
-import { listOccupants } from '../homeNetworks/listOccupants';
-import { subscribeToNetworkOccupants, type OccupantHint } from '../homeNetworks/realtime';
+import { joinHomeNetwork } from './client';
+import { listOccupants } from './listOccupants';
+import { subscribeToNetworkOccupants, type OccupantHint } from './realtime';
 import { getRealtimeClient } from '../patchRegistry/realtime';
-import type { OccupantSummary } from '../homeNetworks/types';
+import type { OccupantSummary } from './types';
+import { computePlayerHostname } from './homeNetworkHelpers';
 import { getIdentity } from '../identity';
 import type { WifiConnection } from '../network/wifiTypes';
 
@@ -180,17 +181,32 @@ export const HomeNetworksProvider = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectedWifi, version]);
 
+  // Own pubkey is still needed by the Realtime self-skip on occupant
+  // hint broadcasts (the hint payload carries originator_key — separate
+  // channel-level message, not part of the row data).
   const ownPlayerKey = useMemo(() => `ed25519:${getIdentity().publicKeyHex}`, []);
 
-  // Refetch occupants for the active LAN. Filters self before storing.
-  // Used both by the initial-on-connect fetch and the hint-driven
-  // refetch (debounced).
+  // Own workstation_id (= identity-derived hostname). Used to filter
+  // self out of the occupant list — replaces the previous
+  // `o.player_key !== ownPlayerKey` filter so we no longer need to
+  // pull other players' player_keys down with each fetch (see
+  // occupantSummarySchema for the rationale on dropping that column).
+  const ownHostname = useMemo(
+    () => (workstationPrefix ? computePlayerHostname(workstationPrefix, getIdentity()) : null),
+    [workstationPrefix],
+  );
+
+  // Refetch occupants for the active LAN. Filters self by hostname
+  // before storing. Used both by the initial-on-connect fetch and the
+  // hint-driven refetch (debounced).
   const refetchOccupants = useCallback(
     async (networkId: string): Promise<void> => {
       const occupants = await listOccupants(networkId);
-      setLanOccupants(occupants.filter((o) => o.player_key !== ownPlayerKey));
+      setLanOccupants(
+        ownHostname ? occupants.filter((o) => o.hostname !== ownHostname) : occupants,
+      );
     },
-    [ownPlayerKey],
+    [ownHostname],
   );
 
   // Initial fetch on connect / active-network materialize.

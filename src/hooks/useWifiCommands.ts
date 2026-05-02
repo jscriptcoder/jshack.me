@@ -1,6 +1,6 @@
 import { useMemo, useRef } from 'react';
 import { useSession } from '../session/SessionContext';
-import { useHomeNetworks } from '../game/HomeNetworksContext';
+import { useHomeNetworks } from '../homeNetworks/HomeNetworksContext';
 import { isOwnWorkstation } from '../homeNetworks/homeNetworkHelpers';
 import { createAirmonCommand } from '../commands/airmon';
 import { createAirdumpCommand } from '../commands/airdump';

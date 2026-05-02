@@ -64,7 +64,7 @@ The `WHERE machine_id <> 'localhost' OR player_key = me` filter (api/patches.ts:
 
 > Player A on the same LAN as Player B reads patches for `'localhost'` (literal) and sees B's localhost mutations because they share the literal machine_id.
 
-Under workstation_id (= hostname), A and B have _different_ machine_ids (`alice-skylab-aabbccdd` vs `bob-rocket-bbccdd11`). Cross-player reads only return rows for the requested machine_id. The filter becomes structurally unnecessary — the IDs themselves are per-player private.
+Under workstation*id (= hostname), A and B have \_different* machine_ids (`alice-skylab-aabbccdd` vs `bob-rocket-bbccdd11`). Cross-player reads only return rows for the requested machine_id. The filter becomes structurally unnecessary — the IDs themselves are per-player private.
 
 Forgery / spam threats unchanged from PR #92's hint architecture.
 
@@ -101,7 +101,7 @@ Forgery / spam threats unchanged from PR #92's hint architecture.
 ### Implementation order within the PR
 
 1. **Helpers + suffix bump** — `workstationMachineId`, `isOwnWorkstation`, `displayPromptHostname`, `targetMachineIdFor`. Bump `deriveHostnameSuffix` from 4 to 8 hex.
-2. **Storage layer** — `SessionContext.tsx`, `sessionUtils.ts`, `FileSystemContext.tsx`, `MissionContext.tsx`, `NetworkContext.tsx`. Replace literal `'localhost'` machine_id with workstation_id. `PERSISTENT_MACHINE_KEYS` / `PERSISTENT_MACHINES` become identity-derived. Realtime subscription effect _includes_ the workstation_id (the localhost-leak filter is no longer needed).
+2. **Storage layer** — `SessionContext.tsx`, `sessionUtils.ts`, `FileSystemContext.tsx`, `MissionContext.tsx`, `NetworkContext.tsx`. Replace literal `'localhost'` machine*id with workstation_id. `PERSISTENT_MACHINE_KEYS` / `PERSISTENT_MACHINES` become identity-derived. Realtime subscription effect \_includes* the workstation_id (the localhost-leak filter is no longer needed).
 3. **Command + hook layer** — `Terminal.tsx`, `useCommands.ts`, `useNetworkCommands.ts`, `useWifiCommands.ts`, all command files. Replace `session.machine === 'localhost'` with `isOwnWorkstation(...)`. Loopback CLI aliases stay; resolve to workstation_id internally.
 4. **Cross-player target translation** — wire `targetMachineIdFor(targetIp, lanOccupants, ownWorkstationId)` into nmap and other commands that side-effect on remote machines (the `appendToMachineLog` path). This is the load-bearing fix for "A writes to B's workstation, B refetches via hint."
 5. **Prompt sanitization** — Terminal prompt rendering uses `displayPromptHostname()` to strip the suffix.

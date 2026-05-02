@@ -6,7 +6,7 @@ import { SessionProvider } from '../session/SessionContext';
 import { MissionProvider } from '../mission/MissionContext';
 import { FileSystemProvider } from '../filesystem/FileSystemContext';
 import { NetworkProvider } from '../network/NetworkContext';
-import { HomeNetworksProvider } from '../game/HomeNetworksContext';
+import { HomeNetworksProvider } from '../homeNetworks/HomeNetworksContext';
 import type { MissionState } from '../mission/useMissionState';
 import { generateLocalhost } from '../generation/generateLocalhost';
 

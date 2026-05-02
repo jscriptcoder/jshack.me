@@ -155,7 +155,6 @@ describe('displayPromptHostname', () => {
 describe('targetMachineIdFor', () => {
   const occupant = (overrides: Partial<OccupantSummary> = {}): OccupantSummary => ({
     network_id: '203.0.113.42',
-    player_key: 'ed25519:other-player',
     lan_ip: '.42',
     hostname: 'rocket-bbccdd11',
     ...overrides,

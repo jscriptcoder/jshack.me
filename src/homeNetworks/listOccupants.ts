@@ -12,7 +12,11 @@ import { occupantSummarySchema, type OccupantSummary } from './types.js';
 // empty (logged). HomeNetworksProvider polls this periodically; transient
 // failures are recoverable on the next tick.
 
-const PROJECTION = 'network_id, player_key, lan_ip, hostname';
+// player_key is deliberately omitted — see occupantSummarySchema for
+// the rationale. Anyone on the LAN can SELECT this table; minimum
+// projection keeps cross-LAN identity tracking out of reach for casual
+// observers.
+const PROJECTION = 'network_id, lan_ip, hostname';
 
 export const listOccupants = async (
   networkId: string,

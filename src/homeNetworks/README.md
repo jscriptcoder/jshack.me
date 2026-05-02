@@ -58,6 +58,14 @@ Hint architecture (mirrors `patches:*` from `src/patchRegistry/`):
 - **150ms debounce**: rapid hints (e.g., a burst of joins on a busy LAN) coalesce into one `listOccupants` SELECT.
 - **Spam-forge mitigation**: per-receiver impact bounded by debounce (~6 fetches/sec/receiver max). Aggregate Supabase load bounded by anon throttling. If it ever bites, move `listOccupants` behind a server endpoint with a rate limit.
 
+## Occupant row projection — `player_key` is NOT exposed
+
+`listOccupants` projects `network_id, lan_ip, hostname` only. The `player_key` column lives in `home_network_occupants` server-side (it's the natural key for the idempotency PK and the row-owner reference) but isn't sent to the browser. Public keys are cryptographically safe to share, but exposing them to every LAN peer would let any observer link the same identity across other LANs they share — and a future "rename workstation" or disposable-persona feature would be silently defeated by this leak.
+
+The client only used `player_key` to filter its own row out of the fetched list; that filter now compares `o.hostname !== ownHostname` (the hostname IS identity-derived, so it serves the same purpose without exposing the underlying key).
+
+The Realtime hint payload still carries `originator_key` — that's a channel-level message (not the row data), and the receiver needs it for self-skip on broadcasts. Same threat model as `patches:*` hints.
+
 See `src/homeNetworks/broadcast.ts` (server publish), `src/homeNetworks/realtime.ts` (client subscribe), `project_realtime_publish_authorization` memory (full threat model).
 
 **Hostname is set permanently at game start** (`computePlayerHostname(workstationName, identity)` in `App.tsx`), not on WiFi connect. Real laptops don't rename themselves on WiFi connect; ours don't either. The suffix is identity-derived, so it's the same on every LAN — a stable cross-LAN attribution handle.
@@ -80,8 +88,10 @@ home_networks (
 home_network_occupants (
   network_id    TEXT NOT NULL REFERENCES home_networks(public_ip),
   player_key    TEXT NOT NULL,                          -- 'ed25519:<hex>'
+                                                        -- (server-side only; NOT
+                                                        --  in listOccupants projection)
   lan_ip        TEXT NOT NULL,                          -- '.187' (host octet)
-  hostname      TEXT NOT NULL,                          -- 'skylab-9k3'
+  hostname      TEXT NOT NULL,                          -- 'skylab-aabbccdd'
   joined_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   last_seen_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (network_id, player_key),
@@ -98,9 +108,13 @@ These are the load-bearing decisions; reverting any of them would break gameplay
 
 ### Hostname suffix is identity-derived and **always applied**
 
-Every player's hostname becomes `${workstation_prefix}-${first-4-hex-chars-of-sha256(player_key)}`. The suffix is universal — every occupant on every LAN has one — so getting suffixed carries no occupancy signal. If we only suffixed on collision, the suffix itself would tell you "you're not alone here," which is free reconnaissance.
+Every player's hostname becomes `${workstation_prefix}-${first-8-hex-chars-of-sha256(player_key)}`. The suffix is universal — every occupant on every LAN has one — so getting suffixed carries no occupancy signal. If we only suffixed on collision, the suffix itself would tell you "you're not alone here," which is free reconnaissance.
 
 Stable per identity (same player → same suffix on every LAN), so the hostname acts as a cross-LAN attribution handle for trail-following gameplay.
+
+The hostname is also the workstation's **storage key** under the eliminated-localhost model — `patches.machine_id`, `sessions.machine_id`, and the `patches:<id>` Realtime channel all use this same value. The 8-hex suffix gives ~65k-player birthday-collision headroom; bumping from the original 4 hex (~256-player threshold) was load-bearing because hostname collisions would silently merge two players' patch rows.
+
+The terminal prompt strips the suffix back off for display (`displayPromptHostname`) — the player sees `alice@skylab>` instead of `alice@skylab-aabbccdd>`. Other surfaces (nmap output, `/etc/hostname`, ssh banner, log lines) keep the full hostname; that's the network identity players need to address each other.
 
 ### LAN slot allocation is **random within `.10-.250`**, flat across all tiers
 
@@ -114,34 +128,33 @@ The server is the source of truth for "did I already join this LAN." Client neve
 
 ### Hostname conflict bails immediately (409)
 
-`UNIQUE (network_id, hostname)` exists because the suffix could theoretically collide (~0.05% pairwise across 65k hex space). When it happens, retrying with a new `lan_ip` won't help — the suffix is identity-derived. The handler returns 409 immediately rather than burning the retry budget on a deterministic conflict.
+`UNIQUE (network_id, hostname)` exists because the suffix could theoretically collide (~50% birthday probability around 65k players sharing the same workstation_name across the 8-hex space; pairwise odds in any single LAN are vanishingly small). When it happens, retrying with a new `lan_ip` won't help — the suffix is identity-derived. The handler returns 409 immediately rather than burning the retry budget on a deterministic conflict.
 
 ## Files
 
-| File                       | Description                                                                                                                                                                                                                |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `types.ts`                 | `DENSITY_TIERS`, `MAX_SLOTS_BY_TIER`, the strict Zod payload schema, row shapes, `JoinResult` (Zod-derived), `InsertOccupantResult` discriminator.                                                                         |
-| `deriveHostnameSuffix.ts`  | Pure: `playerKey → first-4-hex-chars-of-sha256(utf8(playerKey))`. Stable per identity.                                                                                                                                     |
-| `pickRandomLanIp.ts`       | Pure: `prng → '.X'` where X is a random integer in `[10, 250]`.                                                                                                                                                            |
-| `handler.ts`               | `handleJoinHomeNetworkRequest(envelope, deps)` — pure orchestration. Verify → rate-limit → idempotent return → find-or-create → slot allocation loop with retry.                                                           |
-| `createInsertOccupant.ts`  | Postgres unique-constraint parser — maps `23505` errors onto `lan_ip_conflict` / `hostname_conflict` / `error` by substring matching the constraint message.                                                               |
-| `client.ts`                | `joinHomeNetwork(identity, request, fetchImpl?)` — browser-side wrapper. Signs envelope, POSTs, validates response with `joinResultSchema`.                                                                                |
-| `listOccupants.ts`         | Anon-key Supabase read of `home_network_occupants` for a given network_id. Initial fetch on connect + hint-driven refetch on Realtime updates.                                                                             |
-| `broadcast.ts`             | Server-side `publishOccupantChange` — fires a Supabase Realtime HINT (`occupants:<network_id>` channel, `occupant_change` event, `{ network_id, originator_key }` payload) after every successful insert. Fire-and-forget. |
-| `realtime.ts`              | Client-side `subscribeToNetworkOccupants` wrapper. Receives hints, converts wire shape (snake_case) to `OccupantHint` (camelCase), hands them to the caller's `onHint`.                                                    |
-| `computePlayerHostname.ts` | `(workstationName, identity) → '${workstationName}-${suffix}'`. Computed once at game start; same hostname on every LAN.                                                                                                   |
-| `*.test.ts`                | Unit tests. Real Ed25519 signing in handler tests; mocked Supabase + Upstash deps.                                                                                                                                         |
-| `README.md`                | This file.                                                                                                                                                                                                                 |
+| File                      | Description                                                                                                                                                                                                                                                         |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `types.ts`                | `DENSITY_TIERS`, `MAX_SLOTS_BY_TIER`, the strict Zod payload schema, row shapes, `JoinResult` (Zod-derived), `OccupantSummary` (no `player_key`), `InsertOccupantResult` discriminator.                                                                             |
+| `homeNetworkHelpers.ts`   | All workstation-identity helpers in one file: `deriveHostnameSuffix` (8-hex), `computePlayerHostname`, `isOwnWorkstation`, `displayPromptHostname` (prompt-only suffix strip), `targetMachineIdFor` (LAN IP → workstation_id resolver for cross-player writes).     |
+| `pickRandomLanIp.ts`      | Pure: `prng → '.X'` where X is a random integer in `[10, 250]`.                                                                                                                                                                                                     |
+| `handler.ts`              | `handleJoinHomeNetworkRequest(envelope, deps)` — pure orchestration. Verify → rate-limit → idempotent return → find-or-create → slot allocation loop with retry.                                                                                                    |
+| `createInsertOccupant.ts` | Postgres unique-constraint parser — maps `23505` errors onto `lan_ip_conflict` / `hostname_conflict` / `error` by substring matching the constraint message.                                                                                                        |
+| `client.ts`               | `joinHomeNetwork(identity, request, fetchImpl?)` — browser-side wrapper. Signs envelope, POSTs, validates response with `joinResultSchema`.                                                                                                                         |
+| `listOccupants.ts`        | Anon-key Supabase read of `home_network_occupants` for a given network_id. Projection deliberately omits `player_key` — see "Occupant row projection" section above. Initial fetch on connect + hint-driven refetch on Realtime updates.                            |
+| `broadcast.ts`            | Server-side `publishOccupantChange` — fires a Supabase Realtime HINT (`occupants:<network_id>` channel, `occupant_change` event, `{ network_id, originator_key }` payload) after every successful insert. Fire-and-forget.                                          |
+| `realtime.ts`             | Client-side `subscribeToNetworkOccupants` wrapper. Receives hints, converts wire shape (snake_case) to `OccupantHint` (camelCase), hands them to the caller's `onHint`.                                                                                             |
+| `HomeNetworksContext.tsx` | `HomeNetworksProvider` + `useHomeNetworks()` hook. Cache via ref + version counter; `inFlightRef` coalesces concurrent `ensureJoined` calls; rehydration `useEffect` materializes on mount when `connectedWifi` is restored from storage. Self-filter via hostname. |
+| `*.test.ts`               | Unit tests. Real Ed25519 signing in handler tests; mocked Supabase + Upstash deps.                                                                                                                                                                                  |
+| `README.md`               | This file.                                                                                                                                                                                                                                                          |
 
-Plus:
+Plus (outside this directory):
 
 - `api/join-home-network.ts` — Vercel adapter (mirrors `api/allocate-ip.ts` structure; minimal glue — DB ops + Upstash + IP allocator wired via dependency injection into `handleJoinHomeNetworkRequest`)
 - `supabase/migrations/<timestamp>_home_networks.sql` — schema + RLS policies for both tables
-- `src/game/HomeNetworksContext.tsx` — `HomeNetworksProvider` + `useHomeNetworks()` hook. Cache via ref + version counter; `inFlightRef` coalesces concurrent ensureJoined calls; rehydration `useEffect` materializes on mount when `connectedWifi` is restored from storage.
 - `src/generation/generateHomeNetwork.ts` — `generateHomeNetwork({ seed, essid, slotIp?, hostname?, ... })` accepts the server-supplied slot/hostname (single-player path defaults to `slotIp='.100'`)
 - `src/commands/nmcli.ts` — `connect` awaits `ensureJoined`, displays `assigned <hostname> (<lan_ip>)`; `status` reads dynamic LAN IP from the active home network
 - `src/App.tsx` — computes the suffixed hostname once at game start via `computePlayerHostname`, threads it through `SessionProvider`, `BootScreen`, and `generateLocalhost` so /etc/hostname + sample log entries + prompt all reflect the same name; passes `lanOccupants` from `useHomeNetworks()` to `NetworkProvider`
-- `src/network/NetworkContext.tsx` — extends localhost-with-home-network machine resolution to include occupants as alive `RemoteMachine`s + DNS records
+- `src/network/NetworkContext.tsx` — extends own-workstation-with-home-network machine resolution to include occupants as alive `RemoteMachine`s + DNS records
 
 ## Manual smoke check
 
@@ -155,7 +168,7 @@ To verify two players cracking the same WiFi end up on the same LAN with separat
    - `airdump` — both should see the same crackable ESSIDs (e.g. `ACME-CORP`)
    - `aircrack <BSSID>` for the shared one — same password
    - `nmcli connect ACME-CORP <password>`
-4. **Verify divergent assignments**: each browser's `Connected to ACME-CORP — assigned <hostname> (<lan_ip>)` line should show DIFFERENT hostnames and DIFFERENT LAN IPs. Both LAN IPs are in `[.10, .250]`. Both hostnames have the same prefix (workstation name) but different 4-hex suffixes.
+4. **Verify divergent assignments**: each browser's `Connected to ACME-CORP — assigned <hostname> (<lan_ip>)` line should show DIFFERENT hostnames and DIFFERENT LAN IPs. Both LAN IPs are in `[.10, .250]`. Both hostnames have the same prefix (workstation name) but different 8-hex suffixes.
 5. **Verify shared LAN**: from inside browser A's home network, `nmap` should see browser B's machine (and vice versa). The router's public IP is the same in both browsers (visible in `ifconfig` / `nmap` output).
 6. **Verify cross-player trails**: from browser A, SSH into one of the LAN machines. Then from browser B, `cat /var/log/auth.log` on that machine — the SSH attempt from A should appear within ~1s (Realtime broadcast).
 

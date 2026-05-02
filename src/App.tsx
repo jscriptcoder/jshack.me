@@ -8,7 +8,7 @@ import { NetworkProvider } from './network';
 import { MissionProvider, useMissionState } from './mission';
 import { getCachedGameState, getDatabase, resetSessionCache } from './utils/storageCache';
 import { saveGameState, clearAllData } from './utils/storage';
-import { HomeNetworksProvider, useHomeNetworks } from './game/HomeNetworksContext';
+import { HomeNetworksProvider, useHomeNetworks } from './homeNetworks/HomeNetworksContext';
 import { generateLocalhost } from './generation/generateLocalhost';
 import { useWorldNetworks } from './worldNetworks/useWorldNetworks';
 import { computePlayerHostname } from './homeNetworks/homeNetworkHelpers';

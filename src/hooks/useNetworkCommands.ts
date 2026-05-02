@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useNetwork } from '../network';
 import { useFileSystem } from '../filesystem';
 import { useSession } from '../session/SessionContext';
-import { useHomeNetworks } from '../game/HomeNetworksContext';
+import { useHomeNetworks } from '../homeNetworks/HomeNetworksContext';
 import { isOwnWorkstation, targetMachineIdFor } from '../homeNetworks/homeNetworkHelpers';
 import { createIfconfigCommand } from '../commands/ifconfig';
 import { createPingCommand } from '../commands/ping';
