@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { RemoteMachine, DnsRecord } from '../network/types';
 import type { AsyncOutput } from '../components/Terminal/types';
+import type { RequestHandler } from '../themedNetworks/types';
 import { createCurlCommand, parseUrl } from './curl';
 
 // --- Factory Functions ---
@@ -27,6 +28,7 @@ type CurlContextConfig = {
   readonly machines?: readonly RemoteMachine[];
   readonly dnsRecords?: readonly DnsRecord[];
   readonly files?: Readonly<Record<string, string>>;
+  readonly getHandler?: (machineIp: string) => RequestHandler | undefined;
 };
 
 const createMockCurlContext = (config: CurlContextConfig = {}) => {
@@ -38,6 +40,7 @@ const createMockCurlContext = (config: CurlContextConfig = {}) => {
       '/var/www/html/config.php': '<?php echo "Config"; ?>',
       '/var/www/api/users.json': '{"users":[]}',
     },
+    getHandler,
   } = config;
 
   return {
@@ -46,6 +49,7 @@ const createMockCurlContext = (config: CurlContextConfig = {}) => {
     resolveNat: (ip: string, port: number) => ({ ip, port }),
     readFileFromMachine: ({ path }: { readonly path: string }): string | null =>
       files[path] ?? null,
+    getHandler,
   };
 };
 
@@ -532,6 +536,135 @@ describe('curl command', () => {
         status: 200,
         size: expect.any(Number),
       });
+    });
+  });
+
+  describe('handler dispatch', () => {
+    it('uses handler response when handler returns non-null', () => {
+      const handler: RequestHandler = () => ({
+        statusCode: 200,
+        statusText: 'OK',
+        contentType: 'text/plain',
+        body: 'handler-body',
+      });
+      const curl = createCurlCommand(createMockCurlContext({ getHandler: () => handler }));
+      const lines = collectAsyncLines(curl.fn('http://192.168.1.75/'));
+      expect(lines.join('\n')).toContain('handler-body');
+    });
+
+    it('falls back to static-file pipeline when handler returns null', () => {
+      const handler: RequestHandler = () => null;
+      const curl = createCurlCommand(createMockCurlContext({ getHandler: () => handler }));
+      const lines = collectAsyncLines(curl.fn('http://192.168.1.75/'));
+      expect(lines.join('\n')).toContain('<html><body>Welcome</body></html>');
+    });
+
+    it('falls back to static-file pipeline when no getHandler provided', () => {
+      const curl = createCurlCommand(createMockCurlContext());
+      const lines = collectAsyncLines(curl.fn('http://192.168.1.75/'));
+      expect(lines.join('\n')).toContain('<html><body>Welcome</body></html>');
+    });
+
+    it('falls back to static when getHandler returns undefined for the target', () => {
+      const curl = createCurlCommand(createMockCurlContext({ getHandler: () => undefined }));
+      const lines = collectAsyncLines(curl.fn('http://192.168.1.75/'));
+      expect(lines.join('\n')).toContain('<html><body>Welcome</body></html>');
+    });
+
+    it('passes method, path, and query to the handler', () => {
+      const received = vi.fn();
+      const handler: RequestHandler = (args) => {
+        received(args);
+        return { statusCode: 200, statusText: 'OK', contentType: 'text/plain', body: '' };
+      };
+      const curl = createCurlCommand(createMockCurlContext({ getHandler: () => handler }));
+      collectAsyncLines(curl.fn('http://192.168.1.75/search?q=foo&page=2'));
+
+      expect(received).toHaveBeenCalledWith({
+        method: 'GET',
+        path: '/search',
+        query: 'q=foo&page=2',
+      });
+    });
+
+    it('passes method=POST for -X POST', () => {
+      const received = vi.fn();
+      const handler: RequestHandler = (args) => {
+        received(args);
+        return { statusCode: 200, statusText: 'OK', contentType: 'text/plain', body: '' };
+      };
+      const curl = createCurlCommand(createMockCurlContext({ getHandler: () => handler }));
+      collectAsyncLines(curl.fn('-X POST', 'http://192.168.1.75/api/users'));
+
+      expect(received).toHaveBeenCalledWith(
+        expect.objectContaining({ method: 'POST', path: '/api/users' }),
+      );
+    });
+
+    it('looks up the handler keyed by the resolved (post-NAT) machine IP', () => {
+      const seenIps: string[] = [];
+      const getHandler = (ip: string): RequestHandler | undefined => {
+        seenIps.push(ip);
+        return undefined;
+      };
+      const curl = createCurlCommand(createMockCurlContext({ getHandler }));
+      collectAsyncLines(curl.fn('http://192.168.1.75/'));
+
+      expect(seenIps).toContain('192.168.1.75');
+    });
+
+    it('exposes machine fs reads to the handler', () => {
+      const handler: RequestHandler = (_args, fs) => ({
+        statusCode: 200,
+        statusText: 'OK',
+        contentType: 'text/plain',
+        body: fs.readFile('/etc/secret') ?? 'missing',
+      });
+      const curl = createCurlCommand(
+        createMockCurlContext({
+          files: {
+            '/etc/secret': 'top-secret-value',
+            '/var/www/html/index.html': '<html></html>',
+          },
+          getHandler: () => handler,
+        }),
+      );
+      const lines = collectAsyncLines(curl.fn('http://192.168.1.75/'));
+      expect(lines.join('\n')).toContain('top-secret-value');
+    });
+
+    it('emits handler-supplied content-type when -i flag includes headers', () => {
+      const handler: RequestHandler = () => ({
+        statusCode: 200,
+        statusText: 'OK',
+        contentType: 'application/json',
+        body: '{"ok":true}',
+      });
+      const curl = createCurlCommand(createMockCurlContext({ getHandler: () => handler }));
+      const lines = collectAsyncLines(curl.fn('-i', 'http://192.168.1.75/'));
+      const output = lines.join('\n');
+      expect(output).toContain('Content-Type: application/json');
+      expect(output).toContain('{"ok":true}');
+    });
+
+    it('reports handler status code through onHttpRequest', () => {
+      const handler: RequestHandler = () => ({
+        statusCode: 418,
+        statusText: "I'm a teapot",
+        contentType: 'text/plain',
+        body: 'short and stout',
+      });
+      const onHttpRequest = vi.fn();
+      const context = {
+        ...createMockCurlContext({ getHandler: () => handler }),
+        onHttpRequest,
+      };
+      const curl = createCurlCommand(context);
+      collectAsyncLines(curl.fn('http://192.168.1.75/'));
+
+      expect(onHttpRequest).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 418, size: 'short and stout'.length }),
+      );
     });
   });
 });

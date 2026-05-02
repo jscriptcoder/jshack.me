@@ -3,6 +3,7 @@ import type { RemoteMachine, DnsRecord } from '../network/types';
 import type { MachineId } from '../filesystem/machineFileSystems';
 import type { MachineFileOp } from '../filesystem/types';
 import type { HttpRequestHandler } from '../logging/handlers/httpRequest';
+import type { RequestHandler, HandlerResponse } from '../themedNetworks/types';
 import { isValidIP } from '../utils/network';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
@@ -12,6 +13,12 @@ type CurlContext = {
   readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
   readonly readFileFromMachine: (op: MachineFileOp) => string | null;
   readonly onHttpRequest?: HttpRequestHandler;
+  // Optional per-machine request handler. When set and the lookup
+  // returns a handler that yields a non-null HandlerResponse, that
+  // response replaces the static-file pipeline. Returning null falls
+  // through to /var/www/html/... lookups so existing static sites keep
+  // working alongside dynamic themed-network behavior.
+  readonly getHandler?: (machineIp: string) => RequestHandler | undefined;
 };
 
 export type ParsedUrl = {
@@ -194,6 +201,18 @@ const handlePost = (context: CurlContext, machineId: MachineId, path: string): H
   };
 };
 
+// Wraps a HandlerResponse in an HttpResponse with standard HTTP framing
+// keyed off the target machine. Handler authors only deal with status /
+// contentType / body — the Date / Server / Content-Length / Connection
+// headers come from the same buildHeaders pipeline as static files,
+// so per-machine SERVER_CONFIGS still apply.
+const wrapHandlerResponse = (resp: HandlerResponse, machineId: string): HttpResponse => ({
+  statusCode: resp.statusCode,
+  statusText: resp.statusText,
+  headers: buildHeaders(machineId, resp.contentType, resp.body.length),
+  body: resp.body,
+});
+
 const formatResponse = (response: HttpResponse, includeHeaders: boolean): string => {
   if (!includeHeaders) return response.body;
 
@@ -306,15 +325,35 @@ export const createCurlCommand = (context: CurlContext): Command => ({
           // NAT resolution: in forwarded mode, the router's public IP maps to the
           // internal entry machine. Filesystem reads must target the actual machine.
           const filesystemIP: MachineId = context.resolveNat(targetIP, parsed.port ?? 80).ip;
+          const method = isPost ? 'POST' : 'GET';
 
-          const response = isPost
-            ? handlePost(context, filesystemIP, parsed.path)
-            : handleGet(context, filesystemIP, parsed.path);
+          // Try the per-machine request handler first. Non-null result =
+          // handler took ownership; null = fall through to static files.
+          const handler = context.getHandler?.(filesystemIP);
+          const handlerResp =
+            handler?.(
+              { method, path: parsed.path, query: parsed.query },
+              {
+                readFile: (p) =>
+                  context.readFileFromMachine({
+                    machineId: filesystemIP,
+                    path: p,
+                    cwd: '/',
+                    userType: 'root',
+                  }),
+              },
+            ) ?? null;
+
+          const response = handlerResp
+            ? wrapHandlerResponse(handlerResp, filesystemIP)
+            : isPost
+              ? handlePost(context, filesystemIP, parsed.path)
+              : handleGet(context, filesystemIP, parsed.path);
 
           context.onHttpRequest?.({
             targetIP,
             port: parsed.port,
-            method: isPost ? 'POST' : 'GET',
+            method,
             path: parsed.path,
             status: response.statusCode,
             size: response.body.length,
