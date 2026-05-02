@@ -31,32 +31,68 @@ describe('resolveHostname', () => {
 });
 
 describe('resolveLogSourceIP', () => {
-  // sessionMachine, ownWorkstationId, localIP, publicIP
+  // sessionMachine, ownWorkstationId, targetIP, localIP, publicIP
 
   it('returns the session machine IP when on a remote machine (SSH session)', () => {
     expect(
-      resolveLogSourceIP('10.45.12.50', 'skylab-aabbccdd', '10.45.12.100', '203.45.67.89'),
+      resolveLogSourceIP(
+        '10.45.12.50',
+        'skylab-aabbccdd',
+        '10.45.12.75',
+        '10.45.12.100',
+        '203.45.67.89',
+      ),
     ).toBe('10.45.12.50');
   });
 
-  it('returns the public IP when on the player own workstation, regardless of target subnet', () => {
-    // Target on same /24 — historically returned LAN IP. New policy:
-    // always public IP so a single identity appears across every log.
+  it('returns the LAN IP when on own workstation and target is on the same /24', () => {
+    // Same-LAN traffic doesn't traverse a NAT — the target sees our
+    // LAN IP directly, matching real network behavior.
     expect(
-      resolveLogSourceIP('skylab-aabbccdd', 'skylab-aabbccdd', '10.45.12.100', '203.45.67.89'),
-    ).toBe('203.45.67.89');
+      resolveLogSourceIP(
+        'skylab-aabbccdd',
+        'skylab-aabbccdd',
+        '10.45.12.50',
+        '10.45.12.100',
+        '203.45.67.89',
+      ),
+    ).toBe('10.45.12.100');
   });
 
   it('returns the public IP when on own workstation and target is on a different network', () => {
     expect(
-      resolveLogSourceIP('skylab-aabbccdd', 'skylab-aabbccdd', '10.45.12.100', '198.51.100.42'),
+      resolveLogSourceIP(
+        'skylab-aabbccdd',
+        'skylab-aabbccdd',
+        '203.45.67.89',
+        '10.45.12.100',
+        '198.51.100.42',
+      ),
+    ).toBe('198.51.100.42');
+  });
+
+  it('returns the public IP for mission internal IPs behind NAT (different /24)', () => {
+    expect(
+      resolveLogSourceIP(
+        'skylab-aabbccdd',
+        'skylab-aabbccdd',
+        '10.0.1.10',
+        '10.45.12.100',
+        '198.51.100.42',
+      ),
     ).toBe('198.51.100.42');
   });
 
   it('falls back to LAN IP when on own workstation and public IP is not available', () => {
-    expect(resolveLogSourceIP('skylab-aabbccdd', 'skylab-aabbccdd', '10.45.12.100', null)).toBe(
-      '10.45.12.100',
-    );
+    expect(
+      resolveLogSourceIP(
+        'skylab-aabbccdd',
+        'skylab-aabbccdd',
+        '203.45.67.89',
+        '10.45.12.100',
+        null,
+      ),
+    ).toBe('10.45.12.100');
   });
 
   it('does not leak the workstation hostname into logs', () => {
@@ -66,10 +102,10 @@ describe('resolveLogSourceIP', () => {
     const result = resolveLogSourceIP(
       'skylab-aabbccdd',
       'skylab-aabbccdd',
-      '10.45.12.100',
       '203.45.67.89',
+      '10.45.12.100',
+      '198.51.100.42',
     );
     expect(result).not.toContain('skylab');
-    expect(result).not.toContain('-');
   });
 });

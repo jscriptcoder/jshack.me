@@ -32,6 +32,7 @@ export const createHttpRequestHandler =
     const sourceIp = resolveLogSourceIP(
       deps.sessionMachine,
       deps.ownWorkstationId,
+      targetIP,
       deps.getLocalIP(),
       deps.getPublicIP(),
     );

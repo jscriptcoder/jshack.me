@@ -58,6 +58,7 @@ export const createHydraLogHandler =
     const sourceIp = resolveLogSourceIP(
       deps.sessionMachine,
       deps.ownWorkstationId,
+      info.targetIp,
       deps.getLocalIP(),
       deps.getPublicIP(),
     );

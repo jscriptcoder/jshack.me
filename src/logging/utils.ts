@@ -10,29 +10,41 @@ export const resolveHostname = (
   return getMachine(machineId)?.hostname ?? machineId;
 };
 
+/** Extract the /24 subnet prefix from an IP address (e.g., "10.45.12.100" → "10.45.12"). */
+const getSubnet = (ip: string): string => ip.split('.').slice(0, 3).join('.');
+
 /**
- * Resolve the source IP that should appear in remote machine logs.
+ * Resolve the source IP that should appear in remote machine logs —
+ * mirrors how a real network would record the source of an incoming
+ * packet:
+ *
  * - On a remote machine (SSH session): the remote machine's IP is
- *   already in `sessionMachine` — pass through.
- * - On the player's own workstation: always the home network's public
- *   IP. We deliberately do NOT use the LAN IP for same-/24 targets:
- *   a single public-IP identity makes player tracking consistent across
- *   every log file in the world (mission, themed, home), and avoids
- *   leaking ambiguous LAN IPs that aren't unique across players. Falls
- *   back to localIP only when no home network is connected.
+ *   already in `sessionMachine`, pass through.
+ * - On own workstation, target on the same /24: LAN IP. Same-LAN
+ *   traffic doesn't traverse a NAT — the target sees our LAN IP
+ *   directly. This is also gameplay-relevant: a defender watching
+ *   logs on a machine they share a LAN with sees the actual LAN IP
+ *   of the attacker.
+ * - On own workstation, target on a different network: home router's
+ *   public IP, since traffic NATs through the gateway.
+ * - Fallback (no home network connected): LAN IP, since there's no
+ *   public IP to use.
  *
  * Pre-PR-#94 the "on own workstation" check used the literal string
  * 'localhost'. After workstations got identity-derived hostnames
  * (workstation_id), that check silently failed and the function
  * leaked the workstation hostname into logs. The fix takes
- * `ownWorkstationId` explicitly so the comparison stays correct.
+ * `ownWorkstationId` explicitly so the comparison stays correct as
+ * the format evolves.
  */
 export const resolveLogSourceIP = (
   sessionMachine: string,
   ownWorkstationId: string,
+  targetIP: string,
   localIP: string,
   publicIP: string | null,
 ): string => {
   if (sessionMachine !== ownWorkstationId) return sessionMachine;
+  if (getSubnet(localIP) === getSubnet(targetIP)) return localIP;
   return publicIP ?? localIP;
 };

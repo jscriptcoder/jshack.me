@@ -29,6 +29,7 @@ export const createNcConnectHandler =
     const sourceIp = resolveLogSourceIP(
       deps.sessionMachine,
       deps.ownWorkstationId,
+      info.targetIp,
       deps.getLocalIP(),
       deps.getPublicIP(),
     );
