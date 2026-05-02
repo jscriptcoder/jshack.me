@@ -6,6 +6,7 @@ const params: RemovePatchParams = {
   player_key: 'pubkey-hex',
   machine_id: '10.0.0.1',
   path: '/tmp/foo.txt',
+  dual_write: true,
 };
 
 const okEmpty = { data: [], error: null };
@@ -62,6 +63,7 @@ describe('createSupabaseRemovePatch', () => {
         machine_id: '10.0.0.1',
         path: '/tmp/foo.txt',
         path_prefix: '/tmp/foo.txt/',
+        dual_write: true,
       });
     });
 
@@ -76,6 +78,7 @@ describe('createSupabaseRemovePatch', () => {
         machine_id: '10.0.0.1',
         path: '/srv/data/',
         path_prefix: '/srv/data/',
+        dual_write: true,
       });
     });
 
@@ -98,6 +101,7 @@ describe('createSupabaseRemovePatch', () => {
         player_key: 'another-key',
         machine_id: 'localhost',
         path: '/etc',
+        dual_write: true,
       });
 
       expect(deleteRows).toHaveBeenCalledWith(
@@ -106,6 +110,20 @@ describe('createSupabaseRemovePatch', () => {
           machine_id: 'localhost',
         }),
       );
+    });
+
+    it('forwards dual_write=false (own-workstation bypass) verbatim', async () => {
+      // Pinned: the handler decides own-workstation bypass; the adapter
+      // must propagate the flag without re-deciding it. Flipping
+      // dual_write back to true here would corrupt the L2 invariant by
+      // dropping shared machine_filesystems rows when the player wipes
+      // their own box.
+      const deleteRows = vi.fn().mockResolvedValue(okOne);
+      const removePatch = createSupabaseRemovePatch(deleteRows);
+
+      await removePatch({ ...params, dual_write: false });
+
+      expect(deleteRows).toHaveBeenCalledWith(expect.objectContaining({ dual_write: false }));
     });
   });
 });

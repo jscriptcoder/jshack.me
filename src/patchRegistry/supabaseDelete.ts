@@ -6,32 +6,35 @@ import type {
 } from './types.js';
 
 // Adapter for removing a patch by exact path AND descendants (paths
-// nested under it). The wiring layer issues a single DELETE with a
-// PostgREST `.or()` filter:
-//
-//   DELETE FROM patches
-//    WHERE player_key = $player_key
-//      AND machine_id = $machine_id
-//      AND (path = $path OR path LIKE $path_prefix || '%')
+// nested under it). The wiring layer issues the delete via the
+// `remove_patches_with_fs` plpgsql function, which executes a single
+// DELETE with a path-prefix LIKE on the patches table and conditionally
+// cascades the same delete to machine_filesystems in the same
+// transaction.
 //
 // We compute path_prefix here (one place) so both the exact-path arm
-// and the descendant arm of the OR see consistent semantics. A path
-// that already ends with '/' is left alone; otherwise we append '/' so
-// the LIKE doesn't accidentally match siblings (e.g., "/foo" must not
-// match "/foobar"). Used for:
+// and the descendant arm see consistent semantics. A path that already
+// ends with '/' is left alone; otherwise we append '/' so the LIKE
+// doesn't accidentally match siblings (e.g., "/foo" must not match
+// "/foobar"). Used for:
 //   - isNew-cleanup deletions (file the player created via patch and
 //     then removed — never existed in the base fs, no marker needed)
 //   - directory removals where children must also disappear
+//
+// dual_write is propagated from RemovePatchParams to the SQL function
+// so the wiring layer doesn't need to recompute the own-workstation
+// bypass — the handler is the single source of truth for that decision.
 
 type RowError = { readonly code?: string; readonly message?: string } | null;
 
-// Arg passed to the underlying supabase delete. Pre-computed
-// path_prefix saves the wiring layer from re-deriving it.
+// Arg passed to the underlying supabase RPC. Pre-computed path_prefix
+// saves the wiring layer from re-deriving it.
 export type DeletePatchesArg = {
   readonly player_key: string;
   readonly machine_id: string;
   readonly path: string;
   readonly path_prefix: string;
+  readonly dual_write: boolean;
 };
 
 export type DeletePatchesFn = (arg: DeletePatchesArg) => Promise<{
@@ -48,6 +51,7 @@ export const createSupabaseRemovePatch =
       machine_id: params.machine_id,
       path: params.path,
       path_prefix,
+      dual_write: params.dual_write,
     });
     if (error) return { ok: false };
     return { ok: true, affected: data?.length ?? 0 };

@@ -25,16 +25,28 @@ describe('createSupabaseUpsertPatch', () => {
     const upsertRow = vi.fn().mockResolvedValue({ error: null });
     const upsertPatch = createSupabaseUpsertPatch(upsertRow);
 
-    expect(await upsertPatch(row)).toEqual({ ok: true });
-    expect(upsertRow).toHaveBeenCalledWith(row);
+    expect(await upsertPatch(row, true)).toEqual({ ok: true });
+    expect(upsertRow).toHaveBeenCalledWith(row, true);
   });
 
   it('passes optional fields (permissions, is_new, node_type) through to upsertRow', async () => {
     const upsertRow = vi.fn().mockResolvedValue({ error: null });
     const upsertPatch = createSupabaseUpsertPatch(upsertRow);
 
-    expect(await upsertPatch(rowWithOptionals)).toEqual({ ok: true });
-    expect(upsertRow).toHaveBeenCalledWith(rowWithOptionals);
+    expect(await upsertPatch(rowWithOptionals, true)).toEqual({ ok: true });
+    expect(upsertRow).toHaveBeenCalledWith(rowWithOptionals, true);
+  });
+
+  it('forwards dualWrite=false (own-workstation bypass) through to upsertRow', async () => {
+    // Pinned: the handler computes own-workstation bypass and passes
+    // dualWrite=false. The adapter must not silently flip it back to
+    // true — that would project own-workstation patches into the shared
+    // machine_filesystems table.
+    const upsertRow = vi.fn().mockResolvedValue({ error: null });
+    const upsertPatch = createSupabaseUpsertPatch(upsertRow);
+
+    await upsertPatch(row, false);
+    expect(upsertRow).toHaveBeenCalledWith(row, false);
   });
 
   it('returns ok: false when supabase returns an error', async () => {
@@ -43,7 +55,7 @@ describe('createSupabaseUpsertPatch', () => {
     });
     const upsertPatch = createSupabaseUpsertPatch(upsertRow);
 
-    expect(await upsertPatch(row)).toEqual({ ok: false });
+    expect(await upsertPatch(row, true)).toEqual({ ok: false });
   });
 
   it('returns ok: false on an unknown supabase error code (does not swallow)', async () => {
@@ -54,6 +66,6 @@ describe('createSupabaseUpsertPatch', () => {
     });
     const upsertPatch = createSupabaseUpsertPatch(upsertRow);
 
-    expect(await upsertPatch(row)).toEqual({ ok: false });
+    expect(await upsertPatch(row, true)).toEqual({ ok: false });
   });
 });

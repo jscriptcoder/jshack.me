@@ -30,7 +30,7 @@ export type HandlerResponse = {
 };
 
 export type HandlerDeps = {
-  readonly upsertPatch: (row: PatchRow) => Promise<UpsertPatchResult>;
+  readonly upsertPatch: (row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>;
   readonly removePatch: (params: RemovePatchParams) => Promise<RemovePatchResult>;
   readonly listPatchesForMachines: (
     params: ListPatchesForMachinesParams,
@@ -230,7 +230,11 @@ const handleUpsertPatch = async (
     ...(node_type !== undefined && { node_type }),
   };
 
-  const result = await deps.upsertPatch(row);
+  // Dual-write into machine_filesystems UNLESS this is the player's own
+  // workstation (own-box patches are excluded from machine_filesystems
+  // by design — see the L2 plan and the migration header).
+  const dualWrite = !isOwnWorkstationOnServer(machine_id, publicKey);
+  const result = await deps.upsertPatch(row, dualWrite);
   if (!result.ok) {
     return { status: 500, body: { error: 'upsert_failed' } };
   }
@@ -254,6 +258,7 @@ const handleRemovePatch = async (
     player_key: publicKey,
     machine_id: payload.machine_id,
     path: payload.path,
+    dual_write: !isOwnWorkstationOnServer(payload.machine_id, publicKey),
   });
   if (!result.ok) {
     return { status: 500, body: { error: 'remove_failed' } };

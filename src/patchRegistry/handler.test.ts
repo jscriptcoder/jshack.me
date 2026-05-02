@@ -50,7 +50,7 @@ const makeEnvelope = (
 };
 
 const mkDeps = (overrides: {
-  readonly upsertPatch?: (row: PatchRow) => Promise<UpsertPatchResult>;
+  readonly upsertPatch?: (row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>;
   readonly removePatch?: (params: RemovePatchParams) => Promise<RemovePatchResult>;
   readonly listPatchesForMachines?: (
     params: ListPatchesForMachinesParams,
@@ -66,7 +66,9 @@ const mkDeps = (overrides: {
 }) => ({
   upsertPatch:
     overrides.upsertPatch ??
-    vi.fn<(row: PatchRow) => Promise<UpsertPatchResult>>().mockResolvedValue({ ok: true }),
+    vi
+      .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
+      .mockResolvedValue({ ok: true }),
   removePatch:
     overrides.removePatch ??
     vi
@@ -122,24 +124,27 @@ describe('handlePatchesRequest — upsertPatch', () => {
 
   it('stamps player_key from verified public key (server-side, not client-trusted)', async () => {
     const upsertPatch = vi
-      .fn<(row: PatchRow) => Promise<UpsertPatchResult>>()
+      .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
       .mockResolvedValue({ ok: true });
     const envelope = makeEnvelope(identity, validUpsertPayload);
 
     await handlePatchesRequest(envelope, mkDeps({ upsertPatch }));
 
-    expect(upsertPatch).toHaveBeenCalledWith({
-      player_key: identity.publicKeyHex,
-      machine_id: '10.0.0.1',
-      path: '/tmp/foo.txt',
-      content: 'hello',
-      owner: 'user',
-    });
+    expect(upsertPatch).toHaveBeenCalledWith(
+      {
+        player_key: identity.publicKeyHex,
+        machine_id: '10.0.0.1',
+        path: '/tmp/foo.txt',
+        content: 'hello',
+        owner: 'user',
+      },
+      true,
+    );
   });
 
   it('passes through optional permissions, is_new, node_type', async () => {
     const upsertPatch = vi
-      .fn<(row: PatchRow) => Promise<UpsertPatchResult>>()
+      .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
       .mockResolvedValue({ ok: true });
     const permissions = {
       read: ['root', 'user'] as const,
@@ -166,12 +171,13 @@ describe('handlePatchesRequest — upsertPatch', () => {
         node_type: 'directory',
         content: null,
       }),
+      true,
     );
   });
 
   it('accepts content === null (deletion-of-base-file marker)', async () => {
     const upsertPatch = vi
-      .fn<(row: PatchRow) => Promise<UpsertPatchResult>>()
+      .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
       .mockResolvedValue({ ok: true });
     const envelope = makeEnvelope(identity, {
       action: 'upsertPatch',
@@ -184,7 +190,7 @@ describe('handlePatchesRequest — upsertPatch', () => {
     const result = await handlePatchesRequest(envelope, mkDeps({ upsertPatch }));
 
     expect(result.status).toBe(200);
-    expect(upsertPatch).toHaveBeenCalledWith(expect.objectContaining({ content: null }));
+    expect(upsertPatch).toHaveBeenCalledWith(expect.objectContaining({ content: null }), true);
   });
 
   it('replaces NUL bytes in content with U+FFFD (Postgres TEXT rejects U+0000)', async () => {
@@ -193,7 +199,7 @@ describe('handlePatchesRequest — upsertPatch', () => {
     // Sanitization at the handler level (vs the client wrapper) is
     // defense-in-depth: even hand-crafted Burp envelopes get cleaned.
     const upsertPatch = vi
-      .fn<(row: PatchRow) => Promise<UpsertPatchResult>>()
+      .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
       .mockResolvedValue({ ok: true });
     const NUL = String.fromCharCode(0);
     const FFFD = String.fromCharCode(0xfffd);
@@ -212,12 +218,13 @@ describe('handlePatchesRequest — upsertPatch', () => {
       expect.objectContaining({
         content: `ELF${FFFD}${FFFD}${FFFD}binary`,
       }),
+      true,
     );
   });
 
   it('returns 500 when the supabase upsert fails', async () => {
     const upsertPatch = vi
-      .fn<(row: PatchRow) => Promise<UpsertPatchResult>>()
+      .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
       .mockResolvedValue({ ok: false });
     const envelope = makeEnvelope(identity, validUpsertPayload);
     const result = await handlePatchesRequest(envelope, mkDeps({ upsertPatch }));
@@ -354,6 +361,7 @@ describe('handlePatchesRequest — removePatch', () => {
       player_key: identity.publicKeyHex,
       machine_id: '10.0.0.1',
       path: '/tmp/foo.txt',
+      dual_write: true,
     });
   });
 
@@ -616,7 +624,7 @@ describe('handlePatchesRequest — cross-action isolation', () => {
     overrides: Parameters<typeof mkDeps>[0],
   ): Parameters<typeof mkDeps>[0] => ({
     upsertPatch: vi
-      .fn<(row: PatchRow) => Promise<UpsertPatchResult>>()
+      .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
       .mockResolvedValue({ ok: true }),
     removePatch: vi
       .fn<(params: RemovePatchParams) => Promise<RemovePatchResult>>()
@@ -748,7 +756,7 @@ describe('handlePatchesRequest — rate limiting', () => {
 
   it('returns 429 with Retry-After when rate-limited', async () => {
     const upsertPatch = vi
-      .fn<(row: PatchRow) => Promise<UpsertPatchResult>>()
+      .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
       .mockResolvedValue({ ok: true });
     const rateLimiter = vi
       .fn<RateLimiter>()
@@ -839,7 +847,7 @@ describe('handlePatchesRequest — session-existence gate (L1)', () => {
         .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
         .mockResolvedValue({ ok: true, exists: true });
       const upsertPatch = vi
-        .fn<(row: PatchRow) => Promise<UpsertPatchResult>>()
+        .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
         .mockResolvedValue({ ok: true });
       const envelope = makeEnvelope(identity, validUpsertRemote);
 
@@ -857,7 +865,7 @@ describe('handlePatchesRequest — session-existence gate (L1)', () => {
         .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
         .mockResolvedValue({ ok: true, exists: false });
       const upsertPatch = vi
-        .fn<(row: PatchRow) => Promise<UpsertPatchResult>>()
+        .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
         .mockResolvedValue({ ok: true });
       const envelope = makeEnvelope(identity, validUpsertRemote);
 
@@ -882,7 +890,7 @@ describe('handlePatchesRequest — session-existence gate (L1)', () => {
         .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
         .mockResolvedValue({ ok: false });
       const upsertPatch = vi
-        .fn<(row: PatchRow) => Promise<UpsertPatchResult>>()
+        .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
         .mockResolvedValue({ ok: true });
       const envelope = makeEnvelope(identity, validUpsertRemote);
 
@@ -905,7 +913,7 @@ describe('handlePatchesRequest — session-existence gate (L1)', () => {
         .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
         .mockResolvedValue({ ok: true, exists: false });
       const upsertPatch = vi
-        .fn<(row: PatchRow) => Promise<UpsertPatchResult>>()
+        .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
         .mockResolvedValue({ ok: true });
       const envelope = makeEnvelope(identity, validUpsertOwnWorkstation);
 
@@ -920,6 +928,12 @@ describe('handlePatchesRequest — session-existence gate (L1)', () => {
       // exists:false above) would 403 — this test catches it.
       expect(findActiveSession).not.toHaveBeenCalled();
       expect(upsertPatch).toHaveBeenCalled();
+      // L2 dual-write bypass: own-workstation patches are excluded from
+      // machine_filesystems by design. The handler MUST forward
+      // dualWrite=false here. A mutant that flips this to true would
+      // project the player's private workstation FS into the shared
+      // L2 walker's view of the world.
+      expect(upsertPatch).toHaveBeenCalledWith(expect.anything(), false);
     });
 
     it('still gates a workstation_id-shaped machine_id whose suffix belongs to a DIFFERENT player', async () => {
@@ -933,7 +947,7 @@ describe('handlePatchesRequest — session-existence gate (L1)', () => {
         .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
         .mockResolvedValue({ ok: true, exists: false });
       const upsertPatch = vi
-        .fn<(row: PatchRow) => Promise<UpsertPatchResult>>()
+        .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
         .mockResolvedValue({ ok: true });
       const envelope = makeEnvelope(identity, {
         ...validUpsertOwnWorkstation,
@@ -1044,6 +1058,12 @@ describe('handlePatchesRequest — session-existence gate (L1)', () => {
       expect(result.status).toBe(200);
       expect(findActiveSession).not.toHaveBeenCalled();
       expect(removePatch).toHaveBeenCalled();
+      // L2 dual-delete bypass: own-workstation patches are excluded
+      // from machine_filesystems. The handler MUST forward
+      // dual_write=false. A mutant that flips this to true would drop
+      // shared machine_filesystems rows whenever the player wipes
+      // their own box.
+      expect(removePatch).toHaveBeenCalledWith(expect.objectContaining({ dual_write: false }));
     });
   });
 
@@ -1134,7 +1154,7 @@ describe('handlePatchesRequest — log-path bypass on upsertPatch', () => {
       .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
       .mockResolvedValue({ ok: true, exists: false });
     const upsertPatch = vi
-      .fn<(row: PatchRow) => Promise<UpsertPatchResult>>()
+      .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
       .mockResolvedValue({ ok: true });
     const envelope = makeEnvelope(identity, validLogUpsert);
 
@@ -1294,7 +1314,7 @@ describe('handlePatchesRequest — hint broadcast on successful mutation', () =>
 
   it('does NOT fire publishPatchChange when upsertPatch DB op fails', async () => {
     const upsertPatch = vi
-      .fn<(row: PatchRow) => Promise<UpsertPatchResult>>()
+      .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
       .mockResolvedValue({ ok: false });
     const publishPatchChange = vi.fn<PublishPatchChange>().mockResolvedValue(undefined);
     const envelope = makeEnvelope(identity);
