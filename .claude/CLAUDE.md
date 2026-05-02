@@ -56,6 +56,16 @@ npx tsx scripts/simulateExploit.ts mission <seed> <ip> <port> [--gameTime <days>
 # Inspect a single mission machine's port state — forcedEffect, version, findExploitableCve result per open port.
 # Useful for verifying CVE/effect assignment when the runtime disagrees with expectations.
 npx tsx scripts/inspectPort.ts <seed> <targetIp> [<gameTimeDays>]
+
+# L2 base-FS backfill — regenerate every existing home_networks row's FS and bulk-populate machine_filesystems.
+# Idempotent (ON CONFLICT DO NOTHING). Use --dry-run to preview row counts before live writes.
+npx dotenv -e .env.development.local -- npx tsx scripts/backfillHomeNetworkBaseFs.ts [--dry-run]
+
+# Verify the L2 RLS posture on the machine_filesystems table (anon denied, service_role allowed).
+npx dotenv -e .env.development.local -- npx tsx scripts/verifyMachineFilesystemsRls.ts
+
+# Verify the L2 dual-write SQL functions behave correctly (upsert/remove with own-workstation bypass).
+npx dotenv -e .env.development.local -- npx tsx scripts/verifyDualWrite.ts
 ```
 
 ## Key Architecture

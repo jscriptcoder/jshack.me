@@ -186,3 +186,9 @@ Headlines (the design discussion behind each is captured in commit history; the 
 - **Live occupant updates — SHIPPED**. Each successful occupant INSERT publishes a hint on `occupants:<network_id>`; subscribed clients refetch via `listOccupants`. Self-skip + 150ms debounce. See "Live LAN occupant updates" section above and `project_realtime_publish_authorization` memory for the threat model.
 - **Hostname-aware logs** — log formatters use source IP via `resolveLogSourceIP`; could add hostname alongside for richer attribution. Touches every log formatter.
 - **PvP-on-localhost** — other players' localhost shows as alive but with no open ports. A future PR could add an "open service" mechanic where players opt into being attackable.
+
+## L2 base-FS backfill
+
+Every successful `createNetwork` (i.e. when the first occupant joins a never-seen-before WiFi) ALSO populates `machine_filesystems` with the regenerated base FS for every machine in the LAN. This means L2's permission walker has a target row for every path on every home-network machine — guest sessions can't write to root-owned files (e.g. `/etc/shadow`) even on paths that no patch has touched yet.
+
+Wiring lives in `api/join-home-network.ts:populateBaseFsBestEffort` and is best-effort: a populate failure logs but does NOT fail the player's join. The home_networks row is committed and the operator can re-run `scripts/backfillHomeNetworkBaseFs.ts` to fill any missed populates idempotently. See `src/machineFilesystems/README.md` for the helper modules and `docs/technology-choices.md` (Pattern A — eager denormalization) for the architecture decision.

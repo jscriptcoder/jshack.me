@@ -579,6 +579,50 @@ When adding a new Vercel function or extending the chain, audit any new `from '.
 
 ---
 
+## L2 patch validation: Pattern A — eager denormalization via `machine_filesystems`
+
+### Choice
+
+A new `machine_filesystems` table is a parallel projection of current FS state, dual-written in the same Postgres transaction as every successful patch. L2's permission walker reads target permissions directly from this table.
+
+### Why
+
+- **Always current, never wrong**: row state and patch state advance atomically inside the `upsert_patch_with_fs` and `remove_patches_with_fs` plpgsql functions. No cache-invalidation logic.
+- **L2 stays sync-fast**: a single PK lookup (`machine_id, path`) on every mutation; no expensive recomputation in the hot path.
+- **Single source of truth**: client and server read the same shape (the `FilePermissions` JSONB) and run the same walker module, so allow/deny decisions are byte-identical by construction.
+- **Storage is cheap at indie scale**: ~1k rows per home LAN × hundreds of LANs = single-digit MB.
+
+### Alternatives considered
+
+- **Lazy on-demand cache** — cold-start path defeats the purpose. The slowest call is the one we care about (the security boundary).
+- **Regenerate-from-seed-on-each-check** — ~100ms–2s per call to re-run the FS generator. Unworkable inside a synchronous patch handler.
+- **Trigger-based projection** — Postgres triggers on `patches` could maintain `machine_filesystems` automatically, but the own-workstation bypass logic is per-call and not derivable inside a trigger; an application-side dual-write is more honest.
+
+### Trade-offs
+
+- Two writes per patch (in one tx) instead of one. Marginal latency cost.
+- Permission walker code is shared between client and server — every future permission-rule change is a 2-side change. Mitigated by extracting `permissionWalker.ts` as a single module both sides import.
+- Untouched base-FS files have no rows unless populated at provision time. Closed for **home networks** in Step 7 by regenerating + bulk-inserting at `home_networks` create. Still open for **world networks** (different generator pattern, follow-up) and **mission machines** (`mission_instances` aren't yet a server-side concept; decided 2026-04-23 in `project_multiplayer_mission_instances` memo, blocked on that feature landing).
+
+### Why not a single `patches`-with-current-state column
+
+Patches are per-player (`player_key, machine_id, path` PK). `machine_filesystems` is per-machine — one row per `(machine_id, path)` regardless of who wrote it. Last-write-wins semantics are a property of the projection, not of the per-player journal. Mixing them into one table would require either dropping the per-player audit trail or duplicating rows; the projection is cheap enough to keep separate.
+
+### Multi-player overlap caveat
+
+When two players hold patches on the same path and one deletes, the projection drops the row even though the other player's patch remains. The walker treats absence as "fall back to allow" on covered networks, which is mildly under-permissive on that path until another write re-projects. Acceptable for v1 — the path requires coordinated multi-player edits on the same file. A reconcile step (recompute projection from surviving patches on delete) closes the gap; not load-bearing today. Documented in the migration header.
+
+### Where the decision lives
+
+- Plan: `plans/l2-patch-validation.md`
+- Schema: `supabase/migrations/20260502220000_machine_filesystems.sql`
+- Dual-write functions: `supabase/migrations/20260502230000_l2_dual_write_functions.sql`
+- Walker: `src/filesystem/permissionWalker.ts`
+- Handler wiring: `src/patchRegistry/handler.ts` (`enforceL2`)
+- Base-FS backfill (home networks): `src/machineFilesystems/`, `scripts/backfillHomeNetworkBaseFs.ts`
+
+---
+
 ## What's not yet decided
 
 These are flagged but not yet committed:
