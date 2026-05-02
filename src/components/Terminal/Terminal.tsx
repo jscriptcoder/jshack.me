@@ -110,6 +110,7 @@ export const Terminal = () => {
     isInRedisMode,
     redisSession,
     isMachineBricked,
+    hostname: ownWorkstationId,
   } = useSession();
   const { commands, commandNames } = useCommands();
   const ftpCommands = useFtpCommands();
@@ -236,6 +237,7 @@ export const Terminal = () => {
   // and the result lands back in this component.
   const onRedisAuthHandler = createRedisAuthHandler({
     sessionMachine: session.machine,
+    ownWorkstationId,
     getLocalIP,
     getPublicIP,
     resolveNat,
@@ -290,6 +292,7 @@ export const Terminal = () => {
     },
     onSshAuth: createSshAuthHandler({
       sessionMachine: session.machine,
+      ownWorkstationId,
       getLocalIP,
       getPublicIP,
       resolveNat,
@@ -298,6 +301,7 @@ export const Terminal = () => {
     }),
     onFtpAuth: createFtpAuthHandler({
       sessionMachine: session.machine,
+      ownWorkstationId,
       getLocalIP,
       getPublicIP,
       resolveNat,
@@ -305,6 +309,7 @@ export const Terminal = () => {
     }),
     onMysqlAuth: createMysqlAuthHandler({
       sessionMachine: session.machine,
+      ownWorkstationId,
       getLocalIP,
       getPublicIP,
       resolveNat,
@@ -313,6 +318,7 @@ export const Terminal = () => {
     }),
     onRedisConnect: createRedisConnectHandler({
       sessionMachine: session.machine,
+      ownWorkstationId,
       getLocalIP,
       getPublicIP,
       resolveNat,

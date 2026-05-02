@@ -25,6 +25,7 @@ export type HydraLogReadFile = (op: {
 
 export type HydraLogDeps = {
   readonly sessionMachine: string;
+  readonly ownWorkstationId: string;
   readonly getLocalIP: () => string;
   readonly getPublicIP: () => string | null;
   readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
@@ -56,7 +57,7 @@ export const createHydraLogHandler =
     const hostname = resolveHostname(logIp, deps.getMachine);
     const sourceIp = resolveLogSourceIP(
       deps.sessionMachine,
-      info.targetIp,
+      deps.ownWorkstationId,
       deps.getLocalIP(),
       deps.getPublicIP(),
     );

@@ -117,6 +117,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
       getMachines().map((m) => applyVersionOverlay(m, readFileFromMachine));
     const onHttpRequest = createHttpRequestHandler({
       sessionMachine: session.machine,
+      ownWorkstationId: hostname,
       getLocalIP,
       getPublicIP,
       resolveNat,
@@ -125,6 +126,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
 
     const onExploitAttempt = createExploitAttemptHandler({
       sessionMachine: session.machine,
+      ownWorkstationId: hostname,
       getLocalIP,
       getPublicIP,
       resolveNat,
@@ -135,6 +137,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
 
     const onNcConnect = createNcConnectHandler({
       sessionMachine: session.machine,
+      ownWorkstationId: hostname,
       getLocalIP,
       getPublicIP,
       resolveNat,
@@ -144,6 +147,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
 
     const onHydraBruteForceAggregate = createHydraLogHandler({
       sessionMachine: session.machine,
+      ownWorkstationId: hostname,
       getLocalIP,
       getPublicIP,
       resolveNat,
@@ -156,16 +160,11 @@ export const useNetworkCommands = (): Map<string, Command> => {
       readonly targetIp: string;
       readonly probedPorts: readonly number[];
     }) => {
-      const sourceIp = resolveLogSourceIP(
-        session.machine,
-        info.targetIp,
-        getLocalIP(),
-        getPublicIP(),
-      );
-      const hostname = resolveHostname(info.targetIp, getMachine);
+      const sourceIp = resolveLogSourceIP(session.machine, hostname, getLocalIP(), getPublicIP());
+      const targetHostname = resolveHostname(info.targetIp, getMachine);
       const line = formatNmapScanAggregate({
         date: new Date(),
-        hostname,
+        hostname: targetHostname,
         sourceIp,
         probedPorts: info.probedPorts,
       });
@@ -179,12 +178,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
       readonly hitCount: number;
     }) => {
       const { ip: logIp } = resolveNat(info.targetIp, info.port);
-      const sourceIp = resolveLogSourceIP(
-        session.machine,
-        info.targetIp,
-        getLocalIP(),
-        getPublicIP(),
-      );
+      const sourceIp = resolveLogSourceIP(session.machine, hostname, getLocalIP(), getPublicIP());
       const line = formatGobusterScanAggregate({
         date: new Date(),
         sourceIp,

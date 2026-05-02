@@ -6,6 +6,7 @@ export type SshAuthMethod = 'password' | 'publickey';
 
 export type SshAuthDeps = {
   readonly sessionMachine: string;
+  readonly ownWorkstationId: string;
   readonly getLocalIP: () => string;
   readonly getPublicIP: () => string | null;
   readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
@@ -34,7 +35,7 @@ export const createSshAuthHandler =
     const srcPort = Math.floor(Math.random() * 25536) + 40000;
     const sourceIp = resolveLogSourceIP(
       deps.sessionMachine,
-      targetIP,
+      deps.ownWorkstationId,
       deps.getLocalIP(),
       deps.getPublicIP(),
     );
