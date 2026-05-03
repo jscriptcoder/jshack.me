@@ -1,6 +1,8 @@
 import type { FileNode, FileSystemPatch, PermissionResult } from './types';
 import type { MachineId } from './machineFileSystems';
 import type { UserType } from '../session/SessionContext';
+import { canExecute } from './permissionWalker';
+import { defaultFilePermissions, defaultDirectoryPermissions } from './defaultPermissions';
 
 export type FileSystemsState = Readonly<Record<string, FileNode>>;
 
@@ -27,6 +29,13 @@ export const resolvePath = (path: string, cwd: string): string => {
 
 // Verifies execute permission on every directory along the path (excluding the target itself).
 // Real Unix requires execute (traverse) permission on each parent directory to access a file.
+//
+// The "is user X in dir.execute?" decision is delegated to permissionWalker
+// (the shared L2 module). This keeps the client and the server-side L2
+// patch-validation walker in lockstep on the rule itself; checkTraversal
+// retains the tree-walking + missing-child semantics that don't apply
+// server-side (where the parent chain is built from machine_filesystems
+// rows, not a tree).
 export const checkTraversal = (
   fs: FileNode,
   resolvedPath: string,
@@ -37,8 +46,8 @@ export const checkTraversal = (
   const parts = resolvedPath.split('/').filter(Boolean);
   if (parts.length === 0) return { allowed: true };
 
-  // Check execute on root directory
-  if (!fs.permissions.execute.includes(userType)) {
+  // Check execute on root directory (delegating the rule to permissionWalker).
+  if (!canExecute({ userType, target: fs.permissions, parentChain: [] }).allowed) {
     return { allowed: false, error: 'Permission denied: /' };
   }
 
@@ -56,7 +65,10 @@ export const checkTraversal = (
     const [part, ...rest] = remaining;
     const next = node.children[part];
     if (!next) return { allowed: true };
-    if (next.type === 'directory' && !next.permissions.execute.includes(userType)) {
+    if (
+      next.type === 'directory' &&
+      !canExecute({ userType, target: next.permissions, parentChain: [] }).allowed
+    ) {
       return { allowed: false, error: `Permission denied: /${[...consumed, part].join('/')}` };
     }
     return walkParents(next, rest, [...consumed, part]);
@@ -333,11 +345,7 @@ export const applyPatches = (
         name: dirName ?? '',
         type: 'directory',
         owner: patch.owner,
-        permissions: patch.permissions ?? {
-          read: ['root', 'user', 'guest'],
-          write: ['root', patch.owner],
-          execute: ['root', 'user', 'guest'],
-        },
+        permissions: patch.permissions ?? defaultDirectoryPermissions(patch.owner),
         children: {},
       };
       return {
@@ -378,12 +386,11 @@ export const applyPatches = (
       name: fileName,
       type: 'file',
       owner: patch.owner,
-      // Use explicit patch permissions if provided, otherwise default to no-execute
-      permissions: patch.permissions ?? {
-        read: ['root', patch.owner],
-        write: ['root', patch.owner],
-        execute: ['root'],
-      },
+      // Use explicit patch permissions if provided, otherwise the
+      // shared default (root + owner read/write, root-only execute).
+      // Same module used server-side in handleUpsertPatch — keeps the
+      // L2 walker and the client's local view in lockstep.
+      permissions: patch.permissions ?? defaultFilePermissions(patch.owner),
       content,
     };
 

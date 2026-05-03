@@ -143,10 +143,17 @@ export type UpsertPatchResult = { readonly ok: true } | { readonly ok: false };
 // removePatch params — player_key from verified pubkey + the natural-
 // key fields the client supplied. The adapter handles the descendant-
 // prefix expansion server-side.
+//
+// dual_write controls whether the SQL function also drops the matching
+// machine_filesystems rows in the same transaction. The handler sets it
+// to false for own-workstation deletes (the player's own box is excluded
+// from machine_filesystems by design — see the L2 plan and the
+// 20260502220000_machine_filesystems migration header).
 export type RemovePatchParams = {
   readonly player_key: string;
   readonly machine_id: string;
   readonly path: string;
+  readonly dual_write: boolean;
 };
 
 // affected = rows actually deleted. Useful for telemetry / debugging

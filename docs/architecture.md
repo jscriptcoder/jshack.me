@@ -239,10 +239,37 @@ PR #78 a legit Ed25519 keypair could record patches on any machine. See
 ambient-write bypass (recon actions like nmap/curl/hydra leave logs on
 the target without establishing a session, so log paths are exempt).
 
-**Deferred: L2 (server-side permission walking) and L3 (game-logic
-re-run).** L2 needs server-side filesystem state — plan in the
-`project_l2_plan` memo. L3 is "the smart server" that re-runs game
-logic against every action; piecemeal, per-feature.
+**L2 patch validation (server-side permission walk).** After L1 passes,
+the handler looks up the target path's permissions in
+`machine_filesystems` (a parallel projection of the current FS state,
+dual-written from every successful patch in the same transaction) and
+runs the shared permission walker (`src/filesystem/permissionWalker.ts`)
+against the session's verified `userType`. A guest session that
+legitimately holds a session on machine X cannot overwrite root-owned
+files on X. The walker module is imported by both client and server, so
+allow/deny decisions are byte-identical by construction.
+
+L2 coverage today:
+
+- **Workstation (own-box)**: bypassed by design.
+- **Home network LANs**: full coverage. `machine_filesystems` populated
+  from the regenerated base FS at `home_networks` create time, plus an
+  idempotent backfill script for existing rows.
+- **World networks** (findit.io, playground): leaf-only — only patched
+  paths enforced. Deferred follow-up because the world-network generator
+  uses a separate `ThemedGenerator` pattern.
+- **Mission machines**: leaf-only — `mission_instances` aren't yet a
+  server-side concept (decided 2026-04-23 in
+  `project_multiplayer_mission_instances` memo; not yet built). Once
+  that lands, missions get the same full coverage home networks have.
+
+**Deferred: L3 (game-logic re-run).** "The smart server" that re-runs
+game logic against every action; piecemeal, per-feature.
+
+See `src/patchRegistry/README.md` for the L2 wiring + threat-model
+coverage table, and `docs/technology-choices.md` (Pattern A —
+machine_filesystems eager denormalization) for the architecture
+decision and the rejected alternatives.
 
 ## Async Output Pattern
 

@@ -8,6 +8,7 @@ import { generatePublicIp } from '../src/generation/ip.js';
 import { handleJoinHomeNetworkRequest } from '../src/homeNetworks/handler.js';
 import { createInsertOccupant } from '../src/homeNetworks/createInsertOccupant.js';
 import { pickRandomLanIp } from '../src/homeNetworks/pickRandomLanIp.js';
+import { getReservedLanOctets } from '../src/homeNetworks/getReservedLanOctets.js';
 import {
   publishOccupantChange as publishOccupantChangeHelper,
   type BroadcastFn as OccupantBroadcastFn,
@@ -30,6 +31,9 @@ import {
   noopNonceStore,
   type NonceStore,
 } from '../src/signedRequest/nonceStore.js';
+import { regenHomeNetworkRows } from '../src/machineFilesystems/populateHomeNetworkBaseFs.js';
+import { createBulkInsertMachineFs } from '../src/machineFilesystems/bulkInsertMachineFs.js';
+import type { MachineFsRow } from '../src/machineFilesystems/flattenFileNode.js';
 
 // Vercel adapter for POST /api/join-home-network. Mirrors api/allocate-ip.ts:
 // keeps this file to the minimum necessary glue (env-var lookup, client
@@ -174,8 +178,49 @@ const createNetwork =
       console.error('[join-home-network] createNetwork error:', error);
       throw new Error(`createNetwork failed: ${error.message ?? 'unknown'}`);
     }
+
+    // L2 base-FS backfill: regenerate the network's filesystems
+    // deterministically from the seed and bulk-insert one row per
+    // FileNode into machine_filesystems. ON CONFLICT DO NOTHING
+    // semantics mean live patches (already dual-written) are preserved
+    // and only base-FS rows that don't already exist get added.
+    //
+    // Best effort: a populate failure logs but does NOT fail the join
+    // — the home_networks row is already committed and the backfill
+    // script (scripts/backfillHomeNetworkBaseFs.ts) can re-run any
+    // missed populates idempotently. The L2 walker falls back to allow
+    // for unpatched paths in the meantime, matching the leaf-only
+    // posture.
+    await populateBaseFsBestEffort(supabase, params.seed, params.publicIp);
+
     return row;
   };
+
+// Bulk-inserts the base-FS rows generated from the seed. Wrapped in a
+// try/catch so any failure (regen exception, DB error, network blip)
+// is logged but doesn't fail the calling join flow. Idempotent at the
+// DB level via ON CONFLICT DO NOTHING on the (machine_id, path) PK.
+const populateBaseFsBestEffort = async (
+  supabase: SupabaseClient,
+  seed: string,
+  publicIp: string,
+): Promise<void> => {
+  try {
+    const rows = await regenHomeNetworkRows({ seed, publicIp });
+    const bulkInsert = createBulkInsertMachineFs(async (chunk: readonly MachineFsRow[]) => {
+      const { error } = await supabase
+        .from('machine_filesystems')
+        .upsert([...chunk], { onConflict: 'machine_id,path', ignoreDuplicates: true });
+      return { error };
+    });
+    const result = await bulkInsert(rows);
+    if (!result.ok) {
+      console.error('[join-home-network] base-FS populate failed for', publicIp);
+    }
+  } catch (e) {
+    console.error('[join-home-network] base-FS populate threw:', e);
+  }
+};
 
 const allocateHomeNetworkPublicIp =
   (supabase: SupabaseClient) => async (): Promise<string | null> => {
@@ -215,7 +260,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // Fresh PRNG per slot pick — non-deterministic across requests, even on
   // the same process. Same posture as rollIp in api/allocate-ip.ts.
-  const pickLanIp = () => pickRandomLanIp(createPrng(randomUUID()));
+  //
+  // Builds the exclusion set per network: the NPC octets the FS generator
+  // produced for this seed (via getReservedLanOctets — runs the home-
+  // network generator deterministically) plus the existing occupant
+  // octets already taken on this LAN. Without exclusions, blind random
+  // rolls landed players onto NPC IPs (e.g. `http-srv`'s slot) and the
+  // multi-player views diverged — each player rendering the LAN
+  // locally either showed the NPC or the occupant overlay, never both.
+  const pickLanIp = async ({
+    seed,
+    publicIp,
+  }: {
+    readonly seed: string;
+    readonly publicIp: string;
+  }): Promise<string> => {
+    const reservedOctets = await getReservedLanOctets({ seed, publicIp });
+    const { data: occupants } = await supabase
+      .from('home_network_occupants')
+      .select('lan_ip')
+      .eq('network_id', publicIp);
+    const occupantOctets = new Set<number>();
+    for (const row of occupants ?? []) {
+      const octet = Number((row.lan_ip as string).slice(1));
+      if (Number.isFinite(octet)) occupantOctets.add(octet);
+    }
+    const excluded = new Set<number>([...reservedOctets, ...occupantOctets]);
+    return pickRandomLanIp(createPrng(randomUUID()), { excludedOctets: excluded });
+  };
 
   // Realtime broadcast adapter — POSTs to Supabase's broadcast REST
   // endpoint with the service_role key. Mirrors api/patches.ts's

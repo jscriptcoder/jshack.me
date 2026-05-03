@@ -11,10 +11,11 @@ See `docs/technology-choices.md` (Patches: server-authoritative with two-call de
 | File                         | Description                                                                                                                                                                                                                    |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `types.ts`                   | zod schemas (4-action discriminated union: upsertPatch / removePatch / listPatchesForMachines / clearOwnedPatches), `PatchRow`, `PatchSummary`.                                                                                |
-| `handler.ts`                 | Single endpoint with action-dispatch: verify → rate-limit → branch into one of four action handlers. Server-stamps `player_key` on every write.                                                                                |
-| `supabaseUpsert.ts`          | `INSERT ... ON CONFLICT (player_key, machine_id, path) DO UPDATE` adapter for upsertPatch.                                                                                                                                     |
-| `supabaseDelete.ts`          | DELETE adapters for removePatch (exact + descendant prefix) and clearOwnedPatches (`machine_id = 'localhost'`).                                                                                                                |
+| `handler.ts`                 | Single endpoint with action-dispatch: verify → rate-limit → L1 (session) → L2 (walker) → branch into one of four action handlers. Server-stamps `player_key` on every write.                                                   |
+| `supabaseUpsert.ts`          | RPC adapter for upsertPatch — calls `upsert_patch_with_fs(...)` plpgsql which dual-writes to `patches` + `machine_filesystems` in one transaction.                                                                             |
+| `supabaseDelete.ts`          | RPC adapter for removePatch — calls `remove_patches_with_fs(...)` plpgsql which deletes from both tables (exact + descendant prefix). Also includes the legacy clearOwnedPatches direct DELETE.                                |
 | `supabaseSelectByMachine.ts` | `SELECT ... WHERE machine_id IN (...) ORDER BY updated_at ASC` adapter for listPatchesForMachines (cross-player read); returns the per-row `PatchSummary` shape.                                                               |
+| `supabaseFindMachineFs.ts`   | L2 lookup adapter — `(machine_id, path)` → target row from `machine_filesystems` for the walker decision. Strict zod parse on JSONB; mis-shapen rows fail closed.                                                              |
 | `broadcast.ts`               | Server-side `publishPatchChange` — fires a Supabase Realtime HINT broadcast (`patches:<machine_id>` channel, `patch_change` event, `{ machine_id, originator_key }` payload) after every successful mutation. Fire-and-forget. |
 | `realtime.ts`                | Client-side `subscribeToMachine` wrapper + lazy anon-key Supabase client. Receives hints, converts wire shape (snake_case) to `PatchHint` (camelCase), hands them to the caller's `onHint`.                                    |
 | `client.ts`                  | Browser-side wrappers — sign envelope, POST, parse response. Handle camelCase ↔ snake_case translation so callers see `FileSystemPatch`.                                                                                       |
@@ -193,15 +194,52 @@ This bypass exists to keep the gate compatible with the **cross-player log visib
 
 ### Layered defense (L1 / L2 / L3)
 
-This PR ships **L1** only. The full validation cake:
+| Layer | What it checks                                                                                                                            | Status                                                                                                             |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| L1    | Active session exists on `machine_id` for `player_key`                                                                                    | ✅ shipped (PR #78)                                                                                                |
+| L2    | Session credentials have write permission on the target path (allowlist walk on the target's stored permissions in `machine_filesystems`) | ✅ shipped (L2 attempt — full coverage on home networks, leaf-only on world networks and mission machines for now) |
+| L3    | Game-logic re-run ("smart server") — was the CVE leading to this session published-by-now, etc.                                           | Way later                                                                                                          |
 
-| Layer | What it checks                                                                                                       | Status                                                                                                       |
-| ----- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| L1    | Active session exists on `machine_id` for `player_key`                                                               | ✅ shipped (PR #78)                                                                                          |
-| L2    | Session credentials have write permission on the target path (Unix permission walk on the target's filesystem state) | Deferred — needs server-side FS state (deterministic regen + patch replay, OR a `machine_filesystems` table) |
-| L3    | Game-logic re-run ("smart server") — was the CVE leading to this session published-by-now, etc.                      | Way later                                                                                                    |
+### L2 wiring
 
-L2 closes privilege-escalation within a session (e.g., a guest-session player asking the server to delete root-owned files). L1 alone limits attackers to "legitimate access" but trusts the client's permission check.
+After `requireActiveSession` passes (or the own-workstation / `/var/log` bypass fires), the handler runs:
+
+```
+fetchSessionCredentials(player_key, machine_id)
+  → Credentials | own-workstation bypass | 500
+  → if no bypass:
+      findMachineFs(machine_id, path)
+        → row     → canWrite({ userType, target: row.permissions, parentChain: [] })
+                      → deny → 403 permission_denied
+                      → allow → proceed to dual-write RPC
+        → no row  → 403 only on networks with full base-FS coverage; permissive on leaf-only networks
+        → error   → 500 fs_lookup_failed
+```
+
+The walker (`src/filesystem/permissionWalker.ts`) is a single pure module that the client also imports — both sides agree on allow/deny by construction. Today's wiring is leaf-only: only the target node's `target.write` list is checked. Parent-chain traversal is deferred until every relevant network has full base-FS coverage in `machine_filesystems` (currently home networks only).
+
+### L2 coverage by network type
+
+| Network               | Coverage                                                                                                                                |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Workstation (own-box) | Bypassed — player owns their own box                                                                                                    |
+| Home network LANs     | Full — `machine_filesystems` populated from base FS at `home_networks` create (Step 7); idempotent backfill script for existing rows    |
+| World networks        | Leaf-only — only patched paths enforced (deferred follow-up; uses the `ThemedGenerator` pattern, separate from home-network generator)  |
+| Mission machines      | Leaf-only — `mission_instances` aren't yet a server-side concept (decided 2026-04-23); blocked on multiplayer-mission-instances landing |
+
+### Threat model coverage
+
+Closed by L1 + L2 together (on covered networks):
+
+- Cross-player escalation: a guest with a legitimate session on machine X cannot overwrite root-owned files on X.
+- Within-session escalation on patched paths (any network): once a path has been touched once, L2 enforces forever.
+- Burp/ZAP/custom-client bypass: the security boundary is `Vercel function + RLS + walker on stored perms`, not the client.
+
+Still open:
+
+- Mission machine untouched-path attacks (need server-side mission_instances + base-FS backfill).
+- World network untouched-path attacks (need world-network base-FS backfill).
+- Client lying about `userType` at session-create (server doesn't yet validate against `/etc/passwd`; deferred follow-up).
 
 ## Server-stamped `player_key`
 
