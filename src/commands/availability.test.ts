@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Command } from '../components/Terminal/types';
 import type { FileNode } from '../filesystem/types';
-import type { UserType } from '../session/SessionContext';
+import type { UserType } from '../session/types';
 import {
   isCommandVisible,
   checkCommandAccess,

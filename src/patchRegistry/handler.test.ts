@@ -3,6 +3,7 @@ import { handlePatchesRequest } from './handler';
 import type {
   ClearPatchesParams,
   ClearPatchesResult,
+  FilePermissions,
   ListPatchesForMachinesParams,
   ListPatchesForMachinesResult,
   PatchRow,
@@ -621,7 +622,11 @@ describe('handlePatchesRequest — listPatchesForMachines', () => {
   it('does NOT call findActiveSession (no L1 gate on reads)', async () => {
     const findActiveSession = vi
       .fn<(params: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
-      .mockResolvedValue({ ok: true, exists: true });
+      .mockResolvedValue({
+        ok: true,
+        exists: true,
+        credentials: { username: 'alice', userType: 'user' },
+      });
     const envelope = makeEnvelope(identity, validPayload);
 
     await handlePatchesRequest(envelope, mkDeps({ findActiveSession }));
@@ -954,7 +959,11 @@ describe('handlePatchesRequest — session-existence gate (L1)', () => {
     it('returns 200 on remote machine when player has an active session there', async () => {
       const findActiveSession = vi
         .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
-        .mockResolvedValue({ ok: true, exists: true });
+        .mockResolvedValue({
+          ok: true,
+          exists: true,
+          credentials: { username: 'alice', userType: 'user' },
+        });
       const upsertPatch = vi
         .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
         .mockResolvedValue({ ok: true });
@@ -1076,7 +1085,11 @@ describe('handlePatchesRequest — session-existence gate (L1)', () => {
     it('passes verified pubkey + payload.machine_id to findActiveSession (not client-claimed)', async () => {
       const findActiveSession = vi
         .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
-        .mockResolvedValue({ ok: true, exists: true });
+        .mockResolvedValue({
+          ok: true,
+          exists: true,
+          credentials: { username: 'alice', userType: 'user' },
+        });
       const envelope = makeEnvelope(identity, validUpsertRemote);
 
       await handlePatchesRequest(envelope, mkDeps({ findActiveSession }));
@@ -1092,7 +1105,11 @@ describe('handlePatchesRequest — session-existence gate (L1)', () => {
     it('returns 200 on remote when active session exists', async () => {
       const findActiveSession = vi
         .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
-        .mockResolvedValue({ ok: true, exists: true });
+        .mockResolvedValue({
+          ok: true,
+          exists: true,
+          credentials: { username: 'alice', userType: 'user' },
+        });
       const removePatch = vi
         .fn<(p: RemovePatchParams) => Promise<RemovePatchResult>>()
         .mockResolvedValue({ ok: true, affected: 0 });
@@ -1185,7 +1202,11 @@ describe('handlePatchesRequest — session-existence gate (L1)', () => {
     it('listPatchesForMachines does not invoke findActiveSession', async () => {
       const findActiveSession = vi
         .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
-        .mockResolvedValue({ ok: true, exists: true });
+        .mockResolvedValue({
+          ok: true,
+          exists: true,
+          credentials: { username: 'alice', userType: 'user' },
+        });
       const envelope = makeEnvelope(identity, {
         action: 'listPatchesForMachines',
         machine_ids: ['10.0.0.1'],
@@ -1199,7 +1220,11 @@ describe('handlePatchesRequest — session-existence gate (L1)', () => {
     it('clearOwnedPatches does not invoke findActiveSession', async () => {
       const findActiveSession = vi
         .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
-        .mockResolvedValue({ ok: true, exists: true });
+        .mockResolvedValue({
+          ok: true,
+          exists: true,
+          credentials: { username: 'alice', userType: 'user' },
+        });
       const envelope = makeEnvelope(identity, { action: 'clearOwnedPatches' });
 
       await handlePatchesRequest(envelope, mkDeps({ findActiveSession }));
@@ -1213,7 +1238,11 @@ describe('handlePatchesRequest — session-existence gate (L1)', () => {
       // Saves a DB hit on rate-limited callers.
       const findActiveSession = vi
         .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
-        .mockResolvedValue({ ok: true, exists: true });
+        .mockResolvedValue({
+          ok: true,
+          exists: true,
+          credentials: { username: 'alice', userType: 'user' },
+        });
       const rateLimiter = vi
         .fn<RateLimiter>()
         .mockResolvedValue({ allowed: false, retryAfterSeconds: 30 });
@@ -1510,8 +1539,12 @@ describe('handlePatchesRequest — L2 walker enforcement', () => {
     identity = generateIdentity();
   });
 
-  const rootOnlyPerms = { read: ['root'], write: ['root'], execute: ['root'] };
-  const userWritablePerms = {
+  const rootOnlyPerms: FilePermissions = {
+    read: ['root'],
+    write: ['root'],
+    execute: ['root'],
+  };
+  const userWritablePerms: FilePermissions = {
     read: ['root', 'user'],
     write: ['root', 'user'],
     execute: ['root', 'user'],

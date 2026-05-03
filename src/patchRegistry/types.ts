@@ -15,9 +15,9 @@ export type NodeType = (typeof NODE_TYPES)[number];
 // schema form. Strict: rejects unknown fields.
 export const filePermissionsSchema = z
   .object({
-    read: z.array(z.enum(USER_TYPES)),
-    write: z.array(z.enum(USER_TYPES)),
-    execute: z.array(z.enum(USER_TYPES)),
+    read: z.array(z.enum(USER_TYPES)).readonly(),
+    write: z.array(z.enum(USER_TYPES)).readonly(),
+    execute: z.array(z.enum(USER_TYPES)).readonly(),
   })
   .strict();
 

@@ -1,5 +1,5 @@
 import type { FileNode, FilePermissions } from '../filesystem/types';
-import type { UserType } from '../session/SessionContext';
+import type { UserType } from '../session/types';
 
 // Pure flatten: walk a FileNode tree and produce one row per node, ready
 // to bulk-insert into machine_filesystems. The shape mirrors the L2 dual-

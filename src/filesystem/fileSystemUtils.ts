@@ -1,6 +1,6 @@
 import type { FileNode, FileSystemPatch, PermissionResult } from './types';
 import type { MachineId } from './machineFileSystems';
-import type { UserType } from '../session/SessionContext';
+import type { UserType } from '../session/types';
 import { canExecute } from './permissionWalker';
 import { defaultFilePermissions, defaultDirectoryPermissions } from './defaultPermissions';
 

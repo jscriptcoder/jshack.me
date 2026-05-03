@@ -1,5 +1,5 @@
 import type { Command } from '../components/Terminal/types';
-import type { UserType } from '../session/SessionContext';
+import type { UserType } from '../session/types';
 import { md5 } from '../utils/md5';
 
 export type PasswordPromptData = {

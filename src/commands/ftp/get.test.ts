@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createFtpGetCommand } from './get';
 import type { FileNode, PermissionResult } from '../../filesystem/types';
-import type { UserType } from '../../session/SessionContext';
+import type { UserType } from '../../session/types';
 import type { MachineId } from '../../filesystem/machineFileSystems';
 import type { AsyncOutput } from '../../components/Terminal/types';
 

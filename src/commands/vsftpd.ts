@@ -1,6 +1,6 @@
 import type { Command } from '../components/Terminal/types';
 import type { FileNode, PermissionResult } from '../filesystem/types';
-import type { UserType } from '../session/SessionContext';
+import type { UserType } from '../session/types';
 import type { RemoteMachine } from '../network/types';
 
 export type VsftpdAdapter = {

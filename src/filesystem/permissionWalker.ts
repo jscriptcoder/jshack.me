@@ -1,5 +1,5 @@
 import type { FilePermissions, PermissionResult } from './types';
-import type { UserType } from '../session/SessionContext';
+import type { UserType } from '../session/types';
 
 // Shared L2-compatible permission decision. Pure function — same module
 // imported by both the client (FileSystemContext) and the server

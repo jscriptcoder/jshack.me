@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { createKillCommand, type KillContext } from './kill';
 import type { FileNode } from '../filesystem/types';
 import type { RemoteMachine } from '../network/types';
-import type { UserType } from '../session/SessionContext';
+import type { UserType } from '../session/types';
 
 // Helper to create a PID file node
 const pidFileNode = (name: string, content: string): FileNode => ({

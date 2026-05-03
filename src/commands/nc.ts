@@ -1,6 +1,6 @@
 import type { Command, AsyncOutput, NcPromptData } from '../components/Terminal/types';
 import type { RemoteMachine, DnsRecord, Port } from '../network/types';
-import type { UserType } from '../session/SessionContext';
+import type { UserType } from '../session/types';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 // --- Listen mode (nc -l) ---

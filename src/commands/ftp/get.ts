@@ -6,7 +6,7 @@ import type {
   MachineWriteOp,
   PermissionResult,
 } from '../../filesystem/types';
-import type { UserType } from '../../session/SessionContext';
+import type { UserType } from '../../session/types';
 import type { MachineId } from '../../filesystem/machineFileSystems';
 import { createCancellationToken, jitter } from '../../utils/asyncCommand';
 

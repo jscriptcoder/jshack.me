@@ -1,5 +1,5 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
-import type { UserType } from '../session/SessionContext';
+import type { UserType } from '../session/types';
 import type { FileNode, PermissionResult } from '../filesystem/types';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 import { decryptContent } from '../utils/crypto';

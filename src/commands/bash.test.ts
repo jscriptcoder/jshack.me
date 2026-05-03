@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { executeBash, type BashAdapter } from './bash';
 import type { FileNode } from '../filesystem/types';
-import type { UserType } from '../session/SessionContext';
+import type { UserType } from '../session/types';
 
 const makeExecutable = (
   name: string,

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createFtpLlsCommand } from './lls';
 import type { FileNode } from '../../filesystem/types';
-import type { UserType } from '../../session/SessionContext';
+import type { UserType } from '../../session/types';
 import type { MachineId } from '../../filesystem/machineFileSystems';
 
 // --- Factory Functions ---

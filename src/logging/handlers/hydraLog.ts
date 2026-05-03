@@ -1,6 +1,6 @@
 import type { HydraBruteForceInfo, HydraSuccess } from '../../commands/hydra';
 import { parseMysqlDatabase } from '../../commands/mysql/types';
-import type { UserType } from '../../session/SessionContext';
+import type { UserType } from '../../session/types';
 import { appendToMachineLog, type LogFileSystemDeps } from '../appendToMachineLog';
 import {
   formatFtpLoginOk,

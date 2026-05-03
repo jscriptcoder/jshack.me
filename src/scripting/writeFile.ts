@@ -1,4 +1,4 @@
-import type { UserType } from '../session/SessionContext';
+import type { UserType } from '../session/types';
 import type { FileNode, PermissionResult } from '../filesystem/types';
 import { stringify } from '../utils/stringify';
 
