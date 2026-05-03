@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { FileNode } from '../filesystem/types';
 import type { AsyncOutput } from '../components/Terminal/types';
-import type { UserType } from '../session/SessionContext';
+import type { UserType } from '../session/types';
 import { createNodeCommand } from './node';
 
 // --- Async Helpers ---

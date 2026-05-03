@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { FileNode, FilePermissions } from '../filesystem/types';
-import type { UserType } from '../session/SessionContext';
+import type { UserType } from '../session/types';
 import { createChmodCommand } from './chmod';
 
 const makeMockNode = (overrides?: Partial<FileNode>): FileNode => ({

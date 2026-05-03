@@ -1,7 +1,7 @@
 import type { Command } from '../components/Terminal/types';
 import type { FileNode, MachineDeleteOp, PermissionResult } from '../filesystem/types';
 import type { RemoteMachine } from '../network/types';
-import type { UserType } from '../session/SessionContext';
+import type { UserType } from '../session/types';
 import { parseNcPidContent } from '../network/ncStateParser';
 import { NC_PID_FILE_PREFIX } from './nc';
 import { PID_FILE_USERS, parseInfraPid } from './ps';

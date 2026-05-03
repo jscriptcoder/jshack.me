@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { FileNode, FilePermissions, PermissionResult } from '../filesystem/types';
-import type { UserType } from '../session/SessionContext';
+import type { UserType } from '../session/types';
 import type { RemoteMachine } from '../network/types';
 import type { AsyncOutput, AsyncFollowUp, ScpPromptData } from '../components/Terminal/types';
 import { createScpCommand } from './scp';

@@ -1,5 +1,5 @@
 import type { FileNode } from './types';
-import type { UserType } from '../session/SessionContext';
+import type { UserType } from '../session/types';
 
 export type UserConfig = {
   readonly username: string;

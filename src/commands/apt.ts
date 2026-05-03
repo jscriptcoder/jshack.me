@@ -1,7 +1,7 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
 import type { FileNode, FilePermissions } from '../filesystem/types';
 import type { PermissionResult } from '../filesystem/types';
-import type { UserType } from '../session/SessionContext';
+import type { UserType } from '../session/types';
 import type { RemoteMachine } from '../network/types';
 import { APT_PACKAGES, APT_INSTALLABLE, BINARY_STUB, RESTRICTED_EXECUTE } from './availability';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';

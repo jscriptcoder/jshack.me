@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { UserType } from '../session/SessionContext';
+import type { UserType } from '../session/types';
 import type { PermissionResult } from '../filesystem/types';
 import { createMkdirCommand } from './mkdir';
 

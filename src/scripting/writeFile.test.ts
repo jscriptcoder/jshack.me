@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { FileNode, PermissionResult } from '../filesystem/types';
-import type { UserType } from '../session/SessionContext';
+import type { UserType } from '../session/types';
 import { createWriteFile } from './writeFile';
 
 type ContextConfig = {

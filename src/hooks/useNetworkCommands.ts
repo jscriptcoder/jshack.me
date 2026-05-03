@@ -18,7 +18,7 @@ import { startVsftpd, FTP_PID_FILE_PATH, type VsftpdAdapter } from '../commands/
 import { executeSystemctl, type SystemctlContext } from '../commands/systemctl';
 import { listProcesses, type PsAdapter } from '../commands/ps';
 import { executeScriptOnTarget } from '../utils/remoteScriptRunner';
-import type { UserType } from '../session/SessionContext';
+import type { UserType } from '../session/types';
 import type { MachineId } from '../filesystem/machineFileSystems';
 import { createHydraCommand } from '../commands/hydra';
 import { createGobusterCommand } from '../commands/gobuster';

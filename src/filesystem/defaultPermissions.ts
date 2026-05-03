@@ -1,5 +1,5 @@
 import type { FilePermissions } from './types';
-import type { UserType } from '../session/SessionContext';
+import type { UserType } from '../session/types';
 
 // Default permission shapes for newly-created nodes when the patch
 // omits an explicit `permissions` field. Used by:

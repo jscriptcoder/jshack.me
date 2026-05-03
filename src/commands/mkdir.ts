@@ -1,5 +1,5 @@
 import type { Command } from '../components/Terminal/types';
-import type { UserType } from '../session/SessionContext';
+import type { UserType } from '../session/types';
 import type { PermissionResult } from '../filesystem/types';
 
 type MkdirContext = {

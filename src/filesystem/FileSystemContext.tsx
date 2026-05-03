@@ -19,7 +19,8 @@ import type {
   MachineWriteOp,
   PermissionResult,
 } from './types';
-import { useSession, type UserType } from '../session/SessionContext';
+import { useSession } from '../session/SessionContext';
+import type { UserType } from '../session/types';
 import { getDefaultHomePath, type MachineId } from './machineFileSystems';
 import { getCachedFilesystemPatches, getDatabase } from '../utils/storageCache';
 import { saveFilesystemPatches } from '../utils/storage';

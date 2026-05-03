@@ -1,4 +1,4 @@
-import type { UserType } from '../session/SessionContext';
+import type { UserType } from '../session/types';
 
 export type FilePermissions = {
   readonly read: readonly UserType[];

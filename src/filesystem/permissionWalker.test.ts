@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { checkPermission, canRead, canWrite, canExecute } from './permissionWalker';
 import type { FilePermissions } from './types';
-import type { UserType } from '../session/SessionContext';
+import type { UserType } from '../session/types';
 
 const allOpen: FilePermissions = {
   read: ['root', 'user', 'guest'],

@@ -1,6 +1,6 @@
 import type { Command } from '../components/Terminal/types';
 import type { FileNode } from '../filesystem/types';
-import type { UserType } from '../session/SessionContext';
+import type { UserType } from '../session/types';
 
 export type BashAdapter = {
   readonly getNode: (path: string) => FileNode | null;

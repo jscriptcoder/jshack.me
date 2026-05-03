@@ -37,7 +37,7 @@ import type { SessionSummary } from '../sessionRegistry/types';
 // Re-export for backward compatibility — consumed by storage.ts
 export { isValidPersistedState } from './sessionUtils';
 
-export type UserType = 'root' | 'user' | 'guest';
+import type { UserType } from './types';
 
 export type Session = {
   readonly username: string;

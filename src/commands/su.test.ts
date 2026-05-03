@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createSuCommand, type PasswordPromptData } from './su';
 import { md5 } from '../utils/md5';
-import type { UserType } from '../session/SessionContext';
+import type { UserType } from '../session/types';
 
 // --- Factory Functions ---
 

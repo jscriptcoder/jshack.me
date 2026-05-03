@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createFtpLcdCommand } from './lcd';
 import type { FileNode } from '../../filesystem/types';
-import type { UserType } from '../../session/SessionContext';
+import type { UserType } from '../../session/types';
 import type { MachineId } from '../../filesystem/machineFileSystems';
 
 // --- Factory Functions ---

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { FileNode } from '../filesystem/types';
-import type { UserType } from '../session/SessionContext';
+import type { UserType } from '../session/types';
 import { createNanoCommand } from './nano';
 
 // --- Factory Functions ---

@@ -1,11 +1,11 @@
 import { useState, useCallback } from 'react';
 import type {
-  UserType,
   FtpSession,
   MysqlSession,
   RedisSession,
   SessionReason,
 } from '../session/SessionContext';
+import type { UserType } from '../session/types';
 import type { RemoteMachine, RemoteUser } from '../network/types';
 import { parseMysqlDatabase } from '../commands/mysql/types';
 import { parseVirtualUsersConf } from '../generation/ftpCredentials';
