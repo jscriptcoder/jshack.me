@@ -2,14 +2,16 @@ import type { FileNode, FilePermissions } from '../filesystem/types';
 import type { UserType } from '../session/types';
 
 // Pure flatten: walk a FileNode tree and produce one row per node, ready
-// to bulk-insert into machine_filesystems. The shape mirrors the L2 dual-
-// write SQL function's UPSERT target — owner, permissions (JSONB),
-// node_type ('file' | 'directory'), content (nullable for directories).
+// to bulk-insert into machine_filesystems. The shape mirrors the L2
+// dual-write SQL function's UPSERT target — owner, permissions (JSONB).
+// node_type and content were dropped from machine_filesystems in
+// 20260503210309_drop_machine_fs_unused_columns.sql because L2 never
+// consumed them; the patches table keeps both for runtime FS replay.
 //
 // Used by:
 //   - The home-network base-FS backfill (immediately after createNetwork)
 //   - The one-time backfill script for existing machines
-//   - Future world-network backfill (not in this PR; deferred follow-up)
+//   - World-network backfill (planned follow-up — same flatten works)
 //
 // The function is intentionally tree-walking only — it doesn't know how
 // to fetch the FileNode (caller does that via generateHomeNetwork etc.)
@@ -26,33 +28,10 @@ export type MachineFsRow = {
   readonly path: string;
   readonly owner: UserType;
   readonly permissions: FilePermissions;
-  readonly node_type: 'file' | 'directory';
-  readonly content: string | null;
 };
 
 const joinPath = (basePath: string, name: string): string =>
   basePath === '/' ? `/${name}` : `${basePath}/${name}`;
-
-// Postgres TEXT columns reject NUL bytes (U+0000) with error code 22P05
-// "unsupported Unicode escape sequence". The FS generator places binary
-// placeholders (e.g. /usr/bin/nmap as 'ELF\0\0\0...') that carry them.
-// We replace NULs with U+FFFD (REPLACEMENT CHARACTER) at flatten time,
-// matching the existing handler-level sanitizeContent in
-// patchRegistry/handler.ts so base-FS rows and patch rows have the same
-// byte shape. Lossy for binary fidelity but the game doesn't depend on
-// byte-exact round-trip; apt-installed binaries stay executable from
-// gameplay's perspective.
-//
-// Built via String.fromCharCode rather than literal control characters
-// so the source file stays ASCII (literal NUL in source is fragile —
-// most editors render it invisibly and some strip it on save).
-const NUL = String.fromCharCode(0);
-const REPLACEMENT_CHARACTER = String.fromCharCode(0xfffd);
-
-const sanitizeContent = (content: string | null | undefined): string | null => {
-  if (content === null || content === undefined) return null;
-  return content.replaceAll(NUL, REPLACEMENT_CHARACTER);
-};
 
 export const flattenFileNode = (
   machineId: string,
@@ -64,8 +43,6 @@ export const flattenFileNode = (
     path: basePath,
     owner: node.owner,
     permissions: node.permissions,
-    node_type: node.type,
-    content: node.type === 'file' ? sanitizeContent(node.content) : null,
   };
   if (node.type !== 'directory' || !node.children) return [self];
   const childRows = Object.entries(node.children).flatMap(([name, child]) =>

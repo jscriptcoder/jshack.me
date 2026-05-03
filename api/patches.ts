@@ -229,7 +229,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // (unpatched paths) and handled permissively at the handler layer.
     const { data, error } = await supabase
       .from('machine_filesystems')
-      .select('owner, permissions, node_type')
+      .select('owner, permissions')
       .eq('machine_id', params.machine_id)
       .eq('path', params.path)
       .limit(1);
