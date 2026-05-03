@@ -145,6 +145,11 @@ describe('handlePatchesRequest — upsertPatch', () => {
 
     await handlePatchesRequest(envelope, mkDeps({ upsertPatch }));
 
+    // The handler fills in default permissions + node_type when the
+    // client omits them, so machine_filesystems gets a row dual-written
+    // (no IS NOT NULL skip). Defaults match the shared
+    // defaultPermissions module — for a user-owned file, that's
+    // root+user read/write, root-only execute.
     expect(upsertPatch).toHaveBeenCalledWith(
       {
         player_key: identity.publicKeyHex,
@@ -152,7 +157,96 @@ describe('handlePatchesRequest — upsertPatch', () => {
         path: '/tmp/foo.txt',
         content: 'hello',
         owner: 'user',
+        permissions: { read: ['root', 'user'], write: ['root', 'user'], execute: ['root'] },
+        node_type: 'file',
       },
+      true,
+    );
+  });
+
+  it('fills in default permissions + node_type when the client omits them', async () => {
+    // Pinned: this is the L2 enforcement gap fix. Without server-side
+    // defaults, a patch with no permissions skipped the dual-write
+    // (machine_filesystems.permissions is NOT NULL) and L2 fell back
+    // to "no row → allow" on subsequent writes to that path. A
+    // malicious client could exploit that to land files invisibly to
+    // L2. Fix: handler fills in defaults derived from owner +
+    // node_type before passing to the upsert RPC.
+    const upsertPatch = vi
+      .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
+      .mockResolvedValue({ ok: true });
+    const envelope = makeEnvelope(identity, {
+      action: 'upsertPatch',
+      machine_id: '10.0.0.1',
+      path: '/tmp/guest-file',
+      content: 'data',
+      owner: 'guest',
+    });
+
+    await handlePatchesRequest(envelope, mkDeps({ upsertPatch }));
+
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: 'guest',
+        permissions: { read: ['root', 'guest'], write: ['root', 'guest'], execute: ['root'] },
+        node_type: 'file',
+      }),
+      true,
+    );
+  });
+
+  it('uses directory defaults when node_type=directory and permissions omitted', async () => {
+    const upsertPatch = vi
+      .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
+      .mockResolvedValue({ ok: true });
+    const envelope = makeEnvelope(identity, {
+      action: 'upsertPatch',
+      machine_id: '10.0.0.1',
+      path: '/tmp/newdir',
+      content: null,
+      owner: 'user',
+      node_type: 'directory',
+    });
+
+    await handlePatchesRequest(envelope, mkDeps({ upsertPatch }));
+
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: 'user',
+        // Directory default: world-traversable, world-readable, owner-writable.
+        permissions: {
+          read: ['root', 'user', 'guest'],
+          write: ['root', 'user'],
+          execute: ['root', 'user', 'guest'],
+        },
+        node_type: 'directory',
+      }),
+      true,
+    );
+  });
+
+  it('preserves explicit permissions when the client supplies them (no clobbering)', async () => {
+    const customPerms = {
+      read: ['root', 'user'] as const,
+      write: ['root'] as const,
+      execute: ['root', 'user', 'guest'] as const,
+    };
+    const upsertPatch = vi
+      .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
+      .mockResolvedValue({ ok: true });
+    const envelope = makeEnvelope(identity, {
+      action: 'upsertPatch',
+      machine_id: '10.0.0.1',
+      path: '/srv/script.sh',
+      content: '#!/bin/sh\n',
+      owner: 'root',
+      permissions: customPerms,
+    });
+
+    await handlePatchesRequest(envelope, mkDeps({ upsertPatch }));
+
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({ permissions: customPerms }),
       true,
     );
   });

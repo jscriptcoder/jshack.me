@@ -59,7 +59,7 @@ try {
       `[warn] /api/patches probe returned ${probe.status} (expected 405 method_not_allowed). Endpoint may not be wired.`,
     );
   }
-} catch (e) {
+} catch {
   console.error(
     `\nCannot reach Vercel dev server at ${vercelDevUrl}.\nStart it with: npm run vercel:dev\n`,
   );

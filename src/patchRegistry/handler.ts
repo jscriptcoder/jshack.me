@@ -24,6 +24,7 @@ import type {
 import type { Credentials } from '../sessionRegistry/types.js';
 import type { FindMachineFsParams, FindMachineFsResult } from './supabaseFindMachineFs.js';
 import { canWrite } from '../filesystem/permissionWalker.js';
+import { defaultPermissionsForNode } from '../filesystem/defaultPermissions.js';
 import { deriveHostnameSuffix } from '../homeNetworks/homeNetworkHelpers.js';
 
 export type HandlerResponse = {
@@ -298,15 +299,28 @@ const handleUpsertPatch = async (
   }
 
   const { machine_id, path, content, owner, permissions, is_new, node_type } = payload;
+  // Fill in default permissions when the client omitted them on a
+  // create. Without this, the dual-write to machine_filesystems
+  // skipped (NOT NULL guard on permissions in the SQL function),
+  // which left the file invisible to L2: subsequent writes to that
+  // path fell through to the leaf-only "no row → allow" path. A
+  // malicious client could exploit this by deliberately omitting
+  // permissions to land files outside L2's enforcement.
+  //
+  // Defaults match the client's applyPatches branch via the shared
+  // defaultPermissions module — server and client agree on the
+  // resulting FilePermissions for a given (owner, node_type).
+  const effectiveNodeType = node_type ?? 'file';
+  const effectivePermissions = permissions ?? defaultPermissionsForNode(owner, effectiveNodeType);
   const row: PatchRow = {
     player_key: publicKey,
     machine_id,
     path,
     content: sanitizeContent(content),
     owner,
-    ...(permissions !== undefined && { permissions }),
+    permissions: effectivePermissions,
     ...(is_new !== undefined && { is_new }),
-    ...(node_type !== undefined && { node_type }),
+    node_type: effectiveNodeType,
   };
 
   // Dual-write into machine_filesystems UNLESS this is the player's own
