@@ -120,7 +120,7 @@ await cleanup();
   const f = await fsAt(REMOTE_MACHINE, '/etc/foo');
   check(
     'upsert cross-machine: patches + machine_filesystems both have the row',
-    p.length === 1 && f.length === 1 && f[0]?.owner === 'root' && f[0]?.content === 'foo-content',
+    p.length === 1 && f.length === 1 && f[0]?.owner === 'root',
     `patches.length=${p.length} fs.length=${f.length}`,
   );
 }
@@ -169,7 +169,10 @@ await cleanup();
   );
 }
 
-// 4. upsert UPDATE: replaces both rows
+// 4. upsert UPDATE: replaces both rows. machine_filesystems no longer
+// stores content (dropped 20260503210309 — L2 doesn't read it), so the
+// FS-side check confirms the row exists post-update; the patches-side
+// check carries the content semantics.
 {
   await upsert({
     player: PLAYER,
@@ -185,9 +188,9 @@ await cleanup();
   const p = await patchesAt(REMOTE_MACHINE, '/etc/foo');
   const f = await fsAt(REMOTE_MACHINE, '/etc/foo');
   check(
-    'upsert UPDATE: both rows reflect the latest content',
-    p.length === 1 && p[0]?.content === 'foo-v2' && f.length === 1 && f[0]?.content === 'foo-v2',
-    `patches.content=${p[0]?.content} fs.content=${f[0]?.content}`,
+    'upsert UPDATE: patches reflect latest content; FS row still present',
+    p.length === 1 && p[0]?.content === 'foo-v2' && f.length === 1,
+    `patches.content=${p[0]?.content} fs.length=${f.length}`,
   );
 }
 
@@ -274,14 +277,15 @@ await cleanup();
 // 7. remove own-workstation, dual_write=false: machine_filesystems untouched
 {
   // Pre-populate a row in machine_filesystems for the own-workstation
-  // (synthetic — wouldn't normally exist, but proves the bypass)
+  // (synthetic — wouldn't normally exist, but proves the bypass).
+  // machine_filesystems no longer stores content/node_type (dropped
+  // 20260503210309), so we identify the row by its (machine_id, path)
+  // PK alone.
   await sr.from('machine_filesystems').insert({
     machine_id: OWN_WORKSTATION,
     path: '/home/foo',
     owner: 'user',
     permissions: PERMS,
-    node_type: 'file',
-    content: 'sentinel',
   });
 
   await remove({
@@ -296,8 +300,8 @@ await cleanup();
   const f = await fsAt(OWN_WORKSTATION, '/home/foo');
   check(
     'remove own-workstation dual_write=false: patches gone, machine_filesystems untouched',
-    p.length === 0 && f.length === 1 && f[0]?.content === 'sentinel',
-    `patches.length=${p.length} fs.length=${f.length} fs.content=${f[0]?.content}`,
+    p.length === 0 && f.length === 1,
+    `patches.length=${p.length} fs.length=${f.length}`,
   );
 }
 

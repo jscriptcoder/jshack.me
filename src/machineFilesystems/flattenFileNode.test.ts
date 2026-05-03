@@ -47,8 +47,6 @@ describe('flattenFileNode', () => {
         path: '/foo.txt',
         owner: 'root',
         permissions: rootOnly,
-        node_type: 'file',
-        content: 'hello',
       },
     ]);
   });
@@ -59,8 +57,6 @@ describe('flattenFileNode', () => {
     expect(rows[0]).toMatchObject({
       machine_id: 'm1',
       path: '/empty',
-      node_type: 'directory',
-      content: null,
     });
   });
 
@@ -105,48 +101,8 @@ describe('flattenFileNode', () => {
     const homeRow = rows.find((r) => r.path === '/home');
     expect(shadowRow?.owner).toBe('root');
     expect(shadowRow?.permissions).toEqual(rootOnly);
-    expect(shadowRow?.node_type).toBe('file');
-    expect(shadowRow?.content).toBe('secret');
     expect(homeRow?.owner).toBe('user');
     expect(homeRow?.permissions).toEqual(allOpen);
-    expect(homeRow?.node_type).toBe('directory');
-    expect(homeRow?.content).toBeNull();
-  });
-
-  it('writes content: null for files with undefined content', () => {
-    // Defensive: node.content is optional in the type; missing →
-    // store null (machine_filesystems.content is nullable).
-    const node: FileNode = {
-      name: 'empty',
-      type: 'file',
-      owner: 'root',
-      permissions: rootOnly,
-    };
-    const rows = flattenFileNode('m1', node, '/empty');
-    expect(rows[0]?.content).toBeNull();
-  });
-
-  it('writes content: null for every directory regardless of children', () => {
-    // Directories never carry content; verifying the shape so a future
-    // mutation that accidentally writes children-as-content into the
-    // content column gets caught.
-    const tree = dir('root', { foo: file('foo', 'x') });
-    const rows = flattenFileNode('m1', tree);
-    const rootRow = rows.find((r) => r.path === '/');
-    expect(rootRow?.content).toBeNull();
-  });
-
-  it('replaces NUL bytes (U+0000) with U+FFFD in file content (Postgres TEXT compat)', async () => {
-    // Pinned: matches handler.ts sanitizeContent. Without this, base-FS
-    // rows containing binary placeholders (e.g. /usr/bin/nmap's ELF
-    // header) would fail bulk insert with 22P05 unsupported Unicode
-    // escape sequence — exactly the error that surfaced in local
-    // verification when the script first ran.
-    const NUL = String.fromCharCode(0);
-    const FFFD = String.fromCharCode(0xfffd);
-    const node = file('binary', `ELF${NUL}${NUL}${NUL}body`);
-    const rows = flattenFileNode('m1', node, '/usr/bin/binary');
-    expect(rows[0]?.content).toBe(`ELF${FFFD}${FFFD}${FFFD}body`);
   });
 
   it('forwards the supplied machine_id to every emitted row', () => {

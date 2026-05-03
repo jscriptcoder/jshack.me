@@ -67,10 +67,15 @@ try {
 }
 
 // 2. Find a root-only target file from a real home-network machine.
+// node_type and content were dropped from machine_filesystems
+// (20260503210309) — L2 only enforces on permissions, so any restrictive
+// path works as a target. We still bias toward file-shaped paths by
+// excluding the bare '/' node, which would force the forged write to
+// rewrite the root directory and produce a less interesting test.
 const { data: candidates } = await sb
   .from('machine_filesystems')
-  .select('machine_id, path, owner, permissions, node_type, content')
-  .eq('node_type', 'file')
+  .select('machine_id, path, owner, permissions')
+  .neq('path', '/')
   .limit(200);
 
 type Row = NonNullable<typeof candidates>[number];
@@ -207,7 +212,6 @@ await sb
   .update({
     owner: target.owner,
     permissions: target.permissions,
-    content: target.content,
   })
   .eq('machine_id', target.machine_id)
   .eq('path', target.path);

@@ -38,8 +38,6 @@ const row = {
   path: '/etc/probe',
   owner: 'root',
   permissions: { read: ['root'], write: ['root'], execute: ['root'] },
-  node_type: 'file',
-  content: 'probe',
 };
 
 const results: { readonly name: string; readonly pass: boolean; readonly detail: string }[] = [];

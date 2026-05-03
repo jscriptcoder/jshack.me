@@ -10,7 +10,6 @@ const params: FindMachineFsParams = {
 const validRow = {
   owner: 'root',
   permissions: { read: ['root'], write: ['root'], execute: ['root'] },
-  node_type: 'file',
 };
 
 describe('createSupabaseFindMachineFs', () => {
@@ -25,7 +24,6 @@ describe('createSupabaseFindMachineFs', () => {
       node: {
         owner: 'root',
         permissions: { read: ['root'], write: ['root'], execute: ['root'] },
-        node_type: 'file',
       },
     });
   });
@@ -92,37 +90,17 @@ describe('createSupabaseFindMachineFs', () => {
     expect(await find(params)).toEqual({ ok: false });
   });
 
-  it('returns ok: false when node_type is not "file" or "directory"', async () => {
+  it('returns ok: false when row carries unknown extra fields (strict parse)', async () => {
+    // Schema is .strict() — fail-closed if a stale projection or
+    // hand-written row sneaks in extra columns the L2 walker doesn't
+    // model. Pinned because dropping the strictness would silently
+    // accept node_type/content from a future migration regression.
     const query = vi.fn().mockResolvedValue({
-      data: [{ ...validRow, node_type: 'symlink' }],
+      data: [{ ...validRow, node_type: 'file' }],
       error: null,
     });
     const find = createSupabaseFindMachineFs(query);
 
     expect(await find(params)).toEqual({ ok: false });
-  });
-
-  it('surfaces directory rows verbatim (parent-chain consumers in future steps)', async () => {
-    const dirRow = {
-      owner: 'user',
-      permissions: {
-        read: ['root', 'user', 'guest'],
-        write: ['root', 'user'],
-        execute: ['root', 'user', 'guest'],
-      },
-      node_type: 'directory',
-    };
-    const query = vi.fn().mockResolvedValue({ data: [dirRow], error: null });
-    const find = createSupabaseFindMachineFs(query);
-
-    expect(await find(params)).toEqual({
-      ok: true,
-      found: true,
-      node: {
-        owner: 'user',
-        permissions: dirRow.permissions,
-        node_type: 'directory',
-      },
-    });
   });
 });

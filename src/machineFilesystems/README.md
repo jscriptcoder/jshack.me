@@ -48,8 +48,6 @@ CREATE TABLE machine_filesystems (
   path        TEXT        NOT NULL,
   owner       TEXT        NOT NULL,
   permissions JSONB       NOT NULL,
-  node_type   TEXT        NOT NULL,         -- 'file' | 'directory'
-  content     TEXT,                          -- null for directories
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (machine_id, path)
@@ -58,6 +56,8 @@ CREATE TABLE machine_filesystems (
 CREATE INDEX machine_filesystems_path_prefix_idx
   ON machine_filesystems (machine_id, path text_pattern_ops);
 ```
+
+`node_type` and `content` were part of the original schema but were dropped in `20260503210309_drop_machine_fs_unused_columns.sql` — L2's walker only consumes `permissions`, and `content` duplicated bytes already stored in `patches`. `owner` is kept as a hedge for closing the chmod-via-forged-envelope gap (the client's chmod requires `userType === node.owner`; a future server-side parity check would need this column).
 
 `text_pattern_ops` supports `LIKE 'prefix%'` index scans even under non-C UTF-8 collations — the cascade-delete path needs prefix-range queries.
 

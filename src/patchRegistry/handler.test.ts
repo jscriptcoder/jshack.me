@@ -1575,7 +1575,7 @@ describe('handlePatchesRequest — L2 walker enforcement', () => {
         .mockResolvedValue({
           ok: true,
           found: true,
-          node: { owner: 'root', permissions: rootOnlyPerms, node_type: 'file' },
+          node: { owner: 'root', permissions: rootOnlyPerms },
         });
       const upsertPatch = vi
         .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
@@ -1607,7 +1607,7 @@ describe('handlePatchesRequest — L2 walker enforcement', () => {
         .mockResolvedValue({
           ok: true,
           found: true,
-          node: { owner: 'root', permissions: rootOnlyPerms, node_type: 'file' },
+          node: { owner: 'root', permissions: rootOnlyPerms },
         });
       const upsertPatch = vi
         .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
@@ -1647,7 +1647,6 @@ describe('handlePatchesRequest — L2 walker enforcement', () => {
               write: ['root', 'user'], // guest CANNOT write
               execute: ['root'],
             },
-            node_type: 'file',
           },
         });
       const upsertPatch = vi
@@ -1678,7 +1677,7 @@ describe('handlePatchesRequest — L2 walker enforcement', () => {
         .mockResolvedValue({
           ok: true,
           found: true,
-          node: { owner: 'user', permissions: userWritablePerms, node_type: 'file' },
+          node: { owner: 'user', permissions: userWritablePerms },
         });
       const upsertPatch = vi
         .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
@@ -1739,7 +1738,7 @@ describe('handlePatchesRequest — L2 walker enforcement', () => {
         .mockResolvedValue({
           ok: true,
           found: true,
-          node: { owner: 'root', permissions: rootOnlyPerms, node_type: 'file' },
+          node: { owner: 'root', permissions: rootOnlyPerms },
         });
       const upsertPatch = vi
         .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
@@ -1775,7 +1774,7 @@ describe('handlePatchesRequest — L2 walker enforcement', () => {
         .mockResolvedValue({
           ok: true,
           found: true,
-          node: { owner: 'root', permissions: rootOnlyPerms, node_type: 'file' },
+          node: { owner: 'root', permissions: rootOnlyPerms },
         });
       const envelope = makeEnvelope(identity, {
         action: 'upsertPatch',
@@ -1840,7 +1839,6 @@ describe('handlePatchesRequest — L2 walker enforcement', () => {
           node: {
             owner: 'user',
             permissions: { read: ['root', 'user'], write: ['root', 'user'], execute: ['root'] },
-            node_type: 'file',
           },
         });
       const upsertPatch = vi
@@ -1879,7 +1877,7 @@ describe('handlePatchesRequest — L2 walker enforcement', () => {
         .mockResolvedValue({
           ok: true,
           found: true,
-          node: { owner: 'root', permissions: rootOnlyPerms, node_type: 'file' },
+          node: { owner: 'root', permissions: rootOnlyPerms },
         });
       const removePatch = vi
         .fn<(p: RemovePatchParams) => Promise<RemovePatchResult>>()
@@ -1909,7 +1907,7 @@ describe('handlePatchesRequest — L2 walker enforcement', () => {
         .mockResolvedValue({
           ok: true,
           found: true,
-          node: { owner: 'root', permissions: rootOnlyPerms, node_type: 'file' },
+          node: { owner: 'root', permissions: rootOnlyPerms },
         });
       const removePatch = vi
         .fn<(p: RemovePatchParams) => Promise<RemovePatchResult>>()
@@ -1932,7 +1930,7 @@ describe('handlePatchesRequest — L2 walker enforcement', () => {
         .mockResolvedValue({
           ok: true,
           found: true,
-          node: { owner: 'root', permissions: rootOnlyPerms, node_type: 'file' },
+          node: { owner: 'root', permissions: rootOnlyPerms },
         });
       const removePatch = vi
         .fn<(p: RemovePatchParams) => Promise<RemovePatchResult>>()

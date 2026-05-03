@@ -7,8 +7,6 @@ const mkRow = (i: number): MachineFsRow => ({
   path: `/file-${i}`,
   owner: 'root',
   permissions: { read: ['root'], write: ['root'], execute: ['root'] },
-  node_type: 'file',
-  content: `content-${i}`,
 });
 
 describe('createBulkInsertMachineFs', () => {
@@ -74,8 +72,6 @@ describe('createBulkInsertMachineFs', () => {
       path: '/etc/hostname',
       owner: 'user',
       permissions: { read: ['root', 'user'], write: ['root'], execute: ['root'] },
-      node_type: 'file',
-      content: 'router-1',
     };
 
     await insert([customRow]);
