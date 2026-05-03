@@ -8,6 +8,7 @@ import { generatePublicIp } from '../src/generation/ip.js';
 import { handleJoinHomeNetworkRequest } from '../src/homeNetworks/handler.js';
 import { createInsertOccupant } from '../src/homeNetworks/createInsertOccupant.js';
 import { pickRandomLanIp } from '../src/homeNetworks/pickRandomLanIp.js';
+import { getReservedLanOctets } from '../src/homeNetworks/getReservedLanOctets.js';
 import {
   publishOccupantChange as publishOccupantChangeHelper,
   type BroadcastFn as OccupantBroadcastFn,
@@ -259,7 +260,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // Fresh PRNG per slot pick — non-deterministic across requests, even on
   // the same process. Same posture as rollIp in api/allocate-ip.ts.
-  const pickLanIp = () => pickRandomLanIp(createPrng(randomUUID()));
+  //
+  // Builds the exclusion set per network: the NPC octets the FS generator
+  // produced for this seed (via getReservedLanOctets — runs the home-
+  // network generator deterministically) plus the existing occupant
+  // octets already taken on this LAN. Without exclusions, blind random
+  // rolls landed players onto NPC IPs (e.g. `http-srv`'s slot) and the
+  // multi-player views diverged — each player rendering the LAN
+  // locally either showed the NPC or the occupant overlay, never both.
+  const pickLanIp = async ({
+    seed,
+    publicIp,
+  }: {
+    readonly seed: string;
+    readonly publicIp: string;
+  }): Promise<string> => {
+    const reservedOctets = await getReservedLanOctets({ seed, publicIp });
+    const { data: occupants } = await supabase
+      .from('home_network_occupants')
+      .select('lan_ip')
+      .eq('network_id', publicIp);
+    const occupantOctets = new Set<number>();
+    for (const row of occupants ?? []) {
+      const octet = Number((row.lan_ip as string).slice(1));
+      if (Number.isFinite(octet)) occupantOctets.add(octet);
+    }
+    const excluded = new Set<number>([...reservedOctets, ...occupantOctets]);
+    return pickRandomLanIp(createPrng(randomUUID()), { excludedOctets: excluded });
+  };
 
   // Realtime broadcast adapter — POSTs to Supabase's broadcast REST
   // endpoint with the service_role key. Mirrors api/patches.ts's

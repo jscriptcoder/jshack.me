@@ -44,7 +44,16 @@ export type HandlerDeps = {
   // Returns null when the IP space is exhausted (existing allocator's
   // 'exhausted' bucket).
   readonly allocatePublicIp: () => Promise<string | null>;
-  readonly pickLanIp: () => string;
+  // Slot allocator. Receives the network identity so the wiring layer
+  // can compute the per-network exclusion set (NPC octets reserved by
+  // the FS generator + octets already taken by other occupants). Async
+  // because the wiring queries Supabase + regenerates the topology to
+  // build the exclusion set; results are deterministic for a given
+  // (seed, publicIp) pair so the wiring can memoize if needed.
+  readonly pickLanIp: (input: {
+    readonly seed: string;
+    readonly publicIp: string;
+  }) => Promise<string>;
   // Realtime hint broadcast: fired after a successful occupant INSERT
   // so subscribed clients on the same LAN refetch live. The payload is
   // just (network_id, originator_key) — receivers do the actual data
@@ -158,7 +167,7 @@ export const handleJoinHomeNetworkRequest = async (
   }
 
   for (let attempt = 0; attempt < MAX_SLOT_ALLOCATION_ATTEMPTS; attempt++) {
-    const lanIp = deps.pickLanIp();
+    const lanIp = await deps.pickLanIp({ seed: network.seed, publicIp: network.public_ip });
     const occupant: HomeNetworkOccupantRow = {
       network_id: network.public_ip,
       player_key: playerKey,

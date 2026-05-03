@@ -76,7 +76,7 @@ const mkDeps = (overrides: Partial<HandlerDeps> = {}): HandlerDeps => ({
     overrides.insertOccupant ??
     vi.fn<() => Promise<InsertOccupantResult>>().mockResolvedValue('ok'),
   allocatePublicIp: overrides.allocatePublicIp ?? vi.fn().mockResolvedValue('203.0.113.10'),
-  pickLanIp: overrides.pickLanIp ?? vi.fn().mockReturnValue('.187'),
+  pickLanIp: overrides.pickLanIp ?? vi.fn().mockResolvedValue('.187'),
   // Optional in HandlerDeps — only forward if the caller supplied one.
   // Most existing tests don't care about the broadcast; the omitted-dep
   // codepath is exercised by the dedicated "handler stays ok when
@@ -188,9 +188,9 @@ describe('handleJoinHomeNetworkRequest', () => {
     it('retries with a new lan_ip when the picked one collides', async () => {
       const pickLanIp = vi
         .fn()
-        .mockReturnValueOnce('.10')
-        .mockReturnValueOnce('.11')
-        .mockReturnValueOnce('.12');
+        .mockResolvedValueOnce('.10')
+        .mockResolvedValueOnce('.11')
+        .mockResolvedValueOnce('.12');
       const insertOccupant = vi
         .fn<() => Promise<InsertOccupantResult>>()
         .mockResolvedValueOnce('lan_ip_conflict')
@@ -206,6 +206,26 @@ describe('handleJoinHomeNetworkRequest', () => {
       expect(result.status).toBe(200);
       expect(result.body).toMatchObject({ lan_ip: '.12' });
       expect(insertOccupant).toHaveBeenCalledTimes(3);
+    });
+
+    it('forwards the network seed + publicIp to pickLanIp so the wiring can compute exclusions', async () => {
+      // Pinned: the handler MUST pass the seed/publicIp pair on every
+      // call so the wiring layer can build a per-network exclusion set
+      // (NPC octets the FS generator produced + existing occupant
+      // octets). A mutant that called pickLanIp() without args would
+      // regress to the blind-random allocator that landed Player B
+      // on top of NPC IPs.
+      const pickLanIp = vi.fn().mockResolvedValue('.187');
+      const envelope = makeEnvelope(identity);
+
+      await handleJoinHomeNetworkRequest(envelope, mkDeps({ pickLanIp }));
+
+      expect(pickLanIp).toHaveBeenCalledWith(
+        expect.objectContaining({
+          seed: expect.any(String),
+          publicIp: expect.any(String),
+        }),
+      );
     });
 
     it('returns 500 when slot allocation exhausts retries', async () => {
