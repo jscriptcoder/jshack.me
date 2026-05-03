@@ -2,6 +2,7 @@ import type { FileNode, FileSystemPatch, PermissionResult } from './types';
 import type { MachineId } from './machineFileSystems';
 import type { UserType } from '../session/SessionContext';
 import { canExecute } from './permissionWalker';
+import { defaultFilePermissions, defaultDirectoryPermissions } from './defaultPermissions';
 
 export type FileSystemsState = Readonly<Record<string, FileNode>>;
 
@@ -344,11 +345,7 @@ export const applyPatches = (
         name: dirName ?? '',
         type: 'directory',
         owner: patch.owner,
-        permissions: patch.permissions ?? {
-          read: ['root', 'user', 'guest'],
-          write: ['root', patch.owner],
-          execute: ['root', 'user', 'guest'],
-        },
+        permissions: patch.permissions ?? defaultDirectoryPermissions(patch.owner),
         children: {},
       };
       return {
@@ -389,12 +386,11 @@ export const applyPatches = (
       name: fileName,
       type: 'file',
       owner: patch.owner,
-      // Use explicit patch permissions if provided, otherwise default to no-execute
-      permissions: patch.permissions ?? {
-        read: ['root', patch.owner],
-        write: ['root', patch.owner],
-        execute: ['root'],
-      },
+      // Use explicit patch permissions if provided, otherwise the
+      // shared default (root + owner read/write, root-only execute).
+      // Same module used server-side in handleUpsertPatch — keeps the
+      // L2 walker and the client's local view in lockstep.
+      permissions: patch.permissions ?? defaultFilePermissions(patch.owner),
       content,
     };
 
