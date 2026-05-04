@@ -7,7 +7,7 @@
 // fresh Ed25519 identities, fabricates session rows for them via
 // service_role (so the L1 gate has something to find), then signs +
 // POSTs an upsertPatch attempting to overwrite a root-only file on a
-// real home-network machine. The response code tells you what happened:
+// real machine. The response code tells you what happened:
 //
 //   Scenario A: forged write with NO session
 //     → expect 403 no_session              (L1 fires)
@@ -20,14 +20,21 @@
 //
 // Prerequisites:
 //   1. Local Supabase up (npm run supabase:start; npm run db:reset)
-//   2. At least one home_networks row + base-FS backfill done:
-//        npx dotenv -e .env.development.local -- npx tsx scripts/backfillHomeNetworkBaseFs.ts
+//   2. At least one populated network in machine_filesystems via the
+//      relevant backfill — home networks need the join flow + the home
+//      backfill script; world networks (findit.io, playground) need:
+//        npx dotenv -e .env.development.local -- npx tsx scripts/backfillWorldNetworkBaseFs.ts
 //   3. Vercel dev server running (the /api/patches endpoint is a Vercel
 //      function; npm run dev alone won't expose it):
 //        npm run vercel:dev
 //
 // Usage:
-//   npx dotenv -e .env.development.local -- npx tsx scripts/testL2Bypass.ts
+//   npx dotenv -e .env.development.local -- npx tsx scripts/testL2Bypass.ts [--machine-id <ip>]
+//
+// --machine-id narrows target selection to a specific machine
+// (e.g. 192.0.2.80 to verify findit.io specifically). Without the
+// flag the script picks the first restrictive row it finds, which
+// could be from any populated network.
 //
 // Optional env vars:
 //   VERCEL_DEV_URL   — default http://localhost:3000
@@ -41,6 +48,15 @@ import { signRequest } from '../src/signedRequest/sign';
 const url = process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const vercelDevUrl = process.env.VERCEL_DEV_URL ?? 'http://localhost:3000';
+
+// --machine-id <ip> narrows the candidate query to a single machine.
+// Useful for proving L2 enforces on a specific network type (e.g.
+// world-network rows — pass 192.0.2.80 for findit.io).
+const machineIdFlagIdx = process.argv.indexOf('--machine-id');
+const machineIdFilter =
+  machineIdFlagIdx >= 0 && machineIdFlagIdx + 1 < process.argv.length
+    ? process.argv[machineIdFlagIdx + 1]
+    : null;
 
 if (!url || !serviceKey) {
   console.error(
@@ -66,17 +82,19 @@ try {
   process.exit(1);
 }
 
-// 2. Find a root-only target file from a real home-network machine.
-// node_type and content were dropped from machine_filesystems
-// (20260503210309) — L2 only enforces on permissions, so any restrictive
-// path works as a target. We still bias toward file-shaped paths by
-// excluding the bare '/' node, which would force the forged write to
-// rewrite the root directory and produce a less interesting test.
-const { data: candidates } = await sb
-  .from('machine_filesystems')
-  .select('machine_id, path, owner, permissions')
-  .neq('path', '/')
-  .limit(200);
+// 2. Find a root-only target file. node_type and content were dropped
+// from machine_filesystems (20260503210309) — L2 only enforces on
+// permissions, so any restrictive path works as a target. We still bias
+// toward file-shaped paths by excluding the bare '/' node, which would
+// force the forged write to rewrite the root directory and produce a
+// less interesting test. When --machine-id is supplied we narrow the
+// query to that machine, so the picked target is deterministic per run.
+if (machineIdFilter) {
+  console.log(`Filtering candidates to machine_id = ${machineIdFilter}`);
+}
+const baseQuery = sb.from('machine_filesystems').select('machine_id, path, owner, permissions');
+const filteredQuery = machineIdFilter ? baseQuery.eq('machine_id', machineIdFilter) : baseQuery;
+const { data: candidates } = await filteredQuery.neq('path', '/').limit(200);
 
 type Row = NonNullable<typeof candidates>[number];
 const isRootOnlyWrite = (r: Row): boolean => {
@@ -86,8 +104,11 @@ const isRootOnlyWrite = (r: Row): boolean => {
 
 const target = (candidates ?? []).find(isRootOnlyWrite);
 if (!target) {
+  const scopeNote = machineIdFilter
+    ? `for machine_id = ${machineIdFilter}`
+    : 'in machine_filesystems';
   console.error(
-    '\nNo root-only file found in machine_filesystems. Have you run the backfill?\n  npx dotenv -e .env.development.local -- npx tsx scripts/backfillHomeNetworkBaseFs.ts\n',
+    `\nNo root-only file found ${scopeNote}. Have you run the relevant backfill?\n  Home networks: npx dotenv -e .env.development.local -- npx tsx scripts/backfillHomeNetworkBaseFs.ts\n  World networks: npx dotenv -e .env.development.local -- npx tsx scripts/backfillWorldNetworkBaseFs.ts\n`,
   );
   process.exit(1);
 }
