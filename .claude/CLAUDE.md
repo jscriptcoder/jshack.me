@@ -66,6 +66,11 @@ npx dotenv -e .env.development.local -- npx tsx scripts/backfillHomeNetworkBaseF
 # Same idempotent semantics as the home backfill.
 npx dotenv -e .env.development.local -- npx tsx scripts/backfillWorldNetworkBaseFs.ts [--dry-run]
 
+# L2 base-FS backfill for workstations — regenerate every workstations row's FS and bulk-populate
+# machine_filesystems. Idempotent (ON CONFLICT DO NOTHING). The api/register-workstation endpoint
+# handles go-forward; this script catches any pre-existing rows or populate misses.
+npx dotenv -e .env.development.local -- npx tsx scripts/backfillWorkstationBaseFs.ts [--dry-run]
+
 # Verify the L2 RLS posture on the machine_filesystems table (anon denied, service_role allowed).
 npx dotenv -e .env.development.local -- npx tsx scripts/verifyMachineFilesystemsRls.ts
 
