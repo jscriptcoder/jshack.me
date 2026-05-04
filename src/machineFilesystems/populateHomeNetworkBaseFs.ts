@@ -24,10 +24,11 @@ import { flattenFileSystemsToRows, type MachineFsRow } from './flattenFileNode';
 //   - The one-time backfill script (scripts/backfillHomeNetworkBaseFs.ts)
 //     that walks every existing home_networks row.
 //
-// World networks (findit.io, playground) need an analogous helper —
-// deferred to a follow-up PR per the L2 plan's Step 7 modest extension.
+// World networks (findit.io, playground) have an analogous helper at
+// ./populateWorldNetworkBaseFs.ts — same flatten + bulk-insert pattern,
+// different generator dispatch via the ThemedGenerator registry.
 // Mission machines need server-side mission_instances first; that work
-// is captured in plans/l2-patch-validation.md as a deferred follow-up.
+// is captured in project_l2_followups memory as a deferred follow-up.
 
 export type RegenHomeNetworkInput = {
   readonly seed: string;
