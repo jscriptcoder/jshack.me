@@ -1,6 +1,11 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { IntroScreen } from './IntroScreen';
+import { registerWorkstation } from '../workstationRegistry/client';
+
+vi.mock('../workstationRegistry/client', () => ({
+  registerWorkstation: vi.fn().mockResolvedValue({ inserted: true }),
+}));
 
 const fillForm = (
   hostname: string,
@@ -18,6 +23,10 @@ const fillForm = (
 };
 
 describe('IntroScreen', () => {
+  beforeEach(() => {
+    vi.mocked(registerWorkstation).mockClear();
+  });
+
   it('should show game title and intro text', () => {
     render(<IntroScreen existingGame={null} onStart={vi.fn()} />);
     expect(screen.getByText('JSHACK.ME')).toBeDefined();
@@ -166,6 +175,43 @@ describe('IntroScreen', () => {
     fireEvent.keyDown(screen.getByPlaceholderText('password'), { key: 'Enter' });
 
     expect(onStart).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires register-workstation with trimmed (workstation_name, username) on valid submission', () => {
+    render(<IntroScreen existingGame={null} onStart={vi.fn()} />);
+
+    fillForm('Hacker Box', 'myuser', 'mypass');
+    fireEvent.click(screen.getByText('START'));
+
+    expect(vi.mocked(registerWorkstation)).toHaveBeenCalledTimes(1);
+    const callArgs = vi.mocked(registerWorkstation).mock.calls[0]!;
+    expect(callArgs[1]).toEqual({
+      workstation_name: 'hacker-box',
+      username: 'myuser',
+    });
+  });
+
+  it('does not fire register-workstation when validation fails', () => {
+    render(<IntroScreen existingGame={null} onStart={vi.fn()} />);
+
+    fillForm('Hacker Box', 'myuser', 'pass1234', 'mismatch');
+    fireEvent.click(screen.getByText('START'));
+
+    expect(vi.mocked(registerWorkstation)).not.toHaveBeenCalled();
+  });
+
+  it('does not fire register-workstation when CONTINUE is clicked on an existing game', () => {
+    const game = {
+      seed: 'abc',
+      workstationName: 'my-box',
+      username: 'testuser',
+      rootPassword: 'testpass',
+    };
+    render(<IntroScreen existingGame={game} onStart={vi.fn()} />);
+
+    fireEvent.click(screen.getByText('CONTINUE'));
+
+    expect(vi.mocked(registerWorkstation)).not.toHaveBeenCalled();
   });
 
   it('should show a prompt preview that mirrors the in-game prompt (suffix stripped)', () => {

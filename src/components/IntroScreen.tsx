@@ -3,6 +3,7 @@ import type { GameState } from '../game/types';
 import { generateGameSeed } from '../game/gameSeed';
 import { computePlayerHostname, displayPromptHostname } from '../homeNetworks/homeNetworkHelpers';
 import { getIdentity } from '../identity';
+import { registerWorkstation } from '../workstationRegistry/client';
 
 type IntroScreenProps = {
   readonly existingGame: GameState | null;
@@ -151,6 +152,22 @@ export const IntroScreen = ({ existingGame, onStart }: IntroScreenProps) => {
       },
       true,
     );
+
+    // Fire-and-forget L2 own-workstation registration. Records
+    // (player_key, workstation_name, username) server-side and
+    // populates machine_filesystems with the workstation's base FS so
+    // L2 enforces against intruders with cracked sessions on this box.
+    // Idempotent server-side; a network blip means the player can keep
+    // playing while scripts/backfillWorkstationBaseFs.ts catches up
+    // operationally. We don't block onStart — UX matters more than
+    // L2-row availability in the first few seconds. See
+    // plans/l2-own-workstation-backfill.md (Step 5).
+    void registerWorkstation(getIdentity(), {
+      workstation_name: trimmedHostname,
+      username: trimmedUsername,
+    }).catch((err) => {
+      console.error('[intro] register-workstation failed:', err);
+    });
   }, [onStart]);
 
   const handleKeyDown = useCallback(
