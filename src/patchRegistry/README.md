@@ -194,11 +194,11 @@ This bypass exists to keep the gate compatible with the **cross-player log visib
 
 ### Layered defense (L1 / L2 / L3)
 
-| Layer | What it checks                                                                                                                            | Status                                                                                                             |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| L1    | Active session exists on `machine_id` for `player_key`                                                                                    | ✅ shipped (PR #78)                                                                                                |
-| L2    | Session credentials have write permission on the target path (allowlist walk on the target's stored permissions in `machine_filesystems`) | ✅ shipped (L2 attempt — full coverage on home networks, leaf-only on world networks and mission machines for now) |
-| L3    | Game-logic re-run ("smart server") — was the CVE leading to this session published-by-now, etc.                                           | Way later                                                                                                          |
+| Layer | What it checks                                                                                                                            | Status                                                                                                       |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| L1    | Active session exists on `machine_id` for `player_key`                                                                                    | ✅ shipped (PR #78)                                                                                          |
+| L2    | Session credentials have write permission on the target path (allowlist walk on the target's stored permissions in `machine_filesystems`) | ✅ shipped — full coverage on home + world networks; leaf-only on mission machines pending mission_instances |
+| L3    | Game-logic re-run ("smart server") — was the CVE leading to this session published-by-now, etc.                                           | Way later                                                                                                    |
 
 ### L2 wiring
 
@@ -216,16 +216,16 @@ fetchSessionCredentials(player_key, machine_id)
         → error   → 500 fs_lookup_failed
 ```
 
-The walker (`src/filesystem/permissionWalker.ts`) is a single pure module that the client also imports — both sides agree on allow/deny by construction. Today's wiring is leaf-only: only the target node's `target.write` list is checked. Parent-chain traversal is deferred until every relevant network has full base-FS coverage in `machine_filesystems` (currently home networks only).
+The walker (`src/filesystem/permissionWalker.ts`) is a single pure module that the client also imports — both sides agree on allow/deny by construction. Today's wiring is leaf-only: only the target node's `target.write` list is checked. Parent-chain traversal is deferred until every relevant network has full base-FS coverage in `machine_filesystems` (home + world today; missions pending).
 
 ### L2 coverage by network type
 
-| Network               | Coverage                                                                                                                                |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Workstation (own-box) | Bypassed — player owns their own box                                                                                                    |
-| Home network LANs     | Full — `machine_filesystems` populated from base FS at `home_networks` create (Step 7); idempotent backfill script for existing rows    |
-| World networks        | Leaf-only — only patched paths enforced (deferred follow-up; uses the `ThemedGenerator` pattern, separate from home-network generator)  |
-| Mission machines      | Leaf-only — `mission_instances` aren't yet a server-side concept (decided 2026-04-23); blocked on multiplayer-mission-instances landing |
+| Network               | Coverage                                                                                                                                                                                                                                  |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Workstation (own-box) | Bypassed — player owns their own box                                                                                                                                                                                                      |
+| Home network LANs     | Full — `machine_filesystems` populated from base FS at `home_networks` create (Step 7); idempotent backfill script for existing rows                                                                                                      |
+| World networks        | Full — `machine_filesystems` populated via `scripts/backfillWorldNetworkBaseFs.ts`. Dispatches through the `ThemedGenerator` registry; world rows ship via SQL migration so re-run the backfill after every new themed-network migration. |
+| Mission machines      | Leaf-only — `mission_instances` aren't yet a server-side concept (decided 2026-04-23); blocked on multiplayer-mission-instances landing                                                                                                   |
 
 ### Threat model coverage
 
@@ -238,8 +238,7 @@ Closed by L1 + L2 together (on covered networks):
 Still open:
 
 - Mission machine untouched-path attacks (need server-side mission_instances + base-FS backfill).
-- World network untouched-path attacks (need world-network base-FS backfill).
-- Client lying about `userType` at session-create (server doesn't yet validate against `/etc/passwd`; deferred follow-up).
+- Client lying about `userType` at session-create (server doesn't yet validate against `/etc/passwd`; deferred follow-up — partially unblocked now that home + world have base-FS coverage).
 
 ## Server-stamped `player_key`
 
