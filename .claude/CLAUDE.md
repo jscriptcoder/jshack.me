@@ -85,6 +85,16 @@ npx dotenv -e .env.development.local -- npx tsx scripts/verifyDualWrite.ts
 # permission_denied 403, root 200). Requires vercel:dev running. Optional --machine-id <ip> to scope to a
 # specific machine (e.g. 192.0.2.80 for findit.io); without it picks any restrictive row in machine_filesystems.
 npx dotenv -e .env.development.local -- npx tsx scripts/testL2Bypass.ts [--machine-id <ip>]
+
+# End-to-end smoke for /api/register-workstation against vercel:dev. 8 checks: fresh-register 201,
+# idempotent-repeat 200, conflicting-repeat 409, tampered-signature 401, plus DB-side row + machine_filesystems
+# count + /etc/passwd presence. Self-cleaning so it can be re-run idempotently.
+npx dotenv -e .env.development.local -- npx tsx scripts/testRegisterWorkstation.ts
+
+# L2 bypass verifier scoped to a freshly-registered workstation. Registers a workstation through the real
+# endpoint, then runs the same 3-scenario test (no_session/permission_denied/root) against its workstation_id.
+# Closes the loop on chunk #1b: proves intruders with cracked sessions on a player's own box can't bypass L2.
+npx dotenv -e .env.development.local -- npx tsx scripts/testL2BypassWorkstation.ts
 ```
 
 ## Key Architecture
