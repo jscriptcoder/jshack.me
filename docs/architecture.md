@@ -209,81 +209,30 @@ Terminal.tsx triggers auth flows via `startPasswordPrompt()` (from `su` command)
 
 For SSH/SCP, string args are disambiguated from port numbers by type: a string 2nd/3rd arg is a password, a number is a port. SSH keys are saved on programmatic auth just like interactive auth. `su` is unique in that it performs auth synchronously within `fn()` so subsequent script lines run as the new user; the others embed credentials in their async follow-up prompt data for Terminal.tsx to handle.
 
-## Server-Authoritative Sessions & L1 Patch Validation (Phase 5)
+## Server-Authoritative Sessions & Patch Validation (Phase 5)
 
-In addition to the per-tab `SessionContext` described above, sessions are
-recorded server-side in a `sessions` table on Supabase. The server is the
-authority on "does this player have an active session on machine X?" — the
-client view is a UI projection of the server truth, rehydrated on mount via
-`listSessions WHERE player_key = me`.
+In addition to the per-tab `SessionContext` described above, sessions are recorded server-side in a `sessions` table on Supabase. The server is the authority on "does this player have an active session on machine X?" — the client view is a UI projection of the server truth, rehydrated on mount via `listSessions WHERE player_key = me`.
 
 Three categories of session, by lifecycle:
 
-- **Shell-class** (`ssh`, `su`, `exploit`) — go on the snapshot stack;
-  rehydration filters to these before linear-chain reconstruction
-- **Protocol** (`ftp`, `mysql`, `redis`, `nc`) — own client-side state
-  field; pushed on login, ended on `exit`/`quit`
-- **Transient one-shot** (`scp`, `snmp`, `effect_one_shot`) — opened and
-  closed around a single mutation via `withTransientSession`; lifespan
-  measured in milliseconds. See `src/session/withTransientSession.ts` —
-  it awaits `flushPendingPatches` before letting the wrapping `endSession`
-  fire, eliminating a race where the patch could 403 against an already-
-  ended session.
+- **Shell-class** (`ssh`, `su`, `exploit`) — go on the snapshot stack; rehydration filters to these before linear-chain reconstruction.
+- **Protocol** (`ftp`, `mysql`, `redis`, `nc`) — own client-side state field; pushed on login, ended on `exit`/`quit`.
+- **Transient one-shot** (`scp`, `snmp`, `effect_one_shot`) — opened and closed around a single mutation via `withTransientSession`; lifespan measured in milliseconds. See `src/session/withTransientSession.ts` — it awaits `flushPendingPatches` before letting the wrapping `endSession` fire, eliminating a race where the patch could 403 against an already-ended session.
 
-**L1 patch validation (the security boundary).** Every `upsertPatch` /
-`removePatch` on a non-localhost machine consults the `sessions` table
-before recording the mutation. No active session row → 403 `no_session`.
-This is what makes filesystem mutations actually authenticated; before
-PR #78 a legit Ed25519 keypair could record patches on any machine. See
-`src/patchRegistry/README.md` for the gate flow and the `/var/log/*`
-ambient-write bypass (recon actions like nmap/curl/hydra leave logs on
-the target without establishing a session, so log paths are exempt).
+**L1 patch validation (the session-existence gate).** Every `upsertPatch` / `removePatch` on a non-localhost machine consults the `sessions` table before recording the mutation. No active session row → 403 `no_session`. This is what makes filesystem mutations actually authenticated; before PR #78 a legit Ed25519 keypair could record patches on any machine. See `src/patchRegistry/README.md` for the gate flow and the `/var/log/*` ambient-write bypass (recon actions like nmap/curl/hydra leave logs on the target without establishing a session, so log paths are exempt).
 
-**L2 patch validation (server-side permission walk).** After L1 passes,
-the handler looks up the target path's permissions in
-`machine_filesystems` (a parallel projection of the current FS state,
-dual-written from every successful patch in the same transaction) and
-runs the shared permission walker (`src/filesystem/permissionWalker.ts`)
-against the session's verified `userType`. A guest session that
-legitimately holds a session on machine X cannot overwrite root-owned
-files on X. The walker module is imported by both client and server, so
-allow/deny decisions are byte-identical by construction.
+**L2 patch validation (server-side permission walk).** After L1 passes, the handler looks up the target path's permissions in `machine_filesystems` (a parallel projection of the current FS state, dual-written from every successful patch in the same transaction) and runs the shared permission walker (`src/filesystem/permissionWalker.ts`) against the session's verified `userType`. A guest session that legitimately holds a session on machine X cannot overwrite root-owned files on X. The walker module is imported by both client and server, so allow/deny decisions are byte-identical by construction.
 
 L2 coverage today:
 
-- **Workstation (own-box)**: full coverage for non-owner access as of
-  2026-05-04. `machine_filesystems` populated at register-workstation
-  time (`/api/register-workstation` fires at NEW GAME) plus an
-  idempotent backfill (`scripts/backfillWorkstationBaseFs.ts`). Owner
-  writes still bypass L2 via `isOwnWorkstationOnServer` — the suffix-
-  derived shortcut that compares `first-8-hex(player_key)` to the
-  workstation_id suffix. The bypass is correct for the OWNER's own
-  request; the L2 gap was specifically for NON-OWNER requests holding
-  a cracked session on Player A's box, which now hit the walker on
-  A's stored base FS.
-- **Home network LANs**: full coverage. `machine_filesystems` populated
-  from the regenerated base FS at `home_networks` create time, plus an
-  idempotent backfill script for existing rows.
-- **World networks** (findit.io, playground): full coverage as of
-  2026-05-04. `machine_filesystems` populated via
-  `scripts/backfillWorldNetworkBaseFs.ts` (dispatches through the
-  `ThemedGenerator` registry, same flatten + bulk-insert helpers as
-  home networks). World rows ship via SQL migration, so the
-  operational pattern is to re-run the backfill after every new
-  themed-network migration.
-- **Mission machines**: leaf-only — `mission_instances` aren't yet a
-  server-side concept (decided 2026-04-23 in
-  `project_multiplayer_mission_instances` memo; not yet built). Once
-  that lands, missions get the same full coverage home + world
-  networks have.
+- **Workstation (own-box)**: full coverage for non-owner access as of 2026-05-04. `machine_filesystems` populated at register-workstation time (`/api/register-workstation` fires at NEW GAME) plus an idempotent backfill (`scripts/backfillWorkstationBaseFs.ts`). Owner writes still bypass L2 via `isOwnWorkstationOnServer` — the suffix-derived shortcut that compares `first-8-hex(player_key)` to the workstation_id suffix. The bypass is correct for the OWNER's own request; the L2 gap was specifically for NON-OWNER requests holding a cracked session on Player A's box, which now hit the walker on A's stored base FS.
+- **Home network LANs**: full coverage. `machine_filesystems` populated from the regenerated base FS at `home_networks` create time, plus an idempotent backfill script for existing rows.
+- **World networks** (findit.io, playground): full coverage as of 2026-05-04. `machine_filesystems` populated via `scripts/backfillWorldNetworkBaseFs.ts` (dispatches through the `ThemedGenerator` registry, same flatten + bulk-insert helpers as home networks). World rows ship via SQL migration, so the operational pattern is to re-run the backfill after every new themed-network migration.
+- **Mission machines**: leaf-only — `mission_instances` aren't yet a server-side concept (decided 2026-04-23 in `project_multiplayer_mission_instances` memo; not yet built). Once that lands, missions get the same full coverage home + world networks have.
 
-**Deferred: L3 (game-logic re-run).** "The smart server" that re-runs
-game logic against every action; piecemeal, per-feature.
+**Deferred: L3 (game-logic re-run).** "The smart server" that re-runs game logic against every action; piecemeal, per-feature.
 
-See `src/patchRegistry/README.md` for the L2 wiring + threat-model
-coverage table, and `docs/technology-choices.md` (Pattern A —
-machine_filesystems eager denormalization) for the architecture
-decision and the rejected alternatives.
+See `src/patchRegistry/README.md` for the L2 wiring + threat-model coverage table, and `docs/technology-choices.md` (Pattern A — `machine_filesystems` eager denormalization) for the architecture decision and the rejected alternatives.
 
 ## Async Output Pattern
 
