@@ -255,13 +255,18 @@ L2 coverage today:
 - **Home network LANs**: full coverage. `machine_filesystems` populated
   from the regenerated base FS at `home_networks` create time, plus an
   idempotent backfill script for existing rows.
-- **World networks** (findit.io, playground): leaf-only — only patched
-  paths enforced. Deferred follow-up because the world-network generator
-  uses a separate `ThemedGenerator` pattern.
+- **World networks** (findit.io, playground): full coverage as of
+  2026-05-04. `machine_filesystems` populated via
+  `scripts/backfillWorldNetworkBaseFs.ts` (dispatches through the
+  `ThemedGenerator` registry, same flatten + bulk-insert helpers as
+  home networks). World rows ship via SQL migration, so the
+  operational pattern is to re-run the backfill after every new
+  themed-network migration.
 - **Mission machines**: leaf-only — `mission_instances` aren't yet a
   server-side concept (decided 2026-04-23 in
   `project_multiplayer_mission_instances` memo; not yet built). Once
-  that lands, missions get the same full coverage home networks have.
+  that lands, missions get the same full coverage home + world
+  networks have.
 
 **Deferred: L3 (game-logic re-run).** "The smart server" that re-runs
 game logic against every action; piecemeal, per-feature.

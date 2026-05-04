@@ -61,11 +61,21 @@ npx tsx scripts/inspectPort.ts <seed> <targetIp> [<gameTimeDays>]
 # Idempotent (ON CONFLICT DO NOTHING). Use --dry-run to preview row counts before live writes.
 npx dotenv -e .env.development.local -- npx tsx scripts/backfillHomeNetworkBaseFs.ts [--dry-run]
 
+# L2 base-FS backfill for world_networks (findit.io, playground, future themed nets). World rows ship via
+# SQL migration, so re-run this after any new themed-network migration to populate machine_filesystems.
+# Same idempotent semantics as the home backfill.
+npx dotenv -e .env.development.local -- npx tsx scripts/backfillWorldNetworkBaseFs.ts [--dry-run]
+
 # Verify the L2 RLS posture on the machine_filesystems table (anon denied, service_role allowed).
 npx dotenv -e .env.development.local -- npx tsx scripts/verifyMachineFilesystemsRls.ts
 
 # Verify the L2 dual-write SQL functions behave correctly (upsert/remove with own-workstation bypass).
 npx dotenv -e .env.development.local -- npx tsx scripts/verifyDualWrite.ts
+
+# Forge signed envelopes against /api/patches and verify L2 enforces (3/3 scenarios: no_session 403,
+# permission_denied 403, root 200). Requires vercel:dev running. Optional --machine-id <ip> to scope to a
+# specific machine (e.g. 192.0.2.80 for findit.io); without it picks any restrictive row in machine_filesystems.
+npx dotenv -e .env.development.local -- npx tsx scripts/testL2Bypass.ts [--machine-id <ip>]
 ```
 
 ## Key Architecture
