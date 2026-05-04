@@ -59,15 +59,21 @@ export const resolvePortPatchInfo = (
   };
 };
 
+// Port no longer carries a baked-in `vulnerability` — CVEs are looked up
+// at exploit time via findExploitableCve(port, gameTime). For debug
+// output we surface what's intrinsic to the port (serviceVersion, patch
+// timeline, forcedEffect override). To see which CVE a given port
+// resolves to at a given game time, use scripts/simulateExploit.ts or
+// scripts/inspectPort.ts.
 export const formatPort = (p: Port): string => {
   const state = p.open ? green('open') : red('closed');
-  let extra = '';
-  if (p.vulnerability) {
-    extra += ` ${red(`[${p.vulnerability.cve}]`)} ${dim(p.vulnerability.serviceVersion)}`;
-    const patch = resolvePortPatchInfo(p.service, p.vulnerability.serviceVersion);
-    if (patch) {
-      extra += ` ${dim(`patch=${patch.patchDelayDays}d fix@day${patch.fixReleasedAtDay}`)}`;
-    }
+  let extra = ` ${dim(p.serviceVersion)}`;
+  const patch = resolvePortPatchInfo(p.service, p.serviceVersion);
+  if (patch) {
+    extra += ` ${dim(`patch=${patch.patchDelayDays}d fix@day${patch.fixReleasedAtDay}`)}`;
+  }
+  if (p.forcedEffect) {
+    extra += ` ${red(`[forced=${p.forcedEffect.kind}/${p.forcedEffect.tier}]`)}`;
   }
   if (p.owner) {
     extra += ` ${dim(`owner=${p.owner.username}(${p.owner.userType})`)}`;

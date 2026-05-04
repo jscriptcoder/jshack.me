@@ -251,7 +251,16 @@ allow/deny decisions are byte-identical by construction.
 
 L2 coverage today:
 
-- **Workstation (own-box)**: bypassed by design.
+- **Workstation (own-box)**: full coverage for non-owner access as of
+  2026-05-04. `machine_filesystems` populated at register-workstation
+  time (`/api/register-workstation` fires at NEW GAME) plus an
+  idempotent backfill (`scripts/backfillWorkstationBaseFs.ts`). Owner
+  writes still bypass L2 via `isOwnWorkstationOnServer` — the suffix-
+  derived shortcut that compares `first-8-hex(player_key)` to the
+  workstation_id suffix. The bypass is correct for the OWNER's own
+  request; the L2 gap was specifically for NON-OWNER requests holding
+  a cracked session on Player A's box, which now hit the walker on
+  A's stored base FS.
 - **Home network LANs**: full coverage. `machine_filesystems` populated
   from the regenerated base FS at `home_networks` create time, plus an
   idempotent backfill script for existing rows.
