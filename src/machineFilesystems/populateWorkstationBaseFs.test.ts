@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { regenWorkstationRows } from './populateWorkstationBaseFs';
 import { deriveHostnameSuffix } from '../homeNetworks/homeNetworkHelpers';
+import type { MachineFsRow } from './flattenFileNode';
 
-const findRow = (rows: readonly { readonly path: string }[], path: string) =>
+const findRow = (rows: readonly MachineFsRow[], path: string): MachineFsRow | undefined =>
   rows.find((r) => r.path === path);
 
 describe('regenWorkstationRows', () => {
