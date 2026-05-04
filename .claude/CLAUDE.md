@@ -69,6 +69,10 @@ npx dotenv -e .env.development.local -- npx tsx scripts/backfillWorldNetworkBase
 # Verify the L2 RLS posture on the machine_filesystems table (anon denied, service_role allowed).
 npx dotenv -e .env.development.local -- npx tsx scripts/verifyMachineFilesystemsRls.ts
 
+# Verify the L2 RLS posture on the workstations table (anon denied, service_role allowed).
+# Same shape as verifyMachineFilesystemsRls — 5 probes, expects 5/5 after the migration applies.
+npx dotenv -e .env.development.local -- npx tsx scripts/verifyWorkstationsRls.ts
+
 # Verify the L2 dual-write SQL functions behave correctly (upsert/remove with own-workstation bypass).
 npx dotenv -e .env.development.local -- npx tsx scripts/verifyDualWrite.ts
 
