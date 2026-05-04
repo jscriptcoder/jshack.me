@@ -60,7 +60,7 @@ describe('regenHomeNetworkRows', () => {
     expect(ids.has(PUBLIC_IP_A)).toBe(true);
   });
 
-  it("respects the input publicIp — different IPs produce different machine_id sets", async () => {
+  it('respects the input publicIp — different IPs produce different machine_id sets', async () => {
     // Strengthens the previous test: with same seed, swapping the
     // publicIp argument flips which IP appears as the router. A mutant
     // that hard-coded a constant publicIp would produce identical
