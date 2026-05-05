@@ -820,6 +820,32 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       expect(calledMachineIds).toContain(TEST_HOSTNAME);
     });
 
+    it('subscribes to a Realtime channel for each lan-occupant hostname', async () => {
+      // Symmetric with the home/mission case above: occupant hostnames
+      // join the keyset, so subscribeToMachine fires for each. Without
+      // this, daemon state changes on a same-LAN player's workstation
+      // (sshd pid file written, etc.) don't fire hints on our side and
+      // our nmap shows stale port state. Production code hasn't changed
+      // since Step 1 — this test pins the Realtime effect's symmetry
+      // with the rehydration fetch (both share machineIdsKey).
+      const fakeClient = {} as Parameters<typeof mockedSubscribeToMachine>[0];
+      vi.mocked(mockedGetRealtimeClient).mockReturnValue(fakeClient);
+
+      const { result } = renderHook(() => useFileSystem(), {
+        wrapper: wrap({
+          lanOccupantHostnames: ['mainframe-1a2b3c4d', 'rocket-bbccdd11'],
+        }),
+      });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+
+      const calledMachineIds = vi
+        .mocked(mockedSubscribeToMachine)
+        .mock.calls.map((call) => (call as unknown as SubscribeMockArgs)[1]);
+      expect(calledMachineIds).toEqual(
+        expect.arrayContaining([TEST_HOSTNAME, 'mainframe-1a2b3c4d', 'rocket-bbccdd11']),
+      );
+    });
+
     it('passes the supabase client from getRealtimeClient to subscribeToMachine', async () => {
       const fakeClient = { id: 'fake-supabase' } as unknown as Parameters<
         typeof mockedSubscribeToMachine
