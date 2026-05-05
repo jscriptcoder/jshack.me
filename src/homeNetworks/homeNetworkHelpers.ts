@@ -163,3 +163,37 @@ export const targetMachineIdFor = (
   const occupant = lanOccupants.find((o) => `${activeSubnet}${o.lan_ip}` === targetIp);
   return occupant ? occupant.hostname : targetIp;
 };
+
+// ---------------------------------------------------------------------
+// occupantAwareReadNode
+// ---------------------------------------------------------------------
+//
+// Read-side symmetric of `targetMachineIdFor`: wrap a NodeReader so a
+// caller passing a LAN-occupant IP transparently reads from that
+// occupant's canonical workstation_id storage key. Mirrors the `logFs`
+// pattern in `useNetworkCommands.ts` that translates writes the same
+// way — readers and writers must agree on the storage key, otherwise
+// cross-player patches (e.g. sshd pid file written by another player
+// on the same LAN) land somewhere reads can't find them.
+//
+// Generic in the read result so this helper doesn't have to import
+// `FileNode` and stays decoupled from filesystem types.
+//
+// Non-occupant IPs (gateway, mission, world, off-LAN) pass through
+// `targetMachineIdFor` unchanged — see its tests for the matrix of
+// cases it covers.
+
+export const occupantAwareReadNode = <T>(
+  readNode: (machineId: string, path: string, cwd: string) => T,
+  lanOccupants: ReadonlyArray<OccupantSummary>,
+  activeSubnet: string | null,
+  ownLanIp: string | null,
+  ownHostname: string,
+): ((machineId: string, path: string, cwd: string) => T) => {
+  return (machineId, path, cwd) =>
+    readNode(
+      targetMachineIdFor(machineId, lanOccupants, activeSubnet, ownLanIp, ownHostname),
+      path,
+      cwd,
+    );
+};

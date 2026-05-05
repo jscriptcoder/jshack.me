@@ -1,9 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   computePlayerHostname,
   deriveHostnameSuffix,
   displayPromptHostname,
   isOwnWorkstation,
+  occupantAwareReadNode,
   targetMachineIdFor,
 } from './homeNetworkHelpers';
 import { generateIdentity } from '../identity/identity';
@@ -240,5 +241,66 @@ describe('targetMachineIdFor', () => {
     expect(
       targetMachineIdFor('10.0.0.42', [occupant({ lan_ip: '.42' })], null, null, 'me-aabbccdd'),
     ).toBe('10.0.0.42');
+  });
+});
+
+describe('occupantAwareReadNode', () => {
+  const occupant = (overrides: Partial<OccupantSummary> = {}): OccupantSummary => ({
+    network_id: '203.0.113.42',
+    lan_ip: '.42',
+    hostname: 'rocket-bbccdd11',
+    ...overrides,
+  });
+
+  it('translates an occupant LAN IP to the occupant hostname before delegating to the inner reader', () => {
+    // Read symmetry with the write path: the network-rendering code
+    // looks up pid files by machine.ip (the LAN IP), but cross-player
+    // patches land under the occupant's canonical workstation_id. The
+    // wrapper converts the IP to the hostname so reads find the patches
+    // writes left.
+    const inner = vi.fn((id: string, _path: string, _cwd: string) =>
+      id === 'rocket-bbccdd11' ? 'PID-CONTENT' : null,
+    );
+    const wrapped = occupantAwareReadNode(
+      inner,
+      [occupant({ lan_ip: '.42' })],
+      '10.0.0',
+      null,
+      'me-aabbccdd',
+    );
+
+    expect(wrapped('10.0.0.42', '/var/run/sshd.pid', '/')).toBe('PID-CONTENT');
+    expect(inner).toHaveBeenCalledWith('rocket-bbccdd11', '/var/run/sshd.pid', '/');
+  });
+
+  it('passes non-occupant IPs (gateway, mission, off-LAN) through unchanged', () => {
+    const inner = vi.fn().mockReturnValue(null);
+    const wrapped = occupantAwareReadNode(
+      inner,
+      [occupant({ lan_ip: '.42' })],
+      '10.0.0',
+      null,
+      'me-aabbccdd',
+    );
+
+    wrapped('10.0.0.1', '/etc/iptables/rules.v4', '/');
+    expect(inner).toHaveBeenCalledWith('10.0.0.1', '/etc/iptables/rules.v4', '/');
+  });
+
+  it('forwards path and cwd unchanged across translation', () => {
+    // The translation only rewrites the machine_id; path and cwd must
+    // pass through verbatim (caller's path resolution semantics rely on
+    // it).
+    const inner = vi.fn().mockReturnValue(null);
+    const wrapped = occupantAwareReadNode(
+      inner,
+      [occupant({ lan_ip: '.42' })],
+      '10.0.0',
+      null,
+      'me-aabbccdd',
+    );
+
+    wrapped('10.0.0.42', '/etc/passwd', '/home/alice');
+    expect(inner).toHaveBeenCalledWith('rocket-bbccdd11', '/etc/passwd', '/home/alice');
   });
 });
