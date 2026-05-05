@@ -319,17 +319,37 @@ export const upsertPatch = (
   return patches.map((p, i) => (i === existingIndex ? merged : p));
 };
 
-// Replays filesystem patches onto a base filesystem state. Each patch either updates
-// an existing file's content or creates a new file at the specified path with inferred
-// permissions. This is how changes persist across page reloads via IndexedDB.
+// Empty root node used as the on-demand base FS for an unknown
+// machineId. See `applyPatches` below for the rationale — cross-player
+// patches for occupant workstations need a place to land.
+const emptyRoot = (): FileNode => ({
+  name: '/',
+  type: 'directory',
+  owner: 'root',
+  permissions: defaultDirectoryPermissions('root'),
+  children: {},
+});
+
+// Replays filesystem patches onto a base filesystem state. Each patch
+// either updates an existing file's content or creates a new file at
+// the specified path with inferred permissions. This is how changes
+// persist across page reloads via IndexedDB.
+//
+// On-demand FS creation: if a patch's machineId isn't in `base`, an
+// empty root is created first. This is load-bearing for cross-player
+// visibility on occupant workstations — the receiving player's base
+// FS map only contains their own workstation, NPC home machines, and
+// mission machines; occupant workstation_ids aren't there. Without
+// this, daemon state changes (sshd pid file etc.) would be invisible
+// cross-player. Server-side L1 + L2 already gate which patches reach
+// this code, so trusting them on the client is safe.
 export const applyPatches = (
   base: FileSystemsState,
   patches: readonly FileSystemPatch[],
 ): FileSystemsState =>
   patches.reduce<FileSystemsState>((state, patch) => {
     const machineId: MachineId = patch.machineId;
-    const machineFs = state[machineId];
-    if (!machineFs) return state;
+    const machineFs = state[machineId] ?? emptyRoot();
 
     const parts = patch.path.split('/').filter(Boolean);
 

@@ -407,15 +407,44 @@ describe('applyPatches', () => {
     expect(node?.permissions.read).toEqual(['root']);
   });
 
-  it('ignores patches for unknown machines', () => {
+  it('creates an FS on demand for an unknown machineId and applies the patch', () => {
+    // Cross-player visibility for occupant workstations: when an
+    // occupant on the same LAN writes a patch (e.g. sshd pid file), the
+    // receiving player's base FS map doesn't include the occupant's
+    // workstation_id (only NPC home machines + own workstation are in
+    // the base). Without on-demand FS creation, the patch would drop
+    // and daemon state changes would be invisible cross-player —
+    // breaking nmap-of-occupant port rendering.
+    //
+    // Security note: the receiving client's apply step isn't a security
+    // boundary. Patches that reach this code have already passed L1 +
+    // L2 server-side; trusting them here just lands them in the client
+    // view.
     const patch: FileSystemPatch = {
-      machineId: 'unknown',
-      path: '/test.txt',
-      content: 'data',
-      owner: 'user',
+      machineId: 'alice-box-aabbccdd',
+      path: '/var/run/sshd.pid',
+      content: 'sshd:port=22',
+      owner: 'root',
+      permissions: { read: ['root'], write: ['root'], execute: [] },
     };
     const result = applyPatches(baseState, [patch]);
-    expect(result).toEqual(baseState);
+    expect(result['alice-box-aabbccdd']).toBeDefined();
+    const pidNode = getNodeAtPath(result['alice-box-aabbccdd']!, '/var/run/sshd.pid');
+    expect(pidNode?.type).toBe('file');
+    expect(pidNode?.content).toBe('sshd:port=22');
+  });
+
+  it('does not disturb existing machine entries when creating one on demand', () => {
+    // Adding a new entry for an unknown machineId must not mutate or
+    // overwrite the entries that were already in the base state.
+    const patch: FileSystemPatch = {
+      machineId: 'alice-box-aabbccdd',
+      path: '/var/run/sshd.pid',
+      content: 'sshd:port=22',
+      owner: 'root',
+    };
+    const result = applyPatches(baseState, [patch]);
+    expect(result['localhost']).toBe(baseState['localhost']);
   });
 
   describe('directory patches', () => {

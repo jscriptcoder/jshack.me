@@ -97,12 +97,14 @@ const wrap =
   (overrides?: {
     homeFileSystems?: Record<string, FileNode>;
     missionFileSystems?: Record<string, FileNode>;
+    lanOccupantHostnames?: readonly string[];
   }) =>
   ({ children }: { children: ReactNode }) => (
     <FileSystemProvider
       localhostFileSystem={baseLocalhost}
       homeFileSystems={overrides?.homeFileSystems}
       missionFileSystems={overrides?.missionFileSystems}
+      lanOccupantHostnames={overrides?.lanOccupantHostnames}
     >
       {children}
     </FileSystemProvider>
@@ -171,6 +173,27 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       });
       const machineIds = vi.mocked(mockedListPatchesForMachines).mock.calls[0][1];
       expect(machineIds).toEqual(expect.arrayContaining([TEST_HOSTNAME, '10.0.0.1', '10.0.0.2']));
+    });
+
+    it('includes lan-occupant hostnames in machine_ids when supplied', async () => {
+      // Cross-player visibility for sibling workstations on the same LAN:
+      // each occupant.hostname IS that player's workstation_id, so folding
+      // them into the keyset makes B's rehydration fetch ask for A's
+      // workstation patches (sshd pid file, etc.) — without this, daemon
+      // state changes are invisible cross-player and B's nmap can't see
+      // A's open ports.
+      renderHook(() => useFileSystem(), {
+        wrapper: wrap({
+          lanOccupantHostnames: ['mainframe-1a2b3c4d', 'rocket-bbccdd11'],
+        }),
+      });
+      await waitFor(() => {
+        expect(mockedListPatchesForMachines).toHaveBeenCalled();
+      });
+      const machineIds = vi.mocked(mockedListPatchesForMachines).mock.calls[0][1];
+      expect(machineIds).toEqual(
+        expect.arrayContaining([TEST_HOSTNAME, 'mainframe-1a2b3c4d', 'rocket-bbccdd11']),
+      );
     });
 
     it('deduplicates machine_ids across home + mission', async () => {
@@ -579,6 +602,52 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
         ['10.0.0.42', TEST_HOSTNAME].sort(),
       );
     });
+
+    it('refetches with the new occupant set when lanOccupantHostnames changes (WiFi switch case)', async () => {
+      // Switching WiFi mid-session rebuilds lanOccupants with a fresh set
+      // (the active LAN's occupants), and the rehydration fetch must
+      // ask the server for THE NEW set so we drop subscriptions for the
+      // old LAN's players and pick up the new ones. Without
+      // lanOccupantHostnames in machineIdsKey's useMemo deps, this
+      // wouldn't fire — the keyset would freeze on the first occupant
+      // snapshot.
+      let setOccupants: ((ids: readonly string[] | undefined) => void) | null = null;
+      const Outer = ({ children }: { children: ReactNode }) => {
+        const [ids, setter] = useState<readonly string[] | undefined>([
+          'mainframe-1a2b3c4d',
+        ]);
+        setOccupants = setter;
+        return (
+          <FileSystemProvider
+            localhostFileSystem={baseLocalhost}
+            lanOccupantHostnames={ids}
+          >
+            {children}
+          </FileSystemProvider>
+        );
+      };
+
+      const { result } = renderHook(() => useFileSystem(), { wrapper: Outer });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+      const callsAfterInitial = vi.mocked(mockedListPatchesForMachines).mock.calls.length;
+
+      act(() => {
+        setOccupants?.(['rocket-bbccdd11']);
+      });
+
+      await waitFor(() => {
+        expect(vi.mocked(mockedListPatchesForMachines).mock.calls.length).toBe(
+          callsAfterInitial + 1,
+        );
+      });
+      const lastCall = vi
+        .mocked(mockedListPatchesForMachines)
+        .mock.calls.at(-1) as readonly unknown[];
+      const newIds = lastCall[1] as readonly string[];
+      expect(newIds).toEqual(expect.arrayContaining([TEST_HOSTNAME, 'rocket-bbccdd11']));
+      // Old occupant gone — proves the keyset rotated, didn't just grow.
+      expect(newIds).not.toContain('mainframe-1a2b3c4d');
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -797,6 +866,32 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       expect(calledMachineIds).toContain(TEST_HOSTNAME);
     });
 
+    it('subscribes to a Realtime channel for each lan-occupant hostname', async () => {
+      // Symmetric with the home/mission case above: occupant hostnames
+      // join the keyset, so subscribeToMachine fires for each. Without
+      // this, daemon state changes on a same-LAN player's workstation
+      // (sshd pid file written, etc.) don't fire hints on our side and
+      // our nmap shows stale port state. Production code hasn't changed
+      // since Step 1 — this test pins the Realtime effect's symmetry
+      // with the rehydration fetch (both share machineIdsKey).
+      const fakeClient = {} as Parameters<typeof mockedSubscribeToMachine>[0];
+      vi.mocked(mockedGetRealtimeClient).mockReturnValue(fakeClient);
+
+      const { result } = renderHook(() => useFileSystem(), {
+        wrapper: wrap({
+          lanOccupantHostnames: ['mainframe-1a2b3c4d', 'rocket-bbccdd11'],
+        }),
+      });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+
+      const calledMachineIds = vi
+        .mocked(mockedSubscribeToMachine)
+        .mock.calls.map((call) => (call as unknown as SubscribeMockArgs)[1]);
+      expect(calledMachineIds).toEqual(
+        expect.arrayContaining([TEST_HOSTNAME, 'mainframe-1a2b3c4d', 'rocket-bbccdd11']),
+      );
+    });
+
     it('passes the supabase client from getRealtimeClient to subscribeToMachine', async () => {
       const fakeClient = { id: 'fake-supabase' } as unknown as Parameters<
         typeof mockedSubscribeToMachine
@@ -811,6 +906,57 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       const firstCall = vi.mocked(mockedSubscribeToMachine).mock
         .calls[0] as unknown as SubscribeMockArgs;
       expect(firstCall[0]).toBe(fakeClient);
+    });
+
+    it('rotates Realtime channels when lanOccupantHostnames changes (WiFi switch case)', async () => {
+      // Symmetric with the rehydration refetch test in the debounce
+      // block: Realtime subscriptions must rotate too — old occupant
+      // channel torn down, new occupant channel spun up. Without
+      // lanOccupantHostnames in machineIdsKey's useMemo deps, the
+      // Realtime effect's cleanup-and-resubscribe pass wouldn't fire.
+      const fakeClient = {} as Parameters<typeof mockedSubscribeToMachine>[0];
+      vi.mocked(mockedGetRealtimeClient).mockReturnValue(fakeClient);
+
+      // Track unsubscribes per machine_id so we can assert the OLD
+      // occupant's channel was torn down.
+      const unsubscribesByMachineId: Record<string, ReturnType<typeof vi.fn>> = {};
+      vi.mocked(mockedSubscribeToMachine).mockImplementation((_client, machineId) => {
+        const unsub = vi.fn();
+        unsubscribesByMachineId[machineId] = unsub;
+        return unsub;
+      });
+
+      let setOccupants: ((ids: readonly string[] | undefined) => void) | null = null;
+      const Outer = ({ children }: { children: ReactNode }) => {
+        const [ids, setter] = useState<readonly string[] | undefined>([
+          'mainframe-1a2b3c4d',
+        ]);
+        setOccupants = setter;
+        return (
+          <FileSystemProvider
+            localhostFileSystem={baseLocalhost}
+            lanOccupantHostnames={ids}
+          >
+            {children}
+          </FileSystemProvider>
+        );
+      };
+
+      const { result } = renderHook(() => useFileSystem(), { wrapper: Outer });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+      // Initial subscriptions: workstation + first occupant.
+      expect(unsubscribesByMachineId['mainframe-1a2b3c4d']).toBeDefined();
+
+      act(() => {
+        setOccupants?.(['rocket-bbccdd11']);
+      });
+
+      // New occupant subscribed.
+      await waitFor(() => {
+        expect(unsubscribesByMachineId['rocket-bbccdd11']).toBeDefined();
+      });
+      // Old occupant unsubscribed.
+      expect(unsubscribesByMachineId['mainframe-1a2b3c4d']).toHaveBeenCalled();
     });
 
     it('unsubscribes all on unmount', async () => {
