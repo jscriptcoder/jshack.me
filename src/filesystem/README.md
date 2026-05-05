@@ -61,6 +61,8 @@ All machine filesystems are generated at runtime — there are no static machine
 
 User-created/modified files are persisted as patches in IndexedDB (`jshack-db` database, `filesystem` store). On init, patches are replayed on top of the base filesystem. Only the diff is stored — clearing the database resets to factory state. All filesystem patches (localhost, home network, mission) are persisted. On reload with an active mission, the mission is regenerated from its seed and mission patches are replayed on top. Mission patches are cleaned up on mission end/transition.
 
+**On-demand FS creation in `applyPatches`**: when a patch's `machineId` isn't in the base FS map, an empty root is created and the patch lands on top. Load-bearing for cross-player visibility on occupant workstations — the receiving player's base only contains their own workstation, NPC home machines, and mission machines, so other players' workstation_ids need on-demand creation. Server-side L1 + L2 already gate which patches reach this code, so trusting them on the client apply step is safe.
+
 ### Permission System
 
 Each `FileNode` has read/write/execute permission arrays per user type (`root`, `user`, `guest`). Root has access to everything. Commands like `cat`, `ls`, `cd` check read permissions. The `node()` command additionally checks execute permission. `ls -l` displays permissions in Unix `drwxrwxrwx` format where triples represent owner/user/guest.
