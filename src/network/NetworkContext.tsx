@@ -19,7 +19,7 @@ import type { HomeNetwork } from '../generation/generateHomeNetwork';
 import type { OccupantSummary } from '../homeNetworks/types';
 import { useSession } from '../session/SessionContext';
 import { useFileSystem } from '../filesystem';
-import { isOwnWorkstation } from '../homeNetworks/homeNetworkHelpers';
+import { isOwnWorkstation, occupantAwareReadNode } from '../homeNetworks/homeNetworkHelpers';
 import { findGatewayChainFor } from './gatewayChain';
 import { parseIptablesRules } from './iptablesParser';
 import { parseSnmpFirewallConfig } from './snmpFirewallParser';
@@ -363,6 +363,26 @@ export const NetworkProvider = ({
     lanOccupants,
   ]);
 
+  // Read-node wrapper that translates LAN-occupant IPs to their
+  // canonical workstation_id before reading. Without this, daemon
+  // pid-file lookups (sshd, ftpd, nc) on an occupant's LAN IP miss the
+  // patches that other players wrote — those patches are stored under
+  // the occupant's hostname, not their LAN IP. Symmetric with the
+  // logFs translation in useNetworkCommands on the write path.
+  // Non-occupant IPs (gateways, mission, world, off-LAN) pass through
+  // unchanged.
+  const readNodeForOverrides = useMemo(
+    () =>
+      occupantAwareReadNode(
+        getNodeFromMachine,
+        lanOccupants ?? [],
+        homeNetwork?.layers[0]?.subnet ?? null,
+        homeNetwork?.localhostIp ?? null,
+        hostname,
+      ),
+    [getNodeFromMachine, lanOccupants, homeNetwork, hostname],
+  );
+
   // Dynamic overrides: for each visible machine, apply gateway enhancements
   // (NAT merged view, SNMP firewall) and daemon state (sshd, ftpd, nc).
   const overrideCtx = useMemo(
@@ -380,7 +400,7 @@ export const NetworkProvider = ({
         layers: wn.layers,
       })),
       homeGatewayByAliasIp,
-      readNode: getNodeFromMachine,
+      readNode: readNodeForOverrides,
     }),
     [
       allIptablesRules,
@@ -392,7 +412,7 @@ export const NetworkProvider = ({
       homeNetwork,
       worldNetworks,
       homeGatewayByAliasIp,
-      getNodeFromMachine,
+      readNodeForOverrides,
     ],
   );
 
