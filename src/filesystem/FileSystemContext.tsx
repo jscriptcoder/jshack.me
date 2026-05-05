@@ -184,6 +184,7 @@ export const FileSystemProvider = ({
   localhostFileSystem,
   missionFileSystems,
   homeFileSystems,
+  lanOccupantHostnames,
 }: FileSystemProviderProps) => {
   const { session, hostname } = useSession();
   // The player's workstation filesystem is keyed under their workstation_id
@@ -295,17 +296,25 @@ export const FileSystemProvider = ({
   }, [localhostFileSystem, homeFileSystems, missionFileSystems]);
 
   // Stable signature of the current machine_ids set: workstation +
-  // homeFileSystems keys + missionFileSystems keys, deduped + sorted.
-  // Used as the dep for both the rehydration fetch and the Realtime
-  // subscription effects so they re-run together when the keyset
-  // changes (mid-session WiFi crack, mission accept, world networks
-  // resolving after mount).
+  // homeFileSystems keys + missionFileSystems keys + lan-occupant
+  // hostnames, deduped + sorted. Used as the dep for both the
+  // rehydration fetch and the Realtime subscription effects so they
+  // re-run together when the keyset changes (mid-session WiFi crack,
+  // mission accept, world networks resolving after mount, occupant
+  // join/leave on the active LAN).
+  //
+  // lanOccupantHostnames carries the hostnames (= workstation_ids) of
+  // OTHER players on the active LAN. Folding them in subscribes us to
+  // their workstation patch streams so daemon state changes (sshd pid
+  // file written, etc.) propagate cross-player and our nmap reflects
+  // their open ports in real time.
   const machineIdsKey = useMemo(() => {
     const ids = new Set<string>([workstationId]);
     if (homeFileSystems) for (const id of Object.keys(homeFileSystems)) ids.add(id);
     if (missionFileSystems) for (const id of Object.keys(missionFileSystems)) ids.add(id);
+    if (lanOccupantHostnames) for (const id of lanOccupantHostnames) ids.add(id);
     return [...ids].sort().join(',');
-  }, [homeFileSystems, missionFileSystems, workstationId]);
+  }, [homeFileSystems, missionFileSystems, workstationId, lanOccupantHostnames]);
 
   // Tracks whether the next rehydration fetch is the very first one.
   // The localWritesSinceMount guard (which skips server-truth
