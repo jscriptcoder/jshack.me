@@ -64,12 +64,25 @@ function GameProviders({
     return base;
   }, [activeNetwork?.fileSystems, worldNetworks]);
 
+  // Active-LAN occupants' hostnames are workstation_ids of OTHER
+  // players on the same LAN. Folding them into FileSystemProvider's
+  // keyset subscribes us to their workstation patch streams so daemon
+  // state changes (sshd pid file, etc.) propagate live cross-player.
+  // Memoized for reference stability — without it, every render of
+  // GameProviders would create a fresh array and machineIdsKey would
+  // recompute unnecessarily.
+  const lanOccupantHostnames = useMemo(
+    () => lanOccupants.map((o) => o.hostname),
+    [lanOccupants],
+  );
+
   return (
     <MissionProvider state={missionState} usedPublicIps={usedPublicIps}>
       <FileSystemProvider
         localhostFileSystem={localhostResult.fileSystem}
         missionFileSystems={missionState.activeMission?.fileSystems}
         homeFileSystems={mergedHomeFileSystems}
+        lanOccupantHostnames={lanOccupantHostnames}
       >
         <NetworkProvider
           missionNetworkConfig={missionState.activeMission?.networkConfig}
