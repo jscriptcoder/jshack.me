@@ -176,6 +176,7 @@ type FileSystemProviderProps = {
   readonly localhostFileSystem: FileNode;
   readonly missionFileSystems?: Readonly<Record<string, FileNode>>;
   readonly homeFileSystems?: Readonly<Record<string, FileNode>>;
+  readonly lanOccupantHostnames?: readonly string[];
 };
 
 export const FileSystemProvider = ({

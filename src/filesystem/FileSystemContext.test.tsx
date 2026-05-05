@@ -97,12 +97,14 @@ const wrap =
   (overrides?: {
     homeFileSystems?: Record<string, FileNode>;
     missionFileSystems?: Record<string, FileNode>;
+    lanOccupantHostnames?: readonly string[];
   }) =>
   ({ children }: { children: ReactNode }) => (
     <FileSystemProvider
       localhostFileSystem={baseLocalhost}
       homeFileSystems={overrides?.homeFileSystems}
       missionFileSystems={overrides?.missionFileSystems}
+      lanOccupantHostnames={overrides?.lanOccupantHostnames}
     >
       {children}
     </FileSystemProvider>
@@ -171,6 +173,27 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       });
       const machineIds = vi.mocked(mockedListPatchesForMachines).mock.calls[0][1];
       expect(machineIds).toEqual(expect.arrayContaining([TEST_HOSTNAME, '10.0.0.1', '10.0.0.2']));
+    });
+
+    it('includes lan-occupant hostnames in machine_ids when supplied', async () => {
+      // Cross-player visibility for sibling workstations on the same LAN:
+      // each occupant.hostname IS that player's workstation_id, so folding
+      // them into the keyset makes B's rehydration fetch ask for A's
+      // workstation patches (sshd pid file, etc.) — without this, daemon
+      // state changes are invisible cross-player and B's nmap can't see
+      // A's open ports.
+      renderHook(() => useFileSystem(), {
+        wrapper: wrap({
+          lanOccupantHostnames: ['mainframe-1a2b3c4d', 'rocket-bbccdd11'],
+        }),
+      });
+      await waitFor(() => {
+        expect(mockedListPatchesForMachines).toHaveBeenCalled();
+      });
+      const machineIds = vi.mocked(mockedListPatchesForMachines).mock.calls[0][1];
+      expect(machineIds).toEqual(
+        expect.arrayContaining([TEST_HOSTNAME, 'mainframe-1a2b3c4d', 'rocket-bbccdd11']),
+      );
     });
 
     it('deduplicates machine_ids across home + mission', async () => {
