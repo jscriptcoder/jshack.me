@@ -1659,11 +1659,14 @@ describe('handlePatchesRequest — log-path bypass on upsertPatch', () => {
 
   it.each([
     '/var/log/auth.log',
+    '/var/log/access.log',
     '/var/log/kern.log',
-    '/var/log/messages',
-    '/var/log/nginx/access.log',
-    '/var/log/subdir/deeper/file.log',
-  ])('bypasses the gate for path: %s', async (path) => {
+    '/var/log/vsftpd.log',
+    '/var/log/mysql.log',
+    '/var/log/redis.log',
+    '/var/log/mail.log',
+    '/var/log/syslog',
+  ])('bypasses the gate for allowlisted log file: %s', async (path) => {
     const findActiveSession = vi
       .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
       .mockResolvedValue({ ok: true, exists: false });
@@ -1680,7 +1683,12 @@ describe('handlePatchesRequest — log-path bypass on upsertPatch', () => {
     '/var/log', // exactly /var/log with no child component
     '/etc/passwd', // entirely different path
     '/foo/var/log/bar.log', // /var/log/ not at the start
-  ])('does NOT bypass the gate for non-log path: %s', async (path) => {
+    '/var/log/messages', // under /var/log/ but not on allowlist
+    '/var/log/nginx/access.log', // subdir, not on allowlist
+    '/var/log/subdir/deeper/file.log', // nested subdir, not on allowlist
+    '/var/log/auth.log.1', // rotated suffix, not on allowlist
+    '/var/log/payload.sh', // attacker-planted file masquerading as a log
+  ])('does NOT bypass the gate for non-allowlisted path: %s', async (path) => {
     const findActiveSession = vi
       .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
       .mockResolvedValue({ ok: true, exists: false });

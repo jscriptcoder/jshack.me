@@ -189,9 +189,24 @@ Wire-payload smoke: `scripts/testReadPathPrivacy.ts` (3-scenario forge against `
 
 ### Ambient log-path bypass
 
-`upsertPatch` writes to paths under `/var/log/` bypass L1 entirely (no session required). Recon actions like `nmap`, `curl`, `hydra`, `gobuster`, and ssh-failure logging trigger log appends on the target machine without the actor having a session there — the network records the probe as a side effect, that's the gameplay. L1 was designed for "I logged in, I'm mutating this machine" mutations; ambient log writes are a different class.
+`upsertPatch` writes to a fixed allowlist of canonical log files bypass L1 entirely (no session required). Recon actions like `nmap`, `curl`, `hydra`, `gobuster`, and ssh-failure logging trigger log appends on the target machine without the actor having a session there — the network records the probe as a side effect, that's the gameplay. L1 was designed for "I logged in, I'm mutating this machine" mutations; ambient log writes are a different class.
 
-The bypass is path-prefix based and server-controlled — the client cannot opt out of L1 by spoofing a non-log path; the predicate runs on the verified `payload.path`. Bypass applies ONLY to `upsertPatch`. `removePatch` on a `/var/log/...` path still requires a session (covering tracks needs real access to the box).
+The allowlist is exhaustive — every entry corresponds to a real writer in the codebase:
+
+| File                  | Writers                                |
+| --------------------- | -------------------------------------- |
+| `/var/log/auth.log`   | ssh, scp, su, hydra-ssh                |
+| `/var/log/access.log` | curl, gobuster, HTTP CVEs              |
+| `/var/log/kern.log`   | nmap                                   |
+| `/var/log/vsftpd.log` | ftp, hydra-ftp, FTP CVEs               |
+| `/var/log/mysql.log`  | mysql, hydra-mysql, MySQL CVEs         |
+| `/var/log/redis.log`  | redis, hydra-redis, Redis CVEs         |
+| `/var/log/mail.log`   | mail CVEs                              |
+| `/var/log/syslog`     | nc, hydra-telnet, generic CVE fallback |
+
+Allowlist (not a `/var/log/` prefix) so a forged envelope can't plant arbitrary files anywhere under `/var/log/` on a machine the actor doesn't own (e.g. `/var/log/payload.sh`, `/var/log/.ssh/config`). Adding a new logger means adding a new entry — the bypass is intentionally append-only and code-controlled. The predicate runs on the verified `payload.path`; the client cannot spoof.
+
+Bypass applies ONLY to `upsertPatch`. `removePatch` on an allowlisted log path still requires a session (covering tracks needs real access to the box).
 
 This bypass exists to keep the gate compatible with the **cross-player log visibility** rule — every player sees every other player's recon traces on shared machines, since defenders gain agency from observing intruder behaviour. Future hardening: a dedicated server-composed event stream (forgery-resistant), at which point this bypass goes away.
 
