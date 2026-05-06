@@ -41,16 +41,27 @@ vi.mock('../identity', () => ({
 }));
 
 // Mock useSession — FileSystemContext reads session.machine + currentPath
-// + hostname. The hostname IS the workstation_id (the storage key for the
-// player's filesystem) under the eliminated-localhost model. Tests use a
-// fixed value so all `'localhost'` literals removed from production code
-// can be referenced via TEST_HOSTNAME.
+// + userType + hostname. The hostname IS the workstation_id (the storage
+// key for the player's filesystem) under the eliminated-localhost model.
+// Tests use a fixed value so all `'localhost'` literals removed from
+// production code can be referenced via TEST_HOSTNAME.
+//
+// The mock reads from a mutable mockSession so tests can simulate session
+// changes (su / ssh / exit) by mutating it and re-rendering. Default
+// values cover the "current player on their own workstation as root"
+// case that most tests assume.
 const TEST_HOSTNAME = 'workstation-aabbccdd';
+
+let mockSession: { machine: string; currentPath: string; userType: 'root' | 'user' | 'guest' } = {
+  machine: TEST_HOSTNAME,
+  currentPath: '/',
+  userType: 'root',
+};
 
 vi.mock('../session/SessionContext', () => ({
   useSession: () => ({
-    session: { machine: 'workstation-aabbccdd', currentPath: '/' },
-    hostname: 'workstation-aabbccdd',
+    session: mockSession,
+    hostname: TEST_HOSTNAME,
   }),
 }));
 
@@ -124,6 +135,9 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
     // about subscriptions). Tests that exercise realtime override per-case.
     vi.mocked(mockedGetRealtimeClient).mockReturnValue(null);
     vi.mocked(mockedSubscribeToMachine).mockReturnValue(() => {});
+    // Reset the mutable session mock to its default each test so prior
+    // tests' session-change mutations don't leak.
+    mockSession = { machine: TEST_HOSTNAME, currentPath: '/', userType: 'root' };
   });
 
   // -----------------------------------------------------------------------
@@ -613,15 +627,10 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
       // snapshot.
       let setOccupants: ((ids: readonly string[] | undefined) => void) | null = null;
       const Outer = ({ children }: { children: ReactNode }) => {
-        const [ids, setter] = useState<readonly string[] | undefined>([
-          'mainframe-1a2b3c4d',
-        ]);
+        const [ids, setter] = useState<readonly string[] | undefined>(['mainframe-1a2b3c4d']);
         setOccupants = setter;
         return (
-          <FileSystemProvider
-            localhostFileSystem={baseLocalhost}
-            lanOccupantHostnames={ids}
-          >
+          <FileSystemProvider localhostFileSystem={baseLocalhost} lanOccupantHostnames={ids}>
             {children}
           </FileSystemProvider>
         );
@@ -806,7 +815,7 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
   // authoritative state via listPatchesForMachines. Hints whose
   // originatorKey matches the local pubkey are skipped (the local
   // optimistic apply / cross-tab BroadcastChannel already covered the
-  // change). See project_realtime_publish_authorization memory.
+  // change).
   // -----------------------------------------------------------------------
 
   describe('realtime hint subscriptions', () => {
@@ -928,15 +937,10 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
 
       let setOccupants: ((ids: readonly string[] | undefined) => void) | null = null;
       const Outer = ({ children }: { children: ReactNode }) => {
-        const [ids, setter] = useState<readonly string[] | undefined>([
-          'mainframe-1a2b3c4d',
-        ]);
+        const [ids, setter] = useState<readonly string[] | undefined>(['mainframe-1a2b3c4d']);
         setOccupants = setter;
         return (
-          <FileSystemProvider
-            localhostFileSystem={baseLocalhost}
-            lanOccupantHostnames={ids}
-          >
+          <FileSystemProvider localhostFileSystem={baseLocalhost} lanOccupantHostnames={ids}>
             {children}
           </FileSystemProvider>
         );
@@ -1347,6 +1351,82 @@ describe('FileSystemProvider — server-aware patch dispatch', () => {
           .mock.calls.map((c) => (c as unknown as SubscribeMockArgs)[1]);
         expect(newMachineIds.sort()).toEqual([TEST_HOSTNAME, '10.0.0.42'].sort());
       });
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Session-change refetch: when the foreground session's userType changes
+  // (su, ssh push, exit), the server-side read-path filter returns a
+  // different set of rows for the affected machine. The client must
+  // refetch so the local FS state reflects the new tier without waiting
+  // for a Realtime hint or page reload.
+  // -----------------------------------------------------------------------
+
+  describe('session-change refetch', () => {
+    it('refetches the affected machine when session userType changes (e.g., su to root)', async () => {
+      mockSession = { machine: 'remote-host', currentPath: '/', userType: 'guest' };
+      const { rerender } = renderHook(() => useFileSystem(), {
+        wrapper: wrap({
+          homeFileSystems: { 'remote-host': baseLocalhost },
+        }),
+      });
+
+      // Wait for initial mount fetch to settle, then clear so we can
+      // observe the session-change refetch in isolation.
+      await waitFor(() => {
+        expect(mockedListPatchesForMachines).toHaveBeenCalled();
+      });
+      vi.mocked(mockedListPatchesForMachines).mockClear();
+
+      // Simulate `su root` on the same machine.
+      mockSession = { machine: 'remote-host', currentPath: '/', userType: 'root' };
+      rerender();
+
+      await waitFor(() => {
+        expect(mockedListPatchesForMachines).toHaveBeenCalled();
+      });
+      const machineIds = vi.mocked(mockedListPatchesForMachines).mock.calls[0][1];
+      expect(machineIds).toContain('remote-host');
+    });
+
+    it('refetches when session machine changes (e.g., ssh push)', async () => {
+      mockSession = { machine: TEST_HOSTNAME, currentPath: '/', userType: 'root' };
+      const { rerender } = renderHook(() => useFileSystem(), {
+        wrapper: wrap({
+          homeFileSystems: { 'box-A': baseLocalhost, 'box-B': baseLocalhost },
+        }),
+      });
+
+      await waitFor(() => {
+        expect(mockedListPatchesForMachines).toHaveBeenCalled();
+      });
+      vi.mocked(mockedListPatchesForMachines).mockClear();
+
+      mockSession = { machine: 'box-B', currentPath: '/', userType: 'guest' };
+      rerender();
+
+      await waitFor(() => {
+        expect(mockedListPatchesForMachines).toHaveBeenCalled();
+      });
+      const machineIds = vi.mocked(mockedListPatchesForMachines).mock.calls[0][1];
+      expect(machineIds).toContain('box-B');
+    });
+
+    it('does NOT refetch when session is unchanged across rerenders', async () => {
+      mockSession = { machine: TEST_HOSTNAME, currentPath: '/', userType: 'root' };
+      const { rerender } = renderHook(() => useFileSystem(), { wrapper: wrap() });
+
+      await waitFor(() => {
+        expect(mockedListPatchesForMachines).toHaveBeenCalled();
+      });
+      vi.mocked(mockedListPatchesForMachines).mockClear();
+
+      // Rerender without changing session — no refetch should fire.
+      rerender();
+      // Wait long enough for the debounce window (150ms) plus slack.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+
+      expect(mockedListPatchesForMachines).not.toHaveBeenCalled();
     });
   });
 });

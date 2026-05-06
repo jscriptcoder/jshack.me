@@ -263,13 +263,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // requested machines. Single round-trip; handler dispatches
       // tier 2 vs tier 3 per machine_id from the resulting Map.
       // ended_at IS NULL filter is enforced here (the adapter assumes
-      // restricted-to-active rows).
+      // restricted-to-active rows). ORDER BY created_at DESC ensures
+      // the newest row comes first for each (player_key, machine_id);
+      // the adapter's first-write-wins keeps the foreground session
+      // when stacked sessions exist (su / nested ssh / exploit).
       const { data, error } = await supabase
         .from('sessions')
         .select('machine_id, credentials')
         .eq('player_key', params.player_key)
         .in('machine_id', [...params.machine_ids])
-        .is('ended_at', null);
+        .is('ended_at', null)
+        .order('created_at', { ascending: false });
       if (error) console.error('[patches] supabase findActiveSessionsBatch error:', error);
       return { data, error };
     },

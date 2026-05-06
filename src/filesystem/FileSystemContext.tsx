@@ -522,6 +522,45 @@ export const FileSystemProvider = ({
     };
   }, [machineIdsKey, refetchAffectedMachines]);
 
+  // Session-change refetch: when the foreground session's userType
+  // changes for a given machine (su, ssh push, exit), the read-path
+  // filter on the server returns a different set of rows for that
+  // machine. Without this trigger, the local FS state stays at the
+  // prior tier's filtered view until something else triggers a refetch
+  // (Realtime hint from another player, page reload, scope change).
+  //
+  // The session-machine pair is the foreground identity from the
+  // player's stack. Server-side, multiple stacked sessions can be
+  // active simultaneously on the same (player, machine) — the bulk
+  // adapter takes the most-recent (newest created_at) so the filter
+  // matches the foreground tier. After endServerSession lands the
+  // popped row drops out and the next-newest active row becomes
+  // foreground naturally.
+  //
+  // Initial mount returns early — the rehydration useEffect already
+  // fetches for every machine in scope at startup.
+  const lastSessionRef = useRef<{ readonly machine: string; readonly userType: UserType } | null>(
+    null,
+  );
+  useEffect(() => {
+    const curr = { machine: session.machine, userType: session.userType };
+    const prev = lastSessionRef.current;
+    lastSessionRef.current = curr;
+    if (prev === null) return;
+    if (prev.machine === curr.machine && prev.userType === curr.userType) return;
+
+    pendingHintMachinesRef.current.add(curr.machine);
+    if (hintDebounceTimerRef.current !== null) {
+      clearTimeout(hintDebounceTimerRef.current);
+    }
+    hintDebounceTimerRef.current = setTimeout(() => {
+      hintDebounceTimerRef.current = null;
+      const machineIds = [...pendingHintMachinesRef.current];
+      pendingHintMachinesRef.current.clear();
+      void refetchAffectedMachines(machineIds);
+    }, HINT_REFETCH_DEBOUNCE_MS);
+  }, [session.machine, session.userType, refetchAffectedMachines]);
+
   // Track whether the missionFileSystems effect is running for the first time.
   // On initial mount with a persisted mission, we replay cached patches so the
   // user's in-progress work (apt installs, nano edits, etc.) survives page reload.

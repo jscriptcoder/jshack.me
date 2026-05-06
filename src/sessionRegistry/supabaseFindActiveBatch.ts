@@ -5,11 +5,21 @@
 //   SELECT machine_id, credentials FROM sessions
 //    WHERE player_key = $player_key
 //      AND machine_id = ANY($machine_ids)
-//      AND ended_at IS NULL;
+//      AND ended_at IS NULL
+//    ORDER BY created_at DESC;
 //
 // The read-path filter (handleListPatchesForMachines) consumes this map
 // to dispatch tier 2 (session + walker) vs tier 3 (no-session +
 // allowlist) per machine_id. Single round-trip vs. one-per-machine.
+//
+// Stacked sessions: pushSession (su / nested ssh / exploit) doesn't end
+// the prior server-side session, so a player can hold multiple active
+// rows for the same (player, machine). The SQL ORDER BY created_at DESC
+// puts the newest row first; the adapter takes first-write-wins so the
+// foreground (most-recent) session's userType drives the filter — the
+// same tier the player's UI is in. After exit/popSession, the most
+// recent ended_at !=NULL row drops out and the next-newest active row
+// becomes foreground naturally.
 //
 // Strict parse posture mirrors the single-row adapter: any malformed
 // credentials JSONB poisons the batch so handler maps to 500 rather
@@ -55,7 +65,12 @@ export const createSupabaseFindActiveSessionsBatch =
     for (const row of data) {
       const parsed = credentialsSchema.safeParse(row.credentials);
       if (!parsed.success) return { ok: false };
-      sessionsByMachine.set(row.machine_id, parsed.data);
+      // First-write-wins on each machine_id: the SQL ORDER BY created_at
+      // DESC put the newest row first, so the foreground session's
+      // credentials are kept and any older stacked sessions are skipped.
+      if (!sessionsByMachine.has(row.machine_id)) {
+        sessionsByMachine.set(row.machine_id, parsed.data);
+      }
     }
     return { ok: true, sessionsByMachine };
   };

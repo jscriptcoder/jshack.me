@@ -136,14 +136,20 @@ describe('createSupabaseFindActiveSessionsBatch', () => {
     expect(await find({ player_key: 'pk1', machine_ids: ['10.0.0.1'] })).toEqual({ ok: false });
   });
 
-  it('handles duplicate machine_ids (later wins) — tolerates the unlikely degenerate case', async () => {
-    // Multiple active sessions on the same machine_id for a player would
-    // be a state bug elsewhere, but the adapter shouldn't crash. Last
-    // row wins via Map semantics — predictable.
+  it('handles stacked sessions on the same machine_id by keeping the FIRST row (most-recent under DESC SQL order)', async () => {
+    // pushSession doesn't end the prior server session, so after `su` a
+    // player has TWO active rows for (player, machine): the original
+    // user-tier session and the new root-tier one. The wiring SQL orders
+    // by created_at DESC, so the FIRST row is the newest — matching the
+    // foreground UI session. The adapter takes first-write-wins to
+    // preserve that selection.
     const query = vi.fn().mockResolvedValue({
       data: [
-        validRow('10.0.0.1', { username: 'first', userType: 'guest' }),
-        validRow('10.0.0.1', { username: 'second', userType: 'user' }),
+        // Newest first (SQL ORDER BY created_at DESC):
+        validRow('10.0.0.1', { username: 'alice', userType: 'root' }),
+        // Older rows for the same machine — must be ignored:
+        validRow('10.0.0.1', { username: 'alice', userType: 'user' }),
+        validRow('10.0.0.1', { username: 'guest1', userType: 'guest' }),
       ],
       error: null,
     });
@@ -153,8 +159,8 @@ describe('createSupabaseFindActiveSessionsBatch', () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.sessionsByMachine.get('10.0.0.1')).toEqual({
-        username: 'second',
-        userType: 'user',
+        username: 'alice',
+        userType: 'root',
       });
     }
   });
