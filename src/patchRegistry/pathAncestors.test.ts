@@ -3,11 +3,9 @@ import { ancestorPaths } from './pathAncestors';
 
 // ancestorPaths returns the chain of parent paths the permission walker
 // needs for traverse (execute) checks, ordered root-to-immediate-parent
-// and EXCLUDING the target itself. Order is load-bearing: it matches the
-// walker's PermissionInput.parentChain shape so the chain can be looked
-// up in machine_filesystems and passed straight in.
-//
-// See plans/read-path-privacy-filter.md and src/filesystem/permissionWalker.ts.
+// and EXCLUDING the target itself. Order is load-bearing: it matches
+// permissionWalker's PermissionInput.parentChain shape so the chain can
+// be looked up in machine_filesystems and passed straight in.
 
 describe('ancestorPaths — chain composition', () => {
   it('returns root-to-immediate-parent ordering for deeply nested paths', () => {

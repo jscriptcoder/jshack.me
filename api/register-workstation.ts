@@ -25,8 +25,6 @@ import {
 // populates the L2 projection (machine_filesystems) with its base FS.
 // Closes the leaf-only fallback that lets intruders with cracked
 // sessions on a player's workstation forge envelopes that bypass L2.
-//
-// See plans/l2-own-workstation-backfill.md (Step 4).
 
 // Low rate limit — register is once-per-game, but allow a small
 // handful of retries for transient failures (network blip, populate

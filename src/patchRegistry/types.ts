@@ -72,8 +72,6 @@ export type RemovePatchPayload = z.infer<typeof removePatchSignedPayloadSchema>;
 // every player's mutations, not just my own. Capped at 100 machine_ids
 // per request — the player's current view (localhost + home + mission
 // machines) is well under that today.
-//
-// See memory: project_multiplayer_cross_player_visibility.md.
 export const listPatchesForMachinesSignedPayloadSchema = z
   .object({
     action: z.literal('listPatchesForMachines'),

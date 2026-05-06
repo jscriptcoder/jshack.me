@@ -15,8 +15,11 @@ import type { SystemLibrary } from '../generation/pools/systemLibraryTemplates';
 // weak thematic fit (mkdir, echo, man, ping, ifconfig, nmcli) and every
 // builtin / game command.
 //
-// See plans/system-library-cves.md for the design rationale behind each
-// mapping.
+// Each mapping reflects the lib a real Linux binary would dynamically
+// link to: PCRE for tools that support regex (ls/find/grep/cat/...),
+// libpam+libcrypt for su, libsystemd for service-control verbs,
+// libreadline for nano. The check is opt-in — commands not in this map
+// run unconditionally.
 
 export const libraryDeps: Readonly<Record<string, readonly SystemLibrary[]>> = {
   su: ['libpam', 'libcrypt'],

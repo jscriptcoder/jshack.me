@@ -17,6 +17,10 @@ import { createSupabaseFindActiveSession } from '../src/sessionRegistry/supabase
 import type { FindActiveSessionParams } from '../src/sessionRegistry/supabaseFindActive.js';
 import { createSupabaseFindMachineFs } from '../src/patchRegistry/supabaseFindMachineFs.js';
 import type { FindMachineFsParams } from '../src/patchRegistry/supabaseFindMachineFs.js';
+import { createSupabaseFindMachineFsBatch } from '../src/patchRegistry/supabaseFindMachineFsBatch.js';
+import type { FindMachineFsBatchParams } from '../src/patchRegistry/supabaseFindMachineFsBatch.js';
+import { createSupabaseFindActiveSessionsBatch } from '../src/sessionRegistry/supabaseFindActiveBatch.js';
+import type { FindActiveSessionsBatchParams } from '../src/sessionRegistry/supabaseFindActiveBatch.js';
 import {
   createUpstashRateLimiter,
   noopRateLimiter,
@@ -237,6 +241,40 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return { data, error };
   });
 
+  const findMachineFsBatch = createSupabaseFindMachineFsBatch(
+    async (params: FindMachineFsBatchParams) => {
+      // Bulk lookup driving the read-path filter. Single round-trip
+      // for every (machine_id, path, owner, permissions) row whose
+      // machine_id is in the requested set. Handler builds the
+      // Map<machine_id, Map<path, perms>> in JS and uses it for both
+      // target perms and ancestor traverse decisions.
+      const { data, error } = await supabase
+        .from('machine_filesystems')
+        .select('machine_id, path, owner, permissions')
+        .in('machine_id', [...params.machine_ids]);
+      if (error) console.error('[patches] supabase findMachineFsBatch error:', error);
+      return { data, error };
+    },
+  );
+
+  const findActiveSessionsBatch = createSupabaseFindActiveSessionsBatch(
+    async (params: FindActiveSessionsBatchParams) => {
+      // Bulk lookup of the requester's active sessions across the
+      // requested machines. Single round-trip; handler dispatches
+      // tier 2 vs tier 3 per machine_id from the resulting Map.
+      // ended_at IS NULL filter is enforced here (the adapter assumes
+      // restricted-to-active rows).
+      const { data, error } = await supabase
+        .from('sessions')
+        .select('machine_id, credentials')
+        .eq('player_key', params.player_key)
+        .in('machine_id', [...params.machine_ids])
+        .is('ended_at', null);
+      if (error) console.error('[patches] supabase findActiveSessionsBatch error:', error);
+      return { data, error };
+    },
+  );
+
   const { rateLimiter, nonceStore } = buildUpstashAdapters();
 
   const { status, body, headers } = await handlePatchesRequest(req.body, {
@@ -246,6 +284,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     clearOwnedPatches,
     findActiveSession,
     findMachineFs,
+    findMachineFsBatch,
+    findActiveSessionsBatch,
     publishPatchChange,
     rateLimiter,
     nonceStore,

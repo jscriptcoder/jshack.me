@@ -3,7 +3,7 @@ import { matchesReadAllowlist, READ_ALLOWLIST } from './readAllowlist';
 
 // The allowlist gates what can be returned by listPatchesForMachines for
 // callers without a session on the target machine. Default-deny: anything
-// not on the allowlist is dropped. See plans/read-path-privacy-filter.md.
+// not on the allowlist is dropped.
 //
 // Tests describe behaviour: pattern semantics (segment-bound vs recursive
 // glob, exact match), and the externally-observable shape of the live
@@ -142,8 +142,10 @@ describe('READ_ALLOWLIST — shipped contract', () => {
   });
 
   it('drops password hashes — /etc/passwd is NOT on the allowlist', () => {
-    // Inline-hash storage; remote-cracking without a session would break
-    // the wallet-defense premise. See feedback_no_etc_shadow.md.
+    // Passwords live INLINE in /etc/passwd in this game (there is no
+    // /etc/shadow); allowing no-session callers to fetch the file would
+    // enable offline cracking and break the wallet-defense premise that
+    // requires cracking root before reading wallet keys.
     expect(matchesReadAllowlist('/etc/passwd')).toBe(false);
   });
 

@@ -15,8 +15,6 @@ import { filterReadablePatches, isRowReadable } from './readFilter';
 // and allowlist are exercised here as black boxes via patch outcomes.
 // Universal coverage: rules are machine-type-agnostic (workstation,
 // home-net, world-net, mission).
-//
-// See plans/read-path-privacy-filter.md.
 
 const TYPES: ReadonlyArray<'root' | 'user' | 'guest'> = ['root', 'user', 'guest'];
 
