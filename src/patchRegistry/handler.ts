@@ -282,7 +282,8 @@ const enforceL2 = async (
 const sanitizeContent = (content: string | null): string | null =>
   content === null ? null : content.replaceAll('\u0000', '\uFFFD');
 
-// Ambient log-path predicate: writes under /var/log/ bypass L1.
+// Ambient log-path predicate: explicit allowlist of canonical log
+// files that bypass L1.
 //
 // Recon (nmap, curl, hydra, gobuster, ssh-fail, etc.) leaves logs on
 // the target machine without the actor having an active session there
@@ -290,15 +291,30 @@ const sanitizeContent = (content: string | null): string | null =>
 // for "I logged in, I'm mutating this machine" mutations; ambient log
 // appends are a different write class.
 //
-// Server-controlled and path-prefix based: client cannot opt out of
-// L1 by spoofing a non-log path; the predicate runs on the verified
-// payload.path. Bypass applies ONLY to upsertPatch — covering tracks
-// (removePatch on a log file) still needs a real session on the box.
+// Allowlist (not a `/var/log/` prefix) so a forged envelope can't
+// plant arbitrary files under /var/log/ on a machine the actor
+// doesn't own. Every entry here is a real writer somewhere in the
+// codebase — adding a new logger means adding a new entry. Predicate
+// runs on the verified payload.path; client cannot spoof.
+//
+// Bypass applies ONLY to upsertPatch — covering tracks (removePatch
+// on a log file) still needs a real session on the box.
 //
 // See project_multiplayer_cross_player_visibility memory for the
 // broader "everyone sees everyone's changes" rule that makes log
 // trail-leaving load-bearing for multiplayer gameplay.
-const isAmbientLogPath = (path: string): boolean => path.startsWith('/var/log/');
+const AMBIENT_LOG_FILES: ReadonlySet<string> = new Set([
+  '/var/log/auth.log', // ssh, scp, su, hydra-ssh
+  '/var/log/access.log', // curl, gobuster, http CVEs
+  '/var/log/kern.log', // nmap
+  '/var/log/vsftpd.log', // ftp, hydra-ftp, ftp CVEs
+  '/var/log/mysql.log', // mysql, hydra-mysql, mysql CVEs
+  '/var/log/redis.log', // redis, hydra-redis, redis CVEs
+  '/var/log/mail.log', // mail CVEs
+  '/var/log/syslog', // nc, hydra-telnet, generic CVE fallback
+]);
+
+const isAmbientLogPath = (path: string): boolean => AMBIENT_LOG_FILES.has(path);
 
 const handleUpsertPatch = async (
   publicKey: string,
