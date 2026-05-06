@@ -86,6 +86,12 @@ npx dotenv -e .env.development.local -- npx tsx scripts/verifyDualWrite.ts
 # specific machine (e.g. 192.0.2.80 for findit.io); without it picks any restrictive row in machine_filesystems.
 npx dotenv -e .env.development.local -- npx tsx scripts/testL2Bypass.ts [--machine-id <ip>]
 
+# Forge signed envelopes against /api/patches and verify the L1 ambient-log-path allowlist (handler.ts
+# AMBIENT_LOG_FILES). 14 cases: 8 allowlisted log files bypass to 200, 6 non-allowlisted /var/log/ paths
+# (incl. /var/log/payload.sh, subdirs, rotated suffixes) gate to 403 no_session. Self-cleaning. Requires
+# vercel:dev running.
+npx dotenv -e .env.development.local -- npx tsx scripts/testAmbientLogAllowlist.ts
+
 # Forge signed envelopes against /api/patches listPatchesForMachines and verify the read-path filter
 # (3/3 scenarios: no-session caller drops secrets keeps allowlist, guest-session caller's walker drops
 # root-only keeps allowlist, owner gets everything). Self-cleaning. Requires vercel:dev running.
