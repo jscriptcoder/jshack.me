@@ -230,6 +230,14 @@ L2 coverage today:
 - **World networks** (findit.io, playground): full coverage as of 2026-05-04. `machine_filesystems` populated via `scripts/backfillWorldNetworkBaseFs.ts` (dispatches through the `ThemedGenerator` registry, same flatten + bulk-insert helpers as home networks). World rows ship via SQL migration, so the operational pattern is to re-run the backfill after every new themed-network migration.
 - **Mission machines**: leaf-only — `mission_instances` aren't yet a server-side concept (decided 2026-04-23 in `project_multiplayer_mission_instances` memo; not yet built). Once that lands, missions get the same full coverage home + world networks have.
 
+**L2-for-reads (read-path privacy filter).** `listPatchesForMachines` runs a server-side per-row filter before returning, applied uniformly to every machine type (workstations, home-net, world-net, mission). For each row in the SQL result the handler dispatches:
+
+1. **Owner of the workstation** (suffix-match on `player_key`) → keep. Workstation-only bypass — never fires for other players' workstations or non-workstation machines.
+2. **Has active session on the machine** → walker (`canRead`) with full ancestor chain. Drop if denied. Leaf-only fallback when `machine_filesystems` has no row for the path (parity with L2 writes).
+3. **No session** → keep only if the path matches the externally-observable allowlist (`/var/run/*.pid`, `/etc/iptables/rules.v4`, `/etc/snmp/snmpd.conf`, `/etc/switch/acl.conf`, `/var/www/**`, `/var/lib/dpkg/status`); default-deny otherwise.
+
+Without this filter a forged signed envelope from anyone on the same LAN could pull `/root/*`, wallet keys, and `/etc/passwd` hashes (passwords live inline in `/etc/passwd` in this game, so this would enable offline cracking without ever establishing presence on the box). Wire-level smoke: `scripts/testReadPathPrivacy.ts` (3-scenario forge against `vercel:dev`).
+
 **Deferred: L3 (game-logic re-run).** "The smart server" that re-runs game logic against every action; piecemeal, per-feature.
 
 See `src/patchRegistry/README.md` for the L2 wiring + threat-model coverage table, and `docs/technology-choices.md` (Pattern A — `machine_filesystems` eager denormalization) for the architecture decision and the rejected alternatives.

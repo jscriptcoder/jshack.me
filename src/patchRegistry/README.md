@@ -4,7 +4,7 @@ Server-authoritative filesystem patch registry. Backs `/api/patches` — the Ver
 
 The DB row is keyed on `(player_key, machine_id, path)`. The server is the source of truth for "what patches has player X applied to machine Y at path Z?" — cross-device sync, cross-player visibility on shared networks (mission instances, home networks, persistent darknet hubs), and pre-reload ghost-rehydration defense all flow from this table. Reads at the rehydration boundary go through `listPatchesForMachines(machine_ids[])`, which returns rows from any author for the supplied machines (ordered `updated_at ASC` so client-side `applyPatches` reduce-order yields last-write-wins per `(machine_id, path)`).
 
-See `docs/technology-choices.md` (Patches: server-authoritative with two-call deletion) and the `project_multiplayer_security_model` memory for the broader design.
+See `docs/technology-choices.md` (Patches: server-authoritative with two-call deletion) for the broader design.
 
 ## Files
 
@@ -44,7 +44,7 @@ verify → rate-limit → switch (action):
   clearOwnedPatches      → DELETE WHERE machine_id = 'localhost'                  → 200 { affected }
 ```
 
-`clearTransientPatches` (DELETE WHERE machine_id <> 'localhost') was removed in v0.112.0 along with the mission-transition wipe in `FileSystemContext`. Mission instances are permanent (per `project_multiplayer_mission_instances` memory — once accepted, the seed retires but the instance and its patches persist forever for anyone who can route to it). Home networks and world networks are shared persistent infrastructure. Cross-player writes on shared machines are part of the shared world. So no patch on a non-localhost machine should ever be wiped server-side.
+`clearTransientPatches` (DELETE WHERE machine_id <> 'localhost') was removed in v0.112.0 along with the mission-transition wipe in `FileSystemContext`. Mission instances are permanent — once accepted, the seed retires but the instance and its patches persist forever for anyone who can route to it. Home networks and world networks are shared persistent infrastructure. Cross-player writes on shared machines are part of the shared world. So no patch on a non-localhost machine should ever be wiped server-side.
 
 Action-dispatch over URL-shape REST mirrors `/api/sessions` — every action POSTs (signed bodies require POST), so a single URL avoids duplicating the verify+rate-limit prelude.
 
@@ -171,18 +171,21 @@ The gate is the **actual security boundary** for filesystem mutations. Before PR
 
 `localhost` is exempt — the player always owns their own box.
 
-Reads and the bulk clear (`listPatchesForMachines`, `clearOwnedPatches`) are NOT gated. `listPatchesForMachines` is a cross-player read — knowing the `machine_id` is the gate, since the world is one shared persistent state (see `project_multiplayer_cross_player_visibility` memory). `clearOwnedPatches` scopes to the player's own localhost rows by `player_key`. Neither depends on per-machine session ownership.
+`listPatchesForMachines` is gated by a server-side per-row read filter (see "Read-path filter" below). `clearOwnedPatches` scopes to the player's own workstation rows via `player_key + workstation_id` at the SQL layer.
 
-### `localhost` exception in `listPatchesForMachines`
+### Read-path filter
 
-Every player's workstation uses the literal string `'localhost'` as its `machine_id`, so the cross-player read would otherwise leak Player A's localhost mutations into Player B's view. The wiring SQL applies a guard:
+`listPatchesForMachines` runs a per-row filter before returning. For each row in the SQL result the handler dispatches:
 
-```sql
-WHERE machine_id IN (...)
-  AND (machine_id <> 'localhost' OR player_key = $verified_pubkey)
-```
+1. **Owner of the workstation** (suffix-match on the requester's `player_key`) → keep. Workstation-only — never fires for other players' workstations or non-workstation machines.
+2. **Has active session on the machine** → walker (`canRead`) with the full ancestor chain. Drop if denied. Leaf-only fallback when `machine_filesystems` has no row for the path (parity with L2 writes).
+3. **No session** → keep only if the path matches the externally-observable allowlist (`/var/run/*.pid`, `/etc/iptables/rules.v4`, `/etc/snmp/snmpd.conf`, `/etc/switch/acl.conf`, `/var/www/**`, `/var/lib/dpkg/status`); default-deny otherwise.
 
-Localhost rows are filtered to the calling player's writes; every other machine still gets the multi-author read. Future shared surfaces (home networks, mission instances) use unique IDs per player allocated by the IP registry, so they don't need this special case.
+Without this filter, an attacker with a legit Ed25519 keypair could sign a `listPatchesForMachines([<any discoverable machine_id>])` envelope and pull `/root/*`, wallet keys, or `/etc/passwd` hashes (passwords live inline in `/etc/passwd` in this game) — breaking the wallet-defense premise that requires cracking root before stealing wallet keys. The filter applies uniformly to every machine type (workstations, home-net, world-net, mission); only tier 1 is workstation-specific.
+
+The filter pulls perms (`findMachineFsBatch`) and active sessions (`findActiveSessionsBatch`) in parallel — one SQL round-trip each — then composes them into the in-memory `Map<machine_id, Map<path, perms>>` and `Map<machine_id, Credentials>` lookups the pure `filterReadablePatches` consumes. Distinct 500 error codes (`session_lookup_failed` / `fs_lookup_failed`) so callers can tell what broke.
+
+Wire-payload smoke: `scripts/testReadPathPrivacy.ts` (3-scenario forge against `vercel:dev` — no-session / guest-session / owner).
 
 ### Ambient log-path bypass
 
@@ -190,15 +193,16 @@ Localhost rows are filtered to the calling player's writes; every other machine 
 
 The bypass is path-prefix based and server-controlled — the client cannot opt out of L1 by spoofing a non-log path; the predicate runs on the verified `payload.path`. Bypass applies ONLY to `upsertPatch`. `removePatch` on a `/var/log/...` path still requires a session (covering tracks needs real access to the box).
 
-This bypass exists to keep the gate compatible with the **cross-player log visibility** rule that ships with multiplayer (see `project_multiplayer_cross_player_visibility` memory). Future hardening: a dedicated server-composed event stream (forgery-resistant), at which point this bypass goes away.
+This bypass exists to keep the gate compatible with the **cross-player log visibility** rule — every player sees every other player's recon traces on shared machines, since defenders gain agency from observing intruder behaviour. Future hardening: a dedicated server-composed event stream (forgery-resistant), at which point this bypass goes away.
 
 ### Layered defense (L1 / L2 / L3)
 
-| Layer | What it checks                                                                                                                            | Status                                                                                                       |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| L1    | Active session exists on `machine_id` for `player_key`                                                                                    | ✅ shipped (PR #78)                                                                                          |
-| L2    | Session credentials have write permission on the target path (allowlist walk on the target's stored permissions in `machine_filesystems`) | ✅ shipped — full coverage on home + world networks; leaf-only on mission machines pending mission_instances |
-| L3    | Game-logic re-run ("smart server") — was the CVE leading to this session published-by-now, etc.                                           | Way later                                                                                                    |
+| Layer       | What it checks                                                                                                                             | Status                                                                                                           |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| L1          | Active session exists on `machine_id` for `player_key`                                                                                     | ✅ shipped (PR #78)                                                                                              |
+| L2 (writes) | Session credentials have write permission on the target path (walker against `machine_filesystems`)                                        | ✅ shipped — full coverage on home + world + own-workstations; leaf-only on missions pending `mission_instances` |
+| L2 (reads)  | Three-tier read filter on `listPatchesForMachines`: owner / session+walker / no-session+allowlist. Universal coverage across machine types | ✅ shipped                                                                                                       |
+| L3          | Game-logic re-run ("smart server") — was the CVE leading to this session published-by-now, etc.                                            | Way later                                                                                                        |
 
 ### L2 wiring
 
