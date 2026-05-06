@@ -23,9 +23,19 @@ import type {
 } from '../sessionRegistry/supabaseFindActive.js';
 import type { Credentials } from '../sessionRegistry/types.js';
 import type { FindMachineFsParams, FindMachineFsResult } from './supabaseFindMachineFs.js';
+import type {
+  FindMachineFsBatchParams,
+  FindMachineFsBatchResult,
+} from './supabaseFindMachineFsBatch.js';
+import type {
+  FindActiveSessionsBatchParams,
+  FindActiveSessionsBatchResult,
+} from '../sessionRegistry/supabaseFindActiveBatch.js';
 import { canWrite } from '../filesystem/permissionWalker.js';
 import { defaultPermissionsForNode } from '../filesystem/defaultPermissions.js';
 import { deriveHostnameSuffix } from '../homeNetworks/homeNetworkHelpers.js';
+import { filterReadablePatches } from './readFilter.js';
+import type { FilePermissions } from '../filesystem/types.js';
 
 export type HandlerResponse = {
   readonly status: number;
@@ -55,6 +65,15 @@ export type HandlerDeps = {
   // exists; full enforcement requires base-FS backfill of
   // machine_filesystems (see Step 7+ of the L2 plan).
   readonly findMachineFs: (params: FindMachineFsParams) => Promise<FindMachineFsResult>;
+  // Bulk variants used exclusively by handleListPatchesForMachines for
+  // the three-tier read filter. Single SQL round-trip each (vs N
+  // per-machine calls).
+  readonly findMachineFsBatch: (
+    params: FindMachineFsBatchParams,
+  ) => Promise<FindMachineFsBatchResult>;
+  readonly findActiveSessionsBatch: (
+    params: FindActiveSessionsBatchParams,
+  ) => Promise<FindActiveSessionsBatchResult>;
   // Realtime hint broadcast: fired after each successful upsertPatch /
   // removePatch so subscribed clients on shared machines refetch live.
   // The payload is just (machine_id, originator_key) — receivers do
@@ -377,18 +396,35 @@ const handleRemovePatch = async (
   return { status: 200, body: { affected: result.affected } };
 };
 
-// Cross-player read path: returns all patches written to the supplied
-// machines from any author. No L1 session gate — the world's
-// persistent state on a shared machine is visible to everyone who can
-// route to it. Knowing the machine_id is the gate; visibility-rule
-// enforcement lands in a future PR (blocked on the home-network
-// occupants table).
+// Cross-player read path with per-row privacy filtering.
 //
-// publicKey is forwarded to the adapter for telemetry/audit but no
-// longer narrows the SQL — every machine_id is per-player unique by
-// construction now (workstation = suffixed hostname; mission instance =
-// IP registry; LAN occupant = hostname column). See
+// The SQL select returns all patches for the requested machine_ids
+// (knowing the machine_id is the discovery gate). The three-tier
+// filter then drops rows the requester wouldn't be allowed to read
+// in-game:
+//
+//   Tier 1 — Owner of own workstation → keep all.
+//   Tier 2 — Has session on the machine → walker.canRead with full
+//            ancestor chain. Drop if denied. Leaf-only fallback when
+//            machine_filesystems has no row for the path (parity with
+//            L2 writes).
+//   Tier 3 — No session → matchesReadAllowlist + default-deny.
+//
+// Two extra round-trips (findMachineFsBatch + findActiveSessionsBatch)
+// run in parallel after the SQL select. Either failing maps to 500 with
+// a distinct error code so the caller can tell what broke.
+//
+// player_key is forwarded to the SQL adapter for telemetry/audit but no
+// longer narrows the SELECT — every machine_id is per-player unique by
+// construction (workstation = suffixed hostname; mission instance = IP
+// registry; LAN occupant = hostname column). See
 // ListPatchesForMachinesParams for the rationale.
+//
+// Threat model: without this filter, anyone who can sign a request and
+// name a discoverable machine_id can pull /root/*, wallet keys, and
+// /etc/passwd hashes (passwords live inline in /etc/passwd in this
+// game) — breaking the wallet-defense gameplay premise that requires
+// cracking root before stealing the wallet.
 const handleListPatchesForMachines = async (
   publicKey: string,
   payload: Extract<PatchesPayload, { action: 'listPatchesForMachines' }>,
@@ -401,7 +437,35 @@ const handleListPatchesForMachines = async (
   if (!result.ok) {
     return { status: 500, body: { error: 'query_failed' } };
   }
-  return { status: 200, body: { patches: result.patches } };
+
+  const [sessionsRes, fsRes] = await Promise.all([
+    deps.findActiveSessionsBatch({
+      player_key: publicKey,
+      machine_ids: payload.machine_ids,
+    }),
+    deps.findMachineFsBatch({ machine_ids: payload.machine_ids }),
+  ]);
+  if (!sessionsRes.ok) {
+    return { status: 500, body: { error: 'session_lookup_failed' } };
+  }
+  if (!fsRes.ok) {
+    return { status: 500, body: { error: 'fs_lookup_failed' } };
+  }
+
+  const fsByMachine = new Map<string, Map<string, FilePermissions>>();
+  for (const row of fsRes.rows) {
+    const inner = fsByMachine.get(row.machine_id) ?? new Map<string, FilePermissions>();
+    inner.set(row.path, row.permissions);
+    fsByMachine.set(row.machine_id, inner);
+  }
+
+  const sessionLookup = (machine_id: string) =>
+    sessionsRes.sessionsByMachine.get(machine_id) ?? null;
+  const fsLookup = (machine_id: string, path: string) =>
+    fsByMachine.get(machine_id)?.get(path) ?? null;
+
+  const filtered = filterReadablePatches(result.patches, publicKey, sessionLookup, fsLookup);
+  return { status: 200, body: { patches: filtered } };
 };
 
 // Cross-checks the supplied workstation_id against the verified

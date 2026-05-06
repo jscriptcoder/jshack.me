@@ -42,7 +42,7 @@ const STATUS_BY_VERIFY_REASON: Record<VerifyFailureReason, number> = {
 //      players can't allocate IPs in someone else's name even via Burp/curl.
 //
 // See docs/technology-choices.md ("Authenticated requests") for the broader
-// design and project_multiplayer_security_model.md memory.
+// design.
 export const handleAllocateRequest = async (
   envelope: unknown,
   deps: HandlerDeps,

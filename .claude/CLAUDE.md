@@ -86,6 +86,11 @@ npx dotenv -e .env.development.local -- npx tsx scripts/verifyDualWrite.ts
 # specific machine (e.g. 192.0.2.80 for findit.io); without it picks any restrictive row in machine_filesystems.
 npx dotenv -e .env.development.local -- npx tsx scripts/testL2Bypass.ts [--machine-id <ip>]
 
+# Forge signed envelopes against /api/patches listPatchesForMachines and verify the read-path filter
+# (3/3 scenarios: no-session caller drops secrets keeps allowlist, guest-session caller's walker drops
+# root-only keeps allowlist, owner gets everything). Self-cleaning. Requires vercel:dev running.
+npx dotenv -e .env.development.local -- npx tsx scripts/testReadPathPrivacy.ts
+
 # End-to-end smoke for /api/register-workstation against vercel:dev. 8 checks: fresh-register 201,
 # idempotent-repeat 200, conflicting-repeat 409, tampered-signature 401, plus DB-side row + machine_filesystems
 # count + /etc/passwd presence. Self-cleaning so it can be re-run idempotently.

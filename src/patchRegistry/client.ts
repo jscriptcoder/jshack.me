@@ -129,8 +129,6 @@ export const removePatch = async (
 // Server orders by updated_at ASC so the array order is the application
 // order — `applyPatches` reduce-order yields last-write-wins per
 // (machine_id, path).
-//
-// See memory: project_multiplayer_cross_player_visibility.md.
 export const listPatchesForMachines = async (
   identity: Identity,
   machine_ids: ReadonlyArray<string>,

@@ -10,8 +10,6 @@ import { z } from 'zod';
 // We sign the literal payload string (not a re-canonicalized object) so the
 // server never has to reproduce the client's JSON serialization. Eliminates a
 // whole class of "different libraries serialize objects differently" bugs.
-//
-// See also: project_multiplayer_security_model.md memory.
 
 export type SignedEnvelope = {
   readonly payload: string;

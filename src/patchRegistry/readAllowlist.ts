@@ -10,8 +10,11 @@
 //
 // Files NOT on this list (e.g., /etc/passwd, /root/*, /home/<user>/*,
 // wallet keys, shell history, /var/log/*) drop through default-deny —
-// see plans/read-path-privacy-filter.md and project_read_path_privacy_gap
-// memory.
+// the no-session caller can't read them. /etc/passwd is specifically
+// excluded because passwords live inline in /etc/passwd in this game;
+// letting no-session callers fetch the hash list would enable offline
+// cracking without ever establishing presence on the box, breaking the
+// "must crack root first" gameplay loop on the wallet defense.
 //
 // TRIPWIRE: /var/lib/dpkg/status leaks the full installed package list,
 // not just running services. Today's CVE model is port-bound, so this is

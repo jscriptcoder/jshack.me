@@ -6,9 +6,8 @@ import type { PatchSummary } from './types.js';
 import { matchesReadAllowlist } from './readAllowlist.js';
 import { ancestorPaths } from './pathAncestors.js';
 
-// Three-tier server-side read filter for listPatchesForMachines. Per the
-// locked-in design (plans/read-path-privacy-filter.md), each row goes
-// through:
+// Three-tier server-side read filter for listPatchesForMachines. Each
+// row in the SQL response goes through:
 //
 //   Tier 1 — Owner of the machine (workstation suffix matches requester's
 //            player_key suffix) → permit. Workstation-only bypass; never

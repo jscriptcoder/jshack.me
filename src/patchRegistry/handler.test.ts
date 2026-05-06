@@ -18,6 +18,14 @@ import type {
   FindActiveSessionResult,
 } from '../sessionRegistry/supabaseFindActive';
 import type { FindMachineFsParams, FindMachineFsResult } from './supabaseFindMachineFs';
+import type {
+  FindMachineFsBatchParams,
+  FindMachineFsBatchResult,
+} from './supabaseFindMachineFsBatch';
+import type {
+  FindActiveSessionsBatchParams,
+  FindActiveSessionsBatchResult,
+} from '../sessionRegistry/supabaseFindActiveBatch';
 import type { RateLimiter } from '../ipRegistry/rateLimit';
 import { noopRateLimiter } from '../ipRegistry/rateLimit';
 import { noopNonceStore, type NonceStore } from '../signedRequest/nonceStore';
@@ -62,6 +70,12 @@ const mkDeps = (overrides: {
     params: FindActiveSessionParams,
   ) => Promise<FindActiveSessionResult>;
   readonly findMachineFs?: (params: FindMachineFsParams) => Promise<FindMachineFsResult>;
+  readonly findMachineFsBatch?: (
+    params: FindMachineFsBatchParams,
+  ) => Promise<FindMachineFsBatchResult>;
+  readonly findActiveSessionsBatch?: (
+    params: FindActiveSessionsBatchParams,
+  ) => Promise<FindActiveSessionsBatchResult>;
   readonly publishPatchChange?: PublishPatchChange;
   readonly rateLimiter?: RateLimiter;
   readonly nonceStore?: NonceStore;
@@ -106,6 +120,19 @@ const mkDeps = (overrides: {
     vi
       .fn<(params: FindMachineFsParams) => Promise<FindMachineFsResult>>()
       .mockResolvedValue({ ok: true, found: false }),
+  // Read-path filter (listPatchesForMachines) bulk lookups. Defaults are
+  // empty → no FS rows known → leaf-only fallback per row, no sessions
+  // → tier-3 allowlist applies. Tests override to exercise tiers 1/2.
+  findMachineFsBatch:
+    overrides.findMachineFsBatch ??
+    vi
+      .fn<(params: FindMachineFsBatchParams) => Promise<FindMachineFsBatchResult>>()
+      .mockResolvedValue({ ok: true, rows: [] }),
+  findActiveSessionsBatch:
+    overrides.findActiveSessionsBatch ??
+    vi
+      .fn<(params: FindActiveSessionsBatchParams) => Promise<FindActiveSessionsBatchResult>>()
+      .mockResolvedValue({ ok: true, sessionsByMachine: new Map() }),
   publishPatchChange:
     overrides.publishPatchChange ?? vi.fn<PublishPatchChange>().mockResolvedValue(undefined),
   rateLimiter: overrides.rateLimiter ?? noopRateLimiter,
@@ -534,10 +561,15 @@ describe('handlePatchesRequest — listPatchesForMachines', () => {
 
   // Two patches at the same path on the same machine, written by
   // different players — exactly what cross-player read needs to surface.
+  // Path is on the externally-observable allowlist (daemon liveness)
+  // so the read-path filter's tier 3 default-deny doesn't drop them
+  // when the requester has no session on the machine. The cross-author
+  // property under test is orthogonal to the filter — handled by the
+  // dedicated tier tests in the read-path filter describe block below.
   const patchFromPlayerA: PatchSummary = {
     machine_id: '10.0.0.1',
-    path: '/etc/hosts',
-    content: '127.0.0.1 localhost\n10.0.0.1 from-A',
+    path: '/var/run/sshd.pid',
+    content: 'pid-from-A',
     owner: 'root',
     permissions: null,
     is_new: false,
@@ -546,8 +578,8 @@ describe('handlePatchesRequest — listPatchesForMachines', () => {
 
   const patchFromPlayerB: PatchSummary = {
     machine_id: '10.0.0.1',
-    path: '/etc/hosts',
-    content: '127.0.0.1 localhost\n10.0.0.1 from-B',
+    path: '/var/run/sshd.pid',
+    content: 'pid-from-B',
     owner: 'root',
     permissions: null,
     is_new: false,
@@ -619,7 +651,12 @@ describe('handlePatchesRequest — listPatchesForMachines', () => {
     expect(result.body).toMatchObject({ error: 'query_failed' });
   });
 
-  it('does NOT call findActiveSession (no L1 gate on reads)', async () => {
+  it('does NOT call the single-row findActiveSession (read-path uses findActiveSessionsBatch)', async () => {
+    // The single-row adapter is a write-path L1 helper. Reads use the
+    // batch variant for per-machine tier dispatch — exercised by the
+    // dedicated tier tests below. This test pins the adapter
+    // separation so a future refactor can't silently route reads
+    // through the L1 helper and break the tier semantics.
     const findActiveSession = vi
       .fn<(params: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
       .mockResolvedValue({
@@ -647,6 +684,310 @@ describe('handlePatchesRequest — listPatchesForMachines', () => {
     const envelope = makeEnvelope(identity, { action: 'listPatchesForMachines' });
     const result = await handlePatchesRequest(envelope, mkDeps({}));
     expect(result.status).toBe(400);
+  });
+});
+
+// -----------------------------------------------------------------------
+// listPatchesForMachines — three-tier read filter
+// (Tier 1: owner / Tier 2: session+walker / Tier 3: no-session+allowlist)
+// -----------------------------------------------------------------------
+
+describe('handlePatchesRequest — listPatchesForMachines (read-path filter)', () => {
+  let identity: Identity;
+  beforeEach(() => {
+    identity = generateIdentity();
+  });
+
+  // Path constants used across tier tests so the intent is visible
+  // without scrolling.
+  const ALLOWLIST_PATH = '/var/run/sshd.pid';
+  const SECRET_PATH = '/etc/passwd';
+  const ROOT_NOTES = '/root/.notes';
+
+  const ownWorkstationId = (id: Identity, name = 'mybox'): string =>
+    `${name}-${deriveHostnameSuffix(`ed25519:${id.publicKeyHex}`)}`;
+
+  const mkPatch = (machine_id: string, path: string): PatchSummary => ({
+    machine_id,
+    path,
+    content: 'data',
+    owner: 'root',
+    permissions: null,
+    is_new: false,
+    node_type: 'file',
+  });
+
+  const allTypesReadable: FilePermissions = {
+    read: ['root', 'user', 'guest'],
+    write: ['root'],
+    execute: ['root', 'user', 'guest'],
+  };
+  const rootOnlyReadable: FilePermissions = {
+    read: ['root'],
+    write: ['root'],
+    execute: ['root'],
+  };
+
+  it("returns all rows for the requester's own workstation (tier 1: owner bypass)", async () => {
+    const ownId = ownWorkstationId(identity);
+    const listPatchesForMachines = vi
+      .fn<(p: ListPatchesForMachinesParams) => Promise<ListPatchesForMachinesResult>>()
+      .mockResolvedValue({
+        ok: true,
+        patches: [mkPatch(ownId, ROOT_NOTES), mkPatch(ownId, '/etc/passwd')],
+      });
+    const envelope = makeEnvelope(identity, {
+      action: 'listPatchesForMachines',
+      machine_ids: [ownId],
+    });
+
+    const result = await handlePatchesRequest(envelope, mkDeps({ listPatchesForMachines }));
+
+    expect(result.status).toBe(200);
+    expect((result.body as { patches: ReadonlyArray<PatchSummary> }).patches).toHaveLength(2);
+  });
+
+  it('drops sensitive rows for a no-session caller; allowlist paths still pass (tier 3)', async () => {
+    const listPatchesForMachines = vi
+      .fn<(p: ListPatchesForMachinesParams) => Promise<ListPatchesForMachinesResult>>()
+      .mockResolvedValue({
+        ok: true,
+        patches: [
+          mkPatch('10.0.0.5', ALLOWLIST_PATH),
+          mkPatch('10.0.0.5', SECRET_PATH),
+          mkPatch('10.0.0.5', ROOT_NOTES),
+        ],
+      });
+    const envelope = makeEnvelope(identity, {
+      action: 'listPatchesForMachines',
+      machine_ids: ['10.0.0.5'],
+    });
+
+    const result = await handlePatchesRequest(envelope, mkDeps({ listPatchesForMachines }));
+
+    expect(result.status).toBe(200);
+    const patches = (result.body as { patches: ReadonlyArray<PatchSummary> }).patches;
+    expect(patches.map((p) => p.path)).toEqual([ALLOWLIST_PATH]);
+  });
+
+  it('passes walker-allowed paths for a session caller as user (tier 2)', async () => {
+    const machine = '10.0.0.5';
+    const listPatchesForMachines = vi
+      .fn<(p: ListPatchesForMachinesParams) => Promise<ListPatchesForMachinesResult>>()
+      .mockResolvedValue({
+        ok: true,
+        patches: [mkPatch(machine, '/tmp/note.txt'), mkPatch(machine, ROOT_NOTES)],
+      });
+    const findActiveSessionsBatch = vi
+      .fn<(p: FindActiveSessionsBatchParams) => Promise<FindActiveSessionsBatchResult>>()
+      .mockResolvedValue({
+        ok: true,
+        sessionsByMachine: new Map([[machine, { username: 'alice', userType: 'user' as const }]]),
+      });
+    const findMachineFsBatch = vi
+      .fn<(p: FindMachineFsBatchParams) => Promise<FindMachineFsBatchResult>>()
+      .mockResolvedValue({
+        ok: true,
+        rows: [
+          {
+            machine_id: machine,
+            path: '/tmp/note.txt',
+            owner: 'user',
+            permissions: allTypesReadable,
+          },
+          {
+            machine_id: machine,
+            path: ROOT_NOTES,
+            owner: 'root',
+            permissions: rootOnlyReadable,
+          },
+        ],
+      });
+    const envelope = makeEnvelope(identity, {
+      action: 'listPatchesForMachines',
+      machine_ids: [machine],
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({ listPatchesForMachines, findActiveSessionsBatch, findMachineFsBatch }),
+    );
+
+    expect(result.status).toBe(200);
+    const patches = (result.body as { patches: ReadonlyArray<PatchSummary> }).patches;
+    expect(patches.map((p) => p.path)).toEqual(['/tmp/note.txt']);
+  });
+
+  it('returns everything to a session caller as root (tier 2 walker root bypass)', async () => {
+    const machine = '10.0.0.5';
+    const listPatchesForMachines = vi
+      .fn<(p: ListPatchesForMachinesParams) => Promise<ListPatchesForMachinesResult>>()
+      .mockResolvedValue({
+        ok: true,
+        patches: [mkPatch(machine, ROOT_NOTES), mkPatch(machine, '/var/log/auth.log')],
+      });
+    const findActiveSessionsBatch = vi
+      .fn<(p: FindActiveSessionsBatchParams) => Promise<FindActiveSessionsBatchResult>>()
+      .mockResolvedValue({
+        ok: true,
+        sessionsByMachine: new Map([[machine, { username: 'admin', userType: 'root' as const }]]),
+      });
+    const envelope = makeEnvelope(identity, {
+      action: 'listPatchesForMachines',
+      machine_ids: [machine],
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({ listPatchesForMachines, findActiveSessionsBatch }),
+    );
+
+    expect(result.status).toBe(200);
+    const patches = (result.body as { patches: ReadonlyArray<PatchSummary> }).patches;
+    expect(patches).toHaveLength(2);
+  });
+
+  it('mixed batch: owner machine + session machine + no-session machine (each tier)', async () => {
+    const ownId = ownWorkstationId(identity);
+    const sessionMachine = '10.0.0.5';
+    const noSessionMachine = '10.0.0.6';
+    const listPatchesForMachines = vi
+      .fn<(p: ListPatchesForMachinesParams) => Promise<ListPatchesForMachinesResult>>()
+      .mockResolvedValue({
+        ok: true,
+        patches: [
+          mkPatch(ownId, ROOT_NOTES), // tier 1 — keep
+          mkPatch(sessionMachine, ROOT_NOTES), // tier 2 walker → drop (guest can't read root)
+          mkPatch(sessionMachine, ALLOWLIST_PATH), // tier 2 walker → keep (default perms)
+          mkPatch(noSessionMachine, SECRET_PATH), // tier 3 → drop
+          mkPatch(noSessionMachine, ALLOWLIST_PATH), // tier 3 → keep
+        ],
+      });
+    const findActiveSessionsBatch = vi
+      .fn<(p: FindActiveSessionsBatchParams) => Promise<FindActiveSessionsBatchResult>>()
+      .mockResolvedValue({
+        ok: true,
+        sessionsByMachine: new Map([
+          [sessionMachine, { username: 'alice', userType: 'guest' as const }],
+        ]),
+      });
+    const findMachineFsBatch = vi
+      .fn<(p: FindMachineFsBatchParams) => Promise<FindMachineFsBatchResult>>()
+      .mockResolvedValue({
+        ok: true,
+        rows: [
+          {
+            machine_id: sessionMachine,
+            path: ROOT_NOTES,
+            owner: 'root',
+            permissions: rootOnlyReadable,
+          },
+        ],
+      });
+    const envelope = makeEnvelope(identity, {
+      action: 'listPatchesForMachines',
+      machine_ids: [ownId, sessionMachine, noSessionMachine],
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({ listPatchesForMachines, findActiveSessionsBatch, findMachineFsBatch }),
+    );
+
+    expect(result.status).toBe(200);
+    const patches = (result.body as { patches: ReadonlyArray<PatchSummary> }).patches;
+    expect(patches.map((p) => `${p.machine_id}:${p.path}`)).toEqual([
+      `${ownId}:${ROOT_NOTES}`,
+      `${sessionMachine}:${ALLOWLIST_PATH}`,
+      `${noSessionMachine}:${ALLOWLIST_PATH}`,
+    ]);
+  });
+
+  it('returns 500 fs_lookup_failed when findMachineFsBatch errors', async () => {
+    const findMachineFsBatch = vi
+      .fn<(p: FindMachineFsBatchParams) => Promise<FindMachineFsBatchResult>>()
+      .mockResolvedValue({ ok: false });
+    const listPatchesForMachines = vi
+      .fn<(p: ListPatchesForMachinesParams) => Promise<ListPatchesForMachinesResult>>()
+      .mockResolvedValue({ ok: true, patches: [mkPatch('10.0.0.5', ALLOWLIST_PATH)] });
+    const envelope = makeEnvelope(identity, {
+      action: 'listPatchesForMachines',
+      machine_ids: ['10.0.0.5'],
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({ listPatchesForMachines, findMachineFsBatch }),
+    );
+
+    expect(result.status).toBe(500);
+    expect(result.body).toMatchObject({ error: 'fs_lookup_failed' });
+  });
+
+  it('returns 500 session_lookup_failed when findActiveSessionsBatch errors', async () => {
+    const findActiveSessionsBatch = vi
+      .fn<(p: FindActiveSessionsBatchParams) => Promise<FindActiveSessionsBatchResult>>()
+      .mockResolvedValue({ ok: false });
+    const listPatchesForMachines = vi
+      .fn<(p: ListPatchesForMachinesParams) => Promise<ListPatchesForMachinesResult>>()
+      .mockResolvedValue({ ok: true, patches: [mkPatch('10.0.0.5', ALLOWLIST_PATH)] });
+    const envelope = makeEnvelope(identity, {
+      action: 'listPatchesForMachines',
+      machine_ids: ['10.0.0.5'],
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({ listPatchesForMachines, findActiveSessionsBatch }),
+    );
+
+    expect(result.status).toBe(500);
+    expect(result.body).toMatchObject({ error: 'session_lookup_failed' });
+  });
+
+  it('invokes both bulk lookups with the requested machine_ids', async () => {
+    const findMachineFsBatch = vi
+      .fn<(p: FindMachineFsBatchParams) => Promise<FindMachineFsBatchResult>>()
+      .mockResolvedValue({ ok: true, rows: [] });
+    const findActiveSessionsBatch = vi
+      .fn<(p: FindActiveSessionsBatchParams) => Promise<FindActiveSessionsBatchResult>>()
+      .mockResolvedValue({ ok: true, sessionsByMachine: new Map() });
+    const envelope = makeEnvelope(identity, {
+      action: 'listPatchesForMachines',
+      machine_ids: ['10.0.0.5', '10.0.0.6'],
+    });
+
+    await handlePatchesRequest(envelope, mkDeps({ findMachineFsBatch, findActiveSessionsBatch }));
+
+    expect(findMachineFsBatch).toHaveBeenCalledWith({
+      machine_ids: ['10.0.0.5', '10.0.0.6'],
+    });
+    expect(findActiveSessionsBatch).toHaveBeenCalledWith({
+      player_key: identity.publicKeyHex,
+      machine_ids: ['10.0.0.5', '10.0.0.6'],
+    });
+  });
+
+  it('preserves input ordering of kept rows', async () => {
+    const listPatchesForMachines = vi
+      .fn<(p: ListPatchesForMachinesParams) => Promise<ListPatchesForMachinesResult>>()
+      .mockResolvedValue({
+        ok: true,
+        patches: [
+          mkPatch('a', ALLOWLIST_PATH),
+          mkPatch('b', SECRET_PATH), // dropped
+          mkPatch('c', ALLOWLIST_PATH),
+        ],
+      });
+    const envelope = makeEnvelope(identity, {
+      action: 'listPatchesForMachines',
+      machine_ids: ['a', 'b', 'c'],
+    });
+
+    const result = await handlePatchesRequest(envelope, mkDeps({ listPatchesForMachines }));
+
+    const patches = (result.body as { patches: ReadonlyArray<PatchSummary> }).patches;
+    expect(patches.map((p) => p.machine_id)).toEqual(['a', 'c']);
   });
 });
 
@@ -1193,13 +1534,14 @@ describe('handlePatchesRequest — session-existence gate (L1)', () => {
     });
   });
 
-  describe('read / bulk-clear actions are NOT gated', () => {
-    // listPatchesForMachines is a cross-player read — knowing the
-    // machine_id is the gate, not session ownership. clearOwnedPatches
-    // scopes to the player's own localhost patches by player_key.
-    // Neither consults findActiveSession.
+  describe('read / bulk-clear actions do not gate via the single-row L1 adapter', () => {
+    // Reads route through findActiveSessionsBatch (per-machine session
+    // map for the read-path tier dispatch); the SINGLE-row
+    // findActiveSession is a write-path L1 helper and stays untouched
+    // by reads/clear. clearOwnedPatches scopes by player_key +
+    // workstation_id at the SQL layer and consults neither adapter.
 
-    it('listPatchesForMachines does not invoke findActiveSession', async () => {
+    it('listPatchesForMachines does not invoke the single-row findActiveSession (read-path uses the batch variant)', async () => {
       const findActiveSession = vi
         .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
         .mockResolvedValue({
@@ -1949,14 +2291,14 @@ describe('handlePatchesRequest — L2 walker enforcement', () => {
     });
   });
 
-  describe('read / clear actions are NOT subject to L2', () => {
-    // listPatchesForMachines and clearOwnedPatches don't touch
-    // machine_filesystems and don't call findMachineFs. Cross-player
-    // visibility on shared machines is by design; clearOwnedPatches is
-    // already scoped to the player's own workstation by player_key +
-    // workstation_id filter at the SQL layer.
+  describe('read / clear actions do not invoke the single-row machine_filesystems adapter', () => {
+    // Reads route through findMachineFsBatch (one bulk fetch driving
+    // the read filter); the SINGLE-row findMachineFs is a write-path
+    // L2 helper and stays untouched by reads/clear. clearOwnedPatches
+    // scopes by player_key + workstation_id at the SQL layer and
+    // consults neither adapter.
 
-    it('listPatchesForMachines does not invoke findMachineFs', async () => {
+    it('listPatchesForMachines does not invoke the single-row findMachineFs (read-path uses the batch variant)', async () => {
       const findMachineFs = vi
         .fn<(p: FindMachineFsParams) => Promise<FindMachineFsResult>>()
         .mockResolvedValue({ ok: true, found: false });
