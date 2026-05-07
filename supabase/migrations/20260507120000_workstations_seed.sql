@@ -25,11 +25,18 @@
 --                              machine_id; orphaned without workstations)
 --   - sessions                (active sessions reference deleted rows)
 --   - home_network_occupants  (player presence on shared LANs)
---   - public_ips              (player IP allocations)
 --
--- NOT wiped (no player state):
---   - home_networks    (NPC seeds)
---   - world_networks   (themed networks, e.g. findit.io)
+-- NOT wiped:
+--   - public_ips       (referenced by world_networks + home_networks via
+--                       FK ON DELETE CASCADE — wiping would cascade out
+--                       the SQL-seeded findit.io world_networks row and
+--                       any cached NPC home_networks). Stale player IP
+--                       allocations are tolerated; they're cheap.
+--   - home_networks    (NPC seeds — regen-from-seed cached content,
+--                       harmless to keep across the wipe).
+--   - world_networks   (themed networks, e.g. findit.io — populated by
+--                       earlier SQL migrations; preserving them avoids
+--                       the need to re-INSERT after this one).
 --
 -- This migration is one-shot: re-running migrations on a fresh DB
 -- truncates these tables, but they would be empty anyway. Sunsets at
@@ -41,8 +48,7 @@ TRUNCATE TABLE
   machine_filesystems,
   patches,
   sessions,
-  home_network_occupants,
-  public_ips
+  home_network_occupants
 CASCADE;
 
 ALTER TABLE workstations ADD COLUMN seed TEXT NOT NULL;
