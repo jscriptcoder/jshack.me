@@ -32,7 +32,10 @@ const makeEnvelope = (
   }
 };
 
-type PopulateBaseFsFn = (row: WorkstationRow, rootPassword: string) => Promise<PopulateBaseFsResult>;
+type PopulateBaseFsFn = (
+  row: WorkstationRow,
+  rootPassword: string,
+) => Promise<PopulateBaseFsResult>;
 
 const mkDeps = (overrides: {
   readonly upsertWorkstation?: (row: WorkstationRow) => Promise<UpsertWorkstationResult>;
@@ -47,8 +50,7 @@ const mkDeps = (overrides: {
       .fn<(row: WorkstationRow) => Promise<UpsertWorkstationResult>>()
       .mockResolvedValue({ ok: true, inserted: true }),
   populateBaseFs:
-    overrides.populateBaseFs ??
-    vi.fn<PopulateBaseFsFn>().mockResolvedValue({ ok: true }),
+    overrides.populateBaseFs ?? vi.fn<PopulateBaseFsFn>().mockResolvedValue({ ok: true }),
   rateLimiter: overrides.rateLimiter ?? noopRateLimiter,
   nonceStore: overrides.nonceStore ?? noopNonceStore,
   now: overrides.now ?? (() => FIXED_NOW),

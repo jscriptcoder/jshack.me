@@ -6,8 +6,9 @@ import { shouldProjectFsContent } from './projectedContentPaths';
 // to bulk-insert into machine_filesystems. The shape mirrors the L2
 // dual-write SQL function's UPSERT target — owner, permissions (JSONB),
 // and content (nullable, projected only for paths in
-// FS_PROJECTED_CONTENT_PATHS — currently /etc/passwd for the server-side
-// userType validation in createSession).
+// FS_PROJECTED_CONTENT_PATHS — currently /etc/passwd plus the auth-
+// critical credential files needed for cross-player auth flows; see
+// projectedContentPaths.ts for the full list).
 //
 // Used by:
 //   - The home-network base-FS backfill (immediately after createNetwork)

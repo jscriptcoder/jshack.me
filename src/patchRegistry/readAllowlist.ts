@@ -30,27 +30,12 @@ export const READ_ALLOWLIST: readonly string[] = [
   '/var/lib/dpkg/status',
 ];
 
-// Translate an allowlist glob pattern into a fully-anchored regex.
-//   `**`   → `.*`        (any characters, including slashes)
-//   `*`    → `[^/]*`     (any characters within a single path segment)
-//   other  → escaped literally so regex metacharacters in paths
-//            (`.`, `+`, `?`, `(`, etc.) match themselves
-//
-// Order matters: `**` must be replaced before `*`, otherwise the single-
-// segment branch would consume the first star of a recursive pattern and
-// leave a stray `*` behind.
-const REGEX_META = /[.+?^${}()|[\]\\]/g;
-const escapeLiterals = (segment: string): string => segment.replace(REGEX_META, '\\$&');
-
-const compilePattern = (pattern: string): RegExp => {
-  const body = pattern
-    .split('**')
-    .map((between) => between.split('*').map(escapeLiterals).join('[^/]*'))
-    .join('.*');
-  return new RegExp(`^${body}$`);
-};
+// Glob matcher lives in src/utils/pathGlob.ts (shared with the
+// projected-content allowlist in machineFilesystems). See that file
+// for `*` / `**` semantics.
+import { matchesAnyGlobPattern } from '../utils/pathGlob';
 
 export const matchesReadAllowlist = (
   path: string,
   allowlist: readonly string[] = READ_ALLOWLIST,
-): boolean => allowlist.some((pattern) => compilePattern(pattern).test(path));
+): boolean => matchesAnyGlobPattern(path, allowlist);

@@ -68,18 +68,19 @@ These are open questions. Do NOT decide them implicitly inside this chunk.
 
 ## PR roadmap
 
-| PR | Status | Goal |
-|---|---|---|
-| 1 | Not started | Foundation — workstations seed migration + projection list extension |
-| 2 | Pending PR 1 | Server-authoritative auth — SSH / SCP / `su` |
-| 3 | Pending PR 2 | Server-authoritative auth — FTP |
-| 4 | Pending PR 2 | Server-authoritative auth — MySQL / Redis / SNMP |
-| 5 | Pending PR 1 | Backdoor connect (nc) — cross-player tier from projected pidfile |
-| 6 | Pending PRs 1-5 | Base FS replication endpoint (eager bulk-fetch on session establish) |
-| 7 | Pending PR 6 | `/api/exploit-read` for `file_read` / `dir_list` CVE effects |
-| 8 | Pending PRs 2-3 | Hydra adaptation + rate-limit tuning |
+| PR  | Status          | Goal                                                                 |
+| --- | --------------- | -------------------------------------------------------------------- |
+| 1   | Not started     | Foundation — workstations seed migration + projection list extension |
+| 2   | Pending PR 1    | Server-authoritative auth — SSH / SCP / `su`                         |
+| 3   | Pending PR 2    | Server-authoritative auth — FTP                                      |
+| 4   | Pending PR 2    | Server-authoritative auth — MySQL / Redis / SNMP                     |
+| 5   | Pending PR 1    | Backdoor connect (nc) — cross-player tier from projected pidfile     |
+| 6   | Pending PRs 1-5 | Base FS replication endpoint (eager bulk-fetch on session establish) |
+| 7   | Pending PR 6    | `/api/exploit-read` for `file_read` / `dir_list` CVE effects         |
+| 8   | Pending PRs 2-3 | Hydra adaptation + rate-limit tuning                                 |
 
 Ordering rationale:
+
 - PR 1 is the foundation; nothing else can land without it (workstations need real seed; auth files need projection).
 - PRs 2-5 are independent server-auth endpoints; can be parallelized after PR 1.
 - PR 6 (base-FS replication) needs PR 1 (seed) and benefits from PRs 2-5 (so all auth flows work end-to-end during smoke).
@@ -93,6 +94,7 @@ Ordering rationale:
 **Goal**: Workstations carry their real seed server-side; `machine_filesystems.content` is projected for every credential file the server needs to read for cross-player auth flows.
 
 **Acceptance**:
+
 - [ ] `workstations` table has a `seed` column.
 - [ ] `/api/register-workstation` accepts and persists seed.
 - [ ] `regenWorkstationRows` uses the real seed (no `PLACEHOLDER_SEED`).
@@ -106,6 +108,7 @@ Ordering rationale:
 **RED**: Migration test that asserts `seed` exists on workstations as `TEXT NOT NULL` and that the column is populated for every existing row. (Test against a local Supabase; will fail before the migration runs.)
 
 **GREEN**: New migration `supabase/migrations/<ts>_workstations_seed.sql` that:
+
 1. `TRUNCATE workstations CASCADE` (wipes dependent `machine_filesystems` and `sessions` rows for those workstations).
 2. `ALTER TABLE workstations ADD COLUMN seed TEXT NOT NULL`.
 3. Documentation comment explaining "DB wipe acceptable — pre-launch — no live state, see feedback_no_backward_compat.md."
@@ -121,6 +124,7 @@ Ordering rationale:
 ### Step 2: Extend `registerWorkstationSignedPayloadSchema` to require seed + rootPassword
 
 **RED**: Schema test in `src/workstationRegistry/types.test.ts` (create if absent) that:
+
 - Asserts a payload missing `seed` fails Zod validation.
 - Asserts a payload missing `rootPassword` fails Zod validation.
 - Asserts a payload with `seed` of incorrect type/length fails validation.
@@ -139,11 +143,13 @@ Ordering rationale:
 ### Step 3: Persist seed and pass rootPassword through handler → populateBaseFs
 
 **RED**: `handler.test.ts` tests:
+
 - When the verified payload has `seed: 'abc123'`, the `upsertWorkstation` adapter is called with a `WorkstationRow` whose `seed` field is `'abc123'`.
 - When the verified payload has `rootPassword: 'pw'`, the `populateBaseFs` adapter is called with `rootPassword: 'pw'` (passed alongside the row, NOT in the row).
 - `WorkstationRow` (the persistence shape) does NOT include `rootPassword` — only `seed` joins the row.
 
 **GREEN**:
+
 - Add `seed: string` to `WorkstationRow` in `types.ts`.
 - Introduce `PopulateBaseFsInput` (or extend the existing call) carrying `{ row: WorkstationRow, rootPassword: string }` so populate has what it needs without leaking rootPassword into persistence.
 - Wire `verified.payload.seed` into the row; wire `verified.payload.rootPassword` into the populate call.
@@ -161,17 +167,20 @@ Ordering rationale:
 ### Step 4: `regenWorkstationRows` uses real seed + rootPassword (drop placeholders)
 
 **RED**: `populateWorkstationBaseFs.test.ts` tests:
+
 - When called with `seed: 'real-seed'` and `rootPassword: 'rootpw'`, the resulting `/etc/passwd` row's content includes `md5('rootpw')` for the root user's hash.
 - Guest password hash in `/etc/passwd` matches `md5(guestPasswordsForSeed('real-seed'))`.
 - The function NO LONGER references `PLACEHOLDER_SEED` or `PLACEHOLDER_ROOT_PASSWORD` (dead-code check).
 
 **GREEN**:
+
 - Update `RegenWorkstationInput` in `populateWorkstationBaseFs.ts` to require `seed: string` and `rootPassword: string`.
 - Drop `PLACEHOLDER_SEED` and `PLACEHOLDER_ROOT_PASSWORD` constants entirely.
 - Thread seed and rootPassword into `generateLocalhost(...)` call.
 - Update the backfill script (`scripts/backfillWorkstationBaseFs.ts`) to read the seed from the workstations row (it's now a column) AND figure out rootPassword for backfill — open question for backfill (see below).
 
 **Backfill rootPassword question**: existing rows post-wipe will have correct content because re-registration goes through the new envelope. But what if we ever need to rebackfill? The workstations table doesn't store rootPassword (by design). Two answers:
+
 - (a) The backfill becomes "operate on workstations registered AFTER this PR." Existing rows from before the wipe don't exist (we wiped). Future rows always have correct content via the live register flow. Backfill becomes a safety net for content drift, not an initialization tool.
 - (b) Add a "regenerate /etc/passwd content" hook that the client can trigger if it detects drift (e.g., after a rotation event). Out of scope for PR 1.
 
@@ -196,6 +205,7 @@ Decision: (a). The backfill script's purpose narrows to "fix-up after schema mig
 **RED**: `projectedContentPaths.test.ts` test that asserts `shouldProjectFsContent('/var/run/sshd.pid')` returns `true` when the allowlist contains the glob `/var/run/*.pid`.
 
 **GREEN**: Two options — pick during implementation:
+
 - **5a**: Replace `Set<string>` with `readonly string[]` of glob patterns + a glob matcher (reuse the matcher from `src/patchRegistry/readAllowlist.ts`).
 - **5b**: Keep `Set<string>` for exact paths, add a separate `PROJECTED_GLOB_PATTERNS: readonly string[]` and an `OR` check in `shouldProjectFsContent`.
 
@@ -212,6 +222,7 @@ Decision: (a). The backfill script's purpose narrows to "fix-up after schema mig
 ### Step 6: Add auth-critical paths to the projection allowlist
 
 **RED**: `projectedContentPaths.test.ts` test that pins the exact allowlist after this step. Lock in:
+
 - `/etc/passwd` ✅
 - `/etc/vsftpd/virtual_users.conf`
 - `/var/lib/mysql/data.json`
@@ -232,10 +243,12 @@ Decision: (a). The backfill script's purpose narrows to "fix-up after schema mig
 ### Step 7: Re-run all backfills and verify content population
 
 **RED**: A new smoke script `scripts/testProjectedContentBackfill.ts` (or extension of an existing backfill script) that:
+
 - Picks one workstation, one home-network machine, one world-network machine.
 - For each new projected path, queries `machine_filesystems.content WHERE machine_id=$1 AND path=$2` and asserts content is non-NULL and non-empty.
 
 **GREEN**:
+
 - Run `scripts/backfillWorkstationBaseFs.ts` (live).
 - Run `scripts/backfillHomeNetworkBaseFs.ts` (live).
 - Run `scripts/backfillWorldNetworkBaseFs.ts` (live).
@@ -254,6 +267,7 @@ The backfill scripts ALREADY use the dual-write path that respects `shouldProjec
 **RED**: Existing E2E test `npm run test:e2e` (mission playthrough) — should still pass end-to-end after PR 1.
 
 Plus a manual two-browser smoke:
+
 1. Wipe DB.
 2. Browser A: NEW GAME, register workstation. Verify in DB: `workstations` row has expected seed.
 3. Browser A: `cat /etc/passwd` from own shell — verify the content is what would be generated from the registered seed.
@@ -271,6 +285,7 @@ Plus a manual two-browser smoke:
 **Goal**: SSH/SCP/su credential validation moves from local-FS (the player's IndexedDB) to a server endpoint that reads `/etc/passwd` content from `machine_filesystems`. Saved-key fingerprint validation moves server-side too.
 
 **Approach** (high-level — TDD steps to be detailed when this PR starts):
+
 - New `/api/auth` endpoint (or extend `/api/sessions` with an action like `authenticateAndCreateSession`). Signed envelope carries `{ kind: 'ssh'|'scp'|'su', target_machine_id, username, password OR savedKeyFingerprint }`.
 - Server reads `/etc/passwd` from `machine_filesystems.content`, parses to `(username → passwordHash, userType)`, validates `md5(submittedPassword) === passwordHash`.
 - For saved-key: server recomputes `expectedFingerprint = md5(currentPasswordHash + targetUser + targetIp + port)` and compares.
@@ -314,6 +329,7 @@ Plus a manual two-browser smoke:
 **Goal**: When A establishes a session on B's machine, A receives B's full base FS filtered by A's session userType.
 
 **Approach**:
+
 - New `/api/base-fs` action (or extend `/api/patches` with a sibling action). Signed envelope carries `{ machine_id }`.
 - Server determines machine type (workstation vs home-network vs world-network vs mission).
 - Server reads `seed` from the appropriate table.
@@ -334,6 +350,7 @@ Plus a manual two-browser smoke:
 **Goal**: CVE effects `file_read` and `dir_list` work cross-player. Today they run locally against A's incomplete view of B's FS.
 
 **Approach**:
+
 - New `/api/exploit-read` action. Signed envelope: `{ machine_id, path, effect_tier, kind: 'file_read' | 'dir_list' }`.
 - Server validates the envelope (signature, replay, etc.).
 - **Server validates the effect is real**: the caller must have a recent active session on the target with `kind: 'effect_one_shot'` OR a corresponding entry in a "recent-effects" record (TBD: do CVE effects leave a server-side trace?). This prevents a forger from claiming any tier.
@@ -351,6 +368,7 @@ Plus a manual two-browser smoke:
 **Goal**: Hydra brute-forces SSH/FTP cross-player using the server-auth endpoints from PRs 2-3.
 
 **Approach** — two flavors, decide during implementation:
+
 - **8a (client iterates)**: hydra calls the auth endpoint per password attempt; rate limit per (player, target, kind) tuned to allow gameplay (e.g. 50 attempts/sec); slow but UX-equivalent to today.
 - **8b (server iterates)**: hydra signs an envelope with a wordlist; server iterates and returns the first hit. Faster but the wordlist hits the wire.
 

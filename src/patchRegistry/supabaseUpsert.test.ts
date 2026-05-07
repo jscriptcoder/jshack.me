@@ -51,9 +51,10 @@ describe('createSupabaseUpsertPatch', () => {
 
   it('passes projectFsContent=true for paths in the FS projection allowlist (/etc/passwd)', async () => {
     // The dual-write SQL function uses this flag to decide whether to
-    // store content in machine_filesystems. /etc/passwd is the first
-    // (and currently only) path in FS_PROJECTED_CONTENT_PATHS — server-
-    // side userType validation in createSession reads it.
+    // store content in machine_filesystems. /etc/passwd is one of
+    // several paths in FS_PROJECTED_CONTENT_PATHS — server-side userType
+    // validation reads it, and cross-player password validation reads
+    // the inline hashes (see projectedContentPaths.ts for the full list).
     const upsertRow = vi.fn().mockResolvedValue({ error: null });
     const upsertPatch = createSupabaseUpsertPatch(upsertRow);
     const passwdRow: PatchRow = { ...row, path: '/etc/passwd', content: 'root:x:0:0' };
