@@ -1,5 +1,20 @@
 import type { FileNode } from '../filesystem/types';
-import type { NetworkConfig, RemoteMachine } from '../network/types';
+import type { NetworkConfig, RemoteMachine, RemoteUser } from '../network/types';
+
+// Generation-time user shape. Carries the password hash that the FS
+// factory writes into /etc/passwd content. The runtime RemoteUser type
+// (network/types.ts) intentionally does NOT carry the hash — it lives
+// canonically in /etc/passwd post step 6 of plans/etc-passwd-canonical.md.
+// Generation produces GeneratedUser arrays; the machine-assembly seam
+// strips the hash to RemoteUser before populating RemoteMachine.users.
+export type GeneratedUser = RemoteUser & {
+  readonly passwordHash: string;
+};
+
+export const stripGeneratedUser = (u: GeneratedUser): RemoteUser => ({
+  username: u.username,
+  userType: u.userType,
+});
 
 export type MachineRole =
   | 'webserver'

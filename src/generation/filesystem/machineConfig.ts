@@ -1,7 +1,7 @@
 import type { Prng } from '../prng';
 import type { GeneratedMachine, MachineRole, MissionObjective, NatForwarding } from '../types';
 import type { FileNode } from '../../filesystem/types';
-import type { RemoteUser } from '../../network/types';
+import type { GeneratedUser } from '../types';
 import type { MachineFileSystemConfig, UserConfig } from '../../filesystem/fileSystemFactory';
 import {
   configTemplatesByRole,
@@ -129,7 +129,7 @@ export type BuildMachineConfigOptions = {
 export const buildMachineConfig = (
   prng: Prng,
   machine: GeneratedMachine,
-  users: readonly RemoteUser[],
+  users: readonly GeneratedUser[],
   machineCreds: readonly { readonly username: string; readonly password: string }[],
   options: BuildMachineConfigOptions = {},
 ): MachineFileSystemConfig => {

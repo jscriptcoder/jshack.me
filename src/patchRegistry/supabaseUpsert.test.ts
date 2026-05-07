@@ -26,7 +26,7 @@ describe('createSupabaseUpsertPatch', () => {
     const upsertPatch = createSupabaseUpsertPatch(upsertRow);
 
     expect(await upsertPatch(row, true)).toEqual({ ok: true });
-    expect(upsertRow).toHaveBeenCalledWith(row, true);
+    expect(upsertRow).toHaveBeenCalledWith(row, true, false);
   });
 
   it('passes optional fields (permissions, is_new, node_type) through to upsertRow', async () => {
@@ -34,7 +34,7 @@ describe('createSupabaseUpsertPatch', () => {
     const upsertPatch = createSupabaseUpsertPatch(upsertRow);
 
     expect(await upsertPatch(rowWithOptionals, true)).toEqual({ ok: true });
-    expect(upsertRow).toHaveBeenCalledWith(rowWithOptionals, true);
+    expect(upsertRow).toHaveBeenCalledWith(rowWithOptionals, true, false);
   });
 
   it('forwards dualWrite=false (own-workstation bypass) through to upsertRow', async () => {
@@ -46,7 +46,29 @@ describe('createSupabaseUpsertPatch', () => {
     const upsertPatch = createSupabaseUpsertPatch(upsertRow);
 
     await upsertPatch(row, false);
-    expect(upsertRow).toHaveBeenCalledWith(row, false);
+    expect(upsertRow).toHaveBeenCalledWith(row, false, false);
+  });
+
+  it('passes projectFsContent=true for paths in the FS projection allowlist (/etc/passwd)', async () => {
+    // The dual-write SQL function uses this flag to decide whether to
+    // store content in machine_filesystems. /etc/passwd is the first
+    // (and currently only) path in FS_PROJECTED_CONTENT_PATHS — server-
+    // side userType validation in createSession reads it.
+    const upsertRow = vi.fn().mockResolvedValue({ error: null });
+    const upsertPatch = createSupabaseUpsertPatch(upsertRow);
+    const passwdRow: PatchRow = { ...row, path: '/etc/passwd', content: 'root:x:0:0' };
+
+    await upsertPatch(passwdRow, true);
+    expect(upsertRow).toHaveBeenCalledWith(passwdRow, true, true);
+  });
+
+  it('passes projectFsContent=false for non-allowlisted paths', async () => {
+    const upsertRow = vi.fn().mockResolvedValue({ error: null });
+    const upsertPatch = createSupabaseUpsertPatch(upsertRow);
+    const arbitraryRow: PatchRow = { ...row, path: '/var/log/auth.log' };
+
+    await upsertPatch(arbitraryRow, true);
+    expect(upsertRow).toHaveBeenCalledWith(arbitraryRow, true, false);
   });
 
   it('returns ok: false when supabase returns an error', async () => {

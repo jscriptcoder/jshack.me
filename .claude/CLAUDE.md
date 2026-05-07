@@ -106,6 +106,13 @@ npx dotenv -e .env.development.local -- npx tsx scripts/testRegisterWorkstation.
 # endpoint, then runs the same 3-scenario test (no_session/permission_denied/root) against its workstation_id.
 # Closes the loop on chunk #1b: proves intruders with cracked sessions on a player's own box can't bypass L2.
 npx dotenv -e .env.development.local -- npx tsx scripts/testL2BypassWorkstation.ts
+
+# Server-side userType validation smoke test. Forges signed envelopes against /api/sessions
+# (createSession) and verifies four scenarios: usertype_mismatch (400), usertype_underivable (400),
+# legitimate match (200), and mission stand-in no-op (200). Self-cleaning so it can be re-run idempotently.
+# Requires vercel:dev running and at least one machine_filesystems row with non-null /etc/passwd content
+# (re-run scripts/backfillHomeNetworkBaseFs.ts after the selective-content migration applies).
+npx dotenv -e .env.development.local -- npx tsx scripts/testCreateSessionUserType.ts
 ```
 
 ## Key Architecture

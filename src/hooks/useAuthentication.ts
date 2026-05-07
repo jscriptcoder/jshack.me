@@ -9,6 +9,7 @@ import type { UserType } from '../session/types';
 import type { RemoteMachine, RemoteUser } from '../network/types';
 import { parseMysqlDatabase } from '../commands/mysql/types';
 import { parseVirtualUsersConf } from '../generation/ftpCredentials';
+import { getEtcPasswdHash } from '../filesystem/etcPasswdHelpers';
 import type { AsyncOutput } from '../components/Terminal/types';
 import type { PermissionResult } from '../filesystem/types';
 import type { SshAuthHandler } from '../logging/handlers/sshAuth';
@@ -115,18 +116,26 @@ export const useAuthentication = ({
     [addLine],
   );
 
-  // Computes a fingerprint from the target's password hash so that entries in
-  // ~/.ssh_keys cannot be forged without knowing the credential. Returns null
-  // when the target user cannot be resolved (machine or user not found).
+  // Computes a fingerprint from the target's live /etc/passwd hash so that
+  // entries in ~/.ssh_keys cannot be forged without read access to that file.
+  // Returns null when the file is unreadable, the user is missing, or the
+  // hash field is empty — keeping forgery resistance intact AND making
+  // password_reset rotates invalidate previously-saved keys (the saved
+  // fingerprint was computed against the pre-reset hash).
   const computeKeyFingerprint = useCallback(
     (targetUser: string, targetIP: string, port: number): string | null => {
       const resolvedIp = resolveNat(targetIP, port).ip;
-      const users = findMachineUsers(resolvedIp);
-      const remoteUser = users.find((u) => u.username === targetUser);
-      if (!remoteUser) return null;
-      return md5(`${targetUser}:${targetIP}:${remoteUser.passwordHash}`);
+      const passwdContent = readFileFromMachine({
+        machineId: resolvedIp,
+        path: '/etc/passwd',
+        cwd: '/',
+        userType: 'root',
+      });
+      const hash = getEtcPasswdHash(passwdContent, targetUser);
+      if (hash === undefined) return null;
+      return md5(`${targetUser}:${targetIP}:${hash}`);
     },
-    [resolveNat, findMachineUsers],
+    [resolveNat, readFileFromMachine],
   );
 
   // Checks whether the current user has a verified SSH key for the given target.
@@ -241,7 +250,9 @@ export const useAuthentication = ({
     ],
   );
 
-  // Validates a remote user's password against their stored hash
+  // Validates a remote user's password against /etc/passwd. Mirrors the
+  // closure-local validateAgainstEtcPasswd in validatePassword — same
+  // canonical-/etc/passwd model, used by the inline SSH/SCP entry points.
   const validateRemotePassword = useCallback(
     ({
       user,
@@ -255,12 +266,16 @@ export const useAuthentication = ({
       readonly password: string;
     }): boolean => {
       const resolvedIp = resolveNat(targetIP, port).ip;
-      const users = findMachineUsers(resolvedIp);
-      const remoteUser = users.find((u) => u.username === user);
-      if (!remoteUser) return false;
-      return remoteUser.passwordHash === md5(password);
+      const passwdContent = readFileFromMachine({
+        machineId: resolvedIp,
+        path: '/etc/passwd',
+        cwd: '/',
+        userType: 'root',
+      });
+      const storedHash = getEtcPasswdHash(passwdContent, user);
+      return storedHash !== undefined && storedHash === md5(password);
     },
-    [resolveNat, findMachineUsers],
+    [resolveNat, readFileFromMachine],
   );
 
   // Inline SSH auth: validates password, saves key, and connects without interactive prompt
@@ -320,8 +335,11 @@ export const useAuthentication = ({
   );
 
   // Inline FTP auth: validates username + password and enters FTP mode without interactive prompts.
-  // Checks virtual user credentials (/etc/vsftpd/virtual_users.conf) first if present,
-  // falls back to system user credentials.
+  // Real vsftpd model: virtual_users.conf is an overlay — when it lists the
+  // user, that hash wins. Otherwise, system credentials apply (PAM →
+  // /etc/passwd here). No fallback to the static users[].passwordHash cache:
+  // /etc/passwd is the source of truth so password_reset rotates work and
+  // garbling /etc/passwd locks out logins (sabotage gameplay).
   const authenticateFtpInline = useCallback(
     (targetIP: string, username: string, password: string) => {
       const resolvedIp = resolveNat(targetIP, 21).ip;
@@ -334,19 +352,33 @@ export const useAuthentication = ({
         return;
       }
 
-      // Check virtual users first (FTP-entry machines and ~40% of FTP-open machines)
+      const inputHash = md5(password);
+
       const virtualUsersContent = readFileFromMachine({
         machineId: resolvedIp,
         path: '/etc/vsftpd/virtual_users.conf',
         cwd: '/',
         userType: 'root',
       });
-      const expectedHash = virtualUsersContent
-        ? (parseVirtualUsersConf(virtualUsersContent).find((u) => u.username === username)
-            ?.passwordHash ?? remoteUser.passwordHash)
-        : remoteUser.passwordHash;
+      const virtualUserHash = virtualUsersContent
+        ? parseVirtualUsersConf(virtualUsersContent).find((u) => u.username === username)
+            ?.passwordHash
+        : undefined;
 
-      if (expectedHash !== md5(password)) {
+      let ok: boolean;
+      if (virtualUserHash !== undefined) {
+        ok = virtualUserHash === inputHash;
+      } else {
+        const passwdContent = readFileFromMachine({
+          machineId: resolvedIp,
+          path: '/etc/passwd',
+          cwd: '/',
+          userType: 'root',
+        });
+        ok = getEtcPasswdHash(passwdContent, username) === inputHash;
+      }
+
+      if (!ok) {
         addLine('error', '530 Login incorrect.');
         onFtpAuth?.({ success: false, user: username, targetIP, port: 21 });
         return;
@@ -616,34 +648,22 @@ export const useAuthentication = ({
         return validateMysqlPassword(targetUser, mysqlTargetIP, password);
       }
 
-      // SSH/SCP auth: read /etc/passwd from the resolved target instead of
-      // the static users[].passwordHash. The static list is captured at
-      // mission generation; password_reset (and any other write that
-      // mutates /etc/passwd) doesn't update it. Reading /etc/passwd makes
-      // the rolled credential actually unlock the account.
-      //
-      // Falls back to users[].passwordHash if /etc/passwd is missing or
-      // doesn't have a row for the target user — defensive, the file
-      // should always exist on a generated machine.
+      // SSH/SCP auth: /etc/passwd is the sole source of truth. No fallback
+      // to the static users[].passwordHash cache — that cache is captured
+      // at machine generation and drifts on any /etc/passwd mutation
+      // (password_reset CVE, manual edits). Reading from /etc/passwd
+      // makes both the post-reset credential AND deliberate sabotage work
+      // end-to-end: garbling /etc/passwd locks out password logins, which
+      // is the gameplay-meaningful outcome.
       const validateAgainstEtcPasswd = (resolvedIp: string): boolean => {
-        const users = findMachineUsers(resolvedIp);
-        const remoteUser = users.find((u) => u.username === targetUser);
-        if (!remoteUser) return false;
-
-        const inputHash = md5(password);
-
         const passwdContent = readFileFromMachine({
           machineId: resolvedIp,
           path: '/etc/passwd',
           cwd: '/',
           userType: 'root',
         });
-        if (passwdContent) {
-          const entry = passwdContent.split('\n').find((line) => line.split(':')[0] === targetUser);
-          const storedHash = entry?.split(':')[1];
-          if (storedHash) return storedHash === inputHash;
-        }
-        return remoteUser.passwordHash === inputHash;
+        const storedHash = getEtcPasswdHash(passwdContent, targetUser);
+        return storedHash !== undefined && storedHash === md5(password);
       };
 
       if (scpTargetIP) {
@@ -657,24 +677,28 @@ export const useAuthentication = ({
       if (ftpTargetIP) {
         const resolvedIp = resolveNat(ftpTargetIP, 21).ip;
         const users = findMachineUsers(resolvedIp);
-
         const remoteUser = users.find((u) => u.username === targetUser);
         if (!remoteUser) return false;
 
-        // Check virtual users first (FTP-entry machines and ~40% of FTP-open machines)
+        // Real vsftpd model: virtual_users.conf is an overlay — when it
+        // lists the user, that hash wins. Otherwise authentication falls
+        // through to system credentials via /etc/passwd. No cache fallback;
+        // see validateAgainstEtcPasswd for the rationale.
         const virtualUsersContent = readFileFromMachine({
           machineId: resolvedIp,
           path: '/etc/vsftpd/virtual_users.conf',
           cwd: '/',
           userType: 'root',
         });
-        const expectedHash = virtualUsersContent
-          ? (parseVirtualUsersConf(virtualUsersContent).find((u) => u.username === targetUser)
-              ?.passwordHash ?? remoteUser.passwordHash)
-          : remoteUser.passwordHash;
+        const virtualUserHash = virtualUsersContent
+          ? parseVirtualUsersConf(virtualUsersContent).find((u) => u.username === targetUser)
+              ?.passwordHash
+          : undefined;
 
-        const inputHash = md5(password);
-        return expectedHash === inputHash;
+        if (virtualUserHash !== undefined) {
+          return virtualUserHash === md5(password);
+        }
+        return validateAgainstEtcPasswd(resolvedIp);
       }
 
       const passwdContent = readFile('/etc/passwd', 'root');

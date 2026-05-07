@@ -9,7 +9,7 @@ const getMockRemoteMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine
   ip: '192.168.1.50',
   hostname: 'fileserver',
   ports: [{ port: 21, service: 'ftp', serviceVersion: 'latest', open: true }],
-  users: [{ username: 'ftpuser', passwordHash: 'abc123', userType: 'user' }],
+  users: [{ username: 'ftpuser', userType: 'user' }],
   ...overrides,
 });
 

@@ -25,8 +25,8 @@ const getMockRemoteMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine
     },
   ],
   users: [
-    { username: 'root', passwordHash: 'abc', userType: 'root' },
-    { username: 'guest', passwordHash: 'def', userType: 'guest' },
+    { username: 'root', userType: 'root' },
+    { username: 'guest', userType: 'guest' },
   ],
   ...overrides,
 });
@@ -1445,9 +1445,9 @@ describe('msfconsole command', () => {
         hostname: ownWorkstationId,
         ports: [],
         users: [
-          { username: 'root', passwordHash: '', userType: 'root' },
-          { username: 'player', passwordHash: '', userType: 'user' },
-          { username: 'guest', passwordHash: '', userType: 'guest' },
+          { username: 'root', userType: 'root' },
+          { username: 'player', userType: 'user' },
+          { username: 'guest', userType: 'guest' },
         ],
       };
       const context = {

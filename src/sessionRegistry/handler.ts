@@ -15,6 +15,11 @@ import {
   type VerifyResult,
 } from '../signedRequest/verify.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import type {
+  FindEtcPasswdContentParams,
+  FindEtcPasswdContentResult,
+} from './supabaseFindEtcPasswdContent.js';
+import { deriveUserTypeFromEtcPasswd } from '../filesystem/etcPasswdHelpers.js';
 
 export type HandlerResponse = {
   readonly status: number;
@@ -26,6 +31,9 @@ export type HandlerDeps = {
   readonly insertSession: (row: SessionRow) => Promise<InsertSessionResult>;
   readonly endSession: (params: EndSessionParams) => Promise<EndSessionResult>;
   readonly listSessions: (params: ListSessionsParams) => Promise<ListSessionsResult>;
+  readonly findEtcPasswdContent: (
+    params: FindEtcPasswdContentParams,
+  ) => Promise<FindEtcPasswdContentResult>;
   readonly rateLimiter: RateLimiter;
   readonly nonceStore: NonceStore;
   readonly now?: () => number;
@@ -105,6 +113,32 @@ const handleCreateSession = async (
   deps: HandlerDeps,
 ): Promise<HandlerResponse> => {
   const { machine_id, credentials, parent_session_id, source_ip, kind } = payload;
+
+  // Server-side userType validation. Read the live /etc/passwd content
+  // for the target machine and derive the canonical userType for the
+  // claimed username. Reject on mismatch (a malicious client claiming
+  // userType: 'root' for what is actually a guest login is the threat).
+  //
+  // Mission machines have no entry in machine_filesystems today (blocked
+  // on mission_instances). For now, found=false → no-op the validation
+  // and accept the claim. TODO: when mission_instances ship, drop the
+  // no-op branch.
+  //
+  // See plans/etc-passwd-canonical.md step 5.
+  const fsLookup = await deps.findEtcPasswdContent({ machine_id });
+  if (!fsLookup.ok) {
+    return { status: 500, body: { error: 'fs_lookup_failed' } };
+  }
+  if (fsLookup.found) {
+    const derived = deriveUserTypeFromEtcPasswd(fsLookup.content, credentials.username);
+    if (derived === undefined) {
+      return { status: 400, body: { error: 'usertype_underivable' } };
+    }
+    if (derived !== credentials.userType) {
+      return { status: 400, body: { error: 'usertype_mismatch' } };
+    }
+  }
+
   const row: SessionRow = {
     player_key: publicKey,
     machine_id,

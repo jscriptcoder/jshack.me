@@ -13,7 +13,7 @@ const getMockMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine => ({
     { port: 80, service: 'http', serviceVersion: 'latest', open: true },
     { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
   ],
-  users: [{ username: 'www-data', passwordHash: 'abc', userType: 'user' }],
+  users: [{ username: 'www-data', userType: 'user' }],
   ...overrides,
 });
 

@@ -62,7 +62,7 @@ const getMockDnsMachine = (): RemoteMachine => ({
     { port: 53, service: 'dns', serviceVersion: 'latest', open: true, protocol: 'udp' },
     { port: 953, service: 'rndc', serviceVersion: 'latest', open: false },
   ],
-  users: [{ username: 'bind', passwordHash: 'abc123', userType: 'user' }],
+  users: [{ username: 'bind', userType: 'user' }],
 });
 
 const getMockWebMachine = (): RemoteMachine => ({
@@ -72,7 +72,7 @@ const getMockWebMachine = (): RemoteMachine => ({
     { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
     { port: 80, service: 'http', serviceVersion: 'latest', open: true },
   ],
-  users: [{ username: 'www-data', passwordHash: 'abc123', userType: 'user' }],
+  users: [{ username: 'www-data', userType: 'user' }],
 });
 
 const defaultZoneRecords = [

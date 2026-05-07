@@ -41,7 +41,17 @@ const makeOptions = () => ({
   enterFtpMode: vi.fn(),
   enterMysqlMode: vi.fn(),
   enterRedisMode: vi.fn(),
-  readFileFromMachine: vi.fn((_op: { path: string }) => null as string | null),
+  // Default: synthesize a /etc/passwd containing the standard `bob` user
+  // (matches makeRemoteUser()'s default cache hash). Tests that exercise
+  // sabotage / drift / multi-user scenarios override this with their own
+  // mockImplementation. Tests that only need bob+PASSWORD_HASH inherit
+  // this default and don't repeat the boilerplate.
+  readFileFromMachine: vi.fn(
+    (op: { path: string }) =>
+      (op.path === '/etc/passwd'
+        ? `bob:${PASSWORD_HASH}:1001:1001:bob:/home/bob:/bin/bash`
+        : null) as string | null,
+  ),
   createFile: vi.fn(() => ({ allowed: true })),
   writeFile: vi.fn(() => ({ allowed: true })),
 });
@@ -230,6 +240,9 @@ describe('useAuthentication', () => {
       const remoteUser = makeRemoteUser();
       const opts = makeOptions();
       opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd' ? `bob:${PASSWORD_HASH}:1001:1001:bob:/home/bob:/bin/bash` : null,
+      );
 
       const { result } = renderHook(() => useAuthentication(opts));
 
@@ -292,6 +305,121 @@ describe('useAuthentication', () => {
         'error',
         'Permission denied, please try again.',
       );
+    });
+
+    it('rejects SSH password when /etc/passwd is unreadable, even if it matches the cache', () => {
+      // /etc/passwd is the sole source of truth — if the file is missing
+      // (e.g., garbled to nothing, or the file was deleted), auth fails
+      // regardless of what the static cache holds. Players who garble a
+      // remote /etc/passwd should lock out password logins on that machine.
+      const remoteUser = makeRemoteUser();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockReturnValue(null);
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => result.current.startSshPrompt('bob', TARGET_IP, 22));
+      act(() => {
+        result.current.handlePasswordSubmit(PASSWORD, vi.fn());
+      });
+
+      expect(opts.pushSession).not.toHaveBeenCalled();
+      expect(opts.addLine).toHaveBeenCalledWith('error', 'Permission denied, please try again.');
+    });
+
+    it('rejects SSH password when /etc/passwd is garbled and missing the target user', () => {
+      const remoteUser = makeRemoteUser();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd' ? 'garbage with no colons or recognisable lines' : null,
+      );
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => result.current.startSshPrompt('bob', TARGET_IP, 22));
+      act(() => {
+        result.current.handlePasswordSubmit(PASSWORD, vi.fn());
+      });
+
+      expect(opts.pushSession).not.toHaveBeenCalled();
+      expect(opts.addLine).toHaveBeenCalledWith('error', 'Permission denied, please try again.');
+    });
+
+    it('rejects SSH password when /etc/passwd has the user line but the hash field is empty', () => {
+      const remoteUser = makeRemoteUser();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd' ? 'bob::1001:1001:bob:/home/bob:/bin/bash' : null,
+      );
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => result.current.startSshPrompt('bob', TARGET_IP, 22));
+      act(() => {
+        result.current.handlePasswordSubmit(PASSWORD, vi.fn());
+      });
+
+      expect(opts.pushSession).not.toHaveBeenCalled();
+      expect(opts.addLine).toHaveBeenCalledWith('error', 'Permission denied, please try again.');
+    });
+
+    it('finds the correct user line in a multi-user /etc/passwd (parses on newline)', () => {
+      // Production /etc/passwd has root + user + guest at minimum. The
+      // parser must split on newlines so the per-user lookup picks the
+      // right line; a wrong delimiter would treat the file as a single
+      // blob and only the first user's hash would ever be considered.
+      const remoteUser = makeRemoteUser({ username: 'bob', password: 'bob-pass' });
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd'
+          ? [
+              `root:${md5('root-pass')}:0:0:root:/root:/bin/bash`,
+              `bob:${md5('bob-pass')}:1001:1001:bob:/home/bob:/bin/bash`,
+              `guest:${md5('guest-pass')}:65534:65534:guest:/home/guest:/bin/bash`,
+            ].join('\n')
+          : null,
+      );
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => result.current.startSshPrompt('bob', TARGET_IP, 22));
+      act(() => {
+        result.current.handlePasswordSubmit('bob-pass', vi.fn());
+      });
+
+      expect(opts.pushSession).toHaveBeenCalled();
+      expect(opts.addLine).not.toHaveBeenCalledWith(
+        'error',
+        'Permission denied, please try again.',
+      );
+    });
+
+    it('rejects SSH password when /etc/passwd has a different hash than the input', () => {
+      // The inverse of the post-password_reset acceptance test — the OLD
+      // password should fail once /etc/passwd has been rotated. Cache hash
+      // is no longer consulted as a fallback.
+      const remoteUser = makeRemoteUser();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd'
+          ? `bob:${md5('something-else')}:1001:1001:bob:/home/bob:/bin/bash`
+          : null,
+      );
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => result.current.startSshPrompt('bob', TARGET_IP, 22));
+      act(() => {
+        result.current.handlePasswordSubmit(PASSWORD, vi.fn());
+      });
+
+      expect(opts.pushSession).not.toHaveBeenCalled();
+      expect(opts.addLine).toHaveBeenCalledWith('error', 'Permission denied, please try again.');
     });
   });
 
@@ -473,6 +601,9 @@ describe('useAuthentication', () => {
       const onSshAuth = vi.fn();
       const opts = makeOptions();
       opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd' ? `bob:${PASSWORD_HASH}:1001:1001:bob:/home/bob:/bin/bash` : null,
+      );
 
       const { result } = renderHook(() => useAuthentication({ ...opts, onSshAuth }));
 
@@ -514,6 +645,9 @@ describe('useAuthentication', () => {
       const remoteUser = makeRemoteUser();
       const opts = makeOptions();
       opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd' ? `bob:${PASSWORD_HASH}:1001:1001:bob:/home/bob:/bin/bash` : null,
+      );
 
       const { result } = renderHook(() => useAuthentication(opts));
 
@@ -592,6 +726,156 @@ describe('useAuthentication', () => {
       expect(opts.enterFtpMode).not.toHaveBeenCalled();
       expect(opts.addLine).toHaveBeenCalledWith('error', '530 Login incorrect.');
     });
+
+    it('rejects FTP password when /etc/passwd is unreadable and virtual_users.conf is absent', () => {
+      // Sabotage feature: garbling /etc/passwd locks out FTP system-credential
+      // auth. With virtual_users.conf also absent, there is no overlay to fall
+      // back on, so 530 is the only valid outcome.
+      const remoteUser = makeRemoteUser();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockReturnValue(null);
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => result.current.startFtpPrompt(TARGET_IP));
+      act(() => result.current.handleFtpUsernameSubmit('bob', vi.fn()));
+      act(() => {
+        result.current.handlePasswordSubmit(PASSWORD, vi.fn());
+      });
+
+      expect(opts.enterFtpMode).not.toHaveBeenCalled();
+      expect(opts.addLine).toHaveBeenCalledWith('error', '530 Login incorrect.');
+    });
+
+    it('rejects FTP password when /etc/passwd has no entry for the target user and virtual_users.conf is absent', () => {
+      const remoteUser = makeRemoteUser();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd'
+          ? `alice:${md5('alice-pass')}:1000:1000:alice:/home/alice:/bin/bash`
+          : null,
+      );
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => result.current.startFtpPrompt(TARGET_IP));
+      act(() => result.current.handleFtpUsernameSubmit('bob', vi.fn()));
+      act(() => {
+        result.current.handlePasswordSubmit(PASSWORD, vi.fn());
+      });
+
+      expect(opts.enterFtpMode).not.toHaveBeenCalled();
+      expect(opts.addLine).toHaveBeenCalledWith('error', '530 Login incorrect.');
+    });
+
+    it('rejects FTP password when /etc/passwd has the user with empty hash field', () => {
+      const remoteUser = makeRemoteUser();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd' ? 'bob::1001:1001:bob:/home/bob:/bin/bash' : null,
+      );
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => result.current.startFtpPrompt(TARGET_IP));
+      act(() => result.current.handleFtpUsernameSubmit('bob', vi.fn()));
+      act(() => {
+        result.current.handlePasswordSubmit(PASSWORD, vi.fn());
+      });
+
+      expect(opts.enterFtpMode).not.toHaveBeenCalled();
+      expect(opts.addLine).toHaveBeenCalledWith('error', '530 Login incorrect.');
+    });
+
+    it('falls through to /etc/passwd when virtual_users.conf does not list the target user', () => {
+      // Real vsftpd: virtual_users.conf is an overlay. Users not in it
+      // authenticate against system credentials (PAM → /etc/passwd here).
+      // Use a rolled password in /etc/passwd that DIFFERS from the static
+      // cache so the test only passes when /etc/passwd is actually consulted.
+      const rolledPass = 'rolled-after-reset';
+      const remoteUser = makeRemoteUser({ password: 'cache-stale' });
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) => {
+        if (op.path === '/etc/vsftpd/virtual_users.conf')
+          return `alice:${md5('alice-virtual-pass')}`;
+        if (op.path === '/etc/passwd')
+          return `bob:${md5(rolledPass)}:1001:1001:bob:/home/bob:/bin/bash`;
+        return null;
+      });
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => result.current.startFtpPrompt(TARGET_IP));
+      act(() => result.current.handleFtpUsernameSubmit('bob', vi.fn()));
+      act(() => {
+        result.current.handlePasswordSubmit(rolledPass, vi.fn());
+      });
+
+      expect(opts.enterFtpMode).toHaveBeenCalled();
+      expect(opts.addLine).toHaveBeenCalledWith('result', '230 Login successful.');
+    });
+
+    it('virtual_users.conf hash overrides /etc/passwd when both list the user', () => {
+      // The virtual password unlocks the account; the system password (from
+      // /etc/passwd) does not, even though it would succeed in the absence
+      // of the virtual_users.conf overlay.
+      const virtualPass = 'virtual-pass';
+      const systemPass = 'system-pass';
+      const remoteUser = makeRemoteUser();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) => {
+        if (op.path === '/etc/vsftpd/virtual_users.conf') return `bob:${md5(virtualPass)}`;
+        if (op.path === '/etc/passwd')
+          return `bob:${md5(systemPass)}:1001:1001:bob:/home/bob:/bin/bash`;
+        return null;
+      });
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => result.current.startFtpPrompt(TARGET_IP));
+      act(() => result.current.handleFtpUsernameSubmit('bob', vi.fn()));
+      act(() => {
+        result.current.handlePasswordSubmit(systemPass, vi.fn());
+      });
+
+      expect(opts.enterFtpMode).not.toHaveBeenCalled();
+      expect(opts.addLine).toHaveBeenCalledWith('error', '530 Login incorrect.');
+    });
+
+    it('finds the correct FTP user line in a multi-user /etc/passwd (parses on newline)', () => {
+      // Cache hash is stale; /etc/passwd carries the live one. Auth must
+      // succeed against the live hash to prove /etc/passwd is read AND
+      // parsed on newlines (not as a single blob).
+      const livePass = 'live-bob-pass';
+      const remoteUser = makeRemoteUser({ username: 'bob', password: 'cache-stale' });
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd'
+          ? [
+              `root:${md5('root-pass')}:0:0:root:/root:/bin/bash`,
+              `bob:${md5(livePass)}:1001:1001:bob:/home/bob:/bin/bash`,
+              `guest:${md5('guest-pass')}:65534:65534:guest:/home/guest:/bin/bash`,
+            ].join('\n')
+          : null,
+      );
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => result.current.startFtpPrompt(TARGET_IP));
+      act(() => result.current.handleFtpUsernameSubmit('bob', vi.fn()));
+      act(() => {
+        result.current.handlePasswordSubmit(livePass, vi.fn());
+      });
+
+      expect(opts.enterFtpMode).toHaveBeenCalled();
+      expect(opts.addLine).toHaveBeenCalledWith('result', '230 Login successful.');
+    });
   });
 
   describe('FTP inline authentication', () => {
@@ -599,6 +883,9 @@ describe('useAuthentication', () => {
       const remoteUser = makeRemoteUser();
       const opts = makeOptions();
       opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd' ? `bob:${PASSWORD_HASH}:1001:1001:bob:/home/bob:/bin/bash` : null,
+      );
 
       const { result } = renderHook(() => useAuthentication(opts));
 
@@ -637,6 +924,82 @@ describe('useAuthentication', () => {
       expect(opts.enterFtpMode).not.toHaveBeenCalled();
       expect(opts.addLine).toHaveBeenCalledWith('error', '530 Login incorrect.');
     });
+
+    it('rejects when /etc/passwd is unreadable and virtual_users.conf is absent', () => {
+      const remoteUser = makeRemoteUser();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockReturnValue(null);
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => result.current.authenticateFtpInline(TARGET_IP, 'bob', PASSWORD));
+
+      expect(opts.enterFtpMode).not.toHaveBeenCalled();
+      expect(opts.addLine).toHaveBeenCalledWith('error', '530 Login incorrect.');
+    });
+
+    it('falls through to /etc/passwd when virtual_users.conf does not list the target user', () => {
+      const rolledPass = 'rolled-after-reset';
+      const remoteUser = makeRemoteUser({ password: 'cache-stale' });
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) => {
+        if (op.path === '/etc/vsftpd/virtual_users.conf')
+          return `alice:${md5('alice-virtual-pass')}`;
+        if (op.path === '/etc/passwd')
+          return `bob:${md5(rolledPass)}:1001:1001:bob:/home/bob:/bin/bash`;
+        return null;
+      });
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => result.current.authenticateFtpInline(TARGET_IP, 'bob', rolledPass));
+
+      expect(opts.enterFtpMode).toHaveBeenCalled();
+      expect(opts.addLine).toHaveBeenCalledWith('result', '230 Login successful.');
+    });
+
+    it('accepts the virtual_users.conf password when it lists the target user', () => {
+      const virtualPass = 'virtual-pass';
+      const remoteUser = makeRemoteUser({ password: 'cache-stale' });
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) => {
+        if (op.path === '/etc/vsftpd/virtual_users.conf') return `bob:${md5(virtualPass)}`;
+        if (op.path === '/etc/passwd')
+          return `bob:${md5('different-system-pass')}:1001:1001:bob:/home/bob:/bin/bash`;
+        return null;
+      });
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => result.current.authenticateFtpInline(TARGET_IP, 'bob', virtualPass));
+
+      expect(opts.enterFtpMode).toHaveBeenCalled();
+      expect(opts.addLine).toHaveBeenCalledWith('result', '230 Login successful.');
+    });
+
+    it('virtual_users.conf hash overrides /etc/passwd — system password is rejected', () => {
+      const virtualPass = 'virtual-pass';
+      const systemPass = 'system-pass';
+      const remoteUser = makeRemoteUser({ password: 'cache-stale' });
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) => {
+        if (op.path === '/etc/vsftpd/virtual_users.conf') return `bob:${md5(virtualPass)}`;
+        if (op.path === '/etc/passwd')
+          return `bob:${md5(systemPass)}:1001:1001:bob:/home/bob:/bin/bash`;
+        return null;
+      });
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => result.current.authenticateFtpInline(TARGET_IP, 'bob', systemPass));
+
+      expect(opts.enterFtpMode).not.toHaveBeenCalled();
+      expect(opts.addLine).toHaveBeenCalledWith('error', '530 Login incorrect.');
+    });
   });
 
   describe('FTP auth logging', () => {
@@ -645,6 +1008,9 @@ describe('useAuthentication', () => {
       const onFtpAuth = vi.fn();
       const opts = makeOptions();
       opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd' ? `bob:${PASSWORD_HASH}:1001:1001:bob:/home/bob:/bin/bash` : null,
+      );
 
       const { result } = renderHook(() => useAuthentication({ ...opts, onFtpAuth }));
 
@@ -697,6 +1063,9 @@ describe('useAuthentication', () => {
       const onFtpAuth = vi.fn();
       const opts = makeOptions();
       opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd' ? `bob:${PASSWORD_HASH}:1001:1001:bob:/home/bob:/bin/bash` : null,
+      );
 
       const { result } = renderHook(() => useAuthentication({ ...opts, onFtpAuth }));
 
@@ -784,6 +1153,9 @@ describe('useAuthentication', () => {
       const remoteUser = makeRemoteUser();
       const opts = makeOptions();
       opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd' ? `bob:${PASSWORD_HASH}:1001:1001:bob:/home/bob:/bin/bash` : null,
+      );
 
       const transfer = makeAsyncOutput();
       const performTransfer = vi.fn(() => transfer);
@@ -869,6 +1241,32 @@ describe('useAuthentication', () => {
         'error',
         'Permission denied, please try again.',
       );
+    });
+
+    it('rejects SCP password when /etc/passwd is unreadable, even if it matches the cache', () => {
+      const remoteUser = makeRemoteUser();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockReturnValue(null);
+
+      const performTransfer = vi.fn(() => makeAsyncOutput());
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => {
+        result.current.startScpPrompt({
+          user: 'bob',
+          targetIP: TARGET_IP,
+          port: 22,
+          performTransfer,
+        });
+      });
+      act(() => {
+        result.current.handlePasswordSubmit(PASSWORD, vi.fn());
+      });
+
+      expect(performTransfer).not.toHaveBeenCalled();
+      expect(opts.addLine).toHaveBeenCalledWith('error', 'Permission denied, please try again.');
     });
   });
 
@@ -1073,6 +1471,9 @@ describe('useAuthentication', () => {
       const onSshAuth = vi.fn();
       const opts = makeOptions();
       opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd' ? `bob:${PASSWORD_HASH}:1001:1001:bob:/home/bob:/bin/bash` : null,
+      );
 
       const { result } = renderHook(() => useAuthentication({ ...opts, onSshAuth }));
 
@@ -1195,6 +1596,138 @@ describe('useAuthentication', () => {
 
       expect(opts.createFile).not.toHaveBeenCalled();
       expect(opts.writeFile).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('SSH key fingerprinting — /etc/passwd is canonical', () => {
+    // The fingerprint anchor for ~/.ssh_keys entries is the password hash
+    // from the live /etc/passwd, not the static users[].passwordHash cache.
+    // Consequences:
+    //   - password_reset rotates invalidate previously-saved keys (the
+    //     stored fingerprint was computed against the pre-reset hash).
+    //   - garbling /etc/passwd locks out saved-key auth too, not just
+    //     password auth.
+    //   - .ssh_keys lines still cannot be forged without read access to
+    //     /etc/passwd on the target (root- or user-tier read perms).
+
+    it('rejects a saved key after /etc/passwd hash rotates (post password_reset)', () => {
+      // Player saved a key when bob's hash was PASSWORD_HASH. Then
+      // password_reset rolled the credential. /etc/passwd now has a
+      // different hash, so the saved fingerprint no longer matches and
+      // hydra-style key reuse falls through to a password prompt.
+      const remoteUser = makeRemoteUser();
+      const staleKeyEntry = makeKeyEntry('bob', TARGET_IP, PASSWORD_HASH);
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFile.mockImplementation((path: string) =>
+        path === '/home/alice/.ssh_keys' ? staleKeyEntry : null,
+      );
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd'
+          ? `bob:${md5('rolled-pass')}:1001:1001:bob:/home/bob:/bin/bash`
+          : null,
+      );
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => result.current.startSshPrompt('bob', TARGET_IP, 22));
+
+      // Saved key didn't validate — fell through to interactive password prompt
+      expect(result.current.passwordMode).toBe(true);
+      expect(opts.pushSession).not.toHaveBeenCalled();
+      expect(opts.addLine).toHaveBeenCalledWith('result', `bob@${TARGET_IP}'s password:`);
+    });
+
+    it('accepts a saved key when /etc/passwd hash matches the saved fingerprint', () => {
+      // Regression check: keys still work in the unmutated case.
+      const remoteUser = makeRemoteUser();
+      const keyEntry = makeKeyEntry('bob', TARGET_IP, PASSWORD_HASH);
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFile.mockImplementation((path: string) =>
+        path === '/home/alice/.ssh_keys' ? keyEntry : null,
+      );
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd' ? `bob:${PASSWORD_HASH}:1001:1001:bob:/home/bob:/bin/bash` : null,
+      );
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => result.current.startSshPrompt('bob', TARGET_IP, 22));
+
+      expect(result.current.passwordMode).toBe(false);
+      expect(opts.addLine).toHaveBeenCalledWith('result', 'Authenticated with saved key.');
+      expect(opts.pushSession).toHaveBeenCalled();
+    });
+
+    it('saveAuthorizedKey computes the fingerprint from /etc/passwd, not the cache', () => {
+      // Cache holds an obsolete hash; /etc/passwd has the live one. After
+      // a successful password auth, the saved entry's fingerprint must
+      // reflect the LIVE hash so subsequent key-based auth validates.
+      const livePass = 'live-bob-pass';
+      const liveHash = md5(livePass);
+      // Cache hash differs from /etc/passwd — drift scenario.
+      const remoteUser = makeRemoteUser({ password: 'cache-stale' });
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd' ? `bob:${liveHash}:1001:1001:bob:/home/bob:/bin/bash` : null,
+      );
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() =>
+        result.current.authenticateSshInline({
+          user: 'bob',
+          targetIP: TARGET_IP,
+          port: 22,
+          password: livePass,
+        }),
+      );
+
+      // The saved fingerprint must be md5(user:ip:liveHash), not the cache hash.
+      const expectedEntry = makeKeyEntry('bob', TARGET_IP, liveHash);
+      expect(opts.createFile).toHaveBeenCalledWith('/home/alice/.ssh_keys', expectedEntry, 'user');
+    });
+
+    it('rejects a saved key when /etc/passwd is unreadable on the target', () => {
+      const remoteUser = makeRemoteUser();
+      const keyEntry = makeKeyEntry('bob', TARGET_IP, PASSWORD_HASH);
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFile.mockImplementation((path: string) =>
+        path === '/home/alice/.ssh_keys' ? keyEntry : null,
+      );
+      opts.readFileFromMachine.mockReturnValue(null);
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => result.current.startSshPrompt('bob', TARGET_IP, 22));
+
+      expect(result.current.passwordMode).toBe(true);
+      expect(opts.pushSession).not.toHaveBeenCalled();
+    });
+
+    it('rejects a saved key when /etc/passwd is missing the target user', () => {
+      const remoteUser = makeRemoteUser();
+      const keyEntry = makeKeyEntry('bob', TARGET_IP, PASSWORD_HASH);
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFile.mockImplementation((path: string) =>
+        path === '/home/alice/.ssh_keys' ? keyEntry : null,
+      );
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd'
+          ? `alice:${md5('alice-pass')}:1000:1000:alice:/home/alice:/bin/bash`
+          : null,
+      );
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => result.current.startSshPrompt('bob', TARGET_IP, 22));
+
+      expect(result.current.passwordMode).toBe(true);
+      expect(opts.pushSession).not.toHaveBeenCalled();
     });
   });
 

@@ -100,9 +100,16 @@ export type Port = {
   readonly forcedEffect?: VulnerabilityEffect;
 };
 
+// Public/runtime user shape. Carries identity (username) and tier
+// (userType) — no passwordHash. Hashes live canonically in /etc/passwd
+// on the machine; runtime auth, key fingerprinting, and hydra all read
+// from there. See plans/etc-passwd-canonical.md.
+//
+// Generation produces GeneratedUser (in src/generation/types.ts) with
+// the hash attached for /etc/passwd content synthesis. The machine
+// assembly seam strips the hash before populating RemoteMachine.users.
 export type RemoteUser = {
   readonly username: string;
-  readonly passwordHash: string;
   readonly userType: 'root' | 'user' | 'guest';
 };
 

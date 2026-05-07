@@ -7,7 +7,6 @@ import type { UserType } from '../session/types';
 
 type MockRemoteUser = {
   readonly username: string;
-  readonly passwordHash: string;
   readonly userType: 'root' | 'user' | 'guest';
 };
 
@@ -164,7 +163,7 @@ describe('su command', () => {
       const context = createMockSuContext({
         users: ['root'],
         passwdContent: `root:${md5('toor')}`,
-        machineUsers: [{ username: 'root', passwordHash: md5('toor'), userType: 'root' }],
+        machineUsers: [{ username: 'root', userType: 'root' }],
       });
 
       const su = createSuCommand(context);
@@ -189,7 +188,7 @@ describe('su command', () => {
       const context = createMockSuContext({
         users: ['root'],
         passwdContent: `root:${md5('toor')}`,
-        machineUsers: [{ username: 'root', passwordHash: md5('toor'), userType: 'root' }],
+        machineUsers: [{ username: 'root', userType: 'root' }],
         setUsername,
       });
 
@@ -204,7 +203,7 @@ describe('su command', () => {
       const context = createMockSuContext({
         users: ['root'],
         passwdContent: `root:${md5('toor')}`,
-        machineUsers: [{ username: 'root', passwordHash: md5('toor'), userType: 'root' }],
+        machineUsers: [{ username: 'root', userType: 'root' }],
         setCurrentPath,
       });
 
@@ -219,7 +218,7 @@ describe('su command', () => {
       const context = createMockSuContext({
         users: ['guest'],
         passwdContent: `guest:${md5('guestpw')}`,
-        machineUsers: [{ username: 'guest', passwordHash: md5('guestpw'), userType: 'guest' }],
+        machineUsers: [{ username: 'guest', userType: 'guest' }],
         setCurrentPath,
       });
 
@@ -315,7 +314,7 @@ describe('su command', () => {
       const context = createMockSuContext({
         users: ['root'],
         passwdContent: `root:${md5('toor')}`,
-        machineUsers: [{ username: 'root', passwordHash: md5('toor'), userType: 'root' }],
+        machineUsers: [{ username: 'root', userType: 'root' }],
         pushSession: () => callOrder.push('push'),
         setUsername: () => callOrder.push('setUser'),
         setCurrentPath: () => callOrder.push('setPath'),
@@ -361,7 +360,7 @@ describe('su command', () => {
       const context = createMockSuContext({
         users: ['root'],
         passwdContent: `root:${md5('toor')}`,
-        machineUsers: [{ username: 'root', passwordHash: md5('toor'), userType: 'root' }],
+        machineUsers: [{ username: 'root', userType: 'root' }],
         onAuthResult,
       });
 

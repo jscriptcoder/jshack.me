@@ -1,5 +1,5 @@
 import type { Prng } from './prng';
-import type { EntryVariant, GeneratedMachine, MissionObjectiveType } from './types';
+import type { EntryVariant, GeneratedMachine, GeneratedUser, MissionObjectiveType } from './types';
 import type { Port, RemoteUser, ServiceOwner, VulnerabilityEffect } from '../network/types';
 import { backdoorPorts, vulnerabilityTemplates } from './pools';
 import { defaultServiceVersion } from './pools/vulnerabilities';
@@ -124,7 +124,7 @@ export const variantEnrichmentFlag = (variant: EntryVariant): 'nc' | 'exploit' |
 
 export const enrichMachineWithUsers = (
   machine: GeneratedMachine,
-  users: readonly RemoteUser[],
+  users: readonly GeneratedUser[],
   prng: Prng,
 ): GeneratedMachine => {
   const flag = variantEnrichmentFlag(machine.accessVariant);

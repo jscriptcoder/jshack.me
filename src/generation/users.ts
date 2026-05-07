@@ -1,11 +1,10 @@
 import type { Prng } from './prng';
-import type { CredentialMap, EntryVariant, GeneratedMachine } from './types';
-import type { RemoteUser } from '../network/types';
+import type { CredentialMap, EntryVariant, GeneratedMachine, GeneratedUser } from './types';
 import { md5 } from '../utils/md5';
 import { guestPasswords, passwords, wordlistPasswords, usernamesByRole } from './pools';
 
 type UsersResult = {
-  readonly usersByMachine: Readonly<Record<string, readonly RemoteUser[]>>;
+  readonly usersByMachine: Readonly<Record<string, readonly GeneratedUser[]>>;
   readonly credentials: CredentialMap;
 };
 
@@ -19,7 +18,7 @@ export const generateUsers = (
   entryPoint: string,
   options: GenerateUsersOptions = {},
 ): UsersResult => {
-  const usersByMachine: Record<string, readonly RemoteUser[]> = {};
+  const usersByMachine: Record<string, readonly GeneratedUser[]> = {};
   const credentials: Record<
     string,
     readonly { readonly username: string; readonly password: string }[]
@@ -44,13 +43,13 @@ export const generateUsers = (
     ];
     const rootPassword = machinePasswords[0] as string;
 
-    const rootUser: RemoteUser = {
+    const rootUser: GeneratedUser = {
       username: 'root',
       passwordHash: md5(rootPassword),
       userType: 'root',
     };
 
-    const regularUsers: readonly RemoteUser[] = selectedNames.map((name, i) => ({
+    const regularUsers: readonly GeneratedUser[] = selectedNames.map((name, i) => ({
       username: name,
       passwordHash: md5(machinePasswords[i + 1] as string),
       userType: 'user' as const,

@@ -6,6 +6,10 @@ import { handleSessionsRequest } from '../src/sessionRegistry/handler.js';
 import { createSupabaseInsertSession } from '../src/sessionRegistry/supabaseInsert.js';
 import { createSupabaseEndSession } from '../src/sessionRegistry/supabaseUpdate.js';
 import { createSupabaseListSessions } from '../src/sessionRegistry/supabaseSelect.js';
+import {
+  createSupabaseFindEtcPasswdContent,
+  type FindEtcPasswdContentParams,
+} from '../src/sessionRegistry/supabaseFindEtcPasswdContent.js';
 import type {
   EndSessionParams,
   ListSessionsParams,
@@ -117,12 +121,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return { data, error };
   });
 
+  // Server-side userType validation reads /etc/passwd from the
+  // machine_filesystems projection. /etc/passwd content is dual-written
+  // there for paths in FS_PROJECTED_CONTENT_PATHS (see
+  // 20260507100000_machine_fs_selective_content.sql).
+  const findEtcPasswdContent = createSupabaseFindEtcPasswdContent(
+    async (params: FindEtcPasswdContentParams) => {
+      const { data, error } = await supabase
+        .from('machine_filesystems')
+        .select('content')
+        .eq('machine_id', params.machine_id)
+        .eq('path', '/etc/passwd')
+        .limit(1);
+      if (error) console.error('[sessions] supabase find /etc/passwd error:', error);
+      return { data, error };
+    },
+  );
+
   const { rateLimiter, nonceStore } = buildUpstashAdapters();
 
   const { status, body, headers } = await handleSessionsRequest(req.body, {
     insertSession,
     endSession,
     listSessions,
+    findEtcPasswdContent,
     rateLimiter,
     nonceStore,
   });

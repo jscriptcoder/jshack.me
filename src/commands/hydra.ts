@@ -508,25 +508,43 @@ export const createHydraCommand = (context: HydraContext): Command => ({
 
     // Resolve NAT per service port to get the actual target machine's users.
     // Each port may forward to a different internal machine.
-    // For FTP: if virtual users exist, swap in their password hashes.
+    //
+    // /etc/passwd is the canonical source for the hash to brute-force —
+    // no fallback to the static users[].passwordHash cache. Consequences:
+    //   - password_reset rolls take effect (cache holds the stale hash)
+    //   - garbling /etc/passwd is a real sabotage vector (no candidates)
+    //   - users absent from /etc/passwd are filtered out (no attempts)
+    //
+    // For FTP, virtual_users.conf overlays on top of /etc/passwd — the
+    // real vsftpd model where virtual users override system credentials.
     const serviceUsers = services.map((svc) => {
       const resolvedIp = resolveNat(targetIP, svc.port).ip;
       const resolved = findMachineUsers(resolvedIp);
-      // Fall back to visible machine users if NAT-resolved machine has no users
-      // (e.g., non-forwarded port on the router itself)
-      let users = resolved.length > 0 ? resolved : machine.users;
+      // Cache still supplies the username + userType list. Hashes come
+      // from /etc/passwd. (Removing the cache user list entirely is step 6.)
+      const cachedUsers = resolved.length > 0 ? resolved : machine.users;
 
-      // FTP: check for virtual user credentials on the target machine
+      const liveHashes = new Map<string, string>();
+      const passwdNode = getNodeFromMachine(resolvedIp, '/etc/passwd', '/');
+      if (passwdNode?.type === 'file' && passwdNode.content) {
+        passwdNode.content.split('\n').forEach((line) => {
+          const [username, hash] = line.split(':');
+          if (username && hash) liveHashes.set(username, hash);
+        });
+      }
       if (svc.service === 'ftp') {
         const virtualConf = getNodeFromMachine(resolvedIp, '/etc/vsftpd/virtual_users.conf', '/');
         if (virtualConf?.type === 'file' && virtualConf.content) {
-          const virtualUsers = parseVirtualUsersConf(virtualConf.content);
-          users = users.map((u) => {
-            const virtual = virtualUsers.find((v) => v.username === u.username);
-            return virtual ? { ...u, passwordHash: virtual.passwordHash } : u;
+          parseVirtualUsersConf(virtualConf.content).forEach((v) => {
+            liveHashes.set(v.username, v.passwordHash);
           });
         }
       }
+
+      const users = cachedUsers.flatMap((u) => {
+        const hash = liveHashes.get(u.username);
+        return hash !== undefined ? [{ ...u, passwordHash: hash }] : [];
+      });
 
       const filtered = userFilter ? users.filter((u) => u.username === userFilter) : users;
       return { svc, users: filtered };

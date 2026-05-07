@@ -1,17 +1,18 @@
 import type { FileNode, FilePermissions } from '../filesystem/types';
 import type { UserType } from '../session/types';
+import { shouldProjectFsContent } from './projectedContentPaths';
 
 // Pure flatten: walk a FileNode tree and produce one row per node, ready
 // to bulk-insert into machine_filesystems. The shape mirrors the L2
-// dual-write SQL function's UPSERT target — owner, permissions (JSONB).
-// node_type and content were dropped from machine_filesystems in
-// 20260503210309_drop_machine_fs_unused_columns.sql because L2 never
-// consumed them; the patches table keeps both for runtime FS replay.
+// dual-write SQL function's UPSERT target — owner, permissions (JSONB),
+// and content (nullable, projected only for paths in
+// FS_PROJECTED_CONTENT_PATHS — currently /etc/passwd for the server-side
+// userType validation in createSession).
 //
 // Used by:
 //   - The home-network base-FS backfill (immediately after createNetwork)
 //   - The one-time backfill script for existing machines
-//   - World-network backfill (planned follow-up — same flatten works)
+//   - World-network backfill — same flatten works
 //
 // The function is intentionally tree-walking only — it doesn't know how
 // to fetch the FileNode (caller does that via generateHomeNetwork etc.)
@@ -28,10 +29,16 @@ export type MachineFsRow = {
   readonly path: string;
   readonly owner: UserType;
   readonly permissions: FilePermissions;
+  // Populated only for paths in FS_PROJECTED_CONTENT_PATHS. All other
+  // rows leave it null — content lives canonically in the patches table.
+  readonly content?: string | null;
 };
 
 const joinPath = (basePath: string, name: string): string =>
   basePath === '/' ? `/${name}` : `${basePath}/${name}`;
+
+const projectedContent = (node: FileNode, path: string): string | null =>
+  shouldProjectFsContent(path) && node.type === 'file' ? (node.content ?? null) : null;
 
 export const flattenFileNode = (
   machineId: string,
@@ -43,6 +50,7 @@ export const flattenFileNode = (
     path: basePath,
     owner: node.owner,
     permissions: node.permissions,
+    content: projectedContent(node, basePath),
   };
   if (node.type !== 'directory' || !node.children) return [self];
   const childRows = Object.entries(node.children).flatMap(([name, child]) =>

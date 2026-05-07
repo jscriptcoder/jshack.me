@@ -43,7 +43,7 @@ const getMockRouter = (): RemoteMachine => ({
     { port: 22, service: 'ssh', serviceVersion: 'latest', open: false },
     { port: 161, service: 'snmp', serviceVersion: 'latest', open: true, protocol: 'udp' },
   ],
-  users: [{ username: 'netops', passwordHash: 'abc123', userType: 'user' }],
+  users: [{ username: 'netops', userType: 'user' }],
 });
 
 const mkFileNode = (content: string): FileNode => ({
