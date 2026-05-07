@@ -1,8 +1,8 @@
 # Plan: Cross-Player Base FS Replication + Server-Authoritative Auth + CVE Read Endpoint
 
-**Branch**: feat/cross-player-base-fs-replication (umbrella) — PR 1 on feat/cpbfs-pr1-foundation
-**Status**: Active — PR 1 forge smoke complete; awaiting two-browser visual confirmation
+**Status**: Active — PR 1 ✅ merged; PR 2 in progress
 **Started**: 2026-05-07
+**Current branch (PR 2)**: feat/cpbfs-pr2-server-auth
 **Estimate**: 7 PRs, ~3-4 weeks total
 **Why this chunk exists**: PvP cracking is the multiplayer pitch. Without this, cross-player attacks against player workstations don't work — SSH login fails, FTP login fails, file_read CVE fails, post-login `cat`/`ls` returns empty. User explicitly reversed the prior deferral on 2026-05-07 ("not gonna be happy to release the game without this").
 
@@ -68,16 +68,16 @@ These are open questions. Do NOT decide them implicitly inside this chunk.
 
 ## PR roadmap
 
-| PR  | Status          | Goal                                                                 |
-| --- | --------------- | -------------------------------------------------------------------- |
-| 1   | Not started     | Foundation — workstations seed migration + projection list extension |
-| 2   | Pending PR 1    | Server-authoritative auth — SSH / SCP / `su`                         |
-| 3   | Pending PR 2    | Server-authoritative auth — FTP                                      |
-| 4   | Pending PR 2    | Server-authoritative auth — MySQL / Redis / SNMP                     |
-| 5   | Pending PR 1    | Backdoor connect (nc) — cross-player tier from projected pidfile     |
-| 6   | Pending PRs 1-5 | Base FS replication endpoint (eager bulk-fetch on session establish) |
-| 7   | Pending PR 6    | `/api/exploit-read` for `file_read` / `dir_list` CVE effects         |
-| 8   | Pending PRs 2-3 | Hydra adaptation + rate-limit tuning                                 |
+| PR  | Status                             | Goal                                                                 |
+| --- | ---------------------------------- | -------------------------------------------------------------------- |
+| 1   | ✅ Merged (#124, commit `699f5f7`) | Foundation — workstations seed migration + projection list extension |
+| 2   | In progress (this branch)          | Server-authoritative auth — SSH / SCP / `su`                         |
+| 3   | Pending PR 2                       | Server-authoritative auth — FTP                                      |
+| 4   | Pending PR 2                       | Server-authoritative auth — MySQL / Redis / SNMP                     |
+| 5   | Pending PR 1                       | Backdoor connect (nc) — cross-player tier from projected pidfile     |
+| 6   | Pending PRs 1-5                    | Base FS replication endpoint (eager bulk-fetch on session establish) |
+| 7   | Pending PR 6                       | `/api/exploit-read` for `file_read` / `dir_list` CVE effects         |
+| 8   | Pending PRs 2-3                    | Hydra adaptation + rate-limit tuning                                 |
 
 Ordering rationale:
 
@@ -282,19 +282,173 @@ Plus a manual two-browser smoke:
 
 ## PR 2: Server-authoritative auth — SSH / SCP / `su`
 
-**Goal**: SSH/SCP/su credential validation moves from local-FS (the player's IndexedDB) to a server endpoint that reads `/etc/passwd` content from `machine_filesystems`. Saved-key fingerprint validation moves server-side too.
+**Goal**: SSH/SCP/su credential validation moves from client-side (the player's IndexedDB) to a server endpoint that reads `/etc/passwd` content from `machine_filesystems`. Validation + session creation collapse into a single atomic operation, fixing the post-login race documented in `project_known_race_post_login_create_session`. Saved-key fingerprint validation moves server-side too.
 
-**Approach** (high-level — TDD steps to be detailed when this PR starts):
+**Acceptance**:
 
-- New `/api/auth` endpoint (or extend `/api/sessions` with an action like `authenticateAndCreateSession`). Signed envelope carries `{ kind: 'ssh'|'scp'|'su', target_machine_id, username, password OR savedKeyFingerprint }`.
-- Server reads `/etc/passwd` from `machine_filesystems.content`, parses to `(username → passwordHash, userType)`, validates `md5(submittedPassword) === passwordHash`.
-- For saved-key: server recomputes `expectedFingerprint = md5(currentPasswordHash + targetUser + targetIp + port)` and compares.
-- On success, server INSERTs a session row (collapsing the existing two-step `validate-then-createSession` into one atomic operation).
-- Client SSH/SCP/su stop validating locally; just call the new endpoint and use the returned `sessionId`.
+- [ ] `POST /api/sessions` with `action: 'authCreateSession'` and a valid `(username, password)` against the target's `/etc/passwd` returns `201` with a `session_id` and the `userType` derived from `/etc/passwd`.
+- [ ] Same envelope with a wrong password returns `401 invalid_credentials`. No user-existence leak — non-existent username also returns `401 invalid_credentials`.
+- [ ] Same envelope with a valid saved-key fingerprint (computed from current `/etc/passwd` hash) returns `201`. Fingerprint mismatch returns `401`.
+- [ ] Submitting `action: 'createSession'` (the old kind-based action) for `kind: 'ssh' | 'scp' | 'su'` is rejected (`400` or `403`) — the auth-required kinds force callers through `authCreateSession`.
+- [ ] Existing in-game SSH login (against the player's own workstation) still works — IntroScreen → SSH session goes through `authCreateSession` and lands in a working shell.
+- [ ] Cross-player flow on a freshly-registered Tab B: Tab A `ssh user@<B's-LAN-IP>` with B's actual password lands in a session at the correct `userType`.
+- [ ] Forge smoke (`scripts/testServerAuth.ts`): wire-payload tests for valid / wrong-password / non-existent-user / saved-key / forge-with-wrong-fingerprint, all 5 scenarios pass against `vercel:dev`.
+- [ ] No regression in handler tests (`sessionRegistry/handler.test.ts`).
 
-**Open during this PR**: rate-limit budget; whether the new endpoint replaces `/api/sessions` `createSession` or coexists with it.
+### Step 1: Add `authCreateSession` action to the sessions schema
 
-**Smoke**: forge attack — non-game-client posts a wrong password; verify 401. Wire-payload check — verify the response on success doesn't leak content beyond the session_id.
+**RED**: New tests in `sessionRegistry/types.test.ts` (or extend if it exists) that pin the new discriminated-union arm:
+- Valid envelope with `kind: 'ssh'`, `target_machine_id`, `username`, `password` parses.
+- Same with `savedKeyFingerprint` instead of `password` parses.
+- Envelope with both `password` AND `savedKeyFingerprint` is rejected (mutual exclusion).
+- Envelope with neither is rejected.
+- `kind` outside `'ssh' | 'scp' | 'su'` is rejected (other kinds use the existing `createSession`).
+- Bounds: password/fingerprint min/max length pinned.
+
+**GREEN**: Add a new `z.object({ action: z.literal('authCreateSession'), ... })` arm to `sessionsSignedPayloadSchema` and the `SessionsPayload` discriminated union.
+
+**MUTATE**: Bounds, kind enum membership, mutual-exclusion XOR check.
+
+**Done when**: schema tests green; existing `createSession` arm continues to parse correctly.
+
+### Step 2: `/etc/passwd` parser — reusable helper
+
+**RED**: Test in `src/filesystem/etcPasswdHelpers.test.ts` (or new file) that pins:
+- Parses real-shape `/etc/passwd` content into `Map<username, { passwordHash, userType }>`.
+- Empty-content / malformed lines are skipped, not thrown.
+- `userType` correctly derived from `(uid, gid)` columns per game convention (root: uid=0; user: uid in user range; guest: known username).
+
+**GREEN**: Implement the parser. Likely already partially exists in `etcPasswdHelpers.ts` — refactor/expose if so.
+
+**MUTATE**: Field-position robustness (extra whitespace, missing fields), userType derivation correctness.
+
+**Done when**: parser produces expected map for canonical `/etc/passwd` shapes including the multi-user content from the world-network smoke.
+
+### Step 3: Server handler arm — `handleAuthCreateSession`
+
+**RED**: New tests in `sessionRegistry/handler.test.ts`:
+- Reads `/etc/passwd` from `machine_filesystems` (via injected adapter), parses, validates password — returns `201` with `session_id` and the correct `userType`.
+- `insertSession` is called with `kind` from the envelope and `credentials.userType` from the parsed `/etc/passwd` (NOT trusted from the envelope).
+- Wrong password → `401 invalid_credentials`; insertSession NOT called.
+- Username not in `/etc/passwd` → `401 invalid_credentials`; insertSession NOT called (no enumeration).
+- Machine has no `/etc/passwd` row → `404 machine_not_found` or `401` (decide based on info-leak posture; default 401).
+- Saved-key path: fingerprint-match returns `201`; mismatch returns `401`.
+- L1 / L2 are NOT bypassed by this endpoint — it's a session-CREATING endpoint, not a write endpoint, so the existing layers apply downstream as before.
+
+**GREEN**: Add `handleAuthCreateSession` arm in `sessionRegistry/handler.ts`. Inject a `findEtcPasswdContent(machine_id) → string | null` adapter (mirror of how other lookups are injected).
+
+**MUTATE**: Wrong-password vs unknown-user equivalence (no leak), userType derivation source (envelope vs parsed), session insert call shape.
+
+**Done when**: handler tests green; `sessionRegistry/handler.test.ts` keeps all existing tests passing.
+
+### Step 4: Server adapter — `findEtcPasswdContent`
+
+**RED**: Test in `sessionRegistry/supabaseFindEtcPasswdContent.test.ts` (or extend existing):
+- Returns content for an existing row.
+- Returns null when no row exists.
+- Returns null on Supabase error.
+
+**GREEN**: Helper that does `SELECT content FROM machine_filesystems WHERE machine_id=$1 AND path='/etc/passwd'`. Existing `supabaseFindEtcPasswdContent.ts` may already do this — if so, reuse.
+
+**Done when**: adapter unit-tested; wired into `api/sessions.ts` as a dep for the new handler arm.
+
+### Step 5: Reject `createSession` for auth-required kinds
+
+**RED**: Handler tests asserting that `action: 'createSession'` with `kind: 'ssh' | 'scp' | 'su'` returns `400 use_authcreatesession` (or similar) and does NOT call `insertSession`. Other kinds (`'exploit' | 'snmp' | 'nc' | 'effect_one_shot' | 'ftp' | 'mysql' | 'redis'`) continue to work — FTP/MySQL/Redis migrate to authCreateSession in PR 3+4.
+
+**GREEN**: Add the kind-list check to `handleCreateSession`. Document the auth-required vs auth-optional partition in a comment.
+
+**MUTATE**: Kind enum membership, error response shape.
+
+**Done when**: malicious client cannot bypass server validation by posting `createSession` with `kind:'ssh'`.
+
+### Step 6: Client-side `authCreateSession` wrapper
+
+**RED**: `sessionRegistry/client.test.ts` test for the new function:
+- Signs `authCreateSession` envelope with given fields.
+- POSTs to `/api/sessions`.
+- Returns `{ session_id, userType }` on 201.
+- Throws (or returns a Result type) on 401 / 4xx / 5xx with reason captured.
+
+**GREEN**: Add `authCreateSession` to `sessionRegistry/client.ts`. Mirror `createSession`'s shape but with the new payload + return-userType-from-server (don't trust client-side for userType).
+
+**Done when**: client wrapper unit-tested; existing `createSession` keeps working.
+
+### Step 7: Wire SSH path to `authCreateSession`
+
+**RED**: Updates to `useAuthentication.test.ts` (or wherever SSH login is tested):
+- SSH password login no longer reads `/etc/passwd` locally for validation; it calls `authCreateSession` with the password.
+- On 201, the new sessionId is set and the user is logged in.
+- On 401, the in-game error message is `"Permission denied (publickey,password)"` (preserve UX).
+
+**GREEN**: Replace local md5(password) check in `useAuthentication.ts` SSH branch with an `authCreateSession` call. Remove the `pushSession` follow-up (auth+create is now atomic). Keep local UX state updates (snapshot stack, currentPath, etc.).
+
+**Tricky**: Some existing tests pin local validation behaviour. Those tests now belong on the server (handler tests) — delete them client-side, or refactor to test the request shape.
+
+**MUTATE**: Error-path coverage (401 → correct UX), success-path (sessionId from server is propagated).
+
+**Done when**: SSH login E2E (against vercel:dev with a registered workstation) works end-to-end; handler.test + useAuthentication.test all green.
+
+### Step 8: Wire SCP path to `authCreateSession`
+
+**RED**: SCP test updates — same shape as SSH (kind='scp').
+
+**GREEN**: Update `commands/scp.ts` (or its withTransientSession call) to use `authCreateSession` instead of local validation + `withTransientSession(createSession)`. The transient session shape is preserved; just the create-call changes.
+
+**Done when**: SCP file copy across machines works against vercel:dev.
+
+### Step 9: Wire `su` path to `authCreateSession`
+
+**RED**: `su` tests — kind='su', target_machine_id is the current machine.
+
+**GREEN**: Update `commands/su.ts` (or wherever `su` validates) to call `authCreateSession` instead of local md5 check.
+
+**Note**: `su` has a different UX — same machine, just changing tier. The session row created has `kind:'su'` and a parent_session_id pointing to the current shell session.
+
+**Done when**: `su root` with correct password promotes tier; wrong password fails with the standard error.
+
+### Step 10: Saved-key fingerprint server-side
+
+**RED**: Handler tests for the saved-key arm (covered in step 3 partially, but expand):
+- Server recomputes `expectedFingerprint = md5(currentHashFromEtcPasswd + ...)` matching the existing client-side derivation.
+- Match → 201; mismatch → 401.
+- After `password_reset` modifies `/etc/passwd`, the saved key's fingerprint no longer matches the new hash → 401 (memory: `project_users_passwordhash_drift` confirms this is the intended behavior).
+
+**GREEN**: Implement the saved-key validation path in `handleAuthCreateSession`. The fingerprint derivation must MATCH `useAuthentication.ts:119-180` — identical hash inputs.
+
+**MUTATE**: Hash-input ordering (target_user, target_ip, port, current_hash) — pin the canonical order; off-by-one would silently break.
+
+**Done when**: pre-saved key login works post-PR-2 against a workstation with a fresh /etc/passwd hash.
+
+### Step 11: E2E forge smoke — `scripts/testServerAuth.ts`
+
+**RED**: New script that:
+1. Registers a workstation with seed + rootPassword via `/api/register-workstation`.
+2. Forges 5 envelopes:
+   - Valid password → expect 201, sessionId returned.
+   - Wrong password → expect 401 invalid_credentials.
+   - Non-existent username → expect 401 (same code, no leak).
+   - Valid saved-key fingerprint → expect 201.
+   - Forged saved-key fingerprint (random bytes) → expect 401.
+3. Verifies session row exists in DB for the success cases.
+4. Cleans up.
+
+**GREEN**: The script doesn't drive code; it validates production code. As steps 1-10 land, this smoke goes from 0/5 to 5/5.
+
+**Done when**: 5/5 scenarios pass against `vercel:dev`.
+
+### Step 12: Two-browser smoke
+
+Manual verification:
+1. Browser A: NEW GAME, register workstation A.
+2. Browser B: NEW GAME, register workstation B.
+3. Connect both to the same WiFi (use the cross-player setup script).
+4. Browser A: `ssh <B's-username>@<B's-LAN-IP>` with B's actual password → lands in a session.
+5. Network tab confirms the request is `authCreateSession`, not `createSession`.
+6. Wrong password → in-game "Permission denied" message.
+7. After landing, A can see B's `/home/<user>/README.txt` content (filtered by guest tier — since A logged in as `<B's-username>` which is `user` tier, A sees user-tier-readable content).
+
+**Done when**: cross-player SSH login fully works through the UI.
 
 ---
 
