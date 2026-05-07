@@ -3,10 +3,15 @@
 // Verifies:
 //   1. Fresh registration → 201 inserted:true; row in workstations;
 //      machine_filesystems populated for the workstation_id.
+//   1d. workstations.seed persists the seed sent in the envelope.
+//   1e. /etc/passwd projected content carries md5(rootPassword) — the
+//      load-bearing fix from PR 1 of plans/cross-player-base-fs-
+//      replication.md (cross-player password validation in PR 2).
 //   2. Idempotent repeat → 200 inserted:false; no duplicate rows.
 //   3. Conflicting repeat (different workstation_name) → 409
 //      already_registered.
 //   4. Tampered signature → 401 signature_invalid.
+//   5. Missing-seed envelope → 400 payload_invalid.
 //
 // Usage (vercel:dev must be running on http://localhost:3000):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testRegisterWorkstation.ts
@@ -18,6 +23,7 @@ import { createClient } from '@supabase/supabase-js';
 import { generateIdentity } from '../src/identity/identity';
 import { signRequest } from '../src/signedRequest/sign';
 import { deriveHostnameSuffix } from '../src/homeNetworks/homeNetworkHelpers';
+import { md5 } from '../src/utils/md5';
 
 const url = process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -41,6 +47,8 @@ const check = (name: string, pass: boolean, detail: string) => {
 const identity = generateIdentity();
 const workstationName = 'rls-probe-box';
 const username = 'probeuser';
+const seed = '0123456789abcdef';
+const rootPassword = 'probe-root-pw';
 const machineId = `${workstationName}-${deriveHostnameSuffix(identity.publicKeyHex)}`;
 
 // Cleanup any leftover state from a prior aborted run BEFORE the test.
@@ -62,6 +70,8 @@ const post = async (envelope: unknown): Promise<{ status: number; body: unknown 
 const env1 = signRequest(identity, 'registerWorkstation', {
   workstation_name: workstationName,
   username,
+  seed,
+  rootPassword,
 });
 const r1 = await post(env1);
 check(
@@ -97,11 +107,37 @@ check(
   `hasPasswd=${hasPasswd}`,
 );
 
+// 1d. seed persists in workstations row (PR 1 step 3 verification).
+check(
+  '1d. workstations.seed persists the seed from the envelope',
+  ws?.seed === seed,
+  `expected=${seed} got=${ws?.seed}`,
+);
+
+// 1e. Projected /etc/passwd content carries md5(rootPassword) — the
+// load-bearing fix that lets PR 2's cross-player password validation
+// compare submitted passwords against this hash.
+const { data: passwdRow } = await sr
+  .from('machine_filesystems')
+  .select('content')
+  .eq('machine_id', machineId)
+  .eq('path', '/etc/passwd')
+  .maybeSingle();
+const expectedHash = md5(rootPassword);
+const passwdContent = passwdRow?.content as string | undefined;
+check(
+  '1e. /etc/passwd projected content includes md5(rootPassword)',
+  passwdContent?.includes(expectedHash) === true,
+  `expectedHash=${expectedHash} present=${passwdContent?.includes(expectedHash)}`,
+);
+
 // ---- 2. Idempotent repeat ------------------------------------------
 
 const env2 = signRequest(identity, 'registerWorkstation', {
   workstation_name: workstationName,
   username,
+  seed,
+  rootPassword,
 });
 const r2 = await post(env2);
 check(
@@ -121,6 +157,8 @@ check('2a. no duplicate workstations row after repeat', wsCount2 === 1, `count=$
 const env3 = signRequest(identity, 'registerWorkstation', {
   workstation_name: 'DIFFERENT-BOX',
   username,
+  seed,
+  rootPassword,
 });
 const r3 = await post(env3);
 check(
@@ -134,6 +172,8 @@ check(
 const env4 = signRequest(identity, 'registerWorkstation', {
   workstation_name: workstationName,
   username,
+  seed,
+  rootPassword,
 });
 const tampered = { ...env4, signature: '00'.repeat(64) };
 const r4 = await post(tampered);
@@ -141,6 +181,25 @@ check(
   '4. tampered signature returns 401 signature_invalid',
   r4.status === 401 && (r4.body as { error?: string })?.error === 'signature_invalid',
   `status=${r4.status} body=${JSON.stringify(r4.body)}`,
+);
+
+// ---- 5. Missing-seed envelope --------------------------------------
+//
+// New schema requires `seed` and `rootPassword`. An envelope missing
+// either should fail Zod validation server-side and return 400.
+// Use a fresh identity so it doesn't conflict with the other rows.
+
+const otherIdentity = generateIdentity();
+const env5 = signRequest(otherIdentity, 'registerWorkstation', {
+  workstation_name: workstationName,
+  username,
+  // intentional: omit seed and rootPassword
+});
+const r5 = await post(env5);
+check(
+  '5. envelope missing seed/rootPassword returns 400 payload_invalid',
+  r5.status === 400 && (r5.body as { error?: string })?.error === 'payload_invalid',
+  `status=${r5.status} body=${JSON.stringify(r5.body)}`,
 );
 
 // ---- Cleanup -------------------------------------------------------

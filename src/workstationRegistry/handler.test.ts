@@ -12,12 +12,16 @@ import { signRequest } from '../signedRequest/sign';
 // verify(). Same approach as src/sessionRegistry/handler.test.ts.
 const FIXED_NOW = 1_700_000_000_000;
 
+const DEFAULT_ENVELOPE_FIELDS = {
+  workstation_name: 'skylab',
+  username: 'alice',
+  seed: '0123456789abcdef',
+  rootPassword: 'sup3r-s3cr3t',
+};
+
 const makeEnvelope = (
   identity: Identity,
-  fields: Record<string, unknown> = {
-    workstation_name: 'skylab',
-    username: 'alice',
-  },
+  fields: Record<string, unknown> = DEFAULT_ENVELOPE_FIELDS,
 ) => {
   const realNow = Date.now;
   Date.now = () => FIXED_NOW;
@@ -28,9 +32,14 @@ const makeEnvelope = (
   }
 };
 
+type PopulateBaseFsFn = (
+  row: WorkstationRow,
+  rootPassword: string,
+) => Promise<PopulateBaseFsResult>;
+
 const mkDeps = (overrides: {
   readonly upsertWorkstation?: (row: WorkstationRow) => Promise<UpsertWorkstationResult>;
-  readonly populateBaseFs?: (row: WorkstationRow) => Promise<PopulateBaseFsResult>;
+  readonly populateBaseFs?: PopulateBaseFsFn;
   readonly rateLimiter?: RateLimiter;
   readonly nonceStore?: NonceStore;
   readonly now?: () => number;
@@ -41,8 +50,7 @@ const mkDeps = (overrides: {
       .fn<(row: WorkstationRow) => Promise<UpsertWorkstationResult>>()
       .mockResolvedValue({ ok: true, inserted: true }),
   populateBaseFs:
-    overrides.populateBaseFs ??
-    vi.fn<(row: WorkstationRow) => Promise<PopulateBaseFsResult>>().mockResolvedValue({ ok: true }),
+    overrides.populateBaseFs ?? vi.fn<PopulateBaseFsFn>().mockResolvedValue({ ok: true }),
   rateLimiter: overrides.rateLimiter ?? noopRateLimiter,
   nonceStore: overrides.nonceStore ?? noopNonceStore,
   now: overrides.now ?? (() => FIXED_NOW),
@@ -58,9 +66,7 @@ describe('handleRegisterWorkstationRequest', () => {
     const upsertWorkstation = vi
       .fn<(row: WorkstationRow) => Promise<UpsertWorkstationResult>>()
       .mockResolvedValue({ ok: true, inserted: true });
-    const populateBaseFs = vi
-      .fn<(row: WorkstationRow) => Promise<PopulateBaseFsResult>>()
-      .mockResolvedValue({ ok: true });
+    const populateBaseFs = vi.fn<PopulateBaseFsFn>().mockResolvedValue({ ok: true });
     const envelope = makeEnvelope(identity);
 
     const result = await handleRegisterWorkstationRequest(
@@ -74,12 +80,40 @@ describe('handleRegisterWorkstationRequest', () => {
       player_key: identity.publicKeyHex,
       workstation_name: 'skylab',
       username: 'alice',
+      seed: '0123456789abcdef',
     });
-    expect(populateBaseFs).toHaveBeenCalledWith({
-      player_key: identity.publicKeyHex,
-      workstation_name: 'skylab',
-      username: 'alice',
-    });
+    expect(populateBaseFs).toHaveBeenCalledWith(
+      {
+        player_key: identity.publicKeyHex,
+        workstation_name: 'skylab',
+        username: 'alice',
+        seed: '0123456789abcdef',
+      },
+      'sup3r-s3cr3t',
+    );
+  });
+
+  it('passes rootPassword separately from the row, never on it (persistence boundary)', async () => {
+    const upsertWorkstation = vi
+      .fn<(row: WorkstationRow) => Promise<UpsertWorkstationResult>>()
+      .mockResolvedValue({ ok: true, inserted: true });
+    const populateBaseFs = vi.fn<PopulateBaseFsFn>().mockResolvedValue({ ok: true });
+    const envelope = makeEnvelope(identity);
+
+    await handleRegisterWorkstationRequest(envelope, mkDeps({ upsertWorkstation, populateBaseFs }));
+
+    // upsertWorkstation row must not contain rootPassword — that's the
+    // persistence boundary (row is what hits the workstations table).
+    const rowArg = upsertWorkstation.mock.calls[0]?.[0] as Record<string, unknown> | undefined;
+    expect(rowArg).toBeDefined();
+    expect(rowArg).not.toHaveProperty('rootPassword');
+
+    // populateBaseFs is called with (row, rootPassword) positionally;
+    // rootPassword is the second arg, not folded into the row.
+    const populateRowArg = populateBaseFs.mock.calls[0]?.[0] as Record<string, unknown> | undefined;
+    expect(populateRowArg).toBeDefined();
+    expect(populateRowArg).not.toHaveProperty('rootPassword');
+    expect(populateBaseFs.mock.calls[0]?.[1]).toBe('sup3r-s3cr3t');
   });
 
   it('returns 200 when re-registering with identical workstation_name and username', async () => {
@@ -90,7 +124,7 @@ describe('handleRegisterWorkstationRequest', () => {
         inserted: false,
         existing: { workstation_name: 'skylab', username: 'alice' },
       });
-    const populateBaseFs = vi.fn<(row: WorkstationRow) => Promise<PopulateBaseFsResult>>();
+    const populateBaseFs = vi.fn<PopulateBaseFsFn>();
     const envelope = makeEnvelope(identity);
 
     const result = await handleRegisterWorkstationRequest(
@@ -111,7 +145,7 @@ describe('handleRegisterWorkstationRequest', () => {
         inserted: false,
         existing: { workstation_name: 'OTHER-BOX', username: 'alice' },
       });
-    const populateBaseFs = vi.fn<(row: WorkstationRow) => Promise<PopulateBaseFsResult>>();
+    const populateBaseFs = vi.fn<PopulateBaseFsFn>();
     const envelope = makeEnvelope(identity);
 
     const result = await handleRegisterWorkstationRequest(
@@ -191,9 +225,7 @@ describe('handleRegisterWorkstationRequest', () => {
     const upsertWorkstation = vi
       .fn<(row: WorkstationRow) => Promise<UpsertWorkstationResult>>()
       .mockResolvedValue({ ok: true, inserted: true });
-    const populateBaseFs = vi
-      .fn<(row: WorkstationRow) => Promise<PopulateBaseFsResult>>()
-      .mockResolvedValue({ ok: false });
+    const populateBaseFs = vi.fn<PopulateBaseFsFn>().mockResolvedValue({ ok: false });
     const envelope = makeEnvelope(identity);
 
     const result = await handleRegisterWorkstationRequest(

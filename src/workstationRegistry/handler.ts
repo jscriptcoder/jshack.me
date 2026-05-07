@@ -16,7 +16,14 @@ export type HandlerResponse = {
 
 export type HandlerDeps = {
   readonly upsertWorkstation: (row: WorkstationRow) => Promise<UpsertWorkstationResult>;
-  readonly populateBaseFs: (row: WorkstationRow) => Promise<PopulateBaseFsResult>;
+  // populateBaseFs takes rootPassword separately from the row because
+  // rootPassword is transient — used to generate correct /etc/passwd
+  // hash content at register-time and then discarded. It does NOT
+  // belong on WorkstationRow (which is the persistence shape).
+  readonly populateBaseFs: (
+    row: WorkstationRow,
+    rootPassword: string,
+  ) => Promise<PopulateBaseFsResult>;
   readonly rateLimiter: RateLimiter;
   readonly nonceStore: NonceStore;
   readonly now?: () => number;
@@ -76,6 +83,7 @@ export const handleRegisterWorkstationRequest = async (
     player_key: verified.publicKey,
     workstation_name: verified.payload.workstation_name,
     username: verified.payload.username,
+    seed: verified.payload.seed,
   };
 
   const upserted = await deps.upsertWorkstation(row);
@@ -99,7 +107,7 @@ export const handleRegisterWorkstationRequest = async (
   // Fresh row — populate machine_filesystems base-FS so L2 enforces.
   // Best-effort: log + proceed on failure (matches the home/world
   // populate posture; the backfill script in Step 6 catches misses).
-  const populated = await deps.populateBaseFs(row);
+  const populated = await deps.populateBaseFs(row, verified.payload.rootPassword);
   if (!populated.ok) {
     console.error(
       '[register-workstation] base-FS populate failed for',

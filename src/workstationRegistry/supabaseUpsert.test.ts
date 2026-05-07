@@ -6,6 +6,7 @@ const baseRow: WorkstationRow = {
   player_key: 'pubkey-A',
   workstation_name: 'skylab',
   username: 'alice',
+  seed: '0123456789abcdef',
 };
 
 describe('createSupabaseUpsertWorkstation', () => {
@@ -26,6 +27,7 @@ describe('createSupabaseUpsertWorkstation', () => {
       player_key: 'pubkey-A',
       workstation_name: 'OLDER-BOX',
       username: 'older-user',
+      seed: 'older-seed',
     };
     const selectExisting = vi.fn().mockResolvedValue({ data: existingRow, error: null });
     const upsert = createSupabaseUpsertWorkstation(upsertRow, selectExisting);
