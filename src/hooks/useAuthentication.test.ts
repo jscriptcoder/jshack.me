@@ -230,6 +230,9 @@ describe('useAuthentication', () => {
       const remoteUser = makeRemoteUser();
       const opts = makeOptions();
       opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd' ? `bob:${PASSWORD_HASH}:1001:1001:bob:/home/bob:/bin/bash` : null,
+      );
 
       const { result } = renderHook(() => useAuthentication(opts));
 
@@ -292,6 +295,121 @@ describe('useAuthentication', () => {
         'error',
         'Permission denied, please try again.',
       );
+    });
+
+    it('rejects SSH password when /etc/passwd is unreadable, even if it matches the cache', () => {
+      // /etc/passwd is the sole source of truth — if the file is missing
+      // (e.g., garbled to nothing, or the file was deleted), auth fails
+      // regardless of what the static cache holds. Players who garble a
+      // remote /etc/passwd should lock out password logins on that machine.
+      const remoteUser = makeRemoteUser();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockReturnValue(null);
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => result.current.startSshPrompt('bob', TARGET_IP, 22));
+      act(() => {
+        result.current.handlePasswordSubmit(PASSWORD, vi.fn());
+      });
+
+      expect(opts.pushSession).not.toHaveBeenCalled();
+      expect(opts.addLine).toHaveBeenCalledWith('error', 'Permission denied, please try again.');
+    });
+
+    it('rejects SSH password when /etc/passwd is garbled and missing the target user', () => {
+      const remoteUser = makeRemoteUser();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd' ? 'garbage with no colons or recognisable lines' : null,
+      );
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => result.current.startSshPrompt('bob', TARGET_IP, 22));
+      act(() => {
+        result.current.handlePasswordSubmit(PASSWORD, vi.fn());
+      });
+
+      expect(opts.pushSession).not.toHaveBeenCalled();
+      expect(opts.addLine).toHaveBeenCalledWith('error', 'Permission denied, please try again.');
+    });
+
+    it('rejects SSH password when /etc/passwd has the user line but the hash field is empty', () => {
+      const remoteUser = makeRemoteUser();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd' ? 'bob::1001:1001:bob:/home/bob:/bin/bash' : null,
+      );
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => result.current.startSshPrompt('bob', TARGET_IP, 22));
+      act(() => {
+        result.current.handlePasswordSubmit(PASSWORD, vi.fn());
+      });
+
+      expect(opts.pushSession).not.toHaveBeenCalled();
+      expect(opts.addLine).toHaveBeenCalledWith('error', 'Permission denied, please try again.');
+    });
+
+    it('finds the correct user line in a multi-user /etc/passwd (parses on newline)', () => {
+      // Production /etc/passwd has root + user + guest at minimum. The
+      // parser must split on newlines so the per-user lookup picks the
+      // right line; a wrong delimiter would treat the file as a single
+      // blob and only the first user's hash would ever be considered.
+      const remoteUser = makeRemoteUser({ username: 'bob', password: 'bob-pass' });
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd'
+          ? [
+              `root:${md5('root-pass')}:0:0:root:/root:/bin/bash`,
+              `bob:${md5('bob-pass')}:1001:1001:bob:/home/bob:/bin/bash`,
+              `guest:${md5('guest-pass')}:65534:65534:guest:/home/guest:/bin/bash`,
+            ].join('\n')
+          : null,
+      );
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => result.current.startSshPrompt('bob', TARGET_IP, 22));
+      act(() => {
+        result.current.handlePasswordSubmit('bob-pass', vi.fn());
+      });
+
+      expect(opts.pushSession).toHaveBeenCalled();
+      expect(opts.addLine).not.toHaveBeenCalledWith(
+        'error',
+        'Permission denied, please try again.',
+      );
+    });
+
+    it('rejects SSH password when /etc/passwd has a different hash than the input', () => {
+      // The inverse of the post-password_reset acceptance test — the OLD
+      // password should fail once /etc/passwd has been rotated. Cache hash
+      // is no longer consulted as a fallback.
+      const remoteUser = makeRemoteUser();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd'
+          ? `bob:${md5('something-else')}:1001:1001:bob:/home/bob:/bin/bash`
+          : null,
+      );
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => result.current.startSshPrompt('bob', TARGET_IP, 22));
+      act(() => {
+        result.current.handlePasswordSubmit(PASSWORD, vi.fn());
+      });
+
+      expect(opts.pushSession).not.toHaveBeenCalled();
+      expect(opts.addLine).toHaveBeenCalledWith('error', 'Permission denied, please try again.');
     });
   });
 
@@ -473,6 +591,9 @@ describe('useAuthentication', () => {
       const onSshAuth = vi.fn();
       const opts = makeOptions();
       opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd' ? `bob:${PASSWORD_HASH}:1001:1001:bob:/home/bob:/bin/bash` : null,
+      );
 
       const { result } = renderHook(() => useAuthentication({ ...opts, onSshAuth }));
 
@@ -784,6 +905,9 @@ describe('useAuthentication', () => {
       const remoteUser = makeRemoteUser();
       const opts = makeOptions();
       opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd' ? `bob:${PASSWORD_HASH}:1001:1001:bob:/home/bob:/bin/bash` : null,
+      );
 
       const transfer = makeAsyncOutput();
       const performTransfer = vi.fn(() => transfer);
@@ -869,6 +993,32 @@ describe('useAuthentication', () => {
         'error',
         'Permission denied, please try again.',
       );
+    });
+
+    it('rejects SCP password when /etc/passwd is unreadable, even if it matches the cache', () => {
+      const remoteUser = makeRemoteUser();
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockReturnValue(null);
+
+      const performTransfer = vi.fn(() => makeAsyncOutput());
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => {
+        result.current.startScpPrompt({
+          user: 'bob',
+          targetIP: TARGET_IP,
+          port: 22,
+          performTransfer,
+        });
+      });
+      act(() => {
+        result.current.handlePasswordSubmit(PASSWORD, vi.fn());
+      });
+
+      expect(performTransfer).not.toHaveBeenCalled();
+      expect(opts.addLine).toHaveBeenCalledWith('error', 'Permission denied, please try again.');
     });
   });
 
@@ -1073,6 +1223,9 @@ describe('useAuthentication', () => {
       const onSshAuth = vi.fn();
       const opts = makeOptions();
       opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd' ? `bob:${PASSWORD_HASH}:1001:1001:bob:/home/bob:/bin/bash` : null,
+      );
 
       const { result } = renderHook(() => useAuthentication({ ...opts, onSshAuth }));
 

@@ -616,34 +616,29 @@ export const useAuthentication = ({
         return validateMysqlPassword(targetUser, mysqlTargetIP, password);
       }
 
-      // SSH/SCP auth: read /etc/passwd from the resolved target instead of
-      // the static users[].passwordHash. The static list is captured at
-      // mission generation; password_reset (and any other write that
-      // mutates /etc/passwd) doesn't update it. Reading /etc/passwd makes
-      // the rolled credential actually unlock the account.
-      //
-      // Falls back to users[].passwordHash if /etc/passwd is missing or
-      // doesn't have a row for the target user — defensive, the file
-      // should always exist on a generated machine.
+      // SSH/SCP auth: /etc/passwd is the sole source of truth. No fallback
+      // to the static users[].passwordHash cache — that cache is captured
+      // at machine generation and drifts on any /etc/passwd mutation
+      // (password_reset CVE, manual edits). Reading from /etc/passwd
+      // makes both the post-reset credential AND deliberate sabotage work
+      // end-to-end: garbling /etc/passwd locks out password logins, which
+      // is the gameplay-meaningful outcome.
       const validateAgainstEtcPasswd = (resolvedIp: string): boolean => {
-        const users = findMachineUsers(resolvedIp);
-        const remoteUser = users.find((u) => u.username === targetUser);
-        if (!remoteUser) return false;
-
-        const inputHash = md5(password);
-
         const passwdContent = readFileFromMachine({
           machineId: resolvedIp,
           path: '/etc/passwd',
           cwd: '/',
           userType: 'root',
         });
-        if (passwdContent) {
-          const entry = passwdContent.split('\n').find((line) => line.split(':')[0] === targetUser);
-          const storedHash = entry?.split(':')[1];
-          if (storedHash) return storedHash === inputHash;
-        }
-        return remoteUser.passwordHash === inputHash;
+        if (!passwdContent) return false;
+
+        const entry = passwdContent.split('\n').find((line) => line.split(':')[0] === targetUser);
+        if (!entry) return false;
+
+        const storedHash = entry.split(':')[1];
+        if (!storedHash) return false;
+
+        return storedHash === md5(password);
       };
 
       if (scpTargetIP) {
