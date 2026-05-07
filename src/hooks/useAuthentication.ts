@@ -320,8 +320,11 @@ export const useAuthentication = ({
   );
 
   // Inline FTP auth: validates username + password and enters FTP mode without interactive prompts.
-  // Checks virtual user credentials (/etc/vsftpd/virtual_users.conf) first if present,
-  // falls back to system user credentials.
+  // Real vsftpd model: virtual_users.conf is an overlay — when it lists the
+  // user, that hash wins. Otherwise, system credentials apply (PAM →
+  // /etc/passwd here). No fallback to the static users[].passwordHash cache:
+  // /etc/passwd is the source of truth so password_reset rotates work and
+  // garbling /etc/passwd locks out logins (sabotage gameplay).
   const authenticateFtpInline = useCallback(
     (targetIP: string, username: string, password: string) => {
       const resolvedIp = resolveNat(targetIP, 21).ip;
@@ -334,19 +337,35 @@ export const useAuthentication = ({
         return;
       }
 
-      // Check virtual users first (FTP-entry machines and ~40% of FTP-open machines)
+      const inputHash = md5(password);
+
       const virtualUsersContent = readFileFromMachine({
         machineId: resolvedIp,
         path: '/etc/vsftpd/virtual_users.conf',
         cwd: '/',
         userType: 'root',
       });
-      const expectedHash = virtualUsersContent
-        ? (parseVirtualUsersConf(virtualUsersContent).find((u) => u.username === username)
-            ?.passwordHash ?? remoteUser.passwordHash)
-        : remoteUser.passwordHash;
+      const virtualUserHash = virtualUsersContent
+        ? parseVirtualUsersConf(virtualUsersContent).find((u) => u.username === username)
+            ?.passwordHash
+        : undefined;
 
-      if (expectedHash !== md5(password)) {
+      let ok: boolean;
+      if (virtualUserHash !== undefined) {
+        ok = virtualUserHash === inputHash;
+      } else {
+        const passwdContent = readFileFromMachine({
+          machineId: resolvedIp,
+          path: '/etc/passwd',
+          cwd: '/',
+          userType: 'root',
+        });
+        const entry = passwdContent?.split('\n').find((line) => line.split(':')[0] === username);
+        const storedHash = entry?.split(':')[1];
+        ok = storedHash === inputHash;
+      }
+
+      if (!ok) {
         addLine('error', '530 Login incorrect.');
         onFtpAuth?.({ success: false, user: username, targetIP, port: 21 });
         return;
@@ -652,24 +671,28 @@ export const useAuthentication = ({
       if (ftpTargetIP) {
         const resolvedIp = resolveNat(ftpTargetIP, 21).ip;
         const users = findMachineUsers(resolvedIp);
-
         const remoteUser = users.find((u) => u.username === targetUser);
         if (!remoteUser) return false;
 
-        // Check virtual users first (FTP-entry machines and ~40% of FTP-open machines)
+        // Real vsftpd model: virtual_users.conf is an overlay — when it
+        // lists the user, that hash wins. Otherwise authentication falls
+        // through to system credentials via /etc/passwd. No cache fallback;
+        // see validateAgainstEtcPasswd for the rationale.
         const virtualUsersContent = readFileFromMachine({
           machineId: resolvedIp,
           path: '/etc/vsftpd/virtual_users.conf',
           cwd: '/',
           userType: 'root',
         });
-        const expectedHash = virtualUsersContent
-          ? (parseVirtualUsersConf(virtualUsersContent).find((u) => u.username === targetUser)
-              ?.passwordHash ?? remoteUser.passwordHash)
-          : remoteUser.passwordHash;
+        const virtualUserHash = virtualUsersContent
+          ? parseVirtualUsersConf(virtualUsersContent).find((u) => u.username === targetUser)
+              ?.passwordHash
+          : undefined;
 
-        const inputHash = md5(password);
-        return expectedHash === inputHash;
+        if (virtualUserHash !== undefined) {
+          return virtualUserHash === md5(password);
+        }
+        return validateAgainstEtcPasswd(resolvedIp);
       }
 
       const passwdContent = readFile('/etc/passwd', 'root');

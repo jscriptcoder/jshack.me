@@ -139,7 +139,7 @@ Every step follows RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR. No production code wi
 
 ## Sequencing & PR Boundaries
 
-Each step → one PR. Steps are independently mergeable in this order. Order matters:
+**All steps stacked in a single PR** (decided during step 1 — six steps form one coherent "make `/etc/passwd` canonical" theme; reviewer holds one concept across the diff). Each step is still its own commit on the branch so revert and bisect remain clean. Order matters:
 
 - 1 → 2: same fallback pattern, FTP after SSH/SCP keeps the diff small.
 - 2 → 3: hydra is the largest behavior-shift among the client-side consumers; lands after the simpler removals to reduce blast radius if something regresses.
