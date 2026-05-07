@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { RemoteMachine, DnsRecord } from '../network/types';
+import type { RemoteMachine, DnsRecord, RemoteUser } from '../network/types';
 import type { AsyncOutput } from '../components/Terminal/types';
 import type { FileNode } from '../filesystem/types';
 import { createHydraCommand } from './hydra';
@@ -44,6 +44,47 @@ const getMockRemoteMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine
   ...overrides,
 });
 
+// Build a /etc/passwd FileNode from a list of users. Used as the default
+// content for every machine in the mock context, so tests that exercise
+// the SSH/FTP brute-force path (which reads /etc/passwd to source live
+// hashes) can rely on the synthesized file matching the machine's users.
+// Tests can override the default by providing explicit machineFiles[ip]
+// entries for '/etc/passwd', or opt out entirely via noEtcPasswd.
+const mkPasswdNodeFromUsers = (users: readonly RemoteUser[]): FileNode => ({
+  name: 'passwd',
+  type: 'file',
+  owner: 'root',
+  permissions: { read: ['root', 'user'], write: ['root'], execute: [] },
+  content: users
+    .map((u, i) => {
+      const uid = u.userType === 'root' ? 0 : u.userType === 'guest' ? 65534 : 1000 + i;
+      const home = u.userType === 'root' ? '/root' : `/home/${u.username}`;
+      return `${u.username}:${u.passwordHash}:${uid}:${uid}:${u.username}:${home}:/bin/bash`;
+    })
+    .join('\n'),
+});
+
+const passwdLine = (username: string, hash: string, uid = 1000) =>
+  `${username}:${hash}:${uid}:${uid}:${username}:/home/${username}:/bin/bash`;
+
+const mkPasswdNode = (lines: readonly string[]): FileNode => ({
+  name: 'passwd',
+  type: 'file',
+  owner: 'root',
+  permissions: { read: ['root', 'user'], write: ['root'], execute: [] },
+  content: lines.join('\n'),
+});
+
+const mkVirtualUsersNode = (
+  entries: ReadonlyArray<{ readonly username: string; readonly passwordHash: string }>,
+): FileNode => ({
+  name: 'virtual_users.conf',
+  type: 'file',
+  owner: 'root',
+  permissions: { read: ['root'], write: ['root'], execute: [] },
+  content: entries.map((e) => `${e.username}:${e.passwordHash}`).join('\n'),
+});
+
 type HydraContextConfig = {
   readonly machines?: readonly RemoteMachine[];
   readonly localIP?: string;
@@ -51,6 +92,9 @@ type HydraContextConfig = {
   readonly machineFiles?: Readonly<Record<string, Record<string, FileNode>>>;
   readonly localFiles?: Readonly<Record<string, FileNode>>;
   readonly currentPath?: string;
+  // IPs for which the synthesized default /etc/passwd should be omitted
+  // (simulates an unreadable / deleted /etc/passwd for sabotage tests).
+  readonly noEtcPasswd?: readonly string[];
 };
 
 const createMockContext = (config: HydraContextConfig = {}) => {
@@ -61,7 +105,31 @@ const createMockContext = (config: HydraContextConfig = {}) => {
     machineFiles = {},
     localFiles = { '/usr/share/wordlists/passwords.txt': mkWordlistNode() },
     currentPath = '/home/user',
+    noEtcPasswd = [],
   } = config;
+  // Layer synthesized /etc/passwd defaults under any explicit per-test
+  // machineFiles entries. Explicit overrides win; noEtcPasswd lets a test
+  // simulate "file does not exist" by skipping the default for that IP.
+  const noEtcPasswdSet = new Set(noEtcPasswd);
+  const mergedMachineFiles: Record<string, Record<string, FileNode>> = {};
+  machines.forEach((m) => {
+    const explicit = machineFiles[m.ip] ?? {};
+    if (noEtcPasswdSet.has(m.ip) || '/etc/passwd' in explicit) {
+      mergedMachineFiles[m.ip] = explicit;
+    } else {
+      mergedMachineFiles[m.ip] = {
+        '/etc/passwd': mkPasswdNodeFromUsers(m.users),
+        ...explicit,
+      };
+    }
+  });
+  // Also include any machineFiles entries for IPs not in machines (e.g.,
+  // tests that mock a hostname-only target).
+  Object.keys(machineFiles).forEach((ip) => {
+    if (!(ip in mergedMachineFiles)) {
+      mergedMachineFiles[ip] = machineFiles[ip] as Record<string, FileNode>;
+    }
+  });
   return {
     getMachine: (ip: string) => machines.find((m) => m.ip === ip),
     getLocalIP: () => localIP,
@@ -69,7 +137,7 @@ const createMockContext = (config: HydraContextConfig = {}) => {
     resolveNat: (ip: string, _port: number) => ({ ip, port: _port }),
     findMachineUsers: (ip: string) => machines.find((m) => m.ip === ip)?.users ?? [],
     getNodeFromMachine: (ip: string, path: string) =>
-      (machineFiles[ip]?.[path] as FileNode | undefined) ?? null,
+      (mergedMachineFiles[ip]?.[path] as FileNode | undefined) ?? null,
     getLocalNode: (path: string) => (localFiles[path] as FileNode | undefined) ?? null,
     getCurrentPath: () => currentPath,
   };
@@ -408,6 +476,175 @@ describe('hydra command', () => {
       if (!isAsyncOutput(result)) throw new Error('Expected async output');
       const lines = await collectAsyncLines(result);
       expect(lines.some((l) => l.includes('login: guest'))).toBe(true);
+    });
+  });
+
+  describe('cracking mechanic — /etc/passwd is canonical', () => {
+    // /etc/passwd is the source of truth for hashes during brute-force.
+    // The static users[].passwordHash cache is no longer consulted as a
+    // fallback, so password_reset rotates take effect AND sabotage works:
+    // garbling /etc/passwd locks accounts out of cracking attempts.
+
+    it('finds 0 candidates when /etc/passwd is unreadable on the target', async () => {
+      const machine = getMockRemoteMachine({
+        users: [{ username: 'bob', passwordHash: WORDLIST_PASSWORD_HASH, userType: 'user' }],
+      });
+      const hydra = createHydraCommand(
+        createMockContext({ machines: [machine], noEtcPasswd: ['192.168.1.50'] }),
+      );
+      const result = hydra.fn('192.168.1.50', 'ssh');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      const lines = await collectAsyncLines(result);
+      expect(lines.some((l) => l.includes('login:'))).toBe(false);
+      expect(lines.some((l) => l.includes('0 of 0'))).toBe(true);
+    });
+
+    it('excludes users who are missing from /etc/passwd from the brute-force', async () => {
+      // Cache lists bob with a wordlist-crackable hash, but /etc/passwd
+      // doesn't have an entry for bob — only alice. After step 3, bob has
+      // no candidate hash and is dropped from the brute-force entirely.
+      const machine = getMockRemoteMachine({
+        users: [{ username: 'bob', passwordHash: WORDLIST_PASSWORD_HASH, userType: 'user' }],
+      });
+      const hydra = createHydraCommand(
+        createMockContext({
+          machines: [machine],
+          machineFiles: {
+            '192.168.1.50': {
+              '/etc/passwd': mkPasswdNode([passwdLine('alice', WORDLIST_PASSWORD_HASH)]),
+            },
+          },
+        }),
+      );
+      const result = hydra.fn('192.168.1.50', 'ssh');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      const lines = await collectAsyncLines(result);
+      expect(lines.some((l) => l.includes('login: bob'))).toBe(false);
+      expect(lines.some((l) => l.includes('0 of 0'))).toBe(true);
+    });
+
+    it('reflects the live /etc/passwd hash after password_reset — old wordlist match no longer cracks', async () => {
+      // Cache holds the stale (pre-reset) hash; /etc/passwd has the rolled
+      // hash. The wordlist matched the cache pre-reset; post-reset it no
+      // longer applies because hydra now reads the live hash.
+      const machine = getMockRemoteMachine({
+        users: [{ username: 'bob', passwordHash: WORDLIST_PASSWORD_HASH, userType: 'user' }],
+      });
+      const hydra = createHydraCommand(
+        createMockContext({
+          machines: [machine],
+          machineFiles: {
+            '192.168.1.50': {
+              '/etc/passwd': mkPasswdNode([passwdLine('bob', NON_WORDLIST_PASSWORD_HASH)]),
+            },
+          },
+        }),
+      );
+      const result = hydra.fn('192.168.1.50', 'ssh');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      const lines = await collectAsyncLines(result);
+      expect(lines.some((l) => l.includes('login: bob'))).toBe(false);
+      expect(lines.some((l) => l.includes('0 of 1'))).toBe(true);
+    });
+
+    it('cracks against the new hash when password_reset rolls TO a wordlist password', async () => {
+      // The inverse of the above: cache holds an uncrackable hash, but
+      // /etc/passwd has been rotated to a wordlist password. Hydra picks
+      // up the new hash and cracks it.
+      const machine = getMockRemoteMachine({
+        users: [{ username: 'bob', passwordHash: NON_WORDLIST_PASSWORD_HASH, userType: 'user' }],
+      });
+      const hydra = createHydraCommand(
+        createMockContext({
+          machines: [machine],
+          machineFiles: {
+            '192.168.1.50': {
+              '/etc/passwd': mkPasswdNode([passwdLine('bob', WORDLIST_PASSWORD_HASH)]),
+            },
+          },
+        }),
+      );
+      const result = hydra.fn('192.168.1.50', 'ssh');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      const lines = await collectAsyncLines(result);
+      expect(lines.some((l) => l.includes(`login: bob   password: ${WORDLIST_PASSWORD}`))).toBe(
+        true,
+      );
+    });
+
+    it('FTP virtual_users.conf still overrides /etc/passwd hashes during brute-force', async () => {
+      // Regression check for the vsftpd overlay: virtual_users.conf wins
+      // when it lists the user. /etc/passwd has a non-crackable hash for
+      // bob; virtual_users.conf has a crackable one. Bob is cracked via
+      // the virtual hash on the FTP service.
+      const machine = getMockRemoteMachine({
+        ports: [{ port: 21, service: 'ftp', serviceVersion: 'latest', open: true }],
+        users: [{ username: 'bob', passwordHash: NON_WORDLIST_PASSWORD_HASH, userType: 'user' }],
+      });
+      const hydra = createHydraCommand(
+        createMockContext({
+          machines: [machine],
+          machineFiles: {
+            '192.168.1.50': {
+              '/etc/passwd': mkPasswdNode([passwdLine('bob', NON_WORDLIST_PASSWORD_HASH)]),
+              '/etc/vsftpd/virtual_users.conf': mkVirtualUsersNode([
+                { username: 'bob', passwordHash: WORDLIST_PASSWORD_HASH },
+              ]),
+            },
+          },
+        }),
+      );
+      const result = hydra.fn('192.168.1.50', 'ftp');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      const lines = await collectAsyncLines(result);
+      expect(lines.some((l) => l.includes(`login: bob   password: ${WORDLIST_PASSWORD}`))).toBe(
+        true,
+      );
+    });
+
+    it('excludes users whose /etc/passwd entry has an empty hash field', async () => {
+      // Sabotage shape: /etc/passwd has the user line but the hash field
+      // is empty (e.g., truncated edit). The user has no candidate hash
+      // and is excluded from the brute-force, like the missing-user case.
+      const machine = getMockRemoteMachine({
+        users: [{ username: 'bob', passwordHash: WORDLIST_PASSWORD_HASH, userType: 'user' }],
+      });
+      const hydra = createHydraCommand(
+        createMockContext({
+          machines: [machine],
+          machineFiles: {
+            '192.168.1.50': {
+              '/etc/passwd': mkPasswdNode(['bob::1001:1001:bob:/home/bob:/bin/bash']),
+            },
+          },
+        }),
+      );
+      const result = hydra.fn('192.168.1.50', 'ssh');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      const lines = await collectAsyncLines(result);
+      expect(lines.some((l) => l.includes('login: bob'))).toBe(false);
+      expect(lines.some((l) => l.includes('0 of 0'))).toBe(true);
+    });
+
+    it('parses /etc/passwd on newline boundaries — cracks all wordlist users in a multi-user file', async () => {
+      // Three users, all with hashes in the wordlist, all on separate
+      // lines. If the parser failed to split on newlines, only the first
+      // line would be considered and only one user would crack.
+      const machine = getMockRemoteMachine({
+        users: [
+          { username: 'root', passwordHash: WORDLIST_PASSWORD_HASH, userType: 'root' },
+          { username: 'bob', passwordHash: WORDLIST_PASSWORD_HASH, userType: 'user' },
+          { username: 'guest', passwordHash: GUEST_PASSWORD_HASH, userType: 'guest' },
+        ],
+      });
+      const hydra = createHydraCommand(createMockContext({ machines: [machine] }));
+      const result = hydra.fn('192.168.1.50', 'ssh');
+      if (!isAsyncOutput(result)) throw new Error('Expected async output');
+      const lines = await collectAsyncLines(result);
+      expect(lines.some((l) => l.includes('login: root'))).toBe(true);
+      expect(lines.some((l) => l.includes('login: bob'))).toBe(true);
+      expect(lines.some((l) => l.includes('login: guest'))).toBe(true);
+      expect(lines.some((l) => l.includes('3 of 3'))).toBe(true);
     });
   });
 
