@@ -118,14 +118,15 @@ Ordering rationale:
 
 **Done when**: Migration applies cleanly to a fresh local DB; workstations table has seed column; existing dependent rows are gone.
 
-### Step 2: Extend `registerWorkstationSignedPayloadSchema` to require seed
+### Step 2: Extend `registerWorkstationSignedPayloadSchema` to require seed + rootPassword
 
 **RED**: Schema test in `src/workstationRegistry/types.test.ts` (create if absent) that:
 - Asserts a payload missing `seed` fails Zod validation.
+- Asserts a payload missing `rootPassword` fails Zod validation.
 - Asserts a payload with `seed` of incorrect type/length fails validation.
-- Asserts a valid payload with seed parses into `RegisterWorkstationPayload` with seed present.
+- Asserts a valid payload with both fields parses into `RegisterWorkstationPayload` correctly.
 
-**GREEN**: Add `seed: z.string().min(1).max(64)` (or whatever bounds the existing seed shape uses — verify in `generation/types.ts`) to the schema in `src/workstationRegistry/types.ts`. Update the inferred type.
+**GREEN**: Add `seed: z.string().min(1).max(64)` and `rootPassword: z.string().min(1).max(64)` (verify bounds against the IntroScreen UX limits) to the schema in `src/workstationRegistry/types.ts`. Update the inferred type.
 
 **MUTATE**: Run `mutation-testing` skill on `types.ts` schema changes.
 
@@ -135,15 +136,19 @@ Ordering rationale:
 
 **Done when**: Schema rejects no-seed payloads; tests pass.
 
-### Step 3: Persist seed through handler → upsert → row → DB
+### Step 3: Persist seed and pass rootPassword through handler → populateBaseFs
 
-**RED**: `handler.test.ts` test that asserts when the verified payload has `seed: 'abc123'`, the `upsertWorkstation` adapter is called with a `WorkstationRow` whose `seed` field is `'abc123'`. Use a spy adapter.
+**RED**: `handler.test.ts` tests:
+- When the verified payload has `seed: 'abc123'`, the `upsertWorkstation` adapter is called with a `WorkstationRow` whose `seed` field is `'abc123'`.
+- When the verified payload has `rootPassword: 'pw'`, the `populateBaseFs` adapter is called with `rootPassword: 'pw'` (passed alongside the row, NOT in the row).
+- `WorkstationRow` (the persistence shape) does NOT include `rootPassword` — only `seed` joins the row.
 
 **GREEN**:
 - Add `seed: string` to `WorkstationRow` in `types.ts`.
-- Wire `verified.payload.seed` into the row construction in `handler.ts`.
-- Update `supabaseUpsert.ts` row mapping to include seed.
-- Update the existing `handler.test.ts` fixtures to include seed.
+- Introduce `PopulateBaseFsInput` (or extend the existing call) carrying `{ row: WorkstationRow, rootPassword: string }` so populate has what it needs without leaking rootPassword into persistence.
+- Wire `verified.payload.seed` into the row; wire `verified.payload.rootPassword` into the populate call.
+- Update `supabaseUpsert.ts` row mapping to include seed (rootPassword does NOT appear here).
+- Update `handler.test.ts` fixtures.
 
 **MUTATE**: Mutation testing on handler.ts and supabaseUpsert.ts.
 
@@ -153,17 +158,30 @@ Ordering rationale:
 
 **Done when**: handler tests pass; integration smoke (next step) passes.
 
-### Step 4: `regenWorkstationRows` uses real seed (drop `PLACEHOLDER_SEED`)
+### Step 4: `regenWorkstationRows` uses real seed + rootPassword (drop placeholders)
 
-**RED**: `populateWorkstationBaseFs.test.ts` test that asserts when `regenWorkstationRows` is called with `seed: 'real-seed'`, the resulting rows reflect content that depends on the seed (e.g. guest password hash in `/etc/passwd` matches `md5(guestPasswordsForSeed('real-seed'))`).
+**RED**: `populateWorkstationBaseFs.test.ts` tests:
+- When called with `seed: 'real-seed'` and `rootPassword: 'rootpw'`, the resulting `/etc/passwd` row's content includes `md5('rootpw')` for the root user's hash.
+- Guest password hash in `/etc/passwd` matches `md5(guestPasswordsForSeed('real-seed'))`.
+- The function NO LONGER references `PLACEHOLDER_SEED` or `PLACEHOLDER_ROOT_PASSWORD` (dead-code check).
 
 **GREEN**:
-- Update `RegenWorkstationInput` in `populateWorkstationBaseFs.ts` to require `seed: string` (and `rootPassword`? see note below).
-- Drop `PLACEHOLDER_SEED` constant.
-- Thread seed into `generateLocalhost(...)` call.
+- Update `RegenWorkstationInput` in `populateWorkstationBaseFs.ts` to require `seed: string` and `rootPassword: string`.
+- Drop `PLACEHOLDER_SEED` and `PLACEHOLDER_ROOT_PASSWORD` constants entirely.
+- Thread seed and rootPassword into `generateLocalhost(...)` call.
+- Update the backfill script (`scripts/backfillWorkstationBaseFs.ts`) to read the seed from the workstations row (it's now a column) AND figure out rootPassword for backfill — open question for backfill (see below).
 
-**Note on `rootPassword`**: `generateLocalhost` also needs `rootPassword` to populate `/etc/passwd`. Today the workstation table doesn't store rootPassword (decision 2: it's in projected `/etc/passwd` content already). So the regen flow on the SERVER doesn't need rootPassword — the server's `/etc/passwd` content was projected at register-time using the real rootPassword. Verify this works:
-- At register-time (client→server), the server gets the FULL `/etc/passwd` content via the dual-write SQL function (because the patches table receives full content; only `machine_filesystems.content` is gated). Wait — the register flow doesn't go through dual-write; it goes through `populateBaseFs` → bulk-insert. **Investigate**: does `populateBaseFs` pass the right `/etc/passwd` content to `machine_filesystems.content`? If not, this step grows: add `rootPassword` to the registration envelope (not stored in workstations row, just used at register-time for content generation, then discarded).
+**Backfill rootPassword question**: existing rows post-wipe will have correct content because re-registration goes through the new envelope. But what if we ever need to rebackfill? The workstations table doesn't store rootPassword (by design). Two answers:
+- (a) The backfill becomes "operate on workstations registered AFTER this PR." Existing rows from before the wipe don't exist (we wiped). Future rows always have correct content via the live register flow. Backfill becomes a safety net for content drift, not an initialization tool.
+- (b) Add a "regenerate /etc/passwd content" hook that the client can trigger if it detects drift (e.g., after a rotation event). Out of scope for PR 1.
+
+Decision: (a). The backfill script's purpose narrows to "fix-up after schema migrations that don't change content." For PR 1, after wiping and re-registration, all workstations have correct content end-to-end via the live register flow.
+
+**Resolved (2026-05-07 during PR 1 kickoff)**: Today `populateBaseFs` calls `regenWorkstationRows` with `PLACEHOLDER_SEED` + `PLACEHOLDER_ROOT_PASSWORD`, so `machine_filesystems.content['/etc/passwd']` for workstations currently holds **wrong hashes**. Server-side `createSession` userType validation (PR #122) works because it only inspects username/userType columns, not the hash; but PR 2's cross-player password validation will fail without the real hash.
+
+**Decision**: registration envelope carries both `seed` and `rootPassword` (raw). Server uses both at register-time to regen correct content; `seed` persists in `workstations` table; `rootPassword` is hashed and embedded in `/etc/passwd` content via the existing `generateLocalhost` flow, then discarded — never persisted as a separate field. This honors decision #2 (no separate `root_password_hash` column) while ensuring projected content is correct.
+
+**Privacy posture**: raw `rootPassword` transits the server briefly (HTTPS-encrypted in flight, in-memory only during the request). The hash that lands in projected `/etc/passwd` is the same hash that's already there post-PR #122; this is not a new threat-model shift, just fixing the value being stored.
 
 **MUTATE**: Mutation testing on populateWorkstationBaseFs.
 
