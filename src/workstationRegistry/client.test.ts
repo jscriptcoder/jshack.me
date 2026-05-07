@@ -23,7 +23,12 @@ describe('registerWorkstation', () => {
 
     const result = await registerWorkstation(
       identity,
-      { workstation_name: 'skylab', username: 'alice' },
+      {
+        workstation_name: 'skylab',
+        username: 'alice',
+        seed: '0123456789abcdef',
+        rootPassword: 'sup3r-s3cr3t',
+      },
       fetchMock,
     );
 
@@ -43,7 +48,12 @@ describe('registerWorkstation', () => {
 
     await registerWorkstation(
       identity,
-      { workstation_name: 'skylab', username: 'alice' },
+      {
+        workstation_name: 'skylab',
+        username: 'alice',
+        seed: '0123456789abcdef',
+        rootPassword: 'sup3r-s3cr3t',
+      },
       fetchMock,
     );
 
@@ -55,6 +65,8 @@ describe('registerWorkstation', () => {
     expect(payload.action).toBe('registerWorkstation');
     expect(payload.workstation_name).toBe('skylab');
     expect(payload.username).toBe('alice');
+    expect(payload.seed).toBe('0123456789abcdef');
+    expect(payload.rootPassword).toBe('sup3r-s3cr3t');
 
     const signatureValid = verify(
       hexToBytes(envelope.publicKey)!,
@@ -71,7 +83,16 @@ describe('registerWorkstation', () => {
       .mockResolvedValue(errResponse(429, { error: 'rate_limited' }));
 
     await expect(
-      registerWorkstation(identity, { workstation_name: 'skylab', username: 'alice' }, fetchMock),
+      registerWorkstation(
+        identity,
+        {
+          workstation_name: 'skylab',
+          username: 'alice',
+          seed: '0123456789abcdef',
+          rootPassword: 'sup3r-s3cr3t',
+        },
+        fetchMock,
+      ),
     ).rejects.toThrow(/status 429/);
   });
 
@@ -80,7 +101,16 @@ describe('registerWorkstation', () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ wrong_field: true }));
 
     await expect(
-      registerWorkstation(identity, { workstation_name: 'skylab', username: 'alice' }, fetchMock),
+      registerWorkstation(
+        identity,
+        {
+          workstation_name: 'skylab',
+          username: 'alice',
+          seed: '0123456789abcdef',
+          rootPassword: 'sup3r-s3cr3t',
+        },
+        fetchMock,
+      ),
     ).rejects.toThrow(/malformed response/);
   });
 });

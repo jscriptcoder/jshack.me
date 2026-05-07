@@ -10,6 +10,15 @@ import { z } from 'zod';
 // hostname max 24, username max 24) with a little headroom; the schema
 // is the server-side contract — IntroScreen-side limits are UX, this
 // is the boundary.
+//
+// seed and rootPassword drive correct /etc/passwd content projection.
+// seed is persisted in the workstations row (used at request-time for
+// regen of non-projected base FS in the cross-player chunk). rootPassword
+// is consumed at register-time only — the server hashes it via
+// generateLocalhost and embeds the hash in /etc/passwd content, then
+// discards it. Never stored as a column; the threat-model implication
+// (real MD5 hash on the server) is the same as already shipped via
+// PR #122 — no new shift, just fixing the value being stored.
 export const registerWorkstationSignedPayloadSchema = z
   .object({
     action: z.literal('registerWorkstation'),
@@ -17,6 +26,8 @@ export const registerWorkstationSignedPayloadSchema = z
     nonce: z.string().regex(/^[0-9a-f]{32}$/i),
     workstation_name: z.string().min(1).max(64),
     username: z.string().min(1).max(64),
+    seed: z.string().min(1).max(64),
+    rootPassword: z.string().min(1).max(64),
   })
   .strict();
 
@@ -24,12 +35,21 @@ export type RegisterWorkstationPayload = z.infer<typeof registerWorkstationSigne
 
 // Internal allocator input — used between the handler and the
 // supabaseUpsert adapter after the envelope has been verified and
-// player_key has been stamped from the verified pubkey. Same shape as
-// what populateBaseFs forwards into regenWorkstationRows.
+// player_key has been stamped from the verified pubkey.
+//
+// `seed` is persisted (used at request-time for cross-player base-FS
+// regen of non-projected paths). `rootPassword` is intentionally NOT
+// on this row — it's transient, consumed at register-time by
+// populateBaseFs to generate correct /etc/passwd content, then
+// discarded. Keeping the persistence row free of rootPassword honors
+// decision #2 in plans/cross-player-base-fs-replication.md (no separate
+// root_password_hash column; the hash lives only inside projected
+// /etc/passwd content).
 export type WorkstationRow = {
   readonly player_key: string;
   readonly workstation_name: string;
   readonly username: string;
+  readonly seed: string;
 };
 
 // Result of attempting one upsert. The discriminated success cases let

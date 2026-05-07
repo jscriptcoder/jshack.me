@@ -143,9 +143,10 @@ export const IntroScreen = ({ existingGame, onStart }: IntroScreenProps) => {
       return;
     }
 
+    const seed = generateGameSeed();
     onStart(
       {
-        seed: generateGameSeed(),
+        seed,
         workstationName: trimmedHostname,
         username: trimmedUsername,
         rootPassword: password,
@@ -154,17 +155,19 @@ export const IntroScreen = ({ existingGame, onStart }: IntroScreenProps) => {
     );
 
     // Fire-and-forget L2 own-workstation registration. Records
-    // (player_key, workstation_name, username) server-side and
+    // (player_key, workstation_name, username, seed) server-side and
     // populates machine_filesystems with the workstation's base FS so
     // L2 enforces against intruders with cracked sessions on this box.
-    // Idempotent server-side; a network blip means the player can keep
-    // playing while scripts/backfillWorkstationBaseFs.ts catches up
-    // operationally. We don't block onStart — UX matters more than
-    // L2-row availability in the first few seconds. See
-    // plans/l2-own-workstation-backfill.md (Step 5).
+    // rootPassword is consumed at register-time to embed the real
+    // md5 hash in projected /etc/passwd content (so cross-player auth
+    // can validate against it) and is never persisted server-side.
+    // Idempotent server-side; we don't block onStart — UX matters more
+    // than L2-row availability in the first few seconds.
     void registerWorkstation(getIdentity(), {
       workstation_name: trimmedHostname,
       username: trimmedUsername,
+      seed,
+      rootPassword: password,
     }).catch((err) => {
       console.error('[intro] register-workstation failed:', err);
     });

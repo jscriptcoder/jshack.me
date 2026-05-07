@@ -85,7 +85,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const { data, error } = await supabase
         .from('workstations')
         .upsert(row, { onConflict: 'player_key', ignoreDuplicates: true })
-        .select('player_key, workstation_name, username');
+        .select('player_key, workstation_name, username, seed');
       if (error) {
         console.error('[register-workstation] upsert error:', error);
       }
@@ -94,7 +94,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     async (player_key: string) => {
       const { data, error } = await supabase
         .from('workstations')
-        .select('player_key, workstation_name, username')
+        .select('player_key, workstation_name, username, seed')
         .eq('player_key', player_key)
         .maybeSingle();
       if (error) {
@@ -104,12 +104,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     },
   );
 
-  const populateBaseFs = async (row: WorkstationRow): Promise<PopulateBaseFsResult> => {
+  // rootPassword is consumed at register-time only — passed into
+  // regenWorkstationRows so /etc/passwd is generated with the real
+  // hash (md5(rootPassword)) rather than the placeholder. Not stored
+  // anywhere afterwards. Step 4 of the plan switches regen to actually
+  // use both seed and rootPassword; this signature change is the
+  // wire-up step (3).
+  const populateBaseFs = async (
+    row: WorkstationRow,
+    rootPassword: string,
+  ): Promise<PopulateBaseFsResult> => {
     try {
       const rows = regenWorkstationRows({
         playerKey: row.player_key,
         workstationName: row.workstation_name,
         username: row.username,
+        seed: row.seed,
+        rootPassword,
       });
       const bulkInsert = createBulkInsertMachineFs(async (chunk: readonly MachineFsRow[]) => {
         const { error } = await supabase.from('machine_filesystems').upsert([...chunk], {

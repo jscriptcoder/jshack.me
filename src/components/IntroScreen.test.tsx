@@ -177,7 +177,7 @@ describe('IntroScreen', () => {
     expect(onStart).toHaveBeenCalledTimes(1);
   });
 
-  it('fires register-workstation with trimmed (workstation_name, username) on valid submission', () => {
+  it('fires register-workstation with trimmed (workstation_name, username) plus seed and rootPassword on valid submission', () => {
     render(<IntroScreen existingGame={null} onStart={vi.fn()} />);
 
     fillForm('Hacker Box', 'myuser', 'mypass');
@@ -185,10 +185,13 @@ describe('IntroScreen', () => {
 
     expect(vi.mocked(registerWorkstation)).toHaveBeenCalledTimes(1);
     const callArgs = vi.mocked(registerWorkstation).mock.calls[0]!;
-    expect(callArgs[1]).toEqual({
+    expect(callArgs[1]).toMatchObject({
       workstation_name: 'hacker-box',
       username: 'myuser',
+      rootPassword: 'mypass',
     });
+    // seed is generated via crypto.getRandomValues() — assert shape, not value.
+    expect(callArgs[1].seed).toMatch(/^[0-9a-f]{16}$/);
   });
 
   it('does not fire register-workstation when validation fails', () => {
