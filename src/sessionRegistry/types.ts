@@ -96,12 +96,68 @@ export const listSessionsSignedPayloadSchema = z
 
 export type ListSessionsPayload = z.infer<typeof listSessionsSignedPayloadSchema>;
 
+// Subset of SESSION_KINDS that authCreateSession accepts. Auth-required
+// kinds — those whose session creation MUST be gated by a credential
+// check against /etc/passwd. Other kinds (exploit, snmp, nc,
+// effect_one_shot) keep using `createSession` because their tier comes
+// from a different trust source: signed envelope (exploit), pidfile
+// content (nc backdoor), or has no credential concept (snmp community
+// string is checked at the protocol layer instead). FTP/MySQL/Redis
+// migrate into this list in PRs 3 + 4.
+export const AUTH_REQUIRED_KINDS = ['ssh', 'scp', 'su'] as const;
+export type AuthRequiredKind = (typeof AUTH_REQUIRED_KINDS)[number];
+
+// Auth method — discriminated union on `method`. Mutual exclusion of
+// password vs savedKey is enforced structurally; either method's
+// .strict() arm rejects the other's field.
+export const authMethodSchema = z.discriminatedUnion('method', [
+  z
+    .object({
+      method: z.literal('password'),
+      password: z.string().min(1).max(256),
+    })
+    .strict(),
+  z
+    .object({
+      method: z.literal('savedKey'),
+      fingerprint: z.string().min(1).max(128),
+    })
+    .strict(),
+]);
+
+export type AuthMethod = z.infer<typeof authMethodSchema>;
+
+// Schema for authCreateSession — atomic credential-validation +
+// session-creation for ssh/scp/su. The server reads the target
+// machine's /etc/passwd from machine_filesystems, validates the auth
+// method against it, derives userType from the parsed entry, and
+// inserts the session row. The wire payload deliberately does NOT
+// carry a userType — server-derived only, never trusted from clients.
+//
+// PR 2 of plans/cross-player-base-fs-replication.md.
+export const authCreateSessionSignedPayloadSchema = z
+  .object({
+    action: z.literal('authCreateSession'),
+    ts: z.number().int(),
+    nonce: z.string().regex(/^[0-9a-f]{32}$/i),
+    machine_id: z.string().min(1).max(256),
+    kind: z.enum(AUTH_REQUIRED_KINDS),
+    username: z.string().min(1).max(64),
+    auth: authMethodSchema,
+    parent_session_id: z.string().uuid().optional(),
+    source_ip: z.string().min(1).max(256).optional(),
+  })
+  .strict();
+
+export type AuthCreateSessionPayload = z.infer<typeof authCreateSessionSignedPayloadSchema>;
+
 // Combined schema for /api/sessions — discriminated by `action`. Adding a
 // new action: extend this union and add a dispatch arm in handler.ts.
 export const sessionsSignedPayloadSchema = z.discriminatedUnion('action', [
   createSessionSignedPayloadSchema,
   endSessionSignedPayloadSchema,
   listSessionsSignedPayloadSchema,
+  authCreateSessionSignedPayloadSchema,
 ]);
 
 export type SessionsPayload = z.infer<typeof sessionsSignedPayloadSchema>;

@@ -104,6 +104,11 @@ const dispatchAction = async (
       return handleEndSession(publicKey, payload, deps);
     case 'listSessions':
       return handleListSessions(publicKey, deps);
+    case 'authCreateSession':
+      // Step 3 of PR 2 (plans/cross-player-base-fs-replication.md)
+      // wires this up. Until then, return a marker the smoke can
+      // distinguish from the schema-rejection 400.
+      return { status: 501, body: { error: 'not_implemented' } };
   }
 };
 
