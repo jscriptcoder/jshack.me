@@ -1,7 +1,7 @@
 # Plan: Cross-Player Base FS Replication + Server-Authoritative Auth + CVE Read Endpoint
 
-**Branch**: feat/cross-player-base-fs-replication
-**Status**: Active — PR 1 not yet started
+**Branch**: feat/cross-player-base-fs-replication (umbrella) — PR 1 on feat/cpbfs-pr1-foundation
+**Status**: Active — PR 1 forge smoke complete; awaiting two-browser visual confirmation
 **Started**: 2026-05-07
 **Estimate**: 7 PRs, ~3-4 weeks total
 **Why this chunk exists**: PvP cracking is the multiplayer pitch. Without this, cross-player attacks against player workstations don't work — SSH login fails, FTP login fails, file_read CVE fails, post-login `cat`/`ls` returns empty. User explicitly reversed the prior deferral on 2026-05-07 ("not gonna be happy to release the game without this").
