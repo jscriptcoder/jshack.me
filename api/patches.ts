@@ -85,25 +85,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  const upsertPatch = createSupabaseUpsertPatch(async (row: PatchRow, dualWrite: boolean) => {
-    // L2 dual-write: a single RPC call writes to `patches` and (if
-    // dualWrite) projects onto `machine_filesystems` in the same
-    // transaction. Function signature + ON CONFLICT semantics live in
-    // 20260502230000_l2_dual_write_functions.sql.
-    const { error } = await supabase.rpc('upsert_patch_with_fs', {
-      p_player_key: row.player_key,
-      p_machine_id: row.machine_id,
-      p_path: row.path,
-      p_content: row.content,
-      p_owner: row.owner,
-      p_permissions: row.permissions ?? null,
-      p_is_new: row.is_new ?? null,
-      p_node_type: row.node_type ?? null,
-      p_dual_write: dualWrite,
-    });
-    if (error) console.error('[patches] rpc upsert_patch_with_fs error:', error);
-    return { error };
-  });
+  const upsertPatch = createSupabaseUpsertPatch(
+    async (row: PatchRow, dualWrite: boolean, projectFsContent: boolean) => {
+      // L2 dual-write: a single RPC call writes to `patches` and (if
+      // dualWrite) projects onto `machine_filesystems` in the same
+      // transaction. projectFsContent gates the new content column —
+      // true only for paths in FS_PROJECTED_CONTENT_PATHS, computed by
+      // the adapter from row.path. Function signature lives in
+      // 20260507100000_machine_fs_selective_content.sql.
+      const { error } = await supabase.rpc('upsert_patch_with_fs', {
+        p_player_key: row.player_key,
+        p_machine_id: row.machine_id,
+        p_path: row.path,
+        p_content: row.content,
+        p_owner: row.owner,
+        p_permissions: row.permissions ?? null,
+        p_is_new: row.is_new ?? null,
+        p_node_type: row.node_type ?? null,
+        p_dual_write: dualWrite,
+        p_project_fs_content: projectFsContent,
+      });
+      if (error) console.error('[patches] rpc upsert_patch_with_fs error:', error);
+      return { error };
+    },
+  );
 
   const removePatch = createSupabaseRemovePatch(async (arg: DeletePatchesArg) => {
     // L2 dual-delete: a single RPC call deletes from `patches` (exact

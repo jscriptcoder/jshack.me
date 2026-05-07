@@ -9,11 +9,24 @@ import type {
   ListSessionsResult,
   SessionSummary,
 } from './types';
+import type {
+  FindEtcPasswdContentParams,
+  FindEtcPasswdContentResult,
+} from './supabaseFindEtcPasswdContent';
 import type { RateLimiter } from '../ipRegistry/rateLimit';
 import { noopRateLimiter } from '../ipRegistry/rateLimit';
 import { noopNonceStore, type NonceStore } from '../signedRequest/nonceStore';
 import { generateIdentity, type Identity } from '../identity/identity';
 import { signRequest } from '../signedRequest/sign';
+
+// Default /etc/passwd content for tests: matches the default envelope's
+// claim (root@10.0.0.1, userType 'root'). Tests that exercise mismatch
+// or sabotage scenarios override findEtcPasswdContent explicitly.
+const DEFAULT_ETC_PASSWD =
+  'root:roothash:0:0:root:/root:/bin/bash\n' +
+  'ftpuser:ftphash:1001:1001:ftpuser:/home/ftpuser:/bin/bash\n' +
+  'alice:alicehash:1002:1002:alice:/home/alice:/bin/bash\n' +
+  'guest:guesthash:65534:65534:guest:/home/guest:/bin/bash';
 
 // Real signing in tests — handler-side behaviour is tightly coupled to the
 // signing flow, so end-to-end tests are clearer than mocking verify().
@@ -44,6 +57,9 @@ const mkDeps = (overrides: {
   readonly insertSession?: (row: SessionRow) => Promise<InsertSessionResult>;
   readonly endSession?: (params: EndSessionParams) => Promise<EndSessionResult>;
   readonly listSessions?: (params: ListSessionsParams) => Promise<ListSessionsResult>;
+  readonly findEtcPasswdContent?: (
+    params: FindEtcPasswdContentParams,
+  ) => Promise<FindEtcPasswdContentResult>;
   readonly rateLimiter?: RateLimiter;
   readonly nonceStore?: NonceStore;
   readonly now?: () => number;
@@ -63,6 +79,13 @@ const mkDeps = (overrides: {
     vi
       .fn<(params: ListSessionsParams) => Promise<ListSessionsResult>>()
       .mockResolvedValue({ ok: true, sessions: [] }),
+  // Default: matches the default envelope's userType claim. Tests
+  // exercising mismatch / underivable / no-op scenarios override.
+  findEtcPasswdContent:
+    overrides.findEtcPasswdContent ??
+    vi
+      .fn<(params: FindEtcPasswdContentParams) => Promise<FindEtcPasswdContentResult>>()
+      .mockResolvedValue({ ok: true, found: true, content: DEFAULT_ETC_PASSWD }),
   rateLimiter: overrides.rateLimiter ?? noopRateLimiter,
   nonceStore: overrides.nonceStore ?? noopNonceStore,
   now: overrides.now ?? (() => FIXED_NOW),
@@ -148,6 +171,151 @@ describe('handleSessionsRequest — createSession', () => {
         source_ip: '10.0.0.1',
       }),
     );
+  });
+
+  describe('userType validation against /etc/passwd', () => {
+    // The server reads the live /etc/passwd from machine_filesystems and
+    // rejects when the client's claimed userType doesn't match the
+    // canonical value derived from the file. Closes the L2 follow-up
+    // chunk #3 gap: a client claiming userType: 'root' for what is
+    // actually a guest login no longer produces a session row that the
+    // walker honors.
+
+    it('rejects 400 usertype_mismatch when claim does not match /etc/passwd', async () => {
+      // Envelope claims userType 'root' for username 'alice'; /etc/passwd
+      // says alice is uid 1002 → derived userType 'user'. Mismatch → 400.
+      const envelope = makeEnvelope(identity, {
+        action: 'createSession',
+        machine_id: '10.0.0.1',
+        credentials: { username: 'alice', userType: 'root' },
+      });
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+
+      const result = await handleSessionsRequest(envelope, mkDeps({ insertSession }));
+
+      expect(result.status).toBe(400);
+      expect(result.body).toEqual({ error: 'usertype_mismatch' });
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+
+    it('rejects 400 usertype_underivable when /etc/passwd has no entry for the claimed username', async () => {
+      const envelope = makeEnvelope(identity, {
+        action: 'createSession',
+        machine_id: '10.0.0.1',
+        credentials: { username: 'eve', userType: 'user' },
+      });
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+
+      const result = await handleSessionsRequest(envelope, mkDeps({ insertSession }));
+
+      expect(result.status).toBe(400);
+      expect(result.body).toEqual({ error: 'usertype_underivable' });
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+
+    it('rejects 400 usertype_underivable when /etc/passwd is garbled (no parseable entries)', async () => {
+      const envelope = makeEnvelope(identity);
+      const findEtcPasswdContent = vi
+        .fn<(params: FindEtcPasswdContentParams) => Promise<FindEtcPasswdContentResult>>()
+        .mockResolvedValue({ ok: true, found: true, content: 'garbage with no colons' });
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({ findEtcPasswdContent, insertSession }),
+      );
+
+      expect(result.status).toBe(400);
+      expect(result.body).toEqual({ error: 'usertype_underivable' });
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+
+    it('accepts (200) when claim matches /etc/passwd-derived userType', async () => {
+      // Default envelope claims root@10.0.0.1 with userType 'root'; the
+      // default DEFAULT_ETC_PASSWD has root with uid 0 → derived 'root'.
+      // Match → proceed to insertSession.
+      const envelope = makeEnvelope(identity);
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+
+      const result = await handleSessionsRequest(envelope, mkDeps({ insertSession }));
+
+      expect(result.status).toBe(200);
+      expect(insertSession).toHaveBeenCalled();
+    });
+
+    it('accepts (200) and inserts when /etc/passwd has no projection (mission-machine no-op)', async () => {
+      // Mission machines are not yet in machine_filesystems
+      // (blocked on mission_instances). found=false → no-op the
+      // validation, accept the claim. This path goes away once mission
+      // instances ship.
+      const envelope = makeEnvelope(identity, {
+        action: 'createSession',
+        machine_id: 'mission-router-42',
+        credentials: { username: 'alice', userType: 'root' },
+      });
+      const findEtcPasswdContent = vi
+        .fn<(params: FindEtcPasswdContentParams) => Promise<FindEtcPasswdContentResult>>()
+        .mockResolvedValue({ ok: true, found: false });
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({ findEtcPasswdContent, insertSession }),
+      );
+
+      expect(result.status).toBe(200);
+      expect(insertSession).toHaveBeenCalled();
+    });
+
+    it('returns 500 fs_lookup_failed when the projection query errors', async () => {
+      const envelope = makeEnvelope(identity);
+      const findEtcPasswdContent = vi
+        .fn<(params: FindEtcPasswdContentParams) => Promise<FindEtcPasswdContentResult>>()
+        .mockResolvedValue({ ok: false });
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({ findEtcPasswdContent, insertSession }),
+      );
+
+      expect(result.status).toBe(500);
+      expect(result.body).toEqual({ error: 'fs_lookup_failed' });
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+
+    it('rejects 400 when guest user claims root userType (sabotage attempt)', async () => {
+      // The threat model: an attacker on a cracked guest shell forges
+      // a createSession with credentials.userType='root'. /etc/passwd
+      // says guest is uid 65534 with username 'guest' → derived 'guest'.
+      // 'guest' !== 'root' → mismatch → 400.
+      const envelope = makeEnvelope(identity, {
+        action: 'createSession',
+        machine_id: '10.0.0.1',
+        credentials: { username: 'guest', userType: 'root' },
+      });
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+
+      const result = await handleSessionsRequest(envelope, mkDeps({ insertSession }));
+
+      expect(result.status).toBe(400);
+      expect(result.body).toEqual({ error: 'usertype_mismatch' });
+      expect(insertSession).not.toHaveBeenCalled();
+    });
   });
 
   describe('schema validation', () => {

@@ -39,7 +39,7 @@ const dir = (
 });
 
 describe('flattenFileNode', () => {
-  it('emits a single row for a leaf file', () => {
+  it('emits a single row for a leaf file (content null for non-projected paths)', () => {
     const rows = flattenFileNode('m1', file('foo.txt', 'hello'), '/foo.txt');
     expect(rows).toEqual([
       {
@@ -47,8 +47,37 @@ describe('flattenFileNode', () => {
         path: '/foo.txt',
         owner: 'root',
         permissions: rootOnly,
+        content: null,
       },
     ]);
+  });
+
+  it('projects content for /etc/passwd (in the projection allowlist)', () => {
+    const passwdContent = 'root:x:0:0\nbob:y:1001:1001\n';
+    const rows = flattenFileNode('m1', file('passwd', passwdContent), '/etc/passwd');
+    expect(rows).toEqual([
+      {
+        machine_id: 'm1',
+        path: '/etc/passwd',
+        owner: 'root',
+        permissions: rootOnly,
+        content: passwdContent,
+      },
+    ]);
+  });
+
+  it('does not project content for files at other paths in the same tree', () => {
+    const tree = dir('root', {
+      etc: dir('etc', {
+        passwd: file('passwd', 'root:x:0:0'),
+        hostname: file('hostname', 'host'),
+      }),
+    });
+    const rows = flattenFileNode('m1', tree);
+    const passwdRow = rows.find((r) => r.path === '/etc/passwd');
+    const hostnameRow = rows.find((r) => r.path === '/etc/hostname');
+    expect(passwdRow?.content).toBe('root:x:0:0');
+    expect(hostnameRow?.content).toBeNull();
   });
 
   it('emits one row for an empty directory', () => {

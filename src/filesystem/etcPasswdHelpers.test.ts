@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getEtcPasswdHash } from './etcPasswdHelpers';
+import { deriveUserTypeFromEtcPasswd, getEtcPasswdHash } from './etcPasswdHelpers';
 
 const line = (username: string, hash: string, uid = 1000) =>
   `${username}:${hash}:${uid}:${uid}:${username}:/home/${username}:/bin/bash`;
@@ -56,5 +56,63 @@ describe('getEtcPasswdHash', () => {
     // a prefix. The first colon-separated field must equal the username.
     const content = line('bobby', 'bobbyhash');
     expect(getEtcPasswdHash(content, 'bob')).toBeUndefined();
+  });
+});
+
+describe('deriveUserTypeFromEtcPasswd', () => {
+  it('returns "root" when the entry has uid 0', () => {
+    const content = line('root', 'roothash', 0);
+    expect(deriveUserTypeFromEtcPasswd(content, 'root')).toBe('root');
+  });
+
+  it('returns "guest" when the username is exactly "guest"', () => {
+    // Even with a non-special uid, the literal username 'guest' is the
+    // game's tier marker for unprivileged shell access.
+    const content = line('guest', 'guesthash', 65534);
+    expect(deriveUserTypeFromEtcPasswd(content, 'guest')).toBe('guest');
+  });
+
+  it('returns "user" for a normal non-zero uid that is not "guest"', () => {
+    const content = line('bob', 'bobhash', 1001);
+    expect(deriveUserTypeFromEtcPasswd(content, 'bob')).toBe('user');
+  });
+
+  it('correctly disambiguates root + bob + guest in a multi-user file', () => {
+    const content = [
+      line('root', 'rh', 0),
+      line('bob', 'bh', 1001),
+      line('guest', 'gh', 65534),
+    ].join('\n');
+    expect(deriveUserTypeFromEtcPasswd(content, 'root')).toBe('root');
+    expect(deriveUserTypeFromEtcPasswd(content, 'bob')).toBe('user');
+    expect(deriveUserTypeFromEtcPasswd(content, 'guest')).toBe('guest');
+  });
+
+  it('returns undefined when content is null', () => {
+    expect(deriveUserTypeFromEtcPasswd(null, 'bob')).toBeUndefined();
+  });
+
+  it('returns undefined when the username is not in the file', () => {
+    const content = line('alice', 'ah', 1000);
+    expect(deriveUserTypeFromEtcPasswd(content, 'bob')).toBeUndefined();
+  });
+
+  it('returns undefined when the uid field is missing', () => {
+    // bob:hash:::... — third field empty
+    const content = 'bob:bh::1001:bob:/home/bob:/bin/bash';
+    expect(deriveUserTypeFromEtcPasswd(content, 'bob')).toBeUndefined();
+  });
+
+  it('returns undefined when the uid field is non-numeric (garbled)', () => {
+    const content = 'bob:bh:notanumber:1001:bob:/home/bob:/bin/bash';
+    expect(deriveUserTypeFromEtcPasswd(content, 'bob')).toBeUndefined();
+  });
+
+  it('does not treat a non-root user named "root" with non-zero uid as root', () => {
+    // Defense in depth: the special-case is uid 0, not the username.
+    // A garbled /etc/passwd that re-uses the 'root' username with a
+    // different uid should not auto-promote.
+    const content = line('root', 'rh', 1001);
+    expect(deriveUserTypeFromEtcPasswd(content, 'root')).toBe('user');
   });
 });
