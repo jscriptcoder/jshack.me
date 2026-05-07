@@ -319,6 +319,40 @@ export const upsertPatch = (
   return patches.map((p, i) => (i === existingIndex ? merged : p));
 };
 
+// Pure reducer: apply a single FileSystemPatch onto a patches list.
+// Used by every path that mutates the patches list — local writes
+// (broadcastAndRecordPatch), cross-tab BroadcastChannel arrivals
+// (applyExternalPatch), and hint-refetch pending-write replay
+// (refetchMachines). Centralizes the null-content / isNew /
+// descendant-cleanup branching so all three paths stay in sync.
+//
+//   content !== null              → upsert the patch (write/create)
+//   content === null && isNew     → drop the patch + descendants
+//                                   (created-via-patch file deleted;
+//                                    no tombstone needed since the row
+//                                    never reflected base FS state)
+//   content === null && !isNew    → drop descendants, then upsert the
+//                                   null-marker (base file deletion)
+export const applyPatchToList = (
+  prev: readonly FileSystemPatch[],
+  patch: FileSystemPatch,
+): readonly FileSystemPatch[] => {
+  if (patch.content !== null) return upsertPatch(prev, patch);
+
+  const existing = prev.find((p) => p.machineId === patch.machineId && p.path === patch.path);
+  const deletedPrefix = patch.path.endsWith('/') ? patch.path : patch.path + '/';
+  const withoutChildren = prev.filter(
+    (p) => !(p.machineId === patch.machineId && p.path.startsWith(deletedPrefix)),
+  );
+
+  if (existing?.isNew) {
+    return withoutChildren.filter(
+      (p) => !(p.machineId === patch.machineId && p.path === patch.path),
+    );
+  }
+  return upsertPatch(withoutChildren, patch);
+};
+
 // Empty root node used as the on-demand base FS for an unknown
 // machineId. See `applyPatches` below for the rationale — cross-player
 // patches for occupant workstations need a place to land.

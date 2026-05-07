@@ -8,6 +8,7 @@ import {
   addChildAtPath,
   removeChildAtPath,
   upsertPatch,
+  applyPatchToList,
   applyPatches,
   isValidPatch,
   planDirectoryCreation,
@@ -230,6 +231,115 @@ describe('upsertPatch', () => {
     const writePatch: FileSystemPatch = { ...patch1, content: 'updated' };
     const result = upsertPatch([patch1], writePatch);
     expect(result[0]?.isNew).toBeUndefined();
+  });
+});
+
+describe('applyPatchToList', () => {
+  const writePatch: FileSystemPatch = {
+    machineId: 'localhost',
+    path: '/home/test.txt',
+    content: 'hello',
+    owner: 'user',
+  };
+
+  it('upserts when patch content is non-null (write/create case)', () => {
+    const result = applyPatchToList([], writePatch);
+    expect(result).toEqual([writePatch]);
+  });
+
+  it('updates the existing patch when content is non-null and a row exists at (machineId, path)', () => {
+    const updated: FileSystemPatch = { ...writePatch, content: 'updated' };
+    const result = applyPatchToList([writePatch], updated);
+    expect(result).toHaveLength(1);
+    expect(result[0]?.content).toBe('updated');
+  });
+
+  it('drops the patch entirely when deleting an isNew patch (no null tombstone)', () => {
+    const createPatch: FileSystemPatch = { ...writePatch, isNew: true };
+    const deletePatch: FileSystemPatch = { ...writePatch, content: null };
+    const result = applyPatchToList([createPatch], deletePatch);
+    expect(result).toEqual([]);
+  });
+
+  it('records a null marker when deleting a base file (no existing isNew patch)', () => {
+    const deletePatch: FileSystemPatch = { ...writePatch, content: null };
+    const result = applyPatchToList([], deletePatch);
+    expect(result).toEqual([deletePatch]);
+  });
+
+  it('replaces an existing non-isNew row with the null marker on base-file deletion', () => {
+    const deletePatch: FileSystemPatch = { ...writePatch, content: null };
+    const result = applyPatchToList([writePatch], deletePatch);
+    expect(result).toHaveLength(1);
+    expect(result[0]?.content).toBeNull();
+  });
+
+  it('drops descendant patches when deleting a directory path (isNew case)', () => {
+    const dirPatch: FileSystemPatch = {
+      machineId: 'localhost',
+      path: '/home/sub',
+      content: null,
+      owner: 'user',
+      isNew: true,
+      nodeType: 'directory',
+      permissions: { read: ['root'], write: ['root'], execute: ['root'] },
+    };
+    const childPatch: FileSystemPatch = {
+      machineId: 'localhost',
+      path: '/home/sub/file.txt',
+      content: 'child',
+      owner: 'user',
+    };
+    const deletePatch: FileSystemPatch = {
+      machineId: 'localhost',
+      path: '/home/sub',
+      content: null,
+      owner: 'user',
+    };
+    const result = applyPatchToList([dirPatch, childPatch], deletePatch);
+    expect(result).toEqual([]);
+  });
+
+  it('drops descendant patches when deleting a base directory (non-isNew case keeps null marker)', () => {
+    const childPatch: FileSystemPatch = {
+      machineId: 'localhost',
+      path: '/home/sub/file.txt',
+      content: 'child',
+      owner: 'user',
+    };
+    const deletePatch: FileSystemPatch = {
+      machineId: 'localhost',
+      path: '/home/sub',
+      content: null,
+      owner: 'user',
+    };
+    const result = applyPatchToList([childPatch], deletePatch);
+    expect(result).toHaveLength(1);
+    expect(result[0]?.path).toBe('/home/sub');
+    expect(result[0]?.content).toBeNull();
+  });
+
+  it('only drops descendants on the same machineId', () => {
+    const otherMachineChild: FileSystemPatch = {
+      machineId: 'other',
+      path: '/home/sub/file.txt',
+      content: 'kept',
+      owner: 'user',
+    };
+    const deletePatch: FileSystemPatch = {
+      machineId: 'localhost',
+      path: '/home/sub',
+      content: null,
+      owner: 'user',
+      isNew: true,
+    };
+    const existingIsNew: FileSystemPatch = {
+      ...deletePatch,
+      content: 'created',
+      isNew: true,
+    };
+    const result = applyPatchToList([existingIsNew, otherMachineChild], deletePatch);
+    expect(result).toEqual([otherMachineChild]);
   });
 });
 
