@@ -42,9 +42,9 @@ const remoteMachine: RemoteMachine = {
     { port: 21, service: 'ftp', serviceVersion: 'latest', open: true },
   ],
   users: [
-    { username: 'root', passwordHash: 'abc', userType: 'root' },
-    { username: 'ftpuser', passwordHash: 'def', userType: 'user' },
-    { username: 'guest', passwordHash: 'ghi', userType: 'guest' },
+    { username: 'root', userType: 'root' },
+    { username: 'ftpuser', userType: 'user' },
+    { username: 'guest', userType: 'guest' },
   ],
 };
 
@@ -52,7 +52,7 @@ const noSshMachine: RemoteMachine = {
   ip: '10.0.0.5',
   hostname: 'nossh',
   ports: [{ port: 80, service: 'http', serviceVersion: 'latest', open: true }],
-  users: [{ username: 'guest', passwordHash: 'ghi', userType: 'guest' }],
+  users: [{ username: 'guest', userType: 'guest' }],
 };
 
 type MockFs = Readonly<Record<string, FileNode | null>>;
@@ -285,8 +285,8 @@ describe('scp', () => {
         { port: 25, service: 'smtp', serviceVersion: 'latest', open: true },
       ],
       users: [
-        { username: 'guest', passwordHash: 'ghi', userType: 'guest' },
-        { username: 'root', passwordHash: 'abc', userType: 'root' },
+        { username: 'guest', userType: 'guest' },
+        { username: 'root', userType: 'root' },
       ],
     };
     const createdFiles: {
@@ -336,7 +336,7 @@ describe('scp', () => {
       ip: '45.33.100.1',
       hostname: 'router01',
       ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
-      users: [{ username: 'guest', passwordHash: 'ghi', userType: 'guest' }],
+      users: [{ username: 'guest', userType: 'guest' }],
     };
     const createdFiles: {
       machineId: string;

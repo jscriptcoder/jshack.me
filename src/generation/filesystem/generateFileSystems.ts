@@ -9,7 +9,7 @@ import type {
   SubnetLayer,
 } from '../types';
 import type { FileNode } from '../../filesystem/types';
-import type { RemoteUser } from '../../network/types';
+import type { GeneratedUser } from '../types';
 import {
   createFileSystem,
   mergeFileNodeChildren,
@@ -36,7 +36,7 @@ export { buildMachineConfig } from './machineConfig';
 type FilesystemInput = {
   readonly prng: Prng;
   readonly machines: readonly GeneratedMachine[];
-  readonly usersByMachine: Readonly<Record<string, readonly RemoteUser[]>>;
+  readonly usersByMachine: Readonly<Record<string, readonly GeneratedUser[]>>;
   readonly credentials: CredentialMap;
   readonly objective: MissionObjective;
   readonly routerMachine?: GeneratedMachine;

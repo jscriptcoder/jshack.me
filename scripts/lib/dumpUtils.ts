@@ -82,7 +82,9 @@ export const formatPort = (p: Port): string => {
 };
 
 export const formatUser = (u: RemoteUser): string => {
-  return `  ${u.username} (${u.userType})  hash=${dim(u.passwordHash)}`;
+  // Hash lives in /etc/passwd content (dumped separately by the script's
+  // FS printer). RemoteUser carries only username + userType post step 6.
+  return `  ${u.username} (${u.userType})`;
 };
 
 // ---------------------------------------------------------------------------

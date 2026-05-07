@@ -426,7 +426,7 @@ describe('buildMergedRouterView', () => {
   });
 
   it('should merge users from router and forwarded machines, deduplicating by username', () => {
-    const sharedUser = { username: 'admin', passwordHash: 'hash1', userType: 'root' as const };
+    const sharedUser = { username: 'admin', userType: 'root' as const };
     const routerUser = {
       username: 'router-user',
       passwordHash: 'hash2',
@@ -485,7 +485,7 @@ describe('buildMergedRouterView', () => {
       remoteMachine: createMachine({
         ip: '10.0.0.99',
         ports: [createPort({ port: 22, service: 'ssh', serviceVersion: 'latest', open: true })],
-        users: [{ username: 'ghost', passwordHash: 'h', userType: 'user' }],
+        users: [{ username: 'ghost', userType: 'user' }],
       }),
     });
 

@@ -5,11 +5,11 @@ import {
   formatVirtualUsersConf,
   parseVirtualUsersConf,
 } from './ftpCredentials';
-import type { RemoteUser } from '../network/types';
+import type { GeneratedUser } from './types';
 import { md5 } from '../utils/md5';
 import { passwords } from './pools';
 
-const systemUsers: readonly RemoteUser[] = [
+const systemUsers: readonly GeneratedUser[] = [
   { username: 'root', passwordHash: md5('s3cur3!'), userType: 'root' },
   { username: 'webadmin', passwordHash: md5('p4ssw0rd'), userType: 'user' },
   { username: 'guest', passwordHash: md5('guest'), userType: 'guest' },

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createPrng } from './prng';
-import type { Port, RemoteUser } from '../network/types';
-import type { EntryVariant, GeneratedMachine } from './types';
+import type { Port } from '../network/types';
+import type { EntryVariant, GeneratedMachine, GeneratedUser } from './types';
 import {
   pickOwnerType,
   findUserByType,
@@ -17,7 +17,7 @@ import { findVulnForService } from './vulnerabilityLookup';
 
 // --- Test helpers ---
 
-const mkUser = (username: string, userType: 'root' | 'user' | 'guest'): RemoteUser => ({
+const mkUser = (username: string, userType: 'root' | 'user' | 'guest'): GeneratedUser => ({
   username,
   passwordHash: 'hash',
   userType,
@@ -34,7 +34,7 @@ const mkMachine = (
   ip: string,
   accessVariant: EntryVariant,
   ports: readonly Port[],
-  users: readonly RemoteUser[] = [],
+  users: readonly GeneratedUser[] = [],
   role: 'webserver' | 'database' | 'router' = 'webserver',
 ): GeneratedMachine => ({
   ip,
@@ -44,7 +44,7 @@ const mkMachine = (
   remoteMachine: { ip, hostname: `host-${ip}`, ports, users },
 });
 
-const allUsers: readonly RemoteUser[] = [
+const allUsers: readonly GeneratedUser[] = [
   mkUser('root', 'root'),
   mkUser('admin', 'user'),
   mkUser('guest', 'guest'),

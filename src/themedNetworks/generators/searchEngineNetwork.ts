@@ -139,8 +139,8 @@ export const generateSearchEngineNetwork: ThemedGenerator = async (row, ctx) => 
   ];
 
   const users: readonly RemoteUser[] = [
-    { username: 'root', passwordHash: 'no-shell-access', userType: 'root' },
-    { username: 'www-data', passwordHash: 'no-shell-access', userType: 'user' },
+    { username: 'root', userType: 'root' },
+    { username: 'www-data', userType: 'user' },
   ];
 
   const remoteMachine: RemoteMachine = {

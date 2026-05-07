@@ -11,7 +11,7 @@ const getMockDbMachine = (): RemoteMachine => ({
     { port: 3306, service: 'mysql', serviceVersion: 'latest', open: true },
     { port: 6379, service: 'redis', serviceVersion: 'latest', open: true },
   ],
-  users: [{ username: 'redis', passwordHash: 'abc123', userType: 'user' }],
+  users: [{ username: 'redis', userType: 'user' }],
 });
 
 const getMockWebMachine = (): RemoteMachine => ({

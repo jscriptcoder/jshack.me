@@ -11,7 +11,7 @@ const makeMachine = (ip: string, hasMysql = true): RemoteMachine => ({
       ? [{ port: 3306, service: 'mysql' as const, serviceVersion: 'latest', open: true }]
       : []),
   ],
-  users: [{ username: 'root', passwordHash: 'abc', userType: 'root' as const }],
+  users: [{ username: 'root', userType: 'root' as const }],
 });
 
 const makeContext = (overrides: Partial<Parameters<typeof createMysqlCommand>[0]> = {}) => ({

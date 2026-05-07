@@ -1,10 +1,21 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { RemoteMachine, DnsRecord, RemoteUser } from '../network/types';
+import type { RemoteMachine, DnsRecord } from '../network/types';
+import type { GeneratedUser } from '../generation/types';
 import type { AsyncOutput } from '../components/Terminal/types';
 import type { FileNode } from '../filesystem/types';
 import { createHydraCommand } from './hydra';
 import { md5 } from '../utils/md5';
 import { passwords as passwordPool } from '../generation/pools';
+
+// Test fixtures need passwordHash on each user to synthesize /etc/passwd
+// content (mkPasswdNodeFromUsers below). The runtime RemoteUser type
+// dropped passwordHash in step 6 of plans/etc-passwd-canonical.md, so
+// fixtures use GeneratedUser (a superset). Production code that consumes
+// RemoteMachine.users gets the structural subtype unchanged via
+// covariance.
+type FixtureMachine = Omit<RemoteMachine, 'users'> & {
+  readonly users: readonly GeneratedUser[];
+};
 
 // --- Factory Functions ---
 
@@ -29,7 +40,7 @@ const mkWordlistNode = (): FileNode => ({
   content: MOCK_WORDLIST_CONTENT,
 });
 
-const getMockRemoteMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine => ({
+const getMockRemoteMachine = (overrides?: Partial<FixtureMachine>): FixtureMachine => ({
   ip: '192.168.1.50',
   hostname: 'fileserver',
   ports: [
@@ -50,7 +61,7 @@ const getMockRemoteMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine
 // hashes) can rely on the synthesized file matching the machine's users.
 // Tests can override the default by providing explicit machineFiles[ip]
 // entries for '/etc/passwd', or opt out entirely via noEtcPasswd.
-const mkPasswdNodeFromUsers = (users: readonly RemoteUser[]): FileNode => ({
+const mkPasswdNodeFromUsers = (users: readonly GeneratedUser[]): FileNode => ({
   name: 'passwd',
   type: 'file',
   owner: 'root',
@@ -86,7 +97,7 @@ const mkVirtualUsersNode = (
 });
 
 type HydraContextConfig = {
-  readonly machines?: readonly RemoteMachine[];
+  readonly machines?: readonly FixtureMachine[];
   readonly localIP?: string;
   readonly dnsRecords?: readonly DnsRecord[];
   readonly machineFiles?: Readonly<Record<string, Record<string, FileNode>>>;
@@ -738,7 +749,7 @@ describe('hydra command', () => {
       content: `rocommunity public\nrwcommunity ${rwCommunity}\nsysDescr Router v1.0`,
     });
 
-    const snmpMachine = (_rwCommunity?: string): RemoteMachine =>
+    const snmpMachine = (_rwCommunity?: string): FixtureMachine =>
       getMockRemoteMachine({
         ip: '10.0.0.1',
         hostname: 'router01',
@@ -879,7 +890,7 @@ describe('hydra command', () => {
       }),
     });
 
-    const mysqlMachine = (): RemoteMachine =>
+    const mysqlMachine = (): FixtureMachine =>
       getMockRemoteMachine({
         ip: '10.0.0.5',
         hostname: 'dbserver',
@@ -1125,7 +1136,7 @@ describe('hydra command', () => {
       content: `rocommunity public\nrwcommunity ${rwCommunity}\nsysDescr Router v1.0`,
     });
 
-    const snmpMachine = (): RemoteMachine =>
+    const snmpMachine = (): FixtureMachine =>
       getMockRemoteMachine({
         ip: '10.0.0.1',
         hostname: 'router01',
@@ -1189,7 +1200,7 @@ describe('hydra command', () => {
       content: `bind 0.0.0.0\nport 6379\nrequirepass ${requirepass}\n`,
     });
 
-    const redisMachine = (): RemoteMachine =>
+    const redisMachine = (): FixtureMachine =>
       getMockRemoteMachine({
         ip: '10.0.0.7',
         hostname: 'cache01',
@@ -1277,7 +1288,7 @@ describe('hydra command', () => {
       }),
     });
 
-    const mysqlMachine = (): RemoteMachine =>
+    const mysqlMachine = (): FixtureMachine =>
       getMockRemoteMachine({
         ip: '10.0.0.5',
         hostname: 'dbserver',
