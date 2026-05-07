@@ -9,6 +9,7 @@ import type { UserType } from '../session/types';
 import type { RemoteMachine, RemoteUser } from '../network/types';
 import { parseMysqlDatabase } from '../commands/mysql/types';
 import { parseVirtualUsersConf } from '../generation/ftpCredentials';
+import { getEtcPasswdHash } from '../filesystem/etcPasswdHelpers';
 import type { AsyncOutput } from '../components/Terminal/types';
 import type { PermissionResult } from '../filesystem/types';
 import type { SshAuthHandler } from '../logging/handlers/sshAuth';
@@ -115,18 +116,26 @@ export const useAuthentication = ({
     [addLine],
   );
 
-  // Computes a fingerprint from the target's password hash so that entries in
-  // ~/.ssh_keys cannot be forged without knowing the credential. Returns null
-  // when the target user cannot be resolved (machine or user not found).
+  // Computes a fingerprint from the target's live /etc/passwd hash so that
+  // entries in ~/.ssh_keys cannot be forged without read access to that file.
+  // Returns null when the file is unreadable, the user is missing, or the
+  // hash field is empty — keeping forgery resistance intact AND making
+  // password_reset rotates invalidate previously-saved keys (the saved
+  // fingerprint was computed against the pre-reset hash).
   const computeKeyFingerprint = useCallback(
     (targetUser: string, targetIP: string, port: number): string | null => {
       const resolvedIp = resolveNat(targetIP, port).ip;
-      const users = findMachineUsers(resolvedIp);
-      const remoteUser = users.find((u) => u.username === targetUser);
-      if (!remoteUser) return null;
-      return md5(`${targetUser}:${targetIP}:${remoteUser.passwordHash}`);
+      const passwdContent = readFileFromMachine({
+        machineId: resolvedIp,
+        path: '/etc/passwd',
+        cwd: '/',
+        userType: 'root',
+      });
+      const hash = getEtcPasswdHash(passwdContent, targetUser);
+      if (hash === undefined) return null;
+      return md5(`${targetUser}:${targetIP}:${hash}`);
     },
-    [resolveNat, findMachineUsers],
+    [resolveNat, readFileFromMachine],
   );
 
   // Checks whether the current user has a verified SSH key for the given target.
@@ -241,7 +250,9 @@ export const useAuthentication = ({
     ],
   );
 
-  // Validates a remote user's password against their stored hash
+  // Validates a remote user's password against /etc/passwd. Mirrors the
+  // closure-local validateAgainstEtcPasswd in validatePassword — same
+  // canonical-/etc/passwd model, used by the inline SSH/SCP entry points.
   const validateRemotePassword = useCallback(
     ({
       user,
@@ -255,12 +266,16 @@ export const useAuthentication = ({
       readonly password: string;
     }): boolean => {
       const resolvedIp = resolveNat(targetIP, port).ip;
-      const users = findMachineUsers(resolvedIp);
-      const remoteUser = users.find((u) => u.username === user);
-      if (!remoteUser) return false;
-      return remoteUser.passwordHash === md5(password);
+      const passwdContent = readFileFromMachine({
+        machineId: resolvedIp,
+        path: '/etc/passwd',
+        cwd: '/',
+        userType: 'root',
+      });
+      const storedHash = getEtcPasswdHash(passwdContent, user);
+      return storedHash !== undefined && storedHash === md5(password);
     },
-    [resolveNat, findMachineUsers],
+    [resolveNat, readFileFromMachine],
   );
 
   // Inline SSH auth: validates password, saves key, and connects without interactive prompt
@@ -360,9 +375,7 @@ export const useAuthentication = ({
           cwd: '/',
           userType: 'root',
         });
-        const entry = passwdContent?.split('\n').find((line) => line.split(':')[0] === username);
-        const storedHash = entry?.split(':')[1];
-        ok = storedHash === inputHash;
+        ok = getEtcPasswdHash(passwdContent, username) === inputHash;
       }
 
       if (!ok) {
@@ -649,15 +662,8 @@ export const useAuthentication = ({
           cwd: '/',
           userType: 'root',
         });
-        if (!passwdContent) return false;
-
-        const entry = passwdContent.split('\n').find((line) => line.split(':')[0] === targetUser);
-        if (!entry) return false;
-
-        const storedHash = entry.split(':')[1];
-        if (!storedHash) return false;
-
-        return storedHash === md5(password);
+        const storedHash = getEtcPasswdHash(passwdContent, targetUser);
+        return storedHash !== undefined && storedHash === md5(password);
       };
 
       if (scpTargetIP) {

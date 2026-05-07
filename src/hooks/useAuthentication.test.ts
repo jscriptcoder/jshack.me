@@ -41,7 +41,17 @@ const makeOptions = () => ({
   enterFtpMode: vi.fn(),
   enterMysqlMode: vi.fn(),
   enterRedisMode: vi.fn(),
-  readFileFromMachine: vi.fn((_op: { path: string }) => null as string | null),
+  // Default: synthesize a /etc/passwd containing the standard `bob` user
+  // (matches makeRemoteUser()'s default cache hash). Tests that exercise
+  // sabotage / drift / multi-user scenarios override this with their own
+  // mockImplementation. Tests that only need bob+PASSWORD_HASH inherit
+  // this default and don't repeat the boilerplate.
+  readFileFromMachine: vi.fn(
+    (op: { path: string }) =>
+      (op.path === '/etc/passwd'
+        ? `bob:${PASSWORD_HASH}:1001:1001:bob:/home/bob:/bin/bash`
+        : null) as string | null,
+  ),
   createFile: vi.fn(() => ({ allowed: true })),
   writeFile: vi.fn(() => ({ allowed: true })),
 });
@@ -1586,6 +1596,138 @@ describe('useAuthentication', () => {
 
       expect(opts.createFile).not.toHaveBeenCalled();
       expect(opts.writeFile).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('SSH key fingerprinting — /etc/passwd is canonical', () => {
+    // The fingerprint anchor for ~/.ssh_keys entries is the password hash
+    // from the live /etc/passwd, not the static users[].passwordHash cache.
+    // Consequences:
+    //   - password_reset rotates invalidate previously-saved keys (the
+    //     stored fingerprint was computed against the pre-reset hash).
+    //   - garbling /etc/passwd locks out saved-key auth too, not just
+    //     password auth.
+    //   - .ssh_keys lines still cannot be forged without read access to
+    //     /etc/passwd on the target (root- or user-tier read perms).
+
+    it('rejects a saved key after /etc/passwd hash rotates (post password_reset)', () => {
+      // Player saved a key when bob's hash was PASSWORD_HASH. Then
+      // password_reset rolled the credential. /etc/passwd now has a
+      // different hash, so the saved fingerprint no longer matches and
+      // hydra-style key reuse falls through to a password prompt.
+      const remoteUser = makeRemoteUser();
+      const staleKeyEntry = makeKeyEntry('bob', TARGET_IP, PASSWORD_HASH);
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFile.mockImplementation((path: string) =>
+        path === '/home/alice/.ssh_keys' ? staleKeyEntry : null,
+      );
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd'
+          ? `bob:${md5('rolled-pass')}:1001:1001:bob:/home/bob:/bin/bash`
+          : null,
+      );
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => result.current.startSshPrompt('bob', TARGET_IP, 22));
+
+      // Saved key didn't validate — fell through to interactive password prompt
+      expect(result.current.passwordMode).toBe(true);
+      expect(opts.pushSession).not.toHaveBeenCalled();
+      expect(opts.addLine).toHaveBeenCalledWith('result', `bob@${TARGET_IP}'s password:`);
+    });
+
+    it('accepts a saved key when /etc/passwd hash matches the saved fingerprint', () => {
+      // Regression check: keys still work in the unmutated case.
+      const remoteUser = makeRemoteUser();
+      const keyEntry = makeKeyEntry('bob', TARGET_IP, PASSWORD_HASH);
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFile.mockImplementation((path: string) =>
+        path === '/home/alice/.ssh_keys' ? keyEntry : null,
+      );
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd' ? `bob:${PASSWORD_HASH}:1001:1001:bob:/home/bob:/bin/bash` : null,
+      );
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => result.current.startSshPrompt('bob', TARGET_IP, 22));
+
+      expect(result.current.passwordMode).toBe(false);
+      expect(opts.addLine).toHaveBeenCalledWith('result', 'Authenticated with saved key.');
+      expect(opts.pushSession).toHaveBeenCalled();
+    });
+
+    it('saveAuthorizedKey computes the fingerprint from /etc/passwd, not the cache', () => {
+      // Cache holds an obsolete hash; /etc/passwd has the live one. After
+      // a successful password auth, the saved entry's fingerprint must
+      // reflect the LIVE hash so subsequent key-based auth validates.
+      const livePass = 'live-bob-pass';
+      const liveHash = md5(livePass);
+      // Cache hash differs from /etc/passwd — drift scenario.
+      const remoteUser = makeRemoteUser({ password: 'cache-stale' });
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd' ? `bob:${liveHash}:1001:1001:bob:/home/bob:/bin/bash` : null,
+      );
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() =>
+        result.current.authenticateSshInline({
+          user: 'bob',
+          targetIP: TARGET_IP,
+          port: 22,
+          password: livePass,
+        }),
+      );
+
+      // The saved fingerprint must be md5(user:ip:liveHash), not the cache hash.
+      const expectedEntry = makeKeyEntry('bob', TARGET_IP, liveHash);
+      expect(opts.createFile).toHaveBeenCalledWith('/home/alice/.ssh_keys', expectedEntry, 'user');
+    });
+
+    it('rejects a saved key when /etc/passwd is unreadable on the target', () => {
+      const remoteUser = makeRemoteUser();
+      const keyEntry = makeKeyEntry('bob', TARGET_IP, PASSWORD_HASH);
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFile.mockImplementation((path: string) =>
+        path === '/home/alice/.ssh_keys' ? keyEntry : null,
+      );
+      opts.readFileFromMachine.mockReturnValue(null);
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => result.current.startSshPrompt('bob', TARGET_IP, 22));
+
+      expect(result.current.passwordMode).toBe(true);
+      expect(opts.pushSession).not.toHaveBeenCalled();
+    });
+
+    it('rejects a saved key when /etc/passwd is missing the target user', () => {
+      const remoteUser = makeRemoteUser();
+      const keyEntry = makeKeyEntry('bob', TARGET_IP, PASSWORD_HASH);
+      const opts = makeOptions();
+      opts.findMachineUsers.mockReturnValue([remoteUser]);
+      opts.readFile.mockImplementation((path: string) =>
+        path === '/home/alice/.ssh_keys' ? keyEntry : null,
+      );
+      opts.readFileFromMachine.mockImplementation((op: { path: string }) =>
+        op.path === '/etc/passwd'
+          ? `alice:${md5('alice-pass')}:1000:1000:alice:/home/alice:/bin/bash`
+          : null,
+      );
+
+      const { result } = renderHook(() => useAuthentication(opts));
+
+      act(() => result.current.startSshPrompt('bob', TARGET_IP, 22));
+
+      expect(result.current.passwordMode).toBe(true);
+      expect(opts.pushSession).not.toHaveBeenCalled();
     });
   });
 
