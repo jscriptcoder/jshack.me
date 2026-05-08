@@ -45,6 +45,7 @@ const makeOptions = () => ({
   // Default behavior: server says credentials are invalid. Tests covering
   // the "valid auth" path override this with mockResolvedValueOnce.
   pushAuthSession: vi.fn().mockResolvedValue({ ok: false, reason: 'invalid_credentials' }),
+  authCreateFtpSession: vi.fn().mockResolvedValue({ ok: false, reason: 'invalid_credentials' }),
   enterFtpMode: vi.fn(),
   enterMysqlMode: vi.fn(),
   enterRedisMode: vi.fn(),
@@ -657,7 +658,14 @@ describe('useAuthentication', () => {
     });
   });
 
-  describe('FTP interactive authentication', () => {
+  // PR 3 of plans/cross-player-base-fs-replication.md: FTP auth moved to
+  // server-authoritative (authCreateSession with kind='ftp'). Local
+  // validation against /etc/passwd + /etc/vsftpd/virtual_users.conf is
+  // replaced by a server roundtrip. The new contract is tested in
+  // sessionRegistry/handler.test.ts (server side) and the forge smoke
+  // (scripts/testServerAuth.ts). These three describe blocks are kept as
+  // describe.skip for historical reference; clean up at PR 3 close.
+  describe.skip('FTP interactive authentication', () => {
     it('prompts for username then password, enters FTP mode on success', () => {
       const remoteUser = makeRemoteUser();
       const opts = makeOptions();
@@ -895,7 +903,7 @@ describe('useAuthentication', () => {
     });
   });
 
-  describe('FTP inline authentication', () => {
+  describe.skip('FTP inline authentication', () => {
     it('enters FTP mode with correct credentials', () => {
       const remoteUser = makeRemoteUser();
       const opts = makeOptions();
@@ -1019,7 +1027,7 @@ describe('useAuthentication', () => {
     });
   });
 
-  describe('FTP auth logging', () => {
+  describe.skip('FTP auth logging', () => {
     it('calls onFtpAuth on inline login success', () => {
       const remoteUser = makeRemoteUser();
       const onFtpAuth = vi.fn();
@@ -2054,11 +2062,10 @@ describe('useAuthentication', () => {
         });
       });
 
-      expect(opts.pushAuthSession).toHaveBeenCalledWith(
-        'ssh',
-        expect.anything(),
-        { method: 'password', password: PASSWORD },
-      );
+      expect(opts.pushAuthSession).toHaveBeenCalledWith('ssh', expect.anything(), {
+        method: 'password',
+        password: PASSWORD,
+      });
     });
   });
 });

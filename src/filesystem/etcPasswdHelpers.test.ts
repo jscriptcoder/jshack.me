@@ -166,9 +166,11 @@ describe('findEtcPasswdEntry', () => {
   });
 
   it('disambiguates multiple users in a multi-line file', () => {
-    const content = [line('root', 'rh', 0), line('bob', 'bh', 1001), line('guest', 'gh', 65534)].join(
-      '\n',
-    );
+    const content = [
+      line('root', 'rh', 0),
+      line('bob', 'bh', 1001),
+      line('guest', 'gh', 65534),
+    ].join('\n');
     expect(findEtcPasswdEntry(content, 'root')).toEqual({ passwordHash: 'rh', userType: 'root' });
     expect(findEtcPasswdEntry(content, 'bob')).toEqual({ passwordHash: 'bh', userType: 'user' });
     expect(findEtcPasswdEntry(content, 'guest')).toEqual({ passwordHash: 'gh', userType: 'guest' });

@@ -101,13 +101,19 @@ export type ListSessionsPayload = z.infer<typeof listSessionsSignedPayloadSchema
 
 // Subset of SESSION_KINDS that authCreateSession accepts. Auth-required
 // kinds — those whose session creation MUST be gated by a credential
-// check against /etc/passwd. Other kinds (exploit, snmp, nc,
-// effect_one_shot) keep using `createSession` because their tier comes
-// from a different trust source: signed envelope (exploit), pidfile
-// content (nc backdoor), or has no credential concept (snmp community
-// string is checked at the protocol layer instead). FTP/MySQL/Redis
-// migrate into this list in PRs 3 + 4.
-export const AUTH_REQUIRED_KINDS = ['ssh', 'scp', 'su'] as const;
+// check against the server-projected credential file(s) on the target.
+// Other kinds (exploit, snmp, nc, effect_one_shot) keep using
+// `createSession` because their tier comes from a different trust source:
+// signed envelope (exploit), pidfile content (nc backdoor), or has no
+// credential concept (snmp community string is checked at the protocol
+// layer instead). MySQL/Redis migrate into this list in PR 4.
+//
+// Per-kind credential file:
+//   ssh / scp / su → /etc/passwd (single-file flow).
+//   ftp            → /etc/vsftpd/virtual_users.conf overlay, falls back
+//                    to /etc/passwd; userType always derived from
+//                    /etc/passwd. Handler branches on kind.
+export const AUTH_REQUIRED_KINDS = ['ssh', 'scp', 'su', 'ftp'] as const;
 export type AuthRequiredKind = (typeof AUTH_REQUIRED_KINDS)[number];
 
 // Auth method — discriminated union on `method`. Mutual exclusion of

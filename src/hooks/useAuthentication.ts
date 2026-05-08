@@ -9,7 +9,6 @@ import type {
 import type { UserType } from '../session/types';
 import type { RemoteMachine, RemoteUser } from '../network/types';
 import { parseMysqlDatabase } from '../commands/mysql/types';
-import { parseVirtualUsersConf } from '../generation/ftpCredentials';
 import { getEtcPasswdHash } from '../filesystem/etcPasswdHelpers';
 import type { AsyncOutput } from '../components/Terminal/types';
 import type { PermissionResult } from '../filesystem/types';
@@ -64,6 +63,13 @@ type AuthenticationOptions = {
     destination: AuthPushDestination,
     auth: AuthMethod,
   ) => Promise<AuthCreateSessionResult>;
+  // PR 3 — FTP server-authoritative auth. Validates against /etc/vsftpd/
+  // virtual_users.conf (overlay) + /etc/passwd (fallback) on the server,
+  // returns the new sessionId + server-derived userType.
+  readonly authCreateFtpSession: (
+    destination: AuthPushDestination,
+    auth: AuthMethod,
+  ) => Promise<AuthCreateSessionResult>;
   readonly enterFtpMode: (session: FtpSession) => void;
   readonly enterMysqlMode: (session: MysqlSession) => void;
   readonly enterRedisMode: (session: RedisSession) => void;
@@ -94,6 +100,7 @@ export const useAuthentication = ({
   resolveTargetMachineId,
   getDefaultHomePath,
   pushAuthSession,
+  authCreateFtpSession,
   enterFtpMode,
   enterMysqlMode,
   enterRedisMode,
@@ -333,70 +340,48 @@ export const useAuthentication = ({
     [getSavedSshFingerprint, loginSshWithAuth, addLine],
   );
 
-  // Inline FTP auth: validates username + password and enters FTP mode without interactive prompts.
-  // Real vsftpd model: virtual_users.conf is an overlay — when it lists the
-  // user, that hash wins. Otherwise, system credentials apply (PAM →
-  // /etc/passwd here). No fallback to the static users[].passwordHash cache:
-  // /etc/passwd is the source of truth so password_reset rotates work and
-  // garbling /etc/passwd locks out logins (sabotage gameplay).
+  // Inline FTP auth: validates username + password and enters FTP mode
+  // without interactive prompts (used by `ftp <host> <user> <pw>` from
+  // scripts).
+  //
+  // PR 3: validation moved to the server. authCreateFtpSession reads
+  // /etc/vsftpd/virtual_users.conf (overlay) + /etc/passwd (fallback)
+  // from machine_filesystems and returns userType derived from
+  // /etc/passwd. Pre-check `users.length === 0` skip mirrors the SSH
+  // path: cross-player placeholders have empty users[], so we don't
+  // pre-reject — the server is the authority.
   const authenticateFtpInline = useCallback(
-    (targetIP: string, username: string, password: string) => {
+    async (targetIP: string, username: string, password: string): Promise<void> => {
       const resolvedIp = resolveNat(targetIP, 21).ip;
-      const users = findMachineUsers(resolvedIp);
-      const remoteUser = users.find((u) => u.username === username);
-
-      if (!remoteUser) {
-        addLine('error', '530 Login incorrect.');
-        onFtpAuth?.({ success: false, user: username, targetIP, port: 21 });
-        return;
-      }
-
-      const inputHash = md5(password);
-
-      const virtualUsersContent = readFileFromMachine({
-        machineId: resolvedIp,
-        path: '/etc/vsftpd/virtual_users.conf',
-        cwd: '/',
-        userType: 'root',
-      });
-      const virtualUserHash = virtualUsersContent
-        ? parseVirtualUsersConf(virtualUsersContent).find((u) => u.username === username)
-            ?.passwordHash
-        : undefined;
-
-      let ok: boolean;
-      if (virtualUserHash !== undefined) {
-        ok = virtualUserHash === inputHash;
-      } else {
-        const passwdContent = readFileFromMachine({
-          machineId: resolvedIp,
-          path: '/etc/passwd',
-          cwd: '/',
-          userType: 'root',
-        });
-        ok = getEtcPasswdHash(passwdContent, username) === inputHash;
-      }
-
-      if (!ok) {
-        addLine('error', '530 Login incorrect.');
-        onFtpAuth?.({ success: false, user: username, targetIP, port: 21 });
-        return;
-      }
-
-      const userType: UserType = remoteUser.userType;
+      const machineId = resolveTargetMachineId(resolvedIp);
       const remoteHomePath = getDefaultHomePath(resolvedIp, username);
+
+      const result = await authCreateFtpSession(
+        {
+          machine: machineId,
+          username,
+          currentPath: remoteHomePath,
+        },
+        { method: 'password', password },
+      );
+
+      if (!result.ok) {
+        addLine('error', '530 Login incorrect.');
+        onFtpAuth?.({ success: false, user: username, targetIP, port: 21 });
+        return;
+      }
 
       const newFtpSession: FtpSession = {
         remoteMachine: resolvedIp,
         remoteUsername: username,
-        remoteUserType: userType,
+        remoteUserType: result.userType,
         remoteCwd: remoteHomePath,
         originMachine: session.machine,
         originUsername: session.username,
         originUserType: session.userType,
         originCwd: session.currentPath,
-        // Backfilled by enterFtpMode after the server push resolves.
-        sessionId: null,
+        // Server-stamped — set immediately, no backfill.
+        sessionId: result.session_id,
       };
 
       enterFtpMode(newFtpSession);
@@ -405,8 +390,8 @@ export const useAuthentication = ({
     },
     [
       resolveNat,
-      findMachineUsers,
-      readFileFromMachine,
+      resolveTargetMachineId,
+      authCreateFtpSession,
       addLine,
       getDefaultHomePath,
       session,
@@ -649,57 +634,12 @@ export const useAuthentication = ({
         return validateMysqlPassword(targetUser, mysqlTargetIP, password);
       }
 
-      // SSH/SCP auth: /etc/passwd is the sole source of truth. No fallback
-      // to the static users[].passwordHash cache — that cache is captured
-      // at machine generation and drifts on any /etc/passwd mutation
-      // (password_reset CVE, manual edits). Reading from /etc/passwd
-      // makes both the post-reset credential AND deliberate sabotage work
-      // end-to-end: garbling /etc/passwd locks out password logins, which
-      // is the gameplay-meaningful outcome.
-      const validateAgainstEtcPasswd = (resolvedIp: string): boolean => {
-        const passwdContent = readFileFromMachine({
-          machineId: resolvedIp,
-          path: '/etc/passwd',
-          cwd: '/',
-          userType: 'root',
-        });
-        const storedHash = getEtcPasswdHash(passwdContent, targetUser);
-        return storedHash !== undefined && storedHash === md5(password);
-      };
-
-      // SSH and SCP paths no longer go through validatePassword —
-      // handlePasswordSubmit dispatches to loginSshWithAuth (PR 2 step 7)
-      // and to scpPerformTransfer with auth method (PR 2 step 8). Both
-      // route through authCreateSession (server-authoritative). Once
-      // FTP / MySQL / Redis migrate in PRs 3-4, validatePassword shrinks
-      // to the su-only path.
-
-      if (ftpTargetIP) {
-        const resolvedIp = resolveNat(ftpTargetIP, 21).ip;
-        const users = findMachineUsers(resolvedIp);
-        const remoteUser = users.find((u) => u.username === targetUser);
-        if (!remoteUser) return false;
-
-        // Real vsftpd model: virtual_users.conf is an overlay — when it
-        // lists the user, that hash wins. Otherwise authentication falls
-        // through to system credentials via /etc/passwd. No cache fallback;
-        // see validateAgainstEtcPasswd for the rationale.
-        const virtualUsersContent = readFileFromMachine({
-          machineId: resolvedIp,
-          path: '/etc/vsftpd/virtual_users.conf',
-          cwd: '/',
-          userType: 'root',
-        });
-        const virtualUserHash = virtualUsersContent
-          ? parseVirtualUsersConf(virtualUsersContent).find((u) => u.username === targetUser)
-              ?.passwordHash
-          : undefined;
-
-        if (virtualUserHash !== undefined) {
-          return virtualUserHash === md5(password);
-        }
-        return validateAgainstEtcPasswd(resolvedIp);
-      }
+      // SSH/SCP/FTP paths no longer go through validatePassword —
+      // handlePasswordSubmit dispatches to authCreateSession-backed
+      // helpers (loginSshWithAuth / scpPerformTransfer /
+      // authCreateFtpSession). After PR 4 migrates MySQL/Redis,
+      // validatePassword shrinks to the su-only path; today it still
+      // serves the local-/etc/passwd fallback used by su.
 
       const passwdContent = readFile('/etc/passwd', 'root');
       if (!passwdContent) return false;
@@ -712,16 +652,7 @@ export const useAuthentication = ({
 
       return storedHash === md5(password);
     },
-    [
-      targetUser,
-      mysqlTargetIP,
-      validateMysqlPassword,
-      ftpTargetIP,
-      readFile,
-      readFileFromMachine,
-      findMachineUsers,
-      resolveNat,
-    ],
+    [targetUser, mysqlTargetIP, validateMysqlPassword, readFile],
   );
 
   const handleFtpUsernameSubmit = useCallback(
@@ -815,6 +746,63 @@ export const useAuthentication = ({
         return scpTransferAsync;
       }
 
+      // FTP: server-authoritative auth via authCreateFtpSession (PR 3 of
+      // cross-player-base-fs-replication). Returned as AsyncOutput so the
+      // Terminal hides the prompt during the server round-trip — same
+      // reasoning as the SSH path above.
+      if (ftpTargetIP && targetUser) {
+        const user = targetUser;
+        const targetIp = ftpTargetIP;
+        const resolvedIp = resolveNat(targetIp, 21).ip;
+        const machineId = resolveTargetMachineId(resolvedIp);
+        const remoteHomePath = getDefaultHomePath(resolvedIp, user);
+        // Clear prompt state synchronously.
+        setFtpTargetIP(null);
+        setTargetUser(null);
+        setPasswordMode(false);
+        clearInput();
+        return {
+          __type: 'async',
+          start: (onLine, onComplete) => {
+            onLine(`Authenticating as ${user}...`);
+            void authCreateFtpSession(
+              {
+                machine: machineId,
+                username: user,
+                currentPath: remoteHomePath,
+              },
+              { method: 'password', password: input },
+            )
+              .then((result) => {
+                if (result.ok) {
+                  enterFtpMode({
+                    remoteMachine: resolvedIp,
+                    remoteUsername: user,
+                    remoteUserType: result.userType,
+                    remoteCwd: remoteHomePath,
+                    originMachine: session.machine,
+                    originUsername: session.username,
+                    originUserType: session.userType,
+                    originCwd: session.currentPath,
+                    sessionId: result.session_id,
+                  });
+                  addLine('result', '230 Login successful.');
+                  onFtpAuth?.({ success: true, user, targetIP: targetIp, port: 21 });
+                } else {
+                  addLine('error', '530 Login incorrect.');
+                  onFtpAuth?.({ success: false, user, targetIP: targetIp, port: 21 });
+                }
+              })
+              .catch((error) => {
+                console.error('[useAuthentication] ftp authCreateFtpSession threw:', error);
+                addLine('error', '530 Login incorrect.');
+                onFtpAuth?.({ success: false, user, targetIP: targetIp, port: 21 });
+              })
+              .finally(() => onComplete());
+          },
+        };
+      }
+
       // su: server-authoritative auth via pushAuthSession (PR 2 step 9).
       // No prompt-state-specific machine_id (mysql/scp/ssh/ftp targets
       // would have been handled above) — su targets the CURRENT machine,
@@ -822,13 +810,7 @@ export const useAuthentication = ({
       // Returned as AsyncOutput so the Terminal hides the prompt during
       // the server round-trip; otherwise the prompt momentarily reverts
       // to the prior user before the new session commits.
-      if (
-        targetUser &&
-        !mysqlTargetIP &&
-        !scpTargetIP &&
-        !ftpTargetIP &&
-        !ftpUsernameMode
-      ) {
+      if (targetUser && !mysqlTargetIP && !scpTargetIP && !ftpTargetIP && !ftpUsernameMode) {
         const user = targetUser;
         const homePath = getDefaultHomePath(session.machine, user);
         // Clear prompt state synchronously.
@@ -879,37 +861,9 @@ export const useAuthentication = ({
             targetIP: mysqlTargetIP,
             port: 3306,
           });
-        } else if (ftpTargetIP) {
-          const resolvedFtpIp = resolveNat(ftpTargetIP, 21).ip;
-          const users = findMachineUsers(resolvedFtpIp);
-          const remoteUser = users.find((u) => u.username === targetUser);
-          const userType: UserType = remoteUser?.userType ?? 'user';
-          const remoteHomePath = getDefaultHomePath(resolvedFtpIp, targetUser);
-
-          const newFtpSession: FtpSession = {
-            remoteMachine: resolvedFtpIp,
-            remoteUsername: targetUser,
-            remoteUserType: userType,
-            remoteCwd: remoteHomePath,
-            originMachine: session.machine,
-            originUsername: session.username,
-            originUserType: session.userType,
-            originCwd: session.currentPath,
-            // Backfilled by enterFtpMode after the server push resolves.
-            sessionId: null,
-          };
-
-          enterFtpMode(newFtpSession);
-          addLine('result', '230 Login successful.');
-          onFtpAuth?.({
-            success: true,
-            user: targetUser,
-            targetIP: ftpTargetIP,
-            port: 21,
-          });
         }
-        // su path is handled above (server-authoritative via pushAuthSession,
-        // PR 2 step 9). It bypasses validatePassword entirely.
+        // ftp / ssh / scp / su paths are handled above
+        // (server-authoritative via authCreateSession-backed helpers).
       } else {
         if (mysqlTargetIP) {
           addLine(
@@ -934,16 +888,6 @@ export const useAuthentication = ({
               port: scpTargetPort ?? 22,
               method: 'password',
             });
-        } else if (ftpTargetIP) {
-          addLine('error', '530 Login incorrect.');
-          if (targetUser) {
-            onFtpAuth?.({
-              success: false,
-              user: targetUser,
-              targetIP: ftpTargetIP,
-              port: 21,
-            });
-          }
         } else if (sshTargetIP) {
           addLine('error', `Permission denied, please try again.`);
           if (targetUser)
@@ -986,8 +930,9 @@ export const useAuthentication = ({
       connectMysql,
       loginSshWithAuth,
       pushAuthSession,
+      authCreateFtpSession,
+      resolveTargetMachineId,
       session,
-      findMachineUsers,
       enterFtpMode,
       addLine,
       getDefaultHomePath,

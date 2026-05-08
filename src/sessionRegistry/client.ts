@@ -111,7 +111,9 @@ export const authCreateSession = async (
       throw new Error('authCreateSession returned malformed response (missing session_id)');
     }
     if (!isUserType(userType)) {
-      throw new Error('authCreateSession returned malformed response (missing or invalid userType)');
+      throw new Error(
+        'authCreateSession returned malformed response (missing or invalid userType)',
+      );
     }
     return { ok: true, session_id: sessionId, userType };
   }

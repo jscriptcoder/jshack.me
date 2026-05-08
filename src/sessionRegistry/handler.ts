@@ -21,10 +21,12 @@ import type {
   FindEtcPasswdContentParams,
   FindEtcPasswdContentResult,
 } from './supabaseFindEtcPasswdContent.js';
-import {
-  deriveUserTypeFromEtcPasswd,
-  findEtcPasswdEntry,
-} from '../filesystem/etcPasswdHelpers.js';
+import type {
+  FindVirtualUsersConfContentParams,
+  FindVirtualUsersConfContentResult,
+} from './supabaseFindVirtualUsersConfContent.js';
+import { deriveUserTypeFromEtcPasswd, findEtcPasswdEntry } from '../filesystem/etcPasswdHelpers.js';
+import { findVirtualUserHash } from '../filesystem/virtualUsersConfHelpers.js';
 import { md5 } from '../utils/md5.js';
 
 export type HandlerResponse = {
@@ -40,6 +42,13 @@ export type HandlerDeps = {
   readonly findEtcPasswdContent: (
     params: FindEtcPasswdContentParams,
   ) => Promise<FindEtcPasswdContentResult>;
+  // PR 3 of plans/cross-player-base-fs-replication.md — kind:'ftp' branch
+  // of authCreateSession reads /etc/vsftpd/virtual_users.conf as an
+  // overlay on top of /etc/passwd. PR 4 (MySQL/Redis/SNMP) may
+  // generalize this to a single per-path adapter.
+  readonly findVirtualUsersConfContent: (
+    params: FindVirtualUsersConfContentParams,
+  ) => Promise<FindVirtualUsersConfContentResult>;
   readonly rateLimiter: RateLimiter;
   readonly nonceStore: NonceStore;
   readonly now?: () => number;
@@ -176,10 +185,16 @@ const handleCreateSession = async (
   return { status: 200, body: { session_id: result.session_id } };
 };
 
-// Server-authoritative auth + session creation for ssh/scp/su.
+// Server-authoritative auth + session creation for ssh/scp/su/ftp.
 // Reads the target's /etc/passwd from machine_filesystems, validates
 // the auth method (password vs savedKey), derives userType from the
 // /etc/passwd entry, and atomically inserts the session row.
+//
+// FTP (PR 3) extends the flow with /etc/vsftpd/virtual_users.conf as
+// an overlay on /etc/passwd: when the username appears in
+// virtual_users.conf, that hash takes precedence for password matching.
+// userType always derives from /etc/passwd. FTP rejects savedKey
+// (no `.ssh_keys` for ftp).
 //
 // All credential failure modes — wrong password, missing user, missing
 // /etc/passwd, sabotaged file, fingerprint mismatch — collapse to one
@@ -187,7 +202,7 @@ const handleCreateSession = async (
 // would leak machine state and username existence to forge-envelope
 // probers (hydra-style brute force, account enumeration).
 //
-// PR 2 of plans/cross-player-base-fs-replication.md.
+// PR 2 + PR 3 of plans/cross-player-base-fs-replication.md.
 const handleAuthCreateSession = async (
   publicKey: string,
   payload: Extract<SessionsPayload, { action: 'authCreateSession' }>,
@@ -202,17 +217,43 @@ const handleAuthCreateSession = async (
 
   // Missing /etc/passwd → cannot validate. Return invalid_credentials
   // (NOT a distinct error) so callers can't distinguish "machine has no
-  // FS" from "wrong password" via the response.
+  // FS" from "wrong password" via the response. userType is also
+  // underivable, so even FTP-with-virtual-overlay fails here.
   const content = fsLookup.found ? fsLookup.content : null;
   const entry = findEtcPasswdEntry(content, username);
   if (entry === undefined) {
     return { status: 401, body: { error: 'invalid_credentials' } };
   }
 
+  // Determine the expected hash for password matching. Default is the
+  // /etc/passwd hash; FTP overrides with virtual_users.conf when the
+  // overlay lists the user.
+  let expectedHash = entry.passwordHash;
+
+  if (kind === 'ftp') {
+    // FTP does not support `.ssh_keys` saved-key auth — reject early.
+    // Same response code as wrong-password (no info leak).
+    if (auth.method !== 'password') {
+      return { status: 401, body: { error: 'invalid_credentials' } };
+    }
+    const vuLookup = await deps.findVirtualUsersConfContent({ machine_id });
+    if (!vuLookup.ok) {
+      return { status: 500, body: { error: 'fs_lookup_failed' } };
+    }
+    const vuContent = vuLookup.found ? vuLookup.content : null;
+    const vuHash = findVirtualUserHash(vuContent, username);
+    if (vuHash !== undefined) {
+      expectedHash = vuHash;
+    }
+    // If virtual_users.conf has no entry (or file is missing/empty),
+    // fall through to /etc/passwd hash — mirrors authenticateFtpInline
+    // precedence in src/hooks/useAuthentication.ts.
+  }
+
   const authValid =
     auth.method === 'password'
-      ? md5(auth.password) === entry.passwordHash
-      : auth.fingerprint === md5(`${username}:${auth.targetIp}:${entry.passwordHash}`);
+      ? md5(auth.password) === expectedHash
+      : auth.fingerprint === md5(`${username}:${auth.targetIp}:${expectedHash}`);
 
   if (!authValid) {
     return { status: 401, body: { error: 'invalid_credentials' } };

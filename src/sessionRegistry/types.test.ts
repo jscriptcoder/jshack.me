@@ -134,14 +134,14 @@ describe('authCreateSession schema arm', () => {
     ).not.toThrow();
   });
 
-  it('rejects kind=ftp (FTP migrates in PR 3)', () => {
+  it('accepts kind=ftp (added in PR 3)', () => {
     expect(() =>
       sessionsSignedPayloadSchema.parse({
         ...baseAuthCreateSession,
         kind: 'ftp',
         auth: passwordAuth,
       }),
-    ).toThrow();
+    ).not.toThrow();
   });
 
   it('rejects kind=exploit (uses createSession with signed-envelope tier trust)', () => {

@@ -1,10 +1,11 @@
-// End-to-end forge smoke for authCreateSession (PR 2 of
+// End-to-end forge smoke for authCreateSession (PR 2 + PR 3 of
 // plans/cross-player-base-fs-replication.md) against vercel:dev.
 //
 // Setup: registers a fresh workstation so the server has a known
 // /etc/passwd content with predictable hashes. Then forges signed
 // envelopes covering every authCreateSession outcome:
 //
+//   PR 2 (ssh / scp / su)
 //   1.  authCreateSession password ok → 201 with session_id + userType
 //   2.  wrong password → 401 invalid_credentials, no session row
 //   3.  unknown username → 401 invalid_credentials (no enumeration leak)
@@ -13,18 +14,26 @@
 //   6.  savedKey wrong targetIp → 401 invalid_credentials
 //   7.  derived userType matches /etc/passwd (server-side, not claimed)
 //
-// Plus the bypass-closure check from PR 2 step 5:
-//
-//   8.  createSession kind=ssh → 403 use_authcreatesession (auth-required
-//       kinds must use authCreateSession)
+//   PR 2 step 5 — bypass closure
+//   8.  createSession kind=ssh → 403 use_authcreatesession
 //   9.  createSession kind=exploit → 200 (non-auth-required kinds still
 //       work via createSession)
+//
+//   PR 3 (ftp)
+//   10. authCreateSession kind=ftp + virtual_users.conf overlay match → 201
+//   11. wrong FTP password → 401 invalid_credentials
+//   12. user not in virtual_users.conf falls back to /etc/passwd → 201
+//   13. kind=ftp + savedKey method → 401 invalid_credentials (no .ssh_keys
+//       for ftp)
+//   14. createSession kind=ftp → 403 use_authcreatesession (bypass closure
+//       extended to ftp)
 //
 // Usage (vercel:dev must be running on http://localhost:3000):
 //   npx dotenv -e .env.local -e .env.development.local -- npx tsx scripts/testServerAuth.ts
 //
 // Self-cleaning: deletes the test workstations + sessions + machine_fs
-// rows so the script can be re-run idempotently.
+// rows (including the seeded virtual_users.conf overlay) so the script
+// can be re-run idempotently.
 
 import { createClient } from '@supabase/supabase-js';
 import { generateIdentity } from '../src/identity/identity';
@@ -64,7 +73,10 @@ await sr.from('sessions').delete().eq('player_key', identity.publicKeyHex);
 await sr.from('machine_filesystems').delete().eq('machine_id', machineId);
 await sr.from('workstations').delete().eq('player_key', identity.publicKeyHex);
 
-const post = async (path: string, envelope: unknown): Promise<{ status: number; body: unknown }> => {
+const post = async (
+  path: string,
+  envelope: unknown,
+): Promise<{ status: number; body: unknown }> => {
   const response = await fetch(`${apiUrl}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -232,6 +244,110 @@ check(
   '9. createSession kind=exploit returns 200 (non-auth-required kinds still work)',
   r9.status === 200 && typeof (r9.body as { session_id?: string })?.session_id === 'string',
   `status=${r9.status} body=${JSON.stringify(r9.body)}`,
+);
+
+// ---- FTP server-authoritative auth (PR 3) ----------------------------
+//
+// Set up a /etc/vsftpd/virtual_users.conf overlay row for the registered
+// workstation. virtual_users.conf format is `username:md5hash` per line
+// — the overlay takes precedence over /etc/passwd, but only for users
+// listed in it. Users NOT in virtual_users.conf fall through to
+// /etc/passwd. userType always derives from /etc/passwd.
+
+const FTP_OVERLAY_PASSWORD = 'alice-ftp-overlay-pw';
+const ftpOverlayContent = `${username}:${md5(FTP_OVERLAY_PASSWORD)}`;
+
+await sr.from('machine_filesystems').upsert(
+  {
+    machine_id: machineId,
+    path: '/etc/vsftpd/virtual_users.conf',
+    content: ftpOverlayContent,
+    permissions: { read: ['root'], write: ['root'], execute: [] },
+    owner: 'root',
+  },
+  { onConflict: 'machine_id,path' },
+);
+
+// ---- 10. FTP overlay match: alice's FTP password validates -----------
+
+const env10 = signRequest(identity, 'authCreateSession', {
+  machine_id: machineId,
+  kind: 'ftp',
+  username,
+  auth: { method: 'password', password: FTP_OVERLAY_PASSWORD },
+});
+const r10 = await post('/api/sessions', env10);
+const r10Body = r10.body as { session_id?: string; userType?: string };
+check(
+  '10. FTP overlay password match returns 201 with userType from /etc/passwd',
+  r10.status === 201 && typeof r10Body?.session_id === 'string' && r10Body?.userType === 'user',
+  `status=${r10.status} body=${JSON.stringify(r10.body)}`,
+);
+
+// ---- 11. FTP wrong password (overlay) -------------------------------
+
+const env11 = signRequest(identity, 'authCreateSession', {
+  machine_id: machineId,
+  kind: 'ftp',
+  username,
+  auth: { method: 'password', password: 'wrong-ftp-password' },
+});
+const r11 = await post('/api/sessions', env11);
+check(
+  '11. FTP wrong password returns 401 invalid_credentials',
+  r11.status === 401 && (r11.body as { error?: string })?.error === 'invalid_credentials',
+  `status=${r11.status} body=${JSON.stringify(r11.body)}`,
+);
+
+// ---- 12. FTP fallback: root not in overlay, validates against /etc/passwd
+
+const env12 = signRequest(identity, 'authCreateSession', {
+  machine_id: machineId,
+  kind: 'ftp',
+  username: 'root',
+  auth: { method: 'password', password: rootPassword },
+});
+const r12 = await post('/api/sessions', env12);
+const r12Body = r12.body as { session_id?: string; userType?: string };
+check(
+  '12. FTP fallback to /etc/passwd when user absent from virtual_users.conf',
+  r12.status === 201 && typeof r12Body?.session_id === 'string' && r12Body?.userType === 'root',
+  `status=${r12.status} body=${JSON.stringify(r12.body)}`,
+);
+
+// ---- 13. FTP savedKey rejected --------------------------------------
+
+const env13 = signRequest(identity, 'authCreateSession', {
+  machine_id: machineId,
+  kind: 'ftp',
+  username,
+  // Even a "valid" fingerprint (formula matches SSH derivation) MUST be
+  // rejected for FTP — there's no .ssh_keys for ftp.
+  auth: {
+    method: 'savedKey',
+    fingerprint: md5(`${username}:${targetIp}:${md5(FTP_OVERLAY_PASSWORD)}`),
+    targetIp,
+  },
+});
+const r13 = await post('/api/sessions', env13);
+check(
+  '13. FTP savedKey method returns 401 invalid_credentials (no .ssh_keys for ftp)',
+  r13.status === 401 && (r13.body as { error?: string })?.error === 'invalid_credentials',
+  `status=${r13.status} body=${JSON.stringify(r13.body)}`,
+);
+
+// ---- 14. createSession with kind=ftp is rejected (PR 3 closes bypass)
+
+const env14 = signRequest(identity, 'createSession', {
+  machine_id: machineId,
+  credentials: { username, userType: 'user' },
+  kind: 'ftp',
+});
+const r14 = await post('/api/sessions', env14);
+check(
+  '14. createSession kind=ftp returns 403 use_authcreatesession',
+  r14.status === 403 && (r14.body as { error?: string })?.error === 'use_authcreatesession',
+  `status=${r14.status} body=${JSON.stringify(r14.body)}`,
 );
 
 // ---- Cleanup ---------------------------------------------------------

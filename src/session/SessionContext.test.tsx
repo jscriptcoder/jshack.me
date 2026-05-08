@@ -692,7 +692,14 @@ describe('SessionProvider — popAllSessions (server-aware)', () => {
 // FTP enter/exit — protocol session push (kind='ftp')
 // -----------------------------------------------------------------------
 
-describe('SessionProvider — enterFtpMode / exitFtpMode (server-aware)', () => {
+// PR 3 of plans/cross-player-base-fs-replication.md: enterFtpMode no
+// longer fires a server-side createSession. Server-authoritative
+// auth+create is now done by authCreateFtpSession (covered by the new
+// describe block below + sessionRegistry/handler.test.ts). enterFtpMode
+// just sets local state. The existing tests in this block exercise the
+// old fire-and-forget push and are obsolete; kept as describe.skip for
+// historical reference, clean up at PR 3 close.
+describe.skip('SessionProvider — enterFtpMode / exitFtpMode (server-aware)', () => {
   beforeEach(() => {
     vi.mocked(mockedCreateSession).mockReset();
     vi.mocked(mockedEndSession).mockReset();

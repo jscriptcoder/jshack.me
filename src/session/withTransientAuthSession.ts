@@ -1,8 +1,5 @@
 import type { Identity } from '../identity/identity.js';
-import {
-  authCreateSession,
-  endSession as endServerSession,
-} from '../sessionRegistry/client.js';
+import { authCreateSession, endSession as endServerSession } from '../sessionRegistry/client.js';
 import type { AuthMethod, AuthRequiredKind } from '../sessionRegistry/types.js';
 
 // Auth-required equivalent of withTransientSession (PR 2 step 8 of
