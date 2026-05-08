@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { regenWorkstationRows } from './populateWorkstationBaseFs';
-import { deriveHostnameSuffix } from '../homeNetworks/homeNetworkHelpers';
+import { computeWorkstationId } from '../homeNetworks/homeNetworkHelpers';
 import { md5 } from '../utils/md5';
 import type { MachineFsRow } from './flattenFileNode';
 
@@ -18,7 +18,7 @@ const baseInput = {
 describe('regenWorkstationRows', () => {
   it('keys every row by ${workstationName}-${first-8-hex(player_key)}', () => {
     const rows = regenWorkstationRows(baseInput);
-    const expectedMachineId = `skylab-${deriveHostnameSuffix('pubkey-A')}`;
+    const expectedMachineId = computeWorkstationId('skylab', 'pubkey-A');
     expect(rows.length).toBeGreaterThan(0);
     for (const row of rows) {
       expect(row.machine_id).toBe(expectedMachineId);

@@ -12,14 +12,16 @@ import {
 import type { SessionSummary } from '../sessionRegistry/types';
 
 // Mock the sessionRegistry client so we don't hit the network. Tests control
-// what createSession returns via the mock.
+// what createSession / authCreateSession return via the mock.
 vi.mock('../sessionRegistry/client', () => ({
+  authCreateSession: vi.fn(),
   createSession: vi.fn(),
   endSession: vi.fn(),
   listSessions: vi.fn(),
 }));
 
 import {
+  authCreateSession as mockedAuthCreateSession,
   createSession as mockedCreateSession,
   endSession as mockedEndSession,
   listSessions as mockedListSessions,
@@ -302,6 +304,190 @@ describe('SessionProvider — pushSession (server-aware)', () => {
     expect(lastSnapshot.username).toBe('alice');
     expect(lastSnapshot.machine).toBe('10.0.0.1');
     expect(lastSnapshot.reason).toBe('su');
+  });
+});
+
+describe('SessionProvider — pushAuthSession (server-authoritative auth)', () => {
+  beforeEach(() => {
+    vi.mocked(mockedAuthCreateSession).mockReset();
+    vi.mocked(mockedListSessions).mockReset();
+    vi.mocked(mockedListSessions).mockResolvedValue([]);
+    sessionStorage.clear();
+  });
+
+  it('returns ok:true with the result on a successful auth', async () => {
+    vi.mocked(mockedAuthCreateSession).mockResolvedValue({
+      ok: true,
+      session_id: 'auth-id',
+      userType: 'user',
+    });
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    let pushed: unknown;
+    await act(async () => {
+      pushed = await result.current.pushAuthSession(
+        'ssh',
+        {
+          machine: '10.0.0.1',
+          username: 'bob',
+          currentPath: '/home/bob',
+        },
+        { method: 'password', password: 'secret' },
+      );
+    });
+
+    expect(pushed).toEqual({
+      ok: true,
+      session_id: 'auth-id',
+      userType: 'user',
+    });
+  });
+
+  it('updates local Session with server-derived userType (NOT a client claim)', async () => {
+    vi.mocked(mockedAuthCreateSession).mockResolvedValue({
+      ok: true,
+      session_id: 'auth-id',
+      userType: 'root',
+    });
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      await result.current.pushAuthSession(
+        'ssh',
+        { machine: '10.0.0.1', username: 'bob', currentPath: '/root' },
+        { method: 'password', password: 'rootpw' },
+      );
+    });
+
+    expect(result.current.session.username).toBe('bob');
+    expect(result.current.session.userType).toBe('root');
+    expect(result.current.session.machine).toBe('10.0.0.1');
+    expect(result.current.session.sessionId).toBe('auth-id');
+  });
+
+  it('pushes the prior Session onto the stack on success', async () => {
+    vi.mocked(mockedAuthCreateSession).mockResolvedValue({
+      ok: true,
+      session_id: 'auth-id',
+      userType: 'user',
+    });
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      await result.current.pushAuthSession(
+        'ssh',
+        { machine: '10.0.0.1', username: 'bob', currentPath: '/home/bob' },
+        { method: 'password', password: 'secret' },
+      );
+    });
+
+    expect(result.current.sessionStack).toHaveLength(1);
+    const snapshot = result.current.sessionStack[0]!;
+    expect(snapshot.username).toBe('alice');
+    expect(snapshot.reason).toBe('ssh');
+  });
+
+  it('does NOT update local state on ok:false (invalid_credentials)', async () => {
+    vi.mocked(mockedAuthCreateSession).mockResolvedValue({
+      ok: false,
+      reason: 'invalid_credentials',
+    });
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    let pushed: unknown;
+    await act(async () => {
+      pushed = await result.current.pushAuthSession(
+        'ssh',
+        { machine: '10.0.0.1', username: 'bob', currentPath: '/home/bob' },
+        { method: 'password', password: 'wrong' },
+      );
+    });
+
+    expect(pushed).toEqual({ ok: false, reason: 'invalid_credentials' });
+    expect(result.current.session.username).toBe('alice');
+    expect(result.current.session.machine).toBe(TEST_HOSTNAME);
+    expect(result.current.session.sessionId).toBeNull();
+    expect(result.current.sessionStack).toHaveLength(0);
+  });
+
+  it('does NOT update local state on ok:false (rate_limited)', async () => {
+    vi.mocked(mockedAuthCreateSession).mockResolvedValue({
+      ok: false,
+      reason: 'rate_limited',
+    });
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      await result.current.pushAuthSession(
+        'ssh',
+        { machine: '10.0.0.1', username: 'bob', currentPath: '/home/bob' },
+        { method: 'password', password: 'secret' },
+      );
+    });
+
+    expect(result.current.session.machine).toBe(TEST_HOSTNAME);
+    expect(result.current.sessionStack).toHaveLength(0);
+  });
+
+  it('passes the auth method through to authCreateSession', async () => {
+    vi.mocked(mockedAuthCreateSession).mockResolvedValue({
+      ok: true,
+      session_id: 'auth-id',
+      userType: 'user',
+    });
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      await result.current.pushAuthSession(
+        'ssh',
+        { machine: '10.0.0.1', username: 'bob', currentPath: '/home/bob' },
+        { method: 'savedKey', fingerprint: 'abc123', targetIp: '10.0.0.1' },
+      );
+    });
+
+    expect(mockedAuthCreateSession).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        machine_id: '10.0.0.1',
+        kind: 'ssh',
+        username: 'bob',
+        auth: { method: 'savedKey', fingerprint: 'abc123', targetIp: '10.0.0.1' },
+      }),
+    );
+  });
+
+  it('threads parent_session_id from the current Session sessionId', async () => {
+    // First push (creates a session) so the next push has a parent.
+    vi.mocked(mockedAuthCreateSession).mockResolvedValueOnce({
+      ok: true,
+      session_id: 'parent-id',
+      userType: 'user',
+    });
+    vi.mocked(mockedAuthCreateSession).mockResolvedValueOnce({
+      ok: true,
+      session_id: 'child-id',
+      userType: 'root',
+    });
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('alice') });
+
+    await act(async () => {
+      await result.current.pushAuthSession(
+        'ssh',
+        { machine: '10.0.0.1', username: 'bob', currentPath: '/home/bob' },
+        { method: 'password', password: 'pw' },
+      );
+    });
+    await act(async () => {
+      await result.current.pushAuthSession(
+        'su',
+        { machine: '10.0.0.1', username: 'root', currentPath: '/root' },
+        { method: 'password', password: 'rootpw' },
+      );
+    });
+
+    const secondCallArgs = vi.mocked(mockedAuthCreateSession).mock.calls[1]![1];
+    expect(secondCallArgs.parent_session_id).toBe('parent-id');
+    expect(secondCallArgs.kind).toBe('su');
   });
 });
 

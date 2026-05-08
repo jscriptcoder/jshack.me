@@ -1,5 +1,7 @@
 import {
+  AUTH_REQUIRED_KINDS,
   sessionsSignedPayloadSchema,
+  type AuthRequiredKind,
   type EndSessionParams,
   type EndSessionResult,
   type InsertSessionResult,
@@ -19,7 +21,11 @@ import type {
   FindEtcPasswdContentParams,
   FindEtcPasswdContentResult,
 } from './supabaseFindEtcPasswdContent.js';
-import { deriveUserTypeFromEtcPasswd } from '../filesystem/etcPasswdHelpers.js';
+import {
+  deriveUserTypeFromEtcPasswd,
+  findEtcPasswdEntry,
+} from '../filesystem/etcPasswdHelpers.js';
+import { md5 } from '../utils/md5.js';
 
 export type HandlerResponse = {
   readonly status: number;
@@ -104,8 +110,13 @@ const dispatchAction = async (
       return handleEndSession(publicKey, payload, deps);
     case 'listSessions':
       return handleListSessions(publicKey, deps);
+    case 'authCreateSession':
+      return handleAuthCreateSession(publicKey, payload, deps);
   }
 };
+
+const isAuthRequiredKind = (kind: string): kind is AuthRequiredKind =>
+  (AUTH_REQUIRED_KINDS as readonly string[]).includes(kind);
 
 const handleCreateSession = async (
   publicKey: string,
@@ -113,6 +124,16 @@ const handleCreateSession = async (
   deps: HandlerDeps,
 ): Promise<HandlerResponse> => {
   const { machine_id, credentials, parent_session_id, source_ip, kind } = payload;
+
+  // PR 2 step 5: auth-required kinds (ssh/scp/su) cannot mint sessions
+  // through createSession — those must prove credentials via
+  // authCreateSession. Closing this hole prevents a forge caller from
+  // claiming userType:'root' for username='root' (matches /etc/passwd,
+  // bypasses the userType-validation branch below) without ever
+  // proving the password.
+  if (isAuthRequiredKind(kind)) {
+    return { status: 403, body: { error: 'use_authcreatesession' } };
+  }
 
   // Server-side userType validation. Read the live /etc/passwd content
   // for the target machine and derive the canonical userType for the
@@ -143,11 +164,7 @@ const handleCreateSession = async (
     player_key: publicKey,
     machine_id,
     credentials,
-    // Default to 'ssh' for back-compat with existing pushSession
-    // callers that predate the kind field. Protocol/transient sessions
-    // (FTP/mysql/redis/scp/snmp/effect_one_shot) MUST set kind
-    // explicitly so rehydration excludes them from the shell chain.
-    kind: kind ?? 'ssh',
+    kind,
     ...(parent_session_id !== undefined && { parent_session_id }),
     ...(source_ip !== undefined && { source_ip }),
   };
@@ -157,6 +174,69 @@ const handleCreateSession = async (
     return { status: 500, body: { error: 'insert_failed' } };
   }
   return { status: 200, body: { session_id: result.session_id } };
+};
+
+// Server-authoritative auth + session creation for ssh/scp/su.
+// Reads the target's /etc/passwd from machine_filesystems, validates
+// the auth method (password vs savedKey), derives userType from the
+// /etc/passwd entry, and atomically inserts the session row.
+//
+// All credential failure modes — wrong password, missing user, missing
+// /etc/passwd, sabotaged file, fingerprint mismatch — collapse to one
+// `401 invalid_credentials` response. Distinguishing them on the wire
+// would leak machine state and username existence to forge-envelope
+// probers (hydra-style brute force, account enumeration).
+//
+// PR 2 of plans/cross-player-base-fs-replication.md.
+const handleAuthCreateSession = async (
+  publicKey: string,
+  payload: Extract<SessionsPayload, { action: 'authCreateSession' }>,
+  deps: HandlerDeps,
+): Promise<HandlerResponse> => {
+  const { machine_id, kind, username, auth, parent_session_id, source_ip } = payload;
+
+  const fsLookup = await deps.findEtcPasswdContent({ machine_id });
+  if (!fsLookup.ok) {
+    return { status: 500, body: { error: 'fs_lookup_failed' } };
+  }
+
+  // Missing /etc/passwd → cannot validate. Return invalid_credentials
+  // (NOT a distinct error) so callers can't distinguish "machine has no
+  // FS" from "wrong password" via the response.
+  const content = fsLookup.found ? fsLookup.content : null;
+  const entry = findEtcPasswdEntry(content, username);
+  if (entry === undefined) {
+    return { status: 401, body: { error: 'invalid_credentials' } };
+  }
+
+  const authValid =
+    auth.method === 'password'
+      ? md5(auth.password) === entry.passwordHash
+      : auth.fingerprint === md5(`${username}:${auth.targetIp}:${entry.passwordHash}`);
+
+  if (!authValid) {
+    return { status: 401, body: { error: 'invalid_credentials' } };
+  }
+
+  const row: SessionRow = {
+    player_key: publicKey,
+    machine_id,
+    // userType comes from /etc/passwd (server-derived), NOT from any
+    // client claim — clients can't promote themselves to root by lying.
+    credentials: { username, userType: entry.userType },
+    kind,
+    ...(parent_session_id !== undefined && { parent_session_id }),
+    ...(source_ip !== undefined && { source_ip }),
+  };
+
+  const result = await deps.insertSession(row);
+  if (!result.ok) {
+    return { status: 500, body: { error: 'insert_failed' } };
+  }
+  return {
+    status: 201,
+    body: { session_id: result.session_id, userType: entry.userType },
+  };
 };
 
 const handleEndSession = async (

@@ -44,3 +44,31 @@ export const deriveUserTypeFromEtcPasswd = (
   if (username === 'guest') return 'guest';
   return 'user';
 };
+
+// Combined lookup — returns both the password hash and the derived
+// userType for a single username, or undefined when either is
+// unavailable. authCreateSession (PR 2 of plans/cross-player-base-fs-
+// replication.md) calls this exactly once per auth attempt: it needs
+// both the hash (to compare md5(submittedPassword) against) and the
+// userType (to stamp on the new session row, server-derived).
+//
+// Returning undefined collapses three failure modes — null content,
+// missing user, malformed entry — into one "no usable credential"
+// outcome the handler maps uniformly to 401 invalid_credentials. This
+// is intentional: distinguishing "user not found" from "user found but
+// hash garbled" would leak username-existence to the wire.
+export type EtcPasswdEntry = {
+  readonly passwordHash: string;
+  readonly userType: UserType;
+};
+
+export const findEtcPasswdEntry = (
+  content: string | null,
+  username: string,
+): EtcPasswdEntry | undefined => {
+  const passwordHash = getEtcPasswdHash(content, username);
+  if (passwordHash === undefined) return undefined;
+  const userType = deriveUserTypeFromEtcPasswd(content, username);
+  if (userType === undefined) return undefined;
+  return { passwordHash, userType };
+};

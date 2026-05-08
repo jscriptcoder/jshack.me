@@ -1,4 +1,5 @@
 import type { ShellContext } from '../../shell/types';
+import type { AuthMethod } from '../../sessionRegistry/types';
 
 export type AuthorLink = {
   readonly label: string;
@@ -101,7 +102,11 @@ export type ScpPromptData = {
   readonly targetUser: string;
   readonly targetIP: string;
   readonly targetPort: number;
-  readonly performTransfer: () => AsyncOutput;
+  // Auth method is filled in by the SCP prompt handler (saved-key
+  // fingerprint if the source machine has one, else the password the
+  // user typed) and forwarded to the server-authoritative
+  // authCreateSession via withTransientAuthSession.
+  readonly performTransfer: (auth: AuthMethod) => AsyncOutput;
   readonly password?: string;
 };
 

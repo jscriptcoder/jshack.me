@@ -11,6 +11,8 @@ import { useMysqlCommands } from '../../hooks/useMysqlCommands';
 import { useRedisCommands } from '../../hooks/useRedisCommands';
 import { useSession } from '../../session/SessionContext';
 import type { NcSession } from '../../session/SessionContext';
+import { useHomeNetworks } from '../../homeNetworks/HomeNetworksContext';
+import { targetMachineIdFor } from '../../homeNetworks/homeNetworkHelpers';
 import { useFileSystem } from '../../filesystem/FileSystemContext';
 import { appendToMachineLog } from '../../logging/appendToMachineLog';
 import { formatSuSuccess, formatSuFailed } from '../../logging/formatters';
@@ -91,6 +93,7 @@ export const Terminal = () => {
     setMachine,
     setCurrentPath,
     pushSession,
+    pushAuthSession,
     popSession,
     canReturn,
     session,
@@ -112,6 +115,24 @@ export const Terminal = () => {
     isMachineBricked,
     hostname: ownWorkstationId,
   } = useSession();
+  const { activeNetwork, lanOccupants } = useHomeNetworks();
+
+  // Maps a LAN IP to the canonical machine_id (workstation_id for
+  // occupants, LAN IP for NPC/world/mission machines). Used by every
+  // cross-player code path that constructs a machine_id from an IP the
+  // user typed — auth envelopes (PR 2) and write-side patches alike.
+  // Mirrors useNetworkCommands.resolveTargetMachineId.
+  const resolveTargetMachineId = useCallback(
+    (targetIp: string): string =>
+      targetMachineIdFor(
+        targetIp,
+        lanOccupants,
+        activeNetwork?.layers[0]?.subnet ?? null,
+        activeNetwork?.localhostIp ?? null,
+        ownWorkstationId,
+      ),
+    [activeNetwork, lanOccupants, ownWorkstationId],
+  );
   const { commands, commandNames } = useCommands();
   const ftpCommands = useFtpCommands();
   const ncCommands = useNcCommands();
@@ -229,7 +250,21 @@ export const Terminal = () => {
     setLines([]);
   }, []);
 
-  const logFs = { readFileFromMachine, writeFileToMachine, createFileOnMachine };
+  // logFs auto-translates LAN IP → canonical machine_id on every
+  // read/write/create, so auth log writes (sshAuth, ftpAuth, hydraLog,
+  // etc.) handed an IP-form machineId route the patch under the
+  // occupant's workstation_id. Without this wrap, cross-player auth
+  // lines land at the LAN IP and are missed by B's subscription
+  // (keyed by workstation_id) AND by B's own reads of /var/log/auth.log
+  // (also keyed by workstation_id). Mirrors useNetworkCommands' wrap.
+  const logFs = {
+    readFileFromMachine: (op: Parameters<typeof readFileFromMachine>[0]) =>
+      readFileFromMachine({ ...op, machineId: resolveTargetMachineId(op.machineId) }),
+    writeFileToMachine: (op: Parameters<typeof writeFileToMachine>[0]) =>
+      writeFileToMachine({ ...op, machineId: resolveTargetMachineId(op.machineId) }),
+    createFileOnMachine: (op: Parameters<typeof createFileOnMachine>[0]) =>
+      createFileOnMachine({ ...op, machineId: resolveTargetMachineId(op.machineId) }),
+  };
 
   // Hoisted so the AUTH-command branch below can fire it directly — the
   // inline-password path reaches it through onRedisAuth on useAuthentication,
@@ -265,11 +300,13 @@ export const Terminal = () => {
     getMachine,
     readFile,
     resolveNat,
+    resolveTargetMachineId,
     getDefaultHomePath,
     setUsername,
     setMachine,
     setCurrentPath,
     pushSession,
+    pushAuthSession,
     enterFtpMode,
     enterMysqlMode,
     enterRedisMode,

@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import type {
+  AuthPushDestination,
   FtpSession,
   MysqlSession,
   RedisSession,
@@ -16,6 +17,8 @@ import type { SshAuthHandler } from '../logging/handlers/sshAuth';
 import type { FtpAuthHandler } from '../logging/handlers/ftpAuth';
 import type { MysqlAuthHandler } from '../logging/handlers/mysqlAuth';
 import { md5 } from '../utils/md5';
+import type { AuthCreateSessionResult } from '../sessionRegistry/client';
+import type { AuthMethod } from '../sessionRegistry/types';
 
 type AuthenticationOptions = {
   readonly addLine: (
@@ -37,6 +40,11 @@ type AuthenticationOptions = {
   readonly findMachineByIp: (ip: string) => RemoteMachine | undefined;
   readonly readFile: (path: string, userType: UserType) => string | null;
   readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
+  // Maps a LAN IP to the canonical machine_id (workstation_id for
+  // occupants, LAN IP otherwise). Cross-player auth flows must use this
+  // before sending machine_id in an envelope — server stores B's
+  // /etc/passwd under B's workstation_id, NOT B's LAN IP.
+  readonly resolveTargetMachineId: (targetIp: string) => string;
   readonly getDefaultHomePath: (machineIp: string, username: string) => string;
   readonly setUsername: (username: string, userType: UserType) => void;
   readonly setMachine: (machine: string, hostname?: string) => void;
@@ -51,6 +59,11 @@ type AuthenticationOptions = {
       readonly currentPath: string;
     },
   ) => Promise<void>;
+  readonly pushAuthSession: (
+    kind: 'ssh' | 'su',
+    destination: AuthPushDestination,
+    auth: AuthMethod,
+  ) => Promise<AuthCreateSessionResult>;
   readonly enterFtpMode: (session: FtpSession) => void;
   readonly enterMysqlMode: (session: MysqlSession) => void;
   readonly enterRedisMode: (session: RedisSession) => void;
@@ -78,11 +91,9 @@ export const useAuthentication = ({
   findMachineByIp,
   readFile,
   resolveNat,
+  resolveTargetMachineId,
   getDefaultHomePath,
-  setUsername,
-  setMachine,
-  setCurrentPath,
-  pushSession,
+  pushAuthSession,
   enterFtpMode,
   enterMysqlMode,
   enterRedisMode,
@@ -104,7 +115,9 @@ export const useAuthentication = ({
   const [ftpUsernameMode, setFtpUsernameMode] = useState(false);
   const [scpTargetIP, setScpTargetIP] = useState<string | null>(null);
   const [scpTargetPort, setScpTargetPort] = useState<number | null>(null);
-  const [scpPerformTransfer, setScpPerformTransfer] = useState<(() => AsyncOutput) | null>(null);
+  const [scpPerformTransfer, setScpPerformTransfer] = useState<
+    ((auth: AuthMethod) => AsyncOutput) | null
+  >(null);
   const [mysqlTargetIP, setMysqlTargetIP] = useState<string | null>(null);
 
   const startPasswordPrompt = useCallback(
@@ -138,31 +151,11 @@ export const useAuthentication = ({
     [resolveNat, readFileFromMachine],
   );
 
-  // Checks whether the current user has a verified SSH key for the given target.
-  // The stored fingerprint is recomputed from the remote user's password hash,
-  // so manually created entries without the correct fingerprint are rejected.
-  const hasAuthorizedKey = useCallback(
-    (targetUser: string, targetIP: string, port: number): boolean => {
-      const homePath = getDefaultHomePath(session.machine, session.username);
-      const keysPath = `${homePath}/.ssh_keys`;
-      const content = readFile(keysPath, session.userType);
-      if (!content) return false;
-
-      const fingerprint = computeKeyFingerprint(targetUser, targetIP, port);
-      if (!fingerprint) return false;
-
-      const expectedEntry = `${targetUser}@${targetIP}:${fingerprint}`;
-      return content.split('\n').some((line) => line.trim() === expectedEntry);
-    },
-    [
-      getDefaultHomePath,
-      readFile,
-      computeKeyFingerprint,
-      session.machine,
-      session.username,
-      session.userType,
-    ],
-  );
+  // hasAuthorizedKey was the local-validation gate for "do we have a
+  // verified saved key?" Removed in PR 2 step 8 — saved-key validation
+  // is now server-authoritative via authCreateSession's savedKey arm.
+  // The client just reads the saved fingerprint via getSavedSshFingerprint
+  // and sends it; the server validates against current /etc/passwd.
 
   // Persists a fingerprint-signed SSH key for the given target on the current
   // machine's filesystem. The fingerprint includes the password hash, so only
@@ -197,90 +190,105 @@ export const useAuthentication = ({
     ],
   );
 
-  // Shared SSH session setup: optimistically updates local state via the
-  // sync setX setters (immediate UI feedback), and fires-and-forgets a
-  // server-side session-create. When the server returns, pushSession
-  // atomically pushes the prior snapshot to the stack and re-sets Session
-  // with the same destination plus the server-issued sessionId.
-  //
-  // The redundant setSession-via-pushSession is intentional — it's the only
-  // way to attach the sessionId without a follow-up setter, and the values
-  // overwritten match exactly what the optimistic setters wrote.
-  const connectSsh = useCallback(
-    (user: string, ip: string, port: number) => {
+  // Reads the saved SSH key fingerprint for (user, targetIP) from the
+  // current shell's ~/.ssh_keys, or null if no entry exists / the file
+  // is unreadable. Used for the savedKey arm of authCreateSession —
+  // the client passes the fingerprint as opaque proof; the server
+  // validates against the live /etc/passwd hash.
+  const getSavedSshFingerprint = useCallback(
+    (user: string, targetIP: string): string | null => {
+      const homePath = getDefaultHomePath(session.machine, session.username);
+      const keysPath = `${homePath}/.ssh_keys`;
+      const content = readFile(keysPath, session.userType);
+      if (!content) return null;
+      const prefix = `${user}@${targetIP}:`;
+      const entry = content.split('\n').find((line) => line.trim().startsWith(prefix));
+      if (!entry) return null;
+      return entry.trim().slice(prefix.length);
+    },
+    [getDefaultHomePath, readFile, session.machine, session.username, session.userType],
+  );
+
+  // Server-authoritative SSH login (PR 2 step 7 of plans/cross-player-
+  // base-fs-replication.md). Calls authCreateSession via pushAuthSession,
+  // which only commits local state (snapshot stack + new Session) on
+  // ok:true. On invalid_credentials, renders "Permission denied" and
+  // leaves session unchanged. saveAuthorizedKey runs only on success
+  // and only when computeKeyFingerprint can read /etc/passwd locally
+  // (own-machine case); cross-player saves silently no-op until the
+  // base-FS replication chunk lands.
+  const loginSshWithAuth = useCallback(
+    async (user: string, ip: string, port: number, auth: AuthMethod): Promise<void> => {
       const resolved = resolveNat(ip, port);
       const resolvedIp = resolved.ip;
-      const users = findMachineUsers(resolvedIp);
-      const remoteUser = users.find((u) => u.username === user);
-      const userType: UserType = remoteUser?.userType ?? 'user';
+      // Translate LAN IP → canonical machine_id. For cross-player
+      // workstations, the server stores /etc/passwd under the
+      // workstation_id (e.g., 'rocket-aabbccdd'), NOT the LAN IP.
+      // For NPC home/world machines, this passes the LAN IP through
+      // unchanged. See homeNetworkHelpers.targetMachineIdFor.
+      const targetMachineId = resolveTargetMachineId(resolvedIp);
       const homePath = getDefaultHomePath(resolvedIp, user);
-      // When NAT-forwarded, resolve hostname from the actual target machine (behind gateway),
-      // not the gateway itself. findMachineByIp searches across all network configs.
       const targetMachine = findMachineByIp(resolvedIp) ?? getMachine(ip);
 
-      void pushSession('ssh', {
-        machine: resolvedIp,
-        hostname: targetMachine?.hostname,
-        username: user,
-        userType,
-        currentPath: homePath,
-      }).catch((error) => {
-        console.error('[useAuthentication] pushSession ssh failed:', error);
-      });
-      // Optimistic local update — keeps the prompt snappy during the server
-      // round-trip. pushSession overwrites these with the same values + sessionId
-      // when it resolves.
-      setUsername(user, userType);
-      setMachine(resolvedIp, targetMachine?.hostname);
-      setCurrentPath(homePath);
-      addLine('result', `Connected to ${ip}`);
-      addLine('result', `Welcome to ${targetMachine?.hostname ?? ip}!`);
+      try {
+        const result = await pushAuthSession(
+          'ssh',
+          {
+            machine: targetMachineId,
+            hostname: targetMachine?.hostname,
+            username: user,
+            currentPath: homePath,
+          },
+          auth,
+        );
+
+        if (result.ok) {
+          saveAuthorizedKey(user, ip, port);
+          addLine('result', `Connected to ${ip}`);
+          addLine('result', `Welcome to ${targetMachine?.hostname ?? ip}!`);
+          onSshAuth?.({
+            success: true,
+            user,
+            targetIP: ip,
+            port,
+            method: auth.method === 'password' ? 'password' : 'publickey',
+          });
+        } else {
+          addLine('error', `${user}@${ip}: Permission denied (publickey,password).`);
+          onSshAuth?.({
+            success: false,
+            user,
+            targetIP: ip,
+            port,
+            method: auth.method === 'password' ? 'password' : 'publickey',
+          });
+        }
+      } catch (error) {
+        console.error('[useAuthentication] loginSshWithAuth threw:', error);
+        addLine('error', `${user}@${ip}: Permission denied (publickey,password).`);
+      }
     },
     [
-      pushSession,
+      pushAuthSession,
       resolveNat,
-      findMachineUsers,
+      resolveTargetMachineId,
       findMachineByIp,
       getDefaultHomePath,
       getMachine,
-      setUsername,
-      setMachine,
-      setCurrentPath,
       addLine,
+      onSshAuth,
+      saveAuthorizedKey,
     ],
   );
 
-  // Validates a remote user's password against /etc/passwd. Mirrors the
-  // closure-local validateAgainstEtcPasswd in validatePassword — same
-  // canonical-/etc/passwd model, used by the inline SSH/SCP entry points.
-  const validateRemotePassword = useCallback(
-    ({
-      user,
-      targetIP,
-      port,
-      password,
-    }: {
-      readonly user: string;
-      readonly targetIP: string;
-      readonly port: number;
-      readonly password: string;
-    }): boolean => {
-      const resolvedIp = resolveNat(targetIP, port).ip;
-      const passwdContent = readFileFromMachine({
-        machineId: resolvedIp,
-        path: '/etc/passwd',
-        cwd: '/',
-        userType: 'root',
-      });
-      const storedHash = getEtcPasswdHash(passwdContent, user);
-      return storedHash !== undefined && storedHash === md5(password);
-    },
-    [resolveNat, readFileFromMachine],
-  );
-
-  // Inline SSH auth: validates password, saves key, and connects without interactive prompt
+  // Inline SSH auth: tries the saved-key arm first (if a fingerprint
+  // exists locally), falls through to password-arm authCreateSession.
+  // Both paths route through pushAuthSession — server validates against
+  // the live /etc/passwd and only commits a session on success.
+  // Returns Promise<void> so tests can await the full auth round-trip;
+  // the live caller (Terminal.tsx) doesn't await — fire-and-forget UX.
   const authenticateSshInline = useCallback(
-    ({
+    async ({
       user,
       targetIP,
       port,
@@ -290,37 +298,28 @@ export const useAuthentication = ({
       readonly targetIP: string;
       readonly port: number;
       readonly password: string;
-    }) => {
-      if (hasAuthorizedKey(user, targetIP, port)) {
-        addLine('result', 'Authenticated with saved key.');
-        connectSsh(user, targetIP, port);
-        onSshAuth?.({ success: true, user, targetIP, port, method: 'publickey' });
-        return;
-      }
-
-      if (validateRemotePassword({ user, targetIP, port, password })) {
-        saveAuthorizedKey(user, targetIP, port);
-        connectSsh(user, targetIP, port);
-        onSshAuth?.({ success: true, user, targetIP, port, method: 'password' });
-      } else {
-        addLine('error', 'Permission denied, please try again.');
-        onSshAuth?.({ success: false, user, targetIP, port, method: 'password' });
-      }
+    }): Promise<void> => {
+      const fingerprint = getSavedSshFingerprint(user, targetIP);
+      const auth: AuthMethod =
+        fingerprint !== null
+          ? { method: 'savedKey', fingerprint, targetIp: targetIP }
+          : { method: 'password', password };
+      await loginSshWithAuth(user, targetIP, port, auth);
     },
-    [hasAuthorizedKey, validateRemotePassword, addLine, connectSsh, saveAuthorizedKey, onSshAuth],
+    [getSavedSshFingerprint, loginSshWithAuth],
   );
 
   const startSshPrompt = useCallback(
-    (user: string, targetIP: string, targetPort: number) => {
-      if (hasAuthorizedKey(user, targetIP, targetPort)) {
-        addLine('result', 'Authenticated with saved key.');
-        connectSsh(user, targetIP, targetPort);
-        onSshAuth?.({
-          success: true,
-          user,
-          targetIP,
-          port: targetPort,
-          method: 'publickey',
+    (user: string, targetIP: string, targetPort: number): void => {
+      const fingerprint = getSavedSshFingerprint(user, targetIP);
+      if (fingerprint !== null) {
+        // Server validates the saved fingerprint against the current
+        // /etc/passwd hash. password_reset / sabotage will return 401
+        // and we render "Permission denied" — same as a wrong password.
+        void loginSshWithAuth(user, targetIP, targetPort, {
+          method: 'savedKey',
+          fingerprint,
+          targetIp: targetIP,
         });
         return;
       }
@@ -331,7 +330,7 @@ export const useAuthentication = ({
       setPasswordMode(true);
       addLine('result', `${user}@${targetIP}'s password:`);
     },
-    [hasAuthorizedKey, addLine, connectSsh, onSshAuth],
+    [getSavedSshFingerprint, loginSshWithAuth, addLine],
   );
 
   // Inline FTP auth: validates username + password and enters FTP mode without interactive prompts.
@@ -425,7 +424,11 @@ export const useAuthentication = ({
     [addLine],
   );
 
-  // Inline SCP auth: validates password, saves key, and returns transfer AsyncOutput (or undefined on failure)
+  // Inline SCP auth: dispatches to performTransfer with an auth method
+  // (saved-key fingerprint if present locally, else password). Server
+  // validates inside withTransientAuthSession; the in-game UX surfaces
+  // the result via the transfer animation's lines.
+  // PR 2 step 8 of plans/cross-player-base-fs-replication.md.
   const authenticateScpInline = useCallback(
     ({
       user,
@@ -438,25 +441,23 @@ export const useAuthentication = ({
       readonly targetIP: string;
       readonly port: number;
       readonly password: string;
-      readonly performTransfer: () => AsyncOutput;
+      readonly performTransfer: (auth: AuthMethod) => AsyncOutput;
     }): AsyncOutput | undefined => {
-      if (hasAuthorizedKey(user, targetIP, port)) {
-        addLine('result', 'Authenticated with saved key.');
-        onSshAuth?.({ success: true, user, targetIP, port, method: 'publickey' });
-        return performTransfer();
-      }
-
-      if (validateRemotePassword({ user, targetIP, port, password })) {
-        saveAuthorizedKey(user, targetIP, port);
-        onSshAuth?.({ success: true, user, targetIP, port, method: 'password' });
-        return performTransfer();
-      } else {
-        addLine('error', 'Permission denied, please try again.');
-        onSshAuth?.({ success: false, user, targetIP, port, method: 'password' });
-        return undefined;
-      }
+      const fingerprint = getSavedSshFingerprint(user, targetIP);
+      const auth: AuthMethod =
+        fingerprint !== null
+          ? { method: 'savedKey', fingerprint, targetIp: targetIP }
+          : { method: 'password', password };
+      onSshAuth?.({
+        success: true,
+        user,
+        targetIP,
+        port,
+        method: auth.method === 'password' ? 'password' : 'publickey',
+      });
+      return performTransfer(auth);
     },
-    [hasAuthorizedKey, validateRemotePassword, addLine, saveAuthorizedKey, onSshAuth],
+    [getSavedSshFingerprint, onSshAuth],
   );
 
   const startScpPrompt = useCallback(
@@ -469,12 +470,12 @@ export const useAuthentication = ({
       readonly user: string;
       readonly targetIP: string;
       readonly port: number;
-      readonly performTransfer: () => AsyncOutput;
+      readonly performTransfer: (auth: AuthMethod) => AsyncOutput;
     }): AsyncOutput | undefined => {
-      if (hasAuthorizedKey(user, targetIP, port)) {
-        addLine('result', 'Authenticated with saved key.');
+      const fingerprint = getSavedSshFingerprint(user, targetIP);
+      if (fingerprint !== null) {
         onSshAuth?.({ success: true, user, targetIP, port, method: 'publickey' });
-        return performTransfer();
+        return performTransfer({ method: 'savedKey', fingerprint, targetIp: targetIP });
       }
 
       setTargetUser(user);
@@ -486,7 +487,7 @@ export const useAuthentication = ({
       addLine('result', `${user}@${targetIP}'s password:`);
       return undefined;
     },
-    [hasAuthorizedKey, addLine, onSshAuth],
+    [getSavedSshFingerprint, addLine, onSshAuth],
   );
 
   // Shared MySQL connection setup: validates the database file exists and enters mysql mode
@@ -666,13 +667,12 @@ export const useAuthentication = ({
         return storedHash !== undefined && storedHash === md5(password);
       };
 
-      if (scpTargetIP) {
-        return validateAgainstEtcPasswd(resolveNat(scpTargetIP, scpTargetPort ?? 22).ip);
-      }
-
-      if (sshTargetIP) {
-        return validateAgainstEtcPasswd(resolveNat(sshTargetIP, sshTargetPort ?? 22).ip);
-      }
+      // SSH and SCP paths no longer go through validatePassword —
+      // handlePasswordSubmit dispatches to loginSshWithAuth (PR 2 step 7)
+      // and to scpPerformTransfer with auth method (PR 2 step 8). Both
+      // route through authCreateSession (server-authoritative). Once
+      // FTP / MySQL / Redis migrate in PRs 3-4, validatePassword shrinks
+      // to the su-only path.
 
       if (ftpTargetIP) {
         const resolvedIp = resolveNat(ftpTargetIP, 21).ip;
@@ -716,10 +716,6 @@ export const useAuthentication = ({
       targetUser,
       mysqlTargetIP,
       validateMysqlPassword,
-      scpTargetIP,
-      scpTargetPort,
-      sshTargetIP,
-      sshTargetPort,
       ftpTargetIP,
       readFile,
       readFileFromMachine,
@@ -774,6 +770,104 @@ export const useAuthentication = ({
 
       let scpTransferAsync: AsyncOutput | undefined;
 
+      // SSH: server-authoritative auth (PR 2 of plans/cross-player-base-fs-
+      // replication.md). Returned as AsyncOutput so the Terminal hides
+      // the prompt during the server round-trip — otherwise the prompt
+      // reverts to the prior user/state for the ~100-300 ms gap and the
+      // user sees nothing happen between password submit and the
+      // "Connected" / "Permission denied" line.
+      if (sshTargetIP && targetUser) {
+        const user = targetUser;
+        const ip = sshTargetIP;
+        const port = sshTargetPort ?? 22;
+        // Clear prompt state synchronously.
+        setSshTargetIP(null);
+        setSshTargetPort(null);
+        setTargetUser(null);
+        setPasswordMode(false);
+        clearInput();
+        return {
+          __type: 'async',
+          start: (onLine, onComplete) => {
+            onLine(`Authenticating as ${user}...`);
+            void loginSshWithAuth(user, ip, port, {
+              method: 'password',
+              password: input,
+            }).finally(() => onComplete());
+          },
+        };
+      }
+
+      // SCP: server-authoritative auth via withTransientAuthSession (PR 2
+      // step 8). The transfer animation runs first; auth happens at the
+      // patch-fire point. saveAuthorizedKey runs only on success
+      // (handled by performTransfer's then-branch when ok).
+      if (scpTargetIP && scpPerformTransfer && targetUser) {
+        const transfer = scpPerformTransfer;
+        scpTransferAsync = transfer({ method: 'password', password: input });
+        // Clear prompt state synchronously
+        setTargetUser(null);
+        setScpTargetIP(null);
+        setScpTargetPort(null);
+        setScpPerformTransfer(null);
+        setPasswordMode(false);
+        clearInput();
+        return scpTransferAsync;
+      }
+
+      // su: server-authoritative auth via pushAuthSession (PR 2 step 9).
+      // No prompt-state-specific machine_id (mysql/scp/ssh/ftp targets
+      // would have been handled above) — su targets the CURRENT machine,
+      // promoting (or sidegrading) to a different user on the same box.
+      // Returned as AsyncOutput so the Terminal hides the prompt during
+      // the server round-trip; otherwise the prompt momentarily reverts
+      // to the prior user before the new session commits.
+      if (
+        targetUser &&
+        !mysqlTargetIP &&
+        !scpTargetIP &&
+        !ftpTargetIP &&
+        !ftpUsernameMode
+      ) {
+        const user = targetUser;
+        const homePath = getDefaultHomePath(session.machine, user);
+        // Clear prompt state synchronously.
+        setTargetUser(null);
+        setPasswordMode(false);
+        clearInput();
+        return {
+          __type: 'async',
+          start: (onLine, onComplete) => {
+            onLine(`Authenticating as ${user}...`);
+            void pushAuthSession(
+              'su',
+              {
+                machine: session.machine,
+                hostname: session.hostname,
+                username: user,
+                currentPath: homePath,
+              },
+              { method: 'password', password: input },
+            )
+              .then((result) => {
+                if (result.ok) {
+                  addLine('result', `Switched to user: ${user}`);
+                  onSuAuth?.(true, user);
+                } else {
+                  addLine('error', 'su: Authentication failure');
+                  onSuAuth?.(false, user);
+                }
+              })
+              .catch((error) => {
+                console.error('[useAuthentication] su pushAuthSession threw:', error);
+                addLine('error', 'su: Authentication failure');
+                onSuAuth?.(false, user);
+              })
+              .finally(() => onComplete());
+          },
+        };
+      }
+
       if (validatePassword(input)) {
         if (!targetUser) return undefined;
 
@@ -785,18 +879,6 @@ export const useAuthentication = ({
             targetIP: mysqlTargetIP,
             port: 3306,
           });
-        } else if (scpTargetIP) {
-          saveAuthorizedKey(targetUser, scpTargetIP, scpTargetPort ?? 22);
-          onSshAuth?.({
-            success: true,
-            user: targetUser,
-            targetIP: scpTargetIP,
-            port: scpTargetPort ?? 22,
-            method: 'password',
-          });
-          if (scpPerformTransfer) {
-            scpTransferAsync = scpPerformTransfer();
-          }
         } else if (ftpTargetIP) {
           const resolvedFtpIp = resolveNat(ftpTargetIP, 21).ip;
           const users = findMachineUsers(resolvedFtpIp);
@@ -825,43 +907,9 @@ export const useAuthentication = ({
             targetIP: ftpTargetIP,
             port: 21,
           });
-        } else if (sshTargetIP) {
-          saveAuthorizedKey(targetUser, sshTargetIP, sshTargetPort ?? 22);
-          connectSsh(targetUser, sshTargetIP, sshTargetPort ?? 22);
-          onSshAuth?.({
-            success: true,
-            user: targetUser,
-            targetIP: sshTargetIP,
-            port: sshTargetPort ?? 22,
-            method: 'password',
-          });
-        } else {
-          // su (local user switch) — look up user type from the machine's user list.
-          // findMachineUsers checks both the current network view and all mission
-          // network configs (needed for mission-generated machines).
-          const users = findMachineUsers(session.machine);
-          const machineUser = users?.find((u) => u.username === targetUser);
-          const userType: UserType =
-            machineUser?.userType ??
-            (targetUser === 'root' ? 'root' : targetUser === 'guest' ? 'guest' : 'user');
-          const homePath = userType === 'root' ? '/root' : `/home/${targetUser}`;
-
-          // Fire-and-forget pushSession (server-side session record); local
-          // state updated optimistically below for snappy prompt response.
-          void pushSession('su', {
-            machine: session.machine,
-            hostname: session.hostname,
-            username: targetUser,
-            userType,
-            currentPath: homePath,
-          }).catch((error) => {
-            console.error('[useAuthentication] pushSession su failed:', error);
-          });
-          setUsername(targetUser, userType);
-          setCurrentPath(homePath);
-          addLine('result', `Switched to user: ${targetUser}`);
-          onSuAuth?.(true, targetUser);
         }
+        // su path is handled above (server-authoritative via pushAuthSession,
+        // PR 2 step 9). It bypasses validatePassword entirely.
       } else {
         if (mysqlTargetIP) {
           addLine(
@@ -906,10 +954,9 @@ export const useAuthentication = ({
               port: sshTargetPort ?? 22,
               method: 'password',
             });
-        } else {
-          addLine('error', 'su: Authentication failure');
-          if (targetUser) onSuAuth?.(false, targetUser);
         }
+        // su failure path is handled above by pushAuthSession's
+        // ok:false branch (PR 2 step 9). No fallback here.
       }
 
       setPasswordMode(false);
@@ -934,13 +981,11 @@ export const useAuthentication = ({
       sshTargetIP,
       sshTargetPort,
       ftpTargetIP,
+      ftpUsernameMode,
       validatePassword,
-      saveAuthorizedKey,
       connectMysql,
-      connectSsh,
-      pushSession,
-      setUsername,
-      setCurrentPath,
+      loginSshWithAuth,
+      pushAuthSession,
       session,
       findMachineUsers,
       enterFtpMode,

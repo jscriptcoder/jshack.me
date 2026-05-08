@@ -26,7 +26,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { generateIdentity, type Identity } from '../src/identity/identity';
 import { signRequest } from '../src/signedRequest/sign';
-import { deriveHostnameSuffix } from '../src/homeNetworks/homeNetworkHelpers';
+import { computeWorkstationId } from '../src/homeNetworks/homeNetworkHelpers';
 
 const url = process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -60,7 +60,7 @@ try {
 const identityA = generateIdentity();
 const identityB = generateIdentity();
 const workstationName = 'smoketest';
-const machineId = `${workstationName}-${deriveHostnameSuffix(`ed25519:${identityA.publicKeyHex}`)}`;
+const machineId = computeWorkstationId(workstationName, identityA.publicKeyHex);
 
 const SECRET_PATH = '/root/.notes';
 const ALLOWLIST_PATH = '/var/run/sshd.pid';
