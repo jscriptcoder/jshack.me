@@ -250,7 +250,21 @@ export const Terminal = () => {
     setLines([]);
   }, []);
 
-  const logFs = { readFileFromMachine, writeFileToMachine, createFileOnMachine };
+  // logFs auto-translates LAN IP → canonical machine_id on every
+  // read/write/create, so auth log writes (sshAuth, ftpAuth, hydraLog,
+  // etc.) handed an IP-form machineId route the patch under the
+  // occupant's workstation_id. Without this wrap, cross-player auth
+  // lines land at the LAN IP and are missed by B's subscription
+  // (keyed by workstation_id) AND by B's own reads of /var/log/auth.log
+  // (also keyed by workstation_id). Mirrors useNetworkCommands' wrap.
+  const logFs = {
+    readFileFromMachine: (op: Parameters<typeof readFileFromMachine>[0]) =>
+      readFileFromMachine({ ...op, machineId: resolveTargetMachineId(op.machineId) }),
+    writeFileToMachine: (op: Parameters<typeof writeFileToMachine>[0]) =>
+      writeFileToMachine({ ...op, machineId: resolveTargetMachineId(op.machineId) }),
+    createFileOnMachine: (op: Parameters<typeof createFileOnMachine>[0]) =>
+      createFileOnMachine({ ...op, machineId: resolveTargetMachineId(op.machineId) }),
+  };
 
   // Hoisted so the AUTH-command branch below can fire it directly — the
   // inline-password path reaches it through onRedisAuth on useAuthentication,
