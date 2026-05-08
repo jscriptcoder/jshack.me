@@ -64,6 +64,20 @@ These are open questions. Do NOT decide them implicitly inside this chunk.
 - **`apt upgrade` on cross-player machines**: gameplay question. Should A be able to patch B's vulnerable service after rooting? Falls under Category A flows once decided.
 - **Hydra strategy — client iterates vs server iterates**: decided as part of PR 7 once SSH/FTP server-auth endpoints are in place; either approach is implementable.
 
+## Accepted regression: mission machines
+
+**Status (decided 2026-05-08)**: PR 2 introduces a known regression for mission machines. **Accepted; will be resolved by the upcoming mission rework, not by this chunk.**
+
+The regression: missions don't have rows in `machine_filesystems` (deferred to `mission_instances` migration). After PR 2 step 5, `createSession` for `kind:'ssh'|'scp'|'su'` is rejected; after step 7b, SSH routes through `authCreateSession` which reads `/etc/passwd` from `machine_filesystems`. Mission machines have no `/etc/passwd` row → the server returns `401 invalid_credentials` → mission SSH/SCP/su login fails.
+
+Subsequent PRs in this chunk extend the same pattern to FTP / MySQL / Redis / nc backdoors / file_read CVE / dir_list CVE / hydra. All of these break for mission targets while the chunk is in flight.
+
+**Consequence after merge to main**: solo mission gameplay does not work end-to-end until mission rework lands the `mission_instances` migration + projects mission `machine_filesystems` rows. Acceptable per `feedback_no_backward_compat` (no live players).
+
+**Why this is acceptable here, not solved here**: see the discussion in PR 2 step 7b — the alternative (client-side fallback for missions only) reintroduces the forge hole for the gameplay slice with the highest impact (mission rewards). The right fix is `mission_instances`, not a security shortcut. Mission rework is already on the roadmap and will absorb this work naturally.
+
+**Resume signal for the mission rework**: after `mission_instances` lands and the mission-machine backfill populates `machine_filesystems` (with `/etc/passwd` and the other projected paths), the regression evaporates with no code changes in this chunk. Verify by running `scripts/testServerAuth.ts` against a mission target.
+
 ---
 
 ## PR roadmap
