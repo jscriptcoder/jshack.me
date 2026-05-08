@@ -723,7 +723,12 @@ export const useNetworkCommands = (): Map<string, Command> => {
               withTransientAuthSession(
                 getIdentity(),
                 {
-                  machine_id: params.machine_id,
+                  // Translate LAN IP → canonical machine_id so cross-
+                  // player SCP transfers land at B's workstation_id
+                  // (where /etc/passwd is stored), not B's LAN IP.
+                  // Mirrors logFs's resolveTargetMachineId wrapping
+                  // for write paths.
+                  machine_id: resolveTargetMachineId(params.machine_id),
                   kind: 'scp',
                   username: params.username,
                   auth: params.auth,

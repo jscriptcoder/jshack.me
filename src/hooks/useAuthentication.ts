@@ -40,6 +40,11 @@ type AuthenticationOptions = {
   readonly findMachineByIp: (ip: string) => RemoteMachine | undefined;
   readonly readFile: (path: string, userType: UserType) => string | null;
   readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
+  // Maps a LAN IP to the canonical machine_id (workstation_id for
+  // occupants, LAN IP otherwise). Cross-player auth flows must use this
+  // before sending machine_id in an envelope — server stores B's
+  // /etc/passwd under B's workstation_id, NOT B's LAN IP.
+  readonly resolveTargetMachineId: (targetIp: string) => string;
   readonly getDefaultHomePath: (machineIp: string, username: string) => string;
   readonly setUsername: (username: string, userType: UserType) => void;
   readonly setMachine: (machine: string, hostname?: string) => void;
@@ -86,6 +91,7 @@ export const useAuthentication = ({
   findMachineByIp,
   readFile,
   resolveNat,
+  resolveTargetMachineId,
   getDefaultHomePath,
   pushAuthSession,
   enterFtpMode,
@@ -215,6 +221,12 @@ export const useAuthentication = ({
     async (user: string, ip: string, port: number, auth: AuthMethod): Promise<void> => {
       const resolved = resolveNat(ip, port);
       const resolvedIp = resolved.ip;
+      // Translate LAN IP → canonical machine_id. For cross-player
+      // workstations, the server stores /etc/passwd under the
+      // workstation_id (e.g., 'rocket-aabbccdd'), NOT the LAN IP.
+      // For NPC home/world machines, this passes the LAN IP through
+      // unchanged. See homeNetworkHelpers.targetMachineIdFor.
+      const targetMachineId = resolveTargetMachineId(resolvedIp);
       const homePath = getDefaultHomePath(resolvedIp, user);
       const targetMachine = findMachineByIp(resolvedIp) ?? getMachine(ip);
 
@@ -222,7 +234,7 @@ export const useAuthentication = ({
         const result = await pushAuthSession(
           'ssh',
           {
-            machine: resolvedIp,
+            machine: targetMachineId,
             hostname: targetMachine?.hostname,
             username: user,
             currentPath: homePath,
@@ -259,6 +271,7 @@ export const useAuthentication = ({
     [
       pushAuthSession,
       resolveNat,
+      resolveTargetMachineId,
       findMachineByIp,
       getDefaultHomePath,
       getMachine,

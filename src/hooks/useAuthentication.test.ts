@@ -33,6 +33,10 @@ const makeOptions = () => ({
   findMachineByIp: vi.fn((_ip: string) => undefined),
   readFile: vi.fn((_path: string, _userType: string) => null as string | null),
   resolveNat: vi.fn((ip: string, port: number) => ({ ip, port })),
+  // Default: identity translation (LAN IP passes through unchanged) —
+  // sufficient for tests not exercising cross-player workstation_id
+  // resolution. Tests covering that path override explicitly.
+  resolveTargetMachineId: vi.fn((targetIp: string) => targetIp),
   getDefaultHomePath: vi.fn((_ip: string, username: string) => `/home/${username}`),
   setUsername: vi.fn(),
   setMachine: vi.fn(),
