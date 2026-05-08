@@ -28,11 +28,13 @@ import {
 import { getIdentity } from '../identity';
 import { displayPromptHostname } from '../homeNetworks/homeNetworkHelpers';
 import {
+  authCreateSession as authCreateServerSession,
   createSession as createServerSession,
   endSession as endServerSession,
   listSessions as listServerSessions,
+  type AuthCreateSessionResult,
 } from '../sessionRegistry/client';
-import type { SessionSummary } from '../sessionRegistry/types';
+import type { AuthMethod, SessionSummary } from '../sessionRegistry/types';
 
 // Re-export for backward compatibility — consumed by storage.ts
 export { isValidPersistedState } from './sessionUtils';
@@ -76,6 +78,17 @@ export type PushDestination = {
   readonly hostname?: string;
   readonly username: string;
   readonly userType: UserType;
+  readonly currentPath: string;
+};
+
+// Destination state for a pushAuthSession call (PR 2 step 7 of
+// plans/cross-player-base-fs-replication.md). userType is intentionally
+// absent — it's server-derived from /etc/passwd, attached to the new
+// session by pushAuthSession after authCreateSession returns.
+export type AuthPushDestination = {
+  readonly machine: string;
+  readonly hostname?: string;
+  readonly username: string;
   readonly currentPath: string;
 };
 
@@ -162,6 +175,11 @@ type SessionContextValue = {
   readonly setCurrentPath: (path: string) => void;
   readonly getPrompt: () => string;
   readonly pushSession: (reason: SessionReason, destination: PushDestination) => Promise<void>;
+  readonly pushAuthSession: (
+    kind: 'ssh' | 'su',
+    destination: AuthPushDestination,
+    auth: AuthMethod,
+  ) => Promise<AuthCreateSessionResult>;
   readonly popSession: () => SessionSnapshot | null;
   readonly canReturn: () => boolean;
   readonly enterFtpMode: (ftpSession: FtpSession) => void;
@@ -521,6 +539,73 @@ export const SessionProvider = ({ children, hostname, username }: SessionProvide
         theme: session.theme,
         sessionId: newSessionId,
       });
+    },
+    [
+      session.username,
+      session.userType,
+      session.machine,
+      session.hostname,
+      session.currentPath,
+      session.theme,
+      session.sessionId,
+    ],
+  );
+
+  // pushAuthSession — auth-required equivalent of pushSession for ssh/su.
+  // Calls authCreateSession (server-authoritative password / saved-key
+  // validation against /etc/passwd) and only commits local state when
+  // the server confirms. userType is server-derived and attached to the
+  // new session.
+  //
+  // Returns AuthCreateSessionResult so callers can distinguish:
+  //   ok: true  → state already updated, sessionId attached.
+  //   ok: false, reason='invalid_credentials' → wrong password / unknown
+  //               user / fingerprint mismatch / etc. State unchanged.
+  //               Caller renders "Permission denied" (or equivalent).
+  //   ok: false, reason='rate_limited' → 429.
+  //   throws    → infrastructure error (network, server 500, malformed).
+  //
+  // PR 2 step 7 of plans/cross-player-base-fs-replication.md.
+  const pushAuthSession = useCallback(
+    async (
+      kind: 'ssh' | 'su',
+      destination: AuthPushDestination,
+      auth: AuthMethod,
+    ): Promise<AuthCreateSessionResult> => {
+      const snapshot: SessionSnapshot = {
+        username: session.username,
+        userType: session.userType,
+        machine: session.machine,
+        hostname: session.hostname,
+        currentPath: session.currentPath,
+        theme: session.theme,
+        reason: kind,
+        sessionId: session.sessionId,
+      };
+
+      const result = await authCreateServerSession(getIdentity(), {
+        machine_id: destination.machine,
+        kind,
+        username: destination.username,
+        auth,
+        ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
+        source_ip: session.machine,
+      });
+
+      if (!result.ok) return result;
+
+      setSessionStack((prev) => [...prev, snapshot]);
+      setSession({
+        machine: destination.machine,
+        hostname: destination.hostname,
+        username: destination.username,
+        userType: result.userType,
+        currentPath: destination.currentPath,
+        theme: session.theme,
+        sessionId: result.session_id,
+      });
+
+      return result;
     },
     [
       session.username,
@@ -945,6 +1030,7 @@ export const SessionProvider = ({ children, hostname, username }: SessionProvide
         setCurrentPath,
         getPrompt,
         pushSession,
+        pushAuthSession,
         popSession,
         canReturn,
         enterFtpMode,
