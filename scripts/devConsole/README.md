@@ -10,8 +10,8 @@ The rest of `scripts/` runs via `npx tsx` against Node (network inspection, DB b
 
 ## Files
 
-| File                  | Purpose                                                                                                                                                                            |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| File                 | Purpose                                                                                                                                                                                                      |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `setupTestPlayer.js` | Bypass IntroScreen. Write a known `gameState` into IndexedDB, clear stale state, register the workstation server-side via `/api/register-workstation`, reload. Used for two-player testing on a shared WiFi. |
 
 ## Conventions

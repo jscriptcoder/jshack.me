@@ -10,6 +10,10 @@ import {
   createSupabaseFindEtcPasswdContent,
   type FindEtcPasswdContentParams,
 } from '../src/sessionRegistry/supabaseFindEtcPasswdContent.js';
+import {
+  createSupabaseFindVirtualUsersConfContent,
+  type FindVirtualUsersConfContentParams,
+} from '../src/sessionRegistry/supabaseFindVirtualUsersConfContent.js';
 import type {
   EndSessionParams,
   ListSessionsParams,
@@ -138,6 +142,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     },
   );
 
+  // PR 3: FTP overlay (/etc/vsftpd/virtual_users.conf) used by
+  // authCreateSession's kind='ftp' arm. Falls back to /etc/passwd when
+  // the overlay row is absent or the username isn't listed.
+  const findVirtualUsersConfContent = createSupabaseFindVirtualUsersConfContent(
+    async (params: FindVirtualUsersConfContentParams) => {
+      const { data, error } = await supabase
+        .from('machine_filesystems')
+        .select('content')
+        .eq('machine_id', params.machine_id)
+        .eq('path', '/etc/vsftpd/virtual_users.conf')
+        .limit(1);
+      if (error) console.error('[sessions] supabase find virtual_users.conf error:', error);
+      return { data, error };
+    },
+  );
+
   const { rateLimiter, nonceStore } = buildUpstashAdapters();
 
   const { status, body, headers } = await handleSessionsRequest(req.body, {
@@ -145,6 +165,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     endSession,
     listSessions,
     findEtcPasswdContent,
+    findVirtualUsersConfContent,
     rateLimiter,
     nonceStore,
   });

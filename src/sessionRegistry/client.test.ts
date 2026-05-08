@@ -179,10 +179,10 @@ describe('createSession', () => {
       createSession(
         identity,
         {
-        machine_id: '10.0.0.1',
-        credentials: { username: 'root', userType: 'root' },
-        kind: 'exploit',
-      },
+          machine_id: '10.0.0.1',
+          credentials: { username: 'root', userType: 'root' },
+          kind: 'exploit',
+        },
         fetchMock,
       ),
     ).rejects.toThrow(/500/);
@@ -198,10 +198,10 @@ describe('createSession', () => {
       createSession(
         identity,
         {
-        machine_id: '10.0.0.1',
-        credentials: { username: 'root', userType: 'root' },
-        kind: 'exploit',
-      },
+          machine_id: '10.0.0.1',
+          credentials: { username: 'root', userType: 'root' },
+          kind: 'exploit',
+        },
         fetchMock,
       ),
     ).rejects.toThrow();
@@ -215,10 +215,10 @@ describe('createSession', () => {
       createSession(
         identity,
         {
-        machine_id: '10.0.0.1',
-        credentials: { username: 'root', userType: 'root' },
-        kind: 'exploit',
-      },
+          machine_id: '10.0.0.1',
+          credentials: { username: 'root', userType: 'root' },
+          kind: 'exploit',
+        },
         fetchMock,
       ),
     ).rejects.toThrow();
@@ -232,10 +232,10 @@ describe('createSession', () => {
       createSession(
         identity,
         {
-        machine_id: '10.0.0.1',
-        credentials: { username: 'root', userType: 'root' },
-        kind: 'exploit',
-      },
+          machine_id: '10.0.0.1',
+          credentials: { username: 'root', userType: 'root' },
+          kind: 'exploit',
+        },
         fetchMock,
       ),
     ).rejects.toThrow();
@@ -249,10 +249,10 @@ describe('createSession', () => {
       createSession(
         identity,
         {
-        machine_id: '10.0.0.1',
-        credentials: { username: 'root', userType: 'root' },
-        kind: 'exploit',
-      },
+          machine_id: '10.0.0.1',
+          credentials: { username: 'root', userType: 'root' },
+          kind: 'exploit',
+        },
         fetchMock,
       ),
     ).rejects.toThrow('network failure');
@@ -493,13 +493,11 @@ describe('authCreateSession', () => {
 
   it('signs the envelope with the action=authCreateSession and provided fields', async () => {
     const identity = generateIdentity();
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(
-        new Response(JSON.stringify({ session_id: STUB_SESSION_ID, userType: 'user' }), {
-          status: 201,
-        }),
-      );
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ session_id: STUB_SESSION_ID, userType: 'user' }), {
+        status: 201,
+      }),
+    );
 
     await authCreateSession(identity, baseRequest, fetchMock);
 
@@ -515,13 +513,11 @@ describe('authCreateSession', () => {
 
   it('passes savedKey auth method and targetIp through the wire', async () => {
     const identity = generateIdentity();
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(
-        new Response(JSON.stringify({ session_id: STUB_SESSION_ID, userType: 'user' }), {
-          status: 201,
-        }),
-      );
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ session_id: STUB_SESSION_ID, userType: 'user' }), {
+        status: 201,
+      }),
+    );
 
     await authCreateSession(
       identity,
@@ -544,13 +540,11 @@ describe('authCreateSession', () => {
 
   it('passes optional parent_session_id and source_ip through', async () => {
     const identity = generateIdentity();
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(
-        new Response(JSON.stringify({ session_id: STUB_SESSION_ID, userType: 'user' }), {
-          status: 201,
-        }),
-      );
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ session_id: STUB_SESSION_ID, userType: 'user' }), {
+        status: 201,
+      }),
+    );
 
     await authCreateSession(
       identity,

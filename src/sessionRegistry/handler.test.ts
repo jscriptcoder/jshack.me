@@ -13,6 +13,10 @@ import type {
   FindEtcPasswdContentParams,
   FindEtcPasswdContentResult,
 } from './supabaseFindEtcPasswdContent';
+import type {
+  FindVirtualUsersConfContentParams,
+  FindVirtualUsersConfContentResult,
+} from './supabaseFindVirtualUsersConfContent';
 import type { RateLimiter } from '../ipRegistry/rateLimit';
 import { noopRateLimiter } from '../ipRegistry/rateLimit';
 import { noopNonceStore, type NonceStore } from '../signedRequest/nonceStore';
@@ -66,6 +70,9 @@ const mkDeps = (overrides: {
   readonly findEtcPasswdContent?: (
     params: FindEtcPasswdContentParams,
   ) => Promise<FindEtcPasswdContentResult>;
+  readonly findVirtualUsersConfContent?: (
+    params: FindVirtualUsersConfContentParams,
+  ) => Promise<FindVirtualUsersConfContentResult>;
   readonly rateLimiter?: RateLimiter;
   readonly nonceStore?: NonceStore;
   readonly now?: () => number;
@@ -92,6 +99,15 @@ const mkDeps = (overrides: {
     vi
       .fn<(params: FindEtcPasswdContentParams) => Promise<FindEtcPasswdContentResult>>()
       .mockResolvedValue({ ok: true, found: true, content: DEFAULT_ETC_PASSWD }),
+  // Default: no virtual_users.conf row (machine has no FTP daemon).
+  // FTP-specific tests override with a populated overlay.
+  findVirtualUsersConfContent:
+    overrides.findVirtualUsersConfContent ??
+    vi
+      .fn<
+        (params: FindVirtualUsersConfContentParams) => Promise<FindVirtualUsersConfContentResult>
+      >()
+      .mockResolvedValue({ ok: true, found: false }),
   rateLimiter: overrides.rateLimiter ?? noopRateLimiter,
   nonceStore: overrides.nonceStore ?? noopNonceStore,
   now: overrides.now ?? (() => FIXED_NOW),
@@ -126,20 +142,23 @@ describe('handleSessionsRequest — createSession', () => {
     });
   });
 
-  it('passes through explicit kind (e.g., ftp)', async () => {
+  it('passes through explicit kind for non-auth-required kinds (e.g., mysql)', async () => {
+    // mysql is still routed through createSession (PR 4 migrates it to
+    // authCreateSession). ftp moved to auth-required in PR 3 and is
+    // covered by the describe.each block below.
     const insertSession = vi
       .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
       .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
     const envelope = makeEnvelope(identity, {
       action: 'createSession',
       machine_id: '10.0.0.5',
-      credentials: { username: 'ftpuser', userType: 'user' },
-      kind: 'ftp',
+      credentials: { username: 'alice', userType: 'user' },
+      kind: 'mysql',
     });
 
     await handleSessionsRequest(envelope, mkDeps({ insertSession }));
 
-    expect(insertSession).toHaveBeenCalledWith(expect.objectContaining({ kind: 'ftp' }));
+    expect(insertSession).toHaveBeenCalledWith(expect.objectContaining({ kind: 'mysql' }));
   });
 
   it('rejects with 400 when kind is omitted (now required, no default)', async () => {
@@ -161,14 +180,15 @@ describe('handleSessionsRequest — createSession', () => {
     expect(insertSession).not.toHaveBeenCalled();
   });
 
-  describe.each(['ssh', 'scp', 'su'] as const)(
+  describe.each(['ssh', 'scp', 'su', 'ftp'] as const)(
     'rejects createSession with auth-required kind=%s',
     (authKind) => {
       it('returns 403 use_authcreatesession and does NOT insert', async () => {
-        // PR 2 step 5: closing the bypass hole. Auth-required kinds must
-        // route through authCreateSession (which validates against
-        // /etc/passwd). createSession with these kinds would let a forge
-        // caller mint a session row without proving credentials.
+        // PR 2 step 5 + PR 3: closing the bypass hole. Auth-required kinds
+        // must route through authCreateSession (which validates against
+        // /etc/passwd or /etc/vsftpd/virtual_users.conf). createSession
+        // with these kinds would let a forge caller mint a session row
+        // without proving credentials.
         const insertSession = vi
           .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
           .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
@@ -1135,6 +1155,254 @@ describe('handleSessionsRequest — authCreateSession', () => {
 
       expect(result.status).toBe(401);
       expect(insertSession).not.toHaveBeenCalled();
+    });
+  });
+
+  // ----- FTP-specific (PR 3) ------------------------------------------
+  //
+  // FTP uses /etc/vsftpd/virtual_users.conf as an overlay on top of
+  // /etc/passwd. When the username is in virtual_users.conf, that hash
+  // takes precedence for password matching. When it isn't (or the file
+  // is missing), the handler falls back to /etc/passwd. userType always
+  // derives from /etc/passwd. SavedKey is rejected for FTP.
+
+  describe('FTP overlay (kind=ftp)', () => {
+    const TEST_ALICE_FTP_PASSWORD = 'alice-ftp-overlay-pw';
+    const VU_CONTENT = [`alice:${md5(TEST_ALICE_FTP_PASSWORD)}`].join('\n');
+    const vuConfDep =
+      (content: string | null = VU_CONTENT) =>
+      () =>
+        Promise.resolve({ ok: true as const, found: true as const, content });
+    const noVuConfDep = () => Promise.resolve({ ok: true as const, found: false as const });
+
+    it('returns 201 with userType from /etc/passwd when virtual_users.conf overlay matches', async () => {
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'ftp',
+        auth: passwordAuth(TEST_ALICE_FTP_PASSWORD),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({
+          insertSession,
+          findEtcPasswdContent: authPasswdDep(),
+          findVirtualUsersConfContent: vuConfDep(),
+        }),
+      );
+
+      expect(result.status).toBe(201);
+      expect(result.body).toEqual({ session_id: STUB_SESSION_ID, userType: 'user' });
+      expect(insertSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          credentials: { username: 'alice', userType: 'user' },
+          kind: 'ftp',
+        }),
+      );
+    });
+
+    it('rejects when overlay is matched but the password is wrong', async () => {
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'ftp',
+        auth: passwordAuth('wrong-ftp-password'),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({
+          insertSession,
+          findEtcPasswdContent: authPasswdDep(),
+          findVirtualUsersConfContent: vuConfDep(),
+        }),
+      );
+
+      expect(result.status).toBe(401);
+      expect(result.body).toEqual({ error: 'invalid_credentials' });
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+
+    it('uses overlay password (NOT /etc/passwd) when both are present and differ', async () => {
+      // The overlay takes precedence. If the alice's /etc/passwd hash and
+      // virtual_users.conf hash differ, the FTP password must match the
+      // overlay; the system password should not validate.
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'ftp',
+        // System password — NOT what the overlay expects.
+        auth: passwordAuth(TEST_ALICE_PASSWORD),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({
+          insertSession,
+          findEtcPasswdContent: authPasswdDep(),
+          findVirtualUsersConfContent: vuConfDep(),
+        }),
+      );
+
+      expect(result.status).toBe(401);
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+
+    it('falls back to /etc/passwd when virtual_users.conf row is missing', async () => {
+      // Machine has no FTP daemon running, so no virtual_users.conf row
+      // exists. Real-world vsftpd behaviour: PAM (system credentials)
+      // applies. Server mirrors that.
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'ftp',
+        auth: passwordAuth(TEST_ALICE_PASSWORD),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({
+          insertSession,
+          findEtcPasswdContent: authPasswdDep(),
+          findVirtualUsersConfContent: noVuConfDep,
+        }),
+      );
+
+      expect(result.status).toBe(201);
+      expect(insertSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'ftp',
+          credentials: { username: 'alice', userType: 'user' },
+        }),
+      );
+    });
+
+    it('falls back to /etc/passwd when virtual_users.conf has no entry for the username', async () => {
+      // virtual_users.conf is present but lists only bob, not alice.
+      // Alice's login must validate against /etc/passwd hash.
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'ftp',
+        auth: passwordAuth(TEST_ALICE_PASSWORD),
+      });
+
+      const vuOnlyBob = `bob:${md5('bob-pw')}`;
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({
+          insertSession,
+          findEtcPasswdContent: authPasswdDep(),
+          findVirtualUsersConfContent: vuConfDep(vuOnlyBob),
+        }),
+      );
+
+      expect(result.status).toBe(201);
+    });
+
+    it('rejects savedKey auth method (no .ssh_keys for ftp)', async () => {
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const fingerprint = validFingerprint('alice', md5(TEST_ALICE_FTP_PASSWORD));
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'ftp',
+        auth: savedKeyAuth(fingerprint),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({
+          insertSession,
+          findEtcPasswdContent: authPasswdDep(),
+          findVirtualUsersConfContent: vuConfDep(),
+        }),
+      );
+
+      expect(result.status).toBe(401);
+      expect(result.body).toEqual({ error: 'invalid_credentials' });
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+
+    it('returns 401 when username is in virtual_users.conf but absent from /etc/passwd', async () => {
+      // userType is underivable without an /etc/passwd entry. Even if
+      // the FTP overlay says the password is right, we can't safely
+      // construct the session row. Same response code as wrong-password
+      // (no info leak).
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const orphanUserVu = `orphan:${md5('orphan-pw')}`;
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'ftp',
+        username: 'orphan',
+        auth: passwordAuth('orphan-pw'),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({
+          insertSession,
+          findEtcPasswdContent: authPasswdDep(),
+          findVirtualUsersConfContent: vuConfDep(orphanUserVu),
+        }),
+      );
+
+      expect(result.status).toBe(401);
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+
+    it('returns 500 when the virtual_users.conf lookup itself errors', async () => {
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'ftp',
+        auth: passwordAuth(TEST_ALICE_PASSWORD),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({
+          findEtcPasswdContent: authPasswdDep(),
+          findVirtualUsersConfContent: () => Promise.resolve({ ok: false }),
+        }),
+      );
+
+      expect(result.status).toBe(500);
+      expect(result.body).toEqual({ error: 'fs_lookup_failed' });
+    });
+
+    it('does NOT consult virtual_users.conf for non-ftp kinds', async () => {
+      // Sanity: kind=ssh should not even call the FTP adapter. Catches
+      // accidental dispatch regressions.
+      const findVirtualUsersConfContent = vi.fn();
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'ssh',
+        auth: passwordAuth(TEST_ALICE_PASSWORD),
+      });
+
+      await handleSessionsRequest(
+        envelope,
+        mkDeps({
+          findEtcPasswdContent: authPasswdDep(),
+          findVirtualUsersConfContent,
+        }),
+      );
+
+      expect(findVirtualUsersConfContent).not.toHaveBeenCalled();
     });
   });
 

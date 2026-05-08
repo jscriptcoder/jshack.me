@@ -180,6 +180,16 @@ type SessionContextValue = {
     destination: AuthPushDestination,
     auth: AuthMethod,
   ) => Promise<AuthCreateSessionResult>;
+  // Server-authoritative FTP auth + session creation (PR 3 of
+  // cross-player-base-fs-replication). Mirrors pushAuthSession but
+  // does NOT mutate session/snapshot state — FTP keeps its own
+  // local state field (`ftpSession`). On ok:true the caller must
+  // call enterFtpMode with the returned session_id pre-populated
+  // so exitFtpMode can later end the row.
+  readonly authCreateFtpSession: (
+    destination: AuthPushDestination,
+    auth: AuthMethod,
+  ) => Promise<AuthCreateSessionResult>;
   readonly popSession: () => SessionSnapshot | null;
   readonly canReturn: () => boolean;
   readonly enterFtpMode: (ftpSession: FtpSession) => void;
@@ -664,33 +674,29 @@ export const SessionProvider = ({ children, hostname, username }: SessionProvide
   // on `ftpSession.remoteMachine`. Without a session row on that
   // machine, /api/patches returns 403. The push here is what makes
   // those writes legal post-gate.
-  const enterFtpMode = useCallback(
-    (newFtpSession: FtpSession) => {
-      // Optimistic local state.
-      setFtpSession(newFtpSession);
-      // Fire-and-forget server push. parent_session_id captures the
-      // shell session the player is sitting in (null if untracked
-      // localhost). source_ip is the machine they're FTP'ing FROM.
-      void createServerSession(getIdentity(), {
-        machine_id: newFtpSession.remoteMachine,
-        credentials: {
-          username: newFtpSession.remoteUsername,
-          userType: newFtpSession.remoteUserType,
-        },
+  // PR 3 — server-authoritative FTP auth. authCreateFtpSession is the
+  // pre-step (validates credentials + creates the session row). This
+  // function only sets local FtpSession state. The caller must have
+  // already obtained a sessionId via authCreateFtpSession; we trust the
+  // FtpSession.sessionId field as-is.
+  const enterFtpMode = useCallback((newFtpSession: FtpSession) => {
+    setFtpSession(newFtpSession);
+  }, []);
+
+  // Server-authoritative FTP auth — atomic credential validation +
+  // session creation, mirrors pushAuthSession but without state
+  // mutation. parent_session_id captures the shell session the player
+  // is sitting in; source_ip is the machine they're FTP'ing FROM.
+  const authCreateFtpSession = useCallback(
+    async (destination: AuthPushDestination, auth: AuthMethod): Promise<AuthCreateSessionResult> =>
+      authCreateServerSession(getIdentity(), {
+        machine_id: destination.machine,
+        kind: 'ftp',
+        username: destination.username,
+        auth,
         ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
         source_ip: session.machine,
-        kind: 'ftp',
-      })
-        .then((sessionId) => {
-          // Backfill the server-issued id into the FtpSession state.
-          // Guard: state may have been cleared (exitFtpMode) before
-          // the push resolved — in that case we silently drop.
-          setFtpSession((prev) => (prev !== null ? { ...prev, sessionId } : prev));
-        })
-        .catch((error) => {
-          console.error('[session] ftp createServerSession failed:', error);
-        });
-    },
+      }),
     [session.sessionId, session.machine],
   );
 
@@ -1031,6 +1037,7 @@ export const SessionProvider = ({ children, hostname, username }: SessionProvide
         getPrompt,
         pushSession,
         pushAuthSession,
+        authCreateFtpSession,
         popSession,
         canReturn,
         enterFtpMode,

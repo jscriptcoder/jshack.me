@@ -1,8 +1,8 @@
 # Plan: Cross-Player Base FS Replication + Server-Authoritative Auth + CVE Read Endpoint
 
-**Status**: Active — PR 1 ✅ merged; PR 2 ready for review (steps 1-11 ✅, step 12 deferred)
+**Status**: Active — PR 1 ✅ merged (#124); PR 2 ✅ merged (#125, commit 6d73df7); PR 3 In progress
 **Started**: 2026-05-07
-**Current branch (PR 2)**: feat/cpbfs-pr2-server-auth
+**Current branch (PR 3)**: feat/cpbfs-pr3-server-auth-ftp
 **Estimate**: 7 PRs, ~3-4 weeks total
 **Why this chunk exists**: PvP cracking is the multiplayer pitch. Without this, cross-player attacks against player workstations don't work — SSH login fails, FTP login fails, file_read CVE fails, post-login `cat`/`ls` returns empty. User explicitly reversed the prior deferral on 2026-05-07 ("not gonna be happy to release the game without this").
 
@@ -97,8 +97,8 @@ Subsequent PRs in this chunk extend the same pattern to FTP / MySQL / Redis / nc
 | PR  | Status                             | Goal                                                                 |
 | --- | ---------------------------------- | -------------------------------------------------------------------- |
 | 1   | ✅ Merged (#124, commit `699f5f7`) | Foundation — workstations seed migration + projection list extension |
-| 2   | Ready for review                   | Server-authoritative auth — SSH / SCP / `su`                         |
-| 3   | Pending PR 2                       | Server-authoritative auth — FTP                                      |
+| 2   | ✅ Merged (#125, commit `6d73df7`) | Server-authoritative auth — SSH / SCP / `su`                         |
+| 3   | In progress                        | Server-authoritative auth — FTP                                      |
 | 4   | Pending PR 2                       | Server-authoritative auth — MySQL / Redis / SNMP                     |
 | 5   | Pending PR 1                       | Backdoor connect (nc) — cross-player tier from projected pidfile     |
 | 6   | Pending PRs 1-5                    | Base FS replication endpoint (eager bulk-fetch on session establish) |
@@ -324,6 +324,7 @@ Plus a manual two-browser smoke:
 ### Step 1: Add `authCreateSession` action to the sessions schema
 
 **RED**: New tests in `sessionRegistry/types.test.ts` (or extend if it exists) that pin the new discriminated-union arm:
+
 - Valid envelope with `kind: 'ssh'`, `target_machine_id`, `username`, `password` parses.
 - Same with `savedKeyFingerprint` instead of `password` parses.
 - Envelope with both `password` AND `savedKeyFingerprint` is rejected (mutual exclusion).
@@ -340,6 +341,7 @@ Plus a manual two-browser smoke:
 ### Step 2: `/etc/passwd` parser — reusable helper
 
 **RED**: Test in `src/filesystem/etcPasswdHelpers.test.ts` (or new file) that pins:
+
 - Parses real-shape `/etc/passwd` content into `Map<username, { passwordHash, userType }>`.
 - Empty-content / malformed lines are skipped, not thrown.
 - `userType` correctly derived from `(uid, gid)` columns per game convention (root: uid=0; user: uid in user range; guest: known username).
@@ -353,6 +355,7 @@ Plus a manual two-browser smoke:
 ### Step 3: Server handler arm — `handleAuthCreateSession`
 
 **RED**: New tests in `sessionRegistry/handler.test.ts`:
+
 - Reads `/etc/passwd` from `machine_filesystems` (via injected adapter), parses, validates password — returns `201` with `session_id` and the correct `userType`.
 - `insertSession` is called with `kind` from the envelope and `credentials.userType` from the parsed `/etc/passwd` (NOT trusted from the envelope).
 - Wrong password → `401 invalid_credentials`; insertSession NOT called.
@@ -370,6 +373,7 @@ Plus a manual two-browser smoke:
 ### Step 4: Server adapter — `findEtcPasswdContent`
 
 **RED**: Test in `sessionRegistry/supabaseFindEtcPasswdContent.test.ts` (or extend existing):
+
 - Returns content for an existing row.
 - Returns null when no row exists.
 - Returns null on Supabase error.
@@ -391,6 +395,7 @@ Plus a manual two-browser smoke:
 ### Step 6: Client-side `authCreateSession` wrapper
 
 **RED**: `sessionRegistry/client.test.ts` test for the new function:
+
 - Signs `authCreateSession` envelope with given fields.
 - POSTs to `/api/sessions`.
 - Returns `{ session_id, userType }` on 201.
@@ -403,6 +408,7 @@ Plus a manual two-browser smoke:
 ### Step 7: Wire SSH path to `authCreateSession`
 
 **RED**: Updates to `useAuthentication.test.ts` (or wherever SSH login is tested):
+
 - SSH password login no longer reads `/etc/passwd` locally for validation; it calls `authCreateSession` with the password.
 - On 201, the new sessionId is set and the user is logged in.
 - On 401, the in-game error message is `"Permission denied (publickey,password)"` (preserve UX).
@@ -436,6 +442,7 @@ Plus a manual two-browser smoke:
 ### Step 10: Saved-key fingerprint server-side
 
 **RED**: Handler tests for the saved-key arm (covered in step 3 partially, but expand):
+
 - Server recomputes `expectedFingerprint = md5(currentHashFromEtcPasswd + ...)` matching the existing client-side derivation.
 - Match → 201; mismatch → 401.
 - After `password_reset` modifies `/etc/passwd`, the saved key's fingerprint no longer matches the new hash → 401 (memory: `project_users_passwordhash_drift` confirms this is the intended behavior).
@@ -449,6 +456,7 @@ Plus a manual two-browser smoke:
 ### Step 11: E2E forge smoke — `scripts/testServerAuth.ts`
 
 **RED**: New script that:
+
 1. Registers a workstation with seed + rootPassword via `/api/register-workstation`.
 2. Forges 5 envelopes:
    - Valid password → expect 201, sessionId returned.
@@ -466,6 +474,7 @@ Plus a manual two-browser smoke:
 ### Step 12: Two-browser smoke
 
 Manual verification:
+
 1. Browser A: NEW GAME, register workstation A.
 2. Browser B: NEW GAME, register workstation B.
 3. Connect both to the same WiFi (use the cross-player setup script).
@@ -480,9 +489,113 @@ Manual verification:
 
 ## PR 3: Server-authoritative auth — FTP
 
-**Goal**: FTP login validates against `/etc/vsftpd/virtual_users.conf` and `/etc/passwd` server-side. Mirrors PR 2's shape with FTP-specific credential file.
+**Goal**: FTP login validates against `/etc/vsftpd/virtual_users.conf` (overlay) and `/etc/passwd` (fallback) server-side. Mirrors PR 2 shape, extends `authCreateSession` to accept `kind:'ftp'`.
 
-**Approach**: Add `kind: 'ftp'` to the auth endpoint dispatch. Server reads both files, parses, validates. On success creates `kind: 'ftp'` session row.
+**Acceptance**:
+
+- [ ] `POST /api/sessions` with `action:'authCreateSession'`, `kind:'ftp'`, valid `(username, password)` returns `201` with `session_id` and `userType` derived server-side from `/etc/passwd`.
+- [ ] When `virtual_users.conf` lists the username, server validates against the virtual hash. When it doesn't, server falls back to `/etc/passwd` hash. Mirrors `authenticateFtpInline` precedence.
+- [ ] Username absent from `/etc/passwd` → `401 invalid_credentials` (userType cannot be derived).
+- [ ] `kind:'ftp'` + `method:'savedKey'` → `401 invalid_credentials` (no `.ssh_keys` for ftp).
+- [ ] `createSession` with `kind:'ftp'` is rejected `403 use_authcreatesession` (closes the bypass that PR 2 closed for ssh/scp/su).
+- [ ] In-game `ftp <host>` flow: own-workstation login still works; cross-player login against another tab's FTP works end-to-end.
+- [ ] `scripts/testServerAuth.ts` extended with FTP scenarios; all pass.
+
+### Step 1: Add `'ftp'` to `AUTH_REQUIRED_KINDS`
+
+**RED**: Schema test in `types.test.ts`: `kind:'ftp' + auth:password` parses; `createSession` with `kind:'ftp'` continues to parse (the auth-required check is in handler, not schema).
+
+**GREEN**: `AUTH_REQUIRED_KINDS = ['ssh', 'scp', 'su', 'ftp'] as const`.
+
+**Done when**: types tests green; FTP-flagged tests in handler still fail (expected).
+
+### Step 2: New adapter `findVirtualUsersConfContent`
+
+**RED**: Adapter test mirroring `supabaseFindEtcPasswdContent.test.ts` — returns content for an existing row with `path='/etc/vsftpd/virtual_users.conf'`, returns `found:false` when no row exists, `ok:false` on Supabase error.
+
+**GREEN**: New file `src/sessionRegistry/supabaseFindVirtualUsersConfContent.ts` mirroring the /etc/passwd one. (Generalization to a parameterized `findFsContent({path})` deferred to PR 4 when MySQL/Redis/SNMP add more credential files.)
+
+**Done when**: adapter unit-tested; ready to wire into handler.
+
+### Step 3: Handler dispatch for `kind:'ftp'`
+
+**RED**: `handler.test.ts` tests:
+
+- `kind:'ftp'` + valid password against `virtual_users.conf` overlay → 201 with userType from /etc/passwd.
+- `kind:'ftp'` + valid password against /etc/passwd (when virtual_users.conf has no entry for username) → 201.
+- `kind:'ftp'` + wrong password → 401 invalid_credentials.
+- `kind:'ftp'` + username not in /etc/passwd → 401 invalid_credentials.
+- `kind:'ftp'` + `method:'savedKey'` → 401 invalid_credentials.
+- `kind:'ftp'` + missing virtual_users.conf row + valid /etc/passwd password → 201 (fallback).
+- ssh/scp/su tests still pass (existing single-file flow unchanged).
+
+**GREEN**: Extend `HandlerDeps` with `findVirtualUsersConfContent`. In `handleAuthCreateSession`, branch on `payload.kind`:
+
+- `'ssh' | 'scp' | 'su'` → existing /etc/passwd-only flow.
+- `'ftp'` → fetch both files; rejection of savedKey method; virtual-overlay precedence; userType always from /etc/passwd entry.
+
+**MUTATE**: Overlay precedence (virtual_users wins when present), savedKey rejection, fallback path.
+
+**Done when**: handler test suite green for all five FTP scenarios + no regression on PR 2 tests.
+
+### Step 4: Wire adapter into `api/sessions.ts`
+
+**RED**: handler-level test alone won't catch wire-up bugs. The forge smoke covers it (Step 7).
+
+**GREEN**: Inject `findVirtualUsersConfContent` into the handler deps in `api/sessions.ts`.
+
+**Done when**: vercel:dev boots without errors; forge smoke step 7 passes.
+
+### Step 5: Reject `createSession` with `kind:'ftp'`
+
+This is automatic — Step 1 added 'ftp' to AUTH_REQUIRED_KINDS, and `handleCreateSession` already rejects auth-required kinds with 403 use_authcreatesession (PR 2 step 5). Just verify a regression test pins the behaviour.
+
+**RED**: Handler test that `createSession` + `kind:'ftp'` returns 403 use_authcreatesession.
+
+**GREEN**: Should already pass — no code change needed.
+
+**Done when**: regression test green.
+
+### Step 6: Replace `authenticateFtpInline` with `authCreateSession`
+
+**RED**: `useAuthentication.test.ts` updates — FTP password login no longer reads files locally; calls `authCreateSession` with `kind:'ftp'`. On 201, FTP session enters with server-returned userType. On 401, "530 Login incorrect." line is shown.
+
+**GREEN**: Refactor `authenticateFtpInline` in `src/hooks/useAuthentication.ts`:
+
+- Remove the `readFileFromMachine` calls for `/etc/vsftpd/virtual_users.conf` and `/etc/passwd`.
+- Call `authCreateSession({ kind:'ftp', machine_id: resolveTargetMachineId(resolvedIp), username, auth: { method:'password', password } })`.
+- On `ok:true` → `enterFtpMode` with server-returned userType + sessionId.
+- On `ok:false, reason:'invalid_credentials'` → `addLine('error', '530 Login incorrect.')` + `onFtpAuth` failure.
+- Remove the userType-from-cached-RemoteUser pattern; userType is now server-authoritative.
+
+**Tricky**: `enterFtpMode` currently expects FtpSession with `sessionId: null` (backfilled later). New flow has sessionId at creation time — pass it directly. Remove the post-create `pushSession`/dual-write code path for FTP.
+
+**Done when**: in-game ftp login works against vercel:dev; tests green.
+
+### Step 7: Forge smoke extension — `scripts/testServerAuth.ts`
+
+**RED**: Add 4 FTP scenarios to the existing script:
+
+- `kind:'ftp'` virtual_users.conf overlay path → 201, sessionId returned, userType matches /etc/passwd.
+- `kind:'ftp'` /etc/passwd fallback path (delete the virtual_users row in DB to force fallback) → 201.
+- `kind:'ftp'` wrong password → 401 invalid_credentials.
+- `kind:'ftp'` + savedKey → 401 invalid_credentials.
+
+**GREEN**: Existing handler code from steps 1-3 already handles these.
+
+**Done when**: 13/13 (existing 9 + new 4) scenarios pass against vercel:dev.
+
+### Step 8: Two-browser smoke
+
+Manual verification on vercel:dev:
+
+1. Browsers A and B with cross-player setup.
+2. A: `ftp <B's-LAN-IP>` → username/password prompt.
+3. Enter B's FTP virtual user credentials → "230 Login successful." enters FTP mode at correct tier.
+4. Wrong password → "530 Login incorrect."
+5. Network tab: `authCreateSession` call with `kind:'ftp'`.
+
+**Done when**: cross-player FTP login works through the UI.
 
 ---
 
