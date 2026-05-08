@@ -4,6 +4,8 @@ Standalone TypeScript utilities run via `tsx`. Roughly four kinds of work live h
 
 The canonical invocation strings (with the right `dotenv -e .env.development.local --` prefixes and flags) live in `.claude/CLAUDE.md` under **Debug Scripts**. Treat this README as the conceptual map: _what kind of script do I need right now?_
 
+> **Browser console paste-ins** live in [`devConsole/`](./devConsole/) and follow a different convention (no `tsx`, no Node — copy-paste into the dev tools of a running game tab).
+
 ## Files
 
 | File                             | Group                 | One-liner                                                                     |
