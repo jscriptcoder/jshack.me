@@ -24,7 +24,11 @@ const baseAuthCreateSession = {
 };
 
 const passwordAuth = { method: 'password' as const, password: 'secret' };
-const savedKeyAuth = { method: 'savedKey' as const, fingerprint: 'a'.repeat(32) };
+const savedKeyAuth = {
+  method: 'savedKey' as const,
+  fingerprint: 'a'.repeat(32),
+  targetIp: '10.0.0.5',
+};
 
 describe('authCreateSession schema arm', () => {
   it('parses a valid envelope with password auth', () => {
@@ -64,7 +68,16 @@ describe('authCreateSession schema arm', () => {
     expect(() =>
       sessionsSignedPayloadSchema.parse({
         ...baseAuthCreateSession,
-        auth: { method: 'savedKey' },
+        auth: { method: 'savedKey', targetIp: '10.0.0.5' },
+      }),
+    ).toThrow();
+  });
+
+  it('rejects envelope with method=savedKey but no targetIp field', () => {
+    expect(() =>
+      sessionsSignedPayloadSchema.parse({
+        ...baseAuthCreateSession,
+        auth: { method: 'savedKey', fingerprint: 'a'.repeat(32) },
       }),
     ).toThrow();
   });

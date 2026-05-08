@@ -110,6 +110,14 @@ export type AuthRequiredKind = (typeof AUTH_REQUIRED_KINDS)[number];
 // Auth method — discriminated union on `method`. Mutual exclusion of
 // password vs savedKey is enforced structurally; either method's
 // .strict() arm rejects the other's field.
+//
+// savedKey carries `targetIp` because the client-side fingerprint
+// derivation in src/hooks/useAuthentication.ts is
+// md5(`${username}:${targetIP}:${hash}`) — the IP the user typed
+// (pre-NAT). The server must mirror that exact derivation, so the
+// targetIp the client used is part of the proof shape, not derivable
+// from machine_id alone (NAT can map an external IP to a different
+// machine_id).
 export const authMethodSchema = z.discriminatedUnion('method', [
   z
     .object({
@@ -121,6 +129,7 @@ export const authMethodSchema = z.discriminatedUnion('method', [
     .object({
       method: z.literal('savedKey'),
       fingerprint: z.string().min(1).max(128),
+      targetIp: z.string().min(1).max(256),
     })
     .strict(),
 ]);

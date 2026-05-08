@@ -18,6 +18,7 @@ import { noopRateLimiter } from '../ipRegistry/rateLimit';
 import { noopNonceStore, type NonceStore } from '../signedRequest/nonceStore';
 import { generateIdentity, type Identity } from '../identity/identity';
 import { signRequest } from '../signedRequest/sign';
+import { md5 } from '../utils/md5';
 
 // Default /etc/passwd content for tests: matches the default envelope's
 // claim (root@10.0.0.1, userType 'root'). Tests that exercise mismatch
@@ -745,6 +746,378 @@ describe('handleSessionsRequest — listSessions', () => {
 
       expect(result.status).toBe(429);
       expect(listSessions).not.toHaveBeenCalled();
+    });
+  });
+});
+
+// ----- authCreateSession (PR 2) ---------------------------------------
+//
+// Server-authoritative auth + session creation, atomic. Server reads the
+// target's /etc/passwd from machine_filesystems, validates the auth
+// method, derives userType, inserts the session row.
+
+const TEST_ROOT_PASSWORD = 'rootpw';
+const TEST_ALICE_PASSWORD = 'alicepw';
+const TEST_GUEST_PASSWORD = 'guestpw';
+const TEST_TARGET_IP = '10.0.0.5';
+
+const AUTH_TEST_ETC_PASSWD = [
+  `root:${md5(TEST_ROOT_PASSWORD)}:0:0:root:/root:/bin/bash`,
+  `alice:${md5(TEST_ALICE_PASSWORD)}:1001:1001:alice:/home/alice:/bin/bash`,
+  `guest:${md5(TEST_GUEST_PASSWORD)}:65534:65534:guest:/home/guest:/bin/bash`,
+].join('\n');
+
+const validFingerprint = (username: string, hash: string, targetIp = TEST_TARGET_IP) =>
+  md5(`${username}:${targetIp}:${hash}`);
+
+const baseAuthEnvelope = {
+  action: 'authCreateSession' as const,
+  machine_id: 'target-host',
+  kind: 'ssh' as const,
+  username: 'alice',
+};
+
+const passwordAuth = (password: string) => ({ method: 'password' as const, password });
+const savedKeyAuth = (fingerprint: string, targetIp = TEST_TARGET_IP) => ({
+  method: 'savedKey' as const,
+  fingerprint,
+  targetIp,
+});
+
+const authPasswdDep =
+  (content: string | null = AUTH_TEST_ETC_PASSWD) =>
+  () =>
+    Promise.resolve({ ok: true as const, found: true as const, content });
+
+describe('handleSessionsRequest — authCreateSession', () => {
+  let identity: Identity;
+  beforeEach(() => {
+    identity = generateIdentity();
+  });
+
+  describe('password auth', () => {
+    it('returns 201 with session_id and userType for a valid password', async () => {
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        auth: passwordAuth(TEST_ALICE_PASSWORD),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({ findEtcPasswdContent: authPasswdDep() }),
+      );
+
+      expect(result.status).toBe(201);
+      expect(result.body).toEqual({ session_id: STUB_SESSION_ID, userType: 'user' });
+    });
+
+    it('returns 401 invalid_credentials for a wrong password', async () => {
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        auth: passwordAuth('wrong-password'),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({ insertSession, findEtcPasswdContent: authPasswdDep() }),
+      );
+
+      expect(result.status).toBe(401);
+      expect(result.body).toEqual({ error: 'invalid_credentials' });
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+
+    it('returns 401 invalid_credentials when username is not in /etc/passwd (no enumeration)', async () => {
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        username: 'nonexistent',
+        auth: passwordAuth(TEST_ALICE_PASSWORD),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({ insertSession, findEtcPasswdContent: authPasswdDep() }),
+      );
+
+      // Same response code/body as wrong-password — no info leak.
+      expect(result.status).toBe(401);
+      expect(result.body).toEqual({ error: 'invalid_credentials' });
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+
+    it('derives userType from /etc/passwd, NOT from any client claim (server-authoritative)', async () => {
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        username: 'root',
+        auth: passwordAuth(TEST_ROOT_PASSWORD),
+      });
+
+      await handleSessionsRequest(
+        envelope,
+        mkDeps({ insertSession, findEtcPasswdContent: authPasswdDep() }),
+      );
+
+      expect(insertSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          player_key: identity.publicKeyHex,
+          machine_id: 'target-host',
+          credentials: { username: 'root', userType: 'root' },
+          kind: 'ssh',
+        }),
+      );
+    });
+
+    it('passes parent_session_id and source_ip through to the session row', async () => {
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        auth: passwordAuth(TEST_ALICE_PASSWORD),
+        parent_session_id: '00000000-0000-0000-0000-000000000000',
+        source_ip: '192.168.1.10',
+      });
+
+      await handleSessionsRequest(
+        envelope,
+        mkDeps({ insertSession, findEtcPasswdContent: authPasswdDep() }),
+      );
+
+      expect(insertSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          parent_session_id: '00000000-0000-0000-0000-000000000000',
+          source_ip: '192.168.1.10',
+        }),
+      );
+    });
+
+    it('respects kind=scp', async () => {
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'scp',
+        auth: passwordAuth(TEST_ALICE_PASSWORD),
+      });
+
+      await handleSessionsRequest(
+        envelope,
+        mkDeps({ insertSession, findEtcPasswdContent: authPasswdDep() }),
+      );
+
+      expect(insertSession).toHaveBeenCalledWith(expect.objectContaining({ kind: 'scp' }));
+    });
+
+    it('respects kind=su', async () => {
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'su',
+        auth: passwordAuth(TEST_ALICE_PASSWORD),
+      });
+
+      await handleSessionsRequest(
+        envelope,
+        mkDeps({ insertSession, findEtcPasswdContent: authPasswdDep() }),
+      );
+
+      expect(insertSession).toHaveBeenCalledWith(expect.objectContaining({ kind: 'su' }));
+    });
+  });
+
+  describe('savedKey auth', () => {
+    it('returns 201 when fingerprint matches md5(username:targetIp:hash) for the live /etc/passwd', async () => {
+      const aliceHash = md5(TEST_ALICE_PASSWORD);
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        auth: savedKeyAuth(validFingerprint('alice', aliceHash)),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({ findEtcPasswdContent: authPasswdDep() }),
+      );
+
+      expect(result.status).toBe(201);
+      expect(result.body).toEqual({ session_id: STUB_SESSION_ID, userType: 'user' });
+    });
+
+    it('returns 401 when fingerprint does not match (e.g., post-password_reset)', async () => {
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        // Stale fingerprint computed against the OLD hash.
+        auth: savedKeyAuth(validFingerprint('alice', 'old-hash')),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({ insertSession, findEtcPasswdContent: authPasswdDep() }),
+      );
+
+      expect(result.status).toBe(401);
+      expect(result.body).toEqual({ error: 'invalid_credentials' });
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+
+    it('returns 401 when targetIp differs from what the saved fingerprint was computed with', async () => {
+      const aliceHash = md5(TEST_ALICE_PASSWORD);
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        // Fingerprint was computed with TEST_TARGET_IP, but envelope claims a different one.
+        auth: savedKeyAuth(validFingerprint('alice', aliceHash, TEST_TARGET_IP), '10.99.99.99'),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({ findEtcPasswdContent: authPasswdDep() }),
+      );
+
+      expect(result.status).toBe(401);
+    });
+
+    it('returns 401 when username is missing in /etc/passwd (savedKey path also avoids enumeration)', async () => {
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        username: 'nonexistent',
+        auth: savedKeyAuth(validFingerprint('nonexistent', 'whatever')),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({ findEtcPasswdContent: authPasswdDep() }),
+      );
+
+      expect(result.status).toBe(401);
+      expect(result.body).toEqual({ error: 'invalid_credentials' });
+    });
+  });
+
+  describe('failure modes', () => {
+    it('returns 401 when /etc/passwd is missing for the machine (no_passwd would leak machine state)', async () => {
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        auth: passwordAuth(TEST_ALICE_PASSWORD),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({
+          insertSession,
+          findEtcPasswdContent: () => Promise.resolve({ ok: true, found: false }),
+        }),
+      );
+
+      expect(result.status).toBe(401);
+      expect(result.body).toEqual({ error: 'invalid_credentials' });
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+
+    it('returns 500 when the FS lookup itself fails (transient DB error)', async () => {
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        auth: passwordAuth(TEST_ALICE_PASSWORD),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({
+          findEtcPasswdContent: () => Promise.resolve({ ok: false }),
+        }),
+      );
+
+      expect(result.status).toBe(500);
+      expect(result.body).toEqual({ error: 'fs_lookup_failed' });
+    });
+
+    it('returns 500 when insertSession fails after a successful auth', async () => {
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: false });
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        auth: passwordAuth(TEST_ALICE_PASSWORD),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({ insertSession, findEtcPasswdContent: authPasswdDep() }),
+      );
+
+      expect(result.status).toBe(500);
+      expect(result.body).toEqual({ error: 'insert_failed' });
+    });
+
+    it('returns 401 when /etc/passwd content is null (sabotaged file)', async () => {
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        auth: passwordAuth(TEST_ALICE_PASSWORD),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({
+          insertSession,
+          findEtcPasswdContent: authPasswdDep(null),
+        }),
+      );
+
+      expect(result.status).toBe(401);
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('rate limiting + envelope auth (shared with createSession)', () => {
+    it('returns 429 rate_limited before any FS lookup', async () => {
+      const findEtcPasswdContent = vi.fn();
+      const rateLimiter: RateLimiter = vi
+        .fn<RateLimiter>()
+        .mockResolvedValue({ allowed: false, retryAfterSeconds: 30 });
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        auth: passwordAuth(TEST_ALICE_PASSWORD),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({ rateLimiter, findEtcPasswdContent }),
+      );
+
+      expect(result.status).toBe(429);
+      expect(findEtcPasswdContent).not.toHaveBeenCalled();
+    });
+
+    it('returns 401 signature_invalid on a tampered envelope', async () => {
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        auth: passwordAuth(TEST_ALICE_PASSWORD),
+      });
+      const tampered = { ...envelope, signature: '00'.repeat(64) };
+
+      const result = await handleSessionsRequest(tampered, mkDeps({}));
+
+      expect(result.status).toBe(401);
+      expect(result.body).toEqual({ error: 'signature_invalid' });
     });
   });
 });
