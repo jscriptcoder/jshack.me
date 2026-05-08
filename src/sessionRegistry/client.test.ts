@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createSession, endSession, listSessions } from './client';
+import { authCreateSession, createSession, endSession, listSessions } from './client';
 import { generateIdentity, verify } from '../identity/identity';
 import { hexToBytes } from '../identity/hex';
 import { signedEnvelopeSchema } from '../signedRequest/types';
@@ -36,7 +36,11 @@ describe('createSession', () => {
 
     const sessionId = await createSession(
       identity,
-      { machine_id: '10.0.0.1', credentials: { username: 'root', userType: 'root' } },
+      {
+        machine_id: '10.0.0.1',
+        credentials: { username: 'root', userType: 'root' },
+        kind: 'exploit',
+      },
       fetchMock,
     );
 
@@ -56,7 +60,11 @@ describe('createSession', () => {
 
     await createSession(
       identity,
-      { machine_id: '10.0.0.1', credentials: { username: 'root', userType: 'root' } },
+      {
+        machine_id: '10.0.0.1',
+        credentials: { username: 'root', userType: 'root' },
+        kind: 'exploit',
+      },
       fetchMock,
     );
 
@@ -71,7 +79,11 @@ describe('createSession', () => {
 
     await createSession(
       identity,
-      { machine_id: '10.0.0.1', credentials: { username: 'root', userType: 'root' } },
+      {
+        machine_id: '10.0.0.1',
+        credentials: { username: 'root', userType: 'root' },
+        kind: 'exploit',
+      },
       fetchMock,
     );
 
@@ -109,7 +121,11 @@ describe('createSession', () => {
     expect(payload.kind).toBe('ftp');
   });
 
-  it('omits kind from the signed payload when not supplied (server defaults to ssh)', async () => {
+  it('always embeds kind in the signed payload (now required)', async () => {
+    // PR 2 step 5: server requires kind; client type matches. The
+    // previous "default to ssh" client behavior is gone — every caller
+    // specifies kind explicitly. Pinned so a regression that drops the
+    // field from the wire surfaces loudly.
     const identity = generateIdentity();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ session_id: STUB_SESSION_ID }));
 
@@ -118,6 +134,7 @@ describe('createSession', () => {
       {
         machine_id: '10.0.0.1',
         credentials: { username: 'root', userType: 'root' },
+        kind: 'exploit',
       },
       fetchMock,
     );
@@ -125,7 +142,7 @@ describe('createSession', () => {
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
     const env = JSON.parse(init.body as string) as { payload: string };
     const payload = JSON.parse(env.payload) as Record<string, unknown>;
-    expect(payload).not.toHaveProperty('kind');
+    expect(payload.kind).toBe('exploit');
   });
 
   it('embeds action and request fields in the signed payload', async () => {
@@ -137,6 +154,7 @@ describe('createSession', () => {
       {
         machine_id: '10.0.0.5',
         credentials: { username: 'alice', userType: 'user' },
+        kind: 'exploit',
         parent_session_id: '99999999-aaaa-4bbb-8ccc-dddddddddddd',
         source_ip: '10.0.0.1',
       },
@@ -160,7 +178,11 @@ describe('createSession', () => {
     await expect(
       createSession(
         identity,
-        { machine_id: '10.0.0.1', credentials: { username: 'root', userType: 'root' } },
+        {
+        machine_id: '10.0.0.1',
+        credentials: { username: 'root', userType: 'root' },
+        kind: 'exploit',
+      },
         fetchMock,
       ),
     ).rejects.toThrow(/500/);
@@ -175,7 +197,11 @@ describe('createSession', () => {
     await expect(
       createSession(
         identity,
-        { machine_id: '10.0.0.1', credentials: { username: 'root', userType: 'root' } },
+        {
+        machine_id: '10.0.0.1',
+        credentials: { username: 'root', userType: 'root' },
+        kind: 'exploit',
+      },
         fetchMock,
       ),
     ).rejects.toThrow();
@@ -188,7 +214,11 @@ describe('createSession', () => {
     await expect(
       createSession(
         identity,
-        { machine_id: '10.0.0.1', credentials: { username: 'root', userType: 'root' } },
+        {
+        machine_id: '10.0.0.1',
+        credentials: { username: 'root', userType: 'root' },
+        kind: 'exploit',
+      },
         fetchMock,
       ),
     ).rejects.toThrow();
@@ -201,7 +231,11 @@ describe('createSession', () => {
     await expect(
       createSession(
         identity,
-        { machine_id: '10.0.0.1', credentials: { username: 'root', userType: 'root' } },
+        {
+        machine_id: '10.0.0.1',
+        credentials: { username: 'root', userType: 'root' },
+        kind: 'exploit',
+      },
         fetchMock,
       ),
     ).rejects.toThrow();
@@ -214,7 +248,11 @@ describe('createSession', () => {
     await expect(
       createSession(
         identity,
-        { machine_id: '10.0.0.1', credentials: { username: 'root', userType: 'root' } },
+        {
+        machine_id: '10.0.0.1',
+        credentials: { username: 'root', userType: 'root' },
+        kind: 'exploit',
+      },
         fetchMock,
       ),
     ).rejects.toThrow('network failure');
@@ -374,5 +412,193 @@ describe('listSessions', () => {
     const fetchMock = vi.fn<typeof fetch>().mockRejectedValue(new TypeError('network failure'));
 
     await expect(listSessions(identity, fetchMock)).rejects.toThrow('network failure');
+  });
+});
+
+// ----- authCreateSession (PR 2 step 6) -------------------------------------
+//
+// Atomic credential validation + session creation. Returns a Result type
+// (NOT throws) for the credentials-failure case so call sites can branch
+// on "wrong password" vs "infrastructure error" without parsing exception
+// messages. Other failure modes (network, malformed response) still throw.
+
+describe('authCreateSession', () => {
+  const baseRequest = {
+    machine_id: 'target-host',
+    kind: 'ssh' as const,
+    username: 'alice',
+    auth: { method: 'password' as const, password: 'secret' },
+  };
+
+  it('returns ok with session_id and userType on 201', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ session_id: STUB_SESSION_ID, userType: 'user' }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const result = await authCreateSession(identity, baseRequest, fetchMock);
+
+    expect(result).toEqual({
+      ok: true,
+      session_id: STUB_SESSION_ID,
+      userType: 'user',
+    });
+  });
+
+  it('returns ok:false reason=invalid_credentials on 401', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(errResponse(401, { error: 'invalid_credentials' }));
+
+    const result = await authCreateSession(identity, baseRequest, fetchMock);
+
+    expect(result).toEqual({ ok: false, reason: 'invalid_credentials' });
+  });
+
+  it('returns ok:false reason=rate_limited on 429', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(errResponse(429, { error: 'rate_limited' }));
+
+    const result = await authCreateSession(identity, baseRequest, fetchMock);
+
+    expect(result).toEqual({ ok: false, reason: 'rate_limited' });
+  });
+
+  it('throws on 500 (server error — not a credentials failure)', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(errResponse(500, { error: 'fs_lookup_failed' }));
+
+    await expect(authCreateSession(identity, baseRequest, fetchMock)).rejects.toThrow(/500/);
+  });
+
+  it('throws on signature_invalid 401 — distinct from invalid_credentials body', async () => {
+    // Both server paths return 401, but the body differs. The client
+    // distinguishes: invalid_credentials → ok:false (expected failure
+    // mode), signature_invalid → throw (the client itself is broken).
+    const identity = generateIdentity();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(errResponse(401, { error: 'signature_invalid' }));
+
+    await expect(authCreateSession(identity, baseRequest, fetchMock)).rejects.toThrow();
+  });
+
+  it('signs the envelope with the action=authCreateSession and provided fields', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ session_id: STUB_SESSION_ID, userType: 'user' }), {
+          status: 201,
+        }),
+      );
+
+    await authCreateSession(identity, baseRequest, fetchMock);
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const env = JSON.parse(init.body as string) as { payload: string };
+    const payload = JSON.parse(env.payload) as Record<string, unknown>;
+    expect(payload.action).toBe('authCreateSession');
+    expect(payload.machine_id).toBe('target-host');
+    expect(payload.kind).toBe('ssh');
+    expect(payload.username).toBe('alice');
+    expect(payload.auth).toEqual({ method: 'password', password: 'secret' });
+  });
+
+  it('passes savedKey auth method and targetIp through the wire', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ session_id: STUB_SESSION_ID, userType: 'user' }), {
+          status: 201,
+        }),
+      );
+
+    await authCreateSession(
+      identity,
+      {
+        ...baseRequest,
+        auth: { method: 'savedKey', fingerprint: 'abc123', targetIp: '10.0.0.5' },
+      },
+      fetchMock,
+    );
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const env = JSON.parse(init.body as string) as { payload: string };
+    const payload = JSON.parse(env.payload) as Record<string, unknown>;
+    expect(payload.auth).toEqual({
+      method: 'savedKey',
+      fingerprint: 'abc123',
+      targetIp: '10.0.0.5',
+    });
+  });
+
+  it('passes optional parent_session_id and source_ip through', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ session_id: STUB_SESSION_ID, userType: 'user' }), {
+          status: 201,
+        }),
+      );
+
+    await authCreateSession(
+      identity,
+      {
+        ...baseRequest,
+        parent_session_id: '00000000-0000-0000-0000-000000000000',
+        source_ip: '192.168.1.10',
+      },
+      fetchMock,
+    );
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const env = JSON.parse(init.body as string) as { payload: string };
+    const payload = JSON.parse(env.payload) as Record<string, unknown>;
+    expect(payload.parent_session_id).toBe('00000000-0000-0000-0000-000000000000');
+    expect(payload.source_ip).toBe('192.168.1.10');
+  });
+
+  it('throws when 201 response is missing session_id', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(JSON.stringify({ userType: 'user' }), { status: 201 }));
+
+    await expect(authCreateSession(identity, baseRequest, fetchMock)).rejects.toThrow(
+      /malformed response/,
+    );
+  });
+
+  it('throws when 201 response is missing userType', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ session_id: STUB_SESSION_ID }), { status: 201 }),
+      );
+
+    await expect(authCreateSession(identity, baseRequest, fetchMock)).rejects.toThrow(
+      /malformed response/,
+    );
+  });
+
+  it('propagates fetch errors (network failures)', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockRejectedValue(new TypeError('network failure'));
+
+    await expect(authCreateSession(identity, baseRequest, fetchMock)).rejects.toThrow(
+      'network failure',
+    );
   });
 });
