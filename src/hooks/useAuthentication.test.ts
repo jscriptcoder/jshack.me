@@ -71,7 +71,11 @@ const makeKeyEntry = (user: string, ip: string, passwordHash: string) =>
   `${user}@${ip}:${computeFingerprint(user, ip, passwordHash)}`;
 
 describe('useAuthentication', () => {
-  describe('su (local user switch)', () => {
+  // OBSOLETE — su local password validation moved server-side in PR 2
+  // step 9. The new flow routes through pushAuthSession with kind='su';
+  // contract is enforced by sessionRegistry/handler.test.ts (server) and
+  // the forge smoke (step 11).
+  describe.skip('su (local user switch)', () => {
     it('switches user on correct password validated against /etc/passwd', () => {
       const opts = makeOptions();
       const rootUser = makeRemoteUser({ username: 'root', password: 'rootpass', userType: 'root' });

@@ -87,9 +87,6 @@ export const useAuthentication = ({
   readFile,
   resolveNat,
   getDefaultHomePath,
-  setUsername,
-  setCurrentPath,
-  pushSession,
   pushAuthSession,
   enterFtpMode,
   enterMysqlMode,
@@ -796,6 +793,52 @@ export const useAuthentication = ({
         return scpTransferAsync;
       }
 
+      // su: server-authoritative auth via pushAuthSession (PR 2 step 9).
+      // No prompt-state-specific machine_id (mysql/scp/ssh/ftp targets
+      // would have been handled above) — su targets the CURRENT machine,
+      // promoting (or sidegrading) to a different user on the same box.
+      // userType comes from the server's parse of /etc/passwd, NOT from
+      // the local user list. pushAuthSession commits state on ok.
+      if (
+        targetUser &&
+        !mysqlTargetIP &&
+        !scpTargetIP &&
+        !ftpTargetIP &&
+        !ftpUsernameMode
+      ) {
+        const user = targetUser;
+        const homePath = getDefaultHomePath(session.machine, user);
+        // Clear prompt state synchronously.
+        setTargetUser(null);
+        setPasswordMode(false);
+        clearInput();
+        void pushAuthSession(
+          'su',
+          {
+            machine: session.machine,
+            hostname: session.hostname,
+            username: user,
+            currentPath: homePath,
+          },
+          { method: 'password', password: input },
+        )
+          .then((result) => {
+            if (result.ok) {
+              addLine('result', `Switched to user: ${user}`);
+              onSuAuth?.(true, user);
+            } else {
+              addLine('error', 'Authentication failure');
+              onSuAuth?.(false, user);
+            }
+          })
+          .catch((error) => {
+            console.error('[useAuthentication] su pushAuthSession threw:', error);
+            addLine('error', 'Authentication failure');
+            onSuAuth?.(false, user);
+          });
+        return undefined;
+      }
+
       if (validatePassword(input)) {
         if (!targetUser) return undefined;
 
@@ -835,33 +878,9 @@ export const useAuthentication = ({
             targetIP: ftpTargetIP,
             port: 21,
           });
-        } else {
-          // su (local user switch) — look up user type from the machine's user list.
-          // findMachineUsers checks both the current network view and all mission
-          // network configs (needed for mission-generated machines).
-          const users = findMachineUsers(session.machine);
-          const machineUser = users?.find((u) => u.username === targetUser);
-          const userType: UserType =
-            machineUser?.userType ??
-            (targetUser === 'root' ? 'root' : targetUser === 'guest' ? 'guest' : 'user');
-          const homePath = userType === 'root' ? '/root' : `/home/${targetUser}`;
-
-          // Fire-and-forget pushSession (server-side session record); local
-          // state updated optimistically below for snappy prompt response.
-          void pushSession('su', {
-            machine: session.machine,
-            hostname: session.hostname,
-            username: targetUser,
-            userType,
-            currentPath: homePath,
-          }).catch((error) => {
-            console.error('[useAuthentication] pushSession su failed:', error);
-          });
-          setUsername(targetUser, userType);
-          setCurrentPath(homePath);
-          addLine('result', `Switched to user: ${targetUser}`);
-          onSuAuth?.(true, targetUser);
         }
+        // su path is handled above (server-authoritative via pushAuthSession,
+        // PR 2 step 9). It bypasses validatePassword entirely.
       } else {
         if (mysqlTargetIP) {
           addLine(
@@ -906,10 +925,9 @@ export const useAuthentication = ({
               port: sshTargetPort ?? 22,
               method: 'password',
             });
-        } else {
-          addLine('error', 'su: Authentication failure');
-          if (targetUser) onSuAuth?.(false, targetUser);
         }
+        // su failure path is handled above by pushAuthSession's
+        // ok:false branch (PR 2 step 9). No fallback here.
       }
 
       setPasswordMode(false);
@@ -934,12 +952,11 @@ export const useAuthentication = ({
       sshTargetIP,
       sshTargetPort,
       ftpTargetIP,
+      ftpUsernameMode,
       validatePassword,
       connectMysql,
       loginSshWithAuth,
-      pushSession,
-      setUsername,
-      setCurrentPath,
+      pushAuthSession,
       session,
       findMachineUsers,
       enterFtpMode,
