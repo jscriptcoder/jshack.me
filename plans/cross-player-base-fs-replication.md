@@ -1,6 +1,6 @@
 # Plan: Cross-Player Base FS Replication + Server-Authoritative Auth + CVE Read Endpoint
 
-**Status**: Active — PR 1 ✅ merged; PR 2 in progress
+**Status**: Active — PR 1 ✅ merged; PR 2 ready for review (steps 1-11 ✅, step 12 deferred)
 **Started**: 2026-05-07
 **Current branch (PR 2)**: feat/cpbfs-pr2-server-auth
 **Estimate**: 7 PRs, ~3-4 weeks total
@@ -85,7 +85,7 @@ Subsequent PRs in this chunk extend the same pattern to FTP / MySQL / Redis / nc
 | PR  | Status                             | Goal                                                                 |
 | --- | ---------------------------------- | -------------------------------------------------------------------- |
 | 1   | ✅ Merged (#124, commit `699f5f7`) | Foundation — workstations seed migration + projection list extension |
-| 2   | In progress (this branch)          | Server-authoritative auth — SSH / SCP / `su`                         |
+| 2   | Ready for review                   | Server-authoritative auth — SSH / SCP / `su`                         |
 | 3   | Pending PR 2                       | Server-authoritative auth — FTP                                      |
 | 4   | Pending PR 2                       | Server-authoritative auth — MySQL / Redis / SNMP                     |
 | 5   | Pending PR 1                       | Backdoor connect (nc) — cross-player tier from projected pidfile     |
