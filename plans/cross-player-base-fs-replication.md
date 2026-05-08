@@ -64,6 +64,18 @@ These are open questions. Do NOT decide them implicitly inside this chunk.
 - **`apt upgrade` on cross-player machines**: gameplay question. Should A be able to patch B's vulnerable service after rooting? Falls under Category A flows once decided.
 - **Hydra strategy — client iterates vs server iterates**: decided as part of PR 7 once SSH/FTP server-auth endpoints are in place; either approach is implementable.
 
+## Accepted regression: cross-player log writes overwrite
+
+**Status (decided 2026-05-09)**: PR 2 enables cross-player SSH/SCP/`su` login, which fires auth-log writes (`/var/log/auth.log`) on the target machine. Because A's local cache for B's machine doesn't yet contain B's full `/var/log/auth.log` content (cross-player base FS replication is PR 6's scope), `appendToMachineLog`'s client-side read-modify-write reads `null` → falls into the "create new file" branch → upserts a patch row with ONLY the new entry. The patch broadcasts to B; B's existing log content is overwritten with just A's login entry.
+
+This is the same gap that motivates PR 6 — every cross-player file read goes through A's incomplete local cache. Auth log is the first symptom to surface because PR 2 is the first feature that triggers cross-player file writes from A's tab.
+
+**Why we accept it here, not solve it here**: an in-PR-2 server-side fix (option C in the discussion — move auth-log generation into `handleAuthCreateSession`) would solve this single case but leave every other cross-player write with the same shape (`~/.ssh_keys`, future log files, manual `>>` redirects, etc.). PR 6's eager bulk-fetch on session establish populates A's cache with B's full base FS at session-create time, after which client-side read-modify-write merges correctly for ALL paths. Solving auth-log alone is duplicate work.
+
+**Known concurrent-write race remains after PR 6**: even with PR 6's cache-consistency fix, two clients writing the same file simultaneously can clobber each other (A reads → B writes → A appends-to-stale → A's write overwrites B's). For `auth.log` specifically this is rare (sparse login events). For high-frequency logs (`hydra.log`, syslog under attack), a server-side log-append endpoint becomes the right answer. Defer until those flows are stress-tested.
+
+**Resume signal**: after PR 6 ships and `scripts/testServerAuth.ts` is extended with a "post-login auth.log read returns prior + new entry" assertion, the regression closes.
+
 ## Accepted regression: mission machines
 
 **Status (decided 2026-05-08)**: PR 2 introduces a known regression for mission machines. **Accepted; will be resolved by the upcoming mission rework, not by this chunk.**
