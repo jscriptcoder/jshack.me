@@ -57,10 +57,13 @@ export const createSessionSignedPayloadSchema = z
     credentials: credentialsSchema,
     parent_session_id: z.string().uuid().optional(),
     source_ip: z.string().min(1).max(256).optional(),
-    // Optional — defaulted to 'ssh' server-side when absent. This keeps
-    // existing pushSession callers (SSH/su/exploit) working unchanged
-    // while letting protocol sessions specify their kind explicitly.
-    kind: z.enum(SESSION_KINDS).optional(),
+    // Required as of PR 2 step 5 of plans/cross-player-base-fs-
+    // replication.md. Previously optional with a server-side default
+    // of 'ssh' for back-compat with early pushSession callers; now all
+    // callers must specify kind explicitly. Auth-required kinds
+    // (ssh/scp/su) sent here are rejected by the handler with 403
+    // use_authcreatesession — they must use authCreateSession.
+    kind: z.enum(SESSION_KINDS),
   })
   .strict();
 

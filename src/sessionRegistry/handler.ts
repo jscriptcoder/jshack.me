@@ -1,5 +1,7 @@
 import {
+  AUTH_REQUIRED_KINDS,
   sessionsSignedPayloadSchema,
+  type AuthRequiredKind,
   type EndSessionParams,
   type EndSessionResult,
   type InsertSessionResult,
@@ -113,12 +115,25 @@ const dispatchAction = async (
   }
 };
 
+const isAuthRequiredKind = (kind: string): kind is AuthRequiredKind =>
+  (AUTH_REQUIRED_KINDS as readonly string[]).includes(kind);
+
 const handleCreateSession = async (
   publicKey: string,
   payload: Extract<SessionsPayload, { action: 'createSession' }>,
   deps: HandlerDeps,
 ): Promise<HandlerResponse> => {
   const { machine_id, credentials, parent_session_id, source_ip, kind } = payload;
+
+  // PR 2 step 5: auth-required kinds (ssh/scp/su) cannot mint sessions
+  // through createSession — those must prove credentials via
+  // authCreateSession. Closing this hole prevents a forge caller from
+  // claiming userType:'root' for username='root' (matches /etc/passwd,
+  // bypasses the userType-validation branch below) without ever
+  // proving the password.
+  if (isAuthRequiredKind(kind)) {
+    return { status: 403, body: { error: 'use_authcreatesession' } };
+  }
 
   // Server-side userType validation. Read the live /etc/passwd content
   // for the target machine and derive the canonical userType for the
@@ -149,11 +164,7 @@ const handleCreateSession = async (
     player_key: publicKey,
     machine_id,
     credentials,
-    // Default to 'ssh' for back-compat with existing pushSession
-    // callers that predate the kind field. Protocol/transient sessions
-    // (FTP/mysql/redis/scp/snmp/effect_one_shot) MUST set kind
-    // explicitly so rehydration excludes them from the shell chain.
-    kind: kind ?? 'ssh',
+    kind,
     ...(parent_session_id !== undefined && { parent_session_id }),
     ...(source_ip !== undefined && { source_ip }),
   };

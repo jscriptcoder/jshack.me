@@ -233,7 +233,19 @@ describe('existing createSession arm continues to parse (regression)', () => {
       ...baseEnvelope,
       machine_id: 'target-host',
       credentials: { username: 'alice', userType: 'user' },
+      kind: 'exploit',
     });
     expect(result.action).toBe('createSession');
+  });
+
+  it('rejects createSession without kind (now required)', () => {
+    expect(() =>
+      sessionsSignedPayloadSchema.parse({
+        action: 'createSession',
+        ...baseEnvelope,
+        machine_id: 'target-host',
+        credentials: { username: 'alice', userType: 'user' },
+      }),
+    ).toThrow();
   });
 });

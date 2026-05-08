@@ -42,6 +42,11 @@ const makeEnvelope = (
     action: 'createSession',
     machine_id: '10.0.0.1',
     credentials: { username: 'root', userType: 'root' },
+    // exploit is a non-auth-required kind (signed-envelope tier-trust);
+    // stays valid for createSession after PR 2 step 5 closes the bypass
+    // hole on auth-required kinds (ssh/scp/su) — those must use
+    // authCreateSession instead.
+    kind: 'exploit',
   },
 ) => {
   const realNow = Date.now;
@@ -117,14 +122,11 @@ describe('handleSessionsRequest — createSession', () => {
       player_key: identity.publicKeyHex,
       machine_id: '10.0.0.1',
       credentials: { username: 'root', userType: 'root' },
-      // Defaulted server-side when payload omits kind — back-compat
-      // for existing pushSession callers (SSH/su/exploit). Pinned
-      // here so a regression that drops the default surfaces loudly.
-      kind: 'ssh',
+      kind: 'exploit',
     });
   });
 
-  it('passes through explicit kind (e.g., ftp) instead of defaulting to ssh', async () => {
+  it('passes through explicit kind (e.g., ftp)', async () => {
     const insertSession = vi
       .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
       .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
@@ -140,8 +142,52 @@ describe('handleSessionsRequest — createSession', () => {
     expect(insertSession).toHaveBeenCalledWith(expect.objectContaining({ kind: 'ftp' }));
   });
 
+  it('rejects with 400 when kind is omitted (now required, no default)', async () => {
+    // PR 2 step 5: kind became required at the schema level. The previous
+    // server-side fallback to 'ssh' was a back-compat shim for early
+    // pushSession callers; after this change, all callers specify kind
+    // explicitly.
+    const insertSession = vi
+      .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+      .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+    const envelope = makeEnvelope(identity, {
+      action: 'createSession',
+      machine_id: '10.0.0.1',
+      credentials: { username: 'root', userType: 'root' },
+      // intentionally no kind
+    });
+    const result = await handleSessionsRequest(envelope, mkDeps({ insertSession }));
+    expect(result.status).toBe(400);
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  describe.each(['ssh', 'scp', 'su'] as const)(
+    'rejects createSession with auth-required kind=%s',
+    (authKind) => {
+      it('returns 403 use_authcreatesession and does NOT insert', async () => {
+        // PR 2 step 5: closing the bypass hole. Auth-required kinds must
+        // route through authCreateSession (which validates against
+        // /etc/passwd). createSession with these kinds would let a forge
+        // caller mint a session row without proving credentials.
+        const insertSession = vi
+          .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+          .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+        const envelope = makeEnvelope(identity, {
+          action: 'createSession',
+          machine_id: '10.0.0.1',
+          credentials: { username: 'root', userType: 'root' },
+          kind: authKind,
+        });
+        const result = await handleSessionsRequest(envelope, mkDeps({ insertSession }));
+        expect(result.status).toBe(403);
+        expect(result.body).toEqual({ error: 'use_authcreatesession' });
+        expect(insertSession).not.toHaveBeenCalled();
+      });
+    },
+  );
+
   it('rejects with 400 when client supplies an unknown kind value', async () => {
-    // Strict zod enum — only the 9 declared kinds are valid wire values.
+    // Strict zod enum — only the declared kinds are valid wire values.
     const envelope = makeEnvelope(identity, {
       action: 'createSession',
       machine_id: '10.0.0.1',
@@ -160,6 +206,7 @@ describe('handleSessionsRequest — createSession', () => {
       action: 'createSession',
       machine_id: '10.0.0.5',
       credentials: { username: 'alice', userType: 'user' },
+      kind: 'exploit',
       parent_session_id: '99999999-aaaa-4bbb-8ccc-dddddddddddd',
       source_ip: '10.0.0.1',
     });
@@ -189,6 +236,7 @@ describe('handleSessionsRequest — createSession', () => {
         action: 'createSession',
         machine_id: '10.0.0.1',
         credentials: { username: 'alice', userType: 'root' },
+        kind: 'exploit',
       });
       const insertSession = vi
         .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
@@ -206,6 +254,7 @@ describe('handleSessionsRequest — createSession', () => {
         action: 'createSession',
         machine_id: '10.0.0.1',
         credentials: { username: 'eve', userType: 'user' },
+        kind: 'exploit',
       });
       const insertSession = vi
         .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
@@ -261,6 +310,7 @@ describe('handleSessionsRequest — createSession', () => {
         action: 'createSession',
         machine_id: 'mission-router-42',
         credentials: { username: 'alice', userType: 'root' },
+        kind: 'exploit',
       });
       const findEtcPasswdContent = vi
         .fn<(params: FindEtcPasswdContentParams) => Promise<FindEtcPasswdContentResult>>()
@@ -306,6 +356,7 @@ describe('handleSessionsRequest — createSession', () => {
         action: 'createSession',
         machine_id: '10.0.0.1',
         credentials: { username: 'guest', userType: 'root' },
+        kind: 'exploit',
       });
       const insertSession = vi
         .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
