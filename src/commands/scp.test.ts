@@ -165,7 +165,7 @@ describe('scp', () => {
     expect(followUp?.targetIP).toBe('192.168.1.50');
 
     // Simulate successful password → perform the transfer (second async phase)
-    const transferAsync = followUp!.performTransfer();
+    const transferAsync = followUp!.performTransfer({ method: 'password', password: 'pw' });
     expect(transferAsync.__type).toBe('async');
     const transferLines = runAsync(transferAsync);
 
@@ -196,7 +196,7 @@ describe('scp', () => {
     });
     const result = scp.fn('/usr/bin/nmap', 'guest@192.168.1.50:/home/guest/nmap') as AsyncOutput;
     const { followUp } = runAsync(result);
-    const transferAsync = followUp!.performTransfer();
+    const transferAsync = followUp!.performTransfer({ method: 'password', password: 'pw' });
     runAsync(transferAsync);
 
     expect(createdFiles[0]?.permissions).toEqual(customPerms);
@@ -215,7 +215,7 @@ describe('scp', () => {
     });
     const result = scp.fn('/usr/bin/nmap', 'guest@192.168.1.50:/home/guest') as AsyncOutput;
     const { followUp } = runAsync(result);
-    const transferAsync = followUp!.performTransfer();
+    const transferAsync = followUp!.performTransfer({ method: 'password', password: 'pw' });
     runAsync(transferAsync);
 
     expect(createdFiles[0]?.path).toBe('/home/guest/nmap');
@@ -306,7 +306,7 @@ describe('scp', () => {
 
     expect(followUp?.targetPort).toBe(25);
 
-    const transferAsync = followUp!.performTransfer();
+    const transferAsync = followUp!.performTransfer({ method: 'password', password: 'pw' });
     runAsync(transferAsync);
 
     // File is created on the internal machine behind port 25, not the router
@@ -356,7 +356,7 @@ describe('scp', () => {
     // Follow-up still shows the public IP for display
     expect(followUp?.targetIP).toBe('45.33.100.1');
 
-    const transferAsync = followUp!.performTransfer();
+    const transferAsync = followUp!.performTransfer({ method: 'password', password: 'pw' });
     runAsync(transferAsync);
 
     // File is created on the internal machine, not the router

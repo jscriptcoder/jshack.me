@@ -1,20 +1,25 @@
 import type { Command, AsyncOutput, ScpPromptData } from '../components/Terminal/types';
 import type { FileNode, MachineCreateOp, PermissionResult } from '../filesystem/types';
 import type { RemoteMachine } from '../network/types';
-import type { Credentials } from '../sessionRegistry/types';
+import type { AuthMethod } from '../sessionRegistry/types';
+import type { WithTransientAuthSessionResult } from '../session/withTransientAuthSession';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
-// Transient-session wrapper: pushes a server session row, runs the
-// body, ends the session. Required post-Step-1 because scp's write
-// to the remote machine (via createFileOnMachine) creates a patch
-// that the L1 patch-validation gate rejects (403) without an active
-// session for the player on that machine. Optional to keep existing
-// tests that don't care about session pushing — production callers
-// in useNetworkCommands MUST supply it.
-export type ScpTransientSession = (
-  params: { readonly machine_id: string; readonly credentials: Credentials },
+// Transient auth-required session wrapper: validates credentials
+// against /etc/passwd via authCreateSession, runs the body inside the
+// resulting session, ends the session. Replaces the previous
+// withTransientSession (kind='scp' is now auth-required per PR 2 step 5
+// of plans/cross-player-base-fs-replication.md). Optional to keep
+// existing tests that don't care about session pushing — production
+// callers in useNetworkCommands MUST supply it.
+export type ScpTransientAuthSession = (
+  params: {
+    readonly machine_id: string;
+    readonly username: string;
+    readonly auth: AuthMethod;
+  },
   body: () => void,
-) => Promise<void>;
+) => Promise<WithTransientAuthSessionResult<void>>;
 
 type ScpContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
@@ -26,7 +31,7 @@ type ScpContext = {
   readonly getNodeFromMachine: (machineId: string, path: string, cwd: string) => FileNode | null;
   readonly createFileOnMachine: (op: MachineCreateOp) => PermissionResult;
   readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
-  readonly withTransientSession?: ScpTransientSession;
+  readonly withTransientAuthSession?: ScpTransientAuthSession;
 };
 
 // Parses "user@host:path" into components
@@ -205,8 +210,13 @@ export const createScpCommand = (context: ScpContext): Command => ({
 
     const PROGRESS_STEP_MS = 350;
 
-    // Returns an async transfer animation — called after password validation
-    const performTransfer = (): AsyncOutput => {
+    // Returns an async transfer animation. Called by the SCP-prompt
+    // handler with an auth method (password or saved-key fingerprint).
+    // Server validates the auth via authCreateSession + creates a
+    // transient kind='scp' session in one round-trip; transfer body
+    // runs inside that session for L1 enforcement on the patch write.
+    // PR 2 step 8 of plans/cross-player-base-fs-replication.md.
+    const performTransfer = (auth: AuthMethod): AsyncOutput => {
       const transferToken = createCancellationToken();
 
       return {
@@ -252,17 +262,27 @@ export const createScpCommand = (context: ScpContext): Command => ({
               }
             };
 
-            if (context.withTransientSession) {
+            if (context.withTransientAuthSession) {
               void context
-                .withTransientSession(
+                .withTransientAuthSession(
                   {
                     machine_id: resolvedHost,
-                    credentials: { username: dest.user, userType: remoteUser.userType },
+                    username: dest.user,
+                    auth,
                   },
                   doTransfer,
                 )
+                .then((result) => {
+                  if (!result.ok) {
+                    onLine(
+                      result.reason === 'invalid_credentials'
+                        ? `${dest.user}@${dest.host}: Permission denied (publickey,password).`
+                        : `scp: ${dest.host}: rate limited`,
+                    );
+                  }
+                })
                 .catch((error) => {
-                  console.error('[scp] transient session push failed:', error);
+                  console.error('[scp] transient auth session failed:', error);
                   onLine(`scp: ${destPath}: session error`);
                 })
                 .finally(() => {

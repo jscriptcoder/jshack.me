@@ -24,6 +24,7 @@ import { createHydraCommand } from '../commands/hydra';
 import { createGobusterCommand } from '../commands/gobuster';
 import { createScpCommand } from '../commands/scp';
 import { withTransientSession } from '../session/withTransientSession';
+import { withTransientAuthSession } from '../session/withTransientAuthSession';
 import { getIdentity } from '../identity';
 import { createDigCommand } from '../commands/dig';
 import { createSnmpwalkCommand } from '../commands/snmpwalk';
@@ -718,13 +719,14 @@ export const useNetworkCommands = (): Map<string, Command> => {
             // the wrapping endSession only fires after in-flight upserts
             // settle — otherwise endSession can race the patch and the
             // patch hits 403 no_session via the L1 gate.
-            withTransientSession: (params, body) =>
-              withTransientSession(
+            withTransientAuthSession: (params, body) =>
+              withTransientAuthSession(
                 getIdentity(),
                 {
                   machine_id: params.machine_id,
-                  credentials: params.credentials,
                   kind: 'scp',
+                  username: params.username,
+                  auth: params.auth,
                   ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
                   source_ip: session.machine,
                 },

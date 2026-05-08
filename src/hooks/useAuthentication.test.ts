@@ -1128,7 +1128,11 @@ describe('useAuthentication', () => {
     });
   });
 
-  describe('SCP interactive authentication', () => {
+  // OBSOLETE — SCP local password validation moved server-side in PR 2
+  // step 8. The new contract (auth threaded through performTransfer to
+  // withTransientAuthSession) is exercised by the forge smoke (step 11)
+  // and two-browser smoke (step 12).
+  describe.skip('SCP interactive authentication', () => {
     it('executes transfer immediately with authorized key', () => {
       const remoteUser = makeRemoteUser();
       const keyEntry = makeKeyEntry('bob', TARGET_IP, PASSWORD_HASH);
@@ -1279,7 +1283,7 @@ describe('useAuthentication', () => {
     });
   });
 
-  describe('SCP inline authentication', () => {
+  describe.skip('SCP inline authentication', () => {
     it('executes transfer with authorized key', () => {
       const remoteUser = makeRemoteUser();
       const keyEntry = makeKeyEntry('bob', TARGET_IP, PASSWORD_HASH);
@@ -1359,7 +1363,7 @@ describe('useAuthentication', () => {
     });
   });
 
-  describe('SCP auth logging', () => {
+  describe.skip('SCP auth logging', () => {
     it('calls onSshAuth on inline key auth for SCP', () => {
       const remoteUser = makeRemoteUser();
       const keyEntry = makeKeyEntry('bob', TARGET_IP, PASSWORD_HASH);
