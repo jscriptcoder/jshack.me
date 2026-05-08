@@ -29,7 +29,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { generateIdentity } from '../src/identity/identity';
 import { signRequest } from '../src/signedRequest/sign';
-import { deriveHostnameSuffix } from '../src/homeNetworks/homeNetworkHelpers';
+import { computeWorkstationId } from '../src/homeNetworks/homeNetworkHelpers';
 import { md5 } from '../src/utils/md5';
 
 const url = process.env.SUPABASE_URL;
@@ -56,7 +56,7 @@ const workstationName = 'auth-smoke-box';
 const username = 'alice';
 const seed = '0123456789abcdef';
 const rootPassword = 'auth-smoke-rootpw';
-const machineId = `${workstationName}-${deriveHostnameSuffix(identity.publicKeyHex)}`;
+const machineId = computeWorkstationId(workstationName, identity.publicKeyHex);
 const targetIp = '10.0.0.5';
 
 // Cleanup any leftover state from a prior aborted run BEFORE the test.

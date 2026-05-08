@@ -23,7 +23,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { generateIdentity, type Identity } from '../src/identity/identity';
 import { signRequest } from '../src/signedRequest/sign';
-import { deriveHostnameSuffix } from '../src/homeNetworks/homeNetworkHelpers';
+import { computeWorkstationId } from '../src/homeNetworks/homeNetworkHelpers';
 
 const url = process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -53,7 +53,7 @@ try {
 const owner = generateIdentity();
 const workstationName = 'l2-probe-box';
 const username = 'probealice';
-const workstationId = `${workstationName}-${deriveHostnameSuffix(owner.publicKeyHex)}`;
+const workstationId = computeWorkstationId(workstationName, owner.publicKeyHex);
 
 // Cleanup any leftover state from a prior aborted run.
 await sb.from('sessions').delete().eq('machine_id', workstationId);

@@ -1,5 +1,5 @@
 import { generateLocalhost } from '../generation/generateLocalhost';
-import { deriveHostnameSuffix } from '../homeNetworks/homeNetworkHelpers';
+import { computeWorkstationId } from '../homeNetworks/homeNetworkHelpers';
 import { flattenFileSystemsToRows, type MachineFsRow } from './flattenFileNode';
 
 // Server-side base-FS regen for the player's own workstation. Mirror of
@@ -37,7 +37,12 @@ export type RegenWorkstationInput = {
 };
 
 export const regenWorkstationRows = (input: RegenWorkstationInput): readonly MachineFsRow[] => {
-  const machineId = `${input.workstationName}-${deriveHostnameSuffix(input.playerKey)}`;
+  // computeWorkstationId mirrors the client's computePlayerHostname —
+  // both prepend 'ed25519:' before hashing. Using deriveHostnameSuffix
+  // directly with raw playerKey would produce a different suffix and
+  // make the server-stored machine_id diverge from the client's
+  // session.machine. See homeNetworkHelpers.ts for the rationale.
+  const machineId = computeWorkstationId(input.workstationName, input.playerKey);
   const result = generateLocalhost(
     {
       seed: input.seed,

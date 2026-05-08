@@ -69,10 +69,20 @@ export const deriveHostnameSuffix = (playerKey: string): string => {
 // permanent property of the player's machine — not a function of which
 // LAN they're on. Real laptops don't rename themselves on WiFi connect.
 
-export const computePlayerHostname = (workstationName: string, identity: Identity): string => {
-  const playerKey = `ed25519:${identity.publicKeyHex}`;
-  return `${workstationName}-${deriveHostnameSuffix(playerKey)}`;
-};
+export const computePlayerHostname = (workstationName: string, identity: Identity): string =>
+  computeWorkstationId(workstationName, identity.publicKeyHex);
+
+// Canonical workstation_id from raw publicKeyHex (no 'ed25519:' prefix
+// at the call site — this helper applies it). The CLIENT uses
+// computePlayerHostname (above), which delegates here. Server-side
+// callers (regenWorkstationRows, smoke scripts that need to predict
+// the machine_id stored under) MUST go through this same helper, or
+// the suffix will diverge between client (prefixed sha256) and server
+// (raw sha256). That divergence was the root cause of cross-player
+// authCreateSession returning 401 on a player's own workstation —
+// surfaced during PR 2 step 12 smoke and fixed here.
+export const computeWorkstationId = (workstationName: string, playerKeyHex: string): string =>
+  `${workstationName}-${deriveHostnameSuffix(`ed25519:${playerKeyHex}`)}`;
 
 // ---------------------------------------------------------------------
 // isOwnWorkstation
