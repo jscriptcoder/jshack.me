@@ -758,22 +758,31 @@ export const useAuthentication = ({
       let scpTransferAsync: AsyncOutput | undefined;
 
       // SSH: server-authoritative auth (PR 2 of plans/cross-player-base-fs-
-      // replication.md). Bypasses local validatePassword — fires
-      // loginSshWithAuth which awaits pushAuthSession, then renders
-      // "Connected" or "Permission denied" based on the server response.
+      // replication.md). Returned as AsyncOutput so the Terminal hides
+      // the prompt during the server round-trip — otherwise the prompt
+      // reverts to the prior user/state for the ~100-300 ms gap and the
+      // user sees nothing happen between password submit and the
+      // "Connected" / "Permission denied" line.
       if (sshTargetIP && targetUser) {
         const user = targetUser;
         const ip = sshTargetIP;
         const port = sshTargetPort ?? 22;
-        // Clear prompt state synchronously — the async server call
-        // resolves later, and we don't want the prompt sticking around.
+        // Clear prompt state synchronously.
         setSshTargetIP(null);
         setSshTargetPort(null);
         setTargetUser(null);
         setPasswordMode(false);
-        void loginSshWithAuth(user, ip, port, { method: 'password', password: input });
         clearInput();
-        return undefined;
+        return {
+          __type: 'async',
+          start: (onLine, onComplete) => {
+            onLine(`Authenticating as ${user}...`);
+            void loginSshWithAuth(user, ip, port, {
+              method: 'password',
+              password: input,
+            }).finally(() => onComplete());
+          },
+        };
       }
 
       // SCP: server-authoritative auth via withTransientAuthSession (PR 2
@@ -797,8 +806,9 @@ export const useAuthentication = ({
       // No prompt-state-specific machine_id (mysql/scp/ssh/ftp targets
       // would have been handled above) — su targets the CURRENT machine,
       // promoting (or sidegrading) to a different user on the same box.
-      // userType comes from the server's parse of /etc/passwd, NOT from
-      // the local user list. pushAuthSession commits state on ok.
+      // Returned as AsyncOutput so the Terminal hides the prompt during
+      // the server round-trip; otherwise the prompt momentarily reverts
+      // to the prior user before the new session commits.
       if (
         targetUser &&
         !mysqlTargetIP &&
@@ -812,31 +822,37 @@ export const useAuthentication = ({
         setTargetUser(null);
         setPasswordMode(false);
         clearInput();
-        void pushAuthSession(
-          'su',
-          {
-            machine: session.machine,
-            hostname: session.hostname,
-            username: user,
-            currentPath: homePath,
+        return {
+          __type: 'async',
+          start: (onLine, onComplete) => {
+            onLine(`Authenticating as ${user}...`);
+            void pushAuthSession(
+              'su',
+              {
+                machine: session.machine,
+                hostname: session.hostname,
+                username: user,
+                currentPath: homePath,
+              },
+              { method: 'password', password: input },
+            )
+              .then((result) => {
+                if (result.ok) {
+                  addLine('result', `Switched to user: ${user}`);
+                  onSuAuth?.(true, user);
+                } else {
+                  addLine('error', 'su: Authentication failure');
+                  onSuAuth?.(false, user);
+                }
+              })
+              .catch((error) => {
+                console.error('[useAuthentication] su pushAuthSession threw:', error);
+                addLine('error', 'su: Authentication failure');
+                onSuAuth?.(false, user);
+              })
+              .finally(() => onComplete());
           },
-          { method: 'password', password: input },
-        )
-          .then((result) => {
-            if (result.ok) {
-              addLine('result', `Switched to user: ${user}`);
-              onSuAuth?.(true, user);
-            } else {
-              addLine('error', 'Authentication failure');
-              onSuAuth?.(false, user);
-            }
-          })
-          .catch((error) => {
-            console.error('[useAuthentication] su pushAuthSession threw:', error);
-            addLine('error', 'Authentication failure');
-            onSuAuth?.(false, user);
-          });
-        return undefined;
+        };
       }
 
       if (validatePassword(input)) {
