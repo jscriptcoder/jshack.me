@@ -665,8 +665,13 @@ export const useAuthentication = ({
       const resolvedIp = resolveNat(ftpTargetIP, 21).ip;
       const users = findMachineUsers(resolvedIp);
 
-      const remoteUser = users.find((u) => u.username === username);
-      if (!remoteUser) {
+      // Cross-player parity (mirrors ssh.ts): skip the local username
+      // pre-check when users[] is empty. Cross-player workstations come
+      // through with empty users[] (the user list isn't replicated) — the
+      // server is the authority. When users[] is populated (own machines,
+      // home/world NPC machines), a known-bad username can still be
+      // shortcut here so the player doesn't waste a password prompt.
+      if (users.length > 0 && !users.some((u) => u.username === username)) {
         addLine('error', '530 Login incorrect.');
         onFtpAuth?.({ success: false, user: username, targetIP: ftpTargetIP, port: 21 });
         setFtpTargetIP(null);
