@@ -144,6 +144,16 @@ describe('authCreateSession schema arm', () => {
     ).not.toThrow();
   });
 
+  it.each(['mysql', 'redis', 'snmp'] as const)('accepts kind=%s (added in PR 4)', (kind) => {
+    expect(() =>
+      sessionsSignedPayloadSchema.parse({
+        ...baseAuthCreateSession,
+        kind,
+        auth: passwordAuth,
+      }),
+    ).not.toThrow();
+  });
+
   it('rejects kind=exploit (uses createSession with signed-envelope tier trust)', () => {
     expect(() =>
       sessionsSignedPayloadSchema.parse({

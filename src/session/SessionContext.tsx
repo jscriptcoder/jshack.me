@@ -190,6 +190,18 @@ type SessionContextValue = {
     destination: AuthPushDestination,
     auth: AuthMethod,
   ) => Promise<AuthCreateSessionResult>;
+  // PR 4 — Server-authoritative MySQL auth + session creation.
+  readonly authCreateMysqlSession: (
+    destination: AuthPushDestination,
+    auth: AuthMethod,
+  ) => Promise<AuthCreateSessionResult>;
+  // PR 4 — Server-authoritative Redis auth. Sentinel username='redis'
+  // is added inside the helper; callers only supply machine_id and
+  // password.
+  readonly authCreateRedisSession: (
+    machineId: string,
+    auth: AuthMethod,
+  ) => Promise<AuthCreateSessionResult>;
   readonly popSession: () => SessionSnapshot | null;
   readonly canReturn: () => boolean;
   readonly enterFtpMode: (ftpSession: FtpSession) => void;
@@ -700,6 +712,38 @@ export const SessionProvider = ({ children, hostname, username }: SessionProvide
     [session.sessionId, session.machine],
   );
 
+  // PR 4 — Server-authoritative MySQL auth. userType comes from
+  // /var/lib/mysql/data.json on the server; client never claims it.
+  const authCreateMysqlSession = useCallback(
+    async (destination: AuthPushDestination, auth: AuthMethod): Promise<AuthCreateSessionResult> =>
+      authCreateServerSession(getIdentity(), {
+        machine_id: destination.machine,
+        kind: 'mysql',
+        username: destination.username,
+        auth,
+        ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
+        source_ip: session.machine,
+      }),
+    [session.sessionId, session.machine],
+  );
+
+  // PR 4 — Server-authoritative Redis auth. Redis is shared-secret with
+  // no username concept; we send the sentinel 'redis' so the wire payload
+  // satisfies the schema's min(1) constraint. Server validates against
+  // /etc/redis/redis.conf's requirepass.
+  const authCreateRedisSession = useCallback(
+    async (machineId: string, auth: AuthMethod): Promise<AuthCreateSessionResult> =>
+      authCreateServerSession(getIdentity(), {
+        machine_id: machineId,
+        kind: 'redis',
+        username: 'redis',
+        auth,
+        ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
+        source_ip: session.machine,
+      }),
+    [session.sessionId, session.machine],
+  );
+
   // Captures the current FtpSession, clears local state, and ends the
   // server session if one was successfully pushed. If the push hadn't
   // resolved yet (no sessionId), the row is orphaned — see
@@ -785,28 +829,14 @@ export const SessionProvider = ({ children, hostname, username }: SessionProvide
   // need a session row to exist — the userType isn't checked. We default
   // to 'user'; the future L2 (permission walking) PR will need a real
   // mapping.
-  const enterMysqlMode = useCallback(
-    (newMysqlSession: MysqlSession) => {
-      setMysqlSession(newMysqlSession);
-      void createServerSession(getIdentity(), {
-        machine_id: newMysqlSession.machineId,
-        credentials: {
-          username: newMysqlSession.username,
-          userType: 'user',
-        },
-        ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
-        source_ip: session.machine,
-        kind: 'mysql',
-      })
-        .then((sessionId) => {
-          setMysqlSession((prev) => (prev !== null ? { ...prev, sessionId } : prev));
-        })
-        .catch((error) => {
-          console.error('[session] mysql createServerSession failed:', error);
-        });
-    },
-    [session.sessionId, session.machine],
-  );
+  // PR 4 — server-authoritative MySQL auth. authCreateMysqlSession is the
+  // pre-step (validates credentials + creates the session row). This
+  // function only sets local MysqlSession state. The caller must have
+  // already obtained a sessionId via authCreateMysqlSession and stamped
+  // it on the MysqlSession before calling here.
+  const enterMysqlMode = useCallback((newMysqlSession: MysqlSession) => {
+    setMysqlSession(newMysqlSession);
+  }, []);
 
   const exitMysqlMode = useCallback((): MysqlSession | null => {
     const current = mysqlSession;
@@ -824,30 +854,14 @@ export const SessionProvider = ({ children, hostname, username }: SessionProvide
 
   const isInMysqlMode = useCallback(() => mysqlSession !== null, [mysqlSession]);
 
-  // RedisSession has no username field — redis in this game is
-  // password-only AUTH (newer ACL-with-username not modeled). For the
-  // L1 gate we synthesize 'redis' as the username and default
-  // userType: 'user'. Future L2 PR will need a real mapping if
-  // permissions become enforced.
-  const enterRedisMode = useCallback(
-    (newRedisSession: RedisSession) => {
-      setRedisSession(newRedisSession);
-      void createServerSession(getIdentity(), {
-        machine_id: newRedisSession.machineId,
-        credentials: { username: 'redis', userType: 'user' },
-        ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
-        source_ip: session.machine,
-        kind: 'redis',
-      })
-        .then((sessionId) => {
-          setRedisSession((prev) => (prev !== null ? { ...prev, sessionId } : prev));
-        })
-        .catch((error) => {
-          console.error('[session] redis createServerSession failed:', error);
-        });
-    },
-    [session.sessionId, session.machine],
-  );
+  // PR 4 — server-authoritative Redis auth. authCreateRedisSession is the
+  // pre-step (validates requirepass + creates the session row). This
+  // function only sets local RedisSession state. Sentinel username=
+  // 'redis' lives inside the auth helper; userType is 'root' on the
+  // server side (Redis AUTH grants full keyspace access).
+  const enterRedisMode = useCallback((newRedisSession: RedisSession) => {
+    setRedisSession(newRedisSession);
+  }, []);
 
   const exitRedisMode = useCallback((): RedisSession | null => {
     const current = redisSession;
@@ -1038,6 +1052,8 @@ export const SessionProvider = ({ children, hostname, username }: SessionProvide
         pushSession,
         pushAuthSession,
         authCreateFtpSession,
+        authCreateMysqlSession,
+        authCreateRedisSession,
         popSession,
         canReturn,
         enterFtpMode,

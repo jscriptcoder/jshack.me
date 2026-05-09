@@ -102,18 +102,25 @@ export type ListSessionsPayload = z.infer<typeof listSessionsSignedPayloadSchema
 // Subset of SESSION_KINDS that authCreateSession accepts. Auth-required
 // kinds — those whose session creation MUST be gated by a credential
 // check against the server-projected credential file(s) on the target.
-// Other kinds (exploit, snmp, nc, effect_one_shot) keep using
-// `createSession` because their tier comes from a different trust source:
-// signed envelope (exploit), pidfile content (nc backdoor), or has no
-// credential concept (snmp community string is checked at the protocol
-// layer instead). MySQL/Redis migrate into this list in PR 4.
+// Other kinds (exploit, nc, effect_one_shot) keep using `createSession`
+// because their tier comes from a different trust source: signed
+// envelope (exploit) or pidfile content (nc backdoor).
 //
-// Per-kind credential file:
-//   ssh / scp / su → /etc/passwd (single-file flow).
+// Per-kind credential file + auth shape:
+//   ssh / scp / su → /etc/passwd (username + password OR savedKey).
 //   ftp            → /etc/vsftpd/virtual_users.conf overlay, falls back
-//                    to /etc/passwd; userType always derived from
-//                    /etc/passwd. Handler branches on kind.
-export const AUTH_REQUIRED_KINDS = ['ssh', 'scp', 'su', 'ftp'] as const;
+//                    to /etc/passwd; userType from /etc/passwd. password
+//                    only (savedKey rejected).
+//   mysql          → /var/lib/mysql/data.json (multi-user JSON);
+//                    userType comes from the JSON entry. password only.
+//   redis          → /etc/redis/redis.conf requirepass (shared secret;
+//                    no username concept — wire payload uses sentinel
+//                    `username:'redis'`); userType `'root'` on match.
+//   snmp           → /etc/snmp/snmpd.conf rwcommunity (shared secret;
+//                    sentinel `username:'snmp'`); userType `'root'` on
+//                    match (snmpset path; rocommunity stays read-only/
+//                    sessionless until /api/exploit-read in PR 7).
+export const AUTH_REQUIRED_KINDS = ['ssh', 'scp', 'su', 'ftp', 'mysql', 'redis', 'snmp'] as const;
 export type AuthRequiredKind = (typeof AUTH_REQUIRED_KINDS)[number];
 
 // Auth method — discriminated union on `method`. Mutual exclusion of

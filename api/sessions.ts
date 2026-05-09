@@ -14,6 +14,10 @@ import {
   createSupabaseFindVirtualUsersConfContent,
   type FindVirtualUsersConfContentParams,
 } from '../src/sessionRegistry/supabaseFindVirtualUsersConfContent.js';
+import {
+  createSupabaseFindFsContent,
+  type FindFsContentParams,
+} from '../src/sessionRegistry/supabaseFindFsContent.js';
 import type {
   EndSessionParams,
   ListSessionsParams,
@@ -158,6 +162,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     },
   );
 
+  // PR 4: generic (path-parameterized) FS content adapter used by the
+  // mysql / redis / snmp arms of authCreateSession. Reads from
+  // machine_filesystems where (machine_id, path) matches.
+  const findFsContent = createSupabaseFindFsContent(async (params: FindFsContentParams) => {
+    const { data, error } = await supabase
+      .from('machine_filesystems')
+      .select('content')
+      .eq('machine_id', params.machine_id)
+      .eq('path', params.path)
+      .limit(1);
+    if (error) console.error('[sessions] supabase findFsContent error:', error);
+    return { data, error };
+  });
+
   const { rateLimiter, nonceStore } = buildUpstashAdapters();
 
   const { status, body, headers } = await handleSessionsRequest(req.body, {
@@ -166,6 +184,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     listSessions,
     findEtcPasswdContent,
     findVirtualUsersConfContent,
+    findFsContent,
     rateLimiter,
     nonceStore,
   });

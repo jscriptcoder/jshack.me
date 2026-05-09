@@ -25,6 +25,7 @@
 // snapshot to every iteration ensures the index is identical across
 // regen calls in a single backfill pass.
 
+import './lib/loadEnv';
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { regenWorldNetworkRows } from '../src/machineFilesystems/populateWorldNetworkBaseFs';
