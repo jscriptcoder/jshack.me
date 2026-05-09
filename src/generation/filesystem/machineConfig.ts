@@ -32,7 +32,7 @@ import {
 import { generateRedisData } from '../generateRedisData';
 import { generateFtpVirtualUsers, formatVirtualUsersConf } from '../ftpCredentials';
 import type { SameLayerCredential } from './sameLayerCredentials';
-import { buildInfrastructurePidFiles } from './infraPidFiles';
+import { buildInfrastructurePidFiles, buildNcBackdoorPidFiles } from './infraPidFiles';
 import {
   placeCredentialLeak,
   placeCrossMachineCredentialLeak,
@@ -480,6 +480,10 @@ export const buildMachineConfig = (
   const hasSshPort = machine.remoteMachine.ports.some((p) => p.service === 'ssh' && p.open);
   const hasFtpPort = machine.remoteMachine.ports.some((p) => p.service === 'ftp' && p.open);
   const infraPidFiles = buildInfrastructurePidFiles(machine.remoteMachine.ports);
+  // PR 5 — NPC backdoors with a baked-in owner need a generation-time
+  // pidfile so cross-player nc-connect can read /var/run/nc-<port>.pid
+  // server-side. Without this, server returns 401 invalid_credentials.
+  const ncBackdoorPidFiles = buildNcBackdoorPidFiles(machine.remoteMachine.ports);
 
   // Malware PID file: placed on target machine so `ps` shows the malware process
   const malwarePidFile =
@@ -497,12 +501,14 @@ export const buildMachineConfig = (
     hasSshPort ||
     hasFtpPort ||
     Object.keys(infraPidFiles).length > 0 ||
+    Object.keys(ncBackdoorPidFiles).length > 0 ||
     Object.keys(malwarePidFile).length > 0;
   const varRunContent = hasPidFiles
     ? {
         ...(hasSshPort ? { [SSH_PID_FILE_NAME]: createSshdPidFileNode() } : {}),
         ...(hasFtpPort ? { [FTP_PID_FILE_NAME]: createVsftpdPidFileNode() } : {}),
         ...infraPidFiles,
+        ...ncBackdoorPidFiles,
         ...malwarePidFile,
       }
     : undefined;

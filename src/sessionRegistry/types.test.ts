@@ -29,6 +29,7 @@ const savedKeyAuth = {
   fingerprint: 'a'.repeat(32),
   targetIp: '10.0.0.5',
 };
+const pidfileAuth = { method: 'pidfile' as const, port: 4444 };
 
 describe('authCreateSession schema arm', () => {
   it('parses a valid envelope with password auth', () => {
@@ -160,6 +161,82 @@ describe('authCreateSession schema arm', () => {
         ...baseAuthCreateSession,
         kind: 'exploit',
         auth: passwordAuth,
+      }),
+    ).toThrow();
+  });
+
+  // PR 5 of plans/cross-player-base-fs-replication.md — pidfile auth
+  // method (third arm of authMethodSchema) for nc-connect to a backdoor.
+  // Server reads /var/run/nc-<port>.pid and derives credentials.
+  it('accepts kind=nc with method=pidfile (PR 5)', () => {
+    const result = sessionsSignedPayloadSchema.parse({
+      ...baseAuthCreateSession,
+      kind: 'nc',
+      auth: pidfileAuth,
+    });
+    expect(result.action).toBe('authCreateSession');
+    if (result.action === 'authCreateSession' && result.auth.method === 'pidfile') {
+      expect(result.auth.port).toBe(4444);
+      expect(result.kind).toBe('nc');
+    }
+  });
+
+  it('accepts pidfile method on existing kinds too — handler decides validity', () => {
+    expect(() =>
+      sessionsSignedPayloadSchema.parse({
+        ...baseAuthCreateSession,
+        kind: 'ssh',
+        auth: pidfileAuth,
+      }),
+    ).not.toThrow();
+  });
+
+  it('rejects pidfile method with no port', () => {
+    expect(() =>
+      sessionsSignedPayloadSchema.parse({
+        ...baseAuthCreateSession,
+        kind: 'nc',
+        auth: { method: 'pidfile' },
+      }),
+    ).toThrow();
+  });
+
+  it('rejects pidfile method with port out of range (low)', () => {
+    expect(() =>
+      sessionsSignedPayloadSchema.parse({
+        ...baseAuthCreateSession,
+        kind: 'nc',
+        auth: { method: 'pidfile', port: 0 },
+      }),
+    ).toThrow();
+  });
+
+  it('rejects pidfile method with port out of range (high)', () => {
+    expect(() =>
+      sessionsSignedPayloadSchema.parse({
+        ...baseAuthCreateSession,
+        kind: 'nc',
+        auth: { method: 'pidfile', port: 65536 },
+      }),
+    ).toThrow();
+  });
+
+  it('rejects pidfile method with non-integer port', () => {
+    expect(() =>
+      sessionsSignedPayloadSchema.parse({
+        ...baseAuthCreateSession,
+        kind: 'nc',
+        auth: { method: 'pidfile', port: 4444.5 },
+      }),
+    ).toThrow();
+  });
+
+  it('rejects pidfile method with extra fields (strict)', () => {
+    expect(() =>
+      sessionsSignedPayloadSchema.parse({
+        ...baseAuthCreateSession,
+        kind: 'nc',
+        auth: { method: 'pidfile', port: 4444, password: 'leaked' },
       }),
     ).toThrow();
   });

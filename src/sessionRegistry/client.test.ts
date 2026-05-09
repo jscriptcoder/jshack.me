@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { authCreateSession, createSession, endSession, listSessions } from './client';
+import {
+  authCreateNcSession,
+  authCreateSession,
+  createSession,
+  endSession,
+  listSessions,
+} from './client';
 import { generateIdentity, verify } from '../identity/identity';
 import { hexToBytes } from '../identity/hex';
 import { signedEnvelopeSchema } from '../signedRequest/types';
@@ -593,6 +599,157 @@ describe('authCreateSession', () => {
 
     await expect(authCreateSession(identity, baseRequest, fetchMock)).rejects.toThrow(
       'network failure',
+    );
+  });
+});
+
+describe('authCreateNcSession', () => {
+  // PR 5 of plans/cross-player-base-fs-replication.md — distinct wrapper
+  // because the nc-pidfile branch returns username + homePath alongside
+  // session_id and userType (server reads them from the pidfile content).
+
+  const baseRequest = {
+    machine_id: 'target-host',
+    port: 4444,
+  };
+
+  const ncOk = (body: object) =>
+    new Response(JSON.stringify(body), {
+      status: 201,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+  it('returns ok with session_id, username, userType, homePath on 201', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      ncOk({
+        session_id: STUB_SESSION_ID,
+        username: 'alice',
+        userType: 'user',
+        homePath: '/home/alice',
+      }),
+    );
+
+    const result = await authCreateNcSession(identity, baseRequest, fetchMock);
+
+    expect(result).toEqual({
+      ok: true,
+      session_id: STUB_SESSION_ID,
+      username: 'alice',
+      userType: 'user',
+      homePath: '/home/alice',
+    });
+  });
+
+  it('returns ok:false reason=invalid_credentials on 401', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(errResponse(401, { error: 'invalid_credentials' }));
+
+    const result = await authCreateNcSession(identity, baseRequest, fetchMock);
+
+    expect(result).toEqual({ ok: false, reason: 'invalid_credentials' });
+  });
+
+  it('returns ok:false reason=rate_limited on 429', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(errResponse(429, { error: 'rate_limited' }));
+
+    const result = await authCreateNcSession(identity, baseRequest, fetchMock);
+
+    expect(result).toEqual({ ok: false, reason: 'rate_limited' });
+  });
+
+  it('throws on 500', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(errResponse(500, { error: 'fs_lookup_failed' }));
+
+    await expect(authCreateNcSession(identity, baseRequest, fetchMock)).rejects.toThrow(/500/);
+  });
+
+  it('signs envelope with kind=nc, method=pidfile, sentinel username', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      ncOk({
+        session_id: STUB_SESSION_ID,
+        username: 'alice',
+        userType: 'user',
+        homePath: '/home/alice',
+      }),
+    );
+
+    await authCreateNcSession(identity, baseRequest, fetchMock);
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const env = JSON.parse(init.body as string) as { payload: string };
+    const payload = JSON.parse(env.payload) as Record<string, unknown>;
+    expect(payload.action).toBe('authCreateSession');
+    expect(payload.kind).toBe('nc');
+    expect(payload.username).toBe('nc');
+    expect(payload.auth).toEqual({ method: 'pidfile', port: 4444 });
+  });
+
+  it('passes parent_session_id and source_ip through', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      ncOk({
+        session_id: STUB_SESSION_ID,
+        username: 'alice',
+        userType: 'user',
+        homePath: '/home/alice',
+      }),
+    );
+
+    await authCreateNcSession(
+      identity,
+      {
+        ...baseRequest,
+        parent_session_id: '00000000-0000-0000-0000-000000000000',
+        source_ip: '192.168.1.10',
+      },
+      fetchMock,
+    );
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const env = JSON.parse(init.body as string) as { payload: string };
+    const payload = JSON.parse(env.payload) as Record<string, unknown>;
+    expect(payload.parent_session_id).toBe('00000000-0000-0000-0000-000000000000');
+    expect(payload.source_ip).toBe('192.168.1.10');
+  });
+
+  it('throws when 201 response is missing username', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      ncOk({
+        session_id: STUB_SESSION_ID,
+        userType: 'user',
+        homePath: '/home/alice',
+      }),
+    );
+
+    await expect(authCreateNcSession(identity, baseRequest, fetchMock)).rejects.toThrow(
+      /malformed response/,
+    );
+  });
+
+  it('throws when 201 response has invalid userType', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      ncOk({
+        session_id: STUB_SESSION_ID,
+        username: 'alice',
+        userType: 'admin',
+        homePath: '/home/alice',
+      }),
+    );
+
+    await expect(authCreateNcSession(identity, baseRequest, fetchMock)).rejects.toThrow(
+      /malformed response/,
     );
   });
 });

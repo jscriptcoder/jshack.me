@@ -863,6 +863,7 @@ const savedKeyAuth = (fingerprint: string, targetIp = TEST_TARGET_IP) => ({
   fingerprint,
   targetIp,
 });
+const pidfileAuth = (port: number) => ({ method: 'pidfile' as const, port });
 
 const authPasswdDep =
   (content: string | null = AUTH_TEST_ETC_PASSWD) =>
@@ -1818,6 +1819,275 @@ describe('handleSessionsRequest — authCreateSession', () => {
 
       expect(result.status).toBe(401);
     });
+  });
+
+  describe('nc backdoor (kind=nc)', () => {
+    // PR 5 of plans/cross-player-base-fs-replication.md — nc backdoor
+    // pidfile read. Server reads /var/run/nc-<port>.pid from
+    // machine_filesystems, parses the line written by `nc -l`, derives
+    // credentials, and inserts a kind:'nc' session at the listener's
+    // tier. Forge clients can no longer mint cross-player nc sessions
+    // at arbitrary userType against a `nc -l`-opened port.
+
+    const NC_PORT = 4444;
+    const NC_PIDFILE_PATH = `/var/run/nc-${NC_PORT}.pid`;
+    const NC_VALID_CONTENT = `nc:port=${NC_PORT},user=alice,userType=user,home=/home/alice`;
+
+    const fsContentDep = (path: string, content: string | null) =>
+      vi.fn(async (params: FindFsContentParams) =>
+        params.path === path
+          ? { ok: true as const, found: true as const, content }
+          : { ok: true as const, found: false as const },
+      );
+
+    it('returns 201 with server-derived credentials for a valid pidfile', async () => {
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'nc',
+        // Sentinel — server derives the real username from pidfile.
+        username: 'nc',
+        auth: pidfileAuth(NC_PORT),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({ insertSession, findFsContent: fsContentDep(NC_PIDFILE_PATH, NC_VALID_CONTENT) }),
+      );
+
+      expect(result.status).toBe(201);
+      expect(result.body).toEqual({
+        session_id: STUB_SESSION_ID,
+        username: 'alice',
+        userType: 'user',
+        homePath: '/home/alice',
+      });
+      expect(insertSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          // Credentials come from the pidfile, NOT the envelope's sentinel
+          // 'nc'. A forge envelope sending username:'root', userType:'root'
+          // would still get the pidfile's actual values.
+          credentials: { username: 'alice', userType: 'user' },
+          kind: 'nc',
+        }),
+      );
+    });
+
+    it('parses root-tier pidfile correctly', async () => {
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const ROOT_CONTENT = `nc:port=${NC_PORT},user=root,userType=root,home=/root`;
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'nc',
+        username: 'nc',
+        auth: pidfileAuth(NC_PORT),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({ insertSession, findFsContent: fsContentDep(NC_PIDFILE_PATH, ROOT_CONTENT) }),
+      );
+
+      expect(result.status).toBe(201);
+      expect(result.body).toEqual({
+        session_id: STUB_SESSION_ID,
+        username: 'root',
+        userType: 'root',
+        homePath: '/root',
+      });
+    });
+
+    it('returns 401 when pidfile row is missing', async () => {
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'nc',
+        username: 'nc',
+        auth: pidfileAuth(9999),
+      });
+
+      // Default findFsContent returns found:false for any path.
+      const result = await handleSessionsRequest(envelope, mkDeps({ insertSession }));
+
+      expect(result.status).toBe(401);
+      expect(result.body).toEqual({ error: 'invalid_credentials' });
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+
+    it('returns 401 when pidfile content is malformed', async () => {
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'nc',
+        username: 'nc',
+        auth: pidfileAuth(NC_PORT),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({
+          insertSession,
+          findFsContent: fsContentDep(NC_PIDFILE_PATH, 'random nonsense without nc: prefix'),
+        }),
+      );
+
+      expect(result.status).toBe(401);
+      expect(result.body).toEqual({ error: 'invalid_credentials' });
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+
+    it('returns 401 when pidfile userType is invalid', async () => {
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'nc',
+        username: 'nc',
+        auth: pidfileAuth(NC_PORT),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({
+          findFsContent: fsContentDep(
+            NC_PIDFILE_PATH,
+            `nc:port=${NC_PORT},user=hacker,userType=admin,home=/root`,
+          ),
+        }),
+      );
+
+      expect(result.status).toBe(401);
+    });
+
+    it('rejects method=password (only pidfile is valid for nc)', async () => {
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'nc',
+        username: 'alice',
+        auth: passwordAuth('anything'),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({ insertSession, findFsContent: fsContentDep(NC_PIDFILE_PATH, NC_VALID_CONTENT) }),
+      );
+
+      expect(result.status).toBe(401);
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+
+    it('rejects method=savedKey (only pidfile is valid for nc)', async () => {
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'nc',
+        username: 'alice',
+        auth: savedKeyAuth('a'.repeat(32)),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({ findFsContent: fsContentDep(NC_PIDFILE_PATH, NC_VALID_CONTENT) }),
+      );
+
+      expect(result.status).toBe(401);
+    });
+
+    it('returns 500 when findFsContent reports a DB error', async () => {
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'nc',
+        username: 'nc',
+        auth: pidfileAuth(NC_PORT),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({
+          insertSession,
+          findFsContent: vi.fn(async () => ({ ok: false as const })),
+        }),
+      );
+
+      expect(result.status).toBe(500);
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+
+    it('queries the path /var/run/nc-<port>.pid built from envelope port', async () => {
+      const findFsContent = vi.fn(async () => ({ ok: true as const, found: false as const }));
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'nc',
+        username: 'nc',
+        auth: pidfileAuth(31337),
+      });
+
+      await handleSessionsRequest(envelope, mkDeps({ findFsContent }));
+
+      expect(findFsContent).toHaveBeenCalledWith(
+        expect.objectContaining({ path: '/var/run/nc-31337.pid' }),
+      );
+    });
+
+    it('passes through optional parent_session_id and source_ip', async () => {
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'nc',
+        username: 'nc',
+        auth: pidfileAuth(NC_PORT),
+        parent_session_id: '99999999-aaaa-4bbb-8ccc-dddddddddddd',
+        source_ip: '10.0.0.1',
+      });
+
+      await handleSessionsRequest(
+        envelope,
+        mkDeps({ insertSession, findFsContent: fsContentDep(NC_PIDFILE_PATH, NC_VALID_CONTENT) }),
+      );
+
+      expect(insertSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          parent_session_id: '99999999-aaaa-4bbb-8ccc-dddddddddddd',
+          source_ip: '10.0.0.1',
+        }),
+      );
+    });
+
+    it.each(['ssh', 'scp', 'su', 'ftp'] as const)(
+      'rejects pidfile method on kind=%s (only valid for nc)',
+      async (kind) => {
+        // Closes the inverse forge attempt — a caller can't bypass
+        // /etc/passwd validation on ssh/scp/su/ftp by switching to
+        // method:'pidfile'.
+        const envelope = makeEnvelope(identity, {
+          ...baseAuthEnvelope,
+          kind,
+          username: 'alice',
+          auth: pidfileAuth(NC_PORT),
+        });
+
+        const result = await handleSessionsRequest(
+          envelope,
+          mkDeps({ findFsContent: fsContentDep(NC_PIDFILE_PATH, NC_VALID_CONTENT) }),
+        );
+
+        expect(result.status).toBe(401);
+        expect(result.body).toEqual({ error: 'invalid_credentials' });
+      },
+    );
   });
 
   describe('rate limiting + envelope auth (shared with createSession)', () => {
