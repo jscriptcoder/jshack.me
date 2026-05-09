@@ -651,13 +651,17 @@ export const useNetworkCommands = (): Map<string, Command> => {
             resolveDomain,
             getNodeFromMachine,
             writeFileToMachine,
-            withTransientSession: (params, body) =>
-              withTransientSession(
+            // PR 4 — server-authoritative SNMP auth. Community string is
+            // the credential; server validates rwcommunity match against
+            // /etc/snmp/snmpd.conf and creates a session at userType='root'.
+            withTransientAuthSession: async (params, body) => {
+              const result = await withTransientAuthSession(
                 getIdentity(),
                 {
                   machine_id: params.machine_id,
-                  credentials: params.credentials,
                   kind: 'snmp',
+                  username: 'snmp',
+                  auth: params.auth,
                   ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
                   source_ip: session.machine,
                 },
@@ -665,7 +669,9 @@ export const useNetworkCommands = (): Map<string, Command> => {
                   body();
                   await flushPendingPatches();
                 },
-              ),
+              );
+              return result.ok ? { ok: true } : { ok: false, reason: result.reason };
+            },
           }),
           isWifiRequired,
         ),

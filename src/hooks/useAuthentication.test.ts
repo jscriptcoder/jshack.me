@@ -46,6 +46,8 @@ const makeOptions = () => ({
   // the "valid auth" path override this with mockResolvedValueOnce.
   pushAuthSession: vi.fn().mockResolvedValue({ ok: false, reason: 'invalid_credentials' }),
   authCreateFtpSession: vi.fn().mockResolvedValue({ ok: false, reason: 'invalid_credentials' }),
+  authCreateMysqlSession: vi.fn().mockResolvedValue({ ok: false, reason: 'invalid_credentials' }),
+  authCreateRedisSession: vi.fn().mockResolvedValue({ ok: false, reason: 'invalid_credentials' }),
   enterFtpMode: vi.fn(),
   enterMysqlMode: vi.fn(),
   enterRedisMode: vi.fn(),

@@ -25,8 +25,12 @@ import type {
   FindVirtualUsersConfContentParams,
   FindVirtualUsersConfContentResult,
 } from './supabaseFindVirtualUsersConfContent.js';
+import type { FindFsContentParams, FindFsContentResult } from './supabaseFindFsContent.js';
 import { deriveUserTypeFromEtcPasswd, findEtcPasswdEntry } from '../filesystem/etcPasswdHelpers.js';
 import { findVirtualUserHash } from '../filesystem/virtualUsersConfHelpers.js';
+import { findMysqlCredential } from '../filesystem/mysqlDataHelpers.js';
+import { findRedisRequirepass } from '../filesystem/redisConfHelpers.js';
+import { findSnmpRwCommunity } from '../filesystem/snmpConfHelpers.js';
 import { md5 } from '../utils/md5.js';
 
 export type HandlerResponse = {
@@ -44,11 +48,15 @@ export type HandlerDeps = {
   ) => Promise<FindEtcPasswdContentResult>;
   // PR 3 of plans/cross-player-base-fs-replication.md — kind:'ftp' branch
   // of authCreateSession reads /etc/vsftpd/virtual_users.conf as an
-  // overlay on top of /etc/passwd. PR 4 (MySQL/Redis/SNMP) may
-  // generalize this to a single per-path adapter.
+  // overlay on top of /etc/passwd.
   readonly findVirtualUsersConfContent: (
     params: FindVirtualUsersConfContentParams,
   ) => Promise<FindVirtualUsersConfContentResult>;
+  // PR 4 — generic (path-parameterized) FS content lookup, used by the
+  // mysql / redis / snmp arms (each reads a different credential file).
+  // The PR 2/3 per-file adapters above stay for back-compat with their
+  // existing test suites; a future unification PR can collapse them.
+  readonly findFsContent: (params: FindFsContentParams) => Promise<FindFsContentResult>;
   readonly rateLimiter: RateLimiter;
   readonly nonceStore: NonceStore;
   readonly now?: () => number;
@@ -185,29 +193,35 @@ const handleCreateSession = async (
   return { status: 200, body: { session_id: result.session_id } };
 };
 
-// Server-authoritative auth + session creation for ssh/scp/su/ftp.
-// Reads the target's /etc/passwd from machine_filesystems, validates
-// the auth method (password vs savedKey), derives userType from the
-// /etc/passwd entry, and atomically inserts the session row.
+// Server-authoritative auth + session creation. Each auth-required kind
+// validates against a different credential file:
 //
-// FTP (PR 3) extends the flow with /etc/vsftpd/virtual_users.conf as
-// an overlay on /etc/passwd: when the username appears in
-// virtual_users.conf, that hash takes precedence for password matching.
-// userType always derives from /etc/passwd. FTP rejects savedKey
-// (no `.ssh_keys` for ftp).
+//   ssh / scp / su  → /etc/passwd (PR 2)
+//   ftp             → /etc/vsftpd/virtual_users.conf overlay + /etc/passwd
+//                     fallback (PR 3); userType from /etc/passwd
+//   mysql           → /var/lib/mysql/data.json (PR 4); userType from JSON
+//   redis           → /etc/redis/redis.conf requirepass (PR 4); shared
+//                     secret, sentinel `username:'redis'`, userType `'root'`
+//   snmp            → /etc/snmp/snmpd.conf rwcommunity (PR 4); shared
+//                     secret, sentinel `username:'snmp'`, userType `'root'`
 //
 // All credential failure modes — wrong password, missing user, missing
-// /etc/passwd, sabotaged file, fingerprint mismatch — collapse to one
+// file, sabotaged file, fingerprint mismatch — collapse to one
 // `401 invalid_credentials` response. Distinguishing them on the wire
 // would leak machine state and username existence to forge-envelope
 // probers (hydra-style brute force, account enumeration).
-//
-// PR 2 + PR 3 of plans/cross-player-base-fs-replication.md.
 const handleAuthCreateSession = async (
   publicKey: string,
   payload: Extract<SessionsPayload, { action: 'authCreateSession' }>,
   deps: HandlerDeps,
 ): Promise<HandlerResponse> => {
+  // PR 4 — shared-secret kinds short-circuit before /etc/passwd lookup
+  // (their sentinel usernames don't appear in /etc/passwd, and userType
+  // is fixed at protocol-handler level).
+  if (payload.kind === 'mysql') return handleMysqlAuth(publicKey, payload, deps);
+  if (payload.kind === 'redis') return handleRedisAuth(publicKey, payload, deps);
+  if (payload.kind === 'snmp') return handleSnmpAuth(publicKey, payload, deps);
+
   const { machine_id, kind, username, auth, parent_session_id, source_ip } = payload;
 
   const fsLookup = await deps.findEtcPasswdContent({ machine_id });
@@ -277,6 +291,157 @@ const handleAuthCreateSession = async (
   return {
     status: 201,
     body: { session_id: result.session_id, userType: entry.userType },
+  };
+};
+
+// ---- PR 4: MySQL / Redis / SNMP ---------------------------------------
+//
+// Each protocol reads its own credential file; userType comes from
+// the credential file (mysql) or is fixed at the protocol level
+// (redis, snmp — shared-secret model). All collapse failure modes to
+// 401 invalid_credentials per the no-info-leak rule.
+
+const MYSQL_DATA_PATH = '/var/lib/mysql/data.json';
+const REDIS_CONF_PATH = '/etc/redis/redis.conf';
+const SNMP_CONF_PATH = '/etc/snmp/snmpd.conf';
+
+const handleMysqlAuth = async (
+  publicKey: string,
+  payload: Extract<SessionsPayload, { action: 'authCreateSession' }>,
+  deps: HandlerDeps,
+): Promise<HandlerResponse> => {
+  const { machine_id, username, auth, parent_session_id, source_ip } = payload;
+
+  // MySQL is password-only — savedKey rejected (no .ssh_keys for mysql).
+  if (auth.method !== 'password') {
+    return { status: 401, body: { error: 'invalid_credentials' } };
+  }
+
+  const fsLookup = await deps.findFsContent({ machine_id, path: MYSQL_DATA_PATH });
+  if (!fsLookup.ok) {
+    return { status: 500, body: { error: 'fs_lookup_failed' } };
+  }
+  const content = fsLookup.found ? fsLookup.content : null;
+  const cred = findMysqlCredential(content, username);
+  if (cred === undefined) {
+    return { status: 401, body: { error: 'invalid_credentials' } };
+  }
+  if (md5(auth.password) !== cred.passwordHash) {
+    return { status: 401, body: { error: 'invalid_credentials' } };
+  }
+
+  const row: SessionRow = {
+    player_key: publicKey,
+    machine_id,
+    credentials: { username, userType: cred.userType },
+    kind: 'mysql',
+    ...(parent_session_id !== undefined && { parent_session_id }),
+    ...(source_ip !== undefined && { source_ip }),
+  };
+
+  const result = await deps.insertSession(row);
+  if (!result.ok) {
+    return { status: 500, body: { error: 'insert_failed' } };
+  }
+  return {
+    status: 201,
+    body: { session_id: result.session_id, userType: cred.userType },
+  };
+};
+
+const handleRedisAuth = async (
+  publicKey: string,
+  payload: Extract<SessionsPayload, { action: 'authCreateSession' }>,
+  deps: HandlerDeps,
+): Promise<HandlerResponse> => {
+  const { machine_id, auth, parent_session_id, source_ip } = payload;
+
+  if (auth.method !== 'password') {
+    return { status: 401, body: { error: 'invalid_credentials' } };
+  }
+
+  const fsLookup = await deps.findFsContent({ machine_id, path: REDIS_CONF_PATH });
+  if (!fsLookup.ok) {
+    return { status: 500, body: { error: 'fs_lookup_failed' } };
+  }
+  const content = fsLookup.found ? fsLookup.content : null;
+  const requirepass = findRedisRequirepass(content);
+  // No requirepass directive (auth disabled at the daemon level) →
+  // authCreateSession isn't the right path. Real Redis without auth
+  // accepts anything, but the no-auth case is a different code path
+  // that should not produce a session row via this endpoint.
+  if (requirepass === undefined) {
+    return { status: 401, body: { error: 'invalid_credentials' } };
+  }
+  // Plaintext compare (real Redis stores requirepass plaintext).
+  if (auth.password !== requirepass) {
+    return { status: 401, body: { error: 'invalid_credentials' } };
+  }
+
+  const row: SessionRow = {
+    player_key: publicKey,
+    machine_id,
+    // Sentinel username — Redis has no username concept. userType 'root'
+    // mirrors the AUTH'd-in semantics: full keyspace access.
+    credentials: { username: 'redis', userType: 'root' },
+    kind: 'redis',
+    ...(parent_session_id !== undefined && { parent_session_id }),
+    ...(source_ip !== undefined && { source_ip }),
+  };
+
+  const result = await deps.insertSession(row);
+  if (!result.ok) {
+    return { status: 500, body: { error: 'insert_failed' } };
+  }
+  return {
+    status: 201,
+    body: { session_id: result.session_id, userType: 'root' as const },
+  };
+};
+
+const handleSnmpAuth = async (
+  publicKey: string,
+  payload: Extract<SessionsPayload, { action: 'authCreateSession' }>,
+  deps: HandlerDeps,
+): Promise<HandlerResponse> => {
+  const { machine_id, auth, parent_session_id, source_ip } = payload;
+
+  if (auth.method !== 'password') {
+    return { status: 401, body: { error: 'invalid_credentials' } };
+  }
+
+  const fsLookup = await deps.findFsContent({ machine_id, path: SNMP_CONF_PATH });
+  if (!fsLookup.ok) {
+    return { status: 500, body: { error: 'fs_lookup_failed' } };
+  }
+  const content = fsLookup.found ? fsLookup.content : null;
+  const rwCommunity = findSnmpRwCommunity(content);
+  if (rwCommunity === undefined) {
+    return { status: 401, body: { error: 'invalid_credentials' } };
+  }
+  if (auth.password !== rwCommunity) {
+    return { status: 401, body: { error: 'invalid_credentials' } };
+  }
+
+  const row: SessionRow = {
+    player_key: publicKey,
+    machine_id,
+    // Sentinel username — SNMP communities have no username. userType
+    // 'root' reflects rwcommunity's read-write privilege; rocommunity
+    // doesn't go through this path (snmpwalk is sessionless).
+    credentials: { username: 'snmp', userType: 'root' },
+    kind: 'snmp',
+    ...(parent_session_id !== undefined && { parent_session_id }),
+    ...(source_ip !== undefined && { source_ip }),
+  };
+
+  const result = await deps.insertSession(row);
+  if (!result.ok) {
+    return { status: 500, body: { error: 'insert_failed' } };
+  }
+  return {
+    status: 201,
+    body: { session_id: result.session_id, userType: 'root' as const },
   };
 };
 

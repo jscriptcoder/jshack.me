@@ -1,15 +1,18 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
 import type { RemoteMachine, DnsRecord } from '../network/types';
 import type { FileNode, MachineWriteOp } from '../filesystem/types';
-import type { Credentials } from '../sessionRegistry/types';
+import type { AuthMethod } from '../sessionRegistry/types';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
-// Same shape as scp's transient-session callback. Optional for back-
-// compat with tests; useNetworkCommands supplies it bound to identity.
-export type SnmpsetTransientSession = (
-  params: { readonly machine_id: string; readonly credentials: Credentials },
+// PR 4: server-authoritative SNMP auth. The community string the user
+// supplies is sent as the auth password to authCreateSession (kind:'snmp')
+// — the server validates against /etc/snmp/snmpd.conf rwcommunity. Result
+// is a session at userType='root'; rocommunity matches are rejected
+// (snmpset writes; rocommunity is read-only).
+export type SnmpsetTransientAuthSession = (
+  params: { readonly machine_id: string; readonly auth: AuthMethod },
   body: () => void,
-) => Promise<void>;
+) => Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string }>;
 
 type SnmpsetContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
@@ -17,7 +20,7 @@ type SnmpsetContext = {
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
   readonly getNodeFromMachine: (machineIp: string, path: string, cwd: string) => FileNode | null;
   readonly writeFileToMachine: (op: MachineWriteOp) => void;
-  readonly withTransientSession?: SnmpsetTransientSession;
+  readonly withTransientAuthSession?: SnmpsetTransientAuthSession;
 };
 
 const VALID_FIREWALL_VALUES = new Set(['permit', 'deny']);
@@ -219,12 +222,10 @@ export const createSnmpsetCommand = (context: SnmpsetContext): Command => ({
         token.schedule(() => {
           if (token.isCancelled()) return;
           // Write the updated config back to the filesystem.
-          // Wrap in a transient session so the L1 patch-validation gate
-          // sees a session row at fire time. snmpset writes as the
-          // implicit SNMP admin — no user-level credentials in this
-          // game model — so we synthesize 'snmp' / 'root' for the
-          // session row. (snmpset writes as root in practice; the
-          // permissions check on the file uses userType: 'root' too.)
+          // PR 4: wrap in a server-authoritative transient session.
+          // The community string is the auth secret — server validates
+          // against rwcommunity in /etc/snmp/snmpd.conf and creates a
+          // session at userType='root' (snmpset writes as root).
           const doWrite = () => {
             writeFileToMachine({
               machineId: targetIP,
@@ -236,17 +237,22 @@ export const createSnmpsetCommand = (context: SnmpsetContext): Command => ({
             onLine('Value updated successfully.');
           };
 
-          if (context.withTransientSession) {
+          if (context.withTransientAuthSession) {
             void context
-              .withTransientSession(
+              .withTransientAuthSession(
                 {
                   machine_id: targetIP,
-                  credentials: { username: 'snmp', userType: 'root' },
+                  auth: { method: 'password', password: community },
                 },
                 doWrite,
               )
+              .then((res) => {
+                if (!res.ok) {
+                  onLine(`Error: SNMP auth failed (${res.reason}).`);
+                }
+              })
               .catch((error) => {
-                console.error('[snmpset] transient session push failed:', error);
+                console.error('[snmpset] transient auth session failed:', error);
                 onLine('Error: session push failed.');
               })
               .finally(() => {

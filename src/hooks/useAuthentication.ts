@@ -70,6 +70,20 @@ type AuthenticationOptions = {
     destination: AuthPushDestination,
     auth: AuthMethod,
   ) => Promise<AuthCreateSessionResult>;
+  // PR 4 — MySQL server-authoritative auth. Validates against
+  // /var/lib/mysql/data.json. userType comes from the matching
+  // credential entry's userType field (server-derived).
+  readonly authCreateMysqlSession: (
+    destination: AuthPushDestination,
+    auth: AuthMethod,
+  ) => Promise<AuthCreateSessionResult>;
+  // PR 4 — Redis server-authoritative auth. Shared-secret; the helper
+  // injects the sentinel `username:'redis'` so callers only supply
+  // machine_id + the AUTH password.
+  readonly authCreateRedisSession: (
+    machineId: string,
+    auth: AuthMethod,
+  ) => Promise<AuthCreateSessionResult>;
   readonly enterFtpMode: (session: FtpSession) => void;
   readonly enterMysqlMode: (session: MysqlSession) => void;
   readonly enterRedisMode: (session: RedisSession) => void;
@@ -101,6 +115,8 @@ export const useAuthentication = ({
   getDefaultHomePath,
   pushAuthSession,
   authCreateFtpSession,
+  authCreateMysqlSession,
+  authCreateRedisSession,
   enterFtpMode,
   enterMysqlMode,
   enterRedisMode,
@@ -475,68 +491,66 @@ export const useAuthentication = ({
     [getSavedSshFingerprint, addLine, onSshAuth],
   );
 
-  // Shared MySQL connection setup: validates the database file exists and enters mysql mode
-  const connectMysql = useCallback(
-    (user: string, ip: string) => {
+  // PR 4: Server-authoritative MySQL auth. Validates against
+  // /var/lib/mysql/data.json on the server (atomic with session
+  // creation). userType comes from the matching credential entry —
+  // server-derived, never trusted from client. Database name is read
+  // from the local cache for the welcome banner; cross-player flows
+  // may show an empty name until PR 6 ships base FS replication.
+  const connectMysqlServer = useCallback(
+    async (user: string, ip: string, password: string): Promise<boolean> => {
       const resolvedIp = resolveNat(ip, 3306).ip;
+      const machineId = resolveTargetMachineId(resolvedIp);
+
+      const result = await authCreateMysqlSession(
+        { machine: machineId, username: user, currentPath: '/' },
+        { method: 'password', password },
+      );
+      if (!result.ok) {
+        return false;
+      }
+
+      // Local DB lookup for the welcome banner only — does not affect
+      // auth. Falls back gracefully when the file isn't replicated
+      // (cross-player flows).
       const dbJson = readFileFromMachine({
         machineId: resolvedIp,
         path: '/var/lib/mysql/data.json',
         cwd: '/',
         userType: 'root',
       });
-      if (!dbJson) {
-        addLine('error', `ERROR 1049 (42000): Unknown database on '${ip}'`);
-        return;
-      }
-      const db = parseMysqlDatabase(dbJson);
-      if (!db) {
-        addLine('error', `ERROR 1049 (42000): Unknown database on '${ip}'`);
-        return;
-      }
-      const newMysqlSession: MysqlSession = {
+      const db = dbJson ? parseMysqlDatabase(dbJson) : null;
+      const databaseName = db?.name ?? '(unknown)';
+
+      enterMysqlMode({
         targetIP: ip,
         machineId: resolvedIp,
         username: user,
-        databaseName: db.name,
-        // Backfilled by enterMysqlMode after the server push resolves.
-        sessionId: null,
-      };
-      enterMysqlMode(newMysqlSession);
+        databaseName,
+        sessionId: result.session_id,
+      });
       addLine(
         'result',
         `Welcome to the MySQL monitor. Server version: 8.0.36\n` +
           `Type 'help;' for help. Type exit or quit to leave.\n`,
       );
+      return true;
     },
-    [resolveNat, readFileFromMachine, addLine, enterMysqlMode],
+    [
+      resolveNat,
+      resolveTargetMachineId,
+      authCreateMysqlSession,
+      readFileFromMachine,
+      addLine,
+      enterMysqlMode,
+    ],
   );
 
-  // Validates a MySQL user's password against the database's own credential list
-  const validateMysqlPassword = useCallback(
-    (user: string, ip: string, password: string): boolean => {
-      const resolvedIp = resolveNat(ip, 3306).ip;
-      const dbJson = readFileFromMachine({
-        machineId: resolvedIp,
-        path: '/var/lib/mysql/data.json',
-        cwd: '/',
-        userType: 'root',
-      });
-      if (!dbJson) return false;
-      const db = parseMysqlDatabase(dbJson);
-      if (!db?.credentials) return false;
-      const mysqlUser = db.credentials.find((c) => c.username === user);
-      if (!mysqlUser) return false;
-      return mysqlUser.passwordHash === md5(password);
-    },
-    [resolveNat, readFileFromMachine],
-  );
-
-  // Inline MySQL auth: validates password against DB credentials and enters mysql mode
+  // Inline MySQL auth (used by `mysql -u user -p<password>` from scripts).
   const authenticateMysqlInline = useCallback(
-    (user: string, targetIP: string, password: string) => {
-      if (validateMysqlPassword(user, targetIP, password)) {
-        connectMysql(user, targetIP);
+    async (user: string, targetIP: string, password: string): Promise<void> => {
+      const ok = await connectMysqlServer(user, targetIP, password);
+      if (ok) {
         onMysqlAuth?.({ success: true, user, targetIP, port: 3306 });
       } else {
         addLine(
@@ -546,7 +560,7 @@ export const useAuthentication = ({
         onMysqlAuth?.({ success: false, user, targetIP, port: 3306 });
       }
     },
-    [validateMysqlPassword, connectMysql, addLine, onMysqlAuth],
+    [connectMysqlServer, addLine, onMysqlAuth],
   );
 
   const startMysqlPrompt = useCallback(
@@ -559,23 +573,30 @@ export const useAuthentication = ({
     [addLine],
   );
 
-  // Redis connection: no password check at connect time — auth handled in prompt via AUTH command.
-  // If inline password provided, it's passed to the session for auto-AUTH on first command.
+  // PR 4: Server-authoritative Redis auth. Two flows:
+  //
+  // 1. With inline password (`rediscli -h host -a password`): call
+  //    authCreateRedisSession; on 201 enter redis mode at sessionId+
+  //    userType='root'; on 401 show "ERR invalid password".
+  //
+  // 2. Without password: read the local conf to detect requirepass.
+  //    If absent → no-auth Redis (sessionless mode locally — accept
+  //    server's reluctance, but local model still allows a no-auth
+  //    session with sentinel 'redis'/'guest' for L1 tracking — see
+  //    note below). If present → emit NOAUTH banner; the user runs
+  //    AUTH <pw> via the redis prompt and we route THAT through
+  //    authCreateRedisSession on the AUTH command path.
+  //
+  // For now (PR 4), the no-password / no-requirepass path is treated
+  // as out-of-scope — Redis without auth doesn't go through this
+  // endpoint. The user's flow always uses `-a` (authoritative path)
+  // or types AUTH inside the redis prompt (handled separately).
   const connectRedis = useCallback(
-    (targetIP: string, password?: string) => {
+    async (targetIP: string, password?: string): Promise<void> => {
       const resolvedIp = resolveNat(targetIP, 6379).ip;
-      const newRedisSession: RedisSession = {
-        targetIP,
-        machineId: resolvedIp,
-        // Backfilled by enterRedisMode after the server push resolves.
-        sessionId: null,
-      };
-      enterRedisMode(newRedisSession);
-      // Socket established — write the connect line regardless of how AUTH
-      // resolves below. Real Redis logs connect and auth as separate events.
+      const machineId = resolveTargetMachineId(resolvedIp);
       onRedisConnect?.(targetIP, 6379);
 
-      // Read config to check if auth is required
       const confContent = readFileFromMachine({
         machineId: resolvedIp,
         path: '/etc/redis/redis.conf',
@@ -589,22 +610,59 @@ export const useAuthentication = ({
           ?.slice('requirepass '.length)
           .trim() ?? null;
 
+      // No requirepass detected locally — connect without server-side
+      // auth (matches real Redis NOAUTH-disabled behavior). No session
+      // row is created in this path; L1 considers the connection
+      // unmanaged. Acceptable until PR 6 enforces server-side reads
+      // cross-player.
+      if (!requirepass && !password) {
+        enterRedisMode({ targetIP, machineId: resolvedIp, sessionId: null });
+        return;
+      }
+
       if (requirepass && !password) {
+        // Open the local prompt with the standard NOAUTH message; the
+        // user runs AUTH <pw> inside the prompt. AUTH inside the redis
+        // prompt path will route through authCreateRedisSession when
+        // wired in a follow-up; for now keep the local message and
+        // sessionless connection.
+        enterRedisMode({ targetIP, machineId: resolvedIp, sessionId: null });
         addLine(
           'result',
           '(error) NOAUTH Authentication required.\nUse AUTH <password> to authenticate.',
         );
-      } else if (requirepass && password) {
-        if (password === requirepass) {
-          addLine('result', 'OK');
-          onRedisAuth?.(true, targetIP, 6379);
-        } else {
-          addLine('error', '(error) ERR invalid password');
-          onRedisAuth?.(false, targetIP, 6379);
-        }
+        return;
       }
+
+      // Password provided — authenticate server-side.
+      const result = await authCreateRedisSession(machineId, {
+        method: 'password',
+        password: password as string,
+      });
+      if (!result.ok) {
+        addLine('error', '(error) ERR invalid password');
+        onRedisAuth?.(false, targetIP, 6379);
+        return;
+      }
+
+      enterRedisMode({
+        targetIP,
+        machineId: resolvedIp,
+        sessionId: result.session_id,
+      });
+      addLine('result', 'OK');
+      onRedisAuth?.(true, targetIP, 6379);
     },
-    [resolveNat, readFileFromMachine, addLine, enterRedisMode, onRedisConnect, onRedisAuth],
+    [
+      resolveNat,
+      resolveTargetMachineId,
+      readFileFromMachine,
+      authCreateRedisSession,
+      addLine,
+      enterRedisMode,
+      onRedisConnect,
+      onRedisAuth,
+    ],
   );
 
   const resetAuthState = useCallback(() => {
@@ -630,16 +688,10 @@ export const useAuthentication = ({
     (password: string): boolean => {
       if (!targetUser) return false;
 
-      if (mysqlTargetIP) {
-        return validateMysqlPassword(targetUser, mysqlTargetIP, password);
-      }
-
-      // SSH/SCP/FTP paths no longer go through validatePassword —
-      // handlePasswordSubmit dispatches to authCreateSession-backed
-      // helpers (loginSshWithAuth / scpPerformTransfer /
-      // authCreateFtpSession). After PR 4 migrates MySQL/Redis,
-      // validatePassword shrinks to the su-only path; today it still
-      // serves the local-/etc/passwd fallback used by su.
+      // PR 4: SSH/SCP/FTP/MySQL paths no longer go through validatePassword
+      // — handlePasswordSubmit dispatches to authCreateSession-backed
+      // helpers. validatePassword now serves only the su fallback path
+      // (local-/etc/passwd hash compare).
 
       const passwdContent = readFile('/etc/passwd', 'root');
       if (!passwdContent) return false;
@@ -652,7 +704,7 @@ export const useAuthentication = ({
 
       return storedHash === md5(password);
     },
-    [targetUser, mysqlTargetIP, validateMysqlPassword, readFile],
+    [targetUser, readFile],
   );
 
   const handleFtpUsernameSubmit = useCallback(
@@ -803,6 +855,47 @@ export const useAuthentication = ({
         };
       }
 
+      // MySQL: server-authoritative auth (PR 4). connectMysqlServer
+      // calls authCreateMysqlSession; on success it enters mysql mode
+      // with sessionId set. Returned as AsyncOutput so the Terminal
+      // hides the prompt during the server round-trip.
+      if (mysqlTargetIP && targetUser) {
+        const user = targetUser;
+        const targetIp = mysqlTargetIP;
+        // Clear prompt state synchronously.
+        setMysqlTargetIP(null);
+        setTargetUser(null);
+        setPasswordMode(false);
+        clearInput();
+        return {
+          __type: 'async',
+          start: (onLine, onComplete) => {
+            onLine(`Authenticating as ${user}...`);
+            void connectMysqlServer(user, targetIp, input)
+              .then((ok) => {
+                if (ok) {
+                  onMysqlAuth?.({ success: true, user, targetIP: targetIp, port: 3306 });
+                } else {
+                  addLine(
+                    'error',
+                    `ERROR 1045 (28000): Access denied for user '${user}'@'${targetIp}' (using password: YES)`,
+                  );
+                  onMysqlAuth?.({ success: false, user, targetIP: targetIp, port: 3306 });
+                }
+              })
+              .catch((error) => {
+                console.error('[useAuthentication] mysql connectMysqlServer threw:', error);
+                addLine(
+                  'error',
+                  `ERROR 1045 (28000): Access denied for user '${user}'@'${targetIp}' (using password: YES)`,
+                );
+                onMysqlAuth?.({ success: false, user, targetIP: targetIp, port: 3306 });
+              })
+              .finally(() => onComplete());
+          },
+        };
+      }
+
       // su: server-authoritative auth via pushAuthSession (PR 2 step 9).
       // No prompt-state-specific machine_id (mysql/scp/ssh/ftp targets
       // would have been handled above) — su targets the CURRENT machine,
@@ -852,33 +945,13 @@ export const useAuthentication = ({
 
       if (validatePassword(input)) {
         if (!targetUser) return undefined;
-
-        if (mysqlTargetIP) {
-          connectMysql(targetUser, mysqlTargetIP);
-          onMysqlAuth?.({
-            success: true,
-            user: targetUser,
-            targetIP: mysqlTargetIP,
-            port: 3306,
-          });
-        }
-        // ftp / ssh / scp / su paths are handled above
+        // mysql / ftp / ssh / scp / su paths are handled above
         // (server-authoritative via authCreateSession-backed helpers).
+        // validatePassword now only flags the su success path (handled
+        // by the legacy fallback below — soon to be removed when
+        // su's older path is fully retired).
       } else {
-        if (mysqlTargetIP) {
-          addLine(
-            'error',
-            `ERROR 1045 (28000): Access denied for user '${targetUser}'@'${mysqlTargetIP}' (using password: YES)`,
-          );
-          if (targetUser) {
-            onMysqlAuth?.({
-              success: false,
-              user: targetUser,
-              targetIP: mysqlTargetIP,
-              port: 3306,
-            });
-          }
-        } else if (scpTargetIP) {
+        if (scpTargetIP) {
           addLine('error', `Permission denied, please try again.`);
           if (targetUser)
             onSshAuth?.({
@@ -927,16 +1000,16 @@ export const useAuthentication = ({
       ftpTargetIP,
       ftpUsernameMode,
       validatePassword,
-      connectMysql,
+      connectMysqlServer,
       loginSshWithAuth,
       pushAuthSession,
       authCreateFtpSession,
+      resolveNat,
       resolveTargetMachineId,
       session,
       enterFtpMode,
       addLine,
       getDefaultHomePath,
-      resolveNat,
       onSuAuth,
       onSshAuth,
       onFtpAuth,

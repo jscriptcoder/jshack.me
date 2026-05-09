@@ -1,7 +1,8 @@
 # Plan: Cross-Player Base FS Replication + Server-Authoritative Auth + CVE Read Endpoint
 
-**Status**: Active — PR 1 ✅ merged (#124); PR 2 ✅ merged (#125); PR 3 ✅ merged (#126, commit 275270c)
+**Status**: Active — PR 1 ✅ merged (#124); PR 2 ✅ merged (#125); PR 3 ✅ merged (#126); PR 4 In progress
 **Started**: 2026-05-07
+**Current branch (PR 4)**: feat/cpbfs-pr4-server-auth-mysql-redis-snmp
 **Estimate**: 7 PRs, ~3-4 weeks total
 **Why this chunk exists**: PvP cracking is the multiplayer pitch. Without this, cross-player attacks against player workstations don't work — SSH login fails, FTP login fails, file_read CVE fails, post-login `cat`/`ls` returns empty. User explicitly reversed the prior deferral on 2026-05-07 ("not gonna be happy to release the game without this").
 
@@ -98,7 +99,7 @@ Subsequent PRs in this chunk extend the same pattern to FTP / MySQL / Redis / nc
 | 1   | ✅ Merged (#124, commit `699f5f7`) | Foundation — workstations seed migration + projection list extension |
 | 2   | ✅ Merged (#125, commit `6d73df7`) | Server-authoritative auth — SSH / SCP / `su`                         |
 | 3   | ✅ Merged (#126, commit `275270c`) | Server-authoritative auth — FTP                                      |
-| 4   | Pending PR 2                       | Server-authoritative auth — MySQL / Redis / SNMP                     |
+| 4   | In progress                        | Server-authoritative auth — MySQL / Redis / SNMP                     |
 | 5   | Pending PR 1                       | Backdoor connect (nc) — cross-player tier from projected pidfile     |
 | 6   | Pending PRs 1-5                    | Base FS replication endpoint (eager bulk-fetch on session establish) |
 | 7   | Pending PR 6                       | `/api/exploit-read` for `file_read` / `dir_list` CVE effects         |
@@ -600,9 +601,110 @@ Manual verification on vercel:dev:
 
 ## PR 4: Server-authoritative auth — MySQL / Redis / SNMP
 
-**Goal**: Same shape as PR 2/3 for MySQL (`/var/lib/mysql/data.json`), Redis (`/etc/redis/redis.conf`), SNMP (`/etc/snmp/snmpd.conf`).
+**Goal**: Extend `authCreateSession` to accept `kind:'mysql' | 'redis' | 'snmp'`. Closes the same forge bypass that PRs 2-3 closed for ssh/scp/su/ftp — a forge caller can no longer mint a `kind:'mysql'` session with `userType:'root'` claim.
 
-**Approach**: Extend auth endpoint dispatch with three more kinds. Each reads its credential file from `machine_filesystems.content`, validates with the protocol's specific shape (MySQL has multiple users; Redis has a single password; SNMP has a community string).
+**Three credential file shapes**:
+
+- **MySQL** — `/var/lib/mysql/data.json`. Multi-user JSON with `{credentials: [{username, passwordHash, ...}]}`. Mirrors FTP `virtual_users.conf` shape.
+- **Redis** — `/etc/redis/redis.conf`. Shared password via `requirepass <plaintext>`. No username concept; the wire payload uses `username:'redis'` as a sentinel.
+- **SNMP** — `/etc/snmp/snmpd.conf`. Two community strings: `rocommunity <string>` (read-only) and `rwcommunity <string>` (read-write). For PR 4, migrate only `snmpset` (the single SNMP path that creates a session today) — match against `rwcommunity` → userType `'root'`. snmpwalk stays read-only/sessionless until PR 7's `/api/exploit-read`.
+
+**Acceptance**:
+
+- [ ] `authCreateSession` accepts `kind:'mysql'` with valid `(username, password)` against `/var/lib/mysql/data.json`; mismatch → 401.
+- [ ] `authCreateSession` accepts `kind:'redis'` with sentinel `username:'redis'` and the `requirepass` value; mismatch → 401. Missing `requirepass` (no auth required) → also 401 (redis with auth disabled is a different code path that doesn't go through authCreateSession).
+- [ ] `authCreateSession` accepts `kind:'snmp'` with sentinel `username:'snmp'` and the `rwcommunity` string; mismatch → 401.
+- [ ] `createSession` with any of these three kinds → `403 use_authcreatesession`.
+- [ ] Client `connectMysql`, `connectRedis`, and `snmpset`'s session-create hop route through `authCreateSession` instead of local-validation + `createSession`/`withTransientSession`.
+- [ ] In-game flow: own-workstation MySQL/Redis/SNMP login still works; cross-player paths follow the same accepted regression as PRs 2-3 (auth works but post-login reads fail until PR 6).
+- [ ] Forge smoke (`scripts/testServerAuth.ts`) extended with at least 6 new scenarios (2 per protocol: success + wrong credential).
+
+### Step 1: Generalize the FS-content adapter (refactor)
+
+**RED**: Adapter test for new `createSupabaseFindFsContent({ path })` factory — accepts `{ machine_id, path }`, returns same `{ ok, found, content }` shape.
+
+**GREEN**: New file `src/sessionRegistry/supabaseFindFsContent.ts`. Migrate `findEtcPasswdContent` and `findVirtualUsersConfContent` callers in `api/sessions.ts` to use the generic factory; keep the per-file adapters as thin re-exports if they have direct test coverage worth preserving (or delete them — feedback_no_backward_compat applies).
+
+**Done when**: api/sessions.ts uses one adapter factory; all existing tests still pass.
+
+### Step 2: Add `'mysql' | 'redis' | 'snmp'` to `AUTH_REQUIRED_KINDS`
+
+**RED**: Schema test in `types.test.ts` — `kind:'mysql'` / `'redis'` / `'snmp'` parse on authCreateSession; `kind:'mysql'` on createSession parses (handler will reject), etc.
+
+**GREEN**: Extend the `AUTH_REQUIRED_KINDS` const tuple. Update the kind-list comment to clarify the three new shapes (multi-user JSON, shared-secret, dual-community).
+
+**Done when**: schema tests green; existing tests still pass.
+
+### Step 3: Per-protocol credential parsers
+
+Three small parser helpers in `src/filesystem/`:
+
+- `mysqlCredentialsHelpers.ts` — `findMysqlUserHash(content, username) → string | undefined`. Parses JSON, returns `credentials[].passwordHash` for the matching username. Mirrors `findVirtualUserHash` shape.
+- `redisConfHelpers.ts` — `findRedisRequirepass(content) → string | undefined`. Extracts `requirepass <value>` from the conf.
+- `snmpConfHelpers.ts` — `findSnmpRwCommunity(content) → string | undefined`. Extracts `rwcommunity <value>`.
+
+**RED**: Unit tests covering: present/absent/empty content, malformed lines, multi-line edge cases, sentinel strings (e.g. `requirepass ""`).
+
+**GREEN**: Implement each parser. Reuse `parseMysqlDatabase` from `commands/mysql/types` if it's safe to import server-side (no browser deps); otherwise inline a smaller server-side JSON parser.
+
+**Done when**: parser tests green for each.
+
+### Step 4: Handler dispatch per kind
+
+**RED**: handler.test.ts tests:
+
+- `kind:'mysql'` + valid (username, password) against the JSON → 201 with userType from /etc/passwd or from the JSON itself (see decision below).
+- `kind:'mysql'` wrong password → 401.
+- `kind:'mysql'` + savedKey → 401 (rejected like FTP).
+- `kind:'redis'` + sentinel username + correct requirepass → 201 with userType `'root'` (Redis AUTH grants full access in real Redis; the game model matches).
+- `kind:'redis'` wrong password → 401.
+- `kind:'redis'` requirepass absent → 401 (no-auth Redis is out of scope; only the AUTH'd path goes through this endpoint).
+- `kind:'snmp'` + sentinel username + correct rwcommunity → 201 with userType `'root'`.
+- `kind:'snmp'` wrong community → 401.
+- `kind:'snmp'` rocommunity match → 401 (snmpset needs rwcommunity).
+- ssh/scp/su/ftp tests still pass.
+
+**Decision needed during step 4**: where does MySQL's userType come from? Two options:
+
+- **A**: from `/etc/passwd` (same machine; usernames overlap). Consistent with FTP overlay precedence.
+- **B**: from the MySQL JSON itself (each `credentials[].userType`). Independent of /etc/passwd.
+
+Looking at `parseMysqlDatabase`, the JSON already carries userType per credential. Going with **B** simpler; no second file lookup.
+
+**GREEN**: Branch in `handleAuthCreateSession` per kind. mysql/redis/snmp each construct their own session row with userType from the credential file.
+
+**Done when**: handler tests green; no regression on PR 2/3 tests.
+
+### Step 5: Wire api/sessions.ts
+
+Inject the three new credential-file lookups (or one generic adapter, depending on Step 1's outcome).
+
+**Done when**: vercel:dev boots without errors.
+
+### Step 6: Client refactors
+
+- `connectMysql` + `authenticateMysqlInline` → call `authCreateSession` with kind='mysql', username, password.
+- `connectRedis` → call `authCreateSession` with kind='redis', sentinel username, password.
+- `snmpset` → replace `withTransientSession` with `withTransientAuthSession` (introduced in PR 2).
+- `enterMysqlMode` and `enterRedisMode`: drop their fire-and-forget `createServerSession` push (mirrors PR 3's `enterFtpMode` simplification).
+- Add `authCreateMysqlSession` / `authCreateRedisSession` methods to SessionContext (mirrors `authCreateFtpSession`).
+
+**Done when**: in-game MySQL / Redis login works against vercel:dev; existing tests updated or skipped (cross-test leak precedent).
+
+### Step 7: Forge smoke extension
+
+Extend `scripts/testServerAuth.ts` with:
+
+- mysql: insert `/var/lib/mysql/data.json` row → success match + wrong password.
+- redis: insert `/etc/redis/redis.conf` with requirepass → success + wrong password.
+- snmp: insert `/etc/snmp/snmpd.conf` with rwcommunity → success + wrong community.
+- All three kinds: createSession bypass closure.
+
+**Done when**: forge smoke goes from 14 → ~20 scenarios.
+
+### Step 8: Two-browser smoke
+
+Manual cross-player verification on `vercel:dev`. Same accepted regression as PR 2/3 (auth works; post-login reads fail until PR 6).
 
 ---
 

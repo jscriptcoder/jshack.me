@@ -1015,7 +1015,12 @@ describe('SessionProvider — enterNcMode / exitNcMode (server-aware)', () => {
 // mysql enter/exit — protocol session push (kind='mysql')
 // -----------------------------------------------------------------------
 
-describe('SessionProvider — enterMysqlMode / exitMysqlMode (server-aware)', () => {
+// PR 4: enterMysqlMode no longer fires a fire-and-forget createSession.
+// Server-authoritative auth+create now lives in authCreateMysqlSession
+// (covered by sessionRegistry/handler.test.ts). enterMysqlMode is just
+// state-set. The existing tests below exercise the obsolete push;
+// kept skipped for historical reference, clean up at PR 4 close.
+describe.skip('SessionProvider — enterMysqlMode / exitMysqlMode (server-aware)', () => {
   beforeEach(() => {
     vi.mocked(mockedCreateSession).mockReset();
     vi.mocked(mockedEndSession).mockReset();
@@ -1109,7 +1114,9 @@ describe('SessionProvider — enterMysqlMode / exitMysqlMode (server-aware)', ()
 // redis enter/exit — protocol session push (kind='redis')
 // -----------------------------------------------------------------------
 
-describe('SessionProvider — enterRedisMode / exitRedisMode (server-aware)', () => {
+// PR 4: enterRedisMode no longer fires a fire-and-forget createSession.
+// Server-authoritative auth+create lives in authCreateRedisSession.
+describe.skip('SessionProvider — enterRedisMode / exitRedisMode (server-aware)', () => {
   beforeEach(() => {
     vi.mocked(mockedCreateSession).mockReset();
     vi.mocked(mockedEndSession).mockReset();

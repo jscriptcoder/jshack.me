@@ -17,6 +17,7 @@ import type {
   FindVirtualUsersConfContentParams,
   FindVirtualUsersConfContentResult,
 } from './supabaseFindVirtualUsersConfContent';
+import type { FindFsContentParams, FindFsContentResult } from './supabaseFindFsContent';
 import type { RateLimiter } from '../ipRegistry/rateLimit';
 import { noopRateLimiter } from '../ipRegistry/rateLimit';
 import { noopNonceStore, type NonceStore } from '../signedRequest/nonceStore';
@@ -73,6 +74,7 @@ const mkDeps = (overrides: {
   readonly findVirtualUsersConfContent?: (
     params: FindVirtualUsersConfContentParams,
   ) => Promise<FindVirtualUsersConfContentResult>;
+  readonly findFsContent?: (params: FindFsContentParams) => Promise<FindFsContentResult>;
   readonly rateLimiter?: RateLimiter;
   readonly nonceStore?: NonceStore;
   readonly now?: () => number;
@@ -108,6 +110,13 @@ const mkDeps = (overrides: {
         (params: FindVirtualUsersConfContentParams) => Promise<FindVirtualUsersConfContentResult>
       >()
       .mockResolvedValue({ ok: true, found: false }),
+  // PR 4: generic FS content adapter, used by mysql/redis/snmp arms.
+  // Default: every path returns found:false. Per-kind tests override.
+  findFsContent:
+    overrides.findFsContent ??
+    vi
+      .fn<(params: FindFsContentParams) => Promise<FindFsContentResult>>()
+      .mockResolvedValue({ ok: true, found: false }),
   rateLimiter: overrides.rateLimiter ?? noopRateLimiter,
   nonceStore: overrides.nonceStore ?? noopNonceStore,
   now: overrides.now ?? (() => FIXED_NOW),
@@ -142,23 +151,23 @@ describe('handleSessionsRequest — createSession', () => {
     });
   });
 
-  it('passes through explicit kind for non-auth-required kinds (e.g., mysql)', async () => {
-    // mysql is still routed through createSession (PR 4 migrates it to
-    // authCreateSession). ftp moved to auth-required in PR 3 and is
-    // covered by the describe.each block below.
+  it('passes through explicit kind for non-auth-required kinds (e.g., nc)', async () => {
+    // After PR 4 migrated mysql/redis/snmp into AUTH_REQUIRED_KINDS,
+    // the remaining createSession-routed kinds are: exploit, nc,
+    // effect_one_shot. nc is the simplest example here.
     const insertSession = vi
       .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
       .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
     const envelope = makeEnvelope(identity, {
       action: 'createSession',
       machine_id: '10.0.0.5',
-      credentials: { username: 'alice', userType: 'user' },
-      kind: 'mysql',
+      credentials: { username: 'root', userType: 'root' },
+      kind: 'nc',
     });
 
     await handleSessionsRequest(envelope, mkDeps({ insertSession }));
 
-    expect(insertSession).toHaveBeenCalledWith(expect.objectContaining({ kind: 'mysql' }));
+    expect(insertSession).toHaveBeenCalledWith(expect.objectContaining({ kind: 'nc' }));
   });
 
   it('rejects with 400 when kind is omitted (now required, no default)', async () => {
@@ -180,15 +189,15 @@ describe('handleSessionsRequest — createSession', () => {
     expect(insertSession).not.toHaveBeenCalled();
   });
 
-  describe.each(['ssh', 'scp', 'su', 'ftp'] as const)(
+  describe.each(['ssh', 'scp', 'su', 'ftp', 'mysql', 'redis', 'snmp'] as const)(
     'rejects createSession with auth-required kind=%s',
     (authKind) => {
       it('returns 403 use_authcreatesession and does NOT insert', async () => {
-        // PR 2 step 5 + PR 3: closing the bypass hole. Auth-required kinds
-        // must route through authCreateSession (which validates against
-        // /etc/passwd or /etc/vsftpd/virtual_users.conf). createSession
-        // with these kinds would let a forge caller mint a session row
-        // without proving credentials.
+        // PRs 2-4: closing the bypass hole. Auth-required kinds must
+        // route through authCreateSession (which validates against the
+        // appropriate credential file). createSession with these kinds
+        // would let a forge caller mint a session row without proving
+        // credentials.
         const insertSession = vi
           .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
           .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
@@ -1403,6 +1412,378 @@ describe('handleSessionsRequest — authCreateSession', () => {
       );
 
       expect(findVirtualUsersConfContent).not.toHaveBeenCalled();
+    });
+  });
+
+  // ----- PR 4: MySQL ---------------------------------------------------
+  //
+  // MySQL reads /var/lib/mysql/data.json. userType comes from the JSON
+  // entry (each credential carries its own userType, unlike FTP where
+  // virtual_users.conf only has hashes). Password-only — savedKey
+  // rejected.
+
+  describe('MySQL (kind=mysql)', () => {
+    const TEST_MYSQL_PASSWORD = 'mysql-admin-pw';
+    const MYSQL_CONTENT = JSON.stringify({
+      name: 'app',
+      tables: {},
+      credentials: [
+        { username: 'admin', passwordHash: md5(TEST_MYSQL_PASSWORD), userType: 'root' },
+        { username: 'reader', passwordHash: md5('reader-pw'), userType: 'guest' },
+      ],
+    });
+    const fsContentDep = (path: string, content: string | null) =>
+      vi.fn(async (params: FindFsContentParams) =>
+        params.path === path
+          ? { ok: true as const, found: true as const, content }
+          : { ok: true as const, found: false as const },
+      );
+
+    it('returns 201 with userType from the JSON for valid credentials', async () => {
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'mysql',
+        username: 'admin',
+        auth: passwordAuth(TEST_MYSQL_PASSWORD),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({
+          insertSession,
+          findFsContent: fsContentDep('/var/lib/mysql/data.json', MYSQL_CONTENT),
+        }),
+      );
+
+      expect(result.status).toBe(201);
+      expect(result.body).toEqual({ session_id: STUB_SESSION_ID, userType: 'root' });
+      expect(insertSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          credentials: { username: 'admin', userType: 'root' },
+          kind: 'mysql',
+        }),
+      );
+    });
+
+    it('returns 401 invalid_credentials for wrong password', async () => {
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'mysql',
+        username: 'admin',
+        auth: passwordAuth('wrong'),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({
+          insertSession,
+          findFsContent: fsContentDep('/var/lib/mysql/data.json', MYSQL_CONTENT),
+        }),
+      );
+
+      expect(result.status).toBe(401);
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+
+    it('returns 401 when username absent from credentials (no enumeration)', async () => {
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'mysql',
+        username: 'unknown',
+        auth: passwordAuth(TEST_MYSQL_PASSWORD),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({ findFsContent: fsContentDep('/var/lib/mysql/data.json', MYSQL_CONTENT) }),
+      );
+
+      expect(result.status).toBe(401);
+    });
+
+    it('returns 401 when data.json row is missing', async () => {
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'mysql',
+        username: 'admin',
+        auth: passwordAuth(TEST_MYSQL_PASSWORD),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({
+          findFsContent: () => Promise.resolve({ ok: true, found: false }),
+        }),
+      );
+
+      expect(result.status).toBe(401);
+    });
+
+    it('rejects savedKey method (no .ssh_keys for mysql)', async () => {
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'mysql',
+        username: 'admin',
+        auth: savedKeyAuth(md5(`admin:${TEST_TARGET_IP}:${md5(TEST_MYSQL_PASSWORD)}`)),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({ findFsContent: fsContentDep('/var/lib/mysql/data.json', MYSQL_CONTENT) }),
+      );
+
+      expect(result.status).toBe(401);
+    });
+
+    it('does NOT consult /etc/passwd for mysql kind', async () => {
+      // mysql derives userType from data.json, not /etc/passwd.
+      const findEtcPasswdContent = vi.fn();
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'mysql',
+        username: 'admin',
+        auth: passwordAuth(TEST_MYSQL_PASSWORD),
+      });
+
+      await handleSessionsRequest(
+        envelope,
+        mkDeps({
+          findEtcPasswdContent,
+          findFsContent: fsContentDep('/var/lib/mysql/data.json', MYSQL_CONTENT),
+        }),
+      );
+
+      expect(findEtcPasswdContent).not.toHaveBeenCalled();
+    });
+  });
+
+  // ----- PR 4: Redis ---------------------------------------------------
+  //
+  // Redis is shared-secret. Sentinel username='redis'. requirepass
+  // plaintext compare; userType always 'root' on success.
+
+  describe('Redis (kind=redis)', () => {
+    const REDIS_PW = 'redis-secret-pw';
+    const REDIS_CONTENT = `port 6379\nrequirepass ${REDIS_PW}`;
+    const fsContentDep = (path: string, content: string | null) =>
+      vi.fn(async (params: FindFsContentParams) =>
+        params.path === path
+          ? { ok: true as const, found: true as const, content }
+          : { ok: true as const, found: false as const },
+      );
+
+    it('returns 201 with userType=root on valid requirepass', async () => {
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'redis',
+        username: 'redis',
+        auth: passwordAuth(REDIS_PW),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({
+          insertSession,
+          findFsContent: fsContentDep('/etc/redis/redis.conf', REDIS_CONTENT),
+        }),
+      );
+
+      expect(result.status).toBe(201);
+      expect(result.body).toEqual({ session_id: STUB_SESSION_ID, userType: 'root' });
+      expect(insertSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          credentials: { username: 'redis', userType: 'root' },
+          kind: 'redis',
+        }),
+      );
+    });
+
+    it('returns 401 on wrong requirepass', async () => {
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'redis',
+        username: 'redis',
+        auth: passwordAuth('wrong'),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({ findFsContent: fsContentDep('/etc/redis/redis.conf', REDIS_CONTENT) }),
+      );
+
+      expect(result.status).toBe(401);
+    });
+
+    it('returns 401 when requirepass directive is absent (no-auth Redis goes elsewhere)', async () => {
+      const NO_AUTH_CONTENT = 'port 6379\nbind 0.0.0.0';
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'redis',
+        username: 'redis',
+        auth: passwordAuth('any'),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({ findFsContent: fsContentDep('/etc/redis/redis.conf', NO_AUTH_CONTENT) }),
+      );
+
+      expect(result.status).toBe(401);
+    });
+
+    it('returns 401 when redis.conf row is missing', async () => {
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'redis',
+        username: 'redis',
+        auth: passwordAuth(REDIS_PW),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({ findFsContent: () => Promise.resolve({ ok: true, found: false }) }),
+      );
+
+      expect(result.status).toBe(401);
+    });
+
+    it('rejects savedKey method', async () => {
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'redis',
+        username: 'redis',
+        auth: savedKeyAuth(md5(`redis:${TEST_TARGET_IP}:${REDIS_PW}`)),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({ findFsContent: fsContentDep('/etc/redis/redis.conf', REDIS_CONTENT) }),
+      );
+
+      expect(result.status).toBe(401);
+    });
+  });
+
+  // ----- PR 4: SNMP ----------------------------------------------------
+  //
+  // SNMP shared-secret via rwcommunity. snmpset is the only path that
+  // creates a session today. rocommunity stays read-only/sessionless.
+
+  describe('SNMP (kind=snmp)', () => {
+    const RW_COMMUNITY = 'private-rw';
+    const RO_COMMUNITY = 'public-ro';
+    const SNMP_CONTENT = `rocommunity ${RO_COMMUNITY}\nrwcommunity ${RW_COMMUNITY}`;
+    const fsContentDep = (path: string, content: string | null) =>
+      vi.fn(async (params: FindFsContentParams) =>
+        params.path === path
+          ? { ok: true as const, found: true as const, content }
+          : { ok: true as const, found: false as const },
+      );
+
+    it('returns 201 with userType=root for valid rwcommunity', async () => {
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'snmp',
+        username: 'snmp',
+        auth: passwordAuth(RW_COMMUNITY),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({
+          insertSession,
+          findFsContent: fsContentDep('/etc/snmp/snmpd.conf', SNMP_CONTENT),
+        }),
+      );
+
+      expect(result.status).toBe(201);
+      expect(result.body).toEqual({ session_id: STUB_SESSION_ID, userType: 'root' });
+      expect(insertSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          credentials: { username: 'snmp', userType: 'root' },
+          kind: 'snmp',
+        }),
+      );
+    });
+
+    it('returns 401 on rocommunity match (snmpset needs rwcommunity)', async () => {
+      // Read-only community is real but doesn't grant write access, so
+      // session creation must fail. snmpwalk goes through a different
+      // (sessionless) path.
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'snmp',
+        username: 'snmp',
+        auth: passwordAuth(RO_COMMUNITY),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({ findFsContent: fsContentDep('/etc/snmp/snmpd.conf', SNMP_CONTENT) }),
+      );
+
+      expect(result.status).toBe(401);
+    });
+
+    it('returns 401 on unknown community', async () => {
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'snmp',
+        username: 'snmp',
+        auth: passwordAuth('not-a-community'),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({ findFsContent: fsContentDep('/etc/snmp/snmpd.conf', SNMP_CONTENT) }),
+      );
+
+      expect(result.status).toBe(401);
+    });
+
+    it('returns 401 when snmpd.conf has no rwcommunity directive', async () => {
+      const RO_ONLY_CONTENT = `rocommunity ${RO_COMMUNITY}`;
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'snmp',
+        username: 'snmp',
+        auth: passwordAuth(RO_COMMUNITY),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({ findFsContent: fsContentDep('/etc/snmp/snmpd.conf', RO_ONLY_CONTENT) }),
+      );
+
+      expect(result.status).toBe(401);
+    });
+
+    it('rejects savedKey method', async () => {
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'snmp',
+        username: 'snmp',
+        auth: savedKeyAuth(md5(`snmp:${TEST_TARGET_IP}:${RW_COMMUNITY}`)),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({ findFsContent: fsContentDep('/etc/snmp/snmpd.conf', SNMP_CONTENT) }),
+      );
+
+      expect(result.status).toBe(401);
     });
   });
 
