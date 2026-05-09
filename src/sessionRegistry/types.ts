@@ -102,9 +102,9 @@ export type ListSessionsPayload = z.infer<typeof listSessionsSignedPayloadSchema
 // Subset of SESSION_KINDS that authCreateSession accepts. Auth-required
 // kinds — those whose session creation MUST be gated by a credential
 // check against the server-projected credential file(s) on the target.
-// Other kinds (exploit, nc, effect_one_shot) keep using `createSession`
-// because their tier comes from a different trust source: signed
-// envelope (exploit) or pidfile content (nc backdoor).
+// Other kinds (exploit, effect_one_shot) keep using `createSession`
+// because their tier comes from a different trust source (signed
+// envelope tier).
 //
 // Per-kind credential file + auth shape:
 //   ssh / scp / su → /etc/passwd (username + password OR savedKey).
@@ -123,9 +123,23 @@ export type ListSessionsPayload = z.infer<typeof listSessionsSignedPayloadSchema
 export const AUTH_REQUIRED_KINDS = ['ssh', 'scp', 'su', 'ftp', 'mysql', 'redis', 'snmp'] as const;
 export type AuthRequiredKind = (typeof AUTH_REQUIRED_KINDS)[number];
 
+// PR 5 of plans/cross-player-base-fs-replication.md — superset of
+// AUTH_REQUIRED_KINDS. authCreateSession's wire schema accepts these
+// kinds; AUTH_REQUIRED_KINDS is the subset for which createSession is
+// rejected (forge-bypass closure).
+//
+//   nc → /var/run/nc-<port>.pid (line `nc:port=X,user=Y,userType=Z,
+//        home=W`); method:'pidfile'. Server reads pidfile from
+//        machine_filesystems and derives credentials. NOT in
+//        AUTH_REQUIRED_KINDS yet — `createSession({kind:'nc'})` keeps
+//        working for the msfconsole shell_limited path until PR 7
+//        closes that gap with effect-grant validation.
+export const AUTH_CREATABLE_KINDS = [...AUTH_REQUIRED_KINDS, 'nc'] as const;
+export type AuthCreatableKind = (typeof AUTH_CREATABLE_KINDS)[number];
+
 // Auth method — discriminated union on `method`. Mutual exclusion of
-// password vs savedKey is enforced structurally; either method's
-// .strict() arm rejects the other's field.
+// password vs savedKey vs pidfile is enforced structurally; each
+// method's .strict() arm rejects the other arms' fields.
 //
 // savedKey carries `targetIp` because the client-side fingerprint
 // derivation in src/hooks/useAuthentication.ts is
@@ -134,6 +148,12 @@ export type AuthRequiredKind = (typeof AUTH_REQUIRED_KINDS)[number];
 // targetIp the client used is part of the proof shape, not derivable
 // from machine_id alone (NAT can map an external IP to a different
 // machine_id).
+//
+// pidfile (PR 5) carries `port` so the server can build the path
+// `/var/run/nc-<port>.pid` and read the pidfile content from
+// machine_filesystems. No username/password is sent — the pidfile
+// content is the credential, and the server parses
+// `nc:port=X,user=Y,userType=Z,home=W` to derive the row.
 export const authMethodSchema = z.discriminatedUnion('method', [
   z
     .object({
@@ -146,6 +166,12 @@ export const authMethodSchema = z.discriminatedUnion('method', [
       method: z.literal('savedKey'),
       fingerprint: z.string().min(1).max(128),
       targetIp: z.string().min(1).max(256),
+    })
+    .strict(),
+  z
+    .object({
+      method: z.literal('pidfile'),
+      port: z.number().int().min(1).max(65535),
     })
     .strict(),
 ]);
@@ -166,7 +192,7 @@ export const authCreateSessionSignedPayloadSchema = z
     ts: z.number().int(),
     nonce: z.string().regex(/^[0-9a-f]{32}$/i),
     machine_id: z.string().min(1).max(256),
-    kind: z.enum(AUTH_REQUIRED_KINDS),
+    kind: z.enum(AUTH_CREATABLE_KINDS),
     username: z.string().min(1).max(64),
     auth: authMethodSchema,
     parent_session_id: z.string().uuid().optional(),

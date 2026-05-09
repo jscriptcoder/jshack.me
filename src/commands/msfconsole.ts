@@ -616,6 +616,10 @@ const buildExploitOutput = (
                 username: shellUser.username,
                 userType: effect.tier,
                 homePath: shellUser.homePath,
+                // proof: 'effect' — CVE-yielded shell. No pidfile to read;
+                // tier comes from the effect (envelope-trusted today,
+                // forge-bypass closure deferred to PR 7).
+                proof: 'effect',
               };
               onComplete(ncPrompt);
               break;

@@ -29,10 +29,12 @@ import { getIdentity } from '../identity';
 import { displayPromptHostname } from '../homeNetworks/homeNetworkHelpers';
 import {
   authCreateSession as authCreateServerSession,
+  authCreateNcSession as authCreateNcServerSession,
   createSession as createServerSession,
   endSession as endServerSession,
   listSessions as listServerSessions,
   type AuthCreateSessionResult,
+  type AuthCreateNcSessionResult,
 } from '../sessionRegistry/client';
 import type { AuthMethod, SessionSummary } from '../sessionRegistry/types';
 
@@ -213,6 +215,20 @@ type SessionContextValue = {
   readonly exitNcMode: () => NcSession | null;
   readonly isInNcMode: () => boolean;
   readonly updateNcCwd: (cwd: string) => void;
+  // PR 5 of plans/cross-player-base-fs-replication.md — server-
+  // authoritative nc-pidfile auth. Combines server validation
+  // (read /var/run/nc-<port>.pid, derive credentials) with local
+  // setNcSession on success. Used by the `nc <ip> <port>` connect
+  // path; the msfconsole shell_limited path keeps using enterNcMode
+  // (with its fire-and-forget createServerSession) until PR 7 closes
+  // the effect-grant gap.
+  readonly authCreateNcSession: (params: {
+    readonly machineId: string;
+    readonly targetIP: string;
+    readonly targetPort: number;
+    readonly service: string;
+    readonly port: number;
+  }) => Promise<AuthCreateNcSessionResult>;
   readonly enterMysqlMode: (mysqlSession: MysqlSession) => void;
   readonly exitMysqlMode: () => MysqlSession | null;
   readonly isInMysqlMode: () => boolean;
@@ -776,11 +792,13 @@ export const SessionProvider = ({ children, hostname, username }: SessionProvide
     (newNcSession: NcSession) => {
       // Optimistic local state.
       setNcSession(newNcSession);
-      // Fire-and-forget server push. parent_session_id captures the
-      // shell session the player is sitting in (null if untracked
-      // localhost). source_ip is the machine they're nc'ing FROM.
-      // Mirrors enterFtpMode — kept symmetrical so the four enter
-      // helpers (ftp/nc/mysql/redis) can share extraction later.
+      // Fire-and-forget server push for the msfconsole `shell_limited`
+      // path (NcPromptData with `proof:'effect'`). Forge bypass — the
+      // signed envelope claims the kind:'nc' tier without proving an
+      // effect grant. PR 7 closes this with effect-grant validation.
+      // The nc-command path (NcPromptData with `proof:'pidfile'`) goes
+      // through authCreateNcSession instead, so this fire-and-forget
+      // doesn't run for that flow.
       void createServerSession(getIdentity(), {
         machine_id: newNcSession.machineId,
         credentials: {
@@ -800,6 +818,44 @@ export const SessionProvider = ({ children, hostname, username }: SessionProvide
         .catch((error) => {
           console.error('[session] nc createServerSession failed:', error);
         });
+    },
+    [session.sessionId, session.machine],
+  );
+
+  // PR 5 — server-authoritative nc-pidfile auth. Atomic credential
+  // validation (server reads /var/run/nc-<port>.pid) + session creation
+  // + local state set. Used by the `nc <ip> <port>` connect path; the
+  // username/userType/homePath returned here come from the pidfile
+  // content, not from any client claim.
+  const authCreateNcSession = useCallback(
+    async (params: {
+      readonly machineId: string;
+      readonly targetIP: string;
+      readonly targetPort: number;
+      readonly service: string;
+      readonly port: number;
+    }): Promise<AuthCreateNcSessionResult> => {
+      const result = await authCreateNcServerSession(getIdentity(), {
+        machine_id: params.machineId,
+        port: params.port,
+        ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
+        source_ip: session.machine,
+      });
+
+      if (result.ok) {
+        setNcSession({
+          targetIP: params.targetIP,
+          targetPort: params.targetPort,
+          service: params.service,
+          username: result.username,
+          userType: result.userType,
+          currentPath: result.homePath,
+          machineId: params.machineId,
+          sessionId: result.session_id,
+        });
+      }
+
+      return result;
     },
     [session.sessionId, session.machine],
   );
@@ -1065,6 +1121,7 @@ export const SessionProvider = ({ children, hostname, username }: SessionProvide
         exitNcMode,
         isInNcMode,
         updateNcCwd,
+        authCreateNcSession,
         enterMysqlMode,
         exitMysqlMode,
         isInMysqlMode,

@@ -15,6 +15,7 @@ import type { SessionSummary } from '../sessionRegistry/types';
 // what createSession / authCreateSession return via the mock.
 vi.mock('../sessionRegistry/client', () => ({
   authCreateSession: vi.fn(),
+  authCreateNcSession: vi.fn(),
   createSession: vi.fn(),
   endSession: vi.fn(),
   listSessions: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock('../sessionRegistry/client', () => ({
 
 import {
   authCreateSession as mockedAuthCreateSession,
+  authCreateNcSession as mockedAuthCreateNcSession,
   createSession as mockedCreateSession,
   endSession as mockedEndSession,
   listSessions as mockedListSessions,
@@ -1008,6 +1010,127 @@ describe('SessionProvider — enterNcMode / exitNcMode (server-aware)', () => {
     expect(result.current.ncSession?.sessionId).toBeNull();
 
     consoleErrorSpy.mockRestore();
+  });
+});
+
+// -----------------------------------------------------------------------
+// authCreateNcSession — server-authoritative nc-pidfile auth (PR 5)
+// -----------------------------------------------------------------------
+//
+// Replaces the forge-able createServerSession({ kind:'nc' }) push for the
+// `nc <ip> <port>` connect path. Server reads /var/run/nc-<port>.pid and
+// returns server-derived credentials. Local NcSession state is set only
+// on 201; 401/429 leave state untouched so the caller can show a
+// connection-refused message.
+
+describe('SessionProvider — authCreateNcSession (server-authoritative pidfile auth)', () => {
+  beforeEach(() => {
+    vi.mocked(mockedAuthCreateNcSession).mockReset();
+    vi.mocked(mockedListSessions).mockReset();
+    vi.mocked(mockedListSessions).mockResolvedValue([]);
+    sessionStorage.clear();
+  });
+
+  const params = {
+    machineId: '10.0.0.5',
+    targetIP: '10.0.0.5',
+    targetPort: 4444,
+    service: 'elite',
+    port: 4444,
+  };
+
+  it('sets ncSession from server-derived response on 201', async () => {
+    vi.mocked(mockedAuthCreateNcSession).mockResolvedValue({
+      ok: true,
+      session_id: 'srv-nc-id',
+      username: 'alice',
+      userType: 'user',
+      homePath: '/home/alice',
+    });
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('bob') });
+
+    await act(async () => {
+      await result.current.authCreateNcSession(params);
+    });
+
+    expect(result.current.ncSession).toEqual({
+      targetIP: '10.0.0.5',
+      targetPort: 4444,
+      service: 'elite',
+      username: 'alice',
+      userType: 'user',
+      currentPath: '/home/alice',
+      machineId: '10.0.0.5',
+      sessionId: 'srv-nc-id',
+    });
+  });
+
+  it('does NOT set ncSession on 401 invalid_credentials', async () => {
+    vi.mocked(mockedAuthCreateNcSession).mockResolvedValue({
+      ok: false,
+      reason: 'invalid_credentials',
+    });
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('bob') });
+
+    await act(async () => {
+      const r = await result.current.authCreateNcSession(params);
+      expect(r).toEqual({ ok: false, reason: 'invalid_credentials' });
+    });
+
+    expect(result.current.ncSession).toBeNull();
+  });
+
+  it('passes parent_session_id and source_ip from current shell', async () => {
+    vi.mocked(mockedCreateSession).mockResolvedValue('parent-ssh-id');
+    vi.mocked(mockedAuthCreateNcSession).mockResolvedValue({
+      ok: true,
+      session_id: 'srv-nc-id',
+      username: 'alice',
+      userType: 'user',
+      homePath: '/home/alice',
+    });
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('bob') });
+
+    await act(async () => {
+      await result.current.pushSession('ssh', {
+        machine: '10.0.0.1',
+        username: 'admin',
+        userType: 'root',
+        currentPath: '/root',
+      });
+    });
+
+    await act(async () => {
+      await result.current.authCreateNcSession(params);
+    });
+
+    expect(mockedAuthCreateNcSession).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        parent_session_id: 'parent-ssh-id',
+        source_ip: '10.0.0.1',
+        machine_id: '10.0.0.5',
+        port: 4444,
+      }),
+    );
+  });
+
+  it('omits parent_session_id when current shell is untracked', async () => {
+    vi.mocked(mockedAuthCreateNcSession).mockResolvedValue({
+      ok: true,
+      session_id: 'srv-nc-id',
+      username: 'alice',
+      userType: 'user',
+      homePath: '/home/alice',
+    });
+    const { result } = renderHook(() => useSession(), { wrapper: wrapper('bob') });
+
+    await act(async () => {
+      await result.current.authCreateNcSession(params);
+    });
+
+    const call = vi.mocked(mockedAuthCreateNcSession).mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(call.parent_session_id).toBeUndefined();
   });
 });
 

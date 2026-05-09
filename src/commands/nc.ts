@@ -168,6 +168,13 @@ const connectNc = (context: NcConnectContext, args: readonly unknown[]): AsyncOu
             onLine(`# ${port} #`);
             onLine('');
 
+            // proof: 'pidfile' — Terminal routes this NcPromptData through
+            // authCreateNcSession so the server reads /var/run/nc-<port>.pid
+            // and derives credentials authoritatively. The username/
+            // userType/homePath fields here are the client's local guess
+            // (from FS-walk parseNcPidFiles) and are overridden by the
+            // server-derived values; for cross-player listeners, the
+            // server's read is the only trustworthy source.
             const ncPrompt: NcPromptData = {
               __type: 'nc_prompt',
               targetIP,
@@ -176,6 +183,7 @@ const connectNc = (context: NcConnectContext, args: readonly unknown[]): AsyncOu
               username,
               userType,
               homePath: ownerHome,
+              proof: 'pidfile',
             };
 
             onComplete(ncPrompt);

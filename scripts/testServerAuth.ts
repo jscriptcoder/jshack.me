@@ -541,6 +541,126 @@ check(
   `status=${r23.status} body=${JSON.stringify(r23.body)}`,
 );
 
+// ---- nc backdoor pidfile auth (PR 5) --------------------------------
+//
+// Server reads /var/run/nc-<port>.pid from machine_filesystems and
+// derives credentials. Wire payload: kind:'nc', auth:{method:'pidfile',
+// port}. Sentinel username:'nc'.
+
+const NC_PORT = 4444;
+const NC_PIDFILE = `/var/run/nc-${NC_PORT}.pid`;
+const NC_PIDFILE_CONTENT = `nc:port=${NC_PORT},user=alice,userType=user,home=/home/alice`;
+
+await sr.from('machine_filesystems').upsert(
+  {
+    machine_id: machineId,
+    path: NC_PIDFILE,
+    content: NC_PIDFILE_CONTENT,
+    permissions: { read: ['root', 'user'], write: ['root'], execute: [] },
+    owner: 'root',
+  },
+  { onConflict: 'machine_id,path' },
+);
+
+// ---- 24. nc pidfile match: server returns server-derived credentials -
+
+const env24 = signRequest(identity, 'authCreateSession', {
+  machine_id: machineId,
+  kind: 'nc',
+  username: 'nc',
+  auth: { method: 'pidfile', port: NC_PORT },
+});
+const r24 = await post('/api/sessions', env24);
+const r24Body = r24.body as {
+  session_id?: string;
+  username?: string;
+  userType?: string;
+  homePath?: string;
+};
+check(
+  '24. nc pidfile match returns 201 with server-derived username/userType/homePath',
+  r24.status === 201 &&
+    typeof r24Body?.session_id === 'string' &&
+    r24Body?.username === 'alice' &&
+    r24Body?.userType === 'user' &&
+    r24Body?.homePath === '/home/alice',
+  `status=${r24.status} body=${JSON.stringify(r24.body)}`,
+);
+
+// ---- 25. nc pidfile missing for that port → 401 --------------------
+
+const env25 = signRequest(identity, 'authCreateSession', {
+  machine_id: machineId,
+  kind: 'nc',
+  username: 'nc',
+  auth: { method: 'pidfile', port: 9999 },
+});
+const r25 = await post('/api/sessions', env25);
+check(
+  '25. nc no pidfile at port 9999 returns 401 invalid_credentials',
+  r25.status === 401 && (r25.body as { error?: string })?.error === 'invalid_credentials',
+  `status=${r25.status} body=${JSON.stringify(r25.body)}`,
+);
+
+// ---- 26. nc malformed pidfile → 401 --------------------------------
+
+await sr.from('machine_filesystems').upsert(
+  {
+    machine_id: machineId,
+    path: '/var/run/nc-9100.pid',
+    content: 'random nonsense without nc: prefix',
+    permissions: { read: ['root', 'user'], write: ['root'], execute: [] },
+    owner: 'root',
+  },
+  { onConflict: 'machine_id,path' },
+);
+
+const env26 = signRequest(identity, 'authCreateSession', {
+  machine_id: machineId,
+  kind: 'nc',
+  username: 'nc',
+  auth: { method: 'pidfile', port: 9100 },
+});
+const r26 = await post('/api/sessions', env26);
+check(
+  '26. nc malformed pidfile returns 401 invalid_credentials',
+  r26.status === 401 && (r26.body as { error?: string })?.error === 'invalid_credentials',
+  `status=${r26.status} body=${JSON.stringify(r26.body)}`,
+);
+
+// ---- 27. nc password method rejected (only pidfile is valid for nc) -
+
+const env27 = signRequest(identity, 'authCreateSession', {
+  machine_id: machineId,
+  kind: 'nc',
+  username: 'alice',
+  auth: { method: 'password', password: 'anything' },
+});
+const r27 = await post('/api/sessions', env27);
+check(
+  '27. nc method=password returns 401 (only pidfile method valid for nc)',
+  r27.status === 401 && (r27.body as { error?: string })?.error === 'invalid_credentials',
+  `status=${r27.status} body=${JSON.stringify(r27.body)}`,
+);
+
+// ---- 28. nc with credentials NOT mintable via createSession path? ---
+// PR 5 deliberately keeps `createSession` with kind:'nc' working — the
+// msfconsole shell_limited path (CVE-yielded shells) needs it until
+// PR 7 closes the effect-grant gap. Pin that as a regression so PR 7
+// remembers to flip the bit.
+
+const env28 = signRequest(identity, 'createSession', {
+  machine_id: machineId,
+  credentials: { username: 'alice', userType: 'user' },
+  kind: 'nc',
+});
+const r28 = await post('/api/sessions', env28);
+check(
+  '28. createSession kind=nc still allowed (msfconsole path; PR 7 closes)',
+  r28.status === 200 && typeof (r28.body as { session_id?: string })?.session_id === 'string',
+  `status=${r28.status} body=${JSON.stringify(r28.body)}`,
+);
+
 // ---- Cleanup ---------------------------------------------------------
 
 await sr.from('sessions').delete().eq('player_key', identity.publicKeyHex);

@@ -54,6 +54,16 @@ export type NcPromptData = {
   readonly username: string;
   readonly userType: 'root' | 'user' | 'guest';
   readonly homePath: string;
+  // PR 5 of plans/cross-player-base-fs-replication.md — distinguishes
+  // the two callers that yield NcPromptData:
+  //   - 'pidfile' — `nc <ip> <port>` connecting to a `nc -l` listener.
+  //                 Terminal routes through authCreateNcSession; server
+  //                 reads /var/run/nc-<port>.pid and derives credentials.
+  //   - 'effect'  — msfconsole `shell_limited` CVE result. No pidfile;
+  //                 server-trust is handled (or not yet handled — PR 7)
+  //                 via the effect-grant flow. Terminal keeps the
+  //                 existing fire-and-forget enterNcMode path.
+  readonly proof: 'pidfile' | 'effect';
 };
 
 export type NcQuitOutput = {

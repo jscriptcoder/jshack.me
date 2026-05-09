@@ -108,6 +108,7 @@ export const Terminal = () => {
     enterNcMode,
     exitNcMode,
     isInNcMode,
+    authCreateNcSession,
     enterMysqlMode,
     exitMysqlMode,
     isInMysqlMode,
@@ -592,17 +593,43 @@ export const Terminal = () => {
 
                   if (isNcPrompt(followUp)) {
                     const resolvedIP = resolveNat(followUp.targetIP, followUp.targetPort).ip;
-                    const newNcSession: NcSession = {
-                      targetIP: resolvedIP,
-                      targetPort: followUp.targetPort,
-                      service: followUp.service,
-                      username: followUp.username,
-                      userType: followUp.userType,
-                      currentPath: followUp.homePath,
-                      machineId: resolvedIP,
-                      sessionId: null,
-                    };
-                    enterNcMode(newNcSession);
+                    if (followUp.proof === 'pidfile') {
+                      // PR 5 — server reads /var/run/nc-<port>.pid and
+                      // derives credentials. Local guess values on
+                      // followUp (username/userType/homePath) are ignored;
+                      // the server's parse is authoritative.
+                      authCreateNcSession({
+                        machineId: resolvedIP,
+                        targetIP: resolvedIP,
+                        targetPort: followUp.targetPort,
+                        service: followUp.service,
+                        port: followUp.targetPort,
+                      })
+                        .then((authResult) => {
+                          if (!authResult.ok) {
+                            addLine('error', `nc: connection refused (${authResult.reason})`);
+                          }
+                        })
+                        .catch((error: unknown) => {
+                          const message = error instanceof Error ? error.message : String(error);
+                          addLine('error', `nc: ${message}`);
+                        });
+                    } else {
+                      // proof === 'effect' — msfconsole shell_limited.
+                      // Forge bypass remains until PR 7 closes the
+                      // effect-grant gap.
+                      const newNcSession: NcSession = {
+                        targetIP: resolvedIP,
+                        targetPort: followUp.targetPort,
+                        service: followUp.service,
+                        username: followUp.username,
+                        userType: followUp.userType,
+                        currentPath: followUp.homePath,
+                        machineId: resolvedIP,
+                        sessionId: null,
+                      };
+                      enterNcMode(newNcSession);
+                    }
                   }
                 },
               );
@@ -655,6 +682,7 @@ export const Terminal = () => {
       ncCommands,
       exitNcMode,
       enterNcMode,
+      authCreateNcSession,
       getNode,
       readFile,
       resolvePath,

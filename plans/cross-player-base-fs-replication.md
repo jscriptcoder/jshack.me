@@ -1,6 +1,6 @@
 # Plan: Cross-Player Base FS Replication + Server-Authoritative Auth + CVE Read Endpoint
 
-**Status**: Active — PR 1 ✅ merged (#124); PR 2 ✅ merged (#125); PR 3 ✅ merged (#126); PR 4 ✅ merged (#127, commit f92996d)
+**Status**: Active — PR 1 ✅ merged (#124); PR 2 ✅ merged (#125); PR 3 ✅ merged (#126); PR 4 ✅ merged (#127, commit f92996d); PR 5 🟢 in review (`feat/cpbfs-pr5-nc-pidfile`)
 **Started**: 2026-05-07
 **Estimate**: 7 PRs, ~3-4 weeks total
 **Why this chunk exists**: PvP cracking is the multiplayer pitch. Without this, cross-player attacks against player workstations don't work — SSH login fails, FTP login fails, file_read CVE fails, post-login `cat`/`ls` returns empty. User explicitly reversed the prior deferral on 2026-05-07 ("not gonna be happy to release the game without this").
@@ -99,7 +99,7 @@ Subsequent PRs in this chunk extend the same pattern to FTP / MySQL / Redis / nc
 | 2   | ✅ Merged (#125, commit `6d73df7`) | Server-authoritative auth — SSH / SCP / `su`                         |
 | 3   | ✅ Merged (#126, commit `275270c`) | Server-authoritative auth — FTP                                      |
 | 4   | ✅ Merged (#127, commit `f92996d`) | Server-authoritative auth — MySQL / Redis / SNMP                     |
-| 5   | Pending PR 1                       | Backdoor connect (nc) — cross-player tier from projected pidfile     |
+| 5   | 🟢 In review                       | Backdoor connect (nc) — cross-player tier from projected pidfile     |
 | 6   | Pending PRs 1-5                    | Base FS replication endpoint (eager bulk-fetch on session establish) |
 | 7   | Pending PR 6                       | `/api/exploit-read` for `file_read` / `dir_list` CVE effects         |
 | 8   | Pending PRs 2-3                    | Hydra adaptation + rate-limit tuning                                 |
@@ -709,11 +709,168 @@ Manual cross-player verification on `vercel:dev`. Same accepted regression as PR
 
 ## PR 5: Backdoor connect (nc) cross-player tier
 
-**Goal**: When A runs `nc <B's-IP> <port>` to a backdoor port (CVE-opened or `nc -l`-opened), the server reads `/var/run/<svc>.pid` content from `machine_filesystems` to determine the tier and creates the `kind: 'nc'` session at that tier.
+**Goal**: When A runs `nc <B's-IP> <port>` to a `nc -l`-opened backdoor on B, the server reads B's projected `/var/run/nc-<port>.pid` content from `machine_filesystems` to determine the tier and creates the `kind:'nc'` session at that tier. Forge clients can no longer mint a cross-player nc session at an arbitrary userType against a `nc -l`-opened port.
 
-**Approach**: nc-connect goes through a `kind: 'nc_connect'` action on the auth endpoint. Server reads the pidfile content (now projected after PR 1), parses the `userType=...` field, creates session at that tier.
+**Scope clarification (decided 2026-05-09 during PR 5 kickoff)**: PR 5 covers ONLY the `nc -l`-opened backdoor path (where a real pidfile pre-exists at `/var/run/nc-<port>.pid`). The msfconsole `shell_limited` effect path — which yields `NcPromptData` directly without writing a pidfile — keeps its current `createSession({ kind:'nc' })` flow and remains forge-able until PR 7 hardens it via effect-grant validation. Therefore `'nc'` does NOT enter `AUTH_REQUIRED_KINDS` in PR 5; it joins after PR 7 closes the msfconsole-side gap.
 
-**Note**: the `Port.owner` field on `RemoteMachine` is populated client-side from pidfile content. After this PR, the canonical source of `Port.owner` for cross-player machines becomes server-side; client-side derivation continues for own-machine convenience.
+**Approach**: extend `authCreateSession` with a third `authMethod` arm `{ method:'pidfile', port:number }`. Server reads `/var/run/nc-<port>.pid` via the existing generic `findFsContent` adapter (PR 4), parses the `nc:port=…,user=…,userType=…,home=…` line, derives credentials + currentPath, and inserts `kind:'nc'` with server-derived `userType` (never trusted from envelope).
+
+**Note on `Port.owner`**: client-side derivation via `parseNcPidFiles` continues for own-machine UX (kill, ps). For cross-player nc-connect, the canonical tier source becomes the server's pidfile read.
+
+**Acceptance**:
+
+- [ ] `POST /api/sessions` with `action:'authCreateSession'`, `kind:'nc'`, `auth:{method:'pidfile',port}` against a target whose `/var/run/nc-<port>.pid` is present and well-formed returns `201` with `session_id`, `username`, `userType`, and `homePath` (all server-derived from pidfile content).
+- [ ] Same envelope against a port with no pidfile row → `401 invalid_credentials` (no enumeration).
+- [ ] Same envelope against a malformed pidfile (random content, missing fields) → `401 invalid_credentials`.
+- [ ] `auth:{method:'password',…}` and `auth:{method:'savedKey',…}` with `kind:'nc'` → `401 invalid_credentials` (only the pidfile method is valid for nc).
+- [ ] `createSession` with `kind:'nc'` continues to work (msfconsole shell_limited path) — known forge gap, deferred to PR 7.
+- [ ] In-game flow: own-workstation `nc -l 4444` followed by another tab's `nc <publicIP> 4444` lands cross-player at the listener's tier (the server reads B's pidfile).
+- [ ] Forge smoke (`scripts/testServerAuth.ts`): 3 new scenarios — pidfile present + valid → 201 with correct userType; pidfile missing → 401; pidfile malformed → 401.
+- [ ] No regression on PRs 2-4 forge tests (24/24 still green).
+- [ ] Two-browser smoke verifies cross-player nc-to-listener works end-to-end.
+
+### Step 1: Extend `authMethodSchema` with `'pidfile'` arm
+
+**RED**: Schema test in `sessionRegistry/types.test.ts`:
+
+- `auth:{method:'pidfile',port:4444}` parses on `authCreateSession` envelopes.
+- `auth:{method:'pidfile'}` (missing port) is rejected.
+- `auth:{method:'pidfile',port:0}` / `port:65536` are rejected.
+- `auth:{method:'pidfile',port:4444,extra:'…'}` is rejected (strict).
+- `auth:{method:'pidfile',port:4444,password:'…'}` is rejected (mutual exclusion via discriminated union).
+
+**GREEN**: Add a third arm to the `authMethodSchema` discriminated union — `z.object({ method: z.literal('pidfile'), port: z.number().int().min(1).max(65535) }).strict()`. Update the `AuthMethod` inferred type and the comment block above the schema.
+
+**MUTATE**: Bounds (port range), method-literal value, mutual exclusion.
+
+**KILL MUTANTS**: Address surviving mutants.
+
+**REFACTOR**: None expected.
+
+**Done when**: schema tests green; existing `password` / `savedKey` arms unchanged.
+
+### Step 2: Pure pidfile parser helper
+
+**RED**: Tests in `src/filesystem/ncPidHelpers.test.ts`:
+
+- Well-formed line `nc:port=4444,user=alice,userType=user,home=/home/alice` → `{ port:4444, username:'alice', userType:'user', homePath:'/home/alice' }`.
+- Empty / null / undefined content → `undefined`.
+- Missing fields, wrong order, extra commas → `undefined`.
+- userType outside `'root'|'user'|'guest'` (e.g. `userType=admin`) → `undefined`.
+- Port out of range (`port=70000`, `port=0`, `port=-1`) → `undefined`.
+- home path containing additional commas — present approach: `home=…` is the last field and uses `(.+)$` so commas in path are preserved.
+
+**GREEN**: New file `src/filesystem/ncPidHelpers.ts` exporting `parseNcPid(content) → ParsedNcPid | undefined`. Reuse the existing `PID_PATTERN` regex from `network/ncStateParser.ts`. Keep the existing client-side `parseNcPidContent` in place; it can later delegate to the new helper to avoid drift, but PR 5 stays surgical.
+
+**MUTATE**: Regex anchors, bounds, userType enum membership, optional-chain handling on undefined content.
+
+**KILL MUTANTS**: Bounds and enum mutants.
+
+**REFACTOR**: If `parseNcPidContent` and the new helper share enough, fold to a single source-of-truth function. Defer if it inflates the diff; ship as follow-up.
+
+**Done when**: parser tests green; helper exported from a server-safe module (no React / no DOM imports).
+
+### Step 3: Handler dispatch — `kind:'nc'` + `method:'pidfile'`
+
+**RED**: New tests in `sessionRegistry/handler.test.ts`:
+
+- `kind:'nc'` + `method:'pidfile'` + present-and-well-formed pidfile content for `/var/run/nc-<port>.pid` → 201; `insertSession` called with `credentials.userType` and `credentials.username` from parsed pidfile (NOT from envelope); response body includes `username`, `userType`, `homePath`.
+- `kind:'nc'` + `method:'pidfile'` + missing pidfile row (`findFsContent` returns `found:false`) → `401 invalid_credentials`; insertSession NOT called.
+- `kind:'nc'` + `method:'pidfile'` + malformed pidfile content (parser returns undefined) → `401 invalid_credentials`.
+- `kind:'nc'` + `method:'password'` → `401 invalid_credentials` (no fallback to /etc/passwd for nc).
+- `kind:'nc'` + `method:'savedKey'` → `401 invalid_credentials`.
+- `kind:'nc'` + `method:'pidfile'` + `findFsContent` returns `ok:false` (DB error) → `500`.
+- ssh/scp/su/ftp/mysql/redis/snmp tests still pass (existing arms unchanged).
+
+**GREEN**: Add branch in `handleAuthCreateSession` for `kind:'nc'`:
+
+- Reject password/savedKey methods upfront with `401 invalid_credentials`.
+- For `method:'pidfile'`: build path `/var/run/nc-${port}.pid`, call `findFsContent({machine_id, path})`, on `ok:false` → 500, on `found:false` → 401, on found+content parse via `parseNcPid`, on parse fail → 401.
+- Build `SessionRow` with `credentials.username` and `credentials.userType` from parsed pidfile; insert.
+- Response body: `{ session_id, username, userType, homePath }` so the client can populate `NcSession.currentPath` from server (mirrors the FTP shape where userType comes from server).
+
+**MUTATE**: Method-literal dispatch, pidfile-not-found vs malformed-content error code parity (no enumeration), userType source (envelope vs parsed).
+
+**KILL MUTANTS**: Address surviving mutants.
+
+**REFACTOR**: If the per-kind branches in `handleAuthCreateSession` are getting unwieldy, extract per-kind handlers to private functions. Defer if cosmetic.
+
+**Done when**: handler tests green; no regression on PRs 2-4 tests.
+
+### Step 4: Wire api/sessions.ts
+
+`findFsContent` is already injected (PR 4); the new handler arm uses it. No additional adapter wiring needed unless test deps require it.
+
+**Done when**: vercel:dev boots cleanly; smoke (Step 6) passes.
+
+### Step 5: Client refactor — `authCreateNcSession` + Terminal split
+
+**RED**: Tests in `SessionContext.test.tsx`:
+
+- New method `authCreateNcSession({machine_id, port, parent_session_id, source_ip})` posts an `authCreateSession` envelope with `kind:'nc'` + `method:'pidfile'`.
+- On 201 returns `{session_id, username, userType, homePath}`; on 401 returns a typed failure result.
+- `enterNcMode` no longer issues a fire-and-forget `createServerSession` push for the pidfile path; it is state-only when called from the new flow.
+
+Tests in `Terminal.test.tsx` (or `useNetworkCommands.test.ts` if that's where the wiring lives):
+
+- nc command's resulting `NcPromptData` (carrying a new `proof:'pidfile'` discriminator) routes through `authCreateNcSession`. On 401, an error line is added; `enterNcMode` is NOT called.
+- msfconsole's `shell_limited` `NcPromptData` (with `proof:'effect'`) keeps the existing `enterNcMode` + fire-and-forget createServerSession path (deferred to PR 7).
+
+**GREEN**:
+
+- `NcPromptData` gains a `proof:'pidfile'|'effect'` discriminator. nc command sets `'pidfile'`; msfconsole sets `'effect'`. Update the type and both call sites.
+- Add `authCreateNcSession` to `SessionContext`. Mirror the shape of `authCreateFtpSession` (PR 3).
+- `enterNcMode` becomes state-only (drop the fire-and-forget createServerSession push). The single remaining caller for the forge-able path becomes a separate small helper that does the createServerSession + state mutation explicitly (msfconsole-shell_limited only).
+- `Terminal.tsx` `isNcPrompt` branch: switch on `proof`. `'pidfile'` → `authCreateNcSession({machine_id, port})`, on success build `NcSession` from server response and `enterNcMode(ncSession)`; on failure addLine error. `'effect'` → existing path (createServerSession kind:'nc').
+
+**Tricky points**:
+
+- The current `enterNcMode` does `setNcSession(...)` THEN fires createServerSession asynchronously and back-fills `sessionId`. With `authCreateNcSession`, `sessionId` is known before state-mutate, so a one-shot `enterNcMode(sessionWithSessionId)` works without back-fill plumbing.
+- `currentPath` on the new NcSession comes from the server's `homePath`, not the envelope. Client supplies port/machineId; server supplies username/userType/homePath.
+
+**MUTATE**: Method-literal routing in Terminal.tsx, success-vs-error handling (no zombie enterNcMode on error).
+
+**KILL MUTANTS**: Address surviving mutants.
+
+**REFACTOR**: None planned; mirror PR 3 patterns.
+
+**Done when**: in-game `nc <ip> <port>` to own listener works end-to-end against vercel:dev; tests green.
+
+### Step 6: Forge smoke — `scripts/testServerAuth.ts` extension
+
+**RED**: Add 3 (or 4) scenarios:
+
+- Insert a row into `machine_filesystems` with `path=/var/run/nc-9999.pid` and well-formed content. Forge `authCreateSession` envelope `kind:'nc', method:'pidfile', port:9999` → expect 201; assert response `userType` matches pidfile content; assert session row created in DB.
+- Same machine, `port:9998` (no row) → expect 401 invalid_credentials; no session row.
+- Insert a row with malformed content (`port=4444,user=alice` without `nc:` prefix) → expect 401.
+- Optional: forge `kind:'nc', method:'password'` → expect 401 (closes the password fallback).
+
+Cleanup: delete inserted machine_filesystems rows and any sessions created.
+
+**GREEN**: Ride on PRs 2-4 plumbing; existing handler code from Step 3 covers it.
+
+**Done when**: scenarios go from 24 → 27/28 passing; existing scenarios still green.
+
+### Step 7: Two-browser smoke
+
+Manual cross-player verification on `vercel:dev`:
+
+1. Browsers A and B with cross-player setup (same WiFi).
+2. B: `nc -l 4444` from B's localhost (writes pidfile under B's tier).
+3. Patch propagates to B's machine_filesystems row (verify via SQL).
+4. A: `nc <B's-LAN-IP> 4444` → expect "Connecting…" → "Connected." → `# 4444 #` prompt at B's listener tier.
+5. Network tab: `authCreateSession` POST with `kind:'nc'`, `method:'pidfile'`.
+6. A's prompt shows tier matching what B used to start the listener (e.g. if B was logged in as `user`, A lands as `user`).
+7. Stop B's listener; A retry → connection refused.
+
+**Done when**: cross-player nc-to-listener fully works through the UI.
+
+### Step 8: Plan + memory updates, lint/format/build/test, PR
+
+- Update plan status table: PR 5 ✅ merged.
+- Add a note in the plan about the deferred msfconsole-shell_limited gap (PR 7).
+- Run `npm run build && npm run lint && npm run format && npm run test:run`.
+- PR description references the pidfile method, the deferred forge gap, and the 27/28 forge smoke result.
 
 ---
 

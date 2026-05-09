@@ -141,6 +141,90 @@ export const authCreateSession = async (
   throw new Error(`authCreateSession failed with status ${response.status}`);
 };
 
+// ---- authCreateNcSession ---------------------------------------------------
+//
+// PR 5 of plans/cross-player-base-fs-replication.md — nc backdoor pidfile
+// authentication. Distinct wrapper from authCreateSession because the
+// server-derived response carries username + homePath (parsed from
+// /var/run/nc-<port>.pid), not just userType. The wire endpoint is the
+// same (POST /api/sessions, action='authCreateSession') — only the
+// payload kind/method and the response shape differ.
+
+export type AuthCreateNcSessionRequest = {
+  readonly machine_id: string;
+  readonly port: number;
+  readonly parent_session_id?: string;
+  readonly source_ip?: string;
+};
+
+export type AuthCreateNcSessionResult =
+  | {
+      readonly ok: true;
+      readonly session_id: string;
+      readonly username: string;
+      readonly userType: UserType;
+      readonly homePath: string;
+    }
+  | { readonly ok: false; readonly reason: 'invalid_credentials' | 'rate_limited' };
+
+export const authCreateNcSession = async (
+  identity: Identity,
+  request: AuthCreateNcSessionRequest,
+  fetchImpl: typeof fetch = fetch,
+): Promise<AuthCreateNcSessionResult> => {
+  const envelope = signRequest(identity, 'authCreateSession', {
+    machine_id: request.machine_id,
+    kind: 'nc',
+    // Sentinel — server derives the real username from the pidfile.
+    // The schema requires username:min(1), so we send a placeholder.
+    username: 'nc',
+    auth: { method: 'pidfile', port: request.port },
+    ...(request.parent_session_id !== undefined && {
+      parent_session_id: request.parent_session_id,
+    }),
+    ...(request.source_ip !== undefined && { source_ip: request.source_ip }),
+  });
+  const response = await postEnvelope(envelope, fetchImpl);
+
+  if (response.status === 201) {
+    const data: unknown = await response.json();
+    if (typeof data !== 'object' || data === null) {
+      throw new Error('authCreateNcSession returned malformed response (not an object)');
+    }
+    const sessionId = (data as { readonly session_id?: unknown }).session_id;
+    const username = (data as { readonly username?: unknown }).username;
+    const userType = (data as { readonly userType?: unknown }).userType;
+    const homePath = (data as { readonly homePath?: unknown }).homePath;
+    if (
+      typeof sessionId !== 'string' ||
+      typeof username !== 'string' ||
+      typeof homePath !== 'string' ||
+      !isUserType(userType)
+    ) {
+      throw new Error('authCreateNcSession returned malformed response');
+    }
+    return { ok: true, session_id: sessionId, username, userType, homePath };
+  }
+
+  if (response.status === 401) {
+    const body: unknown = await response.json().catch(() => null);
+    if (
+      typeof body === 'object' &&
+      body !== null &&
+      (body as { readonly error?: unknown }).error === 'invalid_credentials'
+    ) {
+      return { ok: false, reason: 'invalid_credentials' };
+    }
+    throw new Error('authCreateNcSession failed with status 401 (envelope-level)');
+  }
+
+  if (response.status === 429) {
+    return { ok: false, reason: 'rate_limited' };
+  }
+
+  throw new Error(`authCreateNcSession failed with status ${response.status}`);
+};
+
 // ---- endSession ------------------------------------------------------------
 
 export type EndSessionRequest = {

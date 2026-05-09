@@ -31,6 +31,7 @@ import { findVirtualUserHash } from '../filesystem/virtualUsersConfHelpers.js';
 import { findMysqlCredential } from '../filesystem/mysqlDataHelpers.js';
 import { findRedisRequirepass } from '../filesystem/redisConfHelpers.js';
 import { findSnmpRwCommunity } from '../filesystem/snmpConfHelpers.js';
+import { parseNcPid } from '../filesystem/ncPidHelpers.js';
 import { md5 } from '../utils/md5.js';
 
 export type HandlerResponse = {
@@ -221,6 +222,10 @@ const handleAuthCreateSession = async (
   if (payload.kind === 'mysql') return handleMysqlAuth(publicKey, payload, deps);
   if (payload.kind === 'redis') return handleRedisAuth(publicKey, payload, deps);
   if (payload.kind === 'snmp') return handleSnmpAuth(publicKey, payload, deps);
+  // PR 5 — nc backdoor short-circuits too. Reads the listener's pidfile
+  // and derives credentials from its content; never touches /etc/passwd
+  // (the nc listener tier is independent of the system user table).
+  if (payload.kind === 'nc') return handleNcAuth(publicKey, payload, deps);
 
   const { machine_id, kind, username, auth, parent_session_id, source_ip } = payload;
 
@@ -271,6 +276,14 @@ const handleAuthCreateSession = async (
   // catches "user in /etc/passwd, absent from overlay, empty system
   // hash" — neither path can authenticate.
   if (expectedHash === undefined) {
+    return { status: 401, body: { error: 'invalid_credentials' } };
+  }
+
+  // pidfile method has no shape on /etc/passwd-validated kinds —
+  // dropped here. The nc-kind shortcut above is the only caller for
+  // method:'pidfile', so other kinds reject it the same way as a
+  // wrong password (no info leak about which methods are supported).
+  if (auth.method === 'pidfile') {
     return { status: 401, body: { error: 'invalid_credentials' } };
   }
 
@@ -452,6 +465,68 @@ const handleSnmpAuth = async (
   return {
     status: 201,
     body: { session_id: result.session_id, userType: 'root' as const },
+  };
+};
+
+// ---- PR 5: nc backdoor pidfile ----------------------------------------
+//
+// Reads /var/run/nc-<port>.pid from machine_filesystems and derives
+// session credentials from the content line written by `nc -l`
+// (src/commands/nc.ts → createNcPidContent). userType is server-derived
+// from the pidfile, never trusted from the envelope. The auth method
+// MUST be 'pidfile' — password / savedKey are rejected up front so
+// callers can't fall back to /etc/passwd if a pidfile is missing.
+
+const ncPidfilePath = (port: number): string => `/var/run/nc-${port}.pid`;
+
+const handleNcAuth = async (
+  publicKey: string,
+  payload: Extract<SessionsPayload, { action: 'authCreateSession' }>,
+  deps: HandlerDeps,
+): Promise<HandlerResponse> => {
+  const { machine_id, auth, parent_session_id, source_ip } = payload;
+
+  if (auth.method !== 'pidfile') {
+    return { status: 401, body: { error: 'invalid_credentials' } };
+  }
+
+  const fsLookup = await deps.findFsContent({
+    machine_id,
+    path: ncPidfilePath(auth.port),
+  });
+  if (!fsLookup.ok) {
+    return { status: 500, body: { error: 'fs_lookup_failed' } };
+  }
+  const content = fsLookup.found ? fsLookup.content : null;
+  const parsed = parseNcPid(content);
+  if (parsed === undefined) {
+    return { status: 401, body: { error: 'invalid_credentials' } };
+  }
+
+  const row: SessionRow = {
+    player_key: publicKey,
+    machine_id,
+    // Credentials come from the parsed pidfile, never from the envelope.
+    // The envelope's `username` field is a sentinel for nc — clients
+    // typically send 'nc' but it is ignored here.
+    credentials: { username: parsed.username, userType: parsed.userType },
+    kind: 'nc',
+    ...(parent_session_id !== undefined && { parent_session_id }),
+    ...(source_ip !== undefined && { source_ip }),
+  };
+
+  const result = await deps.insertSession(row);
+  if (!result.ok) {
+    return { status: 500, body: { error: 'insert_failed' } };
+  }
+  return {
+    status: 201,
+    body: {
+      session_id: result.session_id,
+      username: parsed.username,
+      userType: parsed.userType,
+      homePath: parsed.homePath,
+    },
   };
 };
 
