@@ -1,9 +1,19 @@
 import type { FileNode } from '../../filesystem/types';
+import type { Port, ServiceOwner } from '../../network/types';
 import { mkFile } from './helpers';
 
 // Infrastructure service PID file definitions. Maps service names to their
 // daemon binary, PID file name, and run user. SSH/FTP are handled separately
-// by their own PID file factories; NC backdoors are dynamic (player-created).
+// by their own PID file factories. NC backdoors come in two flavors:
+//   - Player-created via `nc -l` (handled at runtime in src/commands/nc.ts).
+//   - NPC-baked via the network generator, when an `elite`-service port is
+//     created with an `owner` (mission/home networks, closure-mission
+//     enrichment). Those need a generation-time pidfile so the server's
+//     authCreateSession+pidfile path (PR 5 of plans/cross-player-base-fs-
+//     replication.md) can read /var/run/nc-<port>.pid and derive the
+//     listener's tier from the same canonical content the player would
+//     have written. Without this, cross-player nc against an NPC backdoor
+//     returns 401 invalid_credentials because the pidfile doesn't exist.
 type InfraPidConfig = {
   readonly pidFile: string;
   readonly binary: string;
@@ -53,3 +63,29 @@ export const buildInfrastructurePidFiles = (
       }),
   );
 };
+
+// Mirrors createNcPidContent in src/commands/nc.ts so a generated NPC
+// backdoor pidfile is byte-equivalent to one a player would have written
+// via `nc -l <port>`. parseNcPid (server) and parseNcPidContent (client)
+// both consume this single canonical line shape.
+const buildNcPidContent = (port: number, owner: ServiceOwner): string =>
+  `nc:port=${port},user=${owner.username},userType=${owner.userType},home=${owner.homePath}`;
+
+// Generates `/var/run/nc-<port>.pid` entries for any elite-service port
+// with a populated owner. Skipped for ports without an owner (no listener
+// metadata to project) and for non-elite ports (they're real services,
+// not backdoors). Multiple backdoors on different ports each get their
+// own pidfile — the file name encodes the port.
+export const buildNcBackdoorPidFiles = (
+  ports: readonly Port[],
+): Readonly<Record<string, FileNode>> =>
+  Object.fromEntries(
+    ports
+      .filter((p): p is Port & { readonly owner: ServiceOwner } =>
+        Boolean(p.open && p.service === 'elite' && p.owner),
+      )
+      .map((p) => {
+        const fileName = `nc-${p.port}.pid`;
+        return [fileName, mkFile(fileName, buildNcPidContent(p.port, p.owner), p.owner.userType)];
+      }),
+  );
