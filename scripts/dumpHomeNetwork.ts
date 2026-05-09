@@ -264,7 +264,13 @@ if (catTarget) {
   }
   // For --cat, pick the first instance (oldest by created_at). For
   // crowded ESSIDs the unfiltered dump (no wifiIndex) lists all of them.
-  const net = await generateHomeNetwork({ seed: instances[0]!.seed, essid: wifi.essid });
+  // routerPublicIp must match instance.publicIp so PRNG state advances
+  // identically to the in-game generation — see comment below.
+  const net = await generateHomeNetwork({
+    seed: instances[0]!.seed,
+    essid: wifi.essid,
+    routerPublicIp: instances[0]!.publicIp,
+  });
   handleCat(catTarget, net.fileSystems, net.machines, net.routerMachine);
   process.exit(0);
 }
@@ -331,7 +337,16 @@ for (const idx of indicesToDump) {
       });
     }
 
-    const net = await generateHomeNetwork({ seed: instance.seed, essid: wifi.essid });
+    // routerPublicIp must match the home_networks row's public_ip so the
+    // PRNG state advances identically to the in-game generation
+    // (HomeNetworksContext.tsx passes result.public_ip when joining).
+    // Without this, hostnames and gateway IPs diverge from what the
+    // player actually sees.
+    const net = await generateHomeNetwork({
+      seed: instance.seed,
+      essid: wifi.essid,
+      routerPublicIp: instance.publicIp,
+    });
 
     printOverview(net, idx);
     printMachines(net);
