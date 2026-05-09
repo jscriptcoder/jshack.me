@@ -30,6 +30,7 @@
 // row has correct content via the live flow, and this script becomes
 // a safety net for future structural-only backfills.
 
+import './lib/loadEnv';
 import { createClient } from '@supabase/supabase-js';
 import { regenWorkstationRows } from '../src/machineFilesystems/populateWorkstationBaseFs';
 import { createBulkInsertMachineFs } from '../src/machineFilesystems/bulkInsertMachineFs';

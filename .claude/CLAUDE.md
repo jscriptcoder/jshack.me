@@ -38,11 +38,16 @@ npm run test:e2e      # Run Playwright E2E test (mission playthrough)
 
 Use these scripts to inspect generated networks when debugging mission or home network issues. Prefer these over writing ad-hoc scripts.
 
+> **Env auto-loading**: scripts that need Supabase / dev-DB env vars import `scripts/lib/loadEnv` at the top, which reads `.env.local` + `.env.development.local`. Just run them as `npx tsx scripts/<name>.ts` — no `npx dotenv -e ... --` prefix required.
+
 ```bash
 # Dump a full mission network (machines, ports, users, objective, filesystems)
 npx tsx scripts/dumpMissionNetwork.ts <seed>
 
-# Dump home networks for a game seed (all crackable WiFi, or a specific index)
+# Dump home networks for a game seed — uses the multiplayer view (queries Supabase
+# for home_networks rows allocated by joinHomeNetwork; matches what the player sees
+# in-game). Auto-loads .env.local + .env.development.local via scripts/lib/loadEnv,
+# so no `npx dotenv` prefix is needed. Requires SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY.
 npx tsx scripts/dumpHomeNetwork.ts <gameSeed> [wifiIndex]
 
 # View full content of a specific file on a machine (works on both scripts)
@@ -59,60 +64,60 @@ npx tsx scripts/inspectPort.ts <seed> <targetIp> [<gameTimeDays>]
 
 # L2 base-FS backfill — regenerate every existing home_networks row's FS and bulk-populate machine_filesystems.
 # Idempotent (ON CONFLICT DO NOTHING). Use --dry-run to preview row counts before live writes.
-npx dotenv -e .env.development.local -- npx tsx scripts/backfillHomeNetworkBaseFs.ts [--dry-run]
+npx tsx scripts/backfillHomeNetworkBaseFs.ts [--dry-run]
 
 # L2 base-FS backfill for world_networks (findit.io, playground, future themed nets). World rows ship via
 # SQL migration, so re-run this after any new themed-network migration to populate machine_filesystems.
 # Same idempotent semantics as the home backfill.
-npx dotenv -e .env.development.local -- npx tsx scripts/backfillWorldNetworkBaseFs.ts [--dry-run]
+npx tsx scripts/backfillWorldNetworkBaseFs.ts [--dry-run]
 
 # L2 base-FS backfill for workstations — regenerate every workstations row's FS and bulk-populate
 # machine_filesystems. Idempotent (ON CONFLICT DO NOTHING). The api/register-workstation endpoint
 # handles go-forward; this script catches any pre-existing rows or populate misses.
-npx dotenv -e .env.development.local -- npx tsx scripts/backfillWorkstationBaseFs.ts [--dry-run]
+npx tsx scripts/backfillWorkstationBaseFs.ts [--dry-run]
 
 # Verify the L2 RLS posture on the machine_filesystems table (anon denied, service_role allowed).
-npx dotenv -e .env.development.local -- npx tsx scripts/verifyMachineFilesystemsRls.ts
+npx tsx scripts/verifyMachineFilesystemsRls.ts
 
 # Verify the L2 RLS posture on the workstations table (anon denied, service_role allowed).
 # Same shape as verifyMachineFilesystemsRls — 5 probes, expects 5/5 after the migration applies.
-npx dotenv -e .env.development.local -- npx tsx scripts/verifyWorkstationsRls.ts
+npx tsx scripts/verifyWorkstationsRls.ts
 
 # Verify the L2 dual-write SQL functions behave correctly (upsert/remove with own-workstation bypass).
-npx dotenv -e .env.development.local -- npx tsx scripts/verifyDualWrite.ts
+npx tsx scripts/verifyDualWrite.ts
 
 # Forge signed envelopes against /api/patches and verify L2 enforces (3/3 scenarios: no_session 403,
 # permission_denied 403, root 200). Requires vercel:dev running. Optional --machine-id <ip> to scope to a
 # specific machine (e.g. 192.0.2.80 for findit.io); without it picks any restrictive row in machine_filesystems.
-npx dotenv -e .env.development.local -- npx tsx scripts/testL2Bypass.ts [--machine-id <ip>]
+npx tsx scripts/testL2Bypass.ts [--machine-id <ip>]
 
 # Forge signed envelopes against /api/patches and verify the L1 ambient-log-path allowlist (handler.ts
 # AMBIENT_LOG_FILES). 14 cases: 8 allowlisted log files bypass to 200, 6 non-allowlisted /var/log/ paths
 # (incl. /var/log/payload.sh, subdirs, rotated suffixes) gate to 403 no_session. Self-cleaning. Requires
 # vercel:dev running.
-npx dotenv -e .env.development.local -- npx tsx scripts/testAmbientLogAllowlist.ts
+npx tsx scripts/testAmbientLogAllowlist.ts
 
 # Forge signed envelopes against /api/patches listPatchesForMachines and verify the read-path filter
 # (3/3 scenarios: no-session caller drops secrets keeps allowlist, guest-session caller's walker drops
 # root-only keeps allowlist, owner gets everything). Self-cleaning. Requires vercel:dev running.
-npx dotenv -e .env.development.local -- npx tsx scripts/testReadPathPrivacy.ts
+npx tsx scripts/testReadPathPrivacy.ts
 
 # End-to-end smoke for /api/register-workstation against vercel:dev. 8 checks: fresh-register 201,
 # idempotent-repeat 200, conflicting-repeat 409, tampered-signature 401, plus DB-side row + machine_filesystems
 # count + /etc/passwd presence. Self-cleaning so it can be re-run idempotently.
-npx dotenv -e .env.development.local -- npx tsx scripts/testRegisterWorkstation.ts
+npx tsx scripts/testRegisterWorkstation.ts
 
 # L2 bypass verifier scoped to a freshly-registered workstation. Registers a workstation through the real
 # endpoint, then runs the same 3-scenario test (no_session/permission_denied/root) against its workstation_id.
 # Closes the loop on chunk #1b: proves intruders with cracked sessions on a player's own box can't bypass L2.
-npx dotenv -e .env.development.local -- npx tsx scripts/testL2BypassWorkstation.ts
+npx tsx scripts/testL2BypassWorkstation.ts
 
 # Server-side userType validation smoke test. Forges signed envelopes against /api/sessions
 # (createSession) and verifies four scenarios: usertype_mismatch (400), usertype_underivable (400),
 # legitimate match (200), and mission stand-in no-op (200). Self-cleaning so it can be re-run idempotently.
 # Requires vercel:dev running and at least one machine_filesystems row with non-null /etc/passwd content
 # (re-run scripts/backfillHomeNetworkBaseFs.ts after the selective-content migration applies).
-npx dotenv -e .env.development.local -- npx tsx scripts/testCreateSessionUserType.ts
+npx tsx scripts/testCreateSessionUserType.ts
 ```
 
 ## Key Architecture

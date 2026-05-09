@@ -27,6 +27,7 @@
 //   SUPABASE_URL
 //   SUPABASE_SERVICE_ROLE_KEY
 
+import './lib/loadEnv';
 import { createClient } from '@supabase/supabase-js';
 import { generateIdentity, type Identity } from '../src/identity/identity';
 import { signRequest } from '../src/signedRequest/sign';

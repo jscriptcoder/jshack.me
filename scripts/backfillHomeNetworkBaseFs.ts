@@ -19,6 +19,7 @@
 // only until server-side mission_instances lands (also deferred —
 // captured in plans/l2-patch-validation.md).
 
+import './lib/loadEnv';
 import { createClient } from '@supabase/supabase-js';
 import { regenHomeNetworkRows } from '../src/machineFilesystems/populateHomeNetworkBaseFs';
 import { createBulkInsertMachineFs } from '../src/machineFilesystems/bulkInsertMachineFs';

@@ -1,22 +1,30 @@
 /**
- * Debug script: dump all home networks for a game seed.
+ * Debug script: dump home networks for a game seed.
  *
  * Usage:
  *   npx tsx scripts/dumpHomeNetwork.ts <gameSeed> [wifiIndex]
  *   npx tsx scripts/dumpHomeNetwork.ts <gameSeed> <wifiIndex> --cat <ip|hostname>:<path>
  *
- * Prints WiFi networks, machines, ports, users,
- * and full filesystem trees with ANSI colors.
+ * Queries Supabase for the actual server-allocated home_networks row(s)
+ * matching each WiFi's essid_template and dumps every instance using its
+ * server-stored seed (`home-${publicIp}`). This matches what the player
+ * sees in-game (subnets, IPs, occupants) — there's no longer a legacy
+ * single-player path.
  *
- * If wifiIndex is provided, only that WiFi's home network is dumped.
+ * Env loading is automatic via ./lib/loadEnv (reads .env.local +
+ * .env.development.local). Just run plain:
+ *
+ *   npx tsx scripts/dumpHomeNetwork.ts <seed> [wifiIndex]
+ *
+ * If no home_networks row exists for an ESSID yet (no player has joined),
+ * the script prints a notice and skips that WiFi — connect to it in-game
+ * first to materialize the row.
  */
 
+import './lib/loadEnv';
+import { createClient } from '@supabase/supabase-js';
 import { generateWifiNetworks } from '../src/generation/generateWifi';
-import {
-  generateHomeNetwork,
-  homeNetworkSeed,
-  type HomeNetwork,
-} from '../src/generation/generateHomeNetwork';
+import { generateHomeNetwork, type HomeNetwork } from '../src/generation/generateHomeNetwork';
 import {
   bold,
   cyan,
@@ -168,6 +176,70 @@ if (!gameSeed) {
 const wifiNetworks = generateWifiNetworks(gameSeed);
 const crackable = wifiNetworks.filter((w) => w.crackable);
 
+// ---------------------------------------------------------------------------
+// Multiplayer seed lookup
+// ---------------------------------------------------------------------------
+//
+// In-game, joinHomeNetwork creates / finds a home_networks row and uses its
+// `seed` column (= `home-${publicIp}`) to generate the topology. The dump
+// must use that same row to render what the player actually sees.
+
+type MultiplayerInstance = {
+  readonly publicIp: string;
+  readonly seed: string;
+  readonly densityTier: string;
+  readonly maxSlots: number;
+  readonly occupants: ReadonlyArray<{
+    readonly playerKey: string;
+    readonly lanIp: string;
+    readonly hostname: string;
+  }>;
+};
+
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+if (!supabaseUrl || !supabaseServiceKey) {
+  console.log(red('Error: SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are required.'));
+  console.log(
+    dim(
+      '  Make sure .env.local and/or .env.development.local define them. lib/loadEnv loads both at startup.',
+    ),
+  );
+  process.exit(1);
+}
+const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+  auth: { persistSession: false },
+});
+
+const fetchMultiplayerInstances = async (
+  essid: string,
+): Promise<readonly MultiplayerInstance[]> => {
+  const { data: networks, error } = await supabase
+    .from('home_networks')
+    .select('public_ip, density_tier, max_slots, seed')
+    .eq('essid_template', essid)
+    .order('created_at', { ascending: true });
+  if (error) {
+    console.log(red(`[supabase] home_networks lookup error for ${essid}: ${error.message}`));
+    return [];
+  }
+  if (!networks || networks.length === 0) return [];
+  const ips = networks.map((n) => n.public_ip);
+  const { data: occupants } = await supabase
+    .from('home_network_occupants')
+    .select('network_id, player_key, lan_ip, hostname')
+    .in('network_id', ips);
+  return networks.map((n) => ({
+    publicIp: n.public_ip,
+    seed: n.seed,
+    densityTier: n.density_tier,
+    maxSlots: n.max_slots,
+    occupants: (occupants ?? [])
+      .filter((o) => o.network_id === n.public_ip)
+      .map((o) => ({ playerKey: o.player_key, lanIp: o.lan_ip, hostname: o.hostname })),
+  }));
+};
+
 // --cat mode requires a wifiIndex
 if (catTarget) {
   if (wifiIndexArg === undefined) {
@@ -181,10 +253,18 @@ if (catTarget) {
     process.exit(1);
   }
   const wifi = crackable[idx]!;
-  const net = await generateHomeNetwork({
-    seed: homeNetworkSeed(gameSeed, idx),
-    essid: wifi.essid,
-  });
+  const instances = await fetchMultiplayerInstances(wifi.essid);
+  if (instances.length === 0) {
+    console.log(
+      red(
+        `Error: no home_networks row exists for ESSID "${wifi.essid}". Connect to it in-game first.`,
+      ),
+    );
+    process.exit(1);
+  }
+  // For --cat, pick the first instance (oldest by created_at). For
+  // crowded ESSIDs the unfiltered dump (no wifiIndex) lists all of them.
+  const net = await generateHomeNetwork({ seed: instances[0]!.seed, essid: wifi.essid });
   handleCat(catTarget, net.fileSystems, net.machines, net.routerMachine);
   process.exit(0);
 }
@@ -205,7 +285,6 @@ wifiNetworks.forEach((w, i) => {
 });
 
 // Determine which WiFi indices to dump
-const usedIps = new Set<string>();
 const indicesToDump: readonly number[] =
   wifiIndexArg !== undefined ? [parseInt(wifiIndexArg, 10)] : crackable.map((_, i) => i);
 
@@ -216,22 +295,48 @@ for (const idx of indicesToDump) {
   }
 
   const wifi = crackable[idx]!;
+  const instances = await fetchMultiplayerInstances(wifi.essid);
 
-  console.log('');
-  console.log(bold(magenta(`╔══════════════════════════════════════╗`)));
-  console.log(bold(magenta(`║     WIFI ${idx}: ${wifi.essid.padEnd(25)}║`)));
-  console.log(bold(magenta(`╚══════════════════════════════════════╝`)));
+  if (instances.length === 0) {
+    console.log('');
+    console.log(bold(magenta(`╔══════════════════════════════════════╗`)));
+    console.log(bold(magenta(`║     WIFI ${idx}: ${wifi.essid.padEnd(25)}║`)));
+    console.log(bold(magenta(`╚══════════════════════════════════════╝`)));
+    console.log(
+      yellow(
+        `  No home_networks row exists yet — connect to "${wifi.essid}" in-game to materialize it.`,
+      ),
+    );
+    continue;
+  }
 
-  const net = await generateHomeNetwork({
-    seed: homeNetworkSeed(gameSeed, idx),
-    essid: wifi.essid,
-    usedIps,
-  });
-  usedIps.add(net.router.publicIp);
+  // Crowded ESSIDs may have multiple instances (one per LAN).
+  for (let instanceIdx = 0; instanceIdx < instances.length; instanceIdx++) {
+    const instance = instances[instanceIdx]!;
+    console.log('');
+    console.log(bold(magenta(`╔══════════════════════════════════════╗`)));
+    const headerSuffix = instances.length > 1 ? ` [${instanceIdx + 1}/${instances.length}]` : '';
+    console.log(bold(magenta(`║     WIFI ${idx}: ${(wifi.essid + headerSuffix).padEnd(25)}║`)));
+    console.log(bold(magenta(`╚══════════════════════════════════════╝`)));
+    console.log(`  Public IP:       ${cyan(instance.publicIp)}`);
+    console.log(`  Density tier:    ${instance.densityTier}`);
+    console.log(`  Slots:           ${instance.occupants.length} / ${instance.maxSlots}`);
+    console.log(`  Server seed:     ${dim(instance.seed)}`);
+    if (instance.occupants.length > 0) {
+      console.log(`  Occupants:`);
+      instance.occupants.forEach((o) => {
+        console.log(
+          `    - ${o.hostname}  ${cyan(o.lanIp)}  ${dim(`player_key=${o.playerKey.slice(0, 16)}…`)}`,
+        );
+      });
+    }
 
-  printOverview(net, idx);
-  printMachines(net);
-  printFileSystems(net);
+    const net = await generateHomeNetwork({ seed: instance.seed, essid: wifi.essid });
+
+    printOverview(net, idx);
+    printMachines(net);
+    printFileSystems(net);
+  }
 }
 
 console.log('');

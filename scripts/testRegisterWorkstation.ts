@@ -19,6 +19,7 @@
 // Cleans up after itself (deletes the test workstations + machine_fs
 // rows) so it can be re-run idempotently.
 
+import './lib/loadEnv';
 import { createClient } from '@supabase/supabase-js';
 import { generateIdentity } from '../src/identity/identity';
 import { signRequest } from '../src/signedRequest/sign';

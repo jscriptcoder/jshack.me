@@ -38,12 +38,16 @@
 //   23. createSession kind=snmp → 403 use_authcreatesession
 //
 // Usage (vercel:dev must be running on http://localhost:3000):
-//   npx dotenv -e .env.local -e .env.development.local -- npx tsx scripts/testServerAuth.ts
+//   npx tsx scripts/testServerAuth.ts
+//
+// Env (.env.local + .env.development.local) auto-loads via lib/loadEnv —
+// no `npx dotenv` prefix needed.
 //
 // Self-cleaning: deletes the test workstations + sessions + machine_fs
 // rows (including the seeded virtual_users.conf overlay) so the script
 // can be re-run idempotently.
 
+import './lib/loadEnv';
 import { createClient } from '@supabase/supabase-js';
 import { generateIdentity } from '../src/identity/identity';
 import { signRequest } from '../src/signedRequest/sign';
