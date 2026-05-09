@@ -598,8 +598,16 @@ export const Terminal = () => {
                       // derives credentials. Local guess values on
                       // followUp (username/userType/homePath) are ignored;
                       // the server's parse is authoritative.
+                      //
+                      // machineId must be the canonical storage key:
+                      // the workstation_id for cross-player targets,
+                      // the LAN IP for NPC machines. resolveTargetMachineId
+                      // mirrors the same translation every other auth
+                      // path uses (PRs 2-4); without it, cross-player
+                      // pidfiles 401 because the patch row is keyed by
+                      // workstation_id, not by LAN IP.
                       authCreateNcSession({
-                        machineId: resolvedIP,
+                        machineId: resolveTargetMachineId(resolvedIP),
                         targetIP: resolvedIP,
                         targetPort: followUp.targetPort,
                         service: followUp.service,
@@ -683,6 +691,7 @@ export const Terminal = () => {
       exitNcMode,
       enterNcMode,
       authCreateNcSession,
+      resolveTargetMachineId,
       getNode,
       readFile,
       resolvePath,
