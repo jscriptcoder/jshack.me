@@ -1184,6 +1184,39 @@ describe('handleSessionsRequest — authCreateSession', () => {
         Promise.resolve({ ok: true as const, found: true as const, content });
     const noVuConfDep = () => Promise.resolve({ ok: true as const, found: false as const });
 
+    // Regression for the empty-system-hash case: the player's own user
+    // on a freshly registered workstation has passwordHash='' in
+    // /etc/passwd by design (generateLocalhost.ts). Before the
+    // findEtcPasswdEntry → deriveUserTypeFromEtcPasswd refactor, the
+    // handler conflated "user missing" with "user has empty hash" and
+    // short-circuited 401 before consulting virtual_users.conf.
+    it('returns 201 when user has empty /etc/passwd hash but matches virtual_users.conf overlay', async () => {
+      const insertSession = vi
+        .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
+        .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
+      // /etc/passwd with alice having an EMPTY password field.
+      const passwdWithEmptyAliceHash =
+        `root:${md5(TEST_ROOT_PASSWORD)}:0:0:root:/root:/bin/bash\n` +
+        `alice::1001:1001:alice:/home/alice:/bin/bash`;
+      const envelope = makeEnvelope(identity, {
+        ...baseAuthEnvelope,
+        kind: 'ftp',
+        auth: passwordAuth(TEST_ALICE_FTP_PASSWORD),
+      });
+
+      const result = await handleSessionsRequest(
+        envelope,
+        mkDeps({
+          insertSession,
+          findEtcPasswdContent: authPasswdDep(passwdWithEmptyAliceHash),
+          findVirtualUsersConfContent: vuConfDep(),
+        }),
+      );
+
+      expect(result.status).toBe(201);
+      expect(result.body).toEqual({ session_id: STUB_SESSION_ID, userType: 'user' });
+    });
+
     it('returns 201 with userType from /etc/passwd when virtual_users.conf overlay matches', async () => {
       const insertSession = vi
         .fn<(row: SessionRow) => Promise<InsertSessionResult>>()

@@ -26,7 +26,7 @@ import type {
   FindVirtualUsersConfContentResult,
 } from './supabaseFindVirtualUsersConfContent.js';
 import type { FindFsContentParams, FindFsContentResult } from './supabaseFindFsContent.js';
-import { deriveUserTypeFromEtcPasswd, findEtcPasswdEntry } from '../filesystem/etcPasswdHelpers.js';
+import { deriveUserTypeFromEtcPasswd, getEtcPasswdHash } from '../filesystem/etcPasswdHelpers.js';
 import { findVirtualUserHash } from '../filesystem/virtualUsersConfHelpers.js';
 import { findMysqlCredential } from '../filesystem/mysqlDataHelpers.js';
 import { findRedisRequirepass } from '../filesystem/redisConfHelpers.js';
@@ -229,20 +229,22 @@ const handleAuthCreateSession = async (
     return { status: 500, body: { error: 'fs_lookup_failed' } };
   }
 
-  // Missing /etc/passwd → cannot validate. Return invalid_credentials
-  // (NOT a distinct error) so callers can't distinguish "machine has no
-  // FS" from "wrong password" via the response. userType is also
-  // underivable, so even FTP-with-virtual-overlay fails here.
+  // Missing /etc/passwd → cannot validate (userType underivable). Return
+  // invalid_credentials so callers can't distinguish "machine has no FS"
+  // from "wrong password" via the response.
   const content = fsLookup.found ? fsLookup.content : null;
-  const entry = findEtcPasswdEntry(content, username);
-  if (entry === undefined) {
+  const userType = deriveUserTypeFromEtcPasswd(content, username);
+  if (userType === undefined) {
     return { status: 401, body: { error: 'invalid_credentials' } };
   }
 
-  // Determine the expected hash for password matching. Default is the
-  // /etc/passwd hash; FTP overrides with virtual_users.conf when the
-  // overlay lists the user.
-  let expectedHash = entry.passwordHash;
+  // Hash for password matching. /etc/passwd may carry an empty hash for
+  // users with no system password (e.g. the player's own user on a
+  // freshly registered workstation — see generateLocalhost). Empty
+  // means "no system credential" — for ssh/scp/su that's a hard reject;
+  // for ftp the virtual_users.conf overlay can still authenticate.
+  const etcPasswdHash = getEtcPasswdHash(content, username);
+  let expectedHash: string | undefined = etcPasswdHash;
 
   if (kind === 'ftp') {
     // FTP does not support `.ssh_keys` saved-key auth — reject early.
@@ -264,6 +266,14 @@ const handleAuthCreateSession = async (
     // precedence in src/hooks/useAuthentication.ts.
   }
 
+  // No usable credential anywhere — reject. For ssh/scp/su this collapses
+  // the empty-hash case (system user with no password); for ftp it
+  // catches "user in /etc/passwd, absent from overlay, empty system
+  // hash" — neither path can authenticate.
+  if (expectedHash === undefined) {
+    return { status: 401, body: { error: 'invalid_credentials' } };
+  }
+
   const authValid =
     auth.method === 'password'
       ? md5(auth.password) === expectedHash
@@ -278,7 +288,7 @@ const handleAuthCreateSession = async (
     machine_id,
     // userType comes from /etc/passwd (server-derived), NOT from any
     // client claim — clients can't promote themselves to root by lying.
-    credentials: { username, userType: entry.userType },
+    credentials: { username, userType },
     kind,
     ...(parent_session_id !== undefined && { parent_session_id }),
     ...(source_ip !== undefined && { source_ip }),
@@ -290,7 +300,7 @@ const handleAuthCreateSession = async (
   }
   return {
     status: 201,
-    body: { session_id: result.session_id, userType: entry.userType },
+    body: { session_id: result.session_id, userType },
   };
 };
 
