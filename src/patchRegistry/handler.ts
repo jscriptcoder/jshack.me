@@ -35,6 +35,7 @@ import { canWrite } from '../filesystem/permissionWalker.js';
 import { defaultPermissionsForNode } from '../filesystem/defaultPermissions.js';
 import { deriveHostnameSuffix } from '../homeNetworks/homeNetworkHelpers.js';
 import { filterReadablePatches } from './readFilter.js';
+import { shouldProjectFsContent } from '../machineFilesystems/projectedContentPaths.js';
 import type { FilePermissions } from '../filesystem/types.js';
 
 export type HandlerResponse = {
@@ -361,7 +362,17 @@ const handleUpsertPatch = async (
   // Dual-write into machine_filesystems UNLESS this is the player's own
   // workstation (own-box patches are excluded from machine_filesystems
   // by design — see the L2 plan and the migration header).
-  const dualWrite = !isOwnWorkstationOnServer(machine_id, publicKey);
+  //
+  // Exception: paths in FS_PROJECTED_CONTENT_PATHS must dual-write even
+  // on own-workstation. Cross-player auth flows (PR 5 nc-pidfile, PRs
+  // 2-4 SSH/FTP/etc.) read those paths server-side via findFsContent;
+  // skipping projection for self-writes leaves the row absent → server
+  // returns 401 invalid_credentials when another player tries to nc /
+  // ssh / ftp into us. The set is small (auth-critical files only) so
+  // the storage-overhead concern that motivated the original exclusion
+  // doesn't apply.
+  const isOwn = isOwnWorkstationOnServer(machine_id, publicKey);
+  const dualWrite = !isOwn || shouldProjectFsContent(path);
   const result = await deps.upsertPatch(row, dualWrite);
   if (!result.ok) {
     return { status: 500, body: { error: 'upsert_failed' } };
@@ -393,11 +404,15 @@ const handleRemovePatch = async (
   const l2Gate = await enforceL2(credsResult.credentials, payload.machine_id, payload.path, deps);
   if (l2Gate) return l2Gate;
 
+  // Same projected-path exception as upsertPatch — own-workstation
+  // removes of /etc/passwd, /var/run/*.pid, etc. must dual-delete or
+  // the cross-player projection lingers stale.
+  const isOwn = isOwnWorkstationOnServer(payload.machine_id, publicKey);
   const result = await deps.removePatch({
     player_key: publicKey,
     machine_id: payload.machine_id,
     path: payload.path,
-    dual_write: !isOwnWorkstationOnServer(payload.machine_id, publicKey),
+    dual_write: !isOwn || shouldProjectFsContent(payload.path),
   });
   if (!result.ok) {
     return { status: 500, body: { error: 'remove_failed' } };

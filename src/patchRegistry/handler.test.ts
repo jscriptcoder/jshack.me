@@ -1387,11 +1387,48 @@ describe('handlePatchesRequest — session-existence gate (L1)', () => {
       // exists:false above) would 403 — this test catches it.
       expect(findActiveSession).not.toHaveBeenCalled();
       expect(upsertPatch).toHaveBeenCalled();
-      // L2 dual-write bypass: own-workstation patches are excluded from
-      // machine_filesystems by design. The handler MUST forward
-      // dualWrite=false here. A mutant that flips this to true would
-      // project the player's private workstation FS into the shared
-      // L2 walker's view of the world.
+      // L2 dual-write bypass: own-workstation patches at NON-projected
+      // paths are excluded from machine_filesystems by design.
+      // The handler MUST forward dualWrite=false here. A mutant that
+      // flips this to true would project the player's private workstation
+      // FS into the shared L2 walker's view of the world.
+      expect(upsertPatch).toHaveBeenCalledWith(expect.anything(), false);
+    });
+
+    it('forces dualWrite=true on own-workstation when path is in FS_PROJECTED_CONTENT_PATHS', async () => {
+      // PR 5 of plans/cross-player-base-fs-replication.md — projected
+      // paths (auth-critical files: /etc/passwd, /var/run/*.pid, etc.)
+      // must dual-write even when the writer is the workstation owner.
+      // Otherwise cross-player auth (`nc -l 6666` on B → A nc-connects)
+      // returns 401 invalid_credentials because the row never lands in
+      // machine_filesystems for the server's findFsContent to read.
+      const upsertPatch = vi
+        .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
+        .mockResolvedValue({ ok: true });
+      const envelope = makeEnvelope(identity, {
+        ...validUpsertOwnWorkstation,
+        path: '/var/run/nc-6666.pid',
+        content: 'nc:port=6666,user=root,userType=root,home=/root',
+        owner: 'root',
+      });
+
+      const result = await handlePatchesRequest(envelope, mkDeps({ upsertPatch }));
+
+      expect(result.status).toBe(200);
+      expect(upsertPatch).toHaveBeenCalledWith(expect.anything(), true);
+    });
+
+    it('keeps dualWrite=false on own-workstation when path is NOT projected', async () => {
+      // Negative case for the projection rule — sibling test above
+      // mutates path to a projected one. This one keeps a non-projected
+      // path and pins the existing behaviour stays unchanged.
+      const upsertPatch = vi
+        .fn<(row: PatchRow, dualWrite: boolean) => Promise<UpsertPatchResult>>()
+        .mockResolvedValue({ ok: true });
+      const envelope = makeEnvelope(identity, validUpsertOwnWorkstation);
+
+      await handlePatchesRequest(envelope, mkDeps({ upsertPatch }));
+
       expect(upsertPatch).toHaveBeenCalledWith(expect.anything(), false);
     });
 
