@@ -1319,6 +1319,20 @@ Manual cross-player verification on `vercel:dev`:
 - **`password_reset` cross-player /etc/passwd read** (`msfconsole.ts:525`). Default tier='root' on the local read; A's local view of B's box is filtered at A's session tier, so guest CVEs that should reset another tier's password don't see /etc/passwd. The catalog memory marked password_reset as "Works (via withTransientSession + dual-write)" because the WRITE works; the read prerequisite was unflagged. Fix shape if surfaced: route the /etc/passwd read through `exploitFileRead` at the CVE tier too. Deferred — not blocking gameplay; gets its own follow-up if reported.
 - **`runLocalExploit` dpkg cross-player read** (`msfconsole.ts:311`). Already works post-PR 6 — `/var/lib/dpkg/status` is regen'd in `getBaseFs` and isn't filtered out at any tier (read=root,user,guest by default). No change needed.
 
+**How to test in-game (two-browser smoke)**:
+
+Player workstations carry no open ports by default, so there's no natural CVE-vulnerable port to msfconsole. `NetworkContext.tsx` ships a dev-only debug toggle (`buildDebugVulnPort`, gated by `import.meta.env.DEV` — fully tree-shaken in prod): when both `VITE_DEBUG_VULN_EFFECT` and `VITE_DEBUG_VULN_TIER` are set at build time, every LAN occupant renders with port 8080/http + `forcedEffect` matching the toggle.
+
+```
+# .env.development.local
+VITE_DEBUG_VULN_EFFECT=file_read   # or dir_list / shell_full / etc.
+VITE_DEBUG_VULN_TIER=root          # or guest / user
+```
+
+Restart `vercel:dev`. Open one normal window + one incognito window (two identities). Both join the same WiFi → become LAN occupants. From A: `nmap <B-LAN-IP>` → port 8080 visible with synthetic CVE. `msfconsole <B-LAN-IP> 8080 /etc/passwd` → forces the configured effect at the configured tier. Watch A's network tab: `POST /api/sessions` (mints `effect_one_shot`) then `POST /api/patches` (action: `exploitRead`) → terminal prints B's projected `/etc/passwd`. Swap effect/tier values and restart to cover other branches.
+
+The toggle is not a security boundary — it just injects a fake port into the UI. The threat model already accepts that a forge can mint `effect_one_shot` at any tier via direct `createSession` calls; this toggle just makes the in-game msfconsole UI exercise the same path. Build-time gate ensures zero prod bundle impact.
+
 ---
 
 ## PR 8: Hydra adaptation + rate-limit tuning

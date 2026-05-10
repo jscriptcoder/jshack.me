@@ -6,6 +6,9 @@ import type {
   RemoteMachine,
   RemoteUser,
   DnsRecord,
+  EffectTier,
+  Port,
+  VulnerabilityEffect,
 } from './types';
 import type {
   GeneratedMachine,
@@ -67,6 +70,81 @@ const defaultMachineConfig: MachineNetworkConfig = {
   interfaces: [],
   machines: [],
   dnsRecords: [],
+};
+
+// Dev-only debug toggle for cross-player CVE testing. When BOTH
+// VITE_DEBUG_VULN_EFFECT and VITE_DEBUG_VULN_TIER are set at build
+// time, every LAN occupant renders with a synthetic vulnerable port
+// (8080/http) whose `forcedEffect` matches the toggle. This lets one
+// player msfconsole another player's workstation against a forced
+// effect without needing a real CVE-vulnerable port on the target —
+// the workstation otherwise carries no open ports.
+//
+// Env vars (both required):
+//   VITE_DEBUG_VULN_EFFECT — 'file_read' | 'dir_list' | 'shell_full' |
+//                            'shell_limited' | 'file_write' |
+//                            'password_reset' | 'backdoor_port_open' |
+//                            'script_exec'
+//   VITE_DEBUG_VULN_TIER   — 'guest' | 'user' | 'root'
+//
+// Gated by `import.meta.env.DEV` at the call site so Vite folds the
+// branch out of production builds entirely — the prod bundle does not
+// contain the synthetic-port factory or any reference to it.
+//
+// Not a security boundary: any client with DevTools can monkey-patch
+// arbitrary code, and the threat model already accepts that a forge
+// can mint an `effect_one_shot` session at any userType via
+// createSession (CVE kinds don't validate against /etc/passwd). This
+// toggle is a testing aid for the in-game UI flow, not a defense
+// surface. See project_cross_player_base_fs_gap memory for the
+// broader threat model.
+const VALID_VULN_EFFECT_KINDS = [
+  'shell_limited',
+  'shell_full',
+  'file_read',
+  'dir_list',
+  'file_write',
+  'password_reset',
+  'backdoor_port_open',
+  'script_exec',
+] as const satisfies readonly VulnerabilityEffect['kind'][];
+
+const VALID_VULN_TIERS = ['guest', 'user', 'root'] as const satisfies readonly EffectTier[];
+
+const buildDebugVulnPort = (): Port | null => {
+  const effectKind = import.meta.env.VITE_DEBUG_VULN_EFFECT as string | undefined;
+  const tierStr = import.meta.env.VITE_DEBUG_VULN_TIER as string | undefined;
+  if (!effectKind || !tierStr) return null;
+
+  if (!VALID_VULN_EFFECT_KINDS.includes(effectKind as VulnerabilityEffect['kind'])) {
+    console.warn(
+      `[debug-vuln-port] unknown VITE_DEBUG_VULN_EFFECT=${effectKind}; valid: ${VALID_VULN_EFFECT_KINDS.join(', ')}`,
+    );
+    return null;
+  }
+  if (!VALID_VULN_TIERS.includes(tierStr as EffectTier)) {
+    console.warn(
+      `[debug-vuln-port] unknown VITE_DEBUG_VULN_TIER=${tierStr}; valid: ${VALID_VULN_TIERS.join(', ')}`,
+    );
+    return null;
+  }
+
+  const tier = tierStr as EffectTier;
+  const effect: VulnerabilityEffect =
+    effectKind === 'backdoor_port_open'
+      ? { kind: 'backdoor_port_open', port: 7777, tier }
+      : {
+          kind: effectKind as Exclude<VulnerabilityEffect['kind'], 'backdoor_port_open'>,
+          tier,
+        };
+
+  return {
+    port: 8080,
+    service: 'http',
+    serviceVersion: 'nginx 1.18.0',
+    open: true,
+    forcedEffect: effect,
+  };
 };
 
 type NetworkProviderProps = {
@@ -277,12 +355,19 @@ export const NetworkProvider = ({
       // Other LAN occupants — render as alive hosts with no open ports
       // (closed laptop default). Their assigned host octet is combined
       // with layer-0 subnet to form a full IP.
+      //
+      // Dev-only: when VITE_DEBUG_VULN_EFFECT + VITE_DEBUG_VULN_TIER
+      // are both set at build time, every occupant gets a synthetic
+      // vulnerable port for cross-player CVE testing (see
+      // buildDebugVulnPort above). The ternary collapses to `null` in
+      // production so the prod bundle never references the factory.
+      const debugVulnPort: Port | null = import.meta.env.DEV ? buildDebugVulnPort() : null;
       const subnet = layer0?.subnet ?? '';
       const occupantMachines: readonly RemoteMachine[] = subnet
         ? (lanOccupants ?? []).map((o) => ({
             ip: `${subnet}${o.lan_ip}`,
             hostname: o.hostname,
-            ports: [],
+            ports: debugVulnPort ? [debugVulnPort] : [],
             users: [],
           }))
         : [];
