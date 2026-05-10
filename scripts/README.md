@@ -26,6 +26,7 @@ The canonical invocation strings (with the right `dotenv -e .env.development.loc
 | `testReadPathPrivacy.ts`         | Forge wire smoke (L2) | Forge `listPatchesForMachines`; verify three-tier read filter. 3 scenarios.   |
 | `testRegisterWorkstation.ts`     | Forge wire smoke      | E2E for `/api/register-workstation`. 8 checks (2xx / 4xx / DB-side).          |
 | `testAmbientLogAllowlist.ts`     | Forge wire smoke (L1) | Forge `upsertPatch` to `/var/log/*`; verify the 8-file ambient-log allowlist. |
+| `testGetBaseFs.ts`               | Forge wire smoke (L2) | Forge `getBaseFs`; verify owner / session / no-session tiers + 400/404. 7 scenarios. |
 
 ## Build helper
 
