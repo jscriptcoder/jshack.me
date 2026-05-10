@@ -36,9 +36,7 @@ const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const vercelDevUrl = process.env.VERCEL_DEV_URL ?? 'http://localhost:3000';
 
 if (!url || !serviceKey) {
-  console.error(
-    'Missing required env vars. Run with:\n  npx tsx scripts/testGetBaseFs.ts',
-  );
+  console.error('Missing required env vars. Run with:\n  npx tsx scripts/testGetBaseFs.ts');
   process.exit(2);
 }
 
@@ -48,9 +46,7 @@ const sb = createClient(url, serviceKey, { auth: { persistSession: false } });
 try {
   const probe = await fetch(`${vercelDevUrl}/api/patches`, { method: 'GET' });
   if (probe.status !== 405) {
-    console.warn(
-      `[warn] /api/patches probe returned ${probe.status} (expected 405).`,
-    );
+    console.warn(`[warn] /api/patches probe returned ${probe.status} (expected 405).`);
   }
 } catch {
   console.error(
@@ -127,10 +123,7 @@ type GetBaseFsResp = {
   readonly body: { readonly baseFs?: FileNode | null; readonly error?: string };
 };
 
-const attemptGetBaseFs = async (
-  identity: Identity,
-  machineId: string,
-): Promise<GetBaseFsResp> => {
+const attemptGetBaseFs = async (identity: Identity, machineId: string): Promise<GetBaseFsResp> => {
   const envelope = signRequest(identity, 'getBaseFs', { machine_id: machineId });
   const res = await fetch(`${vercelDevUrl}/api/patches`, {
     method: 'POST',
@@ -289,11 +282,7 @@ total++;
 {
   const r = await attemptGetBaseFs(identityB, ipv4MachineId);
   const ok = r.status === 400 && r.body.error === 'unsupported_machine_type';
-  log(
-    'IPv4 → 400 unsupported_machine_type',
-    ok,
-    `HTTP ${r.status}, error=${r.body.error}`,
-  );
+  log('IPv4 → 400 unsupported_machine_type', ok, `HTTP ${r.status}, error=${r.body.error}`);
   if (ok) passed++;
 }
 

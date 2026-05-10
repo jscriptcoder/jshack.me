@@ -2583,12 +2583,16 @@ describe('handlePatchesRequest — getBaseFs', () => {
     );
 
     expect(result.status).toBe(200);
-    const body = result.body as { readonly baseFs: { readonly children?: Record<string, unknown> } | null };
+    const body = result.body as {
+      readonly baseFs: { readonly children?: Record<string, unknown> } | null;
+    };
     expect(body.baseFs).not.toBeNull();
     // Workstation /etc/passwd has read: ['root', 'user'] (passwdReadableBy on
     // the player's own box). Guest is excluded → /etc directory exists but
     // /etc/passwd entry should be missing.
-    const etcChildren = (body.baseFs?.children?.etc as { readonly children?: Record<string, unknown> } | undefined)?.children;
+    const etcChildren = (
+      body.baseFs?.children?.etc as { readonly children?: Record<string, unknown> } | undefined
+    )?.children;
     expect(etcChildren?.passwd).toBeUndefined();
     // /root has read: ['root'] / execute: ['root'] only — guest can't traverse.
     expect(body.baseFs?.children?.root).toBeUndefined();
@@ -2616,8 +2620,12 @@ describe('handlePatchesRequest — getBaseFs', () => {
     );
 
     expect(result.status).toBe(200);
-    const body = result.body as { readonly baseFs: { readonly children?: Record<string, unknown> } | null };
-    const etcChildren = (body.baseFs?.children?.etc as { readonly children?: Record<string, unknown> } | undefined)?.children;
+    const body = result.body as {
+      readonly baseFs: { readonly children?: Record<string, unknown> } | null;
+    };
+    const etcChildren = (
+      body.baseFs?.children?.etc as { readonly children?: Record<string, unknown> } | undefined
+    )?.children;
     expect(etcChildren?.passwd).toBeDefined();
     // /root still excluded for user.
     expect(body.baseFs?.children?.root).toBeUndefined();
@@ -2645,9 +2653,13 @@ describe('handlePatchesRequest — getBaseFs', () => {
     );
 
     expect(result.status).toBe(200);
-    const body = result.body as { readonly baseFs: { readonly children?: Record<string, unknown> } | null };
+    const body = result.body as {
+      readonly baseFs: { readonly children?: Record<string, unknown> } | null;
+    };
     expect(body.baseFs?.children?.root).toBeDefined();
-    const etcChildren = (body.baseFs?.children?.etc as { readonly children?: Record<string, unknown> } | undefined)?.children;
+    const etcChildren = (
+      body.baseFs?.children?.etc as { readonly children?: Record<string, unknown> } | undefined
+    )?.children;
     expect(etcChildren?.passwd).toBeDefined();
   });
 
@@ -2681,8 +2693,12 @@ describe('handlePatchesRequest — getBaseFs', () => {
     );
 
     expect(result.status).toBe(200);
-    const body = result.body as { readonly baseFs: { readonly children?: Record<string, unknown> } | null };
-    const etcChildren = (body.baseFs?.children?.etc as { readonly children?: Record<string, unknown> } | undefined)?.children;
+    const body = result.body as {
+      readonly baseFs: { readonly children?: Record<string, unknown> } | null;
+    };
+    const etcChildren = (
+      body.baseFs?.children?.etc as { readonly children?: Record<string, unknown> } | undefined
+    )?.children;
     const passwd = etcChildren?.passwd as { readonly content?: string } | undefined;
     // The overlay made the /etc/passwd content match what's stored in
     // machine_filesystems, not the placeholder rootPassword regen.

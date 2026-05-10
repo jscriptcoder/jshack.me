@@ -8,24 +8,24 @@ The canonical invocation strings (with the right `dotenv -e .env.development.loc
 
 ## Files
 
-| File                             | Group                 | One-liner                                                                     |
-| -------------------------------- | --------------------- | ----------------------------------------------------------------------------- |
-| `encode.ts`                      | Build helper          | Generates `src/secrets/__encoded.ts` from `secrets.ts`. Auto-run by npm.      |
-| `dumpMissionNetwork.ts`          | Network inspection    | Dump a full mission network (machines, ports, users, FS) from a seed.         |
-| `dumpHomeNetwork.ts`             | Network inspection    | Dump home networks for a `gameSeed`, all-WiFi or specific index.              |
-| `simulateExploit.ts`             | Network inspection    | Simulate `msfconsole(ip, port)` — CVE, effect, NAT chain — without the game.  |
-| `inspectPort.ts`                 | Network inspection    | Inspect one mission machine's per-port `forcedEffect` / version / CVE state.  |
-| `backfillHomeNetworkBaseFs.ts`   | L2 backfill           | Regenerate every `home_networks` FS and bulk-populate `machine_filesystems`.  |
-| `backfillWorldNetworkBaseFs.ts`  | L2 backfill           | Same shape for `world_networks` (findit.io, playground, future themed nets).  |
-| `backfillWorkstationBaseFs.ts`   | L2 backfill           | Same shape for `workstations`. Catches pre-existing rows the API path missed. |
-| `verifyMachineFilesystemsRls.ts` | DB posture verifier   | Probe RLS on `machine_filesystems` (anon denied / service_role allowed).      |
-| `verifyWorkstationsRls.ts`       | DB posture verifier   | Same shape on `workstations`. 5 probes, expects 5/5 after the migration.      |
-| `verifyDualWrite.ts`             | DB posture verifier   | Verify `upsert_patch_with_fs` / `remove_patches_with_fs` plpgsql contracts.   |
-| `testL2Bypass.ts`                | Forge wire smoke (L2) | Forge `upsertPatch` envelopes; verify L1 + L2 enforce. 3 scenarios.           |
-| `testL2BypassWorkstation.ts`     | Forge wire smoke (L2) | Same but scoped to a freshly-registered workstation (closes own-workstation). |
-| `testReadPathPrivacy.ts`         | Forge wire smoke (L2) | Forge `listPatchesForMachines`; verify three-tier read filter. 3 scenarios.   |
-| `testRegisterWorkstation.ts`     | Forge wire smoke      | E2E for `/api/register-workstation`. 8 checks (2xx / 4xx / DB-side).          |
-| `testAmbientLogAllowlist.ts`     | Forge wire smoke (L1) | Forge `upsertPatch` to `/var/log/*`; verify the 8-file ambient-log allowlist. |
+| File                             | Group                 | One-liner                                                                            |
+| -------------------------------- | --------------------- | ------------------------------------------------------------------------------------ |
+| `encode.ts`                      | Build helper          | Generates `src/secrets/__encoded.ts` from `secrets.ts`. Auto-run by npm.             |
+| `dumpMissionNetwork.ts`          | Network inspection    | Dump a full mission network (machines, ports, users, FS) from a seed.                |
+| `dumpHomeNetwork.ts`             | Network inspection    | Dump home networks for a `gameSeed`, all-WiFi or specific index.                     |
+| `simulateExploit.ts`             | Network inspection    | Simulate `msfconsole(ip, port)` — CVE, effect, NAT chain — without the game.         |
+| `inspectPort.ts`                 | Network inspection    | Inspect one mission machine's per-port `forcedEffect` / version / CVE state.         |
+| `backfillHomeNetworkBaseFs.ts`   | L2 backfill           | Regenerate every `home_networks` FS and bulk-populate `machine_filesystems`.         |
+| `backfillWorldNetworkBaseFs.ts`  | L2 backfill           | Same shape for `world_networks` (findit.io, playground, future themed nets).         |
+| `backfillWorkstationBaseFs.ts`   | L2 backfill           | Same shape for `workstations`. Catches pre-existing rows the API path missed.        |
+| `verifyMachineFilesystemsRls.ts` | DB posture verifier   | Probe RLS on `machine_filesystems` (anon denied / service_role allowed).             |
+| `verifyWorkstationsRls.ts`       | DB posture verifier   | Same shape on `workstations`. 5 probes, expects 5/5 after the migration.             |
+| `verifyDualWrite.ts`             | DB posture verifier   | Verify `upsert_patch_with_fs` / `remove_patches_with_fs` plpgsql contracts.          |
+| `testL2Bypass.ts`                | Forge wire smoke (L2) | Forge `upsertPatch` envelopes; verify L1 + L2 enforce. 3 scenarios.                  |
+| `testL2BypassWorkstation.ts`     | Forge wire smoke (L2) | Same but scoped to a freshly-registered workstation (closes own-workstation).        |
+| `testReadPathPrivacy.ts`         | Forge wire smoke (L2) | Forge `listPatchesForMachines`; verify three-tier read filter. 3 scenarios.          |
+| `testRegisterWorkstation.ts`     | Forge wire smoke      | E2E for `/api/register-workstation`. 8 checks (2xx / 4xx / DB-side).                 |
+| `testAmbientLogAllowlist.ts`     | Forge wire smoke (L1) | Forge `upsertPatch` to `/var/log/*`; verify the 8-file ambient-log allowlist.        |
 | `testGetBaseFs.ts`               | Forge wire smoke (L2) | Forge `getBaseFs`; verify owner / session / no-session tiers + 400/404. 7 scenarios. |
 
 ## Build helper

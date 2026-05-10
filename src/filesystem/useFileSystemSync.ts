@@ -545,9 +545,7 @@ export const useFileSystemSync = ({
       // Layer: static (player's workstation) + home network + mission network
       // + cross-player workstations (PR 6).
       const withHome = homeFileSystems ? { ...staticOnly, ...homeFileSystems } : staticOnly;
-      const withMission = missionFileSystems
-        ? { ...withHome, ...missionFileSystems }
-        : withHome;
+      const withMission = missionFileSystems ? { ...withHome, ...missionFileSystems } : withHome;
       const merged = { ...withMission, ...crossPlayerBaseFsRef.current };
 
       if (!missionFileSystems && !homeFileSystems) {

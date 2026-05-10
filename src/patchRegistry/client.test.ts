@@ -699,9 +699,7 @@ describe('getBaseFs', () => {
 
   it('signs the envelope with the verified machine_id (server stamps player_key)', async () => {
     const identity = generateIdentity();
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(ok({ baseFs: null }));
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ baseFs: null }));
 
     await getBaseFs(identity, TEST_MACHINE_ID, fetchMock);
 
@@ -717,8 +715,11 @@ describe('getBaseFs', () => {
 
     await getBaseFs(identity, TEST_MACHINE_ID, fetchMock);
 
-    const envelope: { readonly payload: string; readonly signature: string; readonly publicKey: string } =
-      JSON.parse(fetchMock.mock.calls[0]![1]?.body as string);
+    const envelope: {
+      readonly payload: string;
+      readonly signature: string;
+      readonly publicKey: string;
+    } = JSON.parse(fetchMock.mock.calls[0]![1]?.body as string);
     expect(envelope.publicKey).toBe(identity.publicKeyHex);
     const pubBytes = hexToBytes(envelope.publicKey);
     const sigBytes = hexToBytes(envelope.signature);

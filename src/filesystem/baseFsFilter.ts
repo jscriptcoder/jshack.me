@@ -31,10 +31,7 @@ import { canExecute, canRead } from './permissionWalker';
 // when a SINGLE call needs to validate ancestors; we're walking
 // top-down and validating one step at a time.
 
-export const filterFileNodeForRead = (
-  node: FileNode,
-  userType: UserType,
-): FileNode | null => {
+export const filterFileNodeForRead = (node: FileNode, userType: UserType): FileNode | null => {
   if (node.type === 'file') {
     const decision = canRead({ userType, target: node.permissions, parentChain: [] });
     return decision.allowed ? node : null;

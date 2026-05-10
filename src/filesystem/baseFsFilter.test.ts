@@ -25,7 +25,11 @@ const PERM = (
   execute: ReadonlyArray<'root' | 'user' | 'guest'>,
 ): FilePermissions => ({ read, write, execute });
 
-const FILE = (name: string, owner: 'root' | 'user' | 'guest', perms: FilePermissions): FileNode => ({
+const FILE = (
+  name: string,
+  owner: 'root' | 'user' | 'guest',
+  perms: FilePermissions,
+): FileNode => ({
   name,
   type: 'file',
   owner,
@@ -57,39 +61,27 @@ describe('filterFileNodeForRead', () => {
   });
 
   it('drops a file the userType cannot read', () => {
-    const tree = DIR(
-      '/',
-      PERM(['root', 'user', 'guest'], ['root'], ['root', 'user', 'guest']),
-      {
-        secret: FILE('secret', 'root', PERM(['root'], ['root'], ['root'])),
-      },
-    );
+    const tree = DIR('/', PERM(['root', 'user', 'guest'], ['root'], ['root', 'user', 'guest']), {
+      secret: FILE('secret', 'root', PERM(['root'], ['root'], ['root'])),
+    });
     const result = filterFileNodeForRead(tree, 'user');
     expect(result?.children?.secret).toBeUndefined();
   });
 
   it('keeps a file the userType CAN read', () => {
-    const tree = DIR(
-      '/',
-      PERM(['root', 'user', 'guest'], ['root'], ['root', 'user', 'guest']),
-      {
-        public: FILE('public', 'user', PERM(['root', 'user'], ['root', 'user'], ['root'])),
-      },
-    );
+    const tree = DIR('/', PERM(['root', 'user', 'guest'], ['root'], ['root', 'user', 'guest']), {
+      public: FILE('public', 'user', PERM(['root', 'user'], ['root', 'user'], ['root'])),
+    });
     const result = filterFileNodeForRead(tree, 'user');
     expect(result?.children?.public.content).toBe('content-of-public');
   });
 
   it('drops the entire subtree when a directory cannot be traversed', () => {
-    const tree = DIR(
-      '/',
-      PERM(['root', 'user', 'guest'], ['root'], ['root', 'user', 'guest']),
-      {
-        root: DIR('root', PERM(['root'], ['root'], ['root']), {
-          '.note': FILE('.note', 'root', PERM(['root', 'user'], ['root'], ['root'])),
-        }),
-      },
-    );
+    const tree = DIR('/', PERM(['root', 'user', 'guest'], ['root'], ['root', 'user', 'guest']), {
+      root: DIR('root', PERM(['root'], ['root'], ['root']), {
+        '.note': FILE('.note', 'root', PERM(['root', 'user'], ['root'], ['root'])),
+      }),
+    });
     // /root has execute: ['root'] so user can't traverse — even though
     // /root/.note has read perms for user, user can't get past the dir.
     const result = filterFileNodeForRead(tree, 'user');
@@ -97,32 +89,24 @@ describe('filterFileNodeForRead', () => {
   });
 
   it('preserves traversable directory; filters its children at file level', () => {
-    const tree = DIR(
-      '/',
-      PERM(['root', 'user', 'guest'], ['root'], ['root', 'user', 'guest']),
-      {
-        etc: DIR('etc', PERM(['root', 'user'], ['root'], ['root', 'user', 'guest']), {
-          passwd: FILE('passwd', 'root', PERM(['root', 'user'], ['root'], ['root'])),
-          shadow: FILE('shadow', 'root', PERM(['root'], ['root'], ['root'])),
-        }),
-      },
-    );
+    const tree = DIR('/', PERM(['root', 'user', 'guest'], ['root'], ['root', 'user', 'guest']), {
+      etc: DIR('etc', PERM(['root', 'user'], ['root'], ['root', 'user', 'guest']), {
+        passwd: FILE('passwd', 'root', PERM(['root', 'user'], ['root'], ['root'])),
+        shadow: FILE('shadow', 'root', PERM(['root'], ['root'], ['root'])),
+      }),
+    });
     const result = filterFileNodeForRead(tree, 'user');
     expect(result?.children?.etc.children?.passwd.content).toBe('content-of-passwd');
     expect(result?.children?.etc.children?.shadow).toBeUndefined();
   });
 
   it('returns the directory with empty children when every child is filtered', () => {
-    const tree = DIR(
-      '/',
-      PERM(['root', 'user'], ['root'], ['root', 'user']),
-      {
-        secrets: DIR('secrets', PERM(['root', 'user'], ['root'], ['root', 'user']), {
-          a: FILE('a', 'root', PERM(['root'], ['root'], ['root'])),
-          b: FILE('b', 'root', PERM(['root'], ['root'], ['root'])),
-        }),
-      },
-    );
+    const tree = DIR('/', PERM(['root', 'user'], ['root'], ['root', 'user']), {
+      secrets: DIR('secrets', PERM(['root', 'user'], ['root'], ['root', 'user']), {
+        a: FILE('a', 'root', PERM(['root'], ['root'], ['root'])),
+        b: FILE('b', 'root', PERM(['root'], ['root'], ['root'])),
+      }),
+    });
     const result = filterFileNodeForRead(tree, 'user');
     // Directory survives (traversable); children are gone.
     expect(result?.children?.secrets.type).toBe('directory');
@@ -142,29 +126,25 @@ describe('filterFileNodeForRead', () => {
   });
 
   it('handles multi-level nesting with mixed permissions', () => {
-    const tree = DIR(
-      '/',
-      PERM(['root', 'user', 'guest'], ['root'], ['root', 'user', 'guest']),
-      {
-        home: DIR('home', PERM(['root', 'user', 'guest'], ['root'], ['root', 'user', 'guest']), {
-          alice: DIR('alice', PERM(['root', 'user'], ['root', 'user'], ['root', 'user']), {
-            'README.txt': FILE(
-              'README.txt',
-              'user',
-              PERM(['root', 'user'], ['root', 'user'], ['root']),
-            ),
-            '.bash_history': FILE(
-              '.bash_history',
-              'user',
-              PERM(['root', 'user'], ['root', 'user'], ['root']),
-            ),
-          }),
+    const tree = DIR('/', PERM(['root', 'user', 'guest'], ['root'], ['root', 'user', 'guest']), {
+      home: DIR('home', PERM(['root', 'user', 'guest'], ['root'], ['root', 'user', 'guest']), {
+        alice: DIR('alice', PERM(['root', 'user'], ['root', 'user'], ['root', 'user']), {
+          'README.txt': FILE(
+            'README.txt',
+            'user',
+            PERM(['root', 'user'], ['root', 'user'], ['root']),
+          ),
+          '.bash_history': FILE(
+            '.bash_history',
+            'user',
+            PERM(['root', 'user'], ['root', 'user'], ['root']),
+          ),
         }),
-        root: DIR('root', PERM(['root'], ['root'], ['root']), {
-          '.note': FILE('.note', 'root', PERM(['root'], ['root'], ['root'])),
-        }),
-      },
-    );
+      }),
+      root: DIR('root', PERM(['root'], ['root'], ['root']), {
+        '.note': FILE('.note', 'root', PERM(['root'], ['root'], ['root'])),
+      }),
+    });
     const result = filterFileNodeForRead(tree, 'user');
     expect(result?.children?.home.children?.alice.children?.['README.txt']).toBeDefined();
     expect(result?.children?.root).toBeUndefined();
@@ -174,13 +154,9 @@ describe('filterFileNodeForRead', () => {
     // execute is for traverse on directories; on files it's a separate
     // axis. canRead checks target.read, so a file with execute=user but
     // read=root only must still be dropped.
-    const tree = DIR(
-      '/',
-      PERM(['root', 'user'], ['root'], ['root', 'user']),
-      {
-        binary: FILE('binary', 'root', PERM(['root'], ['root'], ['root', 'user'])),
-      },
-    );
+    const tree = DIR('/', PERM(['root', 'user'], ['root'], ['root', 'user']), {
+      binary: FILE('binary', 'root', PERM(['root'], ['root'], ['root', 'user'])),
+    });
     const result = filterFileNodeForRead(tree, 'user');
     expect(result?.children?.binary).toBeUndefined();
   });
