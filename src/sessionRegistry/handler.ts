@@ -154,14 +154,27 @@ const handleCreateSession = async (
   }
 
   // Server-side userType validation. Read the live /etc/passwd content
-  // for the target machine and derive the canonical userType for the
-  // claimed username. Reject on mismatch (a malicious client claiming
-  // userType: 'root' for what is actually a guest login is the threat).
+  // for the target machine; if it has an entry for the claimed username,
+  // derive the canonical userType and reject on mismatch (a malicious
+  // client claiming userType: 'root' for what is actually a guest login
+  // is the threat PR #122 closed for /etc/passwd-backed users).
   //
-  // Mission machines have no entry in machine_filesystems today (blocked
-  // on mission_instances). For now, found=false → no-op the validation
-  // and accept the claim. TODO: when mission_instances ship, drop the
-  // no-op branch.
+  // No-op cases (permit the claim, envelope-trusted tier):
+  //   - fsLookup.found === false: /etc/passwd not projected for this
+  //     machine (mission machines today, blocked on mission_instances).
+  //   - derived === undefined: /etc/passwd has no entry for the claimed
+  //     username. The kinds that REACH this validation (effect_one_shot,
+  //     exploit, nc) all use synthetic placeholders ('msf', shell-effect
+  //     usernames, pidfile sentinels) by design — their tier comes from
+  //     the CVE envelope, not from /etc/passwd. Auth-required kinds
+  //     (ssh/scp/su/ftp/mysql/redis/snmp) are blocked at the gate above
+  //     and validate through authCreateSession's per-kind credential
+  //     adapter instead. So "no entry" is never a real threat here.
+  //
+  // Sabotage-via-garble (an attacker who CVE'd B's /etc/passwd into
+  // mush) is still enforced — but via authCreateSession, which IS the
+  // path real player logins take. Garble breaks login; it doesn't (and
+  // shouldn't) break CVE effects, since CVEs bypass auth by definition.
   //
   // See plans/etc-passwd-canonical.md step 5.
   const fsLookup = await deps.findEtcPasswdContent({ machine_id });
@@ -170,10 +183,7 @@ const handleCreateSession = async (
   }
   if (fsLookup.found) {
     const derived = deriveUserTypeFromEtcPasswd(fsLookup.content, credentials.username);
-    if (derived === undefined) {
-      return { status: 400, body: { error: 'usertype_underivable' } };
-    }
-    if (derived !== credentials.userType) {
+    if (derived !== undefined && derived !== credentials.userType) {
       return { status: 400, body: { error: 'usertype_mismatch' } };
     }
   }

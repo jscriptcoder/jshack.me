@@ -278,12 +278,20 @@ describe('handleSessionsRequest — createSession', () => {
       expect(insertSession).not.toHaveBeenCalled();
     });
 
-    it('rejects 400 usertype_underivable when /etc/passwd has no entry for the claimed username', async () => {
+    it('accepts (200) when /etc/passwd has no entry for the claimed username (effect-kind synthetic placeholder)', async () => {
+      // msfconsole's effect_one_shot / exploit / nc flows use synthetic
+      // placeholder usernames ('msf', shell-effect users, pidfile
+      // sentinels) that intentionally aren't in /etc/passwd. Their tier
+      // comes from the CVE envelope, not from /etc/passwd. Auth-required
+      // kinds (ssh/scp/su/ftp/mysql/redis/snmp) go through
+      // authCreateSession with per-kind credential adapters — they
+      // never reach this validation. So "no entry" is envelope-trusted,
+      // not a forge attempt.
       const envelope = makeEnvelope(identity, {
         action: 'createSession',
         machine_id: '10.0.0.1',
-        credentials: { username: 'eve', userType: 'user' },
-        kind: 'exploit',
+        credentials: { username: 'msf', userType: 'root' },
+        kind: 'effect_one_shot',
       });
       const insertSession = vi
         .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
@@ -291,13 +299,22 @@ describe('handleSessionsRequest — createSession', () => {
 
       const result = await handleSessionsRequest(envelope, mkDeps({ insertSession }));
 
-      expect(result.status).toBe(400);
-      expect(result.body).toEqual({ error: 'usertype_underivable' });
-      expect(insertSession).not.toHaveBeenCalled();
+      expect(result.status).toBe(200);
+      expect(result.body).toEqual({ session_id: STUB_SESSION_ID });
+      expect(insertSession).toHaveBeenCalledOnce();
     });
 
-    it('rejects 400 usertype_underivable when /etc/passwd is garbled (no parseable entries)', async () => {
-      const envelope = makeEnvelope(identity);
+    it('accepts (200) when /etc/passwd is garbled (no parseable entries)', async () => {
+      // Garble is enforced via authCreateSession (which is what real
+      // player logins use — sabotage-via-garble breaks login). For
+      // CVE effects via createSession, garble shouldn't block — CVEs
+      // bypass auth by definition.
+      const envelope = makeEnvelope(identity, {
+        action: 'createSession',
+        machine_id: '10.0.0.1',
+        credentials: { username: 'msf', userType: 'root' },
+        kind: 'effect_one_shot',
+      });
       const findEtcPasswdContent = vi
         .fn<(params: FindEtcPasswdContentParams) => Promise<FindEtcPasswdContentResult>>()
         .mockResolvedValue({ ok: true, found: true, content: 'garbage with no colons' });
@@ -310,9 +327,9 @@ describe('handleSessionsRequest — createSession', () => {
         mkDeps({ findEtcPasswdContent, insertSession }),
       );
 
-      expect(result.status).toBe(400);
-      expect(result.body).toEqual({ error: 'usertype_underivable' });
-      expect(insertSession).not.toHaveBeenCalled();
+      expect(result.status).toBe(200);
+      expect(result.body).toEqual({ session_id: STUB_SESSION_ID });
+      expect(insertSession).toHaveBeenCalledOnce();
     });
 
     it('accepts (200) when claim matches /etc/passwd-derived userType', async () => {

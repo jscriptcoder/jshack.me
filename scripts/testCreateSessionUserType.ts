@@ -2,11 +2,20 @@
 // (createSession). Forges signed envelopes and verifies the handler
 // rejects mismatched userType claims and accepts legitimate ones.
 //
+// All envelopes use kind='effect_one_shot' because auth-required kinds
+// (ssh/scp/su/ftp/mysql/redis/snmp) are blocked from createSession at
+// the gate above the validation — they go through authCreateSession.
+// The kinds that legitimately reach this validation are CVE/effect
+// kinds (effect_one_shot, exploit, nc) whose tier comes from the
+// envelope, not from /etc/passwd.
+//
 // 4 scenarios:
 //   A) Mismatch — forge a 'root' claim for a non-root user → 400
-//      usertype_mismatch.
-//   B) Underivable — forge a claim for a username NOT in /etc/passwd →
-//      400 usertype_underivable.
+//      usertype_mismatch (mismatch IS still enforced when /etc/passwd
+//      has an entry for the claimed username).
+//   B) No /etc/passwd entry — forge a claim for a synthetic username
+//      not in /etc/passwd (CVE placeholder pattern) → 200 + session_id
+//      (envelope-trusted tier).
 //   C) Match — forge a legitimate claim → 200 + session_id.
 //   D) No-op — target a machine with no /etc/passwd projection (mission
 //      stand-in via a fabricated machine_id) → 200 + session_id (validation
@@ -150,6 +159,7 @@ total++;
   const envelope = sign(identity, {
     machine_id: target.machineId,
     credentials: { username: nonRootUser.username, userType: 'root' },
+    kind: 'effect_one_shot',
   });
   const { status, body } = await post(envelope);
   const ok = status === 400 && (body as { error?: string }).error === 'usertype_mismatch';
@@ -159,22 +169,37 @@ total++;
   console.log('');
 }
 
-// Scenario B: Underivable
+// Scenario B: No /etc/passwd entry — envelope-trusted tier for effect kinds
 total++;
 {
   console.log(
-    '=== Scenario B: forge claim for username not in /etc/passwd → expect 400 usertype_underivable ===',
+    '=== Scenario B: forge claim for synthetic username not in /etc/passwd → expect 200 (envelope-trusted) ===',
   );
   const identity = generateIdentity();
   const envelope = sign(identity, {
     machine_id: target.machineId,
     credentials: { username: 'nobody-not-in-passwd', userType: 'user' },
+    kind: 'effect_one_shot',
   });
   const { status, body } = await post(envelope);
-  const ok = status === 400 && (body as { error?: string }).error === 'usertype_underivable';
+  const ok = status === 200 && typeof (body as { session_id?: string }).session_id === 'string';
   console.log(`  status: ${status}, body: ${JSON.stringify(body)}`);
   console.log(ok ? '  ✓ PASS' : '  ✗ FAIL');
   if (ok) passed++;
+  // Self-clean: end the session
+  const sessionId = (body as { session_id?: string }).session_id;
+  if (sessionId) {
+    const endEnvelope = (() => {
+      const realNow = Date.now;
+      Date.now = () => FIXED_NOW;
+      try {
+        return signRequest(identity, 'endSession', { session_id: sessionId, reason: 'logout' });
+      } finally {
+        Date.now = realNow;
+      }
+    })();
+    await post(endEnvelope);
+  }
   console.log('');
 }
 
@@ -186,6 +211,7 @@ total++;
   const envelope = sign(identity, {
     machine_id: target.machineId,
     credentials: { username: nonRootUser.username, userType: 'user' },
+    kind: 'effect_one_shot',
   });
   const { status, body } = await post(envelope);
   const ok = status === 200 && typeof (body as { session_id?: string }).session_id === 'string';
@@ -220,6 +246,7 @@ total++;
   const envelope = sign(identity, {
     machine_id: 'mission-stand-in-no-projection-' + Math.random().toString(36).slice(2, 10),
     credentials: { username: 'alice', userType: 'root' },
+    kind: 'effect_one_shot',
   });
   const { status, body } = await post(envelope);
   const ok = status === 200 && typeof (body as { session_id?: string }).session_id === 'string';
