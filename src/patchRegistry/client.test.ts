@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { upsertPatch, removePatch, listPatchesForMachines, clearOwnedPatches } from './client';
+import {
+  upsertPatch,
+  removePatch,
+  listPatchesForMachines,
+  clearOwnedPatches,
+  getBaseFs,
+} from './client';
 import { generateIdentity, verify } from '../identity/identity';
 import { hexToBytes } from '../identity/hex';
 import { signedEnvelopeSchema } from '../signedRequest/types';
@@ -590,5 +596,135 @@ describe('clearOwnedPatches', () => {
     await expect(clearOwnedPatches(identity, TEST_WORKSTATION_ID, fetchMock)).rejects.toThrow(
       /500/,
     );
+  });
+});
+
+// PR 6 of plans/cross-player-base-fs-replication.md — getBaseFs client
+// wrapper. Returns the FileNode tree (or null) the server filtered for
+// the caller's tier; consumed by useFileSystemSync's session-change
+// effect to populate fileSystems[machineId] for cross-player workstations.
+describe('getBaseFs', () => {
+  const TEST_MACHINE_ID = 'omen-aabbccdd';
+
+  it('signs an authCreateSession-shaped envelope and POSTs it', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(ok({ baseFs: { name: '/', type: 'directory' } }));
+
+    await getBaseFs(identity, TEST_MACHINE_ID, fetchMock);
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('/api/patches');
+    expect(init?.method).toBe('POST');
+    const envelope: unknown = JSON.parse(init?.body as string);
+    const parsed = signedEnvelopeSchema.safeParse(envelope);
+    expect(parsed.success).toBe(true);
+  });
+
+  it('returns the parsed FileNode on 200 with baseFs', async () => {
+    const identity = generateIdentity();
+    const tree = {
+      name: '/',
+      type: 'directory',
+      owner: 'root',
+      permissions: { read: ['root'], write: ['root'], execute: ['root'] },
+      children: {},
+    };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ baseFs: tree }));
+
+    const result = await getBaseFs(identity, TEST_MACHINE_ID, fetchMock);
+    expect(result).toEqual(tree);
+  });
+
+  it('returns null on 200 with baseFs:null (no-session caller)', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ baseFs: null }));
+
+    expect(await getBaseFs(identity, TEST_MACHINE_ID, fetchMock)).toBeNull();
+  });
+
+  it('returns null on 404 (workstation not found — treated as "nothing to merge")', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(errResponse(404, { error: 'workstation_not_found' }));
+
+    expect(await getBaseFs(identity, TEST_MACHINE_ID, fetchMock)).toBeNull();
+  });
+
+  it('throws on 400 (unsupported machine_type — caller bug, not soft failure)', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(errResponse(400, { error: 'unsupported_machine_type' }));
+
+    await expect(getBaseFs(identity, TEST_MACHINE_ID, fetchMock)).rejects.toThrow(/400/);
+  });
+
+  it('throws on 401 envelope-level error', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(errResponse(401, { error: 'signature_invalid' }));
+
+    await expect(getBaseFs(identity, TEST_MACHINE_ID, fetchMock)).rejects.toThrow(/401/);
+  });
+
+  it('throws on 429 rate-limited', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(errResponse(429, { error: 'rate_limited' }));
+
+    await expect(getBaseFs(identity, TEST_MACHINE_ID, fetchMock)).rejects.toThrow(/429/);
+  });
+
+  it('throws on 500 server error', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(errResponse(500, { error: 'workstation_lookup_failed' }));
+
+    await expect(getBaseFs(identity, TEST_MACHINE_ID, fetchMock)).rejects.toThrow(/500/);
+  });
+
+  it('throws when the response body is missing baseFs', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({}));
+
+    await expect(getBaseFs(identity, TEST_MACHINE_ID, fetchMock)).rejects.toThrow(/baseFs/);
+  });
+
+  it('signs the envelope with the verified machine_id (server stamps player_key)', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(ok({ baseFs: null }));
+
+    await getBaseFs(identity, TEST_MACHINE_ID, fetchMock);
+
+    const [, init] = fetchMock.mock.calls[0]!;
+    const envelope: { readonly payload: string } = JSON.parse(init?.body as string);
+    const innerPayload: { readonly machine_id: string } = JSON.parse(envelope.payload);
+    expect(innerPayload.machine_id).toBe(TEST_MACHINE_ID);
+  });
+
+  it('signature verifies with the caller identity', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ baseFs: null }));
+
+    await getBaseFs(identity, TEST_MACHINE_ID, fetchMock);
+
+    const envelope: { readonly payload: string; readonly signature: string; readonly publicKey: string } =
+      JSON.parse(fetchMock.mock.calls[0]![1]?.body as string);
+    expect(envelope.publicKey).toBe(identity.publicKeyHex);
+    const valid = verify(
+      hexToBytes(envelope.publicKey),
+      hexToBytes(envelope.signature),
+      new TextEncoder().encode(envelope.payload),
+    );
+    expect(valid).toBe(true);
   });
 });

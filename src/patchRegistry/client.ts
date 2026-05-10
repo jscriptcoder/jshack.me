@@ -1,6 +1,6 @@
 import type { Identity } from '../identity/identity.js';
 import { signRequest } from '../signedRequest/sign.js';
-import type { FileSystemPatch, FilePermissions } from '../filesystem/types.js';
+import type { FileNode, FileSystemPatch, FilePermissions } from '../filesystem/types.js';
 import type { NodeType, UserType } from './types.js';
 
 // Browser-side wrappers for POST /api/patches. Single endpoint with
@@ -175,4 +175,49 @@ export const clearOwnedPatches = async (
   if (!response.ok) {
     throw new Error(`clearOwnedPatches failed with status ${response.status}`);
   }
+};
+
+// ---- getBaseFs ------------------------------------------------------------
+//
+// Cross-player workstation base FS replication (PR 6 of plans/cross-
+// player-base-fs-replication.md). Eager bulk-fetch on session establish:
+// when A authenticates onto B's workstation, useFileSystemSync calls
+// this wrapper, the server regenerates B's FS (filtered by A's session
+// userType), and the result is merged into A's local fileSystems map.
+//
+// Returns the FileNode tree on 200 with non-null baseFs, null on
+// 200-with-null OR on 404 (workstation_not_found is a soft failure —
+// "no FS to merge" — not an error).
+//
+// All other non-2xx statuses throw. 400 unsupported_machine_type is a
+// caller bug (we should only call this for workstation_id patterns);
+// 401/429/500 are infrastructure-level errors that bubble up to the
+// caller's catch and are silently logged in useFileSystemSync.
+
+export const getBaseFs = async (
+  identity: Identity,
+  machineId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<FileNode | null> => {
+  const envelope = signRequest(identity, 'getBaseFs', { machine_id: machineId });
+  const response = await postEnvelope(envelope, fetchImpl);
+
+  if (response.status === 200) {
+    const data: unknown = await response.json();
+    if (typeof data !== 'object' || data === null || !('baseFs' in data)) {
+      throw new Error('getBaseFs returned malformed response (missing baseFs)');
+    }
+    const baseFs = (data as { readonly baseFs: unknown }).baseFs;
+    if (baseFs === null) return null;
+    // Trust the server's tree shape — it produced it from generateLocalhost.
+    return baseFs as FileNode;
+  }
+
+  if (response.status === 404) {
+    // workstation_not_found is treated as "nothing to merge" — caller
+    // doesn't get an exception, just keeps the (empty) state.
+    return null;
+  }
+
+  throw new Error(`getBaseFs failed with status ${response.status}`);
 };
