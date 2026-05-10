@@ -108,6 +108,13 @@ npx tsx scripts/testReadPathPrivacy.ts
 # workstation_not_found). Self-cleaning. Requires vercel:dev running.
 npx tsx scripts/testGetBaseFs.ts
 
+# Forge signed envelopes against /api/patches exploitRead and verify the cross-player file_read /
+# dir_list CVE-effect endpoint (11 scenarios: owner content/entries, 403 no_session, guest/user/root
+# session tier-walked file_read + dir_list, projected /etc/passwd content, missing path → null,
+# file-as-directory → null, 400 unsupported_machine_type, 404 workstation_not_found). Self-cleaning.
+# Requires vercel:dev running.
+npx tsx scripts/testExploitRead.ts
+
 # End-to-end smoke for /api/register-workstation against vercel:dev. 8 checks: fresh-register 201,
 # idempotent-repeat 200, conflicting-repeat 409, tampered-signature 401, plus DB-side row + machine_filesystems
 # count + /etc/passwd presence. Self-cleaning so it can be re-run idempotently.

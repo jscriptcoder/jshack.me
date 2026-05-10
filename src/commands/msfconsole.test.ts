@@ -52,6 +52,16 @@ type MsfconsoleContextConfig = {
     content: string,
   ) => Promise<{ readonly allowed: boolean; readonly error?: string }>;
   readonly listRemoteDir?: (machineId: string, path: string) => readonly string[] | null;
+  readonly exploitFileRead?: (
+    machineId: string,
+    path: string,
+    tier: 'guest' | 'user' | 'root',
+  ) => Promise<string | null>;
+  readonly exploitDirList?: (
+    machineId: string,
+    path: string,
+    tier: 'guest' | 'user' | 'root',
+  ) => Promise<readonly string[] | null>;
   readonly runScriptOnTarget?: (
     machineId: string,
     scriptBody: string,
@@ -75,6 +85,8 @@ const createMockMsfconsoleContext = (config: MsfconsoleContextConfig = {}) => {
     readLocalFile,
     writeRemoteFile,
     listRemoteDir,
+    exploitFileRead,
+    exploitDirList,
     runScriptOnTarget,
     resolveNat,
     findMachineByIp,
@@ -93,6 +105,8 @@ const createMockMsfconsoleContext = (config: MsfconsoleContextConfig = {}) => {
     readLocalFile,
     writeRemoteFile,
     listRemoteDir,
+    exploitFileRead,
+    exploitDirList,
     runScriptOnTarget,
     resolveNat,
     findMachineByIp,
@@ -697,12 +711,12 @@ describe('msfconsole command', () => {
       return { entry, vuln, machine };
     };
 
-    it('file_read prints target file content with no follow-up', () => {
+    it('file_read prints target file content with no follow-up', async () => {
       const { entry, machine } = mkMachineWithCve('file_read', 'ftp', 21);
       const context = createMockMsfconsoleContext({
         machines: [machine],
         gameTime: entry.publishedAt,
-        readRemoteFile: () => 'root:x:0:0:root:/root:/bin/bash',
+        exploitFileRead: async () => 'root:x:0:0:root:/root:/bin/bash',
       });
       const result = createMsfconsoleCommand(context).fn('10.50.100.10', 21, '/etc/passwd');
       expect(isAsyncOutput(result)).toBe(true);
@@ -715,7 +729,7 @@ describe('msfconsole command', () => {
           followUp = fu;
         },
       );
-      vi.advanceTimersByTime(5000);
+      await vi.advanceTimersByTimeAsync(5000);
       expect(lines.some((l) => l.includes('root:x:0:0'))).toBe(true);
       expect(followUp).toBeUndefined();
     });
@@ -729,12 +743,12 @@ describe('msfconsole command', () => {
       expect(() => createMsfconsoleCommand(context).fn('10.50.100.10', 21)).toThrow(/target path/i);
     });
 
-    it('dir_list prints directory listing with no follow-up', () => {
+    it('dir_list prints directory listing with no follow-up', async () => {
       const { entry, machine } = mkMachineWithCve('dir_list', 'ftp', 21);
       const context = createMockMsfconsoleContext({
         machines: [machine],
         gameTime: entry.publishedAt,
-        listRemoteDir: () => ['file1.txt', 'file2.txt', 'subdir'],
+        exploitDirList: async () => ['file1.txt', 'file2.txt', 'subdir'],
       });
       const result = createMsfconsoleCommand(context).fn('10.50.100.10', 21, '/home');
       expect(isAsyncOutput(result)).toBe(true);
@@ -747,7 +761,7 @@ describe('msfconsole command', () => {
           followUp = fu;
         },
       );
-      vi.advanceTimersByTime(5000);
+      await vi.advanceTimersByTimeAsync(5000);
       expect(lines.some((l) => l.includes('file1.txt'))).toBe(true);
       expect(followUp).toBeUndefined();
     });
