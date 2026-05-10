@@ -85,6 +85,33 @@ export const computeWorkstationId = (workstationName: string, playerKeyHex: stri
   `${workstationName}-${deriveHostnameSuffix(`ed25519:${playerKeyHex}`)}`;
 
 // ---------------------------------------------------------------------
+// parseWorkstationId
+// ---------------------------------------------------------------------
+//
+// Inverse of computeWorkstationId — given a hostname-shaped machine_id,
+// returns its name + suffix components, or undefined if the input
+// doesn't have the workstation_id shape (IPv4, mission IDs, world IDs,
+// etc.). Used by the cross-player base-FS endpoint to dispatch on
+// machine type — workstation patterns get the regen-from-seed path;
+// non-workstation patterns return 400 unsupported_machine_type.
+//
+// Workstation_id shape: `${name}-${8-lowercase-hex}` per
+// computeWorkstationId. The "last 8 hex" rule handles names that
+// contain internal hyphens (e.g. `skylab-prime`).
+//
+// PR 6 of plans/cross-player-base-fs-replication.md.
+
+const WORKSTATION_ID_PATTERN = /^(.+)-([0-9a-f]{8})$/;
+
+export const parseWorkstationId = (
+  id: string,
+): { readonly name: string; readonly suffix: string } | undefined => {
+  const match = WORKSTATION_ID_PATTERN.exec(id);
+  if (!match) return undefined;
+  return { name: match[1], suffix: match[2] };
+};
+
+// ---------------------------------------------------------------------
 // isOwnWorkstation
 // ---------------------------------------------------------------------
 //
