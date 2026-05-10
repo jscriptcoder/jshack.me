@@ -874,24 +874,425 @@ Manual cross-player verification on `vercel:dev`:
 
 ---
 
-## PR 6: Base FS replication endpoint (eager bulk-fetch)
+## PR 6: Base FS replication endpoint (eager bulk-fetch on session establish)
 
-**Goal**: When A establishes a session on B's machine, A receives B's full base FS filtered by A's session userType.
+**Goal**: When Player A establishes a session on Player B's workstation, A's client fetches a server-regenerated, tier-filtered copy of B's full base filesystem and merges it into A's local `fileSystems[B.workstation_id]`. Subsequent `cat`/`ls`/`grep` etc. reads against B's box layer onto a real base FS, not an empty placeholder, so cross-player attacks finally produce real content.
+
+**Scope clarification (decided 2026-05-10 during PR 6 kickoff)**: PR 6 covers ONLY cross-player **workstation** machines. NPC home/world network base FS already works cross-player today via local seed-regen — every player generates the same FS deterministically from `home_networks.seed` / `world_networks.seed`. Mission machines stay broken until `mission_instances` ships (per the "Accepted regression: mission machines" section above). Workstations are the only machine type where B's `gameState.seed` lives in B's browser and is unreachable to A — they're the entire scope of this PR.
+
+**Why this PR is high-impact**: PRs 2-5 unlocked cross-player **session creation** (SSH/SCP/su/FTP/MySQL/Redis/SNMP/nc all authenticate against B's projected credential files). But once A is on B's box, every read returns `null` because A's `fileSystems[B.workstation_id]` is undefined. The session works; the shell is empty. This is the gap the user flagged with "right now when you get a session, you don't get the patches for that session's tier, and the behaviour is strange." This PR fills it.
 
 **Approach**:
 
-- New `/api/base-fs` action (or extend `/api/patches` with a sibling action). Signed envelope carries `{ machine_id }`.
-- Server determines machine type (workstation vs home-network vs world-network vs mission).
-- Server reads `seed` from the appropriate table.
-- Server regens the base FS via the appropriate generator (workstation: `generateLocalhost`; home: `generateNetwork`; world: theme-dispatched generator).
-- Server applies stored patches.
-- Server filters every `(path, content)` through the read-permission walker using the caller's session userType.
-- Returns the filtered FileNode tree.
-- Client merges into local `fileSystems[machineId]` after session-create. Subsequent reads are local. Patches stream via existing Realtime.
+- New action `getBaseFs` on `/api/patches` (sibling to `listPatchesForMachines`). Signed envelope carries `{ machine_id }`.
+- Server detects the workstation_id pattern (`^.+-[0-9a-f]{8}$`); rejects non-workstation patterns with `400 unsupported_machine_type`.
+- Server queries `workstations` for the row matching the parsed name + verified suffix; on missing row → `404 workstation_not_found`.
+- Server regens the workstation's base FS via `generateLocalhost(...)` using the row's stored `seed` and a placeholder `rootPassword`. (The /etc/passwd content this regen produces would have the WRONG hash because the real rootPassword isn't persisted; see overlay step.)
+- Server overlays projected-path content from `machine_filesystems` (via existing `findFsContent` style adapter) — this restores the **correct** /etc/passwd content (real hash from PR 1's projection) and any other projected files (vsftpd, mysql, redis, snmp, nc-pidfiles).
+- Server stamps in any patches recorded against this machine_id (via existing `listPatchesForMachines` adapter call) — not strictly required (the client merges patches separately), but prevents the "empty for one tick" race on session establish.
+- Server determines the caller's effective tier:
+  - **Owner** (workstation_id suffix matches verified player_key) → return unfiltered FS.
+  - **Session** (active session row for caller on this machine) → walk every `(path, owner, permissions)` through `permissionWalker` at the session's userType; drop nodes that fail read or whose ancestor fails traverse.
+  - **No session** → return `null` baseFs (defense in depth — eager fetch is only fired post-session by the client; a forger calling pre-session gets nothing).
+- Returns `{ baseFs: FileNode | null }`.
+- Client integration: `useFileSystemSync`'s existing session-change useEffect already refetches patches at the new tier. Add a sibling call: when the foreground session lands on a workstation_id that ISN'T the player's own and ISN'T already in `fileSystems`, call `getBaseFs` and merge the returned tree into `fileSystems[machineId]` via `setFileSystems`.
 
-**Critical concern**: regen on server requires the server to import generation code. The generators (`generateLocalhost`, `generateNetwork`, themed generators) already work in TS-only mode (they're called by the backfill scripts). Verify they don't drag in browser-only dependencies.
+**Why merge into `fileSystems` (not patches)**: patches are deltas over a base. The base FS is the foundation. Two separate state slices in `useFileSystemSync` track them; PR 6 wires the missing base for cross-player workstations. Existing patch state and read filtering keep working unchanged.
 
-**Performance**: bulk regen + filter is one synchronous burst per session-establish. For a workstation FS (~50KB content), this is sub-100ms. Profile if it shows in real player UX.
+**Why the projected-content overlay**: `generateLocalhost` bakes `md5(rootPassword)` into /etc/passwd content. The workstations table doesn't store `rootPassword` (decision #2). If we just shipped the regen result, A would see `md5("PLACEHOLDER_ROOT")` for B's root hash — useless for credential cracking gameplay AND inconsistent with the projected content that PR 2's auth path already validates against. Overlaying restores parity: the FS A sees on B IS the FS the server uses for auth. (Other projected files — vsftpd, mysql, redis, snmp, nc pidfiles — also benefit; they may have changed via in-game writes since the workstation was registered.)
+
+**Critical concerns checked**:
+
+- ✅ Server-safe imports verified: `generateLocalhost` flows through `commands/availability.ts` whose only non-data import is `import type { Command }` (type-erased at runtime); no React/DOM deps. Already imported successfully by `scripts/backfillWorkstationBaseFs.ts` which runs under `tsx` with no browser shim.
+- ✅ Performance: single-workstation regen is in-memory recursion over a ~30-50KB tree; sub-50ms wall-time on dev hardware. The DB round-trips (workstations row + projected-content batch + active-session lookup) are the dominant cost (~50-100ms in vercel:dev). Total: ~150ms per cross-player session establish. Acceptable.
+- ✅ Memory growth: A's `fileSystems` gains one entry per cross-player workstation A has SSH'd into in this session. ~50KB per entry. Even with 10 cross-player attacks per session this is sub-MB.
+- ✅ Read-path privacy filter (PR #119) compatibility: tiered filter applies to PATCHES specifically. Base FS gets its own walker pass at the same userType. No double-filter concern.
+- ✅ Mission regression (already accepted): non-workstation machine_id pattern returns 400; mission machines are filtered out at the dispatcher. No new regression added.
+
+### Acceptance
+
+- [ ] A SSH-logs into B's workstation as a non-root user. `ls /home` returns B's username dir; `cat /home/<B's-user>/README.txt` returns the real "WELCOME TO JSHACK.ME" content B's machine generated at `generateLocalhost` time.
+- [ ] A logged into B as `guest` runs `cat /etc/passwd` → "Permission denied" (B's /etc/passwd has `read: ['root', 'user']`, guest excluded by walker).
+- [ ] A logged into B as `user` runs `cat /etc/passwd` → returns B's real /etc/passwd content with the **correct** root hash (from projection, not placeholder).
+- [ ] A logged into B as `root` runs `cat /root/.note` → returns the real .note content.
+- [ ] B logged into B's own workstation: zero regression. The own-box bypass keeps the existing path; getBaseFs is never called for the player's own workstation (suffix-match early-out).
+- [ ] Forge envelope: `getBaseFs` for B's workstation_id with NO session → returns `{baseFs: null}` (no content leak; allowlist-only is reserved for the patches read filter and doesn't apply to base FS).
+- [ ] Forge envelope: `getBaseFs` for B's workstation_id with a session row at userType=guest → returns FS with /etc/passwd, /root/, and any user-only files dropped.
+- [ ] Forge envelope: `getBaseFs` for a non-workstation machine_id (IPv4 like `192.168.1.50`) → 400 unsupported_machine_type. (No cross-player home/world support in this PR.)
+- [ ] Forge envelope: `getBaseFs` for a workstation_id with no `workstations` row → 404 workstation_not_found.
+- [ ] No regression on PRs 2-5 forge tests (29/29 still green).
+- [ ] Two-browser smoke: A and B running concurrently, A SSH's into B, A's terminal shows real B-content for `cat`/`ls` calls; B sees the auth-log entry for A's login (PR 2 path unchanged).
+- [ ] Wall-time on session-establish (network tab measurement): authCreateSession + getBaseFs together complete under 500ms in vercel:dev.
+
+### Step 1: Add `getBaseFs` action arm to the patches schema
+
+**RED**: Schema tests in `src/patchRegistry/types.test.ts`:
+
+- `{action:'getBaseFs', ts, nonce, machine_id:'omen-4a3b1c2d'}` parses.
+- Missing `machine_id` rejected.
+- Empty `machine_id` rejected (`min(1)`).
+- `machine_id` over 256 chars rejected.
+- Extra fields rejected (strict).
+
+**GREEN**: Add `getBaseFsSignedPayloadSchema` to `src/patchRegistry/types.ts` and append it to the `patchesSignedPayloadSchema` discriminated union. Export `GetBaseFsPayload` inferred type.
+
+**MUTATE**: Bounds, action literal, strict mode.
+
+**KILL MUTANTS**: Address surviving mutants.
+
+**REFACTOR**: None.
+
+**Done when**: schema tests green; existing arms unchanged.
+
+### Step 2: Pure helper — `parseWorkstationId`
+
+**RED**: Tests in `src/homeNetworks/homeNetworkHelpers.test.ts` (consolidate per `feedback_consolidate_small_helpers`):
+
+- `parseWorkstationId('omen-4a3b1c2d')` → `{name:'omen', suffix:'4a3b1c2d'}`.
+- `parseWorkstationId('skylab-prime-deadbeef')` → `{name:'skylab-prime', suffix:'deadbeef'}` (multi-segment names with internal hyphens — last 8 hex are the suffix).
+- `parseWorkstationId('192.168.1.50')` → `undefined` (not a workstation pattern).
+- `parseWorkstationId('omen')` → `undefined` (no suffix).
+- `parseWorkstationId('omen-1234')` → `undefined` (4-hex, wrong length).
+- `parseWorkstationId('omen-XYZGHIJK')` → `undefined` (non-hex chars).
+
+**GREEN**: New helper in `src/homeNetworks/homeNetworkHelpers.ts`:
+
+```ts
+const WORKSTATION_ID_RE = /^(.+)-([0-9a-f]{8})$/;
+export const parseWorkstationId = (
+  id: string,
+): { readonly name: string; readonly suffix: string } | undefined => {
+  const match = WORKSTATION_ID_RE.exec(id);
+  if (!match) return undefined;
+  return { name: match[1], suffix: match[2] };
+};
+```
+
+**MUTATE**: Regex anchors, suffix length, character class.
+
+**KILL MUTANTS**: Address surviving mutants.
+
+**REFACTOR**: If `deriveHostnameSuffix` and the parser share enough of the suffix shape, expose a `WORKSTATION_SUFFIX_LENGTH` constant. Defer if cosmetic.
+
+**Done when**: helper exported, tests green; no client/server divergence.
+
+### Step 3: Pure helper — `overlayProjectedContent`
+
+**RED**: Tests in `src/filesystem/baseFsOverlay.test.ts` (new file):
+
+- Given a FileNode tree containing `/etc/passwd` with placeholder content + a `Map<path, content>` mapping `/etc/passwd → 'real:hash:0...'`, the overlaid tree's `/etc/passwd` node has `content: 'real:hash:0...'` and other nodes are unchanged.
+- Multiple projected paths overlay independently.
+- Path not in the map: node unchanged.
+- Path in the map but missing in the tree: silently ignored (no insertion — the map only OVERLAYS, doesn't ADD paths).
+- Directory nodes ignored (overlay only applies to file nodes).
+- Empty map → tree returned identical (referentially equal allowed).
+- Recursion preserves owner + permissions (only `content` changes).
+
+**GREEN**: New file `src/filesystem/baseFsOverlay.ts`:
+
+```ts
+import type { FileNode } from './types';
+export const overlayProjectedContent = (
+  node: FileNode,
+  contentByPath: ReadonlyMap<string, string>,
+  basePath = '/',
+): FileNode => {
+  /* recursive walk, substitute file content */
+};
+```
+
+Pure recursion mirroring `flattenFileNode`'s shape.
+
+**MUTATE**: Path joining, file/dir branching, content substitution.
+
+**KILL MUTANTS**: Boundary cases (root path `/`, deep nesting, empty children).
+
+**REFACTOR**: None.
+
+**Done when**: overlay tests green; helper exported.
+
+### Step 4: Pure helper — `filterFileNodeForRead`
+
+**RED**: Tests in `src/filesystem/baseFsFilter.test.ts` (new file):
+
+- userType=root: returns the tree referentially equal (no filtering).
+- userType=user, file with `read: ['root']` only: returns null (file dropped).
+- userType=user, dir with `execute: ['root']` only: returns null (whole subtree dropped — can't traverse).
+- userType=user, dir with `execute: ['root','user']` containing files at `read: ['root','user']` and `read: ['root']`: returns dir with only the user-readable file.
+- Nested structures: 3-level tree with mixed perms returns the correct filtered subset.
+- Empty children after filter: returns dir with `children: {}` (NOT null — the dir itself is traversable, just empty).
+
+**GREEN**: New file `src/filesystem/baseFsFilter.ts`:
+
+```ts
+import { canRead, canExecute } from './permissionWalker';
+import type { FileNode } from './types';
+import type { UserType } from '../session/types';
+
+export const filterFileNodeForRead = (node: FileNode, userType: UserType): FileNode | null => {
+  /* recursive walk; drop unreadable files; drop subtrees behind un-traversable dirs; preserve dirs with empty children */
+};
+```
+
+Walks the tree; for each file decides via `canRead`; for each directory decides via `canExecute` AND recursively filters children. Root bypass naturally handled by `canRead` returning allowed for root.
+
+**MUTATE**: file vs dir branching, traversal-failed early-out, children empty-after-filter handling.
+
+**KILL MUTANTS**: Subtree-drop boundary, root bypass, empty-dir survival.
+
+**REFACTOR**: None.
+
+**Done when**: filter tests green; helper exported.
+
+### Step 5: Server adapter — `findWorkstationById`
+
+**RED**: Tests in `src/sessionRegistry/supabaseFindWorkstation.test.ts` (or extend an existing nearby file if naming fits):
+
+- Given a query that returns a row `{player_key, workstation_name, username, seed}`, the adapter resolves to `{ok:true, found:true, row}`.
+- Given an empty result set, resolves to `{ok:true, found:false}`.
+- Given a query error, resolves to `{ok:false}`.
+
+**GREEN**: New adapter `src/sessionRegistry/supabaseFindWorkstation.ts` (it conceptually belongs to a base-FS module — but we'll co-locate near other session-adjacent fs lookups for now):
+
+Actually, place under `src/patchRegistry/supabaseFindWorkstation.ts` — getBaseFs is a patches action. The adapter takes a `machine_id`, parses it via `parseWorkstationId`, queries `workstations WHERE workstation_name = $name`, and returns rows whose computed workstation_id matches. (Multiple players could choose the same workstation_name; we return all matches and the handler picks the one whose suffix matches the parsed suffix.)
+
+**MUTATE**: Empty-result handling, error handling.
+
+**KILL MUTANTS**: Address.
+
+**Done when**: adapter unit-tests green.
+
+### Step 6: Server adapter — `findFsContentBatch` for projected paths
+
+**RED**: Tests:
+
+- Adapter takes `(machine_id, paths[])`, returns Map<path, content> for rows present.
+- Empty paths array: returns empty Map.
+- Query error: returns `{ok:false}`.
+
+**GREEN**: New adapter `src/patchRegistry/supabaseFindFsContentBatch.ts` that does `WHERE machine_id = $1 AND path IN ($paths) AND content IS NOT NULL`. Returns `{ok:true, contentByPath: Map<string, string>}` or `{ok:false}`.
+
+**MUTATE**: WHERE clause, NULL handling.
+
+**KILL MUTANTS**: Address.
+
+**REFACTOR**: If this overlaps `supabaseFindMachineFsBatch` (the read-path filter's batch select), confirm they don't collide. The existing batch fetches `(machine_id, path, permissions)`; this one fetches `(path, content)`. Different projections; coexistence is fine.
+
+**Done when**: adapter unit-tests green.
+
+### Step 7: Pure handler — `handleGetBaseFs`
+
+**RED**: Tests in `src/patchRegistry/handler.test.ts`:
+
+- machine_id is a non-workstation pattern (IPv4): `400 unsupported_machine_type`. No workstation lookup attempted.
+- machine_id is a workstation pattern but `findWorkstationById` returns `found:false`: `404 workstation_not_found`.
+- machine_id matches caller's own workstation suffix: full FS regen + projected overlay returned WITHOUT filtering (owner bypass).
+- machine_id is another player's workstation, no active session: `200 {baseFs: null}` (defense-in-depth: eager fetch is post-auth; pre-auth callers get nothing).
+- machine_id is another player's workstation, active session at `userType: 'guest'`: regen + overlay + filter; result excludes /root/, /etc/passwd, etc. (whatever guest can't read at the projected perms).
+- machine_id matches another player's workstation, active session at `userType: 'user'`: result includes /etc/passwd (readable to user) but excludes /root/.
+- machine_id matches another player's workstation, active session at `userType: 'root'`: result includes everything.
+- `findWorkstationById` returns `ok:false`: `500 workstation_lookup_failed`.
+- `findFsContentBatch` returns `ok:false`: `500 fs_lookup_failed`.
+- `findActiveSession` returns `ok:false`: `500 session_lookup_failed`.
+- Projected content overlay verified: regen produces /etc/passwd with placeholder hash; after overlay the returned tree has the projected content's real hash (one assertion via deep-walking the returned tree).
+
+**GREEN**: New handler arm in `src/patchRegistry/handler.ts`:
+
+```ts
+const handleGetBaseFs = async (
+  publicKey: string,
+  payload: Extract<PatchesPayload, { action: 'getBaseFs' }>,
+  deps: HandlerDeps,
+): Promise<HandlerResponse> => {
+  const parsed = parseWorkstationId(payload.machine_id);
+  if (!parsed) return { status: 400, body: { error: 'unsupported_machine_type' } };
+
+  const wsResult = await deps.findWorkstationById({ machine_id: payload.machine_id });
+  if (!wsResult.ok) return { status: 500, body: { error: 'workstation_lookup_failed' } };
+  if (!wsResult.found) return { status: 404, body: { error: 'workstation_not_found' } };
+
+  // Regen with placeholder rootPassword — projected overlay restores real hash.
+  const regen = generateLocalhost(
+    {
+      seed: wsResult.row.seed,
+      workstationName: wsResult.row.workstation_name,
+      username: wsResult.row.username,
+      rootPassword: PLACEHOLDER_ROOT_PASSWORD,
+    },
+    payload.machine_id,
+  );
+
+  const projectedPaths = listProjectedExactPaths(); // see helper note below
+  const fsResult = await deps.findFsContentBatch({
+    machine_id: payload.machine_id,
+    paths: projectedPaths,
+  });
+  if (!fsResult.ok) return { status: 500, body: { error: 'fs_lookup_failed' } };
+  const overlaid = overlayProjectedContent(regen.fileSystem, fsResult.contentByPath);
+
+  // Tier dispatch.
+  if (isOwnWorkstationOnServer(payload.machine_id, publicKey)) {
+    return { status: 200, body: { baseFs: overlaid } };
+  }
+  const sessionResult = await deps.findActiveSession({
+    player_key: publicKey,
+    machine_id: payload.machine_id,
+  });
+  if (!sessionResult.ok) return { status: 500, body: { error: 'session_lookup_failed' } };
+  if (!sessionResult.exists) {
+    return { status: 200, body: { baseFs: null } };
+  }
+  const filtered = filterFileNodeForRead(overlaid, sessionResult.credentials.userType);
+  return { status: 200, body: { baseFs: filtered } };
+};
+```
+
+**Helper note for `listProjectedExactPaths`**: `FS_PROJECTED_CONTENT_PATHS` includes globs (`/var/run/*.pid`); the overlay's content map keys on exact paths. Two options:
+
+- **7a**: Add a sibling helper `listProjectedExactPathsForMachine(machine_id)` that lists every concrete path in machine_filesystems that matches the projection patterns. One extra DB round-trip but fully accurate.
+- **7b**: Iterate the regen tree, collect every file path, intersect with `shouldProjectFsContent(path)`, fetch those paths' content from machine_filesystems. No extra round-trip; uses the regen's own path inventory as the projection-target list.
+
+**Decision: 7b**. The regen result has the exact file inventory; checking `shouldProjectFsContent` per file is O(N) cheap. The fetch query becomes `paths IN (filtered list)`. Simpler than maintaining a separate concrete-path projection.
+
+**MUTATE**: Tier dispatch order, owner-bypass branch, error code parity.
+
+**KILL MUTANTS**: Address surviving mutants. Particular focus on the no-session vs. session-with-no-row distinction.
+
+**REFACTOR**: If the tier dispatch shape mirrors `handleListPatchesForMachines`, factor a shared `resolveCallerTier(publicKey, machine_id, deps)` helper. Defer if it's only used by one site post-merge.
+
+**Done when**: handler tests green; no regression on existing patch tests.
+
+### Step 8: Wire api/patches.ts — inject the new adapters
+
+- Add `findWorkstationById` and `findFsContentBatch` to `HandlerDeps`.
+- Wire concrete adapters in `api/patches.ts`.
+- Add the `getBaseFs` dispatch arm in `dispatchAction`.
+
+**Done when**: vercel:dev boots cleanly and serves the new action.
+
+### Step 9: Client wrapper — `getBaseFs` in patchRegistry/client.ts
+
+**RED**: Tests in `src/patchRegistry/client.test.ts`:
+
+- Successful 200 with `{baseFs: <FileNode>}` returns the FileNode.
+- Successful 200 with `{baseFs: null}` returns null.
+- 400 unsupported_machine_type → throws (envelope-level error; client should not retry).
+- 404 workstation_not_found → returns null (treat as "no base FS to merge"; not an error).
+- 401 envelope-level → throws.
+- 429 rate-limited → throws.
+- Network error → throws.
+- Malformed response (missing `baseFs` field) → throws.
+
+**GREEN**: New wrapper:
+
+```ts
+export type GetBaseFsResult = { readonly baseFs: FileNode | null };
+
+export const getBaseFs = async (
+  identity: Identity,
+  machine_id: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<FileNode | null> => {
+  /* signed POST, parse, return baseFs or null on 404 */
+};
+```
+
+**MUTATE**: 404 handling, malformed response handling.
+
+**Done when**: wrapper tests green.
+
+### Step 10: Client integration — fire `getBaseFs` on session-change for cross-player workstations
+
+**RED**: Tests in `src/filesystem/useFileSystemSync.test.tsx` (or an integration test):
+
+- When the session changes from `(machineA, root)` to `(machineB, user)` where `machineB` has the workstation_id pattern AND is not the player's own workstation AND not yet in `fileSystems`, `getBaseFs(machineB)` is called and on resolve `fileSystems[machineB]` is the returned FileNode tree.
+- When the session changes to a non-workstation machine_id (IPv4): no getBaseFs call.
+- When the session changes to the player's own workstation: no getBaseFs call.
+- When `fileSystems[machineB]` already has an entry (re-entry into existing session): no second getBaseFs call.
+- getBaseFs failure: error logged, no state mutation, no exception propagated.
+- Subsequent patches refetch (existing path) layers on top of the freshly-merged base FS correctly.
+
+**GREEN**: In `src/filesystem/useFileSystemSync.ts`, extend the existing session-change useEffect (lines ~424-444 today):
+
+```ts
+useEffect(() => {
+  // ... existing pendingHintMachinesRef + refetchAffectedMachines logic ...
+
+  // PR 6: fetch base FS for cross-player workstations on session establish.
+  if (
+    isCrossPlayerWorkstation(curr.machine, ownPubkeyRef.current) &&
+    !(curr.machine in fileSystemsRef.current)
+  ) {
+    void getBaseFs(getIdentity(), curr.machine)
+      .then((baseFs) => {
+        if (!baseFs) return;
+        setFileSystems((prev) => ({ ...prev, [curr.machine]: baseFs }));
+      })
+      .catch((error) => {
+        console.error('[fs] base-FS fetch failed:', error);
+      });
+  }
+}, [session.machine, session.userType, refetchAffectedMachines]);
+```
+
+`isCrossPlayerWorkstation` reuses `parseWorkstationId` + the suffix mismatch check against the player's own pubkey suffix.
+
+`fileSystemsRef` is a new ref that mirrors the `fileSystems` state (the existing pattern with `patchesRef`). Using a ref avoids triggering the effect on every fileSystems update (stable dep array) while still seeing the latest "is this machine already loaded" answer.
+
+**MUTATE**: Cross-player detection, suffix match logic, "already loaded" guard.
+
+**KILL MUTANTS**: Particular attention to the pubkey-suffix comparison — getting it wrong silently makes either own-box re-fetched (wasted) or cross-player skipped (broken).
+
+**REFACTOR**: None planned.
+
+**Done when**: in-game cross-player SSH lands A in a working shell with B's real FS visible.
+
+### Step 11: Forge smoke — `scripts/testGetBaseFs.ts`
+
+**RED**: New script forging `getBaseFs` envelopes against vercel:dev. Scenarios:
+
+1. **Owner bypass**: forge as Player A on A's own workstation_id → expect 200 with full unfiltered FS (assert `/etc/passwd` content present, `/root/.note` content present).
+2. **Non-workstation pattern**: forge with `machine_id: '192.168.1.50'` → 400 unsupported_machine_type.
+3. **Missing workstation row**: forge with a workstation_id pattern but no DB row (e.g., `ghost-ffffffff`) → 404 workstation_not_found.
+4. **Cross-player no-session**: forge as A on B's workstation_id with no active session row → 200 with `baseFs: null`.
+5. **Cross-player guest session**: insert an active session for A on B's workstation_id at `userType: 'guest'`, forge → 200 with FS that excludes /etc/passwd and /root/.
+6. **Cross-player user session**: same setup at `userType: 'user'` → /etc/passwd present (real hash from projection), /root/ excluded.
+7. **Cross-player root session**: at `userType: 'root'` → everything visible.
+8. **Projected overlay verification**: in scenario 7 (root), confirm `/etc/passwd` content matches what's stored in `machine_filesystems`, NOT the placeholder regen.
+
+Self-cleaning: each scenario inserts/deletes its session rows; no test workstations are created (use existing rows from a real registration).
+
+**GREEN**: Ride on Step 1-8; existing handler covers it.
+
+**Done when**: scenarios go from 29 → 36/37 passing depending on count; existing scenarios still green.
+
+### Step 12: Two-browser smoke
+
+Manual cross-player verification on `vercel:dev`:
+
+1. Browsers A and B with cross-player setup (same WiFi, registered identities).
+2. B logs in normally; runs `cat /etc/passwd` to capture the expected content.
+3. A `nmap`s B's LAN-IP — sees port 22 (sshd auto-running on workstations).
+4. A `ssh <B's-username>@<B's-LAN-IP>` (PR 2's server-auth path). Enter B's user password.
+5. Network tab: `authCreateSession` 201 → immediately followed by `getBaseFs` 200.
+6. A's terminal lands at `<B's-username>@<B's-hostname>:/home/<B's-username>$`.
+7. A `cat README.txt` → returns the welcome text from B's box.
+8. A `cat /etc/passwd` → returns the same content B captured in step 2 (same root hash).
+9. A `su root` with B's root password (which A can guess/crack because the hash is now visible to A as user). Lands as root.
+10. A `cat /root/.note` → returns the real .note content.
+11. B (still logged into B's own machine) sees auth.log entries for A's logins.
+12. Performance check: total time A enters password → A's prompt is interactive: target sub-1s; flag if visibly laggy.
+
+**Done when**: cross-player attack flow fully works through the UI.
+
+### Step 13: Plan + memory updates, lint/format/build/test, PR
+
+- Update plan status table: PR 6 ✅ merged.
+- Update memory: `project_cross_player_base_fs_gap.md` (status from "DEFERRED" → "PR 6 SHIPPED — workstations only; mission still parked").
+- Add a one-line entry to `MEMORY.md` if PR 6 surfaces any architectural insight worth memorizing (e.g., a layered bug like PR 5's projected-paths-need-dualWrite).
+- Run `npm run build && npm run lint && npm run format && npm run test:run`.
+- Bump version (`package.json` + `package-lock.json`) — minor bump per `feedback_consolidate_small_helpers` and the version-on-features rule.
+- PR description: pidfile-style summary referencing the workstation-only scope, the projected-overlay design, the deferred home/world/mission cases, and the 36/37 forge smoke result.
 
 ---
 
