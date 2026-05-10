@@ -1,6 +1,6 @@
 # Plan: Cross-Player Base FS Replication + Server-Authoritative Auth + CVE Read Endpoint
 
-**Status**: Active — PR 1 ✅ merged (#124); PR 2 ✅ merged (#125); PR 3 ✅ merged (#126); PR 4 ✅ merged (#127); PR 5 ✅ merged (#128, commit 1ea6d3b); PR 6 ✅ merged (#129, commit 13273ad); PR 7 in review
+**Status**: Active — PR 1 ✅ merged (#124); PR 2 ✅ merged (#125); PR 3 ✅ merged (#126); PR 4 ✅ merged (#127); PR 5 ✅ merged (#128, commit 1ea6d3b); PR 6 ✅ merged (#129, commit 13273ad); PR 7 ✅ merged (#130, commit 1787be2). PR 8 only remaining.
 **Started**: 2026-05-07
 **Estimate**: 7 PRs, ~3-4 weeks total
 **Why this chunk exists**: PvP cracking is the multiplayer pitch. Without this, cross-player attacks against player workstations don't work — SSH login fails, FTP login fails, file_read CVE fails, post-login `cat`/`ls` returns empty. User explicitly reversed the prior deferral on 2026-05-07 ("not gonna be happy to release the game without this").
@@ -101,7 +101,7 @@ Subsequent PRs in this chunk extend the same pattern to FTP / MySQL / Redis / nc
 | 4   | ✅ Merged (#127, commit `f92996d`) | Server-authoritative auth — MySQL / Redis / SNMP                                |
 | 5   | ✅ Merged (#128, commit `1ea6d3b`) | Backdoor connect (nc) — cross-player tier from projected pidfile                |
 | 6   | ✅ Merged (#129, commit `13273ad`) | Base FS replication endpoint — workstations only (NPC home/world regen locally) |
-| 7   | In review                          | `exploitRead` action for `file_read` / `dir_list` CVE effects                   |
+| 7   | ✅ Merged (#130, commit `1787be2`) | `exploitRead` action for `file_read` / `dir_list` CVE effects                   |
 | 8   | Pending PRs 2-3                    | Hydra adaptation + rate-limit tuning                                            |
 
 Ordering rationale:
