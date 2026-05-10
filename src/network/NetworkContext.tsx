@@ -138,11 +138,17 @@ const buildDebugVulnPort = (): Port | null => {
           tier,
         };
 
+  // owner is required — msfconsole gates exploitable-service check on it
+  // (`if (!targetPort.owner) throw 'service not exploitable'`). The
+  // username here is purely cosmetic for the synthetic port; the real
+  // tier semantics come from `forcedEffect.tier` and the server-side
+  // session row.
   return {
     port: 8080,
     service: 'http',
     serviceVersion: 'nginx 1.18.0',
     open: true,
+    owner: { username: 'www-data', userType: 'root', homePath: '/var/www' },
     forcedEffect: effect,
   };
 };
