@@ -10,8 +10,8 @@ See `docs/technology-choices.md` (Patches: server-authoritative with two-call de
 
 | File                                | Description                                                                                                                                                                                                                    |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `types.ts`                          | zod schemas (5-action discriminated union: upsertPatch / removePatch / listPatchesForMachines / clearOwnedPatches / getBaseFs), `PatchRow`, `PatchSummary`.                                                                    |
-| `handler.ts`                        | Single endpoint with action-dispatch: verify → rate-limit → L1 (session) → L2 (walker) → branch into one of five action handlers. Server-stamps `player_key` on every write.                                                   |
+| `types.ts`                          | zod schemas (6-action discriminated union: upsertPatch / removePatch / listPatchesForMachines / clearOwnedPatches / getBaseFs / exploitRead), `PatchRow`, `PatchSummary`.                                                      |
+| `handler.ts`                        | Single endpoint with action-dispatch: verify → rate-limit → L1 (session) → L2 (walker) → branch into one of six action handlers. Server-stamps `player_key` on every write.                                                    |
 | `supabaseUpsert.ts`                 | RPC adapter for upsertPatch — calls `upsert_patch_with_fs(...)` plpgsql which dual-writes to `patches` + `machine_filesystems` in one transaction.                                                                             |
 | `supabaseDelete.ts`                 | RPC adapter for removePatch — calls `remove_patches_with_fs(...)` plpgsql which deletes from both tables (exact + descendant prefix). Also includes the legacy clearOwnedPatches direct DELETE.                                |
 | `supabaseSelectByMachine.ts`        | `SELECT ... WHERE machine_id IN (...) ORDER BY updated_at ASC` adapter for listPatchesForMachines (cross-player read); returns the per-row `PatchSummary` shape.                                                               |
@@ -25,7 +25,7 @@ See `docs/technology-choices.md` (Patches: server-authoritative with two-call de
 
 ## Action dispatch (`handler.ts`)
 
-A single Vercel function (`/api/patches`) handles five logical actions, discriminated by the `action` field of the signed payload:
+A single Vercel function (`/api/patches`) handles six logical actions, discriminated by the `action` field of the signed payload:
 
 ```ts
 patchesSignedPayloadSchema = z.discriminatedUnion('action', [
@@ -34,6 +34,7 @@ patchesSignedPayloadSchema = z.discriminatedUnion('action', [
   listPatchesForMachinesSignedPayloadSchema, // 'listPatchesForMachines'
   clearOwnedPatchesSignedPayloadSchema, // 'clearOwnedPatches'
   getBaseFsSignedPayloadSchema, // 'getBaseFs'
+  exploitReadSignedPayloadSchema, // 'exploitRead'
 ]);
 ```
 
@@ -46,9 +47,12 @@ verify → rate-limit → switch (action):
   listPatchesForMachines → SELECT WHERE machine_id IN (...) ORDER BY updated_at   → 200 { patches: PatchSummary[] }
   clearOwnedPatches      → DELETE WHERE machine_id = 'localhost'                  → 200 { affected }
   getBaseFs              → regen workstation FS + projected overlay + walker      → 200 { baseFs: FileNode | null }
+  exploitRead            → resolve path in regen+overlay tree + per-path walker   → 200 { content: string|null } | { entries: string[]|null }
 ```
 
 `getBaseFs` is the cross-player workstation base-FS replication endpoint (PR 6 of cross-player-base-fs-replication). When player A establishes a session on player B's workstation, A's client fires `getBaseFs(B's workstation_id)` and the server: parses the workstation_id pattern (non-workstation → `400 unsupported_machine_type`), looks up B's row in `workstations`, regenerates the base FS via `generateLocalhost` with a placeholder rootPassword, overlays projected-path content from `machine_filesystems` (real `/etc/passwd` hash etc.), and tier-filters via `permissionWalker` at the caller's effective tier. Three tiers mirror the read-path filter: owner (full FS unfiltered), session (walker-filtered), no-session (`baseFs: null` defense in depth). Non-workstation machine types (NPC home, world, mission) regenerate locally on each player from their seed and don't need this endpoint.
+
+`exploitRead` is the single-path cross-player read endpoint for the `file_read` and `dir_list` CVE effects (PR 7 of cross-player-base-fs-replication). msfconsole's wiring layer wraps the call in `withTransientSession` (kind=`effect_one_shot`) at the CVE-granted tier first, then signs the envelope. Server steps mirror `getBaseFs` (parse workstation_id → workstation row → regen + projected overlay) but diverge at the final step: instead of filtering the whole tree, it navigates to `payload.path`, builds the parent-permission chain inline, and runs `permissionWalker.canRead` once. file_read returns `{ content: string|null }`; dir_list returns `{ entries: string[]|null }` (sorted child names). The session row's `user_type` is the trust source for the tier — never the wire envelope (the schema explicitly rejects a `tier` field). Owner short-circuits at root tier (no session lookup); cross-player without an active session 403s `no_session` (legitimate flow always has a transient session at this point — only forge attempts hit this). NPC home/world/mission machines aren't routed here; A regenerates them identically from seed and msfconsole reads locally.
 
 `clearTransientPatches` (DELETE WHERE machine_id <> 'localhost') was removed in v0.112.0 along with the mission-transition wipe in `FileSystemContext`. Mission instances are permanent — once accepted, the seed retires but the instance and its patches persist forever for anyone who can route to it. Home networks and world networks are shared persistent infrastructure. Cross-player writes on shared machines are part of the shared world. So no patch on a non-localhost machine should ever be wiped server-side.
 

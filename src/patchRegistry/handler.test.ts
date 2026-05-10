@@ -2777,3 +2777,425 @@ describe('handlePatchesRequest — getBaseFs', () => {
     expect(result.body).toEqual({ error: 'session_lookup_failed' });
   });
 });
+
+// PR 7 of plans/cross-player-base-fs-replication.md — single-path read
+// against a cross-player workstation, walked at the active session's
+// userType. Mirrors getBaseFs in dispatch shape; differs in that it
+// returns one path's content (file_read) or one directory's entries
+// (dir_list) instead of the whole FileNode tree.
+describe('handlePatchesRequest — exploitRead', () => {
+  let identity: Identity;
+  let workstationName: string;
+  let username: string;
+  let seed: string;
+  let ownWorkstationId: string;
+
+  beforeEach(() => {
+    identity = generateIdentity();
+    workstationName = 'omen';
+    username = 'alice';
+    seed = 'fixture-seed';
+    const suffix = deriveHostnameSuffix(`ed25519:${identity.publicKeyHex}`);
+    ownWorkstationId = `${workstationName}-${suffix}`;
+  });
+
+  const makeOtherPlayerRow = (otherPlayerKey: string) => {
+    const suffix = deriveHostnameSuffix(`ed25519:${otherPlayerKey}`);
+    return {
+      machine_id: `${workstationName}-${suffix}`,
+      row: {
+        player_key: otherPlayerKey,
+        workstation_name: workstationName,
+        username: 'bob',
+        seed: 'other-seed',
+      },
+    };
+  };
+
+  it('returns 400 unsupported_machine_type for an IPv4 machine_id', async () => {
+    const envelope = makeEnvelope(identity, {
+      action: 'exploitRead',
+      machine_id: '192.168.1.50',
+      path: '/etc/passwd',
+      kind: 'file_read',
+    });
+
+    const findWorkstationsByName = vi
+      .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+      .mockResolvedValue({ ok: true, rows: [] });
+    const result = await handlePatchesRequest(envelope, mkDeps({ findWorkstationsByName }));
+
+    expect(result.status).toBe(400);
+    expect(result.body).toEqual({ error: 'unsupported_machine_type' });
+    expect(findWorkstationsByName).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 workstation_not_found when no rows match', async () => {
+    const envelope = makeEnvelope(identity, {
+      action: 'exploitRead',
+      machine_id: 'ghost-ffffffff',
+      path: '/etc/passwd',
+      kind: 'file_read',
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({ ok: true, rows: [] }),
+      }),
+    );
+
+    expect(result.status).toBe(404);
+    expect(result.body).toEqual({ error: 'workstation_not_found' });
+  });
+
+  it('returns 403 no_session for cross-player caller with no active session', async () => {
+    const otherPlayerKey = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const { machine_id, row } = makeOtherPlayerRow(otherPlayerKey);
+    const envelope = makeEnvelope(identity, {
+      action: 'exploitRead',
+      machine_id,
+      path: '/etc/passwd',
+      kind: 'file_read',
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({ ok: true, rows: [row] }),
+        findActiveSession: vi
+          .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+          .mockResolvedValue({ ok: true, exists: false }),
+      }),
+    );
+
+    expect(result.status).toBe(403);
+    expect(result.body).toEqual({ error: 'no_session' });
+  });
+
+  it('file_read: returns 200 with content for cross-player ROOT session reading /etc/passwd', async () => {
+    const otherPlayerKey = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    const { machine_id, row } = makeOtherPlayerRow(otherPlayerKey);
+    const envelope = makeEnvelope(identity, {
+      action: 'exploitRead',
+      machine_id,
+      path: '/etc/passwd',
+      kind: 'file_read',
+    });
+
+    const realPasswdContent = 'root:HASH:0:0:root:/root:/bin/bash';
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({ ok: true, rows: [row] }),
+        findActiveSession: vi
+          .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+          .mockResolvedValue({
+            ok: true,
+            exists: true,
+            credentials: { username: 'root', userType: 'root' },
+          }),
+        findFsContentBatch: vi
+          .fn<(p: FindFsContentBatchParams) => Promise<FindFsContentBatchResult>>()
+          .mockResolvedValue({
+            ok: true,
+            contentByPath: new Map([['/etc/passwd', realPasswdContent]]),
+          }),
+      }),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ content: realPasswdContent });
+  });
+
+  it('file_read: returns 200 with content:null for cross-player GUEST trying /etc/passwd (read denied)', async () => {
+    // Workstation /etc/passwd has read: ['root', 'user'] — guest is excluded.
+    const otherPlayerKey = 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc';
+    const { machine_id, row } = makeOtherPlayerRow(otherPlayerKey);
+    const envelope = makeEnvelope(identity, {
+      action: 'exploitRead',
+      machine_id,
+      path: '/etc/passwd',
+      kind: 'file_read',
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({ ok: true, rows: [row] }),
+        findActiveSession: vi
+          .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+          .mockResolvedValue({
+            ok: true,
+            exists: true,
+            credentials: { username: 'guest', userType: 'guest' },
+          }),
+      }),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ content: null });
+  });
+
+  it('file_read: returns 200 with content:null for path that does not exist', async () => {
+    const otherPlayerKey = 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd';
+    const { machine_id, row } = makeOtherPlayerRow(otherPlayerKey);
+    const envelope = makeEnvelope(identity, {
+      action: 'exploitRead',
+      machine_id,
+      path: '/no/such/path',
+      kind: 'file_read',
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({ ok: true, rows: [row] }),
+        findActiveSession: vi
+          .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+          .mockResolvedValue({
+            ok: true,
+            exists: true,
+            credentials: { username: 'root', userType: 'root' },
+          }),
+      }),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ content: null });
+  });
+
+  it('dir_list: returns 200 with sorted entries for cross-player ROOT listing /etc', async () => {
+    const otherPlayerKey = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+    const { machine_id, row } = makeOtherPlayerRow(otherPlayerKey);
+    const envelope = makeEnvelope(identity, {
+      action: 'exploitRead',
+      machine_id,
+      path: '/etc',
+      kind: 'dir_list',
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({ ok: true, rows: [row] }),
+        findActiveSession: vi
+          .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+          .mockResolvedValue({
+            ok: true,
+            exists: true,
+            credentials: { username: 'root', userType: 'root' },
+          }),
+      }),
+    );
+
+    expect(result.status).toBe(200);
+    const body = result.body as { readonly entries: readonly string[] | null };
+    expect(body.entries).not.toBeNull();
+    expect(body.entries).toContain('passwd');
+    // Sorted output (mirrors local listDirectoryFromMachine).
+    if (body.entries) {
+      const sorted = [...body.entries].sort();
+      expect(body.entries).toEqual(sorted);
+    }
+  });
+
+  it('dir_list: returns 200 with entries:null for cross-player GUEST listing /root (un-traversable)', async () => {
+    const otherPlayerKey = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
+    const { machine_id, row } = makeOtherPlayerRow(otherPlayerKey);
+    const envelope = makeEnvelope(identity, {
+      action: 'exploitRead',
+      machine_id,
+      path: '/root',
+      kind: 'dir_list',
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({ ok: true, rows: [row] }),
+        findActiveSession: vi
+          .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+          .mockResolvedValue({
+            ok: true,
+            exists: true,
+            credentials: { username: 'guest', userType: 'guest' },
+          }),
+      }),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ entries: null });
+  });
+
+  it('dir_list: returns 200 with entries:null when path is a file (not a directory)', async () => {
+    const otherPlayerKey = '1111111111111111111111111111111111111111111111111111111111111111';
+    const { machine_id, row } = makeOtherPlayerRow(otherPlayerKey);
+    const envelope = makeEnvelope(identity, {
+      action: 'exploitRead',
+      machine_id,
+      path: '/etc/passwd',
+      kind: 'dir_list',
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({ ok: true, rows: [row] }),
+        findActiveSession: vi
+          .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+          .mockResolvedValue({
+            ok: true,
+            exists: true,
+            credentials: { username: 'root', userType: 'root' },
+          }),
+      }),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ entries: null });
+  });
+
+  it('owner short-circuit: returns 200 file content WITHOUT session lookup', async () => {
+    const envelope = makeEnvelope(identity, {
+      action: 'exploitRead',
+      machine_id: ownWorkstationId,
+      path: '/etc/passwd',
+      kind: 'file_read',
+    });
+
+    const findActiveSession = vi
+      .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+      .mockResolvedValue({ ok: true, exists: false });
+
+    const realPasswdContent = 'root:OWN_HASH:0:0:root:/root:/bin/bash';
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({
+            ok: true,
+            rows: [
+              {
+                player_key: identity.publicKeyHex,
+                workstation_name: workstationName,
+                username,
+                seed,
+              },
+            ],
+          }),
+        findActiveSession,
+        findFsContentBatch: vi
+          .fn<(p: FindFsContentBatchParams) => Promise<FindFsContentBatchResult>>()
+          .mockResolvedValue({
+            ok: true,
+            contentByPath: new Map([['/etc/passwd', realPasswdContent]]),
+          }),
+      }),
+    );
+
+    expect(result.status).toBe(200);
+    expect(findActiveSession).not.toHaveBeenCalled();
+    expect(result.body).toEqual({ content: realPasswdContent });
+  });
+
+  it('returns 500 workstation_lookup_failed when findWorkstationsByName fails', async () => {
+    const envelope = makeEnvelope(identity, {
+      action: 'exploitRead',
+      machine_id: 'omen-aabbccdd',
+      path: '/etc/passwd',
+      kind: 'file_read',
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({ ok: false }),
+      }),
+    );
+
+    expect(result.status).toBe(500);
+    expect(result.body).toEqual({ error: 'workstation_lookup_failed' });
+  });
+
+  it('returns 500 fs_lookup_failed when findFsContentBatch fails', async () => {
+    const envelope = makeEnvelope(identity, {
+      action: 'exploitRead',
+      machine_id: ownWorkstationId,
+      path: '/etc/passwd',
+      kind: 'file_read',
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({
+            ok: true,
+            rows: [
+              {
+                player_key: identity.publicKeyHex,
+                workstation_name: workstationName,
+                username,
+                seed,
+              },
+            ],
+          }),
+        findFsContentBatch: vi
+          .fn<(p: FindFsContentBatchParams) => Promise<FindFsContentBatchResult>>()
+          .mockResolvedValue({ ok: false }),
+      }),
+    );
+
+    expect(result.status).toBe(500);
+    expect(result.body).toEqual({ error: 'fs_lookup_failed' });
+  });
+
+  it('returns 500 session_lookup_failed when findActiveSession fails (cross-player)', async () => {
+    const otherPlayerKey = '2222222222222222222222222222222222222222222222222222222222222222';
+    const { machine_id, row } = makeOtherPlayerRow(otherPlayerKey);
+    const envelope = makeEnvelope(identity, {
+      action: 'exploitRead',
+      machine_id,
+      path: '/etc/passwd',
+      kind: 'file_read',
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({ ok: true, rows: [row] }),
+        findActiveSession: vi
+          .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+          .mockResolvedValue({ ok: false }),
+      }),
+    );
+
+    expect(result.status).toBe(500);
+    expect(result.body).toEqual({ error: 'session_lookup_failed' });
+  });
+});

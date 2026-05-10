@@ -39,7 +39,7 @@ import type {
   FindFsContentBatchParams,
   FindFsContentBatchResult,
 } from './supabaseFindFsContentBatch.js';
-import { canWrite } from '../filesystem/permissionWalker.js';
+import { canRead, canWrite } from '../filesystem/permissionWalker.js';
 import { defaultPermissionsForNode } from '../filesystem/defaultPermissions.js';
 import {
   computeWorkstationId,
@@ -184,6 +184,8 @@ const dispatchAction = async (
       return handleClearOwnedPatches(publicKey, payload, deps);
     case 'getBaseFs':
       return handleGetBaseFs(publicKey, payload, deps);
+    case 'exploitRead':
+      return handleExploitRead(publicKey, payload, deps);
   }
 };
 
@@ -674,4 +676,150 @@ const handleGetBaseFs = async (
   }
   const filtered = filterFileNodeForRead(overlaid, sessionResult.credentials.userType);
   return { status: 200, body: { baseFs: filtered } };
+};
+
+// Walk an overlaid base-FS tree from the root to `path`, returning the
+// resolved node (or null if a segment is missing / a non-directory is
+// traversed) and the parent permission chain in the shape permissionWalker
+// expects (root-to-immediate-parent). Mirrors the chain construction
+// readFilter does for patch rows, but built directly from the FileNode
+// tree we already have in memory — no extra SQL round-trip needed.
+const resolveNodeAndParentChain = (
+  root: FileNode,
+  path: string,
+): {
+  readonly node: FileNode | null;
+  readonly parentChain: readonly FilePermissions[];
+} => {
+  const segments = path.split('/').filter((s) => s.length > 0);
+  if (segments.length === 0) return { node: root, parentChain: [] };
+
+  const parentChain: FilePermissions[] = [];
+  let current: FileNode = root;
+  for (const segment of segments) {
+    if (current.type !== 'directory' || !current.children) {
+      return { node: null, parentChain };
+    }
+    parentChain.push(current.permissions);
+    const child = current.children[segment];
+    if (!child) {
+      return { node: null, parentChain };
+    }
+    current = child;
+  }
+  return { node: current, parentChain };
+};
+
+// PR 7 of plans/cross-player-base-fs-replication.md — single-path
+// read against a cross-player workstation's base FS at the caller's
+// effective tier.
+//
+// Tier source: the active `effect_one_shot` session row's user_type
+// (minted by `withTransientSession` on the client when the CVE fires).
+// NEVER read from the wire envelope — the schema explicitly rejects a
+// `tier` field. This makes the trust source identical to writeRemoteFile
+// + upsertPatch, which already establishes that an attacker can mint
+// any tier via createSession (the cross-player threat model documented
+// in project_multiplayer_security_model already accepts that).
+//
+// Steps 1-4 mirror handleGetBaseFs (same regen + projection overlay
+// pipeline). Step 5 diverges: navigate the overlaid tree to the
+// requested path and apply file_read or dir_list semantics, mirroring
+// useFileSystemReaders.readFileFromMachine / listDirectoryFromMachine
+// for byte-identical behaviour with the local path on NPC machines.
+const handleExploitRead = async (
+  publicKey: string,
+  payload: Extract<PatchesPayload, { action: 'exploitRead' }>,
+  deps: HandlerDeps,
+): Promise<HandlerResponse> => {
+  const parsed = parseWorkstationId(payload.machine_id);
+  if (!parsed) {
+    return { status: 400, body: { error: 'unsupported_machine_type' } };
+  }
+
+  const wsResult = await deps.findWorkstationsByName({ workstation_name: parsed.name });
+  if (!wsResult.ok) {
+    return { status: 500, body: { error: 'workstation_lookup_failed' } };
+  }
+  const matchingRow = wsResult.rows.find(
+    (r) => computeWorkstationId(r.workstation_name, r.player_key) === payload.machine_id,
+  );
+  if (!matchingRow) {
+    return { status: 404, body: { error: 'workstation_not_found' } };
+  }
+
+  const regen = generateLocalhost(
+    {
+      seed: matchingRow.seed,
+      workstationName: matchingRow.workstation_name,
+      username: matchingRow.username,
+      rootPassword: GET_BASE_FS_SENTINEL_ROOT_PASSWORD,
+    },
+    payload.machine_id,
+  );
+
+  const projectedPaths = collectProjectedPathsFromTree(regen.fileSystem);
+  const fsResult = await deps.findFsContentBatch({
+    machine_id: payload.machine_id,
+    paths: projectedPaths,
+  });
+  if (!fsResult.ok) {
+    return { status: 500, body: { error: 'fs_lookup_failed' } };
+  }
+  const overlaid = overlayProjectedContent(regen.fileSystem, fsResult.contentByPath);
+
+  // Tier dispatch — owner reads at root (full access, no session needed,
+  // mirrors getBaseFs). Cross-player MUST have an active session; the
+  // legitimate flow always does (withTransientSession mints one before
+  // calling). 403 closes the forge case where someone signs an
+  // exploitRead without first creating the session.
+  let effectiveUserType: Credentials['userType'];
+  if (isOwnWorkstationOnServer(payload.machine_id, publicKey)) {
+    effectiveUserType = 'root';
+  } else {
+    const sessionResult = await deps.findActiveSession({
+      player_key: publicKey,
+      machine_id: payload.machine_id,
+    });
+    if (!sessionResult.ok) {
+      return { status: 500, body: { error: 'session_lookup_failed' } };
+    }
+    if (!sessionResult.exists) {
+      return { status: 403, body: { error: 'no_session' } };
+    }
+    effectiveUserType = sessionResult.credentials.userType;
+  }
+
+  const resolved = resolveNodeAndParentChain(overlaid, payload.path);
+
+  if (payload.kind === 'file_read') {
+    if (!resolved.node || resolved.node.type !== 'file') {
+      return { status: 200, body: { content: null } };
+    }
+    const decision = canRead({
+      userType: effectiveUserType,
+      target: resolved.node.permissions,
+      parentChain: resolved.parentChain,
+    });
+    if (!decision.allowed) {
+      return { status: 200, body: { content: null } };
+    }
+    return { status: 200, body: { content: resolved.node.content ?? '' } };
+  }
+
+  // dir_list — mirror listDirectoryFromMachine: canRead on the directory
+  // gates the listing; entries are sorted child names (no recursion).
+  if (!resolved.node || resolved.node.type !== 'directory') {
+    return { status: 200, body: { entries: null } };
+  }
+  const decision = canRead({
+    userType: effectiveUserType,
+    target: resolved.node.permissions,
+    parentChain: resolved.parentChain,
+  });
+  if (!decision.allowed) {
+    return { status: 200, body: { entries: null } };
+  }
+  const entries = Object.keys(resolved.node.children ?? {}).sort();
+  return { status: 200, body: { entries } };
 };

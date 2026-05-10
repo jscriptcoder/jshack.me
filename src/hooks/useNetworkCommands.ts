@@ -3,7 +3,12 @@ import { useNetwork } from '../network';
 import { useFileSystem } from '../filesystem';
 import { useSession } from '../session/SessionContext';
 import { useHomeNetworks } from '../homeNetworks/HomeNetworksContext';
-import { isOwnWorkstation, targetMachineIdFor } from '../homeNetworks/homeNetworkHelpers';
+import {
+  isOwnWorkstation,
+  parseWorkstationId,
+  targetMachineIdFor,
+} from '../homeNetworks/homeNetworkHelpers';
+import { exploitRead } from '../patchRegistry/client';
 import { createIfconfigCommand } from '../commands/ifconfig';
 import { createPingCommand } from '../commands/ping';
 import { createNmapCommand } from '../commands/nmap';
@@ -564,6 +569,58 @@ export const useNetworkCommands = (): Map<string, Command> => {
             },
             listRemoteDir: (machineId, path, tier = 'root') =>
               listDirectoryFromMachine({ machineId, path, cwd: '/', userType: tier }),
+            // PR 7 of plans/cross-player-base-fs-replication.md — cross-
+            // player-aware file_read / dir_list. Translates the supplied
+            // ip-form machineId to canonical (workstation_id for LAN
+            // occupants, unchanged for NPC / mission / world). Cross-player
+            // workstation targets bounce through the server's exploitRead
+            // endpoint inside an effect_one_shot transient session — the
+            // server walks B's regenerated base FS at the CVE-granted
+            // tier (read from the session row, not the envelope). Own-
+            // workstation and NPC/mission/world targets stay local — A
+            // already has the FS state needed to read at any tier.
+            exploitFileRead: async (machineId, path, tier) => {
+              const canonical = resolveTargetMachineId(machineId);
+              const isCrossPlayerWorkstation =
+                parseWorkstationId(canonical) !== undefined &&
+                !isOwnWorkstation(canonical, hostname);
+              if (isCrossPlayerWorkstation) {
+                const result = await withTransientSession(
+                  getIdentity(),
+                  {
+                    machine_id: canonical,
+                    credentials: { username: 'msf', userType: tier },
+                    kind: 'effect_one_shot',
+                    ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
+                    source_ip: session.machine,
+                  },
+                  () => exploitRead(getIdentity(), canonical, path, 'file_read'),
+                );
+                return typeof result === 'string' ? result : null;
+              }
+              return readFileFromMachine({ machineId, path, cwd: '/', userType: tier });
+            },
+            exploitDirList: async (machineId, path, tier) => {
+              const canonical = resolveTargetMachineId(machineId);
+              const isCrossPlayerWorkstation =
+                parseWorkstationId(canonical) !== undefined &&
+                !isOwnWorkstation(canonical, hostname);
+              if (isCrossPlayerWorkstation) {
+                const result = await withTransientSession(
+                  getIdentity(),
+                  {
+                    machine_id: canonical,
+                    credentials: { username: 'msf', userType: tier },
+                    kind: 'effect_one_shot',
+                    ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
+                    source_ip: session.machine,
+                  },
+                  () => exploitRead(getIdentity(), canonical, path, 'dir_list'),
+                );
+                return Array.isArray(result) ? result : null;
+              }
+              return listDirectoryFromMachine({ machineId, path, cwd: '/', userType: tier });
+            },
             runScriptOnTarget: async (machineId, scriptBody, tier) =>
               await withTransientSession(
                 getIdentity(),

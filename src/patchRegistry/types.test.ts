@@ -228,3 +228,123 @@ describe('getBaseFs schema arm', () => {
     ).toThrow();
   });
 });
+
+// PR 7 of plans/cross-player-base-fs-replication.md — server-side single-
+// path read endpoint for the file_read / dir_list CVE effects, walking
+// the cross-player workstation base FS at the caller's active session
+// userType (read from the session row, not the envelope).
+describe('exploitRead schema arm', () => {
+  it('parses a valid file_read envelope', () => {
+    const result = patchesSignedPayloadSchema.parse({
+      action: 'exploitRead',
+      ...baseEnvelope,
+      machine_id: 'omen-4a3b1c2d',
+      path: '/etc/passwd',
+      kind: 'file_read',
+    });
+    expect(result.action).toBe('exploitRead');
+    if (result.action === 'exploitRead') {
+      expect(result.machine_id).toBe('omen-4a3b1c2d');
+      expect(result.path).toBe('/etc/passwd');
+      expect(result.kind).toBe('file_read');
+    }
+  });
+
+  it('parses a valid dir_list envelope', () => {
+    const result = patchesSignedPayloadSchema.parse({
+      action: 'exploitRead',
+      ...baseEnvelope,
+      machine_id: 'omen-4a3b1c2d',
+      path: '/root',
+      kind: 'dir_list',
+    });
+    expect(result.action).toBe('exploitRead');
+    if (result.action === 'exploitRead') {
+      expect(result.kind).toBe('dir_list');
+    }
+  });
+
+  it('rejects unknown kind', () => {
+    expect(() =>
+      patchesSignedPayloadSchema.parse({
+        action: 'exploitRead',
+        ...baseEnvelope,
+        machine_id: 'omen-4a3b1c2d',
+        path: '/etc/passwd',
+        kind: 'file_write',
+      }),
+    ).toThrow();
+  });
+
+  it('rejects missing path', () => {
+    expect(() =>
+      patchesSignedPayloadSchema.parse({
+        action: 'exploitRead',
+        ...baseEnvelope,
+        machine_id: 'omen-4a3b1c2d',
+        kind: 'file_read',
+      }),
+    ).toThrow();
+  });
+
+  it('rejects missing kind', () => {
+    expect(() =>
+      patchesSignedPayloadSchema.parse({
+        action: 'exploitRead',
+        ...baseEnvelope,
+        machine_id: 'omen-4a3b1c2d',
+        path: '/etc/passwd',
+      }),
+    ).toThrow();
+  });
+
+  it('rejects empty machine_id (min 1)', () => {
+    expect(() =>
+      patchesSignedPayloadSchema.parse({
+        action: 'exploitRead',
+        ...baseEnvelope,
+        machine_id: '',
+        path: '/etc/passwd',
+        kind: 'file_read',
+      }),
+    ).toThrow();
+  });
+
+  it('rejects oversized path (> 4096 chars)', () => {
+    expect(() =>
+      patchesSignedPayloadSchema.parse({
+        action: 'exploitRead',
+        ...baseEnvelope,
+        machine_id: 'omen-4a3b1c2d',
+        path: 'x'.repeat(4097),
+        kind: 'file_read',
+      }),
+    ).toThrow();
+  });
+
+  it('rejects extra unknown fields (strict)', () => {
+    expect(() =>
+      patchesSignedPayloadSchema.parse({
+        action: 'exploitRead',
+        ...baseEnvelope,
+        machine_id: 'omen-4a3b1c2d',
+        path: '/etc/passwd',
+        kind: 'file_read',
+        extra: 'oops',
+      }),
+    ).toThrow();
+  });
+
+  it('rejects envelope-supplied tier (server reads from session row)', () => {
+    expect(() =>
+      patchesSignedPayloadSchema.parse({
+        action: 'exploitRead',
+        ...baseEnvelope,
+        machine_id: 'omen-4a3b1c2d',
+        path: '/etc/passwd',
+        kind: 'file_read',
+        tier: 'root',
+      }),
+    ).toThrow();
+  });
+});

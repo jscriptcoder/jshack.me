@@ -1,6 +1,6 @@
 # Plan: Cross-Player Base FS Replication + Server-Authoritative Auth + CVE Read Endpoint
 
-**Status**: Active — PR 1 ✅ merged (#124); PR 2 ✅ merged (#125); PR 3 ✅ merged (#126); PR 4 ✅ merged (#127); PR 5 ✅ merged (#128, commit 1ea6d3b); PR 6 ✅ merged (#129, commit 13273ad)
+**Status**: Active — PR 1 ✅ merged (#124); PR 2 ✅ merged (#125); PR 3 ✅ merged (#126); PR 4 ✅ merged (#127); PR 5 ✅ merged (#128, commit 1ea6d3b); PR 6 ✅ merged (#129, commit 13273ad); PR 7 in review
 **Started**: 2026-05-07
 **Estimate**: 7 PRs, ~3-4 weeks total
 **Why this chunk exists**: PvP cracking is the multiplayer pitch. Without this, cross-player attacks against player workstations don't work — SSH login fails, FTP login fails, file_read CVE fails, post-login `cat`/`ls` returns empty. User explicitly reversed the prior deferral on 2026-05-07 ("not gonna be happy to release the game without this").
@@ -101,7 +101,7 @@ Subsequent PRs in this chunk extend the same pattern to FTP / MySQL / Redis / nc
 | 4   | ✅ Merged (#127, commit `f92996d`) | Server-authoritative auth — MySQL / Redis / SNMP                                |
 | 5   | ✅ Merged (#128, commit `1ea6d3b`) | Backdoor connect (nc) — cross-player tier from projected pidfile                |
 | 6   | ✅ Merged (#129, commit `13273ad`) | Base FS replication endpoint — workstations only (NPC home/world regen locally) |
-| 7   | Pending PR 6                       | `/api/exploit-read` for `file_read` / `dir_list` CVE effects                    |
+| 7   | In review                          | `exploitRead` action for `file_read` / `dir_list` CVE effects                   |
 | 8   | Pending PRs 2-3                    | Hydra adaptation + rate-limit tuning                                            |
 
 Ordering rationale:
@@ -1296,21 +1296,28 @@ Manual cross-player verification on `vercel:dev`:
 
 ---
 
-## PR 7: `/api/exploit-read` for `file_read` and `dir_list`
+## PR 7: `exploitRead` action for `file_read` and `dir_list`
 
-**Goal**: CVE effects `file_read` and `dir_list` work cross-player. Today they run locally against A's incomplete view of B's FS.
+**Status**: In review (commit on `feat/cpbfs-pr7-exploit-read`).
 
-**Approach**:
+**Goal**: CVE effects `file_read` and `dir_list` work cross-player against player workstations. NPC home/world/mission targets continue to read locally (A and B regenerate identical FS from the shared seed).
 
-- New `/api/exploit-read` action. Signed envelope: `{ machine_id, path, effect_tier, kind: 'file_read' | 'dir_list' }`.
-- Server validates the envelope (signature, replay, etc.).
-- **Server validates the effect is real**: the caller must have a recent active session on the target with `kind: 'effect_one_shot'` OR a corresponding entry in a "recent-effects" record (TBD: do CVE effects leave a server-side trace?). This prevents a forger from claiming any tier.
-- Server regens the path's content (or directory listing) at the effect tier.
-- Returns content/listing.
+**Decision (resolved 2026-05-10)**: Trust source = the active `effect_one_shot` session row's `user_type` minted by `withTransientSession`. Mirrors writeRemoteFile / runScriptOnTarget exactly; no new `effect_grants` table. The wire envelope explicitly forbids a `tier` field — the schema rejects it. A forger could mint an effect_one_shot at any userType via `createSession` (CVE kinds don't have an `/etc/passwd` to validate against), but that's the existing threat model accepted everywhere else in this chunk.
 
-**Open question on validation**: how does the server know the player ran a real CVE that grants `effect_tier`? Options: (a) the msfconsole flow already creates `effect_one_shot` sessions — extend their semantics to grant cross-machine read; (b) introduce an "effect_grants" table that records active CVE-granted permissions per (player, machine, tier); (c) trust the signed envelope post-rate-limit (weakest).
+**Endpoint placement**: New action on `/api/patches`, sibling to `getBaseFs`. Reuses signed-envelope plumbing.
 
-**Decision needed before implementation.**
+**Approach (shipped)**:
+
+- Schema: `exploitReadSignedPayloadSchema` — `{ machine_id, path, kind: 'file_read' | 'dir_list' }`. Strict; tier rejected.
+- Handler `handleExploitRead` (`src/patchRegistry/handler.ts`): parse workstation_id (400 if not), look up workstation row (404 if missing), regen via `generateLocalhost` with sentinel password, overlay projected content via `overlayProjectedContent`. Owner short-circuits at root tier; cross-player must have an active session (403 `no_session` otherwise) — tier comes from the session row's `user_type`. Single-path walk via inline `resolveNodeAndParentChain` helper, then `permissionWalker.canRead` once. Returns `{ content }` or `{ entries }`.
+- Client: `exploitRead(identity, machineId, path, kind, fetchImpl)` in `src/patchRegistry/client.ts`. Discriminates response by kind.
+- Wiring: msfconsole's `MsfconsoleContext` gains optional async `exploitFileRead` / `exploitDirList` methods; the file_read / dir_list switch cases use them. `useNetworkCommands.ts` implements both methods — for cross-player workstation targets (`parseWorkstationId(canonical) !== undefined && !isOwnWorkstation(canonical, hostname)`), wraps the call in `withTransientSession` (kind=`effect_one_shot`, userType=CVE tier) and routes to the server. Else falls back to local `readFileFromMachine` / `listDirectoryFromMachine` at the requested tier.
+- Forge smoke: `scripts/testExploitRead.ts` — 11 scenarios (owner content / owner entries / no_session 403 / guest content:null / user content match / guest /root entries:null / root entries / missing path / file as dir / 400 / 404). 11/11 against `vercel:dev`.
+
+**Out of scope (acknowledged gaps)**:
+
+- **`password_reset` cross-player /etc/passwd read** (`msfconsole.ts:525`). Default tier='root' on the local read; A's local view of B's box is filtered at A's session tier, so guest CVEs that should reset another tier's password don't see /etc/passwd. The catalog memory marked password_reset as "Works (via withTransientSession + dual-write)" because the WRITE works; the read prerequisite was unflagged. Fix shape if surfaced: route the /etc/passwd read through `exploitFileRead` at the CVE tier too. Deferred — not blocking gameplay; gets its own follow-up if reported.
+- **`runLocalExploit` dpkg cross-player read** (`msfconsole.ts:311`). Already works post-PR 6 — `/var/lib/dpkg/status` is regen'd in `getBaseFs` and isn't filtered out at any tier (read=root,user,guest by default). No change needed.
 
 ---
 

@@ -5,6 +5,7 @@ import {
   listPatchesForMachines,
   clearOwnedPatches,
   getBaseFs,
+  exploitRead,
 } from './client';
 import { generateIdentity, verify } from '../identity/identity';
 import { hexToBytes } from '../identity/hex';
@@ -725,6 +726,163 @@ describe('getBaseFs', () => {
     const sigBytes = hexToBytes(envelope.signature);
     expect(pubBytes).not.toBeNull();
     expect(sigBytes).not.toBeNull();
+    const valid = verify(pubBytes!, sigBytes!, new TextEncoder().encode(envelope.payload));
+    expect(valid).toBe(true);
+  });
+});
+
+// PR 7 of plans/cross-player-base-fs-replication.md — exploitRead client
+// wrapper for the file_read / dir_list CVE effects against cross-player
+// workstations. Two return shapes (file_read → string|null content,
+// dir_list → string[]|null entries) — caller chooses via the kind arg.
+describe('exploitRead', () => {
+  const TEST_MACHINE_ID = 'omen-aabbccdd';
+
+  it('signs an envelope with kind=file_read and POSTs to /api/patches', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ content: 'hello' }));
+
+    await exploitRead(identity, TEST_MACHINE_ID, '/etc/passwd', 'file_read', fetchMock);
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('/api/patches');
+    expect(init?.method).toBe('POST');
+    const envelope: { readonly payload: string } = JSON.parse(init?.body as string);
+    const inner: {
+      readonly action: string;
+      readonly machine_id: string;
+      readonly path: string;
+      readonly kind: string;
+    } = JSON.parse(envelope.payload);
+    expect(inner.action).toBe('exploitRead');
+    expect(inner.machine_id).toBe(TEST_MACHINE_ID);
+    expect(inner.path).toBe('/etc/passwd');
+    expect(inner.kind).toBe('file_read');
+  });
+
+  it('returns the content string on file_read 200', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ content: 'root:HASH:0:0...' }));
+
+    const result = await exploitRead(
+      identity,
+      TEST_MACHINE_ID,
+      '/etc/passwd',
+      'file_read',
+      fetchMock,
+    );
+    expect(result).toBe('root:HASH:0:0...');
+  });
+
+  it('returns null on file_read with content:null (permission denied or missing)', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ content: null }));
+
+    const result = await exploitRead(
+      identity,
+      TEST_MACHINE_ID,
+      '/root/secret',
+      'file_read',
+      fetchMock,
+    );
+    expect(result).toBeNull();
+  });
+
+  it('returns the entries array on dir_list 200', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(ok({ entries: ['hosts', 'passwd', 'shadow'] }));
+
+    const result = await exploitRead(identity, TEST_MACHINE_ID, '/etc', 'dir_list', fetchMock);
+    expect(result).toEqual(['hosts', 'passwd', 'shadow']);
+  });
+
+  it('returns null on dir_list with entries:null', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ entries: null }));
+
+    const result = await exploitRead(identity, TEST_MACHINE_ID, '/root', 'dir_list', fetchMock);
+    expect(result).toBeNull();
+  });
+
+  it('throws on 400 (caller bug — non-workstation machine_id)', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(errResponse(400, { error: 'unsupported_machine_type' }));
+
+    await expect(
+      exploitRead(identity, TEST_MACHINE_ID, '/etc/passwd', 'file_read', fetchMock),
+    ).rejects.toThrow(/400/);
+  });
+
+  it('throws on 403 (no_session — forge attempt or stale session)', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(errResponse(403, { error: 'no_session' }));
+
+    await expect(
+      exploitRead(identity, TEST_MACHINE_ID, '/etc/passwd', 'file_read', fetchMock),
+    ).rejects.toThrow(/403/);
+  });
+
+  it('throws on 404 (workstation_not_found)', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(errResponse(404, { error: 'workstation_not_found' }));
+
+    await expect(
+      exploitRead(identity, TEST_MACHINE_ID, '/etc/passwd', 'file_read', fetchMock),
+    ).rejects.toThrow(/404/);
+  });
+
+  it('throws on 500', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(errResponse(500, { error: 'fs_lookup_failed' }));
+
+    await expect(
+      exploitRead(identity, TEST_MACHINE_ID, '/etc/passwd', 'file_read', fetchMock),
+    ).rejects.toThrow(/500/);
+  });
+
+  it('throws when file_read response body is missing content field', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({}));
+
+    await expect(
+      exploitRead(identity, TEST_MACHINE_ID, '/etc/passwd', 'file_read', fetchMock),
+    ).rejects.toThrow(/content/);
+  });
+
+  it('throws when dir_list response body is missing entries field', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({}));
+
+    await expect(
+      exploitRead(identity, TEST_MACHINE_ID, '/etc', 'dir_list', fetchMock),
+    ).rejects.toThrow(/entries/);
+  });
+
+  it('signature verifies with the caller identity', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ content: null }));
+
+    await exploitRead(identity, TEST_MACHINE_ID, '/etc/passwd', 'file_read', fetchMock);
+
+    const envelope: {
+      readonly payload: string;
+      readonly signature: string;
+      readonly publicKey: string;
+    } = JSON.parse(fetchMock.mock.calls[0]![1]?.body as string);
+    expect(envelope.publicKey).toBe(identity.publicKeyHex);
+    const pubBytes = hexToBytes(envelope.publicKey);
+    const sigBytes = hexToBytes(envelope.signature);
     const valid = verify(pubBytes!, sigBytes!, new TextEncoder().encode(envelope.payload));
     expect(valid).toBe(true);
   });

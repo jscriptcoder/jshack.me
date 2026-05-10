@@ -1,7 +1,7 @@
 import type { Identity } from '../identity/identity.js';
 import { signRequest } from '../signedRequest/sign.js';
 import type { FileNode, FileSystemPatch, FilePermissions } from '../filesystem/types.js';
-import type { NodeType, UserType } from './types.js';
+import type { ExploitReadKind, NodeType, UserType } from './types.js';
 
 // Browser-side wrappers for POST /api/patches. Single endpoint with
 // action-dispatch — each wrapper signs an envelope with the matching
@@ -220,4 +220,65 @@ export const getBaseFs = async (
   }
 
   throw new Error(`getBaseFs failed with status ${response.status}`);
+};
+
+// ---- exploitRead ---------------------------------------------------------
+//
+// Single-path read against a cross-player workstation at the caller's
+// active session userType (PR 7 of plans/cross-player-base-fs-replication.md).
+// Used by msfconsole's file_read / dir_list CVE flow on cross-player
+// workstation targets — wraps the call inside withTransientSession
+// (kind='effect_one_shot') first so the server sees an active session
+// at the CVE-granted tier.
+//
+// Return shape pivots on `kind`:
+//   file_read → string content (null on permission denied / missing path)
+//   dir_list  → string[] entries (null on permission denied / non-dir)
+//
+// Errors: 400/401/403/404/429/500 all throw — the legitimate flow on
+// cross-player workstations always has an effect_one_shot session
+// active, so 403 no_session indicates a forge attempt or a session
+// timing race the caller should surface.
+
+export const exploitRead = async (
+  identity: Identity,
+  machineId: string,
+  path: string,
+  kind: ExploitReadKind,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string | readonly string[] | null> => {
+  const envelope = signRequest(identity, 'exploitRead', { machine_id: machineId, path, kind });
+  const response = await postEnvelope(envelope, fetchImpl);
+
+  if (response.status !== 200) {
+    throw new Error(`exploitRead failed with status ${response.status}`);
+  }
+
+  const data: unknown = await response.json();
+  if (typeof data !== 'object' || data === null) {
+    throw new Error('exploitRead returned malformed response');
+  }
+
+  if (kind === 'file_read') {
+    if (!('content' in data)) {
+      throw new Error('exploitRead returned malformed response (missing content)');
+    }
+    const content = (data as { readonly content: unknown }).content;
+    if (content === null) return null;
+    if (typeof content !== 'string') {
+      throw new Error('exploitRead returned malformed content (not string|null)');
+    }
+    return content;
+  }
+
+  // dir_list
+  if (!('entries' in data)) {
+    throw new Error('exploitRead returned malformed response (missing entries)');
+  }
+  const entries = (data as { readonly entries: unknown }).entries;
+  if (entries === null) return null;
+  if (!Array.isArray(entries) || !entries.every((e) => typeof e === 'string')) {
+    throw new Error('exploitRead returned malformed entries (not string[]|null)');
+  }
+  return entries;
 };

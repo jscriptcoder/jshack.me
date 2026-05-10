@@ -45,6 +45,29 @@ type MsfconsoleContext = {
     tier?: 'guest' | 'user' | 'root',
   ) => string | null;
   readonly readLocalFile?: (path: string) => string | null;
+  // Cross-player-aware file_read / dir_list path (PR 7 of plans/cross-
+  // player-base-fs-replication.md). On cross-player workstation targets
+  // the wiring layer wraps the call in withTransientSession (kind=
+  // 'effect_one_shot') and dispatches to the server's exploitRead
+  // endpoint, which walks B's regenerated base FS at the CVE-granted
+  // tier. On NPC machines and own-workstation targets it falls back to
+  // the local readFileFromMachine / listDirectoryFromMachine path
+  // (no server roundtrip needed — A regenerates the same FS as B for
+  // NPC home/world/mission machines, and own-workstation has full local
+  // state). msfconsole's file_read and dir_list switch cases use these
+  // exclusively; the sync `readRemoteFile` above is reserved for non-
+  // CVE consumers (--local dpkg parse, password_reset /etc/passwd read)
+  // whose cross-player handling falls outside this PR's scope.
+  readonly exploitFileRead?: (
+    machineId: string,
+    path: string,
+    tier: 'guest' | 'user' | 'root',
+  ) => Promise<string | null>;
+  readonly exploitDirList?: (
+    machineId: string,
+    path: string,
+    tier: 'guest' | 'user' | 'root',
+  ) => Promise<readonly string[] | null>;
   // writeRemoteFile and runScriptOnTarget are async because the wiring
   // layer wraps them in a transient server session (kind='effect_one_shot')
   // for the L1 patch-validation gate. Tests that don't supply these
@@ -462,7 +485,8 @@ const buildExploitOutput = (
               break;
             }
             case 'file_read': {
-              const content = context.readRemoteFile?.(effectiveIp, thirdArg!, effect.tier) ?? null;
+              const content =
+                (await context.exploitFileRead?.(effectiveIp, thirdArg!, effect.tier)) ?? null;
               onLine('[+] Exploit successful!');
               if (content !== null) {
                 onLine(`[+] Reading ${thirdArg} (as ${effect.tier}):`);
@@ -475,7 +499,8 @@ const buildExploitOutput = (
               break;
             }
             case 'dir_list': {
-              const entries = context.listRemoteDir?.(effectiveIp, thirdArg!, effect.tier) ?? null;
+              const entries =
+                (await context.exploitDirList?.(effectiveIp, thirdArg!, effect.tier)) ?? null;
               onLine('[+] Exploit successful!');
               if (entries !== null) {
                 onLine(`[+] Listing ${thirdArg} (as ${effect.tier}):`);

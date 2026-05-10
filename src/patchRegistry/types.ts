@@ -130,6 +130,33 @@ export const getBaseFsSignedPayloadSchema = z
 
 export type GetBaseFsPayload = z.infer<typeof getBaseFsSignedPayloadSchema>;
 
+// exploitRead — server-side read of a single path on a cross-player
+// workstation, walking at the caller's effective tier. The tier is
+// NEVER on the wire envelope — server reads it from the active session
+// row. msfconsole's file_read / dir_list CVE flow wraps the call in
+// withTransientSession (kind='effect_one_shot') first, which mints the
+// session at the CVE-granted userType; this endpoint then trusts that
+// row, identical to how writeRemoteFile + upsertPatch already work.
+//
+// Single path per request — file_read and dir_list are inherently
+// single-path operations. Bulk shape would be over-engineered.
+//
+// PR 7 of plans/cross-player-base-fs-replication.md.
+export const EXPLOIT_READ_KINDS = ['file_read', 'dir_list'] as const;
+export type ExploitReadKind = (typeof EXPLOIT_READ_KINDS)[number];
+
+export const exploitReadSignedPayloadSchema = z
+  .object({
+    action: z.literal('exploitRead'),
+    ...baseEnvelopeFields,
+    machine_id: z.string().min(1).max(256),
+    path: z.string().min(1).max(4096),
+    kind: z.enum(EXPLOIT_READ_KINDS),
+  })
+  .strict();
+
+export type ExploitReadPayload = z.infer<typeof exploitReadSignedPayloadSchema>;
+
 // Combined schema for /api/patches — discriminated by `action`. Adding
 // a new action: extend this union and add a dispatch arm in handler.ts.
 export const patchesSignedPayloadSchema = z.discriminatedUnion('action', [
@@ -138,6 +165,7 @@ export const patchesSignedPayloadSchema = z.discriminatedUnion('action', [
   listPatchesForMachinesSignedPayloadSchema,
   clearOwnedPatchesSignedPayloadSchema,
   getBaseFsSignedPayloadSchema,
+  exploitReadSignedPayloadSchema,
 ]);
 
 export type PatchesPayload = z.infer<typeof patchesSignedPayloadSchema>;
