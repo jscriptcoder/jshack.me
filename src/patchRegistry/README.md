@@ -8,22 +8,24 @@ See `docs/technology-choices.md` (Patches: server-authoritative with two-call de
 
 ## Files
 
-| File                         | Description                                                                                                                                                                                                                    |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `types.ts`                   | zod schemas (4-action discriminated union: upsertPatch / removePatch / listPatchesForMachines / clearOwnedPatches), `PatchRow`, `PatchSummary`.                                                                                |
-| `handler.ts`                 | Single endpoint with action-dispatch: verify → rate-limit → L1 (session) → L2 (walker) → branch into one of four action handlers. Server-stamps `player_key` on every write.                                                   |
-| `supabaseUpsert.ts`          | RPC adapter for upsertPatch — calls `upsert_patch_with_fs(...)` plpgsql which dual-writes to `patches` + `machine_filesystems` in one transaction.                                                                             |
-| `supabaseDelete.ts`          | RPC adapter for removePatch — calls `remove_patches_with_fs(...)` plpgsql which deletes from both tables (exact + descendant prefix). Also includes the legacy clearOwnedPatches direct DELETE.                                |
-| `supabaseSelectByMachine.ts` | `SELECT ... WHERE machine_id IN (...) ORDER BY updated_at ASC` adapter for listPatchesForMachines (cross-player read); returns the per-row `PatchSummary` shape.                                                               |
-| `supabaseFindMachineFs.ts`   | L2 lookup adapter — `(machine_id, path)` → target row from `machine_filesystems` for the walker decision. Strict zod parse on JSONB; mis-shapen rows fail closed.                                                              |
-| `broadcast.ts`               | Server-side `publishPatchChange` — fires a Supabase Realtime HINT broadcast (`patches:<machine_id>` channel, `patch_change` event, `{ machine_id, originator_key }` payload) after every successful mutation. Fire-and-forget. |
-| `realtime.ts`                | Client-side `subscribeToMachine` wrapper + lazy anon-key Supabase client. Receives hints, converts wire shape (snake_case) to `PatchHint` (camelCase), hands them to the caller's `onHint`.                                    |
-| `client.ts`                  | Browser-side wrappers — sign envelope, POST, parse response. Handle camelCase ↔ snake_case translation so callers see `FileSystemPatch`.                                                                                       |
-| `*.test.ts`                  | Unit tests for each module.                                                                                                                                                                                                    |
+| File                                | Description                                                                                                                                                                                                                    |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `types.ts`                          | zod schemas (5-action discriminated union: upsertPatch / removePatch / listPatchesForMachines / clearOwnedPatches / getBaseFs), `PatchRow`, `PatchSummary`.                                                                    |
+| `handler.ts`                        | Single endpoint with action-dispatch: verify → rate-limit → L1 (session) → L2 (walker) → branch into one of five action handlers. Server-stamps `player_key` on every write.                                                   |
+| `supabaseUpsert.ts`                 | RPC adapter for upsertPatch — calls `upsert_patch_with_fs(...)` plpgsql which dual-writes to `patches` + `machine_filesystems` in one transaction.                                                                             |
+| `supabaseDelete.ts`                 | RPC adapter for removePatch — calls `remove_patches_with_fs(...)` plpgsql which deletes from both tables (exact + descendant prefix). Also includes the legacy clearOwnedPatches direct DELETE.                                |
+| `supabaseSelectByMachine.ts`        | `SELECT ... WHERE machine_id IN (...) ORDER BY updated_at ASC` adapter for listPatchesForMachines (cross-player read); returns the per-row `PatchSummary` shape.                                                               |
+| `supabaseFindMachineFs.ts`          | L2 lookup adapter — `(machine_id, path)` → target row from `machine_filesystems` for the walker decision. Strict zod parse on JSONB; mis-shapen rows fail closed.                                                              |
+| `supabaseFindWorkstationsByName.ts` | getBaseFs adapter — `SELECT player_key, workstation_name, username, seed FROM workstations WHERE workstation_name = $1`. Handler suffix-verifies in TS to find the row whose computed workstation_id matches.                  |
+| `supabaseFindFsContentBatch.ts`     | getBaseFs adapter — batch `(machine_id, paths[])` → `Map<path, content>` from `machine_filesystems` for the projected-content overlay. `IS NOT NULL` filter drops rows that exist for L2 but aren't projected.                 |
+| `broadcast.ts`                      | Server-side `publishPatchChange` — fires a Supabase Realtime HINT broadcast (`patches:<machine_id>` channel, `patch_change` event, `{ machine_id, originator_key }` payload) after every successful mutation. Fire-and-forget. |
+| `realtime.ts`                       | Client-side `subscribeToMachine` wrapper + lazy anon-key Supabase client. Receives hints, converts wire shape (snake_case) to `PatchHint` (camelCase), hands them to the caller's `onHint`.                                    |
+| `client.ts`                         | Browser-side wrappers — sign envelope, POST, parse response. Handle camelCase ↔ snake_case translation so callers see `FileSystemPatch`.                                                                                       |
+| `*.test.ts`                         | Unit tests for each module.                                                                                                                                                                                                    |
 
 ## Action dispatch (`handler.ts`)
 
-A single Vercel function (`/api/patches`) handles four logical actions, discriminated by the `action` field of the signed payload:
+A single Vercel function (`/api/patches`) handles five logical actions, discriminated by the `action` field of the signed payload:
 
 ```ts
 patchesSignedPayloadSchema = z.discriminatedUnion('action', [
@@ -31,6 +33,7 @@ patchesSignedPayloadSchema = z.discriminatedUnion('action', [
   removePatchSignedPayloadSchema, // 'removePatch'
   listPatchesForMachinesSignedPayloadSchema, // 'listPatchesForMachines'
   clearOwnedPatchesSignedPayloadSchema, // 'clearOwnedPatches'
+  getBaseFsSignedPayloadSchema, // 'getBaseFs'
 ]);
 ```
 
@@ -42,7 +45,10 @@ verify → rate-limit → switch (action):
   removePatch            → DELETE exact + descendants                             → 200 { affected }
   listPatchesForMachines → SELECT WHERE machine_id IN (...) ORDER BY updated_at   → 200 { patches: PatchSummary[] }
   clearOwnedPatches      → DELETE WHERE machine_id = 'localhost'                  → 200 { affected }
+  getBaseFs              → regen workstation FS + projected overlay + walker      → 200 { baseFs: FileNode | null }
 ```
+
+`getBaseFs` is the cross-player workstation base-FS replication endpoint (PR 6 of cross-player-base-fs-replication). When player A establishes a session on player B's workstation, A's client fires `getBaseFs(B's workstation_id)` and the server: parses the workstation_id pattern (non-workstation → `400 unsupported_machine_type`), looks up B's row in `workstations`, regenerates the base FS via `generateLocalhost` with a placeholder rootPassword, overlays projected-path content from `machine_filesystems` (real `/etc/passwd` hash etc.), and tier-filters via `permissionWalker` at the caller's effective tier. Three tiers mirror the read-path filter: owner (full FS unfiltered), session (walker-filtered), no-session (`baseFs: null` defense in depth). Non-workstation machine types (NPC home, world, mission) regenerate locally on each player from their seed and don't need this endpoint.
 
 `clearTransientPatches` (DELETE WHERE machine_id <> 'localhost') was removed in v0.112.0 along with the mission-transition wipe in `FileSystemContext`. Mission instances are permanent — once accepted, the seed retires but the instance and its patches persist forever for anyone who can route to it. Home networks and world networks are shared persistent infrastructure. Cross-player writes on shared machines are part of the shared world. So no patch on a non-localhost machine should ever be wiped server-side.
 
