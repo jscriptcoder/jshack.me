@@ -26,6 +26,14 @@ import type {
   FindActiveSessionsBatchParams,
   FindActiveSessionsBatchResult,
 } from '../sessionRegistry/supabaseFindActiveBatch';
+import type {
+  FindWorkstationsByNameParams,
+  FindWorkstationsByNameResult,
+} from './supabaseFindWorkstationsByName';
+import type {
+  FindFsContentBatchParams,
+  FindFsContentBatchResult,
+} from './supabaseFindFsContentBatch';
 import type { RateLimiter } from '../ipRegistry/rateLimit';
 import { noopRateLimiter } from '../ipRegistry/rateLimit';
 import { noopNonceStore, type NonceStore } from '../signedRequest/nonceStore';
@@ -76,6 +84,12 @@ const mkDeps = (overrides: {
   readonly findActiveSessionsBatch?: (
     params: FindActiveSessionsBatchParams,
   ) => Promise<FindActiveSessionsBatchResult>;
+  readonly findWorkstationsByName?: (
+    params: FindWorkstationsByNameParams,
+  ) => Promise<FindWorkstationsByNameResult>;
+  readonly findFsContentBatch?: (
+    params: FindFsContentBatchParams,
+  ) => Promise<FindFsContentBatchResult>;
   readonly publishPatchChange?: PublishPatchChange;
   readonly rateLimiter?: RateLimiter;
   readonly nonceStore?: NonceStore;
@@ -133,6 +147,18 @@ const mkDeps = (overrides: {
     vi
       .fn<(params: FindActiveSessionsBatchParams) => Promise<FindActiveSessionsBatchResult>>()
       .mockResolvedValue({ ok: true, sessionsByMachine: new Map() }),
+  // PR 6: getBaseFs deps. Default to no rows / empty content map so
+  // unrelated tests don't accidentally exercise the regen path.
+  findWorkstationsByName:
+    overrides.findWorkstationsByName ??
+    vi
+      .fn<(params: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+      .mockResolvedValue({ ok: true, rows: [] }),
+  findFsContentBatch:
+    overrides.findFsContentBatch ??
+    vi
+      .fn<(params: FindFsContentBatchParams) => Promise<FindFsContentBatchResult>>()
+      .mockResolvedValue({ ok: true, contentByPath: new Map() }),
   publishPatchChange:
     overrides.publishPatchChange ?? vi.fn<PublishPatchChange>().mockResolvedValue(undefined),
   rateLimiter: overrides.rateLimiter ?? noopRateLimiter,
@@ -2367,5 +2393,387 @@ describe('handlePatchesRequest — L2 walker enforcement', () => {
 
       expect(findMachineFs).not.toHaveBeenCalled();
     });
+  });
+});
+
+// -----------------------------------------------------------------------
+// getBaseFs (PR 6 of plans/cross-player-base-fs-replication.md)
+// -----------------------------------------------------------------------
+
+describe('handlePatchesRequest — getBaseFs', () => {
+  let identity: Identity;
+  let workstationName: string;
+  let username: string;
+  let seed: string;
+  let ownWorkstationId: string;
+
+  beforeEach(() => {
+    identity = generateIdentity();
+    workstationName = 'omen';
+    username = 'alice';
+    seed = 'fixture-seed';
+    const suffix = deriveHostnameSuffix(`ed25519:${identity.publicKeyHex}`);
+    ownWorkstationId = `${workstationName}-${suffix}`;
+  });
+
+  // Helper for the "another player's workstation" case — we need a row
+  // whose computed workstation_id matches the requested machine_id but
+  // whose player_key is different from the verified caller's pubkey.
+  // To do that without running real signing for two identities we
+  // construct a synthetic row that, by suffix-construction, matches an
+  // arbitrary workstation_id we control.
+  const makeOtherPlayerRow = (otherPlayerKey: string) => {
+    const suffix = deriveHostnameSuffix(`ed25519:${otherPlayerKey}`);
+    return {
+      machine_id: `${workstationName}-${suffix}`,
+      row: {
+        player_key: otherPlayerKey,
+        workstation_name: workstationName,
+        username: 'bob',
+        seed: 'other-seed',
+      },
+    };
+  };
+
+  it('returns 400 unsupported_machine_type for an IPv4 machine_id', async () => {
+    const envelope = makeEnvelope(identity, {
+      action: 'getBaseFs',
+      machine_id: '192.168.1.50',
+    });
+
+    const findWorkstationsByName = vi
+      .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+      .mockResolvedValue({ ok: true, rows: [] });
+    const result = await handlePatchesRequest(envelope, mkDeps({ findWorkstationsByName }));
+
+    expect(result.status).toBe(400);
+    expect(result.body).toEqual({ error: 'unsupported_machine_type' });
+    // No DB lookup attempted.
+    expect(findWorkstationsByName).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 workstation_not_found when no rows match the parsed name', async () => {
+    const envelope = makeEnvelope(identity, {
+      action: 'getBaseFs',
+      machine_id: 'ghost-ffffffff',
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({ ok: true, rows: [] }),
+      }),
+    );
+
+    expect(result.status).toBe(404);
+    expect(result.body).toEqual({ error: 'workstation_not_found' });
+  });
+
+  it('returns 404 workstation_not_found when name matches but suffix does not', async () => {
+    // Row with workstation_name='omen' but the player_key here produces
+    // a different suffix than requested.
+    const envelope = makeEnvelope(identity, {
+      action: 'getBaseFs',
+      machine_id: `${workstationName}-deadbeef`, // suffix mismatch on purpose
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({
+            ok: true,
+            rows: [
+              {
+                player_key: 'someotherkey',
+                workstation_name: workstationName,
+                username: 'whoever',
+                seed: 'whatever',
+              },
+            ],
+          }),
+      }),
+    );
+
+    expect(result.status).toBe(404);
+    expect(result.body).toEqual({ error: 'workstation_not_found' });
+  });
+
+  it('returns 200 with the full FS for the OWNER (suffix matches caller)', async () => {
+    const envelope = makeEnvelope(identity, {
+      action: 'getBaseFs',
+      machine_id: ownWorkstationId,
+    });
+
+    // findActiveSession should NOT be called for the owner case.
+    const findActiveSession = vi
+      .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+      .mockResolvedValue({ ok: true, exists: false });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({
+            ok: true,
+            rows: [
+              {
+                player_key: identity.publicKeyHex,
+                workstation_name: workstationName,
+                username,
+                seed,
+              },
+            ],
+          }),
+        findActiveSession,
+      }),
+    );
+
+    expect(result.status).toBe(200);
+    expect(findActiveSession).not.toHaveBeenCalled();
+    const body = result.body as { readonly baseFs: { readonly type: string } | null };
+    expect(body.baseFs).not.toBeNull();
+    expect(body.baseFs?.type).toBe('directory');
+  });
+
+  it('returns 200 with baseFs:null for cross-player caller with no active session', async () => {
+    const otherPlayerKey = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    const { machine_id, row } = makeOtherPlayerRow(otherPlayerKey);
+    const envelope = makeEnvelope(identity, { action: 'getBaseFs', machine_id });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({ ok: true, rows: [row] }),
+        findActiveSession: vi
+          .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+          .mockResolvedValue({ ok: true, exists: false }),
+      }),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ baseFs: null });
+  });
+
+  it('returns 200 with FILTERED FS for cross-player caller with a guest session', async () => {
+    const otherPlayerKey = 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc';
+    const { machine_id, row } = makeOtherPlayerRow(otherPlayerKey);
+    const envelope = makeEnvelope(identity, { action: 'getBaseFs', machine_id });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({ ok: true, rows: [row] }),
+        findActiveSession: vi
+          .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+          .mockResolvedValue({
+            ok: true,
+            exists: true,
+            credentials: { username: 'whoever', userType: 'guest' },
+          }),
+      }),
+    );
+
+    expect(result.status).toBe(200);
+    const body = result.body as {
+      readonly baseFs: { readonly children?: Record<string, unknown> } | null;
+    };
+    expect(body.baseFs).not.toBeNull();
+    // Workstation /etc/passwd has read: ['root', 'user'] (passwdReadableBy on
+    // the player's own box). Guest is excluded → /etc directory exists but
+    // /etc/passwd entry should be missing.
+    const etcChildren = (
+      body.baseFs?.children?.etc as { readonly children?: Record<string, unknown> } | undefined
+    )?.children;
+    expect(etcChildren?.passwd).toBeUndefined();
+    // /root has read: ['root'] / execute: ['root'] only — guest can't traverse.
+    expect(body.baseFs?.children?.root).toBeUndefined();
+  });
+
+  it('returns 200 with FS including /etc/passwd for cross-player user session', async () => {
+    const otherPlayerKey = 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd';
+    const { machine_id, row } = makeOtherPlayerRow(otherPlayerKey);
+    const envelope = makeEnvelope(identity, { action: 'getBaseFs', machine_id });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({ ok: true, rows: [row] }),
+        findActiveSession: vi
+          .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+          .mockResolvedValue({
+            ok: true,
+            exists: true,
+            credentials: { username: 'bob', userType: 'user' },
+          }),
+      }),
+    );
+
+    expect(result.status).toBe(200);
+    const body = result.body as {
+      readonly baseFs: { readonly children?: Record<string, unknown> } | null;
+    };
+    const etcChildren = (
+      body.baseFs?.children?.etc as { readonly children?: Record<string, unknown> } | undefined
+    )?.children;
+    expect(etcChildren?.passwd).toBeDefined();
+    // /root still excluded for user.
+    expect(body.baseFs?.children?.root).toBeUndefined();
+  });
+
+  it('returns 200 with full FS for cross-player root session', async () => {
+    const otherPlayerKey = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+    const { machine_id, row } = makeOtherPlayerRow(otherPlayerKey);
+    const envelope = makeEnvelope(identity, { action: 'getBaseFs', machine_id });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({ ok: true, rows: [row] }),
+        findActiveSession: vi
+          .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+          .mockResolvedValue({
+            ok: true,
+            exists: true,
+            credentials: { username: 'root', userType: 'root' },
+          }),
+      }),
+    );
+
+    expect(result.status).toBe(200);
+    const body = result.body as {
+      readonly baseFs: { readonly children?: Record<string, unknown> } | null;
+    };
+    expect(body.baseFs?.children?.root).toBeDefined();
+    const etcChildren = (
+      body.baseFs?.children?.etc as { readonly children?: Record<string, unknown> } | undefined
+    )?.children;
+    expect(etcChildren?.passwd).toBeDefined();
+  });
+
+  it('overlays projected /etc/passwd content from machine_filesystems', async () => {
+    const otherPlayerKey = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
+    const { machine_id, row } = makeOtherPlayerRow(otherPlayerKey);
+    const envelope = makeEnvelope(identity, { action: 'getBaseFs', machine_id });
+
+    const realPasswdContent = 'root:REAL_HASH_FROM_PROJECTION:0:0:root:/root:/bin/bash';
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({ ok: true, rows: [row] }),
+        findActiveSession: vi
+          .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+          .mockResolvedValue({
+            ok: true,
+            exists: true,
+            credentials: { username: 'root', userType: 'root' },
+          }),
+        findFsContentBatch: vi
+          .fn<(p: FindFsContentBatchParams) => Promise<FindFsContentBatchResult>>()
+          .mockResolvedValue({
+            ok: true,
+            contentByPath: new Map([['/etc/passwd', realPasswdContent]]),
+          }),
+      }),
+    );
+
+    expect(result.status).toBe(200);
+    const body = result.body as {
+      readonly baseFs: { readonly children?: Record<string, unknown> } | null;
+    };
+    const etcChildren = (
+      body.baseFs?.children?.etc as { readonly children?: Record<string, unknown> } | undefined
+    )?.children;
+    const passwd = etcChildren?.passwd as { readonly content?: string } | undefined;
+    // The overlay made the /etc/passwd content match what's stored in
+    // machine_filesystems, not the placeholder rootPassword regen.
+    expect(passwd?.content).toBe(realPasswdContent);
+  });
+
+  it('returns 500 workstation_lookup_failed when findWorkstationsByName fails', async () => {
+    const envelope = makeEnvelope(identity, {
+      action: 'getBaseFs',
+      machine_id: 'omen-aabbccdd',
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({ ok: false }),
+      }),
+    );
+
+    expect(result.status).toBe(500);
+    expect(result.body).toEqual({ error: 'workstation_lookup_failed' });
+  });
+
+  it('returns 500 fs_lookup_failed when findFsContentBatch fails', async () => {
+    const envelope = makeEnvelope(identity, {
+      action: 'getBaseFs',
+      machine_id: ownWorkstationId,
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({
+            ok: true,
+            rows: [
+              {
+                player_key: identity.publicKeyHex,
+                workstation_name: workstationName,
+                username,
+                seed,
+              },
+            ],
+          }),
+        findFsContentBatch: vi
+          .fn<(p: FindFsContentBatchParams) => Promise<FindFsContentBatchResult>>()
+          .mockResolvedValue({ ok: false }),
+      }),
+    );
+
+    expect(result.status).toBe(500);
+    expect(result.body).toEqual({ error: 'fs_lookup_failed' });
+  });
+
+  it('returns 500 session_lookup_failed when findActiveSession fails (cross-player)', async () => {
+    const otherPlayerKey = '1111111111111111111111111111111111111111111111111111111111111111';
+    const { machine_id, row } = makeOtherPlayerRow(otherPlayerKey);
+    const envelope = makeEnvelope(identity, { action: 'getBaseFs', machine_id });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({ ok: true, rows: [row] }),
+        findActiveSession: vi
+          .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+          .mockResolvedValue({ ok: false }),
+      }),
+    );
+
+    expect(result.status).toBe(500);
+    expect(result.body).toEqual({ error: 'session_lookup_failed' });
   });
 });

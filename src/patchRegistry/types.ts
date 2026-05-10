@@ -110,6 +110,26 @@ export const clearOwnedPatchesSignedPayloadSchema = z
 
 export type ClearOwnedPatchesPayload = z.infer<typeof clearOwnedPatchesSignedPayloadSchema>;
 
+// getBaseFs — return the workstation's base FileNode tree, filtered by
+// the caller's effective tier (owner / session / no-session).
+//
+// Single machine_id per request — the trigger is "session establish on
+// workstation X", which fires one call per session. Bulk shape would be
+// over-engineered for the actual call pattern. (listPatchesForMachines
+// stays bulk because rehydration legitimately fans out across the
+// player's whole machine view.)
+//
+// PR 6 of plans/cross-player-base-fs-replication.md.
+export const getBaseFsSignedPayloadSchema = z
+  .object({
+    action: z.literal('getBaseFs'),
+    ...baseEnvelopeFields,
+    machine_id: z.string().min(1).max(256),
+  })
+  .strict();
+
+export type GetBaseFsPayload = z.infer<typeof getBaseFsSignedPayloadSchema>;
+
 // Combined schema for /api/patches — discriminated by `action`. Adding
 // a new action: extend this union and add a dispatch arm in handler.ts.
 export const patchesSignedPayloadSchema = z.discriminatedUnion('action', [
@@ -117,6 +137,7 @@ export const patchesSignedPayloadSchema = z.discriminatedUnion('action', [
   removePatchSignedPayloadSchema,
   listPatchesForMachinesSignedPayloadSchema,
   clearOwnedPatchesSignedPayloadSchema,
+  getBaseFsSignedPayloadSchema,
 ]);
 
 export type PatchesPayload = z.infer<typeof patchesSignedPayloadSchema>;

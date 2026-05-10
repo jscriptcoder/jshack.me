@@ -388,7 +388,13 @@ export const useAuthentication = ({
       }
 
       const newFtpSession: FtpSession = {
-        remoteMachine: resolvedIp,
+        // Canonical machine_id — workstation_id for cross-player FTP
+        // targets, IP otherwise. Mirrors what authCreateFtpSession sent.
+        // Downstream FS reads via getNodeFromMachine handle either
+        // shape via occupantAwareReadNode. Using the canonical id
+        // here is what lets PR 6's getBaseFs trigger fire when an
+        // FTP session lands on a cross-player workstation.
+        remoteMachine: machineId,
         remoteUsername: username,
         remoteUserType: result.userType,
         remoteCwd: remoteHomePath,
@@ -524,7 +530,11 @@ export const useAuthentication = ({
 
       enterMysqlMode({
         targetIP: ip,
-        machineId: resolvedIp,
+        // Canonical machine_id (workstation_id for cross-player MySQL
+        // targets, IP otherwise). Required by PR 6's getBaseFs
+        // trigger; downstream FS reads tolerate either via
+        // occupantAwareReadNode.
+        machineId,
         username: user,
         databaseName,
         sessionId: result.session_id,
@@ -610,13 +620,22 @@ export const useAuthentication = ({
           ?.slice('requirepass '.length)
           .trim() ?? null;
 
-      // No requirepass detected locally — connect without server-side
-      // auth (matches real Redis NOAUTH-disabled behavior). No session
-      // row is created in this path; L1 considers the connection
-      // unmanaged. Acceptable until PR 6 enforces server-side reads
-      // cross-player.
+      // No requirepass detected locally — mirror real Redis: anyone
+      // with network access is in at full privilege. Mint a session
+      // anyway so SET/DEL writes pass L1's session gate. Server-side
+      // (handleRedisAuth) accepts when the projected redis.conf has
+      // no requirepass and ignores the supplied password — we send a
+      // sentinel string just to satisfy the schema's min(1) constraint.
       if (!requirepass && !password) {
-        enterRedisMode({ targetIP, machineId: resolvedIp, sessionId: null });
+        const result = await authCreateRedisSession(machineId, {
+          method: 'password',
+          password: 'no-auth-required',
+        });
+        enterRedisMode({
+          targetIP,
+          machineId,
+          sessionId: result.ok ? result.session_id : null,
+        });
         return;
       }
 
@@ -626,7 +645,7 @@ export const useAuthentication = ({
         // prompt path will route through authCreateRedisSession when
         // wired in a follow-up; for now keep the local message and
         // sessionless connection.
-        enterRedisMode({ targetIP, machineId: resolvedIp, sessionId: null });
+        enterRedisMode({ targetIP, machineId, sessionId: null });
         addLine(
           'result',
           '(error) NOAUTH Authentication required.\nUse AUTH <password> to authenticate.',
@@ -647,7 +666,9 @@ export const useAuthentication = ({
 
       enterRedisMode({
         targetIP,
-        machineId: resolvedIp,
+        // Canonical machine_id (workstation_id for cross-player Redis
+        // targets, IP otherwise). Same rationale as FTP / MySQL.
+        machineId,
         sessionId: result.session_id,
       });
       addLine('result', 'OK');
@@ -717,14 +738,23 @@ export const useAuthentication = ({
       const resolvedIp = resolveNat(ftpTargetIP, 21).ip;
       const users = findMachineUsers(resolvedIp);
 
-      const remoteUser = users.find((u) => u.username === username);
-      if (!remoteUser) {
-        addLine('error', '530 Login incorrect.');
-        onFtpAuth?.({ success: false, user: username, targetIP: ftpTargetIP, port: 21 });
-        setFtpTargetIP(null);
-        setFtpUsernameMode(false);
-        clearInput();
-        return;
+      // Cross-player placeholder: occupant workstations land in
+      // NetworkContext with users:[] (we never populated B's user list
+      // on A's view). Skip the local pre-check in that case and let
+      // the server be the authority on user existence — same pattern
+      // as the SSH inline path. Without this skip, ANY username typed
+      // against a cross-player FTP target bails here with "530 Login
+      // incorrect" before the password is even prompted.
+      if (users.length > 0) {
+        const remoteUser = users.find((u) => u.username === username);
+        if (!remoteUser) {
+          addLine('error', '530 Login incorrect.');
+          onFtpAuth?.({ success: false, user: username, targetIP: ftpTargetIP, port: 21 });
+          setFtpTargetIP(null);
+          setFtpUsernameMode(false);
+          clearInput();
+          return;
+        }
       }
 
       addLine('result', '331 Please specify the password.');
@@ -828,7 +858,9 @@ export const useAuthentication = ({
               .then((result) => {
                 if (result.ok) {
                   enterFtpMode({
-                    remoteMachine: resolvedIp,
+                    // Canonical machine_id, not the LAN IP — see the
+                    // inline-auth path's comment for rationale.
+                    remoteMachine: machineId,
                     remoteUsername: user,
                     remoteUserType: result.userType,
                     remoteCwd: remoteHomePath,

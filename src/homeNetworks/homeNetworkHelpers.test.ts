@@ -5,6 +5,7 @@ import {
   displayPromptHostname,
   isOwnWorkstation,
   occupantAwareReadNode,
+  parseWorkstationId,
   targetMachineIdFor,
 } from './homeNetworkHelpers';
 import { generateIdentity } from '../identity/identity';
@@ -302,5 +303,65 @@ describe('occupantAwareReadNode', () => {
 
     wrapped('10.0.0.42', '/etc/passwd', '/home/alice');
     expect(inner).toHaveBeenCalledWith('rocket-bbccdd11', '/etc/passwd', '/home/alice');
+  });
+});
+
+// PR 6 of plans/cross-player-base-fs-replication.md — used by getBaseFs
+// handler to detect workstation_id machine_ids and reject anything else
+// (IPv4, mission IDs, world IDs) with 400 unsupported_machine_type. The
+// suffix length (8 hex) and character class (lowercase hex only) are
+// load-bearing — same as deriveHostnameSuffix's invariants.
+describe('parseWorkstationId', () => {
+  it('extracts name and suffix from a single-segment workstation_id', () => {
+    expect(parseWorkstationId('omen-4a3b1c2d')).toEqual({
+      name: 'omen',
+      suffix: '4a3b1c2d',
+    });
+  });
+
+  it('treats the LAST 8 hex chars as the suffix (multi-hyphen names)', () => {
+    expect(parseWorkstationId('skylab-prime-deadbeef')).toEqual({
+      name: 'skylab-prime',
+      suffix: 'deadbeef',
+    });
+  });
+
+  it('returns undefined for an IPv4 address', () => {
+    expect(parseWorkstationId('192.168.1.50')).toBeUndefined();
+  });
+
+  it('returns undefined for a name with no suffix', () => {
+    expect(parseWorkstationId('omen')).toBeUndefined();
+  });
+
+  it('returns undefined for a 4-hex (wrong length) suffix', () => {
+    expect(parseWorkstationId('omen-1234')).toBeUndefined();
+  });
+
+  it('returns undefined for a suffix with non-hex chars', () => {
+    expect(parseWorkstationId('omen-XYZGHIJK')).toBeUndefined();
+  });
+
+  it('returns undefined for an uppercase-hex suffix (deriveHostnameSuffix is lowercase)', () => {
+    expect(parseWorkstationId('omen-DEADBEEF')).toBeUndefined();
+  });
+
+  it('returns undefined for an empty string', () => {
+    expect(parseWorkstationId('')).toBeUndefined();
+  });
+
+  it('returns undefined for just a suffix (no name segment before the dash)', () => {
+    expect(parseWorkstationId('-deadbeef')).toBeUndefined();
+  });
+
+  it('roundtrips with computeWorkstationId for any (name, playerKey)', () => {
+    const id = computePlayerHostname('rocket', {
+      publicKeyHex: '0123456789abcdef',
+    } as Parameters<typeof computePlayerHostname>[1]);
+    const parsed = parseWorkstationId(id);
+    expect(parsed?.name).toBe('rocket');
+    expect(parsed?.suffix).toMatch(/^[0-9a-f]{8}$/);
+    // Reconstructed must match the original.
+    expect(`${parsed?.name}-${parsed?.suffix}`).toBe(id);
   });
 });

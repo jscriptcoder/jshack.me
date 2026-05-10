@@ -21,6 +21,10 @@ import { createSupabaseFindMachineFsBatch } from '../src/patchRegistry/supabaseF
 import type { FindMachineFsBatchParams } from '../src/patchRegistry/supabaseFindMachineFsBatch.js';
 import { createSupabaseFindActiveSessionsBatch } from '../src/sessionRegistry/supabaseFindActiveBatch.js';
 import type { FindActiveSessionsBatchParams } from '../src/sessionRegistry/supabaseFindActiveBatch.js';
+import { createSupabaseFindWorkstationsByName } from '../src/patchRegistry/supabaseFindWorkstationsByName.js';
+import type { FindWorkstationsByNameParams } from '../src/patchRegistry/supabaseFindWorkstationsByName.js';
+import { createSupabaseFindFsContentBatch } from '../src/patchRegistry/supabaseFindFsContentBatch.js';
+import type { FindFsContentBatchParams } from '../src/patchRegistry/supabaseFindFsContentBatch.js';
 import {
   createUpstashRateLimiter,
   noopRateLimiter,
@@ -284,6 +288,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     },
   );
 
+  // PR 6 of plans/cross-player-base-fs-replication.md — adapters for
+  // getBaseFs. findWorkstationsByName resolves the workstation row(s)
+  // matching a parsed workstation_name (handler suffix-verifies).
+  // findFsContentBatch fetches projected content for the overlay.
+  const findWorkstationsByName = createSupabaseFindWorkstationsByName(
+    async (params: FindWorkstationsByNameParams) => {
+      const { data, error } = await supabase
+        .from('workstations')
+        .select('player_key, workstation_name, username, seed')
+        .eq('workstation_name', params.workstation_name);
+      if (error) console.error('[patches] supabase findWorkstationsByName error:', error);
+      return { data, error };
+    },
+  );
+
+  const findFsContentBatch = createSupabaseFindFsContentBatch(
+    async (params: FindFsContentBatchParams) => {
+      // IS NOT NULL filter drops rows that exist for L2 enforcement
+      // (owner+permissions) but aren't projected. Only paths in
+      // FS_PROJECTED_CONTENT_PATHS contribute to the overlay.
+      const { data, error } = await supabase
+        .from('machine_filesystems')
+        .select('path, content')
+        .eq('machine_id', params.machine_id)
+        .in('path', [...params.paths])
+        .not('content', 'is', null);
+      if (error) console.error('[patches] supabase findFsContentBatch error:', error);
+      return { data, error };
+    },
+  );
+
   const { rateLimiter, nonceStore } = buildUpstashAdapters();
 
   const { status, body, headers } = await handlePatchesRequest(req.body, {
@@ -295,6 +330,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     findMachineFs,
     findMachineFsBatch,
     findActiveSessionsBatch,
+    findWorkstationsByName,
+    findFsContentBatch,
     publishPatchChange,
     rateLimiter,
     nonceStore,

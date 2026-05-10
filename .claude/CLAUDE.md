@@ -102,6 +102,12 @@ npx tsx scripts/testAmbientLogAllowlist.ts
 # root-only keeps allowlist, owner gets everything). Self-cleaning. Requires vercel:dev running.
 npx tsx scripts/testReadPathPrivacy.ts
 
+# Forge signed envelopes against /api/patches getBaseFs and verify the cross-player workstation
+# base-FS replication endpoint (7 scenarios: owner full FS, no-session baseFs:null, guest/user/root
+# session tier filtering, /etc/passwd projection overlay, 400 unsupported_machine_type, 404
+# workstation_not_found). Self-cleaning. Requires vercel:dev running.
+npx tsx scripts/testGetBaseFs.ts
+
 # End-to-end smoke for /api/register-workstation against vercel:dev. 8 checks: fresh-register 201,
 # idempotent-repeat 200, conflicting-repeat 409, tampered-signature 401, plus DB-side row + machine_filesystems
 # count + /etc/passwd presence. Self-cleaning so it can be re-run idempotently.
