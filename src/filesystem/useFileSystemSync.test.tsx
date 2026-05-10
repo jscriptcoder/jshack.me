@@ -1057,6 +1057,37 @@ describe('useFileSystemSync — rehydration, realtime, session-refetch', () => {
       expect(machineIds).toContain('box-B');
     });
 
+    it('refetches BOTH the previous and new machine when session.machine changes (e.g., ssh exit)', async () => {
+      // Regression for PR 6 smoke: A exits B back to A, but B's local
+      // patches were filtered at session-tier (e.g., guest walker
+      // dropped /var/run/sshd.pid). Without refetching B at the new
+      // no-session tier (which permits /var/run/*.pid via allowlist),
+      // A's local patches stay stuck without the pidfile and B's port
+      // appears closed in nmap until page refresh.
+      mockSessionState.current = { machine: 'box-B', currentPath: '/', userType: 'guest' };
+      const { rerender } = renderHook(() => useFileSystem(), {
+        wrapper: wrap({
+          homeFileSystems: { 'box-A': baseLocalhost, 'box-B': baseLocalhost },
+        }),
+      });
+
+      await waitFor(() => {
+        expect(mockedListPatchesForMachines).toHaveBeenCalled();
+      });
+      vi.mocked(mockedListPatchesForMachines).mockClear();
+
+      // Simulate ssh exit: session moves from box-B back to box-A.
+      mockSessionState.current = { machine: 'box-A', currentPath: '/', userType: 'root' };
+      rerender();
+
+      await waitFor(() => {
+        expect(mockedListPatchesForMachines).toHaveBeenCalled();
+      });
+      const machineIds = vi.mocked(mockedListPatchesForMachines).mock.calls[0][1];
+      expect(machineIds).toContain('box-A');
+      expect(machineIds).toContain('box-B');
+    });
+
     it('does NOT refetch when session is unchanged across rerenders', async () => {
       mockSessionState.current = { machine: TEST_HOSTNAME, currentPath: '/', userType: 'root' };
       const { rerender } = renderHook(() => useFileSystem(), { wrapper: wrap() });

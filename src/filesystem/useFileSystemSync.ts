@@ -452,7 +452,21 @@ export const useFileSystemSync = ({
     if (prev === null) return;
     if (prev.machine === curr.machine && prev.userType === curr.userType) return;
 
+    // Refetch BOTH the machine we just left and the one we just landed
+    // on. The leaving side matters because the read-path filter is
+    // tier-sensitive: when A exits a session on B, A no longer has a
+    // session row for B → server's tier 3 (no-session allowlist) applies
+    // instead of tier 2 (session walker). Visibility for /var/run/*.pid
+    // (and other allowlist paths) flips back to "always returned"; if
+    // the prior session-tier walker had dropped one of those rows, A's
+    // local patches state is stuck without it until something else
+    // refetches B. Surfaced 2026-05-10 during PR 6 smoke: A SSH'd into
+    // B, exited, and B's sshd port appeared closed because the pidfile
+    // patch was missing locally.
     pendingHintMachinesRef.current.add(curr.machine);
+    if (prev.machine !== curr.machine) {
+      pendingHintMachinesRef.current.add(prev.machine);
+    }
     if (hintDebounceTimerRef.current !== null) {
       clearTimeout(hintDebounceTimerRef.current);
     }
