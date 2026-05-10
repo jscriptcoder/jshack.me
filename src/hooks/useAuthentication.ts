@@ -620,13 +620,22 @@ export const useAuthentication = ({
           ?.slice('requirepass '.length)
           .trim() ?? null;
 
-      // No requirepass detected locally — connect without server-side
-      // auth (matches real Redis NOAUTH-disabled behavior). No session
-      // row is created in this path; L1 considers the connection
-      // unmanaged. Acceptable until PR 6 enforces server-side reads
-      // cross-player.
+      // No requirepass detected locally — mirror real Redis: anyone
+      // with network access is in at full privilege. Mint a session
+      // anyway so SET/DEL writes pass L1's session gate. Server-side
+      // (handleRedisAuth) accepts when the projected redis.conf has
+      // no requirepass and ignores the supplied password — we send a
+      // sentinel string just to satisfy the schema's min(1) constraint.
       if (!requirepass && !password) {
-        enterRedisMode({ targetIP, machineId, sessionId: null });
+        const result = await authCreateRedisSession(machineId, {
+          method: 'password',
+          password: 'no-auth-required',
+        });
+        enterRedisMode({
+          targetIP,
+          machineId,
+          sessionId: result.ok ? result.session_id : null,
+        });
         return;
       }
 

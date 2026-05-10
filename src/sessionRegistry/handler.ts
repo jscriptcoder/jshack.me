@@ -390,14 +390,14 @@ const handleRedisAuth = async (
   const content = fsLookup.found ? fsLookup.content : null;
   const requirepass = findRedisRequirepass(content);
   // No requirepass directive (auth disabled at the daemon level) →
-  // authCreateSession isn't the right path. Real Redis without auth
-  // accepts anything, but the no-auth case is a different code path
-  // that should not produce a session row via this endpoint.
-  if (requirepass === undefined) {
-    return { status: 401, body: { error: 'invalid_credentials' } };
-  }
-  // Plaintext compare (real Redis stores requirepass plaintext).
-  if (auth.password !== requirepass) {
+  // mirror real Redis: anyone with network access gets in at full
+  // privilege. Skip the password compare and fall through to session
+  // insert. Without this, SET/DEL writes against no-requirepass redis
+  // targets hit L1's no_session gate (the client has no sessionId
+  // because it never authenticated). The client is expected to send
+  // a sentinel password (any non-empty string satisfies the schema)
+  // when the local conf shows no requirepass.
+  if (requirepass !== undefined && auth.password !== requirepass) {
     return { status: 401, body: { error: 'invalid_credentials' } };
   }
 

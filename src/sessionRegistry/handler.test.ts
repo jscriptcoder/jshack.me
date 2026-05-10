@@ -1657,13 +1657,16 @@ describe('handleSessionsRequest — authCreateSession', () => {
       expect(result.status).toBe(401);
     });
 
-    it('returns 401 when requirepass directive is absent (no-auth Redis goes elsewhere)', async () => {
+    it('returns 201 at root tier when requirepass directive is absent (no-auth Redis)', async () => {
+      // Mirrors real Redis: no requirepass → anyone with network
+      // access gets in at full privilege. The session row is required
+      // so subsequent SET/DEL writes pass L1's no_session gate.
       const NO_AUTH_CONTENT = 'port 6379\nbind 0.0.0.0';
       const envelope = makeEnvelope(identity, {
         ...baseAuthEnvelope,
         kind: 'redis',
         username: 'redis',
-        auth: passwordAuth('any'),
+        auth: passwordAuth('any-sentinel'),
       });
 
       const result = await handleSessionsRequest(
@@ -1671,10 +1674,15 @@ describe('handleSessionsRequest — authCreateSession', () => {
         mkDeps({ findFsContent: fsContentDep('/etc/redis/redis.conf', NO_AUTH_CONTENT) }),
       );
 
-      expect(result.status).toBe(401);
+      expect(result.status).toBe(201);
+      const body = result.body as { readonly userType: string };
+      expect(body.userType).toBe('root');
     });
 
-    it('returns 401 when redis.conf row is missing', async () => {
+    it('returns 201 at root tier when redis.conf row is missing (no daemon configured)', async () => {
+      // Same semantic as missing requirepass — auth at the daemon
+      // level isn't gating, so the session is granted. Without this,
+      // SET writes 403 with no_session.
       const envelope = makeEnvelope(identity, {
         ...baseAuthEnvelope,
         kind: 'redis',
@@ -1687,7 +1695,7 @@ describe('handleSessionsRequest — authCreateSession', () => {
         mkDeps({ findFsContent: () => Promise.resolve({ ok: true, found: false }) }),
       );
 
-      expect(result.status).toBe(401);
+      expect(result.status).toBe(201);
     });
 
     it('rejects savedKey method', async () => {
