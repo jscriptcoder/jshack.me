@@ -2915,6 +2915,114 @@ describe('handlePatchesRequest — exploitRead', () => {
     expect(result.body).toEqual({ content: realPasswdContent });
   });
 
+  it('file_read: returns 200 with patched content for a path that exists ONLY as a patch (isNew file)', async () => {
+    // Player B created /root/secret.txt post-NEW-GAME. The file lives
+    // in the patches table, not in the regen base FS. Server must
+    // overlay patches onto the regen tree before walking.
+    const otherPlayerKey = '3333333333333333333333333333333333333333333333333333333333333333';
+    const { machine_id, row } = makeOtherPlayerRow(otherPlayerKey);
+    const envelope = makeEnvelope(identity, {
+      action: 'exploitRead',
+      machine_id,
+      path: '/root/secret.txt',
+      kind: 'file_read',
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({ ok: true, rows: [row] }),
+        findActiveSession: vi
+          .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+          .mockResolvedValue({
+            ok: true,
+            exists: true,
+            credentials: { username: 'root', userType: 'root' },
+          }),
+        listPatchesForMachines: vi
+          .fn<(p: ListPatchesForMachinesParams) => Promise<ListPatchesForMachinesResult>>()
+          .mockResolvedValue({
+            ok: true,
+            patches: [
+              {
+                machine_id,
+                path: '/root/secret.txt',
+                content: 'my secret password is hunter2',
+                owner: 'root',
+                permissions: { read: ['root'], write: ['root'], execute: ['root'] },
+                is_new: true,
+                node_type: 'file',
+              },
+            ],
+          }),
+      }),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ content: 'my secret password is hunter2' });
+  });
+
+  it('dir_list: returns patched entries alongside base entries for a directory with isNew children', async () => {
+    const otherPlayerKey = '4444444444444444444444444444444444444444444444444444444444444444';
+    const { machine_id, row } = makeOtherPlayerRow(otherPlayerKey);
+    const envelope = makeEnvelope(identity, {
+      action: 'exploitRead',
+      machine_id,
+      path: '/root',
+      kind: 'dir_list',
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({ ok: true, rows: [row] }),
+        findActiveSession: vi
+          .fn<(p: FindActiveSessionParams) => Promise<FindActiveSessionResult>>()
+          .mockResolvedValue({
+            ok: true,
+            exists: true,
+            credentials: { username: 'root', userType: 'root' },
+          }),
+        listPatchesForMachines: vi
+          .fn<(p: ListPatchesForMachinesParams) => Promise<ListPatchesForMachinesResult>>()
+          .mockResolvedValue({
+            ok: true,
+            patches: [
+              {
+                machine_id,
+                path: '/root/secret.txt',
+                content: 'shh',
+                owner: 'root',
+                permissions: { read: ['root'], write: ['root'], execute: ['root'] },
+                is_new: true,
+                node_type: 'file',
+              },
+              {
+                machine_id,
+                path: '/root/notes.md',
+                content: 'todo',
+                owner: 'root',
+                permissions: { read: ['root'], write: ['root'], execute: ['root'] },
+                is_new: true,
+                node_type: 'file',
+              },
+            ],
+          }),
+      }),
+    );
+
+    expect(result.status).toBe(200);
+    const body = result.body as { readonly entries: readonly string[] };
+    expect(body.entries).toContain('secret.txt');
+    expect(body.entries).toContain('notes.md');
+    // Sorted (mirrors local listDirectoryFromMachine)
+    expect([...body.entries].sort()).toEqual([...body.entries]);
+  });
+
   it('file_read: returns 200 with content:null for cross-player GUEST trying /etc/passwd (read denied)', async () => {
     // Workstation /etc/passwd has read: ['root', 'user'] — guest is excluded.
     const otherPlayerKey = 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc';

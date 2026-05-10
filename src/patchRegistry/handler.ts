@@ -5,6 +5,7 @@ import {
   type ListPatchesForMachinesParams,
   type ListPatchesForMachinesResult,
   type PatchRow,
+  type PatchSummary,
   type PatchesPayload,
   type RemovePatchParams,
   type RemovePatchResult,
@@ -51,7 +52,8 @@ import { shouldProjectFsContent } from '../machineFilesystems/projectedContentPa
 import { generateLocalhost } from '../generation/generateLocalhost.js';
 import { overlayProjectedContent } from '../filesystem/baseFsOverlay.js';
 import { filterFileNodeForRead } from '../filesystem/baseFsFilter.js';
-import type { FileNode, FilePermissions } from '../filesystem/types.js';
+import { applyPatches } from '../filesystem/fileSystemUtils.js';
+import type { FileNode, FilePermissions, FileSystemPatch } from '../filesystem/types.js';
 
 export type HandlerResponse = {
   readonly status: number;
@@ -678,6 +680,21 @@ const handleGetBaseFs = async (
   return { status: 200, body: { baseFs: filtered } };
 };
 
+// Wire-shape (snake_case, all fields present per DB defaults) →
+// FileSystemPatch (camelCase, optional fields omitted when at default)
+// for applyPatches consumption. Mirrors the camelCase conversion
+// listPatchesForMachines does client-side; lives here because the
+// exploitRead handler is the only server-side caller of applyPatches.
+const patchSummaryToFileSystemPatch = (row: PatchSummary): FileSystemPatch => ({
+  machineId: row.machine_id,
+  path: row.path,
+  content: row.content,
+  owner: row.owner,
+  ...(row.permissions !== null && { permissions: row.permissions }),
+  ...(row.is_new && { isNew: true as const }),
+  ...(row.node_type !== 'file' && { nodeType: row.node_type }),
+});
+
 // Walk an overlaid base-FS tree from the root to `path`, returning the
 // resolved node (or null if a segment is missing / a non-directory is
 // traversed) and the parent permission chain in the shape permissionWalker
@@ -790,7 +807,30 @@ const handleExploitRead = async (
     effectiveUserType = sessionResult.credentials.userType;
   }
 
-  const resolved = resolveNodeAndParentChain(overlaid, payload.path);
+  // Layer the patches table on top of the regen+overlay tree. Without
+  // this, files the target player created post-NEW-GAME (e.g.
+  // `/root/secret.txt`) are invisible — they live in `patches`, not in
+  // the regen tree. Mirrors how the CLIENT merges getBaseFs +
+  // listPatchesForMachines via applyPatches in useFileSystemSync.
+  //
+  // All patches for the machine are layered regardless of author —
+  // cross-player visibility means any player's writes on this machine
+  // are part of the shared persistent state. Per-tier read filtering
+  // happens at the walker step below; applyPatches is just the structural
+  // merge.
+  const patchesResult = await deps.listPatchesForMachines({
+    machine_ids: [payload.machine_id],
+    player_key: publicKey,
+  });
+  if (!patchesResult.ok) {
+    return { status: 500, body: { error: 'patches_lookup_failed' } };
+  }
+  const merged = applyPatches(
+    { [payload.machine_id]: overlaid },
+    patchesResult.patches.map(patchSummaryToFileSystemPatch),
+  )[payload.machine_id]!;
+
+  const resolved = resolveNodeAndParentChain(merged, payload.path);
 
   if (payload.kind === 'file_read') {
     if (!resolved.node || resolved.node.type !== 'file') {
