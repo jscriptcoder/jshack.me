@@ -56,6 +56,15 @@ type Inputs = {
   readonly missionFileSystems?: Readonly<Record<string, FileNode>>;
   readonly lanOccupantHostnames?: readonly string[];
   readonly session: SessionInput;
+  // Canonical machine_ids of currently-active protocol/transient
+  // sessions (FTP / nc / MySQL / Redis). Distinct from session.machine
+  // because transient sessions don't change the foreground shell
+  // session — but they DO need their target's base FS for `ls`, `get`,
+  // SELECT, KEYS, etc. to find anything cross-player.
+  //
+  // Default-empty for tests and for FileSystemProvider call sites that
+  // don't yet wire SessionContext's transient state through.
+  readonly protocolSessionMachineIds?: readonly string[];
 };
 
 export type FileSystemSync = {
@@ -78,6 +87,7 @@ export const useFileSystemSync = ({
   missionFileSystems,
   lanOccupantHostnames,
   session,
+  protocolSessionMachineIds,
 }: Inputs): FileSystemSync => {
   // Set of machine_ids whose patches survive WiFi/mission transitions.
   // Currently only the player's own workstation; home network and mission
@@ -445,6 +455,34 @@ export const useFileSystemSync = ({
     null,
   );
 
+  // Reusable helper — same precondition + fetch shape used by both the
+  // shell-session change effect (below) and the transient-session
+  // change effect (further below). Idempotent via crossPlayerBaseFsRef.
+  const fetchCrossPlayerBaseFsIfNeeded = useCallback(
+    (target: string): void => {
+      if (
+        parseWorkstationId(target) === undefined ||
+        target === workstationId ||
+        target in crossPlayerBaseFsRef.current
+      ) {
+        return;
+      }
+      void getBaseFsFromServer(getIdentity(), target)
+        .then((baseFs) => {
+          if (baseFs === null) return;
+          crossPlayerBaseFsRef.current = {
+            ...crossPlayerBaseFsRef.current,
+            [target]: baseFs,
+          };
+          setFileSystems((prev) => ({ ...prev, [target]: baseFs }));
+        })
+        .catch((error) => {
+          console.error('[fs] cross-player base-FS fetch failed:', error);
+        });
+    },
+    [workstationId],
+  );
+
   useEffect(() => {
     const curr = { machine: session.machine, userType: session.userType };
     const prev = lastSessionRef.current;
@@ -507,30 +545,60 @@ export const useFileSystemSync = ({
     // existing (probably empty) view of that machine. The shell still
     // works for in-memory writes; reads of B's static content just
     // come up null until a successful retry later.
-    if (
-      parseWorkstationId(curr.machine) !== undefined &&
-      curr.machine !== workstationId &&
-      !(curr.machine in crossPlayerBaseFsRef.current)
-    ) {
-      const target = curr.machine;
-      void getBaseFsFromServer(getIdentity(), target)
-        .then((baseFs) => {
-          if (baseFs === null) return;
-          // Stash in the ref so subsequent rehydration / refetch rebuilds
-          // include this machine's tree in `merged`. Without the ref,
-          // every patch refetch's `merged` would drop OTHER's base FS
-          // and reads of B's static content would intermittently break.
-          crossPlayerBaseFsRef.current = {
-            ...crossPlayerBaseFsRef.current,
-            [target]: baseFs,
-          };
-          setFileSystems((prev) => ({ ...prev, [target]: baseFs }));
-        })
-        .catch((error) => {
-          console.error('[fs] cross-player base-FS fetch failed:', error);
-        });
+    fetchCrossPlayerBaseFsIfNeeded(curr.machine);
+  }, [
+    session.machine,
+    session.userType,
+    refetchAffectedMachines,
+    workstationId,
+    fetchCrossPlayerBaseFsIfNeeded,
+  ]);
+
+  // Transient (protocol) sessions — FTP / nc / MySQL / Redis. Each
+  // creates a server-side session row that affects how listPatches's
+  // tier filter answers for the target machine; each also opens a
+  // shell or shell-equivalent on the target whose reads need the base
+  // FS in `fileSystems`. Without this effect, an FTP `ls` against a
+  // cross-player workstation would return nothing because session.machine
+  // never changes (FTP lives in its own state slice) and the existing
+  // session-change effect never fires for it.
+  //
+  // Process additions and removals via a tracking ref. Additions →
+  // schedule a tier refetch + fire getBaseFs. Removals → schedule a
+  // tier refetch (the leaving side's visibility flipped, same logic
+  // as the shell-session leaving-machine refetch).
+  const lastProtocolMachineIdsRef = useRef<readonly string[]>([]);
+  const protocolMachinesKey = useMemo(
+    () => [...(protocolSessionMachineIds ?? [])].sort().join(','),
+    [protocolSessionMachineIds],
+  );
+  useEffect(() => {
+    const curr = protocolMachinesKey.split(',').filter(Boolean);
+    const prev = lastProtocolMachineIdsRef.current;
+    lastProtocolMachineIdsRef.current = curr;
+
+    const added = curr.filter((id) => !prev.includes(id));
+    const removed = prev.filter((id) => !curr.includes(id));
+    if (added.length === 0 && removed.length === 0) return;
+
+    for (const id of added) {
+      pendingHintMachinesRef.current.add(id);
+      fetchCrossPlayerBaseFsIfNeeded(id);
     }
-  }, [session.machine, session.userType, refetchAffectedMachines, workstationId]);
+    for (const id of removed) {
+      pendingHintMachinesRef.current.add(id);
+    }
+
+    if (hintDebounceTimerRef.current !== null) {
+      clearTimeout(hintDebounceTimerRef.current);
+    }
+    hintDebounceTimerRef.current = setTimeout(() => {
+      hintDebounceTimerRef.current = null;
+      const machineIds = [...pendingHintMachinesRef.current];
+      pendingHintMachinesRef.current.clear();
+      void refetchAffectedMachines(machineIds);
+    }, HINT_REFETCH_DEBOUNCE_MS);
+  }, [protocolMachinesKey, refetchAffectedMachines, fetchCrossPlayerBaseFsIfNeeded]);
 
   // Track whether the missionFileSystems effect is running for the first time.
   // On initial mount with a persisted mission, we replay cached patches so the

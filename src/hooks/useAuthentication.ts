@@ -388,7 +388,13 @@ export const useAuthentication = ({
       }
 
       const newFtpSession: FtpSession = {
-        remoteMachine: resolvedIp,
+        // Canonical machine_id — workstation_id for cross-player FTP
+        // targets, IP otherwise. Mirrors what authCreateFtpSession sent.
+        // Downstream FS reads via getNodeFromMachine handle either
+        // shape via occupantAwareReadNode. Using the canonical id
+        // here is what lets PR 6's getBaseFs trigger fire when an
+        // FTP session lands on a cross-player workstation.
+        remoteMachine: machineId,
         remoteUsername: username,
         remoteUserType: result.userType,
         remoteCwd: remoteHomePath,
@@ -524,7 +530,11 @@ export const useAuthentication = ({
 
       enterMysqlMode({
         targetIP: ip,
-        machineId: resolvedIp,
+        // Canonical machine_id (workstation_id for cross-player MySQL
+        // targets, IP otherwise). Required by PR 6's getBaseFs
+        // trigger; downstream FS reads tolerate either via
+        // occupantAwareReadNode.
+        machineId,
         username: user,
         databaseName,
         sessionId: result.session_id,
@@ -616,7 +626,7 @@ export const useAuthentication = ({
       // unmanaged. Acceptable until PR 6 enforces server-side reads
       // cross-player.
       if (!requirepass && !password) {
-        enterRedisMode({ targetIP, machineId: resolvedIp, sessionId: null });
+        enterRedisMode({ targetIP, machineId, sessionId: null });
         return;
       }
 
@@ -626,7 +636,7 @@ export const useAuthentication = ({
         // prompt path will route through authCreateRedisSession when
         // wired in a follow-up; for now keep the local message and
         // sessionless connection.
-        enterRedisMode({ targetIP, machineId: resolvedIp, sessionId: null });
+        enterRedisMode({ targetIP, machineId, sessionId: null });
         addLine(
           'result',
           '(error) NOAUTH Authentication required.\nUse AUTH <password> to authenticate.',
@@ -647,7 +657,9 @@ export const useAuthentication = ({
 
       enterRedisMode({
         targetIP,
-        machineId: resolvedIp,
+        // Canonical machine_id (workstation_id for cross-player Redis
+        // targets, IP otherwise). Same rationale as FTP / MySQL.
+        machineId,
         sessionId: result.session_id,
       });
       addLine('result', 'OK');
@@ -837,7 +849,9 @@ export const useAuthentication = ({
               .then((result) => {
                 if (result.ok) {
                   enterFtpMode({
-                    remoteMachine: resolvedIp,
+                    // Canonical machine_id, not the LAN IP — see the
+                    // inline-auth path's comment for rationale.
+                    remoteMachine: machineId,
                     remoteUsername: user,
                     remoteUserType: result.userType,
                     remoteCwd: remoteHomePath,

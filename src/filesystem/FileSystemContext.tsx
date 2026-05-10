@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import type {
   FileNode,
   FilePermissions,
@@ -99,7 +99,7 @@ export const FileSystemProvider = ({
   homeFileSystems,
   lanOccupantHostnames,
 }: FileSystemProviderProps) => {
-  const { session, hostname } = useSession();
+  const { session, hostname, ftpSession, ncSession, mysqlSession, redisSession } = useSession();
   // The player's workstation filesystem is keyed under their workstation_id
   // (= suffixed hostname). Same value used for storage (patches.machine_id),
   // Realtime channel name, and the home_network_occupants.hostname column
@@ -108,6 +108,25 @@ export const FileSystemProvider = ({
   // — its content is the player's workstation filesystem.
   const workstationId = hostname;
 
+  // PR 6 of plans/cross-player-base-fs-replication.md — collect the
+  // canonical machine_ids of every active TRANSIENT (protocol) session.
+  // The shell-class session.machine drives one branch of the cross-
+  // player base-FS fetch in useFileSystemSync; transient sessions
+  // (FTP / nc / MySQL / Redis) drive a parallel branch — they don't
+  // change session.machine, so without this list the trigger would
+  // miss them entirely. Each transient session's machineId field is
+  // populated with the canonical workstation_id for cross-player
+  // targets (see useAuthentication.ts) so parseWorkstationId can do
+  // the workstation-pattern check directly.
+  const protocolSessionMachineIds = useMemo(() => {
+    const ids: string[] = [];
+    if (ftpSession) ids.push(ftpSession.remoteMachine);
+    if (ncSession) ids.push(ncSession.machineId);
+    if (mysqlSession) ids.push(mysqlSession.machineId);
+    if (redisSession) ids.push(redisSession.machineId);
+    return ids;
+  }, [ftpSession, ncSession, mysqlSession, redisSession]);
+
   const sync = useFileSystemSync({
     workstationId,
     localhostFileSystem,
@@ -115,6 +134,7 @@ export const FileSystemProvider = ({
     missionFileSystems,
     lanOccupantHostnames,
     session,
+    protocolSessionMachineIds,
   });
   const {
     fileSystems,
