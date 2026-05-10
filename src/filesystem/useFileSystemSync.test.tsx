@@ -1268,6 +1268,52 @@ describe('useFileSystemSync — rehydration, realtime, session-refetch', () => {
       expect(node).toBeNull();
     });
 
+    it('STILL calls getBaseFs when fileSystems already has a patch-induced empty stub', async () => {
+      // Regression for the bug surfaced in PR 6 two-browser smoke:
+      // applyPatches creates an empty-root stub for any patch whose
+      // machine_id isn't in the base map (fileSystemUtils.ts:359).
+      // When B writes their own pid file and the patch lands on A's
+      // box BEFORE A's session lands on B, fileSystems[B.workstation_id]
+      // is already populated — but with a stub that has no /usr/bin,
+      // /lib, or /home. The session-change effect MUST still fire
+      // getBaseFs in this case, otherwise A lands in B's shell with
+      // no binaries (Player A reported `ls: error while loading
+      // shared libraries: libpcre.so` in the smoke).
+      mockSessionState.current = { machine: TEST_HOSTNAME, currentPath: '/', userType: 'root' };
+      // Seed a patch that targets OTHER_WORKSTATION on initial mount —
+      // applyPatches will stub fileSystems[OTHER_WORKSTATION] before
+      // the session-change effect runs.
+      vi.mocked(mockedListPatchesForMachines).mockResolvedValue([
+        {
+          machineId: OTHER_WORKSTATION,
+          path: '/var/run/sshd.pid',
+          content: 'sshd:port=22',
+          owner: 'root',
+        },
+      ]);
+
+      const { rerender } = renderHook(() => useFileSystem(), {
+        wrapper: wrap({ lanOccupantHostnames: [OTHER_WORKSTATION] }),
+      });
+
+      await waitFor(() => {
+        expect(mockedListPatchesForMachines).toHaveBeenCalled();
+      });
+      vi.mocked(mockedGetBaseFs).mockClear();
+
+      mockSessionState.current = {
+        machine: OTHER_WORKSTATION,
+        currentPath: '/',
+        userType: 'root',
+      };
+      rerender();
+
+      await waitFor(() => {
+        expect(mockedGetBaseFs).toHaveBeenCalled();
+      });
+      expect(mockedGetBaseFs).toHaveBeenCalledTimes(1);
+    });
+
     it('swallows getBaseFs errors without crashing', async () => {
       mockSessionState.current = { machine: TEST_HOSTNAME, currentPath: '/', userType: 'root' };
       vi.mocked(mockedGetBaseFs).mockRejectedValue(new Error('network'));

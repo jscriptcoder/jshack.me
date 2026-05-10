@@ -444,15 +444,6 @@ export const useFileSystemSync = ({
   const lastSessionRef = useRef<{ readonly machine: string; readonly userType: UserType } | null>(
     null,
   );
-  // Mirror of fileSystems for the session-change useEffect — checking
-  // "do I already have a base FS for this machine" without depending on
-  // the fileSystems state itself (would re-trigger the effect on every
-  // tree mutation, including the merge it just performed). Updated by
-  // the dedicated useEffect below, same pattern as patchesRef.
-  const fileSystemsRef = useRef<FileSystemsState>(fileSystems);
-  useEffect(() => {
-    fileSystemsRef.current = fileSystems;
-  }, [fileSystems]);
 
   useEffect(() => {
     const curr = { machine: session.machine, userType: session.userType };
@@ -483,8 +474,19 @@ export const useFileSystemSync = ({
     //     world seed).
     //   - curr.machine !== workstationId (the player's own — own-box
     //     reads use the localhostFileSystem prop, no fetch needed).
-    //   - fileSystems[curr.machine] is undefined (cache miss; a prior
-    //     session on this same machine already merged it).
+    //   - crossPlayerBaseFsRef doesn't already have a tree for this
+    //     machine (a prior session on this same machine already merged
+    //     it).
+    //
+    // The "do I have it?" check is deliberately scoped to
+    // crossPlayerBaseFsRef and NOT to fileSystems — applyPatches creates
+    // empty-root stubs for any patch whose machine_id isn't in the
+    // base (see fileSystemUtils.ts:359). When B writes their own pid
+    // file and the patch arrives on A's box BEFORE A's session lands,
+    // fileSystems[B.workstation_id] is already populated with that
+    // empty stub. A fileSystems-based check would then skip the fetch
+    // and A would land in B's shell with no /usr/bin, /lib, or /home —
+    // exactly the symptom this PR exists to eliminate.
     //
     // Failure modes (network error, 401, 500) get logged + swallowed —
     // no exception propagates, no merge happens, the user sees their
@@ -494,8 +496,7 @@ export const useFileSystemSync = ({
     if (
       parseWorkstationId(curr.machine) !== undefined &&
       curr.machine !== workstationId &&
-      !(curr.machine in crossPlayerBaseFsRef.current) &&
-      !(curr.machine in fileSystemsRef.current)
+      !(curr.machine in crossPlayerBaseFsRef.current)
     ) {
       const target = curr.machine;
       void getBaseFsFromServer(getIdentity(), target)
