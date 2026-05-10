@@ -31,12 +31,27 @@ import type {
   FindActiveSessionsBatchParams,
   FindActiveSessionsBatchResult,
 } from '../sessionRegistry/supabaseFindActiveBatch.js';
+import type {
+  FindWorkstationsByNameParams,
+  FindWorkstationsByNameResult,
+} from './supabaseFindWorkstationsByName.js';
+import type {
+  FindFsContentBatchParams,
+  FindFsContentBatchResult,
+} from './supabaseFindFsContentBatch.js';
 import { canWrite } from '../filesystem/permissionWalker.js';
 import { defaultPermissionsForNode } from '../filesystem/defaultPermissions.js';
-import { deriveHostnameSuffix } from '../homeNetworks/homeNetworkHelpers.js';
+import {
+  computeWorkstationId,
+  deriveHostnameSuffix,
+  parseWorkstationId,
+} from '../homeNetworks/homeNetworkHelpers.js';
 import { filterReadablePatches } from './readFilter.js';
 import { shouldProjectFsContent } from '../machineFilesystems/projectedContentPaths.js';
-import type { FilePermissions } from '../filesystem/types.js';
+import { generateLocalhost } from '../generation/generateLocalhost.js';
+import { overlayProjectedContent } from '../filesystem/baseFsOverlay.js';
+import { filterFileNodeForRead } from '../filesystem/baseFsFilter.js';
+import type { FileNode, FilePermissions } from '../filesystem/types.js';
 
 export type HandlerResponse = {
   readonly status: number;
@@ -75,6 +90,17 @@ export type HandlerDeps = {
   readonly findActiveSessionsBatch: (
     params: FindActiveSessionsBatchParams,
   ) => Promise<FindActiveSessionsBatchResult>;
+  // PR 6 of plans/cross-player-base-fs-replication.md — adapters for
+  // getBaseFs. findWorkstationsByName resolves the workstation row that
+  // owns a workstation_id (handler does suffix verification in TS).
+  // findFsContentBatch fetches projected-path content for the overlay
+  // step (real /etc/passwd hash, vsftpd, mysql, redis, snmp, nc-pidfiles).
+  readonly findWorkstationsByName: (
+    params: FindWorkstationsByNameParams,
+  ) => Promise<FindWorkstationsByNameResult>;
+  readonly findFsContentBatch: (
+    params: FindFsContentBatchParams,
+  ) => Promise<FindFsContentBatchResult>;
   // Realtime hint broadcast: fired after each successful upsertPatch /
   // removePatch so subscribed clients on shared machines refetch live.
   // The payload is just (machine_id, originator_key) — receivers do
@@ -156,6 +182,8 @@ const dispatchAction = async (
       return handleListPatchesForMachines(publicKey, payload, deps);
     case 'clearOwnedPatches':
       return handleClearOwnedPatches(publicKey, payload, deps);
+    case 'getBaseFs':
+      return handleGetBaseFs(publicKey, payload, deps);
   }
 };
 
@@ -521,4 +549,129 @@ const handleClearOwnedPatches = async (
     return { status: 500, body: { error: 'clear_failed' } };
   }
   return { status: 200, body: { affected: result.affected } };
+};
+
+// PR 6 of plans/cross-player-base-fs-replication.md — eager bulk-fetch
+// of a workstation's base FileNode tree, regenerated server-side from
+// the workstations row's stored seed and tier-filtered for the caller.
+//
+// Three tiers (mirrors the read-path filter for patches):
+//   1. Owner       — workstation_id suffix matches caller's player_key:
+//                    return full FS unfiltered.
+//   2. Session     — caller has an active session row on this machine:
+//                    walk every (path, owner, permissions) through
+//                    permissionWalker at the session's userType; drop
+//                    anything the user couldn't reach in-game.
+//   3. No session  — return baseFs:null. Defense in depth: eager fetch
+//                    is post-auth in the client; pre-auth callers get
+//                    nothing.
+//
+// Workstation regen uses a placeholder rootPassword because the real
+// rootPassword isn't persisted server-side (decision #2 in the plan).
+// The overlay step then replaces /etc/passwd content (and any other
+// projected-path content) with what's actually stored in
+// machine_filesystems — so the FS A receives matches the FS the
+// server's auth path validates against.
+//
+// Non-workstation machine_ids (IPv4, mission instance keys, etc.) get
+// 400 unsupported_machine_type. NPC home/world networks and missions
+// have separate paths (deferred per the plan's scope clarification).
+
+// Sentinel rootPassword for regen. Whatever value lands at /etc/passwd
+// from the regen is overwritten by the overlay; the sentinel just gives
+// generateLocalhost something well-formed to hash. If the projection is
+// missing /etc/passwd for some reason (data inconsistency), the leaked
+// content is `md5('GET_BASE_FS_SENTINEL')` — useless for cracking the
+// real root password.
+const GET_BASE_FS_SENTINEL_ROOT_PASSWORD = 'GET_BASE_FS_SENTINEL';
+
+const collectProjectedPathsFromTree = (root: FileNode): readonly string[] => {
+  const paths: string[] = [];
+  const walk = (node: FileNode, basePath: string): void => {
+    if (node.type === 'file') {
+      if (shouldProjectFsContent(basePath)) paths.push(basePath);
+      return;
+    }
+    if (!node.children) return;
+    for (const [name, child] of Object.entries(node.children)) {
+      const childPath = basePath === '/' ? `/${name}` : `${basePath}/${name}`;
+      walk(child, childPath);
+    }
+  };
+  walk(root, '/');
+  return paths;
+};
+
+const handleGetBaseFs = async (
+  publicKey: string,
+  payload: Extract<PatchesPayload, { action: 'getBaseFs' }>,
+  deps: HandlerDeps,
+): Promise<HandlerResponse> => {
+  const parsed = parseWorkstationId(payload.machine_id);
+  if (!parsed) {
+    return { status: 400, body: { error: 'unsupported_machine_type' } };
+  }
+
+  const wsResult = await deps.findWorkstationsByName({ workstation_name: parsed.name });
+  if (!wsResult.ok) {
+    return { status: 500, body: { error: 'workstation_lookup_failed' } };
+  }
+  // Multiple players could choose the same workstation_name; the
+  // identity-derived suffix disambiguates. Find the row whose computed
+  // workstation_id matches the requested machine_id.
+  const matchingRow = wsResult.rows.find(
+    (r) => computeWorkstationId(r.workstation_name, r.player_key) === payload.machine_id,
+  );
+  if (!matchingRow) {
+    return { status: 404, body: { error: 'workstation_not_found' } };
+  }
+
+  // Regen the base FS via generateLocalhost. The /etc/passwd content
+  // here has the placeholder hash; the overlay step replaces it with
+  // what's actually stored in machine_filesystems' projection.
+  const regen = generateLocalhost(
+    {
+      seed: matchingRow.seed,
+      workstationName: matchingRow.workstation_name,
+      username: matchingRow.username,
+      rootPassword: GET_BASE_FS_SENTINEL_ROOT_PASSWORD,
+    },
+    payload.machine_id,
+  );
+
+  // Collect every regen-tree path that's a projected target, fetch them
+  // in one round-trip, overlay onto the regen tree.
+  const projectedPaths = collectProjectedPathsFromTree(regen.fileSystem);
+  const fsResult = await deps.findFsContentBatch({
+    machine_id: payload.machine_id,
+    paths: projectedPaths,
+  });
+  if (!fsResult.ok) {
+    return { status: 500, body: { error: 'fs_lookup_failed' } };
+  }
+  const overlaid = overlayProjectedContent(regen.fileSystem, fsResult.contentByPath);
+
+  // Tier dispatch. Owner short-circuits — no session needed for the
+  // player's own workstation, and no filtering applies (the player can
+  // see their whole box).
+  if (isOwnWorkstationOnServer(payload.machine_id, publicKey)) {
+    return { status: 200, body: { baseFs: overlaid } };
+  }
+
+  const sessionResult = await deps.findActiveSession({
+    player_key: publicKey,
+    machine_id: payload.machine_id,
+  });
+  if (!sessionResult.ok) {
+    return { status: 500, body: { error: 'session_lookup_failed' } };
+  }
+  if (!sessionResult.exists) {
+    // Defense in depth: pre-auth callers get nothing. The eager-fetch
+    // path on the client only fires post-session, so this branch only
+    // exposes a forge attempt — return null instead of structurally
+    // empty so the malformed-response path on the client is distinct.
+    return { status: 200, body: { baseFs: null } };
+  }
+  const filtered = filterFileNodeForRead(overlaid, sessionResult.credentials.userType);
+  return { status: 200, body: { baseFs: filtered } };
 };
