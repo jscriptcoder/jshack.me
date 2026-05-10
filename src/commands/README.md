@@ -213,10 +213,12 @@ Redirect `>` is the interactive way to capture command output to a file. Scripts
 
 **`MsfconsoleContext`** provides optional helpers for effects that interact with remote filesystems:
 
-- `readRemoteFile(machineId, path)` — read a file on the target machine
+- `readRemoteFile(machineId, path, tier?)` — synchronous local read, used by `--local` dpkg parsing and `password_reset`'s pre-write `/etc/passwd` read
 - `readLocalFile(path)` — read a file on the attacker's machine
-- `writeRemoteFile(machineId, path, content)` — write a file on the target machine
-- `listRemoteDir(machineId, path)` — list a directory on the target machine
+- `writeRemoteFile(machineId, path, content, tier?)` — write a file on the target (async; wraps in `withTransientSession` for L1)
+- `listRemoteDir(machineId, path, tier?)` — synchronous local directory listing
+- `exploitFileRead(machineId, path, tier)` — async cross-player-aware read for `file_read` CVE effect. On cross-player workstation targets, dispatches to `/api/patches` action `exploitRead` inside a `withTransientSession` (kind `effect_one_shot`); on NPC and own-workstation targets, falls back to local read. Added by PR 7 of cross-player-base-fs-replication.
+- `exploitDirList(machineId, path, tier)` — same dispatch shape as `exploitFileRead` for `dir_list`.
 - `runScriptOnTarget(machineId, scriptBody, tier)` — execute a script body on the target as a given tier
 
 **`ExploitShellData`** (`src/components/Terminal/types.ts`) is the follow-up type returned by `shell_full` effects. It carries `targetIP`, `targetPort`, `service`, `username`, `userType`, `homePath`, and `tier`, triggering a full SSH-style session in the terminal.

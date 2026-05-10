@@ -259,8 +259,8 @@ Each `Vulnerability` carries an `effect: VulnerabilityEffect` — a discriminate
 | -------------------------------- | ------------------------------------------------------------------------------------------------- | -------------------------- |
 | `shell_limited(tier)`            | Restricted nc_prompt at effect tier                                                               | none                       |
 | `shell_full(tier)`               | Real SSH-style session                                                                            | none                       |
-| `file_read(tier)`                | Dump a target file                                                                                | target path                |
-| `dir_list(tier)`                 | List a target directory                                                                           | target path                |
+| `file_read(tier)`                | Dump a target file (cross-player workstations route through `exploitRead` server endpoint — PR 7) | target path                |
+| `dir_list(tier)`                 | List a target directory (cross-player workstations route through `exploitRead` — PR 7)            | target path                |
 | `file_write(tier)`               | Upload attacker content to target                                                                 | `local:remote`             |
 | `password_reset(tier)`           | Reset a user's password on target                                                                 | none                       |
 | `backdoor_port_open(port, tier)` | Plant a persistent nc listener + install NAT forwards on the gateway chain out to the public edge | none                       |
