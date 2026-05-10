@@ -717,14 +717,23 @@ export const useAuthentication = ({
       const resolvedIp = resolveNat(ftpTargetIP, 21).ip;
       const users = findMachineUsers(resolvedIp);
 
-      const remoteUser = users.find((u) => u.username === username);
-      if (!remoteUser) {
-        addLine('error', '530 Login incorrect.');
-        onFtpAuth?.({ success: false, user: username, targetIP: ftpTargetIP, port: 21 });
-        setFtpTargetIP(null);
-        setFtpUsernameMode(false);
-        clearInput();
-        return;
+      // Cross-player placeholder: occupant workstations land in
+      // NetworkContext with users:[] (we never populated B's user list
+      // on A's view). Skip the local pre-check in that case and let
+      // the server be the authority on user existence — same pattern
+      // as the SSH inline path. Without this skip, ANY username typed
+      // against a cross-player FTP target bails here with "530 Login
+      // incorrect" before the password is even prompted.
+      if (users.length > 0) {
+        const remoteUser = users.find((u) => u.username === username);
+        if (!remoteUser) {
+          addLine('error', '530 Login incorrect.');
+          onFtpAuth?.({ success: false, user: username, targetIP: ftpTargetIP, port: 21 });
+          setFtpTargetIP(null);
+          setFtpUsernameMode(false);
+          clearInput();
+          return;
+        }
       }
 
       addLine('result', '331 Please specify the password.');
