@@ -569,7 +569,18 @@ export const Terminal = () => {
                   }
 
                   if (isRedisPrompt(followUp)) {
-                    connectRedis(followUp.targetIP, followUp.password);
+                    // connectRedis fires authCreateRedisSession (real
+                    // network round-trip, ~100-300ms) before swapping
+                    // the prompt to redis>. Re-enter async mode so the
+                    // prompt stays hidden during the round-trip —
+                    // without this, the user sees a brief flash back
+                    // to the prior shell prompt before redis> appears.
+                    // React batches the false→true transition above so
+                    // there's no intermediate render.
+                    setAsyncRunning(true);
+                    void connectRedis(followUp.targetIP, followUp.password).finally(() => {
+                      setAsyncRunning(false);
+                    });
                   }
 
                   if (isExploitShell(followUp)) {
