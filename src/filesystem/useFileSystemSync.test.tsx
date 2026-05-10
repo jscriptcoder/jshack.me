@@ -18,6 +18,7 @@ vi.mock('../patchRegistry/client', () => ({
   removePatch: vi.fn(),
   listPatchesForMachines: vi.fn(),
   clearOwnedPatches: vi.fn(),
+  getBaseFs: vi.fn(),
 }));
 
 // Mock the realtime subscription module — tests inject a fake Supabase
@@ -32,6 +33,7 @@ import {
   upsertPatch as mockedUpsertPatch,
   removePatch as mockedRemovePatch,
   listPatchesForMachines as mockedListPatchesForMachines,
+  getBaseFs as mockedGetBaseFs,
 } from '../patchRegistry/client';
 import {
   getRealtimeClient as mockedGetRealtimeClient,
@@ -62,11 +64,13 @@ describe('useFileSystemSync — rehydration, realtime, session-refetch', () => {
     vi.mocked(mockedUpsertPatch).mockReset();
     vi.mocked(mockedRemovePatch).mockReset();
     vi.mocked(mockedListPatchesForMachines).mockReset();
+    vi.mocked(mockedGetBaseFs).mockReset();
     vi.mocked(mockedGetRealtimeClient).mockReset();
     vi.mocked(mockedSubscribeToMachine).mockReset();
     vi.mocked(mockedUpsertPatch).mockResolvedValue(undefined);
     vi.mocked(mockedRemovePatch).mockResolvedValue(undefined);
     vi.mocked(mockedListPatchesForMachines).mockResolvedValue([]);
+    vi.mocked(mockedGetBaseFs).mockResolvedValue(null);
     // Default: realtime client unavailable (most existing tests don't care
     // about subscriptions). Tests that exercise realtime override per-case.
     vi.mocked(mockedGetRealtimeClient).mockReturnValue(null);
@@ -1068,6 +1072,230 @@ describe('useFileSystemSync — rehydration, realtime, session-refetch', () => {
       await new Promise((resolve) => setTimeout(resolve, 250));
 
       expect(mockedListPatchesForMachines).not.toHaveBeenCalled();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Cross-player workstation base-FS replication (PR 6 of plans/cross-
+  // player-base-fs-replication.md).
+  //
+  // When the foreground session moves onto another player's workstation
+  // (workstation_id pattern, not the player's own hostname, no existing
+  // fileSystems entry), useFileSystemSync calls getBaseFs to populate
+  // the missing base FS. Without this, A logged into B has an empty
+  // local view of B's box and every cat/ls returns null.
+  // -----------------------------------------------------------------------
+
+  describe('cross-player workstation base-FS replication', () => {
+    const OTHER_WORKSTATION = 'rocket-99887766';
+
+    const mkBaseFs = (): FileNode => ({
+      name: '/',
+      type: 'directory',
+      owner: 'root',
+      permissions: { read: ['root'], write: ['root'], execute: ['root'] },
+      children: {
+        etc: {
+          name: 'etc',
+          type: 'directory',
+          owner: 'root',
+          permissions: { read: ['root'], write: ['root'], execute: ['root'] },
+          children: {
+            hostname: {
+              name: 'hostname',
+              type: 'file',
+              owner: 'root',
+              permissions: { read: ['root'], write: ['root'], execute: ['root'] },
+              content: `${OTHER_WORKSTATION}\n`,
+            },
+          },
+        },
+      },
+    });
+
+    it('calls getBaseFs when session moves to a CROSS-PLAYER workstation_id', async () => {
+      mockSessionState.current = { machine: TEST_HOSTNAME, currentPath: '/', userType: 'root' };
+      const { rerender } = renderHook(() => useFileSystem(), { wrapper: wrap() });
+
+      await waitFor(() => {
+        expect(mockedListPatchesForMachines).toHaveBeenCalled();
+      });
+      vi.mocked(mockedGetBaseFs).mockClear();
+
+      mockSessionState.current = {
+        machine: OTHER_WORKSTATION,
+        currentPath: '/',
+        userType: 'user',
+      };
+      rerender();
+
+      await waitFor(() => {
+        expect(mockedGetBaseFs).toHaveBeenCalled();
+      });
+      const [, machineId] = vi.mocked(mockedGetBaseFs).mock.calls[0];
+      expect(machineId).toBe(OTHER_WORKSTATION);
+    });
+
+    it('does NOT call getBaseFs when session is on the player OWN workstation', async () => {
+      mockSessionState.current = { machine: 'remote-host', currentPath: '/', userType: 'root' };
+      const { rerender } = renderHook(() => useFileSystem(), {
+        wrapper: wrap({ homeFileSystems: { 'remote-host': baseLocalhost } }),
+      });
+
+      await waitFor(() => {
+        expect(mockedListPatchesForMachines).toHaveBeenCalled();
+      });
+      vi.mocked(mockedGetBaseFs).mockClear();
+
+      // Move back to the player's own workstation.
+      mockSessionState.current = { machine: TEST_HOSTNAME, currentPath: '/', userType: 'root' };
+      rerender();
+
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      expect(mockedGetBaseFs).not.toHaveBeenCalled();
+    });
+
+    it('does NOT call getBaseFs for non-workstation machine_ids (IPv4)', async () => {
+      mockSessionState.current = { machine: TEST_HOSTNAME, currentPath: '/', userType: 'root' };
+      const { rerender } = renderHook(() => useFileSystem(), {
+        wrapper: wrap({ homeFileSystems: { '10.0.0.5': baseLocalhost } }),
+      });
+
+      await waitFor(() => {
+        expect(mockedListPatchesForMachines).toHaveBeenCalled();
+      });
+      vi.mocked(mockedGetBaseFs).mockClear();
+
+      // Switch to an IPv4 machine_id (NPC home box).
+      mockSessionState.current = { machine: '10.0.0.5', currentPath: '/', userType: 'guest' };
+      rerender();
+
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      expect(mockedGetBaseFs).not.toHaveBeenCalled();
+    });
+
+    it('does NOT call getBaseFs when fileSystems already has an entry for the machine', async () => {
+      mockSessionState.current = { machine: TEST_HOSTNAME, currentPath: '/', userType: 'root' };
+      const { rerender } = renderHook(() => useFileSystem(), {
+        wrapper: wrap({ lanOccupantHostnames: [OTHER_WORKSTATION] }),
+      });
+
+      await waitFor(() => {
+        expect(mockedListPatchesForMachines).toHaveBeenCalled();
+      });
+
+      // First switch: triggers getBaseFs (cache miss).
+      vi.mocked(mockedGetBaseFs).mockResolvedValue(mkBaseFs());
+      mockSessionState.current = {
+        machine: OTHER_WORKSTATION,
+        currentPath: '/',
+        userType: 'user',
+      };
+      rerender();
+
+      await waitFor(() => {
+        expect(mockedGetBaseFs).toHaveBeenCalledTimes(1);
+      });
+
+      // Switch elsewhere then back — should not refetch (already merged).
+      vi.mocked(mockedGetBaseFs).mockClear();
+      mockSessionState.current = { machine: TEST_HOSTNAME, currentPath: '/', userType: 'root' };
+      rerender();
+
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      mockSessionState.current = {
+        machine: OTHER_WORKSTATION,
+        currentPath: '/',
+        userType: 'root',
+      };
+      rerender();
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      expect(mockedGetBaseFs).not.toHaveBeenCalled();
+    });
+
+    it('merges the returned FileNode into fileSystems on success', async () => {
+      mockSessionState.current = { machine: TEST_HOSTNAME, currentPath: '/', userType: 'root' };
+      const baseFs = mkBaseFs();
+      vi.mocked(mockedGetBaseFs).mockResolvedValue(baseFs);
+
+      const { rerender, result } = renderHook(() => useFileSystem(), {
+        wrapper: wrap({ lanOccupantHostnames: [OTHER_WORKSTATION] }),
+      });
+
+      await waitFor(() => {
+        expect(mockedListPatchesForMachines).toHaveBeenCalled();
+      });
+
+      mockSessionState.current = {
+        machine: OTHER_WORKSTATION,
+        currentPath: '/',
+        userType: 'user',
+      };
+      rerender();
+
+      await waitFor(() => {
+        // The other player's /etc/hostname should now be visible after merge.
+        const node = result.current.getNodeFromMachine(OTHER_WORKSTATION, '/etc/hostname', '/');
+        expect(node?.content).toBe(`${OTHER_WORKSTATION}\n`);
+      });
+    });
+
+    it('does NOT merge when getBaseFs returns null (no-session caller)', async () => {
+      mockSessionState.current = { machine: TEST_HOSTNAME, currentPath: '/', userType: 'root' };
+      vi.mocked(mockedGetBaseFs).mockResolvedValue(null);
+
+      const { rerender, result } = renderHook(() => useFileSystem(), {
+        wrapper: wrap({ lanOccupantHostnames: [OTHER_WORKSTATION] }),
+      });
+
+      await waitFor(() => {
+        expect(mockedListPatchesForMachines).toHaveBeenCalled();
+      });
+
+      mockSessionState.current = {
+        machine: OTHER_WORKSTATION,
+        currentPath: '/',
+        userType: 'guest',
+      };
+      rerender();
+
+      await waitFor(() => {
+        expect(mockedGetBaseFs).toHaveBeenCalled();
+      });
+      // No merge — getNodeFromMachine should still return null on this machine.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const node = result.current.getNodeFromMachine(OTHER_WORKSTATION, '/etc/hostname', '/');
+      expect(node).toBeNull();
+    });
+
+    it('swallows getBaseFs errors without crashing', async () => {
+      mockSessionState.current = { machine: TEST_HOSTNAME, currentPath: '/', userType: 'root' };
+      vi.mocked(mockedGetBaseFs).mockRejectedValue(new Error('network'));
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const { rerender } = renderHook(() => useFileSystem(), {
+        wrapper: wrap({ lanOccupantHostnames: [OTHER_WORKSTATION] }),
+      });
+
+      await waitFor(() => {
+        expect(mockedListPatchesForMachines).toHaveBeenCalled();
+      });
+
+      mockSessionState.current = {
+        machine: OTHER_WORKSTATION,
+        currentPath: '/',
+        userType: 'user',
+      };
+      rerender();
+
+      await waitFor(() => {
+        expect(mockedGetBaseFs).toHaveBeenCalled();
+      });
+      // Allow the rejection to propagate through the .catch handler.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      // No unhandled rejection escaped — test would have failed if it had.
+      expect(consoleSpy).toHaveBeenCalled();
+      consoleSpy.mockRestore();
     });
   });
 });

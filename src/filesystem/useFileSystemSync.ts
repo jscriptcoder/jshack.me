@@ -13,9 +13,13 @@ import { getCachedFilesystemPatches, getDatabase } from '../utils/storageCache';
 import { saveFilesystemPatches } from '../utils/storage';
 import { createSyncChannel, type SyncMessage } from '../utils/crossTabSync';
 import { getIdentity } from '../identity';
-import { listPatchesForMachines as listPatchesForMachinesFromServer } from '../patchRegistry/client';
+import {
+  getBaseFs as getBaseFsFromServer,
+  listPatchesForMachines as listPatchesForMachinesFromServer,
+} from '../patchRegistry/client';
 import { getRealtimeClient, subscribeToMachine, type PatchHint } from '../patchRegistry/realtime';
 import { applyPatchToList, applyPatches, type FileSystemsState } from './fileSystemUtils';
+import { parseWorkstationId } from '../homeNetworks/homeNetworkHelpers';
 
 // Debounce window for Realtime hint refetches. Multiple hints arriving
 // within this window coalesce into a single listPatchesForMachines
@@ -128,6 +132,16 @@ export const useFileSystemSync = ({
   // Replay reapplies the pending patch on top, preserving local state
   // until the POST settles and the next refetch sees server agreement.
   const pendingWritesRef = useRef<Map<string, FileSystemPatch>>(new Map());
+
+  // PR 6 of plans/cross-player-base-fs-replication.md — cross-player
+  // workstation base FS, keyed by machine_id. Populated by getBaseFs on
+  // session establish (the session-change effect below); merged into
+  // the base layer everywhere else that reconstructs `merged` (rehydration,
+  // hint-driven refetch, the home/mission re-merge effect). Without
+  // this, every rehydration would wipe the merged cross-player tree
+  // and reads of B's static content (motd, hostname, /home/...) would
+  // come up null until the next session-change rebuild.
+  const crossPlayerBaseFsRef = useRef<Record<string, FileNode>>({});
 
   // Pending machine_ids queued for hint-driven refetch. Multiple hints
   // within the debounce window accumulate here and get flushed in one
@@ -248,9 +262,12 @@ export const useFileSystemSync = ({
           const props = propsRef.current;
           const base = { [workstationId]: props.localhostFileSystem };
           const withHome = props.homeFileSystems ? { ...base, ...props.homeFileSystems } : base;
-          const merged = props.missionFileSystems
+          const withMission = props.missionFileSystems
             ? { ...withHome, ...props.missionFileSystems }
             : withHome;
+          // PR 6: include cross-player base FS so the rehydration doesn't
+          // wipe trees we already fetched via getBaseFs.
+          const merged = { ...withMission, ...crossPlayerBaseFsRef.current };
           setFileSystems(applyPatches(merged, serverPatches));
         })
         .catch((error) => {
@@ -311,9 +328,12 @@ export const useFileSystemSync = ({
         const props = propsRef.current;
         const base = { [workstationId]: props.localhostFileSystem };
         const withHome = props.homeFileSystems ? { ...base, ...props.homeFileSystems } : base;
-        const merged = props.missionFileSystems
+        const withMission = props.missionFileSystems
           ? { ...withHome, ...props.missionFileSystems }
           : withHome;
+        // PR 6: include cross-player base FS so hint refetches don't wipe
+        // trees we already fetched via getBaseFs.
+        const merged = { ...withMission, ...crossPlayerBaseFsRef.current };
         setFileSystems(applyPatches(merged, next));
         const db = getDatabase();
         if (db) saveFilesystemPatches(db, [...next]);
@@ -424,6 +444,16 @@ export const useFileSystemSync = ({
   const lastSessionRef = useRef<{ readonly machine: string; readonly userType: UserType } | null>(
     null,
   );
+  // Mirror of fileSystems for the session-change useEffect — checking
+  // "do I already have a base FS for this machine" without depending on
+  // the fileSystems state itself (would re-trigger the effect on every
+  // tree mutation, including the merge it just performed). Updated by
+  // the dedicated useEffect below, same pattern as patchesRef.
+  const fileSystemsRef = useRef<FileSystemsState>(fileSystems);
+  useEffect(() => {
+    fileSystemsRef.current = fileSystems;
+  }, [fileSystems]);
+
   useEffect(() => {
     const curr = { machine: session.machine, userType: session.userType };
     const prev = lastSessionRef.current;
@@ -441,7 +471,51 @@ export const useFileSystemSync = ({
       pendingHintMachinesRef.current.clear();
       void refetchAffectedMachines(machineIds);
     }, HINT_REFETCH_DEBOUNCE_MS);
-  }, [session.machine, session.userType, refetchAffectedMachines]);
+
+    // PR 6 of plans/cross-player-base-fs-replication.md — eager bulk-
+    // fetch of the base FS when the foreground session moves onto a
+    // CROSS-PLAYER workstation we don't already have a tree for.
+    //
+    // Triggers when ALL hold:
+    //   - curr.machine is a workstation_id pattern (parseWorkstationId
+    //     returns truthy — non-workstation IDs like IPv4 NPC boxes
+    //     don't apply because their FS regens locally from the home/
+    //     world seed).
+    //   - curr.machine !== workstationId (the player's own — own-box
+    //     reads use the localhostFileSystem prop, no fetch needed).
+    //   - fileSystems[curr.machine] is undefined (cache miss; a prior
+    //     session on this same machine already merged it).
+    //
+    // Failure modes (network error, 401, 500) get logged + swallowed —
+    // no exception propagates, no merge happens, the user sees their
+    // existing (probably empty) view of that machine. The shell still
+    // works for in-memory writes; reads of B's static content just
+    // come up null until a successful retry later.
+    if (
+      parseWorkstationId(curr.machine) !== undefined &&
+      curr.machine !== workstationId &&
+      !(curr.machine in crossPlayerBaseFsRef.current) &&
+      !(curr.machine in fileSystemsRef.current)
+    ) {
+      const target = curr.machine;
+      void getBaseFsFromServer(getIdentity(), target)
+        .then((baseFs) => {
+          if (baseFs === null) return;
+          // Stash in the ref so subsequent rehydration / refetch rebuilds
+          // include this machine's tree in `merged`. Without the ref,
+          // every patch refetch's `merged` would drop OTHER's base FS
+          // and reads of B's static content would intermittently break.
+          crossPlayerBaseFsRef.current = {
+            ...crossPlayerBaseFsRef.current,
+            [target]: baseFs,
+          };
+          setFileSystems((prev) => ({ ...prev, [target]: baseFs }));
+        })
+        .catch((error) => {
+          console.error('[fs] cross-player base-FS fetch failed:', error);
+        });
+    }
+  }, [session.machine, session.userType, refetchAffectedMachines, workstationId]);
 
   // Track whether the missionFileSystems effect is running for the first time.
   // On initial mount with a persisted mission, we replay cached patches so the
@@ -469,12 +543,19 @@ export const useFileSystemSync = ({
       );
 
       // Layer: static (player's workstation) + home network + mission network
+      // + cross-player workstations (PR 6).
       const withHome = homeFileSystems ? { ...staticOnly, ...homeFileSystems } : staticOnly;
-      const merged = missionFileSystems ? { ...withHome, ...missionFileSystems } : withHome;
+      const withMission = missionFileSystems
+        ? { ...withHome, ...missionFileSystems }
+        : withHome;
+      const merged = { ...withMission, ...crossPlayerBaseFsRef.current };
 
       if (!missionFileSystems && !homeFileSystems) {
         isInitialMissionMount.current = false;
-        return staticOnly;
+        // Include cross-player base FS even in the no-home/no-mission
+        // case so eager fetches that landed before this effect re-fires
+        // aren't wiped.
+        return { ...staticOnly, ...crossPlayerBaseFsRef.current };
       }
 
       // On initial mount, replay persisted non-static patches on top of regenerated

@@ -720,11 +720,11 @@ describe('getBaseFs', () => {
     const envelope: { readonly payload: string; readonly signature: string; readonly publicKey: string } =
       JSON.parse(fetchMock.mock.calls[0]![1]?.body as string);
     expect(envelope.publicKey).toBe(identity.publicKeyHex);
-    const valid = verify(
-      hexToBytes(envelope.publicKey),
-      hexToBytes(envelope.signature),
-      new TextEncoder().encode(envelope.payload),
-    );
+    const pubBytes = hexToBytes(envelope.publicKey);
+    const sigBytes = hexToBytes(envelope.signature);
+    expect(pubBytes).not.toBeNull();
+    expect(sigBytes).not.toBeNull();
+    const valid = verify(pubBytes!, sigBytes!, new TextEncoder().encode(envelope.payload));
     expect(valid).toBe(true);
   });
 });
