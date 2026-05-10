@@ -149,3 +149,82 @@ describe('existing schema arms still parse (regression)', () => {
     ).not.toThrow();
   });
 });
+
+// PR 6 of plans/cross-player-base-fs-replication.md — eager bulk-fetch
+// of cross-player workstation base filesystems. Single machine_id per
+// request because the trigger is "session establish on workstation X"
+// (one at a time). Server determines machine type and tier-filters the
+// returned FileNode tree.
+describe('getBaseFs schema arm', () => {
+  it('parses a valid envelope', () => {
+    const result = patchesSignedPayloadSchema.parse({
+      action: 'getBaseFs',
+      ...baseEnvelope,
+      machine_id: 'omen-4a3b1c2d',
+    });
+    expect(result.action).toBe('getBaseFs');
+    if (result.action === 'getBaseFs') {
+      expect(result.machine_id).toBe('omen-4a3b1c2d');
+    }
+  });
+
+  it('rejects missing machine_id', () => {
+    expect(() =>
+      patchesSignedPayloadSchema.parse({
+        action: 'getBaseFs',
+        ...baseEnvelope,
+      }),
+    ).toThrow();
+  });
+
+  it('rejects empty machine_id (min 1)', () => {
+    expect(() =>
+      patchesSignedPayloadSchema.parse({
+        action: 'getBaseFs',
+        ...baseEnvelope,
+        machine_id: '',
+      }),
+    ).toThrow();
+  });
+
+  it('rejects oversized machine_id (> 256 chars)', () => {
+    expect(() =>
+      patchesSignedPayloadSchema.parse({
+        action: 'getBaseFs',
+        ...baseEnvelope,
+        machine_id: 'x'.repeat(257),
+      }),
+    ).toThrow();
+  });
+
+  it('accepts machine_id at the 256-char boundary', () => {
+    expect(() =>
+      patchesSignedPayloadSchema.parse({
+        action: 'getBaseFs',
+        ...baseEnvelope,
+        machine_id: 'x'.repeat(256),
+      }),
+    ).not.toThrow();
+  });
+
+  it('rejects extra unknown fields (strict)', () => {
+    expect(() =>
+      patchesSignedPayloadSchema.parse({
+        action: 'getBaseFs',
+        ...baseEnvelope,
+        machine_id: 'omen-4a3b1c2d',
+        extra: 'oops',
+      }),
+    ).toThrow();
+  });
+
+  it('rejects non-string machine_id', () => {
+    expect(() =>
+      patchesSignedPayloadSchema.parse({
+        action: 'getBaseFs',
+        ...baseEnvelope,
+        machine_id: 42,
+      }),
+    ).toThrow();
+  });
+});
