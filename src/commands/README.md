@@ -200,16 +200,16 @@ Redirect `>` is the interactive way to capture command output to a file. Scripts
 
 `msfconsole` dispatches on `vulnerability.effect.kind` (a `VulnerabilityEffect` discriminated union in `src/network/types.ts`) to determine what a successful exploit does. An optional 3rd argument provides effect-specific input.
 
-| Effect Kind          | 3rd Argument               | Behavior                                                                                       |
-| -------------------- | -------------------------- | ---------------------------------------------------------------------------------------------- |
-| `shell_limited`      | none                       | Drops into restricted nc-style shell at the effect's tier                                      |
-| `shell_full`         | none                       | Opens a full SSH-style session as the effect's tier; returns `ExploitShellData` follow-up      |
-| `file_read`          | target file path           | Reads a file on the target: `msfconsole <host> <port> /etc/passwd`                             |
-| `dir_list`           | target directory path      | Lists a directory on the target: `msfconsole <host> <port> /home`                              |
-| `file_write`         | `local:remote` (scp-style) | Uploads a local file to the target: `msfconsole <host> <port> /local/file:/remote/path`        |
-| `password_reset`     | none                       | Mutates `/etc/passwd` on the target, prints the new password                                   |
-| `backdoor_port_open` | none                       | Plants a backdoor listener on the target (writes nc PID file via `createNcPidContent` from nc) |
-| `script_exec`        | attacker-local script path | Executes a script on the target: `msfconsole <host> <port> /root/payloads/pwn.js`              |
+| Effect Kind          | 3rd Argument               | Behavior                                                                                                                        |
+| -------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `shell_limited`      | none                       | Drops into restricted nc-style shell at the effect's tier                                                                       |
+| `shell_full`         | none                       | Opens a full SSH-style session as the effect's tier; returns `ExploitShellData` follow-up                                       |
+| `file_read`          | target file path           | Reads a file on the target: `msfconsole <host> <port> /etc/passwd`                                                              |
+| `dir_list`           | target directory path      | Lists a directory on the target: `msfconsole <host> <port> /home`                                                               |
+| `file_write`         | `local:remote` (scp-style) | Uploads a local file to the target: `msfconsole <host> <port> /local/file:/remote/path`                                         |
+| `password_reset`     | none                       | Mutates `/etc/passwd` on the target, prints the new password                                                                    |
+| `backdoor_port_open` | none                       | Plants a backdoor listener on the target (writes nc PID file via `createNcPidContent` from nc)                                  |
+| `script_exec`        | attacker-local script path | Executes a script on the target with a narrow command surface: `msfconsole <host> <port> /root/payloads/pwn.js`. See note below |
 
 **`MsfconsoleContext`** provides optional helpers for effects that interact with remote filesystems:
 
@@ -219,7 +219,7 @@ Redirect `>` is the interactive way to capture command output to a file. Scripts
 - `listRemoteDir(machineId, path, tier?)` — synchronous local directory listing
 - `exploitFileRead(machineId, path, tier)` — async cross-player-aware read for `file_read` CVE effect. On cross-player workstation targets, dispatches to `/api/patches` action `exploitRead` inside a `withTransientSession` (kind `effect_one_shot`); on NPC and own-workstation targets, falls back to local read. Added by PR 7 of cross-player-base-fs-replication.
 - `exploitDirList(machineId, path, tier)` — same dispatch shape as `exploitFileRead` for `dir_list`.
-- `runScriptOnTarget(machineId, scriptBody, tier)` — execute a script body on the target as a given tier
+- `runScriptOnTarget(machineId, scriptBody, tier)` — execute a script body on the target as a given tier. Exposes a narrow command surface (`sshd`, `vsftpd`, `systemctl`, `ps`, `nc`, `cat`, `ls`, `echo`) — modelling real-world command-injection scope. Notably, the `writeFile` script-only helper (available in regular `node` execution) is NOT in this context: arbitrary file writes are the `file_write` CVE effect's job, kept orthogonal to `script_exec`. To plant a payload and run it: chain `file_write` then `script_exec`. To trigger side-effect file writes via the daemon path: `sshd()` creates `/var/run/sshd.pid`, `nc(<port>, '-l')` creates `/var/run/nc-<port>.pid`, both projected so they propagate cross-player via dual-write.
 
 **`ExploitShellData`** (`src/components/Terminal/types.ts`) is the follow-up type returned by `shell_full` effects. It carries `targetIP`, `targetPort`, `service`, `username`, `userType`, `homePath`, and `tier`, triggering a full SSH-style session in the terminal.
 
