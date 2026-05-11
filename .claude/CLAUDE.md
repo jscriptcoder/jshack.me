@@ -115,6 +115,13 @@ npx tsx scripts/testGetBaseFs.ts
 # Requires vercel:dev running.
 npx tsx scripts/testExploitRead.ts
 
+# Forge signed envelopes against /api/patches crackCredentials and verify the cross-player batched
+# hydra endpoint (12 scenarios: ssh hit/miss, user_filter scoping, ftp virtual_users.conf overlay
+# precedence + /etc/passwd fallback, 400 unsupported_machine_type, 404 workstation_not_found,
+# zod rejection of oversized batch / empty batch / non-hex hash / unsupported service, pre-auth-by-
+# design no-session hit). Self-cleaning. Requires vercel:dev running.
+npx tsx scripts/testCrackCredentials.ts
+
 # End-to-end smoke for /api/register-workstation against vercel:dev. 8 checks: fresh-register 201,
 # idempotent-repeat 200, conflicting-repeat 409, tampered-signature 401, plus DB-side row + machine_filesystems
 # count + /etc/passwd presence. Self-cleaning so it can be re-run idempotently.
