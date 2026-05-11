@@ -544,11 +544,21 @@ export const useNetworkCommands = (): Map<string, Command> => {
             // so brand-new paths actually get a patch — file_write and
             // backdoor_port_open typically target paths that don't exist.
             writeRemoteFile: async (machineId, path, content, tier = 'root') => {
+              // Translate IP-form machineId to canonical workstation_id for
+              // cross-player LAN occupants. Without this, the session row
+              // and patch land under the LAN IP key (e.g. 192.168.6.217)
+              // instead of B's workstation_id (omen-XXXXXXXX); B's Realtime
+              // subscription is on the workstation_id so the broadcast
+              // never reaches B's tab. Mirrors exploitFileRead /
+              // exploitDirList / logFs.writeFileToMachine. NPC / mission /
+              // world / own-workstation IPs pass through unchanged. PR 8
+              // smoke surfaced this on file_write (msfconsole CVE).
+              const canonicalMachineId = resolveTargetMachineId(machineId);
               let writeResult: { allowed: boolean; error?: string } = { allowed: false };
               await withTransientSession(
                 getIdentity(),
                 {
-                  machine_id: machineId,
+                  machine_id: canonicalMachineId,
                   credentials: { username: 'msf', userType: tier },
                   kind: 'effect_one_shot',
                   ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
@@ -556,7 +566,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
                 },
                 async () => {
                   writeResult = upsertFileOnMachine({
-                    machineId,
+                    machineId: canonicalMachineId,
                     path,
                     cwd: '/',
                     userType: tier,
@@ -621,11 +631,19 @@ export const useNetworkCommands = (): Map<string, Command> => {
               }
               return listDirectoryFromMachine({ machineId, path, cwd: '/', userType: tier });
             },
-            runScriptOnTarget: async (machineId, scriptBody, tier) =>
-              await withTransientSession(
+            runScriptOnTarget: async (machineId, scriptBody, tier) => {
+              // Same IP→workstation_id translation as writeRemoteFile (above)
+              // and exploitFileRead — scripts run against cross-player
+              // workstations must key the transient session AND every write
+              // the script performs by B's canonical workstation_id, not
+              // the LAN IP. Otherwise patch broadcasts miss B's Realtime
+              // subscription. PR 8 file_write smoke surfaced the writeRemoteFile
+              // bug; this branch has the same shape.
+              const canonicalMachineId = resolveTargetMachineId(machineId);
+              return await withTransientSession(
                 getIdentity(),
                 {
-                  machine_id: machineId,
+                  machine_id: canonicalMachineId,
                   credentials: { username: 'msf', userType: tier },
                   kind: 'effect_one_shot',
                   ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
@@ -634,12 +652,13 @@ export const useNetworkCommands = (): Map<string, Command> => {
                 async () => {
                   const result = executeScriptOnTarget(
                     scriptBody,
-                    buildTargetCommandContext(machineId, tier),
+                    buildTargetCommandContext(canonicalMachineId, tier),
                   );
                   await flushPendingPatches();
                   return result;
                 },
-              ),
+              );
+            },
           }),
           isWifiRequired,
         ),
