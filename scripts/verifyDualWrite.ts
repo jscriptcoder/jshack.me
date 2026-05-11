@@ -35,6 +35,7 @@ if (!url || !serviceKey) {
 const sr = createClient(url, serviceKey, { auth: { persistSession: false } });
 
 const PLAYER = 'player-A';
+const OTHER_PLAYER = 'player-B';
 const REMOTE_MACHINE = '10.0.0.42';
 const OWN_WORKSTATION = 'kali-aabbccdd';
 const PERMS = { read: ['root', 'user'], write: ['root'], execute: ['root'] };
@@ -66,6 +67,12 @@ const upsert = (args: {
     p_is_new: args.isNew,
     p_node_type: args.nodeType,
     p_dual_write: args.dualWrite,
+    // PR #122 added the projected-content gate as the 10th param. These
+    // tests don't exercise the projected-paths allowlist (paths used here
+    // are not in FS_PROJECTED_CONTENT_PATHS), so pass `false`: dual-write
+    // still happens for permissions/owner/node_type, just no content
+    // mirrored to machine_filesystems.
+    p_project_fs_content: false,
   });
 
 const remove = (args: {
@@ -304,6 +311,50 @@ await cleanup();
     p.length === 0 && f.length === 1,
     `patches.length=${p.length} fs.length=${f.length}`,
   );
+}
+
+// 8. cross-player remove: Player A deletes a patch row authored by
+// Player B on REMOTE_MACHINE. Before 20260512000000, the SQL filtered
+// by p_player_key so A's delete with p_player_key=A would no-op against
+// B's row. After the migration, L1+L2 in the handler gate the delete
+// and the SQL trusts the caller — both rows go.
+{
+  await cleanup();
+  await upsert({
+    player: OTHER_PLAYER,
+    machine: REMOTE_MACHINE,
+    path: '/var/run/nc-7777.pid',
+    content: 'nc:port=7777:owner=backdoor:tier=root',
+    owner: 'backdoor',
+    permissions: { read: ['root'], write: ['root'], execute: ['root'] },
+    isNew: true,
+    nodeType: 'file',
+    dualWrite: true,
+  });
+  // Confirm B's row is in place before A's delete.
+  const before = await patchesAt(REMOTE_MACHINE, '/var/run/nc-7777.pid');
+  if (before.length !== 1 || before[0]?.player_key !== OTHER_PLAYER) {
+    check(
+      'cross-player remove: PRECONDITION B authored the patch',
+      false,
+      `expected 1 row owned by ${OTHER_PLAYER}, got ${JSON.stringify(before)}`,
+    );
+  } else {
+    await remove({
+      player: PLAYER, // A signs the delete
+      machine: REMOTE_MACHINE,
+      path: '/var/run/nc-7777.pid',
+      pathPrefix: '/var/run/nc-7777.pid/',
+      dualWrite: true,
+    });
+    const after = await patchesAt(REMOTE_MACHINE, '/var/run/nc-7777.pid');
+    const afterFs = await fsAt(REMOTE_MACHINE, '/var/run/nc-7777.pid');
+    check(
+      'cross-player remove: A deletes B-authored row (post-migration semantics)',
+      after.length === 0 && afterFs.length === 0,
+      `patches.length=${after.length} fs.length=${afterFs.length}`,
+    );
+  }
 }
 
 await cleanup();
