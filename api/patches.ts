@@ -288,9 +288,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     },
   );
 
-  // PR 6 of plans/cross-player-base-fs-replication.md — adapters for
-  // getBaseFs. findWorkstationsByName resolves the workstation row(s)
-  // matching a parsed workstation_name (handler suffix-verifies).
+  // Adapters for getBaseFs. findWorkstationsByName resolves the workstation
+  // row(s) matching a parsed workstation_name (handler suffix-verifies).
   // findFsContentBatch fetches projected content for the overlay.
   const findWorkstationsByName = createSupabaseFindWorkstationsByName(
     async (params: FindWorkstationsByNameParams) => {

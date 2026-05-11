@@ -120,10 +120,10 @@ export const createSshCommand = (context: SshContext): Command => ({
     // (NPC home/world machines and the player's own workstation populate
     // machine.users from generation). For cross-player occupants the
     // placeholder rendering leaves users=[] until base FS replication
-    // ships (PR 6 of plans/cross-player-base-fs-replication.md), so an
-    // empty list means "we don't know" — defer to the server's
-    // authCreateSession check, which will return 401 invalid_credentials
-    // for unknown usernames anyway (no enumeration leak).
+    // ships, so an empty list means "we don't know" — defer to the
+    // server's authCreateSession check, which will return 401
+    // invalid_credentials for unknown usernames anyway (no enumeration
+    // leak).
     if (machine.users.length > 0 && !machine.users.some((u) => u.username === user)) {
       throw new Error(`ssh: ${user}@${host}: Permission denied (publickey,password)`);
     }

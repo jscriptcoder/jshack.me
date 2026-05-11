@@ -306,11 +306,11 @@ describe('occupantAwareReadNode', () => {
   });
 });
 
-// PR 6 of plans/cross-player-base-fs-replication.md — used by getBaseFs
-// handler to detect workstation_id machine_ids and reject anything else
-// (IPv4, mission IDs, world IDs) with 400 unsupported_machine_type. The
-// suffix length (8 hex) and character class (lowercase hex only) are
-// load-bearing — same as deriveHostnameSuffix's invariants.
+// Used by getBaseFs handler to detect workstation_id machine_ids and
+// reject anything else (IPv4, mission IDs, world IDs) with 400
+// unsupported_machine_type. The suffix length (8 hex) and character
+// class (lowercase hex only) are load-bearing — same as
+// deriveHostnameSuffix's invariants.
 describe('parseWorkstationId', () => {
   it('extracts name and suffix from a single-segment workstation_id', () => {
     expect(parseWorkstationId('omen-4a3b1c2d')).toEqual({

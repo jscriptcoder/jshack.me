@@ -143,8 +143,8 @@ export const useFileSystemSync = ({
   // until the POST settles and the next refetch sees server agreement.
   const pendingWritesRef = useRef<Map<string, FileSystemPatch>>(new Map());
 
-  // PR 6 of plans/cross-player-base-fs-replication.md — cross-player
-  // workstation base FS, keyed by machine_id. Populated by getBaseFs on
+  // Cross-player workstation base FS, keyed by machine_id. Populated by
+  // getBaseFs on
   // session establish (the session-change effect below); merged into
   // the base layer everywhere else that reconstructs `merged` (rehydration,
   // hint-driven refetch, the home/mission re-merge effect). Without
@@ -275,8 +275,8 @@ export const useFileSystemSync = ({
           const withMission = props.missionFileSystems
             ? { ...withHome, ...props.missionFileSystems }
             : withHome;
-          // PR 6: include cross-player base FS so the rehydration doesn't
-          // wipe trees we already fetched via getBaseFs.
+          // Include cross-player base FS so the rehydration doesn't wipe
+          // trees we already fetched via getBaseFs.
           const merged = { ...withMission, ...crossPlayerBaseFsRef.current };
           setFileSystems(applyPatches(merged, serverPatches));
         })
@@ -341,7 +341,7 @@ export const useFileSystemSync = ({
         const withMission = props.missionFileSystems
           ? { ...withHome, ...props.missionFileSystems }
           : withHome;
-        // PR 6: include cross-player base FS so hint refetches don't wipe
+        // Include cross-player base FS so hint refetches don't wipe
         // trees we already fetched via getBaseFs.
         const merged = { ...withMission, ...crossPlayerBaseFsRef.current };
         setFileSystems(applyPatches(merged, next));
@@ -498,8 +498,8 @@ export const useFileSystemSync = ({
     // (and other allowlist paths) flips back to "always returned"; if
     // the prior session-tier walker had dropped one of those rows, A's
     // local patches state is stuck without it until something else
-    // refetches B. Surfaced 2026-05-10 during PR 6 smoke: A SSH'd into
-    // B, exited, and B's sshd port appeared closed because the pidfile
+    // refetches B. Surfaced 2026-05-10 during smoke: A SSH'd into B,
+    // exited, and B's sshd port appeared closed because the pidfile
     // patch was missing locally.
     pendingHintMachinesRef.current.add(curr.machine);
     if (prev.machine !== curr.machine) {
@@ -515,9 +515,8 @@ export const useFileSystemSync = ({
       void refetchAffectedMachines(machineIds);
     }, HINT_REFETCH_DEBOUNCE_MS);
 
-    // PR 6 of plans/cross-player-base-fs-replication.md — eager bulk-
-    // fetch of the base FS when the foreground session moves onto a
-    // CROSS-PLAYER workstation we don't already have a tree for.
+    // Eager bulk-fetch of the base FS when the foreground session moves
+    // onto a CROSS-PLAYER workstation we don't already have a tree for.
     //
     // Triggers when ALL hold:
     //   - curr.machine is a workstation_id pattern (parseWorkstationId
@@ -626,7 +625,7 @@ export const useFileSystemSync = ({
       );
 
       // Layer: static (player's workstation) + home network + mission network
-      // + cross-player workstations (PR 6).
+      // + cross-player workstations.
       const withHome = homeFileSystems ? { ...staticOnly, ...homeFileSystems } : staticOnly;
       const withMission = missionFileSystems ? { ...withHome, ...missionFileSystems } : withHome;
       const merged = { ...withMission, ...crossPlayerBaseFsRef.current };

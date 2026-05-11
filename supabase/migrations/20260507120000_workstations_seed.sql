@@ -1,14 +1,14 @@
 -- Add `seed` to workstations + pre-launch DB wipe.
 --
--- Background (PR 1 of plans/cross-player-base-fs-replication.md):
--- Today's `populateBaseFs` calls regenWorkstationRows with PLACEHOLDER_SEED
--- and PLACEHOLDER_ROOT_PASSWORD, so machine_filesystems.content for
--- /etc/passwd on every workstation holds *wrong* hashes. Server-side
--- userType validation (createSession, PR #122) works because it inspects
--- username/userType columns only — but cross-player password validation
--- (this chunk's PR 2) needs the *real* hash to compare against the
--- player's submitted password. Fix: registration envelope carries `seed`
--- (persisted here) and `rootPassword` (used at register-time, discarded).
+-- Background: today's `populateBaseFs` calls regenWorkstationRows with
+-- PLACEHOLDER_SEED and PLACEHOLDER_ROOT_PASSWORD, so
+-- machine_filesystems.content for /etc/passwd on every workstation holds
+-- *wrong* hashes. Server-side userType validation (createSession, PR #122)
+-- works because it inspects username/userType columns only — but
+-- cross-player password validation needs the *real* hash to compare
+-- against the player's submitted password. Fix: registration envelope
+-- carries `seed` (persisted here) and `rootPassword` (used at
+-- register-time, discarded).
 --
 -- Why a wipe: workstations gets a NOT NULL column with no sensible
 -- default for existing rows (seed is per-player, generated at NEW GAME).

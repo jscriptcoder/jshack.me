@@ -124,7 +124,7 @@ export const Terminal = () => {
   // Maps a LAN IP to the canonical machine_id (workstation_id for
   // occupants, LAN IP for NPC/world/mission machines). Used by every
   // cross-player code path that constructs a machine_id from an IP the
-  // user typed — auth envelopes (PR 2) and write-side patches alike.
+  // user typed — auth envelopes and write-side patches alike.
   // Mirrors useNetworkCommands.resolveTargetMachineId.
   const resolveTargetMachineId = useCallback(
     (targetIp: string): string =>
@@ -605,18 +605,18 @@ export const Terminal = () => {
                   if (isNcPrompt(followUp)) {
                     const resolvedIP = resolveNat(followUp.targetIP, followUp.targetPort).ip;
                     if (followUp.proof === 'pidfile') {
-                      // PR 5 — server reads /var/run/nc-<port>.pid and
-                      // derives credentials. Local guess values on
-                      // followUp (username/userType/homePath) are ignored;
-                      // the server's parse is authoritative.
+                      // Server reads /var/run/nc-<port>.pid and derives
+                      // credentials. Local guess values on followUp
+                      // (username/userType/homePath) are ignored; the
+                      // server's parse is authoritative.
                       //
                       // machineId must be the canonical storage key:
                       // the workstation_id for cross-player targets,
                       // the LAN IP for NPC machines. resolveTargetMachineId
                       // mirrors the same translation every other auth
-                      // path uses (PRs 2-4); without it, cross-player
-                      // pidfiles 401 because the patch row is keyed by
-                      // workstation_id, not by LAN IP.
+                      // path uses; without it, cross-player pidfiles 401
+                      // because the patch row is keyed by workstation_id,
+                      // not by LAN IP.
                       authCreateNcSession({
                         machineId: resolveTargetMachineId(resolvedIP),
                         targetIP: resolvedIP,
@@ -635,8 +635,8 @@ export const Terminal = () => {
                         });
                     } else {
                       // proof === 'effect' — msfconsole shell_limited.
-                      // Forge bypass remains until PR 7 closes the
-                      // effect-grant gap.
+                      // Forge bypass remains until the effect-grant gap
+                      // is closed.
                       const newNcSession: NcSession = {
                         targetIP: resolvedIP,
                         targetPort: followUp.targetPort,

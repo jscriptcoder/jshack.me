@@ -5,8 +5,8 @@
 -- content for every patched file was dead weight (the patches table is
 -- the canonical content store, per-player).
 --
--- Server-side userType validation (createSession; see plans/etc-passwd-
--- canonical.md step 5) needs the server to read the live /etc/passwd
+-- Server-side userType validation (createSession) needs the server to read
+-- the live /etc/passwd
 -- content at session-create time. /etc/passwd is shared per machine
 -- (machine_filesystems is the natural projection), but other paths
 -- still don't need content.

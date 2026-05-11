@@ -2,9 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { parseNcPid } from './ncPidHelpers';
 
 // Pure pidfile parser used by the server's authCreateSession nc-pidfile
-// branch (PR 5 of plans/cross-player-base-fs-replication.md). Mirrors
-// the client-side parseNcPidContent regex but returns a flat shape
-// (port + credentials) instead of NcPortOverride.
+// branch. Mirrors the client-side parseNcPidContent regex but returns a
+// flat shape (port + credentials) instead of NcPortOverride.
 
 describe('parseNcPid', () => {
   it('parses a well-formed pidfile line', () => {

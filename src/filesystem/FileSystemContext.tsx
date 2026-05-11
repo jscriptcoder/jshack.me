@@ -108,8 +108,8 @@ export const FileSystemProvider = ({
   // — its content is the player's workstation filesystem.
   const workstationId = hostname;
 
-  // PR 6 of plans/cross-player-base-fs-replication.md — collect the
-  // canonical machine_ids of every active TRANSIENT (protocol) session.
+  // Collect the canonical machine_ids of every active TRANSIENT
+  // (protocol) session.
   // The shell-class session.machine drives one branch of the cross-
   // player base-FS fetch in useFileSystemSync; transient sessions
   // (FTP / nc / MySQL / Redis) drive a parallel branch — they don't

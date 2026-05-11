@@ -36,7 +36,6 @@ export type CreateSessionRequest = {
   readonly credentials: Credentials;
   readonly parent_session_id?: string;
   readonly source_ip?: string;
-  // Required as of PR 2 step 5 of plans/cross-player-base-fs-replication.md.
   // Auth-required kinds (ssh/scp/su) are rejected by the server here
   // and must use authCreateSession instead. Other kinds (exploit, snmp,
   // nc, ftp, mysql, redis, effect_one_shot) keep using createSession.
@@ -143,9 +142,9 @@ export const authCreateSession = async (
 
 // ---- authCreateNcSession ---------------------------------------------------
 //
-// PR 5 of plans/cross-player-base-fs-replication.md — nc backdoor pidfile
-// authentication. Distinct wrapper from authCreateSession because the
-// server-derived response carries username + homePath (parsed from
+// nc backdoor pidfile authentication. Distinct wrapper from
+// authCreateSession because the server-derived response carries
+// username + homePath (parsed from
 // /var/run/nc-<port>.pid), not just userType. The wire endpoint is the
 // same (POST /api/sessions, action='authCreateSession') — only the
 // payload kind/method and the response shape differ.

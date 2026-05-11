@@ -2,13 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { overlayProjectedContent } from './baseFsOverlay';
 import type { FileNode } from './types';
 
-// PR 6 of plans/cross-player-base-fs-replication.md — overlayProjected-
-// Content takes a regenerated FileNode tree (where /etc/passwd holds a
-// PLACEHOLDER_ROOT hash because the workstations table doesn't store
-// rootPassword) and substitutes content for any path that has a row in
-// machine_filesystems' projected-content storage. The result is a tree
-// whose projected-path content matches what the server's auth path uses
-// — closing the "A sees a fake hash for B's root" gap.
+// overlayProjectedContent takes a regenerated FileNode tree (where
+// /etc/passwd holds a PLACEHOLDER_ROOT hash because the workstations
+// table doesn't store rootPassword) and substitutes content for any path
+// that has a row in machine_filesystems' projected-content storage. The
+// result is a tree whose projected-path content matches what the server's
+// auth path uses — closing the "A sees a fake hash for B's root" gap.
 
 const FILE = (name: string, content: string, owner: 'root' | 'user' = 'root'): FileNode => ({
   name,

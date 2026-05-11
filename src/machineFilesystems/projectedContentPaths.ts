@@ -10,15 +10,14 @@
 //   - /etc/passwd                       — server-side userType validation
 //                                         in createSession (PR #122) and
 //                                         cross-player password validation
-//                                         for SSH/SCP/su (PR 2 of the
-//                                         cross-player base-FS chunk).
-//   - /etc/vsftpd/virtual_users.conf    — cross-player FTP login (PR 3).
-//   - /var/lib/mysql/data.json          — cross-player MySQL login (PR 4).
-//   - /etc/redis/redis.conf             — cross-player Redis login (PR 4).
+//                                         for SSH/SCP/su.
+//   - /etc/vsftpd/virtual_users.conf    — cross-player FTP login.
+//   - /var/lib/mysql/data.json          — cross-player MySQL login.
+//   - /etc/redis/redis.conf             — cross-player Redis login.
 //   - /etc/snmp/snmpd.conf              — cross-player snmpset/snmpwalk
-//                                         community-string validation (PR 4).
+//                                         community-string validation.
 //   - /var/run/*.pid                    — backdoor connect (nc) tier
-//                                         resolution (PR 5). Glob: covers
+//                                         resolution. Glob: covers
 //                                         `nc-<port>.pid`, daemon pidfiles,
 //                                         CVE-opened backdoor pidfiles.
 //

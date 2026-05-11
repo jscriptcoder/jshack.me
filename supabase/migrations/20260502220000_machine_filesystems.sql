@@ -31,7 +31,6 @@
 --   - service_role bypasses RLS. Never ship to client.
 --
 -- See memory: project_l2_plan.md, project_multiplayer_security_model.md.
--- See plans/l2-patch-validation.md for the full Step-by-Step delivery plan.
 
 CREATE TABLE machine_filesystems (
   machine_id  TEXT        NOT NULL,

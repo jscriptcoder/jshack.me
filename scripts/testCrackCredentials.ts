@@ -24,8 +24,6 @@
 //
 // Usage:
 //   npx tsx scripts/testCrackCredentials.ts
-//
-// PR 8 of plans/cross-player-base-fs-replication.md.
 
 import './lib/loadEnv';
 import { createClient } from '@supabase/supabase-js';

@@ -80,7 +80,7 @@ export const computePlayerHostname = (workstationName: string, identity: Identit
 // the suffix will diverge between client (prefixed sha256) and server
 // (raw sha256). That divergence was the root cause of cross-player
 // authCreateSession returning 401 on a player's own workstation —
-// surfaced during PR 2 step 12 smoke and fixed here.
+// surfaced during smoke and fixed here.
 export const computeWorkstationId = (workstationName: string, playerKeyHex: string): string =>
   `${workstationName}-${deriveHostnameSuffix(`ed25519:${playerKeyHex}`)}`;
 
@@ -98,8 +98,6 @@ export const computeWorkstationId = (workstationName: string, playerKeyHex: stri
 // Workstation_id shape: `${name}-${8-lowercase-hex}` per
 // computeWorkstationId. The "last 8 hex" rule handles names that
 // contain internal hyphens (e.g. `skylab-prime`).
-//
-// PR 6 of plans/cross-player-base-fs-replication.md.
 
 const WORKSTATION_ID_PATTERN = /^(.+)-([0-9a-f]{8})$/;
 

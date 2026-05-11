@@ -4,7 +4,7 @@ Server-side record of every player's own workstation. Backs `/api/register-works
 
 **Why it exists**: closes the leaf-only fallback in `enforceL2` for own-workstations. Before this module, an intruder with a cracked session on Player A's workstation could forge envelopes that bypass L2 — A's machine_id had zero rows in `machine_filesystems`, so the walker's "no row → permit" branch let the write through. Owner writes on the player's own box stay bypassed via `isOwnWorkstationOnServer`; this module only changes the non-owner path.
 
-See `plans/l2-own-workstation-backfill.md` and the `project_l2_followups` memory entry (chunk #1b) for the full design.
+See the `project_l2_followups` memory entry (chunk #1b) for the full design.
 
 ## Files
 

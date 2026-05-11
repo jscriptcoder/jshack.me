@@ -8,8 +8,6 @@ import { parseMysqlDatabase, type MysqlCredential } from '../commands/mysql/type
 // virtual_users.conf which only carries password hashes). userType
 // derives from the JSON entry directly, NOT from /etc/passwd —
 // MySQL users may not have system accounts.
-//
-// PR 4 of plans/cross-player-base-fs-replication.md.
 
 export const findMysqlCredential = (
   content: string | null,

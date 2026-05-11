@@ -480,8 +480,8 @@ export const buildMachineConfig = (
   const hasSshPort = machine.remoteMachine.ports.some((p) => p.service === 'ssh' && p.open);
   const hasFtpPort = machine.remoteMachine.ports.some((p) => p.service === 'ftp' && p.open);
   const infraPidFiles = buildInfrastructurePidFiles(machine.remoteMachine.ports);
-  // PR 5 — NPC backdoors with a baked-in owner need a generation-time
-  // pidfile so cross-player nc-connect can read /var/run/nc-<port>.pid
+  // NPC backdoors with a baked-in owner need a generation-time pidfile
+  // so cross-player nc-connect can read /var/run/nc-<port>.pid
   // server-side. Without this, server returns 401 invalid_credentials.
   const ncBackdoorPidFiles = buildNcBackdoorPidFiles(machine.remoteMachine.ports);
 

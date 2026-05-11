@@ -2,11 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { filterFileNodeForRead } from './baseFsFilter';
 import type { FileNode, FilePermissions } from './types';
 
-// PR 6 of plans/cross-player-base-fs-replication.md — server-side
-// filter pass on the regen+overlay base FS, applied at the caller's
-// session userType. Mirrors the read-path filter (PR #119) that
-// already gates listPatchesForMachines, but operates on a tree
-// (regen output) instead of flat patch rows.
+// Server-side filter pass on the regen+overlay base FS, applied at the
+// caller's session userType. Mirrors the read-path filter (PR #119) that
+// already gates listPatchesForMachines, but operates on a tree (regen
+// output) instead of flat patch rows.
 //
 // Two rules combine:
 //   - Files: drop if userType not in target.read.

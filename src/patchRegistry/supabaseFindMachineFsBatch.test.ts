@@ -6,7 +6,7 @@ import type { FindMachineFsBatchParams } from './supabaseFindMachineFsBatch';
 // gather every (machine_id, path, owner, permissions) row needed for
 // per-row + ancestor walker decisions, vs. N round-trips with the
 // single-row supabaseFindMachineFs. Used exclusively by
-// handleListPatchesForMachines (PR 2's wiring).
+// handleListPatchesForMachines wiring.
 
 const validRow = (overrides?: Partial<{ machine_id: string; path: string }>) => ({
   machine_id: '10.0.0.1',

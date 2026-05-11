@@ -63,21 +63,21 @@ type AuthenticationOptions = {
     destination: AuthPushDestination,
     auth: AuthMethod,
   ) => Promise<AuthCreateSessionResult>;
-  // PR 3 — FTP server-authoritative auth. Validates against /etc/vsftpd/
+  // FTP server-authoritative auth. Validates against /etc/vsftpd/
   // virtual_users.conf (overlay) + /etc/passwd (fallback) on the server,
   // returns the new sessionId + server-derived userType.
   readonly authCreateFtpSession: (
     destination: AuthPushDestination,
     auth: AuthMethod,
   ) => Promise<AuthCreateSessionResult>;
-  // PR 4 — MySQL server-authoritative auth. Validates against
+  // MySQL server-authoritative auth. Validates against
   // /var/lib/mysql/data.json. userType comes from the matching
   // credential entry's userType field (server-derived).
   readonly authCreateMysqlSession: (
     destination: AuthPushDestination,
     auth: AuthMethod,
   ) => Promise<AuthCreateSessionResult>;
-  // PR 4 — Redis server-authoritative auth. Shared-secret; the helper
+  // Redis server-authoritative auth. Shared-secret; the helper
   // injects the sentinel `username:'redis'` so callers only supply
   // machine_id + the AUTH password.
   readonly authCreateRedisSession: (
@@ -175,8 +175,8 @@ export const useAuthentication = ({
   );
 
   // hasAuthorizedKey was the local-validation gate for "do we have a
-  // verified saved key?" Removed in PR 2 step 8 — saved-key validation
-  // is now server-authoritative via authCreateSession's savedKey arm.
+  // verified saved key?" Removed — saved-key validation is now
+  // server-authoritative via authCreateSession's savedKey arm.
   // The client just reads the saved fingerprint via getSavedSshFingerprint
   // and sends it; the server validates against current /etc/passwd.
 
@@ -232,9 +232,9 @@ export const useAuthentication = ({
     [getDefaultHomePath, readFile, session.machine, session.username, session.userType],
   );
 
-  // Server-authoritative SSH login (PR 2 step 7 of plans/cross-player-
-  // base-fs-replication.md). Calls authCreateSession via pushAuthSession,
-  // which only commits local state (snapshot stack + new Session) on
+  // Server-authoritative SSH login. Calls authCreateSession via
+  // pushAuthSession, which only commits local state (snapshot stack +
+  // new Session) on
   // ok:true. On invalid_credentials, renders "Permission denied" and
   // leaves session unchanged. saveAuthorizedKey runs only on success
   // and only when computeKeyFingerprint can read /etc/passwd locally
@@ -360,7 +360,7 @@ export const useAuthentication = ({
   // without interactive prompts (used by `ftp <host> <user> <pw>` from
   // scripts).
   //
-  // PR 3: validation moved to the server. authCreateFtpSession reads
+  // Validation moved to the server. authCreateFtpSession reads
   // /etc/vsftpd/virtual_users.conf (overlay) + /etc/passwd (fallback)
   // from machine_filesystems and returns userType derived from
   // /etc/passwd. Pre-check `users.length === 0` skip mirrors the SSH
@@ -392,8 +392,8 @@ export const useAuthentication = ({
         // targets, IP otherwise. Mirrors what authCreateFtpSession sent.
         // Downstream FS reads via getNodeFromMachine handle either
         // shape via occupantAwareReadNode. Using the canonical id
-        // here is what lets PR 6's getBaseFs trigger fire when an
-        // FTP session lands on a cross-player workstation.
+        // here is what lets the getBaseFs trigger fire when an FTP
+        // session lands on a cross-player workstation.
         remoteMachine: machineId,
         remoteUsername: username,
         remoteUserType: result.userType,
@@ -435,7 +435,6 @@ export const useAuthentication = ({
   // (saved-key fingerprint if present locally, else password). Server
   // validates inside withTransientAuthSession; the in-game UX surfaces
   // the result via the transfer animation's lines.
-  // PR 2 step 8 of plans/cross-player-base-fs-replication.md.
   const authenticateScpInline = useCallback(
     ({
       user,
@@ -497,12 +496,12 @@ export const useAuthentication = ({
     [getSavedSshFingerprint, addLine, onSshAuth],
   );
 
-  // PR 4: Server-authoritative MySQL auth. Validates against
+  // Server-authoritative MySQL auth. Validates against
   // /var/lib/mysql/data.json on the server (atomic with session
   // creation). userType comes from the matching credential entry —
   // server-derived, never trusted from client. Database name is read
   // from the local cache for the welcome banner; cross-player flows
-  // may show an empty name until PR 6 ships base FS replication.
+  // may show an empty name until base FS replication populates it.
   const connectMysqlServer = useCallback(
     async (user: string, ip: string, password: string): Promise<boolean> => {
       const resolvedIp = resolveNat(ip, 3306).ip;
@@ -531,9 +530,8 @@ export const useAuthentication = ({
       enterMysqlMode({
         targetIP: ip,
         // Canonical machine_id (workstation_id for cross-player MySQL
-        // targets, IP otherwise). Required by PR 6's getBaseFs
-        // trigger; downstream FS reads tolerate either via
-        // occupantAwareReadNode.
+        // targets, IP otherwise). Required by the getBaseFs trigger;
+        // downstream FS reads tolerate either via occupantAwareReadNode.
         machineId,
         username: user,
         databaseName,
@@ -583,7 +581,7 @@ export const useAuthentication = ({
     [addLine],
   );
 
-  // PR 4: Server-authoritative Redis auth. Two flows:
+  // Server-authoritative Redis auth. Two flows:
   //
   // 1. With inline password (`rediscli -h host -a password`): call
   //    authCreateRedisSession; on 201 enter redis mode at sessionId+
@@ -597,8 +595,8 @@ export const useAuthentication = ({
   //    AUTH <pw> via the redis prompt and we route THAT through
   //    authCreateRedisSession on the AUTH command path.
   //
-  // For now (PR 4), the no-password / no-requirepass path is treated
-  // as out-of-scope — Redis without auth doesn't go through this
+  // For now, the no-password / no-requirepass path is treated as
+  // out-of-scope — Redis without auth doesn't go through this
   // endpoint. The user's flow always uses `-a` (authoritative path)
   // or types AUTH inside the redis prompt (handled separately).
   const connectRedis = useCallback(
@@ -709,7 +707,7 @@ export const useAuthentication = ({
     (password: string): boolean => {
       if (!targetUser) return false;
 
-      // PR 4: SSH/SCP/FTP/MySQL paths no longer go through validatePassword
+      // SSH/SCP/FTP/MySQL paths no longer go through validatePassword
       // — handlePasswordSubmit dispatches to authCreateSession-backed
       // helpers. validatePassword now serves only the su fallback path
       // (local-/etc/passwd hash compare).
@@ -783,8 +781,8 @@ export const useAuthentication = ({
 
       let scpTransferAsync: AsyncOutput | undefined;
 
-      // SSH: server-authoritative auth (PR 2 of plans/cross-player-base-fs-
-      // replication.md). Returned as AsyncOutput so the Terminal hides
+      // SSH: server-authoritative auth. Returned as AsyncOutput so the
+      // Terminal hides
       // the prompt during the server round-trip — otherwise the prompt
       // reverts to the prior user/state for the ~100-300 ms gap and the
       // user sees nothing happen between password submit and the
@@ -811,8 +809,8 @@ export const useAuthentication = ({
         };
       }
 
-      // SCP: server-authoritative auth via withTransientAuthSession (PR 2
-      // step 8). The transfer animation runs first; auth happens at the
+      // SCP: server-authoritative auth via withTransientAuthSession.
+      // The transfer animation runs first; auth happens at the
       // patch-fire point. saveAuthorizedKey runs only on success
       // (handled by performTransfer's then-branch when ok).
       if (scpTargetIP && scpPerformTransfer && targetUser) {
@@ -828,10 +826,9 @@ export const useAuthentication = ({
         return scpTransferAsync;
       }
 
-      // FTP: server-authoritative auth via authCreateFtpSession (PR 3 of
-      // cross-player-base-fs-replication). Returned as AsyncOutput so the
-      // Terminal hides the prompt during the server round-trip — same
-      // reasoning as the SSH path above.
+      // FTP: server-authoritative auth via authCreateFtpSession. Returned
+      // as AsyncOutput so the Terminal hides the prompt during the server
+      // round-trip — same reasoning as the SSH path above.
       if (ftpTargetIP && targetUser) {
         const user = targetUser;
         const targetIp = ftpTargetIP;
@@ -887,8 +884,8 @@ export const useAuthentication = ({
         };
       }
 
-      // MySQL: server-authoritative auth (PR 4). connectMysqlServer
-      // calls authCreateMysqlSession; on success it enters mysql mode
+      // MySQL: server-authoritative auth. connectMysqlServer calls
+      // authCreateMysqlSession; on success it enters mysql mode
       // with sessionId set. Returned as AsyncOutput so the Terminal
       // hides the prompt during the server round-trip.
       if (mysqlTargetIP && targetUser) {
@@ -928,7 +925,7 @@ export const useAuthentication = ({
         };
       }
 
-      // su: server-authoritative auth via pushAuthSession (PR 2 step 9).
+      // su: server-authoritative auth via pushAuthSession.
       // No prompt-state-specific machine_id (mysql/scp/ssh/ftp targets
       // would have been handled above) — su targets the CURRENT machine,
       // promoting (or sidegrading) to a different user on the same box.
@@ -1005,7 +1002,7 @@ export const useAuthentication = ({
             });
         }
         // su failure path is handled above by pushAuthSession's
-        // ok:false branch (PR 2 step 9). No fallback here.
+        // ok:false branch. No fallback here.
       }
 
       setPasswordMode(false);

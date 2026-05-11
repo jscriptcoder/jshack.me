@@ -118,8 +118,6 @@ export type ClearOwnedPatchesPayload = z.infer<typeof clearOwnedPatchesSignedPay
 // over-engineered for the actual call pattern. (listPatchesForMachines
 // stays bulk because rehydration legitimately fans out across the
 // player's whole machine view.)
-//
-// PR 6 of plans/cross-player-base-fs-replication.md.
 export const getBaseFsSignedPayloadSchema = z
   .object({
     action: z.literal('getBaseFs'),
@@ -140,8 +138,6 @@ export type GetBaseFsPayload = z.infer<typeof getBaseFsSignedPayloadSchema>;
 //
 // Single path per request — file_read and dir_list are inherently
 // single-path operations. Bulk shape would be over-engineered.
-//
-// PR 7 of plans/cross-player-base-fs-replication.md.
 export const EXPLOIT_READ_KINDS = ['file_read', 'dir_list'] as const;
 export type ExploitReadKind = (typeof EXPLOIT_READ_KINDS)[number];
 
@@ -173,8 +169,6 @@ export type ExploitReadPayload = z.infer<typeof exploitReadSignedPayloadSchema>;
 // load: 200 candidates × ~5 users × md5 compare is cheap, and a 1000-
 // entry wordlist fits in 5 batches with our HYDRA_TARGET_ROUND_TRIPS
 // constant (see hydra.ts).
-//
-// PR 8 of plans/cross-player-base-fs-replication.md.
 export const HYDRA_BATCH_SERVICES = ['ssh', 'ftp'] as const;
 export type HydraBatchService = (typeof HYDRA_BATCH_SERVICES)[number];
 

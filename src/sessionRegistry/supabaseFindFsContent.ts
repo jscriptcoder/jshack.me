@@ -2,9 +2,8 @@ import { z } from 'zod';
 
 // Generic adapter for reading any projected `machine_filesystems.content`
 // entry by `(machine_id, path)`. Used by authCreateSession to fetch
-// credential files server-side: /etc/passwd (PR 2), /etc/vsftpd/
-// virtual_users.conf (PR 3), and the MySQL/Redis/SNMP credential files
-// added in PR 4.
+// credential files server-side: /etc/passwd, /etc/vsftpd/virtual_users.conf,
+// and the MySQL/Redis/SNMP credential files.
 //
 // The wiring layer (api/sessions.ts) issues:
 //
@@ -13,8 +12,6 @@ import { z } from 'zod';
 //
 // Strict zod validation catches schema drift. On any error, falls
 // closed → ok: false → handler maps to 500.
-//
-// PR 4 of plans/cross-player-base-fs-replication.md.
 
 type RowError = { readonly code?: string; readonly message?: string } | null;
 

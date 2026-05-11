@@ -1,9 +1,8 @@
 import { z } from 'zod';
 
-// Adapter for the cross-player base-FS endpoint (PR 6 of plans/cross-
-// player-base-fs-replication.md). Given a parsed workstation_name
-// (extracted from the requested machine_id by the handler), returns
-// every matching workstations row.
+// Adapter for the cross-player base-FS endpoint. Given a parsed
+// workstation_name (extracted from the requested machine_id by the
+// handler), returns every matching workstations row.
 //
 // The handler decides which row matches by recomputing each row's
 // expected workstation_id (`computeWorkstationId(name, player_key)`)

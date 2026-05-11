@@ -18,7 +18,6 @@
 -- Existing rows default to 'ssh' — they were all shell-class anyway
 -- (table only existed for three kinds before this column).
 --
--- See plans/multiplayer-patch-validation.md (Step 2) and
--- project_multiplayer_security_model memory.
+-- See project_multiplayer_security_model memory.
 
 ALTER TABLE sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'ssh';

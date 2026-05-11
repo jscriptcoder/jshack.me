@@ -185,8 +185,8 @@ export const clearOwnedPatches = async (
 
 // ---- getBaseFs ------------------------------------------------------------
 //
-// Cross-player workstation base FS replication (PR 6 of plans/cross-
-// player-base-fs-replication.md). Eager bulk-fetch on session establish:
+// Cross-player workstation base FS replication. Eager bulk-fetch on
+// session establish:
 // when A authenticates onto B's workstation, useFileSystemSync calls
 // this wrapper, the server regenerates B's FS (filtered by A's session
 // userType), and the result is merged into A's local fileSystems map.
@@ -231,8 +231,8 @@ export const getBaseFs = async (
 // ---- exploitRead ---------------------------------------------------------
 //
 // Single-path read against a cross-player workstation at the caller's
-// active session userType (PR 7 of plans/cross-player-base-fs-replication.md).
-// Used by msfconsole's file_read / dir_list CVE flow on cross-player
+// active session userType. Used by msfconsole's file_read / dir_list CVE
+// flow on cross-player
 // workstation targets — wraps the call inside withTransientSession
 // (kind='effect_one_shot') first so the server sees an active session
 // at the CVE-granted tier.
@@ -289,8 +289,8 @@ export const exploitRead = async (
   return entries;
 };
 
-// PR 8 of plans/cross-player-base-fs-replication.md — batched hydra
-// against a cross-player workstation. Caller sends md5(plaintext)
+// Batched hydra against a cross-player workstation. Caller sends
+// md5(plaintext)
 // candidate hashes; server reads the projected credential file and
 // returns matches. Raw stored hashes never cross the wire — only
 // candidates the client already knows.

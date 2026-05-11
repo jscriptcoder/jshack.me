@@ -13,9 +13,8 @@
 -- skipped there. The caller computes the bypass and passes p_dual_write =
 -- false; the function honors it without re-deriving the suffix.
 --
--- See plans/l2-patch-validation.md (Step 3) and the
--- 20260502220000_machine_filesystems migration for the table this projects
--- onto.
+-- See the 20260502220000_machine_filesystems migration for the table this
+-- projects onto.
 
 -- upsert_patch_with_fs: write or replace a patch row, optionally projecting
 -- onto machine_filesystems in the same transaction.

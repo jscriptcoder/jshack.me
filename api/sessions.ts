@@ -146,7 +146,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     },
   );
 
-  // PR 3: FTP overlay (/etc/vsftpd/virtual_users.conf) used by
+  // FTP overlay (/etc/vsftpd/virtual_users.conf) used by
   // authCreateSession's kind='ftp' arm. Falls back to /etc/passwd when
   // the overlay row is absent or the username isn't listed.
   const findVirtualUsersConfContent = createSupabaseFindVirtualUsersConfContent(
@@ -162,7 +162,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     },
   );
 
-  // PR 4: generic (path-parameterized) FS content adapter used by the
+  // Generic (path-parameterized) FS content adapter used by the
   // mysql / redis / snmp arms of authCreateSession. Reads from
   // machine_filesystems where (machine_id, path) matches.
   const findFsContent = createSupabaseFindFsContent(async (params: FindFsContentParams) => {

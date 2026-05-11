@@ -1,10 +1,10 @@
 import { z } from 'zod';
 
 // Batch fetch of machine_filesystems content for a list of paths on a
-// single machine. Used by the cross-player base-FS endpoint (PR 6 of
-// plans/cross-player-base-fs-replication.md) to retrieve the projected
-// auth-critical content (/etc/passwd, vsftpd, mysql, redis, snmp, nc
-// pidfiles) in one round-trip and overlay it onto the regenerated FS.
+// single machine. Used by the cross-player base-FS endpoint to retrieve
+// the projected auth-critical content (/etc/passwd, vsftpd, mysql,
+// redis, snmp, nc pidfiles) in one round-trip and overlay it onto the
+// regenerated FS.
 //
 // The wiring layer (api/patches.ts) issues:
 //

@@ -48,8 +48,8 @@ const makeEnvelope = (
     machine_id: '10.0.0.1',
     credentials: { username: 'root', userType: 'root' },
     // exploit is a non-auth-required kind (signed-envelope tier-trust);
-    // stays valid for createSession after PR 2 step 5 closes the bypass
-    // hole on auth-required kinds (ssh/scp/su) — those must use
+    // stays valid for createSession. The createSession bypass hole on
+    // auth-required kinds (ssh/scp/su) is closed — those must use
     // authCreateSession instead.
     kind: 'exploit',
   },
@@ -110,7 +110,7 @@ const mkDeps = (overrides: {
         (params: FindVirtualUsersConfContentParams) => Promise<FindVirtualUsersConfContentResult>
       >()
       .mockResolvedValue({ ok: true, found: false }),
-  // PR 4: generic FS content adapter, used by mysql/redis/snmp arms.
+  // Generic FS content adapter, used by mysql/redis/snmp arms.
   // Default: every path returns found:false. Per-kind tests override.
   findFsContent:
     overrides.findFsContent ??
@@ -152,8 +152,8 @@ describe('handleSessionsRequest — createSession', () => {
   });
 
   it('passes through explicit kind for non-auth-required kinds (e.g., nc)', async () => {
-    // After PR 4 migrated mysql/redis/snmp into AUTH_REQUIRED_KINDS,
-    // the remaining createSession-routed kinds are: exploit, nc,
+    // After mysql/redis/snmp migrated into AUTH_REQUIRED_KINDS, the
+    // remaining createSession-routed kinds are: exploit, nc,
     // effect_one_shot. nc is the simplest example here.
     const insertSession = vi
       .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
@@ -171,10 +171,9 @@ describe('handleSessionsRequest — createSession', () => {
   });
 
   it('rejects with 400 when kind is omitted (now required, no default)', async () => {
-    // PR 2 step 5: kind became required at the schema level. The previous
-    // server-side fallback to 'ssh' was a back-compat shim for early
-    // pushSession callers; after this change, all callers specify kind
-    // explicitly.
+    // kind became required at the schema level. The previous server-side
+    // fallback to 'ssh' was a back-compat shim for early pushSession
+    // callers; after this change, all callers specify kind explicitly.
     const insertSession = vi
       .fn<(row: SessionRow) => Promise<InsertSessionResult>>()
       .mockResolvedValue({ ok: true, session_id: STUB_SESSION_ID });
@@ -847,7 +846,7 @@ describe('handleSessionsRequest — listSessions', () => {
   });
 });
 
-// ----- authCreateSession (PR 2) ---------------------------------------
+// ----- authCreateSession ----------------------------------------------
 //
 // Server-authoritative auth + session creation, atomic. Server reads the
 // target's /etc/passwd from machine_filesystems, validates the auth
@@ -1185,7 +1184,7 @@ describe('handleSessionsRequest — authCreateSession', () => {
     });
   });
 
-  // ----- FTP-specific (PR 3) ------------------------------------------
+  // ----- FTP-specific -------------------------------------------------
   //
   // FTP uses /etc/vsftpd/virtual_users.conf as an overlay on top of
   // /etc/passwd. When the username is in virtual_users.conf, that hash
@@ -1466,7 +1465,7 @@ describe('handleSessionsRequest — authCreateSession', () => {
     });
   });
 
-  // ----- PR 4: MySQL ---------------------------------------------------
+  // ----- MySQL ---------------------------------------------------------
   //
   // MySQL reads /var/lib/mysql/data.json. userType comes from the JSON
   // entry (each credential carries its own userType, unlike FTP where
@@ -1614,7 +1613,7 @@ describe('handleSessionsRequest — authCreateSession', () => {
     });
   });
 
-  // ----- PR 4: Redis ---------------------------------------------------
+  // ----- Redis ---------------------------------------------------------
   //
   // Redis is shared-secret. Sentinel username='redis'. requirepass
   // plaintext compare; userType always 'root' on success.
@@ -1732,7 +1731,7 @@ describe('handleSessionsRequest — authCreateSession', () => {
     });
   });
 
-  // ----- PR 4: SNMP ----------------------------------------------------
+  // ----- SNMP ----------------------------------------------------------
   //
   // SNMP shared-secret via rwcommunity. snmpset is the only path that
   // creates a session today. rocommunity stays read-only/sessionless.
@@ -1847,8 +1846,7 @@ describe('handleSessionsRequest — authCreateSession', () => {
   });
 
   describe('nc backdoor (kind=nc)', () => {
-    // PR 5 of plans/cross-player-base-fs-replication.md — nc backdoor
-    // pidfile read. Server reads /var/run/nc-<port>.pid from
+    // nc backdoor pidfile read. Server reads /var/run/nc-<port>.pid from
     // machine_filesystems, parses the line written by `nc -l`, derives
     // credentials, and inserts a kind:'nc' session at the listener's
     // tier. Forge clients can no longer mint cross-player nc sessions

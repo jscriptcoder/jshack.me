@@ -4,7 +4,7 @@ import type { FileNode, MachineWriteOp } from '../filesystem/types';
 import type { AuthMethod } from '../sessionRegistry/types';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
-// PR 4: server-authoritative SNMP auth. The community string the user
+// Server-authoritative SNMP auth. The community string the user
 // supplies is sent as the auth password to authCreateSession (kind:'snmp')
 // — the server validates against /etc/snmp/snmpd.conf rwcommunity. Result
 // is a session at userType='root'; rocommunity matches are rejected
@@ -222,7 +222,7 @@ export const createSnmpsetCommand = (context: SnmpsetContext): Command => ({
         token.schedule(() => {
           if (token.isCancelled()) return;
           // Write the updated config back to the filesystem.
-          // PR 4: wrap in a server-authoritative transient session.
+          // Wrap in a server-authoritative transient session.
           // The community string is the auth secret — server validates
           // against rwcommunity in /etc/snmp/snmpd.conf and creates a
           // session at userType='root' (snmpset writes as root).

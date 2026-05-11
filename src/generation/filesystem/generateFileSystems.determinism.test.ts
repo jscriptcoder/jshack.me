@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildTestData } from './testHelpers';
 
-// L2 patch validation gate — see plans/l2-patch-validation.md Step 1.
+// L2 patch validation gate.
 //
 // L2's server-side permission walker reads from machine_filesystems, which is
 // dual-written from the same FS generator the client runs. The whole approach

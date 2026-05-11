@@ -11,11 +11,9 @@ import { z } from 'zod';
 // hashes only (format `username:md5hash` per line).
 //
 // Mirrors createSupabaseFindEtcPasswdContent — same shape so the wiring
-// in api/sessions.ts stays consistent. PR 4 (MySQL/Redis/SNMP) may
-// generalize to a parameterized createSupabaseFindFsContent({ path }),
-// but the per-file factory keeps PR 3 isolated.
-//
-// PR 3 of plans/cross-player-base-fs-replication.md.
+// in api/sessions.ts stays consistent. The MySQL/Redis/SNMP equivalents
+// may generalize to a parameterized createSupabaseFindFsContent({ path }),
+// but the per-file factory keeps this branch isolated.
 
 type RowError = { readonly code?: string; readonly message?: string } | null;
 

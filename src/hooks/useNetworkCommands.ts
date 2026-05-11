@@ -551,8 +551,8 @@ export const useNetworkCommands = (): Map<string, Command> => {
               // subscription is on the workstation_id so the broadcast
               // never reaches B's tab. Mirrors exploitFileRead /
               // exploitDirList / logFs.writeFileToMachine. NPC / mission /
-              // world / own-workstation IPs pass through unchanged. PR 8
-              // smoke surfaced this on file_write (msfconsole CVE).
+              // world / own-workstation IPs pass through unchanged.
+              // Surfaced in smoke on file_write (msfconsole CVE).
               const canonicalMachineId = resolveTargetMachineId(machineId);
               let writeResult: { allowed: boolean; error?: string } = { allowed: false };
               await withTransientSession(
@@ -579,8 +579,8 @@ export const useNetworkCommands = (): Map<string, Command> => {
             },
             listRemoteDir: (machineId, path, tier = 'root') =>
               listDirectoryFromMachine({ machineId, path, cwd: '/', userType: tier }),
-            // PR 7 of plans/cross-player-base-fs-replication.md — cross-
-            // player-aware file_read / dir_list. Translates the supplied
+            // Cross-player-aware file_read / dir_list. Translates the
+            // supplied
             // ip-form machineId to canonical (workstation_id for LAN
             // occupants, unchanged for NPC / mission / world). Cross-player
             // workstation targets bounce through the server's exploitRead
@@ -637,7 +637,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
               // workstations must key the transient session AND every write
               // the script performs by B's canonical workstation_id, not
               // the LAN IP. Otherwise patch broadcasts miss B's Realtime
-              // subscription. PR 8 file_write smoke surfaced the writeRemoteFile
+              // subscription. file_write smoke surfaced the writeRemoteFile
               // bug; this branch has the same shape.
               const canonicalMachineId = resolveTargetMachineId(machineId);
               return await withTransientSession(
@@ -680,8 +680,8 @@ export const useNetworkCommands = (): Map<string, Command> => {
             getLocalNode: (path: string) => getNode(resolvePath(path)),
             getCurrentPath: () => session.currentPath,
             onBruteForceAggregate: onHydraBruteForceAggregate,
-            // PR 8 of plans/cross-player-base-fs-replication.md — when
-            // the target IP resolves to another player's workstation_id,
+            // When the target IP resolves to another player's
+            // workstation_id,
             // hydra routes through the server's batched crackCredentials
             // endpoint instead of the local /etc/passwd sweep (which
             // sees an empty FS pre-session for cross-player workstations).
@@ -746,7 +746,7 @@ export const useNetworkCommands = (): Map<string, Command> => {
             resolveDomain,
             getNodeFromMachine,
             writeFileToMachine,
-            // PR 4 — server-authoritative SNMP auth. Community string is
+            // Server-authoritative SNMP auth. Community string is
             // the credential; server validates rwcommunity match against
             // /etc/snmp/snmpd.conf and creates a session at userType='root'.
             withTransientAuthSession: async (params, body) => {

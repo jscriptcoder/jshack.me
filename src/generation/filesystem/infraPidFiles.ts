@@ -9,11 +9,11 @@ import { mkFile } from './helpers';
 //   - NPC-baked via the network generator, when an `elite`-service port is
 //     created with an `owner` (mission/home networks, closure-mission
 //     enrichment). Those need a generation-time pidfile so the server's
-//     authCreateSession+pidfile path (PR 5 of plans/cross-player-base-fs-
-//     replication.md) can read /var/run/nc-<port>.pid and derive the
-//     listener's tier from the same canonical content the player would
-//     have written. Without this, cross-player nc against an NPC backdoor
-//     returns 401 invalid_credentials because the pidfile doesn't exist.
+//     authCreateSession+pidfile path can read /var/run/nc-<port>.pid and
+//     derive the listener's tier from the same canonical content the
+//     player would have written. Without this, cross-player nc against an
+//     NPC backdoor returns 401 invalid_credentials because the pidfile
+//     doesn't exist.
 type InfraPidConfig = {
   readonly pidFile: string;
   readonly binary: string;

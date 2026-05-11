@@ -75,10 +75,9 @@ describe('regenWorkstationRows', () => {
     expect(stripMachineId(a)).toEqual(stripMachineId(b));
   });
 
-  // The whole point of PR 1: /etc/passwd content must reflect the actual
-  // rootPassword the player chose, not a placeholder. Without this,
-  // cross-player password validation in PR 2 has nothing to compare
-  // against.
+  // /etc/passwd content must reflect the actual rootPassword the player
+  // chose, not a placeholder. Without this, cross-player password
+  // validation has nothing to compare against.
   it('embeds md5(rootPassword) in /etc/passwd content for the root user', () => {
     const rows = regenWorkstationRows({ ...baseInput, rootPassword: 'hello' });
     const passwd = findRow(rows, '/etc/passwd');

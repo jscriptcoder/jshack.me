@@ -57,11 +57,10 @@ export const createSessionSignedPayloadSchema = z
     credentials: credentialsSchema,
     parent_session_id: z.string().uuid().optional(),
     source_ip: z.string().min(1).max(256).optional(),
-    // Required as of PR 2 step 5 of plans/cross-player-base-fs-
-    // replication.md. Previously optional with a server-side default
-    // of 'ssh' for back-compat with early pushSession callers; now all
-    // callers must specify kind explicitly. Auth-required kinds
-    // (ssh/scp/su) sent here are rejected by the handler with 403
+    // Previously optional with a server-side default of 'ssh' for
+    // back-compat with early pushSession callers; now all callers must
+    // specify kind explicitly. Auth-required kinds (ssh/scp/su) sent
+    // here are rejected by the handler with 403
     // use_authcreatesession — they must use authCreateSession.
     kind: z.enum(SESSION_KINDS),
   })
@@ -119,21 +118,20 @@ export type ListSessionsPayload = z.infer<typeof listSessionsSignedPayloadSchema
 //   snmp           → /etc/snmp/snmpd.conf rwcommunity (shared secret;
 //                    sentinel `username:'snmp'`); userType `'root'` on
 //                    match (snmpset path; rocommunity stays read-only/
-//                    sessionless until /api/exploit-read in PR 7).
+//                    sessionless until /api/exploit-read).
 export const AUTH_REQUIRED_KINDS = ['ssh', 'scp', 'su', 'ftp', 'mysql', 'redis', 'snmp'] as const;
 export type AuthRequiredKind = (typeof AUTH_REQUIRED_KINDS)[number];
 
-// PR 5 of plans/cross-player-base-fs-replication.md — superset of
-// AUTH_REQUIRED_KINDS. authCreateSession's wire schema accepts these
-// kinds; AUTH_REQUIRED_KINDS is the subset for which createSession is
-// rejected (forge-bypass closure).
+// Superset of AUTH_REQUIRED_KINDS. authCreateSession's wire schema
+// accepts these kinds; AUTH_REQUIRED_KINDS is the subset for which
+// createSession is rejected (forge-bypass closure).
 //
 //   nc → /var/run/nc-<port>.pid (line `nc:port=X,user=Y,userType=Z,
 //        home=W`); method:'pidfile'. Server reads pidfile from
 //        machine_filesystems and derives credentials. NOT in
 //        AUTH_REQUIRED_KINDS yet — `createSession({kind:'nc'})` keeps
-//        working for the msfconsole shell_limited path until PR 7
-//        closes that gap with effect-grant validation.
+//        working for the msfconsole shell_limited path until that gap
+//        is closed with effect-grant validation.
 export const AUTH_CREATABLE_KINDS = [...AUTH_REQUIRED_KINDS, 'nc'] as const;
 export type AuthCreatableKind = (typeof AUTH_CREATABLE_KINDS)[number];
 
@@ -149,7 +147,7 @@ export type AuthCreatableKind = (typeof AUTH_CREATABLE_KINDS)[number];
 // from machine_id alone (NAT can map an external IP to a different
 // machine_id).
 //
-// pidfile (PR 5) carries `port` so the server can build the path
+// pidfile carries `port` so the server can build the path
 // `/var/run/nc-<port>.pid` and read the pidfile content from
 // machine_filesystems. No username/password is sent — the pidfile
 // content is the credential, and the server parses
@@ -184,8 +182,6 @@ export type AuthMethod = z.infer<typeof authMethodSchema>;
 // method against it, derives userType from the parsed entry, and
 // inserts the session row. The wire payload deliberately does NOT
 // carry a userType — server-derived only, never trusted from clients.
-//
-// PR 2 of plans/cross-player-base-fs-replication.md.
 export const authCreateSessionSignedPayloadSchema = z
   .object({
     action: z.literal('authCreateSession'),

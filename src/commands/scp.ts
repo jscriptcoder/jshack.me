@@ -8,9 +8,8 @@ import { createCancellationToken, jitter } from '../utils/asyncCommand';
 // Transient auth-required session wrapper: validates credentials
 // against /etc/passwd via authCreateSession, runs the body inside the
 // resulting session, ends the session. Replaces the previous
-// withTransientSession (kind='scp' is now auth-required per PR 2 step 5
-// of plans/cross-player-base-fs-replication.md). Optional to keep
-// existing tests that don't care about session pushing — production
+// withTransientSession (kind='scp' is now auth-required). Optional to
+// keep existing tests that don't care about session pushing — production
 // callers in useNetworkCommands MUST supply it.
 export type ScpTransientAuthSession = (
   params: {
@@ -215,7 +214,6 @@ export const createScpCommand = (context: ScpContext): Command => ({
     // Server validates the auth via authCreateSession + creates a
     // transient kind='scp' session in one round-trip; transfer body
     // runs inside that session for L1 enforcement on the patch write.
-    // PR 2 step 8 of plans/cross-player-base-fs-replication.md.
     const performTransfer = (auth: AuthMethod): AsyncOutput => {
       const transferToken = createCancellationToken();
 

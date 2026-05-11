@@ -1,9 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createSupabaseFindWorkstationsByName } from './supabaseFindWorkstationsByName';
 
-// PR 6 of plans/cross-player-base-fs-replication.md — query workstations
-// rows by workstation_name. The handler matches the suffix in TS; the
-// adapter stays SQL-only so the test surface is small.
+// Query workstations rows by workstation_name. The handler matches the
+// suffix in TS; the adapter stays SQL-only so the test surface is small.
 //
 // Multiple rows can come back if two players chose the same name (rare
 // but valid). The handler iterates and finds the one whose computed

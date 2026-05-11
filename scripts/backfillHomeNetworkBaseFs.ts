@@ -16,8 +16,7 @@
 // once after deploy populates them; the new createNetwork hook handles
 // go-forward home networks automatically. World networks need an
 // analogous script (deferred follow-up). Mission machines stay leaf-
-// only until server-side mission_instances lands (also deferred —
-// captured in plans/l2-patch-validation.md).
+// only until server-side mission_instances lands (also deferred).
 
 import './lib/loadEnv';
 import { createClient } from '@supabase/supabase-js';

@@ -11,8 +11,6 @@
 // pools/PRNG modules into the serverless function. Drift risk vs the
 // generator is bounded — both sides have unit tests pinning the format,
 // and the format is trivial.
-//
-// PR 3 of plans/cross-player-base-fs-replication.md.
 
 export const findVirtualUserHash = (
   content: string | null,

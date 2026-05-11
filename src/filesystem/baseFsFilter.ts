@@ -2,8 +2,7 @@ import type { FileNode } from './types';
 import type { UserType } from '../session/types';
 import { canExecute, canRead } from './permissionWalker';
 
-// Tier-2 walker filter for the cross-player base FS endpoint (PR 6 of
-// plans/cross-player-base-fs-replication.md).
+// Tier-2 walker filter for the cross-player base FS endpoint.
 //
 // Walks a regenerated + projection-overlaid FileNode tree and drops
 // every node the caller's userType cannot reach in-game. Two rules,

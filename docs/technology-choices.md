@@ -614,7 +614,6 @@ When two players hold patches on the same path and one deletes, the projection d
 
 ### Where the decision lives
 
-- Plan: `plans/l2-patch-validation.md`
 - Schema: `supabase/migrations/20260502220000_machine_filesystems.sql`
 - Dual-write functions: `supabase/migrations/20260502230000_l2_dual_write_functions.sql`
 - Walker: `src/filesystem/permissionWalker.ts`

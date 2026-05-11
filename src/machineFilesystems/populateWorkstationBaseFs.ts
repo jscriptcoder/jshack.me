@@ -16,13 +16,13 @@ import { flattenFileSystemsToRows, type MachineFsRow } from './flattenFileNode';
 // isOwnWorkstationOnServer (suffix-derived bypass) — that path is
 // unaffected by this projection.
 //
-// PR 1 of plans/cross-player-base-fs-replication.md drops the previous
-// PLACEHOLDER_SEED + PLACEHOLDER_ROOT_PASSWORD constants. Cross-player
-// password validation (PR 2) compares the player's submitted password
-// against the hash inside projected /etc/passwd content; with placeholder
-// values, that comparison would always fail. Real seed and rootPassword
-// come from the registration envelope; rootPassword is consumed here and
-// discarded by the caller (never persisted as a column).
+// Replaces the previous PLACEHOLDER_SEED + PLACEHOLDER_ROOT_PASSWORD
+// constants. Cross-player password validation compares the player's
+// submitted password against the hash inside projected /etc/passwd
+// content; with placeholder values, that comparison would always fail.
+// Real seed and rootPassword come from the registration envelope;
+// rootPassword is consumed here and discarded by the caller (never
+// persisted as a column).
 //
 // FS structure invariant under (seed, rootPassword, hostname) is locked
 // in by src/generation/generateLocalhost.test.ts — only /etc/passwd

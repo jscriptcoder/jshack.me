@@ -3,16 +3,15 @@ import type { FileNode } from './types';
 // Overlay projected-path content from machine_filesystems onto a freshly
 // regenerated FileNode tree.
 //
-// Why this exists: cross-player getBaseFs (PR 6 of plans/cross-player-
-// base-fs-replication.md) regens the workstation FS via generateLocalhost
-// using the workstation row's seed AND a placeholder rootPassword
-// (because the real rootPassword is intentionally NOT persisted server-
-// side — see decision #2 in the plan). The /etc/passwd content this
-// regen produces would have the WRONG hash for everything credential-
-// dependent. Cross-player auth (PRs 2-5) reads /etc/passwd from
-// machine_filesystems' projected content — that has the REAL hash.
-// This helper makes the FileNode tree A receives match the FS the
-// server's auth path actually validated against.
+// Why this exists: cross-player getBaseFs regens the workstation FS via
+// generateLocalhost using the workstation row's seed AND a placeholder
+// rootPassword (because the real rootPassword is intentionally NOT
+// persisted server-side). The /etc/passwd content this regen produces
+// would have the WRONG hash for everything credential-dependent.
+// Cross-player auth reads /etc/passwd from machine_filesystems' projected
+// content — that has the REAL hash. This helper makes the FileNode tree
+// A receives match the FS the server's auth path actually validated
+// against.
 //
 // Pure recursion; produces a structurally-fresh tree for any node whose
 // content differs from the input. Nodes whose path is not in the

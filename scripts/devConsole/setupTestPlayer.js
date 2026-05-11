@@ -77,10 +77,10 @@
     tx.objectStore('filesystem').clear();
   });
 
-  // Register the workstation server-side. PR 1 of cross-player base FS
+  // Register the workstation server-side. Cross-player base FS
   // replication persists `seed` in the workstations row and embeds
   // md5(rootPassword) in projected /etc/passwd content — required for
-  // PR 2's cross-player password validation to succeed.
+  // cross-player password validation to succeed.
   const { registerWorkstation } = await import('/src/workstationRegistry/client.ts');
   const { getIdentity } = await import('/src/identity/index.ts');
   try {

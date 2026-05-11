@@ -6,8 +6,6 @@
 // hashing — Redis predates that pattern); the game model matches.
 // Format: `requirepass <value>` per line, leading whitespace allowed,
 // `#`-prefixed lines are comments.
-//
-// PR 4 of plans/cross-player-base-fs-replication.md.
 
 export const findRedisRequirepass = (content: string | null): string | undefined => {
   if (!content) return undefined;

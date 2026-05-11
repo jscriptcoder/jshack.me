@@ -2,9 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { buildNcBackdoorPidFiles } from './infraPidFiles';
 import type { Port } from '../../network/types';
 
-// PR 5 of plans/cross-player-base-fs-replication.md — NPC backdoors
-// need a generation-time `/var/run/nc-<port>.pid` so cross-player
-// nc-connect can read it server-side.
+// NPC backdoors need a generation-time `/var/run/nc-<port>.pid` so
+// cross-player nc-connect can read it server-side.
 
 const ELITE_PORT = (overrides: Partial<Port> = {}): Port => ({
   port: 4444,

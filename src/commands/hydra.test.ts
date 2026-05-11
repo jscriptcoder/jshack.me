@@ -9,10 +9,9 @@ import { passwords as passwordPool } from '../generation/pools';
 
 // Test fixtures need passwordHash on each user to synthesize /etc/passwd
 // content (mkPasswdNodeFromUsers below). The runtime RemoteUser type
-// dropped passwordHash in step 6 of plans/etc-passwd-canonical.md, so
-// fixtures use GeneratedUser (a superset). Production code that consumes
-// RemoteMachine.users gets the structural subtype unchanged via
-// covariance.
+// dropped passwordHash, so fixtures use GeneratedUser (a superset).
+// Production code that consumes RemoteMachine.users gets the structural
+// subtype unchanged via covariance.
 type FixtureMachine = Omit<RemoteMachine, 'users'> & {
   readonly users: readonly GeneratedUser[];
 };
@@ -1356,9 +1355,8 @@ describe('hydra command', () => {
     });
   });
 
-  // PR 8 of plans/cross-player-base-fs-replication.md — cross-player
-  // workstation dispatch goes through the server's batched credential-
-  // check endpoint instead of the local /etc/passwd sweep.
+  // Cross-player workstation dispatch goes through the server's batched
+  // credential-check endpoint instead of the local /etc/passwd sweep.
   describe('cross-player workstation dispatch', () => {
     afterEach(() => {
       vi.useRealTimers();

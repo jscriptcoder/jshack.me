@@ -1,11 +1,10 @@
-// End-to-end forge smoke for authCreateSession (PRs 2-4 of
-// plans/cross-player-base-fs-replication.md) against vercel:dev.
+// End-to-end forge smoke for authCreateSession against vercel:dev.
 //
 // Setup: registers a fresh workstation so the server has a known
 // /etc/passwd content with predictable hashes. Then forges signed
 // envelopes covering every authCreateSession outcome:
 //
-//   PR 2 (ssh / scp / su)
+//   ssh / scp / su
 //   1.  authCreateSession password ok → 201 with session_id + userType
 //   2.  wrong password → 401 invalid_credentials, no session row
 //   3.  unknown username → 401 invalid_credentials (no enumeration leak)
@@ -14,19 +13,19 @@
 //   6.  savedKey wrong targetIp → 401 invalid_credentials
 //   7.  derived userType matches /etc/passwd (server-side, not claimed)
 //
-//   PR 2 step 5 — bypass closure
+//   bypass closure
 //   8.  createSession kind=ssh → 403 use_authcreatesession
 //   9.  createSession kind=exploit → 200 (non-auth-required kinds still
 //       work via createSession)
 //
-//   PR 3 (ftp)
+//   ftp
 //   10. authCreateSession kind=ftp + virtual_users.conf overlay match → 201
 //   11. wrong FTP password → 401 invalid_credentials
 //   12. user not in virtual_users.conf falls back to /etc/passwd → 201
 //   13. kind=ftp + savedKey method → 401 invalid_credentials
 //   14. createSession kind=ftp → 403 use_authcreatesession
 //
-//   PR 4 (mysql / redis / snmp)
+//   mysql / redis / snmp
 //   15. mysql password match → 201, userType from data.json
 //   16. mysql wrong password → 401
 //   17. createSession kind=mysql → 403 use_authcreatesession
@@ -259,7 +258,7 @@ check(
   `status=${r9.status} body=${JSON.stringify(r9.body)}`,
 );
 
-// ---- FTP server-authoritative auth (PR 3) ----------------------------
+// ---- FTP server-authoritative auth -----------------------------------
 //
 // Set up a /etc/vsftpd/virtual_users.conf overlay row for the registered
 // workstation. virtual_users.conf format is `username:md5hash` per line
@@ -349,7 +348,7 @@ check(
   `status=${r13.status} body=${JSON.stringify(r13.body)}`,
 );
 
-// ---- 14. createSession with kind=ftp is rejected (PR 3 closes bypass)
+// ---- 14. createSession with kind=ftp is rejected (bypass closure)
 
 const env14 = signRequest(identity, 'createSession', {
   machine_id: machineId,
@@ -363,7 +362,7 @@ check(
   `status=${r14.status} body=${JSON.stringify(r14.body)}`,
 );
 
-// ---- MySQL / Redis / SNMP server-auth (PR 4) -------------------------
+// ---- MySQL / Redis / SNMP server-auth --------------------------------
 
 const MYSQL_PASSWORD = 'mysql-admin-pw';
 const MYSQL_CONTENT = JSON.stringify({
@@ -541,7 +540,7 @@ check(
   `status=${r23.status} body=${JSON.stringify(r23.body)}`,
 );
 
-// ---- nc backdoor pidfile auth (PR 5) --------------------------------
+// ---- nc backdoor pidfile auth ---------------------------------------
 //
 // Server reads /var/run/nc-<port>.pid from machine_filesystems and
 // derives credentials. Wire payload: kind:'nc', auth:{method:'pidfile',
@@ -644,10 +643,10 @@ check(
 );
 
 // ---- 28. nc with credentials NOT mintable via createSession path? ---
-// PR 5 deliberately keeps `createSession` with kind:'nc' working — the
-// msfconsole shell_limited path (CVE-yielded shells) needs it until
-// PR 7 closes the effect-grant gap. Pin that as a regression so PR 7
-// remembers to flip the bit.
+// `createSession` with kind:'nc' is deliberately kept working — the
+// msfconsole shell_limited path (CVE-yielded shells) needs it until the
+// effect-grant gap is closed. Pin that as a regression so the eventual
+// flip-the-bit follow-up has a tripwire.
 
 const env28 = signRequest(identity, 'createSession', {
   machine_id: machineId,
@@ -656,7 +655,7 @@ const env28 = signRequest(identity, 'createSession', {
 });
 const r28 = await post('/api/sessions', env28);
 check(
-  '28. createSession kind=nc still allowed (msfconsole path; PR 7 closes)',
+  '28. createSession kind=nc still allowed (msfconsole path; effect-grant gap pending)',
   r28.status === 200 && typeof (r28.body as { session_id?: string })?.session_id === 'string',
   `status=${r28.status} body=${JSON.stringify(r28.body)}`,
 );

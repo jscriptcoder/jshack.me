@@ -18,8 +18,6 @@ import { z } from 'zod';
 // Strict zod validation catches schema drift (e.g. a future migration
 // changing the content column type). On any error, falls closed →
 // ok: false → handler maps to 500.
-//
-// See plans/etc-passwd-canonical.md step 5b.
 
 type RowError = { readonly code?: string; readonly message?: string } | null;
 

@@ -78,10 +78,10 @@ const makeKeyEntry = (user: string, ip: string, passwordHash: string) =>
   `${user}@${ip}:${computeFingerprint(user, ip, passwordHash)}`;
 
 describe('useAuthentication', () => {
-  // OBSOLETE — su local password validation moved server-side in PR 2
-  // step 9. The new flow routes through pushAuthSession with kind='su';
-  // contract is enforced by sessionRegistry/handler.test.ts (server) and
-  // the forge smoke (step 11).
+  // OBSOLETE — su local password validation moved server-side. The new
+  // flow routes through pushAuthSession with kind='su'; contract is
+  // enforced by sessionRegistry/handler.test.ts (server) and the forge
+  // smoke.
   describe.skip('su (local user switch)', () => {
     it('switches user on correct password validated against /etc/passwd', () => {
       const opts = makeOptions();
@@ -217,12 +217,11 @@ describe('useAuthentication', () => {
     });
   });
 
-  // OBSOLETE — local password validation moved server-side in PR 2 step 7
-  // of plans/cross-player-base-fs-replication.md. Server-side behavior is
-  // tested by sessionRegistry/handler.test.ts; the new contract for the
-  // useAuthentication wire-up is tested in 'SSH server-authoritative auth
-  // (PR 2)' below. This block is left as describe.skip for historical
-  // reference; clean up in step 8 (SCP migration) or at PR 2 close.
+  // OBSOLETE — local password validation moved server-side. Server-side
+  // behavior is tested by sessionRegistry/handler.test.ts; the new
+  // contract for the useAuthentication wire-up is tested in 'SSH
+  // server-authoritative auth' below. This block is left as describe.skip
+  // for historical reference.
   describe.skip('SSH interactive authentication', () => {
     it('connects immediately when authorized key exists', () => {
       const remoteUser = makeRemoteUser();
@@ -660,13 +659,13 @@ describe('useAuthentication', () => {
     });
   });
 
-  // PR 3 of plans/cross-player-base-fs-replication.md: FTP auth moved to
-  // server-authoritative (authCreateSession with kind='ftp'). Local
+  // FTP auth moved to server-authoritative (authCreateSession with
+  // kind='ftp'). Local
   // validation against /etc/passwd + /etc/vsftpd/virtual_users.conf is
   // replaced by a server roundtrip. The new contract is tested in
   // sessionRegistry/handler.test.ts (server side) and the forge smoke
   // (scripts/testServerAuth.ts). These three describe blocks are kept as
-  // describe.skip for historical reference; clean up at PR 3 close.
+  // describe.skip for historical reference.
   describe.skip('FTP interactive authentication', () => {
     it('prompts for username then password, enters FTP mode on success', () => {
       const remoteUser = makeRemoteUser();
@@ -1146,10 +1145,10 @@ describe('useAuthentication', () => {
     });
   });
 
-  // OBSOLETE — SCP local password validation moved server-side in PR 2
-  // step 8. The new contract (auth threaded through performTransfer to
-  // withTransientAuthSession) is exercised by the forge smoke (step 11)
-  // and two-browser smoke (step 12).
+  // OBSOLETE — SCP local password validation moved server-side. The new
+  // contract (auth threaded through performTransfer to
+  // withTransientAuthSession) is exercised by the forge smoke and
+  // two-browser smoke.
   describe.skip('SCP interactive authentication', () => {
     it('executes transfer immediately with authorized key', () => {
       const remoteUser = makeRemoteUser();
@@ -1762,8 +1761,8 @@ describe('useAuthentication', () => {
     });
   });
 
-  // TODO(PR 2 step 12): NAT-resolution coverage moved into the new
-  // SSH server-authoritative auth describe — leaving the original
+  // TODO: NAT-resolution coverage moved into the new SSH
+  // server-authoritative auth describe — leaving the original
   // assertion shape (pushSession) skipped pending unification.
   describe.skip('NAT resolution', () => {
     it('resolves NAT before checking credentials', () => {
@@ -1790,9 +1789,9 @@ describe('useAuthentication', () => {
     });
   });
 
-  // TODO(PR 2 step 12): resetAuthState test fails in full-suite ordering
-  // (passes in isolation). Likely a React state leak from the new SSH
-  // server-auth describe block above; investigate during PR 2 close-out.
+  // TODO: resetAuthState test fails in full-suite ordering (passes in
+  // isolation). Likely a React state leak from the new SSH server-auth
+  // describe block above; investigate during close-out.
   describe.skip('resetAuthState', () => {
     it('clears password and FTP username modes', () => {
       const opts = makeOptions();
@@ -1809,7 +1808,7 @@ describe('useAuthentication', () => {
     });
   });
 
-  // TODO(PR 2 step 12): same cross-test leak as resetAuthState above.
+  // TODO: same cross-test leak as resetAuthState above.
   describe.skip('password masking', () => {
     it('displays masked password in terminal output', () => {
       const remoteUser = makeRemoteUser();
@@ -1831,12 +1830,12 @@ describe('useAuthentication', () => {
     });
   });
 
-  // TODO(PR 2 step 12): these tests pass in isolation but fail in
-  // full-suite ordering (renderHook returns null after some prior test
-  // contaminates React state). Production code is exercised by the forge
-  // smoke (testServerAuth.ts in step 11) and two-browser smoke (step 12).
-  // Investigate the cross-test leak as part of close-out.
-  describe.skip('SSH server-authoritative auth (PR 2)', () => {
+  // TODO: these tests pass in isolation but fail in full-suite ordering
+  // (renderHook returns null after some prior test contaminates React
+  // state). Production code is exercised by the forge smoke
+  // (testServerAuth.ts) and two-browser smoke. Investigate the
+  // cross-test leak as part of close-out.
+  describe.skip('SSH server-authoritative auth', () => {
     // Replaces the obsolete describe.skip blocks above. The server-side
     // contract is tested in sessionRegistry/handler.test.ts; the tests
     // here pin the wire-up: the right shape gets sent to pushAuthSession,

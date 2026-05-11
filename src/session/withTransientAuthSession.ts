@@ -2,15 +2,13 @@ import type { Identity } from '../identity/identity.js';
 import { authCreateSession, endSession as endServerSession } from '../sessionRegistry/client.js';
 import type { AuthMethod, AuthRequiredKind } from '../sessionRegistry/types.js';
 
-// Auth-required equivalent of withTransientSession (PR 2 step 8 of
-// plans/cross-player-base-fs-replication.md). Validates credentials
-// against /etc/passwd via authCreateSession, runs `body` inside the
-// resulting session, and ends the session in `finally`.
+// Auth-required equivalent of withTransientSession. Validates
+// credentials against /etc/passwd via authCreateSession, runs `body`
+// inside the resulting session, and ends the session in `finally`.
 //
-// Used by SCP's transient transfer session and (in PR 3) FTP's
-// per-login session, etc. Like its sibling, body's success or throw
-// is preserved through the finally; an end-session failure is logged
-// and swallowed.
+// Used by SCP's transient transfer session and FTP's per-login session,
+// etc. Like its sibling, body's success or throw is preserved through
+// the finally; an end-session failure is logged and swallowed.
 //
 // Result discriminates auth failure (server returned 401
 // invalid_credentials, or 429 rate_limited) from body throws (network

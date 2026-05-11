@@ -6,8 +6,7 @@
 -- The findit.io network generator reads every world_networks row at
 -- boot, filters to rows with non-null search_metadata, and snapshots
 -- the result into /etc/findit/index.json on findit.io's filesystem
--- (see plans/findit-search-engine.md and src/themedNetworks/handlers/
--- searchEngine.ts).
+-- (see src/themedNetworks/handlers/searchEngine.ts).
 --
 -- Migration is additive — existing playground row stays unindexed
 -- (search_metadata = NULL). Themed networks ship their metadata in

@@ -147,8 +147,8 @@ const mkDeps = (overrides: {
     vi
       .fn<(params: FindActiveSessionsBatchParams) => Promise<FindActiveSessionsBatchResult>>()
       .mockResolvedValue({ ok: true, sessionsByMachine: new Map() }),
-  // PR 6: getBaseFs deps. Default to no rows / empty content map so
-  // unrelated tests don't accidentally exercise the regen path.
+  // getBaseFs deps. Default to no rows / empty content map so unrelated
+  // tests don't accidentally exercise the regen path.
   findWorkstationsByName:
     overrides.findWorkstationsByName ??
     vi
@@ -1422,8 +1422,8 @@ describe('handlePatchesRequest — session-existence gate (L1)', () => {
     });
 
     it('forces dualWrite=true on own-workstation when path is in FS_PROJECTED_CONTENT_PATHS', async () => {
-      // PR 5 of plans/cross-player-base-fs-replication.md — projected
-      // paths (auth-critical files: /etc/passwd, /var/run/*.pid, etc.)
+      // Projected paths (auth-critical files: /etc/passwd, /var/run/*.pid,
+      // etc.)
       // must dual-write even when the writer is the workstation owner.
       // Otherwise cross-player auth (`nc -l 6666` on B → A nc-connects)
       // returns 401 invalid_credentials because the row never lands in
@@ -2397,7 +2397,7 @@ describe('handlePatchesRequest — L2 walker enforcement', () => {
 });
 
 // -----------------------------------------------------------------------
-// getBaseFs (PR 6 of plans/cross-player-base-fs-replication.md)
+// getBaseFs
 // -----------------------------------------------------------------------
 
 describe('handlePatchesRequest — getBaseFs', () => {
@@ -2778,11 +2778,10 @@ describe('handlePatchesRequest — getBaseFs', () => {
   });
 });
 
-// PR 7 of plans/cross-player-base-fs-replication.md — single-path read
-// against a cross-player workstation, walked at the active session's
-// userType. Mirrors getBaseFs in dispatch shape; differs in that it
-// returns one path's content (file_read) or one directory's entries
-// (dir_list) instead of the whole FileNode tree.
+// Single-path read against a cross-player workstation, walked at the
+// active session's userType. Mirrors getBaseFs in dispatch shape;
+// differs in that it returns one path's content (file_read) or one
+// directory's entries (dir_list) instead of the whole FileNode tree.
 describe('handlePatchesRequest — exploitRead', () => {
   let identity: Identity;
   let workstationName: string;
@@ -3309,7 +3308,7 @@ describe('handlePatchesRequest — exploitRead', () => {
 });
 
 // -----------------------------------------------------------------------
-// crackCredentials — PR 8 of cross-player-base-fs-replication
+// crackCredentials
 // -----------------------------------------------------------------------
 
 describe('handlePatchesRequest — crackCredentials', () => {

@@ -20,8 +20,6 @@
 //
 // Usage:
 //   npx tsx scripts/testGetBaseFs.ts
-//
-// PR 6 of plans/cross-player-base-fs-replication.md.
 
 import './lib/loadEnv';
 import { createClient } from '@supabase/supabase-js';

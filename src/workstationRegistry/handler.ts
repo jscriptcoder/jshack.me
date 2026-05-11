@@ -47,7 +47,7 @@ const STATUS_BY_VERIFY_REASON: Record<VerifyFailureReason, number> = {
 // records the player's own workstation server-side and populates the
 // L2 projection (machine_filesystems) with the workstation's base FS
 // so non-owner forged envelopes hit a real walker check instead of the
-// leaf-only permit fallback. See plans/l2-own-workstation-backfill.md.
+// leaf-only permit fallback.
 //
 // player_key is server-stamped from the verified pubkey — never trusted
 // from the wire. The payload only carries (workstation_name, username);

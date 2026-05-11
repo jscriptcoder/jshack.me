@@ -30,7 +30,7 @@
 -- through the TS adapter signatures with no benefit. Keep the noise
 -- local to this one WHERE clause.
 --
--- 2026-05-12 — surfaced in PR 8 in-game smoke (file_write, then
+-- 2026-05-12 — surfaced in in-game smoke (file_write, then
 -- backdoor_port_open cleanup attempt).
 
 CREATE OR REPLACE FUNCTION remove_patches_with_fs(

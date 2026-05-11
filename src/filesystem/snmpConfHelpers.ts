@@ -6,14 +6,12 @@
 // flavors: `rocommunity` (read-only) and `rwcommunity` (read-write).
 // authCreateSession's snmp arm only validates rwcommunity — read-only
 // SNMP doesn't create a session today (snmpwalk is purely client-side
-// read; cross-player snmpwalk waits on /api/exploit-read in PR 7).
+// read; cross-player snmpwalk waits on /api/exploit-read).
 //
 // Format: `rwcommunity <value> [<source>]` per line — the value is the
 // second whitespace-separated token. `#`-prefixed lines are comments.
 // Real snmpd.conf supports a third optional source/network field; we
 // ignore everything past the value.
-//
-// PR 4 of plans/cross-player-base-fs-replication.md.
 
 export const findSnmpRwCommunity = (content: string | null): string | undefined => {
   if (!content) return undefined;

@@ -14,12 +14,11 @@ import { signRequest } from '../signedRequest/sign.js';
 
 const REGISTER_WORKSTATION_URL = '/api/register-workstation';
 
-// seed and rootPassword are part of the registration envelope (added in
-// PR 1 of plans/cross-player-base-fs-replication.md). seed is persisted
-// in the workstations row server-side; rootPassword is consumed at
-// register-time to embed md5(rootPassword) in projected /etc/passwd
-// content, then discarded. Required for cross-player password
-// validation (PR 2) to compare submitted passwords against the real
+// seed and rootPassword are part of the registration envelope. seed is
+// persisted in the workstations row server-side; rootPassword is
+// consumed at register-time to embed md5(rootPassword) in projected
+// /etc/passwd content, then discarded. Required for cross-player
+// password validation to compare submitted passwords against the real
 // hash.
 export type RegisterWorkstationRequest = {
   readonly workstation_name: string;

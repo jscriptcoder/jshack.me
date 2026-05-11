@@ -45,9 +45,9 @@ type MsfconsoleContext = {
     tier?: 'guest' | 'user' | 'root',
   ) => string | null;
   readonly readLocalFile?: (path: string) => string | null;
-  // Cross-player-aware file_read / dir_list path (PR 7 of plans/cross-
-  // player-base-fs-replication.md). On cross-player workstation targets
-  // the wiring layer wraps the call in withTransientSession (kind=
+  // Cross-player-aware file_read / dir_list path. On cross-player
+  // workstation targets the wiring layer wraps the call in
+  // withTransientSession (kind=
   // 'effect_one_shot') and dispatches to the server's exploitRead
   // endpoint, which walks B's regenerated base FS at the CVE-granted
   // tier. On NPC machines and own-workstation targets it falls back to
@@ -642,8 +642,8 @@ const buildExploitOutput = (
                 userType: effect.tier,
                 homePath: shellUser.homePath,
                 // proof: 'effect' — CVE-yielded shell. No pidfile to read;
-                // tier comes from the effect (envelope-trusted today,
-                // forge-bypass closure deferred to PR 7).
+                // tier comes from the effect (envelope-trusted today;
+                // forge-bypass closure deferred).
                 proof: 'effect',
               };
               onComplete(ncPrompt);

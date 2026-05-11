@@ -150,11 +150,10 @@ describe('existing schema arms still parse (regression)', () => {
   });
 });
 
-// PR 6 of plans/cross-player-base-fs-replication.md — eager bulk-fetch
-// of cross-player workstation base filesystems. Single machine_id per
-// request because the trigger is "session establish on workstation X"
-// (one at a time). Server determines machine type and tier-filters the
-// returned FileNode tree.
+// Eager bulk-fetch of cross-player workstation base filesystems. Single
+// machine_id per request because the trigger is "session establish on
+// workstation X" (one at a time). Server determines machine type and
+// tier-filters the returned FileNode tree.
 describe('getBaseFs schema arm', () => {
   it('parses a valid envelope', () => {
     const result = patchesSignedPayloadSchema.parse({
@@ -229,10 +228,9 @@ describe('getBaseFs schema arm', () => {
   });
 });
 
-// PR 7 of plans/cross-player-base-fs-replication.md — server-side single-
-// path read endpoint for the file_read / dir_list CVE effects, walking
-// the cross-player workstation base FS at the caller's active session
-// userType (read from the session row, not the envelope).
+// Server-side single-path read endpoint for the file_read / dir_list CVE
+// effects, walking the cross-player workstation base FS at the caller's
+// active session userType (read from the session row, not the envelope).
 describe('exploitRead schema arm', () => {
   it('parses a valid file_read envelope', () => {
     const result = patchesSignedPayloadSchema.parse({

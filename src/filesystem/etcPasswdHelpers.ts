@@ -5,7 +5,7 @@ import type { UserType } from '../session/types';
 // /etc/passwd is the canonical credential source across the SSH/SCP/FTP
 // auth paths and SSH key fingerprinting. Each consumer needs to look up
 // a single user's hash from the file, so the parsing lives here as one
-// pure function and is shared across call sites. See plans/etc-passwd-canonical.md.
+// pure function and is shared across call sites.
 
 // Returns the password hash field for `username` from /etc/passwd content,
 // or undefined when the file is unreadable, the user is missing, or the
@@ -28,7 +28,7 @@ export const getEtcPasswdHash = (content: string | null, username: string): stri
 //
 // Used by createSession's server-side userType validation: the client
 // claims a userType, the server reads the live /etc/passwd, derives,
-// and rejects on mismatch. See plans/etc-passwd-canonical.md step 5.
+// and rejects on mismatch.
 export const deriveUserTypeFromEtcPasswd = (
   content: string | null,
   username: string,
@@ -47,10 +47,10 @@ export const deriveUserTypeFromEtcPasswd = (
 
 // Combined lookup — returns both the password hash and the derived
 // userType for a single username, or undefined when either is
-// unavailable. authCreateSession (PR 2 of plans/cross-player-base-fs-
-// replication.md) calls this exactly once per auth attempt: it needs
-// both the hash (to compare md5(submittedPassword) against) and the
-// userType (to stamp on the new session row, server-derived).
+// unavailable. authCreateSession calls this exactly once per auth
+// attempt: it needs both the hash (to compare md5(submittedPassword)
+// against) and the userType (to stamp on the new session row,
+// server-derived).
 //
 // Returning undefined collapses three failure modes — null content,
 // missing user, malformed entry — into one "no usable credential"

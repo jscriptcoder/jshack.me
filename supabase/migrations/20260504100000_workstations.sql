@@ -42,7 +42,6 @@
 -- is a no-op; differing inputs surface as a 409 to keep the per-player
 -- machine_id stable.
 --
--- See plans/l2-own-workstation-backfill.md for the full delivery plan.
 -- See memory: project_l2_followups.md (chunk #1b).
 
 CREATE TABLE workstations (

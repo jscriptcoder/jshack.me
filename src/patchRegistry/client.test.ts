@@ -601,10 +601,10 @@ describe('clearOwnedPatches', () => {
   });
 });
 
-// PR 6 of plans/cross-player-base-fs-replication.md — getBaseFs client
-// wrapper. Returns the FileNode tree (or null) the server filtered for
-// the caller's tier; consumed by useFileSystemSync's session-change
-// effect to populate fileSystems[machineId] for cross-player workstations.
+// getBaseFs client wrapper. Returns the FileNode tree (or null) the
+// server filtered for the caller's tier; consumed by useFileSystemSync's
+// session-change effect to populate fileSystems[machineId] for
+// cross-player workstations.
 describe('getBaseFs', () => {
   const TEST_MACHINE_ID = 'omen-aabbccdd';
 
@@ -732,10 +732,10 @@ describe('getBaseFs', () => {
   });
 });
 
-// PR 7 of plans/cross-player-base-fs-replication.md — exploitRead client
-// wrapper for the file_read / dir_list CVE effects against cross-player
-// workstations. Two return shapes (file_read → string|null content,
-// dir_list → string[]|null entries) — caller chooses via the kind arg.
+// exploitRead client wrapper for the file_read / dir_list CVE effects
+// against cross-player workstations. Two return shapes (file_read →
+// string|null content, dir_list → string[]|null entries) — caller
+// chooses via the kind arg.
 describe('exploitRead', () => {
   const TEST_MACHINE_ID = 'omen-aabbccdd';
 

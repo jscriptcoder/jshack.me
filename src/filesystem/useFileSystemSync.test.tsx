@@ -1058,8 +1058,8 @@ describe('useFileSystemSync — rehydration, realtime, session-refetch', () => {
     });
 
     it('refetches BOTH the previous and new machine when session.machine changes (e.g., ssh exit)', async () => {
-      // Regression for PR 6 smoke: A exits B back to A, but B's local
-      // patches were filtered at session-tier (e.g., guest walker
+      // Regression: A exits B back to A, but B's local patches were
+      // filtered at session-tier (e.g., guest walker
       // dropped /var/run/sshd.pid). Without refetching B at the new
       // no-session tier (which permits /var/run/*.pid via allowlist),
       // A's local patches stay stuck without the pidfile and B's port
@@ -1107,8 +1107,7 @@ describe('useFileSystemSync — rehydration, realtime, session-refetch', () => {
   });
 
   // -----------------------------------------------------------------------
-  // Cross-player workstation base-FS replication (PR 6 of plans/cross-
-  // player-base-fs-replication.md).
+  // Cross-player workstation base-FS replication.
   //
   // When the foreground session moves onto another player's workstation
   // (workstation_id pattern, not the player's own hostname, no existing
@@ -1300,7 +1299,7 @@ describe('useFileSystemSync — rehydration, realtime, session-refetch', () => {
     });
 
     it('STILL calls getBaseFs when fileSystems already has a patch-induced empty stub', async () => {
-      // Regression for the bug surfaced in PR 6 two-browser smoke:
+      // Regression for the bug surfaced in two-browser smoke:
       // applyPatches creates an empty-root stub for any patch whose
       // machine_id isn't in the base map (fileSystemUtils.ts:359).
       // When B writes their own pid file and the patch lands on A's

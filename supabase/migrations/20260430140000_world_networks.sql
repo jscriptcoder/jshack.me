@@ -14,8 +14,7 @@
 -- so the IP allocator's PK-conflict-retry naturally skips it for real
 -- mission/home allocations.
 --
--- See plans/world-networks.md and memory:
--- project_themed_persistent_networks.md.
+-- See memory: project_themed_persistent_networks.md.
 
 -- Extend the kind enum to include world_network. The constraint is
 -- inline-named in the public_ips migration as the Postgres default

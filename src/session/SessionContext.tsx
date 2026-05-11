@@ -83,8 +83,7 @@ export type PushDestination = {
   readonly currentPath: string;
 };
 
-// Destination state for a pushAuthSession call (PR 2 step 7 of
-// plans/cross-player-base-fs-replication.md). userType is intentionally
+// Destination state for a pushAuthSession call. userType is intentionally
 // absent — it's server-derived from /etc/passwd, attached to the new
 // session by pushAuthSession after authCreateSession returns.
 export type AuthPushDestination = {
@@ -182,24 +181,22 @@ type SessionContextValue = {
     destination: AuthPushDestination,
     auth: AuthMethod,
   ) => Promise<AuthCreateSessionResult>;
-  // Server-authoritative FTP auth + session creation (PR 3 of
-  // cross-player-base-fs-replication). Mirrors pushAuthSession but
-  // does NOT mutate session/snapshot state — FTP keeps its own
-  // local state field (`ftpSession`). On ok:true the caller must
-  // call enterFtpMode with the returned session_id pre-populated
-  // so exitFtpMode can later end the row.
+  // Server-authoritative FTP auth + session creation. Mirrors
+  // pushAuthSession but does NOT mutate session/snapshot state — FTP
+  // keeps its own local state field (`ftpSession`). On ok:true the
+  // caller must call enterFtpMode with the returned session_id
+  // pre-populated so exitFtpMode can later end the row.
   readonly authCreateFtpSession: (
     destination: AuthPushDestination,
     auth: AuthMethod,
   ) => Promise<AuthCreateSessionResult>;
-  // PR 4 — Server-authoritative MySQL auth + session creation.
+  // Server-authoritative MySQL auth + session creation.
   readonly authCreateMysqlSession: (
     destination: AuthPushDestination,
     auth: AuthMethod,
   ) => Promise<AuthCreateSessionResult>;
-  // PR 4 — Server-authoritative Redis auth. Sentinel username='redis'
-  // is added inside the helper; callers only supply machine_id and
-  // password.
+  // Server-authoritative Redis auth. Sentinel username='redis' is added
+  // inside the helper; callers only supply machine_id and password.
   readonly authCreateRedisSession: (
     machineId: string,
     auth: AuthMethod,
@@ -215,12 +212,12 @@ type SessionContextValue = {
   readonly exitNcMode: () => NcSession | null;
   readonly isInNcMode: () => boolean;
   readonly updateNcCwd: (cwd: string) => void;
-  // PR 5 of plans/cross-player-base-fs-replication.md — server-
-  // authoritative nc-pidfile auth. Combines server validation
+  // Server-authoritative nc-pidfile auth. Combines server validation
   // (read /var/run/nc-<port>.pid, derive credentials) with local
   // setNcSession on success. Used by the `nc <ip> <port>` connect
   // path; the msfconsole shell_limited path keeps using enterNcMode
-  // (with its fire-and-forget createServerSession) until PR 7 closes
+  // (with its fire-and-forget createServerSession) until the
+  // effect-grant flow closes
   // the effect-grant gap.
   readonly authCreateNcSession: (params: {
     readonly machineId: string;
@@ -602,8 +599,6 @@ export const SessionProvider = ({ children, hostname, username }: SessionProvide
   //               Caller renders "Permission denied" (or equivalent).
   //   ok: false, reason='rate_limited' → 429.
   //   throws    → infrastructure error (network, server 500, malformed).
-  //
-  // PR 2 step 7 of plans/cross-player-base-fs-replication.md.
   const pushAuthSession = useCallback(
     async (
       kind: 'ssh' | 'su',
@@ -702,10 +697,10 @@ export const SessionProvider = ({ children, hostname, username }: SessionProvide
   // on `ftpSession.remoteMachine`. Without a session row on that
   // machine, /api/patches returns 403. The push here is what makes
   // those writes legal post-gate.
-  // PR 3 — server-authoritative FTP auth. authCreateFtpSession is the
-  // pre-step (validates credentials + creates the session row). This
-  // function only sets local FtpSession state. The caller must have
-  // already obtained a sessionId via authCreateFtpSession; we trust the
+  // Server-authoritative FTP auth. authCreateFtpSession is the pre-step
+  // (validates credentials + creates the session row). This function
+  // only sets local FtpSession state. The caller must have already
+  // obtained a sessionId via authCreateFtpSession; we trust the
   // FtpSession.sessionId field as-is.
   const enterFtpMode = useCallback((newFtpSession: FtpSession) => {
     setFtpSession(newFtpSession);
@@ -728,7 +723,7 @@ export const SessionProvider = ({ children, hostname, username }: SessionProvide
     [session.sessionId, session.machine],
   );
 
-  // PR 4 — Server-authoritative MySQL auth. userType comes from
+  // Server-authoritative MySQL auth. userType comes from
   // /var/lib/mysql/data.json on the server; client never claims it.
   const authCreateMysqlSession = useCallback(
     async (destination: AuthPushDestination, auth: AuthMethod): Promise<AuthCreateSessionResult> =>
@@ -743,8 +738,8 @@ export const SessionProvider = ({ children, hostname, username }: SessionProvide
     [session.sessionId, session.machine],
   );
 
-  // PR 4 — Server-authoritative Redis auth. Redis is shared-secret with
-  // no username concept; we send the sentinel 'redis' so the wire payload
+  // Server-authoritative Redis auth. Redis is shared-secret with no
+  // username concept; we send the sentinel 'redis' so the wire payload
   // satisfies the schema's min(1) constraint. Server validates against
   // /etc/redis/redis.conf's requirepass.
   const authCreateRedisSession = useCallback(
@@ -795,8 +790,8 @@ export const SessionProvider = ({ children, hostname, username }: SessionProvide
       // Fire-and-forget server push for the msfconsole `shell_limited`
       // path (NcPromptData with `proof:'effect'`). Forge bypass — the
       // signed envelope claims the kind:'nc' tier without proving an
-      // effect grant. PR 7 closes this with effect-grant validation.
-      // The nc-command path (NcPromptData with `proof:'pidfile'`) goes
+      // effect grant. The nc-command path (NcPromptData with
+      // `proof:'pidfile'`) goes
       // through authCreateNcSession instead, so this fire-and-forget
       // doesn't run for that flow.
       void createServerSession(getIdentity(), {
@@ -822,8 +817,8 @@ export const SessionProvider = ({ children, hostname, username }: SessionProvide
     [session.sessionId, session.machine],
   );
 
-  // PR 5 — server-authoritative nc-pidfile auth. Atomic credential
-  // validation (server reads /var/run/nc-<port>.pid) + session creation
+  // Server-authoritative nc-pidfile auth. Atomic credential validation
+  // (server reads /var/run/nc-<port>.pid) + session creation
   // + local state set. Used by the `nc <ip> <port>` connect path; the
   // username/userType/homePath returned here come from the pidfile
   // content, not from any client claim.
@@ -885,7 +880,7 @@ export const SessionProvider = ({ children, hostname, username }: SessionProvide
   // need a session row to exist — the userType isn't checked. We default
   // to 'user'; the future L2 (permission walking) PR will need a real
   // mapping.
-  // PR 4 — server-authoritative MySQL auth. authCreateMysqlSession is the
+  // Server-authoritative MySQL auth. authCreateMysqlSession is the
   // pre-step (validates credentials + creates the session row). This
   // function only sets local MysqlSession state. The caller must have
   // already obtained a sessionId via authCreateMysqlSession and stamped
@@ -910,7 +905,7 @@ export const SessionProvider = ({ children, hostname, username }: SessionProvide
 
   const isInMysqlMode = useCallback(() => mysqlSession !== null, [mysqlSession]);
 
-  // PR 4 — server-authoritative Redis auth. authCreateRedisSession is the
+  // Server-authoritative Redis auth. authCreateRedisSession is the
   // pre-step (validates requirepass + creates the session row). This
   // function only sets local RedisSession state. Sentinel username=
   // 'redis' lives inside the auth helper; userType is 'root' on the

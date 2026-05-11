@@ -1,8 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { sessionsSignedPayloadSchema } from './types';
 
-// Schema-shape tests for the new `authCreateSession` action arm
-// introduced in PR 2 of plans/cross-player-base-fs-replication.md.
+// Schema-shape tests for the `authCreateSession` action arm.
 //
 // authCreateSession collapses validation + session-creation into one
 // atomic operation. The auth method (password vs saved-key fingerprint)
@@ -135,7 +134,7 @@ describe('authCreateSession schema arm', () => {
     ).not.toThrow();
   });
 
-  it('accepts kind=ftp (added in PR 3)', () => {
+  it('accepts kind=ftp', () => {
     expect(() =>
       sessionsSignedPayloadSchema.parse({
         ...baseAuthCreateSession,
@@ -145,7 +144,7 @@ describe('authCreateSession schema arm', () => {
     ).not.toThrow();
   });
 
-  it.each(['mysql', 'redis', 'snmp'] as const)('accepts kind=%s (added in PR 4)', (kind) => {
+  it.each(['mysql', 'redis', 'snmp'] as const)('accepts kind=%s', (kind) => {
     expect(() =>
       sessionsSignedPayloadSchema.parse({
         ...baseAuthCreateSession,
@@ -165,10 +164,10 @@ describe('authCreateSession schema arm', () => {
     ).toThrow();
   });
 
-  // PR 5 of plans/cross-player-base-fs-replication.md — pidfile auth
-  // method (third arm of authMethodSchema) for nc-connect to a backdoor.
-  // Server reads /var/run/nc-<port>.pid and derives credentials.
-  it('accepts kind=nc with method=pidfile (PR 5)', () => {
+  // Pidfile auth method (third arm of authMethodSchema) for nc-connect
+  // to a backdoor. Server reads /var/run/nc-<port>.pid and derives
+  // credentials.
+  it('accepts kind=nc with method=pidfile', () => {
     const result = sessionsSignedPayloadSchema.parse({
       ...baseAuthCreateSession,
       kind: 'nc',

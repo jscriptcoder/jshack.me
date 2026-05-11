@@ -5,8 +5,7 @@
 //      machine_filesystems populated for the workstation_id.
 //   1d. workstations.seed persists the seed sent in the envelope.
 //   1e. /etc/passwd projected content carries md5(rootPassword) — the
-//      load-bearing fix from PR 1 of plans/cross-player-base-fs-
-//      replication.md (cross-player password validation in PR 2).
+//      load-bearing fix for cross-player password validation.
 //   2. Idempotent repeat → 200 inserted:false; no duplicate rows.
 //   3. Conflicting repeat (different workstation_name) → 409
 //      already_registered.
@@ -108,7 +107,7 @@ check(
   `hasPasswd=${hasPasswd}`,
 );
 
-// 1d. seed persists in workstations row (PR 1 step 3 verification).
+// 1d. seed persists in workstations row.
 check(
   '1d. workstations.seed persists the seed from the envelope',
   ws?.seed === seed,
@@ -116,8 +115,8 @@ check(
 );
 
 // 1e. Projected /etc/passwd content carries md5(rootPassword) — the
-// load-bearing fix that lets PR 2's cross-player password validation
-// compare submitted passwords against this hash.
+// load-bearing fix that lets cross-player password validation compare
+// submitted passwords against this hash.
 const { data: passwdRow } = await sr
   .from('machine_filesystems')
   .select('content')

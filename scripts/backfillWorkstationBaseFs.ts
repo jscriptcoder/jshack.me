@@ -10,8 +10,7 @@
 //   SUPABASE_URL
 //   SUPABASE_SERVICE_ROLE_KEY
 //
-// IMPORTANT — content limitation (PR 1 of plans/cross-player-base-fs-
-// replication.md): regenWorkstationRows now requires a real seed
+// IMPORTANT — content limitation: regenWorkstationRows now requires a real seed
 // (read from the workstations row) AND a real rootPassword. The
 // rootPassword is NEVER persisted server-side, so a backfill cannot
 // reproduce the projected /etc/passwd content correctly. This script

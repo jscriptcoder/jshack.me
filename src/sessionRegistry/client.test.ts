@@ -128,10 +128,10 @@ describe('createSession', () => {
   });
 
   it('always embeds kind in the signed payload (now required)', async () => {
-    // PR 2 step 5: server requires kind; client type matches. The
-    // previous "default to ssh" client behavior is gone — every caller
-    // specifies kind explicitly. Pinned so a regression that drops the
-    // field from the wire surfaces loudly.
+    // Server requires kind; client type matches. The previous "default
+    // to ssh" client behavior is gone — every caller specifies kind
+    // explicitly. Pinned so a regression that drops the field from the
+    // wire surfaces loudly.
     const identity = generateIdentity();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ session_id: STUB_SESSION_ID }));
 
@@ -421,7 +421,7 @@ describe('listSessions', () => {
   });
 });
 
-// ----- authCreateSession (PR 2 step 6) -------------------------------------
+// ----- authCreateSession --------------------------------------------------
 //
 // Atomic credential validation + session creation. Returns a Result type
 // (NOT throws) for the credentials-failure case so call sites can branch
@@ -604,9 +604,9 @@ describe('authCreateSession', () => {
 });
 
 describe('authCreateNcSession', () => {
-  // PR 5 of plans/cross-player-base-fs-replication.md — distinct wrapper
-  // because the nc-pidfile branch returns username + homePath alongside
-  // session_id and userType (server reads them from the pidfile content).
+  // Distinct wrapper because the nc-pidfile branch returns username +
+  // homePath alongside session_id and userType (server reads them from
+  // the pidfile content).
 
   const baseRequest = {
     machine_id: 'target-host',

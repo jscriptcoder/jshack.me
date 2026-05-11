@@ -1,11 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createSupabaseFindFsContentBatch } from './supabaseFindFsContentBatch';
 
-// PR 6 of plans/cross-player-base-fs-replication.md — batch fetch of
-// machine_filesystems.content for the projected-paths overlay. The
-// handler computes the intersection of the regen tree's file inventory
-// and FS_PROJECTED_CONTENT_PATHS, then asks for those exact paths in
-// one round-trip.
+// Batch fetch of machine_filesystems.content for the projected-paths
+// overlay. The handler computes the intersection of the regen tree's
+// file inventory and FS_PROJECTED_CONTENT_PATHS, then asks for those
+// exact paths in one round-trip.
 
 describe('createSupabaseFindFsContentBatch', () => {
   it('returns the path → content map on a successful query', async () => {

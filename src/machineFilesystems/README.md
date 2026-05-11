@@ -4,7 +4,7 @@ Server-side projection of the current FS state, used by L2 patch validation. Eve
 
 The DB row is keyed on `(machine_id, path)`. Unlike `patches` (which is per-player journal), `machine_filesystems` is per-machine — one row per node regardless of who wrote it. Last-write-wins semantics are a property of the projection, not the journal. RLS denies anon by default; only `service_role` reads/writes.
 
-See `docs/technology-choices.md` (Pattern A — eager denormalization) and `plans/l2-patch-validation.md` for the architecture decision and step-by-step delivery plan.
+See `docs/technology-choices.md` (Pattern A — eager denormalization) for the architecture decision.
 
 ## Files
 

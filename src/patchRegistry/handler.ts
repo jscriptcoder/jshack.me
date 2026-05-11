@@ -93,11 +93,11 @@ export type HandlerDeps = {
   readonly findActiveSessionsBatch: (
     params: FindActiveSessionsBatchParams,
   ) => Promise<FindActiveSessionsBatchResult>;
-  // PR 6 of plans/cross-player-base-fs-replication.md — adapters for
-  // getBaseFs. findWorkstationsByName resolves the workstation row that
-  // owns a workstation_id (handler does suffix verification in TS).
-  // findFsContentBatch fetches projected-path content for the overlay
-  // step (real /etc/passwd hash, vsftpd, mysql, redis, snmp, nc-pidfiles).
+  // Adapters for getBaseFs. findWorkstationsByName resolves the
+  // workstation row that owns a workstation_id (handler does suffix
+  // verification in TS). findFsContentBatch fetches projected-path
+  // content for the overlay step (real /etc/passwd hash, vsftpd, mysql,
+  // redis, snmp, nc-pidfiles).
   readonly findWorkstationsByName: (
     params: FindWorkstationsByNameParams,
   ) => Promise<FindWorkstationsByNameResult>;
@@ -399,8 +399,8 @@ const handleUpsertPatch = async (
   // by design — see the L2 plan and the migration header).
   //
   // Exception: paths in FS_PROJECTED_CONTENT_PATHS must dual-write even
-  // on own-workstation. Cross-player auth flows (PR 5 nc-pidfile, PRs
-  // 2-4 SSH/FTP/etc.) read those paths server-side via findFsContent;
+  // on own-workstation. Cross-player auth flows (nc-pidfile, SSH/FTP/etc.)
+  // read those paths server-side via findFsContent;
   // skipping projection for self-writes leaves the row absent → server
   // returns 401 invalid_credentials when another player tries to nc /
   // ssh / ftp into us. The set is small (auth-critical files only) so
@@ -558,9 +558,9 @@ const handleClearOwnedPatches = async (
   return { status: 200, body: { affected: result.affected } };
 };
 
-// PR 6 of plans/cross-player-base-fs-replication.md — eager bulk-fetch
-// of a workstation's base FileNode tree, regenerated server-side from
-// the workstations row's stored seed and tier-filtered for the caller.
+// Eager bulk-fetch of a workstation's base FileNode tree, regenerated
+// server-side from the workstations row's stored seed and tier-filtered
+// for the caller.
 //
 // Three tiers (mirrors the read-path filter for patches):
 //   1. Owner       — workstation_id suffix matches caller's player_key:
@@ -730,9 +730,8 @@ const resolveNodeAndParentChain = (
   return { node: current, parentChain };
 };
 
-// PR 7 of plans/cross-player-base-fs-replication.md — single-path
-// read against a cross-player workstation's base FS at the caller's
-// effective tier.
+// Single-path read against a cross-player workstation's base FS at the
+// caller's effective tier.
 //
 // Tier source: the active `effect_one_shot` session row's user_type
 // (minted by `withTransientSession` on the client when the CVE fires).
@@ -867,8 +866,7 @@ const handleExploitRead = async (
   return { status: 200, body: { entries } };
 };
 
-// PR 8 of plans/cross-player-base-fs-replication.md — batched hydra
-// credential cracking against a cross-player workstation.
+// Batched hydra credential cracking against a cross-player workstation.
 //
 // Caller sends md5(plaintext) hashes for a wordlist batch; server reads
 // the projected credential file (for ssh: /etc/passwd; for ftp:

@@ -25,8 +25,8 @@ export type HydraBruteForceInfo = {
   readonly successes: readonly HydraSuccess[];
 };
 
-// Batch sizing for cross-player workstation hydra (PR 8 of plans/cross-
-// player-base-fs-replication.md). Computed at runtime from wordlist size:
+// Batch sizing for cross-player workstation hydra. Computed at runtime
+// from wordlist size:
 //
 //   batch_size = clamp(ceil(words / TARGET_ROUND_TRIPS), MIN, MAX)
 //
@@ -81,8 +81,7 @@ type HydraContext = {
   // Returns the canonical workstation_id for cross-player targets, or
   // null for own-workstation / NPC / mission / world IPs. When non-null
   // AND the service filter is ssh/ftp/undefined, hydra dispatches to
-  // the server-batched path instead of the local sweep. PR 8 of
-  // cross-player-base-fs-replication.
+  // the server-batched path instead of the local sweep.
   readonly getCanonicalWorkstationId?: (targetIp: string) => string | null;
   // Server-batched credential check for cross-player workstations.
   // One async call per batch; the natural RTT paces the STATUS lines.
@@ -431,7 +430,7 @@ const createMysqlAttack = (
 // batches: each round-trip submits md5 candidates, server confirms which
 // match B's projected credentials, client reverse-looks-up plaintext from
 // its local wordlist. The natural batch RTT paces STATUS lines — no
-// setTimeout pacing on top. PR 8 of cross-player-base-fs-replication.
+// setTimeout pacing on top.
 const createCrossPlayerAttack = (params: {
   readonly targetIP: string;
   readonly targetWorkstationId: string;
@@ -677,11 +676,10 @@ export const createHydraCommand = (context: HydraContext): Command => ({
       throw new Error(`hydra: ${detail}`);
     }
 
-    // PR 8 of plans/cross-player-base-fs-replication.md — cross-player
-    // workstation dispatch. A's local view of B's /etc/passwd is empty
-    // pre-session (PR 6's getBaseFs only fires on session establish),
-    // so the local sweep below would find zero hashes to gate. Route
-    // through the server's batched crackCredentials endpoint instead.
+    // Cross-player workstation dispatch. A's local view of B's /etc/passwd
+    // is empty pre-session (getBaseFs only fires on session establish), so
+    // the local sweep below would find zero hashes to gate. Route through
+    // the server's batched crackCredentials endpoint instead.
     //
     // Routing requires:
     //   - getCanonicalWorkstationId returns a workstation_id (target is

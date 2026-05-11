@@ -694,13 +694,12 @@ describe('SessionProvider — popAllSessions (server-aware)', () => {
 // FTP enter/exit — protocol session push (kind='ftp')
 // -----------------------------------------------------------------------
 
-// PR 3 of plans/cross-player-base-fs-replication.md: enterFtpMode no
-// longer fires a server-side createSession. Server-authoritative
-// auth+create is now done by authCreateFtpSession (covered by the new
-// describe block below + sessionRegistry/handler.test.ts). enterFtpMode
-// just sets local state. The existing tests in this block exercise the
-// old fire-and-forget push and are obsolete; kept as describe.skip for
-// historical reference, clean up at PR 3 close.
+// enterFtpMode no longer fires a server-side createSession.
+// Server-authoritative auth+create is now done by authCreateFtpSession
+// (covered by the new describe block below + sessionRegistry/handler.test.ts).
+// enterFtpMode just sets local state. The existing tests in this block
+// exercise the old fire-and-forget push and are obsolete; kept as
+// describe.skip for historical reference.
 describe.skip('SessionProvider — enterFtpMode / exitFtpMode (server-aware)', () => {
   beforeEach(() => {
     vi.mocked(mockedCreateSession).mockReset();
@@ -1014,7 +1013,7 @@ describe('SessionProvider — enterNcMode / exitNcMode (server-aware)', () => {
 });
 
 // -----------------------------------------------------------------------
-// authCreateNcSession — server-authoritative nc-pidfile auth (PR 5)
+// authCreateNcSession — server-authoritative nc-pidfile auth
 // -----------------------------------------------------------------------
 //
 // Replaces the forge-able createServerSession({ kind:'nc' }) push for the
@@ -1138,11 +1137,11 @@ describe('SessionProvider — authCreateNcSession (server-authoritative pidfile 
 // mysql enter/exit — protocol session push (kind='mysql')
 // -----------------------------------------------------------------------
 
-// PR 4: enterMysqlMode no longer fires a fire-and-forget createSession.
+// enterMysqlMode no longer fires a fire-and-forget createSession.
 // Server-authoritative auth+create now lives in authCreateMysqlSession
 // (covered by sessionRegistry/handler.test.ts). enterMysqlMode is just
 // state-set. The existing tests below exercise the obsolete push;
-// kept skipped for historical reference, clean up at PR 4 close.
+// kept skipped for historical reference.
 describe.skip('SessionProvider — enterMysqlMode / exitMysqlMode (server-aware)', () => {
   beforeEach(() => {
     vi.mocked(mockedCreateSession).mockReset();
@@ -1237,7 +1236,7 @@ describe.skip('SessionProvider — enterMysqlMode / exitMysqlMode (server-aware)
 // redis enter/exit — protocol session push (kind='redis')
 // -----------------------------------------------------------------------
 
-// PR 4: enterRedisMode no longer fires a fire-and-forget createSession.
+// enterRedisMode no longer fires a fire-and-forget createSession.
 // Server-authoritative auth+create lives in authCreateRedisSession.
 describe.skip('SessionProvider — enterRedisMode / exitRedisMode (server-aware)', () => {
   beforeEach(() => {

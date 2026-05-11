@@ -3,10 +3,8 @@ import { registerWorkstationSignedPayloadSchema } from './types';
 
 // Schema-shape tests for the registerWorkstation envelope. The schema
 // is the server-side boundary — IntroScreen-side limits are UX, this
-// is what the Vercel handler trusts. seed and rootPassword were added
-// in PR 1 of plans/cross-player-base-fs-replication.md to drive correct
-// /etc/passwd content projection (real hashes, not the placeholder hash
-// stored before this PR).
+// is what the Vercel handler trusts. seed and rootPassword drive correct
+// /etc/passwd content projection (real hashes, not a placeholder hash).
 
 const baseEnvelope = {
   action: 'registerWorkstation' as const,

@@ -5,12 +5,11 @@ import type { UserType } from '../session/types';
 //
 //   nc:port=<port>,user=<username>,userType=<root|user|guest>,home=<path>
 //
-// Used server-side by handleAuthCreateSession's nc-pidfile branch (PR 5
-// of plans/cross-player-base-fs-replication.md). The client-side
-// equivalent — parseNcPidContent in src/network/ncStateParser.ts —
-// returns NcPortOverride[] for FS-walk purposes; this helper returns
-// a flat result tuned to the server's needs (no NcPortOverride wrapper,
-// no ServiceOwner shape).
+// Used server-side by handleAuthCreateSession's nc-pidfile branch. The
+// client-side equivalent — parseNcPidContent in
+// src/network/ncStateParser.ts — returns NcPortOverride[] for FS-walk
+// purposes; this helper returns a flat result tuned to the server's
+// needs (no NcPortOverride wrapper, no ServiceOwner shape).
 //
 // Returns undefined when content is null/undefined/empty, when the
 // line doesn't match the canonical shape, when fields are in the wrong

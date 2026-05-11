@@ -42,9 +42,8 @@ export type RegisterWorkstationPayload = z.infer<typeof registerWorkstationSigne
 // on this row — it's transient, consumed at register-time by
 // populateBaseFs to generate correct /etc/passwd content, then
 // discarded. Keeping the persistence row free of rootPassword honors
-// decision #2 in plans/cross-player-base-fs-replication.md (no separate
-// root_password_hash column; the hash lives only inside projected
-// /etc/passwd content).
+// the decision to not introduce a separate root_password_hash column;
+// the hash lives only inside projected /etc/passwd content.
 export type WorkstationRow = {
   readonly player_key: string;
   readonly workstation_name: string;

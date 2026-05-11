@@ -47,16 +47,15 @@ export type HandlerDeps = {
   readonly findEtcPasswdContent: (
     params: FindEtcPasswdContentParams,
   ) => Promise<FindEtcPasswdContentResult>;
-  // PR 3 of plans/cross-player-base-fs-replication.md — kind:'ftp' branch
-  // of authCreateSession reads /etc/vsftpd/virtual_users.conf as an
-  // overlay on top of /etc/passwd.
+  // kind:'ftp' branch of authCreateSession reads
+  // /etc/vsftpd/virtual_users.conf as an overlay on top of /etc/passwd.
   readonly findVirtualUsersConfContent: (
     params: FindVirtualUsersConfContentParams,
   ) => Promise<FindVirtualUsersConfContentResult>;
-  // PR 4 — generic (path-parameterized) FS content lookup, used by the
+  // Generic (path-parameterized) FS content lookup, used by the
   // mysql / redis / snmp arms (each reads a different credential file).
-  // The PR 2/3 per-file adapters above stay for back-compat with their
-  // existing test suites; a future unification PR can collapse them.
+  // The per-file adapters above stay for back-compat with their existing
+  // test suites; a future unification can collapse them.
   readonly findFsContent: (params: FindFsContentParams) => Promise<FindFsContentResult>;
   readonly rateLimiter: RateLimiter;
   readonly nonceStore: NonceStore;
@@ -143,9 +142,9 @@ const handleCreateSession = async (
 ): Promise<HandlerResponse> => {
   const { machine_id, credentials, parent_session_id, source_ip, kind } = payload;
 
-  // PR 2 step 5: auth-required kinds (ssh/scp/su) cannot mint sessions
-  // through createSession — those must prove credentials via
-  // authCreateSession. Closing this hole prevents a forge caller from
+  // Auth-required kinds (ssh/scp/su) cannot mint sessions through
+  // createSession — those must prove credentials via authCreateSession.
+  // Closing this hole prevents a forge caller from
   // claiming userType:'root' for username='root' (matches /etc/passwd,
   // bypasses the userType-validation branch below) without ever
   // proving the password.
@@ -175,8 +174,6 @@ const handleCreateSession = async (
   // mush) is still enforced — but via authCreateSession, which IS the
   // path real player logins take. Garble breaks login; it doesn't (and
   // shouldn't) break CVE effects, since CVEs bypass auth by definition.
-  //
-  // See plans/etc-passwd-canonical.md step 5.
   const fsLookup = await deps.findEtcPasswdContent({ machine_id });
   if (!fsLookup.ok) {
     return { status: 500, body: { error: 'fs_lookup_failed' } };
@@ -207,14 +204,14 @@ const handleCreateSession = async (
 // Server-authoritative auth + session creation. Each auth-required kind
 // validates against a different credential file:
 //
-//   ssh / scp / su  → /etc/passwd (PR 2)
+//   ssh / scp / su  → /etc/passwd
 //   ftp             → /etc/vsftpd/virtual_users.conf overlay + /etc/passwd
-//                     fallback (PR 3); userType from /etc/passwd
-//   mysql           → /var/lib/mysql/data.json (PR 4); userType from JSON
-//   redis           → /etc/redis/redis.conf requirepass (PR 4); shared
-//                     secret, sentinel `username:'redis'`, userType `'root'`
-//   snmp            → /etc/snmp/snmpd.conf rwcommunity (PR 4); shared
-//                     secret, sentinel `username:'snmp'`, userType `'root'`
+//                     fallback; userType from /etc/passwd
+//   mysql           → /var/lib/mysql/data.json; userType from JSON
+//   redis           → /etc/redis/redis.conf requirepass; shared secret,
+//                     sentinel `username:'redis'`, userType `'root'`
+//   snmp            → /etc/snmp/snmpd.conf rwcommunity; shared secret,
+//                     sentinel `username:'snmp'`, userType `'root'`
 //
 // All credential failure modes — wrong password, missing user, missing
 // file, sabotaged file, fingerprint mismatch — collapse to one
@@ -226,13 +223,13 @@ const handleAuthCreateSession = async (
   payload: Extract<SessionsPayload, { action: 'authCreateSession' }>,
   deps: HandlerDeps,
 ): Promise<HandlerResponse> => {
-  // PR 4 — shared-secret kinds short-circuit before /etc/passwd lookup
+  // Shared-secret kinds short-circuit before /etc/passwd lookup
   // (their sentinel usernames don't appear in /etc/passwd, and userType
   // is fixed at protocol-handler level).
   if (payload.kind === 'mysql') return handleMysqlAuth(publicKey, payload, deps);
   if (payload.kind === 'redis') return handleRedisAuth(publicKey, payload, deps);
   if (payload.kind === 'snmp') return handleSnmpAuth(publicKey, payload, deps);
-  // PR 5 — nc backdoor short-circuits too. Reads the listener's pidfile
+  // nc backdoor short-circuits too. Reads the listener's pidfile
   // and derives credentials from its content; never touches /etc/passwd
   // (the nc listener tier is independent of the system user table).
   if (payload.kind === 'nc') return handleNcAuth(publicKey, payload, deps);
@@ -327,7 +324,7 @@ const handleAuthCreateSession = async (
   };
 };
 
-// ---- PR 4: MySQL / Redis / SNMP ---------------------------------------
+// ---- MySQL / Redis / SNMP ---------------------------------------------
 //
 // Each protocol reads its own credential file; userType comes from
 // the credential file (mysql) or is fixed at the protocol level
@@ -478,7 +475,7 @@ const handleSnmpAuth = async (
   };
 };
 
-// ---- PR 5: nc backdoor pidfile ----------------------------------------
+// ---- nc backdoor pidfile ----------------------------------------------
 //
 // Reads /var/run/nc-<port>.pid from machine_filesystems and derives
 // session credentials from the content line written by `nc -l`
