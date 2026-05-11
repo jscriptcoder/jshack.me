@@ -1355,4 +1355,187 @@ describe('hydra command', () => {
       );
     });
   });
+
+  // PR 8 of plans/cross-player-base-fs-replication.md — cross-player
+  // workstation dispatch goes through the server's batched credential-
+  // check endpoint instead of the local /etc/passwd sweep.
+  describe('cross-player workstation dispatch', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    // The batched async path uses real promise chains; fake timers
+    // break the await semantics. Disable the suite-level fakeTimers
+    // beforeEach for these cases.
+    beforeEach(() => {
+      vi.useRealTimers();
+    });
+
+    const collectAsyncLinesAsync = async (output: AsyncOutput): Promise<readonly string[]> => {
+      const lines: string[] = [];
+      let onCompleteResolve!: () => void;
+      const completion = new Promise<void>((resolve) => {
+        onCompleteResolve = resolve;
+      });
+      output.start(
+        (line) => lines.push(line),
+        () => onCompleteResolve(),
+      );
+      await completion;
+      return lines;
+    };
+
+    it('routes to onCrackCredentialsBatch when getCanonicalWorkstationId returns a workstation_id', async () => {
+      const machine = getMockRemoteMachine();
+      const targetWorkstationId = 'omen-aabbccdd';
+      const onCrackCredentialsBatch = vi
+        .fn<
+          (p: {
+            readonly targetWorkstationId: string;
+            readonly service: 'ssh' | 'ftp';
+            readonly candidateHashes: readonly string[];
+            readonly userFilter?: string;
+          }) => Promise<{
+            readonly hits: ReadonlyArray<{
+              readonly username: string;
+              readonly matched_hash: string;
+            }>;
+            readonly attempts: number;
+          }>
+        >()
+        .mockResolvedValue({ hits: [], attempts: 0 });
+
+      const hydra = createHydraCommand({
+        ...createMockContext({ machines: [machine] }),
+        getCanonicalWorkstationId: (ip) => (ip === '192.168.1.50' ? targetWorkstationId : null),
+        onCrackCredentialsBatch,
+      });
+
+      const result = hydra.fn('192.168.1.50', 'ssh');
+      expect(isAsyncOutput(result)).toBe(true);
+      await collectAsyncLinesAsync(result as AsyncOutput);
+
+      expect(onCrackCredentialsBatch).toHaveBeenCalled();
+      const firstCall = onCrackCredentialsBatch.mock.calls[0]![0];
+      expect(firstCall.targetWorkstationId).toBe(targetWorkstationId);
+      expect(firstCall.service).toBe('ssh');
+      expect(Array.isArray(firstCall.candidateHashes)).toBe(true);
+    });
+
+    it('emits a hit line when the server returns a matched hash mapped from the wordlist', async () => {
+      const machine = getMockRemoteMachine();
+      const targetWorkstationId = 'omen-11223344';
+
+      // WORDLIST_PASSWORD_HASH = md5('admin') is in the test wordlist;
+      // the server returns it as a match for user "alice".
+      const onCrackCredentialsBatch = vi
+        .fn<
+          (p: { readonly candidateHashes: readonly string[] }) => Promise<{
+            readonly hits: ReadonlyArray<{
+              readonly username: string;
+              readonly matched_hash: string;
+            }>;
+            readonly attempts: number;
+          }>
+        >()
+        .mockImplementation(async ({ candidateHashes }) => {
+          if (candidateHashes.includes(WORDLIST_PASSWORD_HASH)) {
+            return {
+              hits: [{ username: 'alice', matched_hash: WORDLIST_PASSWORD_HASH }],
+              attempts: candidateHashes.length,
+            };
+          }
+          return { hits: [], attempts: candidateHashes.length };
+        });
+
+      const hydra = createHydraCommand({
+        ...createMockContext({ machines: [machine] }),
+        getCanonicalWorkstationId: (ip) => (ip === '192.168.1.50' ? targetWorkstationId : null),
+        onCrackCredentialsBatch: onCrackCredentialsBatch as unknown as Parameters<
+          typeof createHydraCommand
+        >[0]['onCrackCredentialsBatch'],
+      });
+
+      const lines = await collectAsyncLinesAsync(hydra.fn('192.168.1.50', 'ssh') as AsyncOutput);
+
+      const hitLine = lines.find((l) => l.includes('login: alice'));
+      expect(hitLine).toBeDefined();
+      expect(hitLine).toContain(`password: ${WORDLIST_PASSWORD}`);
+    });
+
+    it('passes user_filter through to onCrackCredentialsBatch', async () => {
+      const machine = getMockRemoteMachine();
+      const onCrackCredentialsBatch = vi
+        .fn<
+          (p: { readonly userFilter?: string }) => Promise<{
+            readonly hits: ReadonlyArray<{
+              readonly username: string;
+              readonly matched_hash: string;
+            }>;
+            readonly attempts: number;
+          }>
+        >()
+        .mockResolvedValue({ hits: [], attempts: 0 });
+
+      const hydra = createHydraCommand({
+        ...createMockContext({ machines: [machine] }),
+        getCanonicalWorkstationId: () => 'omen-deadbeef',
+        onCrackCredentialsBatch: onCrackCredentialsBatch as unknown as Parameters<
+          typeof createHydraCommand
+        >[0]['onCrackCredentialsBatch'],
+      });
+
+      await collectAsyncLinesAsync(hydra.fn('192.168.1.50', 'ssh', 'alice') as AsyncOutput);
+
+      const calls = onCrackCredentialsBatch.mock.calls;
+      expect(calls.length).toBeGreaterThan(0);
+      calls.forEach(([params]) => {
+        expect(params.userFilter).toBe('alice');
+      });
+    });
+
+    it('falls back to the local sweep when getCanonicalWorkstationId returns null', async () => {
+      const machine = getMockRemoteMachine();
+      const onCrackCredentialsBatch = vi.fn();
+
+      vi.useFakeTimers(); // local sweep uses setTimeout pacing
+      const hydra = createHydraCommand({
+        ...createMockContext({ machines: [machine] }),
+        getCanonicalWorkstationId: () => null,
+        onCrackCredentialsBatch: onCrackCredentialsBatch as unknown as Parameters<
+          typeof createHydraCommand
+        >[0]['onCrackCredentialsBatch'],
+      });
+
+      const result = hydra.fn('192.168.1.50', 'ssh');
+      await collectAsyncLines(result as AsyncOutput);
+
+      expect(onCrackCredentialsBatch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('computeHydraBatchSize', () => {
+    it('returns MIN for empty wordlist', async () => {
+      const { computeHydraBatchSize, HYDRA_MIN_BATCH_SIZE } = await import('./hydra');
+      expect(computeHydraBatchSize(0)).toBe(HYDRA_MIN_BATCH_SIZE);
+    });
+
+    it('returns MIN for tiny wordlist (target_round_trips would underflow MIN)', async () => {
+      const { computeHydraBatchSize, HYDRA_MIN_BATCH_SIZE } = await import('./hydra');
+      // 5 entries / 5 target RTs = 1, clamped up to MIN
+      expect(computeHydraBatchSize(5)).toBe(HYDRA_MIN_BATCH_SIZE);
+    });
+
+    it('scales linearly between MIN and MAX', async () => {
+      const { computeHydraBatchSize, HYDRA_TARGET_ROUND_TRIPS } = await import('./hydra');
+      // 100 entries / 5 RTs = 20
+      expect(computeHydraBatchSize(100)).toBe(Math.ceil(100 / HYDRA_TARGET_ROUND_TRIPS));
+    });
+
+    it('caps at MAX for huge wordlists', async () => {
+      const { computeHydraBatchSize, HYDRA_MAX_BATCH_SIZE } = await import('./hydra');
+      // 10k entries / 5 RTs = 2000, clamped down to MAX
+      expect(computeHydraBatchSize(10_000)).toBe(HYDRA_MAX_BATCH_SIZE);
+    });
+  });
 });

@@ -25,6 +25,49 @@ export type HydraBruteForceInfo = {
   readonly successes: readonly HydraSuccess[];
 };
 
+// Batch sizing for cross-player workstation hydra (PR 8 of plans/cross-
+// player-base-fs-replication.md). Computed at runtime from wordlist size:
+//
+//   batch_size = clamp(ceil(words / TARGET_ROUND_TRIPS), MIN, MAX)
+//
+// Goal: keep wall time consistent (~TARGET_ROUND_TRIPS × RTT) across
+// wordlist sizes from a few dozen to several hundred. The user's
+// wordlist-progression mechanic (captured passwords appended over time)
+// means tomorrow's wordlist may be 100s-1000s of entries; this scaling
+// keeps the STATUS lines paced reasonably without flooding the function
+// with single-attempt requests.
+//
+// MAX is the per-request work cap and must NOT exceed
+// SERVER_MAX_HYDRA_BATCH_SIZE in `../patchRegistry/types.ts`. The server
+// rejects oversized batches with 400; this constant is the well-behaved
+// client matching the contract.
+export const HYDRA_TARGET_ROUND_TRIPS = 5;
+export const HYDRA_MIN_BATCH_SIZE = 8;
+export const HYDRA_MAX_BATCH_SIZE = 200;
+
+export const computeHydraBatchSize = (wordlistSize: number): number => {
+  if (wordlistSize <= 0) return HYDRA_MIN_BATCH_SIZE;
+  const target = Math.ceil(wordlistSize / HYDRA_TARGET_ROUND_TRIPS);
+  return Math.min(HYDRA_MAX_BATCH_SIZE, Math.max(HYDRA_MIN_BATCH_SIZE, target));
+};
+
+// Cross-player batch service domain — currently ssh + ftp only (the
+// auth-bearing daemons workstations actually run). Mirrors
+// HYDRA_BATCH_SERVICES in patchRegistry/types.ts.
+type CrossPlayerHydraService = 'ssh' | 'ftp';
+
+export type CrackCredentialsBatchParams = {
+  readonly targetWorkstationId: string;
+  readonly service: CrossPlayerHydraService;
+  readonly candidateHashes: readonly string[];
+  readonly userFilter?: string;
+};
+
+export type CrackCredentialsBatchResult = {
+  readonly hits: ReadonlyArray<{ readonly username: string; readonly matched_hash: string }>;
+  readonly attempts: number;
+};
+
 type HydraContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
   readonly getLocalIP: () => string;
@@ -35,6 +78,17 @@ type HydraContext = {
   readonly getLocalNode: (path: string) => FileNode | null;
   readonly getCurrentPath: () => string;
   readonly onBruteForceAggregate?: (info: HydraBruteForceInfo) => void;
+  // Returns the canonical workstation_id for cross-player targets, or
+  // null for own-workstation / NPC / mission / world IPs. When non-null
+  // AND the service filter is ssh/ftp/undefined, hydra dispatches to
+  // the server-batched path instead of the local sweep. PR 8 of
+  // cross-player-base-fs-replication.
+  readonly getCanonicalWorkstationId?: (targetIp: string) => string | null;
+  // Server-batched credential check for cross-player workstations.
+  // One async call per batch; the natural RTT paces the STATUS lines.
+  readonly onCrackCredentialsBatch?: (
+    params: CrackCredentialsBatchParams,
+  ) => Promise<CrackCredentialsBatchResult>;
 };
 
 type CrackResult = {
@@ -373,6 +427,123 @@ const createMysqlAttack = (
   };
 };
 
+// Cross-player workstation hydra. Iterates the wordlist in server-side
+// batches: each round-trip submits md5 candidates, server confirms which
+// match B's projected credentials, client reverse-looks-up plaintext from
+// its local wordlist. The natural batch RTT paces STATUS lines — no
+// setTimeout pacing on top. PR 8 of cross-player-base-fs-replication.
+const createCrossPlayerAttack = (params: {
+  readonly targetIP: string;
+  readonly targetWorkstationId: string;
+  readonly services: ReadonlyArray<{
+    readonly port: number;
+    readonly service: CrossPlayerHydraService;
+  }>;
+  readonly wordlistHashToPassword: ReadonlyMap<string, string>;
+  readonly userFilter: string | undefined;
+  readonly onCrackCredentialsBatch: (
+    p: CrackCredentialsBatchParams,
+  ) => Promise<CrackCredentialsBatchResult>;
+  readonly onBruteForceAggregate: HydraContext['onBruteForceAggregate'];
+}): AsyncOutput => {
+  const {
+    targetIP,
+    targetWorkstationId,
+    services,
+    wordlistHashToPassword,
+    userFilter,
+    onCrackCredentialsBatch,
+    onBruteForceAggregate,
+  } = params;
+
+  // Hashes the client will offer to the server. Order is preserved so
+  // STATUS progress lines feel natural (batch N covers hashes [N*size,
+  // (N+1)*size)). Pre-computed once for the whole attack — every service
+  // attacks with the same candidate set.
+  const allHashes = [...wordlistHashToPassword.keys()];
+  const batchSize = computeHydraBatchSize(allHashes.length);
+  const totalBatches = Math.max(1, Math.ceil(allHashes.length / batchSize));
+
+  let cancelled = false;
+
+  return {
+    __type: 'async',
+    start: (onLine, onComplete) => {
+      const run = async (): Promise<void> => {
+        onLine('Hydra v9.4 — Network Login Cracker');
+        onLine('');
+
+        for (const svc of services) {
+          if (cancelled) return;
+
+          onLine(`[DATA] attacking ${svc.service}://${targetIP}:${svc.port}`);
+
+          let totalAttempts = 0;
+          const svcHits: { readonly username: string; readonly password: string }[] = [];
+          const seenSuccess = new Set<string>();
+
+          for (let i = 0; i < totalBatches; i++) {
+            if (cancelled) return;
+            const batch = allHashes.slice(i * batchSize, (i + 1) * batchSize);
+            const result = await onCrackCredentialsBatch({
+              targetWorkstationId,
+              service: svc.service,
+              candidateHashes: batch,
+              ...(userFilter !== undefined && { userFilter }),
+            }).catch((err: unknown) => {
+              onLine(
+                `[ERROR] ${svc.service}://${targetIP}:${svc.port} batch ${i + 1}/${totalBatches}: ${String(err)}`,
+              );
+              return { hits: [], attempts: 0 };
+            });
+            if (cancelled) return;
+
+            totalAttempts += result.attempts;
+            onLine(`[STATUS] batch ${i + 1}/${totalBatches} — ${totalAttempts} attempts completed`);
+
+            for (const hit of result.hits) {
+              const password = wordlistHashToPassword.get(hit.matched_hash.toLowerCase());
+              // Same username may surface across batches if the server's
+              // user_filter is absent and multiple candidates map to the
+              // same stored hash (defensive — shouldn't happen with
+              // unique wordlist md5s, but cheap to guard).
+              if (password !== undefined && !seenSuccess.has(hit.username)) {
+                seenSuccess.add(hit.username);
+                svcHits.push({ username: hit.username, password });
+                onLine(
+                  `[${svc.port}][${svc.service}] host: ${targetIP}   login: ${hit.username}   password: ${password}`,
+                );
+              }
+            }
+          }
+
+          // Service summary — `users` count is the cracked-user count
+          // because the server doesn't report total enumerated users
+          // (only matching ones). Real hydra's "N of M cracked" line
+          // becomes "N cracked" in this mode; close enough to keep the
+          // visual rhythm.
+          onLine('');
+          onLine(`${svcHits.length} valid credential${svcHits.length === 1 ? '' : 's'} found`);
+          onBruteForceAggregate?.({
+            targetIp: targetIP,
+            port: svc.port,
+            service: svc.service,
+            attempts: totalAttempts,
+            successes: svcHits,
+          });
+        }
+
+        onComplete();
+      };
+
+      void run();
+    },
+    cancel: () => {
+      cancelled = true;
+    },
+  };
+};
+
 export const createHydraCommand = (context: HydraContext): Command => ({
   name: 'hydra',
   category: 'network',
@@ -504,6 +675,39 @@ export const createHydraCommand = (context: HydraContext): Command => ({
         ? `no open ${serviceFilter} service on ${targetIP}`
         : `no open SSH/FTP/SNMP services on ${targetIP}`;
       throw new Error(`hydra: ${detail}`);
+    }
+
+    // PR 8 of plans/cross-player-base-fs-replication.md — cross-player
+    // workstation dispatch. A's local view of B's /etc/passwd is empty
+    // pre-session (PR 6's getBaseFs only fires on session establish),
+    // so the local sweep below would find zero hashes to gate. Route
+    // through the server's batched crackCredentials endpoint instead.
+    //
+    // Routing requires:
+    //   - getCanonicalWorkstationId returns a workstation_id (target is
+    //     a cross-player workstation in the LAN).
+    //   - onCrackCredentialsBatch callback is wired (production: always;
+    //     tests: only when exercising this path).
+    //   - service filter is ssh, ftp, or undefined (=> attack open
+    //     ssh+ftp ports — the only auth-bearing daemons on workstations).
+    const canonicalWorkstationId = context.getCanonicalWorkstationId?.(targetIP) ?? null;
+    if (
+      canonicalWorkstationId !== null &&
+      context.onCrackCredentialsBatch !== undefined &&
+      (serviceFilter === undefined || serviceFilter === 'ssh' || serviceFilter === 'ftp')
+    ) {
+      return createCrossPlayerAttack({
+        targetIP,
+        targetWorkstationId: canonicalWorkstationId,
+        services: services.filter(
+          (s): s is { readonly port: number; readonly service: CrossPlayerHydraService } =>
+            s.service === 'ssh' || s.service === 'ftp',
+        ),
+        wordlistHashToPassword,
+        userFilter,
+        onCrackCredentialsBatch: context.onCrackCredentialsBatch,
+        onBruteForceAggregate: context.onBruteForceAggregate,
+      });
     }
 
     // Resolve NAT per service port to get the actual target machine's users.

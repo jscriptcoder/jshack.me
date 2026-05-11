@@ -1,6 +1,6 @@
 # Plan: Cross-Player Base FS Replication + Server-Authoritative Auth + CVE Read Endpoint
 
-**Status**: Active — PR 1 ✅ merged (#124); PR 2 ✅ merged (#125); PR 3 ✅ merged (#126); PR 4 ✅ merged (#127); PR 5 ✅ merged (#128, commit 1ea6d3b); PR 6 ✅ merged (#129, commit 13273ad); PR 7 ✅ merged (#130, commit 1787be2). PR 8 only remaining.
+**Status**: Active — PR 1-7 ✅ merged. PR 8 in review (server side complete; in-game smoke pending).
 **Started**: 2026-05-07
 **Estimate**: 7 PRs, ~3-4 weeks total
 **Why this chunk exists**: PvP cracking is the multiplayer pitch. Without this, cross-player attacks against player workstations don't work — SSH login fails, FTP login fails, file_read CVE fails, post-login `cat`/`ls` returns empty. User explicitly reversed the prior deferral on 2026-05-07 ("not gonna be happy to release the game without this").
@@ -102,7 +102,7 @@ Subsequent PRs in this chunk extend the same pattern to FTP / MySQL / Redis / nc
 | 5   | ✅ Merged (#128, commit `1ea6d3b`) | Backdoor connect (nc) — cross-player tier from projected pidfile                |
 | 6   | ✅ Merged (#129, commit `13273ad`) | Base FS replication endpoint — workstations only (NPC home/world regen locally) |
 | 7   | ✅ Merged (#130, commit `1787be2`) | `exploitRead` action for `file_read` / `dir_list` CVE effects                   |
-| 8   | Pending PRs 2-3                    | Hydra adaptation + rate-limit tuning                                            |
+| 8   | In review — server side done       | Hydra adaptation — server-batched crackCredentials (ssh + ftp)                  |
 
 Ordering rationale:
 
@@ -1335,16 +1335,30 @@ The toggle is not a security boundary — it just injects a fake port into the U
 
 ---
 
-## PR 8: Hydra adaptation + rate-limit tuning
+## PR 8: Hydra adaptation — server-batched crackCredentials
 
-**Goal**: Hydra brute-forces SSH/FTP cross-player using the server-auth endpoints from PRs 2-3.
+**Status**: server side ✅ (commit `e3c8e6a` on `feat/cpbfs-pr8-hydra-cross-player`); in-game smoke pending.
 
-**Approach** — two flavors, decide during implementation:
+**Goal**: Hydra brute-forces SSH/FTP cross-player without needing a session first.
 
-- **8a (client iterates)**: hydra calls the auth endpoint per password attempt; rate limit per (player, target, kind) tuned to allow gameplay (e.g. 50 attempts/sec); slow but UX-equivalent to today.
-- **8b (server iterates)**: hydra signs an envelope with a wordlist; server iterates and returns the first hit. Faster but the wordlist hits the wire.
+**Approach chosen (2026-05-11)**: **8b-batched** — neither pure 8a nor pure 8b, but server-iterates in small batches.
 
-8a is more flexible (player can stop early, see progress); 8b is simpler. Decision deferred to PR start.
+- New `crackCredentials` action on `/api/patches` (seventh arm of the discriminated union).
+- Client sends md5(plaintext) hashes per batch; server reads B's projected `/etc/passwd` (and `virtual_users.conf` overlay for ftp) and returns matching `{username, matched_hash}` pairs. Client reverse-looks-up plaintext from its local wordlist.
+- Batch size: `clamp(ceil(words / HYDRA_TARGET_ROUND_TRIPS), HYDRA_MIN_BATCH_SIZE, HYDRA_MAX_BATCH_SIZE)`. Constants live in `src/commands/hydra.ts` (currently 5 / 8 / 200). Server enforces `SERVER_MAX_HYDRA_BATCH_SIZE = 200` as a hard cap.
+- Wallet defence intact: raw stored hashes never cross the wire, only candidate md5s the client could compute itself.
+- Natural per-batch RTT paces STATUS lines — no `setTimeout` jitter on top of real round-trips.
+- No session check on the endpoint (hydra is the PRE-auth tool). Pre-auth is intentional; the natural network rate-limit + bounded server work per request is the friction.
+- Local sync path unchanged for own-workstation / NPC / mission / world targets (they regen locally so `/etc/passwd` is already in cache).
+
+**Why server-iterate, not client-iterate (8a)**: pre-auth-by-design endpoint means no DB row churn per attempt; one round-trip per ~20-200 candidates instead of one per candidate; works without an active session at all. The per-attempt 8a model would have required either (a) faking session rows per attempt (DB pressure), or (b) a dry-run flag on `authCreateSession` (entry-point bloat). The batched approach is strictly better on both axes.
+
+**Why not eager pre-fetch (8c)**: PR 6's `getBaseFs` only fires on session establish. Pre-fetching the full base FS for every LAN occupant on join would balloon network + memory cost (B's full FS at A's tier when A may never even attack B) and bypass the read-path filter's tier walking. The targeted batched-check endpoint reads exactly what hydra needs (a few projected paths) and never instantiates a full tree on A's side.
+
+**Deferred (consciously)**:
+
+- **Per-(player, target, service) rate limit**: not added. Natural batch RTT + the schema's per-batch cap is enough friction. A malicious client can already bypass any in-process rate limit by spinning up new identities; the real mitigation is L3 game-logic re-run server-side. Documented in `project_multiplayer_security_model`.
+- **Wordlist forge bypass**: A forge-envelope attacker can mint candidates from any source (not just the in-game wordlist). Accepted — the wordlist is public-knowledge in-game; server-side md5 matching leaks no more than offline brute-force would. This is the same accepted threat as `exploitRead` (see `project_create_session_effect_kind_contract`).
 
 ---
 

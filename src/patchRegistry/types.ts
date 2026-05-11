@@ -157,6 +157,45 @@ export const exploitReadSignedPayloadSchema = z
 
 export type ExploitReadPayload = z.infer<typeof exploitReadSignedPayloadSchema>;
 
+// crackCredentials — server-side batched hydra. Caller sends candidate
+// password hashes (MD5) for a target workstation; server reads the
+// projected credential file (/etc/passwd; for FTP, overlay
+// /etc/vsftpd/virtual_users.conf) and returns matching {username,
+// matched_hash} pairs. Raw stored hashes never cross the wire —
+// candidates are md5(plaintext) which any attacker could compute from
+// a wordlist, so this leaks no more than client-side hydra would.
+//
+// Scoped to SSH/FTP because workstations only run those auth-bearing
+// daemons; future services (mysql/redis/snmp on player boxes) would
+// extend HYDRA_BATCH_SERVICES.
+//
+// SERVER_MAX_HYDRA_BATCH_SIZE caps per-request work to bound function
+// load: 200 candidates × ~5 users × md5 compare is cheap, and a 1000-
+// entry wordlist fits in 5 batches with our HYDRA_TARGET_ROUND_TRIPS
+// constant (see hydra.ts).
+//
+// PR 8 of plans/cross-player-base-fs-replication.md.
+export const HYDRA_BATCH_SERVICES = ['ssh', 'ftp'] as const;
+export type HydraBatchService = (typeof HYDRA_BATCH_SERVICES)[number];
+
+export const SERVER_MAX_HYDRA_BATCH_SIZE = 200;
+
+export const crackCredentialsSignedPayloadSchema = z
+  .object({
+    action: z.literal('crackCredentials'),
+    ...baseEnvelopeFields,
+    machine_id: z.string().min(1).max(256),
+    service: z.enum(HYDRA_BATCH_SERVICES),
+    candidate_hashes: z
+      .array(z.string().regex(/^[0-9a-f]{32}$/i))
+      .min(1)
+      .max(SERVER_MAX_HYDRA_BATCH_SIZE),
+    user_filter: z.string().min(1).max(256).optional(),
+  })
+  .strict();
+
+export type CrackCredentialsPayload = z.infer<typeof crackCredentialsSignedPayloadSchema>;
+
 // Combined schema for /api/patches — discriminated by `action`. Adding
 // a new action: extend this union and add a dispatch arm in handler.ts.
 export const patchesSignedPayloadSchema = z.discriminatedUnion('action', [
@@ -166,6 +205,7 @@ export const patchesSignedPayloadSchema = z.discriminatedUnion('action', [
   clearOwnedPatchesSignedPayloadSchema,
   getBaseFsSignedPayloadSchema,
   exploitReadSignedPayloadSchema,
+  crackCredentialsSignedPayloadSchema,
 ]);
 
 export type PatchesPayload = z.infer<typeof patchesSignedPayloadSchema>;
@@ -282,4 +322,20 @@ export type ClearPatchesParams = {
 
 export type ClearPatchesResult =
   | { readonly ok: true; readonly affected: number }
+  | { readonly ok: false };
+
+// crackCredentials result. `username` is the cred owner whose stored
+// hash matched one of the candidates; `matched_hash` lets the client
+// reverse-lookup the plaintext from its own wordlist.
+export type CrackCredentialsHit = {
+  readonly username: string;
+  readonly matched_hash: string;
+};
+
+export type CrackCredentialsResult =
+  | {
+      readonly ok: true;
+      readonly hits: ReadonlyArray<CrackCredentialsHit>;
+      readonly attempts: number;
+    }
   | { readonly ok: false };

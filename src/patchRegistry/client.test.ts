@@ -6,6 +6,7 @@ import {
   clearOwnedPatches,
   getBaseFs,
   exploitRead,
+  crackCredentials,
 } from './client';
 import { generateIdentity, verify } from '../identity/identity';
 import { hexToBytes } from '../identity/hex';
@@ -874,6 +875,175 @@ describe('exploitRead', () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ content: null }));
 
     await exploitRead(identity, TEST_MACHINE_ID, '/etc/passwd', 'file_read', fetchMock);
+
+    const envelope: {
+      readonly payload: string;
+      readonly signature: string;
+      readonly publicKey: string;
+    } = JSON.parse(fetchMock.mock.calls[0]![1]?.body as string);
+    expect(envelope.publicKey).toBe(identity.publicKeyHex);
+    const pubBytes = hexToBytes(envelope.publicKey);
+    const sigBytes = hexToBytes(envelope.signature);
+    const valid = verify(pubBytes!, sigBytes!, new TextEncoder().encode(envelope.payload));
+    expect(valid).toBe(true);
+  });
+});
+
+describe('crackCredentials', () => {
+  const TEST_MACHINE_ID = 'omen-aabbccdd';
+  const hashOf = (n: number): string => n.toString(16).padStart(32, '0');
+
+  it('signs an envelope with action=crackCredentials and POSTs to /api/patches', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ hits: [], attempts: 0 }));
+
+    await crackCredentials(
+      identity,
+      TEST_MACHINE_ID,
+      'ssh',
+      [hashOf(1), hashOf(2)],
+      undefined,
+      fetchMock,
+    );
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('/api/patches');
+    expect(init?.method).toBe('POST');
+    const envelope: { readonly payload: string } = JSON.parse(init?.body as string);
+    const inner: {
+      readonly action: string;
+      readonly machine_id: string;
+      readonly service: string;
+      readonly candidate_hashes: readonly string[];
+    } = JSON.parse(envelope.payload);
+    expect(inner.action).toBe('crackCredentials');
+    expect(inner.machine_id).toBe(TEST_MACHINE_ID);
+    expect(inner.service).toBe('ssh');
+    expect(inner.candidate_hashes).toEqual([hashOf(1), hashOf(2)]);
+  });
+
+  it('includes user_filter when provided', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ hits: [], attempts: 0 }));
+
+    await crackCredentials(identity, TEST_MACHINE_ID, 'ftp', [hashOf(1)], 'alice', fetchMock);
+
+    const envelope: { readonly payload: string } = JSON.parse(
+      fetchMock.mock.calls[0]![1]?.body as string,
+    );
+    const inner: { readonly user_filter?: string } = JSON.parse(envelope.payload);
+    expect(inner.user_filter).toBe('alice');
+  });
+
+  it('omits user_filter when not provided', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ hits: [], attempts: 0 }));
+
+    await crackCredentials(identity, TEST_MACHINE_ID, 'ssh', [hashOf(1)], undefined, fetchMock);
+
+    const envelope: { readonly payload: string } = JSON.parse(
+      fetchMock.mock.calls[0]![1]?.body as string,
+    );
+    const inner: Record<string, unknown> = JSON.parse(envelope.payload);
+    expect('user_filter' in inner).toBe(false);
+  });
+
+  it('returns hits + attempts on a 200', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      ok({
+        hits: [{ username: 'alice', matched_hash: hashOf(0x4123) }],
+        attempts: 6,
+      }),
+    );
+
+    const result = await crackCredentials(
+      identity,
+      TEST_MACHINE_ID,
+      'ssh',
+      [hashOf(0x4123), hashOf(0xdead), hashOf(0xbeef)],
+      undefined,
+      fetchMock,
+    );
+    expect(result).toEqual({
+      hits: [{ username: 'alice', matched_hash: hashOf(0x4123) }],
+      attempts: 6,
+    });
+  });
+
+  it('returns empty hits when none match', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ hits: [], attempts: 4 }));
+
+    const result = await crackCredentials(
+      identity,
+      TEST_MACHINE_ID,
+      'ssh',
+      [hashOf(1), hashOf(2)],
+      undefined,
+      fetchMock,
+    );
+    expect(result.hits).toEqual([]);
+    expect(result.attempts).toBe(4);
+  });
+
+  it('throws on 400 (oversized batch / unsupported machine)', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(errResponse(400, { error: 'unsupported_machine_type' }));
+
+    await expect(
+      crackCredentials(identity, TEST_MACHINE_ID, 'ssh', [hashOf(1)], undefined, fetchMock),
+    ).rejects.toThrow(/400/);
+  });
+
+  it('throws on 404 (workstation_not_found)', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(errResponse(404, { error: 'workstation_not_found' }));
+
+    await expect(
+      crackCredentials(identity, TEST_MACHINE_ID, 'ssh', [hashOf(1)], undefined, fetchMock),
+    ).rejects.toThrow(/404/);
+  });
+
+  it('throws on 500', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(errResponse(500, { error: 'fs_lookup_failed' }));
+
+    await expect(
+      crackCredentials(identity, TEST_MACHINE_ID, 'ssh', [hashOf(1)], undefined, fetchMock),
+    ).rejects.toThrow(/500/);
+  });
+
+  it('throws when response is missing hits field', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ attempts: 3 }));
+
+    await expect(
+      crackCredentials(identity, TEST_MACHINE_ID, 'ssh', [hashOf(1)], undefined, fetchMock),
+    ).rejects.toThrow(/hits/);
+  });
+
+  it('throws when response is missing attempts field', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ hits: [] }));
+
+    await expect(
+      crackCredentials(identity, TEST_MACHINE_ID, 'ssh', [hashOf(1)], undefined, fetchMock),
+    ).rejects.toThrow(/attempts/);
+  });
+
+  it('signature verifies with the caller identity', async () => {
+    const identity = generateIdentity();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(ok({ hits: [], attempts: 0 }));
+
+    await crackCredentials(identity, TEST_MACHINE_ID, 'ssh', [hashOf(1)], undefined, fetchMock);
 
     const envelope: {
       readonly payload: string;

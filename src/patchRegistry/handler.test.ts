@@ -3307,3 +3307,371 @@ describe('handlePatchesRequest — exploitRead', () => {
     expect(result.body).toEqual({ error: 'session_lookup_failed' });
   });
 });
+
+// -----------------------------------------------------------------------
+// crackCredentials — PR 8 of cross-player-base-fs-replication
+// -----------------------------------------------------------------------
+
+describe('handlePatchesRequest — crackCredentials', () => {
+  let identity: Identity;
+  const workstationName = 'omen';
+  const seed = 'fixture-seed';
+
+  beforeEach(() => {
+    identity = generateIdentity();
+  });
+
+  const makeOtherPlayerRow = (otherPlayerKey: string) => {
+    const suffix = deriveHostnameSuffix(`ed25519:${otherPlayerKey}`);
+    return {
+      machine_id: `${workstationName}-${suffix}`,
+      row: {
+        player_key: otherPlayerKey,
+        workstation_name: workstationName,
+        username: 'bob',
+        seed,
+      },
+    };
+  };
+
+  // 32-char hex hash factory (numbers 1..N, padded). Convenient for
+  // crafting candidate sets and stored-hash fixtures whose values we
+  // can predict in assertions.
+  const hashOf = (n: number): string => n.toString(16).padStart(32, '0');
+
+  it('returns 400 unsupported_machine_type for an IPv4 machine_id', async () => {
+    const envelope = makeEnvelope(identity, {
+      action: 'crackCredentials',
+      machine_id: '192.168.1.50',
+      service: 'ssh',
+      candidate_hashes: [hashOf(1)],
+    });
+
+    const findWorkstationsByName = vi
+      .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+      .mockResolvedValue({ ok: true, rows: [] });
+    const result = await handlePatchesRequest(envelope, mkDeps({ findWorkstationsByName }));
+
+    expect(result.status).toBe(400);
+    expect(result.body).toEqual({ error: 'unsupported_machine_type' });
+    expect(findWorkstationsByName).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 workstation_not_found when no rows match', async () => {
+    const envelope = makeEnvelope(identity, {
+      action: 'crackCredentials',
+      machine_id: 'ghost-ffffffff',
+      service: 'ssh',
+      candidate_hashes: [hashOf(1)],
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({ ok: true, rows: [] }),
+      }),
+    );
+
+    expect(result.status).toBe(404);
+    expect(result.body).toEqual({ error: 'workstation_not_found' });
+  });
+
+  it('ssh: returns a hit when a candidate matches a stored /etc/passwd hash', async () => {
+    const otherPlayerKey = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const { machine_id, row } = makeOtherPlayerRow(otherPlayerKey);
+    const aliceHash = hashOf(0x4123);
+    const passwdContent = [
+      `root:${hashOf(0x9999)}:0:0:root:/root:/bin/bash`,
+      `alice:${aliceHash}:1000:1000::/home/alice:/bin/bash`,
+      `guest:${hashOf(0x1234)}:1001:1001::/home/guest:/bin/bash`,
+    ].join('\n');
+
+    const envelope = makeEnvelope(identity, {
+      action: 'crackCredentials',
+      machine_id,
+      service: 'ssh',
+      candidate_hashes: [aliceHash, hashOf(0xdead)],
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({ ok: true, rows: [row] }),
+        findFsContentBatch: vi
+          .fn<(p: FindFsContentBatchParams) => Promise<FindFsContentBatchResult>>()
+          .mockResolvedValue({
+            ok: true,
+            contentByPath: new Map([['/etc/passwd', passwdContent]]),
+          }),
+      }),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({
+      hits: [{ username: 'alice', matched_hash: aliceHash }],
+    });
+  });
+
+  it('ssh: returns empty hits when no candidate matches', async () => {
+    const otherPlayerKey = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    const { machine_id, row } = makeOtherPlayerRow(otherPlayerKey);
+    const passwdContent = `alice:${hashOf(0x4123)}:1000:1000::/home/alice:/bin/bash`;
+
+    const envelope = makeEnvelope(identity, {
+      action: 'crackCredentials',
+      machine_id,
+      service: 'ssh',
+      candidate_hashes: [hashOf(0xbeef), hashOf(0xdead)],
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({ ok: true, rows: [row] }),
+        findFsContentBatch: vi
+          .fn<(p: FindFsContentBatchParams) => Promise<FindFsContentBatchResult>>()
+          .mockResolvedValue({
+            ok: true,
+            contentByPath: new Map([['/etc/passwd', passwdContent]]),
+          }),
+      }),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({ hits: [] });
+  });
+
+  it('ssh: user_filter scopes hash lookup to a single user', async () => {
+    const otherPlayerKey = 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc';
+    const { machine_id, row } = makeOtherPlayerRow(otherPlayerKey);
+    const aliceHash = hashOf(0xa1);
+    const rootHash = hashOf(0xb2);
+    const passwdContent = [
+      `root:${rootHash}:0:0:root:/root:/bin/bash`,
+      `alice:${aliceHash}:1000:1000::/home/alice:/bin/bash`,
+    ].join('\n');
+
+    const envelope = makeEnvelope(identity, {
+      action: 'crackCredentials',
+      machine_id,
+      service: 'ssh',
+      candidate_hashes: [aliceHash, rootHash],
+      user_filter: 'alice',
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({ ok: true, rows: [row] }),
+        findFsContentBatch: vi
+          .fn<(p: FindFsContentBatchParams) => Promise<FindFsContentBatchResult>>()
+          .mockResolvedValue({
+            ok: true,
+            contentByPath: new Map([['/etc/passwd', passwdContent]]),
+          }),
+      }),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({
+      hits: [{ username: 'alice', matched_hash: aliceHash }],
+    });
+  });
+
+  it('ftp: virtual_users.conf overlay wins over /etc/passwd for the same username', async () => {
+    const otherPlayerKey = 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd';
+    const { machine_id, row } = makeOtherPlayerRow(otherPlayerKey);
+    const systemHash = hashOf(0x1111);
+    const virtualHash = hashOf(0x2222);
+    const passwdContent = `alice:${systemHash}:1000:1000::/home/alice:/bin/bash`;
+    const virtualContent = `alice:${virtualHash}`;
+
+    // Candidate matches the VIRTUAL hash but NOT the system hash — a hit
+    // only emerges if the FTP overlay correctly replaces the /etc/passwd
+    // hash with the virtual_users.conf one.
+    const envelope = makeEnvelope(identity, {
+      action: 'crackCredentials',
+      machine_id,
+      service: 'ftp',
+      candidate_hashes: [virtualHash],
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({ ok: true, rows: [row] }),
+        findFsContentBatch: vi
+          .fn<(p: FindFsContentBatchParams) => Promise<FindFsContentBatchResult>>()
+          .mockResolvedValue({
+            ok: true,
+            contentByPath: new Map([
+              ['/etc/passwd', passwdContent],
+              ['/etc/vsftpd/virtual_users.conf', virtualContent],
+            ]),
+          }),
+      }),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({
+      hits: [{ username: 'alice', matched_hash: virtualHash }],
+    });
+  });
+
+  it('ftp: falls back to /etc/passwd when virtual_users.conf is missing the user', async () => {
+    const otherPlayerKey = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+    const { machine_id, row } = makeOtherPlayerRow(otherPlayerKey);
+    const systemHash = hashOf(0x3333);
+    const passwdContent = `alice:${systemHash}:1000:1000::/home/alice:/bin/bash`;
+    const virtualContent = `bob:${hashOf(0xaaaa)}`;
+
+    const envelope = makeEnvelope(identity, {
+      action: 'crackCredentials',
+      machine_id,
+      service: 'ftp',
+      candidate_hashes: [systemHash],
+      user_filter: 'alice',
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({ ok: true, rows: [row] }),
+        findFsContentBatch: vi
+          .fn<(p: FindFsContentBatchParams) => Promise<FindFsContentBatchResult>>()
+          .mockResolvedValue({
+            ok: true,
+            contentByPath: new Map([
+              ['/etc/passwd', passwdContent],
+              ['/etc/vsftpd/virtual_users.conf', virtualContent],
+            ]),
+          }),
+      }),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({
+      hits: [{ username: 'alice', matched_hash: systemHash }],
+    });
+  });
+
+  it('reports attempts = users x candidates (real hydra attempt count)', async () => {
+    const otherPlayerKey = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
+    const { machine_id, row } = makeOtherPlayerRow(otherPlayerKey);
+    const passwdContent = [
+      `root:${hashOf(0x9999)}:0:0:root:/root:/bin/bash`,
+      `alice:${hashOf(0x4123)}:1000:1000::/home/alice:/bin/bash`,
+    ].join('\n');
+
+    const envelope = makeEnvelope(identity, {
+      action: 'crackCredentials',
+      machine_id,
+      service: 'ssh',
+      candidate_hashes: [hashOf(0xbeef), hashOf(0xdead), hashOf(0xcafe)],
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({ ok: true, rows: [row] }),
+        findFsContentBatch: vi
+          .fn<(p: FindFsContentBatchParams) => Promise<FindFsContentBatchResult>>()
+          .mockResolvedValue({
+            ok: true,
+            contentByPath: new Map([['/etc/passwd', passwdContent]]),
+          }),
+      }),
+    );
+
+    expect(result.status).toBe(200);
+    // 2 stored users x 3 candidates = 6 attempts
+    expect(result.body).toMatchObject({ attempts: 6 });
+  });
+
+  it('returns empty hits when /etc/passwd is missing (sabotaged)', async () => {
+    const otherPlayerKey = '1111111111111111111111111111111111111111111111111111111111111111';
+    const { machine_id, row } = makeOtherPlayerRow(otherPlayerKey);
+
+    const envelope = makeEnvelope(identity, {
+      action: 'crackCredentials',
+      machine_id,
+      service: 'ssh',
+      candidate_hashes: [hashOf(0xbeef)],
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({ ok: true, rows: [row] }),
+        // /etc/passwd projection absent → no users → no hits, zero attempts.
+        findFsContentBatch: vi
+          .fn<(p: FindFsContentBatchParams) => Promise<FindFsContentBatchResult>>()
+          .mockResolvedValue({ ok: true, contentByPath: new Map() }),
+      }),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({ hits: [], attempts: 0 });
+  });
+
+  it('sees password_reset writes via the dual-write contract (findFsContentBatch returns post-patch content)', async () => {
+    // Player B was rooted; their /etc/passwd was rewritten via a patch
+    // (password_reset effect). Because /etc/passwd is in
+    // FS_PROJECTED_CONTENT_PATHS, the upsert_patch_with_fs SQL function
+    // dual-writes the new content to machine_filesystems.content, so
+    // findFsContentBatch returns the post-patch hash directly. No
+    // separate patches-table overlay is needed in this handler. See
+    // `project_projected_paths_dual_write` memory.
+    const otherPlayerKey = '2222222222222222222222222222222222222222222222222222222222222222';
+    const { machine_id, row } = makeOtherPlayerRow(otherPlayerKey);
+    const oldHash = hashOf(0x4111);
+    const newHash = hashOf(0x4222);
+    const patchedPasswd = `alice:${newHash}:1000:1000::/home/alice:/bin/bash`;
+
+    const envelope = makeEnvelope(identity, {
+      action: 'crackCredentials',
+      machine_id,
+      service: 'ssh',
+      candidate_hashes: [oldHash, newHash],
+    });
+
+    const result = await handlePatchesRequest(
+      envelope,
+      mkDeps({
+        findWorkstationsByName: vi
+          .fn<(p: FindWorkstationsByNameParams) => Promise<FindWorkstationsByNameResult>>()
+          .mockResolvedValue({ ok: true, rows: [row] }),
+        // Post-dual-write: /etc/passwd content is the NEW hash.
+        findFsContentBatch: vi
+          .fn<(p: FindFsContentBatchParams) => Promise<FindFsContentBatchResult>>()
+          .mockResolvedValue({
+            ok: true,
+            contentByPath: new Map([['/etc/passwd', patchedPasswd]]),
+          }),
+      }),
+    );
+
+    expect(result.status).toBe(200);
+    // Only newHash hits — the OLD hash is gone from machine_filesystems
+    // because the dual-write replaced it on the password_reset upsert.
+    expect(result.body).toMatchObject({
+      hits: [{ username: 'alice', matched_hash: newHash }],
+    });
+  });
+});

@@ -8,7 +8,7 @@ import {
   parseWorkstationId,
   targetMachineIdFor,
 } from '../homeNetworks/homeNetworkHelpers';
-import { exploitRead } from '../patchRegistry/client';
+import { exploitRead, crackCredentials } from '../patchRegistry/client';
 import { createIfconfigCommand } from '../commands/ifconfig';
 import { createPingCommand } from '../commands/ping';
 import { createNmapCommand } from '../commands/nmap';
@@ -661,6 +661,25 @@ export const useNetworkCommands = (): Map<string, Command> => {
             getLocalNode: (path: string) => getNode(resolvePath(path)),
             getCurrentPath: () => session.currentPath,
             onBruteForceAggregate: onHydraBruteForceAggregate,
+            // PR 8 of plans/cross-player-base-fs-replication.md — when
+            // the target IP resolves to another player's workstation_id,
+            // hydra routes through the server's batched crackCredentials
+            // endpoint instead of the local /etc/passwd sweep (which
+            // sees an empty FS pre-session for cross-player workstations).
+            getCanonicalWorkstationId: (targetIp: string): string | null => {
+              const canonical = resolveTargetMachineId(targetIp);
+              if (parseWorkstationId(canonical) === undefined) return null;
+              if (isOwnWorkstation(canonical, hostname)) return null;
+              return canonical;
+            },
+            onCrackCredentialsBatch: async (params) =>
+              crackCredentials(
+                getIdentity(),
+                params.targetWorkstationId,
+                params.service,
+                params.candidateHashes,
+                params.userFilter,
+              ),
           }),
           isWifiRequired,
         ),

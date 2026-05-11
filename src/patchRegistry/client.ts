@@ -1,7 +1,13 @@
 import type { Identity } from '../identity/identity.js';
 import { signRequest } from '../signedRequest/sign.js';
 import type { FileNode, FileSystemPatch, FilePermissions } from '../filesystem/types.js';
-import type { ExploitReadKind, NodeType, UserType } from './types.js';
+import type {
+  CrackCredentialsResult,
+  ExploitReadKind,
+  HydraBatchService,
+  NodeType,
+  UserType,
+} from './types.js';
 
 // Browser-side wrappers for POST /api/patches. Single endpoint with
 // action-dispatch — each wrapper signs an envelope with the matching
@@ -282,3 +288,76 @@ export const exploitRead = async (
   }
   return entries;
 };
+
+// PR 8 of plans/cross-player-base-fs-replication.md — batched hydra
+// against a cross-player workstation. Caller sends md5(plaintext)
+// candidate hashes; server reads the projected credential file and
+// returns matches. Raw stored hashes never cross the wire — only
+// candidates the client already knows.
+//
+// Errors: 400/404/500 throw (caller bug / server outage). 200 returns
+// the result type as-is, callers handle empty hits as "no match in this
+// batch" and continue iterating.
+export const crackCredentials = async (
+  identity: Identity,
+  machineId: string,
+  service: HydraBatchService,
+  candidateHashes: readonly string[],
+  userFilter: string | undefined,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{
+  readonly hits: ReadonlyArray<{ readonly username: string; readonly matched_hash: string }>;
+  readonly attempts: number;
+}> => {
+  const envelope = signRequest(identity, 'crackCredentials', {
+    machine_id: machineId,
+    service,
+    candidate_hashes: candidateHashes,
+    ...(userFilter !== undefined && { user_filter: userFilter }),
+  });
+  const response = await postEnvelope(envelope, fetchImpl);
+
+  if (response.status !== 200) {
+    throw new Error(`crackCredentials failed with status ${response.status}`);
+  }
+
+  const data: unknown = await response.json();
+  if (typeof data !== 'object' || data === null) {
+    throw new Error('crackCredentials returned malformed response');
+  }
+
+  if (!('hits' in data)) {
+    throw new Error('crackCredentials returned malformed response (missing hits)');
+  }
+  if (!('attempts' in data)) {
+    throw new Error('crackCredentials returned malformed response (missing attempts)');
+  }
+  const hits = (data as { readonly hits: unknown }).hits;
+  const attempts = (data as { readonly attempts: unknown }).attempts;
+  if (!Array.isArray(hits)) {
+    throw new Error('crackCredentials returned malformed hits (not array)');
+  }
+  if (typeof attempts !== 'number') {
+    throw new Error('crackCredentials returned malformed attempts (not number)');
+  }
+  // Type-check each hit row — defensive against a malicious server
+  // (would only matter if the API surface gets reused outside this codebase).
+  const validatedHits = hits.map((h, i) => {
+    if (typeof h !== 'object' || h === null) {
+      throw new Error(`crackCredentials hit[${i}] is not an object`);
+    }
+    if (typeof (h as { username: unknown }).username !== 'string') {
+      throw new Error(`crackCredentials hit[${i}].username is not a string`);
+    }
+    if (typeof (h as { matched_hash: unknown }).matched_hash !== 'string') {
+      throw new Error(`crackCredentials hit[${i}].matched_hash is not a string`);
+    }
+    return h as { readonly username: string; readonly matched_hash: string };
+  });
+
+  return { hits: validatedHits, attempts };
+};
+
+// Re-export the result type for callers that want to import it
+// alongside the wrapper. Mirrors the pattern other action types follow.
+export type { CrackCredentialsResult };
