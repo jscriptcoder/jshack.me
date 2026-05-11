@@ -54,6 +54,7 @@ import { overlayProjectedContent } from '../filesystem/baseFsOverlay.js';
 import { filterFileNodeForRead } from '../filesystem/baseFsFilter.js';
 import { applyPatches } from '../filesystem/fileSystemUtils.js';
 import type { FileNode, FilePermissions, FileSystemPatch } from '../filesystem/types.js';
+import { parseVirtualUsersConf } from '../generation/ftpCredentials.js';
 
 export type HandlerResponse = {
   readonly status: number;
@@ -188,6 +189,8 @@ const dispatchAction = async (
       return handleGetBaseFs(publicKey, payload, deps);
     case 'exploitRead':
       return handleExploitRead(publicKey, payload, deps);
+    case 'crackCredentials':
+      return handleCrackCredentials(publicKey, payload, deps);
   }
 };
 
@@ -862,4 +865,110 @@ const handleExploitRead = async (
   }
   const entries = Object.keys(resolved.node.children ?? {}).sort();
   return { status: 200, body: { entries } };
+};
+
+// PR 8 of plans/cross-player-base-fs-replication.md — batched hydra
+// credential cracking against a cross-player workstation.
+//
+// Caller sends md5(plaintext) hashes for a wordlist batch; server reads
+// the projected credential file (for ssh: /etc/passwd; for ftp:
+// /etc/vsftpd/virtual_users.conf overlay + /etc/passwd fallback), then
+// returns the {username, matched_hash} pairs whose stored hash appears
+// in the candidate set. Client reverse-looks-up the plaintext from its
+// own wordlist.
+//
+// No session check — hydra is the PRE-auth tool. The threat model: a
+// forge-envelope attacker can already brute-force any wordlist they
+// invent, so server-side hash matching leaks no more than a real
+// brute-force attempt would. The natural per-batch network RTT is the
+// rate limit; per-batch SERVER_MAX_HYDRA_BATCH_SIZE caps work.
+//
+// Why we skip regen + applyPatches here (unlike exploitRead): credential
+// paths are in FS_PROJECTED_CONTENT_PATHS, so every patch that mutates
+// them dual-writes the new content to machine_filesystems.content
+// (upsert_patch_with_fs honours project_fs_content). findFsContentBatch
+// therefore returns the post-patch state directly — no need to layer the
+// patches table on top. password_reset rolls land here naturally because
+// the patch's content arrives via the same dual-write path. See
+// `project_projected_paths_dual_write` memory.
+const handleCrackCredentials = async (
+  _publicKey: string,
+  payload: Extract<PatchesPayload, { action: 'crackCredentials' }>,
+  deps: HandlerDeps,
+): Promise<HandlerResponse> => {
+  const parsed = parseWorkstationId(payload.machine_id);
+  if (!parsed) {
+    return { status: 400, body: { error: 'unsupported_machine_type' } };
+  }
+
+  const wsResult = await deps.findWorkstationsByName({ workstation_name: parsed.name });
+  if (!wsResult.ok) {
+    return { status: 500, body: { error: 'workstation_lookup_failed' } };
+  }
+  const matchingRow = wsResult.rows.find(
+    (r) => computeWorkstationId(r.workstation_name, r.player_key) === payload.machine_id,
+  );
+  if (!matchingRow) {
+    return { status: 404, body: { error: 'workstation_not_found' } };
+  }
+
+  const paths =
+    payload.service === 'ftp' ? ['/etc/passwd', '/etc/vsftpd/virtual_users.conf'] : ['/etc/passwd'];
+  const fsResult = await deps.findFsContentBatch({
+    machine_id: payload.machine_id,
+    paths,
+  });
+  if (!fsResult.ok) {
+    return { status: 500, body: { error: 'fs_lookup_failed' } };
+  }
+
+  // Build the (username → hash) map from /etc/passwd, then overlay
+  // virtual_users.conf for FTP. Mirrors authenticateFtpInline precedence
+  // and the SSH/FTP handlers in sessionRegistry/handler.ts.
+  const userHashes = new Map<string, string>();
+  const passwdContent = fsResult.contentByPath.get('/etc/passwd') ?? '';
+  passwdContent.split('\n').forEach((line) => {
+    const [username, hash] = line.split(':');
+    if (username && hash) {
+      userHashes.set(username, hash);
+    }
+  });
+
+  if (payload.service === 'ftp') {
+    const vuContent = fsResult.contentByPath.get('/etc/vsftpd/virtual_users.conf') ?? '';
+    if (vuContent.length > 0) {
+      parseVirtualUsersConf(vuContent).forEach((v) => {
+        userHashes.set(v.username, v.passwordHash);
+      });
+    }
+  }
+
+  // Optional user_filter — drop everyone except the named user.
+  const effectiveUsers =
+    payload.user_filter !== undefined
+      ? new Map(
+          userHashes.has(payload.user_filter)
+            ? [[payload.user_filter, userHashes.get(payload.user_filter)!]]
+            : [],
+        )
+      : userHashes;
+
+  // Normalize both sides to lowercase before comparing. md5() in this
+  // repo emits lowercase; the schema accepts mixed-case (case-insensitive
+  // regex), so we defend against a polite client that uppercased the
+  // hex digits.
+  const candidateSet = new Set(payload.candidate_hashes.map((h) => h.toLowerCase()));
+  const hits: { readonly username: string; readonly matched_hash: string }[] = [];
+  for (const [username, hash] of effectiveUsers) {
+    if (candidateSet.has(hash.toLowerCase())) {
+      hits.push({ username, matched_hash: hash });
+    }
+  }
+
+  // attempts = users × candidates, matching how real hydra reports
+  // total work. Empty users (sabotaged /etc/passwd) → 0 attempts so
+  // the client sees an honest "we tried nothing" rather than a falsely
+  // confident "we tried N and found nothing."
+  const attempts = effectiveUsers.size * payload.candidate_hashes.length;
+  return { status: 200, body: { hits, attempts } };
 };

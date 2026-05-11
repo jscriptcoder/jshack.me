@@ -348,3 +348,150 @@ describe('exploitRead schema arm', () => {
     ).toThrow();
   });
 });
+
+describe('crackCredentials schema arm', () => {
+  const hash = (n: number): string => n.toString(16).padStart(32, '0');
+
+  it('parses a valid ssh envelope', () => {
+    const result = patchesSignedPayloadSchema.parse({
+      action: 'crackCredentials',
+      ...baseEnvelope,
+      machine_id: 'omen-4a3b1c2d',
+      service: 'ssh',
+      candidate_hashes: [hash(1), hash(2), hash(3)],
+    });
+    expect(result.action).toBe('crackCredentials');
+    if (result.action === 'crackCredentials') {
+      expect(result.machine_id).toBe('omen-4a3b1c2d');
+      expect(result.service).toBe('ssh');
+      expect(result.candidate_hashes).toHaveLength(3);
+    }
+  });
+
+  it('parses a valid ftp envelope with user_filter', () => {
+    const result = patchesSignedPayloadSchema.parse({
+      action: 'crackCredentials',
+      ...baseEnvelope,
+      machine_id: 'omen-4a3b1c2d',
+      service: 'ftp',
+      candidate_hashes: [hash(1)],
+      user_filter: 'alice',
+    });
+    expect(result.action).toBe('crackCredentials');
+    if (result.action === 'crackCredentials') {
+      expect(result.service).toBe('ftp');
+      expect(result.user_filter).toBe('alice');
+    }
+  });
+
+  it('rejects unsupported service', () => {
+    expect(() =>
+      patchesSignedPayloadSchema.parse({
+        action: 'crackCredentials',
+        ...baseEnvelope,
+        machine_id: 'omen-4a3b1c2d',
+        service: 'mysql',
+        candidate_hashes: [hash(1)],
+      }),
+    ).toThrow();
+  });
+
+  it('rejects empty candidate_hashes (min 1)', () => {
+    expect(() =>
+      patchesSignedPayloadSchema.parse({
+        action: 'crackCredentials',
+        ...baseEnvelope,
+        machine_id: 'omen-4a3b1c2d',
+        service: 'ssh',
+        candidate_hashes: [],
+      }),
+    ).toThrow();
+  });
+
+  it('rejects oversized batch (> 200)', () => {
+    const big = Array.from({ length: 201 }, (_, i) => hash(i + 1));
+    expect(() =>
+      patchesSignedPayloadSchema.parse({
+        action: 'crackCredentials',
+        ...baseEnvelope,
+        machine_id: 'omen-4a3b1c2d',
+        service: 'ssh',
+        candidate_hashes: big,
+      }),
+    ).toThrow();
+  });
+
+  it('accepts batch at the upper limit (= 200)', () => {
+    const exact = Array.from({ length: 200 }, (_, i) => hash(i + 1));
+    const result = patchesSignedPayloadSchema.parse({
+      action: 'crackCredentials',
+      ...baseEnvelope,
+      machine_id: 'omen-4a3b1c2d',
+      service: 'ssh',
+      candidate_hashes: exact,
+    });
+    expect(result.action).toBe('crackCredentials');
+  });
+
+  it('rejects non-hex hash', () => {
+    expect(() =>
+      patchesSignedPayloadSchema.parse({
+        action: 'crackCredentials',
+        ...baseEnvelope,
+        machine_id: 'omen-4a3b1c2d',
+        service: 'ssh',
+        candidate_hashes: ['not-a-hash'],
+      }),
+    ).toThrow();
+  });
+
+  it('rejects wrong-length hash (not 32 chars)', () => {
+    expect(() =>
+      patchesSignedPayloadSchema.parse({
+        action: 'crackCredentials',
+        ...baseEnvelope,
+        machine_id: 'omen-4a3b1c2d',
+        service: 'ssh',
+        candidate_hashes: ['abc123'],
+      }),
+    ).toThrow();
+  });
+
+  it('rejects empty machine_id', () => {
+    expect(() =>
+      patchesSignedPayloadSchema.parse({
+        action: 'crackCredentials',
+        ...baseEnvelope,
+        machine_id: '',
+        service: 'ssh',
+        candidate_hashes: [hash(1)],
+      }),
+    ).toThrow();
+  });
+
+  it('rejects extra unknown fields (strict)', () => {
+    expect(() =>
+      patchesSignedPayloadSchema.parse({
+        action: 'crackCredentials',
+        ...baseEnvelope,
+        machine_id: 'omen-4a3b1c2d',
+        service: 'ssh',
+        candidate_hashes: [hash(1)],
+        tier: 'root',
+      }),
+    ).toThrow();
+  });
+
+  it('rejects empty user_filter (min 1 when present)', () => {
+    expect(() =>
+      patchesSignedPayloadSchema.parse({
+        action: 'crackCredentials',
+        ...baseEnvelope,
+        machine_id: 'omen-4a3b1c2d',
+        service: 'ssh',
+        candidate_hashes: [hash(1)],
+        user_filter: '',
+      }),
+    ).toThrow();
+  });
+});
