@@ -628,6 +628,26 @@ describe('msfconsole command', () => {
     throw new Error(`no ${effectKind} CVE found for ${service} in first 2000 days`);
   };
 
+  // Variant of findCveWithEffect that also filters by tier. Some tests
+  // (notably the cross-player password_reset tests) need a specific
+  // (effect, tier) pair because the substitution mechanics differ by
+  // which row in /etc/passwd gets pwned. Scans across services because
+  // no single service is guaranteed to have all three tiers in its
+  // generated timeline.
+  const findCveWithEffectAndTier = (effectKind: string, tier: 'guest' | 'user' | 'root') => {
+    const services = ['mysql', 'http', 'ssh', 'ftp', 'redis', 'mongodb', 'smtp', 'snmp'];
+    for (const service of services) {
+      const timeline = buildTimeline(service, 2000, CVE_TIMING_CONFIG);
+      for (const entry of timeline) {
+        const vuln = buildGeneratedVuln(service, entry);
+        if (vuln.effect.kind === effectKind && 'tier' in vuln.effect && vuln.effect.tier === tier) {
+          return { entry, vuln, service };
+        }
+      }
+    }
+    throw new Error(`no ${effectKind} CVE with tier=${tier} found in any service timeline`);
+  };
+
   describe('effect dispatch — shell_full', () => {
     it('returns an exploit_shell follow-up for a CVE with shell_full effect', () => {
       const { entry, vuln } = findCveWithEffect('http', 'shell_full');
@@ -709,6 +729,39 @@ describe('msfconsole command', () => {
         ],
       });
       return { entry, vuln, machine };
+    };
+
+    // Tier-specific variant — picks a CVE with a specific (effect, tier)
+    // across the full service catalog (no single service is guaranteed
+    // to have all three tiers). Port number is derived from the chosen
+    // service's first instance — the exact port doesn't matter because
+    // the test always invokes msfconsole with that port directly.
+    const mkMachineWithCveAtTier = (effectKind: string, tier: 'guest' | 'user' | 'root') => {
+      const { entry, vuln, service } = findCveWithEffectAndTier(effectKind, tier);
+      // Pick a sensible default port per service.
+      const portMap: Record<string, number> = {
+        mysql: 3306,
+        http: 80,
+        ssh: 22,
+        ftp: 21,
+        redis: 6379,
+        mongodb: 27017,
+        smtp: 25,
+        snmp: 161,
+      };
+      const port = portMap[service] ?? 80;
+      const machine = getMockRemoteMachine({
+        ports: [
+          {
+            port,
+            service,
+            serviceVersion: vuln.serviceVersion,
+            open: true,
+            owner: { username: 'www-data', userType: 'guest', homePath: '/var/www' },
+          },
+        ],
+      });
+      return { entry, vuln, machine, port, service };
     };
 
     it('file_read prints target file content with no follow-up', async () => {
@@ -845,13 +898,26 @@ describe('msfconsole command', () => {
       );
     });
 
+    // /etc/passwd fixture used by the password_reset tests below. Mirrors
+    // the workstation/home shape: root (uid 0) + a user-tier account
+    // (uid 1000) + guest. password_reset CVEs in the vulnerability pool
+    // are all tier='user', so the fixture MUST include a user-tier line —
+    // otherwise findUsernameByUserType returns undefined and the effect
+    // bails with "no user user found on target". A separate test covers
+    // the empty-hash main-user case (player's own user with passwordHash:'').
+    const PASSWD_FIXTURE = [
+      'root:oldRootHash:0:0:root:/root:/bin/bash',
+      'alice:oldUserHash:1000:1000:alice:/home/alice:/bin/bash',
+      'guest:oldGuestHash:1001:1001:guest:/home/guest:/bin/bash',
+    ].join('\n');
+
     it('password_reset mutates /etc/passwd and prints new password', async () => {
       const { entry, machine } = mkMachineWithCve('password_reset', 'mysql', 3306);
       let written = '';
       const context = createMockMsfconsoleContext({
         machines: [machine],
         gameTime: entry.publishedAt,
-        readRemoteFile: () => 'root:oldHash:0:0:root:/root:/bin/bash',
+        exploitFileRead: async () => PASSWD_FIXTURE,
         writeRemoteFile: async (_id, _path, content) => {
           written = content;
           return { allowed: true };
@@ -885,7 +951,7 @@ describe('msfconsole command', () => {
       const context = createMockMsfconsoleContext({
         machines: [machine],
         gameTime: entry.publishedAt,
-        readRemoteFile: () => 'root:oldHash:0:0:root:/root:/bin/bash',
+        exploitFileRead: async () => PASSWD_FIXTURE,
         writeRemoteFile: async (_id, _path, content) => {
           written = content;
           return { allowed: true };
@@ -929,7 +995,7 @@ describe('msfconsole command', () => {
       const context = createMockMsfconsoleContext({
         machines: [machine, router],
         gameTime: entry.publishedAt,
-        readRemoteFile: () => 'root:oldHash:0:0:root:/root:/bin/bash',
+        exploitFileRead: async () => PASSWD_FIXTURE,
         writeRemoteFile: async (machineId, path, _content) => {
           writes.push({ machineId, path });
           return { allowed: true };
@@ -970,7 +1036,7 @@ describe('msfconsole command', () => {
         // doesn't include LAN machines).
         machines: [router],
         gameTime: entry.publishedAt,
-        readRemoteFile: () => 'root:oldHash:0:0:root:/root:/bin/bash',
+        exploitFileRead: async () => PASSWD_FIXTURE,
         writeRemoteFile: async () => ({ allowed: true }),
         resolveNat: (ip, port) =>
           ip === '203.0.113.5' && port === 3306 ? { ip: '10.50.100.10', port: 3306 } : { ip, port },
@@ -1022,12 +1088,217 @@ describe('msfconsole command', () => {
       expect(writes[0]?.path).toBe('/var/www/uploaded.txt');
     });
 
+    it('password_reset sets a password on a main user whose hash field was empty (workstation main-user case)', async () => {
+      // The player's own workstation main user ships with passwordHash:''
+      // (see generateLocalhost.ts — "they can always exit() back"). On
+      // cross-player workstations, that empty-hash line is what A sees
+      // when reading B's /etc/passwd via exploitFileRead. The substitution
+      // loop must still match the line and write a *non-empty* hash —
+      // turning the previously-passwordless main user into one A can
+      // authenticate as.
+      const { entry, machine, port } = mkMachineWithCveAtTier('password_reset', 'user');
+      const emptyHashPasswd = [
+        'root:rootHash:0:0:root:/root:/bin/bash',
+        'bob::1000:1000:bob:/home/bob:/bin/bash',
+      ].join('\n');
+      let written = '';
+      const context = createMockMsfconsoleContext({
+        machines: [machine],
+        gameTime: entry.publishedAt,
+        exploitFileRead: async () => emptyHashPasswd,
+        writeRemoteFile: async (_id, _path, content) => {
+          written = content;
+          return { allowed: true };
+        },
+      });
+      const result = createMsfconsoleCommand(context).fn('10.50.100.10', port);
+      if (!isAsyncOutput(result)) throw new Error('expected async');
+      const lines: string[] = [];
+      result.start(
+        (line) => lines.push(line),
+        () => {},
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+
+      const newPasswordLine = lines.find((l) => /new password:/.test(l));
+      const newPassword = newPasswordLine?.match(/new password:\s*(\S+)/)?.[1];
+      expect(newPassword).toBeDefined();
+
+      // Bob's line must now have a non-empty md5 hash in field [1].
+      const bobLine = written.split('\n').find((l) => l.startsWith('bob:'));
+      expect(bobLine).toBeDefined();
+      const bobHash = bobLine!.split(':')[1];
+      expect(bobHash).toBe(md5(newPassword!));
+
+      // Success line names the actual user picked from /etc/passwd.
+      expect(lines.some((l) => /Password reset for 'bob'/.test(l))).toBe(true);
+    });
+
+    it('password_reset bails cleanly when exploitFileRead returns null (cross-player read failure)', async () => {
+      // Cross-player exploitFileRead returns null on server error / 404 /
+      // unsupported machine type. The effect must surface a clean failure
+      // instead of writing an empty /etc/passwd over the target.
+      const { entry, machine } = mkMachineWithCve('password_reset', 'mysql', 3306);
+      let writeCalled = false;
+      const context = createMockMsfconsoleContext({
+        machines: [machine],
+        gameTime: entry.publishedAt,
+        exploitFileRead: async () => null,
+        writeRemoteFile: async () => {
+          writeCalled = true;
+          return { allowed: true };
+        },
+      });
+      const result = createMsfconsoleCommand(context).fn('10.50.100.10', 3306);
+      if (!isAsyncOutput(result)) throw new Error('expected async');
+      const lines: string[] = [];
+      result.start(
+        (line) => lines.push(line),
+        () => {},
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+
+      expect(lines.some((l) => /exploit failed/i.test(l) && /\/etc\/passwd/.test(l))).toBe(true);
+      expect(lines.some((l) => /exploit successful/i.test(l))).toBe(false);
+      expect(writeCalled).toBe(false);
+    });
+
+    it('password_reset bails cleanly when no user matches the CVE tier', async () => {
+      // /etc/passwd containing only root + guest (no uid-1000 user-tier
+      // account) against a tier='user' CVE. Must not silently no-op by
+      // writing /etc/passwd unchanged.
+      const { entry, machine, port } = mkMachineWithCveAtTier('password_reset', 'user');
+      const noUserTierPasswd = [
+        'root:rootHash:0:0:root:/root:/bin/bash',
+        'guest:guestHash:1001:1001:guest:/home/guest:/bin/bash',
+      ].join('\n');
+      let writeCalled = false;
+      const context = createMockMsfconsoleContext({
+        machines: [machine],
+        gameTime: entry.publishedAt,
+        exploitFileRead: async () => noUserTierPasswd,
+        writeRemoteFile: async () => {
+          writeCalled = true;
+          return { allowed: true };
+        },
+      });
+      const result = createMsfconsoleCommand(context).fn('10.50.100.10', port);
+      if (!isAsyncOutput(result)) throw new Error('expected async');
+      const lines: string[] = [];
+      result.start(
+        (line) => lines.push(line),
+        () => {},
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+
+      expect(lines.some((l) => /exploit failed/i.test(l) && /no user user/i.test(l))).toBe(true);
+      expect(writeCalled).toBe(false);
+    });
+
+    it('password_reset reads /etc/passwd at root tier regardless of effect.tier (guest-tier CVE works)', async () => {
+      // Regression guard: /etc/passwd is passwdReadableBy:['root','user']
+      // per generateLocalhost.ts. If the read tier matched effect.tier,
+      // a guest-tier password_reset CVE would walk /etc/passwd at guest
+      // tier on the server, hit the permission gate, return null, and
+      // the effect would bail with "could not read /etc/passwd". By
+      // forcing the read to root tier (matching the existing root-tier
+      // write), guest-tier password_reset CVEs in the pool stay viable.
+      // The substitution still pwns the *guest* line — effect.tier
+      // selects the victim user, not the attacker's privilege.
+      const { entry, machine, port } = mkMachineWithCveAtTier('password_reset', 'guest');
+      const exploitFileReadCalls: Array<{ tier: 'guest' | 'user' | 'root' }> = [];
+      let written = '';
+      const context = createMockMsfconsoleContext({
+        machines: [machine],
+        gameTime: entry.publishedAt,
+        exploitFileRead: async (_machineId, _path, tier) => {
+          exploitFileReadCalls.push({ tier });
+          return [
+            'root:rootHash:0:0:root:/root:/bin/bash',
+            'bob:bobHash:1000:1000:bob:/home/bob:/bin/bash',
+            'guest:guestHash:1001:1001:guest:/home/guest:/bin/bash',
+          ].join('\n');
+        },
+        writeRemoteFile: async (_id, _path, content) => {
+          written = content;
+          return { allowed: true };
+        },
+      });
+      const result = createMsfconsoleCommand(context).fn('10.50.100.10', port);
+      if (!isAsyncOutput(result)) throw new Error('expected async');
+      const lines: string[] = [];
+      result.start(
+        (line) => lines.push(line),
+        () => {},
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+
+      // Critical: read happens at root tier even though the CVE is guest.
+      expect(exploitFileReadCalls).toHaveLength(1);
+      expect(exploitFileReadCalls[0]?.tier).toBe('root');
+
+      // The pwned line is the guest line (effect.tier selects victim).
+      expect(lines.some((l) => /Password reset for 'guest'/.test(l))).toBe(true);
+      const guestLine = written.split('\n').find((l) => l.startsWith('guest:'));
+      expect(guestLine).toBeDefined();
+      expect(guestLine!.split(':')[1]).not.toBe('guestHash');
+      expect(guestLine!.split(':')[1]).toMatch(/^[a-f0-9]{32}$/);
+    });
+
+    it('password_reset picks the target user from /etc/passwd content, not effectiveMachine.users (cross-player)', async () => {
+      // Regression: the old code looked at effectiveMachine.users to pick
+      // the target username for tier='user'/'guest'. For cross-player
+      // workstations A's local view of B's machine has users:[] (or
+      // stale names), so the lookup returned the literal string 'user'
+      // as a fallback — and the substitution loop, finding no line
+      // starting with 'user', wrote /etc/passwd unchanged. The fix
+      // derives the username from the *actual* /etc/passwd content
+      // (B's regenerated FS, served via exploitFileRead).
+      const {
+        entry,
+        machine: baseMachine,
+        port,
+      } = mkMachineWithCveAtTier('password_reset', 'user');
+      // Strip the local users[] view to mirror the cross-player case.
+      const machine: RemoteMachine = { ...baseMachine, users: [] };
+      const crossPlayerPasswd = [
+        'root:rootHash:0:0:root:/root:/bin/bash',
+        'omenuser:omenHash:1000:1000:omenuser:/home/omenuser:/bin/bash',
+      ].join('\n');
+      let written = '';
+      const context = createMockMsfconsoleContext({
+        machines: [machine],
+        gameTime: entry.publishedAt,
+        exploitFileRead: async () => crossPlayerPasswd,
+        writeRemoteFile: async (_id, _path, content) => {
+          written = content;
+          return { allowed: true };
+        },
+      });
+      const result = createMsfconsoleCommand(context).fn('10.50.100.10', port);
+      if (!isAsyncOutput(result)) throw new Error('expected async');
+      const lines: string[] = [];
+      result.start(
+        (line) => lines.push(line),
+        () => {},
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+
+      // Targeted user is the one parsed from passwd, not the literal 'user'.
+      expect(lines.some((l) => /Password reset for 'omenuser'/.test(l))).toBe(true);
+      const omenLine = written.split('\n').find((l) => l.startsWith('omenuser:'));
+      expect(omenLine).toBeDefined();
+      // Hash field changed (was 'omenHash', now md5 of the new plaintext).
+      expect(omenLine!.split(':')[1]).not.toBe('omenHash');
+      expect(omenLine!.split(':')[1]).toMatch(/^[a-f0-9]{32}$/);
+    });
+
     it('password_reset surfaces failure when /etc/passwd write returns {allowed: false}', async () => {
       const { entry, machine } = mkMachineWithCve('password_reset', 'mysql', 3306);
       const context = createMockMsfconsoleContext({
         machines: [machine],
         gameTime: entry.publishedAt,
-        readRemoteFile: () => 'root:oldHash:0:0:root:/root:/bin/bash',
+        exploitFileRead: async () => PASSWD_FIXTURE,
         writeRemoteFile: async () => ({ allowed: false, error: 'Permission denied: /etc/passwd' }),
       });
       const result = createMsfconsoleCommand(context).fn('10.50.100.10', 3306);

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   deriveUserTypeFromEtcPasswd,
   findEtcPasswdEntry,
+  findUsernameByUserType,
   getEtcPasswdHash,
 } from './etcPasswdHelpers';
 
@@ -174,5 +175,82 @@ describe('findEtcPasswdEntry', () => {
     expect(findEtcPasswdEntry(content, 'root')).toEqual({ passwordHash: 'rh', userType: 'root' });
     expect(findEtcPasswdEntry(content, 'bob')).toEqual({ passwordHash: 'bh', userType: 'user' });
     expect(findEtcPasswdEntry(content, 'guest')).toEqual({ passwordHash: 'gh', userType: 'guest' });
+  });
+});
+
+describe('findUsernameByUserType', () => {
+  it('returns the root username for tier "root"', () => {
+    const content = [
+      line('root', 'rh', 0),
+      line('bob', 'bh', 1001),
+      line('guest', 'gh', 65534),
+    ].join('\n');
+    expect(findUsernameByUserType(content, 'root')).toBe('root');
+  });
+
+  it('returns the user username for tier "user"', () => {
+    const content = [
+      line('root', 'rh', 0),
+      line('bob', 'bh', 1001),
+      line('guest', 'gh', 65534),
+    ].join('\n');
+    expect(findUsernameByUserType(content, 'user')).toBe('bob');
+  });
+
+  it('returns "guest" for tier "guest"', () => {
+    const content = [
+      line('root', 'rh', 0),
+      line('bob', 'bh', 1001),
+      line('guest', 'gh', 65534),
+    ].join('\n');
+    expect(findUsernameByUserType(content, 'guest')).toBe('guest');
+  });
+
+  it('returns the first user-tier match when multiple exist', () => {
+    // Workstation FS only ever ships one user-tier account, but if a
+    // future generator adds more, we want a deterministic pick (first
+    // by file order).
+    const content = [
+      line('root', 'rh', 0),
+      line('alice', 'ah', 1000),
+      line('bob', 'bh', 1001),
+      line('guest', 'gh', 65534),
+    ].join('\n');
+    expect(findUsernameByUserType(content, 'user')).toBe('alice');
+  });
+
+  it('matches the player main user even with an empty hash field', () => {
+    // generateLocalhost.ts ships the player's own user with
+    // passwordHash: '' — they exit() back, never password-login. The
+    // helper must still pick it for password_reset to be able to
+    // *create* a password where there was none.
+    const content = [
+      line('root', 'rh', 0),
+      'bob::1000:1000:bob:/home/bob:/bin/bash',
+      line('guest', 'gh', 65534),
+    ].join('\n');
+    expect(findUsernameByUserType(content, 'user')).toBe('bob');
+  });
+
+  it('returns undefined when content is null', () => {
+    expect(findUsernameByUserType(null, 'user')).toBeUndefined();
+  });
+
+  it('returns undefined when content is the empty string', () => {
+    expect(findUsernameByUserType('', 'user')).toBeUndefined();
+  });
+
+  it('returns undefined when no entry matches the requested tier', () => {
+    // Workstation with root + guest only; tier='user' has no match.
+    const content = [line('root', 'rh', 0), line('guest', 'gh', 65534)].join('\n');
+    expect(findUsernameByUserType(content, 'user')).toBeUndefined();
+  });
+
+  it('skips malformed lines while continuing to scan for a match', () => {
+    // First line is garbage with no colons (so split[0] is the whole
+    // line, but deriveUserTypeFromEtcPasswd will reject it on the
+    // uid-parse step). The valid line that follows should still match.
+    const content = ['garbage-line-no-colons', line('bob', 'bh', 1001)].join('\n');
+    expect(findUsernameByUserType(content, 'user')).toBe('bob');
   });
 });
