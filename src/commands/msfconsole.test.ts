@@ -1195,6 +1195,56 @@ describe('msfconsole command', () => {
       expect(writeCalled).toBe(false);
     });
 
+    it('password_reset reads /etc/passwd at root tier regardless of effect.tier (guest-tier CVE works)', async () => {
+      // Regression guard: /etc/passwd is passwdReadableBy:['root','user']
+      // per generateLocalhost.ts. If the read tier matched effect.tier,
+      // a guest-tier password_reset CVE would walk /etc/passwd at guest
+      // tier on the server, hit the permission gate, return null, and
+      // the effect would bail with "could not read /etc/passwd". By
+      // forcing the read to root tier (matching the existing root-tier
+      // write), guest-tier password_reset CVEs in the pool stay viable.
+      // The substitution still pwns the *guest* line — effect.tier
+      // selects the victim user, not the attacker's privilege.
+      const { entry, machine, port } = mkMachineWithCveAtTier('password_reset', 'guest');
+      const exploitFileReadCalls: Array<{ tier: 'guest' | 'user' | 'root' }> = [];
+      let written = '';
+      const context = createMockMsfconsoleContext({
+        machines: [machine],
+        gameTime: entry.publishedAt,
+        exploitFileRead: async (_machineId, _path, tier) => {
+          exploitFileReadCalls.push({ tier });
+          return [
+            'root:rootHash:0:0:root:/root:/bin/bash',
+            'bob:bobHash:1000:1000:bob:/home/bob:/bin/bash',
+            'guest:guestHash:1001:1001:guest:/home/guest:/bin/bash',
+          ].join('\n');
+        },
+        writeRemoteFile: async (_id, _path, content) => {
+          written = content;
+          return { allowed: true };
+        },
+      });
+      const result = createMsfconsoleCommand(context).fn('10.50.100.10', port);
+      if (!isAsyncOutput(result)) throw new Error('expected async');
+      const lines: string[] = [];
+      result.start(
+        (line) => lines.push(line),
+        () => {},
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+
+      // Critical: read happens at root tier even though the CVE is guest.
+      expect(exploitFileReadCalls).toHaveLength(1);
+      expect(exploitFileReadCalls[0]?.tier).toBe('root');
+
+      // The pwned line is the guest line (effect.tier selects victim).
+      expect(lines.some((l) => /Password reset for 'guest'/.test(l))).toBe(true);
+      const guestLine = written.split('\n').find((l) => l.startsWith('guest:'));
+      expect(guestLine).toBeDefined();
+      expect(guestLine!.split(':')[1]).not.toBe('guestHash');
+      expect(guestLine!.split(':')[1]).toMatch(/^[a-f0-9]{32}$/);
+    });
+
     it('password_reset picks the target user from /etc/passwd content, not effectiveMachine.users (cross-player)', async () => {
       // Regression: the old code looked at effectiveMachine.users to pick
       // the target username for tier='user'/'guest'. For cross-player

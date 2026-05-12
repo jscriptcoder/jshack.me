@@ -552,8 +552,22 @@ const buildExploitOutput = (
               // no copy of B's regenerated /etc/passwd, so the legacy
               // sync readRemoteFile would return empty and the
               // substitution loop below would mutate nothing.
+              //
+              // Read tier is hardcoded to 'root' (NOT effect.tier) for two
+              // reasons: (1) /etc/passwd is passwdReadableBy:['root','user']
+              // per generateLocalhost.ts — a guest-tier walk returns null
+              // and the effect bails, breaking every guest-tier
+              // password_reset CVE in the pool. (2) password_reset is
+              // fundamentally a root-tier operation — the write below also
+              // defaults to root (writeRemoteFile in useNetworkCommands).
+              // effect.tier is the *victim selector* (which /etc/passwd
+              // line gets the new hash), not the attacker's shell
+              // privilege. Forge posture is unchanged: an intruder can
+              // already mint an effect_one_shot session at any tier via
+              // createSession; the CVE's declared tier is gameplay
+              // flavor for the legit player.
               const currentPasswd =
-                (await context.exploitFileRead?.(effectiveIp, '/etc/passwd', tier)) ?? null;
+                (await context.exploitFileRead?.(effectiveIp, '/etc/passwd', 'root')) ?? null;
               if (currentPasswd === null) {
                 onLine('[-] Exploit failed: could not read /etc/passwd');
                 onComplete();
