@@ -13,6 +13,7 @@ import { parseDpkgVersions, DPKG_STATUS_PATH } from '../network/dpkgStatus';
 import { libraryDeps } from './libraryDeps';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 import { md5 } from '../utils/md5';
+import { findUsernameByUserType } from '../filesystem/etcPasswdHelpers';
 import { ncPidFilePath, createNcPidContent } from './nc';
 
 export type ExploitAttemptInfo = {
@@ -543,15 +544,32 @@ const buildExploitOutput = (
             case 'password_reset': {
               const tier = effect.tier;
               const newPassword = `pwned-${vulnerability.cve.slice(-4)}-${tier}`;
-              // Read /etc/passwd from the resolved internal target so the
-              // tier-matching user lookup picks a username that actually
-              // exists on that machine — the public-IP router may share
-              // none of the same users.
-              const currentPasswd = context.readRemoteFile?.(effectiveIp, '/etc/passwd') ?? '';
-              const targetUser =
-                tier === 'root'
-                  ? 'root'
-                  : (effectiveMachine.users.find((u) => u.userType === tier)?.username ?? tier);
+              // Read /etc/passwd via the cross-player-aware exploitFileRead
+              // path. For own-workstation / NPC / mission / world targets
+              // this resolves locally; for cross-player workstations it
+              // bounces through the server's exploitRead endpoint inside
+              // an effect_one_shot transient session — A's local view has
+              // no copy of B's regenerated /etc/passwd, so the legacy
+              // sync readRemoteFile would return empty and the
+              // substitution loop below would mutate nothing.
+              const currentPasswd =
+                (await context.exploitFileRead?.(effectiveIp, '/etc/passwd', tier)) ?? null;
+              if (currentPasswd === null) {
+                onLine('[-] Exploit failed: could not read /etc/passwd');
+                onComplete();
+                break;
+              }
+              // Derive the target user from the *actual* /etc/passwd
+              // content (not A's stale effectiveMachine.users view). For
+              // cross-player workstations the local user list either is
+              // empty or names users that don't exist on B's box; only
+              // the file itself is authoritative.
+              const targetUser = findUsernameByUserType(currentPasswd, tier);
+              if (targetUser === undefined) {
+                onLine(`[-] Exploit failed: no ${tier} user found on target`);
+                onComplete();
+                break;
+              }
               // /etc/passwd stores md5 hashes — the player's typed password
               // is md5'd by the auth code and compared against this column.
               // Storing plaintext here would break subsequent auth even though

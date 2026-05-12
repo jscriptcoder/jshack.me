@@ -72,3 +72,25 @@ export const findEtcPasswdEntry = (
   if (userType === undefined) return undefined;
   return { passwordHash, userType };
 };
+
+// Returns the first username in /etc/passwd content whose derived userType
+// matches `userType`, or undefined when no matching entry exists. Hash-
+// agnostic: an entry with an empty hash field (e.g., the player's own
+// 'user'-tier account, which intentionally ships passwordless per
+// generateLocalhost.ts) still matches and is returned. msfconsole's
+// password_reset effect uses this to pick which line to mutate — it
+// must work against B's regenerated /etc/passwd (not A's stale local
+// view of effectiveMachine.users), and it must work on lines that
+// don't yet have a password to "reset".
+export const findUsernameByUserType = (
+  content: string | null,
+  userType: UserType,
+): string | undefined => {
+  if (!content) return undefined;
+  for (const rawLine of content.split('\n')) {
+    const username = rawLine.split(':')[0];
+    if (!username) continue;
+    if (deriveUserTypeFromEtcPasswd(content, username) === userType) return username;
+  }
+  return undefined;
+};
