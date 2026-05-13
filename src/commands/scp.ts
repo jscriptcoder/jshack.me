@@ -219,6 +219,7 @@ export const createScpCommand = (context: ScpContext): Command => ({
 
       return {
         __type: 'async',
+        label: 'scp',
         start: (onLine, onComplete) => {
           let delay = 0;
 
@@ -302,6 +303,7 @@ export const createScpCommand = (context: ScpContext): Command => ({
 
     return {
       __type: 'async',
+      label: 'scp',
       start: (onLine, onComplete) => {
         onLine(`Connecting to ${dest.host}...`);
 

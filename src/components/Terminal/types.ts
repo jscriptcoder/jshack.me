@@ -136,6 +136,10 @@ export type AsyncOutput = {
   ) => void;
   readonly cancel?: () => void;
   readonly clearScreen?: true;
+  // Spinner label override. When unset, the Terminal falls back to the
+  // first token of the triggering command. Set by producers that don't
+  // originate from a shell command (auth flows after a password prompt).
+  readonly label?: string;
 };
 
 // Discriminated union for special command results

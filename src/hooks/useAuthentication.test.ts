@@ -72,7 +72,6 @@ const makeKeyEntry = (user: string, ip: string, passwordHash: string) =>
   `${user}@${ip}:${computeFingerprint(user, ip, passwordHash)}`;
 
 describe('useAuthentication', () => {
-
   // TODO: NAT-resolution coverage moved into the new SSH
   // server-authoritative auth describe — leaving the original
   // assertion shape (pushSession) skipped pending unification.

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { TerminalOutput } from './TerminalOutput';
 import { TerminalInput } from './TerminalInput';
+import { TerminalLoading } from './TerminalLoading';
 import { NanoEditor } from './NanoEditor';
 import { useCommandHistory } from '../../hooks/useCommandHistory';
 import { useAuthentication } from '../../hooks/useAuthentication';
@@ -75,6 +76,7 @@ System halted.
 export const Terminal = () => {
   const [input, setInput] = useState('');
   const [asyncRunning, setAsyncRunning] = useState(false);
+  const [runningCommand, setRunningCommand] = useState('');
   const [editorState, setEditorState] = useState<{
     readonly filePath: string;
     readonly content: string;
@@ -491,6 +493,7 @@ export const Terminal = () => {
               clearLines();
             }
             setAsyncRunning(true);
+            setRunningCommand(result.label ?? trimmedCommand.split(/\s+/)[0] ?? '');
             asyncCancelRef.current = result.cancel ?? null;
 
             try {
@@ -500,6 +503,7 @@ export const Terminal = () => {
                 },
                 (followUp?: AsyncFollowUp) => {
                   setAsyncRunning(false);
+                  setRunningCommand('');
                   asyncCancelRef.current = null;
 
                   if (isSshPrompt(followUp)) {
@@ -533,11 +537,13 @@ export const Terminal = () => {
                           });
                     if (transferAsync) {
                       setAsyncRunning(true);
+                      setRunningCommand(transferAsync.label ?? 'scp');
                       asyncCancelRef.current = transferAsync.cancel ?? null;
                       transferAsync.start(
                         (line: string) => addLine('result', line),
                         () => {
                           setAsyncRunning(false);
+                          setRunningCommand('');
                           asyncCancelRef.current = null;
                         },
                       );
@@ -578,8 +584,10 @@ export const Terminal = () => {
                     // React batches the false→true transition above so
                     // there's no intermediate render.
                     setAsyncRunning(true);
+                    setRunningCommand('redis-cli');
                     void connectRedis(followUp.targetIP, followUp.password).finally(() => {
                       setAsyncRunning(false);
+                      setRunningCommand('');
                     });
                   }
 
@@ -654,6 +662,7 @@ export const Terminal = () => {
               );
             } catch (startError) {
               setAsyncRunning(false);
+              setRunningCommand('');
               asyncCancelRef.current = null;
               throw startError;
             }
@@ -734,14 +743,16 @@ export const Terminal = () => {
     if (ftpUsernameMode) {
       handleFtpUsernameSubmit(input, clearInput);
     } else if (passwordMode) {
-      const scpAsync = handlePasswordSubmit(input, clearInput);
-      if (scpAsync) {
+      const authAsync = handlePasswordSubmit(input, clearInput);
+      if (authAsync) {
         setAsyncRunning(true);
-        asyncCancelRef.current = scpAsync.cancel ?? null;
-        scpAsync.start(
+        setRunningCommand(authAsync.label ?? 'auth');
+        asyncCancelRef.current = authAsync.cancel ?? null;
+        authAsync.start(
           (line: string) => addLine('result', line),
           () => {
             setAsyncRunning(false);
+            setRunningCommand('');
             asyncCancelRef.current = null;
           },
         );
@@ -825,7 +836,9 @@ export const Terminal = () => {
       <div ref={outputRef} className="flex-1 overflow-y-auto">
         <TerminalOutput lines={lines} />
       </div>
-      {!asyncRunning && (
+      {asyncRunning ? (
+        <TerminalLoading commandName={runningCommand} />
+      ) : (
         <TerminalInput
           value={input}
           onChange={handleInputChange}
