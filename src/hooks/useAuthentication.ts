@@ -799,6 +799,7 @@ export const useAuthentication = ({
         clearInput();
         return {
           __type: 'async',
+          label: 'ssh',
           start: (onLine, onComplete) => {
             onLine(`Authenticating as ${user}...`);
             void loginSshWithAuth(user, ip, port, {
@@ -842,6 +843,7 @@ export const useAuthentication = ({
         clearInput();
         return {
           __type: 'async',
+          label: 'ftp',
           start: (onLine, onComplete) => {
             onLine(`Authenticating as ${user}...`);
             void authCreateFtpSession(
@@ -898,6 +900,7 @@ export const useAuthentication = ({
         clearInput();
         return {
           __type: 'async',
+          label: 'mysql',
           start: (onLine, onComplete) => {
             onLine(`Authenticating as ${user}...`);
             void connectMysqlServer(user, targetIp, input)
@@ -941,6 +944,7 @@ export const useAuthentication = ({
         clearInput();
         return {
           __type: 'async',
+          label: 'su',
           start: (onLine, onComplete) => {
             onLine(`Authenticating as ${user}...`);
             void pushAuthSession(
