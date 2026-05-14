@@ -615,6 +615,249 @@ const FAQ_BODY = `<!DOCTYPE html>
 </html>
 `;
 
+// --- Hidden / gobuster-only pages -------------------------------------------
+//
+// These paths are NOT linked from any page in the public nav — players
+// discover them via robots.txt, gobuster, or recon of /backup/ + /uploads/
+// directory listings. The "no linked page references hidden path" test
+// guards the gobuster-only quality.
+
+const ADMIN_BODY = `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Admin Login — TechParts Global</title>
+  </head>
+  <body>
+    <h1>Administrative Access</h1>
+    <p>Restricted area. Authorized personnel only. Unauthorized access attempts are logged.</p>
+
+    <form method="POST" action="/admin">
+      <p>
+        <label>Username<br>
+          <input type="text" name="username" autocomplete="off" required>
+        </label>
+      </p>
+      <p>
+        <label>Password<br>
+          <input type="password" name="password" autocomplete="off" required>
+        </label>
+      </p>
+      <p>
+        <button type="submit">Sign In</button>
+      </p>
+    </form>
+
+    <hr>
+    <p><small>TechParts Global Admin Console &middot; v3.4.2</small></p>
+  </body>
+</html>
+`;
+
+const BACKUP_BODY = `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Index of /backup</title>
+  </head>
+  <body>
+    <h1>Index of /backup</h1>
+    <table>
+      <thead>
+        <tr><th>Name</th><th>Last Modified</th><th>Size</th><th>Description</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><a href="/">[Parent Directory]</a></td><td>-</td><td>-</td><td>-</td></tr>
+        <tr><td>db_2024-08-15.sql.bak</td><td>2024-08-15 03:12</td><td>847M</td><td>Pre-deployment DB snapshot</td></tr>
+        <tr><td>orders_2024Q3.csv</td><td>2024-10-02 23:48</td><td>14M</td><td>Q3 orders export</td></tr>
+        <tr><td>customers_2024.csv</td><td>2024-12-31 17:00</td><td>22M</td><td>Annual customer export</td></tr>
+        <tr><td>config_old.tar.gz</td><td>2024-06-19 09:30</td><td>3.2M</td><td>Legacy config archive</td></tr>
+        <tr><td>migration_notes.txt</td><td>2024-09-04 14:17</td><td>4.1K</td><td>Migration runbook</td></tr>
+      </tbody>
+    </table>
+    <hr>
+    <p><small>Apache/2.4.49 Server at techparts.io Port 80</small></p>
+  </body>
+</html>
+`;
+
+const UPLOADS_BODY = `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Index of /uploads</title>
+  </head>
+  <body>
+    <h1>Index of /uploads</h1>
+    <table>
+      <thead>
+        <tr><th>Name</th><th>Last Modified</th><th>Size</th><th>Description</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><a href="/">[Parent Directory]</a></td><td>-</td><td>-</td><td>-</td></tr>
+        <tr><td>invoice_INV-9412.pdf</td><td>2024-11-22 16:05</td><td>184K</td><td>-</td></tr>
+        <tr><td>shipment_label_DHL.png</td><td>2024-11-23 09:15</td><td>62K</td><td>-</td></tr>
+        <tr><td>cert_iso9001_2019.jpg</td><td>2019-04-08 11:00</td><td>388K</td><td>-</td></tr>
+        <tr><td>price_sheet_internal.xlsx</td><td>2024-08-30 18:42</td><td>96K</td><td>-</td></tr>
+        <tr><td>warehouse_photo.jpg</td><td>2023-02-14 12:00</td><td>1.4M</td><td>-</td></tr>
+        <tr><td>thumbs.db</td><td>2024-12-01 04:00</td><td>22K</td><td>-</td></tr>
+      </tbody>
+    </table>
+    <hr>
+    <p><small>Apache/2.4.49 Server at techparts.io Port 80</small></p>
+  </body>
+</html>
+`;
+
+const ROBOTS_TXT = `User-agent: *
+Disallow: /admin
+Disallow: /backup/
+Disallow: /uploads/
+Disallow: /staff-notes.txt
+Disallow: /.env.bak
+Disallow: /changelog.txt
+
+# Internal: please do not crawl admin or staff areas.
+# Indexing exceptions: contact webmaster@techparts.io
+`;
+
+const STAFF_NOTES_TXT = `TechParts ops notes - keep in sync with #ops channel
+=====================================================
+
+* db backup script firing nightly @ 03:00 UTC, output in /backup/
+* admin creds rotated quarterly per policy
+   ! last rotation: 2024-Q2 (overdue, blocked on prod-window approval)
+   ! TODO: rotate after migration freeze lifts
+* monero wallet seed in 1pass vault "ops-prod"
+* SFTP key for fulfillment partner expires 2025-04-12
+   - renew at least 7 days prior
+* watch dashboard for price-arbitrage alerts (auto-pause buyers)
+   - playbook in /uploads/ (link to PDF; check if v3 is still current)
+* known issue: cron sometimes double-fires the customer export
+   ! workaround: dedupe on order_id in target s3
+   ! root cause: cron drift, low priority
+* DON'T touch the legacy reporting box, scheduled for retirement Q1 2025
+
+Reminders:
+- if you're reading this and you don't recognize the file, you shouldn't be here.
+- escalate to ops lead, not engineering.
+`;
+
+const ENV_BAK = `# Production environment - DO NOT COMMIT
+# Backed up 2024-09-04 before migration
+
+NODE_ENV=production
+APP_HOST=techparts.io
+APP_PORT=8080
+
+# Database
+DB_HOST=10.4.2.18
+DB_PORT=5432
+DB_NAME=techparts_prod
+DB_USER=tp_app
+DB_PASSWORD=Glob4lP4rts!Spring24
+
+# Cache
+REDIS_HOST=10.4.2.22
+REDIS_PORT=6379
+REDIS_PASSWORD=cacheR3disS3cret
+
+# Email
+SMTP_HOST=smtp.mailgun.org
+SMTP_USER=postmaster@mg.techparts.io
+SMTP_PASSWORD=mg_pubkey_redacted_in_backup
+
+# Admin console (legacy, see migration_notes.txt for new flow)
+ADMIN_USERNAME=admin
+ADMIN_DEFAULT_PASSWORD=ChangeMe123!
+
+# Payment processors
+BTC_WALLET_RECEIVE=bc1qfaketestaddressdonotuse
+MONERO_WALLET_VIEW_KEY=redacted_check_1pass
+WIRE_TRANSFER_BANK_REF=offshore-banking-partner-internal
+`;
+
+const CHANGELOG_TXT = `TechParts Global - internal changelog
+=====================================
+(public-facing changes only; ops/infra changes in ops repo)
+
+2024-12-18 - bump nav: contact link visible on faq
+2024-12-04 - faq: tighten "warehouse visit" answer (kept "No.")
+2024-11-19 - shipping: clarify customs liability for non-EU
+2024-11-09 - catalog: add salvage lot category (was: hidden cat)
+2024-10-31 - HOTFIX: admin login lockout after 3rd attempt removed
+   - reasoning: ops was getting locked out daily
+   - TODO: re-implement with longer window once we have monitoring
+2024-10-15 - re-priced cisco 3850-12s (-15% to clear stock)
+2024-09-30 - sales: add monero as preferred method
+2024-09-04 - backed up .env before deploy migration
+2024-08-12 - new salvage lot listed (aug-recovery)
+2024-07-22 - faq Q reorder: pricing answer moved down
+2024-07-08 - REVERT: remove "BBB accredited" badge (we are not)
+2024-06-19 - archive legacy config to /backup/
+2024-05-30 - landing copy: add "no questions asked" line
+2024-05-12 - new vendor onboarding (xeon e5 desolder batch incoming)
+2024-04-04 - blog removed (was empty for 6 months)
+2024-03-15 - admin console upgraded to v3.4.2
+2024-02-28 - initial site relaunch
+`;
+
+const ADMIN_PAGE: TechpartsPage = {
+  path: '/admin',
+  title: 'Admin Login — TechParts Global',
+  body: ADMIN_BODY,
+  kind: 'html',
+  visibility: 'hidden',
+};
+
+const BACKUP_PAGE: TechpartsPage = {
+  path: '/backup/',
+  title: 'Index of /backup',
+  body: BACKUP_BODY,
+  kind: 'html',
+  visibility: 'hidden',
+};
+
+const UPLOADS_PAGE: TechpartsPage = {
+  path: '/uploads/',
+  title: 'Index of /uploads',
+  body: UPLOADS_BODY,
+  kind: 'html',
+  visibility: 'hidden',
+};
+
+const ROBOTS_PAGE: TechpartsPage = {
+  path: '/robots.txt',
+  title: 'robots.txt',
+  body: ROBOTS_TXT,
+  kind: 'text',
+  visibility: 'hidden',
+};
+
+const STAFF_NOTES_PAGE: TechpartsPage = {
+  path: '/staff-notes.txt',
+  title: 'staff-notes.txt',
+  body: STAFF_NOTES_TXT,
+  kind: 'text',
+  visibility: 'hidden',
+};
+
+const ENV_BAK_PAGE: TechpartsPage = {
+  path: '/.env.bak',
+  title: '.env.bak',
+  body: ENV_BAK,
+  kind: 'text',
+  visibility: 'hidden',
+};
+
+const CHANGELOG_PAGE: TechpartsPage = {
+  path: '/changelog.txt',
+  title: 'changelog.txt',
+  body: CHANGELOG_TXT,
+  kind: 'text',
+  visibility: 'hidden',
+};
+
 // --- Manifest ---------------------------------------------------------------
 
 const LANDING_PAGE: TechpartsPage = {
@@ -673,6 +916,13 @@ export const TECHPARTS_PAGES: readonly TechpartsPage[] = [
   CONTACT_PAGE,
   FAQ_PAGE,
   ...PRODUCT_PAGES,
+  ADMIN_PAGE,
+  BACKUP_PAGE,
+  UPLOADS_PAGE,
+  ROBOTS_PAGE,
+  STAFF_NOTES_PAGE,
+  ENV_BAK_PAGE,
+  CHANGELOG_PAGE,
 ];
 
 export const LINKED_PAGES: readonly TechpartsPage[] = TECHPARTS_PAGES.filter(

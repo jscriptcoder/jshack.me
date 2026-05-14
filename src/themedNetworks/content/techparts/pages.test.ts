@@ -172,3 +172,56 @@ describe('TECHPARTS_PAGES manifest — product pages', () => {
     expect(hrefs).toContain(path);
   });
 });
+
+const HIDDEN_HTML_PATHS = ['/admin', '/backup/', '/uploads/'] as const;
+
+const HIDDEN_TEXT_PATHS = [
+  '/robots.txt',
+  '/staff-notes.txt',
+  '/.env.bak',
+  '/changelog.txt',
+] as const;
+
+const HIDDEN_PATHS = [...HIDDEN_HTML_PATHS, ...HIDDEN_TEXT_PATHS] as const;
+
+describe('TECHPARTS_PAGES manifest — hidden / gobuster-only pages', () => {
+  it.each(HIDDEN_HTML_PATHS)('manifest exports a hidden html page at %s', (path) => {
+    const page = TECHPARTS_PAGES.find((p) => p.path === path);
+    expect(page).toBeDefined();
+    expect(page!.kind).toBe('html');
+    expect(page!.visibility).toBe('hidden');
+    expect(page!.body.length).toBeGreaterThan(0);
+  });
+
+  it.each(HIDDEN_TEXT_PATHS)('manifest exports a hidden text page at %s', (path) => {
+    const page = TECHPARTS_PAGES.find((p) => p.path === path);
+    expect(page).toBeDefined();
+    expect(page!.kind).toBe('text');
+    expect(page!.visibility).toBe('hidden');
+    expect(page!.body.length).toBeGreaterThan(0);
+  });
+
+  it.each(HIDDEN_PATHS)(
+    'no linked page references hidden path %s via <a href> (preserves gobuster-only quality)',
+    (path) => {
+      const violators = LINKED_PAGES.filter((p) => p.kind === 'html').flatMap((page) => {
+        const doc = parseHtml(page.body);
+        const hrefs = Array.from(doc.querySelectorAll('a[href]')).map(
+          (a) => a.getAttribute('href') ?? '',
+        );
+        return hrefs.includes(path) ? [page.path] : [];
+      });
+      expect(violators).toEqual([]);
+    },
+  );
+
+  it('robots.txt body contains Disallow directives naming at least 3 other hidden paths', () => {
+    const robots = TECHPARTS_PAGES.find((p) => p.path === '/robots.txt');
+    expect(robots).toBeDefined();
+    expect(robots!.kind).toBe('text');
+    const namedHiddenPaths = HIDDEN_PATHS.filter(
+      (h) => h !== '/robots.txt' && robots!.body.includes(`Disallow: ${h}`),
+    );
+    expect(namedHiddenPaths.length).toBeGreaterThanOrEqual(3);
+  });
+});
