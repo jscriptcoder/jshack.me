@@ -310,6 +310,73 @@ describe('renderHtml', () => {
     });
   });
 
+  describe('segments API', () => {
+    it('returns a parallel segments array of the same length as lines', () => {
+      const result = render('<h1>Title</h1><p>hello world</p>');
+      expect(result.segments.length).toBe(result.lines.length);
+    });
+
+    it('renders a plain paragraph as a single text segment', () => {
+      const result = render('<p>hello world</p>');
+      expect(result.segments[0]).toEqual([{ kind: 'text', text: 'hello world' }]);
+    });
+
+    it('emits a link segment for an anchor', () => {
+      const result = render('<p>see <a href="http://example.com/">example</a> now</p>');
+      const linkSeg = result.segments.flat().find((s) => s.kind === 'link');
+      expect(linkSeg).toEqual({ kind: 'link', text: 'example', refIndex: 1 });
+    });
+
+    it('numbers anchor segments in document order', () => {
+      const result = render(
+        '<p><a href="http://a.com/">A</a> and <a href="http://b.com/">B</a></p>',
+      );
+      const indices = result.segments
+        .flat()
+        .filter((s) => s.kind === 'link')
+        .map((s) => (s.kind === 'link' ? s.refIndex : -1));
+      expect(indices).toEqual([1, 2]);
+    });
+
+    it('marks duplicate anchors with the same refIndex', () => {
+      const result = render(
+        '<p><a href="http://a.com/">first</a> <a href="http://a.com/">second</a></p>',
+      );
+      const linkSegs = result.segments
+        .flat()
+        .filter((s): s is Extract<typeof s, { kind: 'link' }> => s.kind === 'link');
+      expect(linkSegs.map((s) => s.refIndex)).toEqual([1, 1]);
+      expect(linkSegs.map((s) => s.text)).toEqual(['first', 'second']);
+    });
+
+    it('keeps the link text atomic — internal whitespace stays inside the link segment', () => {
+      const result = render('<p><a href="http://x.com/">multi word link</a></p>');
+      const linkSeg = result.segments.flat().find((s) => s.kind === 'link');
+      expect(linkSeg).toEqual({ kind: 'link', text: 'multi word link', refIndex: 1 });
+    });
+
+    it('References block lines contain only text segments', () => {
+      const result = render('<p><a href="http://x.com/">x</a></p>');
+      const refsHeadingIdx = result.lines.indexOf('References');
+      expect(refsHeadingIdx).toBeGreaterThanOrEqual(0);
+      const refSegments = result.segments.slice(refsHeadingIdx);
+      refSegments.forEach((line) => {
+        line.forEach((seg) => expect(seg.kind).toBe('text'));
+      });
+    });
+
+    it('preserves the lines invariant — segments serialise back to lines', () => {
+      const html = '<h1>Title</h1><p>see <a href="http://x.com/">link</a> now</p>';
+      const result = render(html);
+      result.segments.forEach((segLine, i) => {
+        const serialised = segLine
+          .map((s) => (s.kind === 'link' ? `[${s.refIndex}]${s.text}` : s.text))
+          .join('');
+        expect(result.lines[i]).toBe(serialised);
+      });
+    });
+  });
+
   describe('purity', () => {
     it('returns the same output for the same input on repeat calls', () => {
       const html = '<h1>Title</h1><p>Body with <a href="http://x.com/">link</a>.</p>';
