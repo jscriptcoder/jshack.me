@@ -173,7 +173,7 @@ describe('TECHPARTS_PAGES manifest — product pages', () => {
   });
 });
 
-const HIDDEN_HTML_PATHS = ['/admin', '/backup/', '/uploads/'] as const;
+const HIDDEN_HTML_PATHS = ['/admin', '/backup', '/uploads'] as const;
 
 const HIDDEN_TEXT_PATHS = [
   '/robots.txt',

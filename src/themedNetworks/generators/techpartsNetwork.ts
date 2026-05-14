@@ -1,7 +1,10 @@
 import type { GeneratedMachine, MissionNetwork, SubnetLayer } from '../../generation/types';
 import type { NetworkInterface, Port, RemoteMachine, RemoteUser } from '../../network/types';
+import type { FileNode } from '../../filesystem/types';
 import { createFileSystem } from '../../filesystem/fileSystemFactory';
+import { mkDir, mkFile } from '../../generation/filesystem/helpers';
 import type { ThemedGenerator } from '../../worldNetworks/generate';
+import { TECHPARTS_PAGES, type TechpartsPage } from '../content/techparts/pages';
 
 // techparts.io network builder. Produces a single-machine MissionNetwork
 // where the router IS the only machine — no inner layers, no NAT, no
@@ -16,6 +19,69 @@ import type { ThemedGenerator } from '../../worldNetworks/generate';
 // note in plans/techparts-network.md).
 
 const FALLBACK_DOMAIN = 'techparts.io';
+
+type DirChildren = Readonly<Record<string, FileNode>>;
+
+// Translates a manifest URL path to the filesystem path the curl pipeline
+// reads (curl.ts:137). The root path is special-cased to index.html;
+// everything else maps to /var/www/html<path> verbatim.
+const fsPathForManifestPath = (manifestPath: string): string =>
+  manifestPath === '/' ? '/var/www/html/index.html' : `/var/www/html${manifestPath}`;
+
+// Inserts a file at the given segment path into a children record,
+// constructing any missing directories along the way. Pure — returns a
+// new record; the previous tree is left untouched. Directories are
+// world-readable so post-shell-access exploration works at any tier.
+const setFileAtPath = (
+  current: DirChildren,
+  dirSegments: readonly string[],
+  fileName: string,
+  content: string,
+): DirChildren => {
+  if (dirSegments.length === 0) {
+    return { ...current, [fileName]: mkFile(fileName, content) };
+  }
+  const [dirName, ...rest] = dirSegments;
+  const existingDir = current[dirName];
+  const existingChildren: DirChildren =
+    existingDir?.type === 'directory' && existingDir.children ? existingDir.children : {};
+  const nextChildren = setFileAtPath(existingChildren, rest, fileName, content);
+  return {
+    ...current,
+    [dirName]: mkDir(dirName, nextChildren, 'root', true),
+  };
+};
+
+// Folds every manifest entry into the html-directory subtree. The
+// resulting record is the children of /var/www/html — wrapped by
+// buildVarWwwHtmlExtraDirs into the var/www/html ancestor chain that
+// createFileSystem expects via `extraDirectories`.
+const buildHtmlChildren = (pages: readonly TechpartsPage[]): DirChildren =>
+  pages.reduce<DirChildren>((acc, page) => {
+    const fsPath = fsPathForManifestPath(page.path);
+    const relativeSegments = fsPath.slice('/var/www/html/'.length).split('/');
+    const fileName = relativeSegments[relativeSegments.length - 1];
+    const dirSegments = relativeSegments.slice(0, -1);
+    return setFileAtPath(acc, dirSegments, fileName, page.body);
+  }, {});
+
+const buildVarWwwHtmlExtraDirs = (pages: readonly TechpartsPage[]): DirChildren => ({
+  var: mkDir(
+    'var',
+    {
+      www: mkDir(
+        'www',
+        {
+          html: mkDir('html', buildHtmlChildren(pages), 'root', true),
+        },
+        'root',
+        true,
+      ),
+    },
+    'root',
+    true,
+  ),
+});
 
 export const generateTechpartsNetwork: ThemedGenerator = async (row, ctx) => {
   const publicIp = await ctx.allocateIp('mission_instance');
@@ -36,6 +102,7 @@ export const generateTechpartsNetwork: ThemedGenerator = async (row, ctx) => {
         uid: 33,
       },
     ],
+    extraDirectories: buildVarWwwHtmlExtraDirs(TECHPARTS_PAGES),
   });
 
   // Port 80 ships Apache/2.4.49 — matches the natural CVE template in

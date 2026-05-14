@@ -711,8 +711,8 @@ const UPLOADS_BODY = `<!DOCTYPE html>
 
 const ROBOTS_TXT = `User-agent: *
 Disallow: /admin
-Disallow: /backup/
-Disallow: /uploads/
+Disallow: /backup
+Disallow: /uploads
 Disallow: /staff-notes.txt
 Disallow: /.env.bak
 Disallow: /changelog.txt
@@ -811,7 +811,7 @@ const ADMIN_PAGE: TechpartsPage = {
 };
 
 const BACKUP_PAGE: TechpartsPage = {
-  path: '/backup/',
+  path: '/backup',
   title: 'Index of /backup',
   body: BACKUP_BODY,
   kind: 'html',
@@ -819,7 +819,7 @@ const BACKUP_PAGE: TechpartsPage = {
 };
 
 const UPLOADS_PAGE: TechpartsPage = {
-  path: '/uploads/',
+  path: '/uploads',
   title: 'Index of /uploads',
   body: UPLOADS_BODY,
   kind: 'html',
