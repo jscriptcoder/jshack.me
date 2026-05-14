@@ -279,6 +279,16 @@ describe('wrapWithAccessCheck', () => {
     );
   });
 
+  it('hints at "apt install lynx" when lynx is invoked before install', () => {
+    const wrapped = wrapWithAccessCheck(baseCommand, 'lynx', () => ({
+      found: false,
+      permitted: false,
+    }));
+    expect(() => wrapped.fn()).toThrow(
+      'bash: lynx: command not found. Install with: apt install lynx',
+    );
+  });
+
   it('throws generic not-found for non-apt commands when binary missing', () => {
     const wrapped = wrapWithAccessCheck(baseCommand, 'unknown', () => ({
       found: false,

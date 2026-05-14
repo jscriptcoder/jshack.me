@@ -119,6 +119,7 @@ curl -i 45.33.32.100/status        # Include headers
 curl -X POST 45.33.32.100/api/x    # POST request
 
 # Browse a web page (full-screen text-mode browser)
+apt install lynx                   # Install the lynx package first
 lynx http://techparts.io/          # Arrow keys to navigate links, Enter to follow, q to quit
 
 # Edit and execute files

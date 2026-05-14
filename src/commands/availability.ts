@@ -46,6 +46,7 @@ export const APT_INSTALLABLE = new Set([
   'snmp',
   'mysql',
   'redis-tools',
+  'lynx',
 ]);
 
 export type AptExtraFile = {
@@ -114,6 +115,7 @@ export const APT_PACKAGES: readonly AptPackageInfo[] = [
     version: '7.0.15',
     binaries: ['rediscli'],
   },
+  { name: 'lynx', description: 'Text-mode web browser', version: '2.9.0' },
 ];
 
 // Binary stub content — looks like an ELF binary header
