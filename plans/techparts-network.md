@@ -27,7 +27,8 @@ Observable behaviours, exercised end-to-end once both PRs land:
 - **Service versions**: port 80 = `Apache/2.4.49` (`shell_limited`/user); port 443 = `nginx/1.20.1` (no natural CVE, mirrors findit decoratively). The port-80 CVE is what activates "site becomes exploitable" over game time.
 - **No handler**: read-only static content falls through to the existing `/var/www/html/<path>` curl pipeline. `THEME_HANDLERS` gets no entry.
 - **Generator only**: dispatched via `selectGenerator('techparts')`.
-- **Content authoring**: hand-authored TS manifest under `src/themedNetworks/content/techparts/`. Pages are flat data: `{ path, title, html }`. Generator lays each entry into `/var/www/html<path>` exactly as the URL string requests it (so `/about.html` lives at `/var/www/html/about.html`, `/` lives at `/var/www/html/index.html`).
+- **Content authoring**: hand-authored TS manifest under `src/themedNetworks/content/techparts/`. Pages are flat data: `{ path, title, body, kind, visibility }` where `kind: 'html' | 'text'` discriminates renderable HTML pages from plain-text artefacts (robots.txt, .env.bak, *.txt). Generator lays each entry into `/var/www/html<path>` exactly as the URL string requests it (so `/about.html` lives at `/var/www/html/about.html`, `/` lives at `/var/www/html/index.html`).
+- **HTML must be browser-renderable.** An upcoming terminal-browser command will render `kind: 'html'` pages by handing the raw markup to the host browser's parser. So every HTML page must be well-formed (all tags closed, valid nesting, semantic structure — `<h1>`, `<p>`, `<ul>`, `<table>`, `<a>`, `<form>`). No CSS, no JS, no `<style>`/`<script>` tags, no `class`/`id` reliance for layout. Plain-text entries are exempt — they're served verbatim and rendered as preformatted text by the browser.
 - **Narrative**: flavor-only. No story arc across hidden files — each easter egg is independent gray-market texture.
 - **search_metadata**: title "TechParts Global — Worldwide Electronic Components", description "OEM, refurbished, and bulk electronics. Factory-direct pricing, worldwide shipping.", keywords `["electronics", "components", "cpu", "memory", "wholesale", "oem", "parts"]`.
 
@@ -49,13 +50,29 @@ Two independently-reviewable PRs:
 
 - "every page's `path` starts with `/`"
 - "page paths are unique across the manifest"
-- "every internal `<a href='/...'>` in page HTML points to a `path` that exists in the manifest" (link-integrity invariant — catches broken nav)
-- "the manifest exports a `/` landing page"
+- "every internal `<a href='/...'>` in HTML page bodies points to a `path` that exists in the manifest" (link-integrity invariant — catches broken nav; walks `kind: 'html'` pages only)
+- "every `kind: 'html'` page parses as well-formed HTML with no parse errors" (parse via the project's chosen parser — see below)
+- "no `kind: 'html'` page contains `<script>`, `<style>`, `class=`, or `id=` attributes" (terminal-browser constraint: no CSS, no JS, no layout-class reliance)
+- "the manifest exports a `/` landing page with `kind: 'html'`"
 - "the manifest exports a `linked` and a `hidden` projection so the generator can ask which paths are gobuster-only vs nav-discoverable"
 
-**GREEN**: Add `src/themedNetworks/content/techparts/pages.ts`. Define `type TechpartsPage = { readonly path: string; readonly title: string; readonly html: string; readonly visibility: 'linked' | 'hidden' }`. Export `TECHPARTS_PAGES: readonly TechpartsPage[]` with one entry: the `/` landing page (basic hero + nav placeholder + sketchy trust badges copy, but realistic enough that the link-integrity test passes — only internal links are to manifest paths, and the only manifest path right now is `/`). Export derived projections `LINKED_PAGES` and `HIDDEN_PAGES`.
+For HTML parsing: prefer `DOMParser` if jsdom/happy-dom is available in the test env (check `vitest.config.ts`); otherwise add `parse5` as a dev dep and use its strict parser. Decide during step execution.
 
-**MUTATE**: Run `mutation-testing` skill on `pages.ts` + invariant tests. Manifest data is mostly literals — mutants will target the projection filters and the link-integrity walker.
+**GREEN**: Add `src/themedNetworks/content/techparts/pages.ts`. Define:
+
+```ts
+type TechpartsPage = {
+  readonly path: string;
+  readonly title: string;
+  readonly body: string;
+  readonly kind: 'html' | 'text';
+  readonly visibility: 'linked' | 'hidden';
+};
+```
+
+Export `TECHPARTS_PAGES: readonly TechpartsPage[]` with one entry: the `/` landing page (basic hero + nav placeholder + sketchy trust badges copy, semantic HTML only, well-formed, no `<script>`/`<style>`/`class`/`id`). Export derived projections `LINKED_PAGES` and `HIDDEN_PAGES`.
+
+**MUTATE**: Run `mutation-testing` skill on `pages.ts` + invariant tests. Manifest data is mostly literals — mutants will target the projection filters, the link-integrity walker, and the HTML-validity / forbidden-tag walkers.
 
 **KILL MUTANTS**: Address any surviving mutants on the projection logic and href walker. Ask human if mutant value is ambiguous on literal HTML.
 
@@ -93,9 +110,19 @@ Two independently-reviewable PRs:
 
 ### Step A4: Hidden (gobuster-only) pages
 
-**RED**: Assert manifest contains `/robots.txt`, `/admin`, `/backup/`, `/staff-notes.txt`, `/.env.bak`, `/changelog.txt`, `/uploads/`, each `hidden`, none of them referenced by an `<a href>` in any `linked` page (otherwise they wouldn't be gobuster-only). Assert `/robots.txt` body contains `Disallow:` directives that name some of the other hidden paths (so a recon-curious player gets a hint).
+**RED**: Assert manifest contains `/robots.txt`, `/admin`, `/backup/`, `/staff-notes.txt`, `/.env.bak`, `/changelog.txt`, `/uploads/`, each `hidden`, none of them referenced by an `<a href>` in any `linked` page (otherwise they wouldn't be gobuster-only). Assert each entry has the right `kind`: `/admin`, `/backup/`, `/uploads/` are `kind: 'html'`; `/robots.txt`, `/staff-notes.txt`, `/.env.bak`, `/changelog.txt` are `kind: 'text'`. Assert `/robots.txt` body contains `Disallow:` directives that name some of the other hidden paths (so a recon-curious player gets a hint). The HTML-validity + forbidden-tag invariants from Step A1 automatically apply to the new `kind: 'html'` entries.
 
-**GREEN**: Add the seven hidden entries. Content: realistic `robots.txt` syntax; `/admin` is a static login `<form>` (decorative until the http CVE activates); `/backup/` is a fake Apache directory listing HTML; `/staff-notes.txt` is a plain-text dev note; `/.env.bak` looks like leaked env vars (fake creds for a real-feeling decoy); `/changelog.txt` is irreverent commit notes; `/uploads/` is another fake directory listing.
+**GREEN**: Add the seven hidden entries.
+
+- HTML pages (well-formed, semantic, no script/style/class/id):
+  - `/admin` — static login `<form>` (decorative until the http CVE activates); semantic `<label>`/`<input>`/`<button>` only.
+  - `/backup/` — fake Apache directory listing rendered as `<table>` with rows for `db_2024.sql.bak`, `orders.csv`, etc. (no `<pre>` tricks needed; a real `<table>` is more terminal-browser-friendly).
+  - `/uploads/` — same shape as `/backup/`, different filenames.
+- Plain text (`kind: 'text'`):
+  - `/robots.txt` — real robots.txt syntax (`User-agent: *`, `Disallow: /admin`, ...).
+  - `/staff-notes.txt` — plain-text dev note ("don't forget to rotate the admin creds... someday").
+  - `/.env.bak` — fake-leaked env vars (`DB_PASSWORD=...`, `API_KEY=...`); realistic decoy.
+  - `/changelog.txt` — irreverent commit-log lines.
 
 **MUTATE**: Re-run.
 
@@ -149,6 +176,7 @@ Two independently-reviewable PRs:
 
 - "lays every linked manifest page into `/var/www/html<path>` with correct content" (parameterised over `LINKED_PAGES`; for `path === '/'`, file lives at `/var/www/html/index.html`; for other paths, file lives at `/var/www/html${path}` verbatim — matching `curl.ts:137`)
 - "lays every hidden manifest page into `/var/www/html<path>` with correct content" (same shape for `HIDDEN_PAGES`)
+- "file content equals the manifest's `body` verbatim, regardless of `kind`" — generator does NOT transform or wrap content; what the manifest declares is what curl returns
 - "creates the directory hierarchy for nested paths (e.g., `/products/<sku>.html`)" — i.e., walking `/var/www/html/products/` returns a directory containing the product files
 - "page files are world-readable" — checked by walking the FileNode and asserting `worldReadable === true` (or whatever the FileNode shape exposes) so unauthenticated curl-as-root can fetch them
 - "ships the same root + www-data users that findit.io ships" (mirror findit's user list so existing auth flows behave identically)
