@@ -3,6 +3,7 @@ import { TerminalOutput } from './TerminalOutput';
 import { TerminalInput } from './TerminalInput';
 import { TerminalLoading } from './TerminalLoading';
 import { NanoEditor } from './NanoEditor';
+import { LynxBrowser } from './LynxBrowser';
 import { useCommandHistory } from '../../hooks/useCommandHistory';
 import { useAuthentication } from '../../hooks/useAuthentication';
 import { useCommands } from '../../hooks/useCommands';
@@ -43,6 +44,7 @@ import {
   isMysqlPrompt,
   isRedisPrompt,
   isNanoOpen,
+  isLynxOpen,
 } from './types';
 import type { AsyncFollowUp } from './types';
 import { tokenize, parse, execute, complete, type CompleteAdapter } from '../../shell';
@@ -82,6 +84,7 @@ export const Terminal = () => {
     readonly content: string;
     readonly isNewFile: boolean;
   } | null>(null);
+  const [lynxState, setLynxState] = useState<{ readonly url: string } | null>(null);
   const [lines, setLines] = useState<readonly OutputLine[]>(getInitialLines);
   const lineIdRef = useRef(1);
   const outputRef = useRef<HTMLDivElement>(null);
@@ -139,7 +142,7 @@ export const Terminal = () => {
       ),
     [activeNetwork, lanOccupants, ownWorkstationId],
   );
-  const { commands, commandNames } = useCommands();
+  const { commands, commandNames, lynxFetch } = useCommands();
   const ftpCommands = useFtpCommands();
   const ncCommands = useNcCommands();
   const { mysqlExecute } = useMysqlCommands();
@@ -678,6 +681,10 @@ export const Terminal = () => {
             });
             return;
           }
+          if (isLynxOpen(result)) {
+            setLynxState({ url: result.url });
+            return;
+          }
           const resultStr = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
           addLine('result', resultStr);
         }
@@ -861,6 +868,16 @@ export const Terminal = () => {
             setEditorState(null);
             // Defer focus until after React unmounts the NanoEditor overlay,
             // otherwise the input element may not be interactive yet
+            setTimeout(() => terminalInputRef.current?.focus(), 0);
+          }}
+        />
+      )}
+      {lynxState && (
+        <LynxBrowser
+          initialUrl={lynxState.url}
+          onFetch={lynxFetch}
+          onClose={() => {
+            setLynxState(null);
             setTimeout(() => terminalInputRef.current?.focus(), 0);
           }}
         />

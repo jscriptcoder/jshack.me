@@ -1,217 +1,23 @@
 import type { Command, AsyncOutput } from '../components/Terminal/types';
-import type { RemoteMachine, DnsRecord } from '../network/types';
-import type { MachineId } from '../filesystem/machineFileSystems';
-import type { MachineFileOp } from '../filesystem/types';
 import type { HttpRequestHandler } from '../logging/handlers/httpRequest';
-import type { RequestHandler, HandlerResponse } from '../themedNetworks/types';
-import { isValidIP } from '../utils/network';
+import {
+  resolveHttpTarget,
+  dispatchHttpRequest,
+  parseUrl,
+  type ResolveHttpTargetContext,
+  type DispatchHttpRequestContext,
+  type HttpResponse,
+} from '../network/http';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
-type CurlContext = {
-  readonly getMachine: (ip: string) => RemoteMachine | undefined;
-  readonly resolveDomain: (domain: string) => DnsRecord | undefined;
-  readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
-  readonly readFileFromMachine: (op: MachineFileOp) => string | null;
-  readonly onHttpRequest?: HttpRequestHandler;
-  // Optional per-machine request handler. When set and the lookup
-  // returns a handler that yields a non-null HandlerResponse, that
-  // response replaces the static-file pipeline. Returning null falls
-  // through to /var/www/html/... lookups so existing static sites keep
-  // working alongside dynamic themed-network behavior.
-  readonly getHandler?: (machineIp: string) => RequestHandler | undefined;
-};
-
-export type ParsedUrl = {
-  readonly protocol: string;
-  readonly host: string;
-  readonly port: number;
-  readonly path: string;
-  // Raw query string (everything after `?`, no leading `?`). Empty
-  // string when the URL has no query. Decoding/key-splitting is the
-  // caller's job — parseUrl only splits.
-  readonly query: string;
-};
-
-type ServerConfig = {
-  readonly serverName: string;
-  readonly extraHeaders: Readonly<Record<string, string>>;
-};
-
-type HttpResponse = {
-  readonly statusCode: number;
-  readonly statusText: string;
-  readonly headers: readonly (readonly [string, string])[];
-  readonly body: string;
-};
-
-const HTTP_SERVICES = ['http', 'https', 'http-alt'] as const;
-
-const SERVER_CONFIGS: Readonly<Record<string, ServerConfig>> = {
-  '192.168.1.1': {
-    serverName: 'nginx/1.18.0 (Ubuntu)',
-    extraHeaders: { 'X-Powered-By': 'PHP/7.4.3' },
-  },
-};
-
-const CONTENT_TYPES: Readonly<Record<string, string>> = {
-  '.html': 'text/html; charset=UTF-8',
-  '.php': 'text/html; charset=UTF-8',
-  '.json': 'application/json',
-};
-
-export const parseUrl = (urlStr: string): ParsedUrl | null => {
-  const fullMatch = urlStr.match(/^(https?):\/\/([^:/?]+)(?::(\d+))?(\/[^?]*)?(?:\?(.*))?$/);
-  if (fullMatch) {
-    const [, protocol, host, portStr, path, query] = fullMatch;
-    return {
-      protocol,
-      host,
-      port: portStr ? parseInt(portStr, 10) : protocol === 'https' ? 443 : 80,
-      path: path || '/',
-      query: query ?? '',
-    };
-  }
-
-  // Shorthand: "hostname/path" without protocol — defaults to HTTP (like real curl)
-  const shortMatch = urlStr.match(/^([^:/?]+)(\/[^?]*)?(?:\?(.*))?$/);
-  if (shortMatch) {
-    const [, host, path, query] = shortMatch;
-    return { protocol: 'http', host, port: 80, path: path || '/', query: query ?? '' };
-  }
-
-  return null;
-};
-
-const getContentType = (path: string): string => {
-  const ext = path.match(/\.[^.]+$/)?.[0] ?? '';
-  return CONTENT_TYPES[ext] ?? 'text/plain';
-};
-
-const buildHeaders = (
-  ip: string,
-  contentType: string,
-  contentLength: number,
-  customHeaders?: readonly (readonly [string, string])[],
-): readonly (readonly [string, string])[] => {
-  const config = SERVER_CONFIGS[ip];
-  const base: readonly (readonly [string, string])[] = [
-    ['Date', new Date().toUTCString()],
-    ['Server', config?.serverName ?? 'nginx/1.18.0'],
-    ['Content-Type', contentType],
-    ['Content-Length', String(contentLength)],
-    ['Connection', 'keep-alive'],
-  ];
-  const extra: readonly (readonly [string, string])[] = config
-    ? Object.entries(config.extraHeaders)
-    : [];
-  return [...base, ...extra, ...(customHeaders ?? [])];
-};
-
-// Reads a .headers sidecar file and parses it as key:value lines.
-// Sidecar files sit alongside web content (e.g. /var/www/html/page.html.headers)
-// and inject custom HTTP response headers into curl responses.
-const readSidecarHeaders = (
-  context: CurlContext,
-  machineId: MachineId,
-  webPath: string,
-): readonly (readonly [string, string])[] => {
-  const sidecarPath = `${webPath}.headers`;
-  const sidecarContent = context.readFileFromMachine({
-    machineId,
-    path: sidecarPath,
-    cwd: '/',
-    userType: 'root',
-  });
-  if (!sidecarContent) return [];
-  return sidecarContent
-    .split('\n')
-    .map((line) => {
-      const colonIdx = line.indexOf(':');
-      if (colonIdx <= 0) return null;
-      return [line.slice(0, colonIdx).trim(), line.slice(colonIdx + 1).trim()] as const;
-    })
-    .filter((entry): entry is readonly [string, string] => entry !== null);
-};
-
-const handleGet = (context: CurlContext, machineId: MachineId, path: string): HttpResponse => {
-  const webPath = path === '/' ? '/var/www/html/index.html' : `/var/www/html${path}`;
-  const content = context.readFileFromMachine({
-    machineId,
-    path: webPath,
-    cwd: '/',
-    userType: 'root',
-  });
-
-  if (content === null) {
-    const body = '<html><body><h1>404 Not Found</h1></body></html>';
-    return {
-      statusCode: 404,
-      statusText: 'Not Found',
-      headers: buildHeaders(machineId, 'text/html; charset=UTF-8', body.length),
-      body,
-    };
-  }
-
-  const customHeaders = readSidecarHeaders(context, machineId, webPath);
-  const contentType = getContentType(webPath);
-  return {
-    statusCode: 200,
-    statusText: 'OK',
-    headers: buildHeaders(machineId, contentType, content.length, customHeaders),
-    body: content,
+type CurlContext = ResolveHttpTargetContext &
+  DispatchHttpRequestContext & {
+    readonly onHttpRequest?: HttpRequestHandler;
   };
-};
 
-const handlePost = (context: CurlContext, machineId: MachineId, path: string): HttpResponse => {
-  const endpointMatch = path.match(/^\/api\/(.+)$/);
-  if (!endpointMatch) {
-    const body = '{"error": "Invalid API endpoint"}';
-    return {
-      statusCode: 400,
-      statusText: 'Bad Request',
-      headers: buildHeaders(machineId, 'application/json', body.length),
-      body,
-    };
-  }
-
-  const endpoint = endpointMatch[1];
-  const apiPath = `/var/www/api/${endpoint}.json`;
-  const content = context.readFileFromMachine({
-    machineId,
-    path: apiPath,
-    cwd: '/',
-    userType: 'root',
-  });
-
-  if (content === null) {
-    const body = '{"error": "Not Found"}';
-    return {
-      statusCode: 404,
-      statusText: 'Not Found',
-      headers: buildHeaders(machineId, 'application/json', body.length),
-      body,
-    };
-  }
-
-  return {
-    statusCode: 200,
-    statusText: 'OK',
-    headers: buildHeaders(machineId, 'application/json', content.length),
-    body: content,
-  };
-};
-
-// Wraps a HandlerResponse in an HttpResponse with standard HTTP framing
-// keyed off the target machine. Handler authors only deal with status /
-// contentType / body — the Date / Server / Content-Length / Connection
-// headers come from the same buildHeaders pipeline as static files,
-// so per-machine SERVER_CONFIGS still apply.
-const wrapHandlerResponse = (resp: HandlerResponse, machineId: string): HttpResponse => ({
-  statusCode: resp.statusCode,
-  statusText: resp.statusText,
-  headers: buildHeaders(machineId, resp.contentType, resp.body.length),
-  body: resp.body,
-});
+// Re-exported so existing imports (e.g. curl.test.ts) keep working.
+export { parseUrl };
+export type { ParsedUrl } from '../network/http';
 
 const formatResponse = (response: HttpResponse, includeHeaders: boolean): string => {
   if (!includeHeaders) return response.body;
@@ -220,8 +26,6 @@ const formatResponse = (response: HttpResponse, includeHeaders: boolean): string
 
   return `HTTP/1.1 ${response.statusCode} ${response.statusText}\n${headerLines}\n\n${response.body}`;
 };
-
-const isHttpService = (service: string): boolean => HTTP_SERVICES.some((s) => s === service);
 
 export const createCurlCommand = (context: CurlContext): Command => ({
   name: 'curl',
@@ -269,8 +73,6 @@ export const createCurlCommand = (context: CurlContext): Command => ({
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {
-    const { getMachine, resolveDomain } = context;
-
     const stringArgs = args.filter((a): a is string => typeof a === 'string');
 
     // Separate flags (start with -) from the URL (positional arg)
@@ -285,32 +87,11 @@ export const createCurlCommand = (context: CurlContext): Command => ({
 
     const includeHeaders = flags.includes('-i');
     const isPost = flags.includes('-X POST');
+    const method = isPost ? 'POST' : 'GET';
 
-    const parsed = parseUrl(urlStr);
-    if (!parsed) {
-      throw new Error(`curl: invalid URL: ${urlStr}`);
-    }
-
-    const dnsRecord = resolveDomain(parsed.host);
-    const targetIP = dnsRecord?.ip ?? parsed.host;
-
-    if (!isValidIP(targetIP)) {
-      throw new Error(`curl: Could not resolve host: ${parsed.host}`);
-    }
-
-    const machine = getMachine(targetIP);
-    if (!machine) {
-      throw new Error(
-        `curl: Failed to connect to ${parsed.host} port ${parsed.port}: Connection refused`,
-      );
-    }
-
-    const port = machine.ports.find((p) => p.port === parsed.port);
-    if (!port || !port.open || !isHttpService(port.service)) {
-      throw new Error(
-        `curl: Failed to connect to ${parsed.host} port ${parsed.port}: Connection refused`,
-      );
-    }
+    // Sync validation — throws before AsyncOutput is constructed so the
+    // existing "curl errors throw before the timer fires" contract is preserved.
+    const target = resolveHttpTarget(context, urlStr, 'curl');
 
     const token = createCancellationToken();
 
@@ -322,44 +103,18 @@ export const createCurlCommand = (context: CurlContext): Command => ({
         token.schedule(() => {
           if (token.isCancelled()) return;
 
-          // NAT resolution: in forwarded mode, the router's public IP maps to the
-          // internal entry machine. Filesystem reads must target the actual machine.
-          const filesystemIP: MachineId = context.resolveNat(targetIP, parsed.port ?? 80).ip;
-          const method = isPost ? 'POST' : 'GET';
-
-          // Try the per-machine request handler first. Non-null result =
-          // handler took ownership; null = fall through to static files.
-          const handler = context.getHandler?.(filesystemIP);
-          const handlerResp =
-            handler?.(
-              { method, path: parsed.path, query: parsed.query },
-              {
-                readFile: (p) =>
-                  context.readFileFromMachine({
-                    machineId: filesystemIP,
-                    path: p,
-                    cwd: '/',
-                    userType: 'root',
-                  }),
-              },
-            ) ?? null;
-
-          const response = handlerResp
-            ? wrapHandlerResponse(handlerResp, filesystemIP)
-            : isPost
-              ? handlePost(context, filesystemIP, parsed.path)
-              : handleGet(context, filesystemIP, parsed.path);
+          const result = dispatchHttpRequest(context, target, { method });
 
           context.onHttpRequest?.({
-            targetIP,
-            port: parsed.port,
-            method,
-            path: parsed.path,
-            status: response.statusCode,
-            size: response.body.length,
+            targetIP: result.targetIP,
+            port: result.port,
+            method: result.method,
+            path: result.path,
+            status: result.response.statusCode,
+            size: result.response.body.length,
           });
 
-          const output = formatResponse(response, includeHeaders);
+          const output = formatResponse(result.response, includeHeaders);
           output.split('\n').forEach((line) => onLine(line));
 
           onComplete();

@@ -10,6 +10,7 @@ The main UI component — a retro CRT terminal that orchestrates command executi
 | `TerminalInput.tsx`  | Input line with prompt (`user@machine>`), cursor, key handlers (Enter, ArrowUp/Down, Tab), password masking                                                    |
 | `TerminalOutput.tsx` | Renders output lines: banners, commands, results, errors, and the author profile card                                                                          |
 | `NanoEditor.tsx`     | Full-screen nano-style text editor overlay with save/exit, cursor tracking, and exit prompt for unsaved changes                                                |
+| `LynxBrowser.tsx`    | Full-screen lynx-style web browser overlay — fetches HTML, renders semantic markup, arrow-key link navigation, history stack, status + help bars               |
 | `types.ts`           | All shared types: `Command`, `OutputLine`, `AsyncOutput`, `SpecialOutput` discriminated union, type guards                                                     |
 | `index.ts`           | Module export                                                                                                                                                  |
 
@@ -37,6 +38,7 @@ Terminal.tsx executeCommand()
             ├── Returns { __type: 'ftp_prompt' } → switch to FTP commands
             ├── Returns { __type: 'nc_prompt' } → switch to NC commands
             ├── Returns { __type: 'nano_open' } → open NanoEditor overlay
+            ├── Returns { __type: 'lynx_open' } → open LynxBrowser overlay
             ├── Returns { __type: 'exit' } → pop session stack
             └── Throws Error → display as error
 ```
@@ -54,6 +56,7 @@ Terminal.tsx executeCommand()
 | `nc_prompt`       | `nc(host, port)`       | Switches to NC command set with `$` prompt                        |
 | `nc_quit`         | `exit()` in NC         | Exits NC mode, restores normal commands                           |
 | `nano_open`       | `nano(path)`           | Opens NanoEditor overlay with file content for editing            |
+| `lynx_open`       | `lynx(url)`            | Opens LynxBrowser overlay; overlay performs the fetch + render    |
 | `exit`            | `exit()`               | Pops session stack, returns to previous machine                   |
 | `async`           | ping, nmap, curl, etc. | Streams lines via `onLine()`, disables input until `onComplete()` |
 
@@ -67,6 +70,7 @@ Terminal.tsx executeCommand()
 - Handles password validation (local `su` via `/etc/passwd`, remote SSH via machine users)
 - Defines logging callbacks (`onSuAuth`, `onSshAuth`, `onFtpAuth`) that write auth events to target machine log files (`/var/log/auth.log`, `/var/log/vsftpd.log`) via `src/logging/`
 - Manages NanoEditor overlay lifecycle (open on `nano_open`, close on editor exit)
+- Manages LynxBrowser overlay lifecycle (open on `lynx_open`, close on `q` / Esc) — passes a `lynxFetch` callback built in `useNetworkCommands` so fetches use the same NAT/handler pipeline as `curl`
 - Shows ASCII banner on startup
 - Scans command output for mission flag — triggers completion banner when detected
 
@@ -100,3 +104,17 @@ Terminal.tsx executeCommand()
 - Exit prompt accepts **Y** (save + close), **N** (discard + close), **C** (cancel back to editing)
 - Status bar: cursor position (Ln/Col), save confirmation, error messages (auto-clear after 3s)
 - Uses `useLayoutEffect` to restore cursor position after Tab insertion updates content
+
+### LynxBrowser
+
+- Full-screen fixed overlay (`z-50`) covering entire viewport, styled with theme CSS variables
+- Layout: title bar (page `<title>` + URL), scrollable body, status bar, key-bindings help bar
+- Owns the fetch lifecycle via the injected `onFetch: (url) => Promise<HttpResponse>` prop (built once in `useNetworkCommands.buildLynxFetch` so curl and lynx share the same NAT / handler / access-log pipeline)
+- HTML responses go through the pure `renderHtml` (see `src/commands/lynx/render.ts`) — anchors stay atomic via the token-stream walker, so multi-word link text stays grouped under one selectable span
+- Non-HTML responses (`text/plain`, `*.txt`, `*.bak`) are rendered verbatim with no parsing pass
+- History stack caches `{ url, response, rendered }` per visited page — Back is instant, no refetch
+- **↑ / ↓** — moves the link cursor; selected link gets `data-selected="true"` with the accent background, `scrollIntoView({ block: 'nearest' })` keeps it visible
+- **Enter / →** — follows the selected link; relative `href` resolved via `new URL(href, currentUrl).href`
+- **← / Backspace** — pops the history stack (no-op when only one page is loaded)
+- **q / Escape** — calls `onClose`, returning focus to the terminal prompt
+- Status bar shows `Getting <url>...` during fetch, `HTTP/1.1 <code> <text>` on success, `Alert!: <message>` on connection failure

@@ -106,6 +106,11 @@ export type NanoOpenData = {
   readonly filePath: string;
 };
 
+export type LynxOpenData = {
+  readonly __type: 'lynx_open';
+  readonly url: string;
+};
+
 export type ScpPromptData = {
   readonly __type: 'scp_prompt';
   readonly targetUser: string;
@@ -160,6 +165,7 @@ export type SpecialOutput =
   | RedisPromptData
   | RedisQuitOutput
   | NanoOpenData
+  | LynxOpenData
   | AsyncOutput;
 
 export type OutputLine =
@@ -248,6 +254,9 @@ export const isNcQuit = (value: unknown): value is NcQuitOutput =>
 
 export const isNanoOpen = (value: unknown): value is NanoOpenData =>
   isSpecialOutput(value) && value.__type === 'nano_open';
+
+export const isLynxOpen = (value: unknown): value is LynxOpenData =>
+  isSpecialOutput(value) && value.__type === 'lynx_open';
 
 export const isScpPrompt = (value: unknown): value is ScpPromptData =>
   isSpecialOutput(value) && value.__type === 'scp_prompt';

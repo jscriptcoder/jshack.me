@@ -221,6 +221,23 @@ describe('apt command', () => {
       expect(createdFiles.some((f) => f.path === '/usr/bin/nmap')).toBe(true);
     });
 
+    it('installs the lynx text browser, dropping a binary at /usr/bin/lynx', () => {
+      const { context, createdFiles } = createMockAptContext();
+      const apt = createAptCommand(context);
+      const result = apt.fn('install', 'lynx');
+
+      expect(isAsyncOutput(result)).toBe(true);
+      if (!isAsyncOutput(result)) return;
+
+      result.start(
+        () => undefined,
+        () => undefined,
+      );
+      vi.advanceTimersByTime(3000);
+
+      expect(createdFiles.some((f) => f.path === '/usr/bin/lynx')).toBe(true);
+    });
+
     it('creates binary with world-executable permissions', () => {
       const { context, createdFiles } = createMockAptContext();
       const apt = createAptCommand(context);

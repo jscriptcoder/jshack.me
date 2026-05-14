@@ -56,10 +56,10 @@ The handler registry (`handlerRegistry.ts`) maps `world_networks.theme` → `Req
 
 ## Content authoring rules (static themed networks)
 
-Content manifests for static themed networks (techparts.io and any future handler-less sites) ship via TS modules under `content/<theme>/`. The upcoming terminal-browser command renders `kind: 'html'` pages by handing the raw markup to the host browser's HTML parser, so every HTML page must:
+Content manifests for static themed networks (techparts.io and any future handler-less sites) ship via TS modules under `content/<theme>/`. The `lynx` terminal-browser command (see `src/commands/lynx/render.ts`) renders `kind: 'html'` pages by handing the raw markup to the host browser's DOMParser, so every HTML page must:
 
 - **Be well-formed semantic HTML.** Parses without errors via DOMParser.
 - **Avoid `<script>`, `<style>`, `class=`, `id=`.** The terminal browser has no CSS or JS surface; these attributes would smuggle layout concerns into a frame that can't honour them.
 - **Resolve every internal `<a href>`.** A path-aware link-integrity walker enforces this — orphaned navigation breaks recon.
 
-Plain-text artefacts (`*.txt`, `*.bak`, `robots.txt`) carry `kind: 'text'` and are served verbatim. The generator MUST NOT transform manifest body content — what the manifest declares is what curl returns.
+Plain-text artefacts (`*.txt`, `*.bak`, `robots.txt`) carry `kind: 'text'` and are served verbatim. The generator MUST NOT transform manifest body content — what the manifest declares is what curl and lynx return.
