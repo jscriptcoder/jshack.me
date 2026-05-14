@@ -1,6 +1,7 @@
 import { generateMissionNetwork } from '../../generation/generateMission';
 import type { ThemedGenerator } from '../../worldNetworks/generate';
 import { generateSearchEngineNetwork } from './searchEngineNetwork';
+import { generateTechpartsNetwork } from './techpartsNetwork';
 
 // Default generator for world_networks rows whose theme has no
 // dedicated generator. Wraps generateMissionNetwork so existing rows
@@ -18,6 +19,7 @@ const defaultGenerator: ThemedGenerator = async (row, ctx) =>
 // adding one entry here + the matching generator module.
 const THEME_GENERATORS: Readonly<Record<string, ThemedGenerator>> = {
   'search-engine': generateSearchEngineNetwork,
+  techparts: generateTechpartsNetwork,
 };
 
 export const selectGenerator = (theme: string): ThemedGenerator =>
