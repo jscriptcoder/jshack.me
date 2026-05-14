@@ -138,3 +138,37 @@ describe('TECHPARTS_PAGES manifest — public page set', () => {
     expect(hrefs).toContain('/');
   });
 });
+
+const PRODUCT_PATHS = [
+  '/products/xeon-e5-2680v4.html',
+  '/products/ddr4-32gb-ecc.html',
+  '/products/samsung-pm981-1tb.html',
+  '/products/cisco-3850-12s.html',
+  '/products/rigol-ds1054z.html',
+  '/products/salvage-mb-aug2024.html',
+] as const;
+
+describe('TECHPARTS_PAGES manifest — product pages', () => {
+  it.each(PRODUCT_PATHS)('manifest exports a linked html product page at %s', (path) => {
+    const page = TECHPARTS_PAGES.find((p) => p.path === path);
+    expect(page).toBeDefined();
+    expect(page!.kind).toBe('html');
+    expect(page!.visibility).toBe('linked');
+    expect(page!.title.length).toBeGreaterThan(0);
+    expect(page!.body.length).toBeGreaterThan(0);
+  });
+
+  it('product page titles are distinct', () => {
+    const titles = PRODUCT_PATHS.map((path) => TECHPARTS_PAGES.find((p) => p.path === path)!.title);
+    const unique = new Set(titles);
+    expect(unique.size).toBe(titles.length);
+  });
+
+  it.each(PRODUCT_PATHS)('catalog page links to product %s', (path) => {
+    const catalog = TECHPARTS_PAGES.find((p) => p.path === '/catalog.html');
+    expect(catalog).toBeDefined();
+    const doc = parseHtml(catalog!.body);
+    const hrefs = Array.from(doc.querySelectorAll('a[href]')).map((a) => a.getAttribute('href'));
+    expect(hrefs).toContain(path);
+  });
+});

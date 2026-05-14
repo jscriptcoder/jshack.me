@@ -41,6 +41,341 @@ const SUBPAGE_FOOTER_HTML = `<footer>
       <p><small>&copy; TechParts Global. Components sourced from a variety of channels.</small></p>
     </footer>`;
 
+// --- Product data model -----------------------------------------------------
+
+type ProductSpec = {
+  readonly label: string;
+  readonly value: string;
+};
+
+type Product = {
+  readonly sku: string;
+  readonly displayName: string;
+  readonly category: ProductCategory;
+  readonly priceUsd: string;
+  readonly stock: string;
+  readonly specs: readonly ProductSpec[];
+  readonly descriptionHtml: string;
+  readonly disclaimerHtml: string;
+};
+
+type ProductCategory =
+  | 'Processors'
+  | 'Memory'
+  | 'Storage'
+  | 'Networking'
+  | 'Test Equipment'
+  | 'Salvage Lots';
+
+const PRODUCTS: readonly Product[] = [
+  {
+    sku: 'xeon-e5-2680v4',
+    displayName: 'Intel Xeon E5-2680 v4 (Desoldered)',
+    category: 'Processors',
+    priceUsd: '$89 USD per unit',
+    stock: '12 units in stock (per-customer limit: 4)',
+    specs: [
+      { label: 'Cores / Threads', value: '14C / 28T' },
+      { label: 'Base Clock', value: '2.4 GHz' },
+      { label: 'Turbo Clock', value: '3.3 GHz' },
+      { label: 'Socket', value: 'FCLGA2011-3' },
+      { label: 'TDP', value: '120W' },
+      { label: 'Source', value: 'Desoldered from Dell PowerEdge R730 servers' },
+    ],
+    descriptionHtml: `<p>
+      Intel Xeon E5-2680 v4 server processors recovered from decommissioned
+      Dell PowerEdge R730 chassis. CPUs are removed from sockets, cleaned,
+      and inspected. No box, no cooler, no thermal compound included.
+    </p>
+    <p>
+      Pins are inspected at intake but minor bend or surface oxidation may
+      be present. A pin-straightening kit is recommended for buyers without
+      hot-air rework experience. Functional testing performed via POST in
+      reference platform only &mdash; sustained-load and ECC validation is the
+      buyer's responsibility.
+    </p>`,
+    disclaimerHtml: `<p>
+      Sold under power-on warranty only. Returns within 24 hours per
+      <a href="/shipping.html">Shipping &amp; Payment</a> terms.
+    </p>`,
+  },
+  {
+    sku: 'ddr4-32gb-ecc',
+    displayName: 'DDR4 32GB ECC Registered (Server Pull)',
+    category: 'Memory',
+    priceUsd: '$42 USD per module &mdash; $148 USD for a matched 4-stick kit',
+    stock: '200+ modules available',
+    specs: [
+      { label: 'Capacity', value: '32 GB' },
+      { label: 'Type', value: 'DDR4 ECC Registered (RDIMM)' },
+      { label: 'Speed', value: 'PC4-2400 (2400 MT/s)' },
+      { label: 'Form Factor', value: '288-pin' },
+      { label: 'Brand', value: 'Mixed: Samsung, Micron, Hynix (matched kits on request)' },
+      { label: 'Source', value: 'Server pull, mixed enterprise origins' },
+    ],
+    descriptionHtml: `<p>
+      32GB DDR4 ECC Registered modules pulled from operating servers prior
+      to decommissioning. ECC functionality verified by power-on test in
+      reference platform.
+    </p>
+    <p>
+      Heat-spreader labels may be partially removed or replaced as part of
+      asset-recovery processing &mdash; this does not affect electrical operation.
+      Brand mix is the default for single-module orders; brand-matched kits
+      are available on request at no additional cost.
+    </p>`,
+    disclaimerHtml: `<p>
+      Tested in burst, not sustained workload. Spike, latency, and refresh
+      tolerances are not warranted. Returns within 24 hours per
+      <a href="/shipping.html">Shipping &amp; Payment</a> terms.
+    </p>`,
+  },
+  {
+    sku: 'samsung-pm981-1tb',
+    displayName: 'Samsung PM981 1TB NVMe SSD (Refurbished)',
+    category: 'Storage',
+    priceUsd: '$35 USD per unit',
+    stock: '80 units in stock',
+    specs: [
+      { label: 'Capacity', value: '1 TB (1,024 GB)' },
+      { label: 'Interface', value: 'PCIe 3.0 x4 NVMe' },
+      { label: 'Form Factor', value: 'M.2 2280' },
+      { label: 'Sequential Read / Write', value: 'Up to 3,000 / 1,800 MB/s (per OEM spec)' },
+      { label: 'Source', value: 'OEM enterprise pull' },
+    ],
+    descriptionHtml: `<p>
+      Samsung PM981 OEM enterprise NVMe SSDs. SMART data has been reset per
+      OEM resale agreement &mdash; original wear and runtime data is not
+      available for review.
+    </p>
+    <p>
+      Capacity is verified at intake. Drive lifespan is not warranted.
+      Firmware version may differ from retail-channel variants; compatibility
+      with consumer firmware tooling (Samsung Magician, etc.) is not
+      guaranteed.
+    </p>`,
+    disclaimerHtml: `<p>
+      Sold as-is for development, lab, or non-critical use. Not recommended
+      for production storage roles. Returns within 24 hours per
+      <a href="/shipping.html">Shipping &amp; Payment</a> terms.
+    </p>`,
+  },
+  {
+    sku: 'cisco-3850-12s',
+    displayName: 'Cisco Catalyst 3850-12S Enterprise Switch',
+    category: 'Networking',
+    priceUsd: '$180 USD per unit',
+    stock: '6 units in stock',
+    specs: [
+      { label: 'Ports', value: '12 &times; 1Gb SFP' },
+      {
+        label: 'Uplink',
+        value: '4 &times; 1Gb / 2 &times; 10Gb (module-dependent, sold separately)',
+      },
+      { label: 'Stacking', value: 'StackWise-480 ready' },
+      { label: 'IOS XE Version', value: '16.12.x (last known good config)' },
+      { label: 'Source', value: 'Decommissioned from corporate datacenter' },
+    ],
+    descriptionHtml: `<p>
+      Cisco Catalyst 3850-12S enterprise managed switch, decommissioned from
+      a corporate environment. Chassis condition is good; rack-mount ears
+      included.
+    </p>
+    <p>
+      Configuration may persist from prior deployment &mdash; factory reset
+      is strongly recommended before placing in service. Service contract
+      is NOT transferred; software update access through Cisco is not
+      included. SFP modules and uplink module are NOT included unless
+      specifically listed in the order confirmation.
+    </p>`,
+    disclaimerHtml: `<p>
+      No accessories or cables included. Sold without manufacturer support
+      contract. Returns within 24 hours per
+      <a href="/shipping.html">Shipping &amp; Payment</a> terms.
+    </p>`,
+  },
+  {
+    sku: 'rigol-ds1054z',
+    displayName: 'Rigol DS1054Z Oscilloscope (Bandwidth-Unlocked)',
+    category: 'Test Equipment',
+    priceUsd: '$220 USD per unit',
+    stock: '4 units in stock',
+    specs: [
+      { label: 'Bandwidth', value: '50 MHz (unlocked to 100 MHz via firmware option key)' },
+      { label: 'Channels', value: '4' },
+      { label: 'Sample Rate', value: '1 GSa/s' },
+      { label: 'Memory Depth', value: '24 Mpts' },
+      { label: 'Source', value: 'Refurbished from end-of-life lab inventory' },
+    ],
+    descriptionHtml: `<p>
+      Rigol DS1054Z 4-channel digital oscilloscope, refurbished from a
+      closed laboratory. Bandwidth is unlocked from the stock 50 MHz to
+      100 MHz via firmware option key.
+    </p>
+    <p>
+      Whether the option-key activation persists across future firmware
+      updates is at the buyer's risk. Calibration sticker may be expired.
+      Cosmetic condition is fair to good; case may show light handling
+      marks.
+    </p>`,
+    disclaimerHtml: `<p>
+      Probes NOT included unless specifically listed. Power cord included.
+      Sold as-is; no calibration service available through us. Returns
+      within 24 hours per <a href="/shipping.html">Shipping &amp; Payment</a>
+      terms.
+    </p>`,
+  },
+  {
+    sku: 'salvage-mb-aug2024',
+    displayName: 'Salvage Lot — Mixed Motherboards (Aug 2024 Recovery)',
+    category: 'Salvage Lots',
+    priceUsd: '$45 USD per parcel',
+    stock: '18 parcels remaining',
+    specs: [
+      { label: 'Weight', value: '~5 kg per parcel (&plusmn;10%)' },
+      { label: 'Estimated Count', value: '8&ndash;15 boards per parcel' },
+      { label: 'Form Factors', value: 'Mixed ATX, mATX, ITX, server proprietary' },
+      { label: 'Status', value: 'Untested' },
+      { label: 'Source', value: 'August 2024 e-waste cleared inventory' },
+    ],
+    descriptionHtml: `<p>
+      Mixed motherboard salvage lot, approximately 5kg per parcel. Boards
+      have been visually inspected for major damage and physical
+      completeness but have NOT been functionally tested.
+    </p>
+    <p>
+      Typical contents are a blend of working, partially working, and
+      defective units in roughly equal measure &mdash; your mileage will
+      vary. Photos of a representative parcel are available on request
+      before shipment; specific parcel contents are not pre-photographed.
+    </p>`,
+    disclaimerHtml: `<p>
+      Sold strictly as-is. No returns. Buyer assumes all risk regarding
+      component condition. The 24-hour return window described in
+      <a href="/shipping.html">Shipping &amp; Payment</a> does NOT apply to
+      salvage lots.
+    </p>`,
+  },
+];
+
+// --- Page renderers ---------------------------------------------------------
+
+const renderSpecRow = (s: ProductSpec): string =>
+  `<tr><th scope="row">${s.label}</th><td>${s.value}</td></tr>`;
+
+const renderProductBody = (p: Product): string => `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>${p.displayName} &mdash; TechParts Global</title>
+  </head>
+  <body>
+    ${NAV_HTML}
+
+    <p><a href="/catalog.html">&larr; Back to Catalog</a></p>
+
+    <h1>${p.displayName}</h1>
+    <p><strong>Category:</strong> ${p.category}</p>
+
+    <h2>Specifications</h2>
+    <table>
+      <tbody>
+        ${p.specs.map(renderSpecRow).join('\n        ')}
+      </tbody>
+    </table>
+
+    <h2>Description</h2>
+    ${p.descriptionHtml}
+
+    <h2>Pricing &amp; Availability</h2>
+    <p><strong>Price:</strong> ${p.priceUsd}</p>
+    <p><strong>Stock:</strong> ${p.stock}</p>
+    <p><em>Limited stock. Pricing subject to change without notice. Crypto and wire transfer accepted &mdash; see <a href="/shipping.html">Shipping &amp; Payment</a>.</em></p>
+
+    <h2>Terms</h2>
+    ${p.disclaimerHtml}
+
+    ${SUBPAGE_FOOTER_HTML}
+  </body>
+</html>
+`;
+
+const productPage = (p: Product): TechpartsPage => ({
+  path: `/products/${p.sku}.html`,
+  title: `${p.displayName} — TechParts Global`,
+  body: renderProductBody(p),
+  kind: 'html',
+  visibility: 'linked',
+});
+
+const PRODUCT_PAGES: readonly TechpartsPage[] = PRODUCTS.map(productPage);
+
+// --- Catalog page (driven by PRODUCTS) --------------------------------------
+
+const CATEGORY_BLURBS: Readonly<Record<ProductCategory, string>> = {
+  Processors:
+    'OEM CPUs, desoldered server modules, engineering samples. Tested to power-on; full functionality not guaranteed without separate validation.',
+  Memory:
+    'DDR3, DDR4, and DDR5 modules. Pulled from decommissioned servers and refurbished workstations. Labels may not match original branding.',
+  Storage:
+    'SSDs, HDDs, and enterprise NVMe drives at salvage prices. SMART data may have been reset. Sold with prior wear; capacity verified, lifespan not.',
+  Networking:
+    'Decommissioned enterprise routers, switches, and access points. Configuration may persist from previous deployments &mdash; factory-reset recommended.',
+  'Test Equipment':
+    'Oscilloscopes, multimeters, spectrum analyzers. Calibration as-is. Sold under power-on warranty only.',
+  'Salvage Lots':
+    'Mystery boxes from cleared inventory. Contents vary. Photos available on request. Not returnable.',
+};
+
+const CATEGORIES_IN_ORDER: readonly ProductCategory[] = [
+  'Processors',
+  'Memory',
+  'Storage',
+  'Networking',
+  'Test Equipment',
+  'Salvage Lots',
+];
+
+const renderCatalogCategory = (cat: ProductCategory): string => {
+  const items = PRODUCTS.filter((p) => p.category === cat);
+  const listHtml =
+    items.length === 0
+      ? '<p><em>No items currently listed in this category.</em></p>'
+      : `<ul>
+          ${items
+            .map((p) => `<li><a href="/products/${p.sku}.html">${p.displayName}</a></li>`)
+            .join('\n          ')}
+        </ul>`;
+  return `<section>
+      <h2>${cat}</h2>
+      <p>${CATEGORY_BLURBS[cat]}</p>
+      ${listHtml}
+    </section>`;
+};
+
+const CATALOG_TITLE = 'Catalog — TechParts Global';
+
+const CATALOG_BODY = `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>${CATALOG_TITLE}</title>
+  </head>
+  <body>
+    ${NAV_HTML}
+
+    <h1>Catalog</h1>
+    <p>Browse our worldwide inventory by category. Stock rotates frequently &mdash; check back for new arrivals.</p>
+
+    ${CATEGORIES_IN_ORDER.map(renderCatalogCategory).join('\n\n    ')}
+
+    ${SUBPAGE_FOOTER_HTML}
+  </body>
+</html>
+`;
+
+// --- Other pages ------------------------------------------------------------
+
 const LANDING_TITLE = 'TechParts Global — Worldwide Electronic Components';
 
 const LANDING_BODY = `<!DOCTYPE html>
@@ -88,55 +423,6 @@ const LANDING_BODY = `<!DOCTYPE html>
       </p>
       <p><small>&copy; TechParts Global. All rights reserved.</small></p>
     </footer>
-  </body>
-</html>
-`;
-
-const CATALOG_TITLE = 'Catalog — TechParts Global';
-
-const CATALOG_BODY = `<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <title>${CATALOG_TITLE}</title>
-  </head>
-  <body>
-    ${NAV_HTML}
-
-    <h1>Catalog</h1>
-    <p>Browse our worldwide inventory by category. Stock rotates frequently &mdash; check back for new arrivals.</p>
-
-    <section>
-      <h2>Processors</h2>
-      <p>OEM CPUs, desoldered server modules, engineering samples. Tested to power-on; full functionality not guaranteed without separate validation.</p>
-    </section>
-
-    <section>
-      <h2>Memory</h2>
-      <p>DDR3, DDR4, and DDR5 modules. Pulled from decommissioned servers and refurbished workstations. Labels may not match original branding.</p>
-    </section>
-
-    <section>
-      <h2>Storage</h2>
-      <p>SSDs, HDDs, and enterprise NVMe drives at salvage prices. SMART data may have been reset. Sold with prior wear; capacity verified, lifespan not.</p>
-    </section>
-
-    <section>
-      <h2>Networking</h2>
-      <p>Decommissioned enterprise routers, switches, and access points. Configuration may persist from previous deployments &mdash; factory-reset recommended.</p>
-    </section>
-
-    <section>
-      <h2>Test Equipment</h2>
-      <p>Oscilloscopes, multimeters, spectrum analyzers. Calibration as-is. Sold under power-on warranty only.</p>
-    </section>
-
-    <section>
-      <h2>Salvage Lots</h2>
-      <p>Mystery boxes from cleared inventory. Contents vary. Photos available on request. Not returnable.</p>
-    </section>
-
-    ${SUBPAGE_FOOTER_HTML}
   </body>
 </html>
 `;
@@ -307,7 +593,7 @@ const FAQ_BODY = `<!DOCTYPE html>
     <p>All products meet manufacturer specifications. Provenance varies by sourcing channel and can be discussed per-order for qualified buyers.</p>
 
     <h2>What's your return policy?</h2>
-    <p>See our Shipping &amp; Payment page for full terms. In summary: returns accepted within 24 hours of delivery, customer pays return shipping, 30% restocking fee, refunds issued as store credit.</p>
+    <p>See our <a href="/shipping.html">Shipping &amp; Payment</a> page for full terms. In summary: returns accepted within 24 hours of delivery, customer pays return shipping, 30% restocking fee, refunds issued as store credit.</p>
 
     <h2>Can I get an invoice for my order?</h2>
     <p>Payment confirmation serves as your invoice. Formal commercial invoices are available on request for an additional administrative fee.</p>
@@ -328,6 +614,8 @@ const FAQ_BODY = `<!DOCTYPE html>
   </body>
 </html>
 `;
+
+// --- Manifest ---------------------------------------------------------------
 
 const LANDING_PAGE: TechpartsPage = {
   path: '/',
@@ -384,6 +672,7 @@ export const TECHPARTS_PAGES: readonly TechpartsPage[] = [
   SHIPPING_PAGE,
   CONTACT_PAGE,
   FAQ_PAGE,
+  ...PRODUCT_PAGES,
 ];
 
 export const LINKED_PAGES: readonly TechpartsPage[] = TECHPARTS_PAGES.filter(
