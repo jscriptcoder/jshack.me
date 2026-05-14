@@ -104,3 +104,37 @@ describe('TECHPARTS_PAGES manifest — projections', () => {
     expect(LINKED_PAGES.length + HIDDEN_PAGES.length).toBe(TECHPARTS_PAGES.length);
   });
 });
+
+const PUBLIC_PAGE_PATHS = [
+  '/catalog.html',
+  '/about.html',
+  '/shipping.html',
+  '/contact.html',
+  '/faq.html',
+] as const;
+
+describe('TECHPARTS_PAGES manifest — public page set', () => {
+  it.each(PUBLIC_PAGE_PATHS)('manifest exports a linked html page at %s', (path) => {
+    const page = TECHPARTS_PAGES.find((p) => p.path === path);
+    expect(page).toBeDefined();
+    expect(page!.kind).toBe('html');
+    expect(page!.visibility).toBe('linked');
+    expect(page!.title.length).toBeGreaterThan(0);
+    expect(page!.body.length).toBeGreaterThan(0);
+  });
+
+  it.each(PUBLIC_PAGE_PATHS)('landing page has an <a href> nav link to %s', (path) => {
+    const landing = TECHPARTS_PAGES.find((p) => p.path === '/');
+    expect(landing).toBeDefined();
+    const doc = parseHtml(landing!.body);
+    const hrefs = Array.from(doc.querySelectorAll('a[href]')).map((a) => a.getAttribute('href'));
+    expect(hrefs).toContain(path);
+  });
+
+  it.each(PUBLIC_PAGE_PATHS)('public page %s has a back-to-home <a href="/"> link', (path) => {
+    const page = TECHPARTS_PAGES.find((p) => p.path === path);
+    const doc = parseHtml(page!.body);
+    const hrefs = Array.from(doc.querySelectorAll('a[href]')).map((a) => a.getAttribute('href'));
+    expect(hrefs).toContain('/');
+  });
+});
