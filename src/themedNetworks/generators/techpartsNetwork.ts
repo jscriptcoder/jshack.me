@@ -38,7 +38,17 @@ export const generateTechpartsNetwork: ThemedGenerator = async (row, ctx) => {
     ],
   });
 
-  const ports: readonly Port[] = [];
+  // Port 80 ships Apache/2.4.49 — matches the natural CVE template in
+  // src/generation/pools/vulnerabilities.ts (CVE-2024-9001, shell_limited
+  // at user tier). Once the activation timeline elapses, port 80 becomes
+  // exploitable and players can msfconsole-deface the site or read /admin
+  // creds. Port 443 ships nginx/1.20.1 — no natural CVE template at
+  // port 443 in the catalog today; matches findit.io's decorative HTTPS
+  // and stays inert. See plans/techparts-network.md (locked decisions).
+  const ports: readonly Port[] = [
+    { port: 80, service: 'http', serviceVersion: 'Apache/2.4.49', open: true },
+    { port: 443, service: 'https', serviceVersion: 'nginx/1.20.1', open: true },
+  ];
 
   const users: readonly RemoteUser[] = [
     { username: 'root', userType: 'root' },

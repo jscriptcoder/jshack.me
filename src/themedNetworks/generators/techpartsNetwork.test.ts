@@ -65,3 +65,34 @@ describe('generateTechpartsNetwork — network shape', () => {
     expect(network.networkConfig.machineConfigs['198.51.100.80']).toBeDefined();
   });
 });
+
+describe('generateTechpartsNetwork — ports', () => {
+  it('opens port 80 (http) with version Apache/2.4.49 — natural CVE trigger', async () => {
+    const row = buildRow();
+    const network = await generateTechpartsNetwork(row, buildCtx([row]));
+    const port80 = network.routerMachine.remoteMachine.ports.find((p) => p.port === 80);
+
+    expect(port80).toBeDefined();
+    expect(port80!.open).toBe(true);
+    expect(port80!.service).toBe('http');
+    expect(port80!.serviceVersion).toBe('Apache/2.4.49');
+  });
+
+  it('opens port 443 (https) with version nginx/1.20.1 — decorative no-CVE pairing', async () => {
+    const row = buildRow();
+    const network = await generateTechpartsNetwork(row, buildCtx([row]));
+    const port443 = network.routerMachine.remoteMachine.ports.find((p) => p.port === 443);
+
+    expect(port443).toBeDefined();
+    expect(port443!.open).toBe(true);
+    expect(port443!.service).toBe('https');
+    expect(port443!.serviceVersion).toBe('nginx/1.20.1');
+  });
+
+  it('exposes exactly the two http ports — no extra ports leaking', async () => {
+    const row = buildRow();
+    const network = await generateTechpartsNetwork(row, buildCtx([row]));
+
+    expect(network.routerMachine.remoteMachine.ports).toHaveLength(2);
+  });
+});
