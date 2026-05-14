@@ -56,6 +56,7 @@ Every step follows RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR.
 ### Step 1: Extract `performHttpRequest` helper from `curl.ts`
 
 **Acceptance criteria**:
+
 - A new pure module (likely `src/network/http.ts`) exports a `performHttpRequest(context, urlStr)` function that does URL parsing, DNS resolution, NAT translation, port/service validation, handler-or-static dispatch, and returns an `HttpResponse` plus the resolved target (IP/port/method) needed for `onHttpRequest` logging.
 - `curl.ts` becomes a thin command that calls this helper, formats the response (with/without headers), and calls `onHttpRequest`.
 - All existing curl tests continue to pass with no changes to their assertions or shape.
@@ -72,11 +73,12 @@ Every step follows RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR.
 ### Step 2: Pure HTML→terminal renderer
 
 **Acceptance criteria**:
+
 - New module `src/commands/lynx/render.ts` exports `renderHtml(rawHtml: string, opts: { width: number }): { lines: readonly string[]; references: readonly string[] }`.
 - Uses `DOMParser` (jsdom in tests, real DOMParser in browser) — no manual tokenising, no regex over markup.
 - Renders h1 with `===` underline, h2 with `---` underline, h3-h6 with no underline but blank lines around.
 - `<p>` wraps to `opts.width` columns, paragraph break = one blank line.
-- `<ul>` items prefixed `   * `, `<ol>` items numbered `   1. ` `   2. ` etc., nested lists indent one level.
+- `<ul>` items prefixed `  *`, `<ol>` items numbered `  1.` `  2.` etc., nested lists indent one level.
 - `<a href>` inline replaced with `[N]text`; URLs accumulated into `references` in document order; identical URLs collapse to one number.
 - `<table>` linearised row-by-row; first row of `<thead>` (or first `<tr>` if no thead) rendered as a header row separated from body with `---` line; cells space-padded to align columns within a single table.
 - `<form>` renders each `<input>`/`<textarea>` as `[Field name (type): ___]` and `<button>` as `[Button: label]`, using `name=` and surrounding `<label>` text.
@@ -97,6 +99,7 @@ Every step follows RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR.
 ### Step 3: `<LynxBrowser>` overlay component (mock `onFetch`)
 
 **Acceptance criteria**:
+
 - New `src/components/Terminal/LynxBrowser.tsx` exports the overlay component. Mirrors `NanoEditor.tsx`'s layout shape: fixed-inset full-screen container, title bar at the top, scrollable body in the middle, status bar + key-bindings help bar at the bottom.
 - Props: `{ initialUrl, onFetch, onClose }` where `onFetch: (url: string) => Promise<HttpResponse>`. No real network: tests use a mock `onFetch`.
 - Internal state: history stack (`{ url, response, renderedLines, references }[]`), selected link index, loading flag, error message.
@@ -126,6 +129,7 @@ Every step follows RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR.
 ### Step 4: `lynx` command + Terminal.tsx wire-up
 
 **Acceptance criteria**:
+
 - New `src/commands/lynx.ts` exports `createLynxCommand(context)`.
   - Synchronously validates the URL: must parse via `parseUrl`. Throws lynx-style error message ("lynx: invalid URL: <input>") on failure. Throws "lynx: missing URL argument" with no arg.
   - On success, returns `{ __type: 'lynx_open', url }` — no fetch at this layer.
