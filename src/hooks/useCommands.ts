@@ -37,6 +37,7 @@ import { wrapWithLibraryCheck } from '../commands/libraryDeps';
 import { createLddCommand } from '../commands/ldd';
 import { useFileSystemCommands } from './useFileSystemCommands';
 import { useNetworkCommands } from './useNetworkCommands';
+import type { LynxFetch } from '../commands/lynx/fetch';
 import { useWifiCommands } from './useWifiCommands';
 import { useSession } from '../session/SessionContext';
 import { getGameTime } from '../session/gameTime';
@@ -73,11 +74,12 @@ type UseCommandsResult = {
   readonly commands: ReadonlyMap<string, Command>;
   readonly executionContext: Record<string, (...args: unknown[]) => unknown>;
   readonly commandNames: readonly string[];
+  readonly lynxFetch: LynxFetch;
 };
 
 export const useCommands = (): UseCommandsResult => {
   const fileSystemCommands = useFileSystemCommands();
-  const networkCommands = useNetworkCommands();
+  const { commands: networkCommands, lynxFetch } = useNetworkCommands();
   const wifiCommands = useWifiCommands();
   const {
     session,
@@ -428,10 +430,11 @@ export const useCommands = (): UseCommandsResult => {
       isCommandVisible(name, session.machine, getNodeFromMachine, session.currentPath),
     );
 
-    return { commands, executionContext, commandNames };
+    return { commands, executionContext, commandNames, lynxFetch };
   }, [
     fileSystemCommands,
     networkCommands,
+    lynxFetch,
     wifiCommands,
     getUsers,
     session.username,

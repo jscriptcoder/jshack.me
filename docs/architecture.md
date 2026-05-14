@@ -4,7 +4,7 @@
 
 ```
 src/
-├── components/Terminal/   # Terminal UI (Terminal.tsx orchestrator, Input, Output, NanoEditor)
+├── components/Terminal/   # Terminal UI (Terminal.tsx orchestrator, Input, Output, NanoEditor, LynxBrowser)
 ├── session/               # SessionContext — global session state (user, machine, path, wifiConnected, gameTime)
 ├── filesystem/            # Virtual filesystem with IndexedDB persistence
 │   ├── FileSystemContext.tsx   # React context provider for filesystem operations + patch persistence
@@ -161,6 +161,10 @@ Unix-realistic permission model with owner-scoped access and directory traversal
 
 `nano(path)` returns `{ __type: 'nano_open', filePath }`. Terminal.tsx renders `NanoEditor` as a fixed overlay. Ctrl+S saves (creates or updates file via FileSystemContext), Ctrl+X/Escape exits (prompts if unsaved changes). Tab inserts 2 spaces.
 
+## Lynx Browser
+
+`lynx(url)` returns `{ __type: 'lynx_open', url }`. Terminal.tsx mounts the `LynxBrowser` overlay (same `z-50` pattern as `NanoEditor`). The overlay owns the fetch lifecycle: it calls a `lynxFetch` callback built in `useNetworkCommands` that wraps the synchronous `resolveHttpTarget` / `dispatchHttpRequest` pair (same as curl) in a Promise with `jitter(500)` delay, so curl and lynx share the same NAT / handler dispatch / `/var/log/access.log` logging. HTML bodies render through the pure `renderHtml` (see `src/commands/lynx/render.ts`), which emits both flat lines and structured `Segment` lines — the overlay uses the segments to render selectable, highlight-able link spans. Arrow ↑/↓ moves the link cursor (auto-scrolled into view), Enter / → follows (relative URLs resolved via `new URL(href, currentUrl)`), ← / Backspace pops a cached history stack (no refetch), q / Escape exits. Non-HTML bodies (`text/plain`, `*.txt`, `*.bak`) render verbatim.
+
 ## Connection Logging
 
 `src/logging/` records authentication events to target machine log files in realistic Linux formats. See `src/logging/README.md` for full details.
@@ -271,7 +275,7 @@ Network access from localhost requires cracking a WiFi network first. See `infra
 
 **State**: `brickedMachines: ReadonlySet<string>` in `SessionContext` (initialized from `storageCache`). Persisted to IndexedDB (`brickedMachines` key in session store), synced across tabs via `bricked-changed` BroadcastChannel message.
 
-**Connection gating**: `wrapWithBrickedCheck` HOF in `useNetworkCommands.ts` (outermost wrapper — checked before WiFi) blocks ssh, ftp, nc, ping, nmap, curl, msfconsole, hydra, gobuster, dig to bricked machines. Error: `"Connection timed out — host <ip> appears to be down"`. nslookup is not gated (DNS doesn't require the target to be up).
+**Connection gating**: `wrapWithBrickedCheck` HOF in `useNetworkCommands.ts` (outermost wrapper — checked before WiFi) blocks ssh, ftp, nc, ping, nmap, curl, lynx, msfconsole, hydra, gobuster, dig to bricked machines. Error: `"Connection timed out — host <ip> appears to be down"`. nslookup is not gated (DNS doesn't require the target to be up).
 
 **Localhost bricking**: Terminal.tsx checks `isMachineBricked('localhost')` at the top of render. If true, renders a frozen kernel panic screen with no input. Only recovery: `reset confirm` (which clears IndexedDB) or clearing browser site data.
 
@@ -283,7 +287,7 @@ Network access from localhost requires cracking a WiFi network first. See `infra
 
 See `src/commands/` for implementations and `src/hooks/useCommands.ts` for the registry.
 
-Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, find, grep, rm, su, whoami, bash, airmon, airdump, aircrack, nmcli, ifconfig, ping, nmap, nslookup, dig, ssh, exit, ftp, nc, curl, msfconsole, gobuster, hydra, gpg, reboot, sshd, vsftpd, systemctl, output, resolve, strings, nano, node, missions, accept, abort, mail, apt, theme, reset, xterm, snmpwalk, snmpset, mysql, rediscli.
+Main commands: help, man, echo, author, clear, pwd, ls, cd, cat, find, grep, rm, su, whoami, bash, airmon, airdump, aircrack, nmcli, ifconfig, ping, nmap, nslookup, dig, ssh, exit, ftp, nc, curl, lynx, msfconsole, gobuster, hydra, gpg, reboot, sshd, vsftpd, systemctl, output, resolve, strings, nano, node, missions, accept, abort, mail, apt, theme, reset, xterm, snmpwalk, snmpset, mysql, rediscli.
 
 FTP mode (when connected via ftp): pwd, lpwd, cd, lcd, ls, lls, get, put, quit/bye.
 

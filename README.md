@@ -118,6 +118,9 @@ curl http://45.33.32.100/          # Fetch web page
 curl -i 45.33.32.100/status        # Include headers
 curl -X POST 45.33.32.100/api/x    # POST request
 
+# Browse a web page (full-screen text-mode browser)
+lynx http://techparts.io/          # Arrow keys to navigate links, Enter to follow, q to quit
+
 # Edit and execute files
 nano exploit.js             # Opens nano-style editor (Ctrl+S save, Ctrl+X exit)
 node exploit.js             # Execute a JavaScript file

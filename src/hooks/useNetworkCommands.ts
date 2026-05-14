@@ -17,6 +17,8 @@ import { createSshCommand } from '../commands/ssh';
 import { createFtpCommand } from '../commands/ftp';
 import { createNcCommand, ncPidFilePath, startNcListener } from '../commands/nc';
 import { createCurlCommand } from '../commands/curl';
+import { createLynxCommand } from '../commands/lynx';
+import { buildLynxFetch, type LynxFetch } from '../commands/lynx/fetch';
 import { createMsfconsoleCommand } from '../commands/msfconsole';
 import { startSshd, SSH_PID_FILE_PATH, type SshdAdapter } from '../commands/sshd';
 import { startVsftpd, FTP_PID_FILE_PATH, type VsftpdAdapter } from '../commands/vsftpd';
@@ -49,7 +51,12 @@ import { applyVersionOverlay } from '../network/applyVersionOverlay';
 import type { RemoteMachine } from '../network/types';
 import { getGameTime } from '../session/gameTime';
 
-export const useNetworkCommands = (): Map<string, Command> => {
+export type UseNetworkCommandsResult = {
+  readonly commands: Map<string, Command>;
+  readonly lynxFetch: LynxFetch;
+};
+
+export const useNetworkCommands = (): UseNetworkCommandsResult => {
   const {
     getInterfaces,
     getInterface,
@@ -329,6 +336,14 @@ export const useNetworkCommands = (): Map<string, Command> => {
           }),
           isWifiRequired,
         ),
+        isMachineBricked,
+      ),
+    );
+
+    commands.set(
+      'lynx',
+      wrapWithBrickedCheck(
+        wrapWithWifiCheck(createLynxCommand(), isWifiRequired),
         isMachineBricked,
       ),
     );
@@ -848,7 +863,16 @@ export const useNetworkCommands = (): Map<string, Command> => {
       ),
     );
 
-    return commands;
+    const lynxFetch = buildLynxFetch({
+      getMachine: getEffectiveMachine,
+      resolveDomain,
+      resolveNat,
+      readFileFromMachine,
+      getHandler,
+      onHttpRequest,
+    });
+
+    return { commands, lynxFetch };
   }, [
     getInterfaces,
     getInterface,
