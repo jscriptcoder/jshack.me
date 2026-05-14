@@ -97,6 +97,30 @@ describe('generateTechpartsNetwork — ports', () => {
 
     expect(network.routerMachine.remoteMachine.ports).toHaveLength(2);
   });
+
+  it('stamps a www-data owner on port 80 so msfconsole accepts the Apache CVE', async () => {
+    // msfconsole.ts:216 rejects ports without an owner ("service not
+    // exploitable") even when findExploitableCve returns a valid template.
+    // The CVE effect is shell_limited at user tier, so the spawned shell
+    // should land as www-data (the user-tier user the generator ships
+    // in /etc/passwd) — not root.
+    const row = buildRow();
+    const network = await generateTechpartsNetwork(row, buildCtx([row]));
+    const port80 = network.routerMachine.remoteMachine.ports.find((p) => p.port === 80);
+
+    expect(port80?.owner).toBeDefined();
+    expect(port80?.owner?.username).toBe('www-data');
+    expect(port80?.owner?.userType).toBe('user');
+    expect(port80?.owner?.homePath).toBe('/home/www-data');
+  });
+
+  it('leaves port 443 without an owner (no natural CVE = msfconsole bails earlier)', async () => {
+    const row = buildRow();
+    const network = await generateTechpartsNetwork(row, buildCtx([row]));
+    const port443 = network.routerMachine.remoteMachine.ports.find((p) => p.port === 443);
+
+    expect(port443?.owner).toBeUndefined();
+  });
 });
 
 // Walks a FileNode tree and returns the node at the given absolute path,

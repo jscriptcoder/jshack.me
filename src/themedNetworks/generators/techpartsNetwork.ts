@@ -109,11 +109,25 @@ export const generateTechpartsNetwork: ThemedGenerator = async (row, ctx) => {
   // src/generation/pools/vulnerabilities.ts (CVE-2024-9001, shell_limited
   // at user tier). Once the activation timeline elapses, port 80 becomes
   // exploitable and players can msfconsole-deface the site or read /admin
-  // creds. Port 443 ships nginx/1.20.1 — no natural CVE template at
-  // port 443 in the catalog today; matches findit.io's decorative HTTPS
-  // and stays inert. See plans/techparts-network.md (locked decisions).
+  // creds. The www-data owner is load-bearing: msfconsole.ts:216 rejects
+  // ports without an owner even when a CVE template matches, and the
+  // shell_limited effect needs a user identity to spawn the shell as.
+  // Port 443 ships nginx/1.20.1 — no natural CVE template at port 443
+  // in the catalog today; matches findit.io's decorative HTTPS and stays
+  // inert (no owner needed — msfconsole bails earlier on "no known
+  // vulnerability"). See plans/techparts-network.md (locked decisions).
   const ports: readonly Port[] = [
-    { port: 80, service: 'http', serviceVersion: 'Apache/2.4.49', open: true },
+    {
+      port: 80,
+      service: 'http',
+      serviceVersion: 'Apache/2.4.49',
+      open: true,
+      owner: {
+        username: 'www-data',
+        userType: 'user',
+        homePath: '/home/www-data',
+      },
+    },
     { port: 443, service: 'https', serviceVersion: 'nginx/1.20.1', open: true },
   ];
 
