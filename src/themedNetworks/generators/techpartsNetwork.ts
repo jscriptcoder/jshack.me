@@ -105,15 +105,18 @@ export const generateTechpartsNetwork: ThemedGenerator = async (row, ctx) => {
     extraDirectories: buildVarWwwHtmlExtraDirs(TECHPARTS_PAGES),
   });
 
-  // Port 80 ships Apache/2.4.49 — matches the natural CVE template in
+  // Port 80 ships Apache/2.4.49 — Layer-1 hand-authored CVE in
   // src/generation/pools/vulnerabilities.ts (CVE-2024-9001, shell_limited
-  // at user tier). Once the activation timeline elapses, port 80 becomes
-  // exploitable and players can msfconsole-deface the site or read /admin
-  // creds. The www-data owner is load-bearing: msfconsole.ts:216 rejects
-  // ports without an owner even when a CVE template matches, and the
-  // shell_limited effect needs a user identity to spawn the shell as.
-  // Port 443 ships nginx/1.20.1 — no natural CVE template at port 443
-  // in the catalog today; matches findit.io's decorative HTTPS and stays
+  // at user tier). All Layer-1 entries have publishedAt=0
+  // (vulnerabilityLookup.ts:16), so the site is exploitable from game
+  // start — same as every other day-0 machine. The "over time" pressure
+  // comes from Layer-2 procedural CVEs against newer versions of a
+  // service; this port doesn't lean on that path. The www-data owner is
+  // load-bearing: msfconsole.ts:216 rejects ports without an owner even
+  // when a CVE template matches, and the shell_limited effect needs a
+  // user identity to spawn the shell as.
+  // Port 443 ships nginx/1.20.1 — no Layer-1 CVE template at port 443
+  // in the catalog; matches findit.io's decorative HTTPS and stays
   // inert (no owner needed — msfconsole bails earlier on "no known
   // vulnerability"). See plans/techparts-network.md (locked decisions).
   const ports: readonly Port[] = [

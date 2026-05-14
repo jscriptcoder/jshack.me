@@ -5,7 +5,7 @@
 
 ## Goal
 
-Ship `techparts.io` as the second themed world network — a single-machine, read-only "sketchy gray-market electronics reseller" site discoverable via findit.io. Content lives in a hand-authored TS manifest; ports 80/443 are open with service versions that map to existing CVE templates so the site becomes exploitable (and shared-world-tamperable) as in-game time passes.
+Ship `techparts.io` as the second themed world network — a single-machine, read-only "sketchy gray-market electronics reseller" site discoverable via findit.io. Content lives in a hand-authored TS manifest; ports 80/443 are open, port 80 ships a Layer-1 hand-authored CVE so the site is exploitable (and shared-world-tamperable) from game start, like every other day-0 machine in the game.
 
 ## Acceptance Criteria
 
@@ -24,10 +24,10 @@ Observable behaviours, exercised end-to-end once both PRs land:
 - **Brand**: `TechParts Global` at domain `techparts.io`.
 - **IP**: `198.51.100.80` (TEST-NET-2 docs range, different /24 from findit @ `192.0.2.80` and playground @ `203.0.113.42`; the `.80` octet nods at port 80).
 - **Theme name**: `'techparts'` (lowercase, single word, slot-fits existing free-form theme column).
-- **Service versions**: port 80 = `Apache/2.4.49` (`shell_limited`/user); port 443 = `nginx/1.20.1` (no natural CVE, mirrors findit decoratively). The port-80 CVE is what activates "site becomes exploitable" over game time.
+- **Service versions**: port 80 = `Apache/2.4.49` (`shell_limited`/user); port 443 = `nginx/1.20.1` (no natural CVE, mirrors findit decoratively). The Apache/2.4.49 CVE is a Layer-1 hand-authored entry (`publishedAt=0`) — exploitable from game start, not time-gated. Layer-1 = day-0 baseline catalog; Layer-2 procedural CVEs are what add new exploits over time. (Original plan text framed this as "over time" — that was a misread of `vulnerabilityLookup.ts:16`; corrected here.)
 - **No handler**: read-only static content falls through to the existing `/var/www/html/<path>` curl pipeline. `THEME_HANDLERS` gets no entry.
 - **Generator only**: dispatched via `selectGenerator('techparts')`.
-- **Content authoring**: hand-authored TS manifest under `src/themedNetworks/content/techparts/`. Pages are flat data: `{ path, title, body, kind, visibility }` where `kind: 'html' | 'text'` discriminates renderable HTML pages from plain-text artefacts (robots.txt, .env.bak, *.txt). Generator lays each entry into `/var/www/html<path>` exactly as the URL string requests it (so `/about.html` lives at `/var/www/html/about.html`, `/` lives at `/var/www/html/index.html`).
+- **Content authoring**: hand-authored TS manifest under `src/themedNetworks/content/techparts/`. Pages are flat data: `{ path, title, body, kind, visibility }` where `kind: 'html' | 'text'` discriminates renderable HTML pages from plain-text artefacts (robots.txt, .env.bak, \*.txt). Generator lays each entry into `/var/www/html<path>` exactly as the URL string requests it (so `/about.html` lives at `/var/www/html/about.html`, `/` lives at `/var/www/html/index.html`).
 - **HTML must be browser-renderable.** An upcoming terminal-browser command will render `kind: 'html'` pages by handing the raw markup to the host browser's parser. So every HTML page must be well-formed (all tags closed, valid nesting, semantic structure — `<h1>`, `<p>`, `<ul>`, `<table>`, `<a>`, `<form>`). No CSS, no JS, no `<style>`/`<script>` tags, no `class`/`id` reliance for layout. Plain-text entries are exempt — they're served verbatim and rendered as preformatted text by the browser.
 - **Narrative**: flavor-only. No story arc across hidden files — each easter egg is independent gray-market texture.
 - **search_metadata**: title "TechParts Global — Worldwide Electronic Components", description "OEM, refurbished, and bulk electronics. Factory-direct pricing, worldwide shipping.", keywords `["electronics", "components", "cpu", "memory", "wholesale", "oem", "parts"]`.
