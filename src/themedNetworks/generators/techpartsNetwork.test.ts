@@ -1,8 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { generateTechpartsNetwork } from './techpartsNetwork';
+import { generateTechpartsNetwork, pickApacheCveVersion } from './techpartsNetwork';
 import type { WorldNetwork } from '../../worldNetworks/types';
 import type { FileNode } from '../../filesystem/types';
 import { TECHPARTS_PAGES, LINKED_PAGES, HIDDEN_PAGES } from '../content/techparts/pages';
+import {
+  findGeneratedVersion,
+  CVE_TIMING_CONFIG,
+  buildGeneratedVuln,
+} from '../../generation/timeline';
+import { findExploitableCve } from '../../generation/findExploitableCve';
 
 const buildRow = (overrides: Partial<WorldNetwork> = {}): WorldNetwork => ({
   public_ip: '198.51.100.80',
@@ -69,7 +75,10 @@ describe('generateTechpartsNetwork — network shape', () => {
 });
 
 describe('generateTechpartsNetwork — ports', () => {
-  it('opens port 80 (http) with version Apache/2.4.49 — natural CVE trigger', async () => {
+  it('opens port 80 (http) with a Layer-2 procedural Apache version', async () => {
+    // techparts.io's port 80 must NOT pin a Layer-1 hand-authored version
+    // (which would be day-0 exploitable). The serviceVersion has to come
+    // from the procedural timeline so the CVE is gated on publishedAt.
     const row = buildRow();
     const network = await generateTechpartsNetwork(row, buildCtx([row]));
     const port80 = network.routerMachine.remoteMachine.ports.find((p) => p.port === 80);
@@ -77,7 +86,9 @@ describe('generateTechpartsNetwork — ports', () => {
     expect(port80).toBeDefined();
     expect(port80!.open).toBe(true);
     expect(port80!.service).toBe('http');
-    expect(port80!.serviceVersion).toBe('Apache/2.4.49');
+    expect(port80!.serviceVersion).toMatch(/^Apache\//);
+    const entry = findGeneratedVersion('http', port80!.serviceVersion, 10_000, CVE_TIMING_CONFIG);
+    expect(entry).toBeDefined();
   });
 
   it('opens port 443 (https) with version nginx/1.20.1 — decorative no-CVE pairing', async () => {
@@ -101,9 +112,9 @@ describe('generateTechpartsNetwork — ports', () => {
   it('stamps a www-data owner on port 80 so msfconsole accepts the Apache CVE', async () => {
     // msfconsole.ts:216 rejects ports without an owner ("service not
     // exploitable") even when findExploitableCve returns a valid template.
-    // The CVE effect is shell_limited at user tier, so the spawned shell
-    // should land as www-data (the user-tier user the generator ships
-    // in /etc/passwd) — not root.
+    // The picker constrains the rolled effect to shell_full at user tier,
+    // so the spawned shell lands as www-data (the user-tier user the
+    // generator ships in /etc/passwd) — never root.
     const row = buildRow();
     const network = await generateTechpartsNetwork(row, buildCtx([row]));
     const port80 = network.routerMachine.remoteMachine.ports.find((p) => p.port === 80);
@@ -120,6 +131,39 @@ describe('generateTechpartsNetwork — ports', () => {
     const port443 = network.routerMachine.remoteMachine.ports.find((p) => p.port === 443);
 
     expect(port443?.owner).toBeUndefined();
+  });
+
+  it('port 80 has no live CVE at gameTime=0 (procedural CVE not yet published)', async () => {
+    // The whole point of the time-gated approach: techparts.io appears
+    // safe at game start. The Layer-2 walker assigns publishedAt > 0 to
+    // every entry (3-14 day gaps), so findExploitableCve returns
+    // undefined while gameTime hasn't reached the version's publishedAt.
+    const row = buildRow();
+    const network = await generateTechpartsNetwork(row, buildCtx([row]));
+    const machine = network.routerMachine.remoteMachine;
+    const port80 = machine.ports.find((p) => p.port === 80);
+
+    expect(port80).toBeDefined();
+    const vuln = findExploitableCve(machine, port80!, 0);
+    expect(vuln).toBeUndefined();
+  });
+
+  it('port 80 has a live shell_full:user CVE by gameTime=30', async () => {
+    // 30 days is well past the worst-case 14-day first-CVE window, so
+    // the picker's chosen Apache version's CVE has reliably published
+    // by then. The picker's allowlist (shell_full:user only) means the
+    // effect is deterministically constrained — never root, never
+    // backdoor_port_open, never script_exec.
+    const row = buildRow();
+    const network = await generateTechpartsNetwork(row, buildCtx([row]));
+    const machine = network.routerMachine.remoteMachine;
+    const port80 = machine.ports.find((p) => p.port === 80);
+
+    expect(port80).toBeDefined();
+    const vuln = findExploitableCve(machine, port80!, 30);
+    expect(vuln).toBeDefined();
+    expect(vuln!.effect.kind).toBe('shell_full');
+    expect(vuln!.effect.tier).toBe('user');
   });
 });
 
@@ -198,5 +242,58 @@ describe('generateTechpartsNetwork — filesystem layout', () => {
     expect(passwd).not.toBeNull();
     expect(passwd).toContain('root:');
     expect(passwd).toContain('www-data:');
+  });
+});
+
+describe('pickApacheCveVersion', () => {
+  it('returns an Apache version string', () => {
+    const picked = pickApacheCveVersion();
+    expect(picked.version).toMatch(/^Apache\//);
+  });
+
+  it('returns a version locatable in the http procedural timeline', () => {
+    // Confirms the picker is choosing from the Layer-2 walker, not a
+    // hand-authored Layer-1 entry. findGeneratedVersion walks the http
+    // timeline up to ~10k game days — easily covers any plausible pick.
+    const picked = pickApacheCveVersion();
+    const entry = findGeneratedVersion('http', picked.version, 10_000, CVE_TIMING_CONFIG);
+    expect(entry).toBeDefined();
+  });
+
+  it('returns shell_full as the effect kind', () => {
+    const picked = pickApacheCveVersion();
+    expect(picked.effect.kind).toBe('shell_full');
+  });
+
+  it('returns user as the effect tier', () => {
+    // Restricting to user tier caps damage at /var/www/html defacement —
+    // www-data cannot brick /etc/passwd or system files. Recovery is a
+    // generator re-run + DELETE FROM patches LIKE '/var/www/html/%'.
+    const picked = pickApacheCveVersion();
+    expect(picked.effect.tier).toBe('user');
+  });
+
+  it('is deterministic across consecutive calls', () => {
+    // The PRNG seeds are stable per (service, index), so the picker must
+    // return the same { version, effect } across repeated calls. This is
+    // load-bearing for cross-player consistency — every browser computes
+    // the same techparts.io CVE.
+    const a = pickApacheCveVersion();
+    const b = pickApacheCveVersion();
+    expect(a).toEqual(b);
+  });
+
+  it('returns the http-derived effect for the picked version', () => {
+    // Anchors the picker's effect to the http effect pool. If the picker
+    // ever computed effects via a different service key (e.g.,
+    // buildGeneratedVuln('ssh', entry)), the rolled effect would diverge
+    // from what http's PRNG actually produces for that index — even though
+    // both pools happen to contain shell_full at user tier. This test pins
+    // the (service, index) → effect contract end-to-end.
+    const picked = pickApacheCveVersion();
+    const entry = findGeneratedVersion('http', picked.version, 10_000, CVE_TIMING_CONFIG);
+    expect(entry).toBeDefined();
+    const httpEffect = buildGeneratedVuln('http', entry!).effect;
+    expect(picked.effect).toEqual(httpEffect);
   });
 });
