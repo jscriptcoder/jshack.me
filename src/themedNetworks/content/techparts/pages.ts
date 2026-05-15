@@ -676,7 +676,7 @@ const BACKUP_BODY = `<!DOCTYPE html>
       </tbody>
     </table>
     <hr>
-    <p><small>Apache/2.4.49 Server at techparts.io Port 80</small></p>
+    <p><small>Apache Server at techparts.io Port 80</small></p>
   </body>
 </html>
 `;
@@ -704,7 +704,7 @@ const UPLOADS_BODY = `<!DOCTYPE html>
       </tbody>
     </table>
     <hr>
-    <p><small>Apache/2.4.49 Server at techparts.io Port 80</small></p>
+    <p><small>Apache Server at techparts.io Port 80</small></p>
   </body>
 </html>
 `;
