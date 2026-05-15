@@ -79,7 +79,7 @@ export const pickApacheCveVersion = (): ApachePick => {
     effect: buildGeneratedVuln('http', entry).effect,
   }));
   const match = candidates.find(
-    (c) => c.effect.kind === 'shell_full' && c.effect.tier === 'user',
+    (candidate) => candidate.effect.kind === 'shell_full' && candidate.effect.tier === 'user',
   );
   if (!match) {
     throw new Error(
