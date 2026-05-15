@@ -243,6 +243,19 @@ describe('generateTechpartsNetwork — filesystem layout', () => {
     expect(passwd).toContain('root:');
     expect(passwd).toContain('www-data:');
   });
+
+  it('ships /var/run/nginx.pid covering both port 80 and 443', async () => {
+    // The pid file is the source of truth for daemon-running state in
+    // applyDynamicOverrides. Without it, the dynamic view closes both
+    // http and https ports on techparts.io (closure-on-absence).
+    const row = buildRow();
+    const network = await generateTechpartsNetwork(row, buildCtx([row]));
+    const fs = network.fileSystems['198.51.100.80'];
+
+    const pidContent = readFileFromTree(fs!, '/var/run/nginx.pid');
+    expect(pidContent).toContain('/usr/sbin/nginx:port=80');
+    expect(pidContent).toContain('/usr/sbin/nginx:port=443');
+  });
 });
 
 describe('pickApacheCveVersion', () => {

@@ -7,8 +7,9 @@ import type {
   VulnerabilityEffect,
 } from '../../network/types';
 import type { FileNode } from '../../filesystem/types';
-import { createFileSystem } from '../../filesystem/fileSystemFactory';
+import { createFileSystem, mergeFileNodeChildren } from '../../filesystem/fileSystemFactory';
 import { mkDir, mkFile } from '../../generation/filesystem/helpers';
+import { buildInfrastructurePidFiles } from '../../generation/filesystem/infraPidFiles';
 import type { ThemedGenerator } from '../../worldNetworks/generate';
 import { TECHPARTS_PAGES, type TechpartsPage } from '../content/techparts/pages';
 import { buildTimeline, buildGeneratedVuln, CVE_TIMING_CONFIG } from '../../generation/timeline';
@@ -152,27 +153,27 @@ const buildVarWwwHtmlExtraDirs = (pages: readonly TechpartsPage[]): DirChildren 
   ),
 });
 
+// Wraps infra pid file FileNodes into `var/run/<pid>.pid` directory
+// structure. Returned as an extraDirectories fragment that
+// mergeFileNodeChildren combines with the /var/www/html tree.
+const buildVarRunInfraExtraDirs = (ports: readonly Port[]): DirChildren => {
+  const infraPidFiles = buildInfrastructurePidFiles(ports);
+  if (Object.keys(infraPidFiles).length === 0) return {};
+  return {
+    var: mkDir(
+      'var',
+      {
+        run: mkDir('run', infraPidFiles, 'root', true),
+      },
+      'root',
+      true,
+    ),
+  };
+};
+
 export const generateTechpartsNetwork: ThemedGenerator = async (row, ctx) => {
   const publicIp = await ctx.allocateIp('mission_instance');
   const domain = row.public_domain ?? FALLBACK_DOMAIN;
-
-  const fileSystem = createFileSystem({
-    users: [
-      {
-        username: 'root',
-        passwordHash: 'no-shell-access',
-        userType: 'root',
-        uid: 0,
-      },
-      {
-        username: 'www-data',
-        passwordHash: 'no-shell-access',
-        userType: 'user',
-        uid: 33,
-      },
-    ],
-    extraDirectories: buildVarWwwHtmlExtraDirs(TECHPARTS_PAGES),
-  });
 
   // Port 80 ships an Apache version chosen by pickApacheCveVersion — a
   // Layer-2 procedural entry whose rolled CVE is shell_full at user tier.
@@ -202,6 +203,27 @@ export const generateTechpartsNetwork: ThemedGenerator = async (row, ctx) => {
     },
     { port: 443, service: 'https', serviceVersion: 'nginx/1.20.1', open: true },
   ];
+
+  const fileSystem = createFileSystem({
+    users: [
+      {
+        username: 'root',
+        passwordHash: 'no-shell-access',
+        userType: 'root',
+        uid: 0,
+      },
+      {
+        username: 'www-data',
+        passwordHash: 'no-shell-access',
+        userType: 'user',
+        uid: 33,
+      },
+    ],
+    extraDirectories: mergeFileNodeChildren(
+      buildVarWwwHtmlExtraDirs(TECHPARTS_PAGES),
+      buildVarRunInfraExtraDirs(ports),
+    ),
+  });
 
   const users: readonly RemoteUser[] = [
     { username: 'root', userType: 'root' },

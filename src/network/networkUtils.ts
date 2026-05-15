@@ -12,9 +12,12 @@ import type { SnmpAclOverride } from './snmpAclParser';
 import type { SshdPortOverride } from './sshdStateParser';
 import type { FtpdPortOverride } from './ftpdStateParser';
 import type { NcPortOverride } from './ncStateParser';
+import type { InfraPortOverride } from './infraDaemonStateParser';
 import { parseSshdState } from './sshdStateParser';
 import { parseFtpdState } from './ftpdStateParser';
 import { parseNcPidFiles } from './ncStateParser';
+import { parseInfraDaemonState } from './infraDaemonStateParser';
+import { INFRA_PID_CONFIGS } from '../generation/filesystem/infraPidFiles';
 import type { FileNode } from '../filesystem/types';
 import type { HomeNetwork } from '../generation/generateHomeNetwork';
 import { SSH_PID_FILE_PATH } from '../commands/sshd';
@@ -92,7 +95,7 @@ export const applySnmpFirewallOverrides = (
 // opens an existing closed port or adds a new port entry. Closed ports whose
 // service is already handled by a daemon on a different port are removed to
 // avoid showing duplicate services (e.g. closed port 22 + open port 2223).
-type DaemonOverride = SshdPortOverride | FtpdPortOverride | NcPortOverride;
+type DaemonOverride = SshdPortOverride | FtpdPortOverride | NcPortOverride | InfraPortOverride;
 
 export const applyDaemonOverrides = (
   machine: RemoteMachine,
@@ -415,12 +418,36 @@ export const applyDynamicOverrides = (
   const ncOverrides = parseNcPidFiles(varRunNode);
   if (ncOverrides.length > 0) result = applyDaemonOverrides(result, ncOverrides);
 
+  // Infra daemons (nginx, mysqld, redis-server, dovecot, etc.). Iterates
+  // every UNIQUE pid file in INFRA_PID_CONFIGS — services that share a
+  // pid file (http/https/http-alt → nginx.pid; imap/imaps/pop3 →
+  // dovecot.pid) are visited together via the dedup.
+  const uniqueInfraPidFiles: ReadonlySet<string> = new Set(
+    Object.values(INFRA_PID_CONFIGS).map((config) => config.pidFile),
+  );
+  const runningInfraPidFiles = new Set<string>();
+  for (const pidFileName of uniqueInfraPidFiles) {
+    const node = ctx.readNode(machine.ip, `/var/run/${pidFileName}`, '/');
+    if (node?.type !== 'file' || !node.content) continue;
+    runningInfraPidFiles.add(pidFileName);
+    const overrides = parseInfraDaemonState(pidFileName, node.content);
+    if (overrides.length > 0) result = applyDaemonOverrides(result, overrides);
+  }
+
+  // A service's pid file being ABSENT means the daemon isn't running and
+  // any matching port should close. Services that share a pid file share
+  // a fate — if nginx.pid is missing, all of http/https/http-alt close.
+  const infraClosures: readonly string[] = Object.entries(INFRA_PID_CONFIGS)
+    .filter(([, config]) => !runningInfraPidFiles.has(config.pidFile))
+    .map(([service]) => service);
+
   // Close daemon-backed ports when their PID file is absent (daemon not running).
   // Only close ports that were in the machine's original port list — NAT-forwarded
   // ports from gateways are controlled by the internal machine's daemon state.
   const daemonClosures: ReadonlySet<string> = new Set([
     ...(sshdRunning ? [] : ['ssh']),
     ...(ftpdRunning ? [] : ['ftp']),
+    ...infraClosures,
   ]);
   if (daemonClosures.size > 0) {
     const hasPortsToClose = result.ports.some(

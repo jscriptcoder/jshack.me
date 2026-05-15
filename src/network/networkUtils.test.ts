@@ -5,6 +5,7 @@ import type { SnmpFirewallOverride } from './snmpFirewallParser';
 import type { SshdPortOverride } from './sshdStateParser';
 import type { FtpdPortOverride } from './ftpdStateParser';
 import type { NcPortOverride } from './ncStateParser';
+import type { InfraPortOverride } from './infraDaemonStateParser';
 import type { HomeNetwork } from '../generation/generateHomeNetwork';
 import {
   applyDaemonOverrides,
@@ -262,6 +263,106 @@ describe('applyDaemonOverrides', () => {
           owner: { username: 'webadmin', userType: 'user', homePath: '/home/webadmin' },
         },
       ]);
+    });
+  });
+
+  describe('infra overrides (http/mysql/redis/etc.)', () => {
+    it('adds a new port when machine has no matching entry', () => {
+      const machine = createMachine({ ports: [] });
+      const overrides: readonly InfraPortOverride[] = [{ port: 80, service: 'http', open: true }];
+
+      const result = applyDaemonOverrides(machine, overrides);
+
+      expect(result.ports).toEqual([
+        { port: 80, service: 'http', serviceVersion: 'latest', open: true },
+      ]);
+    });
+
+    it('opens an existing closed port while preserving its serviceVersion + owner', () => {
+      const machine = createMachine({
+        ports: [
+          createPort({
+            port: 80,
+            service: 'http',
+            serviceVersion: 'Apache/2.4.49',
+            open: false,
+            owner: { username: 'www-data', userType: 'user', homePath: '/var/www' },
+          }),
+        ],
+      });
+      const overrides: readonly InfraPortOverride[] = [{ port: 80, service: 'http', open: true }];
+
+      const result = applyDaemonOverrides(machine, overrides);
+
+      expect(result.ports).toEqual([
+        {
+          port: 80,
+          service: 'http',
+          serviceVersion: 'Apache/2.4.49',
+          open: true,
+          owner: { username: 'www-data', userType: 'user', homePath: '/var/www' },
+        },
+      ]);
+    });
+
+    it('is idempotent on a port that is already open with the matching service', () => {
+      const machine = createMachine({
+        ports: [
+          createPort({ port: 3306, service: 'mysql', serviceVersion: 'MySQL 8.0', open: true }),
+        ],
+      });
+      const overrides: readonly InfraPortOverride[] = [
+        { port: 3306, service: 'mysql', open: true },
+      ];
+
+      const result = applyDaemonOverrides(machine, overrides);
+
+      expect(result.ports).toEqual([
+        { port: 3306, service: 'mysql', serviceVersion: 'MySQL 8.0', open: true },
+      ]);
+    });
+
+    it('handles multiple ports from one daemon (nginx serving 80 + 443)', () => {
+      const machine = createMachine({ ports: [] });
+      const overrides: readonly InfraPortOverride[] = [
+        { port: 80, service: 'http', open: true },
+        { port: 443, service: 'https', open: true },
+      ];
+
+      const result = applyDaemonOverrides(machine, overrides);
+
+      expect(result.ports).toEqual([
+        { port: 80, service: 'http', serviceVersion: 'latest', open: true },
+        { port: 443, service: 'https', serviceVersion: 'latest', open: true },
+      ]);
+    });
+
+    it('handles infra override alongside an sshd override', () => {
+      const machine = createMachine({
+        ports: [createPort({ port: 22, service: 'ssh', serviceVersion: 'latest', open: false })],
+      });
+      const overrides: readonly (SshdPortOverride | InfraPortOverride)[] = [
+        { port: 22, service: 'ssh', open: true },
+        { port: 6379, service: 'redis', open: true },
+      ];
+
+      const result = applyDaemonOverrides(machine, overrides);
+
+      expect(result.ports).toEqual([
+        { port: 22, service: 'ssh', serviceVersion: 'latest', open: true },
+        { port: 6379, service: 'redis', serviceVersion: 'latest', open: true },
+      ]);
+    });
+
+    it('does NOT attach an owner field on infra overrides (only nc has owner)', () => {
+      const machine = createMachine({ ports: [] });
+      const overrides: readonly InfraPortOverride[] = [
+        { port: 3306, service: 'mysql', open: true },
+      ];
+
+      const result = applyDaemonOverrides(machine, overrides);
+
+      expect(result.ports[0]).not.toHaveProperty('owner');
     });
   });
 });
@@ -884,7 +985,13 @@ describe('applyDynamicOverrides', () => {
     );
   });
 
-  it('should not close non-daemon ports when no PID files exist', () => {
+  it('should close infra ports (http/mysql) when their pid files are absent', () => {
+    // After the pid-file-source-of-truth unification, http/mysql/redis/etc.
+    // are all daemon-backed. A machine with an open infra port but no
+    // corresponding pid file closes the port — same semantics as ssh/ftp.
+    // (Mission/home generators ship the pid files via buildInfrastructurePidFiles,
+    // so generated machines stay reachable; this test exercises a hand-built
+    // machine without pid files.)
     const machine = createMachine({
       ip: '10.0.0.5',
       ports: [
@@ -902,10 +1009,78 @@ describe('applyDynamicOverrides', () => {
       readNode: () => null, // no PID files
     });
 
-    // Infrastructure services stay open — they're not daemon-backed
+    expect(result.ports).toContainEqual(
+      expect.objectContaining({ port: 80, service: 'http', serviceVersion: 'latest', open: false }),
+    );
+    expect(result.ports).toContainEqual(
+      expect.objectContaining({
+        port: 3306,
+        service: 'mysql',
+        serviceVersion: 'latest',
+        open: false,
+      }),
+    );
+  });
+
+  it('should keep http port open when nginx.pid exists on the machine', () => {
+    const machine = createMachine({
+      ip: '10.0.0.5',
+      ports: [createPort({ port: 80, service: 'http', serviceVersion: 'latest', open: true })],
+    });
+    const readNode = (machineId: string, path: string) => {
+      if (machineId === '10.0.0.5' && path === '/var/run/nginx.pid') {
+        return {
+          name: 'nginx.pid',
+          type: 'file' as const,
+          content: '/usr/sbin/nginx:port=80',
+          owner: 'root' as const,
+          permissions: { read: [], write: [], execute: [] },
+        };
+      }
+      return null;
+    };
+
+    const result = applyDynamicOverrides(machine, {
+      allIptablesRules: new Map(),
+      allSnmpOverrides: new Map(),
+      allAclRules: new Map(),
+      allSnmpAclOverrides: new Map(),
+      homeGatewayByAliasIp: new Map(),
+      readNode,
+    });
+
     expect(result.ports).toContainEqual(
       expect.objectContaining({ port: 80, service: 'http', serviceVersion: 'latest', open: true }),
     );
+  });
+
+  it('should keep mysql port open when mysqld.pid exists on the machine', () => {
+    const machine = createMachine({
+      ip: '10.0.0.5',
+      ports: [createPort({ port: 3306, service: 'mysql', serviceVersion: 'latest', open: true })],
+    });
+    const readNode = (machineId: string, path: string) => {
+      if (machineId === '10.0.0.5' && path === '/var/run/mysqld.pid') {
+        return {
+          name: 'mysqld.pid',
+          type: 'file' as const,
+          content: '/usr/sbin/mysqld:port=3306',
+          owner: 'root' as const,
+          permissions: { read: [], write: [], execute: [] },
+        };
+      }
+      return null;
+    };
+
+    const result = applyDynamicOverrides(machine, {
+      allIptablesRules: new Map(),
+      allSnmpOverrides: new Map(),
+      allAclRules: new Map(),
+      allSnmpAclOverrides: new Map(),
+      homeGatewayByAliasIp: new Map(),
+      readNode,
+    });
+
     expect(result.ports).toContainEqual(
       expect.objectContaining({
         port: 3306,
@@ -914,6 +1089,110 @@ describe('applyDynamicOverrides', () => {
         open: true,
       }),
     );
+  });
+
+  it('should keep BOTH http and https ports open when nginx.pid covers them (shared pid file)', () => {
+    // nginx.pid serves http, https, and http-alt. Even if the pid content
+    // only names one port, the closure logic treats all three services
+    // as "running" because they share the same pid file.
+    const machine = createMachine({
+      ip: '10.0.0.5',
+      ports: [
+        createPort({ port: 80, service: 'http', serviceVersion: 'latest', open: true }),
+        createPort({ port: 443, service: 'https', serviceVersion: 'latest', open: true }),
+      ],
+    });
+    const readNode = (machineId: string, path: string) => {
+      if (machineId === '10.0.0.5' && path === '/var/run/nginx.pid') {
+        return {
+          name: 'nginx.pid',
+          type: 'file' as const,
+          content: '/usr/sbin/nginx:port=80',
+          owner: 'root' as const,
+          permissions: { read: [], write: [], execute: [] },
+        };
+      }
+      return null;
+    };
+
+    const result = applyDynamicOverrides(machine, {
+      allIptablesRules: new Map(),
+      allSnmpOverrides: new Map(),
+      allAclRules: new Map(),
+      allSnmpAclOverrides: new Map(),
+      homeGatewayByAliasIp: new Map(),
+      readNode,
+    });
+
+    expect(result.ports).toContainEqual(
+      expect.objectContaining({ port: 80, service: 'http', open: true }),
+    );
+    expect(result.ports).toContainEqual(
+      expect.objectContaining({ port: 443, service: 'https', open: true }),
+    );
+  });
+
+  it('should keep BOTH http and https ports open when nginx.pid lists both via multi-line content', () => {
+    const machine = createMachine({
+      ip: '10.0.0.5',
+      ports: [
+        createPort({ port: 80, service: 'http', serviceVersion: 'latest', open: false }),
+        createPort({ port: 443, service: 'https', serviceVersion: 'latest', open: false }),
+      ],
+    });
+    const readNode = (machineId: string, path: string) => {
+      if (machineId === '10.0.0.5' && path === '/var/run/nginx.pid') {
+        return {
+          name: 'nginx.pid',
+          type: 'file' as const,
+          content: '/usr/sbin/nginx:port=80\n/usr/sbin/nginx:port=443',
+          owner: 'root' as const,
+          permissions: { read: [], write: [], execute: [] },
+        };
+      }
+      return null;
+    };
+
+    const result = applyDynamicOverrides(machine, {
+      allIptablesRules: new Map(),
+      allSnmpOverrides: new Map(),
+      allAclRules: new Map(),
+      allSnmpAclOverrides: new Map(),
+      homeGatewayByAliasIp: new Map(),
+      readNode,
+    });
+
+    expect(result.ports).toContainEqual(
+      expect.objectContaining({ port: 80, service: 'http', open: true }),
+    );
+    expect(result.ports).toContainEqual(
+      expect.objectContaining({ port: 443, service: 'https', open: true }),
+    );
+  });
+
+  it('should not close NAT-forwarded ports based on local pid file state', () => {
+    // The closure scope is `ownPorts` — ports the machine originally
+    // declared. NAT-forwarded ports added by step 1 (router merge) are
+    // not local ports; the gateway controls them, so the local pid-file
+    // logic doesn't touch them.
+    const machine = createMachine({
+      ip: '10.0.0.5',
+      ports: [
+        // No infra ports declared on this machine.
+      ],
+    });
+
+    const result = applyDynamicOverrides(machine, {
+      allIptablesRules: new Map(),
+      allSnmpOverrides: new Map(),
+      allAclRules: new Map(),
+      allSnmpAclOverrides: new Map(),
+      homeGatewayByAliasIp: new Map(),
+      readNode: () => null,
+    });
+
+    // No infra ports to close → machine returned with same (empty) ports.
+    expect(result.ports).toEqual([]);
   });
 });
 
