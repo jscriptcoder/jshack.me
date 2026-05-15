@@ -8,6 +8,7 @@ import {
   CVE_TIMING_CONFIG,
   buildGeneratedVuln,
 } from '../../generation/timeline';
+import { findExploitableCve } from '../../generation/findExploitableCve';
 
 const buildRow = (overrides: Partial<WorldNetwork> = {}): WorldNetwork => ({
   public_ip: '198.51.100.80',
@@ -74,7 +75,10 @@ describe('generateTechpartsNetwork — network shape', () => {
 });
 
 describe('generateTechpartsNetwork — ports', () => {
-  it('opens port 80 (http) with version Apache/2.4.49 — natural CVE trigger', async () => {
+  it('opens port 80 (http) with a Layer-2 procedural Apache version', async () => {
+    // techparts.io's port 80 must NOT pin a Layer-1 hand-authored version
+    // (which would be day-0 exploitable). The serviceVersion has to come
+    // from the procedural timeline so the CVE is gated on publishedAt.
     const row = buildRow();
     const network = await generateTechpartsNetwork(row, buildCtx([row]));
     const port80 = network.routerMachine.remoteMachine.ports.find((p) => p.port === 80);
@@ -82,7 +86,9 @@ describe('generateTechpartsNetwork — ports', () => {
     expect(port80).toBeDefined();
     expect(port80!.open).toBe(true);
     expect(port80!.service).toBe('http');
-    expect(port80!.serviceVersion).toBe('Apache/2.4.49');
+    expect(port80!.serviceVersion).toMatch(/^Apache\//);
+    const entry = findGeneratedVersion('http', port80!.serviceVersion, 10_000, CVE_TIMING_CONFIG);
+    expect(entry).toBeDefined();
   });
 
   it('opens port 443 (https) with version nginx/1.20.1 — decorative no-CVE pairing', async () => {
@@ -106,9 +112,9 @@ describe('generateTechpartsNetwork — ports', () => {
   it('stamps a www-data owner on port 80 so msfconsole accepts the Apache CVE', async () => {
     // msfconsole.ts:216 rejects ports without an owner ("service not
     // exploitable") even when findExploitableCve returns a valid template.
-    // The CVE effect is shell_limited at user tier, so the spawned shell
-    // should land as www-data (the user-tier user the generator ships
-    // in /etc/passwd) — not root.
+    // The picker constrains the rolled effect to shell_full at user tier,
+    // so the spawned shell lands as www-data (the user-tier user the
+    // generator ships in /etc/passwd) — never root.
     const row = buildRow();
     const network = await generateTechpartsNetwork(row, buildCtx([row]));
     const port80 = network.routerMachine.remoteMachine.ports.find((p) => p.port === 80);
@@ -125,6 +131,39 @@ describe('generateTechpartsNetwork — ports', () => {
     const port443 = network.routerMachine.remoteMachine.ports.find((p) => p.port === 443);
 
     expect(port443?.owner).toBeUndefined();
+  });
+
+  it('port 80 has no live CVE at gameTime=0 (procedural CVE not yet published)', async () => {
+    // The whole point of the time-gated approach: techparts.io appears
+    // safe at game start. The Layer-2 walker assigns publishedAt > 0 to
+    // every entry (3-14 day gaps), so findExploitableCve returns
+    // undefined while gameTime hasn't reached the version's publishedAt.
+    const row = buildRow();
+    const network = await generateTechpartsNetwork(row, buildCtx([row]));
+    const machine = network.routerMachine.remoteMachine;
+    const port80 = machine.ports.find((p) => p.port === 80);
+
+    expect(port80).toBeDefined();
+    const vuln = findExploitableCve(machine, port80!, 0);
+    expect(vuln).toBeUndefined();
+  });
+
+  it('port 80 has a live shell_full:user CVE by gameTime=30', async () => {
+    // 30 days is well past the worst-case 14-day first-CVE window, so
+    // the picker's chosen Apache version's CVE has reliably published
+    // by then. The picker's allowlist (shell_full:user only) means the
+    // effect is deterministically constrained — never root, never
+    // backdoor_port_open, never script_exec.
+    const row = buildRow();
+    const network = await generateTechpartsNetwork(row, buildCtx([row]));
+    const machine = network.routerMachine.remoteMachine;
+    const port80 = machine.ports.find((p) => p.port === 80);
+
+    expect(port80).toBeDefined();
+    const vuln = findExploitableCve(machine, port80!, 30);
+    expect(vuln).toBeDefined();
+    expect(vuln!.effect.kind).toBe('shell_full');
+    expect(vuln!.effect.tier).toBe('user');
   });
 });
 

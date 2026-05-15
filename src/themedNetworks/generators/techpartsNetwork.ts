@@ -61,6 +61,17 @@ type ApachePick = {
 // defensive against future pool drift — if it ever fires, the allowlist
 // or pool needs reconciliation, not silent fallback to a non-allowlisted
 // effect (which could expose techparts.io to a brick-tier CVE).
+//
+// IMPORTANT: this allowlist constrains the INITIAL Port.serviceVersion only.
+// The picker runs once at generator time. When player-driven service
+// patching lands (apt upgrade mutating Port.serviceVersion via patch +
+// Realtime), the upgrade path bypasses this picker entirely — the new
+// version's CVE will roll effects from the FULL http pool (which includes
+// shell_full:root, backdoor_port_open, etc.). At that point this picker's
+// "user-tier safety" guarantee becomes a property of the initial state
+// only, not a permanent invariant. The player-driven patching plan needs
+// to decide how to handle this drift: re-run picker on upgrade, accept
+// the dice roll, or block apt on themed networks.
 export const pickApacheCveVersion = (): ApachePick => {
   const timeline = buildTimeline('http', APACHE_CVE_WALK_BUDGET_DAYS, CVE_TIMING_CONFIG);
   const candidates = timeline.map((entry) => ({
@@ -163,25 +174,25 @@ export const generateTechpartsNetwork: ThemedGenerator = async (row, ctx) => {
     extraDirectories: buildVarWwwHtmlExtraDirs(TECHPARTS_PAGES),
   });
 
-  // Port 80 ships Apache/2.4.49 — Layer-1 hand-authored CVE in
-  // src/generation/pools/vulnerabilities.ts (CVE-2024-9001, shell_limited
-  // at user tier). All Layer-1 entries have publishedAt=0
-  // (vulnerabilityLookup.ts:16), so the site is exploitable from game
-  // start — same as every other day-0 machine. The "over time" pressure
-  // comes from Layer-2 procedural CVEs against newer versions of a
-  // service; this port doesn't lean on that path. The www-data owner is
-  // load-bearing: msfconsole.ts:216 rejects ports without an owner even
-  // when a CVE template matches, and the shell_limited effect needs a
-  // user identity to spawn the shell as.
+  // Port 80 ships an Apache version chosen by pickApacheCveVersion — a
+  // Layer-2 procedural entry whose rolled CVE is shell_full at user tier.
+  // The version's publishedAt is > 0 (3-14 day gap from game start), so
+  // techparts.io appears safe at boot and becomes exploitable once the
+  // walker's CVE drops. Damage capped at /var/www/html defacement
+  // (www-data scope) — see picker comment for the full rationale.
+  // The www-data owner is load-bearing: msfconsole.ts:216 rejects ports
+  // without an owner even when findExploitableCve returns a valid template,
+  // and the shell_full effect needs a user identity to spawn the shell as.
   // Port 443 ships nginx/1.20.1 — no Layer-1 CVE template at port 443
   // in the catalog; matches findit.io's decorative HTTPS and stays
   // inert (no owner needed — msfconsole bails earlier on "no known
-  // vulnerability"). See plans/techparts-network.md (locked decisions).
+  // vulnerability").
+  const apachePick = pickApacheCveVersion();
   const ports: readonly Port[] = [
     {
       port: 80,
       service: 'http',
-      serviceVersion: 'Apache/2.4.49',
+      serviceVersion: apachePick.version,
       open: true,
       owner: {
         username: 'www-data',
