@@ -1,7 +1,8 @@
 import type { GeneratedMachine, MissionNetwork, SubnetLayer } from '../../generation/types';
 import type { Port, RemoteMachine, RemoteUser, NetworkInterface } from '../../network/types';
-import { createFileSystem } from '../../filesystem/fileSystemFactory';
+import { createFileSystem, mergeFileNodeChildren } from '../../filesystem/fileSystemFactory';
 import { mkDir, mkFile } from '../../generation/filesystem/helpers';
+import { buildInfrastructurePidFiles } from '../../generation/filesystem/infraPidFiles';
 import type { WorldNetwork } from '../../worldNetworks/types';
 import type { ThemedGenerator } from '../../worldNetworks/generate';
 import { INDEX_PATH } from '../handlers/searchEngine';
@@ -102,6 +103,26 @@ const buildEtcFindit = (indexJson: string): Readonly<Record<string, FileNodeShim
   ),
 });
 
+// Wraps infra pid file FileNodes into `var/run/<pid>.pid` directory
+// structure. Returned as an extraDirectories fragment that
+// mergeFileNodeChildren combines with /var/www/html.
+const buildVarRunInfraExtraDirs = (
+  ports: readonly Port[],
+): Readonly<Record<string, FileNodeShim>> => {
+  const infraPidFiles = buildInfrastructurePidFiles(ports);
+  if (Object.keys(infraPidFiles).length === 0) return {};
+  return {
+    var: mkDir(
+      'var',
+      {
+        run: mkDir('run', infraPidFiles, 'root', true),
+      },
+      'root',
+      true,
+    ),
+  };
+};
+
 // Lightweight alias to avoid importing the FileNode type just for this
 // module — mkDir/mkFile already produce the correct shape.
 type FileNodeShim = ReturnType<typeof mkFile>;
@@ -113,6 +134,11 @@ export const generateSearchEngineNetwork: ThemedGenerator = async (row, ctx) => 
   const indexEntries = buildIndexEntries(ctx.allRows);
   const indexJson = JSON.stringify(indexEntries, null, 2);
   const landing = renderLandingPage(domain);
+
+  const ports: readonly Port[] = [
+    { port: 80, service: 'http', serviceVersion: 'nginx/1.20.1', open: true },
+    { port: 443, service: 'https', serviceVersion: 'nginx/1.20.1', open: true },
+  ];
 
   const fileSystem = createFileSystem({
     users: [
@@ -129,14 +155,12 @@ export const generateSearchEngineNetwork: ThemedGenerator = async (row, ctx) => 
         uid: 33,
       },
     ],
-    extraDirectories: buildVarWwwHtml(landing),
+    extraDirectories: mergeFileNodeChildren(
+      buildVarWwwHtml(landing),
+      buildVarRunInfraExtraDirs(ports),
+    ),
     etcExtraContent: buildEtcFindit(indexJson),
   });
-
-  const ports: readonly Port[] = [
-    { port: 80, service: 'http', serviceVersion: 'nginx/1.20.1', open: true },
-    { port: 443, service: 'https', serviceVersion: 'nginx/1.20.1', open: true },
-  ];
 
   const users: readonly RemoteUser[] = [
     { username: 'root', userType: 'root' },

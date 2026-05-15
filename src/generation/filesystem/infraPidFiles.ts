@@ -14,13 +14,19 @@ import { mkFile } from './helpers';
 //     player would have written. Without this, cross-player nc against an
 //     NPC backdoor returns 401 invalid_credentials because the pidfile
 //     doesn't exist.
+//
+// Pid file presence is LOAD-BEARING — applyDynamicOverrides in
+// src/network/networkUtils.ts reads every infra pid file and uses
+// presence/absence to derive port-state. A generator that opens an
+// infra port WITHOUT shipping the matching pid file via
+// buildInfrastructurePidFiles will see that port closed at runtime.
 type InfraPidConfig = {
   readonly pidFile: string;
   readonly binary: string;
   readonly user: string;
 };
 
-const INFRA_PID_CONFIGS: Readonly<Record<string, InfraPidConfig>> = {
+export const INFRA_PID_CONFIGS: Readonly<Record<string, InfraPidConfig>> = {
   http: { pidFile: 'nginx.pid', binary: '/usr/sbin/nginx', user: 'www-data' },
   https: { pidFile: 'nginx.pid', binary: '/usr/sbin/nginx', user: 'www-data' },
   'http-alt': { pidFile: 'nginx.pid', binary: '/usr/sbin/nginx', user: 'www-data' },
@@ -42,25 +48,28 @@ const INFRA_PID_CONFIGS: Readonly<Record<string, InfraPidConfig>> = {
   rsync: { pidFile: 'rsyncd.pid', binary: '/usr/sbin/rsyncd', user: 'root' },
 };
 
-// Builds PID files for open infrastructure ports. Deduplicates by pidFile name
-// (e.g., http/https/http-alt all share nginx.pid; imap/imaps/pop3 share dovecot.pid).
+// Builds PID files for open infrastructure ports. Ports sharing a pid file
+// (http/https/http-alt → nginx.pid; imap/imaps/pop3 → dovecot.pid) are
+// grouped: one file per binary with multi-line content, one
+// `${binary}:port=${port}` line per open port. Port iteration order is
+// preserved within each group.
 export const buildInfrastructurePidFiles = (
   ports: readonly { readonly port: number; readonly service: string; readonly open: boolean }[],
 ): Readonly<Record<string, FileNode>> => {
-  const seen = new Set<string>();
+  const groupsByPidFile = new Map<string, { readonly binary: string; readonly ports: number[] }>();
+  for (const port of ports) {
+    if (!port.open) continue;
+    const config = INFRA_PID_CONFIGS[port.service];
+    if (!config) continue;
+    const existing = groupsByPidFile.get(config.pidFile);
+    if (existing) existing.ports.push(port.port);
+    else groupsByPidFile.set(config.pidFile, { binary: config.binary, ports: [port.port] });
+  }
   return Object.fromEntries(
-    ports
-      .filter((p) => {
-        if (!p.open) return false;
-        const config = INFRA_PID_CONFIGS[p.service];
-        if (!config || seen.has(config.pidFile)) return false;
-        seen.add(config.pidFile);
-        return true;
-      })
-      .map((p) => {
-        const config = INFRA_PID_CONFIGS[p.service]!;
-        return [config.pidFile, mkFile(config.pidFile, `${config.binary}:port=${p.port}`, 'guest')];
-      }),
+    [...groupsByPidFile.entries()].map(([pidFile, { binary, ports: groupPorts }]) => {
+      const content = groupPorts.map((port) => `${binary}:port=${port}`).join('\n');
+      return [pidFile, mkFile(pidFile, content, 'guest')];
+    }),
   );
 };
 

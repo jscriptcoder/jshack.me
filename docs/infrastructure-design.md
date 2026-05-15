@@ -197,13 +197,22 @@ Note: easy missions have no inner gateways (single layer). Medium has 1, hard ha
 
 Full SNMP configs (SNMP-variant gateways and border routers) also include `ifAddr.2` and have credential leaks via `nsExtendArgs`. UDP port 161 is dynamically added to the network config for all basic-SNMP gateways so `snmpwalk` can reach them.
 
-### Dynamic Daemon Ports
+### Pid File as Port-State Source of Truth
 
-`NetworkContext` reads PID files (`/var/run/sshd.pid`, `/var/run/vsftpd.pid`) from each machine's filesystem. When the player runs `sshd [port]` or `vsftpd [port]` (or via `bash('/usr/sbin/sshd')` from an NC shell, or `systemctl start sshd`), the command writes a PID file. `parseSshdState()` and `parseFtpdState()` parse these into port overrides, and `applyDaemonOverrides()` opens the corresponding port on the machine's `RemoteMachine` view. All daemon commands are root-only (`/usr/sbin/`, `execute: ['root']`). `systemctl stop <service>` deletes the PID file to close the port.
+PID files at `/var/run/*.pid` are the **single source of truth** for whether a daemon-backed port is open. `applyDynamicOverrides` in `networkUtils.ts` reads every relevant pid file on each machine and derives port-state symmetrically: pid-file PRESENCE opens the matching port, pid-file ABSENCE forces it to `open: false`. The same semantics apply uniformly across ssh, ftp, nc backdoors, AND every infra service in `INFRA_PID_CONFIGS` (nginx, mysqld, redis-server, postgres, mongod, postfix, dovecot, mosquitto, named, snmpd, smbd, Xvnc, openvpn).
 
-### Backdoor Port Overrides
+**Pid file formats:**
 
-`ncStateParser.ts` scans `/var/run/nc-*.pid` files for backdoor listeners. When `msfconsole` exploits a CVE with `backdoor_port_open` effect, it writes a PID file on the target (`/var/run/nc-<port>.pid`). `parseNcPidFiles()` returns `NcPortOverride` entries (service: `elite`, open: true) that merge into the machine's port list. Same mechanism as `nc -l` on the player's own machine.
+- `sshd:port=N` — `/var/run/sshd.pid` (consumed by `parseSshdState`).
+- `vsftpd:port=N` — `/var/run/vsftpd.pid` (consumed by `parseFtpdState`).
+- `nc:port=N,user=X,userType=T,home=P` — `/var/run/nc-<port>.pid`, per backdoor (consumed by `parseNcPidFiles`). Owner metadata lets a remote `nc()` connect land as the listener's user.
+- `${binary}:port=${N}` — every infra pid file (consumed by `parseInfraDaemonState`). Multi-line content is supported: nginx serving both 80 and 443 ships a single `nginx.pid` with two lines (`/usr/sbin/nginx:port=80\n/usr/sbin/nginx:port=443`). Services sharing a pid file (http/https/http-alt → nginx.pid; imap/imaps/pop3 → dovecot.pid) share fate — if the pid file is missing, all of them close.
+
+**Player-driven daemon control**: the corresponding command writes the pid file at start (`sshd [port]`, `vsftpd [port]`, `nc -l <port>`, or `bash('/usr/sbin/<daemon>')` from an NC shell). All daemon commands are root-only (`/usr/sbin/`, `execute: ['root']`). `systemctl stop <service>` deletes the pid file to close the port.
+
+**Generator-driven daemon stamping**: every machine that ships an open infra port must also ship the corresponding pid file at generation time, otherwise `applyDynamicOverrides` closes the port. `buildInfrastructurePidFiles(ports)` in `src/generation/filesystem/infraPidFiles.ts` is the canonical builder — it groups ports by daemon binary and emits one multi-line pid file per binary. Mission and home generators get this via `buildMachineConfig`; themed networks (techparts.io, findit.io) call `buildInfrastructurePidFiles` directly and merge into `extraDirectories` via `mergeFileNodeChildren`.
+
+**Backdoor flow**: when `msfconsole` exploits a CVE with `backdoor_port_open` effect, it writes `/var/run/nc-<port>.pid` on the target — the exploit's "shell" is the same backdoor pid-file mechanism as `nc -l` on the player's own machine. NPC-baked backdoors (elite-service ports with an owner in the generator output) get their pid file from `buildNcBackdoorPidFiles` at generation time so cross-player `nc()` against an NPC backdoor can derive the listener's tier server-side.
 
 ## Version Overlay System
 
