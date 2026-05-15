@@ -13,13 +13,18 @@ Move techparts.io's port 80 from a hand-authored day-0 CVE (`Apache/2.4.49`, CVE
 
 The Layer-2 procedural timeline (`src/generation/timeline/walker.ts`) walks forward from each service's starting tuple, accumulating randomized 3–14 day gaps between CVEs (`CVE_TIMING_CONFIG`). `findVulnForService` gates Layer-2 vulns on `publishedAt > gameTime`. The Apache template starts at `[2,4,60]` — confirmed by `src/generation/timeline/walker.test.ts:76` (`expect(first?.version).toBe('Apache/2.4.60')`). The first procedural CVE therefore drops somewhere between day 3 and day 14.
 
-Effect is rolled deterministically per `(service, index)` via `buildGeneratedVuln` → `pickEffect`. The http effect pool is `[shellFull×2, fileRead×2, fileWrite, scriptExec, backdoorPortOpen]` × `[guest, user, root]`. We narrow this to `shell_full` / `shell_limited` at `user` / `root` tier so:
+Effect is rolled deterministically per `(service, index)` via `buildGeneratedVuln` → `pickEffect`. The http effect pool is `[shellFull×2, fileRead×2, fileWrite, scriptExec, backdoorPortOpen]` × `[guest, user, root]`. We narrow this to `shell_full` at `user` tier only so:
 
-- techparts.io's existing `/etc/passwd` (root + www-data) covers both tiers without adding a guest user
 - the gameplay payoff stays "get a shell on the reseller site" — consistent with the current `shell_limited:user` arc, just rolled procedurally
-- we avoid `backdoor_port_open`'s sticky-port artefact on a shared machine
+- damage ceiling stays at defacement of `/var/www/html` — `www-data` cannot touch `/etc/passwd`, `/etc/findit`, or system libs
+- recovery is straightforward: re-run the generator and `DELETE FROM patches WHERE machine_id = '198.51.100.80' AND path LIKE '/var/www/html/%'`
+- root tier is excluded — a root shell on techparts.io would let a player brick the box (wipe `/etc/passwd`, corrupt CVE flow), and the hand-authored content in `content/techparts/pages.ts` is the actual asset worth protecting
+- `backdoor_port_open` is avoided because of its sticky-port artefact on a shared machine
+- `file_read` / `file_write` / `script_exec` are excluded because the cosmetic site has no interesting recon payoff and the shell narrative is more techparts-flavoured
 
-The picker walks the procedural timeline and returns the first `(version, index)` entry whose rolled effect satisfies the allowlist. Owner is derived from the picked effect's tier (`user → www-data`, `root → root`). Both users already exist in `/etc/passwd` via `createFileSystem({ users: [...] })`.
+`shell_limited` is not in the http effect pool (`src/generation/timeline/effectPicker.ts:46`), so the only "shell" effect that can roll for http is `shell_full`. The allowlist matches roughly `2/7 × 1/3 ≈ 9.5%` of timeline entries — over a ~100-entry walk budget that yields ~9-10 viable matches.
+
+The picker walks the procedural timeline and returns the first `(version, index)` entry whose rolled effect satisfies the allowlist. Owner is always `www-data` (only user-tier matches survive the filter), so the per-tier `ownerFor` helper from Step 2 collapses to a constant.
 
 Port 443 (`nginx/1.20.1`) stays inert: `service: 'https'` has no Layer-1 entry and the `https` template starts at `nginx/1.26.0` (no Layer-2 match for 1.20.1). No change needed.
 
@@ -31,9 +36,9 @@ Behavioural — observable through `findExploitableCve` + `msfconsole` semantics
 
 - [ ] At `gameTime=0`, `msfconsole techparts.io 80` reports "no known vulnerability" (port 80 has a serviceVersion but no live CVE)
 - [ ] By `gameTime=30` (well past the worst-case first-CVE window of 14 days), `msfconsole techparts.io 80` returns a hit — the procedural CVE is live
-- [ ] The hit's `effect.kind` is one of `shell_full` or `shell_limited`
-- [ ] The hit's `effect.tier` is one of `user` or `root`
-- [ ] Port 80's `owner.userType` matches the rolled `effect.tier` (msfconsole's owner check at `msfconsole.ts:172/216` keeps passing)
+- [ ] The hit's `effect.kind` is `shell_full`
+- [ ] The hit's `effect.tier` is `user`
+- [ ] Port 80's `owner.userType` is `user` (msfconsole's owner check at `msfconsole.ts:172/216` keeps passing) and `owner.username` is `www-data`
 - [ ] Port 443 remains inert across all game times (no behavioural change)
 - [ ] `npm run test:run`, `npm run lint`, `npm run build` all pass
 - [ ] `src/themedNetworks/README.md` table reflects time-gated CVE on port 80
@@ -48,8 +53,8 @@ Every step follows RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR. No production code wi
 **Acceptance criteria**: A pure helper, exported from `src/themedNetworks/generators/techpartsNetwork.ts` (local to this generator until a second themed network needs the same shape), returns a `{ version, effect }` pair such that:
 
 - `version` is a Layer-2 procedural Apache version string (matches `findGeneratedVersion('http', version, ∞)`)
-- `effect.kind` is one of `shell_full` / `shell_limited`
-- `effect.tier` is one of `user` / `root`
+- `effect.kind` is `shell_full`
+- `effect.tier` is `user`
 - Deterministic — same inputs always produce the same result
 - Falls back to the timeline's entry 0 (with whatever effect it rolled) if no allowlist match is found within the walk budget
 
@@ -57,8 +62,8 @@ Every step follows RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR. No production code wi
 
 - Returned `version` starts with `Apache/`
 - Returned `version` is locatable via `findGeneratedVersion('http', version, 10_000, CVE_TIMING_CONFIG)`
-- Returned `effect.kind` is in `new Set(['shell_full', 'shell_limited'])`
-- Returned `effect.tier` is in `new Set(['user', 'root'])`
+- Returned `effect.kind` is `shell_full`
+- Returned `effect.tier` is `user`
 - Two consecutive calls return the same `{ version, effect }` (determinism)
 
 **GREEN**: Implement `pickApacheCveVersion()` walking the procedural timeline via `buildTimeline('http', WALK_BUDGET_DAYS, CVE_TIMING_CONFIG)`, computing each entry's effect via `buildGeneratedVuln('http', entry).effect`, and returning the first match. Walk budget ≈ `CVE_TIMING_CONFIG.maxSafeWindowDays * 100` (year+). Fallback path triggers when the filter empties — return `{ version: timeline[0].version, effect: buildGeneratedVuln('http', timeline[0]).effect }`.
@@ -77,11 +82,10 @@ Every step follows RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR. No production code wi
 
 **RED**: Update `src/themedNetworks/generators/techpartsNetwork.test.ts`:
 
-- Replace the `Apache/2.4.49` assertion with: "port 80 serviceVersion comes from the Apache procedural timeline" (assert via `findGeneratedVersion('http', port.serviceVersion, ∞, CVE_TIMING_CONFIG)` is defined)
-- Replace "stamps a www-data owner..." with: "port 80 owner.userType matches the eventual effect.tier" — compute the eventual effect from `findVulnForService('http', port.serviceVersion, 10_000)` and assert `port.owner.userType === eventual.effect.tier`
-- Replace owner username assertion with: tier `user` → `www-data`, tier `root` → `root` (match `/etc/passwd` users — verifies the picker's tier choice maps to a real user identity)
+- Replace the `Apache/2.4.49` assertion with: "port 80 serviceVersion comes from the Apache procedural timeline" (assert via `findGeneratedVersion('http', port.serviceVersion, 10_000, CVE_TIMING_CONFIG)` is defined)
+- Keep the `www-data` owner assertion intact — owner is always www-data because only user-tier matches survive the picker's filter
 - Add: "port 80 is not exploitable at gameTime=0" — assert `findExploitableCve(remoteMachine, port80, 0) === undefined`
-- Add: "port 80 is exploitable by gameTime=30" — assert `findExploitableCve(remoteMachine, port80, 30)` returns a vuln whose effect satisfies the allowlist
+- Add: "port 80 is exploitable by gameTime=30 with a shell_full:user effect" — assert `findExploitableCve(remoteMachine, port80, 30)` returns a vuln whose `effect.kind === 'shell_full'` and `effect.tier === 'user'`
 - Keep "port 443 has no owner / no CVE" assertions untouched (port 443 unchanged)
 - Drop assertions tied to `Apache/2.4.49` / `CVE-2024-9001` specifically
 
@@ -90,17 +94,17 @@ These assertions fail against the current hardcoded port 80 — picker isn't wir
 **GREEN**: In `techpartsNetwork.ts`:
 
 - Call `pickApacheCveVersion()` once at the top of `generateTechpartsNetwork`
-- Build port 80 from the result: `serviceVersion: picked.version`, `owner: ownerFor(picked.effect.tier)` where `ownerFor('user')` returns the www-data ServiceOwner and `ownerFor('root')` returns the root ServiceOwner (both keeping `homePath` consistent with existing /etc/passwd)
-- Update the inline comment block (`// Port 80 ships Apache/2.4.49 — Layer-1 hand-authored CVE...`) to describe the new time-gated procedural picker
-- Drop the hardcoded `Apache/2.4.49` literal and the `'www-data'` literal — both derived now
+- Build port 80 from the result: `serviceVersion: picked.version`, `owner: WWW_DATA_OWNER` (a const ServiceOwner since only user-tier survives the picker's filter)
+- Update the inline comment block (`// Port 80 ships Apache/2.4.49 — Layer-1 hand-authored CVE...`) to describe the new time-gated procedural picker and the user-tier-only safety rationale
+- Drop the hardcoded `Apache/2.4.49` literal — `serviceVersion` is now derived
 
-**MUTATE**: Run `mutation-testing` skill on the generator changes. Focus on: owner-tier derivation branch (user vs root), the picker call site, and the gameTime-gated test expectations.
+**MUTATE**: Run `mutation-testing` skill on the generator changes. Focus on: the picker call site, the gameTime-gated test expectations, and the owner constant.
 
-**KILL MUTANTS**: Address survivors. Likely: the `ownerFor` lookup branch (both tiers must be tested), the picker call must actually execute (a test that asserts deterministic re-runs produce the same port 80 shape catches a stale memoization mistake).
+**KILL MUTANTS**: Address survivors. The picker call must actually execute (a test that asserts deterministic re-runs produce the same port 80 shape catches a stale memoization mistake). The owner constant must be the right user identity (the `www-data` user is what /etc/passwd ships).
 
-**REFACTOR**: Assess whether the inline `ownerFor` helper is worth extracting alongside `pickApacheCveVersion`. Probably yes — both are derived from the same picked effect. Combine into a single helper that returns `{ port: Port, ... }` or keep them adjacent.
+**REFACTOR**: Assess whether `WWW_DATA_OWNER` deserves to live alongside `pickApacheCveVersion` as a co-located pair (they're conceptually linked: picker's tier filter justifies the owner constant). Otherwise leave inline.
 
-**Done when**: All techpartsNetwork tests green, mutation report reviewed, comments updated, no leftover `Apache/2.4.49` / `'www-data'` literals in the generator's port-construction block.
+**Done when**: All techpartsNetwork tests green, mutation report reviewed, comments updated, no leftover `Apache/2.4.49` literal in the generator's port-construction block.
 
 ### Step 3: Update docs + version bump
 
@@ -136,7 +140,7 @@ npx tsx scripts/simulateExploit.ts mission techparts 198.51.100.80 80 --gameTime
 
 # Day 30 — CVE active
 npx tsx scripts/simulateExploit.ts mission techparts 198.51.100.80 80 --gameTime 30
-# Expect: CVE id (CVE-2026-XXXXXXX format), effect.kind in {shell_full, shell_limited}, effect.tier in {user, root}
+# Expect: CVE id (CVE-2026-XXXXXXX format), effect.kind = shell_full, effect.tier = user
 ```
 
 `scripts/simulateExploit.ts` uses the world-network generation path the same way the browser does (see `scripts/README.md`), so a green smoke here matches in-game behaviour.
@@ -148,7 +152,7 @@ Two-browser cross-player smoke is not required — no cross-player surface chang
 Update the MEMORY.md "Active theme (2026-05-12)" entry:
 
 - Drop: "CVE-2024-9001 (day-0 exploitable, www-data owner stamped)"
-- Add: "Time-gated procedural CVE on port 80 (Apache picked from Layer-2 walker, constrained to shell_full/shell_limited at user/root tier; first CVE drops day ~3-14 per walker default cadence)"
+- Add: "Time-gated procedural CVE on port 80 (Apache picked from Layer-2 walker, constrained to shell_full at user tier only — damage ceiling = /var/www/html defacement, no root brick path; first CVE drops day ~3-14 per walker default cadence)"
 
 No new memory entries needed — the existing `project_themed_network_cve_port_owner` rule still applies (owner stamping is load-bearing; picker just derives the tier dynamically).
 

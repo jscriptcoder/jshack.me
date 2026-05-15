@@ -1,8 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { generateTechpartsNetwork } from './techpartsNetwork';
+import { generateTechpartsNetwork, pickApacheCveVersion } from './techpartsNetwork';
 import type { WorldNetwork } from '../../worldNetworks/types';
 import type { FileNode } from '../../filesystem/types';
 import { TECHPARTS_PAGES, LINKED_PAGES, HIDDEN_PAGES } from '../content/techparts/pages';
+import {
+  findGeneratedVersion,
+  CVE_TIMING_CONFIG,
+  buildGeneratedVuln,
+} from '../../generation/timeline';
 
 const buildRow = (overrides: Partial<WorldNetwork> = {}): WorldNetwork => ({
   public_ip: '198.51.100.80',
@@ -198,5 +203,58 @@ describe('generateTechpartsNetwork — filesystem layout', () => {
     expect(passwd).not.toBeNull();
     expect(passwd).toContain('root:');
     expect(passwd).toContain('www-data:');
+  });
+});
+
+describe('pickApacheCveVersion', () => {
+  it('returns an Apache version string', () => {
+    const picked = pickApacheCveVersion();
+    expect(picked.version).toMatch(/^Apache\//);
+  });
+
+  it('returns a version locatable in the http procedural timeline', () => {
+    // Confirms the picker is choosing from the Layer-2 walker, not a
+    // hand-authored Layer-1 entry. findGeneratedVersion walks the http
+    // timeline up to ~10k game days — easily covers any plausible pick.
+    const picked = pickApacheCveVersion();
+    const entry = findGeneratedVersion('http', picked.version, 10_000, CVE_TIMING_CONFIG);
+    expect(entry).toBeDefined();
+  });
+
+  it('returns shell_full as the effect kind', () => {
+    const picked = pickApacheCveVersion();
+    expect(picked.effect.kind).toBe('shell_full');
+  });
+
+  it('returns user as the effect tier', () => {
+    // Restricting to user tier caps damage at /var/www/html defacement —
+    // www-data cannot brick /etc/passwd or system files. Recovery is a
+    // generator re-run + DELETE FROM patches LIKE '/var/www/html/%'.
+    const picked = pickApacheCveVersion();
+    expect(picked.effect.tier).toBe('user');
+  });
+
+  it('is deterministic across consecutive calls', () => {
+    // The PRNG seeds are stable per (service, index), so the picker must
+    // return the same { version, effect } across repeated calls. This is
+    // load-bearing for cross-player consistency — every browser computes
+    // the same techparts.io CVE.
+    const a = pickApacheCveVersion();
+    const b = pickApacheCveVersion();
+    expect(a).toEqual(b);
+  });
+
+  it('returns the http-derived effect for the picked version', () => {
+    // Anchors the picker's effect to the http effect pool. If the picker
+    // ever computed effects via a different service key (e.g.,
+    // buildGeneratedVuln('ssh', entry)), the rolled effect would diverge
+    // from what http's PRNG actually produces for that index — even though
+    // both pools happen to contain shell_full at user tier. This test pins
+    // the (service, index) → effect contract end-to-end.
+    const picked = pickApacheCveVersion();
+    const entry = findGeneratedVersion('http', picked.version, 10_000, CVE_TIMING_CONFIG);
+    expect(entry).toBeDefined();
+    const httpEffect = buildGeneratedVuln('http', entry!).effect;
+    expect(picked.effect).toEqual(httpEffect);
   });
 });

@@ -1,10 +1,17 @@
 import type { GeneratedMachine, MissionNetwork, SubnetLayer } from '../../generation/types';
-import type { NetworkInterface, Port, RemoteMachine, RemoteUser } from '../../network/types';
+import type {
+  NetworkInterface,
+  Port,
+  RemoteMachine,
+  RemoteUser,
+  VulnerabilityEffect,
+} from '../../network/types';
 import type { FileNode } from '../../filesystem/types';
 import { createFileSystem } from '../../filesystem/fileSystemFactory';
 import { mkDir, mkFile } from '../../generation/filesystem/helpers';
 import type { ThemedGenerator } from '../../worldNetworks/generate';
 import { TECHPARTS_PAGES, type TechpartsPage } from '../content/techparts/pages';
+import { buildTimeline, buildGeneratedVuln, CVE_TIMING_CONFIG } from '../../generation/timeline';
 
 // techparts.io network builder. Produces a single-machine MissionNetwork
 // where the router IS the only machine — no inner layers, no NAT, no
@@ -19,6 +26,57 @@ import { TECHPARTS_PAGES, type TechpartsPage } from '../content/techparts/pages'
 // note in plans/techparts-network.md).
 
 const FALLBACK_DOMAIN = 'techparts.io';
+
+// Walk budget for the procedural CVE picker — ~year+ of game time. Match
+// rate for shell_full at user tier in the http effect pool is ~9.5%
+// (shellFull is 2/7 of the pool × user is 1/3 of tiers), so a 100-entry
+// walk yields ~9-10 viable candidates. Bounded so the lookup is constant-
+// time at module use.
+const APACHE_CVE_WALK_BUDGET_DAYS = CVE_TIMING_CONFIG.maxSafeWindowDays * 100;
+
+type ApachePick = {
+  readonly version: string;
+  readonly effect: VulnerabilityEffect;
+};
+
+// Picks an Apache version from the http procedural timeline whose rolled
+// CVE effect is shell_full at user tier. Walks forward from the timeline's
+// starting tuple (Apache/2.4.60 — see serviceTemplates.ts), computing each
+// entry's effect via buildGeneratedVuln, and returns the first match.
+//
+// The narrow allowlist (shell_full at user tier only) caps damage at
+// /var/www/html defacement: a www-data shell cannot touch /etc/passwd or
+// system files. Recovery is a generator re-run + DELETE FROM patches scoped
+// to /var/www/html. Excluding root tier prevents the brick scenarios (wipe
+// /etc/passwd → CVE flow breaks; wipe libc → site dies).
+//
+// Determinism is load-bearing: every browser must compute the same
+// techparts.io CVE so cross-player visibility stays consistent. The picker
+// reads only stable inputs (serviceTemplates['http'].startTuple + the
+// service-keyed PRNG seeds inside the walker / generatedVuln modules).
+//
+// Throws if no match found within the walk budget. The current http effect
+// pool yields a shell_full:user roll roughly every 10 entries, so a 100-
+// entry walk has effectively zero chance of empty result. The throw is
+// defensive against future pool drift — if it ever fires, the allowlist
+// or pool needs reconciliation, not silent fallback to a non-allowlisted
+// effect (which could expose techparts.io to a brick-tier CVE).
+export const pickApacheCveVersion = (): ApachePick => {
+  const timeline = buildTimeline('http', APACHE_CVE_WALK_BUDGET_DAYS, CVE_TIMING_CONFIG);
+  const candidates = timeline.map((entry) => ({
+    version: entry.version,
+    effect: buildGeneratedVuln('http', entry).effect,
+  }));
+  const match = candidates.find(
+    (c) => c.effect.kind === 'shell_full' && c.effect.tier === 'user',
+  );
+  if (!match) {
+    throw new Error(
+      'pickApacheCveVersion: no shell_full:user match in http procedural timeline within walk budget — verify effect pool / allowlist alignment',
+    );
+  }
+  return match;
+};
 
 type DirChildren = Readonly<Record<string, FileNode>>;
 
