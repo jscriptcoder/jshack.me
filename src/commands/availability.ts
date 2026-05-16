@@ -47,6 +47,8 @@ export const APT_INSTALLABLE = new Set([
   'mysql',
   'redis-tools',
   'lynx',
+  'apache2',
+  'nginx',
 ]);
 
 export type AptExtraFile = {
@@ -116,6 +118,16 @@ export const APT_PACKAGES: readonly AptPackageInfo[] = [
     binaries: ['rediscli'],
   },
   { name: 'lynx', description: 'Text-mode web browser', version: '2.9.0' },
+  {
+    name: 'apache2',
+    description: 'Apache HTTP Server — serve websites on this machine',
+    version: '2.4.62',
+  },
+  {
+    name: 'nginx',
+    description: 'nginx web server — serve websites on this machine',
+    version: '1.24.0',
+  },
 ];
 
 // Binary stub content — looks like an ELF binary header
@@ -168,6 +180,8 @@ export const APT_TOOL_NAMES = [
   'snmpset',
   'mysql',
   'rediscli',
+  'apache2',
+  'nginx',
 ] as const;
 
 // System admin utilities in /usr/sbin/ — root-only services

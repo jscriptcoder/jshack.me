@@ -358,6 +358,14 @@ describe('apt command', () => {
       expect(result).toContain('netcat');
     });
 
+    it('lists apache2 and nginx as installable web-server packages', () => {
+      const { context } = createMockAptContext();
+      const apt = createAptCommand(context);
+      const result = apt.fn('list') as string;
+      expect(result).toContain('apache2');
+      expect(result).toContain('nginx');
+    });
+
     it('shows installed status for tools with binaries present', () => {
       const { context } = createMockAptContext({ installedTools: ['nmap'] });
       const apt = createAptCommand(context);

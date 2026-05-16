@@ -127,14 +127,14 @@ Real Metasploit Framework uses per-CVE local modules (`use exploit/linux/local/.
 
 Admin utilities that write PID files to `/var/run/` — `NetworkContext` reads these to dynamically open ports.
 
-| Command   | File           | Usage                      | Description                                                                       |
-| --------- | -------------- | -------------------------- | --------------------------------------------------------------------------------- |
-| sshd      | `sshd.ts`      | `sshd [port]`              | Start SSH daemon (root-only, writes `/var/run/sshd.pid`)                          |
-| vsftpd    | `vsftpd.ts`    | `vsftpd [port]`            | Start FTP daemon (root-only, writes `/var/run/vsftpd.pid`)                        |
-| apache2   | `apache2.ts`   | `apache2 [port]`           | Start Apache HTTP server (root for <1024, writes `/var/run/apache2.pid`)          |
-| nginx     | `nginx.ts`     | `nginx [port]`             | Start nginx web server (root for <1024, writes `/var/run/nginx.pid`)              |
-| systemctl | `systemctl.ts` | `systemctl <action> <svc>` | Control services: start, stop, status (root-only; currently `sshd`/`vsftpd` only) |
-| nc -l     | `nc.ts`        | `nc -l <port>`             | Open backdoor listener (any user, writes `/var/run/nc-<port>.pid`)                |
+| Command   | File           | Usage                      | Description                                                                               |
+| --------- | -------------- | -------------------------- | ----------------------------------------------------------------------------------------- |
+| sshd      | `sshd.ts`      | `sshd [port]`              | Start SSH daemon (root-only, writes `/var/run/sshd.pid`)                                  |
+| vsftpd    | `vsftpd.ts`    | `vsftpd [port]`            | Start FTP daemon (root-only, writes `/var/run/vsftpd.pid`)                                |
+| apache2   | `apache2.ts`   | `apache2 [port]`           | Start Apache HTTP server (apt-installable; root for <1024; writes `/var/run/apache2.pid`) |
+| nginx     | `nginx.ts`     | `nginx [port]`             | Start nginx web server (apt-installable; root for <1024; writes `/var/run/nginx.pid`)     |
+| systemctl | `systemctl.ts` | `systemctl <action> <svc>` | Control services: start, stop, status (root-only; currently `sshd`/`vsftpd` only)         |
+| nc -l     | `nc.ts`        | `nc -l <port>`             | Open backdoor listener (any user, writes `/var/run/nc-<port>.pid`)                        |
 
 ## Mission
 
