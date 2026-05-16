@@ -873,7 +873,12 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
       getMachine: getEffectiveMachine,
       resolveDomain,
       resolveNat,
-      readFileFromMachine,
+      // Same IP → workstation_id translation as curl. Without it, lynx
+      // fetching a LAN occupant's IP misses every patch keyed under
+      // their workstation_id (e.g. /var/www/html/index.html written by
+      // player-run apache2 / nginx).
+      readFileFromMachine: (op) =>
+        readFileFromMachine({ ...op, machineId: resolveTargetMachineId(op.machineId) }),
       getHandler,
       onHttpRequest,
     });
