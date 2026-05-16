@@ -330,7 +330,13 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
             getMachine,
             resolveDomain,
             resolveNat,
-            readFileFromMachine,
+            // Translate IP → workstation_id so cross-player reads land on
+            // the canonical machineId where the target's patches live.
+            // Same pattern as `logFs` above; without it, curl on a LAN
+            // occupant's IP misses every patch the target wrote under
+            // their workstation_id (notably /var/www/html/index.html).
+            readFileFromMachine: (op) =>
+              readFileFromMachine({ ...op, machineId: resolveTargetMachineId(op.machineId) }),
             onHttpRequest,
             getHandler,
           }),
@@ -867,7 +873,12 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
       getMachine: getEffectiveMachine,
       resolveDomain,
       resolveNat,
-      readFileFromMachine,
+      // Same IP → workstation_id translation as curl. Without it, lynx
+      // fetching a LAN occupant's IP misses every patch keyed under
+      // their workstation_id (e.g. /var/www/html/index.html written by
+      // player-run apache2 / nginx).
+      readFileFromMachine: (op) =>
+        readFileFromMachine({ ...op, machineId: resolveTargetMachineId(op.machineId) }),
       getHandler,
       onHttpRequest,
     });

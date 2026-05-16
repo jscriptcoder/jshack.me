@@ -13,10 +13,12 @@ import type { SshdPortOverride } from './sshdStateParser';
 import type { FtpdPortOverride } from './ftpdStateParser';
 import type { NcPortOverride } from './ncStateParser';
 import type { InfraPortOverride } from './infraDaemonStateParser';
+import type { Apache2PortOverride } from './apache2StateParser';
 import { parseSshdState } from './sshdStateParser';
 import { parseFtpdState } from './ftpdStateParser';
 import { parseNcPidFiles } from './ncStateParser';
 import { parseInfraDaemonState } from './infraDaemonStateParser';
+import { parseApache2State, APACHE2_PID_FILE_PATH } from './apache2StateParser';
 import { INFRA_PID_CONFIGS } from '../generation/filesystem/infraPidFiles';
 import type { FileNode } from '../filesystem/types';
 import type { HomeNetwork } from '../generation/generateHomeNetwork';
@@ -95,7 +97,12 @@ export const applySnmpFirewallOverrides = (
 // opens an existing closed port or adds a new port entry. Closed ports whose
 // service is already handled by a daemon on a different port are removed to
 // avoid showing duplicate services (e.g. closed port 22 + open port 2223).
-type DaemonOverride = SshdPortOverride | FtpdPortOverride | NcPortOverride | InfraPortOverride;
+type DaemonOverride =
+  | SshdPortOverride
+  | FtpdPortOverride
+  | NcPortOverride
+  | InfraPortOverride
+  | Apache2PortOverride;
 
 export const applyDaemonOverrides = (
   machine: RemoteMachine,
@@ -418,6 +425,16 @@ export const applyDynamicOverrides = (
   const ncOverrides = parseNcPidFiles(varRunNode);
   if (ncOverrides.length > 0) result = applyDaemonOverrides(result, ncOverrides);
 
+  // Apache2 is a sibling of sshd/ftpd: dedicated pid file + parser,
+  // outside the shared INFRA_PID_CONFIGS table because apache2 and nginx
+  // both serve `http` and that table is service-keyed.
+  const apache2Node = ctx.readNode(machine.ip, APACHE2_PID_FILE_PATH, '/');
+  const apache2Overrides =
+    apache2Node?.type === 'file' && apache2Node.content
+      ? parseApache2State(apache2Node.content)
+      : [];
+  if (apache2Overrides.length > 0) result = applyDaemonOverrides(result, apache2Overrides);
+
   // Infra daemons (nginx, mysqld, redis-server, dovecot, etc.). Iterates
   // every UNIQUE pid file in INFRA_PID_CONFIGS — services that share a
   // pid file (http/https/http-alt → nginx.pid; imap/imaps/pop3 →
@@ -437,9 +454,13 @@ export const applyDynamicOverrides = (
   // A service's pid file being ABSENT means the daemon isn't running and
   // any matching port should close. Services that share a pid file share
   // a fate — if nginx.pid is missing, all of http/https/http-alt close.
+  // Exception: a service actively served by apache2 stays open even when
+  // its INFRA-side pid file is absent (apache2 is the daemon for it).
+  const apache2Services: ReadonlySet<string> = new Set(apache2Overrides.map((o) => o.service));
   const infraClosures: readonly string[] = Object.entries(INFRA_PID_CONFIGS)
     .filter(([, config]) => !runningInfraPidFiles.has(config.pidFile))
-    .map(([service]) => service);
+    .map(([service]) => service)
+    .filter((service) => !apache2Services.has(service));
 
   // Close daemon-backed ports when their PID file is absent (daemon not running).
   // Only close ports that were in the machine's original port list — NAT-forwarded

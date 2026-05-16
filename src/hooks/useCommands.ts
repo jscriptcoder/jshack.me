@@ -21,6 +21,8 @@ import { createAptCommand } from '../commands/apt';
 import { createRebootCommand } from '../commands/reboot';
 import { createSshdCommand } from '../commands/sshd';
 import { createVsftpdCommand } from '../commands/vsftpd';
+import { createApache2Command } from '../commands/apache2';
+import { createNginxCommand } from '../commands/nginx';
 import { createSystemctlCommand } from '../commands/systemctl';
 import { createBashCommand } from '../commands/bash';
 import { createPsCommand } from '../commands/ps';
@@ -303,6 +305,28 @@ export const useCommands = (): UseCommandsResult => {
         getMachineInfo,
         getNodeFromMachine,
         createFileOnMachine: createFile,
+      }),
+    );
+
+    commands.set(
+      'apache2',
+      createApache2Command({
+        getMachine: () => session.machine,
+        getMachineInfo,
+        getNodeFromMachine,
+        createFileOnMachine: createFile,
+        getUser: () => ({ username: session.username, userType: session.userType }),
+      }),
+    );
+
+    commands.set(
+      'nginx',
+      createNginxCommand({
+        getMachine: () => session.machine,
+        getMachineInfo,
+        getNodeFromMachine,
+        createFileOnMachine: createFile,
+        getUser: () => ({ username: session.username, userType: session.userType }),
       }),
     );
 

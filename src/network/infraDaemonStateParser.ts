@@ -1,13 +1,17 @@
+import type { ServiceOwner } from './types';
 import { INFRA_PID_CONFIGS } from '../generation/filesystem/infraPidFiles';
+import { isValidUserType } from '../session/sessionUtils';
 
 // Port-state override emitted by parseInfraDaemonState. Mirrors the shape
 // of SshdPortOverride / FtpdPortOverride (port + service + open=true) so
-// applyDaemonOverrides treats it polymorphically. Step 3 widens
-// DaemonOverride to include this variant.
+// applyDaemonOverrides treats it polymorphically. owner is populated only
+// when the pid file uses the extended form (player-run daemons stamp the
+// invoking user); themed-network short-form lines omit it.
 export type InfraPortOverride = {
   readonly port: number;
   readonly service: string;
   readonly open: true;
+  readonly owner?: ServiceOwner;
 };
 
 // Canonical port → service for the 15-service working set discovered by
@@ -60,11 +64,14 @@ const BINARY_BY_PID_FILE: ReadonlyMap<string, string> = new Map(
 // escaped — it's only special inside character classes.
 const escapeRegex = (input: string): string => input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-// Parses an infrastructure pid file. Pid file format is one or more lines
-// of `${binary}:port=${N}` (e.g. `/usr/sbin/nginx:port=80`). Multi-line
-// content emits one override per valid line; malformed or out-of-domain
-// lines are silently skipped. Returns [] for unknown pid file names,
-// empty content, or no valid lines.
+// Parses an infrastructure pid file. Two line shapes are accepted:
+//   short form    — `${binary}:port=${N}`                              (themed networks)
+//   extended form — `${binary}:port=${N},user=U,userType=T,home=H`     (player-run daemons)
+// The extended owner group is all-or-nothing — partial fields (e.g. user=
+// without home=) must fail the whole match so an override never silently
+// degrades to no-owner. Multi-line content emits one override per valid
+// line; malformed or out-of-domain lines are silently skipped. Returns
+// [] for unknown pid file names, empty content, or no valid lines.
 export const parseInfraDaemonState = (
   pidFileName: string,
   content: string | undefined,
@@ -75,7 +82,10 @@ export const parseInfraDaemonState = (
   const expectedBinary = BINARY_BY_PID_FILE.get(pidFileName);
   if (!servedServices || !expectedBinary) return [];
 
-  const linePattern = new RegExp(`^${escapeRegex(expectedBinary)}:port=(\\d+)$`);
+  const linePattern = new RegExp(
+    `^${escapeRegex(expectedBinary)}:port=(\\d+)` +
+      `(?:,user=([^,\\n\\r]+),userType=([^,\\n\\r]+),home=([^,\\n\\r]+))?$`,
+  );
 
   return content
     .split('\n')
@@ -89,7 +99,18 @@ export const parseInfraDaemonState = (
       const port = Number(match[1]);
       const service = PORT_TO_SERVICE[port];
       if (!service || !servedServices.has(service)) return null;
-      return { port, service, open: true };
+
+      const username = match[2];
+      const userType = match[3];
+      const homePath = match[4];
+      if (username === undefined) return { port, service, open: true };
+      if (!isValidUserType(userType)) return null;
+      return {
+        port,
+        service,
+        open: true,
+        owner: { username, userType, homePath },
+      };
     })
     .filter((override): override is InfraPortOverride => override !== null);
 };

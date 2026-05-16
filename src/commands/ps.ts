@@ -15,18 +15,32 @@ export type PsAdapter = {
   readonly readDirectory: (path: string) => Readonly<Record<string, string>> | undefined;
 };
 
-// Parses infrastructure PID file content: "binary:port=N" → { binary, port }
+// Parses infrastructure PID file content. Accepts two shapes:
+//   short    — `binary:port=N`                                       (themed-network generators)
+//   extended — `binary:port=N,user=U,userType=T,home=H`              (player-run daemons)
+// The extended owner group is captured so callers can prefer the pid-
+// content user over the static PID_FILE_USERS fallback.
 export const parseInfraPid = (
   content: string,
-): { readonly binary: string; readonly port: number } | null => {
-  const match = content.match(/^(.+):port=(\d+)$/);
+): { readonly binary: string; readonly port: number; readonly user?: string } | null => {
+  const match = content.match(
+    /^(.+?):port=(\d+)(?:,user=([^,\n\r]+),userType=[^,\n\r]+,home=[^,\n\r]+)?$/,
+  );
   if (!match) return null;
   const port = Number(match[2]);
   if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
-  return { binary: match[1]!, port };
+  return { binary: match[1]!, port, user: match[3] };
 };
 
-// Maps PID file names to the user that runs the daemon.
+// Fallback owner for pid files that ship the short form `binary:port=N`
+// (no embedded user). Used only when the pid content does not carry a
+// `user=…` field — e.g. themed-network nginx shipped via
+// `buildInfrastructurePidFiles` where the generator stamps `www-data` as
+// the static port owner. Player-run daemons (apache2, nginx) write the
+// extended form and supply the invoking user directly, so this map is
+// never consulted for them. `apache2.pid` is intentionally absent: every
+// apache2 pid file comes from the player command and is required to be
+// extended; a malformed apache2.pid is skipped rather than defaulted.
 export const PID_FILE_USERS: Readonly<Record<string, string>> = {
   'sshd.pid': 'root',
   'vsftpd.pid': 'root',
@@ -85,10 +99,25 @@ export const listProcesses = (adapter: PsAdapter): readonly Process[] => {
         continue;
       }
 
-      // Infrastructure daemons: binary:port=N format
+      // Apache2: short name + extended owner fields (apache2:port=N,user=U,...).
+      // Owner derives from pid content (player's invoking user, not www-data).
+      if (name === 'apache2.pid') {
+        const match = content.match(
+          /^apache2:port=(\d+),user=([^,\n\r]+),userType=[^,\n\r]+,home=[^,\n\r]+$/,
+        );
+        if (!match) continue;
+        const port = Number(match[1]);
+        const user = match[2]!;
+        processes.push({ pid: nextPid++, user, command: `/usr/sbin/apache2 -p ${port}` });
+        continue;
+      }
+
+      // Infrastructure daemons: binary:port=N or binary:port=N,user=U,... .
+      // Prefer pid-content user when present (player-run nginx); fall back
+      // to the static PID_FILE_USERS table for themed-network short form.
       const parsed = parseInfraPid(content);
       if (!parsed) continue;
-      const user = PID_FILE_USERS[name] ?? 'root';
+      const user = parsed.user ?? PID_FILE_USERS[name] ?? 'root';
       processes.push({ pid: nextPid++, user, command: parsed.binary });
     }
   }

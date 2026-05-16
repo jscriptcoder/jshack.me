@@ -168,6 +168,102 @@ describe('parseInfraDaemonState', () => {
     });
   });
 
+  describe('extended form — optional owner fields', () => {
+    // The extended form is what player-run apache2/nginx commands write:
+    //   /usr/sbin/nginx:port=80,user=alice,userType=user,home=/home/alice
+    // Themed-network short form (no owner) MUST continue to work — both shapes
+    // coexist on the same pid file path across different machines.
+
+    it('parses nginx.pid extended form → override with owner', () => {
+      expect(
+        parseInfraDaemonState(
+          'nginx.pid',
+          '/usr/sbin/nginx:port=80,user=alice,userType=user,home=/home/alice',
+        ),
+      ).toEqual([
+        {
+          port: 80,
+          service: 'http',
+          open: true,
+          owner: { username: 'alice', userType: 'user', homePath: '/home/alice' },
+        },
+      ]);
+    });
+
+    it('parses extended form on root-owned port', () => {
+      expect(
+        parseInfraDaemonState(
+          'nginx.pid',
+          '/usr/sbin/nginx:port=443,user=root,userType=root,home=/root',
+        ),
+      ).toEqual([
+        {
+          port: 443,
+          service: 'https',
+          open: true,
+          owner: { username: 'root', userType: 'root', homePath: '/root' },
+        },
+      ]);
+    });
+
+    it('parses extended form on a single-service binary (mysqld)', () => {
+      expect(
+        parseInfraDaemonState(
+          'mysqld.pid',
+          '/usr/sbin/mysqld:port=3306,user=mysql,userType=user,home=/var/lib/mysql',
+        ),
+      ).toEqual([
+        {
+          port: 3306,
+          service: 'mysql',
+          open: true,
+          owner: { username: 'mysql', userType: 'user', homePath: '/var/lib/mysql' },
+        },
+      ]);
+    });
+
+    it('mixed multi-line content: short form on one line, extended on another', () => {
+      const content =
+        '/usr/sbin/nginx:port=80\n/usr/sbin/nginx:port=443,user=alice,userType=user,home=/home/alice';
+      expect(parseInfraDaemonState('nginx.pid', content)).toEqual([
+        { port: 80, service: 'http', open: true },
+        {
+          port: 443,
+          service: 'https',
+          open: true,
+          owner: { username: 'alice', userType: 'user', homePath: '/home/alice' },
+        },
+      ]);
+    });
+
+    it('rejects extended form with invalid userType', () => {
+      expect(
+        parseInfraDaemonState(
+          'nginx.pid',
+          '/usr/sbin/nginx:port=80,user=alice,userType=admin,home=/home/alice',
+        ),
+      ).toEqual([]);
+    });
+
+    it('rejects extended form missing the home field', () => {
+      // Optional group is all-or-nothing — partial owner fields must fail
+      // the match so the override doesn't silently degrade to no-owner.
+      expect(
+        parseInfraDaemonState('nginx.pid', '/usr/sbin/nginx:port=80,user=alice,userType=user'),
+      ).toEqual([]);
+    });
+
+    it('rejects extended form with extra trailing fields', () => {
+      // `,extra=foo` after home= signals a forged/malformed line; anchor at $.
+      expect(
+        parseInfraDaemonState(
+          'nginx.pid',
+          '/usr/sbin/nginx:port=80,user=alice,userType=user,home=/home/alice,extra=foo',
+        ),
+      ).toEqual([]);
+    });
+  });
+
   describe('multi-line content', () => {
     it('emits one override per valid line', () => {
       const content = '/usr/sbin/nginx:port=80\n/usr/sbin/nginx:port=443';
