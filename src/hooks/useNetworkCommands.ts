@@ -735,7 +735,11 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
             getMachine,
             resolveDomain,
             resolveNat,
-            getNodeFromMachine,
+            // IP → workstation_id translation so cross-player /var/www
+            // scans hit the right machineId (same shape as the curl /
+            // lynx readFileFromMachine wrappers above).
+            getNodeFromMachine: (machineId, path, cwd) =>
+              getNodeFromMachine(resolveTargetMachineId(machineId), path, cwd),
             getLocalNode: (path: string) => getNode(resolvePath(path)),
             getCurrentPath: () => session.currentPath,
             onScanAggregate: onGobusterScanAggregate,
