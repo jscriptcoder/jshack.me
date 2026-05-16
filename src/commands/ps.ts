@@ -32,11 +32,18 @@ export const parseInfraPid = (
   return { binary: match[1]!, port, user: match[3] };
 };
 
-// Maps PID file names to the user that runs the daemon.
+// Fallback owner for pid files that ship the short form `binary:port=N`
+// (no embedded user). Used only when the pid content does not carry a
+// `user=…` field — e.g. themed-network nginx shipped via
+// `buildInfrastructurePidFiles` where the generator stamps `www-data` as
+// the static port owner. Player-run daemons (apache2, nginx) write the
+// extended form and supply the invoking user directly, so this map is
+// never consulted for them. `apache2.pid` is intentionally absent: every
+// apache2 pid file comes from the player command and is required to be
+// extended; a malformed apache2.pid is skipped rather than defaulted.
 export const PID_FILE_USERS: Readonly<Record<string, string>> = {
   'sshd.pid': 'root',
   'vsftpd.pid': 'root',
-  'apache2.pid': 'www-data',
   'nginx.pid': 'www-data',
   'mysqld.pid': 'mysql',
   'postgres.pid': 'postgres',
