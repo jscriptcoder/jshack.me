@@ -68,6 +68,44 @@ describe('listProcesses', () => {
     );
   });
 
+  it('shows nginx with the invoking user when pid is extended form (player-run)', () => {
+    // Player nginx writes the extended form including the user who started it.
+    // ps should reflect that user (not the static www-data fallback).
+    const adapter = createAdapter({
+      readDirectory: varRun({
+        'nginx.pid': '/usr/sbin/nginx:port=80,user=alice,userType=user,home=/home/alice',
+      }),
+    });
+    const processes = listProcesses(adapter);
+    expect(processes).toContainEqual(
+      expect.objectContaining({ user: 'alice', command: '/usr/sbin/nginx' }),
+    );
+  });
+
+  it('shows apache2 when apache2.pid exists', () => {
+    const adapter = createAdapter({
+      readDirectory: varRun({
+        'apache2.pid': 'apache2:port=80,user=alice,userType=user,home=/home/alice',
+      }),
+    });
+    const processes = listProcesses(adapter);
+    expect(processes).toContainEqual(
+      expect.objectContaining({ user: 'alice', command: '/usr/sbin/apache2 -p 80' }),
+    );
+  });
+
+  it('shows apache2 running as root with the configured port', () => {
+    const adapter = createAdapter({
+      readDirectory: varRun({
+        'apache2.pid': 'apache2:port=443,user=root,userType=root,home=/root',
+      }),
+    });
+    const processes = listProcesses(adapter);
+    expect(processes).toContainEqual(
+      expect.objectContaining({ user: 'root', command: '/usr/sbin/apache2 -p 443' }),
+    );
+  });
+
   it('deduplicates nginx via single PID file even with multiple HTTP ports', () => {
     // nginx.pid is only written once regardless of how many HTTP ports exist
     const adapter = createAdapter({
