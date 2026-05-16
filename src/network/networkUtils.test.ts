@@ -1194,6 +1194,124 @@ describe('applyDynamicOverrides', () => {
     // No infra ports to close → machine returned with same (empty) ports.
     expect(result.ports).toEqual([]);
   });
+
+  it('should open http port from apache2.pid (workstation with no static http port)', () => {
+    const machine = createMachine({ ip: '10.0.0.5', ports: [] });
+    const readNode = (machineId: string, path: string) => {
+      if (machineId === '10.0.0.5' && path === '/var/run/apache2.pid') {
+        return {
+          name: 'apache2.pid',
+          type: 'file' as const,
+          content: 'apache2:port=80,user=alice,userType=user,home=/home/alice',
+          owner: 'user' as const,
+          permissions: { read: [], write: [], execute: [] },
+        };
+      }
+      return null;
+    };
+
+    const result = applyDynamicOverrides(machine, {
+      allIptablesRules: new Map(),
+      allSnmpOverrides: new Map(),
+      allAclRules: new Map(),
+      allSnmpAclOverrides: new Map(),
+      homeGatewayByAliasIp: new Map(),
+      readNode,
+    });
+
+    expect(result.ports).toContainEqual(
+      expect.objectContaining({
+        port: 80,
+        service: 'http',
+        open: true,
+        owner: { username: 'alice', userType: 'user', homePath: '/home/alice' },
+      }),
+    );
+  });
+
+  it('should stamp root owner when apache2.pid says root', () => {
+    const machine = createMachine({ ip: '10.0.0.5', ports: [] });
+    const readNode = (machineId: string, path: string) => {
+      if (machineId === '10.0.0.5' && path === '/var/run/apache2.pid') {
+        return {
+          name: 'apache2.pid',
+          type: 'file' as const,
+          content: 'apache2:port=443,user=root,userType=root,home=/root',
+          owner: 'root' as const,
+          permissions: { read: [], write: [], execute: [] },
+        };
+      }
+      return null;
+    };
+
+    const result = applyDynamicOverrides(machine, {
+      allIptablesRules: new Map(),
+      allSnmpOverrides: new Map(),
+      allAclRules: new Map(),
+      allSnmpAclOverrides: new Map(),
+      homeGatewayByAliasIp: new Map(),
+      readNode,
+    });
+
+    expect(result.ports).toContainEqual(
+      expect.objectContaining({
+        port: 443,
+        service: 'https',
+        open: true,
+        owner: { username: 'root', userType: 'root', homePath: '/root' },
+      }),
+    );
+  });
+
+  it('should NOT add http port when apache2.pid is absent and no static port exists', () => {
+    const machine = createMachine({ ip: '10.0.0.5', ports: [] });
+    const result = applyDynamicOverrides(machine, {
+      allIptablesRules: new Map(),
+      allSnmpOverrides: new Map(),
+      allAclRules: new Map(),
+      allSnmpAclOverrides: new Map(),
+      homeGatewayByAliasIp: new Map(),
+      readNode: () => null,
+    });
+
+    expect(result.ports.find((p) => p.port === 80)).toBeUndefined();
+  });
+
+  it('keeps static http port open when apache2 is running and nginx.pid is absent (closure-exclusion)', () => {
+    // Defensive future-proofing: if a machine ships a static http port AND
+    // apache2.pid is the daemon serving it (no nginx.pid), the infra closure
+    // logic should NOT close http just because nginx.pid is missing — apache2
+    // is the running daemon for that service.
+    const machine = createMachine({
+      ip: '10.0.0.5',
+      ports: [createPort({ port: 80, service: 'http', serviceVersion: 'latest', open: true })],
+    });
+    const readNode = (machineId: string, path: string) => {
+      if (machineId === '10.0.0.5' && path === '/var/run/apache2.pid') {
+        return {
+          name: 'apache2.pid',
+          type: 'file' as const,
+          content: 'apache2:port=80,user=root,userType=root,home=/root',
+          owner: 'root' as const,
+          permissions: { read: [], write: [], execute: [] },
+        };
+      }
+      return null;
+    };
+
+    const result = applyDynamicOverrides(machine, {
+      allIptablesRules: new Map(),
+      allSnmpOverrides: new Map(),
+      allAclRules: new Map(),
+      allSnmpAclOverrides: new Map(),
+      homeGatewayByAliasIp: new Map(),
+      readNode,
+    });
+
+    expect(result.ports).toContainEqual(
+      expect.objectContaining({ port: 80, service: 'http', open: true }),
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
