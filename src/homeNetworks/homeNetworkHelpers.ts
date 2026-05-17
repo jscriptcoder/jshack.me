@@ -130,6 +130,40 @@ export const isOwnWorkstation = (machineId: string, ownHostname: string): boolea
   machineId === ownHostname;
 
 // ---------------------------------------------------------------------
+// isOnLayer0
+// ---------------------------------------------------------------------
+//
+// Returns true when `machineId` shares broadcast scope with the home
+// network's layer-0 LAN — meaning a player SSH'd into this machine
+// should see LAN-occupant workstations alongside the static NPC topology.
+//
+// Matches:
+//   - The home router via its public IP (player SSH'd from outside the LAN)
+//   - The router's internal alias (.1 on the layer-0 subnet)
+//   - Any NPC machine on the layer-0 subnet
+//   - An inner gateway's layer-0-facing interface (e.g. opnsense at
+//     172.29.209.168 has another interface on layer 1, but its layer-0 IP
+//     still shares the broadcast domain with workstations)
+//
+// Does NOT match:
+//   - Machines on inner-layer subnets (192.168.x or 10.x behind the
+//     inner gateway) — they're isolated from the LAN's broadcast scope
+//
+// Prefix anchoring matters: subnet "172.29.20" must NOT match
+// "172.29.209.1" — so we append a trailing dot to the subnet before the
+// startsWith check.
+
+export const isOnLayer0 = (
+  machineId: string,
+  layer0Subnet: string | null | undefined,
+  routerPublicIp: string | null | undefined,
+): boolean => {
+  if (routerPublicIp && machineId === routerPublicIp) return true;
+  if (layer0Subnet && machineId.startsWith(`${layer0Subnet}.`)) return true;
+  return false;
+};
+
+// ---------------------------------------------------------------------
 // displayPromptHostname
 // ---------------------------------------------------------------------
 //

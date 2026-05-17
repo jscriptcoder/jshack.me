@@ -3,6 +3,7 @@ import {
   computePlayerHostname,
   deriveHostnameSuffix,
   displayPromptHostname,
+  isOnLayer0,
   isOwnWorkstation,
   occupantAwareReadNode,
   parseWorkstationId,
@@ -363,5 +364,68 @@ describe('parseWorkstationId', () => {
     expect(parsed?.suffix).toMatch(/^[0-9a-f]{8}$/);
     // Reconstructed must match the original.
     expect(`${parsed?.name}-${parsed?.suffix}`).toBe(id);
+  });
+});
+
+describe('isOnLayer0', () => {
+  // Used by NetworkContext to decide whether a machine the player SSH'd
+  // into should see LAN-occupant workstations. Layer-0 machines (router
+  // internal alias, NPC home machines on the LAN, inner-gateway's
+  // layer-0-facing interface) all share broadcast scope with workstations.
+  // Inner-layer machines (behind a switch/router on a different subnet)
+  // don't.
+
+  const SUBNET = '172.29.209';
+  const ROUTER_PUBLIC = '51.146.70.192';
+
+  it('returns true for the home router via its public IP', () => {
+    expect(isOnLayer0(ROUTER_PUBLIC, SUBNET, ROUTER_PUBLIC)).toBe(true);
+  });
+
+  it('returns true for the home router via its layer-0 internal alias (.1)', () => {
+    expect(isOnLayer0('172.29.209.1', SUBNET, ROUTER_PUBLIC)).toBe(true);
+  });
+
+  it('returns true for NPC home machines on the layer-0 subnet', () => {
+    expect(isOnLayer0('172.29.209.50', SUBNET, ROUTER_PUBLIC)).toBe(true);
+  });
+
+  it("returns true for an inner gateway's layer-0-facing interface", () => {
+    // opnsense at 172.29.209.168 with its other interface on layer 1 — when
+    // the player SSHs to its layer-0 IP, they're on the LAN.
+    expect(isOnLayer0('172.29.209.168', SUBNET, ROUTER_PUBLIC)).toBe(true);
+  });
+
+  it('returns false for an inner-layer subnet IP', () => {
+    // layer 1: 172.26.218.0/24 — behind opnsense. No broadcast scope to layer 0.
+    expect(isOnLayer0('172.26.218.50', SUBNET, ROUTER_PUBLIC)).toBe(false);
+  });
+
+  it('returns false for a deeper-layer IP', () => {
+    // layer 2: 192.168.156.0/24 — behind mikrotik01.
+    expect(isOnLayer0('192.168.156.10', SUBNET, ROUTER_PUBLIC)).toBe(false);
+  });
+
+  it('returns false for a mission/world public IP unrelated to home', () => {
+    expect(isOnLayer0('203.0.113.42', SUBNET, ROUTER_PUBLIC)).toBe(false);
+  });
+
+  it('does NOT false-positive on a prefix collision', () => {
+    // Subnet "172.29.20" vs IP "172.29.209.1" — must NOT match. Anchored
+    // boundary at the dot prevents the substring overlap.
+    expect(isOnLayer0('172.29.209.1', '172.29.20', ROUTER_PUBLIC)).toBe(false);
+  });
+
+  it('returns false when both subnet and public IP are unknown', () => {
+    expect(isOnLayer0('172.29.209.1', null, null)).toBe(false);
+  });
+
+  it('still matches router public IP even when subnet is unknown', () => {
+    // Edge case: a player SSH'd via public IP before home network fully loaded.
+    expect(isOnLayer0(ROUTER_PUBLIC, null, ROUTER_PUBLIC)).toBe(true);
+  });
+
+  it('still matches subnet even when public IP is unknown', () => {
+    expect(isOnLayer0('172.29.209.50', SUBNET, null)).toBe(true);
   });
 });

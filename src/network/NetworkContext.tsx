@@ -22,7 +22,11 @@ import type { HomeNetwork } from '../generation/generateHomeNetwork';
 import type { OccupantSummary } from '../homeNetworks/types';
 import { useSession } from '../session/SessionContext';
 import { useFileSystem } from '../filesystem';
-import { isOwnWorkstation, occupantAwareReadNode } from '../homeNetworks/homeNetworkHelpers';
+import {
+  isOnLayer0,
+  isOwnWorkstation,
+  occupantAwareReadNode,
+} from '../homeNetworks/homeNetworkHelpers';
 import { findGatewayChainFor } from './gatewayChain';
 import { parseIptablesRules } from './iptablesParser';
 import { parseSnmpFirewallConfig } from './snmpFirewallParser';
@@ -338,6 +342,19 @@ export const NetworkProvider = ({
     }));
   }, [homeNetwork, lanOccupants]);
 
+  // DNS records for LAN occupants — hostname → LAN IP. Shared by the
+  // own-workstation branch and the homeConfig branch (when SSH'd into a
+  // layer-0 machine); both need to be able to resolve occupant hostnames.
+  const occupantDnsRecords = useMemo(
+    (): readonly DnsRecord[] =>
+      occupantMachines.map((m) => ({
+        domain: m.hostname,
+        ip: m.ip,
+        type: 'A' as const,
+      })),
+    [occupantMachines],
+  );
+
   // Multi-tier network config resolution for the current machine:
   // 1. Mission config (if on a mission-generated machine)
   // 2. Home network config (if on a home network machine)
@@ -348,9 +365,29 @@ export const NetworkProvider = ({
     const missionConfig = missionNetworkConfig?.machineConfigs[session.machine];
     if (missionConfig) return missionConfig;
 
-    // Home network machine (SSH'd into a generated machine)
+    // Home network machine (SSH'd into a generated machine). When on a
+    // layer-0 machine — the home router (via internal alias or public
+    // IP), any NPC layer-0 box, or an inner gateway's layer-0-facing
+    // interface — the LAN's broadcast scope includes player workstations,
+    // so we merge them in alongside the static NPC topology.
+    // Inner-layer machines (behind a switch/router on a different subnet)
+    // skip the merge and see only the static config.
     const homeConfig = homeNetwork?.networkConfig.machineConfigs[session.machine];
-    if (homeConfig) return homeConfig;
+    if (homeConfig) {
+      const onLayer0 = isOnLayer0(
+        session.machine,
+        homeNetwork?.layers[0]?.subnet ?? null,
+        homeNetwork?.router.publicIp ?? null,
+      );
+      if (onLayer0) {
+        return {
+          ...homeConfig,
+          machines: [...homeConfig.machines, ...occupantMachines],
+          dnsRecords: [...homeConfig.dnsRecords, ...occupantDnsRecords],
+        };
+      }
+      return homeConfig;
+    }
 
     if (isLocalhostDisconnected) {
       return {
@@ -378,19 +415,18 @@ export const NetworkProvider = ({
 
       // Other LAN occupants — alive hosts with no statically-stamped open
       // ports (closed-laptop default). Dynamic ports surface via
-      // applyDynamicOverrides reading their pid files. occupantMachines is
-      // lifted to the top of the component so the same data feeds the NAT
-      // overlay pipeline (see overlaidOccupants below).
-      const occupantDns: readonly DnsRecord[] = occupantMachines.map((m) => ({
-        domain: m.hostname,
-        ip: m.ip,
-        type: 'A' as const,
-      }));
-
+      // applyDynamicOverrides reading their pid files. occupantMachines
+      // and occupantDnsRecords are lifted to the top of the component so
+      // the same data feeds the NAT overlay pipeline AND the homeConfig
+      // branch's layer-0 visibility merge.
       const homeBase: MachineNetworkConfig = {
         interfaces: localhostHomeInterfaces,
         machines: [...visibleMachines, ...occupantMachines, ...worldRouterViews],
-        dnsRecords: [...(sampleConfig?.dnsRecords ?? []), ...occupantDns, ...worldExternalDns],
+        dnsRecords: [
+          ...(sampleConfig?.dnsRecords ?? []),
+          ...occupantDnsRecords,
+          ...worldExternalDns,
+        ],
       };
 
       // If mission is active, also make mission router visible from localhost
@@ -456,6 +492,7 @@ export const NetworkProvider = ({
     worldRouterViews,
     worldExternalDns,
     occupantMachines,
+    occupantDnsRecords,
   ]);
 
   // Read-node wrapper that translates LAN-occupant IPs to their
