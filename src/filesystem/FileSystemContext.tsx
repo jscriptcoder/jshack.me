@@ -90,6 +90,15 @@ type FileSystemProviderProps = {
   readonly missionFileSystems?: Readonly<Record<string, FileNode>>;
   readonly homeFileSystems?: Readonly<Record<string, FileNode>>;
   readonly lanOccupantHostnames?: readonly string[];
+  // Cross-LAN machine_ids accumulated at runtime via piece-2b lazy
+  // subscription (foreign-IP touch + foothold expansion). Distinct from
+  // lanOccupantHostnames — that prop carries the player's CURRENT home
+  // LAN's occupants and rotates on WiFi switch; this one grows
+  // monotonically within a session as the player reaches into foreign
+  // LANs, and resets on page reload. Both fold into the same
+  // machine_ids keyset inside useFileSystemSync; the separation is
+  // about WHO owns the source-of-truth state, not how it's consumed.
+  readonly crossLanMachineIds?: readonly string[];
 };
 
 export const FileSystemProvider = ({
@@ -98,6 +107,7 @@ export const FileSystemProvider = ({
   missionFileSystems,
   homeFileSystems,
   lanOccupantHostnames,
+  crossLanMachineIds,
 }: FileSystemProviderProps) => {
   const { session, hostname, ftpSession, ncSession, mysqlSession, redisSession } = useSession();
   // The player's workstation filesystem is keyed under their workstation_id
@@ -133,6 +143,7 @@ export const FileSystemProvider = ({
     homeFileSystems,
     missionFileSystems,
     lanOccupantHostnames,
+    crossLanMachineIds,
     session,
     protocolSessionMachineIds,
   });

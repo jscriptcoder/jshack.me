@@ -55,6 +55,14 @@ type Inputs = {
   readonly homeFileSystems?: Readonly<Record<string, FileNode>>;
   readonly missionFileSystems?: Readonly<Record<string, FileNode>>;
   readonly lanOccupantHostnames?: readonly string[];
+  // Cross-LAN machine_ids reached via piece-2b lazy subscription:
+  // grows monotonically within a session as foreign public IPs are
+  // touched (router subscribe) and footholds land (LAN expansion).
+  // Folded into the same machineIdsKey as same-LAN occupants — the
+  // rehydration fetch + Realtime subscribe map pick them up
+  // automatically. Resets on page reload (session-scoped, not
+  // persistent).
+  readonly crossLanMachineIds?: readonly string[];
   readonly session: SessionInput;
   // Canonical machine_ids of currently-active protocol/transient
   // sessions (FTP / nc / MySQL / Redis). Distinct from session.machine
@@ -86,6 +94,7 @@ export const useFileSystemSync = ({
   homeFileSystems,
   missionFileSystems,
   lanOccupantHostnames,
+  crossLanMachineIds,
   session,
   protocolSessionMachineIds,
 }: Inputs): FileSystemSync => {
@@ -203,24 +212,38 @@ export const useFileSystemSync = ({
 
   // Stable signature of the current machine_ids set: workstation +
   // homeFileSystems keys + missionFileSystems keys + lan-occupant
-  // hostnames, deduped + sorted. Used as the dep for both the
-  // rehydration fetch and the Realtime subscription effects so they
-  // re-run together when the keyset changes (mid-session WiFi crack,
-  // mission accept, world networks resolving after mount, occupant
-  // join/leave on the active LAN).
+  // hostnames + cross-LAN machine_ids, deduped + sorted. Used as the
+  // dep for both the rehydration fetch and the Realtime subscription
+  // effects so they re-run together when the keyset changes (mid-
+  // session WiFi crack, mission accept, world networks resolving after
+  // mount, occupant join/leave on the active LAN, foreign-IP touch /
+  // foothold expansion).
   //
   // lanOccupantHostnames carries the hostnames (= workstation_ids) of
   // OTHER players on the active LAN. Folding them in subscribes us to
   // their workstation patch streams so daemon state changes (sshd pid
   // file written, etc.) propagate cross-player and our nmap reflects
   // their open ports in real time.
+  //
+  // crossLanMachineIds carries machine_ids reached via foreign-IP
+  // touch (piece 2b lazy subscribe) — foreign routers entered through
+  // their public IP, plus the full occupant set of any foreign LAN
+  // where we've established a foothold. Demand-driven; resets on
+  // page reload.
   const machineIdsKey = useMemo(() => {
     const ids = new Set<string>([workstationId]);
     if (homeFileSystems) for (const id of Object.keys(homeFileSystems)) ids.add(id);
     if (missionFileSystems) for (const id of Object.keys(missionFileSystems)) ids.add(id);
     if (lanOccupantHostnames) for (const id of lanOccupantHostnames) ids.add(id);
+    if (crossLanMachineIds) for (const id of crossLanMachineIds) ids.add(id);
     return [...ids].sort().join(',');
-  }, [homeFileSystems, missionFileSystems, workstationId, lanOccupantHostnames]);
+  }, [
+    homeFileSystems,
+    missionFileSystems,
+    workstationId,
+    lanOccupantHostnames,
+    crossLanMachineIds,
+  ]);
 
   // Tracks whether the next rehydration fetch is the very first one.
   // The localWritesSinceMount guard (which skips server-truth
