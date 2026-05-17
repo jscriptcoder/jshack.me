@@ -29,7 +29,9 @@ const makeOptions = () => ({
   },
   getMachine: vi.fn((_ip: string) => ({ hostname: 'testbox', users: [] as readonly never[] })),
   findMachineUsers: vi.fn((_ip: string) => [] as ReturnType<typeof makeRemoteUser>[]),
-  findMachineByIp: vi.fn((_ip: string) => undefined),
+  // Defaults to "no match" — tests exercising the foreign-router
+  // fallthrough override this with their own mockResolvedValue.
+  findMachineByIpAsync: vi.fn().mockResolvedValue(undefined),
   readFile: vi.fn((_path: string, _userType: string) => null as string | null),
   resolveNat: vi.fn((ip: string, port: number) => ({ ip, port })),
   // Default: identity translation (LAN IP passes through unchanged) —

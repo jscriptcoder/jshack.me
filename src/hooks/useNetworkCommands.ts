@@ -69,6 +69,7 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
     resolveNat,
     findMachineUsers,
     findMachineByIp,
+    findMachineByIpAsync,
     getHandler,
   } = useNetwork();
   const {
@@ -126,6 +127,11 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
       machine === undefined ? undefined : applyVersionOverlay(machine, readFileFromMachine);
     const getEffectiveMachine = (ip: string) => withOverlay(getMachine(ip));
     const findEffectiveMachineByIp = (ip: string) => withOverlay(findMachineByIp(ip));
+    // Async overlay wrapper for callers that may need foreign-router
+    // resolution (piece 2b). Overlay itself is sync; we just await the
+    // underlying async lookup and decorate the result the same way.
+    const findEffectiveMachineByIpAsync = async (ip: string): Promise<RemoteMachine | undefined> =>
+      withOverlay(await findMachineByIpAsync(ip));
     const getEffectiveMachines = (): readonly RemoteMachine[] =>
       getMachines().map((m) => applyVersionOverlay(m, readFileFromMachine));
     const onHttpRequest = createHttpRequestHandler({
@@ -242,6 +248,7 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
           createNmapCommand({
             getMachine: getEffectiveMachine,
             findMachineByIp: findEffectiveMachineByIp,
+            findMachineByIpAsync: findEffectiveMachineByIpAsync,
             getMachines: getEffectiveMachines,
             getLocalIPs: () => new Set(getInterfaces().map((iface) => iface.inet)),
             getLocalHostname: () => session.hostname ?? session.machine,
@@ -898,6 +905,7 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
     getGateway,
     resolveNat,
     findMachineUsers,
+    findMachineByIpAsync,
     resolvePath,
     getNode,
     readFileFromMachine,

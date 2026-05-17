@@ -12,6 +12,11 @@ export type NmapScanAggregateInfo = {
 type NmapContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
   readonly findMachineByIp: (ip: string) => RemoteMachine | undefined;
+  // Piece-2b lazy-subscribe variant: lets single-target scans of a
+  // foreign public IP fall through to /api/lookup-home-network +
+  // foreign-router regen instead of immediately reporting "host not
+  // found". Range-scan and own-LAN paths stay sync.
+  readonly findMachineByIpAsync: (ip: string) => Promise<RemoteMachine | undefined>;
   readonly getMachines: () => readonly RemoteMachine[];
   readonly getLocalIPs: () => ReadonlySet<string>;
   readonly getLocalHostname: () => string;
@@ -255,6 +260,7 @@ export const createNmapCommand = (context: NmapContext): Command => ({
     const {
       getMachine,
       findMachineByIp,
+      findMachineByIpAsync,
       getMachines,
       getLocalIPs,
       getLocalHostname,
@@ -416,64 +422,51 @@ export const createNmapCommand = (context: NmapContext): Command => ({
           return;
         }
 
-        const machine = getMachine(target);
+        // Scan runner — invoked once we have a resolved RemoteMachine,
+        // whether from the sync local view (getMachine) or from the
+        // foreign-router fallthrough (findMachineByIpAsync).
+        const startScan = (machine: RemoteMachine): void => {
+          // Filter by protocol, then sort: open first, then closed, by port number
+          const protocolPorts = filterPortsByProtocol(machine.ports, udpScan);
+          const sortedPorts = [...protocolPorts].sort((a, b) => {
+            if (a.open !== b.open) return a.open ? -1 : 1;
+            return a.port - b.port;
+          });
+          const openPorts = sortedPorts.filter((p) => p.open);
 
-        if (!machine) {
-          if (target.startsWith('192.168.1.')) {
-            onLine(`Starting Nmap scan on ${target}`);
-            token.schedule(() => {
-              if (token.isCancelled()) return;
-              onLine('');
-              onLine(`Nmap scan report for ${target}`);
-              onLine('Host seems down.');
-              onLine('');
-              onLine('Note: Host may be blocking ping probes.');
-              onComplete();
-            }, jitter(800));
-            return;
-          }
-          throw new Error(`nmap: failed to resolve "${target}"`);
-        }
+          // Single aggregated log entry for the whole scan on this target.
+          onScanAggregate?.({
+            targetIp: target,
+            probedPorts: machine.ports.map((p) => p.port),
+          });
 
-        // Filter by protocol, then sort: open first, then closed, by port number
-        const protocolPorts = filterPortsByProtocol(machine.ports, udpScan);
-        const sortedPorts = [...protocolPorts].sort((a, b) => {
-          if (a.open !== b.open) return a.open ? -1 : 1;
-          return a.port - b.port;
-        });
-        const openPorts = sortedPorts.filter((p) => p.open);
+          onLine(`Starting Nmap scan on ${target}${scanModeLabel(versionScan, udpScan)}`);
+          onLine(`Scanning ${udpScan ? 'UDP ' : ''}ports...`);
 
-        // Single aggregated log entry for the whole scan on this target.
-        onScanAggregate?.({
-          targetIp: target,
-          probedPorts: machine.ports.map((p) => p.port),
-        });
+          let delay = jitter(400);
 
-        onLine(`Starting Nmap scan on ${target}${scanModeLabel(versionScan, udpScan)}`);
-        onLine(`Scanning ${udpScan ? 'UDP ' : ''}ports...`);
-
-        let delay = jitter(400);
-
-        token.schedule(() => {
-          if (token.isCancelled()) return;
-          onLine('');
-          onLine(`Nmap scan report for ${machine.hostname} (${machine.ip})`);
-          onLine('Host is up.');
-          onLine('');
-          const header = versionScan
-            ? 'PORT      STATE  SERVICE         VERSION'
-            : 'PORT      STATE  SERVICE';
-          onLine(header);
-        }, delay);
-
-        if (sortedPorts.length === 0) {
-          delay += jitter(200);
           token.schedule(() => {
             if (token.isCancelled()) return;
-            onLine('All scanned ports are closed.');
-            onComplete();
+            onLine('');
+            onLine(`Nmap scan report for ${machine.hostname} (${machine.ip})`);
+            onLine('Host is up.');
+            onLine('');
+            const header = versionScan
+              ? 'PORT      STATE  SERVICE         VERSION'
+              : 'PORT      STATE  SERVICE';
+            onLine(header);
           }, delay);
-        } else {
+
+          if (sortedPorts.length === 0) {
+            delay += jitter(200);
+            token.schedule(() => {
+              if (token.isCancelled()) return;
+              onLine('All scanned ports are closed.');
+              onComplete();
+            }, delay);
+            return;
+          }
+
           sortedPorts.forEach((port, index) => {
             delay += jitter(PORT_SCAN_DELAY_MS);
             token.schedule(() => {
@@ -494,7 +487,44 @@ export const createNmapCommand = (context: NmapContext): Command => ({
               }
             }, delay);
           });
+        };
+
+        const localMachine = getMachine(target);
+        if (localMachine) {
+          startScan(localMachine);
+          return;
         }
+
+        if (target.startsWith('192.168.1.')) {
+          onLine(`Starting Nmap scan on ${target}`);
+          token.schedule(() => {
+            if (token.isCancelled()) return;
+            onLine('');
+            onLine(`Nmap scan report for ${target}`);
+            onLine('Host seems down.');
+            onLine('');
+            onLine('Note: Host may be blocking ping probes.');
+            onComplete();
+          }, jitter(800));
+          return;
+        }
+
+        // Foreign-router lazy resolve (piece 2b). For public IPv4 misses,
+        // findMachineByIpAsync hits /api/lookup-home-network, regenerates
+        // the foreign home network's router locally, and subscribes the
+        // player to its patch stream. On miss, surface the same "failed
+        // to resolve" message the old sync path emitted via throw —
+        // .then() runs after the sync try/catch in Terminal, so we route
+        // through onLine + onComplete instead.
+        void findMachineByIpAsync(target).then((asyncMachine) => {
+          if (token.isCancelled()) return;
+          if (!asyncMachine) {
+            onLine(`nmap: failed to resolve "${target}"`);
+            onComplete();
+            return;
+          }
+          startScan(asyncMachine);
+        });
       },
       cancel: token.cancel,
     };

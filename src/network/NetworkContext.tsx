@@ -31,6 +31,7 @@ import {
   occupantAwareReadNode,
 } from '../homeNetworks/homeNetworkHelpers';
 import { findGatewayChainFor } from './gatewayChain';
+import { isPublicIpv4 } from './isPublicIpv4';
 import { parseIptablesRules } from './iptablesParser';
 import { parseSnmpFirewallConfig } from './snmpFirewallParser';
 import type { SnmpFirewallOverride } from './snmpFirewallParser';
@@ -61,6 +62,14 @@ type NetworkContextType = {
   readonly getDnsRecords: () => readonly DnsRecord[];
   readonly findMachineUsers: (ip: string) => readonly RemoteUser[];
   readonly findMachineByIp: (ip: string) => RemoteMachine | undefined;
+  // Async variant: same local lookup, BUT on a complete miss for a
+  // public-IPv4 address falls through to resolveForeignRouter — the
+  // piece-2b lazy-subscription entry point. Use this from callers that
+  // need foreign-IP support (nmap, ssh/scp/ftp auth). Sync callers
+  // (mysql/rediscli/msfconsole/Terminal exploit-shell) keep using
+  // findMachineByIp — they operate on already-known machines where the
+  // foreign-IP path doesn't apply.
+  readonly findMachineByIpAsync: (ip: string) => Promise<RemoteMachine | undefined>;
   readonly getPublicIP: () => string | null;
   readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
   readonly getGatewayChainFor: (machineIp: string) => readonly GeneratedMachine[];
@@ -69,13 +78,6 @@ type NetworkContextType = {
   // dispatch dynamic HTTP behavior (e.g., findit.io search) before
   // falling back to /var/www/html static files.
   readonly getHandler: (machineIp: string) => RequestHandler | undefined;
-  // Piece-2b lazy subscription: resolves a foreign home network's public
-  // IP to its router RemoteMachine, subscribing the player to the
-  // router's patch stream as a side-effect. Returns null when no
-  // home_networks row matches (negative-cached). C1 ships this method;
-  // C2 wires it into findMachineByIp + the 7 command-side call sites
-  // so foreign-IP touch works end-to-end.
-  readonly resolveForeignRouter: (publicIp: string) => Promise<RemoteMachine | null>;
 };
 
 const NetworkContext = createContext<NetworkContextType | null>(null);
@@ -712,11 +714,31 @@ export const NetworkProvider = ({
     [homeNetwork, missionNetworkConfig, missionRouterMachine, worldNetworks],
   );
 
+  // Per-session cache for foreign-router resolution. RemoteMachine | null
+  // distinguishes "looked up, doesn't exist" (negative-cached) from "never
+  // tried" (no key). Cache resets on page reload by living in a ref tied
+  // to component lifetime — fine for the bounded set of foreign IPs any
+  // session touches.
+  const foreignRouterCacheRef = useRef<Map<string, RemoteMachine | null>>(new Map());
+  const { addCrossLanMachineId } = useFileSystem();
+  const resolveForeignRouterCb = useCallback(
+    (publicIp: string): Promise<RemoteMachine | null> =>
+      resolveForeignRouter(publicIp, {
+        lookup: (lookupIp) => lookupHomeNetworkByPublicIp(getIdentity(), lookupIp),
+        regenerate: generateHomeNetwork,
+        addCrossLanMachineId,
+        cache: foreignRouterCacheRef.current,
+      }),
+    [addCrossLanMachineId],
+  );
+
   // Searches for a machine by IP across all network configs (home +
   // mission + world). Unlike getMachine which only returns machines
   // visible from the current position, this searches globally — needed
   // for NAT-forwarded SSH where the resolved target is behind a gateway
-  // and not directly visible.
+  // and not directly visible. Sync — used by callers that pre-resolve
+  // before returning AsyncOutput (mysql/rediscli/msfconsole) where the
+  // shell executor can't await.
   const findMachineByIp = useCallback(
     (ip: string): RemoteMachine | undefined => {
       const searchConfigs = (networkConfig: NetworkConfig): RemoteMachine | undefined =>
@@ -750,6 +772,24 @@ export const NetworkProvider = ({
     [homeNetwork, missionNetworkConfig, missionRouterMachine, worldNetworks],
   );
 
+  // Async variant of findMachineByIp with piece-2b lazy-subscription
+  // fallthrough: on a complete local miss for a public-IPv4 address,
+  // calls resolveForeignRouter to look up + regenerate + subscribe to
+  // the foreign home network's router. Private/loopback/reserved IPs
+  // skip the foreign path (no home_networks row possible). Use this
+  // from callers whose flow is already async (nmap's start callback,
+  // useAuthentication's ssh/scp/ftp auth).
+  const findMachineByIpAsync = useCallback(
+    async (ip: string): Promise<RemoteMachine | undefined> => {
+      const local = findMachineByIp(ip);
+      if (local) return local;
+      if (!isPublicIpv4(ip)) return undefined;
+      const foreign = await resolveForeignRouterCb(ip);
+      return foreign ?? undefined;
+    },
+    [findMachineByIp, resolveForeignRouterCb],
+  );
+
   // Port-aware NAT resolution: translates any gateway's IP + port to the
   // internal machine IP + port based on iptables rules parsed from that
   // gateway's filesystem. Works for both the border router and inner gateways.
@@ -778,24 +818,6 @@ export const NetworkProvider = ({
     [worldHandlers],
   );
 
-  // Per-session cache for foreign-router resolution. RemoteMachine | null
-  // distinguishes "looked up, doesn't exist" (negative-cached) from "never
-  // tried" (no key). Cache resets on page reload by living in a ref tied
-  // to component lifetime — fine for the bounded set of foreign IPs any
-  // session touches.
-  const foreignRouterCacheRef = useRef<Map<string, RemoteMachine | null>>(new Map());
-  const { addCrossLanMachineId } = useFileSystem();
-  const resolveForeignRouterCb = useCallback(
-    (publicIp: string): Promise<RemoteMachine | null> =>
-      resolveForeignRouter(publicIp, {
-        lookup: (ip) => lookupHomeNetworkByPublicIp(getIdentity(), ip),
-        regenerate: generateHomeNetwork,
-        addCrossLanMachineId,
-        cache: foreignRouterCacheRef.current,
-      }),
-    [addCrossLanMachineId],
-  );
-
   return (
     <NetworkContext.Provider
       value={{
@@ -813,7 +835,7 @@ export const NetworkProvider = ({
         resolveNat,
         getGatewayChainFor,
         getHandler,
-        resolveForeignRouter: resolveForeignRouterCb,
+        findMachineByIpAsync,
       }}
     >
       {children}

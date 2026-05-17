@@ -162,8 +162,15 @@ export const Terminal = () => {
     getNodeFromMachine,
     resolvePathForMachine,
   } = useFileSystem();
-  const { getMachine, findMachineUsers, findMachineByIp, resolveNat, getLocalIP, getPublicIP } =
-    useNetwork();
+  const {
+    getMachine,
+    findMachineUsers,
+    findMachineByIp,
+    findMachineByIpAsync,
+    resolveNat,
+    getLocalIP,
+    getPublicIP,
+  } = useNetwork();
 
   const shellCompleteAdapter = useMemo<CompleteAdapter>(() => {
     // NC mode: complete paths against the remote target machine's filesystem.
@@ -324,7 +331,7 @@ export const Terminal = () => {
     enterRedisMode,
     readFileFromMachine,
     findMachineUsers,
-    findMachineByIp,
+    findMachineByIpAsync,
     createFile,
     writeFile,
     onSuAuth: (success, targetUser) => {

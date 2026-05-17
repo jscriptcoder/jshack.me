@@ -36,7 +36,13 @@ type AuthenticationOptions = {
     ip: string,
   ) => { readonly hostname: string; readonly users: readonly RemoteUser[] } | undefined;
   readonly findMachineUsers: (ip: string) => readonly RemoteUser[];
-  readonly findMachineByIp: (ip: string) => RemoteMachine | undefined;
+  // Piece-2b lazy-subscribe-aware lookup: on a public-IPv4 miss falls
+  // through to /api/lookup-home-network + foreign-router regen so
+  // cross-LAN ssh/scp/ftp into a foreign router works on first try.
+  // ssh callers use this so they don't have to know about the
+  // subscription mechanic. All authentication targets get resolved
+  // through this single async path now.
+  readonly findMachineByIpAsync: (ip: string) => Promise<RemoteMachine | undefined>;
   readonly readFile: (path: string, userType: UserType) => string | null;
   readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
   // Maps a LAN IP to the canonical machine_id (workstation_id for
@@ -108,7 +114,7 @@ export const useAuthentication = ({
   session,
   getMachine,
   findMachineUsers,
-  findMachineByIp,
+  findMachineByIpAsync,
   readFile,
   resolveNat,
   resolveTargetMachineId,
@@ -251,7 +257,11 @@ export const useAuthentication = ({
       // unchanged. See homeNetworkHelpers.targetMachineIdFor.
       const targetMachineId = resolveTargetMachineId(resolvedIp);
       const homePath = getDefaultHomePath(resolvedIp, user);
-      const targetMachine = findMachineByIp(resolvedIp) ?? getMachine(ip);
+      // Async lookup so a first-touch ssh into a foreign-router public IP
+      // resolves correctly. The sync findMachineByIp returns undefined for
+      // unknown public IPs; findMachineByIpAsync falls through to the
+      // foreign-router resolver + cache.
+      const targetMachine = (await findMachineByIpAsync(resolvedIp)) ?? getMachine(ip);
 
       try {
         const result = await pushAuthSession(
@@ -295,7 +305,7 @@ export const useAuthentication = ({
       pushAuthSession,
       resolveNat,
       resolveTargetMachineId,
-      findMachineByIp,
+      findMachineByIpAsync,
       getDefaultHomePath,
       getMachine,
       addLine,

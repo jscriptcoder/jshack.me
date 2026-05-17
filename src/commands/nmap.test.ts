@@ -34,6 +34,11 @@ const createMockNmapContext = (config: NmapContextConfig = {}) => {
   return {
     getMachine: (ip: string) => machines.find((m) => m.ip === ip),
     findMachineByIp: (ip: string) => machines.find((m) => m.ip === ip),
+    // Async variant defaults to the same local lookup — tests that
+    // exercise the foreign-router fallthrough override this with their
+    // own mock. Wrapping in Promise.resolve keeps the type async without
+    // requiring a real lookup endpoint.
+    findMachineByIpAsync: (ip: string) => Promise.resolve(machines.find((m) => m.ip === ip)),
     getMachines: () => machines,
     getLocalIPs: () => new Set([localIP, '127.0.0.1']),
     getLocalHostname: () => localHostname,
@@ -73,19 +78,73 @@ describe('nmap command', () => {
       expect(() => nmap.fn('not-an-ip')).toThrow('nmap: invalid target: not-an-ip');
     });
 
-    it('should throw error for unknown IP outside subnet when start is called', () => {
+    it('resolves a foreign public IP via findMachineByIpAsync (piece 2b lazy subscribe)', async () => {
+      // Single-target nmap of a foreign public IP: getMachine misses (foreign
+      // IP isn't in any locally-known config), the 192.168.1.x special case
+      // doesn't apply, so the start callback falls through to
+      // findMachineByIpAsync. On a hit, the scan runs the same way it would
+      // for a locally-known machine.
+      const foreignRouter = {
+        ip: '51.146.70.192',
+        hostname: 'router.foreign',
+        ports: [{ port: 80, service: 'http', open: true, protocol: 'tcp' as const }],
+        users: [],
+      };
+      const findMachineByIpAsync = vi.fn().mockResolvedValue(foreignRouter);
+      const context = {
+        ...createMockNmapContext({ machines: [] }),
+        findMachineByIpAsync,
+      };
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('51.146.70.192');
+      if (!isAsyncOutput(result)) throw new Error('expected AsyncOutput');
+
+      const lines: string[] = [];
+      result.start(
+        (line) => lines.push(line),
+        () => {},
+      );
+
+      // Flush microtasks so the .then() resolves; then run the scan's
+      // scheduled callbacks to completion.
+      await Promise.resolve();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(5000);
+
+      expect(findMachineByIpAsync).toHaveBeenCalledWith('51.146.70.192');
+      expect(lines.some((line) => line.includes('51.146.70.192'))).toBe(true);
+      expect(lines.some((line) => line.includes('router.foreign'))).toBe(true);
+      expect(lines.some((line) => line.includes('80'))).toBe(true);
+    });
+
+    it('emits "failed to resolve" line + completes when target is unknown to all lookups', async () => {
+      // Was a sync throw before piece 2b — the foreign-router fallthrough
+      // necessarily runs after a microtask boundary (Promise.then), so we
+      // can no longer throw synchronously from start(). The contract is
+      // now: emit the same message via onLine, then call onComplete.
       const context = createMockNmapContext({ machines: [] });
       const nmap = createNmapCommand(context);
       const result = nmap.fn('10.0.0.1');
 
-      if (isAsyncOutput(result)) {
-        expect(() =>
-          result.start(
-            () => {},
-            () => {},
-          ),
-        ).toThrow('nmap: failed to resolve "10.0.0.1"');
-      }
+      if (!isAsyncOutput(result)) throw new Error('expected AsyncOutput');
+      const lines: string[] = [];
+      let completed = false;
+      result.start(
+        (line) => lines.push(line),
+        () => {
+          completed = true;
+        },
+      );
+
+      // Flush pending microtasks so the findMachineByIpAsync().then()
+      // resolves. The mock returns Promise.resolve(undefined), so a
+      // single microtask suffices — vi.useFakeTimers doesn't touch
+      // microtasks.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(lines).toContain('nmap: failed to resolve "10.0.0.1"');
+      expect(completed).toBe(true);
     });
   });
 
