@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { RemoteMachine, DnsRecord } from './types';
 import type { RequestHandler } from '../themedNetworks/types';
-import { resolveHttpTarget, dispatchHttpRequest } from './http';
+import { parseUrl, resolveHttpTarget, dispatchHttpRequest } from './http';
 
 // --- Factory Functions ---
 
@@ -56,6 +56,95 @@ const createMockContext = (config: ContextConfig = {}) => {
     getHandler,
   };
 };
+
+// --- parseUrl ---
+
+describe('parseUrl', () => {
+  describe('full URLs', () => {
+    it('parses http://host', () => {
+      expect(parseUrl('http://example.com')).toEqual({
+        protocol: 'http',
+        host: 'example.com',
+        port: 80,
+        path: '/',
+        query: '',
+      });
+    });
+
+    it('parses http://host:port', () => {
+      expect(parseUrl('http://example.com:8080')).toMatchObject({
+        protocol: 'http',
+        host: 'example.com',
+        port: 8080,
+      });
+    });
+
+    it('defaults https to port 443', () => {
+      expect(parseUrl('https://example.com')).toMatchObject({ port: 443, protocol: 'https' });
+    });
+  });
+
+  describe('shorthand without scheme (real-curl parity)', () => {
+    it('parses bare host', () => {
+      expect(parseUrl('example.com')).toEqual({
+        protocol: 'http',
+        host: 'example.com',
+        port: 80,
+        path: '/',
+        query: '',
+      });
+    });
+
+    it('parses host/path', () => {
+      expect(parseUrl('example.com/api/users')).toMatchObject({ host: 'example.com', path: '/api/users' });
+    });
+
+    it('parses bare IPv4', () => {
+      expect(parseUrl('10.0.0.5')).toMatchObject({ host: '10.0.0.5', port: 80 });
+    });
+
+    it('parses host:port shorthand (no scheme)', () => {
+      // Was rejected as invalid before — real curl accepts `host:port`
+      // without a scheme. Cross-LAN forwarded ports specifically need
+      // this: `curl <foreign-public-ip>:81` after the iptables forward
+      // adds 81 → workstation_port:80.
+      expect(parseUrl('78.36.59.200:81')).toEqual({
+        protocol: 'http',
+        host: '78.36.59.200',
+        port: 81,
+        path: '/',
+        query: '',
+      });
+    });
+
+    it('parses host:port/path shorthand', () => {
+      expect(parseUrl('example.com:8080/api')).toMatchObject({
+        host: 'example.com',
+        port: 8080,
+        path: '/api',
+      });
+    });
+
+    it('parses host:port?query shorthand', () => {
+      expect(parseUrl('example.com:8080?q=1')).toMatchObject({
+        host: 'example.com',
+        port: 8080,
+        query: 'q=1',
+      });
+    });
+  });
+
+  describe('rejections', () => {
+    it('returns null for empty string', () => {
+      expect(parseUrl('')).toBeNull();
+    });
+
+    it('returns null for non-numeric port', () => {
+      // `host:abc` — port must be digits.
+      expect(parseUrl('example.com:abc')).toBeNull();
+    });
+  });
+});
 
 // --- resolveHttpTarget ---
 

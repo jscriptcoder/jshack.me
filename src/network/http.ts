@@ -85,11 +85,21 @@ export const parseUrl = (urlStr: string): ParsedUrl | null => {
     };
   }
 
-  // Shorthand: "hostname/path" without protocol — defaults to HTTP (like real curl)
-  const shortMatch = urlStr.match(/^([^:/?]+)(\/[^?]*)?(?:\?(.*))?$/);
+  // Shorthand: "hostname[:port][/path][?query]" without protocol — defaults
+  // to HTTP. Real curl accepts `host:port` shorthand (e.g. `curl example.com:81`)
+  // which is the natural way to hit a forwarded port on a public IP; the
+  // explicit-port variant was added 2026-05-18 after piece-2b smoke surfaced
+  // it as a gap (curl <foreign-ip>:81 returned "invalid URL").
+  const shortMatch = urlStr.match(/^([^:/?]+)(?::(\d+))?(\/[^?]*)?(?:\?(.*))?$/);
   if (shortMatch) {
-    const [, host, path, query] = shortMatch;
-    return { protocol: 'http', host, port: 80, path: path || '/', query: query ?? '' };
+    const [, host, portStr, path, query] = shortMatch;
+    return {
+      protocol: 'http',
+      host,
+      port: portStr ? parseInt(portStr, 10) : 80,
+      path: path || '/',
+      query: query ?? '',
+    };
   }
 
   return null;
