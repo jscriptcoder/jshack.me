@@ -1,10 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { handleJoinHomeNetworkRequest, type HandlerDeps } from './handler';
+import {
+  handleJoinHomeNetworkRequest,
+  handleLookupHomeNetworkRequest,
+  type HandlerDeps,
+  type LookupHomeNetworkDeps,
+} from './handler';
 import type {
   HomeNetworkOccupantRow,
   HomeNetworkRow,
   InsertOccupantResult,
   DensityTier,
+  OccupantSummary,
 } from './types';
 import { noopRateLimiter, type RateLimiter } from '../ipRegistry/rateLimit';
 import { noopNonceStore } from '../signedRequest/nonceStore';
@@ -532,6 +538,163 @@ describe('handleJoinHomeNetworkRequest', () => {
       const envelope = makeEnvelope(identity);
       const result = await handleJoinHomeNetworkRequest(envelope, mkDeps({}));
       expect(result.status).toBe(200);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleLookupHomeNetworkRequest — piece-2b lazy-subscription primitive
+// ---------------------------------------------------------------------------
+
+const makeLookupEnvelope = (identity: Identity, publicIp = '203.0.113.42') => {
+  const realNow = Date.now;
+  Date.now = () => FIXED_NOW;
+  try {
+    return signRequest(identity, 'lookupHomeNetwork', { public_ip: publicIp });
+  } finally {
+    Date.now = realNow;
+  }
+};
+
+const mkLookupDeps = (overrides: Partial<LookupHomeNetworkDeps> = {}): LookupHomeNetworkDeps => ({
+  findHomeNetworkByPublicIp: overrides.findHomeNetworkByPublicIp ?? vi.fn().mockResolvedValue(null),
+  listOccupantsByNetworkId: overrides.listOccupantsByNetworkId ?? vi.fn().mockResolvedValue([]),
+  rateLimiter: overrides.rateLimiter ?? noopRateLimiter,
+  nonceStore: overrides.nonceStore ?? noopNonceStore,
+  now: overrides.now ?? (() => FIXED_NOW),
+});
+
+describe('handleLookupHomeNetworkRequest', () => {
+  let identity: Identity;
+  beforeEach(() => {
+    identity = generateIdentity();
+  });
+
+  describe('happy path', () => {
+    it('returns 200 with public_ip + occupants when the home_networks row exists', async () => {
+      const network = sampleNetwork({ public_ip: '203.0.113.42' });
+      const occupants: readonly OccupantSummary[] = [
+        { network_id: '203.0.113.42', lan_ip: '.187', hostname: 'skylab-9k3' },
+        { network_id: '203.0.113.42', lan_ip: '.42', hostname: 'rocket-bbccdd11' },
+      ];
+      const findHomeNetworkByPublicIp = vi.fn().mockResolvedValue(network);
+      const listOccupantsByNetworkId = vi.fn().mockResolvedValue(occupants);
+      const envelope = makeLookupEnvelope(identity);
+
+      const result = await handleLookupHomeNetworkRequest(
+        envelope,
+        mkLookupDeps({ findHomeNetworkByPublicIp, listOccupantsByNetworkId }),
+      );
+
+      expect(result.status).toBe(200);
+      expect(result.body).toEqual({
+        public_ip: '203.0.113.42',
+        occupants,
+      });
+      expect(findHomeNetworkByPublicIp).toHaveBeenCalledWith('203.0.113.42');
+      expect(listOccupantsByNetworkId).toHaveBeenCalledWith('203.0.113.42');
+    });
+
+    it('returns 200 with empty occupants when the row exists but has no occupants', async () => {
+      // Edge case: a brand-new home_networks row that has not yet had its
+      // first joinOccupant complete (race window). Lookup must still succeed
+      // and report an empty occupant list — the router itself is reachable
+      // even without players on the LAN.
+      const network = sampleNetwork({ public_ip: '203.0.113.42' });
+      const findHomeNetworkByPublicIp = vi.fn().mockResolvedValue(network);
+      const listOccupantsByNetworkId = vi.fn().mockResolvedValue([]);
+      const envelope = makeLookupEnvelope(identity);
+
+      const result = await handleLookupHomeNetworkRequest(
+        envelope,
+        mkLookupDeps({ findHomeNetworkByPublicIp, listOccupantsByNetworkId }),
+      );
+
+      expect(result.status).toBe(200);
+      expect(result.body).toEqual({ public_ip: '203.0.113.42', occupants: [] });
+    });
+  });
+
+  describe('not found', () => {
+    it('returns 404 when no home_networks row matches the public_ip', async () => {
+      // Distinct from a hard error — the client wrapper turns 404 into null
+      // so callers can treat the IP as unresolvable without throwing.
+      const findHomeNetworkByPublicIp = vi.fn().mockResolvedValue(null);
+      const listOccupantsByNetworkId = vi.fn();
+      const envelope = makeLookupEnvelope(identity);
+
+      const result = await handleLookupHomeNetworkRequest(
+        envelope,
+        mkLookupDeps({ findHomeNetworkByPublicIp, listOccupantsByNetworkId }),
+      );
+
+      expect(result.status).toBe(404);
+      expect(result.body).toEqual({ error: 'not_found' });
+      // Occupant query skipped — no row to query against.
+      expect(listOccupantsByNetworkId).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('auth + rate limit', () => {
+    it('returns 401 when the signature is forged', async () => {
+      // Sign with one identity, swap the publicKey to another — verify fails.
+      const realEnvelope = makeLookupEnvelope(identity);
+      const otherIdentity = generateIdentity();
+      const forged = { ...realEnvelope, publicKey: otherIdentity.publicKeyHex };
+
+      const result = await handleLookupHomeNetworkRequest(forged, mkLookupDeps({}));
+
+      expect(result.status).toBe(401);
+    });
+
+    it('returns 400 when the envelope is structurally invalid', async () => {
+      const result = await handleLookupHomeNetworkRequest(
+        { not: 'a real envelope' },
+        mkLookupDeps({}),
+      );
+      expect(result.status).toBe(400);
+    });
+
+    it('returns 400 when the payload public_ip is malformed', async () => {
+      // 'not-an-ip' fails the IPv4 regex in
+      // lookupHomeNetworkSignedPayloadSchema.
+      const realNow = Date.now;
+      Date.now = () => FIXED_NOW;
+      const envelope = signRequest(identity, 'lookupHomeNetwork', { public_ip: 'not-an-ip' });
+      Date.now = realNow;
+
+      const result = await handleLookupHomeNetworkRequest(envelope, mkLookupDeps({}));
+      expect(result.status).toBe(400);
+    });
+
+    it('returns 429 when the rate limiter denies', async () => {
+      const rateLimiter: RateLimiter = vi
+        .fn()
+        .mockResolvedValue({ allowed: false, retryAfterSeconds: 30 });
+      const envelope = makeLookupEnvelope(identity);
+
+      const result = await handleLookupHomeNetworkRequest(envelope, mkLookupDeps({ rateLimiter }));
+
+      expect(result.status).toBe(429);
+      expect(result.body).toEqual({ error: 'rate_limited' });
+      expect(result.headers).toEqual({ 'Retry-After': '30' });
+    });
+
+    it('does NOT query the DB when the rate limiter denies', async () => {
+      // Cheap-checks-first: rate limiter gate fires before any DB I/O so a
+      // hammering client can't drain Supabase quota.
+      const rateLimiter: RateLimiter = vi
+        .fn()
+        .mockResolvedValue({ allowed: false, retryAfterSeconds: 1 });
+      const findHomeNetworkByPublicIp = vi.fn();
+      const envelope = makeLookupEnvelope(identity);
+
+      await handleLookupHomeNetworkRequest(
+        envelope,
+        mkLookupDeps({ rateLimiter, findHomeNetworkByPublicIp }),
+      );
+
+      expect(findHomeNetworkByPublicIp).not.toHaveBeenCalled();
     });
   });
 });

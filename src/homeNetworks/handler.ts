@@ -1,10 +1,12 @@
 import {
   joinHomeNetworkSignedPayloadSchema,
+  lookupHomeNetworkSignedPayloadSchema,
   MAX_SLOTS_BY_TIER,
   type DensityTier,
   type HomeNetworkOccupantRow,
   type HomeNetworkRow,
   type InsertOccupantResult,
+  type OccupantSummary,
 } from './types.js';
 import type { RateLimiter } from '../ipRegistry/rateLimit.js';
 import { verifySignedRequest, type VerifyFailureReason } from '../signedRequest/verify.js';
@@ -205,4 +207,72 @@ export const handleJoinHomeNetworkRequest = async (
   }
 
   return { status: 500, body: { error: 'slot_allocation_exhausted' } };
+};
+
+// ---------------------------------------------------------------------------
+// handleLookupHomeNetworkRequest — piece-2b lazy-subscription primitive
+//
+// Resolves a foreign public IP to (public_ip, occupants[]). public_ip IS
+// the router's machine_id by construction (router.ip === router.publicIp,
+// see src/network/networkUtils.ts) so callers can subscribe to it
+// directly. Occupants are included to save a follow-up round-trip during
+// the Chunk D foothold-driven LAN expansion — they're not subscribed-to
+// here; the caller decides when (on foothold).
+//
+// Signing is for rate-limit attribution + replay protection. The response
+// data is anon-public (same projection as listOccupants, plus the public
+// IP which is by definition external-facing).
+// ---------------------------------------------------------------------------
+
+export type LookupHomeNetworkDeps = {
+  // Looks up the home_networks row by public_ip. Returns null when no row
+  // matches — the handler turns that into a 404.
+  readonly findHomeNetworkByPublicIp: (publicIp: string) => Promise<HomeNetworkRow | null>;
+  // Returns the same projection as listOccupants for a given network_id.
+  // Empty array is a valid result (brand-new home_networks row before
+  // first occupant lands).
+  readonly listOccupantsByNetworkId: (networkId: string) => Promise<readonly OccupantSummary[]>;
+  readonly rateLimiter: RateLimiter;
+  readonly nonceStore: NonceStore;
+  readonly now?: () => number;
+};
+
+export const handleLookupHomeNetworkRequest = async (
+  envelope: unknown,
+  deps: LookupHomeNetworkDeps,
+): Promise<HandlerResponse> => {
+  const verified = await verifySignedRequest(envelope, lookupHomeNetworkSignedPayloadSchema, {
+    nonceStore: deps.nonceStore,
+    now: deps.now,
+  });
+  if (!verified.ok) {
+    return {
+      status: STATUS_BY_VERIFY_REASON[verified.reason],
+      body: { error: verified.reason },
+    };
+  }
+
+  const limit = await deps.rateLimiter(verified.publicKey);
+  if (!limit.allowed) {
+    return {
+      status: 429,
+      body: { error: 'rate_limited' },
+      headers: { 'Retry-After': String(limit.retryAfterSeconds) },
+    };
+  }
+
+  const network = await deps.findHomeNetworkByPublicIp(verified.payload.public_ip);
+  if (!network) {
+    return { status: 404, body: { error: 'not_found' } };
+  }
+
+  const occupants = await deps.listOccupantsByNetworkId(network.public_ip);
+
+  return {
+    status: 200,
+    body: {
+      public_ip: network.public_ip,
+      occupants: [...occupants],
+    },
+  };
 };

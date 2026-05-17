@@ -91,3 +91,46 @@ export const occupantSummarySchema = z
   .strict();
 
 export type OccupantSummary = z.infer<typeof occupantSummarySchema>;
+
+// IPv4 dotted-quad regex. Permissive on leading-zero octets (Linux ifconfig
+// would accept them too); strict on the four-octets-of-1-to-3-digits shape.
+// Used by lookupHomeNetwork to reject obviously-malformed inputs before they
+// reach the DB. The handler itself is content-agnostic — a syntactically
+// valid but unallocated public_ip simply returns 404.
+const IPV4_REGEX = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+
+// Schema for the signed payload that clients POST to /api/lookup-home-network.
+// Used by piece-2b lazy subscription: first touch of a foreign public IP
+// resolves to {public_ip, occupants[]} so the client can subscribe to the
+// foreign router's machine_id (which IS the public_ip) and cache occupants
+// for foothold-driven LAN expansion (Chunk D).
+//
+// Strict — rejects unknown fields. The signature attributes calls to a
+// pubkey so the rate limiter can throttle abuse; the response data itself
+// is anon-public (same projection as listOccupants + the public_ip column
+// from home_networks).
+export const lookupHomeNetworkSignedPayloadSchema = z
+  .object({
+    action: z.literal('lookupHomeNetwork'),
+    ts: z.number().int(),
+    nonce: z.string().regex(/^[0-9a-f]{32}$/i),
+    public_ip: z.string().regex(IPV4_REGEX),
+  })
+  .strict();
+
+export type LookupHomeNetworkSignedPayload = z.infer<typeof lookupHomeNetworkSignedPayloadSchema>;
+
+// Response payload returned to the client on a successful lookup.
+// public_ip is the router's machine_id (router.ip === router.publicIp by
+// construction — see src/network/networkUtils.ts), so callers can pass it
+// straight to subscribeToMachine without further translation. Occupants
+// are the same projection as listOccupants — included here to save a
+// follow-up round-trip during Chunk D's foothold expansion.
+export const lookupHomeNetworkResultSchema = z
+  .object({
+    public_ip: z.string(),
+    occupants: z.array(occupantSummarySchema),
+  })
+  .strict();
+
+export type LookupHomeNetworkResult = z.infer<typeof lookupHomeNetworkResultSchema>;
