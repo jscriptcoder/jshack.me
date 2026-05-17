@@ -148,26 +148,57 @@ describe('useFileSystemSync — rehydration, realtime, session-refetch', () => {
       );
     });
 
-    it('includes cross-lan machine_ids in machine_ids when supplied', async () => {
+    it('includes cross-lan machine_ids in machine_ids after addCrossLanMachineId is called', async () => {
       // Runtime-mutable set of machine_ids discovered on foreign LANs via
       // public-IP touch (piece 2b lazy subscription). Folding them into
       // the keyset routes their patch streams through the same rehydration
-      // + Realtime machinery as same-LAN occupants. Distinct prop from
-      // lanOccupantHostnames because cross-LAN entries are demand-driven
-      // (added at IP-resolution layer / foothold) rather than derived from
-      // the player's current home network's occupant list.
-      renderHook(() => useFileSystem(), {
-        wrapper: wrap({
-          crossLanMachineIds: ['foreign-router-aa11', 'foreign-ws-bb22'],
-        }),
+      // + Realtime machinery as same-LAN occupants. The imperative
+      // addCrossLanMachineId method is the canonical API — Chunk C2's
+      // foreign-router resolver calls it after a successful lookup.
+      const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+      const initialCallCount = vi.mocked(mockedListPatchesForMachines).mock.calls.length;
+
+      act(() => {
+        result.current.addCrossLanMachineId('foreign-router-aa11');
+        result.current.addCrossLanMachineId('foreign-ws-bb22');
       });
+
       await waitFor(() => {
-        expect(mockedListPatchesForMachines).toHaveBeenCalled();
+        expect(vi.mocked(mockedListPatchesForMachines).mock.calls.length).toBeGreaterThan(
+          initialCallCount,
+        );
       });
-      const machineIds = vi.mocked(mockedListPatchesForMachines).mock.calls[0][1];
+      const lastCall = vi
+        .mocked(mockedListPatchesForMachines)
+        .mock.calls.at(-1) as readonly unknown[];
+      const machineIds = lastCall[1] as readonly string[];
       expect(machineIds).toEqual(
         expect.arrayContaining([TEST_HOSTNAME, 'foreign-router-aa11', 'foreign-ws-bb22']),
       );
+    });
+
+    it('addCrossLanMachineId is idempotent — repeating the same id does not re-fire the refetch', async () => {
+      // Resolver may call addCrossLanMachineId on every cache hit (cheap
+      // signal that "we touched this foreign IP again"); the set semantics
+      // must collapse repeats so we don't burn refetches on no-ops.
+      const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+
+      act(() => {
+        result.current.addCrossLanMachineId('foreign-router-aa11');
+      });
+      await waitFor(() => {
+        expect(vi.mocked(mockedListPatchesForMachines).mock.calls.length).toBeGreaterThan(1);
+      });
+      const callCountAfterFirst = vi.mocked(mockedListPatchesForMachines).mock.calls.length;
+
+      act(() => {
+        result.current.addCrossLanMachineId('foreign-router-aa11');
+      });
+      // Give the debounced effect a chance to re-fire if it were going to.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      expect(vi.mocked(mockedListPatchesForMachines).mock.calls.length).toBe(callCountAfterFirst);
     });
 
     it('deduplicates machine_ids across home + mission', async () => {
@@ -428,30 +459,19 @@ describe('useFileSystemSync — rehydration, realtime, session-refetch', () => {
       expect(newIds).not.toContain('mainframe-1a2b3c4d');
     });
 
-    it('refetches when crossLanMachineIds grows (lazy-subscribe on foreign-IP touch)', async () => {
+    it('refetches when addCrossLanMachineId is called (lazy-subscribe on foreign-IP touch)', async () => {
       // First foreign-IP touch from a command (e.g. nmap <foreign-public-IP>)
-      // adds the foreign router's machine_id to the cross-LAN set. The
-      // rehydration fetch must re-fire so the foreign router's patch
-      // stream surfaces in local state. Without crossLanMachineIds in
-      // machineIdsKey's deps, the new machine_id would never enter the
-      // subscription set and the lazy-subscribe flow would silently no-op.
-      let setCrossLan: ((ids: readonly string[] | undefined) => void) | null = null;
-      const Outer = ({ children }: { children: ReactNode }) => {
-        const [ids, setter] = useState<readonly string[] | undefined>(undefined);
-        setCrossLan = setter;
-        return (
-          <FileSystemProvider localhostFileSystem={baseLocalhost} crossLanMachineIds={ids}>
-            {children}
-          </FileSystemProvider>
-        );
-      };
-
-      const { result } = renderHook(() => useFileSystem(), { wrapper: Outer });
+      // ends up calling addCrossLanMachineId(routerIp) once the lookup
+      // resolves. The rehydration fetch must re-fire so the foreign
+      // router's patch stream surfaces in local state. This test pins
+      // the integration between the imperative API and the useFileSystemSync
+      // keyset.
+      const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
       await waitFor(() => expect(result.current.isRehydrating).toBe(false));
       const callsAfterInitial = vi.mocked(mockedListPatchesForMachines).mock.calls.length;
 
       act(() => {
-        setCrossLan?.(['foreign-router-aa11']);
+        result.current.addCrossLanMachineId('foreign-router-aa11');
       });
 
       await waitFor(() => {
@@ -580,7 +600,7 @@ describe('useFileSystemSync — rehydration, realtime, session-refetch', () => {
       expect(calledMachineIds).toContain(TEST_HOSTNAME);
     });
 
-    it('subscribes to a Realtime channel for each cross-lan machine_id', async () => {
+    it('subscribes to a Realtime channel for each cross-lan machine_id added', async () => {
       // Foreign-LAN entries are demand-driven (piece 2b lazy subscribe),
       // but once they enter the keyset they must subscribe symmetrically
       // with same-LAN occupants — otherwise a foreign router's iptables
@@ -591,30 +611,33 @@ describe('useFileSystemSync — rehydration, realtime, session-refetch', () => {
       const fakeClient = {} as Parameters<typeof mockedSubscribeToMachine>[0];
       vi.mocked(mockedGetRealtimeClient).mockReturnValue(fakeClient);
 
-      const { result } = renderHook(() => useFileSystem(), {
-        wrapper: wrap({
-          crossLanMachineIds: ['foreign-router-aa11', 'foreign-ws-bb22'],
-        }),
-      });
+      const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
       await waitFor(() => expect(result.current.isRehydrating).toBe(false));
 
-      const calledMachineIds = vi
-        .mocked(mockedSubscribeToMachine)
-        .mock.calls.map((call) => (call as unknown as SubscribeMockArgs)[1]);
-      expect(calledMachineIds).toEqual(
-        expect.arrayContaining([TEST_HOSTNAME, 'foreign-router-aa11', 'foreign-ws-bb22']),
-      );
+      act(() => {
+        result.current.addCrossLanMachineId('foreign-router-aa11');
+        result.current.addCrossLanMachineId('foreign-ws-bb22');
+      });
+
+      await waitFor(() => {
+        const calledIds = vi
+          .mocked(mockedSubscribeToMachine)
+          .mock.calls.map((call) => (call as unknown as SubscribeMockArgs)[1]);
+        expect(calledIds).toEqual(
+          expect.arrayContaining([TEST_HOSTNAME, 'foreign-router-aa11', 'foreign-ws-bb22']),
+        );
+      });
     });
 
-    it('subscribes to the new cross-lan machine_id when the set grows (foothold-driven expansion)', async () => {
+    it('subscribes to a NEW Realtime channel when addCrossLanMachineId fires mid-session (foothold expansion)', async () => {
       // Symmetric with the rehydration refetch case above: when the
       // cross-LAN set grows mid-session (foothold on a foreign LAN ⇒
       // expand to that LAN's full occupant set), the Realtime effect's
       // cleanup-and-resubscribe pass must spin up channels for the
-      // newly-added machine_ids. Without crossLanMachineIds in
-      // machineIdsKey's deps, foothold expansion would never reach the
-      // Realtime layer and cross-player daemon state changes would only
-      // surface on next page reload.
+      // newly-added machine_ids. Without addCrossLanMachineId flowing
+      // through to machineIdsKey, foothold expansion would never reach
+      // the Realtime layer and cross-player daemon state changes would
+      // only surface on next page reload.
       const fakeClient = {} as Parameters<typeof mockedSubscribeToMachine>[0];
       vi.mocked(mockedGetRealtimeClient).mockReturnValue(fakeClient);
 
@@ -624,29 +647,20 @@ describe('useFileSystemSync — rehydration, realtime, session-refetch', () => {
         return vi.fn();
       });
 
-      let setCrossLan: ((ids: readonly string[] | undefined) => void) | null = null;
-      const Outer = ({ children }: { children: ReactNode }) => {
-        const [ids, setter] = useState<readonly string[] | undefined>(['foreign-router-aa11']);
-        setCrossLan = setter;
-        return (
-          <FileSystemProvider localhostFileSystem={baseLocalhost} crossLanMachineIds={ids}>
-            {children}
-          </FileSystemProvider>
-        );
-      };
-
-      const { result } = renderHook(() => useFileSystem(), { wrapper: Outer });
+      const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
       await waitFor(() => expect(result.current.isRehydrating).toBe(false));
-      expect(subscribedMachineIds.has('foreign-router-aa11')).toBe(true);
+
+      act(() => {
+        result.current.addCrossLanMachineId('foreign-router-aa11');
+      });
+      await waitFor(() => expect(subscribedMachineIds.has('foreign-router-aa11')).toBe(true));
       expect(subscribedMachineIds.has('foreign-ws-bb22')).toBe(false);
 
       act(() => {
-        setCrossLan?.(['foreign-router-aa11', 'foreign-ws-bb22']);
+        result.current.addCrossLanMachineId('foreign-ws-bb22');
       });
 
-      await waitFor(() => {
-        expect(subscribedMachineIds.has('foreign-ws-bb22')).toBe(true);
-      });
+      await waitFor(() => expect(subscribedMachineIds.has('foreign-ws-bb22')).toBe(true));
     });
 
     it('subscribes to a Realtime channel for each lan-occupant hostname', async () => {

@@ -125,10 +125,14 @@ export type LookupHomeNetworkSignedPayload = z.infer<typeof lookupHomeNetworkSig
 // construction — see src/network/networkUtils.ts), so callers can pass it
 // straight to subscribeToMachine without further translation. Occupants
 // are the same projection as listOccupants — included here to save a
-// follow-up round-trip during Chunk D's foothold expansion.
+// follow-up round-trip during Chunk D's foothold expansion. essid_template
+// feeds generateHomeNetwork's `essid` field during foreign-router regen
+// so UI surfaces (nmap output, hostname resolution, future findit.io
+// listings) render the real ESSID instead of a placeholder.
 export const lookupHomeNetworkResultSchema = z
   .object({
     public_ip: z.string(),
+    essid_template: z.string(),
     occupants: z.array(occupantSummarySchema),
   })
   .strict();

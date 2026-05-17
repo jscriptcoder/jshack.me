@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useMemo, useCallback, useRef, type ReactNode } from 'react';
 import type {
   NetworkConfig,
   MachineNetworkConfig,
@@ -18,8 +18,11 @@ import type {
 } from '../generation/types';
 import type { RequestHandler } from '../themedNetworks/types';
 import { localhostDisconnectedInterfaces, localhostWlan0Down } from './initialNetwork';
-import type { HomeNetwork } from '../generation/generateHomeNetwork';
+import { generateHomeNetwork, type HomeNetwork } from '../generation/generateHomeNetwork';
+import { lookupHomeNetworkByPublicIp } from '../homeNetworks/client';
 import type { OccupantSummary } from '../homeNetworks/types';
+import { getIdentity } from '../identity';
+import { resolveForeignRouter } from './resolveForeignRouter';
 import { useSession } from '../session/SessionContext';
 import { useFileSystem } from '../filesystem';
 import {
@@ -66,6 +69,13 @@ type NetworkContextType = {
   // dispatch dynamic HTTP behavior (e.g., findit.io search) before
   // falling back to /var/www/html static files.
   readonly getHandler: (machineIp: string) => RequestHandler | undefined;
+  // Piece-2b lazy subscription: resolves a foreign home network's public
+  // IP to its router RemoteMachine, subscribing the player to the
+  // router's patch stream as a side-effect. Returns null when no
+  // home_networks row matches (negative-cached). C1 ships this method;
+  // C2 wires it into findMachineByIp + the 7 command-side call sites
+  // so foreign-IP touch works end-to-end.
+  readonly resolveForeignRouter: (publicIp: string) => Promise<RemoteMachine | null>;
 };
 
 const NetworkContext = createContext<NetworkContextType | null>(null);
@@ -768,6 +778,24 @@ export const NetworkProvider = ({
     [worldHandlers],
   );
 
+  // Per-session cache for foreign-router resolution. RemoteMachine | null
+  // distinguishes "looked up, doesn't exist" (negative-cached) from "never
+  // tried" (no key). Cache resets on page reload by living in a ref tied
+  // to component lifetime — fine for the bounded set of foreign IPs any
+  // session touches.
+  const foreignRouterCacheRef = useRef<Map<string, RemoteMachine | null>>(new Map());
+  const { addCrossLanMachineId } = useFileSystem();
+  const resolveForeignRouterCb = useCallback(
+    (publicIp: string): Promise<RemoteMachine | null> =>
+      resolveForeignRouter(publicIp, {
+        lookup: (ip) => lookupHomeNetworkByPublicIp(getIdentity(), ip),
+        regenerate: generateHomeNetwork,
+        addCrossLanMachineId,
+        cache: foreignRouterCacheRef.current,
+      }),
+    [addCrossLanMachineId],
+  );
+
   return (
     <NetworkContext.Provider
       value={{
@@ -785,6 +813,7 @@ export const NetworkProvider = ({
         resolveNat,
         getGatewayChainFor,
         getHandler,
+        resolveForeignRouter: resolveForeignRouterCb,
       }}
     >
       {children}

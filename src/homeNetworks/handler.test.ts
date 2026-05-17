@@ -571,8 +571,8 @@ describe('handleLookupHomeNetworkRequest', () => {
   });
 
   describe('happy path', () => {
-    it('returns 200 with public_ip + occupants when the home_networks row exists', async () => {
-      const network = sampleNetwork({ public_ip: '203.0.113.42' });
+    it('returns 200 with public_ip + essid_template + occupants when the home_networks row exists', async () => {
+      const network = sampleNetwork({ public_ip: '203.0.113.42', essid_template: 'ACME-CORP' });
       const occupants: readonly OccupantSummary[] = [
         { network_id: '203.0.113.42', lan_ip: '.187', hostname: 'skylab-9k3' },
         { network_id: '203.0.113.42', lan_ip: '.42', hostname: 'rocket-bbccdd11' },
@@ -589,6 +589,7 @@ describe('handleLookupHomeNetworkRequest', () => {
       expect(result.status).toBe(200);
       expect(result.body).toEqual({
         public_ip: '203.0.113.42',
+        essid_template: 'ACME-CORP',
         occupants,
       });
       expect(findHomeNetworkByPublicIp).toHaveBeenCalledWith('203.0.113.42');
@@ -600,7 +601,7 @@ describe('handleLookupHomeNetworkRequest', () => {
       // first joinOccupant complete (race window). Lookup must still succeed
       // and report an empty occupant list — the router itself is reachable
       // even without players on the LAN.
-      const network = sampleNetwork({ public_ip: '203.0.113.42' });
+      const network = sampleNetwork({ public_ip: '203.0.113.42', essid_template: 'GLOBEX-NET' });
       const findHomeNetworkByPublicIp = vi.fn().mockResolvedValue(network);
       const listOccupantsByNetworkId = vi.fn().mockResolvedValue([]);
       const envelope = makeLookupEnvelope(identity);
@@ -611,7 +612,11 @@ describe('handleLookupHomeNetworkRequest', () => {
       );
 
       expect(result.status).toBe(200);
-      expect(result.body).toEqual({ public_ip: '203.0.113.42', occupants: [] });
+      expect(result.body).toEqual({
+        public_ip: '203.0.113.42',
+        essid_template: 'GLOBEX-NET',
+        occupants: [],
+      });
     });
   });
 

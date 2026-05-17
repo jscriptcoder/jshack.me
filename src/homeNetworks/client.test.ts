@@ -198,6 +198,7 @@ describe('joinHomeNetwork', () => {
 describe('lookupHomeNetworkByPublicIp', () => {
   const validLookupResult = {
     public_ip: '203.0.113.42',
+    essid_template: 'ACME-CORP',
     occupants: [
       { network_id: '203.0.113.42', lan_ip: '.187', hostname: 'skylab-9k3' },
       { network_id: '203.0.113.42', lan_ip: '.42', hostname: 'rocket-bbccdd11' },
@@ -307,6 +308,21 @@ describe('lookupHomeNetworkByPublicIp', () => {
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValue(okResponse({ public_ip: '203.0.113.42' }));
+    await expect(
+      lookupHomeNetworkByPublicIp(identity, '203.0.113.42', fetchMock),
+    ).rejects.toThrow();
+  });
+
+  it('throws when essid_template is missing (chunk-C regen needs it)', async () => {
+    // The foreign-router regeneration in resolveForeignRouter passes
+    // essid_template into generateHomeNetwork — without it, the regenerated
+    // HomeNetwork would have an empty essid string and any UI that
+    // displays the ESSID (nmap output, hostname resolution, future
+    // findit.io listings) would render blank.
+    const identity = generateIdentity();
+    const { essid_template: _drop, ...withoutEssid } = validLookupResult;
+    void _drop;
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(okResponse(withoutEssid));
     await expect(
       lookupHomeNetworkByPublicIp(identity, '203.0.113.42', fetchMock),
     ).rejects.toThrow();

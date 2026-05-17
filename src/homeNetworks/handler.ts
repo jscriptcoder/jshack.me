@@ -272,6 +272,7 @@ export const handleLookupHomeNetworkRequest = async (
     status: 200,
     body: {
       public_ip: network.public_ip,
+      essid_template: network.essid_template,
       occupants: [...occupants],
     },
   };

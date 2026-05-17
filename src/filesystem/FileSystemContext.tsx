@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 import type {
   FileNode,
   FilePermissions,
@@ -73,6 +73,14 @@ type FileSystemContextValue = {
   // No UI gates on this today (the IndexedDB cache covers initial paint), but
   // exposed for future loading-indicator wiring.
   readonly isRehydrating: boolean;
+  // Runtime-mutable cross-LAN subscription set (piece 2b lazy subscribe).
+  // Adding a machine_id folds it into the rehydration + Realtime keyset on
+  // the next render, so cross-LAN patches start flowing without any
+  // command-side wiring. Idempotent — repeat calls with the same id are
+  // no-ops. State resets on page reload (session-scoped). Callers: the
+  // foreign-router resolver in NetworkContext (Chunk C2) and the foothold
+  // expansion (Chunk D).
+  readonly addCrossLanMachineId: (machineId: string) => void;
   // Resolves when every patch network call that was in flight at the
   // moment of the call has settled. Used by transient-session wrappers
   // (scp/snmpset/msfconsole one-shots) to wait for fire-and-forget
@@ -90,15 +98,6 @@ type FileSystemProviderProps = {
   readonly missionFileSystems?: Readonly<Record<string, FileNode>>;
   readonly homeFileSystems?: Readonly<Record<string, FileNode>>;
   readonly lanOccupantHostnames?: readonly string[];
-  // Cross-LAN machine_ids accumulated at runtime via piece-2b lazy
-  // subscription (foreign-IP touch + foothold expansion). Distinct from
-  // lanOccupantHostnames — that prop carries the player's CURRENT home
-  // LAN's occupants and rotates on WiFi switch; this one grows
-  // monotonically within a session as the player reaches into foreign
-  // LANs, and resets on page reload. Both fold into the same
-  // machine_ids keyset inside useFileSystemSync; the separation is
-  // about WHO owns the source-of-truth state, not how it's consumed.
-  readonly crossLanMachineIds?: readonly string[];
 };
 
 export const FileSystemProvider = ({
@@ -107,8 +106,22 @@ export const FileSystemProvider = ({
   missionFileSystems,
   homeFileSystems,
   lanOccupantHostnames,
-  crossLanMachineIds,
 }: FileSystemProviderProps) => {
+  // Cross-LAN machine_ids accumulated at runtime via piece-2b lazy
+  // subscription (foreign-IP touch + foothold expansion). Distinct from
+  // lanOccupantHostnames — that prop carries the player's CURRENT home
+  // LAN's occupants and rotates on WiFi switch; this one grows
+  // monotonically within a session and resets on page reload. Both fold
+  // into the same machine_ids keyset inside useFileSystemSync.
+  //
+  // State lives here (not as a prop driven by GameProviders) because the
+  // only callers that add entries are deep inside the network/resolution
+  // layer — exposing an imperative `addCrossLanMachineId` keeps them
+  // from having to plumb a setter through multiple component layers.
+  const [crossLanMachineIds, setCrossLanMachineIds] = useState<readonly string[]>([]);
+  const addCrossLanMachineId = useCallback((machineId: string): void => {
+    setCrossLanMachineIds((prev) => (prev.includes(machineId) ? prev : [...prev, machineId]));
+  }, []);
   const { session, hostname, ftpSession, ncSession, mysqlSession, redisSession } = useSession();
   // The player's workstation filesystem is keyed under their workstation_id
   // (= suffixed hostname). Same value used for storage (patches.machine_id),
@@ -253,6 +266,7 @@ export const FileSystemProvider = ({
         canTraverseOnMachine,
         isRehydrating,
         flushPendingPatches,
+        addCrossLanMachineId,
       }}
     >
       {children}
