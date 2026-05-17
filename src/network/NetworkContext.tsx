@@ -320,6 +320,24 @@ export const NetworkProvider = ({
     [worldNetworks],
   );
 
+  // LAN-occupant placeholders — one RemoteMachine per other player on the
+  // active layer-0 subnet. Built once at the top level so it can feed BOTH
+  // the localhost-visible machine list (rendered in baseConfig below) AND
+  // the overlaidOccupants computation that powers home-router NAT
+  // forwarding to workstations. Empty when no home network or no layer-0
+  // subnet — harmless overlay miss in branches that don't render occupants.
+  const occupantMachines = useMemo((): readonly RemoteMachine[] => {
+    const subnet = homeNetwork?.layers[0]?.subnet ?? '';
+    if (!subnet) return [];
+    const debugVulnPort: Port | null = import.meta.env.DEV ? buildDebugVulnPort() : null;
+    return (lanOccupants ?? []).map((o) => ({
+      ip: `${subnet}${o.lan_ip}`,
+      hostname: o.hostname,
+      ports: debugVulnPort ? [debugVulnPort] : [],
+      users: [],
+    }));
+  }, [homeNetwork, lanOccupants]);
+
   // Multi-tier network config resolution for the current machine:
   // 1. Mission config (if on a mission-generated machine)
   // 2. Home network config (if on a home network machine)
@@ -358,25 +376,11 @@ export const NetworkProvider = ({
         ? [...sampleConfig.machines, ...(sampleMachine ? [sampleMachine.remoteMachine] : [])]
         : [];
 
-      // Other LAN occupants — render as alive hosts with no open ports
-      // (closed laptop default). Their assigned host octet is combined
-      // with layer-0 subnet to form a full IP.
-      //
-      // Dev-only: when VITE_DEBUG_VULN_EFFECT + VITE_DEBUG_VULN_TIER
-      // are both set at build time, every occupant gets a synthetic
-      // vulnerable port for cross-player CVE testing (see
-      // buildDebugVulnPort above). The ternary collapses to `null` in
-      // production so the prod bundle never references the factory.
-      const debugVulnPort: Port | null = import.meta.env.DEV ? buildDebugVulnPort() : null;
-      const subnet = layer0?.subnet ?? '';
-      const occupantMachines: readonly RemoteMachine[] = subnet
-        ? (lanOccupants ?? []).map((o) => ({
-            ip: `${subnet}${o.lan_ip}`,
-            hostname: o.hostname,
-            ports: debugVulnPort ? [debugVulnPort] : [],
-            users: [],
-          }))
-        : [];
+      // Other LAN occupants — alive hosts with no statically-stamped open
+      // ports (closed-laptop default). Dynamic ports surface via
+      // applyDynamicOverrides reading their pid files. occupantMachines is
+      // lifted to the top of the component so the same data feeds the NAT
+      // overlay pipeline (see overlaidOccupants below).
       const occupantDns: readonly DnsRecord[] = occupantMachines.map((m) => ({
         domain: m.hostname,
         ip: m.ip,
@@ -451,7 +455,7 @@ export const NetworkProvider = ({
     localhostHomeInterfaces,
     worldRouterViews,
     worldExternalDns,
-    lanOccupants,
+    occupantMachines,
   ]);
 
   // Read-node wrapper that translates LAN-occupant IPs to their
@@ -474,9 +478,13 @@ export const NetworkProvider = ({
     [getNodeFromMachine, lanOccupants, homeNetwork, hostname],
   );
 
-  // Dynamic overrides: for each visible machine, apply gateway enhancements
-  // (NAT merged view, SNMP firewall) and daemon state (sshd, ftpd, nc).
-  const overrideCtx = useMemo(
+  // Base override context — everything except `overlaidOccupants`. Used to
+  // overlay occupants themselves (their gateway-NAT branch is a no-op since
+  // workstations aren't gateways; the daemon-state branch reads their pid
+  // files). Lifting this out lets us compute overlaidOccupants in a
+  // separate memo and then feed them into the final overrideCtx without a
+  // chicken-and-egg cycle.
+  const baseOverrideCtx = useMemo(
     (): DynamicOverrideContext => ({
       allIptablesRules,
       allSnmpOverrides,
@@ -505,6 +513,30 @@ export const NetworkProvider = ({
       homeGatewayByAliasIp,
       readNodeForOverrides,
     ],
+  );
+
+  // Overlay each occupant's pid-file-driven port state. Feeds the
+  // home-gateway NAT merge so player-edited iptables forward rules
+  // targeting a workstation resolve to the workstation's actual open
+  // ports. applyDynamicOverrides is idempotent for non-gateway machines,
+  // so the same occupant overlayed twice (here + in currentConfig below)
+  // produces the same result.
+  const overlaidOccupants = useMemo(
+    (): readonly RemoteMachine[] =>
+      occupantMachines.map((m) => applyDynamicOverrides(m, baseOverrideCtx)),
+    [occupantMachines, baseOverrideCtx],
+  );
+
+  // Dynamic overrides: for each visible machine, apply gateway enhancements
+  // (NAT merged view, SNMP firewall) and daemon state (sshd, ftpd, nc).
+  // The home-gateway branch uses `overlaidOccupants` to resolve forward
+  // rules pointing at workstation occupants.
+  const overrideCtx = useMemo(
+    (): DynamicOverrideContext => ({
+      ...baseOverrideCtx,
+      overlaidOccupants,
+    }),
+    [baseOverrideCtx, overlaidOccupants],
   );
 
   const currentConfig = useMemo(
