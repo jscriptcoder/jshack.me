@@ -26,8 +26,10 @@ const mkRemoteMachine = (overrides?: Partial<RemoteMachine>): RemoteMachine => (
 const mkRouterMachine = (remoteMachine: RemoteMachine): GeneratedMachine =>
   ({ ip: remoteMachine.ip, hostname: remoteMachine.hostname, remoteMachine }) as GeneratedMachine;
 
-const mkHomeNetwork = (remoteMachine: RemoteMachine): HomeNetwork =>
-  ({ routerMachine: mkRouterMachine(remoteMachine) }) as HomeNetwork;
+const mkHomeNetwork = (
+  remoteMachine: RemoteMachine,
+  machines: readonly GeneratedMachine[] = [],
+): HomeNetwork => ({ routerMachine: mkRouterMachine(remoteMachine), machines }) as HomeNetwork;
 
 const mkLookupResult = (overrides?: Partial<LookupHomeNetworkResult>): LookupHomeNetworkResult => ({
   public_ip: '203.0.113.42',
@@ -228,6 +230,7 @@ describe('findForeignLanForMember', () => {
   ): ForeignLanCacheValue => ({
     router: { ip: routerIp, hostname: `router-${routerIp}`, ports: [], users: [] },
     occupantHostnames,
+    internalMachines: [],
   });
 
   it('returns the entry when machineId matches the router IP', async () => {

@@ -44,6 +44,7 @@ import {
 } from '../homeNetworks/homeNetworkHelpers';
 import { findGatewayChainFor } from './gatewayChain';
 import { isPublicIpv4 } from './isPublicIpv4';
+import { mergeForeignRouterForwards } from './mergeForeignRouterForwards';
 import { parseIptablesRules } from './iptablesParser';
 import { parseSnmpFirewallConfig } from './snmpFirewallParser';
 import type { SnmpFirewallOverride } from './snmpFirewallParser';
@@ -823,15 +824,28 @@ export const NetworkProvider = ({
   // skip the foreign path (no home_networks row possible). Use this
   // from callers whose flow is already async (nmap's start callback,
   // useAuthentication's ssh/scp/ftp auth).
+  //
+  // Foreign-router returns get the cross-LAN forward merge applied
+  // (mergeForeignRouterForwards): nmap of A's public IP from B's box
+  // shows the forwarded ports A's iptables exposes — synthesized for
+  // occupant targets, real-port-projected for NPC targets. Re-applies
+  // on every call so patch updates to A's rules.v4 surface naturally
+  // without manual cache invalidation.
   const findMachineByIpAsync = useCallback(
     async (ip: string): Promise<RemoteMachine | undefined> => {
       const local = findMachineByIp(ip);
       if (local) return local;
       if (!isPublicIpv4(ip)) return undefined;
       const foreign = await resolveForeignRouterCb(ip);
-      return foreign ?? undefined;
+      if (!foreign) return undefined;
+      const cacheEntry = foreignLanCacheRef.current.get(ip);
+      if (!cacheEntry) return foreign;
+      const rulesNode = getNodeFromMachine(ip, '/etc/iptables/rules.v4', '/');
+      const rulesContent =
+        rulesNode?.type === 'file' && rulesNode.content !== undefined ? rulesNode.content : null;
+      return mergeForeignRouterForwards(foreign, cacheEntry.internalMachines, rulesContent);
     },
-    [findMachineByIp, resolveForeignRouterCb],
+    [findMachineByIp, resolveForeignRouterCb, getNodeFromMachine],
   );
 
   // Port-aware NAT resolution: translates any gateway's IP + port to the

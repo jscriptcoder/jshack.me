@@ -1,15 +1,19 @@
 import type { LookupHomeNetworkResult } from '../homeNetworks/types';
 import type { GenerateHomeNetworkParams, HomeNetwork } from '../generation/generateHomeNetwork';
+import type { GeneratedMachine } from '../generation/types';
 import type { RemoteMachine } from './types';
 
-// Cache entry shape for piece-2b lazy subscription. Stores both the
-// regenerated router RemoteMachine (callers' return value) and the
-// occupant hostnames returned by the lookup so Chunk D's foothold
-// expansion can read the LAN's full member set straight from cache when
-// a session lands on it.
+// Cache entry shape for piece-2b lazy subscription. Stores the regenerated
+// router RemoteMachine (callers' return value), the LAN's occupant
+// hostnames (Chunk D foothold expansion), and the LAN's internal NPC
+// machines (Chunk D2 cross-LAN forward synthesis). Without
+// internalMachines, the mergeForeignRouterForwards helper would have
+// nothing to project NPC-target forwards against; occupant-target
+// forwards fall back to the well-known-port service map.
 export type ForeignLanCacheValue = {
   readonly router: RemoteMachine;
   readonly occupantHostnames: readonly string[];
+  readonly internalMachines: readonly GeneratedMachine[];
 };
 
 // Pure-ish resolver for piece-2b lazy subscription: given a foreign public
@@ -58,8 +62,12 @@ export const resolveForeignRouter = async (
   });
 
   const router = homeNetwork.routerMachine.remoteMachine;
-  const occupantHostnames = lookupResult.occupants.map((o) => o.hostname);
-  deps.cache.set(publicIp, { router, occupantHostnames });
+  const occupantHostnames = lookupResult.occupants.map((occupant) => occupant.hostname);
+  deps.cache.set(publicIp, {
+    router,
+    occupantHostnames,
+    internalMachines: homeNetwork.machines,
+  });
   deps.addCrossLanMachineId(publicIp);
 
   return router;
