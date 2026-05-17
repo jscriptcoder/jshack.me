@@ -28,22 +28,40 @@ import { defaultServiceVersion } from '../generation/pools/vulnerabilities';
 
 // Builds a merged view of the router that includes NAT-forwarded ports from
 // internal machines, remapped to their public port numbers.
+//
+// Forward-rule targets resolve in two pools:
+//   1. internalMachines — GeneratedMachine entries (NPC home/mission machines).
+//      User accounts on these machines merge into the router's user list.
+//   2. occupantMachines — RemoteMachine entries for LAN-occupant workstations.
+//      Players running apache2/nginx on their own box; ports surface here
+//      after applyDynamicOverrides reads the pid files. Users are NOT
+//      merged — workstation accounts live behind the per-player /etc/passwd
+//      projection, not the router.
+//
+// On IP collision (rare; workstation LAN IPs shouldn't clash with NPC IPs
+// in practice) internalMachines wins.
 export const buildMergedRouterView = (
   routerMachine: GeneratedMachine,
-  missionMachines: readonly GeneratedMachine[],
+  internalMachines: readonly GeneratedMachine[],
   rules: readonly NatForwardingRule[],
+  occupantMachines: readonly RemoteMachine[] = [],
 ): RemoteMachine => {
-  // Collect internal machines referenced by forwarding rules
   const forwardedIps = new Set(rules.map((r) => r.internalIp));
-  const forwardedMachines = missionMachines.filter((m) => forwardedIps.has(m.ip));
+  const forwardedInternal = internalMachines.filter((m) => forwardedIps.has(m.ip));
+  const internalIps = new Set(forwardedInternal.map((m) => m.ip));
+  const forwardedOccupants = occupantMachines.filter(
+    (m) => forwardedIps.has(m.ip) && !internalIps.has(m.ip),
+  );
 
   // Forwarded ports mapped to their public port numbers
   const forwardedPorts = rules
     .map((rule) => {
-      const machine = forwardedMachines.find((m) => m.ip === rule.internalIp);
-      const internalPort = machine?.remoteMachine.ports.find(
-        (p) => p.port === rule.internalPort && p.open,
-      );
+      const internal = forwardedInternal.find((m) => m.ip === rule.internalIp);
+      const candidatePorts =
+        internal?.remoteMachine.ports ??
+        forwardedOccupants.find((m) => m.ip === rule.internalIp)?.ports ??
+        [];
+      const internalPort = candidatePorts.find((p) => p.port === rule.internalPort && p.open);
       if (!internalPort) return undefined;
       return { ...internalPort, port: rule.publicPort };
     })
@@ -55,10 +73,11 @@ export const buildMergedRouterView = (
     (p) => !forwardedPortNumbers.has(p.port),
   );
 
-  // Merge users: router's own + forwarded machines', deduplicated by username
+  // Merge users: router's own + forwarded INTERNAL machines' (NPC). Occupant
+  // users intentionally excluded — see header comment.
   const allUsers = [
     ...routerMachine.remoteMachine.users,
-    ...forwardedMachines.flatMap((m) => m.remoteMachine.users),
+    ...forwardedInternal.flatMap((m) => m.remoteMachine.users),
   ];
   const seenUsernames = new Set<string>();
   const uniqueUsers = allUsers.filter((u) => {
@@ -254,7 +273,15 @@ export const buildGatewayAliasMap = (
 
 // Builds the final RemoteMachine view for the mission router by applying
 // iptables NAT merge and SNMP firewall overrides. Used when making the
-// mission router visible from localhost.
+// mission router visible from localhost AND by buildWorldRouterRemoteViews
+// for themed-network routers.
+//
+// Intentionally does NOT take an occupantMachines parameter: mission and
+// world routers don't share a LAN with the player's workstation, so they
+// can't NAT-forward to a workstation occupant. Home-router forwarding to
+// workstations is a separate path that calls buildMergedRouterView directly
+// (the home-gateway branch of applyDynamicOverrides), bypassing this
+// wrapper. Adding occupants here would be dead code today.
 export const buildRouterRemoteView = (
   routerMachine: GeneratedMachine,
   missionMachines: readonly GeneratedMachine[],
@@ -283,6 +310,11 @@ export type DynamicOverrideContext = {
   readonly missionLayers?: readonly SubnetLayer[];
   readonly homeMachines?: readonly GeneratedMachine[];
   readonly homeLayers?: readonly SubnetLayer[];
+  // LAN-occupant workstations with their pid-file overlays already applied.
+  // Used by the home-gateway NAT merge to resolve forward rules pointing at
+  // a workstation IP (player-edited /etc/iptables/rules.v4 on the home
+  // router exposing apache2/nginx through the router's public IP).
+  readonly overlaidOccupants?: readonly RemoteMachine[];
   // World networks contribute machines + layers for daemon state
   // lookups + gateway NAT merging. Each network's full (machines,
   // layers) tuple is kept distinct so applyDynamicOverrides can resolve
@@ -384,7 +416,12 @@ export const applyDynamicOverrides = (
         ctx.homeMachines?.find((m) => m.ip === machine.ip) ??
         ctx.homeGatewayByAliasIp.get(machine.ip);
       if (homeGateway && ctx.homeMachines) {
-        const merged = buildMergedRouterView(homeGateway, ctx.homeMachines, gatewayRules);
+        const merged = buildMergedRouterView(
+          homeGateway,
+          ctx.homeMachines,
+          gatewayRules,
+          ctx.overlaidOccupants ?? [],
+        );
         result = { ...merged, ip: machine.ip };
       } else {
         // Search world networks. Each tuple is searched independently

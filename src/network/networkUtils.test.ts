@@ -595,6 +595,154 @@ describe('buildMergedRouterView', () => {
     expect(result.ports).toEqual([]);
     expect(result.users).toEqual([]);
   });
+
+  // --- Workstation-occupant forwarding (piece 2a) ---
+  //
+  // Forward rules pointing at LAN-occupant workstations resolve through the
+  // optional 4th parameter. Occupants are RemoteMachine (not GeneratedMachine)
+  // because their port state comes from applyDynamicOverrides reading pid
+  // files — there's no static router-internal machine to anchor to.
+
+  it('forwards a rule targeting a workstation occupant by IP', () => {
+    const router = createGeneratedMachine({
+      ip: '203.0.113.1',
+      remoteMachine: createMachine({ ip: '203.0.113.1', ports: [] }),
+    });
+    const occupant = createMachine({
+      ip: '172.29.209.171',
+      hostname: 'hacker-0036ad3c',
+      ports: [createPort({ port: 80, service: 'http', serviceVersion: 'latest', open: true })],
+    });
+    const rules: readonly NatForwardingRule[] = [
+      { publicPort: 8080, internalIp: '172.29.209.171', internalPort: 80 },
+    ];
+
+    const result = buildMergedRouterView(router, [], rules, [occupant]);
+
+    expect(result.ports).toEqual([
+      { port: 8080, service: 'http', serviceVersion: 'latest', open: true },
+    ]);
+  });
+
+  it('drops occupant forwards when the targeted port is closed', () => {
+    const router = createGeneratedMachine({
+      ip: '203.0.113.1',
+      remoteMachine: createMachine({ ip: '203.0.113.1', ports: [] }),
+    });
+    const occupant = createMachine({
+      ip: '172.29.209.171',
+      ports: [createPort({ port: 80, service: 'http', serviceVersion: 'latest', open: false })],
+    });
+    const rules: readonly NatForwardingRule[] = [
+      { publicPort: 8080, internalIp: '172.29.209.171', internalPort: 80 },
+    ];
+
+    const result = buildMergedRouterView(router, [], rules, [occupant]);
+
+    expect(result.ports).toEqual([]);
+  });
+
+  it('drops occupant forwards when no matching port exists on the workstation', () => {
+    // Workstation has no apache2/nginx running — pid file absent, port not in
+    // the overlaid view. Rule resolves to an unknown port and silently drops.
+    const router = createGeneratedMachine({
+      ip: '203.0.113.1',
+      remoteMachine: createMachine({ ip: '203.0.113.1', ports: [] }),
+    });
+    const occupant = createMachine({ ip: '172.29.209.171', ports: [] });
+    const rules: readonly NatForwardingRule[] = [
+      { publicPort: 8080, internalIp: '172.29.209.171', internalPort: 80 },
+    ];
+
+    const result = buildMergedRouterView(router, [], rules, [occupant]);
+
+    expect(result.ports).toEqual([]);
+  });
+
+  it('mixes NPC and occupant forwards in a single rule set', () => {
+    const router = createGeneratedMachine({
+      ip: '203.0.113.1',
+      remoteMachine: createMachine({ ip: '203.0.113.1', ports: [] }),
+    });
+    const npc = createGeneratedMachine({
+      ip: '10.0.0.5',
+      remoteMachine: createMachine({
+        ip: '10.0.0.5',
+        ports: [createPort({ port: 22, service: 'ssh', serviceVersion: 'latest', open: true })],
+      }),
+    });
+    const occupant = createMachine({
+      ip: '172.29.209.171',
+      ports: [createPort({ port: 80, service: 'http', serviceVersion: 'latest', open: true })],
+    });
+    const rules: readonly NatForwardingRule[] = [
+      { publicPort: 2222, internalIp: '10.0.0.5', internalPort: 22 },
+      { publicPort: 8080, internalIp: '172.29.209.171', internalPort: 80 },
+    ];
+
+    const result = buildMergedRouterView(router, [npc], rules, [occupant]);
+
+    expect(result.ports).toEqual([
+      { port: 2222, service: 'ssh', serviceVersion: 'latest', open: true },
+      { port: 8080, service: 'http', serviceVersion: 'latest', open: true },
+    ]);
+  });
+
+  it('does NOT merge occupant users into the router user list', () => {
+    // Workstation users live behind the per-player /etc/passwd projection,
+    // not the router. Surfacing them via the NAT merge would leak occupant
+    // accounts onto the router's externally-visible user roster.
+    const routerUser = { username: 'admin', userType: 'root' as const };
+    const occupantUser = { username: 'alice', userType: 'user' as const };
+
+    const router = createGeneratedMachine({
+      ip: '203.0.113.1',
+      remoteMachine: createMachine({ ip: '203.0.113.1', users: [routerUser] }),
+    });
+    const occupant = createMachine({
+      ip: '172.29.209.171',
+      ports: [createPort({ port: 80, service: 'http', serviceVersion: 'latest', open: true })],
+      users: [occupantUser],
+    });
+    const rules: readonly NatForwardingRule[] = [
+      { publicPort: 8080, internalIp: '172.29.209.171', internalPort: 80 },
+    ];
+
+    const result = buildMergedRouterView(router, [], rules, [occupant]);
+
+    expect(result.users).toEqual([routerUser]);
+  });
+
+  it('NPC internalMachines wins on IP collision with an occupant entry', () => {
+    // Defensive: workstation LAN IPs shouldn't collide with NPC home-machine
+    // IPs in practice, but if a future generator stamps a clashing IP, the
+    // structured NPC entry wins (richer port + user metadata).
+    const router = createGeneratedMachine({
+      ip: '203.0.113.1',
+      remoteMachine: createMachine({ ip: '203.0.113.1', ports: [] }),
+    });
+    const npc = createGeneratedMachine({
+      ip: '172.29.209.171',
+      remoteMachine: createMachine({
+        ip: '172.29.209.171',
+        ports: [createPort({ port: 80, service: 'http', serviceVersion: 'apache2', open: true })],
+      }),
+    });
+    const occupant = createMachine({
+      ip: '172.29.209.171',
+      ports: [createPort({ port: 80, service: 'http', serviceVersion: 'nginx', open: true })],
+    });
+    const rules: readonly NatForwardingRule[] = [
+      { publicPort: 8080, internalIp: '172.29.209.171', internalPort: 80 },
+    ];
+
+    const result = buildMergedRouterView(router, [npc], rules, [occupant]);
+
+    // NPC version string wins → 'apache2', not 'nginx'
+    expect(result.ports).toEqual([
+      { port: 8080, service: 'http', serviceVersion: 'apache2', open: true },
+    ]);
+  });
 });
 
 // -- Helpers for new tests --
@@ -874,6 +1022,109 @@ describe('applyDynamicOverrides', () => {
     expect(result.ip).toBe('10.0.0.1');
     expect(result.ports).toContainEqual(
       expect.objectContaining({ port: 80, service: 'http', serviceVersion: 'latest', open: true }),
+    );
+  });
+
+  it('forwards a home gateway iptables rule targeting a workstation occupant', () => {
+    // Player-edited iptables on the home router: forward public 8080 to
+    // workstation:80. The workstation is a LAN occupant whose port state
+    // is already overlaid (apache2/nginx pid file read upstream).
+    const gateway = createGeneratedMachine({
+      ip: '45.0.0.1',
+      role: 'router',
+      remoteMachine: createMachine({ ip: '45.0.0.1', ports: [] }),
+    });
+    const overlaidOccupant = createMachine({
+      ip: '172.29.209.171',
+      hostname: 'hacker-0036ad3c',
+      ports: [createPort({ port: 80, service: 'http', serviceVersion: 'latest', open: true })],
+    });
+    const rules: readonly NatForwardingRule[] = [
+      { publicPort: 8080, internalIp: '172.29.209.171', internalPort: 80 },
+    ];
+    const visibleMachine = createMachine({ ip: '10.0.0.1', hostname: 'home-router' });
+
+    const result = applyDynamicOverrides(visibleMachine, {
+      allIptablesRules: new Map([['10.0.0.1', rules]]),
+      allSnmpOverrides: new Map(),
+      allAclRules: new Map(),
+      allSnmpAclOverrides: new Map(),
+      homeMachines: [],
+      homeGatewayByAliasIp: new Map([['10.0.0.1', gateway]]),
+      overlaidOccupants: [overlaidOccupant],
+      readNode: noopReader,
+    });
+
+    expect(result.ip).toBe('10.0.0.1');
+    expect(result.ports).toContainEqual(
+      expect.objectContaining({ port: 8080, service: 'http', open: true }),
+    );
+  });
+
+  // End-to-end integration: pid file → occupant overlay → home-router merge.
+  // Mirrors what NetworkContext does at runtime — two passes of
+  // applyDynamicOverrides chained together. Without this test, a future
+  // refactor could break the path between "player runs nginx" and "router
+  // exposes forwarded port" while keeping the unit tests green.
+  it('end-to-end: workstation nginx.pid → home-router public port via iptables rule', () => {
+    const gateway = createGeneratedMachine({
+      ip: '45.0.0.1',
+      role: 'router',
+      remoteMachine: createMachine({ ip: '45.0.0.1', ports: [] }),
+    });
+    // The workstation occupant as it lives in NetworkContext.occupantMachines —
+    // closed-laptop default with empty ports. The pid-file overlay below opens
+    // port 80 dynamically.
+    const occupantBase = createMachine({
+      ip: '172.29.209.171',
+      hostname: 'hacker-0036ad3c',
+      ports: [],
+    });
+    const rules: readonly NatForwardingRule[] = [
+      { publicPort: 8080, internalIp: '172.29.209.171', internalPort: 80 },
+    ];
+    const visibleRouter = createMachine({ ip: '10.0.0.1', hostname: 'home-router' });
+
+    // Synthetic FS: the workstation has /var/run/nginx.pid in extended form
+    // (player ran `nginx 80` as root). All other paths absent.
+    const readNode = (machineId: string, path: string) => {
+      if (machineId === '172.29.209.171' && path === '/var/run/nginx.pid') {
+        return {
+          name: 'nginx.pid',
+          type: 'file' as const,
+          content: '/usr/sbin/nginx:port=80,user=root,userType=root,home=/root',
+          owner: 'root' as const,
+          permissions: { read: [], write: [], execute: [] },
+        };
+      }
+      return null;
+    };
+
+    const baseCtx = {
+      allIptablesRules: new Map([['10.0.0.1', rules]]),
+      allSnmpOverrides: new Map(),
+      allAclRules: new Map(),
+      allSnmpAclOverrides: new Map(),
+      homeMachines: [],
+      homeGatewayByAliasIp: new Map([['10.0.0.1', gateway]]),
+      readNode,
+    };
+
+    // First pass: overlay the occupant. The pid file read opens port 80.
+    const overlaidOccupant = applyDynamicOverrides(occupantBase, baseCtx);
+    expect(overlaidOccupant.ports).toContainEqual(
+      expect.objectContaining({ port: 80, service: 'http', open: true }),
+    );
+
+    // Second pass: overlay the home router with overlaidOccupants populated.
+    // The iptables rule resolves through the occupant's open port 80 → public 8080.
+    const overlaidRouter = applyDynamicOverrides(visibleRouter, {
+      ...baseCtx,
+      overlaidOccupants: [overlaidOccupant],
+    });
+    expect(overlaidRouter.ip).toBe('10.0.0.1');
+    expect(overlaidRouter.ports).toContainEqual(
+      expect.objectContaining({ port: 8080, service: 'http', open: true }),
     );
   });
 
