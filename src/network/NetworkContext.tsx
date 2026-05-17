@@ -1,4 +1,12 @@
-import { createContext, useContext, useMemo, useCallback, useRef, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  type ReactNode,
+} from 'react';
 import type {
   NetworkConfig,
   MachineNetworkConfig,
@@ -22,7 +30,11 @@ import { generateHomeNetwork, type HomeNetwork } from '../generation/generateHom
 import { lookupHomeNetworkByPublicIp } from '../homeNetworks/client';
 import type { OccupantSummary } from '../homeNetworks/types';
 import { getIdentity } from '../identity';
-import { resolveForeignRouter } from './resolveForeignRouter';
+import {
+  findForeignLanForMember,
+  resolveForeignRouter,
+  type ForeignLanCacheValue,
+} from './resolveForeignRouter';
 import { useSession } from '../session/SessionContext';
 import { useFileSystem } from '../filesystem';
 import {
@@ -714,12 +726,14 @@ export const NetworkProvider = ({
     [homeNetwork, missionNetworkConfig, missionRouterMachine, worldNetworks],
   );
 
-  // Per-session cache for foreign-router resolution. RemoteMachine | null
-  // distinguishes "looked up, doesn't exist" (negative-cached) from "never
-  // tried" (no key). Cache resets on page reload by living in a ref tied
-  // to component lifetime — fine for the bounded set of foreign IPs any
-  // session touches.
-  const foreignRouterCacheRef = useRef<Map<string, RemoteMachine | null>>(new Map());
+  // Per-session cache for foreign-LAN resolution. ForeignLanCacheValue |
+  // null distinguishes "looked up, doesn't exist" (negative-cached) from
+  // "never tried" (no key). Cached value carries both the regenerated
+  // router RemoteMachine and the LAN's occupant hostnames so Chunk D's
+  // foothold-expansion effect can read members from cache without
+  // re-hitting the server. Cache resets on page reload — fine for the
+  // bounded set of foreign IPs any session touches.
+  const foreignLanCacheRef = useRef<Map<string, ForeignLanCacheValue | null>>(new Map());
   const { addCrossLanMachineId } = useFileSystem();
   const resolveForeignRouterCb = useCallback(
     (publicIp: string): Promise<RemoteMachine | null> =>
@@ -727,10 +741,40 @@ export const NetworkProvider = ({
         lookup: (lookupIp) => lookupHomeNetworkByPublicIp(getIdentity(), lookupIp),
         regenerate: generateHomeNetwork,
         addCrossLanMachineId,
-        cache: foreignRouterCacheRef.current,
+        cache: foreignLanCacheRef.current,
       }),
     [addCrossLanMachineId],
   );
+
+  // Foothold-driven LAN expansion (piece 2b, Chunk D). When the player's
+  // session.machine changes, check the foreign-LAN cache for an entry
+  // containing the new machineId — either as the router's public IP or
+  // as one of the LAN's occupant hostnames. If found, fan the LAN's
+  // occupant set out via addCrossLanMachineId so cross-player visibility
+  // on the foothold LAN matches same-LAN visibility (other players on
+  // that LAN, their daemon state changes, etc.).
+  //
+  // Why this hook lives here instead of useFileSystemSync: the foreign-
+  // LAN cache is a ref owned by NetworkProvider, and useFileSystemSync
+  // sits above NetworkProvider in the tree — it can't useNetwork().
+  // NetworkProvider already subscribes to session via useSession, so
+  // watching session.machine here is the natural cross-cut.
+  //
+  // The cache is populated by resolveForeignRouter — so a foothold can
+  // only expand on a LAN the player has previously TOUCHED via nmap /
+  // curl / ssh (which all run through findMachineByIpAsync). Direct ssh
+  // to a foreign IP that bypasses prior resolution would still get the
+  // first occupant addition (via resolveForeignRouter inside
+  // findMachineByIpAsync), and the foothold effect fires on the next
+  // session change. The cache is always populated by the time we land.
+  useEffect(() => {
+    const entry = findForeignLanForMember(session.machine, foreignLanCacheRef.current);
+    if (!entry) return;
+    addCrossLanMachineId(entry.router.ip);
+    for (const occupantHostname of entry.occupantHostnames) {
+      addCrossLanMachineId(occupantHostname);
+    }
+  }, [session.machine, addCrossLanMachineId]);
 
   // Searches for a machine by IP across all network configs (home +
   // mission + world). Unlike getMachine which only returns machines
