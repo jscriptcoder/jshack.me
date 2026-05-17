@@ -341,9 +341,9 @@ export const NetworkProvider = ({
     const subnet = homeNetwork?.layers[0]?.subnet ?? '';
     if (!subnet) return [];
     const debugVulnPort: Port | null = import.meta.env.DEV ? buildDebugVulnPort() : null;
-    const others = (lanOccupants ?? []).map((o) => ({
-      ip: `${subnet}${o.lan_ip}`,
-      hostname: o.hostname,
+    const others = (lanOccupants ?? []).map((occupant) => ({
+      ip: `${subnet}${occupant.lan_ip}`,
+      hostname: occupant.hostname,
       ports: debugVulnPort ? [debugVulnPort] : [],
       users: [],
     }));
