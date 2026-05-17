@@ -324,23 +324,38 @@ export const NetworkProvider = ({
     [worldNetworks],
   );
 
-  // LAN-occupant placeholders — one RemoteMachine per other player on the
-  // active layer-0 subnet. Built once at the top level so it can feed BOTH
-  // the localhost-visible machine list (rendered in baseConfig below) AND
-  // the overlaidOccupants computation that powers home-router NAT
-  // forwarding to workstations. Empty when no home network or no layer-0
-  // subnet — harmless overlay miss in branches that don't render occupants.
+  // LAN-occupant placeholders — one RemoteMachine per player on the
+  // active layer-0 subnet, INCLUDING self. HomeNetworksContext filters
+  // self out of `lanOccupants` (for other consumers), so we add it back
+  // explicitly here. This matches real-Linux behavior — `nmap` of your
+  // own LAN subnet sees your own IP alongside everything else — and
+  // eliminates a timing race where a refetch before `ownHostname`
+  // resolved would intermittently let self through the filter.
+  //
+  // Built once at the top level so it feeds BOTH the localhost-visible
+  // machine list (own-workstation branch in baseConfig below) AND the
+  // overlaidOccupants computation that powers home-router NAT forwarding
+  // to workstations. Empty when no home network or no layer-0 subnet —
+  // harmless overlay miss in branches that don't render occupants.
   const occupantMachines = useMemo((): readonly RemoteMachine[] => {
     const subnet = homeNetwork?.layers[0]?.subnet ?? '';
     if (!subnet) return [];
     const debugVulnPort: Port | null = import.meta.env.DEV ? buildDebugVulnPort() : null;
-    return (lanOccupants ?? []).map((o) => ({
+    const others = (lanOccupants ?? []).map((o) => ({
       ip: `${subnet}${o.lan_ip}`,
       hostname: o.hostname,
       ports: debugVulnPort ? [debugVulnPort] : [],
       users: [],
     }));
-  }, [homeNetwork, lanOccupants]);
+    if (!homeNetwork?.localhostIp) return others;
+    const selfOccupant: RemoteMachine = {
+      ip: homeNetwork.localhostIp,
+      hostname,
+      ports: debugVulnPort ? [debugVulnPort] : [],
+      users: [],
+    };
+    return [...others, selfOccupant];
+  }, [homeNetwork, lanOccupants, hostname]);
 
   // DNS records for LAN occupants — hostname → LAN IP. Shared by the
   // own-workstation branch and the homeConfig branch (when SSH'd into a
