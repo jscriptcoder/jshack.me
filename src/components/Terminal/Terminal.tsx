@@ -127,10 +127,11 @@ export const Terminal = () => {
   const { activeNetwork, lanOccupants } = useHomeNetworks();
 
   // Maps a LAN IP to the canonical machine_id (workstation_id for
-  // occupants, LAN IP for NPC/world/mission machines). Used by every
-  // cross-player code path that constructs a machine_id from an IP the
-  // user typed — auth envelopes and write-side patches alike.
-  // Mirrors useNetworkCommands.resolveTargetMachineId.
+  // occupants, LAN IP for NPC/world/mission machines, router public IP
+  // for the home router's .1 LAN-side alias). Used by every cross-player
+  // code path that constructs a machine_id from an IP the user typed —
+  // auth envelopes and write-side patches alike. Mirrors
+  // useNetworkCommands.resolveTargetMachineId.
   const resolveTargetMachineId = useCallback(
     (targetIp: string): string =>
       targetMachineIdFor(
@@ -139,6 +140,8 @@ export const Terminal = () => {
         activeNetwork?.layers[0]?.subnet ?? null,
         activeNetwork?.localhostIp ?? null,
         ownWorkstationId,
+        activeNetwork?.router.internalIp ?? null,
+        activeNetwork?.router.publicIp ?? null,
       ),
     [activeNetwork, lanOccupants, ownWorkstationId],
   );

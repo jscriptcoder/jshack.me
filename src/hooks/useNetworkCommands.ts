@@ -98,12 +98,25 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
     // before any patch/log write. For LAN occupants the IP-form
     // (e.g., 10.0.0.42) maps to the occupant's hostname (= their
     // workstation_id) so cross-player writes land where the target
-    // player is subscribed via patches:<workstation_id>. For mission/
-    // world/off-LAN IPs the input passes through unchanged.
+    // player is subscribed via patches:<workstation_id>. The home
+    // router's .1 LAN-side alias canonicalizes to its public IP so
+    // writes from inside the network land at the same storage key
+    // cross-LAN subscribers query. For mission/world/off-LAN IPs the
+    // input passes through unchanged.
     const activeSubnet = activeNetwork?.layers[0]?.subnet ?? null;
     const ownLanIp = activeNetwork?.localhostIp ?? null;
+    const routerInternalIp = activeNetwork?.router.internalIp ?? null;
+    const routerPublicIp = activeNetwork?.router.publicIp ?? null;
     const resolveTargetMachineId = (targetIp: string): string =>
-      targetMachineIdFor(targetIp, lanOccupants, activeSubnet, ownLanIp, hostname);
+      targetMachineIdFor(
+        targetIp,
+        lanOccupants,
+        activeSubnet,
+        ownLanIp,
+        hostname,
+        routerInternalIp,
+        routerPublicIp,
+      );
 
     // logFs auto-translates the machineId on every read/write/create so
     // any log-writing handler (sshAuth, ftpAuth, hydraLog, etc.) that

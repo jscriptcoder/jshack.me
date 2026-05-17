@@ -244,6 +244,93 @@ describe('targetMachineIdFor', () => {
       targetMachineIdFor('10.0.0.42', [occupant({ lan_ip: '.42' })], null, null, 'me-aabbccdd'),
     ).toBe('10.0.0.42');
   });
+
+  describe('home router LAN-side alias canonicalization', () => {
+    // The home router serves on TWO IPs locally: its public IP (WAN-facing)
+    // and its `.1` LAN-side alias. The `homeGatewayByAliasIp` map lets
+    // players SSH/scan via either from inside the network. Without
+    // canonicalization, an A-side write via the `.1` alias would land
+    // under machine_id="10.0.0.1" while a B-side cross-LAN subscription
+    // queries machine_id="<public_ip>" — different rows in the patches
+    // table, so B never sees A's iptables edits. The router-translation
+    // collapses both onto the public IP, the same key cross-LAN
+    // subscribers use.
+
+    it("translates the router's .1 LAN IP to its public IP when both are supplied", () => {
+      expect(
+        targetMachineIdFor(
+          '10.222.193.1',
+          [],
+          '10.222.193',
+          null,
+          'me-aabbccdd',
+          '10.222.193.1',
+          '51.181.215.243',
+        ),
+      ).toBe('51.181.215.243');
+    });
+
+    it('passes the .1 IP through unchanged when router IPs are not supplied', () => {
+      // Older callers / pre-fix tests omit the router args. Defaulting to
+      // the legacy passthrough behavior keeps non-home-router contexts
+      // working (missions, world networks where no .1 canonicalization
+      // is needed because patches stay on the player's own subscription).
+      expect(targetMachineIdFor('10.222.193.1', [], '10.222.193', null, 'me-aabbccdd')).toBe(
+        '10.222.193.1',
+      );
+    });
+
+    it('does NOT translate when the router public IP is omitted (defensive)', () => {
+      // Partial wiring shouldn't silently misroute writes. Either both
+      // router IPs are supplied or the translation skips.
+      expect(
+        targetMachineIdFor(
+          '10.222.193.1',
+          [],
+          '10.222.193',
+          null,
+          'me-aabbccdd',
+          '10.222.193.1',
+          null,
+        ),
+      ).toBe('10.222.193.1');
+    });
+
+    it('preserves ownLanIp precedence over the router translation when they collide', () => {
+      // Pathological case: ownLanIp equals the router's .1. Shouldn't
+      // happen with the DHCP-style slot allocator (occupants get host
+      // octets in a different range than .1), but pin the precedence so
+      // future allocator changes can't silently break self-targeting.
+      expect(
+        targetMachineIdFor(
+          '10.222.193.1',
+          [],
+          '10.222.193',
+          '10.222.193.1',
+          'me-aabbccdd',
+          '10.222.193.1',
+          '51.181.215.243',
+        ),
+      ).toBe('me-aabbccdd');
+    });
+
+    it('does NOT translate IPs other than the exact router .1 — non-router .1s pass through', () => {
+      // Inner switch .1s, mission gateway .1s, etc. shouldn't accidentally
+      // canonicalize to the home router's public IP. The match is by
+      // exact IP equality, not "ends in .1".
+      expect(
+        targetMachineIdFor(
+          '192.168.1.1',
+          [],
+          '10.222.193',
+          null,
+          'me-aabbccdd',
+          '10.222.193.1',
+          '51.181.215.243',
+        ),
+      ).toBe('192.168.1.1');
+    });
+  });
 });
 
 describe('occupantAwareReadNode', () => {

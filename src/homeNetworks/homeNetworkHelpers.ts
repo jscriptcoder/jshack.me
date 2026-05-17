@@ -225,11 +225,25 @@ export const targetMachineIdFor = (
   activeSubnet: string | null,
   ownLanIp: string | null,
   ownHostname: string,
+  routerInternalIp: string | null = null,
+  routerPublicIp: string | null = null,
 ): string => {
   if (ownLanIp !== null && targetIp === ownLanIp) return ownHostname;
+  // Home router LAN-side alias canonicalization. The router serves on
+  // BOTH its public IP (WAN) and its `.1` LAN-side alias; writes via
+  // either need to land under the same storage key so cross-LAN
+  // subscribers (who only know the public IP) can see them. Both router
+  // args must be non-null to translate — partial wiring is treated as
+  // "no router context known" and falls through to the legacy
+  // passthrough. ownLanIp precedence wins on a pathological collision
+  // (occupant at .1, shouldn't happen with the slot allocator but pin
+  // the order anyway).
+  if (routerInternalIp !== null && routerPublicIp !== null && targetIp === routerInternalIp) {
+    return routerPublicIp;
+  }
   if (activeSubnet === null) return targetIp;
   if (!targetIp.startsWith(`${activeSubnet}.`)) return targetIp;
-  const occupant = lanOccupants.find((o) => `${activeSubnet}${o.lan_ip}` === targetIp);
+  const occupant = lanOccupants.find((entry) => `${activeSubnet}${entry.lan_ip}` === targetIp);
   return occupant ? occupant.hostname : targetIp;
 };
 
