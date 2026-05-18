@@ -220,16 +220,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     async (params: FindActiveSessionParams) => {
       // L1 + L2 patch-validation query. Hits `sessions_active_by_player_idx`
       // (partial index on player_key WHERE ended_at IS NULL). L1 only
-      // needs the existence boolean; L2 (Step 6+) consumes the verified
-      // credentials JSONB so the permission walker can key its decision
-      // on a server-side projection (not a client claim). `.limit(1)`
-      // keeps the read tiny.
+      // needs the existence boolean; L2 consumes the verified credentials
+      // JSONB so the permission walker can key its decision on a server-
+      // side projection (not a client claim).
+      //
+      // ORDER BY created_at DESC + LIMIT 1 picks the FOREGROUND session
+      // when multiple are stacked on the same (player, machine) — e.g.,
+      // ssh-as-user followed by su-root. Without the explicit ordering
+      // the result is non-deterministic and L2 may walk against the
+      // older session's userType, denying writes the foreground tier
+      // would allow. The bulk adapter (findActiveSessionsBatch) already
+      // does this; this query had drifted from that contract.
       const { data, error } = await supabase
         .from('sessions')
         .select('session_id, credentials')
         .eq('player_key', params.player_key)
         .eq('machine_id', params.machine_id)
         .is('ended_at', null)
+        .order('created_at', { ascending: false })
         .limit(1);
       if (error) console.error('[patches] supabase findActiveSession error:', error);
       return { data, error };
