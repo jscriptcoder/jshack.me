@@ -2,6 +2,38 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '../identity/hex.js';
 import type { Identity } from '../identity/identity.js';
 import type { OccupantSummary } from './types.js';
+import type { HomeNetwork } from '../generation/generateHomeNetwork.js';
+
+// ---------------------------------------------------------------------
+// buildGatewayCanonicalIpMap
+// ---------------------------------------------------------------------
+//
+// Maps gateway .1 alias IPs to the gateway's canonical primary IP. Used
+// by targetMachineIdFor to route writes/reads addressed at a .1 alias
+// onto the same storage key as writes/reads addressed at the canonical
+// primary IP. The home router is the load-bearing case: its primary IP
+// is the public IP, distinct from its .1 LAN-side alias. Inner gateways
+// where primary IP already equals .1 produce a harmless self-loop entry.
+//
+// Lives here (not in network/networkUtils.ts where the structurally
+// similar buildGatewayAliasMap lives) because the cross-player
+// addressing concerns of homeNetworkHelpers must stay JSX-free —
+// importing from networkUtils transitively pulls SessionContext.tsx and
+// breaks the script build path.
+
+export const buildGatewayCanonicalIpMap = (
+  homeNetwork: HomeNetwork | null | undefined,
+): ReadonlyMap<string, string> => {
+  if (!homeNetwork) return new Map();
+  const map = new Map<string, string>();
+  map.set(homeNetwork.router.internalIp, homeNetwork.routerMachine.ip);
+  if (homeNetwork.layers.length > 1) {
+    homeNetwork.layers.slice(1).forEach((layer) => {
+      map.set(`${layer.subnet}.1`, layer.gateway.ip);
+    });
+  }
+  return map;
+};
 
 // =====================================================================
 // Workstation identity & cross-player addressing helpers.
@@ -264,6 +296,36 @@ export const targetMachineIdFor = (
 // Non-occupant IPs (gateway, mission, world, off-LAN) pass through
 // `targetMachineIdFor` unchanged — see its tests for the matrix of
 // cases it covers.
+
+// ---------------------------------------------------------------------
+// buildResolveTargetMachineId
+// ---------------------------------------------------------------------
+//
+// Composes the active home-network state into a curried resolver around
+// targetMachineIdFor. Single source of truth for the two
+// resolveTargetMachineId sites (useNetworkCommands + Terminal). Keeps
+// the gateway-alias canonicalization wiring (buildGatewayCanonicalIpMap
+// + occupant/own-LAN/passthrough precedence) in one place so both write
+// and read paths agree on the canonical machine_id.
+
+export const buildResolveTargetMachineId = (
+  activeNetwork: HomeNetwork | null | undefined,
+  lanOccupants: ReadonlyArray<OccupantSummary>,
+  ownHostname: string,
+): ((targetIp: string) => string) => {
+  const activeSubnet = activeNetwork?.layers[0]?.subnet ?? null;
+  const ownLanIp = activeNetwork?.localhostIp ?? null;
+  const gatewayAliasMap = buildGatewayCanonicalIpMap(activeNetwork);
+  return (targetIp) =>
+    targetMachineIdFor(
+      targetIp,
+      lanOccupants,
+      activeSubnet,
+      ownLanIp,
+      ownHostname,
+      gatewayAliasMap,
+    );
+};
 
 export const occupantAwareReadNode = <T>(
   readNode: (machineId: string, path: string, cwd: string) => T,

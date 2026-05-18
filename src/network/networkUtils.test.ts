@@ -17,7 +17,6 @@ import {
   collectGatewayIps,
   collectWorldGatewayIps,
   buildGatewayAliasMap,
-  buildGatewayCanonicalIpMap,
   buildWorldRouterRemoteViews,
   findMachineInWorldNetworks,
 } from './networkUtils';
@@ -885,71 +884,6 @@ describe('buildGatewayAliasMap', () => {
     const map = buildGatewayAliasMap(home);
 
     expect(map.get('10.0.1.1')).toBe(innerGateway);
-  });
-});
-
-describe('buildGatewayCanonicalIpMap', () => {
-  // Slim derivative of buildGatewayAliasMap returning alias IP → canonical
-  // primary IP (not the full GeneratedMachine). Used by targetMachineIdFor
-  // so writes/reads addressed at a .1 alias route to the same storage key
-  // as writes/reads addressed at the canonical primary IP. The home router
-  // is the load-bearing case: its primary IP is the public IP, distinct
-  // from its .1 LAN-side alias.
-
-  it('returns an empty map when no home network is supplied', () => {
-    expect(buildGatewayCanonicalIpMap(null).size).toBe(0);
-    expect(buildGatewayCanonicalIpMap(undefined).size).toBe(0);
-  });
-
-  it("maps the home router's .1 alias to its canonical primary (public) IP", () => {
-    // The home router serves on TWO IPs locally: its public IP (WAN) and
-    // its .1 LAN-side alias. Players addressing the .1 alias should end
-    // up writing/reading under the public IP storage key — the canonical
-    // key cross-LAN subscribers query against.
-    const home = createHomeNetwork();
-
-    const map = buildGatewayCanonicalIpMap(home);
-
-    expect(map.get('10.0.0.1')).toBe('45.0.0.1');
-  });
-
-  it("maps an inner-layer gateway's .1 alias to its primary IP", () => {
-    // Multi-layer topology (medium/hard home networks). The inner gateway
-    // has a primary IP on layer 0 (e.g. 10.0.0.50) and a .1 alias on its
-    // own inner subnet. Writes addressed at the .1 alias must canonicalize
-    // to the gateway's primary IP — same storage hygiene rationale as the
-    // home router, just scaled to every gateway in the topology.
-    const innerGateway = createGeneratedMachine({ ip: '10.0.0.50', role: 'router' });
-    const home = createHomeNetwork({
-      layers: [
-        createSubnetLayer({ subnet: '10.0.0' }),
-        createSubnetLayer({ subnet: '10.0.1', gateway: innerGateway }),
-      ],
-    });
-
-    const map = buildGatewayCanonicalIpMap(home);
-
-    expect(map.get('10.0.1.1')).toBe('10.0.0.50');
-  });
-
-  it('includes BOTH the home-router alias and inner-gateway aliases in one map', () => {
-    // Defensive coverage: callers thread a single map through
-    // targetMachineIdFor, so all gateway aliases on the active home
-    // network need to live in the same map. No alias should be omitted
-    // when the topology has multiple gateways.
-    const innerGateway = createGeneratedMachine({ ip: '10.0.0.50', role: 'router' });
-    const home = createHomeNetwork({
-      layers: [
-        createSubnetLayer({ subnet: '10.0.0' }),
-        createSubnetLayer({ subnet: '10.0.1', gateway: innerGateway }),
-      ],
-    });
-
-    const map = buildGatewayCanonicalIpMap(home);
-
-    expect(map.size).toBe(2);
-    expect(map.get('10.0.0.1')).toBe('45.0.0.1');
-    expect(map.get('10.0.1.1')).toBe('10.0.0.50');
   });
 });
 

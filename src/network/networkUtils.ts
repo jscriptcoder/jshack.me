@@ -267,25 +267,6 @@ export const buildGatewayAliasMap = (
   return map;
 };
 
-// Slim derivative of buildGatewayAliasMap: maps .1 alias IPs to the
-// gateway's canonical primary IP (not the full GeneratedMachine). Used
-// by targetMachineIdFor to route writes/reads addressed at a .1 alias
-// onto the same storage key as writes/reads addressed at the canonical
-// primary IP — load-bearing for the home router (primary IP = public
-// IP, distinct from the .1 LAN-side alias) and consistent for inner
-// gateways (where primary IP may already equal .1, producing a harmless
-// self-loop entry).
-export const buildGatewayCanonicalIpMap = (
-  homeNetwork: HomeNetwork | null | undefined,
-): ReadonlyMap<string, string> => {
-  const aliasMap = buildGatewayAliasMap(homeNetwork);
-  const map = new Map<string, string>();
-  aliasMap.forEach((gateway, aliasIp) => {
-    map.set(aliasIp, gateway.ip);
-  });
-  return map;
-};
-
 // ---------------------------------------------------------------------------
 // Mission router view (iptables + SNMP applied)
 // ---------------------------------------------------------------------------
