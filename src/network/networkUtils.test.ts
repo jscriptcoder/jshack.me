@@ -7,6 +7,7 @@ import type { FtpdPortOverride } from './ftpdStateParser';
 import type { NcPortOverride } from './ncStateParser';
 import type { InfraPortOverride } from './infraDaemonStateParser';
 import type { HomeNetwork } from '../generation/generateHomeNetwork';
+import type { FileNode } from '../filesystem/types';
 import {
   applyDaemonOverrides,
   applySnmpFirewallOverrides,
