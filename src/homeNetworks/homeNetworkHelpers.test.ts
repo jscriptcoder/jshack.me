@@ -260,9 +260,9 @@ describe('targetMachineIdFor', () => {
 
     it("translates the home router's .1 LAN alias to its canonical primary IP", () => {
       const aliasMap = new Map<string, string>([['10.0.0.1', '45.0.0.1']]);
-      expect(
-        targetMachineIdFor('10.0.0.1', [], '10.0.0', null, 'me-aabbccdd', aliasMap),
-      ).toBe('45.0.0.1');
+      expect(targetMachineIdFor('10.0.0.1', [], '10.0.0', null, 'me-aabbccdd', aliasMap)).toBe(
+        '45.0.0.1',
+      );
     });
 
     it("translates an inner-layer gateway's .1 alias to its primary IP", () => {
@@ -274,12 +274,12 @@ describe('targetMachineIdFor', () => {
         ['10.0.0.1', '45.0.0.1'],
         ['10.0.1.1', '10.0.0.50'],
       ]);
-      expect(
-        targetMachineIdFor('10.0.1.1', [], '10.0.0', null, 'me-aabbccdd', aliasMap),
-      ).toBe('10.0.0.50');
+      expect(targetMachineIdFor('10.0.1.1', [], '10.0.0', null, 'me-aabbccdd', aliasMap)).toBe(
+        '10.0.0.50',
+      );
     });
 
-    it("preserves ownLanIp precedence over the gateway translation when they collide", () => {
+    it('preserves ownLanIp precedence over the gateway translation when they collide', () => {
       // Pathological case: a player whose ownLanIp happens to equal a
       // gateway alias IP. Shouldn't happen with the DHCP slot allocator
       // (occupants get host octets in a range that excludes .1), but
@@ -296,9 +296,9 @@ describe('targetMachineIdFor', () => {
       // "looks like a .1". An IP outside the map falls through to the
       // occupant search (if applicable) or the passthrough branch.
       const aliasMap = new Map<string, string>([['10.0.0.1', '45.0.0.1']]);
-      expect(
-        targetMachineIdFor('192.168.1.1', [], '10.0.0', null, 'me-aabbccdd', aliasMap),
-      ).toBe('192.168.1.1');
+      expect(targetMachineIdFor('192.168.1.1', [], '10.0.0', null, 'me-aabbccdd', aliasMap)).toBe(
+        '192.168.1.1',
+      );
     });
 
     it('preserves occupant translation for non-alias IPs when both an occupant and the gateway map are present', () => {
@@ -324,18 +324,16 @@ describe('targetMachineIdFor', () => {
       // still see the pre-fix passthrough behavior for .1 alias IPs.
       // Keeps existing tests + transitional non-home-network call sites
       // working while wiring rolls out incrementally.
-      expect(targetMachineIdFor('10.0.0.1', [], '10.0.0', null, 'me-aabbccdd')).toBe(
-        '10.0.0.1',
-      );
+      expect(targetMachineIdFor('10.0.0.1', [], '10.0.0', null, 'me-aabbccdd')).toBe('10.0.0.1');
     });
 
     it('falls through to legacy behavior when the gateway alias map is empty', () => {
       // Explicit empty map (no gateways) behaves the same as omitting
       // the parameter — no translation happens.
       const aliasMap = new Map<string, string>();
-      expect(
-        targetMachineIdFor('10.0.0.1', [], '10.0.0', null, 'me-aabbccdd', aliasMap),
-      ).toBe('10.0.0.1');
+      expect(targetMachineIdFor('10.0.0.1', [], '10.0.0', null, 'me-aabbccdd', aliasMap)).toBe(
+        '10.0.0.1',
+      );
     });
   });
 });
@@ -412,14 +410,7 @@ describe('occupantAwareReadNode', () => {
       id === '45.0.0.1' ? 'IPTABLES-CONTENT' : null,
     );
     const aliasMap = new Map<string, string>([['10.0.0.1', '45.0.0.1']]);
-    const wrapped = occupantAwareReadNode(
-      inner,
-      [],
-      '10.0.0',
-      null,
-      'me-aabbccdd',
-      aliasMap,
-    );
+    const wrapped = occupantAwareReadNode(inner, [], '10.0.0', null, 'me-aabbccdd', aliasMap);
 
     expect(wrapped('10.0.0.1', '/etc/iptables/rules.v4', '/')).toBe('IPTABLES-CONTENT');
     expect(inner).toHaveBeenCalledWith('45.0.0.1', '/etc/iptables/rules.v4', '/');
