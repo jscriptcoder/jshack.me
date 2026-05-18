@@ -14,7 +14,7 @@ import { useRedisCommands } from '../../hooks/useRedisCommands';
 import { useSession } from '../../session/SessionContext';
 import type { NcSession } from '../../session/SessionContext';
 import { useHomeNetworks } from '../../homeNetworks/HomeNetworksContext';
-import { targetMachineIdFor } from '../../homeNetworks/homeNetworkHelpers';
+import { buildResolveTargetMachineId } from '../../homeNetworks/homeNetworkHelpers';
 import { useFileSystem } from '../../filesystem/FileSystemContext';
 import { appendToMachineLog } from '../../logging/appendToMachineLog';
 import { formatSuSuccess, formatSuFailed } from '../../logging/formatters';
@@ -127,19 +127,13 @@ export const Terminal = () => {
   const { activeNetwork, lanOccupants } = useHomeNetworks();
 
   // Maps a LAN IP to the canonical machine_id (workstation_id for
-  // occupants, LAN IP for NPC/world/mission machines). Used by every
-  // cross-player code path that constructs a machine_id from an IP the
-  // user typed — auth envelopes and write-side patches alike.
-  // Mirrors useNetworkCommands.resolveTargetMachineId.
-  const resolveTargetMachineId = useCallback(
-    (targetIp: string): string =>
-      targetMachineIdFor(
-        targetIp,
-        lanOccupants,
-        activeNetwork?.layers[0]?.subnet ?? null,
-        activeNetwork?.localhostIp ?? null,
-        ownWorkstationId,
-      ),
+  // occupants, LAN IP for NPC/world/mission machines, gateway primary
+  // IP for .1 LAN-side aliases). Used by every cross-player code path
+  // that constructs a machine_id from an IP the user typed — auth
+  // envelopes and write-side patches alike. Shared with
+  // useNetworkCommands via buildResolveTargetMachineId.
+  const resolveTargetMachineId = useMemo(
+    () => buildResolveTargetMachineId(activeNetwork, lanOccupants, ownWorkstationId),
     [activeNetwork, lanOccupants, ownWorkstationId],
   );
   const { commands, commandNames, lynxFetch } = useCommands();

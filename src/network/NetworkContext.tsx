@@ -23,6 +23,7 @@ import type { OccupantSummary } from '../homeNetworks/types';
 import { useSession } from '../session/SessionContext';
 import { useFileSystem } from '../filesystem';
 import {
+  buildGatewayCanonicalIpMap,
   isOnLayer0,
   isOwnWorkstation,
   occupantAwareReadNode,
@@ -526,6 +527,14 @@ export const NetworkProvider = ({
         homeNetwork?.layers[0]?.subnet ?? null,
         homeNetwork?.localhostIp ?? null,
         hostname,
+        // Gateway-alias canonicalization on the read path. When
+        // applyDynamicOverrides renders the .1 view of the home router
+        // and calls ctx.readNode('10.0.0.1', '/var/run/sshd.pid', '/'),
+        // the lookup must hit the canonical primary IP storage key
+        // (where the write path now lands patches). Without this map,
+        // reads via .1 see base FS only — patches written by the
+        // canonicalized write path are invisible.
+        buildGatewayCanonicalIpMap(homeNetwork),
       ),
     [getNodeFromMachine, lanOccupants, homeNetwork, hostname],
   );

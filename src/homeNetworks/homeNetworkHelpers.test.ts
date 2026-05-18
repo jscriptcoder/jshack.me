@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
+  buildGatewayCanonicalIpMap,
+  buildResolveTargetMachineId,
   computePlayerHostname,
   deriveHostnameSuffix,
   displayPromptHostname,
@@ -11,6 +13,8 @@ import {
 } from './homeNetworkHelpers';
 import { generateIdentity } from '../identity/identity';
 import type { OccupantSummary } from './types';
+import type { HomeNetwork } from '../generation/generateHomeNetwork';
+import type { GeneratedMachine, SubnetLayer } from '../generation/types';
 
 describe('deriveHostnameSuffix', () => {
   it('returns the same suffix for the same player key (stable)', () => {
@@ -244,6 +248,94 @@ describe('targetMachineIdFor', () => {
       targetMachineIdFor('10.0.0.42', [occupant({ lan_ip: '.42' })], null, null, 'me-aabbccdd'),
     ).toBe('10.0.0.42');
   });
+
+  describe('gateway-alias canonicalization', () => {
+    // Gateways (home router + inner-layer switch/router) serve on TWO
+    // IPs locally: their canonical primary IP and their .1 LAN-side
+    // alias. Players addressing the .1 alias should land on the same
+    // storage key as players addressing the primary IP. Without
+    // canonicalization, writes via .1 land under machine_id=".1" while
+    // cross-LAN subscribers (who only know the primary IP) query a
+    // different patches row and never observe the edit.
+
+    it("translates the home router's .1 LAN alias to its canonical primary IP", () => {
+      const aliasMap = new Map<string, string>([['10.0.0.1', '45.0.0.1']]);
+      expect(targetMachineIdFor('10.0.0.1', [], '10.0.0', null, 'me-aabbccdd', aliasMap)).toBe(
+        '45.0.0.1',
+      );
+    });
+
+    it("translates an inner-layer gateway's .1 alias to its primary IP", () => {
+      // Multi-layer topology: the inner gateway's primary IP is on
+      // layer 0 (e.g. 10.0.0.50), but it's reachable from the inner
+      // subnet at .1. Writes to the inner .1 must canonicalize to the
+      // gateway's primary IP — same hygiene as the home router.
+      const aliasMap = new Map<string, string>([
+        ['10.0.0.1', '45.0.0.1'],
+        ['10.0.1.1', '10.0.0.50'],
+      ]);
+      expect(targetMachineIdFor('10.0.1.1', [], '10.0.0', null, 'me-aabbccdd', aliasMap)).toBe(
+        '10.0.0.50',
+      );
+    });
+
+    it('preserves ownLanIp precedence over the gateway translation when they collide', () => {
+      // Pathological case: a player whose ownLanIp happens to equal a
+      // gateway alias IP. Shouldn't happen with the DHCP slot allocator
+      // (occupants get host octets in a range that excludes .1), but
+      // the precedence is pinned so a future allocator change can't
+      // silently break self-targeting.
+      const aliasMap = new Map<string, string>([['10.0.0.1', '45.0.0.1']]);
+      expect(
+        targetMachineIdFor('10.0.0.1', [], '10.0.0', '10.0.0.1', 'me-aabbccdd', aliasMap),
+      ).toBe('me-aabbccdd');
+    });
+
+    it('does NOT translate an IP that is not in the gateway alias map', () => {
+      // The gateway translation must match by exact IP equality, not
+      // "looks like a .1". An IP outside the map falls through to the
+      // occupant search (if applicable) or the passthrough branch.
+      const aliasMap = new Map<string, string>([['10.0.0.1', '45.0.0.1']]);
+      expect(targetMachineIdFor('192.168.1.1', [], '10.0.0', null, 'me-aabbccdd', aliasMap)).toBe(
+        '192.168.1.1',
+      );
+    });
+
+    it('preserves occupant translation for non-alias IPs when both an occupant and the gateway map are present', () => {
+      // The gateway translation must not shadow occupant translation
+      // for non-alias IPs on the same LAN. A player addressing another
+      // occupant's slot (e.g. .42) still resolves to that occupant's
+      // hostname even when the alias map is supplied.
+      const aliasMap = new Map<string, string>([['10.0.0.1', '45.0.0.1']]);
+      expect(
+        targetMachineIdFor(
+          '10.0.0.42',
+          [occupant({ lan_ip: '.42', hostname: 'rocket-bbccdd11' })],
+          '10.0.0',
+          null,
+          'me-aabbccdd',
+          aliasMap,
+        ),
+      ).toBe('rocket-bbccdd11');
+    });
+
+    it('falls through to legacy behavior when the gateway alias map is omitted', () => {
+      // Backward-compatible default: callers that don't supply the map
+      // still see the pre-fix passthrough behavior for .1 alias IPs.
+      // Keeps existing tests + transitional non-home-network call sites
+      // working while wiring rolls out incrementally.
+      expect(targetMachineIdFor('10.0.0.1', [], '10.0.0', null, 'me-aabbccdd')).toBe('10.0.0.1');
+    });
+
+    it('falls through to legacy behavior when the gateway alias map is empty', () => {
+      // Explicit empty map (no gateways) behaves the same as omitting
+      // the parameter — no translation happens.
+      const aliasMap = new Map<string, string>();
+      expect(targetMachineIdFor('10.0.0.1', [], '10.0.0', null, 'me-aabbccdd', aliasMap)).toBe(
+        '10.0.0.1',
+      );
+    });
+  });
 });
 
 describe('occupantAwareReadNode', () => {
@@ -304,6 +396,216 @@ describe('occupantAwareReadNode', () => {
 
     wrapped('10.0.0.42', '/etc/passwd', '/home/alice');
     expect(inner).toHaveBeenCalledWith('rocket-bbccdd11', '/etc/passwd', '/home/alice');
+  });
+
+  it("reads via the canonical primary IP when called with a gateway's .1 alias", () => {
+    // Symmetric read-side counterpart to the write-side translation in
+    // useNetworkCommands/Terminal. Players addressing the home router's
+    // .1 alias for a read (e.g., cat /etc/iptables/rules.v4 from inside
+    // the router shell) need the wrapped reader to fetch from the
+    // canonical primary IP storage key — otherwise reads miss writes
+    // that the new write-path canonicalization (Steps 4 + 5) routes to
+    // the public IP.
+    const inner = vi.fn((id: string, _path: string, _cwd: string) =>
+      id === '45.0.0.1' ? 'IPTABLES-CONTENT' : null,
+    );
+    const aliasMap = new Map<string, string>([['10.0.0.1', '45.0.0.1']]);
+    const wrapped = occupantAwareReadNode(inner, [], '10.0.0', null, 'me-aabbccdd', aliasMap);
+
+    expect(wrapped('10.0.0.1', '/etc/iptables/rules.v4', '/')).toBe('IPTABLES-CONTENT');
+    expect(inner).toHaveBeenCalledWith('45.0.0.1', '/etc/iptables/rules.v4', '/');
+  });
+});
+
+// Shared factories used by buildGatewayCanonicalIpMap and
+// buildResolveTargetMachineId tests. Inline copies of the
+// network/networkUtils.test.ts factories — kept duplicated here so the
+// homeNetworks helpers stay JSX-free (cross-module value imports from
+// networkUtils transitively pull SessionContext.tsx).
+
+const createGeneratedMachineFixture = (
+  overrides: Partial<GeneratedMachine> = {},
+): GeneratedMachine => ({
+  ip: '10.0.0.1',
+  hostname: 'test-machine',
+  role: 'workstation',
+  accessVariant: 'ssh',
+  remoteMachine: { ip: '10.0.0.1', hostname: 'test-machine', ports: [], users: [] },
+  ...overrides,
+});
+
+const createSubnetLayerFixture = (overrides: Partial<SubnetLayer> = {}): SubnetLayer => ({
+  subnet: '10.0.0',
+  gateway: createGeneratedMachineFixture({ ip: '10.0.0.50', hostname: 'gw', role: 'router' }),
+  gatewayType: 'router',
+  entryVariant: 'ssh',
+  machines: [],
+  isForwarded: false,
+  ...overrides,
+});
+
+const createHomeNetworkFixture = (overrides: Partial<HomeNetwork> = {}): HomeNetwork => ({
+  essid: 'TEST-WIFI',
+  localhostIp: '10.0.0.100',
+  router: { publicIp: '45.0.0.1', hostname: 'router01', internalIp: '10.0.0.1' },
+  routerMachine: createGeneratedMachineFixture({
+    ip: '45.0.0.1',
+    hostname: 'router01',
+    role: 'router',
+  }),
+  entryPoint: '10.0.0.10',
+  entryVariant: 'ssh',
+  machines: [],
+  layers: [createSubnetLayerFixture({ subnet: '10.0.0' })],
+  networkConfig: { machineConfigs: {} },
+  fileSystems: {},
+  difficulty: 'easy',
+  ...overrides,
+});
+
+describe('buildGatewayCanonicalIpMap', () => {
+  // Maps each gateway's .1 LAN-side alias to its canonical primary IP.
+  // The home router is the load-bearing case: its primary IP is the
+  // public IP, distinct from the .1 alias. Inner gateways may have a
+  // primary IP that already equals .1, producing a harmless self-loop.
+
+  it('returns an empty map when no home network is supplied', () => {
+    expect(buildGatewayCanonicalIpMap(null).size).toBe(0);
+    expect(buildGatewayCanonicalIpMap(undefined).size).toBe(0);
+  });
+
+  it("maps the home router's .1 alias to its canonical primary (public) IP", () => {
+    // The home router serves on TWO IPs locally: its public IP (WAN) and
+    // its .1 LAN-side alias. Players addressing the .1 alias must land
+    // on the public IP storage key — the canonical key cross-LAN
+    // subscribers query against.
+    const home = createHomeNetworkFixture();
+
+    const map = buildGatewayCanonicalIpMap(home);
+
+    expect(map.get('10.0.0.1')).toBe('45.0.0.1');
+  });
+
+  it("maps an inner-layer gateway's .1 alias to its primary IP", () => {
+    // Multi-layer topology (medium/hard home networks). The inner
+    // gateway has a primary IP on layer 0 (e.g. 10.0.0.50) and a .1
+    // alias on its own inner subnet. Same storage hygiene rationale as
+    // the home router, scaled to every gateway.
+    const innerGateway = createGeneratedMachineFixture({ ip: '10.0.0.50', role: 'router' });
+    const home = createHomeNetworkFixture({
+      layers: [
+        createSubnetLayerFixture({ subnet: '10.0.0' }),
+        createSubnetLayerFixture({ subnet: '10.0.1', gateway: innerGateway }),
+      ],
+    });
+
+    const map = buildGatewayCanonicalIpMap(home);
+
+    expect(map.get('10.0.1.1')).toBe('10.0.0.50');
+  });
+
+  it('includes BOTH the home-router alias and inner-gateway aliases in one map', () => {
+    // Callers thread a single map through targetMachineIdFor — every
+    // gateway on the active home network must be in the same map.
+    const innerGateway = createGeneratedMachineFixture({ ip: '10.0.0.50', role: 'router' });
+    const home = createHomeNetworkFixture({
+      layers: [
+        createSubnetLayerFixture({ subnet: '10.0.0' }),
+        createSubnetLayerFixture({ subnet: '10.0.1', gateway: innerGateway }),
+      ],
+    });
+
+    const map = buildGatewayCanonicalIpMap(home);
+
+    expect(map.size).toBe(2);
+    expect(map.get('10.0.0.1')).toBe('45.0.0.1');
+    expect(map.get('10.0.1.1')).toBe('10.0.0.50');
+  });
+});
+
+describe('buildResolveTargetMachineId', () => {
+  // Shared composition used by both useNetworkCommands and Terminal —
+  // takes the current home-network state and returns a resolver that
+  // hides the targetMachineIdFor parameter plumbing from the call
+  // sites. Both writers and the parallel read-side wrap (logFs, etc.)
+  // call the same resolver so cross-player writes/reads agree on the
+  // canonical storage key.
+
+  const createHomeNetwork = createHomeNetworkFixture;
+
+  const buildOccupant = (overrides: Partial<OccupantSummary> = {}): OccupantSummary => ({
+    network_id: '45.0.0.1',
+    lan_ip: '.42',
+    hostname: 'rocket-bbccdd11',
+    ...overrides,
+  });
+
+  it("translates a LAN occupant's IP to that occupant's hostname", () => {
+    // Most common cross-player write: A addressing B's LAN IP must
+    // route patches to B's canonical workstation_id storage key.
+    const home = createHomeNetwork();
+    const resolve = buildResolveTargetMachineId(home, [buildOccupant()], 'me-aabbccdd');
+
+    expect(resolve('10.0.0.42')).toBe('rocket-bbccdd11');
+  });
+
+  it("translates the home router's .1 LAN alias to its canonical primary IP", () => {
+    // The gateway-alias canonicalization end-to-end: the home router's
+    // .1 IP (10.0.0.1 by factory default) maps to the router's primary
+    // IP (45.0.0.1 by factory default) so writes via either land in
+    // the same patches row.
+    const home = createHomeNetwork();
+    const resolve = buildResolveTargetMachineId(home, [], 'me-aabbccdd');
+
+    expect(resolve('10.0.0.1')).toBe('45.0.0.1');
+  });
+
+  it("returns ownHostname when targetIp matches the player's ownLanIp", () => {
+    // Self-targeting (e.g., player targeting their own LAN IP) routes
+    // to their own canonical workstation_id, not their LAN IP.
+    const home = createHomeNetwork({ localhostIp: '10.0.0.99' });
+    const resolve = buildResolveTargetMachineId(home, [], 'me-aabbccdd');
+
+    expect(resolve('10.0.0.99')).toBe('me-aabbccdd');
+  });
+
+  it('passes IPs outside the active LAN through unchanged', () => {
+    // Mission machines, world machines, and arbitrary off-LAN IPs
+    // keep their literal IP as the machine_id.
+    const home = createHomeNetwork();
+    const resolve = buildResolveTargetMachineId(home, [buildOccupant()], 'me-aabbccdd');
+
+    expect(resolve('203.0.113.50')).toBe('203.0.113.50');
+  });
+
+  it('passes the input through unchanged when no active home network is connected', () => {
+    // No WiFi connected — no active LAN, no gateway aliases. The
+    // resolver behaves like the legacy passthrough for every input.
+    const resolveNull = buildResolveTargetMachineId(null, [], 'me-aabbccdd');
+    expect(resolveNull('10.0.0.1')).toBe('10.0.0.1');
+    expect(resolveNull('10.0.0.42')).toBe('10.0.0.42');
+
+    const resolveUndef = buildResolveTargetMachineId(undefined, [], 'me-aabbccdd');
+    expect(resolveUndef('10.0.0.1')).toBe('10.0.0.1');
+  });
+
+  it("resolves the router's .1 alias and its canonical primary IP to the SAME machine_id", () => {
+    // Round-trip contract — load-bearing for cross-LAN observation.
+    // A write addressed at the .1 alias must land in the SAME patches
+    // row as a read addressed at the canonical primary IP, otherwise
+    // cross-LAN subscribers (who only know the primary IP) never
+    // observe the LAN-side write. Both the write path
+    // (useNetworkCommands.logFs) and the read path (occupantAwareReadNode
+    // wraps + Terminal) call the same resolver, so verifying both
+    // inputs map to one output codifies the contract end-to-end.
+    const home = createHomeNetwork();
+    const resolve = buildResolveTargetMachineId(home, [], 'me-aabbccdd');
+
+    const viaAlias = resolve('10.0.0.1');
+    const viaPrimary = resolve('45.0.0.1');
+
+    expect(viaAlias).toBe(viaPrimary);
+    expect(viaAlias).toBe('45.0.0.1');
   });
 });
 

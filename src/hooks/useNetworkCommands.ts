@@ -4,9 +4,9 @@ import { useFileSystem } from '../filesystem';
 import { useSession } from '../session/SessionContext';
 import { useHomeNetworks } from '../homeNetworks/HomeNetworksContext';
 import {
+  buildResolveTargetMachineId,
   isOwnWorkstation,
   parseWorkstationId,
-  targetMachineIdFor,
 } from '../homeNetworks/homeNetworkHelpers';
 import { exploitRead, crackCredentials } from '../patchRegistry/client';
 import { createIfconfigCommand } from '../commands/ifconfig';
@@ -97,12 +97,16 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
     // before any patch/log write. For LAN occupants the IP-form
     // (e.g., 10.0.0.42) maps to the occupant's hostname (= their
     // workstation_id) so cross-player writes land where the target
-    // player is subscribed via patches:<workstation_id>. For mission/
-    // world/off-LAN IPs the input passes through unchanged.
-    const activeSubnet = activeNetwork?.layers[0]?.subnet ?? null;
-    const ownLanIp = activeNetwork?.localhostIp ?? null;
-    const resolveTargetMachineId = (targetIp: string): string =>
-      targetMachineIdFor(targetIp, lanOccupants, activeSubnet, ownLanIp, hostname);
+    // player is subscribed via patches:<workstation_id>. Gateway .1
+    // aliases (home router + inner-layer gateways) canonicalize to
+    // their primary IP so writes via either land in the same patches
+    // row. For mission/world/off-LAN IPs the input passes through.
+    // Shared with Terminal via buildResolveTargetMachineId.
+    const resolveTargetMachineId = buildResolveTargetMachineId(
+      activeNetwork,
+      lanOccupants,
+      hostname,
+    );
 
     // logFs auto-translates the machineId on every read/write/create so
     // any log-writing handler (sshAuth, ftpAuth, hydraLog, etc.) that
