@@ -775,9 +775,15 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
             resolveDomain,
             getNodeFromMachine,
             writeFileToMachine,
+            // Canonicalize gateway .1 aliases to the gateway's primary IP
+            // so writes via either interface land in the same patches row
+            // (and the L2 session keys by the same canonical id).
+            resolveTargetMachineId,
             // Server-authoritative SNMP auth. Community string is
             // the credential; server validates rwcommunity match against
             // /etc/snmp/snmpd.conf and creates a session at userType='root'.
+            // params.machine_id arrives canonicalized from snmpset.ts via
+            // resolveTargetMachineId above.
             withTransientAuthSession: async (params, body) => {
               const result = await withTransientAuthSession(
                 getIdentity(),

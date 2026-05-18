@@ -20,6 +20,11 @@ type SnmpsetContext = {
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
   readonly getNodeFromMachine: (machineIp: string, path: string, cwd: string) => FileNode | null;
   readonly writeFileToMachine: (op: MachineWriteOp) => void;
+  // Translates the player-typed target IP to the canonical storage key
+  // for patches and L2 sessions. Gateway .1 LAN-side aliases resolve to
+  // the gateway's primary IP so writes converge on the same patches row
+  // regardless of which interface the player addressed.
+  readonly resolveTargetMachineId: (targetIp: string) => string;
   readonly withTransientAuthSession?: SnmpsetTransientAuthSession;
 };
 
@@ -87,8 +92,14 @@ export const createSnmpsetCommand = (context: SnmpsetContext): Command => ({
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {
-    const { getMachine, getLocalIP, resolveDomain, getNodeFromMachine, writeFileToMachine } =
-      context;
+    const {
+      getMachine,
+      getLocalIP,
+      resolveDomain,
+      getNodeFromMachine,
+      writeFileToMachine,
+      resolveTargetMachineId,
+    } = context;
 
     const host = args[0] as string | undefined;
     const community = args[1] as string | undefined;
@@ -226,9 +237,14 @@ export const createSnmpsetCommand = (context: SnmpsetContext): Command => ({
           // The community string is the auth secret — server validates
           // against rwcommunity in /etc/snmp/snmpd.conf and creates a
           // session at userType='root' (snmpset writes as root).
+          // Both the patch row and the transient session key off the
+          // canonical machine_id so cross-LAN observers and L2 lookups
+          // converge regardless of which gateway interface the player
+          // typed.
+          const canonicalMachineId = resolveTargetMachineId(targetIP);
           const doWrite = () => {
             writeFileToMachine({
-              machineId: targetIP,
+              machineId: canonicalMachineId,
               path: '/etc/snmp/snmpd.conf',
               cwd: '/',
               content: updatedContent,
@@ -241,7 +257,7 @@ export const createSnmpsetCommand = (context: SnmpsetContext): Command => ({
             void context
               .withTransientAuthSession(
                 {
-                  machine_id: targetIP,
+                  machine_id: canonicalMachineId,
                   auth: { method: 'password', password: community },
                 },
                 doWrite,

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { RemoteMachine } from '../network/types';
 import type { AsyncOutput } from '../components/Terminal/types';
 import type { FileNode } from '../filesystem/types';
+import type { AuthMethod } from '../sessionRegistry/types';
 import { createSnmpsetCommand } from './snmpset';
 
 // --- Factory Functions ---
@@ -55,6 +56,12 @@ type SnmpsetContextConfig = {
   readonly machines?: readonly RemoteMachine[];
   readonly localIP?: string;
   readonly snmpConf?: string | null;
+  readonly resolveTargetMachineId?: (targetIp: string) => string;
+};
+
+type TransientAuthCall = {
+  readonly machine_id: string;
+  readonly auth: AuthMethod;
 };
 
 const createMockSnmpsetContext = (config: SnmpsetContextConfig = {}) => {
@@ -62,8 +69,10 @@ const createMockSnmpsetContext = (config: SnmpsetContextConfig = {}) => {
     machines = [getMockRouter()],
     localIP = '192.168.1.100',
     snmpConf = mkSnmpConf(),
+    resolveTargetMachineId = (targetIp: string) => targetIp,
   } = config;
   const createdFiles: CreatedFile[] = [];
+  const transientAuthCalls: TransientAuthCall[] = [];
 
   return {
     context: {
@@ -88,8 +97,34 @@ const createMockSnmpsetContext = (config: SnmpsetContextConfig = {}) => {
       }) => {
         createdFiles.push({ machineIp: machineId, path, content });
       },
+      resolveTargetMachineId,
     },
     createdFiles,
+    transientAuthCalls,
+  };
+};
+
+// Factory for a context that includes the optional withTransientAuthSession
+// — needed for tests that verify the auth-session machine_id is canonicalized
+// alongside the patch write.
+const createMockSnmpsetContextWithAuth = (config: SnmpsetContextConfig = {}) => {
+  const base = createMockSnmpsetContext(config);
+  return {
+    ...base,
+    context: {
+      ...base.context,
+      withTransientAuthSession: (
+        params: { readonly machine_id: string; readonly auth: AuthMethod },
+        body: () => void,
+      ) => {
+        base.transientAuthCalls.push({
+          machine_id: params.machine_id,
+          auth: params.auth,
+        });
+        body();
+        return Promise.resolve({ ok: true as const });
+      },
+    },
   };
 };
 
@@ -251,6 +286,81 @@ describe('snmpset command', () => {
       vi.advanceTimersByTime(5000);
 
       expect(lines.some((l) => l.includes('updated successfully'))).toBe(false);
+    });
+  });
+
+  describe('canonicalization of gateway aliases', () => {
+    // A gateway's .1 LAN-side alias and its canonical primary IP are two
+    // ways to address the same router/switch. Patches must land under
+    // a single canonical key so cross-LAN observers (who only know the
+    // primary IP) and LAN-side observers (who only know .1) see the
+    // same state. snmpset receives a resolver from the wiring layer
+    // that performs the alias → canonical translation.
+
+    it('writes the snmpd.conf patch under the canonical machine_id, not the .1 alias the player typed', () => {
+      // Player addresses the home router by its LAN-side .1 alias.
+      // Without canonicalization, the patch would land at 192.168.1.1,
+      // diverging from cross-LAN reads that go to 45.0.0.1.
+      const homeRouter: RemoteMachine = {
+        ...getMockRouter(),
+        ip: '192.168.1.1',
+      };
+      const { context, createdFiles } = createMockSnmpsetContext({
+        machines: [homeRouter],
+        resolveTargetMachineId: (targetIp) => (targetIp === '192.168.1.1' ? '45.0.0.1' : targetIp),
+      });
+      const snmpset = createSnmpsetCommand(context);
+
+      const result = snmpset.fn('192.168.1.1', 'private', 'firewallSSH=permit');
+      if (!isAsyncOutput(result)) return;
+      collectLines(result);
+
+      const written = createdFiles.find((f) => f.path === '/etc/snmp/snmpd.conf');
+      expect(written?.machineIp).toBe('45.0.0.1');
+    });
+
+    it('opens the transient auth session under the canonical machine_id, not the .1 alias', () => {
+      // The transient SNMP auth session is the L2-enforced credential
+      // for the write — it must also be keyed by the canonical ID so
+      // findActiveSession finds the same row that the write targets.
+      const homeRouter: RemoteMachine = {
+        ...getMockRouter(),
+        ip: '192.168.1.1',
+      };
+      const { context, transientAuthCalls } = createMockSnmpsetContextWithAuth({
+        machines: [homeRouter],
+        resolveTargetMachineId: (targetIp) => (targetIp === '192.168.1.1' ? '45.0.0.1' : targetIp),
+      });
+      const snmpset = createSnmpsetCommand(context);
+
+      const result = snmpset.fn('192.168.1.1', 'private', 'firewallSSH=permit');
+      if (!isAsyncOutput(result)) return;
+      collectLines(result);
+
+      expect(transientAuthCalls).toHaveLength(1);
+      expect(transientAuthCalls[0]?.machine_id).toBe('45.0.0.1');
+    });
+
+    it('passes IPs through unchanged when the resolver is identity (mission machines, world gateways, off-LAN)', () => {
+      // The resolver is responsible for deciding what to canonicalize.
+      // When the IP is not a gateway alias (e.g., a mission machine IP),
+      // the resolver returns it unchanged and snmpset writes to that IP.
+      const missionMachine: RemoteMachine = {
+        ...getMockRouter(),
+        ip: '203.0.113.42',
+      };
+      const { context, createdFiles } = createMockSnmpsetContext({
+        machines: [missionMachine],
+        resolveTargetMachineId: (targetIp) => targetIp,
+      });
+      const snmpset = createSnmpsetCommand(context);
+
+      const result = snmpset.fn('203.0.113.42', 'private', 'firewallSSH=permit');
+      if (!isAsyncOutput(result)) return;
+      collectLines(result);
+
+      const written = createdFiles.find((f) => f.path === '/etc/snmp/snmpd.conf');
+      expect(written?.machineIp).toBe('203.0.113.42');
     });
   });
 });
