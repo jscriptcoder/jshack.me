@@ -225,8 +225,21 @@ export const targetMachineIdFor = (
   activeSubnet: string | null,
   ownLanIp: string | null,
   ownHostname: string,
+  gatewayAliasMap?: ReadonlyMap<string, string>,
 ): string => {
   if (ownLanIp !== null && targetIp === ownLanIp) return ownHostname;
+  // Gateway-alias canonicalization. The home router + inner gateways
+  // serve on BOTH a canonical primary IP and a .1 LAN-side alias;
+  // writes via either need to land under the same storage key so
+  // cross-LAN subscribers (who only know the primary IP) can see them.
+  // `ownLanIp` precedence wins on a pathological occupant-at-alias
+  // collision (the DHCP allocator avoids .1 in practice but the
+  // precedence is pinned defensively). Omitted / empty map keeps the
+  // legacy passthrough so transitional callers stay correct.
+  if (gatewayAliasMap) {
+    const canonical = gatewayAliasMap.get(targetIp);
+    if (canonical !== undefined) return canonical;
+  }
   if (activeSubnet === null) return targetIp;
   if (!targetIp.startsWith(`${activeSubnet}.`)) return targetIp;
   const occupant = lanOccupants.find((o) => `${activeSubnet}${o.lan_ip}` === targetIp);

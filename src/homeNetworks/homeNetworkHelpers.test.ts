@@ -244,6 +244,96 @@ describe('targetMachineIdFor', () => {
       targetMachineIdFor('10.0.0.42', [occupant({ lan_ip: '.42' })], null, null, 'me-aabbccdd'),
     ).toBe('10.0.0.42');
   });
+
+  describe('gateway-alias canonicalization', () => {
+    // Gateways (home router + inner-layer switch/router) serve on TWO
+    // IPs locally: their canonical primary IP and their .1 LAN-side
+    // alias. Players addressing the .1 alias should land on the same
+    // storage key as players addressing the primary IP. Without
+    // canonicalization, writes via .1 land under machine_id=".1" while
+    // cross-LAN subscribers (who only know the primary IP) query a
+    // different patches row and never observe the edit.
+
+    it("translates the home router's .1 LAN alias to its canonical primary IP", () => {
+      const aliasMap = new Map<string, string>([['10.0.0.1', '45.0.0.1']]);
+      expect(
+        targetMachineIdFor('10.0.0.1', [], '10.0.0', null, 'me-aabbccdd', aliasMap),
+      ).toBe('45.0.0.1');
+    });
+
+    it("translates an inner-layer gateway's .1 alias to its primary IP", () => {
+      // Multi-layer topology: the inner gateway's primary IP is on
+      // layer 0 (e.g. 10.0.0.50), but it's reachable from the inner
+      // subnet at .1. Writes to the inner .1 must canonicalize to the
+      // gateway's primary IP — same hygiene as the home router.
+      const aliasMap = new Map<string, string>([
+        ['10.0.0.1', '45.0.0.1'],
+        ['10.0.1.1', '10.0.0.50'],
+      ]);
+      expect(
+        targetMachineIdFor('10.0.1.1', [], '10.0.0', null, 'me-aabbccdd', aliasMap),
+      ).toBe('10.0.0.50');
+    });
+
+    it("preserves ownLanIp precedence over the gateway translation when they collide", () => {
+      // Pathological case: a player whose ownLanIp happens to equal a
+      // gateway alias IP. Shouldn't happen with the DHCP slot allocator
+      // (occupants get host octets in a range that excludes .1), but
+      // the precedence is pinned so a future allocator change can't
+      // silently break self-targeting.
+      const aliasMap = new Map<string, string>([['10.0.0.1', '45.0.0.1']]);
+      expect(
+        targetMachineIdFor('10.0.0.1', [], '10.0.0', '10.0.0.1', 'me-aabbccdd', aliasMap),
+      ).toBe('me-aabbccdd');
+    });
+
+    it('does NOT translate an IP that is not in the gateway alias map', () => {
+      // The gateway translation must match by exact IP equality, not
+      // "looks like a .1". An IP outside the map falls through to the
+      // occupant search (if applicable) or the passthrough branch.
+      const aliasMap = new Map<string, string>([['10.0.0.1', '45.0.0.1']]);
+      expect(
+        targetMachineIdFor('192.168.1.1', [], '10.0.0', null, 'me-aabbccdd', aliasMap),
+      ).toBe('192.168.1.1');
+    });
+
+    it('preserves occupant translation for non-alias IPs when both an occupant and the gateway map are present', () => {
+      // The gateway translation must not shadow occupant translation
+      // for non-alias IPs on the same LAN. A player addressing another
+      // occupant's slot (e.g. .42) still resolves to that occupant's
+      // hostname even when the alias map is supplied.
+      const aliasMap = new Map<string, string>([['10.0.0.1', '45.0.0.1']]);
+      expect(
+        targetMachineIdFor(
+          '10.0.0.42',
+          [occupant({ lan_ip: '.42', hostname: 'rocket-bbccdd11' })],
+          '10.0.0',
+          null,
+          'me-aabbccdd',
+          aliasMap,
+        ),
+      ).toBe('rocket-bbccdd11');
+    });
+
+    it('falls through to legacy behavior when the gateway alias map is omitted', () => {
+      // Backward-compatible default: callers that don't supply the map
+      // still see the pre-fix passthrough behavior for .1 alias IPs.
+      // Keeps existing tests + transitional non-home-network call sites
+      // working while wiring rolls out incrementally.
+      expect(targetMachineIdFor('10.0.0.1', [], '10.0.0', null, 'me-aabbccdd')).toBe(
+        '10.0.0.1',
+      );
+    });
+
+    it('falls through to legacy behavior when the gateway alias map is empty', () => {
+      // Explicit empty map (no gateways) behaves the same as omitting
+      // the parameter — no translation happens.
+      const aliasMap = new Map<string, string>();
+      expect(
+        targetMachineIdFor('10.0.0.1', [], '10.0.0', null, 'me-aabbccdd', aliasMap),
+      ).toBe('10.0.0.1');
+    });
+  });
 });
 
 describe('occupantAwareReadNode', () => {
