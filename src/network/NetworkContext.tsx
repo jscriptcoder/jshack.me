@@ -10,12 +10,7 @@ import type {
   Port,
   VulnerabilityEffect,
 } from './types';
-import type {
-  GeneratedMachine,
-  MissionNetwork,
-  NatForwardingRule,
-  SubnetLayer,
-} from '../generation/types';
+import type { GeneratedMachine, MissionNetwork, SubnetLayer } from '../generation/types';
 import type { RequestHandler } from '../themedNetworks/types';
 import { localhostDisconnectedInterfaces, localhostWlan0Down } from './initialNetwork';
 import type { HomeNetwork } from '../generation/generateHomeNetwork';
@@ -31,12 +26,10 @@ import {
 import { findGatewayChainFor } from './gatewayChain';
 import { parseIptablesRules } from './iptablesParser';
 import { parseSnmpFirewallConfig } from './snmpFirewallParser';
-import type { SnmpFirewallOverride } from './snmpFirewallParser';
 import { parseAclRules } from './aclParser';
-import type { AclRule } from './aclParser';
 import { parseSnmpAclConfig } from './snmpAclParser';
-import type { SnmpAclOverride } from './snmpAclParser';
 import {
+  buildCanonicalKeyedRulesMap,
   collectGatewayIps,
   collectWorldGatewayIps,
   buildGatewayAliasMap,
@@ -211,20 +204,26 @@ export const NetworkProvider = ({
 
   const homeGatewayByAliasIp = useMemo(() => buildGatewayAliasMap(homeNetwork), [homeNetwork]);
 
+  // Maps gateway .1 aliases to their canonical primary IP. Drives the
+  // dedup in buildCanonicalKeyedRulesMap below + the canonicalization on
+  // applyDynamicOverrides lookups. Home-only — mission inner gateway
+  // aliases are not in the map (deferred to mission redesign).
+  const gatewayCanonicalMap = useMemo(() => buildGatewayCanonicalIpMap(homeNetwork), [homeNetwork]);
+
   // Dynamic iptables rules: read and parse /etc/iptables/rules.v4 from all
-  // gateway filesystems. When the player edits a file with nano, the filesystem
-  // state updates, triggering re-render and re-parse.
-  const allIptablesRules = useMemo((): ReadonlyMap<string, readonly NatForwardingRule[]> => {
-    const map = new Map<string, readonly NatForwardingRule[]>();
-    gatewayIps.forEach((ip) => {
-      const node = getNodeFromMachine(ip, '/etc/iptables/rules.v4', '/');
-      if (node?.type === 'file' && node.content) {
-        const rules = parseIptablesRules(node.content);
-        if (rules.length > 0) map.set(ip, rules);
-      }
-    });
-    return map;
-  }, [gatewayIps, getNodeFromMachine]);
+  // gateway filesystems. Keyed by canonical IP so writes via .1 aliases
+  // (which canonicalize per PR #145) and reads from any viewer converge.
+  const allIptablesRules = useMemo(
+    () =>
+      buildCanonicalKeyedRulesMap(
+        gatewayIps,
+        getNodeFromMachine,
+        gatewayCanonicalMap,
+        '/etc/iptables/rules.v4',
+        parseIptablesRules,
+      ),
+    [gatewayIps, getNodeFromMachine, gatewayCanonicalMap],
+  );
 
   // Backward-compatible: border router iptables rules used in baseConfig.
   // Memoized so the `?? []` fallback doesn't create a fresh reference every render.
@@ -233,20 +232,20 @@ export const NetworkProvider = ({
     [allIptablesRules, missionRouterMachine],
   );
 
-  // Dynamic SNMP firewall rules: read and parse /etc/snmp/snmpd.conf from all
-  // gateway filesystems. When the player runs snmpset to modify firewall OIDs,
-  // the filesystem state updates, triggering re-render and re-parse.
-  const allSnmpOverrides = useMemo((): ReadonlyMap<string, readonly SnmpFirewallOverride[]> => {
-    const map = new Map<string, readonly SnmpFirewallOverride[]>();
-    gatewayIps.forEach((ip) => {
-      const node = getNodeFromMachine(ip, '/etc/snmp/snmpd.conf', '/');
-      if (node?.type === 'file' && node.content) {
-        const overrides = parseSnmpFirewallConfig(node.content);
-        if (overrides.length > 0) map.set(ip, overrides);
-      }
-    });
-    return map;
-  }, [gatewayIps, getNodeFromMachine]);
+  // Dynamic SNMP firewall rules: read and parse /etc/snmp/snmpd.conf from
+  // all gateway filesystems. Canonical-keyed for the same reason as
+  // iptables — snmpset writes canonicalize per PR #147.
+  const allSnmpOverrides = useMemo(
+    () =>
+      buildCanonicalKeyedRulesMap(
+        gatewayIps,
+        getNodeFromMachine,
+        gatewayCanonicalMap,
+        '/etc/snmp/snmpd.conf',
+        parseSnmpFirewallConfig,
+      ),
+    [gatewayIps, getNodeFromMachine, gatewayCanonicalMap],
+  );
 
   // Backward-compatible: border router SNMP overrides used in baseConfig.
   // Memoized so the `?? []` fallback doesn't create a fresh reference every render.
@@ -255,33 +254,34 @@ export const NetworkProvider = ({
     [allSnmpOverrides, missionRouterMachine],
   );
 
-  // Dynamic ACL rules: read and parse /etc/switch/acl.conf from switch gateways.
-  // When the player edits acl.conf with nano, ports on downstream machines open/close.
-  const allAclRules = useMemo((): ReadonlyMap<string, readonly AclRule[]> => {
-    const map = new Map<string, readonly AclRule[]>();
-    gatewayIps.forEach((ip) => {
-      const node = getNodeFromMachine(ip, '/etc/switch/acl.conf', '/');
-      if (node?.type === 'file' && node.content) {
-        const rules = parseAclRules(node.content);
-        if (rules.length > 0) map.set(ip, rules);
-      }
-    });
-    return map;
-  }, [gatewayIps, getNodeFromMachine]);
+  // Dynamic ACL rules: read and parse /etc/switch/acl.conf from switch
+  // gateways. Canonical-keyed; lookups in applyAclFiltering already use
+  // the switch's canonical IP from findSwitchGatewayForMachine.
+  const allAclRules = useMemo(
+    () =>
+      buildCanonicalKeyedRulesMap(
+        gatewayIps,
+        getNodeFromMachine,
+        gatewayCanonicalMap,
+        '/etc/switch/acl.conf',
+        parseAclRules,
+      ),
+    [gatewayIps, getNodeFromMachine, gatewayCanonicalMap],
+  );
 
-  // Dynamic SNMP ACL overrides: read and parse ACL OIDs from switch snmpd.conf.
-  // When snmpset changes aclSSH to "allow", the ACL deny for port 22 is overridden.
-  const allSnmpAclOverrides = useMemo((): ReadonlyMap<string, readonly SnmpAclOverride[]> => {
-    const map = new Map<string, readonly SnmpAclOverride[]>();
-    gatewayIps.forEach((ip) => {
-      const node = getNodeFromMachine(ip, '/etc/snmp/snmpd.conf', '/');
-      if (node?.type === 'file' && node.content) {
-        const overrides = parseSnmpAclConfig(node.content);
-        if (overrides.length > 0) map.set(ip, overrides);
-      }
-    });
-    return map;
-  }, [gatewayIps, getNodeFromMachine]);
+  // Dynamic SNMP ACL overrides: read and parse ACL OIDs from switch
+  // snmpd.conf. Canonical-keyed.
+  const allSnmpAclOverrides = useMemo(
+    () =>
+      buildCanonicalKeyedRulesMap(
+        gatewayIps,
+        getNodeFromMachine,
+        gatewayCanonicalMap,
+        '/etc/snmp/snmpd.conf',
+        parseSnmpAclConfig,
+      ),
+    [gatewayIps, getNodeFromMachine, gatewayCanonicalMap],
+  );
 
   // Dynamic localhost wlan0 interface based on home network subnet
   const localhostHomeInterfaces = useMemo((): readonly NetworkInterface[] | null => {
@@ -534,9 +534,9 @@ export const NetworkProvider = ({
         // (where the write path now lands patches). Without this map,
         // reads via .1 see base FS only — patches written by the
         // canonicalized write path are invisible.
-        buildGatewayCanonicalIpMap(homeNetwork),
+        gatewayCanonicalMap,
       ),
-    [getNodeFromMachine, lanOccupants, homeNetwork, hostname],
+    [getNodeFromMachine, lanOccupants, homeNetwork, hostname, gatewayCanonicalMap],
   );
 
   // Base override context — everything except `overlaidOccupants`. Used to
@@ -560,6 +560,7 @@ export const NetworkProvider = ({
         layers: wn.layers,
       })),
       homeGatewayByAliasIp,
+      gatewayAliasMap: gatewayCanonicalMap,
       readNode: readNodeForOverrides,
     }),
     [
@@ -572,6 +573,7 @@ export const NetworkProvider = ({
       homeNetwork,
       worldNetworks,
       homeGatewayByAliasIp,
+      gatewayCanonicalMap,
       readNodeForOverrides,
     ],
   );

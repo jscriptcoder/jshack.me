@@ -11,6 +11,7 @@ import {
   applyDaemonOverrides,
   applySnmpFirewallOverrides,
   applyDynamicOverrides,
+  buildCanonicalKeyedRulesMap,
   buildMergedRouterView,
   buildRouterRemoteView,
   buildWorldExternalDnsRecords,
@@ -887,6 +888,117 @@ describe('buildGatewayAliasMap', () => {
   });
 });
 
+describe('buildCanonicalKeyedRulesMap', () => {
+  // Pure function. Iterates the gateway-IP list, folds aliases to their
+  // canonical primary IP via the alias map, reads each canonical IP once,
+  // and keys the result by canonical IP only.
+
+  const fakeFile = (content: string): FileNode => ({
+    name: 'fake',
+    type: 'file' as const,
+    content,
+    owner: 'root' as const,
+    permissions: { read: [], write: [], execute: [] },
+  });
+
+  it('keys the result by canonical IPs only, with aliases collapsed', () => {
+    // gatewayIps contains both .1 alias AND canonical for the home router;
+    // the result should have ONE entry keyed by the canonical IP.
+    const reads: string[] = [];
+    const readNode = (machineId: string, path: string) => {
+      reads.push(machineId);
+      if (machineId === '45.0.0.1' && path === '/etc/iptables/rules.v4') {
+        return fakeFile('forward 80 to 10.0.0.10:80');
+      }
+      return null;
+    };
+    const map = buildCanonicalKeyedRulesMap(
+      ['10.0.0.1', '45.0.0.1'],
+      readNode,
+      new Map([['10.0.0.1', '45.0.0.1']]),
+      '/etc/iptables/rules.v4',
+      (content: string) => content.split('\n').map((line) => line),
+    );
+
+    expect([...map.keys()]).toEqual(['45.0.0.1']);
+    expect(map.get('10.0.0.1')).toBeUndefined();
+  });
+
+  it('reads only from canonical IPs, not from aliases', () => {
+    // The .1 alias must NOT be queried — patches written via canonical
+    // would be invisible if we read from the alias key.
+    const reads: string[] = [];
+    const readNode = (machineId: string, _path: string) => {
+      reads.push(machineId);
+      return null;
+    };
+    buildCanonicalKeyedRulesMap(
+      ['10.0.0.1', '45.0.0.1', '10.0.1.1', '10.0.0.50'],
+      readNode,
+      new Map([
+        ['10.0.0.1', '45.0.0.1'],
+        ['10.0.1.1', '10.0.0.50'],
+      ]),
+      '/etc/iptables/rules.v4',
+      () => [],
+    );
+
+    expect(reads).not.toContain('10.0.0.1');
+    expect(reads).not.toContain('10.0.1.1');
+    expect(new Set(reads)).toEqual(new Set(['45.0.0.1', '10.0.0.50']));
+  });
+
+  it('passes through canonical-only IPs (world / mission gateways without aliases)', () => {
+    // World-network gateways aren't in the alias map. They pass through
+    // unchanged and the result is keyed by their canonical IP.
+    const readNode = (machineId: string, path: string) =>
+      machineId === '203.0.113.1' && path === '/etc/iptables/rules.v4'
+        ? fakeFile('forward 80 to 10.0.0.10:80')
+        : null;
+    const map = buildCanonicalKeyedRulesMap(
+      ['203.0.113.1'],
+      readNode,
+      new Map(),
+      '/etc/iptables/rules.v4',
+      (content: string) => [content],
+    );
+
+    expect([...map.keys()]).toEqual(['203.0.113.1']);
+  });
+
+  it('skips IPs whose config file is missing or empty', () => {
+    // A gateway without /etc/iptables/rules.v4 produces no map entry.
+    const readNode = () => null;
+    const map = buildCanonicalKeyedRulesMap(
+      ['45.0.0.1', '203.0.113.1'],
+      readNode,
+      new Map(),
+      '/etc/iptables/rules.v4',
+      () => [],
+    );
+
+    expect(map.size).toBe(0);
+  });
+
+  it('skips IPs whose parsed result is empty (so the map only carries gateways with real rules)', () => {
+    // Parser returning [] for a gateway whose file exists but has no
+    // rules — the entry is omitted.
+    const readNode = (machineId: string, path: string) =>
+      machineId === '45.0.0.1' && path === '/etc/iptables/rules.v4'
+        ? fakeFile('# comments only, no rules')
+        : null;
+    const map = buildCanonicalKeyedRulesMap(
+      ['45.0.0.1'],
+      readNode,
+      new Map(),
+      '/etc/iptables/rules.v4',
+      () => [],
+    );
+
+    expect(map.size).toBe(0);
+  });
+});
+
 describe('buildRouterRemoteView', () => {
   it('should return plain remoteMachine when no rules or overrides', () => {
     const router = createGeneratedMachine({
@@ -1562,6 +1674,77 @@ describe('applyDynamicOverrides', () => {
     expect(result.ports).toContainEqual(
       expect.objectContaining({ port: 80, service: 'http', open: true }),
     );
+  });
+
+  // PR #145 made writes via gateway .1 aliases canonicalize to the
+  // gateway's primary IP, so the iptables/SNMP/ACL/snmp-ACL maps land
+  // under canonical-only keys. Lookups from a LAN viewer (whose
+  // machine.ip is the .1 alias) must canonicalize too — otherwise the
+  // .1-keyed .get() misses every patch.
+  describe('canonicalizes gateway alias IPs for state lookups', () => {
+    it('applies an SNMP firewall override keyed by the canonical IP when scanning the gateway via its .1 alias', () => {
+      // A snmpset firewallSSH=permit write canonicalizes to the gateway's
+      // primary IP (PR #147). A LAN viewer scanning the .1 alias must
+      // canonicalize the SNMP-override lookup or the firewall change
+      // stays invisible from inside the LAN.
+      const visibleMachine = createMachine({
+        ip: '10.0.0.1',
+        hostname: 'home-router',
+        ports: [createPort({ port: 22, service: 'ssh', serviceVersion: 'latest', open: false })],
+      });
+      const snmpOverrides: readonly SnmpFirewallOverride[] = [{ port: 22, open: true }];
+
+      const result = applyDynamicOverrides(visibleMachine, {
+        allIptablesRules: new Map(),
+        // Overrides keyed by CANONICAL IP only.
+        allSnmpOverrides: new Map([['45.0.0.1', snmpOverrides]]),
+        allAclRules: new Map(),
+        allSnmpAclOverrides: new Map(),
+        homeGatewayByAliasIp: new Map(),
+        gatewayAliasMap: new Map([['10.0.0.1', '45.0.0.1']]),
+        readNode: noopReader,
+      });
+
+      expect(result.ports).toContainEqual(
+        expect.objectContaining({ port: 22, service: 'ssh', open: true }),
+      );
+    });
+
+    it('applies an iptables rule keyed by the canonical IP when scanning the gateway via its .1 alias', () => {
+      const gateway = createGeneratedMachine({
+        ip: '45.0.0.1',
+        role: 'router',
+        remoteMachine: createMachine({ ip: '45.0.0.1', ports: [] }),
+      });
+      const target = createGeneratedMachine({
+        ip: '10.0.0.10',
+        remoteMachine: createMachine({
+          ip: '10.0.0.10',
+          ports: [createPort({ port: 80, service: 'http', serviceVersion: 'latest', open: true })],
+        }),
+      });
+      const rules: readonly NatForwardingRule[] = [
+        { publicPort: 80, internalIp: '10.0.0.10', internalPort: 80 },
+      ];
+      const visibleMachine = createMachine({ ip: '10.0.0.1', hostname: 'home-router' });
+
+      const result = applyDynamicOverrides(visibleMachine, {
+        // Rules keyed by CANONICAL IP only — the .1-keyed entry is gone
+        // post-PR #145 because writes through the .1 alias canonicalize.
+        allIptablesRules: new Map([['45.0.0.1', rules]]),
+        allSnmpOverrides: new Map(),
+        allAclRules: new Map(),
+        allSnmpAclOverrides: new Map(),
+        homeMachines: [target],
+        homeGatewayByAliasIp: new Map([['10.0.0.1', gateway]]),
+        gatewayAliasMap: new Map([['10.0.0.1', '45.0.0.1']]),
+        readNode: noopReader,
+      });
+
+      expect(result.ports).toContainEqual(
+        expect.objectContaining({ port: 80, service: 'http', open: true }),
+      );
+    });
   });
 });
 
