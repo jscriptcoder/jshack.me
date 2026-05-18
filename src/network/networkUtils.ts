@@ -267,6 +267,35 @@ export const buildGatewayAliasMap = (
   return map;
 };
 
+// Builds a canonical-IP-keyed map of parsed gateway-state rules (iptables
+// forwards, SNMP firewall overrides, ACL rules, SNMP-ACL overrides).
+// Iterates `gatewayIps` (which contains a mix of canonical IPs and .1
+// aliases), canonicalizes each via `gatewayCanonicalMap`, dedupes, and
+// reads the config file from the canonical IP only.
+//
+// Why canonical-only: writes via gateway .1 aliases canonicalize through
+// targetMachineIdFor (PR #145 + #147), so the patch row lives under the
+// canonical key. Reading from .1 would hit the unpatched base FS and
+// silently miss every player edit.
+export const buildCanonicalKeyedRulesMap = <T>(
+  gatewayIps: readonly string[],
+  readNode: NodeReader,
+  gatewayCanonicalMap: ReadonlyMap<string, string>,
+  configPath: string,
+  parse: (content: string) => readonly T[],
+): ReadonlyMap<string, readonly T[]> => {
+  const map = new Map<string, readonly T[]>();
+  const canonicalIps = new Set(gatewayIps.map((ip) => gatewayCanonicalMap.get(ip) ?? ip));
+  canonicalIps.forEach((ip) => {
+    const node = readNode(ip, configPath, '/');
+    if (node?.type === 'file' && node.content) {
+      const parsed = parse(node.content);
+      if (parsed.length > 0) map.set(ip, parsed);
+    }
+  });
+  return map;
+};
+
 // ---------------------------------------------------------------------------
 // Mission router view (iptables + SNMP applied)
 // ---------------------------------------------------------------------------
@@ -325,6 +354,12 @@ export type DynamicOverrideContext = {
     readonly layers: readonly SubnetLayer[];
   }>;
   readonly homeGatewayByAliasIp: ReadonlyMap<string, GeneratedMachine>;
+  // Canonicalizes a gateway's .1 LAN-side alias to the gateway's primary
+  // IP so iptables/SNMP/ACL/snmp-ACL lookups converge on a single key
+  // regardless of which interface the viewer addressed. Built from the
+  // home network's topology by NetworkContext via
+  // buildGatewayCanonicalIpMap. Optional for tests; absent → passthrough.
+  readonly gatewayAliasMap?: ReadonlyMap<string, string>;
   readonly readNode: NodeReader;
 };
 
@@ -350,6 +385,12 @@ const findSwitchGatewayForMachine = (
 // When a switch has deny rules for a port to the machine's subnet, that
 // port appears closed. SNMP ACL overrides (allow) take precedence over
 // static ACL deny rules.
+//
+// switchGatewayIp arrives canonical from findSwitchGatewayForMachine
+// (layer.gateway.ip is the primary IP, never the .1 alias), and the
+// allAclRules / allSnmpAclOverrides maps are canonical-keyed (built via
+// buildCanonicalKeyedRulesMap in NetworkContext), so a single direct
+// .get() lookup suffices.
 const applyAclFiltering = (
   machine: RemoteMachine,
   switchGatewayIp: string,
@@ -358,24 +399,10 @@ const applyAclFiltering = (
   const aclRules = ctx.allAclRules.get(switchGatewayIp) ?? [];
   const snmpAclOverrides = ctx.allSnmpAclOverrides.get(switchGatewayIp) ?? [];
 
-  // Also check the .1 alias for the switch gateway (home networks use aliases)
-  const aliasAclRules =
-    aclRules.length === 0
-      ? ([...ctx.allAclRules.entries()].find(
-          ([ip]) => ctx.homeGatewayByAliasIp.get(ip)?.ip === switchGatewayIp,
-        )?.[1] ?? [])
-      : aclRules;
-  const aliasSnmpAclOverrides =
-    snmpAclOverrides.length === 0
-      ? ([...ctx.allSnmpAclOverrides.entries()].find(
-          ([ip]) => ctx.homeGatewayByAliasIp.get(ip)?.ip === switchGatewayIp,
-        )?.[1] ?? [])
-      : snmpAclOverrides;
-
-  if (aliasAclRules.length === 0 && aliasSnmpAclOverrides.length === 0) return machine;
+  if (aclRules.length === 0 && snmpAclOverrides.length === 0) return machine;
 
   // Build SNMP override map: port → allowed
-  const snmpAllowedMap = new Map(aliasSnmpAclOverrides.map((o) => [o.port, o.allowed]));
+  const snmpAllowedMap = new Map(snmpAclOverrides.map((o) => [o.port, o.allowed]));
 
   return {
     ...machine,
@@ -384,7 +411,7 @@ const applyAclFiltering = (
       const snmpAllowed = snmpAllowedMap.get(p.port);
       if (snmpAllowed !== undefined) return { ...p, open: snmpAllowed };
       // Static ACL check
-      if (isPortDeniedByAcl(aliasAclRules, machine.ip, p.port)) return { ...p, open: false };
+      if (isPortDeniedByAcl(aclRules, machine.ip, p.port)) return { ...p, open: false };
       return p;
     }),
   };
@@ -405,8 +432,11 @@ export const applyDynamicOverrides = (
   // 1. Gateway NAT merged view: show forwarded ports to upstream machines.
   // Preserve the original visible IP — buildMergedRouterView uses the
   // GeneratedMachine's primary IP, which may differ from the .1 alias
-  // that machines inside the network actually see.
-  const gatewayRules = ctx.allIptablesRules.get(machine.ip);
+  // that machines inside the network actually see. Canonicalize the
+  // lookup key so a viewer addressing a gateway's .1 alias hits the
+  // same rules row as a viewer addressing its canonical IP.
+  const lookupIp = ctx.gatewayAliasMap?.get(machine.ip) ?? machine.ip;
+  const gatewayRules = ctx.allIptablesRules.get(lookupIp);
   if (gatewayRules && gatewayRules.length > 0) {
     const missionGateway = ctx.missionMachines?.find((m) => m.ip === machine.ip);
     if (missionGateway) {
@@ -521,8 +551,11 @@ export const applyDynamicOverrides = (
     }
   }
 
-  // 3. SNMP firewall overrides (can block ports opened by daemons)
-  const snmpOverrides = ctx.allSnmpOverrides.get(machine.ip);
+  // 3. SNMP firewall overrides (can block ports opened by daemons).
+  // Same canonicalization as the iptables lookup above — a LAN viewer
+  // addressing the gateway's .1 alias must hit the canonical-keyed row
+  // or it won't see snmpset firewall edits made post-PR #147.
+  const snmpOverrides = ctx.allSnmpOverrides.get(lookupIp);
   if (snmpOverrides && snmpOverrides.length > 0) {
     result = applySnmpFirewallOverrides(result, snmpOverrides);
   }
