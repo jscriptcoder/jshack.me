@@ -271,10 +271,18 @@ export const occupantAwareReadNode = <T>(
   activeSubnet: string | null,
   ownLanIp: string | null,
   ownHostname: string,
+  gatewayAliasMap?: ReadonlyMap<string, string>,
 ): ((machineId: string, path: string, cwd: string) => T) => {
   return (machineId, path, cwd) =>
     readNode(
-      targetMachineIdFor(machineId, lanOccupants, activeSubnet, ownLanIp, ownHostname),
+      targetMachineIdFor(
+        machineId,
+        lanOccupants,
+        activeSubnet,
+        ownLanIp,
+        ownHostname,
+        gatewayAliasMap,
+      ),
       path,
       cwd,
     );

@@ -395,6 +395,31 @@ describe('occupantAwareReadNode', () => {
     wrapped('10.0.0.42', '/etc/passwd', '/home/alice');
     expect(inner).toHaveBeenCalledWith('rocket-bbccdd11', '/etc/passwd', '/home/alice');
   });
+
+  it("reads via the canonical primary IP when called with a gateway's .1 alias", () => {
+    // Symmetric read-side counterpart to the write-side translation in
+    // useNetworkCommands/Terminal. Players addressing the home router's
+    // .1 alias for a read (e.g., cat /etc/iptables/rules.v4 from inside
+    // the router shell) need the wrapped reader to fetch from the
+    // canonical primary IP storage key — otherwise reads miss writes
+    // that the new write-path canonicalization (Steps 4 + 5) routes to
+    // the public IP.
+    const inner = vi.fn((id: string, _path: string, _cwd: string) =>
+      id === '45.0.0.1' ? 'IPTABLES-CONTENT' : null,
+    );
+    const aliasMap = new Map<string, string>([['10.0.0.1', '45.0.0.1']]);
+    const wrapped = occupantAwareReadNode(
+      inner,
+      [],
+      '10.0.0',
+      null,
+      'me-aabbccdd',
+      aliasMap,
+    );
+
+    expect(wrapped('10.0.0.1', '/etc/iptables/rules.v4', '/')).toBe('IPTABLES-CONTENT');
+    expect(inner).toHaveBeenCalledWith('45.0.0.1', '/etc/iptables/rules.v4', '/');
+  });
 });
 
 // Used by getBaseFs handler to detect workstation_id machine_ids and
