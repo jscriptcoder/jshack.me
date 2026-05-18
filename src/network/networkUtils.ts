@@ -436,7 +436,16 @@ export const applyDynamicOverrides = (
   // lookup key so a viewer addressing a gateway's .1 alias hits the
   // same rules row as a viewer addressing its canonical IP.
   const lookupIp = ctx.gatewayAliasMap?.get(machine.ip) ?? machine.ip;
-  const gatewayRules = ctx.allIptablesRules.get(lookupIp);
+
+  // PREROUTING semantic: real iptables NAT rules only fire on packets
+  // arriving on the WAN interface. Forwarded ports stay invisible from
+  // inside the LAN — a viewer who only knows the gateway by its .1
+  // alias sees the router's own ports (SNMP / daemon-state branches
+  // below) but no NAT-merged forwards. Defenders can hide what's
+  // forwarded from intruders with only LAN foothold; pivoting onto the
+  // router via SSH+iptables read becomes a meaningful unlock.
+  const isLanSideGatewayView = lookupIp !== machine.ip;
+  const gatewayRules = isLanSideGatewayView ? undefined : ctx.allIptablesRules.get(lookupIp);
   if (gatewayRules && gatewayRules.length > 0) {
     const missionGateway = ctx.missionMachines?.find((m) => m.ip === machine.ip);
     if (missionGateway) {

@@ -1710,8 +1710,15 @@ describe('applyDynamicOverrides', () => {
         expect.objectContaining({ port: 22, service: 'ssh', open: true }),
       );
     });
+  });
 
-    it('applies an iptables rule keyed by the canonical IP when scanning the gateway via its .1 alias', () => {
+  // Real iptables PREROUTING only applies to packets arriving on the WAN
+  // interface. NAT forwards stay invisible from inside the LAN; the
+  // router's own port state (next steps in applyDynamicOverrides) stays
+  // symmetric across both interfaces. A by-design asymmetry — defenders
+  // can hide what's forwarded from intruders with only LAN foothold.
+  describe('LAN vs WAN gateway scan asymmetry (PREROUTING semantic)', () => {
+    const buildScenario = (visibleIp: string) => {
       const gateway = createGeneratedMachine({
         ip: '45.0.0.1',
         role: 'router',
@@ -1727,24 +1734,78 @@ describe('applyDynamicOverrides', () => {
       const rules: readonly NatForwardingRule[] = [
         { publicPort: 80, internalIp: '10.0.0.10', internalPort: 80 },
       ];
-      const visibleMachine = createMachine({ ip: '10.0.0.1', hostname: 'home-router' });
+      const visibleMachine = createMachine({ ip: visibleIp, hostname: 'home-router' });
 
-      const result = applyDynamicOverrides(visibleMachine, {
-        // Rules keyed by CANONICAL IP only — the .1-keyed entry is gone
-        // post-PR #145 because writes through the .1 alias canonicalize.
+      return applyDynamicOverrides(visibleMachine, {
         allIptablesRules: new Map([['45.0.0.1', rules]]),
         allSnmpOverrides: new Map(),
         allAclRules: new Map(),
         allSnmpAclOverrides: new Map(),
-        homeMachines: [target],
+        // homeMachines mirrors what NetworkContext provides — every home
+        // machine including the gateway. The canonical-IP lookup in the
+        // home-gateway branch matches on this list.
+        homeMachines: [gateway, target],
         homeGatewayByAliasIp: new Map([['10.0.0.1', gateway]]),
         gatewayAliasMap: new Map([['10.0.0.1', '45.0.0.1']]),
         readNode: noopReader,
       });
+    };
 
+    it('shows NAT forwards when scanning the home router via its canonical WAN-side IP', () => {
+      const result = buildScenario('45.0.0.1');
       expect(result.ports).toContainEqual(
         expect.objectContaining({ port: 80, service: 'http', open: true }),
       );
+    });
+
+    it('hides NAT forwards when scanning the home router via its LAN-side .1 alias', () => {
+      const result = buildScenario('10.0.0.1');
+      expect(result.ports).not.toContainEqual(expect.objectContaining({ port: 80 }));
+    });
+
+    const buildInnerGatewayScenario = (visibleIp: string) => {
+      // Multi-layer home topology: inner gateway primary IP 10.0.0.50
+      // (visible from layer-0), aliased to 10.0.1.1 from inside the
+      // inner subnet. Forward 8080 → 10.0.1.50:80.
+      const innerGateway = createGeneratedMachine({
+        ip: '10.0.0.50',
+        role: 'router',
+        remoteMachine: createMachine({ ip: '10.0.0.50', ports: [] }),
+      });
+      const innerTarget = createGeneratedMachine({
+        ip: '10.0.1.50',
+        remoteMachine: createMachine({
+          ip: '10.0.1.50',
+          ports: [createPort({ port: 80, service: 'http', serviceVersion: 'latest', open: true })],
+        }),
+      });
+      const rules: readonly NatForwardingRule[] = [
+        { publicPort: 8080, internalIp: '10.0.1.50', internalPort: 80 },
+      ];
+      const visibleMachine = createMachine({ ip: visibleIp, hostname: 'inner-gw' });
+
+      return applyDynamicOverrides(visibleMachine, {
+        allIptablesRules: new Map([['10.0.0.50', rules]]),
+        allSnmpOverrides: new Map(),
+        allAclRules: new Map(),
+        allSnmpAclOverrides: new Map(),
+        homeMachines: [innerGateway, innerTarget],
+        homeGatewayByAliasIp: new Map([['10.0.1.1', innerGateway]]),
+        gatewayAliasMap: new Map([['10.0.1.1', '10.0.0.50']]),
+        readNode: noopReader,
+      });
+    };
+
+    it('shows NAT forwards when scanning an inner gateway via its canonical primary IP', () => {
+      const result = buildInnerGatewayScenario('10.0.0.50');
+      expect(result.ports).toContainEqual(
+        expect.objectContaining({ port: 8080, service: 'http', open: true }),
+      );
+    });
+
+    it('hides NAT forwards when scanning an inner gateway via its LAN-side .1 alias', () => {
+      const result = buildInnerGatewayScenario('10.0.1.1');
+      expect(result.ports).not.toContainEqual(expect.objectContaining({ port: 8080 }));
     });
   });
 });
