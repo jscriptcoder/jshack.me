@@ -597,6 +597,25 @@ describe('buildResolveTargetMachineId', () => {
     const resolveUndef = buildResolveTargetMachineId(undefined, [], 'me-aabbccdd');
     expect(resolveUndef('10.0.0.1')).toBe('10.0.0.1');
   });
+
+  it("resolves the router's .1 alias and its canonical primary IP to the SAME machine_id", () => {
+    // Round-trip contract — load-bearing for cross-LAN observation.
+    // A write addressed at the .1 alias must land in the SAME patches
+    // row as a read addressed at the canonical primary IP, otherwise
+    // cross-LAN subscribers (who only know the primary IP) never
+    // observe the LAN-side write. Both the write path
+    // (useNetworkCommands.logFs) and the read path (occupantAwareReadNode
+    // wraps + Terminal) call the same resolver, so verifying both
+    // inputs map to one output codifies the contract end-to-end.
+    const home = createHomeNetwork();
+    const resolve = buildResolveTargetMachineId(home, [], 'me-aabbccdd');
+
+    const viaAlias = resolve('10.0.0.1');
+    const viaPrimary = resolve('45.0.0.1');
+
+    expect(viaAlias).toBe(viaPrimary);
+    expect(viaAlias).toBe('45.0.0.1');
+  });
 });
 
 // Used by getBaseFs handler to detect workstation_id machine_ids and
