@@ -90,6 +90,15 @@ type FileSystemProviderProps = {
   readonly missionFileSystems?: Readonly<Record<string, FileNode>>;
   readonly homeFileSystems?: Readonly<Record<string, FileNode>>;
   readonly lanOccupantHostnames?: readonly string[];
+  // Merged base filesystems across every cached foreign home network,
+  // keyed by machine_id. Sourced from useForeignNetworks() upstream
+  // and threaded through useFileSystemSync so cross-LAN reads resolve
+  // against the regenerated topology.
+  readonly foreignFileSystems?: Readonly<Record<string, FileNode>>;
+  // Deduped workstation_ids of OTHER players on cached foreign LANs.
+  // Folded into the subscription keyset so cross-LAN workstation
+  // patches (sshd pid file, etc.) stream over Realtime.
+  readonly foreignLanOccupantHostnames?: readonly string[];
 };
 
 export const FileSystemProvider = ({
@@ -98,6 +107,8 @@ export const FileSystemProvider = ({
   missionFileSystems,
   homeFileSystems,
   lanOccupantHostnames,
+  foreignFileSystems,
+  foreignLanOccupantHostnames,
 }: FileSystemProviderProps) => {
   const { session, hostname, ftpSession, ncSession, mysqlSession, redisSession } = useSession();
   // The player's workstation filesystem is keyed under their workstation_id
@@ -133,6 +144,8 @@ export const FileSystemProvider = ({
     homeFileSystems,
     missionFileSystems,
     lanOccupantHostnames,
+    foreignFileSystems,
+    foreignLanOccupantHostnames,
     session,
     protocolSessionMachineIds,
   });

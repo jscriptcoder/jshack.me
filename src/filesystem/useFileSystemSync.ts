@@ -55,6 +55,14 @@ type Inputs = {
   readonly homeFileSystems?: Readonly<Record<string, FileNode>>;
   readonly missionFileSystems?: Readonly<Record<string, FileNode>>;
   readonly lanOccupantHostnames?: readonly string[];
+  // Merged base FS across every cached foreign home network, keyed by
+  // machine_id. Layered into `fileSystems` alongside home/mission so
+  // cross-LAN reads resolve against the regenerated topology.
+  readonly foreignFileSystems?: Readonly<Record<string, FileNode>>;
+  // Workstation_ids of OTHER players on cached foreign LANs. Folded
+  // into `machineIdsKey` so the rehydration + Realtime subscription
+  // effects cover cross-LAN workstations.
+  readonly foreignLanOccupantHostnames?: readonly string[];
   readonly session: SessionInput;
   // Canonical machine_ids of currently-active protocol/transient
   // sessions (FTP / nc / MySQL / Redis). Distinct from session.machine
@@ -86,6 +94,8 @@ export const useFileSystemSync = ({
   homeFileSystems,
   missionFileSystems,
   lanOccupantHostnames,
+  foreignFileSystems,
+  foreignLanOccupantHostnames,
   session,
   protocolSessionMachineIds,
 }: Inputs): FileSystemSync => {
@@ -112,7 +122,12 @@ export const useFileSystemSync = ({
   // propsRef captures the latest base/home/mission filesystems so the
   // rehydration .then() can rebuild fileSystems from the freshest layered
   // base, even if props changed during the in-flight listPatchesForMachines.
-  const propsRef = useRef({ localhostFileSystem, homeFileSystems, missionFileSystems });
+  const propsRef = useRef({
+    localhostFileSystem,
+    homeFileSystems,
+    missionFileSystems,
+    foreignFileSystems,
+  });
   // Set to true the first time the user does any local write/delete after
   // mount. The rehydration .then() reads this and SKIPS server-truth
   // replacement when local writes are in flight — those upserts are already
@@ -198,8 +213,13 @@ export const useFileSystemSync = ({
     patchesRef.current = patches;
   }, [patches]);
   useEffect(() => {
-    propsRef.current = { localhostFileSystem, homeFileSystems, missionFileSystems };
-  }, [localhostFileSystem, homeFileSystems, missionFileSystems]);
+    propsRef.current = {
+      localhostFileSystem,
+      homeFileSystems,
+      missionFileSystems,
+      foreignFileSystems,
+    };
+  }, [localhostFileSystem, homeFileSystems, missionFileSystems, foreignFileSystems]);
 
   // Stable signature of the current machine_ids set: workstation +
   // homeFileSystems keys + missionFileSystems keys + lan-occupant
@@ -219,8 +239,17 @@ export const useFileSystemSync = ({
     if (homeFileSystems) for (const id of Object.keys(homeFileSystems)) ids.add(id);
     if (missionFileSystems) for (const id of Object.keys(missionFileSystems)) ids.add(id);
     if (lanOccupantHostnames) for (const id of lanOccupantHostnames) ids.add(id);
+    if (foreignFileSystems) for (const id of Object.keys(foreignFileSystems)) ids.add(id);
+    if (foreignLanOccupantHostnames) for (const id of foreignLanOccupantHostnames) ids.add(id);
     return [...ids].sort().join(',');
-  }, [homeFileSystems, missionFileSystems, workstationId, lanOccupantHostnames]);
+  }, [
+    homeFileSystems,
+    missionFileSystems,
+    workstationId,
+    lanOccupantHostnames,
+    foreignFileSystems,
+    foreignLanOccupantHostnames,
+  ]);
 
   // Tracks whether the next rehydration fetch is the very first one.
   // The localWritesSinceMount guard (which skips server-truth
@@ -275,9 +304,12 @@ export const useFileSystemSync = ({
           const withMission = props.missionFileSystems
             ? { ...withHome, ...props.missionFileSystems }
             : withHome;
+          const withForeign = props.foreignFileSystems
+            ? { ...withMission, ...props.foreignFileSystems }
+            : withMission;
           // Include cross-player base FS so the rehydration doesn't wipe
           // trees we already fetched via getBaseFs.
-          const merged = { ...withMission, ...crossPlayerBaseFsRef.current };
+          const merged = { ...withForeign, ...crossPlayerBaseFsRef.current };
           setFileSystems(applyPatches(merged, serverPatches));
         })
         .catch((error) => {
@@ -341,9 +373,12 @@ export const useFileSystemSync = ({
         const withMission = props.missionFileSystems
           ? { ...withHome, ...props.missionFileSystems }
           : withHome;
+        const withForeign = props.foreignFileSystems
+          ? { ...withMission, ...props.foreignFileSystems }
+          : withMission;
         // Include cross-player base FS so hint refetches don't wipe
         // trees we already fetched via getBaseFs.
-        const merged = { ...withMission, ...crossPlayerBaseFsRef.current };
+        const merged = { ...withForeign, ...crossPlayerBaseFsRef.current };
         setFileSystems(applyPatches(merged, next));
         const db = getDatabase();
         if (db) saveFilesystemPatches(db, [...next]);
@@ -625,12 +660,15 @@ export const useFileSystemSync = ({
       );
 
       // Layer: static (player's workstation) + home network + mission network
-      // + cross-player workstations.
+      // + foreign networks (cross-LAN regen) + cross-player workstations.
       const withHome = homeFileSystems ? { ...staticOnly, ...homeFileSystems } : staticOnly;
       const withMission = missionFileSystems ? { ...withHome, ...missionFileSystems } : withHome;
-      const merged = { ...withMission, ...crossPlayerBaseFsRef.current };
+      const withForeign = foreignFileSystems
+        ? { ...withMission, ...foreignFileSystems }
+        : withMission;
+      const merged = { ...withForeign, ...crossPlayerBaseFsRef.current };
 
-      if (!missionFileSystems && !homeFileSystems) {
+      if (!missionFileSystems && !homeFileSystems && !foreignFileSystems) {
         isInitialMissionMount.current = false;
         // Include cross-player base FS even in the no-home/no-mission
         // case so eager fetches that landed before this effect re-fires
@@ -652,7 +690,13 @@ export const useFileSystemSync = ({
 
       return merged;
     });
-  }, [missionFileSystems, homeFileSystems, cachedPatchesAtMount, persistentMachineKeys]);
+  }, [
+    missionFileSystems,
+    homeFileSystems,
+    foreignFileSystems,
+    cachedPatchesAtMount,
+    persistentMachineKeys,
+  ]);
 
   return {
     fileSystems,

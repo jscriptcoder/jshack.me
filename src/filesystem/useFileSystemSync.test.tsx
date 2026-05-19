@@ -165,6 +165,103 @@ describe('useFileSystemSync — rehydration, realtime, session-refetch', () => {
       expect(counts[TEST_HOSTNAME]).toBe(1);
     });
 
+    it('extends machineIdsKey with foreignFileSystems keys', async () => {
+      renderHook(() => useFileSystem(), {
+        wrapper: wrap({
+          foreignFileSystems: {
+            '198.51.100.50': baseLocalhost,
+            '192.0.2.100': baseLocalhost,
+          },
+        }),
+      });
+      await waitFor(() => {
+        expect(mockedListPatchesForMachines).toHaveBeenCalled();
+      });
+      const machineIds = vi.mocked(mockedListPatchesForMachines).mock.calls[0][1];
+      expect(machineIds).toEqual(
+        expect.arrayContaining([TEST_HOSTNAME, '198.51.100.50', '192.0.2.100']),
+      );
+    });
+
+    it('extends machineIdsKey with foreignLanOccupantHostnames', async () => {
+      renderHook(() => useFileSystem(), {
+        wrapper: wrap({
+          foreignLanOccupantHostnames: ['skylab-9k3', 'rocket-bbccdd11'],
+        }),
+      });
+      await waitFor(() => {
+        expect(mockedListPatchesForMachines).toHaveBeenCalled();
+      });
+      const machineIds = vi.mocked(mockedListPatchesForMachines).mock.calls[0][1];
+      expect(machineIds).toEqual(
+        expect.arrayContaining([TEST_HOSTNAME, 'skylab-9k3', 'rocket-bbccdd11']),
+      );
+    });
+
+    it('exposes foreignFileSystems[machine_id] as a readable layer in the merged fileSystem state', async () => {
+      // Layering check: after mount, the merged fileSystems map MUST
+      // contain the foreign network's base FS at the foreign machine_id.
+      // Without this, downstream readers (findMachineByIp → getNode)
+      // can't resolve cross-LAN reads.
+      const foreignTree: FileNode = {
+        ...baseLocalhost,
+        children: {
+          ...(baseLocalhost.children ?? {}),
+          marker: {
+            name: 'marker',
+            type: 'file',
+            owner: 'root',
+            permissions: {
+              read: ['root', 'user', 'guest'],
+              write: ['root'],
+              execute: [],
+            },
+            content: 'foreign-marker',
+          },
+        },
+      };
+      const { result } = renderHook(() => useFileSystem(), {
+        wrapper: wrap({
+          foreignFileSystems: { '198.51.100.50': foreignTree },
+        }),
+      });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+      const node = result.current.getNodeFromMachine('198.51.100.50', '/marker', '/');
+      expect(node?.content).toBe('foreign-marker');
+    });
+
+    it('refetches with the new foreign keyset when foreignFileSystems changes mid-session', async () => {
+      // First touch of a new foreign IP at runtime expands the keyset;
+      // the rehydration useEffect's keyset-change branch must fire so
+      // patches for the new foreign machines actually land in state.
+      let setForeign: ((tree: Record<string, FileNode> | undefined) => void) | null = null;
+      const Outer = ({ children }: { children: ReactNode }) => {
+        const [foreign, setter] = useState<Record<string, FileNode> | undefined>(undefined);
+        setForeign = setter;
+        return (
+          <FileSystemProvider localhostFileSystem={baseLocalhost} foreignFileSystems={foreign}>
+            {children}
+          </FileSystemProvider>
+        );
+      };
+
+      const { result } = renderHook(() => useFileSystem(), { wrapper: Outer });
+      await waitFor(() => expect(result.current.isRehydrating).toBe(false));
+      const callsAfterInitial = vi.mocked(mockedListPatchesForMachines).mock.calls.length;
+
+      act(() => {
+        setForeign?.({ '198.51.100.50': baseLocalhost });
+      });
+
+      await waitFor(() => {
+        expect(vi.mocked(mockedListPatchesForMachines).mock.calls.length).toBe(
+          callsAfterInitial + 1,
+        );
+      });
+      const lastCall = vi.mocked(mockedListPatchesForMachines).mock.calls.at(-1)!;
+      expect(lastCall[1]).toEqual(expect.arrayContaining(['198.51.100.50']));
+    });
+
     it('exposes isRehydrating: true initially, transitions to false after listPatchesForMachines resolves', async () => {
       const { result } = renderHook(() => useFileSystem(), { wrapper: wrap() });
       expect(result.current.isRehydrating).toBe(true);

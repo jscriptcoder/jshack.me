@@ -5,7 +5,10 @@ import { FileSystemProvider } from '../filesystem';
 import { NetworkProvider } from '../network';
 import { MissionProvider, useMissionState } from '../mission';
 import { HomeNetworksProvider, useHomeNetworks } from '../homeNetworks/HomeNetworksContext';
-import { ForeignNetworksProvider } from '../foreignNetworks/ForeignNetworksContext';
+import {
+  ForeignNetworksProvider,
+  useForeignNetworks,
+} from '../foreignNetworks/ForeignNetworksContext';
 import { generateLocalhost } from '../generation/generateLocalhost';
 import { useWorldNetworks } from '../worldNetworks/useWorldNetworks';
 import type { GameState } from './types';
@@ -76,29 +79,72 @@ function GameProviders({
 
   return (
     <ForeignNetworksProvider ownActiveHomePublicIp={activeNetwork?.router.publicIp ?? null}>
-      <MissionProvider state={missionState} usedPublicIps={usedPublicIps}>
-        <FileSystemProvider
-          localhostFileSystem={localhostResult.fileSystem}
-          missionFileSystems={missionState.activeMission?.fileSystems}
-          homeFileSystems={mergedHomeFileSystems}
-          lanOccupantHostnames={lanOccupantHostnames}
-        >
-          <NetworkProvider
-            missionNetworkConfig={missionState.activeMission?.networkConfig}
-            missionMachines={missionState.activeMission?.machines}
-            missionRouterMachine={
-              missionState.activeMission ? missionState.activeMission.routerMachine : undefined
-            }
-            missionLayers={missionState.activeMission?.layers}
-            homeNetwork={activeNetwork}
-            worldNetworks={worldNetworks}
-            worldHandlers={worldHandlers}
-            lanOccupants={lanOccupants}
-          >
-            <Terminal />
-          </NetworkProvider>
-        </FileSystemProvider>
-      </MissionProvider>
+      <ForeignAwareProviders
+        gameState={gameState}
+        hostname={hostname}
+        activeNetwork={activeNetwork}
+        usedPublicIps={usedPublicIps}
+        missionState={missionState}
+        localhostResult={localhostResult}
+        mergedHomeFileSystems={mergedHomeFileSystems}
+        lanOccupantHostnames={lanOccupantHostnames}
+        worldNetworks={worldNetworks}
+        worldHandlers={worldHandlers}
+        lanOccupants={lanOccupants}
+      />
     </ForeignNetworksProvider>
+  );
+}
+
+function ForeignAwareProviders({
+  missionState,
+  localhostResult,
+  mergedHomeFileSystems,
+  lanOccupantHostnames,
+  activeNetwork,
+  worldNetworks,
+  worldHandlers,
+  lanOccupants,
+  usedPublicIps,
+}: {
+  readonly gameState: GameState;
+  readonly hostname: string;
+  readonly activeNetwork: ReturnType<typeof useHomeNetworks>['activeNetwork'];
+  readonly usedPublicIps: ReadonlySet<string>;
+  readonly missionState: ReturnType<typeof useMissionState>;
+  readonly localhostResult: ReturnType<typeof generateLocalhost>;
+  readonly mergedHomeFileSystems: Record<string, FileNode>;
+  readonly lanOccupantHostnames: readonly string[];
+  readonly worldNetworks: ReturnType<typeof useWorldNetworks>['networks'];
+  readonly worldHandlers: ReturnType<typeof useWorldNetworks>['handlers'];
+  readonly lanOccupants: ReturnType<typeof useHomeNetworks>['lanOccupants'];
+}) {
+  const { foreignFileSystems, foreignLanOccupantHostnames } = useForeignNetworks();
+  return (
+    <MissionProvider state={missionState} usedPublicIps={usedPublicIps}>
+      <FileSystemProvider
+        localhostFileSystem={localhostResult.fileSystem}
+        missionFileSystems={missionState.activeMission?.fileSystems}
+        homeFileSystems={mergedHomeFileSystems}
+        lanOccupantHostnames={lanOccupantHostnames}
+        foreignFileSystems={foreignFileSystems}
+        foreignLanOccupantHostnames={foreignLanOccupantHostnames}
+      >
+        <NetworkProvider
+          missionNetworkConfig={missionState.activeMission?.networkConfig}
+          missionMachines={missionState.activeMission?.machines}
+          missionRouterMachine={
+            missionState.activeMission ? missionState.activeMission.routerMachine : undefined
+          }
+          missionLayers={missionState.activeMission?.layers}
+          homeNetwork={activeNetwork}
+          worldNetworks={worldNetworks}
+          worldHandlers={worldHandlers}
+          lanOccupants={lanOccupants}
+        >
+          <Terminal />
+        </NetworkProvider>
+      </FileSystemProvider>
+    </MissionProvider>
   );
 }

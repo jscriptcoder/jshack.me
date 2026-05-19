@@ -70,6 +70,8 @@ export const wrap =
     homeFileSystems?: Record<string, FileNode>;
     missionFileSystems?: Record<string, FileNode>;
     lanOccupantHostnames?: readonly string[];
+    foreignFileSystems?: Record<string, FileNode>;
+    foreignLanOccupantHostnames?: readonly string[];
   }) =>
   ({ children }: { children: ReactNode }) => (
     <FileSystemProvider
@@ -77,6 +79,8 @@ export const wrap =
       homeFileSystems={overrides?.homeFileSystems}
       missionFileSystems={overrides?.missionFileSystems}
       lanOccupantHostnames={overrides?.lanOccupantHostnames}
+      foreignFileSystems={overrides?.foreignFileSystems}
+      foreignLanOccupantHostnames={overrides?.foreignLanOccupantHostnames}
     >
       {children}
     </FileSystemProvider>
