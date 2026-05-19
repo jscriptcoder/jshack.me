@@ -89,6 +89,74 @@ describe('nmap command', () => {
     });
   });
 
+  describe('cross-LAN async resolver', () => {
+    // The async resolver kicks in when sync getMachine misses on a
+    // single-IP target AND findMachineByIpAsync is wired. The mock
+    // context resolves a foreign router only via the async path —
+    // proves nmap awaits the resolver before dispatching the scan.
+
+    it('scans a foreign router resolved via findMachineByIpAsync', async () => {
+      vi.useRealTimers();
+      const foreignRouter = getMockRemoteMachine({
+        ip: '162.174.39.103',
+        hostname: 'foreign-router',
+        ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
+      });
+      const context = {
+        ...createMockNmapContext({ machines: [] }),
+        findMachineByIpAsync: vi.fn().mockResolvedValue(foreignRouter),
+      };
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('162.174.39.103');
+
+      const lines: string[] = [];
+      await new Promise<void>((resolve) => {
+        if (isAsyncOutput(result)) {
+          result.start(
+            (line) => lines.push(line),
+            () => resolve(),
+          );
+        } else {
+          resolve();
+        }
+      });
+
+      expect(context.findMachineByIpAsync).toHaveBeenCalledWith('162.174.39.103');
+      // The scan rendered the foreign-router's host header.
+      expect(lines.some((l) => l.includes('foreign-router'))).toBe(true);
+      expect(lines.some((l) => l.includes('162.174.39.103'))).toBe(true);
+    });
+
+    it('falls back to "failed to resolve" when async resolver returns undefined', async () => {
+      vi.useRealTimers();
+      const context = {
+        ...createMockNmapContext({ machines: [] }),
+        findMachineByIpAsync: vi.fn().mockResolvedValue(undefined),
+      };
+      const nmap = createNmapCommand(context);
+      const result = nmap.fn('162.174.39.103');
+
+      const lines: string[] = [];
+      await new Promise<void>((resolve) => {
+        if (isAsyncOutput(result)) {
+          result.start(
+            (line) => lines.push(line),
+            () => resolve(),
+          );
+          // The async path surfaces the throw via onLine + onComplete
+          // rather than synchronously, so we resolve after a microtask
+          // to give it time.
+          setTimeout(() => resolve(), 50);
+        } else {
+          resolve();
+        }
+      });
+
+      expect(context.findMachineByIpAsync).toHaveBeenCalled();
+      expect(lines.some((l) => l.includes('failed to resolve'))).toBe(true);
+    });
+  });
+
   describe('async output structure', () => {
     it('should return AsyncOutput for single IP', () => {
       const context = createMockNmapContext();

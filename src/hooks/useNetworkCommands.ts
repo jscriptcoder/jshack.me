@@ -69,6 +69,7 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
     resolveNat,
     findMachineUsers,
     findMachineByIp,
+    findMachineByIpAsync,
     getHandler,
   } = useNetwork();
   const {
@@ -130,6 +131,14 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
       machine === undefined ? undefined : applyVersionOverlay(machine, readFileFromMachine);
     const getEffectiveMachine = (ip: string) => withOverlay(getMachine(ip));
     const findEffectiveMachineByIp = (ip: string) => withOverlay(findMachineByIp(ip));
+    // Async sibling — pre-resolves the target via the cross-LAN
+    // seed-regen resolver before applying the version overlay. Commands
+    // that take user-typed public IPs (nmap on a foreign router being
+    // the bellwether) await this at entry so the foreign HomeNetwork
+    // materializes before the rest of the command's sync resolution
+    // logic runs.
+    const findEffectiveMachineByIpAsync = async (ip: string): Promise<RemoteMachine | undefined> =>
+      withOverlay(await findMachineByIpAsync(ip));
     const getEffectiveMachines = (): readonly RemoteMachine[] =>
       getMachines().map((m) => applyVersionOverlay(m, readFileFromMachine));
     const onHttpRequest = createHttpRequestHandler({
@@ -246,6 +255,7 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
           createNmapCommand({
             getMachine: getEffectiveMachine,
             findMachineByIp: findEffectiveMachineByIp,
+            findMachineByIpAsync: findEffectiveMachineByIpAsync,
             getMachines: getEffectiveMachines,
             getLocalIPs: () => new Set(getInterfaces().map((iface) => iface.inet)),
             getLocalHostname: () => session.hostname ?? session.machine,
@@ -930,6 +940,7 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
     wifiConnected,
     isMachineBricked,
     findMachineByIp,
+    findMachineByIpAsync,
     getPublicIP,
     getHandler,
   ]);

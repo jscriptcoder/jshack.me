@@ -43,6 +43,7 @@ import {
   applyDynamicOverrides,
   type DynamicOverrideContext,
 } from './networkUtils';
+import { resolveMachineByIpAsync } from './resolveMachineByIpAsync';
 
 type NetworkContextType = {
   readonly getInterface: (name: string) => NetworkInterface | undefined;
@@ -55,6 +56,13 @@ type NetworkContextType = {
   readonly getDnsRecords: () => readonly DnsRecord[];
   readonly findMachineUsers: (ip: string) => readonly RemoteUser[];
   readonly findMachineByIp: (ip: string) => RemoteMachine | undefined;
+  // Async sibling of findMachineByIp. Sync first; if miss AND the IP
+  // is a publicly-addressable IPv4, fires ensureForeignReachable to
+  // regenerate the foreign HomeNetwork and returns the matching
+  // machine directly. Commands awaiting this at entry get the target
+  // machine in hand even when it lives on a network the player has
+  // never touched before.
+  readonly findMachineByIpAsync: (ip: string) => Promise<RemoteMachine | undefined>;
   readonly getPublicIP: () => string | null;
   readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
   readonly getGatewayChainFor: (machineIp: string) => readonly GeneratedMachine[];
@@ -173,6 +181,12 @@ type NetworkProviderProps = {
   // them as alive hosts on a foreign subnet needs a multi-LAN extension
   // of the lanOccupants merge below and ships separately.
   readonly foreignNetworks?: readonly HomeNetwork[];
+  // Cross-LAN resolver. NetworkProvider doesn't own foreignNetworks
+  // state — useForeignNetworks does. Threaded as a prop so the
+  // findMachineByIpAsync path can trigger regen on first touch of a
+  // foreign public IP. Defaults to a no-op (returns null) when
+  // omitted, keeping legacy callers correct.
+  readonly ensureForeignReachable?: (publicIp: string) => Promise<HomeNetwork | null>;
   // World networks: persistent shared content visible to every player.
   // Their routers + inner gateways are appended to the localhost-visible
   // machine list so commands like nmap/ssh/curl can reach them.
@@ -197,6 +211,7 @@ export const NetworkProvider = ({
   missionLayers,
   homeNetwork,
   foreignNetworks,
+  ensureForeignReachable,
   worldNetworks,
   worldHandlers,
   lanOccupants,
@@ -791,6 +806,17 @@ export const NetworkProvider = ({
     [homeNetwork, missionNetworkConfig, missionRouterMachine, worldNetworks, foreignNetworks],
   );
 
+  // Async sibling of findMachineByIp. Triggers ensureForeignReachable
+  // on a sync miss for a public IPv4 input, returns the resolved
+  // machine without waiting for the foreignNetworks prop to flow
+  // back through a render cycle. See resolveMachineByIpAsync for the
+  // pure orchestration logic.
+  const findMachineByIpAsync = useCallback(
+    (ip: string): Promise<RemoteMachine | undefined> =>
+      resolveMachineByIpAsync(ip, findMachineByIp, ensureForeignReachable ?? (async () => null)),
+    [findMachineByIp, ensureForeignReachable],
+  );
+
   // Port-aware NAT resolution: translates any gateway's IP + port to the
   // internal machine IP + port based on iptables rules parsed from that
   // gateway's filesystem. Works for both the border router and inner gateways.
@@ -833,6 +859,7 @@ export const NetworkProvider = ({
         getDnsRecords,
         findMachineUsers,
         findMachineByIp,
+        findMachineByIpAsync,
         resolveNat,
         getGatewayChainFor,
         getHandler,
