@@ -62,6 +62,37 @@ export const joinResultSchema = z
 
 export type JoinResult = z.infer<typeof joinResultSchema>;
 
+// Schema for the signed payload clients POST to /api/lookup-home-network.
+// Strict — rejects unknown fields. Used by the cross-LAN seed-regen
+// resolver to fetch a foreign home_networks row by public IP.
+export const lookupHomeNetworkSignedPayloadSchema = z
+  .object({
+    action: z.literal('lookupHomeNetwork'),
+    ts: z.number().int(),
+    nonce: z.string().regex(/^[0-9a-f]{32}$/i),
+    public_ip: z.string().min(1),
+  })
+  .strict();
+
+export type LookupHomeNetworkSignedPayload = z.infer<typeof lookupHomeNetworkSignedPayloadSchema>;
+
+// Response payload returned by /api/lookup-home-network on a found row.
+// Mirrors the HomeNetworkRow shape — projects every column so clients can
+// regenerate the foreign HomeNetwork deterministically from `seed` and
+// `essid_template`. Schema is the source of truth so the client wrapper
+// can runtime-validate the untrusted server response.
+export const homeNetworkLookupResultSchema = z
+  .object({
+    public_ip: z.string(),
+    essid_template: z.string(),
+    density_tier: z.enum(DENSITY_TIERS),
+    max_slots: z.number().int(),
+    seed: z.string(),
+  })
+  .strict();
+
+export type HomeNetworkLookupResult = z.infer<typeof homeNetworkLookupResultSchema>;
+
 // Outcome of attempting one occupant INSERT. The storage adapter (Step 4)
 // classifies Postgres unique-constraint violations into these buckets so
 // the handler can route correctly: lan_ip_conflict warrants a retry with
