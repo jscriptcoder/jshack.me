@@ -5,6 +5,7 @@ import { FileSystemProvider } from '../filesystem';
 import { NetworkProvider } from '../network';
 import { MissionProvider, useMissionState } from '../mission';
 import { HomeNetworksProvider, useHomeNetworks } from '../homeNetworks/HomeNetworksContext';
+import { ForeignNetworksProvider } from '../foreignNetworks/ForeignNetworksContext';
 import { generateLocalhost } from '../generation/generateLocalhost';
 import { useWorldNetworks } from '../worldNetworks/useWorldNetworks';
 import type { GameState } from './types';
@@ -74,28 +75,30 @@ function GameProviders({
   const lanOccupantHostnames = useMemo(() => lanOccupants.map((o) => o.hostname), [lanOccupants]);
 
   return (
-    <MissionProvider state={missionState} usedPublicIps={usedPublicIps}>
-      <FileSystemProvider
-        localhostFileSystem={localhostResult.fileSystem}
-        missionFileSystems={missionState.activeMission?.fileSystems}
-        homeFileSystems={mergedHomeFileSystems}
-        lanOccupantHostnames={lanOccupantHostnames}
-      >
-        <NetworkProvider
-          missionNetworkConfig={missionState.activeMission?.networkConfig}
-          missionMachines={missionState.activeMission?.machines}
-          missionRouterMachine={
-            missionState.activeMission ? missionState.activeMission.routerMachine : undefined
-          }
-          missionLayers={missionState.activeMission?.layers}
-          homeNetwork={activeNetwork}
-          worldNetworks={worldNetworks}
-          worldHandlers={worldHandlers}
-          lanOccupants={lanOccupants}
+    <ForeignNetworksProvider ownActiveHomePublicIp={activeNetwork?.router.publicIp ?? null}>
+      <MissionProvider state={missionState} usedPublicIps={usedPublicIps}>
+        <FileSystemProvider
+          localhostFileSystem={localhostResult.fileSystem}
+          missionFileSystems={missionState.activeMission?.fileSystems}
+          homeFileSystems={mergedHomeFileSystems}
+          lanOccupantHostnames={lanOccupantHostnames}
         >
-          <Terminal />
-        </NetworkProvider>
-      </FileSystemProvider>
-    </MissionProvider>
+          <NetworkProvider
+            missionNetworkConfig={missionState.activeMission?.networkConfig}
+            missionMachines={missionState.activeMission?.machines}
+            missionRouterMachine={
+              missionState.activeMission ? missionState.activeMission.routerMachine : undefined
+            }
+            missionLayers={missionState.activeMission?.layers}
+            homeNetwork={activeNetwork}
+            worldNetworks={worldNetworks}
+            worldHandlers={worldHandlers}
+            lanOccupants={lanOccupants}
+          >
+            <Terminal />
+          </NetworkProvider>
+        </FileSystemProvider>
+      </MissionProvider>
+    </ForeignNetworksProvider>
   );
 }

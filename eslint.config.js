@@ -30,6 +30,7 @@ export default tseslint.config(
             'useNetwork',
             'useMission',
             'useHomeNetworks',
+            'useForeignNetworks',
             'isValidPatch',
             'isValidPersistedState',
           ],
