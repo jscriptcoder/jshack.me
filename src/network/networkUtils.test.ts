@@ -21,6 +21,9 @@ import {
   buildGatewayAliasMap,
   buildWorldRouterRemoteViews,
   findMachineInWorldNetworks,
+  findMachineInHomeNetworks,
+  findUsersInHomeNetworks,
+  collectHomeNetworksGatewayIps,
 } from './networkUtils';
 import type { MissionNetwork } from '../generation/types';
 
@@ -1959,6 +1962,164 @@ describe('findMachineInWorldNetworks', () => {
     });
 
     expect(findMachineInWorldNetworks('203.0.113.43', [a, b])?.hostname).toBe('b-gw');
+  });
+});
+
+describe('findMachineInHomeNetworks', () => {
+  // Cross-LAN: same shape as findMachineInWorldNetworks but operates on
+  // HomeNetwork[]. The router-not-in-machineConfigs gotcha is identical
+  // — has to be checked separately via routerMachine.
+
+  it('returns undefined when the IP matches no home network', () => {
+    const home = createHomeNetwork();
+    expect(findMachineInHomeNetworks('1.2.3.4', [home])).toBeUndefined();
+  });
+
+  it('returns undefined when the home networks list is empty', () => {
+    expect(findMachineInHomeNetworks('10.0.0.1', [])).toBeUndefined();
+  });
+
+  it('finds a machine in a home network internal config', () => {
+    const internal = createMachine({ ip: '10.0.0.5', hostname: 'inner' });
+    const home = createHomeNetwork({
+      networkConfig: {
+        machineConfigs: {
+          '10.0.0.5': { interfaces: [], machines: [internal], dnsRecords: [] },
+        },
+      },
+    });
+
+    expect(findMachineInHomeNetworks('10.0.0.5', [home])?.hostname).toBe('inner');
+  });
+
+  it('finds the home router by its public IP via routerMachine fallback', () => {
+    const router = createGeneratedMachine({
+      ip: '162.174.39.103',
+      remoteMachine: createMachine({ ip: '162.174.39.103', hostname: 'foreign-router' }),
+    });
+    const home = createHomeNetwork({
+      router: { publicIp: '162.174.39.103', hostname: 'foreign-router', internalIp: '10.0.0.1' },
+      routerMachine: router,
+    });
+
+    expect(findMachineInHomeNetworks('162.174.39.103', [home])?.hostname).toBe('foreign-router');
+  });
+
+  it('searches across multiple home networks and returns the first match', () => {
+    const a = createHomeNetwork({
+      router: { publicIp: '162.174.39.103', hostname: 'a-router', internalIp: '10.0.0.1' },
+      routerMachine: createGeneratedMachine({
+        ip: '162.174.39.103',
+        remoteMachine: createMachine({ ip: '162.174.39.103', hostname: 'a-router' }),
+      }),
+    });
+    const b = createHomeNetwork({
+      router: { publicIp: '203.0.113.42', hostname: 'b-router', internalIp: '192.168.1.1' },
+      routerMachine: createGeneratedMachine({
+        ip: '203.0.113.42',
+        remoteMachine: createMachine({ ip: '203.0.113.42', hostname: 'b-router' }),
+      }),
+    });
+
+    expect(findMachineInHomeNetworks('203.0.113.42', [a, b])?.hostname).toBe('b-router');
+  });
+});
+
+describe('findUsersInHomeNetworks', () => {
+  // Symmetric to findMachineInHomeNetworks but returns the matched
+  // machine's `users` instead of the machine itself. Drives `su` /
+  // password validation against foreign hosts.
+
+  it('returns an empty array when no home network contains the IP', () => {
+    const home = createHomeNetwork();
+    expect(findUsersInHomeNetworks('1.2.3.4', [home])).toEqual([]);
+  });
+
+  it('returns users from a machine in the home network config', () => {
+    const internal = createMachine({
+      ip: '10.0.0.5',
+      users: [{ username: 'alice', userType: 'user' }],
+    });
+    const home = createHomeNetwork({
+      networkConfig: {
+        machineConfigs: {
+          '10.0.0.5': { interfaces: [], machines: [internal], dnsRecords: [] },
+        },
+      },
+    });
+
+    const users = findUsersInHomeNetworks('10.0.0.5', [home]);
+    expect(users).toHaveLength(1);
+    expect(users[0]!.username).toBe('alice');
+  });
+
+  it('returns the router users via the routerMachine fallback', () => {
+    const home = createHomeNetwork({
+      router: { publicIp: '162.174.39.103', hostname: 'r', internalIp: '10.0.0.1' },
+      routerMachine: createGeneratedMachine({
+        ip: '162.174.39.103',
+        remoteMachine: createMachine({
+          ip: '162.174.39.103',
+          users: [{ username: 'admin', userType: 'root' }],
+        }),
+      }),
+    });
+
+    const users = findUsersInHomeNetworks('162.174.39.103', [home]);
+    expect(users).toHaveLength(1);
+    expect(users[0]!.username).toBe('admin');
+  });
+});
+
+describe('collectHomeNetworksGatewayIps', () => {
+  // Cross-LAN: foreign home networks contribute their router + inner
+  // gateway IPs to the global gatewayIps set so dynamic-overrides
+  // pipelines (iptables/SNMP/ACL parsers) read foreign gateway state.
+
+  it('returns an empty array when no home networks supplied', () => {
+    expect(collectHomeNetworksGatewayIps([])).toEqual([]);
+  });
+
+  it('includes router primary + internal .1 alias for each home network', () => {
+    const home = createHomeNetwork({
+      router: { publicIp: '162.174.39.103', hostname: 'r', internalIp: '10.0.0.1' },
+      routerMachine: createGeneratedMachine({
+        ip: '162.174.39.103',
+        remoteMachine: createMachine({ ip: '162.174.39.103' }),
+      }),
+    });
+
+    const ips = collectHomeNetworksGatewayIps([home]);
+    expect(ips).toEqual(expect.arrayContaining(['162.174.39.103', '10.0.0.1']));
+  });
+
+  it('includes inner-layer gateway IPs and their .1 aliases', () => {
+    const innerGateway = createGeneratedMachine({ ip: '10.0.0.50', role: 'router' });
+    const home = createHomeNetwork({
+      layers: [
+        createSubnetLayer({ subnet: '10.0.0' }),
+        createSubnetLayer({ subnet: '10.0.1', gateway: innerGateway }),
+      ],
+    });
+
+    const ips = collectHomeNetworksGatewayIps([home]);
+    expect(ips).toEqual(expect.arrayContaining(['10.0.0.50', '10.0.1.1']));
+  });
+
+  it('unions gateway IPs across multiple home networks', () => {
+    const a = createHomeNetwork({
+      router: { publicIp: '162.174.39.103', hostname: 'a', internalIp: '10.0.0.1' },
+      routerMachine: createGeneratedMachine({ ip: '162.174.39.103' }),
+    });
+    const b = createHomeNetwork({
+      router: { publicIp: '203.0.113.42', hostname: 'b', internalIp: '192.168.1.1' },
+      routerMachine: createGeneratedMachine({ ip: '203.0.113.42' }),
+    });
+
+    const ips = collectHomeNetworksGatewayIps([a, b]);
+    expect(ips).toEqual(
+      expect.arrayContaining(['162.174.39.103', '10.0.0.1', '203.0.113.42', '192.168.1.1']),
+    );
   });
 });
 

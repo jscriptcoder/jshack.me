@@ -119,7 +119,7 @@ function ForeignAwareProviders({
   readonly worldHandlers: ReturnType<typeof useWorldNetworks>['handlers'];
   readonly lanOccupants: ReturnType<typeof useHomeNetworks>['lanOccupants'];
 }) {
-  const { foreignFileSystems, foreignLanOccupantHostnames } = useForeignNetworks();
+  const { foreignFileSystems, foreignLanOccupantHostnames, foreignNetworks } = useForeignNetworks();
   return (
     <MissionProvider state={missionState} usedPublicIps={usedPublicIps}>
       <FileSystemProvider
@@ -138,6 +138,7 @@ function ForeignAwareProviders({
           }
           missionLayers={missionState.activeMission?.layers}
           homeNetwork={activeNetwork}
+          foreignNetworks={foreignNetworks}
           worldNetworks={worldNetworks}
           worldHandlers={worldHandlers}
           lanOccupants={lanOccupants}

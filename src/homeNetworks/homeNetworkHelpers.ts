@@ -22,15 +22,16 @@ import type { HomeNetwork } from '../generation/generateHomeNetwork.js';
 // breaks the script build path.
 
 export const buildGatewayCanonicalIpMap = (
-  homeNetwork: HomeNetwork | null | undefined,
+  homeNetworks: readonly HomeNetwork[],
 ): ReadonlyMap<string, string> => {
-  if (!homeNetwork) return new Map();
   const map = new Map<string, string>();
-  map.set(homeNetwork.router.internalIp, homeNetwork.routerMachine.ip);
-  if (homeNetwork.layers.length > 1) {
-    homeNetwork.layers.slice(1).forEach((layer) => {
-      map.set(`${layer.subnet}.1`, layer.gateway.ip);
-    });
+  for (const homeNetwork of homeNetworks) {
+    map.set(homeNetwork.router.internalIp, homeNetwork.routerMachine.ip);
+    if (homeNetwork.layers.length > 1) {
+      homeNetwork.layers.slice(1).forEach((layer) => {
+        map.set(`${layer.subnet}.1`, layer.gateway.ip);
+      });
+    }
   }
   return map;
 };
@@ -315,7 +316,7 @@ export const buildResolveTargetMachineId = (
 ): ((targetIp: string) => string) => {
   const activeSubnet = activeNetwork?.layers[0]?.subnet ?? null;
   const ownLanIp = activeNetwork?.localhostIp ?? null;
-  const gatewayAliasMap = buildGatewayCanonicalIpMap(activeNetwork);
+  const gatewayAliasMap = buildGatewayCanonicalIpMap(activeNetwork ? [activeNetwork] : []);
   return (targetIp) =>
     targetMachineIdFor(
       targetIp,

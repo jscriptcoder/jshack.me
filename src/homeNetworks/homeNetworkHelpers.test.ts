@@ -469,9 +469,8 @@ describe('buildGatewayCanonicalIpMap', () => {
   // public IP, distinct from the .1 alias. Inner gateways may have a
   // primary IP that already equals .1, producing a harmless self-loop.
 
-  it('returns an empty map when no home network is supplied', () => {
-    expect(buildGatewayCanonicalIpMap(null).size).toBe(0);
-    expect(buildGatewayCanonicalIpMap(undefined).size).toBe(0);
+  it('returns an empty map when the input array is empty', () => {
+    expect(buildGatewayCanonicalIpMap([]).size).toBe(0);
   });
 
   it("maps the home router's .1 alias to its canonical primary (public) IP", () => {
@@ -481,7 +480,7 @@ describe('buildGatewayCanonicalIpMap', () => {
     // subscribers query against.
     const home = createHomeNetworkFixture();
 
-    const map = buildGatewayCanonicalIpMap(home);
+    const map = buildGatewayCanonicalIpMap([home]);
 
     expect(map.get('10.0.0.1')).toBe('45.0.0.1');
   });
@@ -499,7 +498,7 @@ describe('buildGatewayCanonicalIpMap', () => {
       ],
     });
 
-    const map = buildGatewayCanonicalIpMap(home);
+    const map = buildGatewayCanonicalIpMap([home]);
 
     expect(map.get('10.0.1.1')).toBe('10.0.0.50');
   });
@@ -515,11 +514,34 @@ describe('buildGatewayCanonicalIpMap', () => {
       ],
     });
 
-    const map = buildGatewayCanonicalIpMap(home);
+    const map = buildGatewayCanonicalIpMap([home]);
 
     expect(map.size).toBe(2);
     expect(map.get('10.0.0.1')).toBe('45.0.0.1');
     expect(map.get('10.0.1.1')).toBe('10.0.0.50');
+  });
+
+  it('unions aliases across multiple home networks', () => {
+    // Cross-LAN: when foreign home networks are cached locally, each
+    // contributes its own gateway .1 → canonical-IP entries. The merged
+    // map drives gateway canonicalization across own + foreign networks
+    // uniformly.
+    const own = createHomeNetworkFixture({
+      router: { publicIp: '45.0.0.1', hostname: 'own', internalIp: '10.0.0.1' },
+      routerMachine: createGeneratedMachineFixture({ ip: '45.0.0.1', role: 'router' }),
+      layers: [createSubnetLayerFixture({ subnet: '10.0.0' })],
+    });
+    const foreign = createHomeNetworkFixture({
+      router: { publicIp: '162.174.39.103', hostname: 'foreign', internalIp: '192.168.1.1' },
+      routerMachine: createGeneratedMachineFixture({ ip: '162.174.39.103', role: 'router' }),
+      layers: [createSubnetLayerFixture({ subnet: '192.168.1' })],
+    });
+
+    const map = buildGatewayCanonicalIpMap([own, foreign]);
+
+    expect(map.size).toBe(2);
+    expect(map.get('10.0.0.1')).toBe('45.0.0.1');
+    expect(map.get('192.168.1.1')).toBe('162.174.39.103');
   });
 });
 
