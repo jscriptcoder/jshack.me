@@ -1,4 +1,4 @@
-import type { RemoteMachine, DnsRecord } from './types';
+import type { RemoteMachine, RemoteUser, DnsRecord } from './types';
 import type {
   GeneratedMachine,
   MissionNetwork,
@@ -248,6 +248,56 @@ export const findMachineInWorldNetworks = (
     if (wn.routerMachine.ip === ip) return wn.routerMachine.remoteMachine;
   }
   return undefined;
+};
+
+// Cross-LAN: same shape as findMachineInWorldNetworks but operates on
+// HomeNetwork[]. Searches each home network's networkConfig.machineConfigs
+// AND its routerMachine fallback (the router is never listed in any
+// config's .machines array, mirroring the world-network pattern).
+export const findMachineInHomeNetworks = (
+  ip: string,
+  homeNetworks: readonly HomeNetwork[],
+): RemoteMachine | undefined => {
+  for (const home of homeNetworks) {
+    const internal = Object.values(home.networkConfig.machineConfigs)
+      .flatMap((mc) => mc.machines)
+      .find((m) => m.ip === ip);
+    if (internal) return internal;
+    if (home.routerMachine.ip === ip) return home.routerMachine.remoteMachine;
+  }
+  return undefined;
+};
+
+// Cross-LAN: returns the user list for a machine in any of the supplied
+// home networks. Used by NetworkContext's findMachineUsers when the IP
+// targets a foreign network's machine (auth flows: ssh / su / scp
+// against a cross-LAN host).
+export const findUsersInHomeNetworks = (
+  ip: string,
+  homeNetworks: readonly HomeNetwork[],
+): readonly RemoteUser[] => {
+  const machine = findMachineInHomeNetworks(ip, homeNetworks);
+  return machine ? machine.users : [];
+};
+
+// Cross-LAN: collect gateway IPs across foreign home networks. Each
+// contributes its router primary IP, its `.1` internal alias, and every
+// inner-layer gateway's primary + `.1` alias. Drives the
+// gatewayIps memo in NetworkContext so iptables/SNMP/ACL parsers read
+// foreign gateway state alongside own + mission + world gateways.
+export const collectHomeNetworksGatewayIps = (
+  homeNetworks: readonly HomeNetwork[],
+): readonly string[] => {
+  const ips: string[] = [];
+  for (const home of homeNetworks) {
+    ips.push(home.routerMachine.ip, home.router.internalIp);
+    if (home.layers.length > 1) {
+      for (const layer of home.layers.slice(1)) {
+        ips.push(layer.gateway.ip, `${layer.subnet}.1`);
+      }
+    }
+  }
+  return ips;
 };
 
 // Maps gateway .1 alias IPs to their GeneratedMachine. The border router and

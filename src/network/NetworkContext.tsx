@@ -32,11 +32,14 @@ import {
   buildCanonicalKeyedRulesMap,
   collectGatewayIps,
   collectWorldGatewayIps,
+  collectHomeNetworksGatewayIps,
   buildGatewayAliasMap,
   buildRouterRemoteView,
   buildWorldExternalDnsRecords,
   buildWorldRouterRemoteViews,
   findMachineInWorldNetworks,
+  findMachineInHomeNetworks,
+  findUsersInHomeNetworks,
   applyDynamicOverrides,
   type DynamicOverrideContext,
 } from './networkUtils';
@@ -158,6 +161,18 @@ type NetworkProviderProps = {
   readonly missionRouterMachine?: GeneratedMachine;
   readonly missionLayers?: readonly SubnetLayer[];
   readonly homeNetwork?: HomeNetwork | null;
+  // Foreign home networks: regenerated client-side from the seed of any
+  // public IP the player has touched cross-LAN. Each is a full
+  // HomeNetwork-shaped instance with router + inner gateways +
+  // machineConfigs. Folded into findMachineByIp / findMachineUsers /
+  // gatewayIps / gatewayCanonicalMap so existing primitives resolve
+  // foreign machines without per-command synthesis. Foreign LAN
+  // occupant rendering (showing OTHER players in nmap of a foreign
+  // subnet) is deferred — the subscription path is already covered by
+  // FileSystemProvider's foreignLanOccupantHostnames (PR 3); rendering
+  // them as alive hosts on a foreign subnet needs a multi-LAN extension
+  // of the lanOccupants merge below and ships separately.
+  readonly foreignNetworks?: readonly HomeNetwork[];
   // World networks: persistent shared content visible to every player.
   // Their routers + inner gateways are appended to the localhost-visible
   // machine list so commands like nmap/ssh/curl can reach them.
@@ -181,6 +196,7 @@ export const NetworkProvider = ({
   missionRouterMachine,
   missionLayers,
   homeNetwork,
+  foreignNetworks,
   worldNetworks,
   worldHandlers,
   lanOccupants,
@@ -198,8 +214,9 @@ export const NetworkProvider = ({
     () => [
       ...collectGatewayIps(missionRouterMachine, missionLayers, homeNetwork),
       ...collectWorldGatewayIps(worldNetworks ?? []),
+      ...collectHomeNetworksGatewayIps(foreignNetworks ?? []),
     ],
-    [missionRouterMachine, missionLayers, homeNetwork, worldNetworks],
+    [missionRouterMachine, missionLayers, homeNetwork, worldNetworks, foreignNetworks],
   );
 
   const homeGatewayByAliasIp = useMemo(() => buildGatewayAliasMap(homeNetwork), [homeNetwork]);
@@ -208,7 +225,17 @@ export const NetworkProvider = ({
   // dedup in buildCanonicalKeyedRulesMap below + the canonicalization on
   // applyDynamicOverrides lookups. Home-only — mission inner gateway
   // aliases are not in the map (deferred to mission redesign).
-  const gatewayCanonicalMap = useMemo(() => buildGatewayCanonicalIpMap(homeNetwork), [homeNetwork]);
+  // Union of canonicalization entries across own + foreign home networks.
+  // Cross-LAN: a viewer addressing a foreign gateway's `.1` alias still
+  // resolves to the foreign router's canonical primary IP.
+  const gatewayCanonicalMap = useMemo(
+    () =>
+      buildGatewayCanonicalIpMap([
+        ...(homeNetwork ? [homeNetwork] : []),
+        ...(foreignNetworks ?? []),
+      ]),
+    [homeNetwork, foreignNetworks],
+  );
 
   // Dynamic iptables rules: read and parse /etc/iptables/rules.v4 from all
   // gateway filesystems. Keyed by canonical IP so writes via .1 aliases
@@ -690,6 +717,13 @@ export const NetworkProvider = ({
         if (missionUsers.length > 0) return missionUsers;
       }
 
+      // Cross-LAN: search foreign home networks for the IP. Mirrors the
+      // findMachineByIp branch — `ssh user@<foreign-public-ip>` and
+      // password validation against foreign hosts both flow through
+      // findMachineUsers.
+      const foreignUsers = findUsersInHomeNetworks(ip, foreignNetworks ?? []);
+      if (foreignUsers.length > 0) return foreignUsers;
+
       // Router is never in any machineConfigs[*].machines array — it's only a key.
       // Check it directly so `su` works when SSH'd into the router.
       if (missionRouterMachine && missionRouterMachine.ip === ip) {
@@ -710,7 +744,7 @@ export const NetworkProvider = ({
 
       return [];
     },
-    [homeNetwork, missionNetworkConfig, missionRouterMachine, worldNetworks],
+    [homeNetwork, missionNetworkConfig, missionRouterMachine, worldNetworks, foreignNetworks],
   );
 
   // Searches for a machine by IP across all network configs (home +
@@ -746,9 +780,15 @@ export const NetworkProvider = ({
       const worldMatch = findMachineInWorldNetworks(ip, worldNetworks ?? []);
       if (worldMatch) return worldMatch;
 
+      // Cross-LAN: search foreign home networks for the IP. Order
+      // matters — own/mission/world precede foreign so a locally-loaded
+      // IP can't be shadowed by a stale foreign cache entry.
+      const foreignMatch = findMachineInHomeNetworks(ip, foreignNetworks ?? []);
+      if (foreignMatch) return foreignMatch;
+
       return undefined;
     },
-    [homeNetwork, missionNetworkConfig, missionRouterMachine, worldNetworks],
+    [homeNetwork, missionNetworkConfig, missionRouterMachine, worldNetworks, foreignNetworks],
   );
 
   // Port-aware NAT resolution: translates any gateway's IP + port to the
