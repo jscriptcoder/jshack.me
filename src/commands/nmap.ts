@@ -12,6 +12,10 @@ export type NmapScanAggregateInfo = {
 type NmapContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
   readonly findMachineByIp: (ip: string) => RemoteMachine | undefined;
+  // Async sibling of findMachineByIp. Triggers cross-LAN seed-regen
+  // on a sync miss for a public IPv4 target. Optional for legacy
+  // callers / tests that pass a sync-only context.
+  readonly findMachineByIpAsync?: (ip: string) => Promise<RemoteMachine | undefined>;
   readonly getMachines: () => readonly RemoteMachine[];
   readonly getLocalIPs: () => ReadonlySet<string>;
   readonly getLocalHostname: () => string;
@@ -255,6 +259,7 @@ export const createNmapCommand = (context: NmapContext): Command => ({
     const {
       getMachine,
       findMachineByIp,
+      findMachineByIpAsync,
       getMachines,
       getLocalIPs,
       getLocalHostname,
@@ -416,85 +421,114 @@ export const createNmapCommand = (context: NmapContext): Command => ({
           return;
         }
 
-        const machine = getMachine(target);
-
-        if (!machine) {
-          if (target.startsWith('192.168.1.')) {
-            onLine(`Starting Nmap scan on ${target}`);
-            token.schedule(() => {
-              if (token.isCancelled()) return;
-              onLine('');
-              onLine(`Nmap scan report for ${target}`);
-              onLine('Host seems down.');
-              onLine('');
-              onLine('Note: Host may be blocking ping probes.');
-              onComplete();
-            }, jitter(800));
-            return;
+        // Sync scan path — extracted as an inner closure so both the
+        // sync-only fast path AND the cross-LAN async fallback can
+        // dispatch into the same scan logic. Keeps the existing
+        // synchronous-throw contract for the "no async resolver" case
+        // (mock contexts in unit tests, single-player builds).
+        const dispatchScan = (machine: RemoteMachine | undefined) => {
+          if (!machine) {
+            if (target.startsWith('192.168.1.')) {
+              onLine(`Starting Nmap scan on ${target}`);
+              token.schedule(() => {
+                if (token.isCancelled()) return;
+                onLine('');
+                onLine(`Nmap scan report for ${target}`);
+                onLine('Host seems down.');
+                onLine('');
+                onLine('Note: Host may be blocking ping probes.');
+                onComplete();
+              }, jitter(800));
+              return;
+            }
+            throw new Error(`nmap: failed to resolve "${target}"`);
           }
-          throw new Error(`nmap: failed to resolve "${target}"`);
-        }
 
-        // Filter by protocol, then sort: open first, then closed, by port number
-        const protocolPorts = filterPortsByProtocol(machine.ports, udpScan);
-        const sortedPorts = [...protocolPorts].sort((a, b) => {
-          if (a.open !== b.open) return a.open ? -1 : 1;
-          return a.port - b.port;
-        });
-        const openPorts = sortedPorts.filter((p) => p.open);
+          // Filter by protocol, then sort: open first, then closed, by port number
+          const protocolPorts = filterPortsByProtocol(machine.ports, udpScan);
+          const sortedPorts = [...protocolPorts].sort((a, b) => {
+            if (a.open !== b.open) return a.open ? -1 : 1;
+            return a.port - b.port;
+          });
+          const openPorts = sortedPorts.filter((p) => p.open);
 
-        // Single aggregated log entry for the whole scan on this target.
-        onScanAggregate?.({
-          targetIp: target,
-          probedPorts: machine.ports.map((p) => p.port),
-        });
+          // Single aggregated log entry for the whole scan on this target.
+          onScanAggregate?.({
+            targetIp: target,
+            probedPorts: machine.ports.map((p) => p.port),
+          });
 
-        onLine(`Starting Nmap scan on ${target}${scanModeLabel(versionScan, udpScan)}`);
-        onLine(`Scanning ${udpScan ? 'UDP ' : ''}ports...`);
+          onLine(`Starting Nmap scan on ${target}${scanModeLabel(versionScan, udpScan)}`);
+          onLine(`Scanning ${udpScan ? 'UDP ' : ''}ports...`);
 
-        let delay = jitter(400);
+          let delay = jitter(400);
 
-        token.schedule(() => {
-          if (token.isCancelled()) return;
-          onLine('');
-          onLine(`Nmap scan report for ${machine.hostname} (${machine.ip})`);
-          onLine('Host is up.');
-          onLine('');
-          const header = versionScan
-            ? 'PORT      STATE  SERVICE         VERSION'
-            : 'PORT      STATE  SERVICE';
-          onLine(header);
-        }, delay);
-
-        if (sortedPorts.length === 0) {
-          delay += jitter(200);
           token.schedule(() => {
             if (token.isCancelled()) return;
-            onLine('All scanned ports are closed.');
-            onComplete();
+            onLine('');
+            onLine(`Nmap scan report for ${machine.hostname} (${machine.ip})`);
+            onLine('Host is up.');
+            onLine('');
+            const header = versionScan
+              ? 'PORT      STATE  SERVICE         VERSION'
+              : 'PORT      STATE  SERVICE';
+            onLine(header);
           }, delay);
-        } else {
-          sortedPorts.forEach((port, index) => {
-            delay += jitter(PORT_SCAN_DELAY_MS);
+
+          if (sortedPorts.length === 0) {
+            delay += jitter(200);
             token.schedule(() => {
               if (token.isCancelled()) return;
-              onLine(formatPortLine(port, versionScan));
-
-              if (index === sortedPorts.length - 1) {
-                token.schedule(() => {
-                  if (token.isCancelled()) return;
-
-                  if (versionScan) {
-                    const vulnLines = formatVulnerabilitySection(machine, openPorts, gameTime);
-                    vulnLines.forEach((line) => onLine(line));
-                  }
-
-                  onComplete();
-                }, jitter(200));
-              }
+              onLine('All scanned ports are closed.');
+              onComplete();
             }, delay);
-          });
+          } else {
+            sortedPorts.forEach((port, index) => {
+              delay += jitter(PORT_SCAN_DELAY_MS);
+              token.schedule(() => {
+                if (token.isCancelled()) return;
+                onLine(formatPortLine(port, versionScan));
+
+                if (index === sortedPorts.length - 1) {
+                  token.schedule(() => {
+                    if (token.isCancelled()) return;
+
+                    if (versionScan) {
+                      const vulnLines = formatVulnerabilitySection(machine, openPorts, gameTime);
+                      vulnLines.forEach((line) => onLine(line));
+                    }
+
+                    onComplete();
+                  }, jitter(200));
+                }
+              }, delay);
+            });
+          }
+        };
+
+        const syncMachine = getMachine(target);
+        if (syncMachine || !findMachineByIpAsync) {
+          dispatchScan(syncMachine);
+          return;
         }
+
+        // Cross-LAN fallback: sync miss + async resolver available.
+        // Trigger the seed-regen, then dispatch. The "host seems down"
+        // / "failed to resolve" paths only fire here if the resolver
+        // also returns undefined (server 404, non-public IP, etc.).
+        // Errors from dispatchScan surface as unhandled rejections —
+        // by design: the only sync throw is the failed-to-resolve case
+        // which becomes a printed nmap error in the UI rather than an
+        // unhandled error at the dispatch layer.
+        void findMachineByIpAsync(target).then((asyncMachine) => {
+          if (token.isCancelled()) return;
+          try {
+            dispatchScan(asyncMachine);
+          } catch (error) {
+            onLine(error instanceof Error ? error.message : String(error));
+            onComplete();
+          }
+        });
       },
       cancel: token.cancel,
     };
