@@ -715,4 +715,206 @@ describe('ssh command', () => {
       }
     });
   });
+
+  describe('cross-LAN async pre-resolve', () => {
+    // PR 5 of the foreign-LAN-occupant chunk. When the user types `ssh
+    // user@<foreign public IP>` and the sync getMachine doesn't know
+    // the target (its HomeNetwork hasn't been seeded yet), the command
+    // awaits findMachineByIpAsync to materialize the foreign network
+    // via the cross-LAN seed-regen resolver, THEN proceeds with the
+    // normal auth flow. Sync hits short-circuit the async path so
+    // existing legacy callers + tests are unaffected.
+
+    it('falls back to findMachineByIpAsync when sync getMachine misses', async () => {
+      const foreignMachine = getMockRemoteMachine({
+        ip: '203.0.113.42',
+        hostname: 'foreign-router',
+        ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
+        users: [{ username: 'admin', userType: 'user' }],
+      });
+      const findMachineByIpAsync = vi.fn(async (ip: string) =>
+        ip === '203.0.113.42' ? foreignMachine : undefined,
+      );
+      const context = {
+        getMachine: vi.fn(() => undefined),
+        getLocalIP: () => '192.168.1.100',
+        findMachineByIpAsync,
+      };
+      const ssh = createSshCommand(context);
+
+      const result = ssh.fn('admin@203.0.113.42');
+      expect(isAsyncOutput(result)).toBe(true);
+
+      let followUp: unknown = null;
+      if (isAsyncOutput(result)) {
+        result.start(
+          () => {},
+          (data) => {
+            followUp = data;
+          },
+        );
+      }
+
+      // Drain the async resolver's microtask + ssh's scheduled delays.
+      await vi.runAllTimersAsync();
+
+      expect(findMachineByIpAsync).toHaveBeenCalledWith('203.0.113.42');
+      expect(isSshPrompt(followUp)).toBe(true);
+      if (isSshPrompt(followUp)) {
+        expect(followUp.targetUser).toBe('admin');
+        expect(followUp.targetIP).toBe('203.0.113.42');
+      }
+    });
+
+    it('emits Connection refused via onLine when async resolver also returns undefined', async () => {
+      // The "no machine anywhere" case shifts from sync throw to async
+      // onLine emission once the resolver is wired. Same end-user UX
+      // (the error appears in the terminal) but the throw can't be
+      // sync because the resolver round-trip is async.
+      const findMachineByIpAsync = vi.fn(async () => undefined);
+      const context = {
+        getMachine: vi.fn(() => undefined),
+        getLocalIP: () => '192.168.1.100',
+        findMachineByIpAsync,
+      };
+      const ssh = createSshCommand(context);
+
+      const result = ssh.fn('admin@203.0.113.99');
+      expect(isAsyncOutput(result)).toBe(true);
+
+      const lines: string[] = [];
+      let completed = false;
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {
+            completed = true;
+          },
+        );
+      }
+
+      await vi.runAllTimersAsync();
+
+      expect(findMachineByIpAsync).toHaveBeenCalledWith('203.0.113.99');
+      expect(
+        lines.some((l) => l.includes('Connection refused') && l.includes('203.0.113.99')),
+      ).toBe(true);
+      expect(completed).toBe(true);
+    });
+
+    it('does NOT call findMachineByIpAsync when sync getMachine hits', () => {
+      // Precedence: sync hits short-circuit. Avoids a needless server
+      // round-trip for own-LAN / mission / world targets the client
+      // already knows about.
+      const localMachine = getMockRemoteMachine({
+        ip: '192.168.1.50',
+        ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
+        users: [{ username: 'admin', userType: 'user' }],
+      });
+      const findMachineByIpAsync = vi.fn(async () => undefined);
+      const context = {
+        getMachine: vi.fn(() => localMachine),
+        getLocalIP: () => '192.168.1.100',
+        findMachineByIpAsync,
+      };
+      const ssh = createSshCommand(context);
+
+      ssh.fn('admin@192.168.1.50');
+
+      expect(findMachineByIpAsync).not.toHaveBeenCalled();
+    });
+
+    it('throws synchronously on sync miss when findMachineByIpAsync is omitted (legacy)', () => {
+      // Backward-compatible: a context that doesn't supply the async
+      // resolver keeps the pre-extension throw contract. Critical for
+      // single-player tests and any caller wired before this PR.
+      const context = createMockSshContext({ machines: [] });
+      const ssh = createSshCommand(context);
+
+      expect(() => ssh.fn('admin@10.0.0.1')).toThrow(
+        'ssh: connect to host 10.0.0.1 port 22: Connection refused',
+      );
+    });
+
+    it('emits Permission denied via onLine when foreign machine has no matching user', async () => {
+      // Foreign machine known + port open but user list explicitly
+      // excludes the target user (non-cross-player target where
+      // machine.users came from generation). Pre-check moves from
+      // sync throw to async onLine emission, same as the connection-
+      // refused branch above.
+      const foreignMachine = getMockRemoteMachine({
+        ip: '203.0.113.42',
+        ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
+        users: [{ username: 'root', userType: 'root' }],
+      });
+      const findMachineByIpAsync = vi.fn(async () => foreignMachine);
+      const context = {
+        getMachine: vi.fn(() => undefined),
+        getLocalIP: () => '192.168.1.100',
+        findMachineByIpAsync,
+      };
+      const ssh = createSshCommand(context);
+
+      const result = ssh.fn('nobody@203.0.113.42');
+      expect(isAsyncOutput(result)).toBe(true);
+
+      const lines: string[] = [];
+      let completed = false;
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {
+            completed = true;
+          },
+        );
+      }
+
+      await vi.runAllTimersAsync();
+
+      expect(lines.some((l) => l.includes('Permission denied') && l.includes('nobody'))).toBe(true);
+      expect(completed).toBe(true);
+    });
+
+    it('proceeds with empty machine.users — cross-player placeholder semantics', async () => {
+      // Foreign LAN occupant stub from PR 4 has users=[]. The auth
+      // pre-check skip mirrors useAuthentication.handleFtpUsernameSubmit:
+      // empty list means "we don't know, defer to server". Without
+      // this, EVERY cross-LAN ssh into another player's workstation
+      // would bail at the pre-check before the password prompt even
+      // appears.
+      const stubMachine = getMockRemoteMachine({
+        ip: '192.168.1.77',
+        hostname: 'glider-eeff0011',
+        ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
+        users: [],
+      });
+      const findMachineByIpAsync = vi.fn(async () => stubMachine);
+      const context = {
+        getMachine: vi.fn(() => undefined),
+        getLocalIP: () => '10.0.0.100',
+        findMachineByIpAsync,
+      };
+      const ssh = createSshCommand(context);
+
+      const result = ssh.fn('alice@192.168.1.77');
+
+      let followUp: unknown = null;
+      if (isAsyncOutput(result)) {
+        result.start(
+          () => {},
+          (data) => {
+            followUp = data;
+          },
+        );
+      }
+
+      await vi.runAllTimersAsync();
+
+      expect(isSshPrompt(followUp)).toBe(true);
+      if (isSshPrompt(followUp)) {
+        expect(followUp.targetUser).toBe('alice');
+        expect(followUp.targetIP).toBe('192.168.1.77');
+      }
+    });
+  });
 });
