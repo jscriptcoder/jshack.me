@@ -453,7 +453,7 @@ describe('buildMergedRouterView', () => {
     const result = buildMergedRouterView(router, [target], rules);
 
     expect(result.ports).toEqual([
-      { port: 2222, service: 'ssh', serviceVersion: 'latest', open: true },
+      { port: 2222, service: 'ssh', serviceVersion: 'latest', open: true, forwarded: true },
     ]);
   });
 
@@ -501,7 +501,7 @@ describe('buildMergedRouterView', () => {
 
     expect(result.ports).toEqual([
       { port: 80, service: 'http', serviceVersion: 'latest', open: true },
-      { port: 2222, service: 'ssh', serviceVersion: 'latest', open: true },
+      { port: 2222, service: 'ssh', serviceVersion: 'latest', open: true, forwarded: true },
     ]);
   });
 
@@ -529,7 +529,7 @@ describe('buildMergedRouterView', () => {
     const result = buildMergedRouterView(router, [target], rules);
 
     expect(result.ports).toEqual([
-      { port: 80, service: 'http-alt', serviceVersion: 'latest', open: true },
+      { port: 80, service: 'http-alt', serviceVersion: 'latest', open: true, forwarded: true },
     ]);
   });
 
@@ -627,7 +627,7 @@ describe('buildMergedRouterView', () => {
     const result = buildMergedRouterView(router, [], rules, [occupant]);
 
     expect(result.ports).toEqual([
-      { port: 8080, service: 'http', serviceVersion: 'latest', open: true },
+      { port: 8080, service: 'http', serviceVersion: 'latest', open: true, forwarded: true },
     ]);
   });
 
@@ -690,8 +690,8 @@ describe('buildMergedRouterView', () => {
     const result = buildMergedRouterView(router, [npc], rules, [occupant]);
 
     expect(result.ports).toEqual([
-      { port: 2222, service: 'ssh', serviceVersion: 'latest', open: true },
-      { port: 8080, service: 'http', serviceVersion: 'latest', open: true },
+      { port: 2222, service: 'ssh', serviceVersion: 'latest', open: true, forwarded: true },
+      { port: 8080, service: 'http', serviceVersion: 'latest', open: true, forwarded: true },
     ]);
   });
 
@@ -747,7 +747,7 @@ describe('buildMergedRouterView', () => {
 
     // NPC version string wins → 'apache2', not 'nginx'
     expect(result.ports).toEqual([
-      { port: 8080, service: 'http', serviceVersion: 'apache2', open: true },
+      { port: 8080, service: 'http', serviceVersion: 'apache2', open: true, forwarded: true },
     ]);
   });
 });
@@ -1104,7 +1104,7 @@ describe('applyDynamicOverrides', () => {
     });
 
     expect(result.ports).toEqual([
-      { port: 2222, service: 'ssh', serviceVersion: 'latest', open: true },
+      { port: 2222, service: 'ssh', serviceVersion: 'latest', open: true, forwarded: true },
     ]);
   });
 

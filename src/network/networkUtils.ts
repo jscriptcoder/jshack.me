@@ -64,7 +64,13 @@ export const buildMergedRouterView = (
         [];
       const internalPort = candidatePorts.find((p) => p.port === rule.internalPort && p.open);
       if (!internalPort) return undefined;
-      return { ...internalPort, port: rule.publicPort };
+      // forwarded: true tells ssh.ts (and any future consumer) that
+      // auth lands on the FORWARDED TARGET, not on the gateway whose
+      // users field is in the merged view. Pre-checks that compare
+      // against gateway users would spuriously block legitimate
+      // logins to occupant workstations whose users we don't have
+      // client-side.
+      return { ...internalPort, port: rule.publicPort, forwarded: true };
     })
     .filter((p) => p !== undefined);
 

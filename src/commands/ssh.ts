@@ -138,7 +138,20 @@ export const createSshCommand = (context: SshContext): Command => ({
       // defer to the server's authCreateSession check, which will
       // return 401 invalid_credentials for unknown usernames anyway
       // (no enumeration leak).
-      if (machine.users.length > 0 && !machine.users.some((u) => u.username === user)) {
+      //
+      // ALSO skip the check for NAT-forwarded ports: the merged view's
+      // users field carries the GATEWAY's users (router admins + NPC
+      // forwarded internals), NOT the forwarded target's. A player
+      // SSHing through `ssh user@<router.publicIp> <forwarded-port>`
+      // authenticates against the forwarded workstation/NPC whose
+      // /etc/passwd lives behind the gateway. Validating against the
+      // gateway's users would spuriously block legitimate auth.
+      const isForwardedTarget = targetPort.forwarded === true;
+      if (
+        !isForwardedTarget &&
+        machine.users.length > 0 &&
+        !machine.users.some((u) => u.username === user)
+      ) {
         throw new Error(`ssh: ${user}@${host}: Permission denied (publickey,password)`);
       }
 

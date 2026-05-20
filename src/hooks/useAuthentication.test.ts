@@ -68,8 +68,8 @@ const makeOptions = () => ({
 const computeFingerprint = (user: string, ip: string, passwordHash: string) =>
   md5(`${user}:${ip}:${passwordHash}`);
 
-const makeKeyEntry = (user: string, ip: string, passwordHash: string) =>
-  `${user}@${ip}:${computeFingerprint(user, ip, passwordHash)}`;
+const makeKeyEntry = (user: string, ip: string, port: number, passwordHash: string) =>
+  `${user}@${ip}:${port}:${computeFingerprint(user, ip, passwordHash)}`;
 
 describe('useAuthentication', () => {
   // TODO: NAT-resolution coverage moved into the new SSH
@@ -168,7 +168,7 @@ describe('useAuthentication', () => {
     });
 
     it('startSshPrompt with a saved key calls pushAuthSession with the savedKey arm', async () => {
-      const keyEntry = makeKeyEntry('bob', TARGET_IP, PASSWORD_HASH);
+      const keyEntry = makeKeyEntry('bob', TARGET_IP, 22, PASSWORD_HASH);
       const opts = makeOptions();
       opts.readFile.mockImplementation((path: string) =>
         path === '/home/alice/.ssh_keys' ? keyEntry : null,
@@ -326,7 +326,7 @@ describe('useAuthentication', () => {
     });
 
     it('authenticateSshInline routes through pushAuthSession (savedKey if present, else password)', async () => {
-      const keyEntry = makeKeyEntry('bob', TARGET_IP, PASSWORD_HASH);
+      const keyEntry = makeKeyEntry('bob', TARGET_IP, 22, PASSWORD_HASH);
       const opts = makeOptions();
       opts.readFile.mockImplementation((path: string) =>
         path === '/home/alice/.ssh_keys' ? keyEntry : null,
