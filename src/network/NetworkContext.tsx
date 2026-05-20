@@ -40,9 +40,11 @@ import {
   findMachineInWorldNetworks,
   findMachineInHomeNetworks,
   findUsersInHomeNetworks,
+  synthesizeForeignLanOccupantMachine,
   applyDynamicOverrides,
   type DynamicOverrideContext,
 } from './networkUtils';
+import { buildForeignLanOccupantMap } from '../foreignNetworks/foreignLanOccupantResolver';
 import { resolveMachineByIpAsync } from './resolveMachineByIpAsync';
 
 type NetworkContextType = {
@@ -181,6 +183,13 @@ type NetworkProviderProps = {
   // them as alive hosts on a foreign subnet needs a multi-LAN extension
   // of the lanOccupants merge below and ships separately.
   readonly foreignNetworks?: readonly HomeNetwork[];
+  // Foreign LAN occupants — other players on foreign LANs the player
+  // has touched. Each one is addressable at `${layer0Subnet}${lan_ip}`
+  // on the foreign LAN's subnet. findMachineByIp + findMachineUsers
+  // synthesize stub RemoteMachines on demand so cross-LAN auth flows
+  // (ssh/ftp/nc/curl/lynx/gobuster into a foreign player's workstation
+  // via NAT forward) resolve target.hostname + machine_id correctly.
+  readonly foreignLanOccupants?: readonly OccupantSummary[];
   // Cross-LAN resolver. NetworkProvider doesn't own foreignNetworks
   // state — useForeignNetworks does. Threaded as a prop so the
   // findMachineByIpAsync path can trigger regen on first touch of a
@@ -211,6 +220,7 @@ export const NetworkProvider = ({
   missionLayers,
   homeNetwork,
   foreignNetworks,
+  foreignLanOccupants,
   ensureForeignReachable,
   worldNetworks,
   worldHandlers,
@@ -250,6 +260,15 @@ export const NetworkProvider = ({
         ...(foreignNetworks ?? []),
       ]),
     [homeNetwork, foreignNetworks],
+  );
+
+  // Foreign LAN occupant lookup: (foreign full IP) → workstation_id.
+  // Drives findMachineByIp / findMachineUsers stub synthesis AND
+  // occupantAwareReadNode's foreign translation. Memoized so a
+  // findMachineByIp call mid-render stays referentially stable.
+  const foreignOccupantMap = useMemo(
+    () => buildForeignLanOccupantMap(foreignNetworks ?? [], foreignLanOccupants ?? []),
+    [foreignNetworks, foreignLanOccupants],
   );
 
   // Dynamic iptables rules: read and parse /etc/iptables/rules.v4 from all
@@ -577,8 +596,22 @@ export const NetworkProvider = ({
         // reads via .1 see base FS only — patches written by the
         // canonicalized write path are invisible.
         gatewayCanonicalMap,
+        // Foreign LAN occupant translation on the read path. Cross-LAN
+        // daemon pid-file reads (e.g., applyDynamicOverrides rendering
+        // B's sshd port state from her workstation_id-keyed pid file)
+        // must rewrite the foreign LAN IP to her workstation_id before
+        // hitting the patches store, symmetric with the write-path
+        // translation in buildResolveTargetMachineId (PR 3).
+        foreignOccupantMap,
       ),
-    [getNodeFromMachine, lanOccupants, homeNetwork, hostname, gatewayCanonicalMap],
+    [
+      getNodeFromMachine,
+      lanOccupants,
+      homeNetwork,
+      hostname,
+      gatewayCanonicalMap,
+      foreignOccupantMap,
+    ],
   );
 
   // Base override context — everything except `overlaidOccupants`. Used to
@@ -739,6 +772,16 @@ export const NetworkProvider = ({
       const foreignUsers = findUsersInHomeNetworks(ip, foreignNetworks ?? []);
       if (foreignUsers.length > 0) return foreignUsers;
 
+      // Foreign LAN occupant: matches a target IP on another player's
+      // LAN that we've touched cross-LAN. Returns [] because the
+      // synthesized stub doesn't carry the foreign user list (the
+      // server-side /etc/passwd projection is the authority). Auth
+      // helpers tolerate the empty list per the cross-player
+      // placeholder convention (see useAuthentication.handleFtpUsername
+      // Submit).
+      const foreignOccupant = synthesizeForeignLanOccupantMachine(ip, foreignOccupantMap);
+      if (foreignOccupant) return foreignOccupant.users;
+
       // Router is never in any machineConfigs[*].machines array — it's only a key.
       // Check it directly so `su` works when SSH'd into the router.
       if (missionRouterMachine && missionRouterMachine.ip === ip) {
@@ -759,7 +802,14 @@ export const NetworkProvider = ({
 
       return [];
     },
-    [homeNetwork, missionNetworkConfig, missionRouterMachine, worldNetworks, foreignNetworks],
+    [
+      homeNetwork,
+      missionNetworkConfig,
+      missionRouterMachine,
+      worldNetworks,
+      foreignNetworks,
+      foreignOccupantMap,
+    ],
   );
 
   // Searches for a machine by IP across all network configs (home +
@@ -801,9 +851,26 @@ export const NetworkProvider = ({
       const foreignMatch = findMachineInHomeNetworks(ip, foreignNetworks ?? []);
       if (foreignMatch) return foreignMatch;
 
+      // Foreign LAN occupant: synthesizes a stub RemoteMachine carrying
+      // the workstation_id as hostname. Without this, cross-LAN auth
+      // flows targeting another player's workstation (e.g.,
+      // ssh user@B.router.publicIp, NAT-resolved to B's LAN IP) bail at
+      // findMachineByIp with undefined and never construct a valid
+      // envelope. The stub's empty ports/users are fine — port state
+      // comes from patches, /etc/passwd comes from server-side base FS.
+      const foreignOccupantStub = synthesizeForeignLanOccupantMachine(ip, foreignOccupantMap);
+      if (foreignOccupantStub) return foreignOccupantStub;
+
       return undefined;
     },
-    [homeNetwork, missionNetworkConfig, missionRouterMachine, worldNetworks, foreignNetworks],
+    [
+      homeNetwork,
+      missionNetworkConfig,
+      missionRouterMachine,
+      worldNetworks,
+      foreignNetworks,
+      foreignOccupantMap,
+    ],
   );
 
   // Async sibling of findMachineByIp. Triggers ensureForeignReachable

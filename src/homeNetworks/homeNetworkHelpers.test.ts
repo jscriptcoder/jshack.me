@@ -595,6 +595,45 @@ describe('occupantAwareReadNode', () => {
     expect(wrapped('10.0.0.1', '/etc/iptables/rules.v4', '/')).toBe('IPTABLES-CONTENT');
     expect(inner).toHaveBeenCalledWith('45.0.0.1', '/etc/iptables/rules.v4', '/');
   });
+
+  it("reads via the foreign workstation_id when called with a foreign LAN occupant's IP", () => {
+    // Symmetric read-side counterpart to PR 3's write-side foreign
+    // translation. Daemon pid-file reads via applyDynamicOverrides
+    // hand the machine_id (which == LAN IP for synthesized foreign
+    // occupants) to the wrapped reader; the wrapper must rewrite to
+    // the foreign workstation_id storage key. Otherwise reads of B's
+    // pid files via A's LAN-view miss every patch B's workstation
+    // wrote — they all live under the workstation_id, not the IP.
+    const inner = vi.fn((id: string, _path: string, _cwd: string) =>
+      id === 'glider-eeff0011' ? 'SSHD-PID' : null,
+    );
+    const foreignMap = new Map([
+      [
+        '192.168.1.77',
+        { workstationId: 'glider-eeff0011', networkId: '198.51.100.20', layer0Subnet: '192.168.1' },
+      ],
+    ]);
+    const wrapped = occupantAwareReadNode(
+      inner,
+      [],
+      '10.0.0',
+      null,
+      'me-aabbccdd',
+      undefined,
+      foreignMap,
+    );
+
+    expect(wrapped('192.168.1.77', '/var/run/sshd.pid', '/')).toBe('SSHD-PID');
+    expect(inner).toHaveBeenCalledWith('glider-eeff0011', '/var/run/sshd.pid', '/');
+  });
+
+  it('passes the foreign IP through when the foreign map is omitted (legacy)', () => {
+    const inner = vi.fn().mockReturnValue(null);
+    const wrapped = occupantAwareReadNode(inner, [], '10.0.0', null, 'me-aabbccdd');
+
+    wrapped('192.168.1.77', '/var/run/sshd.pid', '/');
+    expect(inner).toHaveBeenCalledWith('192.168.1.77', '/var/run/sshd.pid', '/');
+  });
 });
 
 // Shared factories used by buildGatewayCanonicalIpMap and
