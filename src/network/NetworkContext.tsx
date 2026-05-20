@@ -37,6 +37,7 @@ import {
   buildRouterRemoteView,
   buildWorldExternalDnsRecords,
   buildWorldRouterRemoteViews,
+  buildForeignRouterRemoteViews,
   findMachineInWorldNetworks,
   findMachineInHomeNetworks,
   findUsersInHomeNetworks,
@@ -634,16 +635,6 @@ export const NetworkProvider = ({
         machines: wn.machines,
         layers: wn.layers,
       })),
-      // Foreign home networks the player has touched cross-LAN. Their
-      // (machines, layers) tuples feed the gateway-NAT-merge branch in
-      // applyDynamicOverrides so a cross-LAN nmap of a foreign router
-      // surfaces the foreign owner's iptables forwards. Without this
-      // the patch propagates via Realtime but the merged view never
-      // renders the forwarded port.
-      foreignNetworks: foreignNetworks?.map((fn) => ({
-        machines: fn.machines,
-        layers: fn.layers,
-      })),
       homeGatewayByAliasIp,
       gatewayAliasMap: gatewayCanonicalMap,
       readNode: readNodeForOverrides,
@@ -657,7 +648,6 @@ export const NetworkProvider = ({
       missionLayers,
       homeNetwork,
       worldNetworks,
-      foreignNetworks,
       homeGatewayByAliasIp,
       gatewayCanonicalMap,
       readNodeForOverrides,
@@ -674,6 +664,73 @@ export const NetworkProvider = ({
     (): readonly RemoteMachine[] =>
       occupantMachines.map((m) => applyDynamicOverrides(m, baseOverrideCtx)),
     [occupantMachines, baseOverrideCtx],
+  );
+
+  // Cross-LAN: stub RemoteMachines for each foreign LAN occupant,
+  // grouped by network_id. Same shape as occupantMachines (own-LAN)
+  // but scoped to the foreign network so applyDynamicOverrides reads
+  // each occupant's pid files (translated to workstation_id storage
+  // via occupantAwareReadNode's foreignOccupantMap branch). Drives
+  // buildForeignRouterRemoteViews — without per-network overlaid
+  // occupants, iptables forwards targeting foreign workstations
+  // resolve against empty stubs and stay invisible.
+  const foreignOccupantStubsByNetwork = useMemo((): ReadonlyMap<
+    string,
+    readonly RemoteMachine[]
+  > => {
+    const result = new Map<string, readonly RemoteMachine[]>();
+    for (const fn of foreignNetworks ?? []) {
+      const subnet = fn.layers[0]?.subnet;
+      if (!subnet) continue;
+      const networkId = fn.router.publicIp;
+      const stubs = (foreignLanOccupants ?? [])
+        .filter((occupant) => occupant.network_id === networkId)
+        .map(
+          (occupant): RemoteMachine => ({
+            ip: `${subnet}${occupant.lan_ip}`,
+            hostname: occupant.hostname,
+            ports: [],
+            users: [],
+          }),
+        );
+      result.set(networkId, stubs);
+    }
+    return result;
+  }, [foreignNetworks, foreignLanOccupants]);
+
+  // Foreign occupants overlaid with daemon-state ports. Mirrors
+  // `overlaidOccupants` for own home — applying baseOverrideCtx reads
+  // sshd.pid / ftpd.pid / nc pid files via occupantAwareReadNode, which
+  // translates the LAN IP to the occupant's workstation_id storage key.
+  // Cycle break: same as own — workstations aren't gateways so the
+  // NAT-merge branch is a no-op for them.
+  const foreignOverlaidOccupantsByNetwork = useMemo((): ReadonlyMap<
+    string,
+    readonly RemoteMachine[]
+  > => {
+    const result = new Map<string, readonly RemoteMachine[]>();
+    foreignOccupantStubsByNetwork.forEach((stubs, networkId) => {
+      result.set(
+        networkId,
+        stubs.map((stub) => applyDynamicOverrides(stub, baseOverrideCtx)),
+      );
+    });
+    return result;
+  }, [foreignOccupantStubsByNetwork, baseOverrideCtx]);
+
+  // Cross-LAN: NAT-merged + SNMP-overridden RemoteMachine views for
+  // each foreign router, keyed by public IP. findMachineByIpAsync
+  // returns these directly so a cross-LAN nmap of a foreign public IP
+  // shows the merged forward set, not the bare routerMachine.
+  const foreignRouterViewsByPublicIp = useMemo(
+    () =>
+      buildForeignRouterRemoteViews(
+        foreignNetworks ?? [],
+        allIptablesRules,
+        allSnmpOverrides,
+        foreignOverlaidOccupantsByNetwork,
+      ),
+    [foreignNetworks, allIptablesRules, allSnmpOverrides, foreignOverlaidOccupantsByNetwork],
   );
 
   // Dynamic overrides: for each visible machine, apply gateway enhancements
@@ -890,14 +947,13 @@ export const NetworkProvider = ({
   // back through a render cycle. See resolveMachineByIpAsync for the
   // pure orchestration logic.
   //
-  // Wraps the resolution in applyDynamicOverrides so a cross-LAN
-  // viewer (e.g., nmap from another LAN) sees the foreign router's
-  // NAT-merged view — without this, findMachineInHomeNetworks returns
-  // the base routerMachine.remoteMachine and forwarded ports stay
-  // invisible even though the iptables rules patch has propagated.
-  // baseOverrideCtx is used (not the occupant-aware overrideCtx)
-  // because the foreign view doesn't need occupant rendering — those
-  // are layered in elsewhere.
+  // For foreign router public IPs, returns the precomputed merged
+  // view (foreignRouterViewsByPublicIp) which already has NAT
+  // forwards + SNMP overrides + per-network overlaid occupants
+  // applied. Without this, findMachineInHomeNetworks would return the
+  // base routerMachine.remoteMachine and forwarded ports stay
+  // invisible from another LAN. Precompute mirrors the
+  // buildWorldRouterRemoteViews pattern used for world routers.
   const findMachineByIpAsync = useCallback(
     async (ip: string): Promise<RemoteMachine | undefined> => {
       const resolved = await resolveMachineByIpAsync(
@@ -906,9 +962,11 @@ export const NetworkProvider = ({
         ensureForeignReachable ?? (async () => null),
       );
       if (!resolved) return undefined;
-      return applyDynamicOverrides(resolved, baseOverrideCtx);
+      const foreignView = foreignRouterViewsByPublicIp.get(ip);
+      if (foreignView) return foreignView;
+      return resolved;
     },
-    [findMachineByIp, ensureForeignReachable, baseOverrideCtx],
+    [findMachineByIp, ensureForeignReachable, foreignRouterViewsByPublicIp],
   );
 
   // Port-aware NAT resolution: translates any gateway's IP + port to the
