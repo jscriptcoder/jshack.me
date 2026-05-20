@@ -86,6 +86,22 @@ export type FileSystemSync = {
   readonly localWritesSinceMount: { current: boolean };
   readonly pendingPatchesRef: { current: Set<Promise<unknown>> };
   readonly pendingWritesRef: { current: Map<string, FileSystemPatch> };
+  // Imperative fetch + apply for an explicit set of machine_ids.
+  // Mirrors the keyset-driven rehydration effect without the
+  // REHYDRATION_DEBOUNCE_MS debounce — used by NetworkContext's
+  // findMachineByIpAsync to load a newly-materialized foreign network's
+  // patches BEFORE the resolver returns, so the first cross-LAN command
+  // already sees the merged view instead of base-FS-only state.
+  // Replace semantics: setPatches(serverPatches) wipes any patches for
+  // ids NOT in machineIds. Callers should pass the union of (current
+  // keyset + new ids) to avoid losing state from other machines.
+  readonly prefetchPatchesForMachines: (machineIds: readonly string[]) => Promise<void>;
+  // Live read of the rehydration keyset (workstation + home + mission +
+  // world + occupants + foreign filesystems + foreign occupants).
+  // Exposed as a ref so prefetchPatchesForMachines callers can compose
+  // the union of (current keyset + new ids) without re-running the
+  // machineIdsKey computation.
+  readonly machineIdsKeyRef: { current: string };
 };
 
 export const useFileSystemSync = ({
@@ -698,6 +714,42 @@ export const useFileSystemSync = ({
     persistentMachineKeys,
   ]);
 
+  // Tracks the current keyset so prefetchPatchesForMachines callers
+  // can compose the union of (current keyset + new ids) without
+  // duplicating the machineIdsKey computation. Synced during render
+  // (not in an effect) so reads inside async callbacks see the
+  // latest value after the next React render cycle.
+  const machineIdsKeyRef = useRef<string>(machineIdsKey);
+  machineIdsKeyRef.current = machineIdsKey;
+
+  const prefetchPatchesForMachines = useCallback(
+    async (machineIds: readonly string[]): Promise<void> => {
+      if (machineIds.length === 0) return;
+      try {
+        const serverPatches = await listPatchesForMachinesFromServer(getIdentity(), [
+          ...machineIds,
+        ]);
+        setPatches(serverPatches);
+        const db = getDatabase();
+        if (db) saveFilesystemPatches(db, [...serverPatches]);
+        const props = propsRef.current;
+        const base = { [workstationId]: props.localhostFileSystem };
+        const withHome = props.homeFileSystems ? { ...base, ...props.homeFileSystems } : base;
+        const withMission = props.missionFileSystems
+          ? { ...withHome, ...props.missionFileSystems }
+          : withHome;
+        const withForeign = props.foreignFileSystems
+          ? { ...withMission, ...props.foreignFileSystems }
+          : withMission;
+        const merged = { ...withForeign, ...crossPlayerBaseFsRef.current };
+        setFileSystems(applyPatches(merged, serverPatches));
+      } catch (error) {
+        console.error('[fs] prefetchPatchesForMachines failed:', error);
+      }
+    },
+    [workstationId],
+  );
+
   return {
     fileSystems,
     setFileSystems,
@@ -709,5 +761,7 @@ export const useFileSystemSync = ({
     localWritesSinceMount,
     pendingPatchesRef,
     pendingWritesRef,
+    prefetchPatchesForMachines,
+    machineIdsKeyRef,
   };
 };
