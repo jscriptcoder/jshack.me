@@ -336,6 +336,186 @@ describe('targetMachineIdFor', () => {
       );
     });
   });
+
+  describe('foreign-occupant translation', () => {
+    // After the cross-LAN trilogy (PRs #151-#155), foreign HomeNetworks
+    // materialize client-side and their occupants (other players on
+    // someone else's LAN) are addressable via the foreign LAN IP. The
+    // resolver must translate that foreign LAN IP to the foreign
+    // workstation_id so auth envelopes land on the correct storage key.
+    // Precedence: ownLanIp > gateway-alias > own-LAN occupant > foreign
+    // occupant > passthrough — foreign sits at the bottom so a
+    // pathological IP collision can't shadow an own-LAN match.
+
+    it("translates a foreign LAN IP to the foreign occupant's workstation_id", () => {
+      const foreignMap = new Map([
+        [
+          '192.168.1.42',
+          {
+            workstationId: 'glider-eeff0011',
+            networkId: '198.51.100.20',
+            layer0Subnet: '192.168.1',
+          },
+        ],
+      ]);
+      expect(
+        targetMachineIdFor(
+          '192.168.1.42',
+          [],
+          '10.0.0',
+          null,
+          'me-aabbccdd',
+          undefined,
+          foreignMap,
+        ),
+      ).toBe('glider-eeff0011');
+    });
+
+    it('returns the targetIp unchanged when no foreign occupant matches', () => {
+      const foreignMap = new Map([
+        [
+          '192.168.1.42',
+          {
+            workstationId: 'glider-eeff0011',
+            networkId: '198.51.100.20',
+            layer0Subnet: '192.168.1',
+          },
+        ],
+      ]);
+      expect(
+        targetMachineIdFor(
+          '192.168.1.99',
+          [],
+          '10.0.0',
+          null,
+          'me-aabbccdd',
+          undefined,
+          foreignMap,
+        ),
+      ).toBe('192.168.1.99');
+    });
+
+    it('preserves ownLanIp precedence over the foreign translation when they collide', () => {
+      // Pathological: a foreign occupant whose full IP happens to equal
+      // the player's own LAN IP. Own-machine targeting must always win.
+      const foreignMap = new Map([
+        [
+          '10.0.0.99',
+          {
+            workstationId: 'glider-eeff0011',
+            networkId: '198.51.100.20',
+            layer0Subnet: '10.0.0',
+          },
+        ],
+      ]);
+      expect(
+        targetMachineIdFor(
+          '10.0.0.99',
+          [],
+          '10.0.0',
+          '10.0.0.99',
+          'me-aabbccdd',
+          undefined,
+          foreignMap,
+        ),
+      ).toBe('me-aabbccdd');
+    });
+
+    it('preserves gateway-alias precedence over the foreign translation when they collide', () => {
+      // Pathological: a foreign occupant at the same IP as a gateway
+      // alias. Gateway translation must still win because the IP is a
+      // canonical address path with a known mapping, not a peer slot.
+      const aliasMap = new Map<string, string>([['10.0.0.1', '45.0.0.1']]);
+      const foreignMap = new Map([
+        [
+          '10.0.0.1',
+          {
+            workstationId: 'glider-eeff0011',
+            networkId: '198.51.100.20',
+            layer0Subnet: '10.0.0',
+          },
+        ],
+      ]);
+      expect(
+        targetMachineIdFor('10.0.0.1', [], '10.0.0', null, 'me-aabbccdd', aliasMap, foreignMap),
+      ).toBe('45.0.0.1');
+    });
+
+    it('preserves own-LAN occupant precedence over the foreign translation in a same-subnet collision', () => {
+      // Two LANs both use 10.0.0.0/24 (the generator allows this); an
+      // own-LAN occupant and a foreign occupant happen to share the
+      // same .42 slot. Own-LAN wins because the player's interactive
+      // context is rooted in their own LAN's broadcast scope.
+      const occupants = [occupant({ lan_ip: '.42', hostname: 'own-lan-aaaaaaaa' })];
+      const foreignMap = new Map([
+        [
+          '10.0.0.42',
+          {
+            workstationId: 'foreign-lan-bbbbbbbb',
+            networkId: '198.51.100.20',
+            layer0Subnet: '10.0.0',
+          },
+        ],
+      ]);
+      expect(
+        targetMachineIdFor(
+          '10.0.0.42',
+          occupants,
+          '10.0.0',
+          null,
+          'me-aabbccdd',
+          undefined,
+          foreignMap,
+        ),
+      ).toBe('own-lan-aaaaaaaa');
+    });
+
+    it('translates the foreign IP when the player has no active LAN at all', () => {
+      // Player not connected to any home network — activeSubnet is null,
+      // so the own-LAN branch never fires. Foreign translation still
+      // applies. Mirrors the "I'm at home with no WiFi but still want to
+      // reach a previously-touched foreign network" case (unlikely but
+      // consistent).
+      const foreignMap = new Map([
+        [
+          '192.168.1.42',
+          {
+            workstationId: 'glider-eeff0011',
+            networkId: '198.51.100.20',
+            layer0Subnet: '192.168.1',
+          },
+        ],
+      ]);
+      expect(
+        targetMachineIdFor('192.168.1.42', [], null, null, 'me-aabbccdd', undefined, foreignMap),
+      ).toBe('glider-eeff0011');
+    });
+
+    it('falls through to legacy behavior when the foreign map is omitted', () => {
+      // Backward-compatible: callers that don't supply the foreign map
+      // see the pre-extension passthrough behavior for off-LAN IPs.
+      expect(targetMachineIdFor('192.168.1.42', [], '10.0.0', null, 'me-aabbccdd')).toBe(
+        '192.168.1.42',
+      );
+    });
+
+    it('falls through to legacy behavior when the foreign map is empty', () => {
+      // Explicit empty map (no foreign networks loaded yet) behaves the
+      // same as omitting the parameter.
+      const foreignMap = new Map();
+      expect(
+        targetMachineIdFor(
+          '192.168.1.42',
+          [],
+          '10.0.0',
+          null,
+          'me-aabbccdd',
+          undefined,
+          foreignMap,
+        ),
+      ).toBe('192.168.1.42');
+    });
+  });
 });
 
 describe('occupantAwareReadNode', () => {
@@ -628,6 +808,101 @@ describe('buildResolveTargetMachineId', () => {
 
     expect(viaAlias).toBe(viaPrimary);
     expect(viaAlias).toBe('45.0.0.1');
+  });
+
+  describe('foreign network threading', () => {
+    // Foreign networks + occupants thread through buildResolveTargetMachineId
+    // so the curried resolver translates foreign LAN IPs to foreign
+    // workstation_ids. Call sites pass useForeignNetworks state directly
+    // — the resolver hides the foreignLanOccupantMap construction.
+
+    const createForeignNetwork = (publicIp: string, subnet: string): HomeNetwork =>
+      createHomeNetwork({
+        router: { publicIp, hostname: `r-${publicIp}`, internalIp: `${subnet}.1` },
+        routerMachine: createGeneratedMachineFixture({
+          ip: publicIp,
+          hostname: `r-${publicIp}`,
+          role: 'router',
+        }),
+        layers: [createSubnetLayerFixture({ subnet })],
+      });
+
+    it("translates a foreign LAN IP to the foreign occupant's workstation_id", () => {
+      const own = createHomeNetwork();
+      const foreign = createForeignNetwork('198.51.100.20', '192.168.1');
+      const foreignOccupants: readonly OccupantSummary[] = [
+        { network_id: '198.51.100.20', lan_ip: '.77', hostname: 'glider-eeff0011' },
+      ];
+      const resolve = buildResolveTargetMachineId(
+        own,
+        [],
+        'me-aabbccdd',
+        [foreign],
+        foreignOccupants,
+      );
+
+      expect(resolve('192.168.1.77')).toBe('glider-eeff0011');
+    });
+
+    it("returns own-LAN occupant's hostname when targetIp is on own LAN even with foreign inputs", () => {
+      // Foreign threading must not shadow own-LAN translation.
+      const own = createHomeNetwork();
+      const foreign = createForeignNetwork('198.51.100.20', '192.168.1');
+      const resolve = buildResolveTargetMachineId(
+        own,
+        [buildOccupant({ lan_ip: '.42', hostname: 'own-aaaaaaaa' })],
+        'me-aabbccdd',
+        [foreign],
+        [{ network_id: '198.51.100.20', lan_ip: '.77', hostname: 'glider-eeff0011' }],
+      );
+
+      expect(resolve('10.0.0.42')).toBe('own-aaaaaaaa');
+    });
+
+    it('passes IPs that match no foreign occupant through unchanged', () => {
+      const own = createHomeNetwork();
+      const foreign = createForeignNetwork('198.51.100.20', '192.168.1');
+      const resolve = buildResolveTargetMachineId(
+        own,
+        [],
+        'me-aabbccdd',
+        [foreign],
+        [{ network_id: '198.51.100.20', lan_ip: '.77', hostname: 'glider-eeff0011' }],
+      );
+
+      // Foreign network IP but no occupant at .99
+      expect(resolve('192.168.1.99')).toBe('192.168.1.99');
+      // Completely unknown IP
+      expect(resolve('203.0.113.50')).toBe('203.0.113.50');
+    });
+
+    it('translates the foreign LAN IP even when no own home network is connected', () => {
+      const foreign = createForeignNetwork('198.51.100.20', '192.168.1');
+      const resolve = buildResolveTargetMachineId(
+        null,
+        [],
+        'me-aabbccdd',
+        [foreign],
+        [{ network_id: '198.51.100.20', lan_ip: '.77', hostname: 'glider-eeff0011' }],
+      );
+
+      expect(resolve('192.168.1.77')).toBe('glider-eeff0011');
+    });
+
+    it('falls through to legacy behavior when foreign inputs are omitted', () => {
+      const own = createHomeNetwork();
+      const resolve = buildResolveTargetMachineId(own, [], 'me-aabbccdd');
+
+      // No foreign inputs → off-LAN IPs pass through unchanged.
+      expect(resolve('192.168.1.77')).toBe('192.168.1.77');
+    });
+
+    it('falls through to legacy behavior when foreign inputs are empty arrays', () => {
+      const own = createHomeNetwork();
+      const resolve = buildResolveTargetMachineId(own, [], 'me-aabbccdd', [], []);
+
+      expect(resolve('192.168.1.77')).toBe('192.168.1.77');
+    });
   });
 });
 

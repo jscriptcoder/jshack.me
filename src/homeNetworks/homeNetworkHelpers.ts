@@ -3,6 +3,10 @@ import { bytesToHex } from '../identity/hex.js';
 import type { Identity } from '../identity/identity.js';
 import type { OccupantSummary } from './types.js';
 import type { HomeNetwork } from '../generation/generateHomeNetwork.js';
+import {
+  buildForeignLanOccupantMap,
+  type ForeignLanOccupantEntry,
+} from '../foreignNetworks/foreignLanOccupantResolver.js';
 
 // ---------------------------------------------------------------------
 // buildGatewayCanonicalIpMap
@@ -259,6 +263,7 @@ export const targetMachineIdFor = (
   ownLanIp: string | null,
   ownHostname: string,
   gatewayAliasMap?: ReadonlyMap<string, string>,
+  foreignOccupantMap?: ReadonlyMap<string, ForeignLanOccupantEntry>,
 ): string => {
   if (ownLanIp !== null && targetIp === ownLanIp) return ownHostname;
   // Gateway-alias canonicalization. The home router + inner gateways
@@ -273,10 +278,26 @@ export const targetMachineIdFor = (
     const canonical = gatewayAliasMap.get(targetIp);
     if (canonical !== undefined) return canonical;
   }
-  if (activeSubnet === null) return targetIp;
-  if (!targetIp.startsWith(`${activeSubnet}.`)) return targetIp;
-  const occupant = lanOccupants.find((o) => `${activeSubnet}${o.lan_ip}` === targetIp);
-  return occupant ? occupant.hostname : targetIp;
+  // Own-LAN occupant translation — only fires when targetIp is on the
+  // currently active LAN. Foreign translation (below) sits at the
+  // bottom of the precedence chain so a same-subnet collision favors
+  // the player's own LAN, matching the interactive context: the player
+  // is talking through their own LAN's broadcast scope.
+  if (activeSubnet !== null && targetIp.startsWith(`${activeSubnet}.`)) {
+    const occupant = lanOccupants.find((o) => `${activeSubnet}${o.lan_ip}` === targetIp);
+    if (occupant) return occupant.hostname;
+  }
+  // Foreign LAN occupant translation. Triggered when targetIp is on a
+  // foreign network the player has touched (via the cross-LAN
+  // seed-regen resolver). Maps the foreign LAN IP to the foreign
+  // workstation_id so cross-LAN auth envelopes + writes land on the
+  // correct canonical storage key. Omitted / empty map keeps legacy
+  // passthrough for callers wired before the foreign chunk.
+  if (foreignOccupantMap) {
+    const entry = foreignOccupantMap.get(targetIp);
+    if (entry !== undefined) return entry.workstationId;
+  }
+  return targetIp;
 };
 
 // ---------------------------------------------------------------------
@@ -313,10 +334,13 @@ export const buildResolveTargetMachineId = (
   activeNetwork: HomeNetwork | null | undefined,
   lanOccupants: ReadonlyArray<OccupantSummary>,
   ownHostname: string,
+  foreignNetworks: readonly HomeNetwork[] = [],
+  foreignLanOccupants: readonly OccupantSummary[] = [],
 ): ((targetIp: string) => string) => {
   const activeSubnet = activeNetwork?.layers[0]?.subnet ?? null;
   const ownLanIp = activeNetwork?.localhostIp ?? null;
   const gatewayAliasMap = buildGatewayCanonicalIpMap(activeNetwork ? [activeNetwork] : []);
+  const foreignOccupantMap = buildForeignLanOccupantMap(foreignNetworks, foreignLanOccupants);
   return (targetIp) =>
     targetMachineIdFor(
       targetIp,
@@ -325,6 +349,7 @@ export const buildResolveTargetMachineId = (
       ownLanIp,
       ownHostname,
       gatewayAliasMap,
+      foreignOccupantMap,
     );
 };
 

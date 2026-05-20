@@ -3,6 +3,7 @@ import { useNetwork } from '../network';
 import { useFileSystem } from '../filesystem';
 import { useSession } from '../session/SessionContext';
 import { useHomeNetworks } from '../homeNetworks/HomeNetworksContext';
+import { useForeignNetworks } from '../foreignNetworks/ForeignNetworksContext';
 import {
   buildResolveTargetMachineId,
   isOwnWorkstation,
@@ -86,6 +87,7 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
   } = useFileSystem();
   const { session, wifiConnected, isMachineBricked, hostname } = useSession();
   const { activeNetwork, lanOccupants } = useHomeNetworks();
+  const { foreignNetworks, foreignLanOccupants } = useForeignNetworks();
 
   return useMemo(() => {
     // WiFi is required only when the player is sitting on their own
@@ -102,11 +104,17 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
     // aliases (home router + inner-layer gateways) canonicalize to
     // their primary IP so writes via either land in the same patches
     // row. For mission/world/off-LAN IPs the input passes through.
-    // Shared with Terminal via buildResolveTargetMachineId.
+    // Shared with Terminal via buildResolveTargetMachineId. Foreign
+    // inputs thread the cross-LAN seed-regen state through so a foreign
+    // LAN IP (e.g., 192.168.1.42 on Player B's LAN) translates to B's
+    // workstation_id when the auth helpers + write paths construct
+    // machine_id envelopes.
     const resolveTargetMachineId = buildResolveTargetMachineId(
       activeNetwork,
       lanOccupants,
       hostname,
+      foreignNetworks,
+      foreignLanOccupants,
     );
 
     // logFs auto-translates the machineId on every read/write/create so
@@ -937,6 +945,8 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
     hostname,
     activeNetwork,
     lanOccupants,
+    foreignNetworks,
+    foreignLanOccupants,
     wifiConnected,
     isMachineBricked,
     findMachineByIp,
