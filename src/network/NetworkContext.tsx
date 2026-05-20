@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useMemo, useCallback, useRef, type ReactNode } from 'react';
 import type {
   NetworkConfig,
   MachineNetworkConfig,
@@ -37,6 +37,7 @@ import {
   buildRouterRemoteView,
   buildWorldExternalDnsRecords,
   buildWorldRouterRemoteViews,
+  buildForeignRouterRemoteViews,
   findMachineInWorldNetworks,
   findMachineInHomeNetworks,
   findUsersInHomeNetworks,
@@ -45,7 +46,6 @@ import {
   type DynamicOverrideContext,
 } from './networkUtils';
 import { buildForeignLanOccupantMap } from '../foreignNetworks/foreignLanOccupantResolver';
-import { resolveMachineByIpAsync } from './resolveMachineByIpAsync';
 
 type NetworkContextType = {
   readonly getInterface: (name: string) => NetworkInterface | undefined;
@@ -227,7 +227,7 @@ export const NetworkProvider = ({
   lanOccupants,
 }: NetworkProviderProps) => {
   const { session, wifiConnected, hostname } = useSession();
-  const { getNodeFromMachine } = useFileSystem();
+  const { getNodeFromMachine, prefetchPatchesForMachines, machineIdsKeyRef } = useFileSystem();
 
   // True when the player is sitting on their own workstation with no
   // active WiFi link — used to render the "no internet" interface set
@@ -665,6 +665,87 @@ export const NetworkProvider = ({
     [occupantMachines, baseOverrideCtx],
   );
 
+  // Cross-LAN: stub RemoteMachines for each foreign LAN occupant,
+  // grouped by network_id. Same shape as occupantMachines (own-LAN)
+  // but scoped to the foreign network so applyDynamicOverrides reads
+  // each occupant's pid files (translated to workstation_id storage
+  // via occupantAwareReadNode's foreignOccupantMap branch). Drives
+  // buildForeignRouterRemoteViews — without per-network overlaid
+  // occupants, iptables forwards targeting foreign workstations
+  // resolve against empty stubs and stay invisible.
+  const foreignOccupantStubsByNetwork = useMemo((): ReadonlyMap<
+    string,
+    readonly RemoteMachine[]
+  > => {
+    const result = new Map<string, readonly RemoteMachine[]>();
+    for (const fn of foreignNetworks ?? []) {
+      const subnet = fn.layers[0]?.subnet;
+      if (!subnet) continue;
+      const networkId = fn.router.publicIp;
+      const stubs = (foreignLanOccupants ?? [])
+        .filter((occupant) => occupant.network_id === networkId)
+        .map(
+          (occupant): RemoteMachine => ({
+            ip: `${subnet}${occupant.lan_ip}`,
+            hostname: occupant.hostname,
+            ports: [],
+            users: [],
+          }),
+        );
+      result.set(networkId, stubs);
+    }
+    return result;
+  }, [foreignNetworks, foreignLanOccupants]);
+
+  // Foreign occupants overlaid with daemon-state ports. Mirrors
+  // `overlaidOccupants` for own home — applying baseOverrideCtx reads
+  // sshd.pid / ftpd.pid / nc pid files via occupantAwareReadNode, which
+  // translates the LAN IP to the occupant's workstation_id storage key.
+  // Cycle break: same as own — workstations aren't gateways so the
+  // NAT-merge branch is a no-op for them.
+  const foreignOverlaidOccupantsByNetwork = useMemo((): ReadonlyMap<
+    string,
+    readonly RemoteMachine[]
+  > => {
+    const result = new Map<string, readonly RemoteMachine[]>();
+    foreignOccupantStubsByNetwork.forEach((stubs, networkId) => {
+      result.set(
+        networkId,
+        stubs.map((stub) => applyDynamicOverrides(stub, baseOverrideCtx)),
+      );
+    });
+    return result;
+  }, [foreignOccupantStubsByNetwork, baseOverrideCtx]);
+
+  // Cross-LAN: NAT-merged + SNMP-overridden RemoteMachine views for
+  // each foreign router, keyed by public IP. findMachineByIpAsync
+  // returns these directly so a cross-LAN nmap of a foreign public IP
+  // shows the merged forward set, not the bare routerMachine.
+  const foreignRouterViewsByPublicIp = useMemo(
+    () =>
+      buildForeignRouterRemoteViews(
+        foreignNetworks ?? [],
+        allIptablesRules,
+        allSnmpOverrides,
+        foreignOverlaidOccupantsByNetwork,
+      ),
+    [foreignNetworks, allIptablesRules, allSnmpOverrides, foreignOverlaidOccupantsByNetwork],
+  );
+
+  // Mirror the memo into a ref so findMachineByIpAsync (whose closure
+  // is captured at useCallback creation) can read the LATEST value
+  // after awaiting a prefetch + a microtask. Without this, even after
+  // patches load synchronously into state, the in-flight async call
+  // would read the stale memo from its captured closure. Updated
+  // during render (not inside useEffect) so the ref is fresh by the
+  // time React commits.
+  const foreignRouterViewsByPublicIpRef = useRef(foreignRouterViewsByPublicIp);
+  foreignRouterViewsByPublicIpRef.current = foreignRouterViewsByPublicIp;
+  // Same trick for foreignLanOccupants — findMachineByIpAsync needs
+  // the current list to compose the prefetch machine_ids set.
+  const foreignLanOccupantsRef = useRef(foreignLanOccupants);
+  foreignLanOccupantsRef.current = foreignLanOccupants;
+
   // Dynamic overrides: for each visible machine, apply gateway enhancements
   // (NAT merged view, SNMP firewall) and daemon state (sshd, ftpd, nc).
   // The home-gateway branch uses `overlaidOccupants` to resolve forward
@@ -874,14 +955,78 @@ export const NetworkProvider = ({
   );
 
   // Async sibling of findMachineByIp. Triggers ensureForeignReachable
-  // on a sync miss for a public IPv4 input, returns the resolved
-  // machine without waiting for the foreignNetworks prop to flow
-  // back through a render cycle. See resolveMachineByIpAsync for the
-  // pure orchestration logic.
+  // on a sync miss for a public IPv4 input, then prefetches the
+  // foreign network's patches BEFORE returning so the merged view
+  // (NAT forwards + SNMP + daemon-state overlay) reflects fresh
+  // state on the FIRST cross-LAN command — not just subsequent ones.
+  //
+  // Flow when sync misses and the target is a foreign public IP:
+  //   1. ensureForeignReachable materializes the foreign HomeNetwork
+  //      via /api/lookup-home-network + generateHomeNetwork.
+  //   2. Compose the union of (current keyset + new foreign gateway
+  //      IPs + new foreign occupant workstation_ids) and call
+  //      prefetchPatchesForMachines — this fetches and applies
+  //      every patch the merged view will read (iptables rules,
+  //      sshd.pid, etc.) WITHOUT the REHYDRATION_DEBOUNCE_MS wait
+  //      the keyset effect would otherwise take.
+  //   3. Yield to the microtask queue so React flushes the state
+  //      update; foreignRouterViewsByPublicIpRef.current now points
+  //      at the recomputed memo.
+  //   4. Read the ref (not the closure) so the merged view reflects
+  //      patches loaded after the useCallback was captured.
+  //
+  // For sync hits or cached foreign networks, the precompute memo is
+  // already fresh and we return immediately.
   const findMachineByIpAsync = useCallback(
-    (ip: string): Promise<RemoteMachine | undefined> =>
-      resolveMachineByIpAsync(ip, findMachineByIp, ensureForeignReachable ?? (async () => null)),
-    [findMachineByIp, ensureForeignReachable],
+    async (ip: string): Promise<RemoteMachine | undefined> => {
+      // Fast path: sync find already returns the precomputed view if
+      // the foreign network is cached AND its patches are loaded.
+      const syncResult = findMachineByIp(ip);
+      const cachedView = foreignRouterViewsByPublicIp.get(ip);
+      if (cachedView) return cachedView;
+      if (syncResult) return syncResult;
+
+      const ensureFn = ensureForeignReachable ?? (async () => null);
+      const network = await ensureFn(ip);
+      if (!network) return undefined;
+
+      // Yield to React so the new foreignNetworks state from the
+      // resolver settles into the rehydration keyset before we ask
+      // FileSystemContext to prefetch (otherwise the prefetch's
+      // setPatches would wipe foreign FS we just learned about).
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      // Compose the union of (current keyset + new foreign ids) so
+      // the replace-semantics setPatches doesn't wipe existing
+      // patches for unrelated machines.
+      const occupantIds = (foreignLanOccupantsRef.current ?? [])
+        .filter((occupant) => occupant.network_id === network.router.publicIp)
+        .map((occupant) => occupant.hostname);
+      const newIds = new Set<string>([
+        network.router.publicIp,
+        network.router.internalIp,
+        ...network.layers.slice(1).flatMap((layer) => [layer.gateway.ip, `${layer.subnet}.1`]),
+        ...occupantIds,
+      ]);
+      const currentIds = machineIdsKeyRef.current.split(',').filter(Boolean);
+      const allIds = [...new Set([...currentIds, ...newIds])];
+
+      await prefetchPatchesForMachines(allIds);
+
+      // Yield again so React re-renders with the new patches and the
+      // foreignRouterViewsByPublicIp memo recomputes against fresh
+      // allIptablesRules / foreignOverlaidOccupantsByNetwork.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      return foreignRouterViewsByPublicIpRef.current.get(ip) ?? findMachineByIp(ip) ?? undefined;
+    },
+    [
+      findMachineByIp,
+      ensureForeignReachable,
+      foreignRouterViewsByPublicIp,
+      prefetchPatchesForMachines,
+      machineIdsKeyRef,
+    ],
   );
 
   // Port-aware NAT resolution: translates any gateway's IP + port to the

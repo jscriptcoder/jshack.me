@@ -80,6 +80,19 @@ type FileSystemContextValue = {
   // fires — otherwise endSession can land at the server first and the
   // patch hits 403 no_session via the L1 gate.
   readonly flushPendingPatches: () => Promise<void>;
+  // Imperative fetch + apply for an explicit set of machine_ids.
+  // Used by NetworkContext.findMachineByIpAsync to warm the patch
+  // store with a newly-materialized foreign network's iptables +
+  // pid-file state BEFORE the resolver returns. Without this, the
+  // first cross-LAN command after touching a new foreign public IP
+  // runs against stale base FS (the keyset-driven rehydration in
+  // useFileSystemSync is debounced and hasn't fired yet).
+  readonly prefetchPatchesForMachines: (machineIds: readonly string[]) => Promise<void>;
+  // Live read of the current rehydration keyset. Callers compose the
+  // union of (current keyset + new ids) to pass to
+  // prefetchPatchesForMachines so existing patches for other machines
+  // aren't wiped by the replace-semantics setPatches call.
+  readonly machineIdsKeyRef: { readonly current: string };
 };
 
 const FileSystemContext = createContext<FileSystemContextValue | null>(null);
@@ -159,6 +172,8 @@ export const FileSystemProvider = ({
     localWritesSinceMount,
     pendingPatchesRef,
     pendingWritesRef,
+    prefetchPatchesForMachines,
+    machineIdsKeyRef,
   } = sync;
 
   // session.machine is typed as string but always holds a valid MachineId at runtime
@@ -255,6 +270,8 @@ export const FileSystemProvider = ({
         canTraverseOnMachine,
         isRehydrating,
         flushPendingPatches,
+        prefetchPatchesForMachines,
+        machineIdsKeyRef,
       }}
     >
       {children}

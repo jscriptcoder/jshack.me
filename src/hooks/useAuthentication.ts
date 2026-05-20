@@ -183,6 +183,13 @@ export const useAuthentication = ({
   // Persists a fingerprint-signed SSH key for the given target on the current
   // machine's filesystem. The fingerprint includes the password hash, so only
   // a successful authentication can produce a valid entry.
+  //
+  // Entry format: `user@ip:port:fingerprint`. Port is included so a saved
+  // key for `root@<router-ip>:22` (router admin) doesn't get reused when
+  // the player SSHes to `<router-ip>:2222` (NAT-forwarded to a different
+  // machine whose /etc/passwd hash differs). Without the port qualifier,
+  // a stale key from one target would 401 the unrelated target. Old
+  // entries (pre-port format) are silently ignored on read.
   const saveAuthorizedKey = useCallback(
     (targetUser: string, targetIP: string, port: number): void => {
       const fingerprint = computeKeyFingerprint(targetUser, targetIP, port);
@@ -190,7 +197,7 @@ export const useAuthentication = ({
 
       const homePath = getDefaultHomePath(session.machine, session.username);
       const keysPath = `${homePath}/.ssh_keys`;
-      const entry = `${targetUser}@${targetIP}:${fingerprint}`;
+      const entry = `${targetUser}@${targetIP}:${port}:${fingerprint}`;
       const existing = readFile(keysPath, session.userType);
 
       if (existing !== null) {
@@ -213,23 +220,50 @@ export const useAuthentication = ({
     ],
   );
 
-  // Reads the saved SSH key fingerprint for (user, targetIP) from the
-  // current shell's ~/.ssh_keys, or null if no entry exists / the file
-  // is unreadable. Used for the savedKey arm of authCreateSession —
+  // Reads the saved SSH key fingerprint for (user, targetIP, port) from
+  // the current shell's ~/.ssh_keys, or null if no entry exists / the
+  // file is unreadable. Used for the savedKey arm of authCreateSession —
   // the client passes the fingerprint as opaque proof; the server
   // validates against the live /etc/passwd hash.
+  //
+  // Port-qualified lookup: matches `user@ip:port:fingerprint` exactly.
+  // Pre-port-format entries (`user@ip:fingerprint`) don't match this
+  // prefix and return null — the player gets the password prompt and
+  // re-saves on success.
   const getSavedSshFingerprint = useCallback(
-    (user: string, targetIP: string): string | null => {
+    (user: string, targetIP: string, port: number): string | null => {
       const homePath = getDefaultHomePath(session.machine, session.username);
       const keysPath = `${homePath}/.ssh_keys`;
       const content = readFile(keysPath, session.userType);
       if (!content) return null;
-      const prefix = `${user}@${targetIP}:`;
+      const prefix = `${user}@${targetIP}:${port}:`;
       const entry = content.split('\n').find((line) => line.trim().startsWith(prefix));
       if (!entry) return null;
       return entry.trim().slice(prefix.length);
     },
     [getDefaultHomePath, readFile, session.machine, session.username, session.userType],
+  );
+
+  // Removes a stale savedKey entry (e.g., when the server reports
+  // invalid_credentials despite a saved fingerprint being supplied —
+  // the underlying /etc/passwd hash has changed since the save and
+  // the entry will never validate again). Mirrors the save-side
+  // port-qualified entry format.
+  const removeAuthorizedKey = useCallback(
+    (targetUser: string, targetIP: string, port: number): void => {
+      const homePath = getDefaultHomePath(session.machine, session.username);
+      const keysPath = `${homePath}/.ssh_keys`;
+      const content = readFile(keysPath, session.userType);
+      if (!content) return;
+      const prefix = `${targetUser}@${targetIP}:${port}:`;
+      const filtered = content
+        .split('\n')
+        .filter((line) => !line.trim().startsWith(prefix))
+        .join('\n');
+      if (filtered === content) return;
+      writeFile(keysPath, filtered, session.userType);
+    },
+    [getDefaultHomePath, readFile, writeFile, session.machine, session.username, session.userType],
   );
 
   // Server-authoritative SSH login. Calls authCreateSession via
@@ -277,6 +311,21 @@ export const useAuthentication = ({
             method: auth.method === 'password' ? 'password' : 'publickey',
           });
         } else {
+          // Stale savedKey: server rejected the fingerprint, meaning the
+          // /etc/passwd hash changed since the save (or the entry was
+          // computed against a different machine's hash via the
+          // pre-port-qualified format). Remove it so future attempts
+          // don't auto-replay the bad key, and open the password prompt
+          // instead of failing silently. Mirrors real SSH behavior.
+          if (auth.method === 'savedKey') {
+            removeAuthorizedKey(user, ip, port);
+            setTargetUser(user);
+            setSshTargetIP(ip);
+            setSshTargetPort(port);
+            setPasswordMode(true);
+            addLine('result', `${user}@${ip}'s password:`);
+            return;
+          }
           addLine('error', `${user}@${ip}: Permission denied (publickey,password).`);
           onSshAuth?.({
             success: false,
@@ -301,6 +350,7 @@ export const useAuthentication = ({
       addLine,
       onSshAuth,
       saveAuthorizedKey,
+      removeAuthorizedKey,
     ],
   );
 
@@ -322,7 +372,7 @@ export const useAuthentication = ({
       readonly port: number;
       readonly password: string;
     }): Promise<void> => {
-      const fingerprint = getSavedSshFingerprint(user, targetIP);
+      const fingerprint = getSavedSshFingerprint(user, targetIP, port);
       const auth: AuthMethod =
         fingerprint !== null
           ? { method: 'savedKey', fingerprint, targetIp: targetIP }
@@ -334,11 +384,12 @@ export const useAuthentication = ({
 
   const startSshPrompt = useCallback(
     (user: string, targetIP: string, targetPort: number): void => {
-      const fingerprint = getSavedSshFingerprint(user, targetIP);
+      const fingerprint = getSavedSshFingerprint(user, targetIP, targetPort);
       if (fingerprint !== null) {
         // Server validates the saved fingerprint against the current
         // /etc/passwd hash. password_reset / sabotage will return 401
-        // and we render "Permission denied" — same as a wrong password.
+        // and loginSshWithAuth's savedKey-failure branch removes the
+        // stale entry, then falls through to a password prompt below.
         void loginSshWithAuth(user, targetIP, targetPort, {
           method: 'savedKey',
           fingerprint,
@@ -449,7 +500,7 @@ export const useAuthentication = ({
       readonly password: string;
       readonly performTransfer: (auth: AuthMethod) => AsyncOutput;
     }): AsyncOutput | undefined => {
-      const fingerprint = getSavedSshFingerprint(user, targetIP);
+      const fingerprint = getSavedSshFingerprint(user, targetIP, port);
       const auth: AuthMethod =
         fingerprint !== null
           ? { method: 'savedKey', fingerprint, targetIp: targetIP }
@@ -478,7 +529,7 @@ export const useAuthentication = ({
       readonly port: number;
       readonly performTransfer: (auth: AuthMethod) => AsyncOutput;
     }): AsyncOutput | undefined => {
-      const fingerprint = getSavedSshFingerprint(user, targetIP);
+      const fingerprint = getSavedSshFingerprint(user, targetIP, port);
       if (fingerprint !== null) {
         onSshAuth?.({ success: true, user, targetIP, port, method: 'publickey' });
         return performTransfer({ method: 'savedKey', fingerprint, targetIp: targetIP });

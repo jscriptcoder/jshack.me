@@ -86,6 +86,22 @@ export type FileSystemSync = {
   readonly localWritesSinceMount: { current: boolean };
   readonly pendingPatchesRef: { current: Set<Promise<unknown>> };
   readonly pendingWritesRef: { current: Map<string, FileSystemPatch> };
+  // Imperative fetch + apply for an explicit set of machine_ids.
+  // Mirrors the keyset-driven rehydration effect without the
+  // REHYDRATION_DEBOUNCE_MS debounce — used by NetworkContext's
+  // findMachineByIpAsync to load a newly-materialized foreign network's
+  // patches BEFORE the resolver returns, so the first cross-LAN command
+  // already sees the merged view instead of base-FS-only state.
+  // Replace semantics: setPatches(serverPatches) wipes any patches for
+  // ids NOT in machineIds. Callers should pass the union of (current
+  // keyset + new ids) to avoid losing state from other machines.
+  readonly prefetchPatchesForMachines: (machineIds: readonly string[]) => Promise<void>;
+  // Live read of the rehydration keyset (workstation + home + mission +
+  // world + occupants + foreign filesystems + foreign occupants).
+  // Exposed as a ref so prefetchPatchesForMachines callers can compose
+  // the union of (current keyset + new ids) without re-running the
+  // machineIdsKey computation.
+  readonly machineIdsKeyRef: { current: string };
 };
 
 export const useFileSystemSync = ({
@@ -167,6 +183,16 @@ export const useFileSystemSync = ({
   // and reads of B's static content (motd, hostname, /home/...) would
   // come up null until the next session-change rebuild.
   const crossPlayerBaseFsRef = useRef<Record<string, FileNode>>({});
+  // Tracks the userType the cached base FS was filtered for. Sister
+  // ref to crossPlayerBaseFsRef. Without this, a guest-tier fetch
+  // would cache a filtered tree that misses root-only paths
+  // (/home/<owner>, etc.), and the IDEMPOTENT skip in
+  // fetchCrossPlayerBaseFsIfNeeded would short-circuit a subsequent
+  // root-tier session on the same machine — leaving the player with
+  // the lower-tier view they'd already had. Surfaced 2026-05-19
+  // during PR 5's in-game smoke (guest -> exit -> root on a
+  // cross-LAN target).
+  const crossPlayerBaseFsTierRef = useRef<Record<string, UserType>>({});
 
   // Pending machine_ids queued for hint-driven refetch. Multiple hints
   // within the debounce window accumulate here and get flushed in one
@@ -492,13 +518,18 @@ export const useFileSystemSync = ({
 
   // Reusable helper — same precondition + fetch shape used by both the
   // shell-session change effect (below) and the transient-session
-  // change effect (further below). Idempotent via crossPlayerBaseFsRef.
+  // change effect (further below). Idempotency is scoped to
+  // (target, tier) so a guest -> root upgrade on the same machine
+  // triggers a refetch and surfaces root-only paths the previously
+  // filtered guest tree didn't carry.
   const fetchCrossPlayerBaseFsIfNeeded = useCallback(
-    (target: string): void => {
+    (target: string, tier: UserType): void => {
+      if (parseWorkstationId(target) === undefined || target === workstationId) {
+        return;
+      }
       if (
-        parseWorkstationId(target) === undefined ||
-        target === workstationId ||
-        target in crossPlayerBaseFsRef.current
+        target in crossPlayerBaseFsRef.current &&
+        crossPlayerBaseFsTierRef.current[target] === tier
       ) {
         return;
       }
@@ -508,6 +539,10 @@ export const useFileSystemSync = ({
           crossPlayerBaseFsRef.current = {
             ...crossPlayerBaseFsRef.current,
             [target]: baseFs,
+          };
+          crossPlayerBaseFsTierRef.current = {
+            ...crossPlayerBaseFsTierRef.current,
+            [target]: tier,
           };
           setFileSystems((prev) => ({ ...prev, [target]: baseFs }));
         })
@@ -579,7 +614,7 @@ export const useFileSystemSync = ({
     // existing (probably empty) view of that machine. The shell still
     // works for in-memory writes; reads of B's static content just
     // come up null until a successful retry later.
-    fetchCrossPlayerBaseFsIfNeeded(curr.machine);
+    fetchCrossPlayerBaseFsIfNeeded(curr.machine, curr.userType);
   }, [
     session.machine,
     session.userType,
@@ -617,7 +652,13 @@ export const useFileSystemSync = ({
 
     for (const id of added) {
       pendingHintMachinesRef.current.add(id);
-      fetchCrossPlayerBaseFsIfNeeded(id);
+      // Protocol sessions (FTP/MySQL/Redis/nc) carry their own
+      // server-side userType derived from the auth credentials. The
+      // client view of `protocolSessionMachineIds` doesn't expose
+      // it. Use the current shell session's userType as the cache
+      // tier — if the actual protocol tier differs, the next shell
+      // session change or refresh will catch it.
+      fetchCrossPlayerBaseFsIfNeeded(id, session.userType);
     }
     for (const id of removed) {
       pendingHintMachinesRef.current.add(id);
@@ -632,7 +673,12 @@ export const useFileSystemSync = ({
       pendingHintMachinesRef.current.clear();
       void refetchAffectedMachines(machineIds);
     }, HINT_REFETCH_DEBOUNCE_MS);
-  }, [protocolMachinesKey, refetchAffectedMachines, fetchCrossPlayerBaseFsIfNeeded]);
+  }, [
+    protocolMachinesKey,
+    refetchAffectedMachines,
+    fetchCrossPlayerBaseFsIfNeeded,
+    session.userType,
+  ]);
 
   // Track whether the missionFileSystems effect is running for the first time.
   // On initial mount with a persisted mission, we replay cached patches so the
@@ -698,6 +744,42 @@ export const useFileSystemSync = ({
     persistentMachineKeys,
   ]);
 
+  // Tracks the current keyset so prefetchPatchesForMachines callers
+  // can compose the union of (current keyset + new ids) without
+  // duplicating the machineIdsKey computation. Synced during render
+  // (not in an effect) so reads inside async callbacks see the
+  // latest value after the next React render cycle.
+  const machineIdsKeyRef = useRef<string>(machineIdsKey);
+  machineIdsKeyRef.current = machineIdsKey;
+
+  const prefetchPatchesForMachines = useCallback(
+    async (machineIds: readonly string[]): Promise<void> => {
+      if (machineIds.length === 0) return;
+      try {
+        const serverPatches = await listPatchesForMachinesFromServer(getIdentity(), [
+          ...machineIds,
+        ]);
+        setPatches(serverPatches);
+        const db = getDatabase();
+        if (db) saveFilesystemPatches(db, [...serverPatches]);
+        const props = propsRef.current;
+        const base = { [workstationId]: props.localhostFileSystem };
+        const withHome = props.homeFileSystems ? { ...base, ...props.homeFileSystems } : base;
+        const withMission = props.missionFileSystems
+          ? { ...withHome, ...props.missionFileSystems }
+          : withHome;
+        const withForeign = props.foreignFileSystems
+          ? { ...withMission, ...props.foreignFileSystems }
+          : withMission;
+        const merged = { ...withForeign, ...crossPlayerBaseFsRef.current };
+        setFileSystems(applyPatches(merged, serverPatches));
+      } catch (error) {
+        console.error('[fs] prefetchPatchesForMachines failed:', error);
+      }
+    },
+    [workstationId],
+  );
+
   return {
     fileSystems,
     setFileSystems,
@@ -709,5 +791,7 @@ export const useFileSystemSync = ({
     localWritesSinceMount,
     pendingPatchesRef,
     pendingWritesRef,
+    prefetchPatchesForMachines,
+    machineIdsKeyRef,
   };
 };

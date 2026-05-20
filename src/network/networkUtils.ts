@@ -64,7 +64,13 @@ export const buildMergedRouterView = (
         [];
       const internalPort = candidatePorts.find((p) => p.port === rule.internalPort && p.open);
       if (!internalPort) return undefined;
-      return { ...internalPort, port: rule.publicPort };
+      // forwarded: true tells ssh.ts (and any future consumer) that
+      // auth lands on the FORWARDED TARGET, not on the gateway whose
+      // users field is in the merged view. Pre-checks that compare
+      // against gateway users would spuriously block legitimate
+      // logins to occupant workstations whose users we don't have
+      // client-side.
+      return { ...internalPort, port: rule.publicPort, forwarded: true };
     })
     .filter((p) => p !== undefined);
 
@@ -215,6 +221,42 @@ export const buildWorldRouterRemoteViews = (
       allSnmpOverrides.get(wn.routerMachine.ip) ?? [],
     ),
   );
+
+// Cross-LAN: build NAT-merged + SNMP-overridden RemoteMachine views for
+// every foreign home network's router. Keyed by router public IP so
+// NetworkContext.findMachineByIpAsync can look up the merged view
+// directly when a viewer scans a foreign public IP. Mirrors
+// buildWorldRouterRemoteViews but accepts per-network overlaid
+// occupants so iptables forwards targeting foreign LAN occupants
+// (e.g., public 2222 -> foreign workstation:22) resolve against the
+// occupant's overlaid port state (sshd.pid -> port 22 open).
+//
+// Without this helper, findMachineInHomeNetworks returns the foreign
+// router's BASE remoteMachine which carries only the router's own
+// ports — every iptables forward stays invisible from another LAN
+// even after the rule patch + occupant pid file have propagated via
+// Realtime.
+export const buildForeignRouterRemoteViews = (
+  foreignNetworks: readonly HomeNetwork[],
+  allIptablesRules: ReadonlyMap<string, readonly NatForwardingRule[]>,
+  allSnmpOverrides: ReadonlyMap<string, readonly SnmpFirewallOverride[]>,
+  overlaidOccupantsByNetwork: ReadonlyMap<string, readonly RemoteMachine[]>,
+): ReadonlyMap<string, RemoteMachine> => {
+  const result = new Map<string, RemoteMachine>();
+  for (const fn of foreignNetworks) {
+    const publicIp = fn.router.publicIp;
+    const rules = allIptablesRules.get(publicIp) ?? [];
+    const snmpOverrides = allSnmpOverrides.get(publicIp) ?? [];
+    const overlaidOccupants = overlaidOccupantsByNetwork.get(publicIp) ?? [];
+    const base =
+      rules.length > 0
+        ? buildMergedRouterView(fn.routerMachine, fn.machines, rules, overlaidOccupants)
+        : fn.routerMachine.remoteMachine;
+    const view = snmpOverrides.length > 0 ? applySnmpFirewallOverrides(base, snmpOverrides) : base;
+    result.set(publicIp, view);
+  }
+  return result;
+};
 
 // Builds the set of externally-resolvable DNS records that world
 // networks contribute to localhost's view. One A record per world

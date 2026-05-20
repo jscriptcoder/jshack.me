@@ -4,6 +4,12 @@ import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 type SshContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
+  // Async sibling of getMachine. Triggers the cross-LAN seed-regen
+  // resolver when the target IP is a publicly-addressable IPv4 that
+  // the sync view doesn't know yet. Optional for legacy callers /
+  // single-player tests; when omitted, the command keeps the pre-
+  // extension synchronous-throw contract on a sync miss.
+  readonly findMachineByIpAsync?: (ip: string) => Promise<RemoteMachine | undefined>;
   readonly getLocalIP: () => string;
 };
 
@@ -60,7 +66,7 @@ export const createSshCommand = (context: SshContext): Command => ({
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {
-    const { getMachine, getLocalIP } = context;
+    const { getMachine, findMachineByIpAsync, getLocalIP } = context;
 
     const arg = args[0];
     if (typeof arg !== 'string' || !arg) {
@@ -106,56 +112,116 @@ export const createSshCommand = (context: SshContext): Command => ({
       throw new Error('ssh: cannot connect to localhost via SSH');
     }
 
-    const machine = getMachine(host);
-    if (!machine) {
-      throw new Error(`ssh: connect to host ${host} port ${port}: Connection refused`);
-    }
-
-    const targetPort = machine.ports.find((p) => p.port === port);
-    if (!targetPort || !targetPort.open) {
-      throw new Error(`ssh: connect to host ${host} port ${port}: Connection refused`);
-    }
-
-    // Fast-fail when we have a definitive view of the target's user list
-    // (NPC home/world machines and the player's own workstation populate
-    // machine.users from generation). For cross-player occupants the
-    // placeholder rendering leaves users=[] until base FS replication
-    // ships, so an empty list means "we don't know" — defer to the
-    // server's authCreateSession check, which will return 401
-    // invalid_credentials for unknown usernames anyway (no enumeration
-    // leak).
-    if (machine.users.length > 0 && !machine.users.some((u) => u.username === user)) {
-      throw new Error(`ssh: ${user}@${host}: Permission denied (publickey,password)`);
-    }
-
     const token = createCancellationToken();
 
-    return {
-      __type: 'async',
-      start: (onLine, onComplete) => {
-        onLine(`Connecting to ${host}...`);
+    // Validation that depends on the resolved machine. Split out so the
+    // sync-hit fast path and the async-resolved fallback both run the
+    // same gate. Throws are caught at the caller — sync path lets them
+    // propagate as the existing throw contract; async path catches and
+    // emits via onLine (the resolver round-trip is async, so a throw
+    // can't reach the caller's try/catch in the original sync sense).
+    const validateAndBuildPrompt = (machine: RemoteMachine | undefined): SshPromptData => {
+      if (!machine) {
+        throw new Error(`ssh: connect to host ${host} port ${port}: Connection refused`);
+      }
+
+      const targetPort = machine.ports.find((p) => p.port === port);
+      if (!targetPort || !targetPort.open) {
+        throw new Error(`ssh: connect to host ${host} port ${port}: Connection refused`);
+      }
+
+      // Fast-fail when we have a definitive view of the target's user
+      // list (NPC home/world machines and the player's own workstation
+      // populate machine.users from generation). For cross-player
+      // occupants the placeholder rendering leaves users=[] until base
+      // FS replication ships, so an empty list means "we don't know" —
+      // defer to the server's authCreateSession check, which will
+      // return 401 invalid_credentials for unknown usernames anyway
+      // (no enumeration leak).
+      //
+      // ALSO skip the check for NAT-forwarded ports: the merged view's
+      // users field carries the GATEWAY's users (router admins + NPC
+      // forwarded internals), NOT the forwarded target's. A player
+      // SSHing through `ssh user@<router.publicIp> <forwarded-port>`
+      // authenticates against the forwarded workstation/NPC whose
+      // /etc/passwd lives behind the gateway. Validating against the
+      // gateway's users would spuriously block legitimate auth.
+      const isForwardedTarget = targetPort.forwarded === true;
+      if (
+        !isForwardedTarget &&
+        machine.users.length > 0 &&
+        !machine.users.some((u) => u.username === user)
+      ) {
+        throw new Error(`ssh: ${user}@${host}: Permission denied (publickey,password)`);
+      }
+
+      return {
+        __type: 'ssh_prompt',
+        targetUser: user,
+        targetIP: host,
+        targetPort: port,
+        ...(password !== undefined && { password }),
+      };
+    };
+
+    // Shared animation + prompt dispatch. Used by both the sync-hit
+    // path and the async-resolved path. The validation already ran
+    // upstream and returned the SshPromptData; we just animate to the
+    // prompt.
+    const runAuthFlow = (
+      onLine: (line: string) => void,
+      onComplete: (followUp?: SshPromptData) => void,
+      sshPrompt: SshPromptData,
+    ) => {
+      onLine(`Connecting to ${host}...`);
+
+      token.schedule(() => {
+        if (token.isCancelled()) return;
+
+        onLine(`SSH-2.0-OpenSSH_8.9`);
 
         token.schedule(() => {
           if (token.isCancelled()) return;
 
-          onLine(`SSH-2.0-OpenSSH_8.9`);
+          onLine(`Authenticating as ${user}...`);
 
-          token.schedule(() => {
-            if (token.isCancelled()) return;
+          onComplete(sshPrompt);
+        }, jitter(SSH_HANDSHAKE_DELAY_MS));
+      }, jitter(SSH_CONNECT_DELAY_MS));
+    };
 
-            onLine(`Authenticating as ${user}...`);
+    // Sync hit OR no async resolver wired: keep the legacy
+    // synchronous-throw contract. Validation runs at fn() time so
+    // tests asserting `() => ssh.fn(...)` throw continue to pass.
+    const syncMachine = getMachine(host);
+    if (syncMachine || !findMachineByIpAsync) {
+      const sshPrompt = validateAndBuildPrompt(syncMachine);
+      return {
+        __type: 'async',
+        start: (onLine, onComplete) => runAuthFlow(onLine, onComplete, sshPrompt),
+        cancel: token.cancel,
+      };
+    }
 
-            const sshPrompt: SshPromptData = {
-              __type: 'ssh_prompt',
-              targetUser: user,
-              targetIP: host,
-              targetPort: port,
-              ...(password !== undefined && { password }),
-            };
-
-            onComplete(sshPrompt);
-          }, jitter(SSH_HANDSHAKE_DELAY_MS));
-        }, jitter(SSH_CONNECT_DELAY_MS));
+    // Cross-LAN fallback: sync miss + async resolver available. The
+    // animation can't start synchronously because the resolver is
+    // awaited first — but downstream code expects an AsyncOutput
+    // immediately, so we return an envelope whose start() does the
+    // await and then runs the animation. Validation throws are
+    // caught and surfaced via onLine, mirroring nmap's pattern.
+    return {
+      __type: 'async',
+      start: (onLine, onComplete) => {
+        void findMachineByIpAsync(host).then((asyncMachine) => {
+          if (token.isCancelled()) return;
+          try {
+            const sshPrompt = validateAndBuildPrompt(asyncMachine);
+            runAuthFlow(onLine, onComplete, sshPrompt);
+          } catch (error) {
+            onLine(error instanceof Error ? error.message : String(error));
+            onComplete();
+          }
+        });
       },
       cancel: token.cancel,
     };

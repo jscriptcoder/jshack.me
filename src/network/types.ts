@@ -98,6 +98,13 @@ export type Port = {
   // keyword overrides (testing/gameplay control). findExploitableCve
   // synthesizes a minimal vulnerability if no natural one exists.
   readonly forcedEffect?: VulnerabilityEffect;
+  // True when this entry came from a NAT forwarding rule on a gateway
+  // (added by buildMergedRouterView). Downstream consumers — notably
+  // ssh.ts's user pre-check — skip checks that only make sense for
+  // the gateway's own user list, since auth actually lands on the
+  // FORWARDED TARGET (workstation or NPC) whose users aren't merged
+  // into the router view.
+  readonly forwarded?: boolean;
 };
 
 // Public/runtime user shape. Carries identity (username) and tier

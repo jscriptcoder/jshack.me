@@ -298,7 +298,14 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
     commands.set(
       'ssh',
       wrapWithBrickedCheck(
-        wrapWithWifiCheck(createSshCommand({ getMachine, getLocalIP }), isWifiRequired),
+        wrapWithWifiCheck(
+          createSshCommand({
+            getMachine,
+            findMachineByIpAsync: findEffectiveMachineByIpAsync,
+            getLocalIP,
+          }),
+          isWifiRequired,
+        ),
         isMachineBricked,
       ),
     );
