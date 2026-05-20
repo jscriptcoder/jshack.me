@@ -24,6 +24,7 @@ import {
   findMachineInHomeNetworks,
   findUsersInHomeNetworks,
   collectHomeNetworksGatewayIps,
+  synthesizeForeignLanOccupantMachine,
 } from './networkUtils';
 import type { MissionNetwork } from '../generation/types';
 
@@ -2068,6 +2069,85 @@ describe('findUsersInHomeNetworks', () => {
     const users = findUsersInHomeNetworks('162.174.39.103', [home]);
     expect(users).toHaveLength(1);
     expect(users[0]!.username).toBe('admin');
+  });
+});
+
+describe('synthesizeForeignLanOccupantMachine', () => {
+  // Cross-LAN: foreign LAN occupants don't live in any HomeNetwork's
+  // machineConfigs — they're tracked separately in
+  // useForeignNetworks.foreignLanOccupants. The synthesis helper
+  // produces a stub RemoteMachine on demand so findMachineByIp returns
+  // something usable to consumers (auth flow's banner hostname, SSH
+  // welcome line). The stub carries no port or user data — those come
+  // from the patches + server-side base FS, not from client state.
+
+  it('returns undefined when the foreign-occupant map is empty', () => {
+    expect(synthesizeForeignLanOccupantMachine('10.0.0.42', new Map())).toBeUndefined();
+  });
+
+  it('returns undefined when the IP does not match any foreign occupant', () => {
+    const map = new Map([
+      [
+        '10.0.0.42',
+        { workstationId: 'rocket-aabbccdd', networkId: '198.51.100.20', layer0Subnet: '10.0.0' },
+      ],
+    ]);
+    expect(synthesizeForeignLanOccupantMachine('10.0.0.99', map)).toBeUndefined();
+  });
+
+  it('synthesizes a stub RemoteMachine carrying the workstation_id as hostname', () => {
+    // The auth helper consumes machine.hostname for the SSH banner.
+    // Pulling the workstationId in here lets cross-LAN smoke render
+    // "Welcome to rocket-aabbccdd!" instead of falling back to the IP.
+    const map = new Map([
+      [
+        '192.168.1.77',
+        { workstationId: 'glider-eeff0011', networkId: '198.51.100.20', layer0Subnet: '192.168.1' },
+      ],
+    ]);
+
+    const stub = synthesizeForeignLanOccupantMachine('192.168.1.77', map);
+
+    expect(stub).toEqual({
+      ip: '192.168.1.77',
+      hostname: 'glider-eeff0011',
+      ports: [],
+      users: [],
+    });
+  });
+
+  it('carries no port or user data — those come from patches + server-side base FS', () => {
+    // Stub must NOT inject placeholder users / synthetic ports. Auth
+    // pre-checks tolerate empty users[] (cross-player placeholder
+    // semantics, see useAuthentication.handleFtpUsernameSubmit); any
+    // injected data would mislead defenders or trick clients into
+    // false-positive port hits.
+    const map = new Map([
+      [
+        '192.168.1.77',
+        { workstationId: 'glider-eeff0011', networkId: '198.51.100.20', layer0Subnet: '192.168.1' },
+      ],
+    ]);
+
+    const stub = synthesizeForeignLanOccupantMachine('192.168.1.77', map);
+
+    expect(stub?.ports).toEqual([]);
+    expect(stub?.users).toEqual([]);
+  });
+
+  it('does not leak networkId / layer0Subnet into the stub shape', () => {
+    // The stub matches the RemoteMachine shape exactly — no extra
+    // fields that would confuse downstream consumers serializing it.
+    const map = new Map([
+      [
+        '192.168.1.77',
+        { workstationId: 'glider-eeff0011', networkId: '198.51.100.20', layer0Subnet: '192.168.1' },
+      ],
+    ]);
+
+    const stub = synthesizeForeignLanOccupantMachine('192.168.1.77', map);
+
+    expect(Object.keys(stub!).sort()).toEqual(['hostname', 'ip', 'ports', 'users']);
   });
 });
 

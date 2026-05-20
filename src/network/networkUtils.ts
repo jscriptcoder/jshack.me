@@ -5,6 +5,7 @@ import type {
   NatForwardingRule,
   SubnetLayer,
 } from '../generation/types';
+import type { ForeignLanOccupantEntry } from '../foreignNetworks/foreignLanOccupantResolver';
 import type { SnmpFirewallOverride } from './snmpFirewallParser';
 import type { AclRule } from './aclParser';
 import { isPortDeniedByAcl } from './aclParser';
@@ -278,6 +279,27 @@ export const findUsersInHomeNetworks = (
 ): readonly RemoteUser[] => {
   const machine = findMachineInHomeNetworks(ip, homeNetworks);
   return machine ? machine.users : [];
+};
+
+// Cross-LAN: synthesize a stub RemoteMachine for a foreign LAN occupant
+// (another player's workstation on a foreign LAN). Returns undefined
+// when the IP isn't a known foreign occupant. The stub carries no port
+// or user data — those come from the patches + server-side base FS
+// projection, not from client state. Consumers (auth banner, ssh
+// welcome line, log-source hostname resolution) consume `.hostname` for
+// display while the machine_id storage key comes from the workstationId.
+export const synthesizeForeignLanOccupantMachine = (
+  ip: string,
+  foreignOccupantMap: ReadonlyMap<string, ForeignLanOccupantEntry>,
+): RemoteMachine | undefined => {
+  const entry = foreignOccupantMap.get(ip);
+  if (entry === undefined) return undefined;
+  return {
+    ip,
+    hostname: entry.workstationId,
+    ports: [],
+    users: [],
+  };
 };
 
 // Cross-LAN: collect gateway IPs across foreign home networks. Each

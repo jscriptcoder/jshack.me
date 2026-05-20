@@ -123,6 +123,7 @@ function ForeignAwareProviders({
     foreignFileSystems,
     foreignLanOccupantHostnames,
     foreignNetworks,
+    foreignLanOccupants,
     ensureForeignReachable,
   } = useForeignNetworks();
   return (
@@ -144,6 +145,7 @@ function ForeignAwareProviders({
           missionLayers={missionState.activeMission?.layers}
           homeNetwork={activeNetwork}
           foreignNetworks={foreignNetworks}
+          foreignLanOccupants={foreignLanOccupants}
           ensureForeignReachable={ensureForeignReachable}
           worldNetworks={worldNetworks}
           worldHandlers={worldHandlers}

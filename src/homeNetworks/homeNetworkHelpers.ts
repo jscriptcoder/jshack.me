@@ -360,6 +360,7 @@ export const occupantAwareReadNode = <T>(
   ownLanIp: string | null,
   ownHostname: string,
   gatewayAliasMap?: ReadonlyMap<string, string>,
+  foreignOccupantMap?: ReadonlyMap<string, ForeignLanOccupantEntry>,
 ): ((machineId: string, path: string, cwd: string) => T) => {
   return (machineId, path, cwd) =>
     readNode(
@@ -370,6 +371,7 @@ export const occupantAwareReadNode = <T>(
         ownLanIp,
         ownHostname,
         gatewayAliasMap,
+        foreignOccupantMap,
       ),
       path,
       cwd,
