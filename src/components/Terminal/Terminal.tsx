@@ -14,6 +14,7 @@ import { useRedisCommands } from '../../hooks/useRedisCommands';
 import { useSession } from '../../session/SessionContext';
 import type { NcSession } from '../../session/SessionContext';
 import { useHomeNetworks } from '../../homeNetworks/HomeNetworksContext';
+import { useForeignNetworks } from '../../foreignNetworks/ForeignNetworksContext';
 import { buildResolveTargetMachineId } from '../../homeNetworks/homeNetworkHelpers';
 import { useFileSystem } from '../../filesystem/FileSystemContext';
 import { appendToMachineLog } from '../../logging/appendToMachineLog';
@@ -125,16 +126,26 @@ export const Terminal = () => {
     hostname: ownWorkstationId,
   } = useSession();
   const { activeNetwork, lanOccupants } = useHomeNetworks();
+  const { foreignNetworks, foreignLanOccupants } = useForeignNetworks();
 
   // Maps a LAN IP to the canonical machine_id (workstation_id for
   // occupants, LAN IP for NPC/world/mission machines, gateway primary
   // IP for .1 LAN-side aliases). Used by every cross-player code path
   // that constructs a machine_id from an IP the user typed — auth
   // envelopes and write-side patches alike. Shared with
-  // useNetworkCommands via buildResolveTargetMachineId.
+  // useNetworkCommands via buildResolveTargetMachineId. Foreign inputs
+  // thread the cross-LAN seed-regen state so a foreign LAN IP (e.g.,
+  // 192.168.1.42 on Player B's LAN) translates to B's workstation_id.
   const resolveTargetMachineId = useMemo(
-    () => buildResolveTargetMachineId(activeNetwork, lanOccupants, ownWorkstationId),
-    [activeNetwork, lanOccupants, ownWorkstationId],
+    () =>
+      buildResolveTargetMachineId(
+        activeNetwork,
+        lanOccupants,
+        ownWorkstationId,
+        foreignNetworks,
+        foreignLanOccupants,
+      ),
+    [activeNetwork, lanOccupants, ownWorkstationId, foreignNetworks, foreignLanOccupants],
   );
   const { commands, commandNames, lynxFetch } = useCommands();
   const ftpCommands = useFtpCommands();

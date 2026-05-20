@@ -7,6 +7,7 @@ import { MissionProvider } from '../mission/MissionContext';
 import { FileSystemProvider } from '../filesystem/FileSystemContext';
 import { NetworkProvider } from '../network/NetworkContext';
 import { HomeNetworksProvider } from '../homeNetworks/HomeNetworksContext';
+import { ForeignNetworksProvider } from '../foreignNetworks/ForeignNetworksContext';
 import type { MissionState } from '../mission/useMissionState';
 import { generateLocalhost } from '../generation/generateLocalhost';
 
@@ -66,12 +67,16 @@ const createWrapper =
           children: null,
         },
         createElement(
-          MissionProvider,
-          { state: mockMissionState, usedPublicIps: new Set<string>(), children: null },
+          ForeignNetworksProvider,
+          { ownActiveHomePublicIp: null, children: null },
           createElement(
-            FileSystemProvider,
-            { localhostFileSystem: testLocalhost.fileSystem, children: null },
-            createElement(NetworkProvider, null, children),
+            MissionProvider,
+            { state: mockMissionState, usedPublicIps: new Set<string>(), children: null },
+            createElement(
+              FileSystemProvider,
+              { localhostFileSystem: testLocalhost.fileSystem, children: null },
+              createElement(NetworkProvider, null, children),
+            ),
           ),
         ),
       ),
