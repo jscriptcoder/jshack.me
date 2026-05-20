@@ -425,6 +425,15 @@ export type DynamicOverrideContext = {
     readonly machines: readonly GeneratedMachine[];
     readonly layers: readonly SubnetLayer[];
   }>;
+  // Foreign home networks the player has touched cross-LAN. Same
+  // shape as worldNetworks. Drives gateway NAT merging when a viewer
+  // scans a foreign router's public IP — without this branch, nmap
+  // from across a LAN shows only the foreign router's own ports and
+  // any iptables forward the foreign owner added remains invisible.
+  readonly foreignNetworks?: ReadonlyArray<{
+    readonly machines: readonly GeneratedMachine[];
+    readonly layers: readonly SubnetLayer[];
+  }>;
   readonly homeGatewayByAliasIp: ReadonlyMap<string, GeneratedMachine>;
   // Canonicalizes a gateway's .1 LAN-side alias to the gateway's primary
   // IP so iptables/SNMP/ACL/snmp-ACL lookups converge on a single key
@@ -538,11 +547,28 @@ export const applyDynamicOverrides = (
         // Search world networks. Each tuple is searched independently
         // so a gateway resolves against its own network's machines —
         // no cross-network leakage.
+        let merged = false;
         for (const wn of ctx.worldNetworks ?? []) {
           const worldGateway = wn.machines.find((m) => m.ip === machine.ip);
           if (worldGateway) {
             result = buildMergedRouterView(worldGateway, wn.machines, gatewayRules);
+            merged = true;
             break;
+          }
+        }
+        // Cross-LAN: search foreign home networks. Same scoping rule
+        // as worldNetworks — each foreign network is searched
+        // independently to keep gateway resolution local to its own
+        // machine list. Without this branch a foreign router's
+        // iptables forwards stay invisible from another LAN even
+        // though the rules patch has propagated via Realtime.
+        if (!merged) {
+          for (const fn of ctx.foreignNetworks ?? []) {
+            const foreignGateway = fn.machines.find((m) => m.ip === machine.ip);
+            if (foreignGateway) {
+              result = buildMergedRouterView(foreignGateway, fn.machines, gatewayRules);
+              break;
+            }
           }
         }
       }

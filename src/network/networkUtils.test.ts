@@ -1178,6 +1178,104 @@ describe('applyDynamicOverrides', () => {
     );
   });
 
+  it("merges NAT-forwarded ports for a foreign network's router (cross-LAN view)", () => {
+    // Cross-LAN nmap scenario: Player B scans Player A's public IP.
+    // A has added an iptables forward `public 2222 → A.workstation:22`
+    // on her home router (the patch has propagated to B via Realtime,
+    // so allIptablesRules contains the rule keyed by A's public IP).
+    // B's view must NAT-merge the rule onto the foreign router's
+    // RemoteMachine — otherwise nmap shows only A's router-own ports
+    // and B can't discover the forward to know to ssh -p 2222.
+    //
+    // Mirrors the home-gateway-via-alias test but routes through the
+    // foreignNetworks search branch (A's network isn't B's own home).
+    const foreignGateway = createGeneratedMachine({
+      ip: '203.0.113.42',
+      role: 'router',
+      remoteMachine: createMachine({
+        ip: '203.0.113.42',
+        ports: [createPort({ port: 22, service: 'ssh', serviceVersion: 'latest', open: true })],
+      }),
+    });
+    const foreignWorkstation = createGeneratedMachine({
+      ip: '10.0.0.50',
+      remoteMachine: createMachine({
+        ip: '10.0.0.50',
+        ports: [createPort({ port: 22, service: 'ssh', serviceVersion: 'latest', open: true })],
+      }),
+    });
+    const rules: readonly NatForwardingRule[] = [
+      { publicPort: 2222, internalIp: '10.0.0.50', internalPort: 22 },
+    ];
+
+    const result = applyDynamicOverrides(foreignGateway.remoteMachine, {
+      allIptablesRules: new Map([['203.0.113.42', rules]]),
+      allSnmpOverrides: new Map(),
+      allAclRules: new Map(),
+      allSnmpAclOverrides: new Map(),
+      // B has no own home machines that match — search must fall
+      // through to foreignNetworks.
+      homeMachines: [],
+      homeGatewayByAliasIp: new Map(),
+      foreignNetworks: [{ machines: [foreignGateway, foreignWorkstation], layers: [] }],
+      readNode: noopReader,
+    });
+
+    // The forwarded port appears on the foreign router's merged view.
+    expect(result.ports).toContainEqual(
+      expect.objectContaining({ port: 2222, service: 'ssh', open: true }),
+    );
+  });
+
+  it('does NOT cross-leak gateways between foreign networks', () => {
+    // Two foreign networks with the same gateway IP would be a
+    // pathological cache collision. The search must scope to one
+    // network at a time so a gateway resolves against ITS OWN
+    // machines — same invariant the worldNetworks branch pins.
+    const networkAGateway = createGeneratedMachine({
+      ip: '203.0.113.42',
+      role: 'router',
+      remoteMachine: createMachine({ ip: '203.0.113.42', ports: [] }),
+    });
+    const networkATarget = createGeneratedMachine({
+      ip: '10.0.0.50',
+      remoteMachine: createMachine({
+        ip: '10.0.0.50',
+        ports: [createPort({ port: 22, service: 'ssh', serviceVersion: 'latest', open: true })],
+      }),
+    });
+    const networkBTarget = createGeneratedMachine({
+      ip: '10.0.0.50',
+      remoteMachine: createMachine({
+        ip: '10.0.0.50',
+        ports: [createPort({ port: 80, service: 'http', serviceVersion: 'latest', open: true })],
+      }),
+    });
+    const rules: readonly NatForwardingRule[] = [
+      { publicPort: 2222, internalIp: '10.0.0.50', internalPort: 22 },
+    ];
+
+    const result = applyDynamicOverrides(networkAGateway.remoteMachine, {
+      allIptablesRules: new Map([['203.0.113.42', rules]]),
+      allSnmpOverrides: new Map(),
+      allAclRules: new Map(),
+      allSnmpAclOverrides: new Map(),
+      homeMachines: [],
+      homeGatewayByAliasIp: new Map(),
+      foreignNetworks: [
+        { machines: [networkAGateway, networkATarget], layers: [] },
+        // Network B's target is on the same internal IP but with a
+        // different port — must not bleed into A's merged view.
+        { machines: [networkBTarget], layers: [] },
+      ],
+      readNode: noopReader,
+    });
+
+    // Forwarded port resolves against A's target (ssh), not B's (http).
+    const forwarded = result.ports.find((p) => p.port === 2222);
+    expect(forwarded?.service).toBe('ssh');
+  });
+
   // End-to-end integration: pid file → occupant overlay → home-router merge.
   // Mirrors what NetworkContext does at runtime — two passes of
   // applyDynamicOverrides chained together. Without this test, a future
