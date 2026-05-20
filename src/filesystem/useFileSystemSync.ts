@@ -183,6 +183,16 @@ export const useFileSystemSync = ({
   // and reads of B's static content (motd, hostname, /home/...) would
   // come up null until the next session-change rebuild.
   const crossPlayerBaseFsRef = useRef<Record<string, FileNode>>({});
+  // Tracks the userType the cached base FS was filtered for. Sister
+  // ref to crossPlayerBaseFsRef. Without this, a guest-tier fetch
+  // would cache a filtered tree that misses root-only paths
+  // (/home/<owner>, etc.), and the IDEMPOTENT skip in
+  // fetchCrossPlayerBaseFsIfNeeded would short-circuit a subsequent
+  // root-tier session on the same machine — leaving the player with
+  // the lower-tier view they'd already had. Surfaced 2026-05-19
+  // during PR 5's in-game smoke (guest -> exit -> root on a
+  // cross-LAN target).
+  const crossPlayerBaseFsTierRef = useRef<Record<string, UserType>>({});
 
   // Pending machine_ids queued for hint-driven refetch. Multiple hints
   // within the debounce window accumulate here and get flushed in one
@@ -508,13 +518,18 @@ export const useFileSystemSync = ({
 
   // Reusable helper — same precondition + fetch shape used by both the
   // shell-session change effect (below) and the transient-session
-  // change effect (further below). Idempotent via crossPlayerBaseFsRef.
+  // change effect (further below). Idempotency is scoped to
+  // (target, tier) so a guest -> root upgrade on the same machine
+  // triggers a refetch and surfaces root-only paths the previously
+  // filtered guest tree didn't carry.
   const fetchCrossPlayerBaseFsIfNeeded = useCallback(
-    (target: string): void => {
+    (target: string, tier: UserType): void => {
+      if (parseWorkstationId(target) === undefined || target === workstationId) {
+        return;
+      }
       if (
-        parseWorkstationId(target) === undefined ||
-        target === workstationId ||
-        target in crossPlayerBaseFsRef.current
+        target in crossPlayerBaseFsRef.current &&
+        crossPlayerBaseFsTierRef.current[target] === tier
       ) {
         return;
       }
@@ -524,6 +539,10 @@ export const useFileSystemSync = ({
           crossPlayerBaseFsRef.current = {
             ...crossPlayerBaseFsRef.current,
             [target]: baseFs,
+          };
+          crossPlayerBaseFsTierRef.current = {
+            ...crossPlayerBaseFsTierRef.current,
+            [target]: tier,
           };
           setFileSystems((prev) => ({ ...prev, [target]: baseFs }));
         })
@@ -595,7 +614,7 @@ export const useFileSystemSync = ({
     // existing (probably empty) view of that machine. The shell still
     // works for in-memory writes; reads of B's static content just
     // come up null until a successful retry later.
-    fetchCrossPlayerBaseFsIfNeeded(curr.machine);
+    fetchCrossPlayerBaseFsIfNeeded(curr.machine, curr.userType);
   }, [
     session.machine,
     session.userType,
@@ -633,7 +652,13 @@ export const useFileSystemSync = ({
 
     for (const id of added) {
       pendingHintMachinesRef.current.add(id);
-      fetchCrossPlayerBaseFsIfNeeded(id);
+      // Protocol sessions (FTP/MySQL/Redis/nc) carry their own
+      // server-side userType derived from the auth credentials. The
+      // client view of `protocolSessionMachineIds` doesn't expose
+      // it. Use the current shell session's userType as the cache
+      // tier — if the actual protocol tier differs, the next shell
+      // session change or refresh will catch it.
+      fetchCrossPlayerBaseFsIfNeeded(id, session.userType);
     }
     for (const id of removed) {
       pendingHintMachinesRef.current.add(id);
@@ -648,7 +673,12 @@ export const useFileSystemSync = ({
       pendingHintMachinesRef.current.clear();
       void refetchAffectedMachines(machineIds);
     }, HINT_REFETCH_DEBOUNCE_MS);
-  }, [protocolMachinesKey, refetchAffectedMachines, fetchCrossPlayerBaseFsIfNeeded]);
+  }, [
+    protocolMachinesKey,
+    refetchAffectedMachines,
+    fetchCrossPlayerBaseFsIfNeeded,
+    session.userType,
+  ]);
 
   // Track whether the missionFileSystems effect is running for the first time.
   // On initial mount with a persisted mission, we replay cached patches so the

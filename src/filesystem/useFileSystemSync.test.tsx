@@ -1301,7 +1301,7 @@ describe('useFileSystemSync — rehydration, realtime, session-refetch', () => {
       expect(mockedGetBaseFs).not.toHaveBeenCalled();
     });
 
-    it('does NOT call getBaseFs when fileSystems already has an entry for the machine', async () => {
+    it('does NOT call getBaseFs when fileSystems already has an entry for the machine at the same tier', async () => {
       mockSessionState.current = { machine: TEST_HOSTNAME, currentPath: '/', userType: 'root' };
       const { rerender } = renderHook(() => useFileSystem(), {
         wrapper: wrap({ lanOccupantHostnames: [OTHER_WORKSTATION] }),
@@ -1324,7 +1324,8 @@ describe('useFileSystemSync — rehydration, realtime, session-refetch', () => {
         expect(mockedGetBaseFs).toHaveBeenCalledTimes(1);
       });
 
-      // Switch elsewhere then back — should not refetch (already merged).
+      // Switch elsewhere then back at the SAME tier — should not refetch
+      // (already merged at this tier).
       vi.mocked(mockedGetBaseFs).mockClear();
       mockSessionState.current = { machine: TEST_HOSTNAME, currentPath: '/', userType: 'root' };
       rerender();
@@ -1333,11 +1334,58 @@ describe('useFileSystemSync — rehydration, realtime, session-refetch', () => {
       mockSessionState.current = {
         machine: OTHER_WORKSTATION,
         currentPath: '/',
-        userType: 'root',
+        userType: 'user',
       };
       rerender();
       await new Promise((resolve) => setTimeout(resolve, 250));
       expect(mockedGetBaseFs).not.toHaveBeenCalled();
+    });
+
+    it('refetches getBaseFs when the session tier upgrades on the same machine', async () => {
+      // Surfaced 2026-05-19 during PR 5's cross-LAN SSH smoke: B
+      // ssh'd as guest, exited, ssh'd as root on the same target.
+      // The first fetch cached a guest-tier-filtered tree (missing
+      // /home/<owner>, etc.). The original idempotency check was
+      // keyed by machine_id alone, so the root-tier session reused
+      // the lower-tier cache. Fix: cache by (machine_id, tier);
+      // refetch on tier upgrade.
+      mockSessionState.current = { machine: TEST_HOSTNAME, currentPath: '/', userType: 'root' };
+      const { rerender } = renderHook(() => useFileSystem(), {
+        wrapper: wrap({ lanOccupantHostnames: [OTHER_WORKSTATION] }),
+      });
+
+      await waitFor(() => {
+        expect(mockedListPatchesForMachines).toHaveBeenCalled();
+      });
+
+      // First switch at guest tier — fetches.
+      vi.mocked(mockedGetBaseFs).mockResolvedValue(mkBaseFs());
+      mockSessionState.current = {
+        machine: OTHER_WORKSTATION,
+        currentPath: '/',
+        userType: 'guest',
+      };
+      rerender();
+      await waitFor(() => {
+        expect(mockedGetBaseFs).toHaveBeenCalledTimes(1);
+      });
+
+      // Exit back to own workstation.
+      vi.mocked(mockedGetBaseFs).mockClear();
+      mockSessionState.current = { machine: TEST_HOSTNAME, currentPath: '/', userType: 'root' };
+      rerender();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Re-enter at root tier — must refetch (cache was filtered for guest).
+      mockSessionState.current = {
+        machine: OTHER_WORKSTATION,
+        currentPath: '/',
+        userType: 'root',
+      };
+      rerender();
+      await waitFor(() => {
+        expect(mockedGetBaseFs).toHaveBeenCalledTimes(1);
+      });
     });
 
     it('merges the returned FileNode into fileSystems on success', async () => {
