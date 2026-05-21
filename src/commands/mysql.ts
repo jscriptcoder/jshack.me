@@ -5,6 +5,12 @@ import { createCancellationToken, jitter } from '../utils/asyncCommand';
 type MysqlContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
   readonly findMachineByIp: (ip: string) => RemoteMachine | undefined;
+  // Async sibling of getMachine. Triggers the cross-LAN seed-regen
+  // resolver when the target IP is a publicly-addressable IPv4 that
+  // the sync view doesn't know yet. Optional for legacy callers /
+  // single-player tests; when omitted, the command keeps the pre-
+  // extension synchronous-throw contract on a sync miss.
+  readonly findMachineByIpAsync?: (ip: string) => Promise<RemoteMachine | undefined>;
   readonly getLocalIP: () => string;
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
 };
@@ -45,7 +51,8 @@ export const createMysqlCommand = (context: MysqlContext): Command => ({
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {
-    const { getMachine, findMachineByIp, getLocalIP, resolveDomain } = context;
+    const { getMachine, findMachineByIp, findMachineByIpAsync, getLocalIP, resolveDomain } =
+      context;
 
     const host = args[0] as string | undefined;
     const username = args[1] as string | undefined;
@@ -67,48 +74,85 @@ export const createMysqlCommand = (context: MysqlContext): Command => ({
       targetIP = record.ip;
     }
 
-    // getMachine only returns machines visible from the current subnet.
-    // Fall back to findMachineByIp for local connections (the current machine
-    // doesn't appear in its own network view).
-    const machine = getMachine(targetIP) ?? findMachineByIp(targetIP);
-    if (!machine) {
-      throw new Error(
-        `ERROR 2003 (HY000): Can't connect to MySQL server on '${targetIP}:3306' (Connection refused)`,
-      );
-    }
-
-    const mysqlPort = machine.ports.find((p) => p.port === 3306 && p.service === 'mysql');
-    if (!mysqlPort || !mysqlPort.open) {
-      throw new Error(
-        `ERROR 2003 (HY000): Can't connect to MySQL server on '${targetIP}:3306' (Connection refused)`,
-      );
-    }
-
     const token = createCancellationToken();
 
-    return {
-      __type: 'async',
-      start: (onLine, onComplete) => {
-        onLine(`Connecting to ${targetIP}:3306...`);
+    // Validation that depends on the resolved machine. Same split as
+    // ssh.ts — sync path throws as legacy contract; async path catches
+    // and surfaces via onLine.
+    const validateAndBuildPrompt = (
+      machine: RemoteMachine | undefined,
+    ): { readonly prompt: MysqlPromptData; readonly machineHostname: string } => {
+      if (!machine) {
+        throw new Error(
+          `ERROR 2003 (HY000): Can't connect to MySQL server on '${targetIP}:3306' (Connection refused)`,
+        );
+      }
+
+      const mysqlPort = machine.ports.find((p) => p.port === 3306 && p.service === 'mysql');
+      if (!mysqlPort || !mysqlPort.open) {
+        throw new Error(
+          `ERROR 2003 (HY000): Can't connect to MySQL server on '${targetIP}:3306' (Connection refused)`,
+        );
+      }
+
+      return {
+        prompt: {
+          __type: 'mysql_prompt',
+          targetIP,
+          username,
+          ...(password !== undefined && { password }),
+        },
+        machineHostname: machine.hostname,
+      };
+    };
+
+    const runConnectAnim = (
+      onLine: (line: string) => void,
+      onComplete: (followUp?: MysqlPromptData) => void,
+      machineHostname: string,
+      mysqlPrompt: MysqlPromptData,
+    ) => {
+      onLine(`Connecting to ${targetIP}:3306...`);
+
+      token.schedule(() => {
+        if (token.isCancelled()) return;
+
+        onLine(`MySQL ${machineHostname} connected.`);
 
         token.schedule(() => {
           if (token.isCancelled()) return;
+          onComplete(mysqlPrompt);
+        }, jitter(MYSQL_HANDSHAKE_DELAY_MS));
+      }, jitter(MYSQL_CONNECT_DELAY_MS));
+    };
 
-          onLine(`MySQL ${machine.hostname} connected.`);
+    // getMachine only returns machines visible from the current subnet.
+    // Fall back to findMachineByIp for local connections (the current
+    // machine doesn't appear in its own network view).
+    const syncMachine = getMachine(targetIP) ?? findMachineByIp(targetIP);
+    if (syncMachine || !findMachineByIpAsync) {
+      const { prompt, machineHostname } = validateAndBuildPrompt(syncMachine);
+      return {
+        __type: 'async',
+        start: (onLine, onComplete) => runConnectAnim(onLine, onComplete, machineHostname, prompt),
+        cancel: token.cancel,
+      };
+    }
 
-          token.schedule(() => {
-            if (token.isCancelled()) return;
-
-            const mysqlPrompt: MysqlPromptData = {
-              __type: 'mysql_prompt',
-              targetIP,
-              username,
-              ...(password !== undefined && { password }),
-            };
-
-            onComplete(mysqlPrompt);
-          }, jitter(MYSQL_HANDSHAKE_DELAY_MS));
-        }, jitter(MYSQL_CONNECT_DELAY_MS));
+    // Cross-LAN fallback: sync miss + async resolver available.
+    return {
+      __type: 'async',
+      start: (onLine, onComplete) => {
+        void findMachineByIpAsync(targetIP).then((asyncMachine) => {
+          if (token.isCancelled()) return;
+          try {
+            const { prompt, machineHostname } = validateAndBuildPrompt(asyncMachine);
+            runConnectAnim(onLine, onComplete, machineHostname, prompt);
+          } catch (error) {
+            onLine(error instanceof Error ? error.message : String(error));
+            onComplete();
+          }
+        });
       },
       cancel: token.cancel,
     };

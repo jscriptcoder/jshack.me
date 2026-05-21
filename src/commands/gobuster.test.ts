@@ -549,4 +549,86 @@ describe('gobuster command', () => {
       expect(onScanAggregate).not.toHaveBeenCalled();
     });
   });
+
+  describe('cross-LAN async pre-resolve', () => {
+    // Mirrors ssh.ts's findMachineByIpAsync fallback. When the player
+    // types `gobuster dir http://<foreign public IP>` against another
+    // player's workstation hosting apache2/nginx via NAT-forward, the
+    // command awaits findMachineByIpAsync to materialize the foreign
+    // network before walking /var/www/html.
+
+    it('falls back to findMachineByIpAsync when sync getMachine misses', async () => {
+      const foreignMachine = getMockMachine({ ip: '203.0.113.42' });
+      const findMachineByIpAsync = vi.fn(async (ip: string) =>
+        ip === '203.0.113.42' ? foreignMachine : undefined,
+      );
+      const context = {
+        ...createMockContext({ machines: [] }),
+        findMachineByIpAsync,
+      };
+      const gobuster = createGobusterCommand(context);
+
+      const result = gobuster.fn('dir', 'http://203.0.113.42');
+      const lines: string[] = [];
+      let completed = false;
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {
+            completed = true;
+          },
+        );
+      }
+      await vi.runAllTimersAsync();
+
+      expect(findMachineByIpAsync).toHaveBeenCalledWith('203.0.113.42');
+      expect(lines.some((l) => l.includes('Gobuster v3.6'))).toBe(true);
+      expect(completed).toBe(true);
+    });
+
+    it('emits Connection refused via onLine when async resolver returns undefined', async () => {
+      const findMachineByIpAsync = vi.fn(async () => undefined);
+      const context = {
+        ...createMockContext({ machines: [] }),
+        findMachineByIpAsync,
+      };
+      const gobuster = createGobusterCommand(context);
+
+      const result = gobuster.fn('dir', 'http://203.0.113.99');
+      const lines: string[] = [];
+      let completed = false;
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {
+            completed = true;
+          },
+        );
+      }
+      await vi.runAllTimersAsync();
+
+      expect(findMachineByIpAsync).toHaveBeenCalledWith('203.0.113.99');
+      expect(lines.some((l) => l.includes('Connection refused'))).toBe(true);
+      expect(completed).toBe(true);
+    });
+
+    it('does NOT call findMachineByIpAsync when sync getMachine hits', () => {
+      const findMachineByIpAsync = vi.fn(async () => undefined);
+      const context = {
+        ...createMockContext(),
+        findMachineByIpAsync,
+      };
+      const gobuster = createGobusterCommand(context);
+
+      gobuster.fn('dir', 'http://192.168.1.75');
+
+      expect(findMachineByIpAsync).not.toHaveBeenCalled();
+    });
+
+    it('throws synchronously on sync miss when findMachineByIpAsync is omitted (legacy)', () => {
+      const context = createMockContext({ machines: [] });
+      const gobuster = createGobusterCommand(context);
+      expect(() => gobuster.fn('dir', 'http://10.0.0.1')).toThrow('Connection refused');
+    });
+  });
 });

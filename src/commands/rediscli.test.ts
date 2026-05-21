@@ -91,4 +91,73 @@ describe('rediscli command', () => {
     const cmd = createRediscliCommand(ctx);
     expect(() => cmd.fn('10.0.1.50')).toThrow('Connection refused');
   });
+
+  describe('cross-LAN async pre-resolve', () => {
+    it('falls back to findMachineByIpAsync when sync getMachine misses', async () => {
+      const foreignMachine = getMockDbMachine();
+      const findMachineByIpAsync = vi.fn(async (ip: string) =>
+        ip === '10.0.1.20' ? foreignMachine : undefined,
+      );
+      const ctx = {
+        ...createMockContext([]),
+        findMachineByIpAsync,
+      };
+      const cmd = createRediscliCommand(ctx);
+
+      const result = cmd.fn('10.0.1.20');
+      expect(isAsyncOutput(result)).toBe(true);
+
+      const lines: string[] = [];
+      let followUp: unknown = undefined;
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          (fu) => {
+            followUp = fu;
+          },
+        );
+      }
+      await vi.runAllTimersAsync();
+
+      expect(findMachineByIpAsync).toHaveBeenCalledWith('10.0.1.20');
+      expect((followUp as { __type?: string } | undefined)?.__type).toBe('redis_prompt');
+    });
+
+    it('emits Connection refused via onLine when async resolver returns undefined', async () => {
+      const findMachineByIpAsync = vi.fn(async () => undefined);
+      const ctx = { ...createMockContext([]), findMachineByIpAsync };
+      const cmd = createRediscliCommand(ctx);
+
+      const result = cmd.fn('203.0.113.99');
+      const lines: string[] = [];
+      let completed = false;
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {
+            completed = true;
+          },
+        );
+      }
+      await vi.runAllTimersAsync();
+
+      expect(findMachineByIpAsync).toHaveBeenCalledWith('203.0.113.99');
+      expect(lines.some((l) => l.includes('Connection refused'))).toBe(true);
+      expect(completed).toBe(true);
+    });
+
+    it('does NOT call findMachineByIpAsync when sync getMachine hits', () => {
+      const findMachineByIpAsync = vi.fn(async () => undefined);
+      const ctx = { ...createMockContext(), findMachineByIpAsync };
+      const cmd = createRediscliCommand(ctx);
+      cmd.fn('10.0.1.20');
+      expect(findMachineByIpAsync).not.toHaveBeenCalled();
+    });
+
+    it('throws synchronously on sync miss when findMachineByIpAsync is omitted (legacy)', () => {
+      const ctx = createMockContext([]);
+      const cmd = createRediscliCommand(ctx);
+      expect(() => cmd.fn('10.99.99.99')).toThrow('Connection refused');
+    });
+  });
 });

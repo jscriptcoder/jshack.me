@@ -4,6 +4,12 @@ import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
 type FtpContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
+  // Async sibling of getMachine. Triggers the cross-LAN seed-regen
+  // resolver when the target IP is a publicly-addressable IPv4 that
+  // the sync view doesn't know yet. Optional for legacy callers /
+  // single-player tests; when omitted, the command keeps the pre-
+  // extension synchronous-throw contract on a sync miss.
+  readonly findMachineByIpAsync?: (ip: string) => Promise<RemoteMachine | undefined>;
   readonly getLocalIP: () => string;
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
 };
@@ -44,7 +50,7 @@ export const createFtpCommand = (context: FtpContext): Command => ({
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {
-    const { getMachine, getLocalIP, resolveDomain } = context;
+    const { getMachine, findMachineByIpAsync, getLocalIP, resolveDomain } = context;
 
     const host = args[0] as string | undefined;
     const usernameArg = args[1] as string | undefined;
@@ -68,43 +74,92 @@ export const createFtpCommand = (context: FtpContext): Command => ({
       throw new Error('ftp: cannot connect to localhost via FTP');
     }
 
-    const machine = getMachine(targetIP);
-    if (!machine) {
-      throw new Error(`ftp: connect to ${targetIP} port 21: Connection refused`);
-    }
-
-    const ftpPort = machine.ports.find((p) => p.port === 21 && p.service === 'ftp');
-    if (!ftpPort || !ftpPort.open) {
-      throw new Error(`ftp: connect to ${targetIP} port 21: Connection refused`);
-    }
-
     const token = createCancellationToken();
 
-    return {
-      __type: 'async',
-      start: (onLine, onComplete) => {
-        onLine(`Connecting to ${targetIP}...`);
+    // Validation that depends on the resolved machine. Split out so the
+    // sync-hit fast path and the async-resolved fallback both run the
+    // same gate. Throws are caught at the caller — sync path lets them
+    // propagate as the legacy throw contract; async path catches and
+    // emits via onLine (the resolver round-trip is async, so a throw
+    // can't reach the caller's try/catch in the original sync sense).
+    const validateAndBuildPrompt = (machine: RemoteMachine | undefined): FtpPromptData => {
+      if (!machine) {
+        throw new Error(`ftp: connect to ${targetIP} port 21: Connection refused`);
+      }
+
+      const ftpPort = machine.ports.find((p) => p.port === 21 && p.service === 'ftp');
+      if (!ftpPort || !ftpPort.open) {
+        throw new Error(`ftp: connect to ${targetIP} port 21: Connection refused`);
+      }
+
+      return {
+        __type: 'ftp_prompt',
+        targetIP,
+        ...(usernameArg !== undefined && { username: usernameArg }),
+        ...(passwordArg !== undefined && { password: passwordArg }),
+      };
+    };
+
+    // Shared animation. The sync and async paths both end here once
+    // validation has produced an FtpPromptData. machine.hostname is
+    // baked into the 220 banner so the host shown matches the resolved
+    // machine view (router vs occupant stub when cross-LAN forwarded).
+    const runConnectAnim = (
+      onLine: (line: string) => void,
+      onComplete: (followUp?: FtpPromptData) => void,
+      machineHostname: string,
+      ftpPrompt: FtpPromptData,
+    ) => {
+      onLine(`Connecting to ${targetIP}...`);
+
+      token.schedule(() => {
+        if (token.isCancelled()) return;
+
+        onLine(`Connected to ${targetIP}.`);
 
         token.schedule(() => {
           if (token.isCancelled()) return;
 
-          onLine(`Connected to ${targetIP}.`);
+          onLine(`220 Welcome to ${machineHostname} FTP server.`);
 
-          token.schedule(() => {
-            if (token.isCancelled()) return;
+          onComplete(ftpPrompt);
+        }, jitter(FTP_BANNER_DELAY_MS));
+      }, jitter(FTP_CONNECT_DELAY_MS));
+    };
 
-            onLine(`220 Welcome to ${machine.hostname} FTP server.`);
+    // Sync hit OR no async resolver wired: keep the legacy
+    // synchronous-throw contract. Validation runs at fn() time so
+    // tests asserting `() => ftp.fn(...)` throw continue to pass.
+    const syncMachine = getMachine(targetIP);
+    if (syncMachine || !findMachineByIpAsync) {
+      const ftpPrompt = validateAndBuildPrompt(syncMachine);
+      return {
+        __type: 'async',
+        start: (onLine, onComplete) =>
+          runConnectAnim(onLine, onComplete, syncMachine!.hostname, ftpPrompt),
+        cancel: token.cancel,
+      };
+    }
 
-            const ftpPrompt: FtpPromptData = {
-              __type: 'ftp_prompt',
-              targetIP,
-              ...(usernameArg !== undefined && { username: usernameArg }),
-              ...(passwordArg !== undefined && { password: passwordArg }),
-            };
-
-            onComplete(ftpPrompt);
-          }, jitter(FTP_BANNER_DELAY_MS));
-        }, jitter(FTP_CONNECT_DELAY_MS));
+    // Cross-LAN fallback: sync miss + async resolver available. The
+    // animation can't start synchronously because the resolver is
+    // awaited first — but downstream code expects an AsyncOutput
+    // immediately, so we return an envelope whose start() does the
+    // await and then runs the animation. Validation throws are
+    // caught and surfaced via onLine, mirroring nmap + ssh.
+    return {
+      __type: 'async',
+      start: (onLine, onComplete) => {
+        void findMachineByIpAsync(targetIP).then((asyncMachine) => {
+          if (token.isCancelled()) return;
+          try {
+            const ftpPrompt = validateAndBuildPrompt(asyncMachine);
+            runConnectAnim(onLine, onComplete, asyncMachine!.hostname, ftpPrompt);
+          } catch (error) {
+            onLine(error instanceof Error ? error.message : String(error));
+            onComplete();
+          }
+        });
       },
       cancel: token.cancel,
     };

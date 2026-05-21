@@ -539,6 +539,97 @@ describe('curl command', () => {
     });
   });
 
+  describe('cross-LAN async pre-resolve', () => {
+    // Mirrors ssh.ts's findMachineByIpAsync fallback. When the player
+    // types `curl http://<foreign public IP>/` against another player's
+    // workstation hosting apache2/nginx via NAT-forward, the command
+    // awaits findMachineByIpAsync to materialize the foreign network
+    // before fetching. Sync hits short-circuit the async path.
+
+    it('falls back to findMachineByIpAsync when sync getMachine misses', async () => {
+      const foreignMachine = getMockMachine({
+        ip: '203.0.113.42',
+        hostname: 'foreign-router',
+        ports: [{ port: 80, service: 'http', serviceVersion: 'latest', open: true }],
+      });
+      const findMachineByIpAsync = vi.fn(async (ip: string) =>
+        ip === '203.0.113.42' ? foreignMachine : undefined,
+      );
+      const context = {
+        ...createMockCurlContext({ machines: [] }),
+        findMachineByIpAsync,
+      };
+      const curl = createCurlCommand(context);
+
+      const result = curl.fn('http://203.0.113.42/');
+      expect(isAsyncOutput(result)).toBe(true);
+
+      const lines: string[] = [];
+      let completed = false;
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {
+            completed = true;
+          },
+        );
+      }
+
+      await vi.runAllTimersAsync();
+
+      expect(findMachineByIpAsync).toHaveBeenCalledWith('203.0.113.42');
+      expect(completed).toBe(true);
+      expect(lines.some((l) => l.includes('Welcome'))).toBe(true);
+    });
+
+    it('emits Connection refused via onLine when async resolver returns undefined', async () => {
+      const findMachineByIpAsync = vi.fn(async () => undefined);
+      const context = {
+        ...createMockCurlContext({ machines: [] }),
+        findMachineByIpAsync,
+      };
+      const curl = createCurlCommand(context);
+
+      const result = curl.fn('http://203.0.113.99/');
+      const lines: string[] = [];
+      let completed = false;
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {
+            completed = true;
+          },
+        );
+      }
+
+      await vi.runAllTimersAsync();
+
+      expect(findMachineByIpAsync).toHaveBeenCalledWith('203.0.113.99');
+      expect(lines.some((l) => l.includes('Connection refused'))).toBe(true);
+      expect(completed).toBe(true);
+    });
+
+    it('does NOT call findMachineByIpAsync when sync getMachine hits', () => {
+      const findMachineByIpAsync = vi.fn(async () => undefined);
+      const context = {
+        ...createMockCurlContext(),
+        findMachineByIpAsync,
+      };
+      const curl = createCurlCommand(context);
+
+      curl.fn('http://192.168.1.75/');
+
+      expect(findMachineByIpAsync).not.toHaveBeenCalled();
+    });
+
+    it('throws synchronously on sync miss when findMachineByIpAsync is omitted (legacy)', () => {
+      const context = createMockCurlContext({ machines: [] });
+      const curl = createCurlCommand(context);
+
+      expect(() => curl.fn('http://192.168.1.99/')).toThrow(/Connection refused|Could not resolve/);
+    });
+  });
+
   describe('handler dispatch', () => {
     it('uses handler response when handler returns non-null', () => {
       const handler: RequestHandler = () => ({

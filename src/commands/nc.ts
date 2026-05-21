@@ -73,6 +73,12 @@ export type NcConnectInfo = {
 
 type NcConnectContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
+  // Async sibling of getMachine. Triggers the cross-LAN seed-regen
+  // resolver when the target IP is a publicly-addressable IPv4 that
+  // the sync view doesn't know yet. Optional for legacy callers /
+  // single-player tests; when omitted, the command keeps the pre-
+  // extension synchronous-throw contract on a sync miss.
+  readonly findMachineByIpAsync?: (ip: string) => Promise<RemoteMachine | undefined>;
   readonly getLocalIP: () => string;
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
   readonly onNcConnect?: (info: NcConnectInfo) => void;
@@ -99,7 +105,7 @@ const SERVICE_BANNERS: Readonly<Record<string, string | null>> = {
 const isInteractivePort = (port: Port): boolean => port.owner !== undefined;
 
 const connectNc = (context: NcConnectContext, args: readonly unknown[]): AsyncOutput => {
-  const { getMachine, getLocalIP, resolveDomain, onNcConnect } = context;
+  const { getMachine, findMachineByIpAsync, getLocalIP, resolveDomain, onNcConnect } = context;
 
   const host = args[0] as string | undefined;
   const portArg = args[1];
@@ -131,71 +137,110 @@ const connectNc = (context: NcConnectContext, args: readonly unknown[]): AsyncOu
     throw new Error('nc: connect to localhost: Connection refused');
   }
 
-  const machine = getMachine(targetIP);
-  if (!machine) {
-    throw new Error(`nc: connect to ${targetIP} port ${port}: Connection timed out`);
-  }
-
-  const targetPort = machine.ports.find((p) => p.port === port);
-  if (!targetPort || !targetPort.open) {
-    onNcConnect?.({ targetIp: targetIP, port, service: targetPort?.service, success: false });
-    throw new Error(`nc: connect to ${targetIP} port ${port}: Connection refused`);
-  }
-
-  onNcConnect?.({ targetIp: targetIP, port, service: targetPort.service, success: true });
-
   const token = createCancellationToken();
 
-  return {
-    __type: 'async',
-    start: (onLine, onComplete) => {
-      onLine(`Connecting to ${targetIP}:${port}...`);
+  // Validation that depends on the resolved machine. Same split as
+  // ssh/ftp/nmap — sync path lets throws propagate as the legacy
+  // contract; async path catches and surfaces via onLine.
+  // Returns the validated (machine, targetPort) tuple so callers can
+  // feed the connection animation without re-finding.
+  const validateMachineAndPort = (
+    machine: RemoteMachine | undefined,
+  ): { readonly machine: RemoteMachine; readonly targetPort: Port } => {
+    if (!machine) {
+      throw new Error(`nc: connect to ${targetIP} port ${port}: Connection timed out`);
+    }
+    const found = machine.ports.find((p) => p.port === port);
+    if (!found || !found.open) {
+      onNcConnect?.({ targetIp: targetIP, port, service: found?.service, success: false });
+      throw new Error(`nc: connect to ${targetIP} port ${port}: Connection refused`);
+    }
+    onNcConnect?.({ targetIp: targetIP, port, service: found.service, success: true });
+    return { machine, targetPort: found };
+  };
+
+  const runConnectAnim = (
+    onLine: (line: string) => void,
+    onComplete: (followUp?: NcPromptData) => void,
+    targetPort: Port,
+  ) => {
+    onLine(`Connecting to ${targetIP}:${port}...`);
+
+    token.schedule(() => {
+      if (token.isCancelled()) return;
+
+      onLine(`Connected to ${targetIP}.`);
 
       token.schedule(() => {
         if (token.isCancelled()) return;
 
-        onLine(`Connected to ${targetIP}.`);
+        const service = targetPort.service;
 
-        token.schedule(() => {
-          if (token.isCancelled()) return;
+        if (isInteractivePort(targetPort) && targetPort.owner) {
+          const { username, userType, homePath: ownerHome } = targetPort.owner;
 
-          const service = targetPort.service;
+          onLine('');
+          onLine(`# ${port} #`);
+          onLine('');
 
-          if (isInteractivePort(targetPort) && targetPort.owner) {
-            const { username, userType, homePath: ownerHome } = targetPort.owner;
+          // proof: 'pidfile' — Terminal routes this NcPromptData through
+          // authCreateNcSession so the server reads /var/run/nc-<port>.pid
+          // and derives credentials authoritatively. The username/
+          // userType/homePath fields here are the client's local guess
+          // (from FS-walk parseNcPidFiles) and are overridden by the
+          // server-derived values; for cross-player listeners, the
+          // server's read is the only trustworthy source.
+          const ncPrompt: NcPromptData = {
+            __type: 'nc_prompt',
+            targetIP,
+            targetPort: port,
+            service,
+            username,
+            userType,
+            homePath: ownerHome,
+            proof: 'pidfile',
+          };
 
-            onLine('');
-            onLine(`# ${port} #`);
-            onLine('');
+          onComplete(ncPrompt);
+        } else {
+          const banner = SERVICE_BANNERS[service] ?? `Connected to ${service} service`;
+          onLine(banner);
+          onLine('');
+          onLine('Connection closed.');
+          onComplete();
+        }
+      }, jitter(NC_BANNER_DELAY_MS));
+    }, jitter(NC_CONNECT_DELAY_MS));
+  };
 
-            // proof: 'pidfile' — Terminal routes this NcPromptData through
-            // authCreateNcSession so the server reads /var/run/nc-<port>.pid
-            // and derives credentials authoritatively. The username/
-            // userType/homePath fields here are the client's local guess
-            // (from FS-walk parseNcPidFiles) and are overridden by the
-            // server-derived values; for cross-player listeners, the
-            // server's read is the only trustworthy source.
-            const ncPrompt: NcPromptData = {
-              __type: 'nc_prompt',
-              targetIP,
-              targetPort: port,
-              service,
-              username,
-              userType,
-              homePath: ownerHome,
-              proof: 'pidfile',
-            };
+  // Sync hit OR no async resolver wired: keep the legacy
+  // synchronous-throw contract.
+  const syncMachine = getMachine(targetIP);
+  if (syncMachine || !findMachineByIpAsync) {
+    const { targetPort } = validateMachineAndPort(syncMachine);
+    return {
+      __type: 'async',
+      start: (onLine, onComplete) => runConnectAnim(onLine, onComplete, targetPort),
+      cancel: token.cancel,
+    };
+  }
 
-            onComplete(ncPrompt);
-          } else {
-            const banner = SERVICE_BANNERS[service] ?? `Connected to ${service} service`;
-            onLine(banner);
-            onLine('');
-            onLine('Connection closed.');
-            onComplete();
-          }
-        }, jitter(NC_BANNER_DELAY_MS));
-      }, jitter(NC_CONNECT_DELAY_MS));
+  // Cross-LAN fallback: sync miss + async resolver available. Foreign
+  // network materializes via findMachineByIpAsync, then validate +
+  // animate. Mirrors ssh.ts's pattern.
+  return {
+    __type: 'async',
+    start: (onLine, onComplete) => {
+      void findMachineByIpAsync(targetIP).then((asyncMachine) => {
+        if (token.isCancelled()) return;
+        try {
+          const { targetPort } = validateMachineAndPort(asyncMachine);
+          runConnectAnim(onLine, onComplete, targetPort);
+        } catch (error) {
+          onLine(error instanceof Error ? error.message : String(error));
+          onComplete();
+        }
+      });
     },
     cancel: token.cancel,
   };

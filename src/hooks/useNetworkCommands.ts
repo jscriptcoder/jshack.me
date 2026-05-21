@@ -314,7 +314,12 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
       'ftp',
       wrapWithBrickedCheck(
         wrapWithWifiCheck(
-          createFtpCommand({ getMachine, getLocalIP, resolveDomain }),
+          createFtpCommand({
+            getMachine,
+            findMachineByIpAsync: findEffectiveMachineByIpAsync,
+            getLocalIP,
+            resolveDomain,
+          }),
           isWifiRequired,
         ),
         isMachineBricked,
@@ -325,6 +330,7 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
       'nc',
       createNcCommand({
         getMachine,
+        findMachineByIpAsync: findEffectiveMachineByIpAsync,
         getLocalIP,
         resolveDomain,
         onNcConnect,
@@ -357,6 +363,7 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
         wrapWithWifiCheck(
           createCurlCommand({
             getMachine,
+            findMachineByIpAsync: findEffectiveMachineByIpAsync,
             resolveDomain,
             resolveNat,
             // Translate IP → workstation_id so cross-player reads land on
@@ -533,6 +540,7 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
             // reachable when the player is on localhost (where getMachine
             // would return undefined for LAN IPs).
             findMachineByIp: findEffectiveMachineByIp,
+            findMachineByIpAsync: findEffectiveMachineByIpAsync,
             getLocalIP,
             // NAT resolver: when player runs msfconsole publicIP forwardedPort,
             // msfconsole resolves to the actual internal target so all
@@ -722,6 +730,7 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
         wrapWithWifiCheck(
           createHydraCommand({
             getMachine,
+            findMachineByIpAsync: findEffectiveMachineByIpAsync,
             getLocalIP,
             resolveDomain,
             resolveNat,
@@ -762,6 +771,7 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
         wrapWithWifiCheck(
           createGobusterCommand({
             getMachine,
+            findMachineByIpAsync: findEffectiveMachineByIpAsync,
             resolveDomain,
             resolveNat,
             // IP → workstation_id translation so cross-player /var/www
@@ -838,7 +848,13 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
       'mysql',
       wrapWithBrickedCheck(
         wrapWithWifiCheck(
-          createMysqlCommand({ getMachine, findMachineByIp, getLocalIP, resolveDomain }),
+          createMysqlCommand({
+            getMachine,
+            findMachineByIp,
+            findMachineByIpAsync: findEffectiveMachineByIpAsync,
+            getLocalIP,
+            resolveDomain,
+          }),
           isWifiRequired,
         ),
         isMachineBricked,
@@ -849,7 +865,13 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
       'rediscli',
       wrapWithBrickedCheck(
         wrapWithWifiCheck(
-          createRediscliCommand({ getMachine, findMachineByIp, getLocalIP, resolveDomain }),
+          createRediscliCommand({
+            getMachine,
+            findMachineByIp,
+            findMachineByIpAsync: findEffectiveMachineByIpAsync,
+            getLocalIP,
+            resolveDomain,
+          }),
           isWifiRequired,
         ),
         isMachineBricked,
@@ -862,6 +884,7 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
         wrapWithWifiCheck(
           createScpCommand({
             getMachine,
+            findMachineByIpAsync: findEffectiveMachineByIpAsync,
             getLocalIP,
             getCurrentMachine: () => session.machine,
             getCurrentPath: () => session.currentPath,
@@ -910,6 +933,7 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
 
     const lynxFetch = buildLynxFetch({
       getMachine: getEffectiveMachine,
+      findMachineByIpAsync: findEffectiveMachineByIpAsync,
       resolveDomain,
       resolveNat,
       // Same IP → workstation_id translation as curl. Without it, lynx

@@ -5,7 +5,7 @@
 
 import type { HttpResponse } from '../../network/http';
 import {
-  resolveHttpTarget,
+  resolveHttpTargetAsync,
   dispatchHttpRequest,
   type ResolveHttpTargetContext,
   type DispatchHttpRequestContext,
@@ -21,19 +21,18 @@ export type LynxFetchContext = ResolveHttpTargetContext &
 export type LynxFetch = (url: string) => Promise<HttpResponse>;
 
 export const buildLynxFetch = (context: LynxFetchContext): LynxFetch => {
-  return (url) =>
-    new Promise<HttpResponse>((resolve, reject) => {
-      // Validation runs synchronously (so DNS / port / bad-URL errors
-      // reject the promise immediately), then the actual dispatch is
-      // delayed by the same jitter curl applies — keeps the network-feel
-      // consistent across the two commands.
-      let target;
-      try {
-        target = resolveHttpTarget(context, url, 'lynx');
-      } catch (e) {
-        reject(e instanceof Error ? e : new Error(String(e)));
-        return;
-      }
+  return async (url) => {
+    // Resolution runs through resolveHttpTargetAsync so cross-LAN
+    // forwarded URLs (where sync getMachine misses) materialize the
+    // foreign network via findMachineByIpAsync. The legacy sync-throw
+    // contract is preserved when findMachineByIpAsync isn't wired —
+    // resolveHttpTargetAsync still throws synchronously-equivalent
+    // (rejects) on invalid URL / DNS / closed-port failures.
+    const target = await resolveHttpTargetAsync(context, url, 'lynx');
+
+    // Dispatch is still delayed by jitter so the network-feel matches
+    // curl. Wrapping in a Promise here mirrors the pre-async cadence.
+    return new Promise<HttpResponse>((resolve) => {
       const delay = jitter(500);
       setTimeout(() => {
         const result = dispatchHttpRequest(context, target, { method: 'GET' });
@@ -48,4 +47,5 @@ export const buildLynxFetch = (context: LynxFetchContext): LynxFetch => {
         resolve(result.response);
       }, delay);
     });
+  };
 };

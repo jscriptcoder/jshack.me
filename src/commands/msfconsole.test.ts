@@ -1749,4 +1749,107 @@ describe('msfconsole command', () => {
       expect(isAsyncOutput(result)).toBe(true);
     });
   });
+
+  describe('cross-LAN async pre-resolve', () => {
+    // Mirrors ssh.ts's findMachineByIpAsync fallback. When the player
+    // exploits a forwarded CVE port on another player's workstation
+    // across LANs, the command awaits findMachineByIpAsync to
+    // materialize the foreign network before the CVE lookup runs.
+    // Effect dispatch (writeRemoteFile / exploitFileRead /
+    // runScriptOnTarget) already routes through resolveTargetMachineId
+    // at the wiring layer, so once the foreign router stub is in view
+    // the rest of the dispatch works.
+
+    it('falls back to findMachineByIpAsync when sync getMachine misses', async () => {
+      const foreignMachine: RemoteMachine = {
+        ip: '203.0.113.42',
+        hostname: 'foreign-router',
+        // Need a CVE-vulnerable port for buildExploitOutput to fire. The
+        // test only verifies the resolver was called — the exploit's
+        // success isn't the point.
+        ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
+        users: [],
+      };
+      const findMachineByIpAsync = vi.fn(async (ip: string) =>
+        ip === '203.0.113.42' ? foreignMachine : undefined,
+      );
+      const context = {
+        ...createMockMsfconsoleContext({ machines: [] }),
+        findMachineByIpAsync,
+      };
+      const msfconsole = createMsfconsoleCommand(context);
+
+      const result = msfconsole.fn('203.0.113.42', 22);
+      expect(isAsyncOutput(result)).toBe(true);
+
+      if (isAsyncOutput(result)) {
+        result.start(
+          () => {},
+          () => {},
+        );
+      }
+      await vi.runAllTimersAsync();
+
+      expect(findMachineByIpAsync).toHaveBeenCalledWith('203.0.113.42');
+    });
+
+    it('emits Connection timed out via onLine when async resolver returns undefined', async () => {
+      const findMachineByIpAsync = vi.fn(async () => undefined);
+      const context = {
+        ...createMockMsfconsoleContext({ machines: [] }),
+        findMachineByIpAsync,
+      };
+      const msfconsole = createMsfconsoleCommand(context);
+
+      const result = msfconsole.fn('203.0.113.99', 22);
+      const lines: string[] = [];
+      let completed = false;
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {
+            completed = true;
+          },
+        );
+      }
+      await vi.runAllTimersAsync();
+
+      expect(findMachineByIpAsync).toHaveBeenCalledWith('203.0.113.99');
+      expect(lines.some((l) => l.includes('Connection timed out'))).toBe(true);
+      expect(completed).toBe(true);
+    });
+
+    it('does NOT call findMachineByIpAsync when sync getMachine hits', () => {
+      const findMachineByIpAsync = vi.fn(async () => undefined);
+      const machine: RemoteMachine = {
+        ip: '192.168.1.50',
+        hostname: 'srv',
+        ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
+        users: [],
+      };
+      const context = {
+        ...createMockMsfconsoleContext({ machines: [machine] }),
+        findMachineByIpAsync,
+      };
+      const msfconsole = createMsfconsoleCommand(context);
+
+      // Sync path proceeds with the resolved machine, throwing
+      // "no known vulnerability" because the synthetic port has no
+      // CVE. We're not testing that path's success — just that the
+      // async resolver was bypassed.
+      try {
+        msfconsole.fn('192.168.1.50', 22);
+      } catch {
+        // expected — synthetic machine has no CVE
+      }
+
+      expect(findMachineByIpAsync).not.toHaveBeenCalled();
+    });
+
+    it('throws synchronously on sync miss when findMachineByIpAsync is omitted (legacy)', () => {
+      const context = createMockMsfconsoleContext({ machines: [] });
+      const msfconsole = createMsfconsoleCommand(context);
+      expect(() => msfconsole.fn('10.0.0.1', 22)).toThrow('Connection timed out');
+    });
+  });
 });

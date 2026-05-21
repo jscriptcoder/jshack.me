@@ -554,6 +554,112 @@ describe('nc command', () => {
       expect(lines[0]).toBe('Connecting to 192.168.1.50:21...');
     });
   });
+
+  describe('cross-LAN async pre-resolve', () => {
+    // Mirrors ssh.ts's findMachineByIpAsync fallback. When the player
+    // types `nc <foreign public IP> <port>` for a backdoor on another
+    // player's workstation reached via NAT-forward, the command awaits
+    // findMachineByIpAsync to materialize the foreign network before
+    // validating the port and dispatching the connect animation.
+
+    it('falls back to findMachineByIpAsync when sync getMachine misses', async () => {
+      const foreignMachine = getMockRemoteMachine({
+        ip: '203.0.113.42',
+        ports: [
+          {
+            port: 4444,
+            service: 'elite',
+            serviceVersion: 'latest',
+            open: true,
+            owner: { username: 'root', userType: 'root', homePath: '/root' },
+          },
+        ],
+      });
+      const findMachineByIpAsync = vi.fn(async (ip: string) =>
+        ip === '203.0.113.42' ? foreignMachine : undefined,
+      );
+      const context = {
+        ...createMockNcContext(),
+        findMachineByIpAsync,
+      };
+      const nc = createNcCommand(context);
+
+      const result = nc.fn('203.0.113.42', 4444);
+      expect(isAsyncOutput(result)).toBe(true);
+
+      let followUp: unknown = null;
+      if (isAsyncOutput(result)) {
+        result.start(
+          () => {},
+          (data) => {
+            followUp = data;
+          },
+        );
+      }
+
+      await vi.runAllTimersAsync();
+
+      expect(findMachineByIpAsync).toHaveBeenCalledWith('203.0.113.42');
+      expect(isNcPrompt(followUp)).toBe(true);
+      if (isNcPrompt(followUp)) {
+        expect(followUp.targetIP).toBe('203.0.113.42');
+        expect(followUp.targetPort).toBe(4444);
+      }
+    });
+
+    it('emits Connection timed out via onLine when async resolver returns undefined', async () => {
+      const findMachineByIpAsync = vi.fn(async () => undefined);
+      const context = {
+        ...createMockNcContext(),
+        findMachineByIpAsync,
+      };
+      const nc = createNcCommand(context);
+
+      const result = nc.fn('203.0.113.99', 4444);
+      const lines: string[] = [];
+      let completed = false;
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {
+            completed = true;
+          },
+        );
+      }
+
+      await vi.runAllTimersAsync();
+
+      expect(findMachineByIpAsync).toHaveBeenCalledWith('203.0.113.99');
+      expect(lines.some((l) => l.includes('Connection timed out'))).toBe(true);
+      expect(completed).toBe(true);
+    });
+
+    it('does NOT call findMachineByIpAsync when sync getMachine hits', () => {
+      const localMachine = getMockRemoteMachine({
+        ip: '192.168.1.50',
+        ports: [{ port: 21, service: 'ftp', serviceVersion: 'latest', open: true }],
+      });
+      const findMachineByIpAsync = vi.fn(async () => undefined);
+      const context = {
+        ...createMockNcContext({ machines: [localMachine] }),
+        findMachineByIpAsync,
+      };
+      const nc = createNcCommand(context);
+
+      nc.fn('192.168.1.50', 21);
+
+      expect(findMachineByIpAsync).not.toHaveBeenCalled();
+    });
+
+    it('throws synchronously on sync miss when findMachineByIpAsync is omitted (legacy)', () => {
+      const context = createMockNcContext({ machines: [] });
+      const nc = createNcCommand(context);
+
+      expect(() => nc.fn('10.0.0.1', 4444)).toThrow(
+        'nc: connect to 10.0.0.1 port 4444: Connection timed out',
+      );
+    });
+  });
 });
 
 // --- Listen mode (nc -l) ---

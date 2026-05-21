@@ -113,6 +113,12 @@ type MsfconsoleContext = {
   // tier-user lookups pick router users that don't exist on the actual
   // target. Optional for tests; falls back to getMachine when not provided.
   readonly findMachineByIp?: (ip: string) => RemoteMachine | undefined;
+  // Async sibling of getMachine. Triggers the cross-LAN seed-regen
+  // resolver when the target IP is a publicly-addressable IPv4 that
+  // the sync view doesn't know yet. Optional for legacy callers /
+  // single-player tests; when omitted, the command keeps the pre-
+  // extension synchronous-throw contract on a sync miss.
+  readonly findMachineByIpAsync?: (ip: string) => Promise<RemoteMachine | undefined>;
 };
 
 const MSFCONSOLE_PHASE_DELAY_MS = 600;
@@ -152,7 +158,8 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
     }
 
     // --- Branch: regular remote exploit (msfconsole <host> <port>) ---
-    const { getMachine, getLocalIP, resolveDomain, onExploitAttempt } = context;
+    const { getMachine, findMachineByIpAsync, getLocalIP, resolveDomain, onExploitAttempt } =
+      context;
 
     const host = args[0] as string | undefined;
     const portArg = args[1];
@@ -189,79 +196,113 @@ export const createMsfconsoleCommand = (context: MsfconsoleContext): Command => 
       throw new Error('msfconsole: cannot exploit localhost');
     }
 
-    const machine = getMachine(targetIP);
-    if (!machine) {
-      throw new Error(`msfconsole: connect to ${targetIP}: Connection timed out`);
-    }
+    // Build the exploit dispatch given a resolved machine. Same split
+    // as ssh.ts — sync path lets throws propagate; async path catches
+    // and surfaces via onLine.
+    const dispatchExploit = (machine: RemoteMachine | undefined): AsyncOutput => {
+      if (!machine) {
+        throw new Error(`msfconsole: connect to ${targetIP}: Connection timed out`);
+      }
 
-    const targetPort = machine.ports.find((p) => p.port === port);
-    if (!targetPort || !targetPort.open) {
-      onExploitAttempt?.({ targetIp: targetIP, port, success: false });
-      throw new Error(`msfconsole: ${targetIP}:${port}: Connection refused`);
-    }
+      const targetPort = machine.ports.find((p) => p.port === port);
+      if (!targetPort || !targetPort.open) {
+        onExploitAttempt?.({ targetIp: targetIP, port, success: false });
+        throw new Error(`msfconsole: ${targetIP}:${port}: Connection refused`);
+      }
 
-    const gameTime = context.getGameTime?.() ?? 0;
-    const vulnerability = findExploitableCve(machine, targetPort, gameTime);
-    if (!vulnerability) {
+      const gameTime = context.getGameTime?.() ?? 0;
+      const vulnerability = findExploitableCve(machine, targetPort, gameTime);
+      if (!vulnerability) {
+        onExploitAttempt?.({
+          targetIp: targetIP,
+          port,
+          service: targetPort.service,
+          serviceVersion: targetPort.serviceVersion,
+          success: false,
+        });
+        throw new Error(`msfconsole: no known vulnerability on ${targetIP}:${port}`);
+      }
+
+      if (!targetPort.owner) {
+        onExploitAttempt?.({
+          targetIp: targetIP,
+          port,
+          service: targetPort.service,
+          serviceVersion: targetPort.serviceVersion,
+          success: false,
+        });
+        throw new Error(`msfconsole: exploit failed — service not exploitable`);
+      }
+
+      // NAT resolution: when the player ran `msfconsole publicIP forwardedPort`,
+      // resolve to the actual internal target so effects mutate the right
+      // machine. For LAN-internal IPs (no NAT rule), resolveNat returns the
+      // input unchanged, so behavior here is invariant for direct exploits.
+      const resolved = context.resolveNat?.(targetIP, port) ?? { ip: targetIP, port };
+      const effectiveIp = resolved.ip;
+      // findMachineByIp searches the whole mission so the internal target
+      // is reachable even when the player is on localhost (where getMachine
+      // would return undefined for the LAN's IPs). Falls back to getMachine
+      // for tests that don't supply findMachineByIp; ultimately to `machine`
+      // (the router-with-merged) as a safety net.
+      const effectiveMachine =
+        context.findMachineByIp?.(effectiveIp) ?? getMachine(effectiveIp) ?? machine;
+
       onExploitAttempt?.({
         targetIp: targetIP,
         port,
         service: targetPort.service,
         serviceVersion: targetPort.serviceVersion,
-        success: false,
+        success: true,
       });
-      throw new Error(`msfconsole: no known vulnerability on ${targetIP}:${port}`);
+
+      return buildExploitOutput(
+        {
+          machine,
+          targetIP,
+          effectiveIp,
+          effectiveMachine,
+          port,
+          targetPort,
+          vulnerability,
+        },
+        thirdArg,
+        context,
+      );
+    };
+
+    // Sync hit OR no async resolver wired: keep the legacy
+    // synchronous-throw contract.
+    const syncMachine = getMachine(targetIP);
+    if (syncMachine || !findMachineByIpAsync) {
+      return dispatchExploit(syncMachine);
     }
 
-    if (!targetPort.owner) {
-      onExploitAttempt?.({
-        targetIp: targetIP,
-        port,
-        service: targetPort.service,
-        serviceVersion: targetPort.serviceVersion,
-        success: false,
-      });
-      throw new Error(`msfconsole: exploit failed — service not exploitable`);
-    }
-
-    // NAT resolution: when the player ran `msfconsole publicIP forwardedPort`,
-    // resolve to the actual internal target so effects mutate the right
-    // machine. For LAN-internal IPs (no NAT rule), resolveNat returns the
-    // input unchanged, so behavior here is invariant for direct exploits.
-    // The CVE detection above used the merged router port's metadata
-    // (which inherited from the internal port via networkUtils), so we only
-    // diverge from the public-IP machine for the EFFECT phase below.
-    const resolved = context.resolveNat?.(targetIP, port) ?? { ip: targetIP, port };
-    const effectiveIp = resolved.ip;
-    // findMachineByIp searches the whole mission so the internal target
-    // is reachable even when the player is on localhost (where getMachine
-    // would return undefined for the LAN's IPs). Falls back to getMachine
-    // for tests that don't supply findMachineByIp; ultimately to `machine`
-    // (the router-with-merged) as a safety net.
-    const effectiveMachine =
-      context.findMachineByIp?.(effectiveIp) ?? getMachine(effectiveIp) ?? machine;
-
-    onExploitAttempt?.({
-      targetIp: targetIP,
-      port,
-      service: targetPort.service,
-      serviceVersion: targetPort.serviceVersion,
-      success: true,
-    });
-
-    return buildExploitOutput(
-      {
-        machine,
-        targetIP,
-        effectiveIp,
-        effectiveMachine,
-        port,
-        targetPort,
-        vulnerability,
+    // Cross-LAN fallback: sync miss + async resolver available. The
+    // foreign network materializes via findMachineByIpAsync. Useful
+    // when the player targets a forwarded CVE port on another player's
+    // workstation across LANs — the cross-player effect primitives
+    // (exploitFileRead, writeRemoteFile, runScriptOnTarget) already
+    // route through resolveTargetMachineId at the useNetworkCommands
+    // wiring layer, so once the foreign router stub is materialized
+    // the rest of the dispatch works.
+    const cancelToken = createCancellationToken();
+    return {
+      __type: 'async',
+      start: (onLine, onComplete) => {
+        void findMachineByIpAsync(targetIP).then((asyncMachine) => {
+          if (cancelToken.isCancelled()) return;
+          try {
+            const inner = dispatchExploit(asyncMachine);
+            inner.start(onLine, onComplete);
+          } catch (error) {
+            onLine(error instanceof Error ? error.message : String(error));
+            onComplete();
+          }
+        });
       },
-      thirdArg,
-      context,
-    );
+      cancel: cancelToken.cancel,
+    };
   },
 });
 

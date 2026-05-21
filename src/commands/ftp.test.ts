@@ -564,4 +564,160 @@ describe('ftp command', () => {
       }
     });
   });
+
+  describe('cross-LAN async pre-resolve', () => {
+    // Mirrors ssh.ts's findMachineByIpAsync fallback. When the player
+    // types `ftp <foreign public IP>` and the sync getMachine doesn't
+    // know the target (its HomeNetwork hasn't been seeded yet), the
+    // command awaits findMachineByIpAsync to materialize the foreign
+    // network via the cross-LAN seed-regen resolver, then proceeds
+    // with the normal connect animation. Sync hits short-circuit the
+    // async path so existing legacy callers + tests are unaffected.
+
+    it('falls back to findMachineByIpAsync when sync getMachine misses', async () => {
+      const foreignMachine = getMockRemoteMachine({
+        ip: '203.0.113.42',
+        hostname: 'foreign-router',
+        ports: [{ port: 21, service: 'ftp', serviceVersion: 'latest', open: true }],
+      });
+      const findMachineByIpAsync = vi.fn(async (ip: string) =>
+        ip === '203.0.113.42' ? foreignMachine : undefined,
+      );
+      const context = {
+        getMachine: vi.fn(() => undefined),
+        getLocalIP: () => '192.168.1.100',
+        resolveDomain: vi.fn(() => undefined),
+        findMachineByIpAsync,
+      };
+      const ftp = createFtpCommand(context);
+
+      const result = ftp.fn('203.0.113.42');
+      expect(isAsyncOutput(result)).toBe(true);
+
+      let followUp: unknown = null;
+      if (isAsyncOutput(result)) {
+        result.start(
+          () => {},
+          (data) => {
+            followUp = data;
+          },
+        );
+      }
+
+      // Drain the async resolver's microtask + ftp's scheduled delays.
+      await vi.runAllTimersAsync();
+
+      expect(findMachineByIpAsync).toHaveBeenCalledWith('203.0.113.42');
+      expect(isFtpPrompt(followUp)).toBe(true);
+      if (isFtpPrompt(followUp)) {
+        expect(followUp.targetIP).toBe('203.0.113.42');
+      }
+    });
+
+    it('emits Connection refused via onLine when async resolver also returns undefined', async () => {
+      // The "no machine anywhere" case shifts from sync throw to async
+      // onLine emission once the resolver is wired. Same end-user UX
+      // (the error appears in the terminal) but the throw can't be
+      // sync because the resolver round-trip is async.
+      const findMachineByIpAsync = vi.fn(async () => undefined);
+      const context = {
+        getMachine: vi.fn(() => undefined),
+        getLocalIP: () => '192.168.1.100',
+        resolveDomain: vi.fn(() => undefined),
+        findMachineByIpAsync,
+      };
+      const ftp = createFtpCommand(context);
+
+      const result = ftp.fn('203.0.113.99');
+      expect(isAsyncOutput(result)).toBe(true);
+
+      const lines: string[] = [];
+      let completed = false;
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {
+            completed = true;
+          },
+        );
+      }
+
+      await vi.runAllTimersAsync();
+
+      expect(findMachineByIpAsync).toHaveBeenCalledWith('203.0.113.99');
+      expect(
+        lines.some((l) => l.includes('Connection refused') && l.includes('203.0.113.99')),
+      ).toBe(true);
+      expect(completed).toBe(true);
+    });
+
+    it('does NOT call findMachineByIpAsync when sync getMachine hits', () => {
+      // Precedence: sync hits short-circuit. Avoids a needless server
+      // round-trip for own-LAN / mission / world targets the client
+      // already knows about.
+      const localMachine = getMockRemoteMachine({
+        ip: '192.168.1.50',
+        ports: [{ port: 21, service: 'ftp', serviceVersion: 'latest', open: true }],
+      });
+      const findMachineByIpAsync = vi.fn(async () => undefined);
+      const context = {
+        getMachine: vi.fn(() => localMachine),
+        getLocalIP: () => '192.168.1.100',
+        resolveDomain: vi.fn(() => undefined),
+        findMachineByIpAsync,
+      };
+      const ftp = createFtpCommand(context);
+
+      ftp.fn('192.168.1.50');
+
+      expect(findMachineByIpAsync).not.toHaveBeenCalled();
+    });
+
+    it('throws synchronously on sync miss when findMachineByIpAsync is omitted (legacy)', () => {
+      // Backward-compatible: a context that doesn't supply the async
+      // resolver keeps the pre-extension throw contract.
+      const context = createMockFtpContext({ machines: [] });
+      const ftp = createFtpCommand(context);
+
+      expect(() => ftp.fn('10.0.0.1')).toThrow(
+        'ftp: connect to 10.0.0.1 port 21: Connection refused',
+      );
+    });
+
+    it('emits Connection refused via onLine when foreign machine has no open FTP port', async () => {
+      // Machine known + present but FTP port absent — sync throw becomes
+      // async onLine emission. Same shape as the connection-refused branch.
+      const foreignMachine = getMockRemoteMachine({
+        ip: '203.0.113.42',
+        ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
+      });
+      const findMachineByIpAsync = vi.fn(async () => foreignMachine);
+      const context = {
+        getMachine: vi.fn(() => undefined),
+        getLocalIP: () => '192.168.1.100',
+        resolveDomain: vi.fn(() => undefined),
+        findMachineByIpAsync,
+      };
+      const ftp = createFtpCommand(context);
+
+      const result = ftp.fn('203.0.113.42');
+      const lines: string[] = [];
+      let completed = false;
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {
+            completed = true;
+          },
+        );
+      }
+
+      await vi.runAllTimersAsync();
+
+      expect(
+        lines.some((l) => l.includes('Connection refused') && l.includes('203.0.113.42')),
+      ).toBe(true);
+      expect(completed).toBe(true);
+    });
+  });
 });

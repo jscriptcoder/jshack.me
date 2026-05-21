@@ -25,6 +25,12 @@ export type HttpResponse = {
 export type ResolveHttpTargetContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
+  // Async sibling of getMachine. Triggers the cross-LAN seed-regen
+  // resolver when the target IP is a publicly-addressable IPv4 that
+  // the sync view doesn't know yet. Optional — when omitted (single-
+  // player tests / legacy callers), the resolver functions keep the
+  // pre-extension sync-throw contract on a sync miss.
+  readonly findMachineByIpAsync?: (ip: string) => Promise<RemoteMachine | undefined>;
 };
 
 export type DispatchHttpRequestContext = {
@@ -258,6 +264,52 @@ export const resolveHttpTarget = (
   }
 
   const machine = context.getMachine(targetIP);
+  if (!machine) {
+    throw new Error(
+      `${commandName}: Failed to connect to ${parsed.host} port ${parsed.port}: Connection refused`,
+    );
+  }
+
+  const port = machine.ports.find((p) => p.port === parsed.port);
+  if (!port || !port.open || !isHttpService(port.service)) {
+    throw new Error(
+      `${commandName}: Failed to connect to ${parsed.host} port ${parsed.port}: Connection refused`,
+    );
+  }
+
+  return { parsed, targetIP, machine, port };
+};
+
+// Async variant: same validation contract as resolveHttpTarget, with a
+// fallback to findMachineByIpAsync when sync getMachine misses. Returns
+// a Promise; rejects on any validation failure (invalid URL, DNS,
+// missing machine after async, closed port, non-HTTP service). Used by
+// curl/gobuster/lynx to surface cross-LAN forwarded URLs — the public
+// IP isn't in A's local network view until findMachineByIpAsync
+// materializes the foreign HomeNetwork via the cross-LAN seed-regen
+// resolver. URL + DNS validation stays synchronous so commands can
+// still throw early on malformed input before returning AsyncOutput.
+export const resolveHttpTargetAsync = async (
+  context: ResolveHttpTargetContext,
+  urlStr: string,
+  commandName: string,
+): Promise<ValidatedHttpTarget> => {
+  const parsed = parseUrl(urlStr);
+  if (!parsed) {
+    throw new Error(`${commandName}: invalid URL: ${urlStr}`);
+  }
+
+  const dnsRecord = context.resolveDomain(parsed.host);
+  const targetIP = dnsRecord?.ip ?? parsed.host;
+
+  if (!isValidIP(targetIP)) {
+    throw new Error(`${commandName}: Could not resolve host: ${parsed.host}`);
+  }
+
+  const syncMachine = context.getMachine(targetIP);
+  const machine =
+    syncMachine ??
+    (context.findMachineByIpAsync ? await context.findMachineByIpAsync(targetIP) : undefined);
   if (!machine) {
     throw new Error(
       `${commandName}: Failed to connect to ${parsed.host} port ${parsed.port}: Connection refused`,
