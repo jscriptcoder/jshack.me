@@ -564,9 +564,10 @@ export const Terminal = () => {
                         followUp.targetIP,
                         followUp.username,
                         followUp.password,
+                        followUp.targetPort,
                       );
                     } else {
-                      startFtpPrompt(followUp.targetIP);
+                      startFtpPrompt(followUp.targetIP, followUp.targetPort);
                     }
                   }
 

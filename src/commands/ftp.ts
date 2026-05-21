@@ -22,13 +22,19 @@ export const createFtpCommand = (context: FtpContext): Command => ({
   category: 'network',
   description: 'File Transfer Protocol connection to remote host',
   manual: {
-    synopsis: 'ftp <host> [username] [password]',
+    synopsis: 'ftp <host> [port] [username] [password]',
     description:
       'Connect to a remote machine via FTP. Without credentials, you will be prompted for username and password. ' +
       'With credentials, authentication happens automatically after the connection animation — useful in scripts via node. ' +
+      'Optional port argument overrides the default FTP port (21) — useful for connecting through NAT-forwarded ports. ' +
       'Once connected, you can use FTP commands: ls, cd, pwd, lpwd, lcd, get, put, quit.',
     arguments: [
       { name: 'host', description: 'IP address or hostname of the remote machine', required: true },
+      {
+        name: 'port',
+        description: 'Optional port to connect on (default: 21)',
+        required: false,
+      },
       {
         name: 'username',
         description: 'Optional username for programmatic authentication',
@@ -44,6 +50,10 @@ export const createFtpCommand = (context: FtpContext): Command => ({
       { command: 'ftp 10.0.0.5', description: 'Connect to a remote host via FTP' },
       { command: 'ftp target.local', description: 'Connect using hostname' },
       {
+        command: 'ftp 91.101.29.106 2121',
+        description: 'Connect via NAT-forwarded port (cross-LAN)',
+      },
+      {
         command: 'ftp 10.0.0.5 admin secret',
         description: 'Connect with credentials (scripting)',
       },
@@ -53,11 +63,42 @@ export const createFtpCommand = (context: FtpContext): Command => ({
     const { getMachine, findMachineByIpAsync, getLocalIP, resolveDomain } = context;
 
     const host = args[0] as string | undefined;
-    const usernameArg = args[1] as string | undefined;
-    const passwordArg = args[2] as string | undefined;
+    // Overloaded args. Mirrors ssh/scp's port-shaped detection:
+    //   ftp(host)                          — port=21, interactive
+    //   ftp(host, port)                    — port=<n>, interactive (if 2nd arg numeric)
+    //   ftp(host, user)                    — port=21, interactive with user
+    //   ftp(host, user, pass)              — port=21, script
+    //   ftp(host, port, user, pass)        — port=<n>, script (if 2nd arg numeric)
+    const secondArg = args[1];
+    const thirdArg = args[2];
+    const fourthArg = args[3];
+
+    let port = 21;
+    let usernameArg: string | undefined;
+    let passwordArg: string | undefined;
+
+    const isPortShaped = (value: unknown): value is number => {
+      if (typeof value === 'number') {
+        return Number.isInteger(value) && value >= 1 && value <= 65535;
+      }
+      if (typeof value === 'string' && value.trim() !== '') {
+        const asNum = Number(value);
+        return Number.isInteger(asNum) && asNum >= 1 && asNum <= 65535;
+      }
+      return false;
+    };
+
+    if (isPortShaped(secondArg)) {
+      port = typeof secondArg === 'number' ? secondArg : Number(secondArg);
+      usernameArg = typeof thirdArg === 'string' ? thirdArg : undefined;
+      passwordArg = typeof fourthArg === 'string' ? fourthArg : undefined;
+    } else {
+      usernameArg = typeof secondArg === 'string' ? secondArg : undefined;
+      passwordArg = typeof thirdArg === 'string' ? thirdArg : undefined;
+    }
 
     if (!host) {
-      throw new Error('ftp: missing host\nUsage: ftp <host>');
+      throw new Error('ftp: missing host\nUsage: ftp <host> [port]');
     }
 
     let targetIP = host;
@@ -84,17 +125,27 @@ export const createFtpCommand = (context: FtpContext): Command => ({
     // can't reach the caller's try/catch in the original sync sense).
     const validateAndBuildPrompt = (machine: RemoteMachine | undefined): FtpPromptData => {
       if (!machine) {
-        throw new Error(`ftp: connect to ${targetIP} port 21: Connection refused`);
+        throw new Error(`ftp: connect to ${targetIP} port ${port}: Connection refused`);
       }
 
-      const ftpPort = machine.ports.find((p) => p.port === 21 && p.service === 'ftp');
-      if (!ftpPort || !ftpPort.open) {
-        throw new Error(`ftp: connect to ${targetIP} port 21: Connection refused`);
+      // For the default port (21), require service='ftp' on the matched
+      // port — that's the canonical FTP daemon. For any other port (i.e.
+      // a NAT-forwarded public port like 2121), accept any open port:
+      // the merged router view's forwarded entry doesn't carry the
+      // backend service string, and validating against 'ftp' here would
+      // spuriously reject legitimate forwards.
+      const targetPort = machine.ports.find((p) => p.port === port);
+      const isDefaultPort = port === 21;
+      const portOpen = targetPort?.open === true;
+      const matchesFtpService = !isDefaultPort || targetPort?.service === 'ftp';
+      if (!targetPort || !portOpen || !matchesFtpService) {
+        throw new Error(`ftp: connect to ${targetIP} port ${port}: Connection refused`);
       }
 
       return {
         __type: 'ftp_prompt',
         targetIP,
+        targetPort: port,
         ...(usernameArg !== undefined && { username: usernameArg }),
         ...(passwordArg !== undefined && { password: passwordArg }),
       };

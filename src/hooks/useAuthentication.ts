@@ -135,6 +135,7 @@ export const useAuthentication = ({
   const [sshTargetIP, setSshTargetIP] = useState<string | null>(null);
   const [sshTargetPort, setSshTargetPort] = useState<number | null>(null);
   const [ftpTargetIP, setFtpTargetIP] = useState<string | null>(null);
+  const [ftpTargetPort, setFtpTargetPort] = useState<number | null>(null);
   const [ftpUsernameMode, setFtpUsernameMode] = useState(false);
   const [scpTargetIP, setScpTargetIP] = useState<string | null>(null);
   const [scpTargetPort, setScpTargetPort] = useState<number | null>(null);
@@ -418,8 +419,14 @@ export const useAuthentication = ({
   // path: cross-player placeholders have empty users[], so we don't
   // pre-reject — the server is the authority.
   const authenticateFtpInline = useCallback(
-    async (targetIP: string, username: string, password: string): Promise<void> => {
-      const resolvedIp = resolveNat(targetIP, 21).ip;
+    async (
+      targetIP: string,
+      username: string,
+      password: string,
+      targetPort?: number,
+    ): Promise<void> => {
+      const port = targetPort ?? 21;
+      const resolvedIp = resolveNat(targetIP, port).ip;
       const machineId = resolveTargetMachineId(resolvedIp);
       const remoteHomePath = getDefaultHomePath(resolvedIp, username);
 
@@ -434,7 +441,7 @@ export const useAuthentication = ({
 
       if (!result.ok) {
         addLine('error', '530 Login incorrect.');
-        onFtpAuth?.({ success: false, user: username, targetIP, port: 21 });
+        onFtpAuth?.({ success: false, user: username, targetIP, port });
         return;
       }
 
@@ -459,7 +466,7 @@ export const useAuthentication = ({
 
       enterFtpMode(newFtpSession);
       addLine('result', '230 Login successful.');
-      onFtpAuth?.({ success: true, user: username, targetIP, port: 21 });
+      onFtpAuth?.({ success: true, user: username, targetIP, port });
     },
     [
       resolveNat,
@@ -474,8 +481,9 @@ export const useAuthentication = ({
   );
 
   const startFtpPrompt = useCallback(
-    (targetIP: string) => {
+    (targetIP: string, targetPort?: number) => {
       setFtpTargetIP(targetIP);
+      setFtpTargetPort(targetPort ?? null);
       setFtpUsernameMode(true);
       addLine('result', `Name (${targetIP}:anonymous):`);
     },
@@ -741,6 +749,7 @@ export const useAuthentication = ({
     setSshTargetIP(null);
     setSshTargetPort(null);
     setFtpTargetIP(null);
+    setFtpTargetPort(null);
     setFtpUsernameMode(false);
     setScpTargetIP(null);
     setScpTargetPort(null);
@@ -784,7 +793,8 @@ export const useAuthentication = ({
       const username = input.trim() || 'anonymous';
       addLine('command', username, `Name (${ftpTargetIP}:anonymous):`);
 
-      const resolvedIp = resolveNat(ftpTargetIP, 21).ip;
+      const port = ftpTargetPort ?? 21;
+      const resolvedIp = resolveNat(ftpTargetIP, port).ip;
       const users = findMachineUsers(resolvedIp);
 
       // Cross-player placeholder: occupant workstations land in
@@ -798,8 +808,9 @@ export const useAuthentication = ({
         const remoteUser = users.find((u) => u.username === username);
         if (!remoteUser) {
           addLine('error', '530 Login incorrect.');
-          onFtpAuth?.({ success: false, user: username, targetIP: ftpTargetIP, port: 21 });
+          onFtpAuth?.({ success: false, user: username, targetIP: ftpTargetIP, port });
           setFtpTargetIP(null);
+          setFtpTargetPort(null);
           setFtpUsernameMode(false);
           clearInput();
           return;
@@ -812,7 +823,7 @@ export const useAuthentication = ({
       setPasswordMode(true);
       clearInput();
     },
-    [ftpTargetIP, findMachineUsers, addLine, resolveNat, onFtpAuth],
+    [ftpTargetIP, ftpTargetPort, findMachineUsers, addLine, resolveNat, onFtpAuth],
   );
 
   // Returns an optional AsyncOutput for SCP transfer animation
@@ -884,11 +895,13 @@ export const useAuthentication = ({
       if (ftpTargetIP && targetUser) {
         const user = targetUser;
         const targetIp = ftpTargetIP;
-        const resolvedIp = resolveNat(targetIp, 21).ip;
+        const port = ftpTargetPort ?? 21;
+        const resolvedIp = resolveNat(targetIp, port).ip;
         const machineId = resolveTargetMachineId(resolvedIp);
         const remoteHomePath = getDefaultHomePath(resolvedIp, user);
         // Clear prompt state synchronously.
         setFtpTargetIP(null);
+        setFtpTargetPort(null);
         setTargetUser(null);
         setPasswordMode(false);
         clearInput();
@@ -921,16 +934,16 @@ export const useAuthentication = ({
                     sessionId: result.session_id,
                   });
                   addLine('result', '230 Login successful.');
-                  onFtpAuth?.({ success: true, user, targetIP: targetIp, port: 21 });
+                  onFtpAuth?.({ success: true, user, targetIP: targetIp, port });
                 } else {
                   addLine('error', '530 Login incorrect.');
-                  onFtpAuth?.({ success: false, user, targetIP: targetIp, port: 21 });
+                  onFtpAuth?.({ success: false, user, targetIP: targetIp, port });
                 }
               })
               .catch((error) => {
                 console.error('[useAuthentication] ftp authCreateFtpSession threw:', error);
                 addLine('error', '530 Login incorrect.');
-                onFtpAuth?.({ success: false, user, targetIP: targetIp, port: 21 });
+                onFtpAuth?.({ success: false, user, targetIP: targetIp, port });
               })
               .finally(() => onComplete());
           },
@@ -1065,6 +1078,7 @@ export const useAuthentication = ({
       setSshTargetIP(null);
       setSshTargetPort(null);
       setFtpTargetIP(null);
+      setFtpTargetPort(null);
       setScpTargetIP(null);
       setScpTargetPort(null);
       setScpPerformTransfer(null);
@@ -1082,6 +1096,7 @@ export const useAuthentication = ({
       sshTargetIP,
       sshTargetPort,
       ftpTargetIP,
+      ftpTargetPort,
       ftpUsernameMode,
       validatePassword,
       connectMysqlServer,
