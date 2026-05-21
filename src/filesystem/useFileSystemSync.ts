@@ -7,6 +7,7 @@ import {
   type Dispatch,
   type SetStateAction,
 } from 'react';
+import { flushSync } from 'react-dom';
 import type { FileNode, FileSystemPatch } from './types';
 import type { UserType } from '../session/types';
 import { getCachedFilesystemPatches, getDatabase } from '../utils/storageCache';
@@ -759,7 +760,6 @@ export const useFileSystemSync = ({
         const serverPatches = await listPatchesForMachinesFromServer(getIdentity(), [
           ...machineIds,
         ]);
-        setPatches(serverPatches);
         const db = getDatabase();
         if (db) saveFilesystemPatches(db, [...serverPatches]);
         const props = propsRef.current;
@@ -772,7 +772,23 @@ export const useFileSystemSync = ({
           ? { ...withMission, ...props.foreignFileSystems }
           : withMission;
         const merged = { ...withForeign, ...crossPlayerBaseFsRef.current };
-        setFileSystems(applyPatches(merged, serverPatches));
+        const nextFileSystems = applyPatches(merged, serverPatches);
+        // flushSync forces React to commit the state update synchronously,
+        // BEFORE this async function returns. Without it, the awaiting
+        // caller (NetworkContext.findMachineByIpAsync → curl/gobuster/lynx
+        // dispatch) resumes BEFORE React's render cycle for these setState
+        // calls completes. React's scheduler uses MessageChannel which
+        // isn't guaranteed to fire before a `await new Promise(setTimeout(0))`
+        // yield, so the dispatch downstream of the await sees stale state.
+        // flushSync collapses that gap — by the time the function returns,
+        // useFileSystemReaders has re-run with the new fileSystems and
+        // useNetworkCommands has fresh refs to the new readFileFromMachine.
+        // Smoke surfaced this on curl: first cross-LAN call returned 404,
+        // second worked (because by then React had eventually rendered).
+        flushSync(() => {
+          setPatches(serverPatches);
+          setFileSystems(nextFileSystems);
+        });
       } catch (error) {
         console.error('[fs] prefetchPatchesForMachines failed:', error);
       }
