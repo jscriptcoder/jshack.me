@@ -557,6 +557,20 @@ export const useFileSystemSync = ({
           ...crossPlayerBaseFsTierRef.current,
           [target]: tier,
         };
+        // Layer the current patches for this machine on top of baseFs
+        // before writing. Without this, the assignment below would
+        // REPLACE fileSystems[target] entirely and lose any patches
+        // already applied by the prefetch — notably daemon pid files
+        // (sshd.pid, vsftpd.pid) that drive applyDynamicOverrides's
+        // port computation for occupants. Losing those pid files makes
+        // buildMergedRouterView think the occupant has no open service
+        // ports, so the NAT-forward merge silently drops (the rule
+        // 2222→<lan>:22 can't find an open port 22 on the occupant).
+        // Symptom: cross-LAN scp succeeds once, then subsequent scp's
+        // see the foreign router as bare (no forwards) and bail with
+        // "Connection refused".
+        const targetPatches = patchesRef.current.filter((p) => p.machineId === target);
+        const patched = applyPatches({ [target]: baseFs }, targetPatches)[target] ?? baseFs;
         // flushSync forces React to commit the setFileSystems update
         // synchronously. By the time it returns, useFileSystemReaders
         // has re-run with the new fileSystems AND useNetworkCommands has
@@ -573,7 +587,7 @@ export const useFileSystemSync = ({
         // B's just-fetched base FS. flushSync collapses that timing
         // gap synchronously.
         flushSync(() => {
-          setFileSystems((prev) => ({ ...prev, [target]: baseFs }));
+          setFileSystems((prev) => ({ ...prev, [target]: patched }));
         });
       } catch (error) {
         console.error('[fs] cross-player base-FS fetch failed:', error);
