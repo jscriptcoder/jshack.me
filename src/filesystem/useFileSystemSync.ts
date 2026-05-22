@@ -7,6 +7,7 @@ import {
   type Dispatch,
   type SetStateAction,
 } from 'react';
+import { flushSync } from 'react-dom';
 import type { FileNode, FileSystemPatch } from './types';
 import type { UserType } from '../session/types';
 import { getCachedFilesystemPatches, getDatabase } from '../utils/storageCache';
@@ -556,7 +557,24 @@ export const useFileSystemSync = ({
           ...crossPlayerBaseFsTierRef.current,
           [target]: tier,
         };
-        setFileSystems((prev) => ({ ...prev, [target]: baseFs }));
+        // flushSync forces React to commit the setFileSystems update
+        // synchronously. By the time it returns, useFileSystemReaders
+        // has re-run with the new fileSystems AND useNetworkCommands has
+        // updated its refs (createFileOnMachineRef etc.) to the
+        // recomputed versions that close over the new state.
+        //
+        // Without flushSync, awaiting callers — notably scp's
+        // transient-session wrapper — run body() within ~1ms of
+        // setFileSystems, too fast for React's MessageChannel-based
+        // scheduler to commit. createFileOnMachineRef.current would
+        // still point at the pre-update version whose closure reads
+        // pre-update fileSystems, and the mutation bails with "Not a
+        // directory: /tmp" because A's view of B doesn't yet contain
+        // B's just-fetched base FS. flushSync collapses that timing
+        // gap synchronously.
+        flushSync(() => {
+          setFileSystems((prev) => ({ ...prev, [target]: baseFs }));
+        });
       } catch (error) {
         console.error('[fs] cross-player base-FS fetch failed:', error);
       }

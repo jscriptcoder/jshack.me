@@ -125,6 +125,16 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
   getNodeFromMachineRef.current = getNodeFromMachine;
   const resolveTargetMachineIdRef = useRef(resolveTargetMachineId);
   resolveTargetMachineIdRef.current = resolveTargetMachineId;
+  // createFileOnMachine needs the same treatment as the readers: the
+  // OLD closure's check for parentNode-existence reads OLD fileSystems
+  // state via useFileSystemMutations's useCallback closure, so even
+  // when awaitCrossPlayerBaseFs has populated /tmp into the LATEST
+  // state, the OLD createFileOnMachine bails for non-root tiers with
+  // "Not a directory: /tmp" (because the OLD closure doesn't see /tmp).
+  // root accidentally works because the mutation auto-creates missing
+  // parents at root tier — guest doesn't have that escape hatch.
+  const createFileOnMachineRef = useRef(createFileOnMachine);
+  createFileOnMachineRef.current = createFileOnMachine;
 
   return useMemo(() => {
     // WiFi is required only when the player is sitting on their own
@@ -941,8 +951,15 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
             // this, server-side L1 validation would also fail because
             // the transient session is created at omen-XXXXXXXX but
             // the patch arrives keyed by B.lanIp.
+            //
+            // ALSO read createFileOnMachine via ref — the OLD closure's
+            // parent-existence check closes over OLD fileSystems and
+            // bails with "Not a directory: /tmp" for non-root tiers
+            // even AFTER awaitCrossPlayerBaseFs has populated /tmp into
+            // LATEST state. The LATEST createFileOnMachine sees /tmp
+            // via the LATEST fileSystems closure.
             createFileOnMachine: (op) =>
-              createFileOnMachine({
+              createFileOnMachineRef.current({
                 ...op,
                 machineId: resolveTargetMachineIdRef.current(op.machineId),
               }),
