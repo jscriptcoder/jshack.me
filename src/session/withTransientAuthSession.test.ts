@@ -43,7 +43,7 @@ describe('withTransientAuthSession', () => {
     const result = await withTransientAuthSession(identity, params, body);
 
     expect(result).toEqual({ ok: true, value: 'body-result' });
-    expect(body).toHaveBeenCalledWith('tx-id');
+    expect(body).toHaveBeenCalledWith({ sessionId: 'tx-id', userType: 'user' });
     expect(mockedEndSession).toHaveBeenCalledWith(identity, {
       session_id: 'tx-id',
       reason: 'user_exit',

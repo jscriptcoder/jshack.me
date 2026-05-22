@@ -84,6 +84,7 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
     listDirectoryFromMachine,
     deleteNodeFromMachine,
     flushPendingPatches,
+    awaitCrossPlayerBaseFs,
   } = useFileSystem();
   const { session, wifiConnected, isMachineBricked, hostname } = useSession();
   const { activeNetwork, lanOccupants } = useHomeNetworks();
@@ -924,9 +925,35 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
             getCurrentPath: () => session.currentPath,
             resolvePath: (path: string) => resolvePath(path),
             getNode: (path: string) => getNode(path),
-            getNodeFromMachine,
-            createFileOnMachine,
-            resolveNat,
+            // Ref-based — see curl wiring above for rationale. scp
+            // calls getNodeFromMachine to detect "destination is a
+            // directory" at the post-NAT resolved host; without
+            // ref+translation it'd look at the WRONG machine_id.
+            getNodeFromMachine: (machineId, path, cwd) =>
+              getNodeFromMachineRef.current(
+                resolveTargetMachineIdRef.current(machineId),
+                path,
+                cwd,
+              ),
+            // createFileOnMachine wrapped to translate machineId via
+            // ref so the patch broadcasts to B's workstation_id channel
+            // (Realtime subscription key), not B's LAN IP. Without
+            // this, server-side L1 validation would also fail because
+            // the transient session is created at omen-XXXXXXXX but
+            // the patch arrives keyed by B.lanIp.
+            createFileOnMachine: (op) =>
+              createFileOnMachine({
+                ...op,
+                machineId: resolveTargetMachineIdRef.current(op.machineId),
+              }),
+            // Ref-based resolveNat — same root cause as curl's first-
+            // call-404. The OLD closure had allIptablesRules.size=0
+            // because the foreign router wasn't in gatewayIps yet at
+            // command-creation time, so the NAT lookup returned the
+            // input unchanged and downstream auth landed at the
+            // router's machine_id instead of B's workstation_id,
+            // producing invalid_credentials.
+            resolveNat: (ip, port) => resolveNatRef.current(ip, port),
             // Wraps the actual createFileOnMachine call in a transient
             // server session (kind='scp'). parent_session_id captures
             // the current shell so the server cascade-ends if the
@@ -937,27 +964,42 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
             // the wrapping endSession only fires after in-flight upserts
             // settle — otherwise endSession can race the patch and the
             // patch hits 403 no_session via the L1 gate.
-            withTransientAuthSession: (params, body) =>
-              withTransientAuthSession(
+            withTransientAuthSession: (params, body) => {
+              // Translate LAN IP → canonical machine_id so cross-
+              // player SCP transfers land at B's workstation_id
+              // (where /etc/passwd is stored), not B's LAN IP.
+              // Read via ref so cross-LAN async path sees the LATEST
+              // resolver (foreign-occupant aware) — same closure-
+              // capture issue documented at the top of
+              // useNetworkCommands.
+              const canonical = resolveTargetMachineIdRef.current(params.machine_id);
+              return withTransientAuthSession(
                 getIdentity(),
                 {
-                  // Translate LAN IP → canonical machine_id so cross-
-                  // player SCP transfers land at B's workstation_id
-                  // (where /etc/passwd is stored), not B's LAN IP.
-                  // Mirrors logFs's resolveTargetMachineId wrapping
-                  // for write paths.
-                  machine_id: resolveTargetMachineId(params.machine_id),
+                  machine_id: canonical,
                   kind: 'scp',
                   username: params.username,
                   auth: params.auth,
                   ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
                   source_ip: session.machine,
                 },
-                async () => {
+                async ({ userType }) => {
+                  // For cross-player workstation targets, fetch B's
+                  // base FS at the server-validated tier BEFORE running
+                  // body — without it, body's createFileOnMachine bails
+                  // with "Not a directory: /tmp" because A's view of B
+                  // only has patches (no base directory tree). Awaiting
+                  // the response (instead of fire-and-forget) is what
+                  // distinguishes this from the persistent-session
+                  // effect path in useFileSystemSync. No-op for own-
+                  // workstation / NPC / mission targets (the helper
+                  // short-circuits on non-workstation_id machine_ids).
+                  await awaitCrossPlayerBaseFs(canonical, userType);
                   body();
                   await flushPendingPatches();
                 },
-              ),
+              );
+            },
           }),
           isWifiRequired,
         ),

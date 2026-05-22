@@ -102,6 +102,13 @@ export type FileSystemSync = {
   // the union of (current keyset + new ids) without re-running the
   // machineIdsKey computation.
   readonly machineIdsKeyRef: { current: string };
+  // Awaitable cross-player base-FS fetch. Same shape as
+  // fetchCrossPlayerBaseFsIfNeeded (no-op when target is own-workstation
+  // or already cached at the given tier) but returns a Promise so
+  // transient-session callers (notably scp) can BLOCK on it before
+  // running writes that would otherwise fail with "Not a directory"
+  // because A's view of B has no base FS.
+  readonly awaitCrossPlayerBaseFs: (target: string, tier: UserType) => Promise<void>;
 };
 
 export const useFileSystemSync = ({
@@ -522,8 +529,13 @@ export const useFileSystemSync = ({
   // (target, tier) so a guest -> root upgrade on the same machine
   // triggers a refetch and surfaces root-only paths the previously
   // filtered guest tree didn't carry.
-  const fetchCrossPlayerBaseFsIfNeeded = useCallback(
-    (target: string, tier: UserType): void => {
+  // Promise-returning core. Used by both the fire-and-forget
+  // `fetchCrossPlayerBaseFsIfNeeded` (the session/protocol-change
+  // effects) AND by the awaitable `awaitCrossPlayerBaseFs` exposed via
+  // context for transient-session callers (scp) that need to BLOCK on
+  // the base FS arriving before their write fires.
+  const fetchCrossPlayerBaseFsCore = useCallback(
+    async (target: string, tier: UserType): Promise<void> => {
       if (parseWorkstationId(target) === undefined || target === workstationId) {
         return;
       }
@@ -533,24 +545,43 @@ export const useFileSystemSync = ({
       ) {
         return;
       }
-      void getBaseFsFromServer(getIdentity(), target)
-        .then((baseFs) => {
-          if (baseFs === null) return;
-          crossPlayerBaseFsRef.current = {
-            ...crossPlayerBaseFsRef.current,
-            [target]: baseFs,
-          };
-          crossPlayerBaseFsTierRef.current = {
-            ...crossPlayerBaseFsTierRef.current,
-            [target]: tier,
-          };
-          setFileSystems((prev) => ({ ...prev, [target]: baseFs }));
-        })
-        .catch((error) => {
-          console.error('[fs] cross-player base-FS fetch failed:', error);
-        });
+      try {
+        const baseFs = await getBaseFsFromServer(getIdentity(), target);
+        if (baseFs === null) return;
+        crossPlayerBaseFsRef.current = {
+          ...crossPlayerBaseFsRef.current,
+          [target]: baseFs,
+        };
+        crossPlayerBaseFsTierRef.current = {
+          ...crossPlayerBaseFsTierRef.current,
+          [target]: tier,
+        };
+        setFileSystems((prev) => ({ ...prev, [target]: baseFs }));
+      } catch (error) {
+        console.error('[fs] cross-player base-FS fetch failed:', error);
+      }
     },
     [workstationId],
+  );
+
+  const fetchCrossPlayerBaseFsIfNeeded = useCallback(
+    (target: string, tier: UserType): void => {
+      void fetchCrossPlayerBaseFsCore(target, tier);
+    },
+    [fetchCrossPlayerBaseFsCore],
+  );
+
+  // Awaitable variant. Used by scp's transient-session wrapper: after
+  // authCreateSession returns the server-validated tier, the wrapper
+  // awaits this so B's base FS (e.g. /tmp directory) is in A's local
+  // view BEFORE the actual createFileOnMachine call runs — otherwise
+  // useFileSystemMutations bails with "Not a directory: /tmp" because
+  // A's view of B's machine_id has no /tmp node (cross-player base FS
+  // doesn't auto-fetch for transient sessions like the persistent
+  // session/protocol-session effects do).
+  const awaitCrossPlayerBaseFs = useCallback(
+    (target: string, tier: UserType): Promise<void> => fetchCrossPlayerBaseFsCore(target, tier),
+    [fetchCrossPlayerBaseFsCore],
   );
 
   useEffect(() => {
@@ -793,5 +824,6 @@ export const useFileSystemSync = ({
     pendingWritesRef,
     prefetchPatchesForMachines,
     machineIdsKeyRef,
+    awaitCrossPlayerBaseFs,
   };
 };

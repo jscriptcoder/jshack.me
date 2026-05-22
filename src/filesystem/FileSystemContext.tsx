@@ -93,6 +93,14 @@ type FileSystemContextValue = {
   // prefetchPatchesForMachines so existing patches for other machines
   // aren't wiped by the replace-semantics setPatches call.
   readonly machineIdsKeyRef: { readonly current: string };
+  // Awaitable cross-player base FS fetch. Resolves once the target's
+  // base FS at the given tier has been merged into local state (or
+  // immediately if already cached at that tier). Used by scp's
+  // transient-session wrapper so the cross-player /tmp (and other
+  // base directories) exist in A's view before createFileOnMachine
+  // runs — without it, the mutation bails with "Not a directory:
+  // /tmp" because patches alone don't carry the base directory tree.
+  readonly awaitCrossPlayerBaseFs: (target: string, tier: UserType) => Promise<void>;
 };
 
 const FileSystemContext = createContext<FileSystemContextValue | null>(null);
@@ -174,6 +182,7 @@ export const FileSystemProvider = ({
     pendingWritesRef,
     prefetchPatchesForMachines,
     machineIdsKeyRef,
+    awaitCrossPlayerBaseFs,
   } = sync;
 
   // session.machine is typed as string but always holds a valid MachineId at runtime
@@ -272,6 +281,7 @@ export const FileSystemProvider = ({
         flushPendingPatches,
         prefetchPatchesForMachines,
         machineIdsKeyRef,
+        awaitCrossPlayerBaseFs,
       }}
     >
       {children}
