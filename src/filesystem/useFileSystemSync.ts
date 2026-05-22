@@ -77,14 +77,6 @@ type Inputs = {
 
 export type FileSystemSync = {
   readonly fileSystems: FileSystemsState;
-  // Ref to the latest applied fileSystems. Reads via this ref are
-  // guaranteed to see the latest value, even before React has rendered
-  // the corresponding setState. Use it from any code path that runs
-  // after `await prefetchPatchesForMachines` (or any other setFileSystems
-  // call) and needs to read freshly-applied data WITHOUT waiting for
-  // React's scheduler — notably the cross-LAN curl/gobuster/lynx
-  // dispatch in useNetworkCommands.
-  readonly fileSystemsRef: { current: FileSystemsState };
   readonly setFileSystems: Dispatch<SetStateAction<FileSystemsState>>;
   readonly patches: readonly FileSystemPatch[];
   readonly setPatches: Dispatch<SetStateAction<readonly FileSystemPatch[]>>;
@@ -129,39 +121,9 @@ export const useFileSystemSync = ({
   // per render because workstationId is per-player at the prop layer.
   const persistentMachineKeys = useMemo(() => new Set([workstationId]), [workstationId]);
 
-  const [fileSystems, setFileSystemsRaw] = useState<FileSystemsState>(() =>
+  const [fileSystems, setFileSystems] = useState<FileSystemsState>(() =>
     applyPatches({ [workstationId]: localhostFileSystem }, getCachedFilesystemPatches()),
   );
-  // Ref synchronously updated by every setFileSystems call. Reads via
-  // this ref see the latest applied state EVEN BEFORE React has
-  // rendered+committed the corresponding setState.
-  //
-  // Required by the cross-LAN async pre-resolve path: after
-  // `await prefetchPatchesForMachines` returns, the dispatching closure
-  // (curl/gobuster/lynx) reads file content. If reads go through the
-  // useState value, they race with React's scheduler — the prefetch's
-  // setFileSystems is queued but not yet observable, and the read sees
-  // stale state (returning 404 on first call until React eventually
-  // renders). Reading via this ref bypasses that race entirely.
-  const fileSystemsRef = useRef<FileSystemsState>(fileSystems);
-  // Keep the ref aligned with the state value each render. Catches the
-  // case where state was updated by some path that bypassed the wrapped
-  // setter (e.g. a future useReducer migration) — the ref still stays
-  // in sync via this render-time assignment.
-  fileSystemsRef.current = fileSystems;
-
-  // Wrapped setter: updates the ref SYNCHRONOUSLY first, then queues
-  // the React state update. All call sites use this wrapper (it's the
-  // exported `setFileSystems`); the raw setter is only used here
-  // internally for the initial useState assignment.
-  const setFileSystems = useCallback<Dispatch<SetStateAction<FileSystemsState>>>((value) => {
-    const next =
-      typeof value === 'function'
-        ? (value as (prev: FileSystemsState) => FileSystemsState)(fileSystemsRef.current)
-        : value;
-    fileSystemsRef.current = next;
-    setFileSystemsRaw(next);
-  }, []);
   const [patches, setPatches] = useState<readonly FileSystemPatch[]>(getCachedFilesystemPatches);
   // True between mount and the first listPatchesForMachines resolve (success or failure).
   const [isRehydrating, setIsRehydrating] = useState(true);
@@ -245,13 +207,10 @@ export const useFileSystemSync = ({
   // path (handlePatchHint below) instead, which fetches authoritative
   // server state rather than trusting an unsignable broadcast payload.
   // Idempotent: applying the same patch twice produces the same result.
-  const applyExternalPatch = useCallback(
-    (patch: FileSystemPatch) => {
-      setFileSystems((prev) => applyPatches(prev, [patch]));
-      setPatches((prev) => applyPatchToList(prev, patch));
-    },
-    [setFileSystems],
-  );
+  const applyExternalPatch = useCallback((patch: FileSystemPatch) => {
+    setFileSystems((prev) => applyPatches(prev, [patch]));
+    setPatches((prev) => applyPatchToList(prev, patch));
+  }, []);
 
   // Subscribe to filesystem patches from other tabs in the same browser.
   // BroadcastChannel does not deliver messages to the posting tab, so no echo guard needed.
@@ -396,7 +355,7 @@ export const useFileSystemSync = ({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [machineIdsKey, workstationId, setFileSystems]);
+  }, [machineIdsKey, workstationId]);
 
   // Hint-driven refetch: snapshot the pending machine_ids set, fetch
   // authoritative state for those machines via listPatchesForMachines,
@@ -452,7 +411,7 @@ export const useFileSystemSync = ({
         return next;
       });
     },
-    [workstationId, setFileSystems],
+    [workstationId],
   );
 
   // Identity is stable for the session; capture once and read from a
@@ -591,7 +550,7 @@ export const useFileSystemSync = ({
           console.error('[fs] cross-player base-FS fetch failed:', error);
         });
     },
-    [workstationId, setFileSystems],
+    [workstationId],
   );
 
   useEffect(() => {
@@ -783,7 +742,6 @@ export const useFileSystemSync = ({
     foreignFileSystems,
     cachedPatchesAtMount,
     persistentMachineKeys,
-    setFileSystems,
   ]);
 
   // Tracks the current keyset so prefetchPatchesForMachines callers
@@ -819,12 +777,11 @@ export const useFileSystemSync = ({
         console.error('[fs] prefetchPatchesForMachines failed:', error);
       }
     },
-    [workstationId, setFileSystems],
+    [workstationId],
   );
 
   return {
     fileSystems,
-    fileSystemsRef,
     setFileSystems,
     patches,
     setPatches,

@@ -40,12 +40,6 @@ import { createSnmpsetCommand } from '../commands/snmpset';
 import { createMysqlCommand } from '../commands/mysql';
 import { createRediscliCommand } from '../commands/rediscli';
 import { wrapWithWifiCheck, wrapWithBrickedCheck } from '../commands/networkGuards';
-import {
-  getNodeAtPath,
-  checkTraversal,
-  resolvePath as resolvePathUtil,
-} from '../filesystem/fileSystemUtils';
-import { canRead as canReadPerms } from '../filesystem/permissionWalker';
 import type { Command } from '../components/Terminal/types';
 import { appendToMachineLog } from '../logging/appendToMachineLog';
 import { formatGobusterScanAggregate, formatNmapScanAggregate } from '../logging/formatters';
@@ -90,7 +84,6 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
     listDirectoryFromMachine,
     deleteNodeFromMachine,
     flushPendingPatches,
-    fileSystemsRef,
   } = useFileSystem();
   const { session, wifiConnected, isMachineBricked, hostname } = useSession();
   const { activeNetwork, lanOccupants } = useHomeNetworks();
@@ -123,44 +116,6 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
       foreignNetworks,
       foreignLanOccupants,
     );
-
-    // Fresh readers that read via fileSystemsRef.current instead of the
-    // useFileSystem destructured state. Used by the cross-LAN async path
-    // (curl/gobuster/lynx) so reads issued AFTER `await prefetch...`
-    // observe the just-applied patches IMMEDIATELY — no waiting for
-    // React to re-render. The OLD command closure captured at command-
-    // creation time would otherwise still call the OLD readFileFromMachine
-    // (closing over the OLD fileSystems state), returning 404 on the
-    // first cross-LAN call until React eventually rendered.
-    const freshReadFileFromMachine = (op: {
-      readonly machineId: string;
-      readonly path: string;
-      readonly cwd: string;
-      readonly userType: UserType;
-    }): string | null => {
-      const canonical = resolveTargetMachineId(op.machineId);
-      const fs = fileSystemsRef.current[canonical];
-      if (!fs) return null;
-      const resolved = resolvePathUtil(op.path, op.cwd);
-      const traversal = checkTraversal(fs, resolved, op.userType);
-      if (!traversal.allowed) return null;
-      const node = getNodeAtPath(fs, resolved);
-      if (!node || node.type !== 'file') return null;
-      const leaf = canReadPerms({
-        userType: op.userType,
-        target: node.permissions,
-        parentChain: [],
-      });
-      if (!leaf.allowed) return null;
-      return node.content ?? '';
-    };
-    const freshGetNodeFromMachine = (machineId: string, path: string, cwd: string) => {
-      const canonical = resolveTargetMachineId(machineId);
-      const fs = fileSystemsRef.current[canonical];
-      if (!fs) return null;
-      const resolved = resolvePathUtil(path, cwd);
-      return getNodeAtPath(fs, resolved);
-    };
 
     // logFs auto-translates the machineId on every read/write/create so
     // any log-writing handler (sshAuth, ftpAuth, hydraLog, etc.) that
@@ -411,13 +366,13 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
             findMachineByIpAsync: findEffectiveMachineByIpAsync,
             resolveDomain,
             resolveNat,
-            // freshReadFileFromMachine reads via fileSystemsRef.current
-            // so the cross-LAN async path observes prefetch's just-applied
-            // patches IMMEDIATELY (without waiting for React to render
-            // the corresponding setFileSystems). Includes the IP →
-            // workstation_id translation so cross-player reads still land
-            // on the canonical machine_id.
-            readFileFromMachine: freshReadFileFromMachine,
+            // Translate IP → workstation_id so cross-player reads land on
+            // the canonical machineId where the target's patches live.
+            // Same pattern as `logFs` above; without it, curl on a LAN
+            // occupant's IP misses every patch the target wrote under
+            // their workstation_id (notably /var/www/html/index.html).
+            readFileFromMachine: (op) =>
+              readFileFromMachine({ ...op, machineId: resolveTargetMachineId(op.machineId) }),
             onHttpRequest,
             getHandler,
           }),
@@ -819,9 +774,11 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
             findMachineByIpAsync: findEffectiveMachineByIpAsync,
             resolveDomain,
             resolveNat,
-            // freshGetNodeFromMachine reads via fileSystemsRef.current
-            // (see curl wiring above for rationale).
-            getNodeFromMachine: freshGetNodeFromMachine,
+            // IP → workstation_id translation so cross-player /var/www
+            // scans hit the right machineId (same shape as the curl /
+            // lynx readFileFromMachine wrappers above).
+            getNodeFromMachine: (machineId, path, cwd) =>
+              getNodeFromMachine(resolveTargetMachineId(machineId), path, cwd),
             getLocalNode: (path: string) => getNode(resolvePath(path)),
             getCurrentPath: () => session.currentPath,
             onScanAggregate: onGobusterScanAggregate,
@@ -979,19 +936,17 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
       findMachineByIpAsync: findEffectiveMachineByIpAsync,
       resolveDomain,
       resolveNat,
-      // freshReadFileFromMachine — same rationale as curl wiring above.
-      readFileFromMachine: freshReadFileFromMachine,
+      // Same IP → workstation_id translation as curl. Without it, lynx
+      // fetching a LAN occupant's IP misses every patch keyed under
+      // their workstation_id (e.g. /var/www/html/index.html written by
+      // player-run apache2 / nginx).
+      readFileFromMachine: (op) =>
+        readFileFromMachine({ ...op, machineId: resolveTargetMachineId(op.machineId) }),
       getHandler,
       onHttpRequest,
     });
 
     return { commands, lynxFetch };
-    // fileSystemsRef is a stable ref reference (its identity never
-    // changes across renders), so it doesn't need to be in deps for
-    // re-run correctness. The lint rule errs on the side of including
-    // it; we silence here because adding it would cause no functional
-    // change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     getInterfaces,
     getInterface,

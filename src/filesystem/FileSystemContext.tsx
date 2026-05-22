@@ -12,7 +12,6 @@ import type {
 import { useSession } from '../session/SessionContext';
 import type { UserType } from '../session/types';
 import { type MachineId } from './machineFileSystems';
-import type { FileSystemsState } from './fileSystemUtils';
 import { useFileSystemReaders } from './useFileSystemReaders';
 import { useFileSystemSync } from './useFileSystemSync';
 import { useFileSystemMutations } from './useFileSystemMutations';
@@ -94,14 +93,6 @@ type FileSystemContextValue = {
   // prefetchPatchesForMachines so existing patches for other machines
   // aren't wiped by the replace-semantics setPatches call.
   readonly machineIdsKeyRef: { readonly current: string };
-  // Ref to the latest applied fileSystems. Updated synchronously by
-  // every setFileSystems call AND synced during render. Use it for
-  // any read that runs after `await prefetchPatchesForMachines` (or
-  // any other async setFileSystems-issuing path) and can't tolerate
-  // React's async scheduler — notably the cross-LAN curl/gobuster/lynx
-  // dispatch, which would otherwise race the prefetch's setFileSystems
-  // and return 404 on the first call.
-  readonly fileSystemsRef: { readonly current: FileSystemsState };
 };
 
 const FileSystemContext = createContext<FileSystemContextValue | null>(null);
@@ -173,7 +164,6 @@ export const FileSystemProvider = ({
   });
   const {
     fileSystems,
-    fileSystemsRef,
     setFileSystems,
     setPatches,
     isRehydrating,
@@ -282,7 +272,6 @@ export const FileSystemProvider = ({
         flushPendingPatches,
         prefetchPatchesForMachines,
         machineIdsKeyRef,
-        fileSystemsRef,
       }}
     >
       {children}
