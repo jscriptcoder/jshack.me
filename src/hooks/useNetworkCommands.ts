@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { useNetwork } from '../network';
 import { useFileSystem } from '../filesystem';
 import { useSession } from '../session/SessionContext';
@@ -89,6 +89,42 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
   const { activeNetwork, lanOccupants } = useHomeNetworks();
   const { foreignNetworks, foreignLanOccupants } = useForeignNetworks();
 
+  // resolveTargetMachineId is built at hook scope (above the useMemo)
+  // so the ref below can track it.
+  const resolveTargetMachineId = buildResolveTargetMachineId(
+    activeNetwork,
+    lanOccupants,
+    hostname,
+    foreignNetworks,
+    foreignLanOccupants,
+  );
+
+  // Refs synced during render so the OLD command-creation-time
+  // closures of curl/gobuster/lynx can read the LATEST functions
+  // when their async dispatch runs AFTER the resolver has materialized
+  // a foreign network. Without this, the OLD closures call the OLD
+  // resolveNat (allIptablesRules.size=0, doesn't know about B's NAT
+  // forward), OLD readFileFromMachine (closed over OLD fileSystems
+  // state), and OLD resolveTargetMachineId (no foreign-occupant
+  // translation). Each ref's .current points to the LATEST function
+  // from the most recent render — useRef objects are STABLE across
+  // renders, so the OLD closure's captured ref is the SAME ref the
+  // LATEST render writes into.
+  //
+  // Verified by [nat-debug] logs in dev: with closure-capture the
+  // OLD resolveNat reports allIptablesRules.size=0 (its captured
+  // Map is the pre-foreign-network empty one). With the ref, .current
+  // points to the LATEST resolveNat whose Map has B's router's
+  // iptables rules.
+  const resolveNatRef = useRef(resolveNat);
+  resolveNatRef.current = resolveNat;
+  const readFileFromMachineRef = useRef(readFileFromMachine);
+  readFileFromMachineRef.current = readFileFromMachine;
+  const getNodeFromMachineRef = useRef(getNodeFromMachine);
+  getNodeFromMachineRef.current = getNodeFromMachine;
+  const resolveTargetMachineIdRef = useRef(resolveTargetMachineId);
+  resolveTargetMachineIdRef.current = resolveTargetMachineId;
+
   return useMemo(() => {
     // WiFi is required only when the player is sitting on their own
     // workstation and not connected to a network. Once SSH'd into a
@@ -96,26 +132,12 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
     // and don't need a WiFi link from the workstation.
     const isWifiRequired = () => isOwnWorkstation(session.machine, hostname) && !wifiConnected;
 
-    // Translate a target IP into the canonical machine_id storage key
-    // before any patch/log write. For LAN occupants the IP-form
-    // (e.g., 10.0.0.42) maps to the occupant's hostname (= their
-    // workstation_id) so cross-player writes land where the target
-    // player is subscribed via patches:<workstation_id>. Gateway .1
-    // aliases (home router + inner-layer gateways) canonicalize to
-    // their primary IP so writes via either land in the same patches
-    // row. For mission/world/off-LAN IPs the input passes through.
-    // Shared with Terminal via buildResolveTargetMachineId. Foreign
-    // inputs thread the cross-LAN seed-regen state through so a foreign
-    // LAN IP (e.g., 192.168.1.42 on Player B's LAN) translates to B's
-    // workstation_id when the auth helpers + write paths construct
-    // machine_id envelopes.
-    const resolveTargetMachineId = buildResolveTargetMachineId(
-      activeNetwork,
-      lanOccupants,
-      hostname,
-      foreignNetworks,
-      foreignLanOccupants,
-    );
+    // resolveTargetMachineId is built at hook scope (above useMemo) so
+    // both this useMemo body AND the resolveTargetMachineIdRef can use
+    // it. Non-cross-LAN call sites in this body capture it directly;
+    // cross-LAN command wrappers (curl/gobuster/lynx) read via the ref
+    // so the OLD command closure picks up the LATEST translation after
+    // an async pre-resolve materializes a new foreign network.
 
     // logFs auto-translates the machineId on every read/write/create so
     // any log-writing handler (sshAuth, ftpAuth, hydraLog, etc.) that
@@ -365,14 +387,24 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
             getMachine,
             findMachineByIpAsync: findEffectiveMachineByIpAsync,
             resolveDomain,
-            resolveNat,
-            // Translate IP → workstation_id so cross-player reads land on
-            // the canonical machineId where the target's patches live.
-            // Same pattern as `logFs` above; without it, curl on a LAN
-            // occupant's IP misses every patch the target wrote under
-            // their workstation_id (notably /var/www/html/index.html).
+            // resolveNat MUST be ref-based: the OLD curl closure captured
+            // at command-creation time has the OLD allIptablesRules map
+            // (size=0 before the foreign network was loaded). Without the
+            // ref, resolveNat(<foreign publicIp>, <forwardedPort>) returns
+            // the input unchanged → handleGet reads fileSystems[<publicIp>]
+            // (the router's FS, which doesn't have /var/www/html/index.html)
+            // → 404. With the ref, .current points to the LATEST resolveNat
+            // whose allIptablesRules has B's router's NAT forward.
+            resolveNat: (ip, port) => resolveNatRef.current(ip, port),
+            // readFileFromMachine ref-based for the same reason — the
+            // file content patched by B lives on B's workstation_id, and
+            // resolveTargetMachineId (also ref-based) translates the
+            // post-NAT LAN IP to omen-XXXXXXXX.
             readFileFromMachine: (op) =>
-              readFileFromMachine({ ...op, machineId: resolveTargetMachineId(op.machineId) }),
+              readFileFromMachineRef.current({
+                ...op,
+                machineId: resolveTargetMachineIdRef.current(op.machineId),
+              }),
             onHttpRequest,
             getHandler,
           }),
@@ -773,12 +805,14 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
             getMachine,
             findMachineByIpAsync: findEffectiveMachineByIpAsync,
             resolveDomain,
-            resolveNat,
-            // IP → workstation_id translation so cross-player /var/www
-            // scans hit the right machineId (same shape as the curl /
-            // lynx readFileFromMachine wrappers above).
+            // Ref-based — see curl wiring above for rationale.
+            resolveNat: (ip, port) => resolveNatRef.current(ip, port),
             getNodeFromMachine: (machineId, path, cwd) =>
-              getNodeFromMachine(resolveTargetMachineId(machineId), path, cwd),
+              getNodeFromMachineRef.current(
+                resolveTargetMachineIdRef.current(machineId),
+                path,
+                cwd,
+              ),
             getLocalNode: (path: string) => getNode(resolvePath(path)),
             getCurrentPath: () => session.currentPath,
             onScanAggregate: onGobusterScanAggregate,
@@ -935,18 +969,24 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
       getMachine: getEffectiveMachine,
       findMachineByIpAsync: findEffectiveMachineByIpAsync,
       resolveDomain,
-      resolveNat,
-      // Same IP → workstation_id translation as curl. Without it, lynx
-      // fetching a LAN occupant's IP misses every patch keyed under
-      // their workstation_id (e.g. /var/www/html/index.html written by
-      // player-run apache2 / nginx).
+      // Ref-based — see curl wiring above for rationale.
+      resolveNat: (ip, port) => resolveNatRef.current(ip, port),
       readFileFromMachine: (op) =>
-        readFileFromMachine({ ...op, machineId: resolveTargetMachineId(op.machineId) }),
+        readFileFromMachineRef.current({
+          ...op,
+          machineId: resolveTargetMachineIdRef.current(op.machineId),
+        }),
       getHandler,
       onHttpRequest,
     });
 
     return { commands, lynxFetch };
+    // resolveTargetMachineId is read via resolveTargetMachineIdRef inside
+    // cross-LAN closures, so the useMemo deps deliberately omit it. Non-
+    // cross-LAN call sites in this body capture it directly; the map
+    // rebuilds whenever any of the underlying slices change, so direct
+    // captures stay fresh too.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     getInterfaces,
     getInterface,
