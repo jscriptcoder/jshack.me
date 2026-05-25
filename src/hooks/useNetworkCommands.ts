@@ -1,3 +1,4 @@
+import { useMemo, useRef } from 'react';
 import { useNetwork } from '../network';
 import { useFileSystem } from '../filesystem';
 import { useSession } from '../session/SessionContext';
@@ -89,6 +90,8 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
   const { activeNetwork, lanOccupants } = useHomeNetworks();
   const { foreignNetworks, foreignLanOccupants } = useForeignNetworks();
 
+  // resolveTargetMachineId is built at hook scope (above the useMemo)
+  // so the ref below can track it.
   const resolveTargetMachineId = buildResolveTargetMachineId(
     activeNetwork,
     lanOccupants,
@@ -97,719 +100,988 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
     foreignLanOccupants,
   );
 
-  const isWifiRequired = () => isOwnWorkstation(session.machine, hostname) && !wifiConnected;
+  // Refs synced during render so the OLD command-creation-time
+  // closures of curl/gobuster/lynx can read the LATEST functions
+  // when their async dispatch runs AFTER the resolver has materialized
+  // a foreign network. Without this, the OLD closures call the OLD
+  // resolveNat (allIptablesRules.size=0, doesn't know about B's NAT
+  // forward), OLD readFileFromMachine (closed over OLD fileSystems
+  // state), and OLD resolveTargetMachineId (no foreign-occupant
+  // translation). Each ref's .current points to the LATEST function
+  // from the most recent render — useRef objects are STABLE across
+  // renders, so the OLD closure's captured ref is the SAME ref the
+  // LATEST render writes into.
+  //
+  // Verified by [nat-debug] logs in dev: with closure-capture the
+  // OLD resolveNat reports allIptablesRules.size=0 (its captured
+  // Map is the pre-foreign-network empty one). With the ref, .current
+  // points to the LATEST resolveNat whose Map has B's router's
+  // iptables rules.
+  const resolveNatRef = useRef(resolveNat);
+  resolveNatRef.current = resolveNat;
+  const readFileFromMachineRef = useRef(readFileFromMachine);
+  readFileFromMachineRef.current = readFileFromMachine;
+  const getNodeFromMachineRef = useRef(getNodeFromMachine);
+  getNodeFromMachineRef.current = getNodeFromMachine;
+  const resolveTargetMachineIdRef = useRef(resolveTargetMachineId);
+  resolveTargetMachineIdRef.current = resolveTargetMachineId;
+  // createFileOnMachine needs the same treatment as the readers: the
+  // OLD closure's check for parentNode-existence reads OLD fileSystems
+  // state via useFileSystemMutations's useCallback closure, so even
+  // when awaitCrossPlayerBaseFs has populated /tmp into the LATEST
+  // state, the OLD createFileOnMachine bails for non-root tiers with
+  // "Not a directory: /tmp" (because the OLD closure doesn't see /tmp).
+  // root accidentally works because the mutation auto-creates missing
+  // parents at root tier — guest doesn't have that escape hatch.
+  const createFileOnMachineRef = useRef(createFileOnMachine);
+  createFileOnMachineRef.current = createFileOnMachine;
 
-  const logFs = {
-    readFileFromMachine: (op: Parameters<typeof readFileFromMachine>[0]) =>
-      readFileFromMachine({ ...op, machineId: resolveTargetMachineId(op.machineId) }),
-    writeFileToMachine: (op: Parameters<typeof writeFileToMachine>[0]) =>
-      writeFileToMachine({ ...op, machineId: resolveTargetMachineId(op.machineId) }),
-    createFileOnMachine: (op: Parameters<typeof createFileOnMachine>[0]) =>
-      createFileOnMachine({ ...op, machineId: resolveTargetMachineId(op.machineId) }),
-  };
+  return useMemo(() => {
+    // WiFi is required only when the player is sitting on their own
+    // workstation and not connected to a network. Once SSH'd into a
+    // remote, the network commands operate from the remote's perspective
+    // and don't need a WiFi link from the workstation.
+    const isWifiRequired = () => isOwnWorkstation(session.machine, hostname) && !wifiConnected;
 
-  const withOverlay = (machine: RemoteMachine | undefined) =>
-    machine === undefined ? undefined : applyVersionOverlay(machine, readFileFromMachine);
-  const getEffectiveMachine = (ip: string) => withOverlay(getMachine(ip));
-  const findEffectiveMachineByIp = (ip: string) => withOverlay(findMachineByIp(ip));
-  const findEffectiveMachineByIpAsync = async (ip: string): Promise<RemoteMachine | undefined> =>
-    withOverlay(await findMachineByIpAsync(ip));
-  const getEffectiveMachines = (): readonly RemoteMachine[] =>
-    getMachines().map((m) => applyVersionOverlay(m, readFileFromMachine));
+    // resolveTargetMachineId is built at hook scope (above useMemo) so
+    // both this useMemo body AND the resolveTargetMachineIdRef can use
+    // it. Non-cross-LAN call sites in this body capture it directly;
+    // cross-LAN command wrappers (curl/gobuster/lynx) read via the ref
+    // so the OLD command closure picks up the LATEST translation after
+    // an async pre-resolve materializes a new foreign network.
 
-  const onHttpRequest = createHttpRequestHandler({
-    sessionMachine: session.machine,
-    ownWorkstationId: hostname,
-    getLocalIP,
-    getPublicIP,
-    resolveNat,
-    logFs,
-  });
+    // logFs auto-translates the machineId on every read/write/create so
+    // any log-writing handler (sshAuth, ftpAuth, hydraLog, etc.) that
+    // hands an IP-form machineId routes the patch under the occupant's
+    // workstation_id when applicable. Non-occupant IPs (mission, world,
+    // off-LAN) pass through unchanged. Reads MUST go through the same
+    // translation so writers and readers agree on the storage key.
+    const logFs = {
+      readFileFromMachine: (op: Parameters<typeof readFileFromMachine>[0]) =>
+        readFileFromMachine({ ...op, machineId: resolveTargetMachineId(op.machineId) }),
+      writeFileToMachine: (op: Parameters<typeof writeFileToMachine>[0]) =>
+        writeFileToMachine({ ...op, machineId: resolveTargetMachineId(op.machineId) }),
+      createFileOnMachine: (op: Parameters<typeof createFileOnMachine>[0]) =>
+        createFileOnMachine({ ...op, machineId: resolveTargetMachineId(op.machineId) }),
+    };
 
-  const onExploitAttempt = createExploitAttemptHandler({
-    sessionMachine: session.machine,
-    ownWorkstationId: hostname,
-    getLocalIP,
-    getPublicIP,
-    resolveNat,
-    getMachine,
-    getGameTime,
-    logFs,
-  });
-
-  const onNcConnect = createNcConnectHandler({
-    sessionMachine: session.machine,
-    ownWorkstationId: hostname,
-    getLocalIP,
-    getPublicIP,
-    resolveNat,
-    getMachine,
-    logFs,
-  });
-
-  const onHydraBruteForceAggregate = createHydraLogHandler({
-    sessionMachine: session.machine,
-    ownWorkstationId: hostname,
-    getLocalIP,
-    getPublicIP,
-    resolveNat,
-    getMachine,
-    readFileFromMachine: (op) => readFileFromMachine(op),
-    logFs,
-  });
-
-  const onScanAggregate = (info: {
-    readonly targetIp: string;
-    readonly probedPorts: readonly number[];
-  }) => {
-    const sourceIp = resolveLogSourceIP(
-      session.machine,
-      hostname,
-      info.targetIp,
-      getLocalIP(),
-      getPublicIP(),
-    );
-    const targetHostname = resolveHostname(info.targetIp, getMachine);
-    const line = formatNmapScanAggregate({
-      date: new Date(),
-      hostname: targetHostname,
-      sourceIp,
-      probedPorts: info.probedPorts,
+    // Phase 3 Step A: apply the /var/lib/apt/service_versions/<service> overlay
+    // when reading any machine's ports. Commands (nmap, msfconsole) receive
+    // overlay-aware views without needing to know the overlay exists.
+    const withOverlay = (machine: RemoteMachine | undefined) =>
+      machine === undefined ? undefined : applyVersionOverlay(machine, readFileFromMachine);
+    const getEffectiveMachine = (ip: string) => withOverlay(getMachine(ip));
+    const findEffectiveMachineByIp = (ip: string) => withOverlay(findMachineByIp(ip));
+    // Async sibling — pre-resolves the target via the cross-LAN
+    // seed-regen resolver before applying the version overlay. Commands
+    // that take user-typed public IPs (nmap on a foreign router being
+    // the bellwether) await this at entry so the foreign HomeNetwork
+    // materializes before the rest of the command's sync resolution
+    // logic runs.
+    const findEffectiveMachineByIpAsync = async (ip: string): Promise<RemoteMachine | undefined> =>
+      withOverlay(await findMachineByIpAsync(ip));
+    const getEffectiveMachines = (): readonly RemoteMachine[] =>
+      getMachines().map((m) => applyVersionOverlay(m, readFileFromMachine));
+    const onHttpRequest = createHttpRequestHandler({
+      sessionMachine: session.machine,
+      ownWorkstationId: hostname,
+      getLocalIP,
+      getPublicIP,
+      resolveNat,
+      logFs,
     });
-    appendToMachineLog(info.targetIp, '/var/log/kern.log', line, logFs);
-  };
 
-  const onGobusterScanAggregate = (info: {
-    readonly targetIp: string;
-    readonly port: number;
-    readonly probedCount: number;
-    readonly hitCount: number;
-  }) => {
-    const { ip: logIp } = resolveNat(info.targetIp, info.port);
-    const sourceIp = resolveLogSourceIP(
-      session.machine,
-      hostname,
-      info.targetIp,
-      getLocalIP(),
-      getPublicIP(),
-    );
-    const line = formatGobusterScanAggregate({
-      date: new Date(),
-      sourceIp,
-      port: info.port,
-      probedCount: info.probedCount,
-      hitCount: info.hitCount,
+    const onExploitAttempt = createExploitAttemptHandler({
+      sessionMachine: session.machine,
+      ownWorkstationId: hostname,
+      getLocalIP,
+      getPublicIP,
+      resolveNat,
+      getMachine,
+      getGameTime,
+      logFs,
     });
-    appendToMachineLog(logIp, '/var/log/access.log', line, logFs);
-  };
 
-  const buildTargetCommandContext = (
-    machineId: string,
-    tier: UserType,
-  ): Readonly<Record<string, (...args: readonly unknown[]) => unknown>> => {
-    const mid: MachineId = machineId;
-    const machineInfo = getMachine(machineId);
+    const onNcConnect = createNcConnectHandler({
+      sessionMachine: session.machine,
+      ownWorkstationId: hostname,
+      getLocalIP,
+      getPublicIP,
+      resolveNat,
+      getMachine,
+      logFs,
+    });
 
-    const sshdFn = (...args: unknown[]): string => {
-      const adapter: SshdAdapter = {
-        isPortOpen: (port) =>
-          machineInfo?.ports.some((p) => p.port === port && p.service === 'ssh' && p.open) ?? false,
-        readPidFile: () => {
-          const node = getNodeFromMachine(mid, SSH_PID_FILE_PATH, '/');
-          return node?.type === 'file' ? (node.content ?? undefined) : undefined;
-        },
-        writePidFile: (content) =>
-          createFileOnMachine({
-            machineId: mid,
-            path: SSH_PID_FILE_PATH,
-            cwd: '/',
-            content,
-            userType: 'root',
-          }),
-      };
-      return startSshd(adapter, args);
-    };
+    const onHydraBruteForceAggregate = createHydraLogHandler({
+      sessionMachine: session.machine,
+      ownWorkstationId: hostname,
+      getLocalIP,
+      getPublicIP,
+      resolveNat,
+      getMachine,
+      readFileFromMachine: (op) => readFileFromMachine(op),
+      logFs,
+    });
 
-    const vsftpdFn = (...args: unknown[]): string => {
-      const adapter: VsftpdAdapter = {
-        isPortOpen: (port) =>
-          machineInfo?.ports.some((p) => p.port === port && p.service === 'ftp' && p.open) ?? false,
-        readPidFile: () => {
-          const node = getNodeFromMachine(mid, FTP_PID_FILE_PATH, '/');
-          return node?.type === 'file' ? (node.content ?? undefined) : undefined;
-        },
-        writePidFile: (content) =>
-          createFileOnMachine({
-            machineId: mid,
-            path: FTP_PID_FILE_PATH,
-            cwd: '/',
-            content,
-            userType: 'root',
-          }),
-      };
-      return startVsftpd(adapter, args);
-    };
-
-    const systemctlFn = (...args: unknown[]): string => {
-      const context: SystemctlContext = {
-        getMachine: () => mid,
-        getMachineInfo: (ip) => getMachine(ip),
-        getNodeFromMachine,
-        createFileOnMachine: (path, content, userType) =>
-          createFileOnMachine({ machineId: mid, path, cwd: '/', content, userType }),
-        deleteFileOnMachine: deleteNodeFromMachine,
-      };
-      return executeSystemctl(context, args);
-    };
-
-    const psFn = (): string => {
-      const adapter: PsAdapter = {
-        getMachineInfo: () => machineInfo,
-        readDirectory: (path) => {
-          const node = getNodeFromMachine(mid, path, '/');
-          if (node?.type !== 'directory' || !node.children) return undefined;
-          return Object.fromEntries(
-            Object.entries(node.children)
-              .filter(([, child]) => child.type === 'file' && child.content)
-              .map(([name, child]) => [name, child.content!]),
-          );
-        },
-      };
-      const header = 'PID     USER       COMMAND';
-      const rows = listProcesses(adapter).map(
-        (p) => `${String(p.pid).padEnd(8)}${p.user.padEnd(11)}${p.command}`,
+    const onScanAggregate = (info: {
+      readonly targetIp: string;
+      readonly probedPorts: readonly number[];
+    }) => {
+      const sourceIp = resolveLogSourceIP(
+        session.machine,
+        hostname,
+        info.targetIp,
+        getLocalIP(),
+        getPublicIP(),
       );
-      return [header, ...rows].join('\n');
-    };
-
-    const ncFn = (...args: unknown[]): string => {
-      const adapter = {
-        isPortOpen: (port: number) =>
-          machineInfo?.ports.some((p) => p.port === port && p.open) ?? false,
-        pidFileExists: (port: number) => {
-          const node = getNodeFromMachine(mid, ncPidFilePath(port), '/');
-          return node !== null;
-        },
-        writePidFile: (port: number, content: string) =>
-          createFileOnMachine({
-            machineId: mid,
-            path: ncPidFilePath(port),
-            cwd: '/',
-            content,
-            userType: 'root',
-          }),
-        username: tier === 'root' ? 'root' : 'user',
-        userType: tier,
-      };
-      return startNcListener(adapter, args);
-    };
-
-    const catFn = (path: unknown): string => {
-      if (typeof path !== 'string') throw new Error('cat: missing operand');
-      return (
-        readFileFromMachine({ machineId: mid, path, cwd: '/', userType: tier }) ??
-        `cat: ${path}: No such file or directory`
-      );
-    };
-
-    const lsFn = (path?: unknown): string => {
-      const dir = typeof path === 'string' ? path : '/';
-      const entries = listDirectoryFromMachine({
-        machineId: mid,
-        path: dir,
-        cwd: '/',
-        userType: tier,
+      const targetHostname = resolveHostname(info.targetIp, getMachine);
+      const line = formatNmapScanAggregate({
+        date: new Date(),
+        hostname: targetHostname,
+        sourceIp,
+        probedPorts: info.probedPorts,
       });
-      return entries ? entries.join('  ') : `ls: ${dir}: No such file or directory`;
+      appendToMachineLog(info.targetIp, '/var/log/kern.log', line, logFs);
     };
 
-    const echoFn = (...args: readonly unknown[]): string => args.map(String).join(' ');
-
-    return {
-      sshd: sshdFn,
-      vsftpd: vsftpdFn,
-      systemctl: systemctlFn,
-      ps: psFn,
-      nc: ncFn,
-      cat: catFn,
-      ls: lsFn,
-      echo: echoFn,
+    const onGobusterScanAggregate = (info: {
+      readonly targetIp: string;
+      readonly port: number;
+      readonly probedCount: number;
+      readonly hitCount: number;
+    }) => {
+      const { ip: logIp } = resolveNat(info.targetIp, info.port);
+      const sourceIp = resolveLogSourceIP(
+        session.machine,
+        hostname,
+        info.targetIp,
+        getLocalIP(),
+        getPublicIP(),
+      );
+      const line = formatGobusterScanAggregate({
+        date: new Date(),
+        sourceIp,
+        port: info.port,
+        probedCount: info.probedCount,
+        hitCount: info.hitCount,
+      });
+      appendToMachineLog(logIp, '/var/log/access.log', line, logFs);
     };
-  };
 
-  const commands = new Map<string, Command>();
+    const commands = new Map<string, Command>();
 
-  commands.set(
-    'ifconfig',
-    createIfconfigCommand({
-      getInterfaces,
-      getInterface,
-    }),
-  );
+    commands.set(
+      'ifconfig',
+      createIfconfigCommand({
+        getInterfaces,
+        getInterface,
+      }),
+    );
 
-  commands.set(
-    'ping',
-    wrapWithBrickedCheck(
-      wrapWithWifiCheck(
-        createPingCommand({ getMachine, getMachines, getLocalIP }),
-        isWifiRequired,
+    commands.set(
+      'ping',
+      wrapWithBrickedCheck(
+        wrapWithWifiCheck(
+          createPingCommand({ getMachine, getMachines, getLocalIP }),
+          isWifiRequired,
+        ),
+        isMachineBricked,
       ),
-      isMachineBricked,
-    ),
-  );
+    );
 
-  commands.set(
-    'nmap',
-    wrapWithBrickedCheck(
+    commands.set(
+      'nmap',
+      wrapWithBrickedCheck(
+        wrapWithWifiCheck(
+          createNmapCommand({
+            getMachine: getEffectiveMachine,
+            findMachineByIp: findEffectiveMachineByIp,
+            findMachineByIpAsync: findEffectiveMachineByIpAsync,
+            getMachines: getEffectiveMachines,
+            getLocalIPs: () => new Set(getInterfaces().map((iface) => iface.inet)),
+            getLocalHostname: () => session.hostname ?? session.machine,
+            getGameTime,
+            onScanAggregate,
+          }),
+          isWifiRequired,
+        ),
+        isMachineBricked,
+      ),
+    );
+
+    commands.set(
+      'nslookup',
+      wrapWithWifiCheck(createNslookupCommand({ resolveDomain, getGateway }), isWifiRequired),
+    );
+
+    commands.set(
+      'dig',
       wrapWithWifiCheck(
-        createNmapCommand({
-          getMachine: getEffectiveMachine,
-          findMachineByIp: findEffectiveMachineByIp,
-          findMachineByIpAsync: findEffectiveMachineByIpAsync,
-          getMachines: getEffectiveMachines,
-          getLocalIPs: () => new Set(getInterfaces().map((iface) => iface.inet)),
-          getLocalHostname: () => session.hostname ?? session.machine,
-          getGameTime,
-          onScanAggregate,
+        createDigCommand({
+          getMachine,
+          getLocalIP,
+          resolveDomain,
+          getGateway,
+          getNodeFromMachine,
         }),
         isWifiRequired,
       ),
-      isMachineBricked,
-    ),
-  );
+    );
 
-  commands.set(
-    'nslookup',
-    wrapWithWifiCheck(createNslookupCommand({ resolveDomain, getGateway }), isWifiRequired),
-  );
+    commands.set(
+      'ssh',
+      wrapWithBrickedCheck(
+        wrapWithWifiCheck(
+          createSshCommand({
+            getMachine,
+            findMachineByIpAsync: findEffectiveMachineByIpAsync,
+            getLocalIP,
+          }),
+          isWifiRequired,
+        ),
+        isMachineBricked,
+      ),
+    );
 
-  commands.set(
-    'dig',
-    wrapWithWifiCheck(
-      createDigCommand({
+    commands.set(
+      'ftp',
+      wrapWithBrickedCheck(
+        wrapWithWifiCheck(
+          createFtpCommand({
+            getMachine,
+            findMachineByIpAsync: findEffectiveMachineByIpAsync,
+            getLocalIP,
+            resolveDomain,
+          }),
+          isWifiRequired,
+        ),
+        isMachineBricked,
+      ),
+    );
+
+    commands.set(
+      'nc',
+      createNcCommand({
         getMachine,
+        findMachineByIpAsync: findEffectiveMachineByIpAsync,
         getLocalIP,
         resolveDomain,
-        getGateway,
-        getNodeFromMachine,
-      }),
-      isWifiRequired,
-    ),
-  );
-
-  commands.set(
-    'ssh',
-    wrapWithBrickedCheck(
-      wrapWithWifiCheck(
-        createSshCommand({
-          getMachine,
-          findMachineByIpAsync: findEffectiveMachineByIpAsync,
-          getLocalIP,
-        }),
+        onNcConnect,
         isWifiRequired,
-      ),
-      isMachineBricked,
-    ),
-  );
-
-  commands.set(
-    'ftp',
-    wrapWithBrickedCheck(
-      wrapWithWifiCheck(
-        createFtpCommand({
-          getMachine,
-          findMachineByIpAsync: findEffectiveMachineByIpAsync,
-          getLocalIP,
-          resolveDomain,
-        }),
-        isWifiRequired,
-      ),
-      isMachineBricked,
-    ),
-  );
-
-  commands.set(
-    'nc',
-    createNcCommand({
-      getMachine,
-      findMachineByIpAsync: findEffectiveMachineByIpAsync,
-      getLocalIP,
-      resolveDomain,
-      onNcConnect,
-      isWifiRequired,
-      isMachineBricked,
-      getListenAdapter: () => ({
-        isPortOpen: (port) =>
-          getMachine(session.machine)?.ports.some((p) => p.port === port && p.open) ?? false,
-        pidFileExists: (port) => {
-          const node = getNodeFromMachine(session.machine, ncPidFilePath(port), '/');
-          return node !== null && node.type === 'file';
-        },
-        writePidFile: (port, content) =>
-          createFileOnMachine({
-            machineId: session.machine,
-            path: ncPidFilePath(port),
-            cwd: '/',
-            content,
-            userType: 'root',
-          }),
-        username: session.username,
-        userType: session.userType,
-      }),
-    }),
-  );
-
-  commands.set(
-    'curl',
-    wrapWithBrickedCheck(
-      wrapWithWifiCheck(
-        createCurlCommand({
-          getMachine,
-          findMachineByIpAsync: findEffectiveMachineByIpAsync,
-          resolveDomain,
-          resolveNat,
-          readFileFromMachine: (op) =>
-            readFileFromMachine({ ...op, machineId: resolveTargetMachineId(op.machineId) }),
-          onHttpRequest,
-          getHandler,
-        }),
-        isWifiRequired,
-      ),
-      isMachineBricked,
-    ),
-  );
-
-  commands.set(
-    'lynx',
-    wrapWithBrickedCheck(wrapWithWifiCheck(createLynxCommand(), isWifiRequired), isMachineBricked),
-  );
-
-  commands.set(
-    'msfconsole',
-    wrapWithBrickedCheck(
-      wrapWithWifiCheck(
-        createMsfconsoleCommand({
-          getMachine: getEffectiveMachine,
-          findMachineByIp: findEffectiveMachineByIp,
-          findMachineByIpAsync: findEffectiveMachineByIpAsync,
-          getLocalIP,
-          resolveNat,
-          getCurrentMachineId: () => session.machine,
-          getCurrentMachine: () => {
-            if (!isOwnWorkstation(session.machine, hostname)) {
-              return getEffectiveMachine(session.machine);
-            }
-            return {
-              ip: hostname,
-              hostname: session.hostname ?? hostname,
-              ports: [],
-              users: [
-                { username: 'root', passwordHash: '', userType: 'root' },
-                { username: session.username, passwordHash: '', userType: 'user' },
-                { username: 'guest', passwordHash: '', userType: 'guest' },
-              ],
-            };
+        isMachineBricked,
+        getListenAdapter: () => ({
+          isPortOpen: (port) =>
+            getMachine(session.machine)?.ports.some((p) => p.port === port && p.open) ?? false,
+          pidFileExists: (port) => {
+            const node = getNodeFromMachine(session.machine, ncPidFilePath(port), '/');
+            return node !== null && node.type === 'file';
           },
-          resolveDomain,
-          getGameTime,
-          onExploitAttempt,
-          readRemoteFile: (machineId, path, tier = 'root') =>
-            readFileFromMachine({ machineId, path, cwd: '/', userType: tier }),
-          readLocalFile: (path) =>
-            readFileFromMachine({
+          writePidFile: (port, content) =>
+            createFileOnMachine({
               machineId: session.machine,
-              path,
+              path: ncPidFilePath(port),
               cwd: '/',
-              userType: session.userType,
+              content,
+              userType: 'root',
             }),
-          writeRemoteFile: async (machineId, path, content, tier = 'root') => {
-            const canonicalMachineId = resolveTargetMachineId(machineId);
-            let writeResult: { allowed: boolean; error?: string } = { allowed: false };
-            await withTransientSession(
-              getIdentity(),
-              {
-                machine_id: canonicalMachineId,
-                credentials: { username: 'msf', userType: tier },
-                kind: 'effect_one_shot',
-                ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
-                source_ip: session.machine,
-              },
-              async () => {
-                writeResult = upsertFileOnMachine({
-                  machineId: canonicalMachineId,
-                  path,
-                  cwd: '/',
-                  userType: tier,
-                  content,
-                });
-                await flushPendingPatches();
-              },
+          username: session.username,
+          userType: session.userType,
+        }),
+      }),
+    );
+
+    commands.set(
+      'curl',
+      wrapWithBrickedCheck(
+        wrapWithWifiCheck(
+          createCurlCommand({
+            getMachine,
+            findMachineByIpAsync: findEffectiveMachineByIpAsync,
+            resolveDomain,
+            // resolveNat MUST be ref-based: the OLD curl closure captured
+            // at command-creation time has the OLD allIptablesRules map
+            // (size=0 before the foreign network was loaded). Without the
+            // ref, resolveNat(<foreign publicIp>, <forwardedPort>) returns
+            // the input unchanged → handleGet reads fileSystems[<publicIp>]
+            // (the router's FS, which doesn't have /var/www/html/index.html)
+            // → 404. With the ref, .current points to the LATEST resolveNat
+            // whose allIptablesRules has B's router's NAT forward.
+            resolveNat: (ip, port) => resolveNatRef.current(ip, port),
+            // readFileFromMachine ref-based for the same reason — the
+            // file content patched by B lives on B's workstation_id, and
+            // resolveTargetMachineId (also ref-based) translates the
+            // post-NAT LAN IP to omen-XXXXXXXX.
+            readFileFromMachine: (op) =>
+              readFileFromMachineRef.current({
+                ...op,
+                machineId: resolveTargetMachineIdRef.current(op.machineId),
+              }),
+            onHttpRequest,
+            getHandler,
+          }),
+          isWifiRequired,
+        ),
+        isMachineBricked,
+      ),
+    );
+
+    commands.set(
+      'lynx',
+      wrapWithBrickedCheck(
+        wrapWithWifiCheck(createLynxCommand(), isWifiRequired),
+        isMachineBricked,
+      ),
+    );
+
+    // Builds a command context for running scripts on a target machine.
+    // Provides the same daemon/system commands the player would have if
+    // SSH'd into the machine at the given privilege tier.
+    const buildTargetCommandContext = (
+      machineId: string,
+      tier: UserType,
+    ): Readonly<Record<string, (...args: readonly unknown[]) => unknown>> => {
+      const mid: MachineId = machineId;
+      const machineInfo = getMachine(machineId);
+
+      const sshdFn = (...args: unknown[]): string => {
+        const adapter: SshdAdapter = {
+          isPortOpen: (port) =>
+            machineInfo?.ports.some((p) => p.port === port && p.service === 'ssh' && p.open) ??
+            false,
+          readPidFile: () => {
+            const node = getNodeFromMachine(mid, SSH_PID_FILE_PATH, '/');
+            return node?.type === 'file' ? (node.content ?? undefined) : undefined;
+          },
+          writePidFile: (content) =>
+            createFileOnMachine({
+              machineId: mid,
+              path: SSH_PID_FILE_PATH,
+              cwd: '/',
+              content,
+              userType: 'root',
+            }),
+        };
+        return startSshd(adapter, args);
+      };
+
+      const vsftpdFn = (...args: unknown[]): string => {
+        const adapter: VsftpdAdapter = {
+          isPortOpen: (port) =>
+            machineInfo?.ports.some((p) => p.port === port && p.service === 'ftp' && p.open) ??
+            false,
+          readPidFile: () => {
+            const node = getNodeFromMachine(mid, FTP_PID_FILE_PATH, '/');
+            return node?.type === 'file' ? (node.content ?? undefined) : undefined;
+          },
+          writePidFile: (content) =>
+            createFileOnMachine({
+              machineId: mid,
+              path: FTP_PID_FILE_PATH,
+              cwd: '/',
+              content,
+              userType: 'root',
+            }),
+        };
+        return startVsftpd(adapter, args);
+      };
+
+      const systemctlFn = (...args: unknown[]): string => {
+        const context: SystemctlContext = {
+          getMachine: () => mid,
+          getMachineInfo: (ip) => getMachine(ip),
+          getNodeFromMachine,
+          createFileOnMachine: (path, content, userType) =>
+            createFileOnMachine({ machineId: mid, path, cwd: '/', content, userType }),
+          deleteFileOnMachine: deleteNodeFromMachine,
+        };
+        return executeSystemctl(context, args);
+      };
+
+      const psFn = (): string => {
+        const adapter: PsAdapter = {
+          getMachineInfo: () => machineInfo,
+          readDirectory: (path) => {
+            const node = getNodeFromMachine(mid, path, '/');
+            if (node?.type !== 'directory' || !node.children) return undefined;
+            return Object.fromEntries(
+              Object.entries(node.children)
+                .filter(([, child]) => child.type === 'file' && child.content)
+                .map(([name, child]) => [name, child.content!]),
             );
-            return writeResult;
           },
-          listRemoteDir: (machineId, path, tier = 'root') =>
-            listDirectoryFromMachine({ machineId, path, cwd: '/', userType: tier }),
-          exploitFileRead: async (machineId, path, tier) => {
-            const canonical = resolveTargetMachineId(machineId);
-            const isCrossPlayerWorkstation =
-              parseWorkstationId(canonical) !== undefined &&
-              !isOwnWorkstation(canonical, hostname);
-            if (isCrossPlayerWorkstation) {
-              const result = await withTransientSession(
+        };
+        const header = 'PID     USER       COMMAND';
+        const rows = listProcesses(adapter).map(
+          (p) => `${String(p.pid).padEnd(8)}${p.user.padEnd(11)}${p.command}`,
+        );
+        return [header, ...rows].join('\n');
+      };
+
+      const ncFn = (...args: unknown[]): string => {
+        // Only listen mode in script context (no outbound connections)
+        const adapter = {
+          isPortOpen: (port: number) =>
+            machineInfo?.ports.some((p) => p.port === port && p.open) ?? false,
+          pidFileExists: (port: number) => {
+            const node = getNodeFromMachine(mid, ncPidFilePath(port), '/');
+            return node !== null;
+          },
+          writePidFile: (port: number, content: string) =>
+            createFileOnMachine({
+              machineId: mid,
+              path: ncPidFilePath(port),
+              cwd: '/',
+              content,
+              userType: 'root',
+            }),
+          username: tier === 'root' ? 'root' : 'user',
+          userType: tier,
+        };
+        return startNcListener(adapter, args);
+      };
+
+      const catFn = (path: unknown): string => {
+        if (typeof path !== 'string') throw new Error('cat: missing operand');
+        return (
+          readFileFromMachine({ machineId: mid, path, cwd: '/', userType: tier }) ??
+          `cat: ${path}: No such file or directory`
+        );
+      };
+
+      const lsFn = (path?: unknown): string => {
+        const dir = typeof path === 'string' ? path : '/';
+        const entries = listDirectoryFromMachine({
+          machineId: mid,
+          path: dir,
+          cwd: '/',
+          userType: tier,
+        });
+        return entries ? entries.join('  ') : `ls: ${dir}: No such file or directory`;
+      };
+
+      const echoFn = (...args: readonly unknown[]): string => args.map(String).join(' ');
+
+      return {
+        sshd: sshdFn,
+        vsftpd: vsftpdFn,
+        systemctl: systemctlFn,
+        ps: psFn,
+        nc: ncFn,
+        cat: catFn,
+        ls: lsFn,
+        echo: echoFn,
+      };
+    };
+
+    commands.set(
+      'msfconsole',
+      wrapWithBrickedCheck(
+        wrapWithWifiCheck(
+          createMsfconsoleCommand({
+            getMachine: getEffectiveMachine,
+            // Whole-mission lookup so the post-NAT internal target is
+            // reachable when the player is on localhost (where getMachine
+            // would return undefined for LAN IPs).
+            findMachineByIp: findEffectiveMachineByIp,
+            findMachineByIpAsync: findEffectiveMachineByIpAsync,
+            getLocalIP,
+            // NAT resolver: when player runs msfconsole publicIP forwardedPort,
+            // msfconsole resolves to the actual internal target so all
+            // effect-phase ops (writes, script-exec, gateway-chain lookup)
+            // operate on the right machine instead of the public-IP router.
+            // Identity passthrough for direct LAN-internal exploits.
+            resolveNat,
+            getCurrentMachineId: () => session.machine,
+            // The player's own workstation isn't in the remote-machines
+            // list (it's generated separately via generateLocalhost), so
+            // we synthesize a minimal RemoteMachine for it on demand. The
+            // dispatch only needs `users` to resolve shell-effect tiers.
+            // session.machine === hostname when the player is sitting on
+            // their own workstation under the eliminated-localhost model.
+            getCurrentMachine: () => {
+              if (!isOwnWorkstation(session.machine, hostname)) {
+                return getEffectiveMachine(session.machine);
+              }
+              return {
+                ip: hostname,
+                hostname: session.hostname ?? hostname,
+                ports: [],
+                users: [
+                  { username: 'root', passwordHash: '', userType: 'root' },
+                  { username: session.username, passwordHash: '', userType: 'user' },
+                  { username: 'guest', passwordHash: '', userType: 'guest' },
+                ],
+              };
+            },
+            resolveDomain,
+            getGameTime,
+            onExploitAttempt,
+            readRemoteFile: (machineId, path, tier = 'root') =>
+              readFileFromMachine({ machineId, path, cwd: '/', userType: tier }),
+            readLocalFile: (path) =>
+              readFileFromMachine({
+                machineId: session.machine,
+                path,
+                cwd: '/',
+                userType: session.userType,
+              }),
+            // Wrap writeRemoteFile + runScriptOnTarget in transient
+            // sessions (kind='effect_one_shot') so the L1 patch-validation
+            // gate sees a session row at fire time. msfconsole's switch
+            // cases await these callbacks (they were sync before; see
+            // src/commands/msfconsole.ts MsfconsoleContext for the
+            // signature change).
+            //
+            // The body awaits flushPendingPatches() before returning so
+            // withTransientSession's `await body()` waits for in-flight
+            // upsertPatch / removePatch network calls to settle. Without
+            // this, the wrapping endSession can race the patch and
+            // arrive at the server first — patch sees an ended session
+            // and 403s on L1.
+            // Returns the underlying upsertFileOnMachine result so callers
+            // (msfconsole's file_write / password_reset / backdoor_port_open)
+            // can surface failure instead of silently printing "Exploit
+            // successful". Uses upsertFileOnMachine (vs writeFileToMachine)
+            // so brand-new paths actually get a patch — file_write and
+            // backdoor_port_open typically target paths that don't exist.
+            writeRemoteFile: async (machineId, path, content, tier = 'root') => {
+              // Translate IP-form machineId to canonical workstation_id for
+              // cross-player LAN occupants. Without this, the session row
+              // and patch land under the LAN IP key (e.g. 192.168.6.217)
+              // instead of B's workstation_id (omen-XXXXXXXX); B's Realtime
+              // subscription is on the workstation_id so the broadcast
+              // never reaches B's tab. Mirrors exploitFileRead /
+              // exploitDirList / logFs.writeFileToMachine. NPC / mission /
+              // world / own-workstation IPs pass through unchanged.
+              // Surfaced in smoke on file_write (msfconsole CVE).
+              const canonicalMachineId = resolveTargetMachineId(machineId);
+              let writeResult: { allowed: boolean; error?: string } = { allowed: false };
+              await withTransientSession(
                 getIdentity(),
                 {
-                  machine_id: canonical,
+                  machine_id: canonicalMachineId,
                   credentials: { username: 'msf', userType: tier },
                   kind: 'effect_one_shot',
                   ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
                   source_ip: session.machine,
                 },
-                () => exploitRead(getIdentity(), canonical, path, 'file_read'),
-              );
-              return typeof result === 'string' ? result : null;
-            }
-            return readFileFromMachine({ machineId, path, cwd: '/', userType: tier });
-          },
-          exploitDirList: async (machineId, path, tier) => {
-            const canonical = resolveTargetMachineId(machineId);
-            const isCrossPlayerWorkstation =
-              parseWorkstationId(canonical) !== undefined &&
-              !isOwnWorkstation(canonical, hostname);
-            if (isCrossPlayerWorkstation) {
-              const result = await withTransientSession(
-                getIdentity(),
-                {
-                  machine_id: canonical,
-                  credentials: { username: 'msf', userType: tier },
-                  kind: 'effect_one_shot',
-                  ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
-                  source_ip: session.machine,
+                async () => {
+                  writeResult = upsertFileOnMachine({
+                    machineId: canonicalMachineId,
+                    path,
+                    cwd: '/',
+                    userType: tier,
+                    content,
+                  });
+                  await flushPendingPatches();
                 },
-                () => exploitRead(getIdentity(), canonical, path, 'dir_list'),
               );
-              return Array.isArray(result) ? result : null;
-            }
-            return listDirectoryFromMachine({ machineId, path, cwd: '/', userType: tier });
-          },
-          runScriptOnTarget: async (machineId, scriptBody, tier) => {
-            const canonicalMachineId = resolveTargetMachineId(machineId);
-            return await withTransientSession(
-              getIdentity(),
-              {
-                machine_id: canonicalMachineId,
-                credentials: { username: 'msf', userType: tier },
-                kind: 'effect_one_shot',
-                ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
-                source_ip: session.machine,
-              },
-              async () => {
-                const result = executeScriptOnTarget(
-                  scriptBody,
-                  buildTargetCommandContext(canonicalMachineId, tier),
+              return writeResult;
+            },
+            listRemoteDir: (machineId, path, tier = 'root') =>
+              listDirectoryFromMachine({ machineId, path, cwd: '/', userType: tier }),
+            // Cross-player-aware file_read / dir_list. Translates the
+            // supplied
+            // ip-form machineId to canonical (workstation_id for LAN
+            // occupants, unchanged for NPC / mission / world). Cross-player
+            // workstation targets bounce through the server's exploitRead
+            // endpoint inside an effect_one_shot transient session — the
+            // server walks B's regenerated base FS at the CVE-granted
+            // tier (read from the session row, not the envelope). Own-
+            // workstation and NPC/mission/world targets stay local — A
+            // already has the FS state needed to read at any tier.
+            exploitFileRead: async (machineId, path, tier) => {
+              const canonical = resolveTargetMachineId(machineId);
+              const isCrossPlayerWorkstation =
+                parseWorkstationId(canonical) !== undefined &&
+                !isOwnWorkstation(canonical, hostname);
+              if (isCrossPlayerWorkstation) {
+                const result = await withTransientSession(
+                  getIdentity(),
+                  {
+                    machine_id: canonical,
+                    credentials: { username: 'msf', userType: tier },
+                    kind: 'effect_one_shot',
+                    ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
+                    source_ip: session.machine,
+                  },
+                  () => exploitRead(getIdentity(), canonical, path, 'file_read'),
                 );
-                await flushPendingPatches();
-                return result;
-              },
-            );
-          },
+                return typeof result === 'string' ? result : null;
+              }
+              return readFileFromMachine({ machineId, path, cwd: '/', userType: tier });
+            },
+            exploitDirList: async (machineId, path, tier) => {
+              const canonical = resolveTargetMachineId(machineId);
+              const isCrossPlayerWorkstation =
+                parseWorkstationId(canonical) !== undefined &&
+                !isOwnWorkstation(canonical, hostname);
+              if (isCrossPlayerWorkstation) {
+                const result = await withTransientSession(
+                  getIdentity(),
+                  {
+                    machine_id: canonical,
+                    credentials: { username: 'msf', userType: tier },
+                    kind: 'effect_one_shot',
+                    ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
+                    source_ip: session.machine,
+                  },
+                  () => exploitRead(getIdentity(), canonical, path, 'dir_list'),
+                );
+                return Array.isArray(result) ? result : null;
+              }
+              return listDirectoryFromMachine({ machineId, path, cwd: '/', userType: tier });
+            },
+            runScriptOnTarget: async (machineId, scriptBody, tier) => {
+              // Same IP→workstation_id translation as writeRemoteFile (above)
+              // and exploitFileRead — scripts run against cross-player
+              // workstations must key the transient session AND every write
+              // the script performs by B's canonical workstation_id, not
+              // the LAN IP. Otherwise patch broadcasts miss B's Realtime
+              // subscription. file_write smoke surfaced the writeRemoteFile
+              // bug; this branch has the same shape.
+              const canonicalMachineId = resolveTargetMachineId(machineId);
+              return await withTransientSession(
+                getIdentity(),
+                {
+                  machine_id: canonicalMachineId,
+                  credentials: { username: 'msf', userType: tier },
+                  kind: 'effect_one_shot',
+                  ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
+                  source_ip: session.machine,
+                },
+                async () => {
+                  const result = executeScriptOnTarget(
+                    scriptBody,
+                    buildTargetCommandContext(canonicalMachineId, tier),
+                  );
+                  await flushPendingPatches();
+                  return result;
+                },
+              );
+            },
+          }),
+          isWifiRequired,
+        ),
+        isMachineBricked,
+      ),
+    );
+
+    commands.set(
+      'hydra',
+      wrapWithBrickedCheck(
+        wrapWithWifiCheck(
+          createHydraCommand({
+            getMachine,
+            findMachineByIpAsync: findEffectiveMachineByIpAsync,
+            getLocalIP,
+            resolveDomain,
+            resolveNat,
+            findMachineUsers,
+            getNodeFromMachine,
+            getLocalNode: (path: string) => getNode(resolvePath(path)),
+            getCurrentPath: () => session.currentPath,
+            onBruteForceAggregate: onHydraBruteForceAggregate,
+            // When the target IP resolves to another player's
+            // workstation_id,
+            // hydra routes through the server's batched crackCredentials
+            // endpoint instead of the local /etc/passwd sweep (which
+            // sees an empty FS pre-session for cross-player workstations).
+            getCanonicalWorkstationId: (targetIp: string): string | null => {
+              const canonical = resolveTargetMachineId(targetIp);
+              if (parseWorkstationId(canonical) === undefined) return null;
+              if (isOwnWorkstation(canonical, hostname)) return null;
+              return canonical;
+            },
+            onCrackCredentialsBatch: async (params) =>
+              crackCredentials(
+                getIdentity(),
+                params.targetWorkstationId,
+                params.service,
+                params.candidateHashes,
+                params.userFilter,
+              ),
+          }),
+          isWifiRequired,
+        ),
+        isMachineBricked,
+      ),
+    );
+
+    commands.set(
+      'gobuster',
+      wrapWithBrickedCheck(
+        wrapWithWifiCheck(
+          createGobusterCommand({
+            getMachine,
+            findMachineByIpAsync: findEffectiveMachineByIpAsync,
+            resolveDomain,
+            // Ref-based — see curl wiring above for rationale.
+            resolveNat: (ip, port) => resolveNatRef.current(ip, port),
+            getNodeFromMachine: (machineId, path, cwd) =>
+              getNodeFromMachineRef.current(
+                resolveTargetMachineIdRef.current(machineId),
+                path,
+                cwd,
+              ),
+            getLocalNode: (path: string) => getNode(resolvePath(path)),
+            getCurrentPath: () => session.currentPath,
+            onScanAggregate: onGobusterScanAggregate,
+          }),
+          isWifiRequired,
+        ),
+        isMachineBricked,
+      ),
+    );
+
+    commands.set(
+      'snmpwalk',
+      wrapWithBrickedCheck(
+        wrapWithWifiCheck(
+          createSnmpwalkCommand({ getMachine, getLocalIP, resolveDomain, getNodeFromMachine }),
+          isWifiRequired,
+        ),
+        isMachineBricked,
+      ),
+    );
+
+    commands.set(
+      'snmpset',
+      wrapWithBrickedCheck(
+        wrapWithWifiCheck(
+          createSnmpsetCommand({
+            getMachine,
+            getLocalIP,
+            resolveDomain,
+            getNodeFromMachine,
+            writeFileToMachine,
+            // Canonicalize gateway .1 aliases to the gateway's primary IP
+            // so writes via either interface land in the same patches row
+            // (and the L2 session keys by the same canonical id).
+            resolveTargetMachineId,
+            // Server-authoritative SNMP auth. Community string is
+            // the credential; server validates rwcommunity match against
+            // /etc/snmp/snmpd.conf and creates a session at userType='root'.
+            // params.machine_id arrives canonicalized from snmpset.ts via
+            // resolveTargetMachineId above.
+            withTransientAuthSession: async (params, body) => {
+              const result = await withTransientAuthSession(
+                getIdentity(),
+                {
+                  machine_id: params.machine_id,
+                  kind: 'snmp',
+                  username: 'snmp',
+                  auth: params.auth,
+                  ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
+                  source_ip: session.machine,
+                },
+                async () => {
+                  body();
+                  await flushPendingPatches();
+                },
+              );
+              return result.ok ? { ok: true } : { ok: false, reason: result.reason };
+            },
+          }),
+          isWifiRequired,
+        ),
+        isMachineBricked,
+      ),
+    );
+
+    commands.set(
+      'mysql',
+      wrapWithBrickedCheck(
+        wrapWithWifiCheck(
+          createMysqlCommand({
+            getMachine,
+            findMachineByIp,
+            findMachineByIpAsync: findEffectiveMachineByIpAsync,
+            getLocalIP,
+            resolveDomain,
+          }),
+          isWifiRequired,
+        ),
+        isMachineBricked,
+      ),
+    );
+
+    commands.set(
+      'rediscli',
+      wrapWithBrickedCheck(
+        wrapWithWifiCheck(
+          createRediscliCommand({
+            getMachine,
+            findMachineByIp,
+            findMachineByIpAsync: findEffectiveMachineByIpAsync,
+            getLocalIP,
+            resolveDomain,
+          }),
+          isWifiRequired,
+        ),
+        isMachineBricked,
+      ),
+    );
+
+    commands.set(
+      'scp',
+      wrapWithBrickedCheck(
+        wrapWithWifiCheck(
+          createScpCommand({
+            getMachine,
+            findMachineByIpAsync: findEffectiveMachineByIpAsync,
+            getLocalIP,
+            getCurrentMachine: () => session.machine,
+            getCurrentPath: () => session.currentPath,
+            resolvePath: (path: string) => resolvePath(path),
+            getNode: (path: string) => getNode(path),
+            // Ref-based — see curl wiring above for rationale. scp
+            // calls getNodeFromMachine to detect "destination is a
+            // directory" at the post-NAT resolved host; without
+            // ref+translation it'd look at the WRONG machine_id.
+            getNodeFromMachine: (machineId, path, cwd) =>
+              getNodeFromMachineRef.current(
+                resolveTargetMachineIdRef.current(machineId),
+                path,
+                cwd,
+              ),
+            // createFileOnMachine wrapped to translate machineId via
+            // ref so the patch broadcasts to B's workstation_id channel
+            // (Realtime subscription key), not B's LAN IP. Without
+            // this, server-side L1 validation would also fail because
+            // the transient session is created at omen-XXXXXXXX but
+            // the patch arrives keyed by B.lanIp.
+            //
+            // ALSO read createFileOnMachine via ref — the OLD closure's
+            // parent-existence check closes over OLD fileSystems and
+            // bails with "Not a directory: /tmp" for non-root tiers
+            // even AFTER awaitCrossPlayerBaseFs has populated /tmp into
+            // LATEST state. The LATEST createFileOnMachine sees /tmp
+            // via the LATEST fileSystems closure.
+            createFileOnMachine: (op) =>
+              createFileOnMachineRef.current({
+                ...op,
+                machineId: resolveTargetMachineIdRef.current(op.machineId),
+              }),
+            // Ref-based resolveNat — same root cause as curl's first-
+            // call-404. The OLD closure had allIptablesRules.size=0
+            // because the foreign router wasn't in gatewayIps yet at
+            // command-creation time, so the NAT lookup returned the
+            // input unchanged and downstream auth landed at the
+            // router's machine_id instead of B's workstation_id,
+            // producing invalid_credentials.
+            resolveNat: (ip, port) => resolveNatRef.current(ip, port),
+            // Wraps the actual createFileOnMachine call in a transient
+            // server session (kind='scp'). parent_session_id captures
+            // the current shell so the server cascade-ends if the
+            // player exits while scp is in flight; source_ip is the
+            // machine the player is sitting in.
+            //
+            // The body awaits flushPendingPatches() before returning so
+            // the wrapping endSession only fires after in-flight upserts
+            // settle — otherwise endSession can race the patch and the
+            // patch hits 403 no_session via the L1 gate.
+            withTransientAuthSession: (params, body) => {
+              // Translate LAN IP → canonical machine_id so cross-
+              // player SCP transfers land at B's workstation_id
+              // (where /etc/passwd is stored), not B's LAN IP.
+              // Read via ref so cross-LAN async path sees the LATEST
+              // resolver (foreign-occupant aware) — same closure-
+              // capture issue documented at the top of
+              // useNetworkCommands.
+              const canonical = resolveTargetMachineIdRef.current(params.machine_id);
+              return withTransientAuthSession(
+                getIdentity(),
+                {
+                  machine_id: canonical,
+                  kind: 'scp',
+                  username: params.username,
+                  auth: params.auth,
+                  ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
+                  source_ip: session.machine,
+                },
+                async ({ userType }) => {
+                  // For cross-player workstation targets, fetch B's
+                  // base FS at the server-validated tier BEFORE running
+                  // body — without it, body's createFileOnMachine bails
+                  // with "Not a directory: /tmp" because A's view of B
+                  // only has patches (no base directory tree). Awaiting
+                  // the response (instead of fire-and-forget) is what
+                  // distinguishes this from the persistent-session
+                  // effect path in useFileSystemSync. No-op for own-
+                  // workstation / NPC / mission targets (the helper
+                  // short-circuits on non-workstation_id machine_ids).
+                  await awaitCrossPlayerBaseFs(canonical, userType);
+                  body();
+                  await flushPendingPatches();
+                },
+              );
+            },
+          }),
+          isWifiRequired,
+        ),
+        isMachineBricked,
+      ),
+    );
+
+    const lynxFetch = buildLynxFetch({
+      getMachine: getEffectiveMachine,
+      findMachineByIpAsync: findEffectiveMachineByIpAsync,
+      resolveDomain,
+      // Ref-based — see curl wiring above for rationale.
+      resolveNat: (ip, port) => resolveNatRef.current(ip, port),
+      readFileFromMachine: (op) =>
+        readFileFromMachineRef.current({
+          ...op,
+          machineId: resolveTargetMachineIdRef.current(op.machineId),
         }),
-        isWifiRequired,
-      ),
-      isMachineBricked,
-    ),
-  );
+      getHandler,
+      onHttpRequest,
+    });
 
-  commands.set(
-    'hydra',
-    wrapWithBrickedCheck(
-      wrapWithWifiCheck(
-        createHydraCommand({
-          getMachine,
-          findMachineByIpAsync: findEffectiveMachineByIpAsync,
-          getLocalIP,
-          resolveDomain,
-          resolveNat,
-          findMachineUsers,
-          getNodeFromMachine,
-          getLocalNode: (path: string) => getNode(resolvePath(path)),
-          getCurrentPath: () => session.currentPath,
-          onBruteForceAggregate: onHydraBruteForceAggregate,
-          getCanonicalWorkstationId: (targetIp: string): string | null => {
-            const canonical = resolveTargetMachineId(targetIp);
-            if (parseWorkstationId(canonical) === undefined) return null;
-            if (isOwnWorkstation(canonical, hostname)) return null;
-            return canonical;
-          },
-          onCrackCredentialsBatch: async (params) =>
-            crackCredentials(
-              getIdentity(),
-              params.targetWorkstationId,
-              params.service,
-              params.candidateHashes,
-              params.userFilter,
-            ),
-        }),
-        isWifiRequired,
-      ),
-      isMachineBricked,
-    ),
-  );
-
-  commands.set(
-    'gobuster',
-    wrapWithBrickedCheck(
-      wrapWithWifiCheck(
-        createGobusterCommand({
-          getMachine,
-          findMachineByIpAsync: findEffectiveMachineByIpAsync,
-          resolveDomain,
-          resolveNat,
-          getNodeFromMachine: (machineId, path, cwd) =>
-            getNodeFromMachine(resolveTargetMachineId(machineId), path, cwd),
-          getLocalNode: (path: string) => getNode(resolvePath(path)),
-          getCurrentPath: () => session.currentPath,
-          onScanAggregate: onGobusterScanAggregate,
-        }),
-        isWifiRequired,
-      ),
-      isMachineBricked,
-    ),
-  );
-
-  commands.set(
-    'snmpwalk',
-    wrapWithBrickedCheck(
-      wrapWithWifiCheck(
-        createSnmpwalkCommand({ getMachine, getLocalIP, resolveDomain, getNodeFromMachine }),
-        isWifiRequired,
-      ),
-      isMachineBricked,
-    ),
-  );
-
-  commands.set(
-    'snmpset',
-    wrapWithBrickedCheck(
-      wrapWithWifiCheck(
-        createSnmpsetCommand({
-          getMachine,
-          getLocalIP,
-          resolveDomain,
-          getNodeFromMachine,
-          writeFileToMachine,
-          resolveTargetMachineId,
-          withTransientAuthSession: async (params, body) => {
-            const result = await withTransientAuthSession(
-              getIdentity(),
-              {
-                machine_id: params.machine_id,
-                kind: 'snmp',
-                username: 'snmp',
-                auth: params.auth,
-                ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
-                source_ip: session.machine,
-              },
-              async () => {
-                body();
-                await flushPendingPatches();
-              },
-            );
-            return result.ok ? { ok: true } : { ok: false, reason: result.reason };
-          },
-        }),
-        isWifiRequired,
-      ),
-      isMachineBricked,
-    ),
-  );
-
-  commands.set(
-    'mysql',
-    wrapWithBrickedCheck(
-      wrapWithWifiCheck(
-        createMysqlCommand({
-          getMachine,
-          findMachineByIp,
-          findMachineByIpAsync: findEffectiveMachineByIpAsync,
-          getLocalIP,
-          resolveDomain,
-        }),
-        isWifiRequired,
-      ),
-      isMachineBricked,
-    ),
-  );
-
-  commands.set(
-    'rediscli',
-    wrapWithBrickedCheck(
-      wrapWithWifiCheck(
-        createRediscliCommand({
-          getMachine,
-          findMachineByIp,
-          findMachineByIpAsync: findEffectiveMachineByIpAsync,
-          getLocalIP,
-          resolveDomain,
-        }),
-        isWifiRequired,
-      ),
-      isMachineBricked,
-    ),
-  );
-
-  commands.set(
-    'scp',
-    wrapWithBrickedCheck(
-      wrapWithWifiCheck(
-        createScpCommand({
-          getMachine,
-          findMachineByIpAsync: findEffectiveMachineByIpAsync,
-          getLocalIP,
-          getCurrentMachine: () => session.machine,
-          getCurrentPath: () => session.currentPath,
-          resolvePath: (path: string) => resolvePath(path),
-          getNode: (path: string) => getNode(path),
-          getNodeFromMachine: (machineId, path, cwd) =>
-            getNodeFromMachine(resolveTargetMachineId(machineId), path, cwd),
-          createFileOnMachine: (op) =>
-            createFileOnMachine({ ...op, machineId: resolveTargetMachineId(op.machineId) }),
-          resolveNat,
-          withTransientAuthSession: (params, body) => {
-            const canonical = resolveTargetMachineId(params.machine_id);
-            return withTransientAuthSession(
-              getIdentity(),
-              {
-                machine_id: canonical,
-                kind: 'scp',
-                username: params.username,
-                auth: params.auth,
-                ...(session.sessionId !== null && { parent_session_id: session.sessionId }),
-                source_ip: session.machine,
-              },
-              async ({ userType }) => {
-                await awaitCrossPlayerBaseFs(canonical, userType);
-                body();
-                await flushPendingPatches();
-              },
-            );
-          },
-        }),
-        isWifiRequired,
-      ),
-      isMachineBricked,
-    ),
-  );
-
-  const lynxFetch = buildLynxFetch({
-    getMachine: getEffectiveMachine,
-    findMachineByIpAsync: findEffectiveMachineByIpAsync,
+    return { commands, lynxFetch };
+    // resolveTargetMachineId is read via resolveTargetMachineIdRef inside
+    // cross-LAN closures, so the useMemo deps deliberately omit it. Non-
+    // cross-LAN call sites in this body capture it directly; the map
+    // rebuilds whenever any of the underlying slices change, so direct
+    // captures stay fresh too.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    getInterfaces,
+    getInterface,
+    getMachine,
+    getMachines,
+    getLocalIP,
     resolveDomain,
+    getGateway,
     resolveNat,
-    readFileFromMachine: (op) =>
-      readFileFromMachine({ ...op, machineId: resolveTargetMachineId(op.machineId) }),
+    findMachineUsers,
+    resolvePath,
+    getNode,
+    readFileFromMachine,
+    getNodeFromMachine,
+    createFileOnMachine,
+    writeFileToMachine,
+    upsertFileOnMachine,
+    deleteNodeFromMachine,
+    listDirectoryFromMachine,
+    flushPendingPatches,
+    session.machine,
+    session.hostname,
+    session.currentPath,
+    session.username,
+    session.userType,
+    session.sessionId,
+    hostname,
+    activeNetwork,
+    lanOccupants,
+    foreignNetworks,
+    foreignLanOccupants,
+    wifiConnected,
+    isMachineBricked,
+    findMachineByIp,
+    findMachineByIpAsync,
+    getPublicIP,
     getHandler,
-    onHttpRequest,
-  });
-
-  return { commands, lynxFetch };
+  ]);
 };
