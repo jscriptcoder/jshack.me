@@ -25,7 +25,7 @@ The pattern is well-known: it's the same mechanism behind React's `useEffectEven
 
 - [ ] Adding a new cross-LAN command requires zero per-consumer ref ceremony — the context methods are safe to destructure and use directly.
 - [ ] `useNetworkCommands` no longer contains `useRef` for context methods; the `useMemo` may stay (perf) but without an eslint-disable.
-- [ ] Cross-LAN smoke matrix (PR #161's 8 commands: nmap, ssh, scp, ftp, nc, curl, gobuster, lynx) passes on a fresh page, first call, no warmup.
+- [ ] Cross-LAN smoke matrix (PR #161's 8 commands: nmap, ssh, scp, ftp, nc, curl, gobuster, lynx) **plus hydra + msfconsole** (deferred in #161) passes on a fresh page, first call, no warmup.
 - [ ] The 4724 unit tests + 1 e2e mission playthrough pass.
 - [ ] No new performance regression: render counts stay roughly equivalent (the helper itself is `useRef + useCallback`, identical to existing patterns).
 - [ ] The fix is documented so the `project_react_closure_capture_pattern` memory can be updated to "obsolete — see `project_use_stable_callback`."
@@ -48,7 +48,7 @@ Three PRs after the plan PR:
 - **Plan PR** — this document only.
 - **PR 2** — `useStableCallback` helper + tests. Standalone, mergeable.
 - **PR 3** — Wrap at-risk methods in `useNetwork` (`NetworkContext.tsx`) and `useFileSystem` (`useFileSystemReaders.ts`, `useFileSystemMutations.ts`, `useFileSystemSync.ts`). Behavior unchanged; all existing tests must pass. Mergeable without touching commands.
-- **PR 4** — Drop the 5 `useRef`s + the eslint-disable in `useNetworkCommands.ts`. Run the cross-LAN smoke matrix. Mergeable.
+- **PR 4** — Drop the 5 `useRef`s + the eslint-disable in `useNetworkCommands.ts`, **stable-wrap `resolveTargetMachineId`** (it's built inline in this file, not in a context hook), and run the cross-LAN smoke matrix **including hydra + msfconsole** (which PR #161 deferred). Mergeable.
 
 Each PR ends in a known-good state. PR 3 lands ref-stable methods without removing the redundant refs in `useNetworkCommands`. PR 4 removes the redundancy once we've confirmed PR 3 works.
 
@@ -156,6 +156,22 @@ This test will fail before the refactor: the captured closure calls the OLD `res
 
 **GREEN**: Remove `useRef`s + `.current` wrappers + the `useMemo` deps `eslint-disable`. The `useMemo` itself can stay (it's still useful — but its deps array shrinks dramatically since stable-identity methods don't need to be listed).
 
+**Stable-wrap `resolveTargetMachineId`**: it's built inline in `useNetworkCommands` (from `buildResolveTargetMachineId(activeNetwork, lanOccupants, hostname, foreignNetworks, foreignLanOccupants)`) and returns a new function every render, so it has the same closure-capture risk as context methods. Wrap with `useStableCallback` at the point of construction:
+
+```ts
+const resolveTargetMachineId = useStableCallback(
+  buildResolveTargetMachineId(
+    activeNetwork,
+    lanOccupants,
+    hostname,
+    foreignNetworks,
+    foreignLanOccupants,
+  ),
+);
+```
+
+This is what unblocks the **hydra + msfconsole** cross-LAN paths — they currently use `resolveTargetMachineId` directly (no refs in main), so the refs in `useNetworkCommands` didn't cover them. PR #161's smoke matrix deferred hydra and msfconsole; this refactor brings them into scope.
+
 **MUTATE**: Stryker-style: restore one of the refs (e.g. `resolveNatRef`) → integration test still passes because the underlying context method is stable now. This is the GOOD outcome — the test proves correctness independent of the consumer-side refs. Mutating further: drop the `useStableCallback` wrap on resolveNat in NetworkContext (a regression in PR 3's territory) → integration test should fail.
 **KILL MUTANTS**: Should be a no-op if PR 3 is solid.
 **REFACTOR**: Assess `useMemo` value. If it's not measurably faster, drop it entirely and let the compiler (or future compiler) handle it.
@@ -165,16 +181,18 @@ This test will fail before the refactor: the captured closure calls the OLD `res
 
 Manual two-browser smoke replicating PR #161's matrix. Fresh page each time, no warmup commands.
 
-| Action                                            | Expected               |
-| ------------------------------------------------- | ---------------------- |
-| `nmap <B-public-ip>`                              | shows forwarded ports  |
-| `ssh root@<B-public-ip> -p 2222`                  | foothold on B          |
-| `scp local <B-user>@<B-public-ip>:/tmp/file 2222` | file lands on B        |
-| `ftp <B-public-ip> 2121` (if forwarded)           | FTP prompt             |
-| `nc <B-public-ip> <forwarded-nc-port>`            | shell on B             |
-| `curl http://<B-public-ip>:8080/`                 | renders B's index.html |
-| `gobuster -u http://<B-public-ip>:8080`           | finds B's paths        |
-| `lynx http://<B-public-ip>:8080`                  | renders B's site       |
+| Action                                            | Expected                                                               |
+| ------------------------------------------------- | ---------------------------------------------------------------------- |
+| `nmap <B-public-ip>`                              | shows forwarded ports                                                  |
+| `ssh root@<B-public-ip> -p 2222`                  | foothold on B                                                          |
+| `scp local <B-user>@<B-public-ip>:/tmp/file 2222` | file lands on B                                                        |
+| `ftp <B-public-ip> 2121` (if forwarded)           | FTP prompt                                                             |
+| `nc <B-public-ip> <forwarded-nc-port>`            | shell on B                                                             |
+| `curl http://<B-public-ip>:8080/`                 | renders B's index.html                                                 |
+| `gobuster -u http://<B-public-ip>:8080`           | finds B's paths                                                        |
+| `lynx http://<B-public-ip>:8080`                  | renders B's site                                                       |
+| `hydra ssh://<B-public-ip>:2222 -l user -P wl`    | bruteforce against B's `/etc/passwd` via cross-player crackCredentials |
+| `msfconsole <B-public-ip> <forwarded-cve-port>`   | CVE-effect (file_read/file_write/etc.) lands on B's workstation_id     |
 
 Plus the original failing cases that motivated the refs:
 
