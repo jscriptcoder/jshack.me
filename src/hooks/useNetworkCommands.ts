@@ -1,4 +1,5 @@
-import { useMemo, useRef } from 'react';
+import { useMemo } from 'react';
+import { useStableCallback } from './useStableCallback';
 import { useNetwork } from '../network';
 import { useFileSystem } from '../filesystem';
 import { useSession } from '../session/SessionContext';
@@ -90,51 +91,21 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
   const { activeNetwork, lanOccupants } = useHomeNetworks();
   const { foreignNetworks, foreignLanOccupants } = useForeignNetworks();
 
-  // resolveTargetMachineId is built at hook scope (above the useMemo)
-  // so the ref below can track it.
-  const resolveTargetMachineId = buildResolveTargetMachineId(
-    activeNetwork,
-    lanOccupants,
-    hostname,
-    foreignNetworks,
-    foreignLanOccupants,
+  // resolveTargetMachineId is built fresh every render from
+  // buildResolveTargetMachineId. Stable-wrap so consumers (cross-LAN
+  // command bodies) can capture it inside long-lived closures without
+  // holding a stale impl. The context-method peers (resolveNat,
+  // readFileFromMachine, etc.) are stable at their source hooks
+  // (PR #165); this handles the locally-built sibling.
+  const resolveTargetMachineId = useStableCallback(
+    buildResolveTargetMachineId(
+      activeNetwork,
+      lanOccupants,
+      hostname,
+      foreignNetworks,
+      foreignLanOccupants,
+    ),
   );
-
-  // Refs synced during render so the OLD command-creation-time
-  // closures of curl/gobuster/lynx can read the LATEST functions
-  // when their async dispatch runs AFTER the resolver has materialized
-  // a foreign network. Without this, the OLD closures call the OLD
-  // resolveNat (allIptablesRules.size=0, doesn't know about B's NAT
-  // forward), OLD readFileFromMachine (closed over OLD fileSystems
-  // state), and OLD resolveTargetMachineId (no foreign-occupant
-  // translation). Each ref's .current points to the LATEST function
-  // from the most recent render — useRef objects are STABLE across
-  // renders, so the OLD closure's captured ref is the SAME ref the
-  // LATEST render writes into.
-  //
-  // Verified by [nat-debug] logs in dev: with closure-capture the
-  // OLD resolveNat reports allIptablesRules.size=0 (its captured
-  // Map is the pre-foreign-network empty one). With the ref, .current
-  // points to the LATEST resolveNat whose Map has B's router's
-  // iptables rules.
-  const resolveNatRef = useRef(resolveNat);
-  resolveNatRef.current = resolveNat;
-  const readFileFromMachineRef = useRef(readFileFromMachine);
-  readFileFromMachineRef.current = readFileFromMachine;
-  const getNodeFromMachineRef = useRef(getNodeFromMachine);
-  getNodeFromMachineRef.current = getNodeFromMachine;
-  const resolveTargetMachineIdRef = useRef(resolveTargetMachineId);
-  resolveTargetMachineIdRef.current = resolveTargetMachineId;
-  // createFileOnMachine needs the same treatment as the readers: the
-  // OLD closure's check for parentNode-existence reads OLD fileSystems
-  // state via useFileSystemMutations's useCallback closure, so even
-  // when awaitCrossPlayerBaseFs has populated /tmp into the LATEST
-  // state, the OLD createFileOnMachine bails for non-root tiers with
-  // "Not a directory: /tmp" (because the OLD closure doesn't see /tmp).
-  // root accidentally works because the mutation auto-creates missing
-  // parents at root tier — guest doesn't have that escape hatch.
-  const createFileOnMachineRef = useRef(createFileOnMachine);
-  createFileOnMachineRef.current = createFileOnMachine;
 
   return useMemo(() => {
     // WiFi is required only when the player is sitting on their own
@@ -398,23 +369,15 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
             getMachine,
             findMachineByIpAsync: findEffectiveMachineByIpAsync,
             resolveDomain,
-            // resolveNat MUST be ref-based: the OLD curl closure captured
-            // at command-creation time has the OLD allIptablesRules map
-            // (size=0 before the foreign network was loaded). Without the
-            // ref, resolveNat(<foreign publicIp>, <forwardedPort>) returns
-            // the input unchanged → handleGet reads fileSystems[<publicIp>]
-            // (the router's FS, which doesn't have /var/www/html/index.html)
-            // → 404. With the ref, .current points to the LATEST resolveNat
-            // whose allIptablesRules has B's router's NAT forward.
-            resolveNat: (ip, port) => resolveNatRef.current(ip, port),
-            // readFileFromMachine ref-based for the same reason — the
-            // file content patched by B lives on B's workstation_id, and
-            // resolveTargetMachineId (also ref-based) translates the
-            // post-NAT LAN IP to omen-XXXXXXXX.
+            resolveNat,
+            // Wrapper translates the post-NAT LAN IP to the canonical
+            // workstation_id so B's hosted content is read from B's
+            // storage. readFileFromMachine + resolveTargetMachineId are
+            // both stable, so the captured closure stays correct.
             readFileFromMachine: (op) =>
-              readFileFromMachineRef.current({
+              readFileFromMachine({
                 ...op,
-                machineId: resolveTargetMachineIdRef.current(op.machineId),
+                machineId: resolveTargetMachineId(op.machineId),
               }),
             onHttpRequest,
             getHandler,
@@ -816,14 +779,11 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
             getMachine,
             findMachineByIpAsync: findEffectiveMachineByIpAsync,
             resolveDomain,
-            // Ref-based — see curl wiring above for rationale.
-            resolveNat: (ip, port) => resolveNatRef.current(ip, port),
+            resolveNat,
+            // Wrapper translates machineId to canonical for cross-LAN
+            // occupants (post-NAT LAN IP → workstation_id).
             getNodeFromMachine: (machineId, path, cwd) =>
-              getNodeFromMachineRef.current(
-                resolveTargetMachineIdRef.current(machineId),
-                path,
-                cwd,
-              ),
+              getNodeFromMachine(resolveTargetMachineId(machineId), path, cwd),
             getLocalNode: (path: string) => getNode(resolvePath(path)),
             getCurrentPath: () => session.currentPath,
             onScanAggregate: onGobusterScanAggregate,
@@ -935,42 +895,21 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
             getCurrentPath: () => session.currentPath,
             resolvePath: (path: string) => resolvePath(path),
             getNode: (path: string) => getNode(path),
-            // Ref-based — see curl wiring above for rationale. scp
-            // calls getNodeFromMachine to detect "destination is a
-            // directory" at the post-NAT resolved host; without
-            // ref+translation it'd look at the WRONG machine_id.
+            // Wrapper translates machineId to canonical for cross-LAN
+            // occupants so scp's "is destination a directory?" probe
+            // looks at B's storage (workstation_id), not B's LAN IP.
             getNodeFromMachine: (machineId, path, cwd) =>
-              getNodeFromMachineRef.current(
-                resolveTargetMachineIdRef.current(machineId),
-                path,
-                cwd,
-              ),
-            // createFileOnMachine wrapped to translate machineId via
-            // ref so the patch broadcasts to B's workstation_id channel
-            // (Realtime subscription key), not B's LAN IP. Without
-            // this, server-side L1 validation would also fail because
-            // the transient session is created at omen-XXXXXXXX but
-            // the patch arrives keyed by B.lanIp.
-            //
-            // ALSO read createFileOnMachine via ref — the OLD closure's
-            // parent-existence check closes over OLD fileSystems and
-            // bails with "Not a directory: /tmp" for non-root tiers
-            // even AFTER awaitCrossPlayerBaseFs has populated /tmp into
-            // LATEST state. The LATEST createFileOnMachine sees /tmp
-            // via the LATEST fileSystems closure.
+              getNodeFromMachine(resolveTargetMachineId(machineId), path, cwd),
+            // Wrapper translates machineId so the upsertPatch broadcasts
+            // to B's workstation_id Realtime channel and the server-side
+            // L1 validation sees the same key the transient session was
+            // created with.
             createFileOnMachine: (op) =>
-              createFileOnMachineRef.current({
+              createFileOnMachine({
                 ...op,
-                machineId: resolveTargetMachineIdRef.current(op.machineId),
+                machineId: resolveTargetMachineId(op.machineId),
               }),
-            // Ref-based resolveNat — same root cause as curl's first-
-            // call-404. The OLD closure had allIptablesRules.size=0
-            // because the foreign router wasn't in gatewayIps yet at
-            // command-creation time, so the NAT lookup returned the
-            // input unchanged and downstream auth landed at the
-            // router's machine_id instead of B's workstation_id,
-            // producing invalid_credentials.
-            resolveNat: (ip, port) => resolveNatRef.current(ip, port),
+            resolveNat,
             // Wraps the actual createFileOnMachine call in a transient
             // server session (kind='scp'). parent_session_id captures
             // the current shell so the server cascade-ends if the
@@ -982,14 +921,10 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
             // settle — otherwise endSession can race the patch and the
             // patch hits 403 no_session via the L1 gate.
             withTransientAuthSession: (params, body) => {
-              // Translate LAN IP → canonical machine_id so cross-
-              // player SCP transfers land at B's workstation_id
-              // (where /etc/passwd is stored), not B's LAN IP.
-              // Read via ref so cross-LAN async path sees the LATEST
-              // resolver (foreign-occupant aware) — same closure-
-              // capture issue documented at the top of
-              // useNetworkCommands.
-              const canonical = resolveTargetMachineIdRef.current(params.machine_id);
+              // Translate LAN IP → canonical machine_id so cross-player
+              // SCP transfers land at B's workstation_id (where
+              // /etc/passwd is stored), not B's LAN IP.
+              const canonical = resolveTargetMachineId(params.machine_id);
               return withTransientAuthSession(
                 getIdentity(),
                 {
@@ -1028,24 +963,20 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
       getMachine: getEffectiveMachine,
       findMachineByIpAsync: findEffectiveMachineByIpAsync,
       resolveDomain,
-      // Ref-based — see curl wiring above for rationale.
-      resolveNat: (ip, port) => resolveNatRef.current(ip, port),
+      resolveNat,
       readFileFromMachine: (op) =>
-        readFileFromMachineRef.current({
+        readFileFromMachine({
           ...op,
-          machineId: resolveTargetMachineIdRef.current(op.machineId),
+          machineId: resolveTargetMachineId(op.machineId),
         }),
       getHandler,
       onHttpRequest,
     });
 
     return { commands, lynxFetch };
-    // resolveTargetMachineId is read via resolveTargetMachineIdRef inside
-    // cross-LAN closures, so the useMemo deps deliberately omit it. Non-
-    // cross-LAN call sites in this body capture it directly; the map
-    // rebuilds whenever any of the underlying slices change, so direct
-    // captures stay fresh too.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Every method consumed here is stable-identity (PR #165 wraps the
+    // context methods; resolveTargetMachineId is stable-wrapped above).
+    // So the only deps that matter for invalidation are state VALUES.
   }, [
     getInterfaces,
     getInterface,
@@ -1066,6 +997,8 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
     deleteNodeFromMachine,
     listDirectoryFromMachine,
     flushPendingPatches,
+    awaitCrossPlayerBaseFs,
+    resolveTargetMachineId,
     session.machine,
     session.hostname,
     session.currentPath,
@@ -1073,10 +1006,10 @@ export const useNetworkCommands = (): UseNetworkCommandsResult => {
     session.userType,
     session.sessionId,
     hostname,
-    activeNetwork,
-    lanOccupants,
-    foreignNetworks,
-    foreignLanOccupants,
+    // activeNetwork/lanOccupants/foreignNetworks/foreignLanOccupants are
+    // intentionally omitted — they only feed resolveTargetMachineId
+    // (stable-wrapped above), so changes to them don't require rebuilding
+    // the commands map.
     wifiConnected,
     isMachineBricked,
     findMachineByIp,
