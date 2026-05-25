@@ -114,4 +114,82 @@ describe('mysql command', () => {
       expect(() => cmd.fn('unknown.host', 'root')).toThrow('Unknown MySQL server host');
     });
   });
+
+  describe('cross-LAN async pre-resolve', () => {
+    // Mirrors ssh.ts's findMachineByIpAsync fallback. When the player
+    // types `mysql <foreign public IP> <user>` against another player's
+    // workstation via NAT-forward, the command awaits findMachineByIpAsync
+    // to materialize the foreign network before validating port 3306.
+    // (Workstation mysqld not yet shipped; wiring is symmetric per
+    // project_workstation_daemon_expansion so it "just works" when it does.)
+
+    it('falls back to findMachineByIpAsync when sync getMachine misses', async () => {
+      vi.useFakeTimers();
+      const foreignMachine = makeMachine('203.0.113.42');
+      const findMachineByIpAsync = vi.fn(async (ip: string) =>
+        ip === '203.0.113.42' ? foreignMachine : undefined,
+      );
+      const ctx = makeContext({ findMachineByIpAsync });
+      const cmd = createMysqlCommand(ctx);
+
+      const result = cmd.fn('203.0.113.42', 'root');
+      let followUp: unknown = null;
+      if (typeof result === 'object' && result !== null && '__type' in result) {
+        (result as unknown as { start: (...a: unknown[]) => void }).start(
+          () => {},
+          (data: unknown) => {
+            followUp = data;
+          },
+        );
+      }
+
+      await vi.runAllTimersAsync();
+
+      expect(findMachineByIpAsync).toHaveBeenCalledWith('203.0.113.42');
+      expect(followUp).toMatchObject({ __type: 'mysql_prompt', targetIP: '203.0.113.42' });
+      vi.useRealTimers();
+    });
+
+    it('emits Connection refused via onLine when async resolver returns undefined', async () => {
+      vi.useFakeTimers();
+      const findMachineByIpAsync = vi.fn(async () => undefined);
+      const ctx = makeContext({ findMachineByIpAsync });
+      const cmd = createMysqlCommand(ctx);
+
+      const result = cmd.fn('203.0.113.99', 'root');
+      const lines: string[] = [];
+      let completed = false;
+      if (typeof result === 'object' && result !== null && '__type' in result) {
+        (result as unknown as { start: (...a: unknown[]) => void }).start(
+          (line: string) => lines.push(line),
+          () => {
+            completed = true;
+          },
+        );
+      }
+
+      await vi.runAllTimersAsync();
+
+      expect(findMachineByIpAsync).toHaveBeenCalledWith('203.0.113.99');
+      expect(lines.some((l) => l.includes('Connection refused'))).toBe(true);
+      expect(completed).toBe(true);
+      vi.useRealTimers();
+    });
+
+    it('does NOT call findMachineByIpAsync when sync getMachine hits', () => {
+      const machine = makeMachine('192.168.1.50');
+      const findMachineByIpAsync = vi.fn(async () => undefined);
+      const ctx = makeContext({ getMachine: vi.fn(() => machine), findMachineByIpAsync });
+      const cmd = createMysqlCommand(ctx);
+
+      cmd.fn('192.168.1.50', 'root');
+
+      expect(findMachineByIpAsync).not.toHaveBeenCalled();
+    });
+
+    it('throws synchronously on sync miss when findMachineByIpAsync is omitted (legacy)', () => {
+      const cmd = createMysqlCommand(makeContext());
+      expect(() => cmd.fn('10.0.0.1', 'root')).toThrow('Connection refused');
+    });
+  });
 });

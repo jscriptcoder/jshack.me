@@ -7,6 +7,7 @@ import {
   type Dispatch,
   type SetStateAction,
 } from 'react';
+import { flushSync } from 'react-dom';
 import type { FileNode, FileSystemPatch } from './types';
 import type { UserType } from '../session/types';
 import { getCachedFilesystemPatches, getDatabase } from '../utils/storageCache';
@@ -102,6 +103,13 @@ export type FileSystemSync = {
   // the union of (current keyset + new ids) without re-running the
   // machineIdsKey computation.
   readonly machineIdsKeyRef: { current: string };
+  // Awaitable cross-player base-FS fetch. Same shape as
+  // fetchCrossPlayerBaseFsIfNeeded (no-op when target is own-workstation
+  // or already cached at the given tier) but returns a Promise so
+  // transient-session callers (notably scp) can BLOCK on it before
+  // running writes that would otherwise fail with "Not a directory"
+  // because A's view of B has no base FS.
+  readonly awaitCrossPlayerBaseFs: (target: string, tier: UserType) => Promise<void>;
 };
 
 export const useFileSystemSync = ({
@@ -522,8 +530,13 @@ export const useFileSystemSync = ({
   // (target, tier) so a guest -> root upgrade on the same machine
   // triggers a refetch and surfaces root-only paths the previously
   // filtered guest tree didn't carry.
-  const fetchCrossPlayerBaseFsIfNeeded = useCallback(
-    (target: string, tier: UserType): void => {
+  // Promise-returning core. Used by both the fire-and-forget
+  // `fetchCrossPlayerBaseFsIfNeeded` (the session/protocol-change
+  // effects) AND by the awaitable `awaitCrossPlayerBaseFs` exposed via
+  // context for transient-session callers (scp) that need to BLOCK on
+  // the base FS arriving before their write fires.
+  const fetchCrossPlayerBaseFsCore = useCallback(
+    async (target: string, tier: UserType): Promise<void> => {
       if (parseWorkstationId(target) === undefined || target === workstationId) {
         return;
       }
@@ -533,24 +546,74 @@ export const useFileSystemSync = ({
       ) {
         return;
       }
-      void getBaseFsFromServer(getIdentity(), target)
-        .then((baseFs) => {
-          if (baseFs === null) return;
-          crossPlayerBaseFsRef.current = {
-            ...crossPlayerBaseFsRef.current,
-            [target]: baseFs,
-          };
-          crossPlayerBaseFsTierRef.current = {
-            ...crossPlayerBaseFsTierRef.current,
-            [target]: tier,
-          };
-          setFileSystems((prev) => ({ ...prev, [target]: baseFs }));
-        })
-        .catch((error) => {
-          console.error('[fs] cross-player base-FS fetch failed:', error);
+      try {
+        const baseFs = await getBaseFsFromServer(getIdentity(), target);
+        if (baseFs === null) return;
+        crossPlayerBaseFsRef.current = {
+          ...crossPlayerBaseFsRef.current,
+          [target]: baseFs,
+        };
+        crossPlayerBaseFsTierRef.current = {
+          ...crossPlayerBaseFsTierRef.current,
+          [target]: tier,
+        };
+        // Layer the current patches for this machine on top of baseFs
+        // before writing. Without this, the assignment below would
+        // REPLACE fileSystems[target] entirely and lose any patches
+        // already applied by the prefetch — notably daemon pid files
+        // (sshd.pid, vsftpd.pid) that drive applyDynamicOverrides's
+        // port computation for occupants. Losing those pid files makes
+        // buildMergedRouterView think the occupant has no open service
+        // ports, so the NAT-forward merge silently drops (the rule
+        // 2222→<lan>:22 can't find an open port 22 on the occupant).
+        // Symptom: cross-LAN scp succeeds once, then subsequent scp's
+        // see the foreign router as bare (no forwards) and bail with
+        // "Connection refused".
+        const targetPatches = patchesRef.current.filter((p) => p.machineId === target);
+        const patched = applyPatches({ [target]: baseFs }, targetPatches)[target] ?? baseFs;
+        // flushSync forces React to commit the setFileSystems update
+        // synchronously. By the time it returns, useFileSystemReaders
+        // has re-run with the new fileSystems AND useNetworkCommands has
+        // updated its refs (createFileOnMachineRef etc.) to the
+        // recomputed versions that close over the new state.
+        //
+        // Without flushSync, awaiting callers — notably scp's
+        // transient-session wrapper — run body() within ~1ms of
+        // setFileSystems, too fast for React's MessageChannel-based
+        // scheduler to commit. createFileOnMachineRef.current would
+        // still point at the pre-update version whose closure reads
+        // pre-update fileSystems, and the mutation bails with "Not a
+        // directory: /tmp" because A's view of B doesn't yet contain
+        // B's just-fetched base FS. flushSync collapses that timing
+        // gap synchronously.
+        flushSync(() => {
+          setFileSystems((prev) => ({ ...prev, [target]: patched }));
         });
+      } catch (error) {
+        console.error('[fs] cross-player base-FS fetch failed:', error);
+      }
     },
     [workstationId],
+  );
+
+  const fetchCrossPlayerBaseFsIfNeeded = useCallback(
+    (target: string, tier: UserType): void => {
+      void fetchCrossPlayerBaseFsCore(target, tier);
+    },
+    [fetchCrossPlayerBaseFsCore],
+  );
+
+  // Awaitable variant. Used by scp's transient-session wrapper: after
+  // authCreateSession returns the server-validated tier, the wrapper
+  // awaits this so B's base FS (e.g. /tmp directory) is in A's local
+  // view BEFORE the actual createFileOnMachine call runs — otherwise
+  // useFileSystemMutations bails with "Not a directory: /tmp" because
+  // A's view of B's machine_id has no /tmp node (cross-player base FS
+  // doesn't auto-fetch for transient sessions like the persistent
+  // session/protocol-session effects do).
+  const awaitCrossPlayerBaseFs = useCallback(
+    (target: string, tier: UserType): Promise<void> => fetchCrossPlayerBaseFsCore(target, tier),
+    [fetchCrossPlayerBaseFsCore],
   );
 
   useEffect(() => {
@@ -793,5 +856,6 @@ export const useFileSystemSync = ({
     pendingWritesRef,
     prefetchPatchesForMachines,
     machineIdsKeyRef,
+    awaitCrossPlayerBaseFs,
   };
 };

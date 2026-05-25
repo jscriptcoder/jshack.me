@@ -5,6 +5,12 @@ import { createCancellationToken, jitter } from '../utils/asyncCommand';
 type RediscliContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
   readonly findMachineByIp: (ip: string) => RemoteMachine | undefined;
+  // Async sibling of getMachine. Triggers the cross-LAN seed-regen
+  // resolver when the target IP is a publicly-addressable IPv4 that
+  // the sync view doesn't know yet. Optional for legacy callers /
+  // single-player tests; when omitted, the command keeps the pre-
+  // extension synchronous-throw contract on a sync miss.
+  readonly findMachineByIpAsync?: (ip: string) => Promise<RemoteMachine | undefined>;
   readonly getLocalIP: () => string;
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
 };
@@ -34,7 +40,8 @@ export const createRediscliCommand = (context: RediscliContext): Command => ({
     ],
   },
   fn: (...args: unknown[]): AsyncOutput => {
-    const { getMachine, findMachineByIp, getLocalIP, resolveDomain } = context;
+    const { getMachine, findMachineByIp, findMachineByIpAsync, getLocalIP, resolveDomain } =
+      context;
 
     const host = args[0] as string | undefined;
     const password = args[1] as string | undefined;
@@ -54,40 +61,71 @@ export const createRediscliCommand = (context: RediscliContext): Command => ({
       targetIP = record.ip;
     }
 
-    const machine = getMachine(targetIP) ?? findMachineByIp(targetIP);
-    if (!machine) {
-      throw new Error(`Could not connect to Redis at ${targetIP}:6379: Connection refused`);
-    }
-
-    const redisPort = machine.ports.find((p) => p.port === 6379 && p.service === 'redis');
-    if (!redisPort || !redisPort.open) {
-      throw new Error(`Could not connect to Redis at ${targetIP}:6379: Connection refused`);
-    }
-
     const token = createCancellationToken();
+
+    const validateAndBuildPrompt = (
+      machine: RemoteMachine | undefined,
+    ): { readonly prompt: RedisPromptData; readonly machineHostname: string } => {
+      if (!machine) {
+        throw new Error(`Could not connect to Redis at ${targetIP}:6379: Connection refused`);
+      }
+      const redisPort = machine.ports.find((p) => p.port === 6379 && p.service === 'redis');
+      if (!redisPort || !redisPort.open) {
+        throw new Error(`Could not connect to Redis at ${targetIP}:6379: Connection refused`);
+      }
+      return {
+        prompt: {
+          __type: 'redis_prompt',
+          targetIP,
+          ...(password !== undefined && { password }),
+        },
+        machineHostname: machine.hostname,
+      };
+    };
+
+    const runConnectAnim = (
+      onLine: (line: string) => void,
+      onComplete: (followUp?: RedisPromptData) => void,
+      machineHostname: string,
+      redisPrompt: RedisPromptData,
+    ) => {
+      onLine(`Connecting to ${targetIP}:6379...`);
+
+      token.schedule(() => {
+        if (token.isCancelled()) return;
+
+        onLine(`Connected to Redis ${machineHostname}.`);
+
+        token.schedule(() => {
+          if (token.isCancelled()) return;
+          onComplete(redisPrompt);
+        }, jitter(REDIS_HANDSHAKE_DELAY_MS));
+      }, jitter(REDIS_CONNECT_DELAY_MS));
+    };
+
+    const syncMachine = getMachine(targetIP) ?? findMachineByIp(targetIP);
+    if (syncMachine || !findMachineByIpAsync) {
+      const { prompt, machineHostname } = validateAndBuildPrompt(syncMachine);
+      return {
+        __type: 'async',
+        start: (onLine, onComplete) => runConnectAnim(onLine, onComplete, machineHostname, prompt),
+        cancel: token.cancel,
+      };
+    }
 
     return {
       __type: 'async',
       start: (onLine, onComplete) => {
-        onLine(`Connecting to ${targetIP}:6379...`);
-
-        token.schedule(() => {
+        void findMachineByIpAsync(targetIP).then((asyncMachine) => {
           if (token.isCancelled()) return;
-
-          onLine(`Connected to Redis ${machine.hostname}.`);
-
-          token.schedule(() => {
-            if (token.isCancelled()) return;
-
-            const redisPrompt: RedisPromptData = {
-              __type: 'redis_prompt',
-              targetIP,
-              ...(password !== undefined && { password }),
-            };
-
-            onComplete(redisPrompt);
-          }, jitter(REDIS_HANDSHAKE_DELAY_MS));
-        }, jitter(REDIS_CONNECT_DELAY_MS));
+          try {
+            const { prompt, machineHostname } = validateAndBuildPrompt(asyncMachine);
+            runConnectAnim(onLine, onComplete, machineHostname, prompt);
+          } catch (error) {
+            onLine(error instanceof Error ? error.message : String(error));
+            onComplete();
+          }
+        });
       },
       cancel: token.cancel,
     };

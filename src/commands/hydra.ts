@@ -70,6 +70,12 @@ export type CrackCredentialsBatchResult = {
 
 type HydraContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
+  // Async sibling of getMachine. Triggers the cross-LAN seed-regen
+  // resolver when the target IP is a publicly-addressable IPv4 that
+  // the sync view doesn't know yet. Optional for legacy callers /
+  // single-player tests; when omitted, the command keeps the pre-
+  // extension synchronous-throw contract on a sync miss.
+  readonly findMachineByIpAsync?: (ip: string) => Promise<RemoteMachine | undefined>;
   readonly getLocalIP: () => string;
   readonly resolveDomain: (domain: string) => DnsRecord | undefined;
   readonly resolveNat: (ip: string, port: number) => { readonly ip: string; readonly port: number };
@@ -589,6 +595,7 @@ export const createHydraCommand = (context: HydraContext): Command => ({
   fn: (...args: unknown[]): AsyncOutput => {
     const {
       getMachine,
+      findMachineByIpAsync,
       getLocalIP,
       resolveDomain,
       resolveNat,
@@ -623,230 +630,289 @@ export const createHydraCommand = (context: HydraContext): Command => ({
       throw new Error('hydra: cannot attack localhost');
     }
 
-    const machine = getMachine(targetIP);
-    if (!machine) {
-      throw new Error(`hydra: connect to ${targetIP}: Connection timed out`);
-    }
-
-    // SNMP mode — separate flow, no users involved
-    if (serviceFilter === 'snmp') {
-      return createSnmpAttack(targetIP, machine, getNodeFromMachine, context.onBruteForceAggregate);
-    }
-
-    // Redis mode — brute-force requirepass (uses its own deterministic pool)
-    if (serviceFilter === 'redis') {
-      return createRedisAttack(
-        targetIP,
-        machine,
-        getNodeFromMachine,
-        context.onBruteForceAggregate,
-      );
-    }
-
-    // Resolve the filesystem wordlist — shared by SSH/FTP/MySQL paths.
-    // The wordlist is the sole gate: if the user's password hash appears in
-    // the wordlist, the credential cracks; otherwise it never does.
-    const { lines: wordlistLines } = resolveWordlist(
-      'passwords.txt',
-      getLocalNode,
-      getCurrentPath(),
-    );
-    const wordlistHashes = buildWordlistHashSet(wordlistLines);
-    const wordlistHashToPassword = buildWordlistHashMap(wordlistLines);
-
-    // MySQL mode — reads DB credentials from data.json, gates against wordlist
-    if (serviceFilter === 'mysql') {
-      return createMysqlAttack(
-        targetIP,
-        machine,
-        getNodeFromMachine,
-        resolveNat,
-        userFilter,
-        wordlistHashes,
-        wordlistHashToPassword,
-        context.onBruteForceAggregate,
-      );
-    }
-
-    const services = getTargetServices(machine, serviceFilter);
-    if (services.length === 0) {
-      const detail = serviceFilter
-        ? `no open ${serviceFilter} service on ${targetIP}`
-        : `no open SSH/FTP/SNMP services on ${targetIP}`;
-      throw new Error(`hydra: ${detail}`);
-    }
-
-    // Cross-player workstation dispatch. A's local view of B's /etc/passwd
-    // is empty pre-session (getBaseFs only fires on session establish), so
-    // the local sweep below would find zero hashes to gate. Route through
-    // the server's batched crackCredentials endpoint instead.
-    //
-    // Routing requires:
-    //   - getCanonicalWorkstationId returns a workstation_id (target is
-    //     a cross-player workstation in the LAN).
-    //   - onCrackCredentialsBatch callback is wired (production: always;
-    //     tests: only when exercising this path).
-    //   - service filter is ssh, ftp, or undefined (=> attack open
-    //     ssh+ftp ports — the only auth-bearing daemons on workstations).
-    const canonicalWorkstationId = context.getCanonicalWorkstationId?.(targetIP) ?? null;
-    if (
-      canonicalWorkstationId !== null &&
-      context.onCrackCredentialsBatch !== undefined &&
-      (serviceFilter === undefined || serviceFilter === 'ssh' || serviceFilter === 'ftp')
-    ) {
-      return createCrossPlayerAttack({
-        targetIP,
-        targetWorkstationId: canonicalWorkstationId,
-        services: services.filter(
-          (s): s is { readonly port: number; readonly service: CrossPlayerHydraService } =>
-            s.service === 'ssh' || s.service === 'ftp',
-        ),
-        wordlistHashToPassword,
-        userFilter,
-        onCrackCredentialsBatch: context.onCrackCredentialsBatch,
-        onBruteForceAggregate: context.onBruteForceAggregate,
-      });
-    }
-
-    // Resolve NAT per service port to get the actual target machine's users.
-    // Each port may forward to a different internal machine.
-    //
-    // /etc/passwd is the canonical source for the hash to brute-force —
-    // no fallback to the static users[].passwordHash cache. Consequences:
-    //   - password_reset rolls take effect (cache holds the stale hash)
-    //   - garbling /etc/passwd is a real sabotage vector (no candidates)
-    //   - users absent from /etc/passwd are filtered out (no attempts)
-    //
-    // For FTP, virtual_users.conf overlays on top of /etc/passwd — the
-    // real vsftpd model where virtual users override system credentials.
-    const serviceUsers = services.map((svc) => {
-      const resolvedIp = resolveNat(targetIP, svc.port).ip;
-      const resolved = findMachineUsers(resolvedIp);
-      // Cache still supplies the username + userType list. Hashes come
-      // from /etc/passwd. (Removing the cache user list entirely is step 6.)
-      const cachedUsers = resolved.length > 0 ? resolved : machine.users;
-
-      const liveHashes = new Map<string, string>();
-      const passwdNode = getNodeFromMachine(resolvedIp, '/etc/passwd', '/');
-      if (passwdNode?.type === 'file' && passwdNode.content) {
-        passwdNode.content.split('\n').forEach((line) => {
-          const [username, hash] = line.split(':');
-          if (username && hash) liveHashes.set(username, hash);
-        });
+    // Build the attack dispatch given a resolved machine. Used by both
+    // the sync-hit fast path and the async-resolved fallback for
+    // cross-LAN public IPs.
+    const dispatchHydraAttack = (machine: RemoteMachine | undefined): AsyncOutput => {
+      if (!machine) {
+        throw new Error(`hydra: connect to ${targetIP}: Connection timed out`);
       }
-      if (svc.service === 'ftp') {
-        const virtualConf = getNodeFromMachine(resolvedIp, '/etc/vsftpd/virtual_users.conf', '/');
-        if (virtualConf?.type === 'file' && virtualConf.content) {
-          parseVirtualUsersConf(virtualConf.content).forEach((v) => {
-            liveHashes.set(v.username, v.passwordHash);
-          });
-        }
-      }
+      return buildAttack(
+        machine,
+        targetIP,
+        serviceFilter,
+        userFilter,
+        { resolveNat, findMachineUsers, getNodeFromMachine, getLocalNode, getCurrentPath },
+        context,
+      );
+    };
 
-      const users = cachedUsers.flatMap((u) => {
-        const hash = liveHashes.get(u.username);
-        return hash !== undefined ? [{ ...u, passwordHash: hash }] : [];
-      });
-
-      const filtered = userFilter ? users.filter((u) => u.username === userFilter) : users;
-      return { svc, users: filtered };
-    });
-
-    if (userFilter && serviceUsers.every((su) => su.users.length === 0)) {
-      throw new Error(`hydra: user "${userFilter}" not found on ${targetIP}`);
+    // Sync hit OR no async resolver wired: keep the legacy
+    // synchronous-throw contract.
+    const syncMachine = getMachine(targetIP);
+    if (syncMachine || !findMachineByIpAsync) {
+      return dispatchHydraAttack(syncMachine);
     }
 
-    const token = createCancellationToken();
-
+    // Cross-LAN fallback: sync miss + async resolver available. The
+    // foreign network materializes via findMachineByIpAsync. Note: for
+    // cross-LAN hydra against a foreign router public IP, the full
+    // cross-player attack path (which keys by canonical workstation_id)
+    // requires per-port NAT-resolved workstation_id resolution — that's
+    // a follow-up refinement. This pre-resolve at least makes the
+    // foreign network's iptables-merged ports visible.
+    const cancelToken = createCancellationToken();
     return {
       __type: 'async',
       start: (onLine, onComplete) => {
-        onLine('Hydra v9.4 — Network Login Cracker');
-        onLine('');
-
-        let delay = 0;
-
-        serviceUsers.forEach(({ svc, users }) => {
-          const totalAttempts = users.length * ATTEMPTS_PER_USER;
-          const svcResults: CrackResult[] = [];
-
-          // DATA line
-          delay += jitter(STATUS_DELAY_MS);
-          token.schedule(() => {
-            if (token.isCancelled()) return;
-            onLine(`[DATA] attacking ${svc.service}://${targetIP}:${svc.port}`);
-          }, delay);
-
-          // STATUS progress lines (4 evenly spaced)
-          const statusSteps = 4;
-          for (let i = 1; i <= statusSteps; i++) {
-            const completed = Math.floor((totalAttempts / statusSteps) * i);
-            delay += jitter(STATUS_DELAY_MS);
-            token.schedule(() => {
-              if (token.isCancelled()) return;
-              onLine(`[STATUS] ${completed}/${totalAttempts} attempts completed`);
-            }, delay);
+        void findMachineByIpAsync(targetIP).then((asyncMachine) => {
+          if (cancelToken.isCancelled()) return;
+          try {
+            const inner = dispatchHydraAttack(asyncMachine);
+            inner.start(onLine, onComplete);
+          } catch (error) {
+            onLine(error instanceof Error ? error.message : String(error));
+            onComplete();
           }
-
-          // Per-user crack attempts — wordlist is the sole gate.
-          // If the password hash matches an entry in the wordlist, it cracks.
-          // Otherwise it never cracks. Deterministic: same wordlist + same
-          // target = same outcome. Running hydra in a loop cannot find
-          // passwords not in the wordlist.
-          users.forEach((user) => {
-            delay += jitter(STATUS_DELAY_MS);
-            token.schedule(() => {
-              if (token.isCancelled()) return;
-
-              if (!wordlistHashes.has(user.passwordHash)) return;
-              const password = wordlistHashToPassword.get(user.passwordHash);
-              if (!password) return;
-
-              svcResults.push({
-                port: svc.port,
-                service: svc.service,
-                username: user.username,
-                password,
-              });
-              onLine(
-                `[${svc.port}][${svc.service}] host: ${targetIP}   login: ${user.username}   password: ${password}`,
-              );
-            }, delay);
-          });
-
-          // Service summary + aggregate log callback. One line per attacked
-          // service, fired once the sweep is complete. Successes carry the
-          // cracked credentials so the handler can emit one normal
-          // auth-success line per hit (indistinguishable from a legitimate
-          // login).
-          delay += jitter(STATUS_DELAY_MS);
-          token.schedule(() => {
-            if (token.isCancelled()) return;
-            onLine('');
-            onLine(
-              `${svcResults.length} of ${users.length} target user${users.length === 1 ? '' : 's'} successfully cracked`,
-            );
-            context.onBruteForceAggregate?.({
-              targetIp: targetIP,
-              port: svc.port,
-              service: svc.service as HydraService,
-              attempts: totalAttempts,
-              successes: svcResults.map((r) => ({
-                username: r.username,
-                password: r.password,
-              })),
-            });
-          }, delay);
         });
-
-        // Final completion
-        delay += jitter(STATUS_DELAY_MS);
-        token.schedule(() => {
-          if (token.isCancelled()) return;
-          onComplete();
-        }, delay);
       },
-      cancel: token.cancel,
+      cancel: cancelToken.cancel,
     };
   },
 });
+
+// Extracted dispatch builder so the sync-hit + async-resolved paths
+// both delegate to the same attack logic. Returns the AsyncOutput for
+// the chosen attack flow (snmp / redis / mysql / cross-player / sweep).
+type HydraDispatchDeps = {
+  readonly resolveNat: HydraContext['resolveNat'];
+  readonly findMachineUsers: HydraContext['findMachineUsers'];
+  readonly getNodeFromMachine: HydraContext['getNodeFromMachine'];
+  readonly getLocalNode: HydraContext['getLocalNode'];
+  readonly getCurrentPath: HydraContext['getCurrentPath'];
+};
+
+const buildAttack = (
+  machine: RemoteMachine,
+  targetIP: string,
+  serviceFilter: string | undefined,
+  userFilter: string | undefined,
+  deps: HydraDispatchDeps,
+  context: HydraContext,
+): AsyncOutput => {
+  const { resolveNat, findMachineUsers, getNodeFromMachine, getLocalNode, getCurrentPath } = deps;
+  // Same scope as the original fn body below — sequentialized into a
+  // helper so the async pre-resolve path can reuse it.
+
+  // SNMP mode — separate flow, no users involved
+  if (serviceFilter === 'snmp') {
+    return createSnmpAttack(targetIP, machine, getNodeFromMachine, context.onBruteForceAggregate);
+  }
+
+  // Redis mode — brute-force requirepass (uses its own deterministic pool)
+  if (serviceFilter === 'redis') {
+    return createRedisAttack(targetIP, machine, getNodeFromMachine, context.onBruteForceAggregate);
+  }
+
+  // Resolve the filesystem wordlist — shared by SSH/FTP/MySQL paths.
+  // The wordlist is the sole gate: if the user's password hash appears in
+  // the wordlist, the credential cracks; otherwise it never does.
+  const { lines: wordlistLines } = resolveWordlist('passwords.txt', getLocalNode, getCurrentPath());
+  const wordlistHashes = buildWordlistHashSet(wordlistLines);
+  const wordlistHashToPassword = buildWordlistHashMap(wordlistLines);
+
+  // MySQL mode — reads DB credentials from data.json, gates against wordlist
+  if (serviceFilter === 'mysql') {
+    return createMysqlAttack(
+      targetIP,
+      machine,
+      getNodeFromMachine,
+      resolveNat,
+      userFilter,
+      wordlistHashes,
+      wordlistHashToPassword,
+      context.onBruteForceAggregate,
+    );
+  }
+
+  const services = getTargetServices(machine, serviceFilter);
+  if (services.length === 0) {
+    const detail = serviceFilter
+      ? `no open ${serviceFilter} service on ${targetIP}`
+      : `no open SSH/FTP/SNMP services on ${targetIP}`;
+    throw new Error(`hydra: ${detail}`);
+  }
+
+  // Cross-player workstation dispatch. A's local view of B's /etc/passwd
+  // is empty pre-session (getBaseFs only fires on session establish), so
+  // the local sweep below would find zero hashes to gate. Route through
+  // the server's batched crackCredentials endpoint instead.
+  //
+  // Routing requires:
+  //   - getCanonicalWorkstationId returns a workstation_id (target is
+  //     a cross-player workstation in the LAN).
+  //   - onCrackCredentialsBatch callback is wired (production: always;
+  //     tests: only when exercising this path).
+  //   - service filter is ssh, ftp, or undefined (=> attack open
+  //     ssh+ftp ports — the only auth-bearing daemons on workstations).
+  const canonicalWorkstationId = context.getCanonicalWorkstationId?.(targetIP) ?? null;
+  if (
+    canonicalWorkstationId !== null &&
+    context.onCrackCredentialsBatch !== undefined &&
+    (serviceFilter === undefined || serviceFilter === 'ssh' || serviceFilter === 'ftp')
+  ) {
+    return createCrossPlayerAttack({
+      targetIP,
+      targetWorkstationId: canonicalWorkstationId,
+      services: services.filter(
+        (s): s is { readonly port: number; readonly service: CrossPlayerHydraService } =>
+          s.service === 'ssh' || s.service === 'ftp',
+      ),
+      wordlistHashToPassword,
+      userFilter,
+      onCrackCredentialsBatch: context.onCrackCredentialsBatch,
+      onBruteForceAggregate: context.onBruteForceAggregate,
+    });
+  }
+
+  // Resolve NAT per service port to get the actual target machine's users.
+  // Each port may forward to a different internal machine.
+  //
+  // /etc/passwd is the canonical source for the hash to brute-force —
+  // no fallback to the static users[].passwordHash cache. Consequences:
+  //   - password_reset rolls take effect (cache holds the stale hash)
+  //   - garbling /etc/passwd is a real sabotage vector (no candidates)
+  //   - users absent from /etc/passwd are filtered out (no attempts)
+  //
+  // For FTP, virtual_users.conf overlays on top of /etc/passwd — the
+  // real vsftpd model where virtual users override system credentials.
+  const serviceUsers = services.map((svc) => {
+    const resolvedIp = resolveNat(targetIP, svc.port).ip;
+    const resolved = findMachineUsers(resolvedIp);
+    // Cache still supplies the username + userType list. Hashes come
+    // from /etc/passwd. (Removing the cache user list entirely is step 6.)
+    const cachedUsers = resolved.length > 0 ? resolved : machine.users;
+
+    const liveHashes = new Map<string, string>();
+    const passwdNode = getNodeFromMachine(resolvedIp, '/etc/passwd', '/');
+    if (passwdNode?.type === 'file' && passwdNode.content) {
+      passwdNode.content.split('\n').forEach((line) => {
+        const [username, hash] = line.split(':');
+        if (username && hash) liveHashes.set(username, hash);
+      });
+    }
+    if (svc.service === 'ftp') {
+      const virtualConf = getNodeFromMachine(resolvedIp, '/etc/vsftpd/virtual_users.conf', '/');
+      if (virtualConf?.type === 'file' && virtualConf.content) {
+        parseVirtualUsersConf(virtualConf.content).forEach((v) => {
+          liveHashes.set(v.username, v.passwordHash);
+        });
+      }
+    }
+
+    const users = cachedUsers.flatMap((u) => {
+      const hash = liveHashes.get(u.username);
+      return hash !== undefined ? [{ ...u, passwordHash: hash }] : [];
+    });
+
+    const filtered = userFilter ? users.filter((u) => u.username === userFilter) : users;
+    return { svc, users: filtered };
+  });
+
+  if (userFilter && serviceUsers.every((su) => su.users.length === 0)) {
+    throw new Error(`hydra: user "${userFilter}" not found on ${targetIP}`);
+  }
+
+  const token = createCancellationToken();
+
+  return {
+    __type: 'async',
+    start: (onLine, onComplete) => {
+      onLine('Hydra v9.4 — Network Login Cracker');
+      onLine('');
+
+      let delay = 0;
+
+      serviceUsers.forEach(({ svc, users }) => {
+        const totalAttempts = users.length * ATTEMPTS_PER_USER;
+        const svcResults: CrackResult[] = [];
+
+        // DATA line
+        delay += jitter(STATUS_DELAY_MS);
+        token.schedule(() => {
+          if (token.isCancelled()) return;
+          onLine(`[DATA] attacking ${svc.service}://${targetIP}:${svc.port}`);
+        }, delay);
+
+        // STATUS progress lines (4 evenly spaced)
+        const statusSteps = 4;
+        for (let i = 1; i <= statusSteps; i++) {
+          const completed = Math.floor((totalAttempts / statusSteps) * i);
+          delay += jitter(STATUS_DELAY_MS);
+          token.schedule(() => {
+            if (token.isCancelled()) return;
+            onLine(`[STATUS] ${completed}/${totalAttempts} attempts completed`);
+          }, delay);
+        }
+
+        // Per-user crack attempts — wordlist is the sole gate.
+        // If the password hash matches an entry in the wordlist, it cracks.
+        // Otherwise it never cracks. Deterministic: same wordlist + same
+        // target = same outcome. Running hydra in a loop cannot find
+        // passwords not in the wordlist.
+        users.forEach((user) => {
+          delay += jitter(STATUS_DELAY_MS);
+          token.schedule(() => {
+            if (token.isCancelled()) return;
+
+            if (!wordlistHashes.has(user.passwordHash)) return;
+            const password = wordlistHashToPassword.get(user.passwordHash);
+            if (!password) return;
+
+            svcResults.push({
+              port: svc.port,
+              service: svc.service,
+              username: user.username,
+              password,
+            });
+            onLine(
+              `[${svc.port}][${svc.service}] host: ${targetIP}   login: ${user.username}   password: ${password}`,
+            );
+          }, delay);
+        });
+
+        // Service summary + aggregate log callback. One line per attacked
+        // service, fired once the sweep is complete. Successes carry the
+        // cracked credentials so the handler can emit one normal
+        // auth-success line per hit (indistinguishable from a legitimate
+        // login).
+        delay += jitter(STATUS_DELAY_MS);
+        token.schedule(() => {
+          if (token.isCancelled()) return;
+          onLine('');
+          onLine(
+            `${svcResults.length} of ${users.length} target user${users.length === 1 ? '' : 's'} successfully cracked`,
+          );
+          context.onBruteForceAggregate?.({
+            targetIp: targetIP,
+            port: svc.port,
+            service: svc.service as HydraService,
+            attempts: totalAttempts,
+            successes: svcResults.map((r) => ({
+              username: r.username,
+              password: r.password,
+            })),
+          });
+        }, delay);
+      });
+
+      // Final completion
+      delay += jitter(STATUS_DELAY_MS);
+      token.schedule(() => {
+        if (token.isCancelled()) return;
+        onComplete();
+      }, delay);
+    },
+    cancel: token.cancel,
+  };
+};

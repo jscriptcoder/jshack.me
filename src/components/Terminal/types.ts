@@ -38,6 +38,10 @@ export type ExitOutput = {
 export type FtpPromptData = {
   readonly __type: 'ftp_prompt';
   readonly targetIP: string;
+  // Optional port. When omitted, downstream auth defaults to 21.
+  // Used by cross-LAN ftp through a NAT-forwarded public port
+  // (e.g., 2121 → 21 on the foreign workstation).
+  readonly targetPort?: number;
   readonly username?: string;
   readonly password?: string;
 };

@@ -2,11 +2,13 @@ import type { Command, AsyncOutput } from '../components/Terminal/types';
 import type { HttpRequestHandler } from '../logging/handlers/httpRequest';
 import {
   resolveHttpTarget,
+  resolveHttpTargetAsync,
   dispatchHttpRequest,
   parseUrl,
   type ResolveHttpTargetContext,
   type DispatchHttpRequestContext,
   type HttpResponse,
+  type ValidatedHttpTarget,
 } from '../network/http';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
@@ -89,35 +91,86 @@ export const createCurlCommand = (context: CurlContext): Command => ({
     const isPost = flags.includes('-X POST');
     const method = isPost ? 'POST' : 'GET';
 
-    // Sync validation — throws before AsyncOutput is constructed so the
-    // existing "curl errors throw before the timer fires" contract is preserved.
-    const target = resolveHttpTarget(context, urlStr, 'curl');
-
     const token = createCancellationToken();
 
+    // Shared response renderer + access-log emission. Both the sync-hit
+    // and async-resolved paths funnel through this once a target is
+    // ready, so the formatResponse / onHttpRequest behavior stays
+    // identical across the two paths.
+    const dispatch = (
+      onLine: (line: string) => void,
+      onComplete: () => void,
+      target: ValidatedHttpTarget,
+    ) => {
+      const result = dispatchHttpRequest(context, target, { method });
+
+      context.onHttpRequest?.({
+        targetIP: result.targetIP,
+        port: result.port,
+        method: result.method,
+        path: result.path,
+        status: result.response.statusCode,
+        size: result.response.body.length,
+      });
+
+      const output = formatResponse(result.response, includeHeaders);
+      output.split('\n').forEach((line) => onLine(line));
+
+      onComplete();
+    };
+
+    // Try sync resolution first. If it succeeds, dispatch the synchronous
+    // path. If it throws AND no async resolver is wired, propagate (legacy
+    // contract). If it throws AND an async resolver IS wired, fall through
+    // to the async path so cross-LAN public IPs (where sync getMachine
+    // misses) materialize through findMachineByIpAsync.
+    let syncTarget: ValidatedHttpTarget | undefined;
+    let syncError: unknown;
+    try {
+      syncTarget = resolveHttpTarget(context, urlStr, 'curl');
+    } catch (error) {
+      syncError = error;
+    }
+
+    if (syncTarget) {
+      const target = syncTarget;
+      return {
+        __type: 'async',
+        start: (onLine, onComplete) => {
+          const delay = jitter(500);
+          token.schedule(() => {
+            if (token.isCancelled()) return;
+            dispatch(onLine, onComplete, target);
+          }, delay);
+        },
+        cancel: token.cancel,
+      };
+    }
+
+    if (!context.findMachineByIpAsync) {
+      throw syncError;
+    }
+
+    // Cross-LAN fallback: sync miss + async resolver available. The
+    // foreign network materializes via findMachineByIpAsync inside
+    // resolveHttpTargetAsync; rejections surface via onLine. URL /
+    // DNS errors raised before the machine lookup also land here
+    // (resolveHttpTargetAsync runs URL + DNS validation itself).
     return {
       __type: 'async',
       start: (onLine, onComplete) => {
         const delay = jitter(500);
-
         token.schedule(() => {
           if (token.isCancelled()) return;
-
-          const result = dispatchHttpRequest(context, target, { method });
-
-          context.onHttpRequest?.({
-            targetIP: result.targetIP,
-            port: result.port,
-            method: result.method,
-            path: result.path,
-            status: result.response.statusCode,
-            size: result.response.body.length,
-          });
-
-          const output = formatResponse(result.response, includeHeaders);
-          output.split('\n').forEach((line) => onLine(line));
-
-          onComplete();
+          resolveHttpTargetAsync(context, urlStr, 'curl')
+            .then((target) => {
+              if (token.isCancelled()) return;
+              dispatch(onLine, onComplete, target);
+            })
+            .catch((error: unknown) => {
+              onLine(error instanceof Error ? error.message : String(error));
+              onComplete();
+            });
         }, delay);
       },
       cancel: token.cancel,

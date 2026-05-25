@@ -428,4 +428,199 @@ describe('scp', () => {
       expect((followUp as ScpPromptData & { readonly password?: string }).password).toBeUndefined();
     });
   });
+
+  describe('cross-LAN async pre-resolve', () => {
+    // Mirrors ssh.ts's findMachineByIpAsync fallback. When the player
+    // types `scp <local> <user>@<foreign public IP>:<path>` to copy to
+    // another player's workstation via NAT-forward, the command awaits
+    // findMachineByIpAsync to materialize the foreign network before
+    // validating the port + user and dispatching the SCP prompt.
+
+    const createForeignContext = (
+      foreignMachine: RemoteMachine | undefined,
+      overrides: { readonly createdFiles?: Parameters<typeof createContext>[0] } = {},
+    ) => {
+      const findMachineByIpAsync = vi.fn(async (ip: string) =>
+        foreignMachine && foreignMachine.ip === ip ? foreignMachine : undefined,
+      );
+      const machines = foreignMachine ? [foreignMachine] : [];
+      const localFs = { '/usr/bin/nmap': mkFile('nmap', '\x7fELF') };
+
+      const cmd = createScpCommand({
+        getMachine: () => undefined,
+        findMachineByIpAsync,
+        getLocalIP: () => '192.168.1.100',
+        getCurrentMachine: () => 'localhost',
+        getCurrentPath: () => '/root',
+        resolvePath: (path: string) => (path.startsWith('/') ? path : `/root/${path}`),
+        getNode: (path: string) => localFs[path as keyof typeof localFs] ?? null,
+        getNodeFromMachine: () => null,
+        createFileOnMachine: ({
+          machineId,
+          path,
+          content,
+          permissions,
+        }: {
+          readonly machineId: string;
+          readonly path: string;
+          readonly content: string;
+          readonly permissions?: FilePermissions;
+        }): PermissionResult => {
+          overrides.createdFiles?.createdFiles?.push({ machineId, path, content, permissions });
+          return { allowed: true };
+        },
+        resolveNat: (ip: string, port: number) => ({ ip, port }),
+      });
+
+      return { cmd, findMachineByIpAsync, machines };
+    };
+
+    // Async variant of runAsync — drains both microtasks (Promise
+    // resolutions) and timers. Required for the async-pre-resolve path
+    // because findMachineByIpAsync is awaited via Promise inside start().
+    const runAsyncAwait = async (
+      output: AsyncOutput,
+    ): Promise<{
+      readonly lines: readonly string[];
+      readonly followUp: ScpPromptData | undefined;
+    }> => {
+      const lines: string[] = [];
+      let followUp: ScpPromptData | undefined;
+      output.start(
+        (line) => lines.push(line),
+        (f?: AsyncFollowUp) => {
+          if (isScpPrompt(f)) followUp = f;
+        },
+      );
+      await vi.runAllTimersAsync();
+      return { lines, followUp };
+    };
+
+    it('falls back to findMachineByIpAsync when sync getMachine misses', async () => {
+      const foreignMachine: RemoteMachine = {
+        ip: '203.0.113.42',
+        hostname: 'foreign-router',
+        ports: [
+          {
+            port: 2222,
+            service: 'ssh',
+            serviceVersion: 'latest',
+            open: true,
+            // Forwarded port - simulates B's iptables forward
+            forwarded: true,
+          },
+        ],
+        // Foreign router merged view excludes occupant users by design.
+        users: [],
+      };
+      const { cmd, findMachineByIpAsync } = createForeignContext(foreignMachine);
+
+      const result = cmd.fn('/usr/bin/nmap', 'guest@203.0.113.42:/tmp/nmap', 2222) as AsyncOutput;
+      expect(result.__type).toBe('async');
+
+      const { followUp } = await runAsyncAwait(result);
+
+      expect(findMachineByIpAsync).toHaveBeenCalledWith('203.0.113.42');
+      expect(followUp).toBeDefined();
+      expect(followUp?.targetUser).toBe('guest');
+      expect(followUp?.targetIP).toBe('203.0.113.42');
+      expect(followUp?.targetPort).toBe(2222);
+    });
+
+    it('skips user pre-check for forwarded ports — cross-LAN bellwether', async () => {
+      // Critical: the merged router view excludes the forwarded target's
+      // users (anti-leak), so the local pre-check would spuriously fail.
+      // Server's authCreateSession is authority for user existence.
+      const foreignMachine: RemoteMachine = {
+        ip: '203.0.113.42',
+        hostname: 'foreign-router',
+        ports: [
+          {
+            port: 2222,
+            service: 'ssh',
+            serviceVersion: 'latest',
+            open: true,
+            forwarded: true,
+          },
+        ],
+        users: [], // No users on the merged view — would normally throw
+      };
+      const { cmd } = createForeignContext(foreignMachine);
+
+      const result = cmd.fn('/usr/bin/nmap', 'alice@203.0.113.42:/tmp/nmap', 2222) as AsyncOutput;
+
+      const { followUp } = await runAsyncAwait(result);
+
+      // Despite empty users + 'alice' not in machine.users, the prompt
+      // still fires because targetPort.forwarded === true.
+      expect(followUp).toBeDefined();
+      expect(followUp?.targetUser).toBe('alice');
+    });
+
+    it('emits Connection refused via onLine when async resolver returns undefined', async () => {
+      const { cmd, findMachineByIpAsync } = createForeignContext(undefined);
+
+      const result = cmd.fn('/usr/bin/nmap', 'guest@203.0.113.99:/tmp/nmap', 2222) as AsyncOutput;
+      const { lines } = await runAsyncAwait(result);
+
+      expect(findMachineByIpAsync).toHaveBeenCalledWith('203.0.113.99');
+      expect(lines.some((l) => l.includes('Connection refused'))).toBe(true);
+    });
+
+    it('does NOT call findMachineByIpAsync when sync getMachine hits', () => {
+      const findMachineByIpAsync = vi.fn(async () => undefined);
+      const cmd = createScpCommand({
+        getMachine: () => remoteMachine,
+        findMachineByIpAsync,
+        getLocalIP: () => '192.168.1.100',
+        getCurrentMachine: () => 'localhost',
+        getCurrentPath: () => '/root',
+        resolvePath: (path: string) => (path.startsWith('/') ? path : `/root/${path}`),
+        getNode: () => mkFile('nmap', '\x7fELF'),
+        getNodeFromMachine: () => null,
+        createFileOnMachine: () => ({ allowed: true }),
+        resolveNat: (ip: string, port: number) => ({ ip, port }),
+      });
+
+      cmd.fn('/usr/bin/nmap', 'guest@192.168.1.50:/tmp/nmap');
+
+      expect(findMachineByIpAsync).not.toHaveBeenCalled();
+    });
+
+    it('throws synchronously on sync miss when findMachineByIpAsync is omitted (legacy)', () => {
+      const scp = createContext({ machines: [] });
+      expect(() => scp.fn('/usr/bin/nmap', 'guest@10.0.0.1:/tmp/nmap')).toThrow(
+        'Connection refused',
+      );
+    });
+
+    it('still enforces user pre-check on non-forwarded ports', () => {
+      // Regression guard: the forwarded-port skip MUST NOT bypass the
+      // pre-check for normal LAN-internal targets. machine.users.find
+      // returning undefined still throws Permission denied for non-
+      // forwarded ports.
+      const lanMachine: RemoteMachine = {
+        ip: '192.168.1.50',
+        hostname: 'lan-server',
+        ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
+        users: [{ username: 'root', userType: 'root' }],
+      };
+      const cmd = createScpCommand({
+        getMachine: () => lanMachine,
+        findMachineByIpAsync: vi.fn(async () => undefined),
+        getLocalIP: () => '192.168.1.100',
+        getCurrentMachine: () => 'localhost',
+        getCurrentPath: () => '/root',
+        resolvePath: (path: string) => (path.startsWith('/') ? path : `/root/${path}`),
+        getNode: () => mkFile('nmap', '\x7fELF'),
+        getNodeFromMachine: () => null,
+        createFileOnMachine: () => ({ allowed: true }),
+        resolveNat: (ip: string, port: number) => ({ ip, port }),
+      });
+
+      expect(() => cmd.fn('/usr/bin/nmap', 'nobody@192.168.1.50:/tmp/nmap')).toThrow(
+        'Permission denied',
+      );
+    });
+  });
 });

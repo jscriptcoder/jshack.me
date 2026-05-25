@@ -1,6 +1,7 @@
 import type { Identity } from '../identity/identity.js';
 import { authCreateSession, endSession as endServerSession } from '../sessionRegistry/client.js';
 import type { AuthMethod, AuthRequiredKind } from '../sessionRegistry/types.js';
+import type { UserType } from './types.js';
 
 // Auth-required equivalent of withTransientSession. Validates
 // credentials against /etc/passwd via authCreateSession, runs `body`
@@ -28,10 +29,18 @@ export type WithTransientAuthSessionResult<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly reason: 'invalid_credentials' | 'rate_limited' };
 
+// Body receives the server-issued session id AND the validated userType
+// (derived from /etc/passwd at the target machine). Callers that need
+// the tier — e.g. scp's wrapper, which fetches B's base FS at the
+// authenticated tier before the write fires — use the userType; others
+// can ignore it.
 export const withTransientAuthSession = async <T>(
   identity: Identity,
   params: WithTransientAuthSessionParams,
-  body: (sessionId: string) => Promise<T> | T,
+  body: (sessionContext: {
+    readonly sessionId: string;
+    readonly userType: UserType;
+  }) => Promise<T> | T,
 ): Promise<WithTransientAuthSessionResult<T>> => {
   const result = await authCreateSession(identity, {
     machine_id: params.machine_id,
@@ -46,7 +55,7 @@ export const withTransientAuthSession = async <T>(
   if (!result.ok) return result;
 
   try {
-    const value = await body(result.session_id);
+    const value = await body({ sessionId: result.session_id, userType: result.userType });
     return { ok: true, value };
   } finally {
     void endServerSession(identity, {

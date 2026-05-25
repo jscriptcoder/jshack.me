@@ -1536,4 +1536,81 @@ describe('hydra command', () => {
       expect(computeHydraBatchSize(10_000)).toBe(HYDRA_MAX_BATCH_SIZE);
     });
   });
+
+  describe('cross-LAN async pre-resolve', () => {
+    // Mirrors ssh.ts's findMachineByIpAsync fallback. hydra against a
+    // foreign router public IP needs the foreign network materialized
+    // before the per-port sweep can find iptables-merged forwards.
+    // Full cross-LAN cross-player credential checking (per-port NAT
+    // resolution + workstation_id lookup) is a follow-up refinement;
+    // this PR just adds the async pre-resolve so the foreign router
+    // is reachable.
+
+    it('falls back to findMachineByIpAsync when sync getMachine misses', async () => {
+      const foreignMachine = getMockRemoteMachine({
+        ip: '203.0.113.42',
+        ports: [{ port: 22, service: 'ssh', serviceVersion: 'latest', open: true }],
+      });
+      const findMachineByIpAsync = vi.fn(async (ip: string) =>
+        ip === '203.0.113.42' ? foreignMachine : undefined,
+      );
+      const ctx = {
+        ...createMockContext({ machines: [] }),
+        findMachineByIpAsync,
+      };
+      const hydra = createHydraCommand(ctx);
+
+      const result = hydra.fn('203.0.113.42');
+      expect(isAsyncOutput(result)).toBe(true);
+
+      if (isAsyncOutput(result)) {
+        result.start(
+          () => {},
+          () => {},
+        );
+      }
+      await vi.runAllTimersAsync();
+
+      expect(findMachineByIpAsync).toHaveBeenCalledWith('203.0.113.42');
+    });
+
+    it('emits Connection timed out via onLine when async resolver returns undefined', async () => {
+      const findMachineByIpAsync = vi.fn(async () => undefined);
+      const ctx = { ...createMockContext({ machines: [] }), findMachineByIpAsync };
+      const hydra = createHydraCommand(ctx);
+
+      const result = hydra.fn('203.0.113.99');
+      const lines: string[] = [];
+      let completed = false;
+      if (isAsyncOutput(result)) {
+        result.start(
+          (line) => lines.push(line),
+          () => {
+            completed = true;
+          },
+        );
+      }
+      await vi.runAllTimersAsync();
+
+      expect(findMachineByIpAsync).toHaveBeenCalledWith('203.0.113.99');
+      expect(lines.some((l) => l.includes('Connection timed out'))).toBe(true);
+      expect(completed).toBe(true);
+    });
+
+    it('does NOT call findMachineByIpAsync when sync getMachine hits', () => {
+      const machine = getMockRemoteMachine({ ip: '192.168.1.50' });
+      const findMachineByIpAsync = vi.fn(async () => undefined);
+      const ctx = { ...createMockContext({ machines: [machine] }), findMachineByIpAsync };
+      const hydra = createHydraCommand(ctx);
+
+      hydra.fn('192.168.1.50');
+
+      expect(findMachineByIpAsync).not.toHaveBeenCalled();
+    });
+
+    it('throws synchronously on sync miss when findMachineByIpAsync is omitted (legacy)', () => {
+      const hydra = createHydraCommand(createMockContext({ machines: [] }));
+      expect(() => hydra.fn('10.0.0.1')).toThrow('Connection timed out');
+    });
+  });
 });

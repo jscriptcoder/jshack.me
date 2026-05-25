@@ -2,6 +2,7 @@ import type { Command, AsyncOutput, ScpPromptData } from '../components/Terminal
 import type { FileNode, MachineCreateOp, PermissionResult } from '../filesystem/types';
 import type { RemoteMachine } from '../network/types';
 import type { AuthMethod } from '../sessionRegistry/types';
+import type { UserType } from '../session/types';
 import type { WithTransientAuthSessionResult } from '../session/withTransientAuthSession';
 import { createCancellationToken, jitter } from '../utils/asyncCommand';
 
@@ -22,6 +23,12 @@ export type ScpTransientAuthSession = (
 
 type ScpContext = {
   readonly getMachine: (ip: string) => RemoteMachine | undefined;
+  // Async sibling of getMachine. Triggers the cross-LAN seed-regen
+  // resolver when the target IP is a publicly-addressable IPv4 that
+  // the sync view doesn't know yet. Optional for legacy callers /
+  // single-player tests; when omitted, the command keeps the pre-
+  // extension synchronous-throw contract on a sync miss.
+  readonly findMachineByIpAsync?: (ip: string) => Promise<RemoteMachine | undefined>;
   readonly getLocalIP: () => string;
   readonly getCurrentMachine: () => string;
   readonly getCurrentPath: () => string;
@@ -92,6 +99,7 @@ export const createScpCommand = (context: ScpContext): Command => ({
   fn: (...args: unknown[]): AsyncOutput => {
     const {
       getMachine,
+      findMachineByIpAsync,
       getLocalIP,
       getCurrentMachine,
       resolvePath,
@@ -157,143 +165,182 @@ export const createScpCommand = (context: ScpContext): Command => ({
       }
     }
 
-    // Validate remote machine SSH access
-    const machine = getMachine(dest.host);
-    if (!machine) {
-      throw new Error(
-        `scp: connect to host ${dest.host} port ${explicitPort ?? 22}: Connection refused`,
-      );
-    }
-
-    let port: number;
-    if (explicitPort !== undefined) {
-      // Explicit port: validate it's open (may be a forwarded port, not necessarily 'ssh')
-      const targetPort = machine.ports.find((p) => p.port === explicitPort);
-      if (!targetPort || !targetPort.open) {
+    // Validation that depends on the resolved machine. Split out so the
+    // sync-hit fast path and the async-resolved fallback both run the
+    // same gate. Mirrors ssh.ts's split. Throws are caught at the
+    // caller — sync path lets them propagate as the legacy throw
+    // contract; async path catches and emits via onLine.
+    //
+    // Returns the validated (machine, port, remoteUser, resolvedHost,
+    // destPath) tuple — everything the transfer animation needs.
+    const validateAndBuildPlan = (
+      machine: RemoteMachine | undefined,
+    ): {
+      readonly machine: RemoteMachine;
+      readonly port: number;
+      readonly remoteUser: { readonly username: string; readonly userType: UserType };
+      readonly resolvedHost: string;
+      readonly destPath: string;
+    } => {
+      if (!machine) {
         throw new Error(
-          `scp: connect to host ${dest.host} port ${explicitPort}: Connection refused`,
+          `scp: connect to host ${dest.host} port ${explicitPort ?? 22}: Connection refused`,
         );
       }
-      port = explicitPort;
-    } else {
-      // Auto-detect: find the first open SSH service port
-      const sshPort = machine.ports.find((p) => p.service === 'ssh' && p.open);
-      if (!sshPort) {
-        throw new Error(`scp: connect to host ${dest.host} port 22: Connection refused`);
+
+      let port: number;
+      let targetPort: ReturnType<typeof machine.ports.find>;
+      if (explicitPort !== undefined) {
+        // Explicit port: validate it's open (may be a forwarded port, not necessarily 'ssh')
+        targetPort = machine.ports.find((p) => p.port === explicitPort);
+        if (!targetPort || !targetPort.open) {
+          throw new Error(
+            `scp: connect to host ${dest.host} port ${explicitPort}: Connection refused`,
+          );
+        }
+        port = explicitPort;
+      } else {
+        // Auto-detect: find the first open SSH service port
+        targetPort = machine.ports.find((p) => p.service === 'ssh' && p.open);
+        if (!targetPort) {
+          throw new Error(`scp: connect to host ${dest.host} port 22: Connection refused`);
+        }
+        port = targetPort.port;
       }
-      port = sshPort.port;
-    }
 
-    // Validate remote user exists
-    const remoteUser = machine.users.find((u) => u.username === dest.user);
-    if (!remoteUser) {
-      throw new Error(`scp: ${dest.user}@${dest.host}: Permission denied (publickey)`);
-    }
+      // Skip the user pre-check for NAT-forwarded ports — same rationale
+      // as ssh.ts. The merged router view's `users` field carries the
+      // GATEWAY's users (router admins + NPC forwarded internals), NOT
+      // the forwarded target's. Validating against the gateway's users
+      // would spuriously block legitimate cross-LAN SCP. The server-side
+      // authCreateSession is the authority for user existence.
+      const isForwardedTarget = targetPort.forwarded === true;
+      let remoteUser: { readonly username: string; readonly userType: UserType };
+      if (isForwardedTarget) {
+        // Best-effort userType for the local optimistic write. The
+        // server's authCreateSession returns the actual tier from
+        // /etc/passwd; the local createFileOnMachine uses this only
+        // for the client-side permission evaluation (typical /tmp
+        // writes succeed at any tier).
+        const matched = machine.users.find((u) => u.username === dest.user);
+        remoteUser = matched ?? { username: dest.user, userType: 'user' };
+      } else {
+        const matched = machine.users.find((u) => u.username === dest.user);
+        if (!matched) {
+          throw new Error(`scp: ${dest.user}@${dest.host}: Permission denied (publickey)`);
+        }
+        remoteUser = matched;
+      }
 
-    // NAT resolution: in forwarded mode, the public router IP maps to the
-    // internal entry machine. Filesystem operations use the resolved IP.
-    const resolvedHost = resolveNat(dest.host, port).ip;
+      // NAT resolution: in forwarded mode, the public router IP maps to
+      // the internal entry machine. Filesystem operations use the
+      // resolved IP.
+      const resolvedHost = resolveNat(dest.host, port).ip;
 
-    // If destination is a directory, append source filename
-    const remoteNode = context.getNodeFromMachine(resolvedHost, dest.path, '/');
-    const destPath =
-      remoteNode?.type === 'directory'
-        ? `${dest.path.replace(/\/$/, '')}/${sourceNode.name}`
-        : dest.path;
+      // If destination is a directory, append source filename
+      const remoteNode = context.getNodeFromMachine(resolvedHost, dest.path, '/');
+      const destPath =
+        remoteNode?.type === 'directory'
+          ? `${dest.path.replace(/\/$/, '')}/${sourceNode.name}`
+          : dest.path;
+
+      return { machine, port, remoteUser, resolvedHost, destPath };
+    };
 
     // Read source content
     const content = sourceNode.content ?? '';
     const currentMachine = getCurrentMachine();
-    const fileName = destPath.split('/').pop() ?? destPath;
     const bytes = content.length;
 
     const PROGRESS_STEP_MS = 350;
 
-    // Returns an async transfer animation. Called by the SCP-prompt
-    // handler with an auth method (password or saved-key fingerprint).
-    // Server validates the auth via authCreateSession + creates a
-    // transient kind='scp' session in one round-trip; transfer body
-    // runs inside that session for L1 enforcement on the patch write.
-    const performTransfer = (auth: AuthMethod): AsyncOutput => {
-      const transferToken = createCancellationToken();
+    // Builds the performTransfer closure given a resolved plan.
+    // performTransfer is captured into the ScpPromptData and invoked by
+    // the prompt handler with the chosen auth method.
+    const buildPerformTransfer = (plan: ReturnType<typeof validateAndBuildPlan>) => {
+      const { remoteUser, resolvedHost, destPath } = plan;
+      const fileName = destPath.split('/').pop() ?? destPath;
+      return (auth: AuthMethod): AsyncOutput => {
+        const transferToken = createCancellationToken();
 
-      return {
-        __type: 'async',
-        label: 'scp',
-        start: (onLine, onComplete) => {
-          let delay = 0;
+        return {
+          __type: 'async',
+          label: 'scp',
+          start: (onLine, onComplete) => {
+            let delay = 0;
 
-          const steps = [0, 25, 50, 75, 100];
-          steps.forEach((pct) => {
+            const steps = [0, 25, 50, 75, 100];
+            steps.forEach((pct) => {
+              delay += jitter(PROGRESS_STEP_MS);
+              transferToken.schedule(() => {
+                if (transferToken.isCancelled()) return;
+                const transferred = Math.floor((bytes * pct) / 100);
+                const bar = '#'.repeat(Math.floor(pct / 5)).padEnd(20, ' ');
+                onLine(`${fileName}  ${pct}% [${bar}]  ${transferred}/${bytes} bytes`);
+              }, delay);
+            });
+
+            // Actual transfer + summary
             delay += jitter(PROGRESS_STEP_MS);
             transferToken.schedule(() => {
               if (transferToken.isCancelled()) return;
-              const transferred = Math.floor((bytes * pct) / 100);
-              const bar = '#'.repeat(Math.floor(pct / 5)).padEnd(20, ' ');
-              onLine(`${fileName}  ${pct}% [${bar}]  ${transferred}/${bytes} bytes`);
-            }, delay);
-          });
 
-          // Actual transfer + summary
-          delay += jitter(PROGRESS_STEP_MS);
-          transferToken.schedule(() => {
-            if (transferToken.isCancelled()) return;
-
-            // Run the createFileOnMachine + summary inside a transient
-            // session so the L1 gate sees a session row at fire time.
-            // If the context didn't supply withTransientSession (some
-            // tests), fall back to direct call — the gate may 403 in
-            // that path but tests with mocked filesystem don't care.
-            const doTransfer = () => {
-              const result = createFileOnMachine({
-                machineId: resolvedHost,
-                path: destPath,
-                cwd: '/',
-                content,
-                userType: remoteUser.userType,
-                permissions: sourceNode.permissions,
-              });
-
-              if (!result.allowed) {
-                onLine(`scp: ${destPath}: ${result.error}`);
-              } else {
-                onLine(`${fileName}  ${bytes} bytes  ${currentMachine} → ${dest.host}`);
-              }
-            };
-
-            if (context.withTransientAuthSession) {
-              void context
-                .withTransientAuthSession(
-                  {
-                    machine_id: resolvedHost,
-                    username: dest.user,
-                    auth,
-                  },
-                  doTransfer,
-                )
-                .then((result) => {
-                  if (!result.ok) {
-                    onLine(
-                      result.reason === 'invalid_credentials'
-                        ? `${dest.user}@${dest.host}: Permission denied (publickey,password).`
-                        : `scp: ${dest.host}: rate limited`,
-                    );
-                  }
-                })
-                .catch((error) => {
-                  console.error('[scp] transient auth session failed:', error);
-                  onLine(`scp: ${destPath}: session error`);
-                })
-                .finally(() => {
-                  onComplete();
+              // Run the createFileOnMachine + summary inside a transient
+              // session so the L1 gate sees a session row at fire time.
+              // If the context didn't supply withTransientSession (some
+              // tests), fall back to direct call — the gate may 403 in
+              // that path but tests with mocked filesystem don't care.
+              const doTransfer = () => {
+                const result = createFileOnMachine({
+                  machineId: resolvedHost,
+                  path: destPath,
+                  cwd: '/',
+                  content,
+                  userType: remoteUser.userType,
+                  permissions: sourceNode.permissions,
                 });
-            } else {
-              doTransfer();
-              onComplete();
-            }
-          }, delay);
-        },
-        cancel: transferToken.cancel,
+
+                if (!result.allowed) {
+                  onLine(`scp: ${destPath}: ${result.error}`);
+                } else {
+                  onLine(`${fileName}  ${bytes} bytes  ${currentMachine} → ${dest.host}`);
+                }
+              };
+
+              if (context.withTransientAuthSession) {
+                void context
+                  .withTransientAuthSession(
+                    {
+                      machine_id: resolvedHost,
+                      username: dest.user,
+                      auth,
+                    },
+                    doTransfer,
+                  )
+                  .then((result) => {
+                    if (!result.ok) {
+                      onLine(
+                        result.reason === 'invalid_credentials'
+                          ? `${dest.user}@${dest.host}: Permission denied (publickey,password).`
+                          : `scp: ${dest.host}: rate limited`,
+                      );
+                    }
+                  })
+                  .catch((error) => {
+                    console.error('[scp] transient auth session failed:', error);
+                    onLine(`scp: ${destPath}: session error`);
+                  })
+                  .finally(() => {
+                    onComplete();
+                  });
+              } else {
+                doTransfer();
+                onComplete();
+              }
+            }, delay);
+          },
+          cancel: transferToken.cancel,
+        };
       };
     };
 
@@ -301,32 +348,68 @@ export const createScpCommand = (context: ScpContext): Command => ({
     const CONNECT_MS = 800;
     const HANDSHAKE_MS = 600;
 
+    // Shared connect animation. Both sync-hit and async-resolved paths
+    // animate to the ScpPromptData once the plan is built.
+    const runConnectAnim = (
+      onLine: (line: string) => void,
+      onComplete: (followUp?: ScpPromptData) => void,
+      plan: ReturnType<typeof validateAndBuildPlan>,
+    ) => {
+      onLine(`Connecting to ${dest.host}...`);
+
+      token.schedule(() => {
+        if (token.isCancelled()) return;
+        onLine('SSH-2.0-OpenSSH_8.9');
+
+        token.schedule(() => {
+          if (token.isCancelled()) return;
+          onLine(`Authenticating as ${dest.user}...`);
+
+          const scpPrompt: ScpPromptData = {
+            __type: 'scp_prompt',
+            targetUser: dest.user,
+            targetIP: dest.host,
+            targetPort: plan.port,
+            performTransfer: buildPerformTransfer(plan),
+            ...(password !== undefined && { password }),
+          };
+
+          onComplete(scpPrompt);
+        }, jitter(HANDSHAKE_MS));
+      }, jitter(CONNECT_MS));
+    };
+
+    // Sync hit OR no async resolver wired: keep the legacy
+    // synchronous-throw contract. Validation runs at fn() time so
+    // tests asserting `() => scp.fn(...)` throw continue to pass.
+    const syncMachine = getMachine(dest.host);
+    if (syncMachine || !findMachineByIpAsync) {
+      const plan = validateAndBuildPlan(syncMachine);
+      return {
+        __type: 'async',
+        label: 'scp',
+        start: (onLine, onComplete) => runConnectAnim(onLine, onComplete, plan),
+        cancel: token.cancel,
+      };
+    }
+
+    // Cross-LAN fallback: sync miss + async resolver available. The
+    // foreign network materializes via findMachineByIpAsync, then the
+    // plan is built and the animation runs. Mirrors ssh.ts's pattern.
     return {
       __type: 'async',
       label: 'scp',
       start: (onLine, onComplete) => {
-        onLine(`Connecting to ${dest.host}...`);
-
-        token.schedule(() => {
+        void findMachineByIpAsync(dest.host).then((asyncMachine) => {
           if (token.isCancelled()) return;
-          onLine('SSH-2.0-OpenSSH_8.9');
-
-          token.schedule(() => {
-            if (token.isCancelled()) return;
-            onLine(`Authenticating as ${dest.user}...`);
-
-            const scpPrompt: ScpPromptData = {
-              __type: 'scp_prompt',
-              targetUser: dest.user,
-              targetIP: dest.host,
-              targetPort: port,
-              performTransfer,
-              ...(password !== undefined && { password }),
-            };
-
-            onComplete(scpPrompt);
-          }, jitter(HANDSHAKE_MS));
-        }, jitter(CONNECT_MS));
+          try {
+            const plan = validateAndBuildPlan(asyncMachine);
+            runConnectAnim(onLine, onComplete, plan);
+          } catch (error) {
+            onLine(error instanceof Error ? error.message : String(error));
+            onComplete();
+          }
+        });
       },
       cancel: token.cancel,
     };
