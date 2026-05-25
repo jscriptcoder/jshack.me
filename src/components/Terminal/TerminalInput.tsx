@@ -11,7 +11,7 @@ type TerminalInputProps = {
   readonly onHistoryDown: () => void;
   readonly onTab: (cursorPosition: number) => void;
   readonly promptMode?: PromptMode;
-  readonly externalInputRef?: React.RefObject<HTMLInputElement | null>;
+  readonly externalInputRef?: React.RefObject<HTMLInputElement>;
 };
 
 export const TerminalInput = ({
