@@ -11,7 +11,14 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react({
+      babel: {
+        plugins: [['babel-plugin-react-compiler', {}]],
+      },
+    }),
+    tailwindcss(),
+  ],
   test: {
     globals: true,
     environment: 'jsdom',
