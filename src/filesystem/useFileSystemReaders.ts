@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { useStableCallback } from '../hooks/useStableCallback';
 import type { FileNode, MachineFileOp, PermissionResult } from './types';
 import type { UserType } from '../session/types';
 import { getDefaultHomePath, type MachineId } from './machineFileSystems';
@@ -191,21 +192,24 @@ export const useFileSystemReaders = ({
     return getDefaultHomePath(machineId, username);
   }, []);
 
+  // Stable-identity wrappers — see plans/use-stable-callback-refactor.md.
+  // Consumers (commands, hooks) can safely capture these references inside
+  // closures that escape the render tree.
   return {
-    resolvePath,
-    resolvePathForMachine,
-    getNode,
-    getNodeFromMachine,
-    canRead,
-    canWrite,
-    canReadFromMachine,
-    canWriteFromMachine,
-    listDirectory,
-    listDirectoryFromMachine,
-    readFile,
-    readFileFromMachine,
-    canTraverse,
-    canTraverseOnMachine,
-    getDefaultHomePath: getDefaultHomePathFn,
+    resolvePath: useStableCallback(resolvePath),
+    resolvePathForMachine: useStableCallback(resolvePathForMachine),
+    getNode: useStableCallback(getNode),
+    getNodeFromMachine: useStableCallback(getNodeFromMachine),
+    canRead: useStableCallback(canRead),
+    canWrite: useStableCallback(canWrite),
+    canReadFromMachine: useStableCallback(canReadFromMachine),
+    canWriteFromMachine: useStableCallback(canWriteFromMachine),
+    listDirectory: useStableCallback(listDirectory),
+    listDirectoryFromMachine: useStableCallback(listDirectoryFromMachine),
+    readFile: useStableCallback(readFile),
+    readFileFromMachine: useStableCallback(readFileFromMachine),
+    canTraverse: useStableCallback(canTraverse),
+    canTraverseOnMachine: useStableCallback(canTraverseOnMachine),
+    getDefaultHomePath: useStableCallback(getDefaultHomePathFn),
   };
 };

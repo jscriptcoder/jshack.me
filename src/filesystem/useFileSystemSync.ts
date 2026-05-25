@@ -21,6 +21,7 @@ import {
 import { getRealtimeClient, subscribeToMachine, type PatchHint } from '../patchRegistry/realtime';
 import { applyPatchToList, applyPatches, type FileSystemsState } from './fileSystemUtils';
 import { parseWorkstationId } from '../homeNetworks/homeNetworkHelpers';
+import { useStableCallback } from '../hooks/useStableCallback';
 
 // Debounce window for Realtime hint refetches. Multiple hints arriving
 // within this window coalesce into a single listPatchesForMachines
@@ -843,6 +844,10 @@ export const useFileSystemSync = ({
     [workstationId],
   );
 
+  // Stable-identity wrap on the methods consumed downstream — see
+  // plans/use-stable-callback-refactor.md. State values, dispatchers,
+  // and useRef handles are already stable; only the useCallback-derived
+  // functions need wrapping at the boundary.
   return {
     fileSystems,
     setFileSystems,
@@ -854,8 +859,8 @@ export const useFileSystemSync = ({
     localWritesSinceMount,
     pendingPatchesRef,
     pendingWritesRef,
-    prefetchPatchesForMachines,
+    prefetchPatchesForMachines: useStableCallback(prefetchPatchesForMachines),
     machineIdsKeyRef,
-    awaitCrossPlayerBaseFs,
+    awaitCrossPlayerBaseFs: useStableCallback(awaitCrossPlayerBaseFs),
   };
 };

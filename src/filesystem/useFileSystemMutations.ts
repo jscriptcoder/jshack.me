@@ -1,4 +1,5 @@
 import { useCallback, type Dispatch, type SetStateAction } from 'react';
+import { useStableCallback } from '../hooks/useStableCallback';
 import type {
   FileNode,
   FilePermissions,
@@ -554,17 +555,18 @@ export const useFileSystemMutations = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Stable-identity wrappers — see plans/use-stable-callback-refactor.md.
   return {
-    writeFile,
-    createFile,
-    createDirectory,
-    deleteNode,
-    writeFileToMachine,
-    createFileOnMachine,
-    upsertFileOnMachine,
-    createDirectoryOnMachine,
-    deleteNodeFromMachine,
-    updatePermissions,
-    flushPendingPatches,
+    writeFile: useStableCallback(writeFile),
+    createFile: useStableCallback(createFile),
+    createDirectory: useStableCallback(createDirectory),
+    deleteNode: useStableCallback(deleteNode),
+    writeFileToMachine: useStableCallback(writeFileToMachine),
+    createFileOnMachine: useStableCallback(createFileOnMachine),
+    upsertFileOnMachine: useStableCallback(upsertFileOnMachine),
+    createDirectoryOnMachine: useStableCallback(createDirectoryOnMachine),
+    deleteNodeFromMachine: useStableCallback(deleteNodeFromMachine),
+    updatePermissions: useStableCallback(updatePermissions),
+    flushPendingPatches: useStableCallback(flushPendingPatches),
   };
 };

@@ -1,4 +1,5 @@
 import { createContext, useContext, useMemo, useCallback, useRef, type ReactNode } from 'react';
+import { useStableCallback } from '../hooks/useStableCallback';
 import type {
   NetworkConfig,
   MachineNetworkConfig,
@@ -1057,24 +1058,47 @@ export const NetworkProvider = ({
     [worldHandlers],
   );
 
+  // Stable-identity wrappers — see plans/use-stable-callback-refactor.md (PR
+  // #163). Each consumer-facing context method gets wrapped so callers can
+  // capture the reference inside long-lived closures (e.g. AsyncOutput.start
+  // dispatched from a terminal-submit event handler) without the closure
+  // holding a stale impl after subsequent renders. Same mechanism as React
+  // 19.2's useEffectEvent, applied at the context boundary so consumers don't
+  // need per-call-site refs.
+  const stableGetInterface = useStableCallback(getInterface);
+  const stableGetInterfaces = useStableCallback(getInterfaces);
+  const stableGetMachine = useStableCallback(getMachine);
+  const stableGetMachines = useStableCallback(getMachines);
+  const stableGetGateway = useStableCallback(getGateway);
+  const stableGetLocalIP = useStableCallback(getLocalIP);
+  const stableGetPublicIP = useStableCallback(getPublicIP);
+  const stableResolveDomain = useStableCallback(resolveDomain);
+  const stableGetDnsRecords = useStableCallback(getDnsRecords);
+  const stableFindMachineUsers = useStableCallback(findMachineUsers);
+  const stableFindMachineByIp = useStableCallback(findMachineByIp);
+  const stableFindMachineByIpAsync = useStableCallback(findMachineByIpAsync);
+  const stableResolveNat = useStableCallback(resolveNat);
+  const stableGetGatewayChainFor = useStableCallback(getGatewayChainFor);
+  const stableGetHandler = useStableCallback(getHandler);
+
   return (
     <NetworkContext.Provider
       value={{
-        getInterface,
-        getInterfaces,
-        getMachine,
-        getMachines,
-        getGateway,
-        getLocalIP,
-        getPublicIP,
-        resolveDomain,
-        getDnsRecords,
-        findMachineUsers,
-        findMachineByIp,
-        findMachineByIpAsync,
-        resolveNat,
-        getGatewayChainFor,
-        getHandler,
+        getInterface: stableGetInterface,
+        getInterfaces: stableGetInterfaces,
+        getMachine: stableGetMachine,
+        getMachines: stableGetMachines,
+        getGateway: stableGetGateway,
+        getLocalIP: stableGetLocalIP,
+        getPublicIP: stableGetPublicIP,
+        resolveDomain: stableResolveDomain,
+        getDnsRecords: stableGetDnsRecords,
+        findMachineUsers: stableFindMachineUsers,
+        findMachineByIp: stableFindMachineByIp,
+        findMachineByIpAsync: stableFindMachineByIpAsync,
+        resolveNat: stableResolveNat,
+        getGatewayChainFor: stableGetGatewayChainFor,
+        getHandler: stableGetHandler,
       }}
     >
       {children}
