@@ -135,6 +135,33 @@ export const mockCommandEnv = (overrides?: Partial<CommandEnv>): CommandEnv => (
 - Multiplayer tested across two browsers on the same machine against local Supabase + local Vercel dev.
 - Cut-over plan deferred — decided when v2/ reaches feature parity with what's needed for launch.
 
+## D12. Testing scripts strategy — reuse legacy *shapes*, not implementations
+
+The legacy repo has ~20 dev/testing scripts under `scripts/` (catalogued in root `CLAUDE.md`). They categorize into four groups, each with a different fate in v2:
+
+| Category | Examples | Fate in v2 |
+|---|---|---|
+| **Inspection** | `dumpMissionNetwork`, `dumpHomeNetwork`, `simulateExploit`, `inspectPort`, `--cat` flags | Concept stays — debugging procedural generation needs CLI visibility. Don't port pre-emptively; **rewrite reactively** when first needed. Prefer expressing as a one-off `it('exploration', ...)` test via `mockCommandEnv` when the inspection is worth committing. |
+| **Backfill** | `backfillHomeNetworkBaseFs`, `backfillWorldNetworkBaseFs`, `backfillWorkstationBaseFs` | **Skip entirely.** These are one-time data migrations for legacy's in-flight schema changes. v2 starts with fresh schema; no backfill ever needed. |
+| **RLS / dual-write verifiers** | `verifyMachineFilesystemsRls`, `verifyWorkstationsRls`, `verifyDualWrite` | **Critical.** Write one per Supabase table as the table lands. Same shape as legacy (probe with anon key + service-role key, assert denies/permits). Build a generic helper after the second one. Without these, RLS regressions ship silently. |
+| **Smoke tests** (envelope-forging) | `testL2Bypass`, `testReadPathPrivacy`, `testGetBaseFs`, `testExploitRead`, `testCrackCredentials`, `testRegisterWorkstation`, `testCreateSessionUserType`, `testAmbientLogAllowlist`, `testL2BypassWorkstation` | **Mandatory before declaring any multiplayer endpoint shipped.** Per memory `feedback_e2e_test_new_primitives`, unit tests prove layers in isolation; integration seams drift silently. These shorter in v2 (~50-80 lines vs ~150-200) because `core/signedRequest` is importable directly — no hand-forging logic inline. |
+
+### The per-endpoint recipe (locked)
+
+Every multiplayer endpoint PR lands **three files**:
+
+```
+v2/api/<endpoint>.ts                    handler
+v2/api/<endpoint>.test.ts               unit tests (mocked adapters)
+v2/scripts/test<Endpoint>.ts            smoke test (forges envelopes vs vercel:dev)
+```
+
+The smoke script is not optional — without it, the endpoint is not "shipped." It's the difference between "passes in isolation" and "wire matches contract." See `feedback_e2e_test_new_primitives` for the history that justifies this rule.
+
+### Don't pre-port the catalog
+
+The 20 legacy scripts stay useful as a **menu of what kinds of scripts to write**, not as files to copy. Pre-porting them would produce 20 broken files (legacy imports) that rot waiting for v2's API to catch up. Each one gets rewritten when its corresponding v2 feature lands.
+
 ---
 
 ## Pending decisions (not yet locked)
