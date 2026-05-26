@@ -61,7 +61,7 @@ core/
   commands/
     types.ts                 Command, CommandResult, CommandEnv  ← THE BOUNDARY
     registry.ts              CommandRegistry type
-    impl/                    one file per command (~75 files)
+    <name>.ts                one file per command (~75 files, flat)
 
   generation/
     prng.ts                  Mulberry32 seeded RNG
@@ -300,13 +300,17 @@ export const currentSession: (chain: HopChain) => Session | null;
 
 ## Filesystem & permissions
 
+Permissions are **tier-based allowlists**, matching the legacy model. The game has 3 tiers (`guest` / `user` / `root`); each file declares which tiers can read, write, and execute it. The walker never reads the `owner` field — owner is a label for `ls -l` display only.
+
+**Known limitation (accepted)**: two `'user'`-tier accounts on the same machine share each other's files. The game's model is one user-tier account per machine, so this doesn't bite in practice. Future per-user isolation would extend the entry type without breaking existing data.
+
 ```ts
 // core/filesystem/types.ts
 
 export type FilePermissions = {
-  readonly owner: string;
-  readonly group: string;
-  readonly mode: number;       // octal: 0o755, 0o644, etc.
+  readonly read: readonly UserType[];
+  readonly write: readonly UserType[];
+  readonly execute: readonly UserType[];
 };
 
 export type FileNode = FileEntry | Directory;
@@ -314,6 +318,7 @@ export type FileNode = FileEntry | Directory;
 export type FileEntry = {
   readonly kind: 'file';
   readonly content: string;
+  readonly owner: string;                       // username for ls -l display
   readonly perms: FilePermissions;
   readonly metadata?: FileMetadata;
 };
@@ -321,6 +326,7 @@ export type FileEntry = {
 export type Directory = {
   readonly kind: 'directory';
   readonly entries: ReadonlyMap<string, FileNode>;
+  readonly owner: string;
   readonly perms: FilePermissions;
 };
 
@@ -340,11 +346,9 @@ export type WalkResult =
   | { readonly allowed: false; readonly reason: WalkDenyReason };
 
 export type WalkDenyReason =
-  | 'parent_unreadable'
+  | 'parent_not_traversable'
   | 'target_unreadable'
-  | 'target_unwritable'
-  | 'not_directory'
-  | 'not_found';
+  | 'target_unwritable';
 
 export const canRead: (
   userType: UserType,
@@ -747,7 +751,7 @@ export type LogApi = {
 To prove the contract is real, here's how `cat` would be implemented end-to-end. **Note: zero UI imports, zero Solid, zero React. Plain TypeScript on the `CommandEnv` boundary.**
 
 ```ts
-// core/commands/impl/cat.ts
+// core/commands/cat.ts
 
 import type { Command, CommandEnv, CommandResult, AbsPath } from '../types';
 import { resolveAbsPath } from '../../filesystem/path';
@@ -799,7 +803,7 @@ And here's how the UI layer wires it up (Solid + plain DOM):
 // ui/state.ts (Solid signals, framework boundary)
 
 import { createSignal, createStore } from 'solid-js';
-import { catCommand } from '../core/commands/impl/cat';
+import { catCommand } from '../core/commands/cat';
 import { buildCommandEnv } from './env';
 
 const [scrollback, setScrollback] = createStore<TerminalLine[]>([]);
@@ -834,7 +838,7 @@ These are non-negotiable. If a draft violates one, it's wrong.
 7. **Time is injected.** Commands never call `Date.now()` directly — they call `env.now()`. Same for `gameTime()`. This makes testing deterministic and lets the server stamp the value in multiplayer.
 8. **No reactive primitives in `core/`.** Signals never leak in. Effects never leak in. Commands return values; the UI subscribes to changes.
 9. **`AbortSignal` for cancellation.** Long-running commands (`nmap`, `aircrack`, `ping`) take `env.signal` and abort cleanly. The UI provides the signal from a Ctrl-C handler.
-10. **One file per command.** No mega-modules. Each command in `core/commands/impl/<name>.ts`.
+10. **One file per command.** No mega-modules. Each command in `core/commands/<name>.ts`, flat — no `impl/` nesting.
 
 ---
 
