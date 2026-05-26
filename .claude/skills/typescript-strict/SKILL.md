@@ -19,11 +19,11 @@ description: TypeScript strict mode patterns including schema-first development,
 ### `type` — for data structures
 
 ```typescript
-export type RemoteMachine = {
-  readonly ip: string;
-  readonly hostname: string;
-  readonly ports: ReadonlyArray<Port>;
-  readonly users: ReadonlyArray<RemoteUser>;
+export type User = {
+  readonly id: string;
+  readonly email: string;
+  readonly name: string;
+  readonly roles: ReadonlyArray<string>;
 };
 ```
 
@@ -32,9 +32,9 @@ export type RemoteMachine = {
 ### `interface` — for behavior contracts
 
 ```typescript
-export interface FileSystemAdapter {
-  getNode(machineId: string, path: string): FileNode | undefined;
-  writeFile(machineId: string, path: string, content: string): void;
+export interface UserRepository {
+  findById(id: string): Promise<User | undefined>;
+  save(user: User): Promise<void>;
 }
 ```
 
@@ -46,13 +46,11 @@ Define schemas once, import everywhere. Never duplicate the same validation logi
 
 ```typescript
 // ✅ Define once
-export const GameStateSchema = z.object({
-  seed: z.string().min(1),
-  workstationName: z.string().min(1),
-  username: z.string().min(1),
-  rootPassword: z.string().min(1),
+export const CreateUserRequestSchema = z.object({
+  email: z.string().email(),
+  name: z.string().min(1),
 });
-export type GameState = z.infer<typeof GameStateSchema>;
+export type CreateUserRequest = z.infer<typeof CreateUserRequestSchema>;
 
 // Import and use wherever needed
 ```
@@ -85,7 +83,6 @@ export type GameState = z.infer<typeof GameStateSchema>;
 ### What Each Setting Does
 
 **Core strict flags:**
-
 - **`strict: true`** - Enables all strict type checking options
 - **`noImplicitAny`** - Error on expressions/declarations with implied `any` type
 - **`strictNullChecks`** - `null` and `undefined` have their own types (not assignable to everything)
@@ -95,7 +92,6 @@ export type GameState = z.infer<typeof GameStateSchema>;
 - **`noFallthroughCasesInSwitch`** - Error on fallthrough cases in switch statements
 
 **Additional safety flags (CRITICAL):**
-
 - **`noUncheckedIndexedAccess`** - Array/object access returns `T | undefined` (prevents runtime errors from assuming elements exist)
 - **`exactOptionalPropertyTypes`** - Distinguishes `property?: T` from `property: T | undefined` (more precise types)
 - **`noPropertyAccessFromIndexSignature`** - Requires bracket notation for index signature properties (forces awareness of dynamic access)
@@ -120,7 +116,6 @@ The `noUnusedParameters` rule can reveal architectural problems:
 For detailed patterns on immutability (`readonly`, `ReadonlyArray`), pure functions, composition, Result types, array methods, and factory functions, see the `functional` skill. These are the canonical patterns used across the codebase.
 
 Key TypeScript-specific notes:
-
 - Use `readonly` on all `type` properties and `ReadonlyArray<T>` for arrays
 - The compiler enforces immutability when `readonly` is used — leverage this
 - Factory functions (not classes) for object creation, supporting dependency injection
@@ -137,17 +132,15 @@ Key TypeScript-specific notes:
 - Used in test factories (validate test data completeness)
 
 ```typescript
-// IndexedDB data, user input, external data
-const FileSystemPatchSchema = z.object({
-  machineId: z.string(),
-  path: z.string().startsWith('/'),
-  content: z.string().nullable(),
-  owner: z.enum(['root', 'user', 'guest']),
+// API responses, user input, external data
+const UserSchema = z.object({
+  id: z.string().uuid(),
+  email: z.string().email(),
 });
-type FileSystemPatch = z.infer<typeof FileSystemPatchSchema>;
+type User = z.infer<typeof UserSchema>;
 
 // Validate at boundary
-const patch = FileSystemPatchSchema.parse(storedData);
+const user = UserSchema.parse(apiResponse);
 ```
 
 ### When Schemas AREN'T Required
@@ -160,11 +153,13 @@ const patch = FileSystemPatchSchema.parse(storedData);
 
 ```typescript
 // ✅ CORRECT - No schema needed
-type PermissionResult = { allowed: true } | { allowed: false; reason: string };
+type Result<T, E> =
+  | { success: true; data: T }
+  | { success: false; error: E };
 
 // ✅ CORRECT - Interface, no validation
-interface CommandExecutor {
-  execute(args: ReadonlyArray<string>): string | SpecialOutput;
+interface UserService {
+  createUser(user: User): void;
 }
 ```
 
@@ -175,21 +170,21 @@ interface CommandExecutor {
 For type-safe primitives:
 
 ```typescript
-type MachineIp = string & { readonly brand: unique symbol };
-type MissionSeed = string & { readonly brand: unique symbol };
+type UserId = string & { readonly brand: unique symbol };
+type PaymentAmount = number & { readonly brand: unique symbol };
 
 // Type-safe at compile time
-const connectToMachine = (ip: MachineIp, seed: MissionSeed) => {
+const processPayment = (userId: UserId, amount: PaymentAmount) => {
   // Implementation
 };
 
-// ❌ Can't pass raw string
-connectToMachine('10.0.1.5', 'abc123'); // Error
+// ❌ Can't pass raw string/number
+processPayment('user-123', 100); // Error
 
 // ✅ Must use branded type
-const ip = '10.0.1.5' as MachineIp;
-const seed = 'abc123' as MissionSeed;
-connectToMachine(ip, seed); // OK
+const userId = 'user-123' as UserId;
+const amount = 100 as PaymentAmount;
+processPayment(userId, amount); // OK
 ```
 
 ---

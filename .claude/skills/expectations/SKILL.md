@@ -20,7 +20,6 @@ description: Working expectations and documentation practices. Use when capturin
 **At the end of every significant change, ask: "What do I wish I'd known at the start?"**
 
 Document if ANY of these are true:
-
 - Would save future developers significant time
 - Prevents a class of bugs or errors
 - Reveals non-obvious behavior or constraints
@@ -31,7 +30,7 @@ Document if ANY of these are true:
 
 ## Types of Learnings to Capture
 
-- **Gotchas**: Unexpected behavior discovered (e.g., "PRNG sequence shifts when adding rolls before existing generation code")
+- **Gotchas**: Unexpected behavior discovered (e.g., "API returns null instead of empty array")
 - **Patterns**: Approaches that worked particularly well
 - **Anti-patterns**: Approaches that seemed good but caused problems
 - **Decisions**: Architectural choices with rationale and trade-offs
@@ -48,10 +47,10 @@ Document if ANY of these are true:
 **Solution**: How to handle it
 
 // CORRECT - Solution
-const machines = generateLayer(prng, difficulty);
+const example = "correct approach";
 
 // WRONG - What causes the problem
-const machines = generateLayer(new Prng(seed), difficulty); // Creates new PRNG, breaks sequence
+const wrong = "incorrect approach";
 ```
 
 ## Code Change Principles

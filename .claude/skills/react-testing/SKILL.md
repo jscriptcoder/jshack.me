@@ -19,9 +19,9 @@ npm install -D vitest @vitest/browser-playwright vitest-browser-react @vitejs/pl
 
 ```typescript
 // vitest.config.ts
-import { defineConfig } from 'vitest/config';
-import { playwright } from '@vitest/browser-playwright';
-import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vitest/config'
+import { playwright } from '@vitest/browser-playwright'
+import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
@@ -33,25 +33,24 @@ export default defineConfig({
       instances: [{ browser: 'chromium' }],
     },
   },
-});
+})
 ```
 
 ### Component Testing
 
 ```tsx
-import { render } from 'vitest-browser-react';
-import { expect, test } from 'vitest';
+import { render } from 'vitest-browser-react'
+import { expect, test } from 'vitest'
 
-test('should display machine info when provided', async () => {
-  const screen = await render(<MachineInfo ip="10.0.1.5" hostname="web-server" ports={3} />);
+test('should display user name when provided', async () => {
+  const screen = await render(<UserProfile name="Alice" email="alice@example.com" />)
 
-  await expect.element(screen.getByText(/10\.0\.1\.5/)).toBeVisible();
-  await expect.element(screen.getByText(/web-server/)).toBeVisible();
-});
+  await expect.element(screen.getByText(/alice/i)).toBeVisible()
+  await expect.element(screen.getByText(/alice@example.com/i)).toBeVisible()
+})
 ```
 
 **Key differences from `@testing-library/react`:**
-
 - `render()` is async — use `await`
 - Returns a `screen` scoped to the rendered component
 - Use `expect.element()` for auto-retrying assertions
@@ -61,67 +60,77 @@ test('should display machine info when provided', async () => {
 ### Testing Props and Callbacks
 
 ```tsx
-test('should call onCommand when input submitted', async () => {
-  const handleCommand = vi.fn();
-  const screen = await render(<CommandInput onCommand={handleCommand} />);
+test('should call onSubmit when form submitted', async () => {
+  const handleSubmit = vi.fn()
+  const screen = await render(<LoginForm onSubmit={handleSubmit} />)
 
-  await screen.getByRole('textbox').fill('ls -la /home');
-  await screen.getByRole('textbox').press('Enter');
+  await screen.getByLabelText(/email/i).fill('test@example.com')
+  await screen.getByRole('button', { name: /submit/i }).click()
 
-  expect(handleCommand).toHaveBeenCalledWith('ls -la /home');
-});
+  expect(handleSubmit).toHaveBeenCalledWith({
+    email: 'test@example.com',
+  })
+})
 ```
 
 ### Testing Conditional Rendering
 
 ```tsx
-test('should show connection error when machine is unreachable', async () => {
-  const screen = await render(<SshConnection ip="10.0.1.5" bricked={true} />);
+test('should show error message when login fails', async () => {
+  server.use(
+    http.post('/api/login', () => {
+      return HttpResponse.json({ error: 'Invalid credentials' }, { status: 401 })
+    })
+  )
 
-  await expect.element(screen.getByText(/connection timed out/i)).toBeVisible();
-});
+  const screen = await render(<LoginForm />)
+
+  await screen.getByLabelText(/email/i).fill('wrong@example.com')
+  await screen.getByRole('button', { name: /submit/i }).click()
+
+  await expect.element(screen.getByText(/invalid credentials/i)).toBeVisible()
+})
 ```
 
 ### Testing Hooks with renderHook
 
 ```tsx
-import { renderHook } from 'vitest-browser-react';
+import { renderHook } from 'vitest-browser-react'
 
-test('should toggle WiFi connection state', async () => {
-  const { result } = await renderHook(() => useWifiConnection());
+test('should toggle value', async () => {
+  const { result } = await renderHook(() => useToggle(false))
 
-  expect(result.current.connected).toBe(false);
+  expect(result.current.value).toBe(false)
 
   await act(() => {
-    result.current.connect({ essid: 'NETGEAR-5G', bssid: 'AA:BB:CC:DD:EE:FF' });
-  });
+    result.current.toggle()
+  })
 
-  expect(result.current.connected).toBe(true);
-});
+  expect(result.current.value).toBe(true)
+})
 ```
 
 ### Testing Context Providers
 
 ```tsx
-test('should show terminal prompt when session is active', async () => {
+test('should show user menu when authenticated', async () => {
   const screen = await render(
-    <SessionProvider
-      initialSession={{ userType: 'user', machine: 'localhost', currentPath: '/home/user' }}
-    >
-      <Terminal />
-    </SessionProvider>,
-  );
+    <AuthProvider initialUser={{ name: 'Alice', role: 'admin' }}>
+      <Dashboard />
+    </AuthProvider>
+  )
 
-  await expect.element(screen.getByText(/user@localhost/)).toBeVisible();
-});
+  await expect.element(screen.getByRole('button', { name: /user menu/i })).toBeVisible()
+})
 ```
 
 For hooks that need context:
-
 ```tsx
-const { result } = await renderHook(() => useSession(), {
-  wrapper: ({ children }) => <SessionProvider>{children}</SessionProvider>,
-});
+const { result } = await renderHook(() => useAuth(), {
+  wrapper: ({ children }) => (
+    <AuthProvider>{children}</AuthProvider>
+  ),
+})
 ```
 
 ---
@@ -140,19 +149,19 @@ The patterns below apply when using `@testing-library/react` with jsdom. **Prefe
 
 ```tsx
 // ✅ CORRECT - Test component behavior
-it('should display machine hostname and IP', () => {
-  render(<MachineInfo ip="10.0.1.5" hostname="web-server" ports={3} />);
+it('should display user name when provided', () => {
+  render(<UserProfile name="Alice" email="alice@example.com" />);
 
-  expect(screen.getByText(/web-server/)).toBeInTheDocument();
-  expect(screen.getByText(/10\.0\.1\.5/)).toBeInTheDocument();
+  expect(screen.getByText(/alice/i)).toBeInTheDocument();
+  expect(screen.getByText(/alice@example.com/i)).toBeInTheDocument();
 });
 ```
 
 ```tsx
 // ❌ WRONG - Testing implementation
-it('should set hostname state', () => {
-  const wrapper = mount(<MachineInfo ip="10.0.1.5" hostname="web-server" />);
-  expect(wrapper.state('hostname')).toBe('web-server'); // Internal state!
+it('should set name state', () => {
+  const wrapper = mount(<UserProfile name="Alice" />);
+  expect(wrapper.state('name')).toBe('Alice'); // Internal state!
 });
 ```
 
@@ -160,16 +169,18 @@ it('should set hostname state', () => {
 
 ```tsx
 // ✅ CORRECT - Test how props affect rendered output
-it('should execute command when submitted', async () => {
-  const handleCommand = vi.fn();
+it('should call onSubmit when form submitted', async () => {
+  const handleSubmit = vi.fn();
   const user = userEvent.setup();
 
-  render(<CommandInput onCommand={handleCommand} />);
+  render(<LoginForm onSubmit={handleSubmit} />);
 
-  await user.type(screen.getByRole('textbox'), 'nmap 10.0.1.5');
-  await user.keyboard('{Enter}');
+  await user.type(screen.getByLabelText(/email/i), 'test@example.com');
+  await user.click(screen.getByRole('button', { name: /submit/i }));
 
-  expect(handleCommand).toHaveBeenCalledWith('nmap 10.0.1.5');
+  expect(handleSubmit).toHaveBeenCalledWith({
+    email: 'test@example.com',
+  });
 });
 ```
 
@@ -177,14 +188,20 @@ it('should execute command when submitted', async () => {
 
 ```tsx
 // ✅ CORRECT - Test what user sees in different states
-it('should show permission denied when guest runs root command', async () => {
+it('should show error message when login fails', async () => {
+  server.use(
+    http.post('/api/login', () => {
+      return HttpResponse.json({ error: 'Invalid credentials' }, { status: 401 });
+    })
+  );
+
   const user = userEvent.setup();
-  render(<Terminal session={{ userType: 'guest' }} />);
+  render(<LoginForm />);
 
-  await user.type(screen.getByRole('textbox'), 'reboot');
-  await user.keyboard('{Enter}');
+  await user.type(screen.getByLabelText(/email/i), 'wrong@example.com');
+  await user.click(screen.getByRole('button', { name: /submit/i }));
 
-  await screen.findByText(/permission denied/i);
+  await screen.findByText(/invalid credentials/i);
 });
 ```
 
@@ -199,21 +216,20 @@ it('should show permission denied when guest runs root command', async () => {
 ```tsx
 import { renderHook } from '@testing-library/react';
 
-it('should toggle WiFi connection state', () => {
-  const { result } = renderHook(() => useWifiConnection());
+it('should toggle value', () => {
+  const { result } = renderHook(() => useToggle(false));
 
-  expect(result.current.connected).toBe(false);
+  expect(result.current.value).toBe(false);
 
   act(() => {
-    result.current.connect({ essid: 'NETGEAR-5G', bssid: 'AA:BB:CC:DD:EE:FF' });
+    result.current.toggle();
   });
 
-  expect(result.current.connected).toBe(true);
+  expect(result.current.value).toBe(true);
 });
 ```
 
 **Pattern:**
-
 - `result.current` - Current return value of hook
 - `act()` - Wrap state updates
 - `rerender()` - Re-run hook with new props
@@ -221,16 +237,17 @@ it('should toggle WiFi connection state', () => {
 ### Hooks with Props
 
 ```tsx
-it('should accept initial session values', () => {
-  const { result, rerender } = renderHook(({ userType }) => useSession(userType), {
-    initialProps: { userType: 'guest' as UserType },
-  });
+it('should accept initial value', () => {
+  const { result, rerender } = renderHook(
+    ({ initialValue }) => useCounter(initialValue),
+    { initialProps: { initialValue: 10 } }
+  );
 
-  expect(result.current.userType).toBe('guest');
+  expect(result.current.count).toBe(10);
 
   // Test with different initial value
-  rerender({ userType: 'root' as UserType });
-  expect(result.current.userType).toBe('root');
+  rerender({ initialValue: 20 });
+  expect(result.current.count).toBe(20);
 });
 ```
 
@@ -243,31 +260,37 @@ it('should accept initial session values', () => {
 **For hooks that need context providers:**
 
 ```tsx
-const { result } = renderHook(() => useSession(), {
-  wrapper: ({ children }) => <SessionProvider>{children}</SessionProvider>,
+const { result } = renderHook(() => useAuth(), {
+  wrapper: ({ children }) => (
+    <AuthProvider>
+      {children}
+    </AuthProvider>
+  ),
 });
 
-expect(result.current.userType).toBe('guest');
+expect(result.current.user).toBeNull();
 
 act(() => {
-  result.current.switchUser('root', 'password123');
+  result.current.login({ email: 'test@example.com' });
 });
 
-expect(result.current.userType).toBe('root');
+expect(result.current.user).toEqual({ email: 'test@example.com' });
 ```
 
 ### Multiple Providers
 
 ```tsx
 const AllProviders = ({ children }) => (
-  <GameProvider>
-    <SessionProvider>
-      <NetworkProvider>{children}</NetworkProvider>
-    </SessionProvider>
-  </GameProvider>
+  <AuthProvider>
+    <ThemeProvider>
+      <RouterProvider>
+        {children}
+      </RouterProvider>
+    </ThemeProvider>
+  </AuthProvider>
 );
 
-const { result } = renderHook(() => useNetworkCommands(), {
+const { result } = renderHook(() => useMyHook(), {
   wrapper: AllProviders,
 });
 ```
@@ -276,16 +299,21 @@ const { result } = renderHook(() => useNetworkCommands(), {
 
 ```tsx
 // ✅ CORRECT - Wrap component in provider
-const renderWithSession = (ui, { session = null, ...options } = {}) => {
-  return render(<SessionProvider initialSession={session}>{ui}</SessionProvider>, options);
+const renderWithAuth = (ui, { user = null, ...options } = {}) => {
+  return render(
+    <AuthProvider initialUser={user}>
+      {ui}
+    </AuthProvider>,
+    options
+  );
 };
 
-it('should show root prompt when logged in as root', () => {
-  renderWithSession(<Terminal />, {
-    session: { userType: 'root', machine: 'localhost', currentPath: '/' },
+it('should show user menu when authenticated', () => {
+  renderWithAuth(<Dashboard />, {
+    user: { name: 'Alice', role: 'admin' },
   });
 
-  expect(screen.getByText(/root@localhost/)).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /user menu/i })).toBeInTheDocument();
 });
 ```
 
@@ -296,37 +324,37 @@ it('should show root prompt when logged in as root', () => {
 ### Controlled Inputs
 
 ```tsx
-it('should update command as user types', async () => {
+it('should update input value as user types', async () => {
   const user = userEvent.setup();
 
-  render(<CommandInput />);
+  render(<SearchInput />);
 
-  const input = screen.getByRole('textbox');
+  const input = screen.getByLabelText(/search/i);
 
-  await user.type(input, 'ssh admin@10.0.1.5');
+  await user.type(input, 'react');
 
-  expect(input).toHaveValue('ssh admin@10.0.1.5');
+  expect(input).toHaveValue('react');
 });
 ```
 
 ### Form Submissions
 
 ```tsx
-it('should submit game setup with user input', async () => {
+it('should submit form with user input', async () => {
   const handleSubmit = vi.fn();
   const user = userEvent.setup();
 
-  render(<IntroScreen onSubmit={handleSubmit} />);
+  render(<RegistrationForm onSubmit={handleSubmit} />);
 
-  await user.type(screen.getByLabelText(/workstation/i), 'hackbox');
-  await user.type(screen.getByLabelText(/username/i), 'ghost');
-  await user.type(screen.getByLabelText(/password/i), 'r00tpass');
-  await user.click(screen.getByRole('button', { name: /new game/i }));
+  await user.type(screen.getByLabelText(/name/i), 'Alice');
+  await user.type(screen.getByLabelText(/email/i), 'alice@example.com');
+  await user.type(screen.getByLabelText(/password/i), 'password123');
+  await user.click(screen.getByRole('button', { name: /sign up/i }));
 
   expect(handleSubmit).toHaveBeenCalledWith({
-    workstationName: 'hackbox',
-    username: 'ghost',
-    rootPassword: 'r00tpass',
+    name: 'Alice',
+    email: 'alice@example.com',
+    password: 'password123',
   });
 });
 ```
@@ -334,17 +362,17 @@ it('should submit game setup with user input', async () => {
 ### Form Validation
 
 ```tsx
-it('should show validation errors for empty fields', async () => {
+it('should show validation errors for invalid input', async () => {
   const user = userEvent.setup();
 
-  render(<IntroScreen />);
+  render(<RegistrationForm />);
 
   // Submit empty form
-  await user.click(screen.getByRole('button', { name: /new game/i }));
+  await user.click(screen.getByRole('button', { name: /sign up/i }));
 
   // Validation errors appear
-  expect(screen.getByText(/workstation name is required/i)).toBeInTheDocument();
-  expect(screen.getByText(/username is required/i)).toBeInTheDocument();
+  expect(screen.getByText(/name is required/i)).toBeInTheDocument();
+  expect(screen.getByText(/email is required/i)).toBeInTheDocument();
   expect(screen.getByText(/password is required/i)).toBeInTheDocument();
 });
 ```
@@ -356,10 +384,9 @@ it('should show validation errors for empty fields', async () => {
 ### 1. Unnecessary act() wrapping
 
 ❌ **WRONG - Manual act() everywhere**
-
 ```tsx
 act(() => {
-  render(<Terminal />);
+  render(<MyComponent />);
 });
 
 await act(async () => {
@@ -368,21 +395,18 @@ await act(async () => {
 ```
 
 ✅ **CORRECT - RTL handles it**
-
 ```tsx
-render(<Terminal />);
+render(<MyComponent />);
 await user.click(button);
 ```
 
 **Modern RTL auto-wraps:**
-
 - `render()`
 - `userEvent` methods
 - `fireEvent`
 - `waitFor`, `findBy`
 
 **When you DO need manual `act()`:**
-
 - Custom hook state updates (`renderHook`)
 - Direct state mutations (rare, usually bad practice)
 
@@ -391,7 +415,6 @@ await user.click(button);
 ### 2. Manual cleanup() calls
 
 ❌ **WRONG - Manual cleanup**
-
 ```tsx
 afterEach(() => {
   cleanup(); // Automatic since RTL 9!
@@ -399,7 +422,6 @@ afterEach(() => {
 ```
 
 ✅ **CORRECT - No cleanup needed**
-
 ```tsx
 // Cleanup happens automatically after each test
 ```
@@ -409,31 +431,29 @@ afterEach(() => {
 ### 3. beforeEach render pattern
 
 ❌ **WRONG - Shared render in beforeEach**
-
 ```tsx
-let input;
+let button;
 beforeEach(() => {
-  render(<CommandInput />);
-  input = screen.getByRole('textbox'); // Shared state across tests
+  render(<MyComponent />);
+  button = screen.getByRole('button'); // Shared state across tests
 });
 
 it('test 1', () => {
-  // Uses shared input from beforeEach
+  // Uses shared button from beforeEach
 });
 ```
 
 ✅ **CORRECT - Factory function per test**
-
 ```tsx
-const renderCommandInput = () => {
-  render(<CommandInput />);
+const renderComponent = () => {
+  render(<MyComponent />);
   return {
-    input: screen.getByRole('textbox'),
+    button: screen.getByRole('button'),
   };
 };
 
 it('test 1', () => {
-  const { input } = renderCommandInput(); // Fresh state
+  const { button } = renderComponent(); // Fresh state
 });
 ```
 
@@ -444,18 +464,16 @@ For factory patterns, see `testing` skill.
 ### 4. Testing component internals
 
 ❌ **WRONG - Accessing component internals**
-
 ```tsx
-const wrapper = shallow(<Terminal />);
-expect(wrapper.state('currentPath')).toBe('/home'); // Internal state
-expect(wrapper.instance().handleCommand).toBeDefined(); // Internal method
+const wrapper = shallow(<MyComponent />);
+expect(wrapper.state('isOpen')).toBe(true); // Internal state
+expect(wrapper.instance().handleClick).toBeDefined(); // Internal method
 ```
 
 ✅ **CORRECT - Test rendered output**
-
 ```tsx
-render(<Terminal />);
-expect(screen.getByText(/user@localhost/)).toBeInTheDocument(); // What user sees
+render(<MyComponent />);
+expect(screen.getByRole('dialog')).toBeInTheDocument(); // What user sees
 ```
 
 ---
@@ -463,16 +481,14 @@ expect(screen.getByText(/user@localhost/)).toBeInTheDocument(); // What user see
 ### 5. Shallow rendering
 
 ❌ **WRONG - Shallow rendering**
-
 ```tsx
-const wrapper = shallow(<Terminal />);
+const wrapper = shallow(<MyComponent />);
 // Child components not rendered - incomplete test
 ```
 
 ✅ **CORRECT - Full rendering**
-
 ```tsx
-render(<Terminal />);
+render(<MyComponent />);
 // Full component tree rendered - realistic test
 ```
 
@@ -483,14 +499,14 @@ render(<Terminal />);
 ## Testing Loading States
 
 ```tsx
-it('should show boot sequence then terminal', async () => {
-  render(<BootScreen onComplete={vi.fn()} />);
+it('should show loading then data', async () => {
+  render(<UserList />);
 
-  // Initially booting
+  // Initially loading
   expect(screen.getByText(/loading/i)).toBeInTheDocument();
 
-  // Wait for boot to complete
-  await screen.findByText(/login/i);
+  // Wait for data
+  await screen.findByText(/alice/i);
 
   // Loading gone
   expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
@@ -508,8 +524,8 @@ it('should catch errors with error boundary', () => {
 
   render(
     <ErrorBoundary fallback={<div>Something went wrong</div>}>
-      <BrokenComponent />
-    </ErrorBoundary>,
+      <ThrowsError />
+    </ErrorBoundary>
   );
 
   expect(screen.getByText(/something went wrong/i)).toBeInTheDocument();
@@ -523,11 +539,11 @@ it('should catch errors with error boundary', () => {
 ## Testing Portals
 
 ```tsx
-it('should render modal overlay in portal', () => {
-  render(<MissionModal isOpen={true} seed="abc123" />);
+it('should render modal in portal', () => {
+  render(<Modal isOpen={true}>Modal content</Modal>);
 
   // Portal renders outside root, but Testing Library finds it
-  expect(screen.getByText(/mission briefing/i)).toBeInTheDocument();
+  expect(screen.getByText(/modal content/i)).toBeInTheDocument();
 });
 ```
 
@@ -541,15 +557,15 @@ it('should render modal overlay in portal', () => {
 it('should show fallback then content', async () => {
   render(
     <Suspense fallback={<div>Loading...</div>}>
-      <LazyMissionPanel />
-    </Suspense>,
+      <LazyComponent />
+    </Suspense>
   );
 
   // Initially fallback
   expect(screen.getByText(/loading/i)).toBeInTheDocument();
 
   // Wait for component
-  await screen.findByText(/available contracts/i);
+  await screen.findByText(/lazy content/i);
 });
 ```
 

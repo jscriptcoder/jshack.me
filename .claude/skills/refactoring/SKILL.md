@@ -16,14 +16,12 @@ Refactoring is the final step of TDD. After mutation testing confirms test stren
 ### Commit Before Refactoring - WHY
 
 Having a working baseline before refactoring:
-
 - Allows reverting if refactoring breaks things
 - Provides safety net for experimentation
 - Makes refactoring less risky
 - Shows clear separation in git history
 
 **Workflow:**
-
 1. GREEN: Tests pass
 2. MUTATE: Verify test effectiveness
 3. KILL MUTANTS: Address surviving mutants
@@ -33,23 +31,21 @@ Having a working baseline before refactoring:
 
 ## Priority Classification
 
-| Priority | Action       | Examples                                            |
-| -------- | ------------ | --------------------------------------------------- |
-| Critical | Fix now      | Mutations, knowledge duplication, >3 levels nesting |
-| High     | This session | Magic numbers, unclear names, >30 line functions    |
-| Nice     | Later        | Minor naming, single-use helpers                    |
-| Skip     | Don't change | Already clean code                                  |
+| Priority | Action | Examples |
+|----------|--------|----------|
+| Critical | Fix now | Mutations, knowledge duplication, >3 levels nesting |
+| High | This session | Magic numbers, unclear names, >30 line functions |
+| Nice | Later | Minor naming, single-use helpers |
+| Skip | Don't change | Already clean code |
 
 ## DRY = Knowledge, Not Code
 
 **Abstract when**:
-
 - Same business concept (semantic meaning)
 - Would change together if requirements change
 - Obvious why grouped together
 
 **Keep separate when**:
-
 - Different concepts that look similar (structural)
 - Would evolve independently
 - Coupling would be confusing
@@ -58,15 +54,14 @@ Having a working baseline before refactoring:
 
 ```typescript
 // After MUTATE + KILL MUTANTS:
-const enrichMachine = (machine: GeneratedMachine, prng: Prng): GeneratedMachine => {
-  const users = generateUsers(prng, machine.role);
-  const guestChance = machine.role === 'database' ? 0.5 : 0.3;
-  const hasGuest = prng.next() < guestChance;
-  return { ...machine, users: hasGuest ? [...users, generateGuestUser(prng)] : users };
+const processOrder = (order: Order): ProcessedOrder => {
+  const itemsTotal = order.items.reduce((sum, item) => sum + item.price, 0);
+  const shipping = itemsTotal > 50 ? 0 : 5.99;
+  return { ...order, total: itemsTotal + shipping, shippingCost: shipping };
 };
 
 // ASSESSMENT:
-// ⚠️ High: Magic numbers 0.5, 0.3 → extract constants (GUEST_CHANCE_DB, GUEST_CHANCE_DEFAULT)
+// ⚠️ High: Magic numbers 50, 5.99 → extract constants
 // ✅ Skip: Structure is clear enough
 // DECISION: Extract constants only
 ```
@@ -78,7 +73,6 @@ If code isn't driven by a failing test, don't write it.
 **Key lesson**: Every line must have a test that demanded its existence.
 
 ❌ **Speculative code examples:**
-
 - "Just in case" logic
 - Features not yet needed
 - Code written "for future flexibility"
@@ -88,8 +82,8 @@ If code isn't driven by a failing test, don't write it.
 
 ```typescript
 // ❌ WRONG - Speculative error handling (no test demands this)
-if (machine.ports.length === 0) {
-  throw new Error('Machine has no ports'); // No test for this path!
+if (items.length === 0) {
+  throw new Error('Empty cart'); // No test for this path!
 }
 
 // ✅ CORRECT - Test-driven error handling
@@ -117,9 +111,9 @@ Don't refactor when:
 ## Commit Messages for Refactoring
 
 ```
-refactor: extract permission validation helpers
-refactor: simplify NAT resolution flow
-refactor: rename ambiguous PRNG parameter names
+refactor: extract scenario validation logic
+refactor: simplify error handling flow
+refactor: rename ambiguous parameter names
 ```
 
 **Format**: `refactor: <what was changed>`

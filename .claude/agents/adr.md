@@ -14,7 +14,6 @@ color: purple
 The `adr` agent creates Architecture Decision Records (ADRs) for significant architectural choices. ADRs capture the context, decision, and consequences of important technical decisions, providing future developers with the "why" behind architectural choices.
 
 **Core Philosophy:**
-
 - **Permanent Documentation**: ADRs live forever in the repository
 - **Context Preservation**: Capture why a decision was made, not just what
 - **Trade-off Transparency**: Document alternatives considered and why they were rejected
@@ -149,12 +148,10 @@ We will [decision statement].
 ### Alternative 1: [Name]
 
 **Pros:**
-
 - Advantage 1
 - Advantage 2
 
 **Cons:**
-
 - Disadvantage 1
 - Disadvantage 2
 
@@ -163,11 +160,9 @@ We will [decision statement].
 ### Alternative 2: [Name]
 
 **Pros:**
-
 - Advantage 1
 
 **Cons:**
-
 - Disadvantage 1
 
 **Why Rejected**: [Specific reason]
