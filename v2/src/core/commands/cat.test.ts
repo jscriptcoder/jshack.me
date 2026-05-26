@@ -119,10 +119,12 @@ describe('cat', () => {
   });
 
   it('reports "Permission denied" when walker denies the read', async () => {
+    // /root/secret.txt — root-owned, mode 0o600, no world-read.
+    // (jshack has no /etc/shadow; passwords live inline in /etc/passwd.)
     const tree = buildDirectory({
-      etc: buildDirectory(
+      root: buildDirectory(
         {
-          shadow: buildFile('root:$1$abc$xyz', { owner: 'root', mode: 0o600 }),
+          'secret.txt': buildFile('classified', { owner: 'root', mode: 0o600 }),
         },
         { owner: 'root', mode: 0o755 },
       ),
@@ -132,12 +134,12 @@ describe('cat', () => {
       fs: mockFsViewFromTree(tree, { userType: 'user' }),
     });
 
-    const result = await cat.execute(env, ['/etc/shadow'], NO_FLAGS);
+    const result = await cat.execute(env, ['/root/secret.txt'], NO_FLAGS);
 
     expect(result.kind).toBe('sync');
     if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(1);
-    expect(errorLines(result)).toEqual(['cat: /etc/shadow: Permission denied']);
+    expect(errorLines(result)).toEqual(['cat: /root/secret.txt: Permission denied']);
   });
 
   it('keeps reading subsequent args after one fails', async () => {

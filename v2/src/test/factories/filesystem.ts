@@ -34,16 +34,19 @@ export const buildDirectory = (
   entries: new Map(Object.entries(children)),
 });
 
-/** Convenience: build a typical home directory structure for tests. */
+/** Convenience: build a typical home directory structure for tests.
+ *
+ *  /etc/passwd carries password hashes inline (jshack has no /etc/shadow —
+ *  sabotage-via-garble is a real attack vector by design; see the
+ *  blueprint's §6.3 + §4.6). */
 export const buildHomeFs = (username = 'alice'): Directory =>
   buildDirectory(
     {
       etc: buildDirectory({
         passwd: buildFile(
-          `root:x:0:0:root:/root:/bin/bash\n${username}:x:1000:1000::/home/${username}:/bin/bash\n`,
+          `root:$1$abc$rootHashHere:0:0:root:/root:/bin/bash\n${username}:$1$abc$userHashHere:1000:1000::/home/${username}:/bin/bash\n`,
           { owner: 'root', mode: 0o644 },
         ),
-        shadow: buildFile('root:$1$abc$xyz:19000:0:99999:7:::', { owner: 'root', mode: 0o600 }),
       }),
       home: buildDirectory({
         [username]: buildDirectory(
