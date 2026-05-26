@@ -1,4 +1,4 @@
-const ReworkNoticeScreen = () => (
+export const ReworkNoticeScreen = () => (
   <div className="flex h-full flex-col items-center justify-center p-4 font-mono">
     {/* Logo — mirrors IntroScreen */}
     <div className="mb-3 text-center">
@@ -32,6 +32,3 @@ const ReworkNoticeScreen = () => (
     </div>
   </div>
 );
-
-export default ReworkNoticeScreen;
-export { ReworkNoticeScreen };
