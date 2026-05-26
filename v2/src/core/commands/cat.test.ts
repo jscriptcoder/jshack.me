@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { cat } from './cat';
-import { buildDirectory, buildFile } from '../../../test/factories/filesystem';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockSession,
-} from '../../../test/factories/commandEnv';
-import { asAbsPath } from '../../types';
-import type { TerminalLine } from '../types';
+} from '../../test/factories/commandEnv';
+import { asAbsPath } from '../types';
+import type { TerminalLine } from './types';
 
 const NO_FLAGS = new Map<string, string | true>();
 

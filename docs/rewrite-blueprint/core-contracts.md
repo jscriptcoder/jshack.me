@@ -61,7 +61,7 @@ core/
   commands/
     types.ts                 Command, CommandResult, CommandEnv  ← THE BOUNDARY
     registry.ts              CommandRegistry type
-    impl/                    one file per command (~75 files)
+    <name>.ts                one file per command (~75 files, flat)
 
   generation/
     prng.ts                  Mulberry32 seeded RNG
@@ -747,7 +747,7 @@ export type LogApi = {
 To prove the contract is real, here's how `cat` would be implemented end-to-end. **Note: zero UI imports, zero Solid, zero React. Plain TypeScript on the `CommandEnv` boundary.**
 
 ```ts
-// core/commands/impl/cat.ts
+// core/commands/cat.ts
 
 import type { Command, CommandEnv, CommandResult, AbsPath } from '../types';
 import { resolveAbsPath } from '../../filesystem/path';
@@ -799,7 +799,7 @@ And here's how the UI layer wires it up (Solid + plain DOM):
 // ui/state.ts (Solid signals, framework boundary)
 
 import { createSignal, createStore } from 'solid-js';
-import { catCommand } from '../core/commands/impl/cat';
+import { catCommand } from '../core/commands/cat';
 import { buildCommandEnv } from './env';
 
 const [scrollback, setScrollback] = createStore<TerminalLine[]>([]);
@@ -834,7 +834,7 @@ These are non-negotiable. If a draft violates one, it's wrong.
 7. **Time is injected.** Commands never call `Date.now()` directly — they call `env.now()`. Same for `gameTime()`. This makes testing deterministic and lets the server stamp the value in multiplayer.
 8. **No reactive primitives in `core/`.** Signals never leak in. Effects never leak in. Commands return values; the UI subscribes to changes.
 9. **`AbortSignal` for cancellation.** Long-running commands (`nmap`, `aircrack`, `ping`) take `env.signal` and abort cleanly. The UI provides the signal from a Ctrl-C handler.
-10. **One file per command.** No mega-modules. Each command in `core/commands/impl/<name>.ts`.
+10. **One file per command.** No mega-modules. Each command in `core/commands/<name>.ts`, flat — no `impl/` nesting.
 
 ---
 

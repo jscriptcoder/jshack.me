@@ -12,8 +12,8 @@
  *   1 — any file failed to read
  */
 
-import type { Command, CommandEnv, CommandResult, TerminalLine } from '../types';
-import { resolveAbsPath } from '../../filesystem/path';
+import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
+import { resolveAbsPath } from '../filesystem/path';
 
 const collectStdin = async (stdin: AsyncIterable<string>): Promise<TerminalLine[]> => {
   const lines: TerminalLine[] = [];
