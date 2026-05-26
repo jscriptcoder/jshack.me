@@ -5,6 +5,7 @@
  * These helpers let tests describe a tree with plain object literals.
  */
 
+import type { UserType } from '../../core/types';
 import {
   type Directory,
   type FileEntry,
@@ -12,27 +13,73 @@ import {
   type FilePermissions,
 } from '../../core/filesystem/types';
 
-const DEFAULT_PERMS: FilePermissions = { owner: 'root', group: 'root', mode: 0o755 };
+const ALL_TIERS: readonly UserType[] = ['root', 'user', 'guest'];
+
+/** Default file perms — root rw, owner-tier rw, everyone else nothing. */
+const defaultFilePerms = (ownerTier: UserType): FilePermissions => ({
+  read: dedupeTiers(['root', ownerTier]),
+  write: dedupeTiers(['root', ownerTier]),
+  execute: ['root'],
+});
+
+/** Default directory perms — world-traversable, world-readable, owner-tier writes. */
+const defaultDirPerms = (ownerTier: UserType): FilePermissions => ({
+  read: ALL_TIERS,
+  write: dedupeTiers(['root', ownerTier]),
+  execute: ALL_TIERS,
+});
+
+const dedupeTiers = (tiers: readonly UserType[]): readonly UserType[] => {
+  const seen = new Set<UserType>();
+  const out: UserType[] = [];
+  for (const tier of tiers) {
+    if (!seen.has(tier)) {
+      seen.add(tier);
+      out.push(tier);
+    }
+  }
+  return out;
+};
+
+/** Map a username to its tier — used to pick default permissions when
+ *  the test only specifies the owner string. */
+export const ownerTier = (owner: string): UserType => {
+  if (owner === 'root') return 'root';
+  if (owner === 'nobody' || owner === 'www-data') return 'guest';
+  return 'user';
+};
+
+type BuildOpts = {
+  readonly owner?: string;
+  readonly perms?: Partial<FilePermissions>;
+};
 
 /** Build a file entry. */
-export const buildFile = (
-  content: string,
-  perms: Partial<FilePermissions> = {},
-): FileEntry => ({
-  kind: 'file',
-  content,
-  perms: { ...DEFAULT_PERMS, mode: 0o644, ...perms },
-});
+export const buildFile = (content: string, opts: BuildOpts = {}): FileEntry => {
+  const owner = opts.owner ?? 'root';
+  const defaults = defaultFilePerms(ownerTier(owner));
+  return {
+    kind: 'file',
+    content,
+    owner,
+    perms: { ...defaults, ...opts.perms },
+  };
+};
 
 /** Build a directory from a plain object of children. */
 export const buildDirectory = (
   children: Readonly<Record<string, FileNode>> = {},
-  perms: Partial<FilePermissions> = {},
-): Directory => ({
-  kind: 'directory',
-  perms: { ...DEFAULT_PERMS, ...perms },
-  entries: new Map(Object.entries(children)),
-});
+  opts: BuildOpts = {},
+): Directory => {
+  const owner = opts.owner ?? 'root';
+  const defaults = defaultDirPerms(ownerTier(owner));
+  return {
+    kind: 'directory',
+    owner,
+    perms: { ...defaults, ...opts.perms },
+    entries: new Map(Object.entries(children)),
+  };
+};
 
 /** Convenience: build a typical home directory structure for tests.
  *
@@ -45,17 +92,17 @@ export const buildHomeFs = (username = 'alice'): Directory =>
       etc: buildDirectory({
         passwd: buildFile(
           `root:$1$abc$rootHashHere:0:0:root:/root:/bin/bash\n${username}:$1$abc$userHashHere:1000:1000::/home/${username}:/bin/bash\n`,
-          { owner: 'root', mode: 0o644 },
+          { owner: 'root' },
         ),
       }),
       home: buildDirectory({
         [username]: buildDirectory(
           {
-            'notes.txt': buildFile('hello world\nfrom alice', { owner: username, mode: 0o600 }),
+            'notes.txt': buildFile('hello world\nfrom alice', { owner: username }),
           },
-          { owner: username, group: username, mode: 0o755 },
+          { owner: username },
         ),
       }),
     },
-    { owner: 'root', mode: 0o755 },
+    { owner: 'root' },
   );

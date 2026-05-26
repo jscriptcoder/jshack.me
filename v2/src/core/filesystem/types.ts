@@ -2,23 +2,24 @@
  * Virtual filesystem types.
  *
  * `FileNode` is a discriminated union over file vs directory. Permissions
- * follow the Unix `owner / group / other` mode-bit layout (0o755, 0o644,
- * etc.). The walker (../walker.ts) is the single source of truth for
- * read/write permission decisions — both client and server import it.
- */
-
-import type { EpochMs } from '../types';
-
-/** Unix-style permissions. Mode follows octal layout:
+ * are tier-based allowlists (`read`/`write`/`execute` per UserType),
+ * matching the 3-tier privilege model the game actually uses. The walker
+ * (../walker.ts) is the single source of truth for read/write decisions —
+ * both client and server import it.
  *
- *    0o400 owner read   0o040 group read   0o004 other read
- *    0o200 owner write  0o020 group write  0o002 other write
- *    0o100 owner exec   0o010 group exec   0o001 other exec
+ * Limitation by design: tier-based perms don't isolate two `'user'`-tier
+ * accounts on the same machine — they'd see each other's files. Acceptable
+ * because the game's model is one user-tier account per machine.
  */
+
+import type { EpochMs, UserType } from '../types';
+
+/** Tier-based permission allowlist. A user passes if their tier appears
+ *  in the relevant array. */
 export type FilePermissions = {
-  readonly owner: string;
-  readonly group: string;
-  readonly mode: number;
+  readonly read: readonly UserType[];
+  readonly write: readonly UserType[];
+  readonly execute: readonly UserType[];
 };
 
 export type FileMetadata = {
@@ -32,6 +33,9 @@ export type FileMetadata = {
 export type FileEntry = {
   readonly kind: 'file';
   readonly content: string;
+  /** Username of the owner — displayed in ls -l. The walker doesn't read
+   *  this; permissions are tier-based via `perms`. */
+  readonly owner: string;
   readonly perms: FilePermissions;
   readonly metadata?: FileMetadata;
 };
@@ -39,6 +43,7 @@ export type FileEntry = {
 export type Directory = {
   readonly kind: 'directory';
   readonly entries: ReadonlyMap<string, FileNode>;
+  readonly owner: string;
   readonly perms: FilePermissions;
 };
 

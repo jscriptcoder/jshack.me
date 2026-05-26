@@ -300,13 +300,17 @@ export const currentSession: (chain: HopChain) => Session | null;
 
 ## Filesystem & permissions
 
+Permissions are **tier-based allowlists**, matching the legacy model. The game has 3 tiers (`guest` / `user` / `root`); each file declares which tiers can read, write, and execute it. The walker never reads the `owner` field — owner is a label for `ls -l` display only.
+
+**Known limitation (accepted)**: two `'user'`-tier accounts on the same machine share each other's files. The game's model is one user-tier account per machine, so this doesn't bite in practice. Future per-user isolation would extend the entry type without breaking existing data.
+
 ```ts
 // core/filesystem/types.ts
 
 export type FilePermissions = {
-  readonly owner: string;
-  readonly group: string;
-  readonly mode: number;       // octal: 0o755, 0o644, etc.
+  readonly read: readonly UserType[];
+  readonly write: readonly UserType[];
+  readonly execute: readonly UserType[];
 };
 
 export type FileNode = FileEntry | Directory;
@@ -314,6 +318,7 @@ export type FileNode = FileEntry | Directory;
 export type FileEntry = {
   readonly kind: 'file';
   readonly content: string;
+  readonly owner: string;                       // username for ls -l display
   readonly perms: FilePermissions;
   readonly metadata?: FileMetadata;
 };
@@ -321,6 +326,7 @@ export type FileEntry = {
 export type Directory = {
   readonly kind: 'directory';
   readonly entries: ReadonlyMap<string, FileNode>;
+  readonly owner: string;
   readonly perms: FilePermissions;
 };
 
@@ -340,11 +346,9 @@ export type WalkResult =
   | { readonly allowed: false; readonly reason: WalkDenyReason };
 
 export type WalkDenyReason =
-  | 'parent_unreadable'
+  | 'parent_not_traversable'
   | 'target_unreadable'
-  | 'target_unwritable'
-  | 'not_directory'
-  | 'not_found';
+  | 'target_unwritable';
 
 export const canRead: (
   userType: UserType,

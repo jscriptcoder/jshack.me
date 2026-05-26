@@ -23,12 +23,9 @@ describe('cat', () => {
       home: buildDirectory({
         alice: buildDirectory(
           {
-            'notes.txt': buildFile('first line\nsecond line\n', {
-              owner: 'alice',
-              mode: 0o644,
-            }),
+            'notes.txt': buildFile('first line\nsecond line\n', { owner: 'alice' }),
           },
-          { owner: 'alice', mode: 0o755 },
+          { owner: 'alice' },
         ),
       }),
     });
@@ -47,9 +44,14 @@ describe('cat', () => {
   });
 
   it('resolves absolute paths', async () => {
+    // /etc/hosts is world-readable in the default factory perms (root-owned
+    // file gets read: ['root'] by default — override here for the test).
     const tree = buildDirectory({
       etc: buildDirectory({
-        hosts: buildFile('127.0.0.1 localhost\n', { owner: 'root', mode: 0o644 }),
+        hosts: buildFile('127.0.0.1 localhost\n', {
+          owner: 'root',
+          perms: { read: ['root', 'user', 'guest'] },
+        }),
       }),
     });
 
@@ -69,10 +71,10 @@ describe('cat', () => {
     const tree = buildDirectory({
       tmp: buildDirectory(
         {
-          'a.txt': buildFile('alpha\n', { owner: 'alice', mode: 0o644 }),
-          'b.txt': buildFile('beta\n', { owner: 'alice', mode: 0o644 }),
+          'a.txt': buildFile('alpha\n', { owner: 'alice' }),
+          'b.txt': buildFile('beta\n', { owner: 'alice' }),
         },
-        { owner: 'alice', mode: 0o755 },
+        { owner: 'alice' },
       ),
     });
 
@@ -103,7 +105,7 @@ describe('cat', () => {
 
   it('reports "Is a directory" for directory targets', async () => {
     const tree = buildDirectory({
-      etc: buildDirectory({}, { owner: 'root', mode: 0o755 }),
+      etc: buildDirectory({}, { owner: 'root' }),
     });
 
     const env = mockCommandEnv({
@@ -119,14 +121,14 @@ describe('cat', () => {
   });
 
   it('reports "Permission denied" when walker denies the read', async () => {
-    // /root/secret.txt — root-owned, mode 0o600, no world-read.
+    // /root/secret.txt — root-owned, default perms give read: ['root'] only.
     // (jshack has no /etc/shadow; passwords live inline in /etc/passwd.)
     const tree = buildDirectory({
       root: buildDirectory(
         {
-          'secret.txt': buildFile('classified', { owner: 'root', mode: 0o600 }),
+          'secret.txt': buildFile('classified', { owner: 'root' }),
         },
-        { owner: 'root', mode: 0o755 },
+        { owner: 'root' },
       ),
     });
 
@@ -146,9 +148,9 @@ describe('cat', () => {
     const tree = buildDirectory({
       tmp: buildDirectory(
         {
-          'good.txt': buildFile('survivor\n', { owner: 'alice', mode: 0o644 }),
+          'good.txt': buildFile('survivor\n', { owner: 'alice' }),
         },
-        { owner: 'alice', mode: 0o755 },
+        { owner: 'alice' },
       ),
     });
 
@@ -161,9 +163,7 @@ describe('cat', () => {
     expect(result.kind).toBe('sync');
     if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(1);
-    expect(errorLines(result)).toEqual([
-      'cat: missing.txt: No such file or directory',
-    ]);
+    expect(errorLines(result)).toEqual(['cat: missing.txt: No such file or directory']);
     expect(textLines(result)).toEqual(['survivor']);
   });
 
