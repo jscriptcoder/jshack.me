@@ -3,17 +3,19 @@
  * module-level signals over Context). The terminal is an app singleton, so
  * the scrollback + input live here, not in a provider.
  *
- * `runInput` is the seam between the DOM and `core/`: it builds a CommandEnv
- * from current state, runs the line through the framework-agnostic
- * `runCommandLine`, and mirrors the resulting lines into the scrollback.
+ * `runInput` is the seam between the DOM and `core/`: it echoes the typed
+ * line into the scrollback, builds a CommandEnv from current state, runs the
+ * line through the framework-agnostic `runCommandLine`, and mirrors the
+ * resulting lines into the scrollback.
  */
 
 import { createSignal } from 'solid-js';
 import type { Command, TerminalLine } from '../core/commands/types';
 import { cat } from '../core/commands/cat';
 import { runCommandLine } from '../core/shell/runLine';
+import { commandEchoLine } from '../core/shell/prompt';
 import { buildCommandEnv } from './env';
-import { SEED_HOME, seedFs, seedIdentity, seedSession } from './seed';
+import { SEED_HOME, SEED_HOST, seedFs, seedIdentity, seedSession } from './seed';
 
 const COMMANDS: ReadonlyMap<string, Command> = new Map([['cat', cat]]);
 
@@ -32,9 +34,15 @@ export const runInput = async (): Promise<void> => {
   const line = input();
   setInput('');
 
+  const session = seedSession();
+  setScrollback((previous) => [
+    ...previous,
+    commandEchoLine({ username: session.username, host: SEED_HOST }, line),
+  ]);
+
   const env = buildCommandEnv({
     identity: seedIdentity(),
-    session: seedSession(),
+    session,
     root: seedFs(),
     cwd: SEED_HOME,
   });
