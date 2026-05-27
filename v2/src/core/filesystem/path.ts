@@ -11,22 +11,17 @@ const ROOT = asAbsPath('/');
  *  Normalizes `..`, `.`, and consecutive slashes. */
 export const resolveAbsPath = (cwd: AbsPath, input: string): AbsPath => {
   const base = input.startsWith('/') ? '/' : `${cwd}/`;
-  const combined = `${base}${input}`;
-  return normalize(combined);
+  return normalize(`${base}${input}`);
 };
 
-/** Normalize a path string to canonical absolute form. */
+/** Normalize a path string to canonical absolute form. Folds a segment stack
+ *  left-to-right: `.` and empty segments drop, `..` pops the previous segment. */
 export const normalize = (input: string): AbsPath => {
-  const segments = input.split('/');
-  const stack: string[] = [];
-  for (const segment of segments) {
-    if (segment === '' || segment === '.') continue;
-    if (segment === '..') {
-      stack.pop();
-      continue;
-    }
-    stack.push(segment);
-  }
+  const stack = input.split('/').reduce<readonly string[]>((acc, segment) => {
+    if (segment === '' || segment === '.') return acc;
+    if (segment === '..') return acc.slice(0, -1);
+    return [...acc, segment];
+  }, []);
   return asAbsPath(stack.length === 0 ? '/' : `/${stack.join('/')}`);
 };
 
@@ -38,13 +33,10 @@ export const normalize = (input: string): AbsPath => {
 export const ancestorPaths = (path: AbsPath): readonly AbsPath[] => {
   if (path === ROOT) return [ROOT];
   const segments = path.split('/').filter((segment) => segment !== '');
-  const result: AbsPath[] = [ROOT];
-  let accumulated = '';
-  for (const segment of segments) {
-    accumulated = `${accumulated}/${segment}`;
-    result.push(asAbsPath(accumulated));
-  }
-  return result;
+  const ancestors = segments.map((_, index) =>
+    asAbsPath(`/${segments.slice(0, index + 1).join('/')}`),
+  );
+  return [ROOT, ...ancestors];
 };
 
 /** Split a path into (parent, basename). For `/`, parent is `/` and basename is `''`. */

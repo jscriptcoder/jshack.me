@@ -21,10 +21,7 @@ export type WalkResult =
   | { readonly allowed: true }
   | { readonly allowed: false; readonly reason: WalkDenyReason };
 
-export type WalkDenyReason =
-  | 'parent_not_traversable'
-  | 'target_unreadable'
-  | 'target_unwritable';
+export type WalkDenyReason = 'parent_not_traversable' | 'target_unreadable' | 'target_unwritable';
 
 const ALLOWED: WalkResult = { allowed: true };
 
@@ -36,10 +33,8 @@ export const canRead = (
 ): WalkResult => {
   if (userType === 'root') return ALLOWED;
 
-  for (const parent of parentChain) {
-    if (!parent.execute.includes(userType)) {
-      return { allowed: false, reason: 'parent_not_traversable' };
-    }
+  if (!parentChain.every((parent) => parent.execute.includes(userType))) {
+    return { allowed: false, reason: 'parent_not_traversable' };
   }
 
   // Leaf-only fallback — if there's no projection entry for the target,
@@ -61,10 +56,8 @@ export const canWrite = (
 ): WalkResult => {
   if (userType === 'root') return ALLOWED;
 
-  for (const parent of parentChain) {
-    if (!parent.execute.includes(userType)) {
-      return { allowed: false, reason: 'parent_not_traversable' };
-    }
+  if (!parentChain.every((parent) => parent.execute.includes(userType))) {
+    return { allowed: false, reason: 'parent_not_traversable' };
   }
 
   if (target === null) return ALLOWED;

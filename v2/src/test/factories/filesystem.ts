@@ -29,17 +29,7 @@ const defaultDirPerms = (ownerTier: UserType): FilePermissions => ({
   execute: ALL_TIERS,
 });
 
-const dedupeTiers = (tiers: readonly UserType[]): readonly UserType[] => {
-  const seen = new Set<UserType>();
-  const out: UserType[] = [];
-  for (const tier of tiers) {
-    if (!seen.has(tier)) {
-      seen.add(tier);
-      out.push(tier);
-    }
-  }
-  return out;
-};
+const dedupeTiers = (tiers: readonly UserType[]): readonly UserType[] => [...new Set(tiers)];
 
 /** Map a username to its tier — used to pick default permissions when
  *  the test only specifies the owner string. */

@@ -12,10 +12,18 @@
  *   1 — any file failed to read
  */
 
-import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
+import type { Command, CommandEnv, CommandResult, FsReadResult, TerminalLine } from './types';
 import { resolveAbsPath } from '../filesystem/path';
 
-const collectStdin = async (stdin: AsyncIterable<string>): Promise<TerminalLine[]> => {
+type FsReadError = Extract<FsReadResult, { readonly ok: false }>['error'];
+
+const ERROR_MESSAGE: Record<FsReadError, (arg: string) => string> = {
+  not_found: (arg) => `cat: ${arg}: No such file or directory`,
+  is_directory: (arg) => `cat: ${arg}: Is a directory`,
+  permission_denied: (arg) => `cat: ${arg}: Permission denied`,
+};
+
+const collectStdin = async (stdin: AsyncIterable<string>): Promise<readonly TerminalLine[]> => {
   const lines: TerminalLine[] = [];
   for await (const line of stdin) {
     lines.push({ kind: 'text', content: line });
@@ -23,15 +31,28 @@ const collectStdin = async (stdin: AsyncIterable<string>): Promise<TerminalLine[
   return lines;
 };
 
-const execute = async (
-  env: CommandEnv,
-  args: readonly string[],
-): Promise<CommandResult> => {
-  // No args: piped stdin if present, else error.
+/** Split file content into output lines, dropping the trailing empty element
+ *  that `split('\n')` yields for newline-terminated files (so a normal file
+ *  doesn't print a spurious blank line at the end). */
+const toContentLines = (content: string): readonly TerminalLine[] => {
+  const segments = content.split('\n');
+  const body =
+    segments.length > 0 && segments[segments.length - 1] === '' ? segments.slice(0, -1) : segments;
+  return body.map((line) => ({ kind: 'text', content: line }));
+};
+
+const readArg = (env: CommandEnv, arg: string): readonly TerminalLine[] => {
+  const result = env.fs.read(resolveAbsPath(env.fs.cwd(), arg));
+  if (!result.ok) {
+    return [{ kind: 'error', content: ERROR_MESSAGE[result.error](arg) }];
+  }
+  return toContentLines(result.content);
+};
+
+const execute = async (env: CommandEnv, args: readonly string[]): Promise<CommandResult> => {
   if (args.length === 0) {
     if (env.stdin) {
-      const lines = await collectStdin(env.stdin);
-      return { kind: 'sync', lines, exitCode: 0 };
+      return { kind: 'sync', lines: await collectStdin(env.stdin), exitCode: 0 };
     }
     return {
       kind: 'sync',
@@ -40,35 +61,8 @@ const execute = async (
     };
   }
 
-  const lines: TerminalLine[] = [];
-  let exitCode = 0;
-
-  for (const arg of args) {
-    const path = resolveAbsPath(env.fs.cwd(), arg);
-    const result = env.fs.read(path);
-
-    if (!result.ok) {
-      const message =
-        result.error === 'not_found'
-          ? `cat: ${arg}: No such file or directory`
-          : result.error === 'is_directory'
-            ? `cat: ${arg}: Is a directory`
-            : `cat: ${arg}: Permission denied`;
-      lines.push({ kind: 'error', content: message });
-      exitCode = 1;
-      continue;
-    }
-
-    // Split on newline, drop the trailing empty line if the file ends with \n.
-    const fileLines = result.content.split('\n');
-    if (fileLines.length > 0 && fileLines[fileLines.length - 1] === '') {
-      fileLines.pop();
-    }
-    for (const fileLine of fileLines) {
-      lines.push({ kind: 'text', content: fileLine });
-    }
-  }
-
+  const lines = args.flatMap((arg) => readArg(env, arg));
+  const exitCode = lines.some((line) => line.kind === 'error') ? 1 : 0;
   return { kind: 'sync', lines, exitCode };
 };
 
