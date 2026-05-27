@@ -10,7 +10,7 @@ description: Functional programming patterns with immutable data. Use when writi
 - **No data mutation** - immutable structures only
 - **Pure functions** wherever possible
 - **Composition** over inheritance
-- **No comments** - code should be self-documenting
+- **Comments** only for complex/non-obvious logic
 - **Array methods** over loops
 - **Options objects** over positional parameters
 
@@ -27,6 +27,7 @@ Immutable data is the foundation of functional programming. Understanding WHY he
 - **Concurrency-safe**: No race conditions when data can't change
 
 **Example of the problem:**
+
 ```typescript
 // ❌ WRONG - Mutation creates unpredictable behavior
 const user = { name: 'Alice', permissions: ['read'] };
@@ -49,12 +50,14 @@ console.log(updatedUser.permissions); // ['read', 'write'] - new version
 We follow "Functional Light" principles - practical functional patterns without heavy abstractions:
 
 **What we DO:**
+
 - Pure functions and immutable data
 - Composition and declarative code
 - Array methods over loops
 - Type safety and readonly
 
 **What we DON'T do:**
+
 - Category theory or monads
 - Heavy FP libraries (fp-ts, Ramda)
 - Over-engineering with abstractions
@@ -63,31 +66,35 @@ We follow "Functional Light" principles - practical functional patterns without 
 **Why:** The goal is **maintainable, testable code** - not academic purity. If a functional pattern makes code harder to understand, don't use it.
 
 **Example - Keep it simple:**
+
 ```typescript
 // ✅ GOOD - Simple, clear, functional
-const activeUsers = users.filter(u => u.active);
-const userNames = activeUsers.map(u => u.name);
+const activeUsers = users.filter((u) => u.active);
+const userNames = activeUsers.map((u) => u.name);
 
 // ❌ OVER-ENGINEERED - Unnecessary abstraction
-const compose = <T>(...fns: Array<(arg: T) => T>) => (x: T) =>
-  fns.reduceRight((v, f) => f(v), x);
+const compose =
+  <T>(...fns: Array<(arg: T) => T>) =>
+  (x: T) =>
+    fns.reduceRight((v, f) => f(v), x);
 const activeUsers = compose(
   filter((u: User) => u.active),
-  map((u: User) => u.name)
+  map((u: User) => u.name),
 )(users);
 ```
 
 ---
 
-## No Comments / Self-Documenting Code
+## Comments for Complex Logic Only
 
-Code should be clear through naming and structure. Comments indicate unclear code.
+Prefer clear naming and structure so most code is self-documenting. Add comments for complex or non-obvious logic — the WHY the code can't express on its own.
 
-**Exception**: JSDoc for public APIs when generating documentation.
+**Also fine**: JSDoc for public APIs when generating documentation.
 
 ### Examples
 
 ❌ **WRONG - Comments explaining unclear code**
+
 ```typescript
 // Get the user and check if active and has permission
 function check(u: any) {
@@ -106,6 +113,7 @@ function check(u: any) {
 ```
 
 ✅ **CORRECT - Self-documenting code**
+
 ```typescript
 function canUserAccessResource(user: User | undefined): boolean {
   if (!user) return false;
@@ -130,6 +138,7 @@ If code requires comments to understand, refactor instead:
 - Use type aliases for domain concepts
 
 ✅ **Acceptable JSDoc for public APIs**
+
 ```typescript
 /**
  * Registers a scenario for runtime switching.
@@ -150,6 +159,7 @@ Prefer `map`, `filter`, `reduce` for transformations. They're declarative (what,
 ### Map - Transform Each Element
 
 ❌ **WRONG - Imperative loop**
+
 ```typescript
 const scenarioIds = [];
 for (const scenario of scenarios) {
@@ -158,13 +168,15 @@ for (const scenario of scenarios) {
 ```
 
 ✅ **CORRECT - Functional map**
+
 ```typescript
-const scenarioIds = scenarios.map(s => s.id);
+const scenarioIds = scenarios.map((s) => s.id);
 ```
 
 ### Filter - Select Subset
 
 ❌ **WRONG - Imperative loop**
+
 ```typescript
 const activeScenarios = [];
 for (const scenario of scenarios) {
@@ -175,13 +187,15 @@ for (const scenario of scenarios) {
 ```
 
 ✅ **CORRECT - Functional filter**
+
 ```typescript
-const activeScenarios = scenarios.filter(s => s.active);
+const activeScenarios = scenarios.filter((s) => s.active);
 ```
 
 ### Reduce - Aggregate Values
 
 ❌ **WRONG - Imperative loop**
+
 ```typescript
 let total = 0;
 for (const item of items) {
@@ -190,6 +204,7 @@ for (const item of items) {
 ```
 
 ✅ **CORRECT - Functional reduce**
+
 ```typescript
 const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
 ```
@@ -197,21 +212,24 @@ const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
 ### Chaining Multiple Operations
 
 ✅ **CORRECT - Compose array methods**
+
 ```typescript
 const total = items
-  .filter(item => item.active)
-  .map(item => item.price * item.quantity)
+  .filter((item) => item.active)
+  .map((item) => item.price * item.quantity)
   .reduce((sum, price) => sum + price, 0);
 ```
 
 ### When Loops Are Acceptable
 
 Imperative loops are fine when:
+
 - Early termination is essential (use `for...of` with `break`)
 - Performance critical (measure first!)
 - Side effects are necessary (logging, DOM manipulation)
 
 But even then, consider:
+
 - `Array.find()` for early termination
 - `Array.some()` / `Array.every()` for boolean checks
 
@@ -224,6 +242,7 @@ Default to options objects for function parameters. This improves readability an
 ### Why Options Objects?
 
 **Benefits:**
+
 - Named parameters (clear what each argument means)
 - No ordering dependencies
 - Easy to add optional parameters
@@ -233,6 +252,7 @@ Default to options objects for function parameters. This improves readability an
 ### Examples
 
 ❌ **WRONG - Positional parameters**
+
 ```typescript
 function createPayment(
   amount: number,
@@ -240,7 +260,7 @@ function createPayment(
   cardId: string,
   cvv: string,
   saveCard: boolean,
-  sendReceipt: boolean
+  sendReceipt: boolean,
 ): Payment {
   // ...
 }
@@ -250,6 +270,7 @@ createPayment(100, 'GBP', 'card_123', '123', true, false);
 ```
 
 ✅ **CORRECT - Options object**
+
 ```typescript
 type CreatePaymentOptions = {
   amount: number;
@@ -278,6 +299,7 @@ createPayment({
 ### When Positional Parameters Are OK
 
 Use positional parameters when:
+
 - 1-2 parameters max
 - Order is obvious (e.g., `add(a, b)`)
 - High-frequency utility functions
@@ -316,6 +338,7 @@ Pure functions have no side effects and always return the same output for the sa
 ### Examples
 
 ❌ **WRONG - Impure function (mutations)**
+
 ```typescript
 function addScenario(scenarios: Scenario[], newScenario: Scenario): void {
   scenarios.push(newScenario); // ❌ Mutates input
@@ -329,6 +352,7 @@ function increment(): number {
 ```
 
 ✅ **CORRECT - Pure functions**
+
 ```typescript
 function addScenario(
   scenarios: ReadonlyArray<Scenario>,
@@ -386,6 +410,7 @@ Compose small functions into larger ones. Each function does one thing well.
 ### Examples
 
 ❌ **WRONG - Complex monolithic function**
+
 ```typescript
 function registerScenario(input: unknown) {
   if (typeof input !== 'object' || !input) {
@@ -405,6 +430,7 @@ function registerScenario(input: unknown) {
 ```
 
 ✅ **CORRECT - Composed functions**
+
 ```typescript
 // Small, focused functions
 const validate = (input: unknown) => ScenarioSchema.parse(input);
@@ -414,10 +440,7 @@ const register = (scenario: Scenario) => registry.register(scenario);
 const registerScenario = (input: unknown) => register(validate(input));
 
 // Even better - use pipe/compose utilities
-const registerScenario = pipe(
-  validate,
-  register,
-);
+const registerScenario = pipe(validate, register);
 ```
 
 ### Composing Immutable Transformations
@@ -441,22 +464,16 @@ const addTax = (order: Order, rate: number): Order => ({
 
 // Compose them
 const finalizeOrder = (order: Order): Order => {
-  return addTax(
-    addShipping(
-      addDiscount(order, 10),
-      5.99
-    ),
-    0.2
-  );
+  return addTax(addShipping(addDiscount(order, 10), 5.99), 0.2);
 };
 
 // Or use pipe for left-to-right reading
 const finalizeOrder = (order: Order): Order =>
   pipe(
     order,
-    o => addDiscount(o, 10),
-    o => addShipping(o, 5.99),
-    o => addTax(o, 0.2),
+    (o) => addDiscount(o, 10),
+    (o) => addShipping(o, 5.99),
+    (o) => addTax(o, 0.2),
   );
 ```
 
@@ -533,6 +550,7 @@ type Mock = {
 ### Examples
 
 ❌ **WRONG - Deep nesting (4+ levels)**
+
 ```typescript
 function processOrder(order: Order) {
   if (order.items.length > 0) {
@@ -548,6 +566,7 @@ function processOrder(order: Order) {
 ```
 
 ✅ **CORRECT - Flat with early returns**
+
 ```typescript
 function processOrder(order: Order) {
   if (order.items.length === 0) return;
@@ -560,6 +579,7 @@ function processOrder(order: Order) {
 ```
 
 ✅ **CORRECT - Extract to functions**
+
 ```typescript
 function processOrder(order: Order) {
   if (!canProcessOrder(order)) return;
@@ -568,10 +588,9 @@ function processOrder(order: Order) {
 }
 
 function canProcessOrder(order: Order): boolean {
-  return order.items.length > 0
-    && order.customer.verified
-    && order.total > 0
-    && order.payment.valid;
+  return (
+    order.items.length > 0 && order.customer.verified && order.total > 0 && order.payment.valid
+  );
 }
 ```
 
@@ -583,26 +602,31 @@ function canProcessOrder(order: Order): boolean {
 
 ```typescript
 // ❌ WRONG - Mutations
-items.push(newItem);        // Add to end
-items.pop();                // Remove last
-items.unshift(newItem);     // Add to start
-items.shift();              // Remove first
-items.splice(index, 1);     // Remove at index
-items.reverse();            // Reverse order
-items.sort();               // Sort
-items[i] = newValue;        // Update at index
+items.push(newItem); // Add to end
+items.pop(); // Remove last
+items.unshift(newItem); // Add to start
+items.shift(); // Remove first
+items.splice(index, 1); // Remove at index
+items.reverse(); // Reverse order
+items.sort(); // Sort
+items[i] = newValue; // Update at index
 
 // ✅ CORRECT - Immutable alternatives
-const withNew = [...items, newItem];           // Add to end
-const withoutLast = items.slice(0, -1);        // Remove last
-const withFirst = [newItem, ...items];         // Add to start
-const withoutFirst = items.slice(1);           // Remove first
-const removed = [...items.slice(0, index),     // Remove at index
-                 ...items.slice(index + 1)];
-const reversed = [...items].reverse();         // Reverse (copy first!)
-const sorted = [...items].sort();              // Sort (copy first!)
-const updated = items.map((item, idx) =>       // Update at index
-  idx === i ? newValue : item
+const withNew = [...items, newItem]; // Add to end
+const withoutLast = items.slice(0, -1); // Remove last
+const withFirst = [newItem, ...items]; // Add to start
+const withoutFirst = items.slice(1); // Remove first
+const removed = [
+  ...items.slice(0, index), // Remove at index
+  ...items.slice(index + 1),
+];
+const reversed = [...items].reverse(); // Reverse (copy first!)
+const sorted = [...items].sort(); // Sort (copy first!)
+const updated = items.map(
+  (
+    item,
+    idx, // Update at index
+  ) => (idx === i ? newValue : item),
 );
 ```
 
@@ -610,19 +634,13 @@ const updated = items.map((item, idx) =>       // Update at index
 
 ```typescript
 // Filter out specific item
-const withoutItem = items.filter(item => item.id !== targetId);
+const withoutItem = items.filter((item) => item.id !== targetId);
 
 // Replace specific item
-const replaced = items.map(item =>
-  item.id === targetId ? newItem : item
-);
+const replaced = items.map((item) => (item.id === targetId ? newItem : item));
 
 // Insert at specific position
-const inserted = [
-  ...items.slice(0, index),
-  newItem,
-  ...items.slice(index)
-];
+const inserted = [...items.slice(0, index), newItem, ...items.slice(index)];
 ```
 
 ---
@@ -631,11 +649,11 @@ const inserted = [
 
 ```typescript
 // ❌ WRONG
-user.name = "New";
-Object.assign(user, { name: "New" });
+user.name = 'New';
+Object.assign(user, { name: 'New' });
 
 // ✅ CORRECT
-const updated = { ...user, name: "New" };
+const updated = { ...user, name: 'New' };
 ```
 
 ---
@@ -647,18 +665,14 @@ const updated = { ...user, name: "New" };
 const updatedCart = {
   ...cart,
   items: cart.items.map((item, i) =>
-    i === targetIndex ? { ...item, quantity: newQuantity } : item
+    i === targetIndex ? { ...item, quantity: newQuantity } : item,
   ),
 };
 
 // ✅ CORRECT - Immutable nested array update
 const updatedOrder = {
   ...order,
-  items: [
-    ...order.items.slice(0, index),
-    updatedItem,
-    ...order.items.slice(index + 1),
-  ],
+  items: [...order.items.slice(0, index), updatedItem, ...order.items.slice(index + 1)],
 };
 ```
 
@@ -722,7 +736,7 @@ When writing functional code, verify:
 
 - [ ] No data mutation - using spread operators
 - [ ] Pure functions wherever possible (no side effects)
-- [ ] Code is self-documenting (no comments needed)
+- [ ] Self-documenting code; comments only for complex/non-obvious logic
 - [ ] Array methods (`map`, `filter`, `reduce`) over loops
 - [ ] Options objects for 3+ parameters
 - [ ] Composed small functions, not complex monoliths
