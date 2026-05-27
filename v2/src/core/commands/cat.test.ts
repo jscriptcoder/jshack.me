@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { cat } from './cat';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import {
-  mockCommandEnv,
-  mockFsViewFromTree,
-  mockSession,
-} from '../../test/factories/commandEnv';
+import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv';
 import { asAbsPath } from '../types';
 import type { TerminalLine } from './types';
 
@@ -180,6 +176,30 @@ describe('cat', () => {
     if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(0);
     expect(textLines(result)).toEqual(['piped line 1', 'piped line 2']);
+    expect(result.lines).toEqual([
+      { kind: 'text', content: 'piped line 1' },
+      { kind: 'text', content: 'piped line 2' },
+    ]);
+  });
+
+  it('prints a file with no trailing newline without dropping its last line', async () => {
+    const tree = buildDirectory({
+      tmp: buildDirectory(
+        { 'partial.txt': buildFile('no newline at end', { owner: 'alice' }) },
+        { owner: 'alice' },
+      ),
+    });
+
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/tmp') }),
+    });
+
+    const result = await cat.execute(env, ['partial.txt'], NO_FLAGS);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(result.exitCode).toBe(0);
+    expect(textLines(result)).toEqual(['no newline at end']);
   });
 
   it('errors with usage hint when called with no args and no stdin', async () => {

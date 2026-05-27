@@ -19,6 +19,10 @@ describe('normalize', () => {
     expect(normalize('/a/b/c/../../d')).toBe('/a/d');
   });
 
+  it('pops only the immediately preceding segment, not the whole tail', () => {
+    expect(normalize('/a/b/c/../x')).toBe('/a/b/x');
+  });
+
   it('clamps ".." at the root rather than escaping above it', () => {
     expect(normalize('/../..')).toBe('/');
   });

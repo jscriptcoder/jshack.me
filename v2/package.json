@@ -9,13 +9,16 @@
     "lint": "eslint .",
     "test": "vitest",
     "test:run": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:mutation": "stryker run"
   },
   "dependencies": {
     "solid-js": "^1.9.3"
   },
   "devDependencies": {
     "@solidjs/testing-library": "^0.8.10",
+    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/vitest-runner": "^9.6.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@types/node": "^25.2.3",
     "@vitest/coverage-v8": "^4.1.0",

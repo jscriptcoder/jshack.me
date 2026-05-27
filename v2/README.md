@@ -30,6 +30,7 @@ npm run dev        # vite dev server
 npm run build      # production build
 npm run test       # vitest watch mode
 npm run test:run   # one-shot
+npm run test:mutation  # stryker mutation testing (core/ only)
 npm run lint       # eslint
 ```
 
