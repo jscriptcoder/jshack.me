@@ -1,7 +1,7 @@
 # Plan: v2 Minimal Solid Terminal UI
 
-**Branch**: feat/v2-minimal-terminal-ui
-**Status**: Active (Draft — awaiting approval)
+**Branch**: feat/v2-minimal-terminal-ui (core) → feat/v2-terminal-ui (UI)
+**Status**: Active — ✅ Slice 1 shipped (core PR #171 merged; UI in this PR, real-browser smoke passed). Slice 2 (command echo + autoscroll) pending. Tailwind v4 added to v2 to match legacy.
 
 ## Goal
 
