@@ -29,22 +29,19 @@ import type {
   NetworkView,
   OutputSink,
   PatchApi,
-  PatchResult,
   RemoteApi,
   Session,
 } from '../../core/commands/types';
 import { ancestorPaths, basename, dirname } from '../../core/filesystem/path';
 import { canRead, canWrite } from '../../core/filesystem/walker';
-import type {
-  Directory,
-  FileNode,
-  FilePermissions,
-} from '../../core/filesystem/types';
+import type { Directory, FileNode, FilePermissions } from '../../core/filesystem/types';
 import { buildDirectory } from './filesystem';
 
-const NOT_IMPLEMENTED = (method: string) => (): never => {
-  throw new Error(`mockCommandEnv: ${method} not implemented in spike mock`);
-};
+const NOT_IMPLEMENTED =
+  (method: string) =>
+  <T>(): T => {
+    throw new Error(`mockCommandEnv: ${method} not implemented in spike mock`);
+  };
 
 // ---- Default factories for each sub-API ----
 
@@ -153,9 +150,9 @@ export const mockOutputSink = (): OutputSink => ({
 });
 
 export const mockPatchApi = (): PatchApi => ({
-  write: NOT_IMPLEMENTED('patches.write') as () => Promise<PatchResult>,
-  remove: NOT_IMPLEMENTED('patches.remove') as () => Promise<PatchResult>,
-  mkdir: NOT_IMPLEMENTED('patches.mkdir') as () => Promise<PatchResult>,
+  write: NOT_IMPLEMENTED('patches.write'),
+  remove: NOT_IMPLEMENTED('patches.remove'),
+  mkdir: NOT_IMPLEMENTED('patches.mkdir'),
 });
 
 export const mockNetworkView = (): NetworkView => ({
@@ -165,7 +162,7 @@ export const mockNetworkView = (): NetworkView => ({
 });
 
 export const mockRemoteApi = (): RemoteApi => ({
-  listPatches: NOT_IMPLEMENTED('remote.listPatches') as RemoteApi['listPatches'],
+  listPatches: NOT_IMPLEMENTED('remote.listPatches'),
 });
 
 export const mockLogApi = (): LogApi => ({

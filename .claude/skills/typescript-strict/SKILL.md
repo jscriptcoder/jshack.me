@@ -9,14 +9,15 @@ description: TypeScript strict mode patterns including schema-first development,
 
 1. **No `any`** - ever. Use `unknown` if type is truly unknown
 2. **No type assertions** (`as Type`) without justification
-3. **Prefer `type` over `interface`** for data structures
-4. **Reserve `interface`** for behavior contracts only
+3. **Always use `type`, never `interface`** - data structures and behavior contracts alike
 
 ---
 
-## Type vs Interface
+## Always Use `type`
 
-### `type` — for data structures
+Use `type` for everything — data structures **and** behavior contracts. We don't use `interface`.
+
+### Data structures
 
 ```typescript
 export type User = {
@@ -27,18 +28,18 @@ export type User = {
 };
 ```
 
-**Why `type`?** Better for unions, intersections, mapped types. `readonly` signals immutability. More flexible composition with utility types.
+### Behavior contracts
 
-### `interface` — for behavior contracts
+A contract of methods is still a `type` — an object type whose properties are functions:
 
 ```typescript
-export interface UserRepository {
-  findById(id: string): Promise<User | undefined>;
-  save(user: User): Promise<void>;
-}
+export type UserRepository = {
+  readonly findById: (id: string) => Promise<User | undefined>;
+  readonly save: (user: User) => Promise<void>;
+};
 ```
 
-**Why `interface`?** Signals "this must be implemented." Works with `implements` keyword. Conventional for dependency injection.
+**Why `type` everywhere?** One consistent construct. Better for unions, intersections, and mapped types; `readonly` signals immutability; flexible composition with utility types. We favor factory functions over `class`/`implements`, so `interface`'s implements-affordance buys nothing — and declaration merging (interface's one unique capability) is something we deliberately avoid.
 
 ### Schema Duplication
 
@@ -83,6 +84,7 @@ export type CreateUserRequest = z.infer<typeof CreateUserRequestSchema>;
 ### What Each Setting Does
 
 **Core strict flags:**
+
 - **`strict: true`** - Enables all strict type checking options
 - **`noImplicitAny`** - Error on expressions/declarations with implied `any` type
 - **`strictNullChecks`** - `null` and `undefined` have their own types (not assignable to everything)
@@ -92,6 +94,7 @@ export type CreateUserRequest = z.infer<typeof CreateUserRequestSchema>;
 - **`noFallthroughCasesInSwitch`** - Error on fallthrough cases in switch statements
 
 **Additional safety flags (CRITICAL):**
+
 - **`noUncheckedIndexedAccess`** - Array/object access returns `T | undefined` (prevents runtime errors from assuming elements exist)
 - **`exactOptionalPropertyTypes`** - Distinguishes `property?: T` from `property: T | undefined` (more precise types)
 - **`noPropertyAccessFromIndexSignature`** - Requires bracket notation for index signature properties (forces awareness of dynamic access)
@@ -116,6 +119,7 @@ The `noUnusedParameters` rule can reveal architectural problems:
 For detailed patterns on immutability (`readonly`, `ReadonlyArray`), pure functions, composition, Result types, array methods, and factory functions, see the `functional` skill. These are the canonical patterns used across the codebase.
 
 Key TypeScript-specific notes:
+
 - Use `readonly` on all `type` properties and `ReadonlyArray<T>` for arrays
 - The compiler enforces immutability when `readonly` is used — leverage this
 - Factory functions (not classes) for object creation, supporting dependency injection
@@ -148,19 +152,17 @@ const user = UserSchema.parse(apiResponse);
 - Pure internal types (utilities, state)
 - Result/Option types (no validation needed)
 - TypeScript utility types (`Partial<T>`, `Pick<T>`, etc.)
-- Behavior contracts (interfaces - structural, not validated)
+- Behavior contracts (object-of-methods types — structural, not validated)
 - Component props (unless from URL/API)
 
 ```typescript
 // ✅ CORRECT - No schema needed
-type Result<T, E> =
-  | { success: true; data: T }
-  | { success: false; error: E };
+type Result<T, E> = { success: true; data: T } | { success: false; error: E };
 
-// ✅ CORRECT - Interface, no validation
-interface UserService {
-  createUser(user: User): void;
-}
+// ✅ CORRECT - Behavior contract as a type, no validation
+type UserService = {
+  readonly createUser: (user: User) => void;
+};
 ```
 
 ---
@@ -195,8 +197,7 @@ When writing TypeScript code, verify:
 
 - [ ] No `any` types - using `unknown` where type is truly unknown
 - [ ] No type assertions without justification
-- [ ] Using `type` for data structures with `readonly`
-- [ ] Using `interface` for behavior contracts
+- [ ] Using `type` for all definitions (data + behavior contracts) with `readonly`
 - [ ] Schemas defined once, not duplicated
 - [ ] Strict mode enabled with all checks passing
 - [ ] For immutability, pure functions, composition: see `functional` skill
