@@ -20,6 +20,11 @@ describe('canRead', () => {
     expect(canRead('root', rootOnly, [rootOnly]).allowed).toBe(true);
   });
 
+  it('root reads a file even when root is absent from the read array', () => {
+    const denyAll = perms([], [], []);
+    expect(canRead('root', denyAll, []).allowed).toBe(true);
+  });
+
   it('leaf-only fallback: null target permits', () => {
     expect(canRead('guest', null, []).allowed).toBe(true);
   });
@@ -77,5 +82,18 @@ describe('canWrite', () => {
       allowed: false,
       reason: 'parent_not_traversable',
     });
+  });
+
+  it('root writes a file even when root is absent from the write array', () => {
+    const denyAll = perms([], [], []);
+    expect(canWrite('root', denyAll, []).allowed).toBe(true);
+  });
+
+  it('allows when all parents are traversable', () => {
+    expect(canWrite('user', ownerRW, [worldTraversable, worldTraversable]).allowed).toBe(true);
+  });
+
+  it('leaf-only fallback: null target permits', () => {
+    expect(canWrite('user', null, []).allowed).toBe(true);
   });
 });

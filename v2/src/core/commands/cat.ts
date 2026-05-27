@@ -36,8 +36,7 @@ const collectStdin = async (stdin: AsyncIterable<string>): Promise<readonly Term
  *  doesn't print a spurious blank line at the end). */
 const toContentLines = (content: string): readonly TerminalLine[] => {
   const segments = content.split('\n');
-  const body =
-    segments.length > 0 && segments[segments.length - 1] === '' ? segments.slice(0, -1) : segments;
+  const body = segments[segments.length - 1] === '' ? segments.slice(0, -1) : segments;
   return body.map((line) => ({ kind: 'text', content: line }));
 };
 
