@@ -118,7 +118,9 @@ export const mockCommandEnv = (overrides?: Partial<CommandEnv>): CommandEnv => (
 - **Vite** + **Vitest** + **TypeScript strict** + **ESLint** + **Prettier** — same toolchain as legacy. Lower risk, familiar.
 - Prettier config inherited from root `.prettierrc` (nothing to duplicate in `v2/`).
 - Vite plugin: `vite-plugin-solid`.
+- **Tailwind v4** via `@tailwindcss/vite` (matching legacy; CSS-first — no `tailwind.config.js`). Theme = legacy's `--theme-*` amber CSS variables in `index.css`. The Tailwind plugin is dev/build-only (tests skip it — jsdom doesn't render CSS).
 - Test environment: `jsdom` (consistent with legacy).
+- Gotcha: under vitest, `vite-plugin-solid` HMR injects a virtual `/@solid-refresh` module jsdom can't resolve. Config disables it in test mode only (`solid({ hot: mode !== 'test' })`).
 
 ## D10. Repo conventions
 
