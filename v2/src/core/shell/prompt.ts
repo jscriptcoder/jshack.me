@@ -10,10 +10,11 @@ import type { TerminalLine } from '../commands/types';
 export type PromptLocation = {
   readonly username: string;
   readonly host: string;
+  readonly cwd: string;
 };
 
 export const formatPrompt = (location: PromptLocation): string =>
-  `${location.username}@${location.host}>`;
+  `${location.username}@${location.host}:${location.cwd}$`;
 
 /** The scrollback line that echoes a typed command under its prompt. */
 export const commandEchoLine = (location: PromptLocation, command: string): TerminalLine => ({

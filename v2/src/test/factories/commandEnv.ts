@@ -103,6 +103,7 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   patches: mockPatchApi(),
   remote: mockRemoteApi(),
   log: mockLogApi(),
+  setCwd: () => undefined,
   signal: new AbortController().signal,
   ...overrides,
 });

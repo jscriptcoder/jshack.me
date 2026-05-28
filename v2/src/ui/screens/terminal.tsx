@@ -2,7 +2,7 @@ import { createEffect, For } from 'solid-js';
 import type { TerminalLine } from '../../core/commands/types';
 import { formatPrompt } from '../../core/shell/prompt';
 import { SEED_HOST, seedSession } from '../seed';
-import { input, runInput, scrollback, setInput } from '../state';
+import { cwd, input, runInput, scrollback, setInput } from '../state';
 
 const LINE_BASE = 'whitespace-pre-wrap break-words';
 
@@ -14,7 +14,11 @@ const LINE_COLOR: Record<TerminalLine['kind'], string> = {
   prompt: 'text-[var(--theme-text-bright)]',
 };
 
-const PROMPT = formatPrompt({ username: seedSession().username, host: SEED_HOST });
+const SESSION_USERNAME = seedSession().username;
+
+/** Reactive prompt — re-evaluated by Solid each time `cwd()` changes. */
+const livePrompt = () =>
+  formatPrompt({ username: SESSION_USERNAME, host: SEED_HOST, cwd: cwd() });
 
 export const Terminal = () => {
   let output: HTMLDivElement | undefined;
@@ -40,7 +44,7 @@ export const Terminal = () => {
         </For>
       </div>
       <div class="flex items-baseline gap-2">
-        <span class="whitespace-pre text-[var(--theme-text-bright)]">{PROMPT}</span>
+        <span class="whitespace-pre text-[var(--theme-text-bright)]">{livePrompt()}</span>
         <input
           aria-label="terminal input"
           class="flex-1 border-none bg-transparent p-0 text-inherit caret-[var(--theme-caret)] outline-none [font:inherit]"

@@ -44,10 +44,23 @@ const walk = (
 
 export const createFsView = (
   tree: Directory,
-  options: { readonly userType?: UserType; readonly cwd?: AbsPath } = {},
+  options: {
+    readonly userType?: UserType;
+    /** Static cwd (constant) or reader function for dynamic cwd (signal-backed
+     *  in the UI). The reader form lets `cd` mutate cwd without rebuilding
+     *  the view. Both forms collapse to a getter internally. */
+    readonly cwd?: AbsPath | (() => AbsPath);
+  } = {},
 ): FsView => {
   const userType = options.userType ?? 'user';
-  const cwd = options.cwd ?? asAbsPath('/');
+  /** Normalize `cwd` option (static or reader) to a single getter the view
+   *  closes over. Using an IIFE captures the narrowed `AbsPath` binding so
+   *  the returned arrow doesn't reference the still-union `options.cwd`. */
+  const cwdGetter: () => AbsPath = (() => {
+    if (typeof options.cwd === 'function') return options.cwd;
+    const fixed = options.cwd ?? asAbsPath('/');
+    return () => fixed;
+  })();
 
   const resolve = (path: AbsPath): Resolved => walk(tree, segmentsOf(path), []);
 
@@ -72,7 +85,7 @@ export const createFsView = (
   };
 
   return {
-    cwd: () => cwd,
+    cwd: () => cwdGetter(),
     read,
     list,
     stat: (path: AbsPath): FileNode | null => resolve(path).node,
