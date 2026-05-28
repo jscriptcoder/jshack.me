@@ -70,4 +70,20 @@ describe('Terminal', () => {
     expect(await screen.findByText(/root:r00tpw/)).toBeInTheDocument();
     expect(screen.queryByText(/alice:hunter2/)).not.toBeInTheDocument();
   });
+
+  it('passes a quoted multi-word string through to echo as one token', async () => {
+    renderTerminal();
+    runCommand('echo "hello world"');
+
+    expect(await screen.findByText('hello world')).toBeInTheDocument();
+  });
+
+  it('shows a syntax error for an unterminated quote', async () => {
+    renderTerminal();
+    runCommand('echo "unterminated');
+
+    expect(
+      await screen.findByText('bash: syntax error: unexpected end of file'),
+    ).toBeInTheDocument();
+  });
 });

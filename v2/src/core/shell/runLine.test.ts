@@ -118,4 +118,17 @@ describe('runCommandLine', () => {
       content: '     2\tfrom alice',
     });
   });
+
+  it('reports a syntax error and exits 2 when the tokenizer fails on an unterminated quote', async () => {
+    // The result must be the parse-error line ONLY — no command output
+    // and no command's-own-error lines. If the command ran in spite of
+    // the parser failure, more lines would appear here.
+    const result = await runCommandLine(aliceEnv(), 'cat "unterminated', commands);
+
+    expect(result).toEqual({
+      kind: 'sync',
+      lines: [{ kind: 'error', content: 'bash: syntax error: unexpected end of file' }],
+      exitCode: 2,
+    });
+  });
 });
