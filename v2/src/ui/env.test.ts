@@ -8,7 +8,8 @@ const seedEnv = (userType: 'guest' | 'user' | 'root' = 'user') =>
     identity: seedIdentity(),
     session: { ...seedSession(), userType },
     root: seedFs(),
-    cwd: SEED_HOME,
+    cwd: () => SEED_HOME,
+    onCwdChange: () => undefined,
   });
 
 describe('buildCommandEnv', () => {
@@ -33,7 +34,8 @@ describe('buildCommandEnv', () => {
       identity: seedIdentity(),
       session,
       root: seedFs(),
-      cwd: SEED_HOME,
+      cwd: () => SEED_HOME,
+    onCwdChange: () => undefined,
     });
 
     expect(env.session).toBe(session);

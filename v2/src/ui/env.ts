@@ -28,7 +28,12 @@ export type BuildCommandEnvArgs = {
   readonly identity: Identity;
   readonly session: Session;
   readonly root: Directory;
-  readonly cwd: AbsPath;
+  /** Reader function — called every time `fs.cwd()` runs. Lets the UI's cwd
+   *  signal flow through without rebuilding the env per command. */
+  readonly cwd: () => AbsPath;
+  /** Writer — `cd` calls this to mutate the UI's cwd signal. The UI defines
+   *  the storage; `core/` only knows there's a setter. */
+  readonly onCwdChange: (path: AbsPath) => void;
 };
 
 const notWired =
@@ -74,5 +79,6 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   patches: patchStub(),
   remote: remoteStub(),
   log: logStub(),
+  setCwd: args.onCwdChange,
   signal: new AbortController().signal,
 });

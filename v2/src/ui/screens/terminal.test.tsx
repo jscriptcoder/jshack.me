@@ -21,7 +21,9 @@ describe('Terminal', () => {
     renderTerminal();
     runCommand('cat /etc/passwd');
 
-    expect(await screen.findByText('alice@workstation> cat /etc/passwd')).toBeInTheDocument();
+    expect(
+      await screen.findByText('alice@workstation:/home/alice$ cat /etc/passwd'),
+    ).toBeInTheDocument();
     expect(await screen.findByText(/alice:hunter2/)).toBeInTheDocument();
   });
 
@@ -39,8 +41,12 @@ describe('Terminal', () => {
     runCommand('frobnicate');
     await screen.findByText(/command not found/i);
 
-    expect(screen.getByText('alice@workstation> cat /etc/passwd')).toBeInTheDocument();
-    expect(screen.getByText('alice@workstation> frobnicate')).toBeInTheDocument();
+    expect(
+      screen.getByText('alice@workstation:/home/alice$ cat /etc/passwd'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('alice@workstation:/home/alice$ frobnicate'),
+    ).toBeInTheDocument();
   });
 
   it('numbers each line when -n is passed', async () => {
@@ -87,5 +93,38 @@ describe('Terminal', () => {
     return expect(
       screen.findByText('cat: -n: No such file or directory'),
     ).resolves.toBeInTheDocument();
+  });
+
+  it('prints the working directory when `pwd` runs', async () => {
+    renderTerminal();
+    runCommand('pwd');
+
+    expect(await screen.findByText('/home/alice')).toBeInTheDocument();
+  });
+
+  it('changes the cwd; subsequent pwd reflects the new directory', async () => {
+    renderTerminal();
+    runCommand('cd /etc');
+    // cd is silent — no output line — so we directly issue pwd next.
+    runCommand('pwd');
+
+    expect(await screen.findByText('/etc')).toBeInTheDocument();
+    // Next prompt echo also reflects the new cwd.
+    expect(await screen.findByText('alice@workstation:/etc$ pwd')).toBeInTheDocument();
+  });
+
+  it('failed cd leaves the cwd unchanged', async () => {
+    renderTerminal();
+    runCommand('cd /nope');
+    runCommand('pwd');
+
+    expect(
+      await screen.findByText('cd: /nope: No such file or directory'),
+    ).toBeInTheDocument();
+    expect(await screen.findByText('/home/alice')).toBeInTheDocument();
+    // The post-failure prompt still shows the original cwd.
+    expect(
+      screen.getByText('alice@workstation:/home/alice$ pwd'),
+    ).toBeInTheDocument();
   });
 });

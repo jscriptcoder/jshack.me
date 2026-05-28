@@ -171,6 +171,11 @@ export type CommandEnv = {
   readonly remote: RemoteApi;
   readonly log: LogApi;
 
+  /** Mutate the shell's cwd. UI layer owns the underlying signal; commands
+   *  call this when they need to move (`cd`). FsView's `cwd()` reflects
+   *  the new value on the next command's env. */
+  readonly setCwd: (path: AbsPath) => void;
+
   /** Piped input from a previous command in the pipeline. */
   readonly stdin?: AsyncIterable<string>;
 
