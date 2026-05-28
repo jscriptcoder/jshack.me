@@ -131,4 +131,35 @@ describe('runCommandLine', () => {
       exitCode: 2,
     });
   });
+
+  it('defaults `Command.stacking` to false — multi-char stacks fail for commands that do not opt in', async () => {
+    // Test command with two boolean flags but no `stacking: true`. With
+    // the default-off rule, `-ab` is an unknown flag, NOT an expansion.
+    // Kills the `command.stacking ?? false` default-value mutant in
+    // runCommandLine — the alternative default of `true` would let `-ab`
+    // expand and call execute, producing the placeholder output.
+    const stackless: Command = {
+      name: 'stackless',
+      description: 'fixture: no stacking opt-in',
+      tier: 'guest',
+      availability: { kind: 'any-machine' },
+      flags: { '-a': 'boolean', '-b': 'boolean' },
+      execute: async () => ({
+        kind: 'sync',
+        lines: [{ kind: 'text', content: 'should-not-run' }],
+        exitCode: 0,
+      }),
+    };
+    const result = await runCommandLine(
+      aliceEnv(),
+      'stackless -ab',
+      new Map([['stackless', stackless]]),
+    );
+
+    expect(result).toEqual({
+      kind: 'sync',
+      lines: [{ kind: 'error', content: 'stackless: unrecognized option: -ab' }],
+      exitCode: 2,
+    });
+  });
 });

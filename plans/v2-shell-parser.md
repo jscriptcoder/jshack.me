@@ -38,8 +38,8 @@ Heavy lifting in unit tests on the pure modules. Browser smoke per slice for the
 - [x] `cat -xyz` renders one error line `cat: unrecognized option: -xyz`, exit 2; the file is NOT read (Slice 1) ✅ PR #174
 - [x] `head -n 5 /etc/passwd` outputs the first 5 lines (Slice 2) ✅ PR #175
 - [x] `head -n` (no value) errors `head: option requires an argument: -n`, exit 2 (Slice 2) ✅ PR #175
-- [ ] `echo "hello world"` outputs `hello world` as one line, quotes stripped (Slice 3)
-- [ ] `echo "unterminated` errors `bash: syntax error: unexpected end of file`, exit 2; echo is NOT invoked (Slice 3)
+- [x] `echo "hello world"` outputs `hello world` as one line, quotes stripped (Slice 3) ✅ PR #176
+- [x] `echo "unterminated` errors `bash: syntax error: unexpected end of file`, exit 2; echo is NOT invoked (Slice 3) ✅ PR #176
 - [ ] `cat -nE /etc/passwd` numbers each line AND appends `$` (Slice 4)
 - [ ] `cat -- -n` tries to read a file literally named `-n` and reports `cat: -n: No such file or directory` (Slice 5)
 - [ ] Preserved across all slices: empty input → exit 0 no output; unknown command (`frobnicate`) → `bash: frobnicate: command not found`, exit 127
@@ -128,7 +128,10 @@ Every slice follows RED → GREEN → MUTATE → KILL MUTANTS → REFACTOR. Befo
 
 ---
 
-### Slice 3: quoted tokens + `echo`
+### Slice 3: quoted tokens + `echo` ✅ SHIPPED (PR #176)
+
+**Slice 1 pivot resolved here**: `tokenize` reshaped to `Result<readonly string[], string>` as planned (~2-line edit per file in tokenize.ts + runLine.ts), driven by the unterminated-quote test demanding the error branch.
+
 
 **Value**: Player can pass strings containing whitespace. Unblocks any future command taking free-form text (search patterns, messages, file paths with spaces).
 

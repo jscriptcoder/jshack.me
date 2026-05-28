@@ -86,4 +86,14 @@ describe('Terminal', () => {
       await screen.findByText('bash: syntax error: unexpected end of file'),
     ).toBeInTheDocument();
   });
+
+  it('expands `cat -nE` into both -n and -E, numbering AND suffixing lines', async () => {
+    // /etc/passwd line 1 is `root:r00tpw:0:0:root:/root:/bin/bash`.
+    // After cat -nE it should be `     1\troot:...:/bin/bash$`.
+    // testing-library normalisation collapses leading whitespace to one space.
+    renderTerminal();
+    runCommand('cat -nE /etc/passwd');
+
+    expect(await screen.findByText(/^1 root:r00tpw.*\$$/)).toBeInTheDocument();
+  });
 });

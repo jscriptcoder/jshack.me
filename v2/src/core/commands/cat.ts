@@ -48,6 +48,11 @@ const numberLines = (lines: readonly TerminalLine[]): readonly TerminalLine[] =>
   });
 };
 
+/** Append `$` to each text line (GNU `cat -E`'s "show end of lines"). Error
+ *  lines pass through clean — they're not part of stdout content. */
+const suffixLineEnds = (lines: readonly TerminalLine[]): readonly TerminalLine[] =>
+  lines.map((line) => (line.kind === 'text' ? { kind: 'text', content: `${line.content}$` } : line));
+
 const execute = async (
   env: CommandEnv,
   args: readonly string[],
@@ -66,7 +71,11 @@ const execute = async (
 
   const lines = args.flatMap((arg) => readArg(env, arg));
   const exitCode = lines.some((line) => line.kind === 'error') ? 1 : 0;
-  const finalLines = flags.get('-n') === true ? numberLines(lines) : lines;
+  // Compose in order: -E suffixes raw content, -n then numbers what's left.
+  // Either order produces the same result (-n's tab boundary is unaffected
+  // by -E's trailing `$`) — fixed here so the implementation is deterministic.
+  const withSuffix = flags.get('-E') === true ? suffixLineEnds(lines) : lines;
+  const finalLines = flags.get('-n') === true ? numberLines(withSuffix) : withSuffix;
   return { kind: 'sync', lines: finalLines, exitCode };
 };
 
@@ -75,12 +84,18 @@ export const cat: Command = {
   description: 'Concatenate and print files',
   tier: 'guest',
   availability: { kind: 'any-machine' },
-  flags: { '-n': 'boolean' },
+  flags: { '-n': 'boolean', '-E': 'boolean' },
+  stacking: true,
   manual: {
-    synopsis: 'cat [-n] [file...]',
+    synopsis: 'cat [-nE] [file...]',
     description:
-      'Print the contents of each file to stdout in order. With no file argument, read from stdin. With -n, number each output line starting at 1.',
-    examples: ['cat /etc/passwd', 'cat -n notes.txt', 'cat file1 file2 | grep root', 'echo hello | cat'],
+      'Print the contents of each file to stdout in order. With no file argument, read from stdin. -n numbers each output line starting at 1; -E suffixes each line with `$`. Flags may be combined (`cat -nE file` ≡ `cat -n -E file`).',
+    examples: [
+      'cat /etc/passwd',
+      'cat -n notes.txt',
+      'cat -nE config',
+      'cat file1 file2 | grep root',
+    ],
   },
   execute,
 };

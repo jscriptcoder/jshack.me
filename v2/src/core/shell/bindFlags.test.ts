@@ -147,4 +147,92 @@ describe('bindFlags', () => {
       ]),
     });
   });
+
+  it('expands a short-flag stack into individual boolean flags when stacking is enabled', () => {
+    const spec: FlagSpec = { '-n': 'boolean', '-E': 'boolean' };
+    expect(bindFlags(['-nE'], spec, { stacking: true })).toEqual({
+      ok: true,
+      positional: [],
+      flags: new Map([
+        ['-n', true],
+        ['-E', true],
+      ]),
+    });
+  });
+
+  it('expands a stack in the same character order it was typed', () => {
+    // `-En` reverses the letters; the resulting flags must reflect that
+    // — proves the loop processes the stack left-to-right.
+    const spec: FlagSpec = { '-n': 'boolean', '-E': 'boolean' };
+    expect(bindFlags(['-En'], spec, { stacking: true })).toEqual({
+      ok: true,
+      positional: [],
+      flags: new Map([
+        ['-E', true],
+        ['-n', true],
+      ]),
+    });
+  });
+
+  it('preserves positional arguments around a stacked flag', () => {
+    const spec: FlagSpec = { '-n': 'boolean', '-E': 'boolean' };
+    expect(bindFlags(['file1', '-nE', 'file2'], spec, { stacking: true })).toEqual({
+      ok: true,
+      positional: ['file1', 'file2'],
+      flags: new Map([
+        ['-n', true],
+        ['-E', true],
+      ]),
+    });
+  });
+
+  it('prefers a literal multi-character flag in the spec over stack expansion', () => {
+    // Spec declares the literal `-nE` AND the individual `-n` and `-E`.
+    // Literal-match wins; stacking expansion is the fallback, not forced.
+    const spec: FlagSpec = { '-nE': 'boolean', '-n': 'boolean', '-E': 'boolean' };
+    expect(bindFlags(['-nE'], spec, { stacking: true })).toEqual({
+      ok: true,
+      positional: [],
+      flags: new Map([['-nE', true]]),
+    });
+  });
+
+  it('rejects a partially-matched stack and names the ORIGINAL token in the error', () => {
+    // `-nX` — `-n` is in the spec but `-X` is not. All-or-nothing: reject
+    // the whole token, name it verbatim so the user sees what they typed
+    // (not the failing letter alone, which would be misleading).
+    const spec: FlagSpec = { '-n': 'boolean' };
+    expect(bindFlags(['-nX'], spec, { stacking: true })).toEqual({
+      ok: false,
+      error: 'unrecognized option: -nX',
+    });
+  });
+
+  it('rejects a short-flag stack when stacking is disabled (per-command opt-in)', () => {
+    // Default is no stacking; `cat -nE` would only work because cat sets
+    // `stacking: true`. For a command without the opt-in, `-nE` must error.
+    const spec: FlagSpec = { '-n': 'boolean', '-E': 'boolean' };
+    expect(bindFlags(['-nE'], spec)).toEqual({
+      ok: false,
+      error: 'unrecognized option: -nE',
+    });
+  });
+
+  it('rejects a stack containing a string-typed flag (POSIX `tar -xzf` shape deferred)', () => {
+    // Stack members must all be `'boolean'`-typed for v2 launch.
+    const spec: FlagSpec = { '-n': 'boolean', '-F': 'string' };
+    expect(bindFlags(['-nF'], spec, { stacking: true })).toEqual({
+      ok: false,
+      error: 'unrecognized option: -nF',
+    });
+  });
+
+  it('treats flag names as case-sensitive (`-N` is not `-n`)', () => {
+    // Mirrors real CLI behaviour — `ls -L` differs from `ls -l`.
+    const spec: FlagSpec = { '-n': 'boolean' };
+    expect(bindFlags(['-N'], spec, { stacking: true })).toEqual({
+      ok: false,
+      error: 'unrecognized option: -N',
+    });
+  });
 });
