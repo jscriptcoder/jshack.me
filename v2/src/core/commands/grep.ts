@@ -2,27 +2,27 @@
  * grep — search file contents for a regex pattern (case-insensitive).
  *
  * Modes:
- * - File target: read + filter + emit matching lines verbatim (slice 1).
+ * - File target: read + filter + emit matching lines verbatim.
  * - Directory target: recursive walk; emit `<filepath>:<line>` for each
- *   match (slice 2). Sort by filepath alphabetically. Binary files and
+ *   match. Sort by filepath alphabetically. Binary files and
  *   permission-denied files/dirs silently skipped — no error, no exit
  *   code change.
+ * - Stdin (no path arg): iterate stdin lines, emit matches verbatim.
+ *   A path arg always wins over stdin (matches legacy `fnShell`).
+ *
+ * Flags:
+ * - `-l` files-with-matches mode: in any of the above, switch output
+ *   to filepaths (deduped, sorted) instead of matching-line content.
+ *   With stdin, emits `(standard input)` if any line matched.
  *
  * Pattern is `new RegExp(raw, 'i')` — case-insensitive, supports full
- * regex syntax (e.g. `.` matches any char, `[abc]` is a char class).
- * Invalid regex emits an error line + exit 2.
- *
- * Binary files (content starting with the ELF magic `\x7fELF`) are
- * silently skipped: no output, exit 1 in single-file mode; contribute
- * nothing to walk results in recursive mode.
+ * regex syntax. Invalid regex emits an error + exit 2.
  *
  * Exit codes (POSIX):
  *   0 — at least one match
  *   1 — no matches (or binary skip)
  *   2 — error (missing args, missing file, perm denied on the target,
  *       invalid regex). Note: perm denied DURING recursion is silent.
- *
- * Slice 3 will add stdin + the `-l` flag.
  *
  * Legacy contract (preserved): single-quoted path in error messages,
  * `grep: usage: grep <pattern> <path> [-l]` for missing args. See
@@ -35,7 +35,6 @@ import type {
   CommandEnv,
   CommandResult,
   FsReadResult,
-  TerminalLine,
 } from './types';
 import { resolveAbsPath } from '../filesystem/path';
 import { splitContentLines } from './contentHelpers';
@@ -118,16 +117,48 @@ const walkAndSearch = (
   });
 };
 
+const grepStdin = async (
+  stdin: AsyncIterable<string>,
+  pattern: RegExp,
+): Promise<readonly string[]> => {
+  const matched: string[] = [];
+  for await (const line of stdin) {
+    if (pattern.test(line)) matched.push(line);
+  }
+  return matched;
+};
+
+const textResult = (contents: readonly string[]): CommandResult => ({
+  kind: 'sync',
+  lines: contents.map((content) => ({ kind: 'text', content })),
+  exitCode: contents.length > 0 ? 0 : 1,
+});
+
 const execute = async (
   env: CommandEnv,
   args: readonly string[],
+  flags: ReadonlyMap<string, string | true>,
 ): Promise<CommandResult> => {
-  if (args.length < 2) return errorResult(USAGE, 2);
+  if (args.length === 0) return errorResult(USAGE, 2);
 
   const [rawPattern, pathArg] = args;
   const pattern = compilePattern(rawPattern);
   if (pattern === null) {
     return errorResult(`grep: invalid regex: '${rawPattern}'`, 2);
+  }
+
+  const dashL = flags.get('-l') === true;
+
+  // No path arg: stdin path. A path arg ALWAYS wins over stdin (matches
+  // legacy `fnShell`); we only reach the stdin branch when args is just
+  // the pattern.
+  if (pathArg === undefined) {
+    if (env.stdin === undefined) return errorResult(USAGE, 2);
+    const stdinMatches = await grepStdin(env.stdin, pattern);
+    if (dashL) {
+      return textResult(stdinMatches.length > 0 ? ['(standard input)'] : []);
+    }
+    return textResult(stdinMatches);
   }
 
   const target = resolveAbsPath(env.fs.cwd(), pathArg);
@@ -136,15 +167,13 @@ const execute = async (
   if (!readResult.ok) {
     if (readResult.error === 'is_directory') {
       const walkMatches = walkAndSearch(env, target, pattern);
-      const lines: TerminalLine[] = walkMatches.map(({ filepath, line }) => ({
-        kind: 'text',
-        content: `${filepath}:${line}`,
-      }));
-      return {
-        kind: 'sync',
-        lines,
-        exitCode: walkMatches.length > 0 ? 0 : 1,
-      };
+      if (dashL) {
+        const uniquePaths = [...new Set(walkMatches.map(({ filepath }) => filepath))];
+        return textResult(uniquePaths);
+      }
+      return textResult(
+        walkMatches.map(({ filepath, line }) => `${filepath}:${line}`),
+      );
     }
     return errorResult(formatReadError(pathArg, readResult.error), 2);
   }
@@ -153,15 +182,11 @@ const execute = async (
     return { kind: 'sync', lines: [], exitCode: 1 };
   }
 
-  const matched: TerminalLine[] = matchesInFile(readResult.content, pattern).map(
-    (line) => ({ kind: 'text', content: line }),
-  );
-
-  return {
-    kind: 'sync',
-    lines: matched,
-    exitCode: matched.length > 0 ? 0 : 1,
-  };
+  const fileMatches = matchesInFile(readResult.content, pattern);
+  if (dashL) {
+    return textResult(fileMatches.length > 0 ? [target] : []);
+  }
+  return textResult(fileMatches);
 };
 
 export const grep: Command = {
@@ -169,6 +194,7 @@ export const grep: Command = {
   description: 'Search file contents for a pattern',
   tier: 'guest',
   availability: { kind: 'any-machine' },
+  flags: { '-l': 'boolean' },
   manual: {
     synopsis: 'grep <pattern> <path> [-l]',
     description:
