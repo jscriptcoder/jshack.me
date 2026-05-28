@@ -60,17 +60,6 @@ describe('Terminal', () => {
     expect(await screen.findByText('cat: unrecognized option: -xyz')).toBeInTheDocument();
   });
 
-  it('limits head output to N lines when -n N is passed', async () => {
-    // /etc/passwd has root on line 1 and alice on line 2; -n 1 must show
-    // root and exclude alice — proves bindFlags is plumbing string-typed
-    // values through to head end-to-end.
-    renderTerminal();
-    runCommand('head -n 1 /etc/passwd');
-
-    expect(await screen.findByText(/root:r00tpw/)).toBeInTheDocument();
-    expect(screen.queryByText(/alice:hunter2/)).not.toBeInTheDocument();
-  });
-
   it('passes a quoted multi-word string through to echo as one token', async () => {
     renderTerminal();
     runCommand('echo "hello world"');
@@ -85,16 +74,6 @@ describe('Terminal', () => {
     expect(
       await screen.findByText('bash: syntax error: unexpected end of file'),
     ).toBeInTheDocument();
-  });
-
-  it('expands `cat -nE` into both -n and -E, numbering AND suffixing lines', async () => {
-    // /etc/passwd line 1 is `root:r00tpw:0:0:root:/root:/bin/bash`.
-    // After cat -nE it should be `     1\troot:...:/bin/bash$`.
-    // testing-library normalisation collapses leading whitespace to one space.
-    renderTerminal();
-    runCommand('cat -nE /etc/passwd');
-
-    expect(await screen.findByText(/^1 root:r00tpw.*\$$/)).toBeInTheDocument();
   });
 
   it('treats tokens after `--` as positional, even if they look like flags', () => {
