@@ -638,3 +638,287 @@ describe('grep — directory recursion', () => {
     expect(textLines(result)).toEqual(['root:x:0:0']);
   });
 });
+
+describe('grep — stdin mode', () => {
+  /** Build a stdin AsyncIterable from a fixed line list. */
+  const stdinOf = (lines: readonly string[]): AsyncIterable<string> =>
+    (async function* () {
+      for (const line of lines) yield line;
+    })();
+
+  it('reads stdin when called with only the pattern arg', async () => {
+    const env = mockCommandEnv({
+      stdin: stdinOf(['root:x:0:0', 'alice:x:1000', 'admin:x:1001']),
+    });
+
+    const result = await grep.execute(env, ['root'], NO_FLAGS);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(result.exitCode).toBe(0);
+    // Stdin mode: matching lines verbatim, NO filepath prefix.
+    expect(textLines(result)).toEqual(['root:x:0:0']);
+  });
+
+  it('emits multiple matching stdin lines in input order', async () => {
+    const env = mockCommandEnv({
+      stdin: stdinOf(['first match', 'no relevant text', 'second match']),
+    });
+
+    const result = await grep.execute(env, ['match'], NO_FLAGS);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(textLines(result)).toEqual(['first match', 'second match']);
+  });
+
+  it('exits 1 with no output when no stdin line matches', async () => {
+    const env = mockCommandEnv({
+      stdin: stdinOf(['alpha', 'beta', 'gamma']),
+    });
+
+    const result = await grep.execute(env, ['zzz'], NO_FLAGS);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(result.exitCode).toBe(1);
+    expect(result.lines).toEqual([]);
+  });
+
+  it('exits 1 for an empty stdin generator', async () => {
+    const env = mockCommandEnv({ stdin: stdinOf([]) });
+
+    const result = await grep.execute(env, ['anything'], NO_FLAGS);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(result.exitCode).toBe(1);
+    expect(result.lines).toEqual([]);
+  });
+
+  it('matches stdin case-insensitively (regex behavior preserved)', async () => {
+    const env = mockCommandEnv({
+      stdin: stdinOf(['ROOT', 'user', 'Guest']),
+    });
+
+    const result = await grep.execute(env, ['root'], NO_FLAGS);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(textLines(result)).toEqual(['ROOT']);
+  });
+
+  it('errors with USAGE on zero args even when stdin is piped', async () => {
+    // Catches a mutant that drops the `args.length === 0` early-return.
+    // Without it, `new RegExp(undefined, 'i')` compiles to `/(?:)/i` (an
+    // empty regex matching every line) and grep would leak ALL stdin
+    // lines on a bare invocation. The early-return prevents that.
+    const env = mockCommandEnv({
+      stdin: stdinOf(['secret data should NOT leak']),
+    });
+
+    const result = await grep.execute(env, [], NO_FLAGS);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(result.exitCode).toBe(2);
+    expect(errorLines(result)).toEqual(['grep: usage: grep <pattern> <path> [-l]']);
+  });
+
+  it('IGNORES stdin when a file arg is also given (file mode wins)', async () => {
+    // Real grep / legacy: a path arg means filesystem mode even when piped.
+    const tree = buildDirectory({
+      'log.txt': buildFile('file alpha\nfile beta\n', { owner: 'alice' }),
+    });
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/') }),
+      stdin: stdinOf(['stdin alpha', 'stdin beta']),
+    });
+
+    const result = await grep.execute(env, ['alpha', '/log.txt'], NO_FLAGS);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    // Matches come from the FILE, not the stdin generator.
+    expect(textLines(result)).toEqual(['file alpha']);
+  });
+});
+
+describe('grep — -l flag (files-with-matches)', () => {
+  const DASH_L = new Map<string, string | true>([['-l', true]]);
+
+  it('emits the filepath when a single file has a match', async () => {
+    const tree = buildDirectory({
+      etc: buildDirectory(
+        {
+          passwd: buildFile('root:x:0:0\nalice:x:1000\n', {
+            owner: 'root',
+            perms: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] },
+          }),
+        },
+        { owner: 'root' },
+      ),
+    });
+
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/') }),
+    });
+
+    const result = await grep.execute(env, ['root', '/etc/passwd'], DASH_L);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(result.exitCode).toBe(0);
+    expect(textLines(result)).toEqual(['/etc/passwd']);
+  });
+
+  it('emits nothing and exits 1 for a single file with no match', async () => {
+    const tree = buildDirectory({
+      'log.txt': buildFile('nothing relevant\n', { owner: 'alice' }),
+    });
+
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/') }),
+    });
+
+    const result = await grep.execute(env, ['target', '/log.txt'], DASH_L);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(result.exitCode).toBe(1);
+    expect(result.lines).toEqual([]);
+  });
+
+  it('emits one filepath per matched file in a recursive walk (deduped, sorted)', async () => {
+    const tree = buildDirectory({
+      etc: buildDirectory(
+        {
+          passwd: buildFile('root:x:0:0\n', {
+            owner: 'root',
+            perms: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] },
+          }),
+          motd: buildFile('Welcome, root\n', {
+            owner: 'root',
+            perms: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] },
+          }),
+        },
+        { owner: 'root' },
+      ),
+      home: buildDirectory({
+        'notes.txt': buildFile('the root password is secret\n', { owner: 'alice' }),
+      }),
+    });
+
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/') }),
+    });
+
+    const result = await grep.execute(env, ['root', '/'], DASH_L);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(result.exitCode).toBe(0);
+    expect(textLines(result)).toEqual([
+      '/etc/motd',
+      '/etc/passwd',
+      '/home/notes.txt',
+    ]);
+  });
+
+  it('deduplicates filepaths when a single file has multiple matches', async () => {
+    // `multi.txt` has TWO matching lines; -l output must include the
+    // filepath ONCE. Catches a "forgot to dedup" mutant.
+    const tree = buildDirectory({
+      'multi.txt': buildFile('first match\nno match\nsecond match\n', { owner: 'alice' }),
+    });
+
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/') }),
+    });
+
+    const result = await grep.execute(env, ['match', '/'], DASH_L);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(textLines(result)).toEqual(['/multi.txt']);
+  });
+
+  it('emits nothing and exits 1 when no file in the walk matches', async () => {
+    const tree = buildDirectory({
+      'a.txt': buildFile('alpha\n', { owner: 'alice' }),
+      'b.txt': buildFile('beta\n', { owner: 'alice' }),
+    });
+
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/') }),
+    });
+
+    const result = await grep.execute(env, ['zzz', '/'], DASH_L);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(result.exitCode).toBe(1);
+    expect(result.lines).toEqual([]);
+  });
+
+  it('-l output never contains a `:` separator (regression against lines-mode leakage)', async () => {
+    // Catches a "forgot to switch projection" mutant: in default mode the
+    // walk emits `<filepath>:<line>`; in -l mode there must be NO colon.
+    const tree = buildDirectory({
+      etc: buildDirectory(
+        {
+          passwd: buildFile('root:x:0:0:root:/root:/bin/bash\n', {
+            owner: 'root',
+            perms: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] },
+          }),
+        },
+        { owner: 'root' },
+      ),
+    });
+
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/') }),
+    });
+
+    const result = await grep.execute(env, ['root', '/'], DASH_L);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    // The matched line itself contains `:` characters (passwd format), so
+    // the assertion has to be that NO line in -l output ends with `:foo`.
+    // Strictest check: result is exactly the filepath, nothing else.
+    expect(textLines(result)).toEqual(['/etc/passwd']);
+  });
+});
+
+describe('grep — stdin + -l (v2-defined: `(standard input)`)', () => {
+  const DASH_L = new Map<string, string | true>([['-l', true]]);
+
+  const stdinOf = (lines: readonly string[]): AsyncIterable<string> =>
+    (async function* () {
+      for (const line of lines) yield line;
+    })();
+
+  it('emits `(standard input)` when stdin has any matching line', async () => {
+    // Legacy left this combo undefined; v2 matches real GNU grep.
+    const env = mockCommandEnv({ stdin: stdinOf(['alpha', 'TARGET line', 'beta']) });
+
+    const result = await grep.execute(env, ['target'], DASH_L);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(result.exitCode).toBe(0);
+    expect(textLines(result)).toEqual(['(standard input)']);
+  });
+
+  it('emits no output and exits 1 when stdin has no matches', async () => {
+    const env = mockCommandEnv({ stdin: stdinOf(['alpha', 'beta']) });
+
+    const result = await grep.execute(env, ['zzz'], DASH_L);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(result.exitCode).toBe(1);
+    expect(result.lines).toEqual([]);
+  });
+});

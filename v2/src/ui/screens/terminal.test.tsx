@@ -159,6 +159,15 @@ describe('Terminal', () => {
     ).toBeInTheDocument();
   });
 
+  it('`grep -l root /etc` emits matching filepaths only, no `:line` content', async () => {
+    // Seed /etc/passwd has the root:r00tpw row. -l mode emits just the
+    // filepath when the file matched — no `:` and no line content.
+    renderTerminal();
+    runCommand('grep -l root /etc');
+
+    expect(await screen.findByText('/etc/passwd')).toBeInTheDocument();
+  });
+
   it('`ls -la` (stacked) shows hidden entries in long format', async () => {
     // End-to-end demo of the stacking infrastructure: `-la` is parsed as
     // `-l -a` and ls renders both behaviors. /etc has perms (drwxrwxrwx
