@@ -16,6 +16,7 @@ import type { Command, TerminalLine } from '../core/commands/types';
 import { cat } from '../core/commands/cat';
 import { cd } from '../core/commands/cd';
 import { echo } from '../core/commands/echo';
+import { grep } from '../core/commands/grep';
 import { ls } from '../core/commands/ls';
 import { pwd } from '../core/commands/pwd';
 import { runCommandLine } from '../core/shell/runLine';
@@ -27,6 +28,7 @@ const COMMANDS: ReadonlyMap<string, Command> = new Map([
   ['cat', cat],
   ['cd', cd],
   ['echo', echo],
+  ['grep', grep],
   ['ls', ls],
   ['pwd', pwd],
 ]);

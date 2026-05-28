@@ -139,6 +139,15 @@ describe('Terminal', () => {
     expect(await screen.findByText('passwd')).toBeInTheDocument();
   });
 
+  it('finds matching lines with `grep PATTERN file`', async () => {
+    // Seed FS: /etc/passwd contains alice's row. grep is case-insensitive
+    // by default; `Alice` matches the lowercase `alice` line.
+    renderTerminal();
+    runCommand('grep Alice /etc/passwd');
+
+    expect(await screen.findByText(/alice:hunter2/)).toBeInTheDocument();
+  });
+
   it('`ls -la` (stacked) shows hidden entries in long format', async () => {
     // End-to-end demo of the stacking infrastructure: `-la` is parsed as
     // `-l -a` and ls renders both behaviors. /etc has perms (drwxrwxrwx
