@@ -16,6 +16,7 @@
 
 import type { Command, CommandEnv, CommandResult, FsReadResult, TerminalLine } from './types';
 import { resolveAbsPath } from '../filesystem/path';
+import { splitContentLines } from './contentHelpers';
 
 type FsReadError = Extract<FsReadResult, { readonly ok: false }>['error'];
 
@@ -42,14 +43,9 @@ const collectStdin = async (stdin: AsyncIterable<string>): Promise<readonly Term
   return lines;
 };
 
-/** Split file content into output lines, dropping the trailing empty
- *  element that `split('\n')` yields for newline-terminated files (so a
- *  normal file doesn't print a spurious blank line at the end). */
-const toContentLines = (content: string): readonly TerminalLine[] => {
-  const segments = content.split('\n');
-  const body = segments[segments.length - 1] === '' ? segments.slice(0, -1) : segments;
-  return body.map((line) => ({ kind: 'text', content: line }));
-};
+/** Project file content into text TerminalLines via the shared splitter. */
+const toContentLines = (content: string): readonly TerminalLine[] =>
+  splitContentLines(content).map((line) => ({ kind: 'text', content: line }));
 
 const readArg = (env: CommandEnv, arg: string): readonly TerminalLine[] => {
   const result = env.fs.read(resolveAbsPath(env.fs.cwd(), arg));
