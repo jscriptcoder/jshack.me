@@ -138,4 +138,22 @@ describe('Terminal', () => {
     expect(await screen.findByText('motd')).toBeInTheDocument();
     expect(await screen.findByText('passwd')).toBeInTheDocument();
   });
+
+  it('`ls -la` (stacked) shows hidden entries in long format', async () => {
+    // End-to-end demo of the stacking infrastructure: `-la` is parsed as
+    // `-l -a` and ls renders both behaviors. /etc has perms (drwxrwxrwx
+    // by tier-truthful mapping under TRAVERSABLE_DIR) so `.` is visible
+    // here. We just assert ONE row contains the long-format perms-prefix
+    // and a passwd entry — full output is locked down in unit tests.
+    renderTerminal();
+    runCommand('ls -la /etc');
+
+    // -l prefixes each entry with the perms+owner+size columns; under
+    // the tier-truthful mapping, /etc/passwd has perms read:root+user,
+    // write:root, execute:root → `-rwxr-----`.
+    expect(await screen.findByText(/^-rwxr----- root \d+ passwd$/)).toBeInTheDocument();
+    // -a adds the synthetic `.` row. /etc's TRAVERSABLE_DIR perms map to
+    // root rwx, user r-x, guest r-x → `drwxr-xr-x` under tier-truthful.
+    expect(await screen.findByText(/^drwxr-xr-x root 4096 \.$/)).toBeInTheDocument();
+  });
 });
