@@ -12,26 +12,12 @@
 
 import { createSignal } from 'solid-js';
 import type { AbsPath } from '../core/types';
-import type { Command, TerminalLine } from '../core/commands/types';
-import { cat } from '../core/commands/cat';
-import { cd } from '../core/commands/cd';
-import { echo } from '../core/commands/echo';
-import { grep } from '../core/commands/grep';
-import { ls } from '../core/commands/ls';
-import { pwd } from '../core/commands/pwd';
+import type { TerminalLine } from '../core/commands/types';
+import { commandRegistry } from '../core/commands/registry';
 import { runCommandLine } from '../core/shell/runLine';
 import { commandEchoLine } from '../core/shell/prompt';
 import { buildCommandEnv } from './env';
 import { SEED_HOME, SEED_HOST, seedFs, seedIdentity, seedSession } from './seed';
-
-const COMMANDS: ReadonlyMap<string, Command> = new Map([
-  ['cat', cat],
-  ['cd', cd],
-  ['echo', echo],
-  ['grep', grep],
-  ['ls', ls],
-  ['pwd', pwd],
-]);
 
 const [scrollback, setScrollback] = createSignal<readonly TerminalLine[]>([]);
 const [input, setInput] = createSignal('');
@@ -64,7 +50,7 @@ export const runInput = async (): Promise<void> => {
     onCwdChange: setCwd,
   });
 
-  const result = await runCommandLine(env, line, COMMANDS);
+  const result = await runCommandLine(env, line, commandRegistry);
   if (result.kind === 'sync') {
     setScrollback((previous) => [...previous, ...result.lines]);
   }
