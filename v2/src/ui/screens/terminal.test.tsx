@@ -42,4 +42,21 @@ describe('Terminal', () => {
     expect(screen.getByText('alice@workstation> cat /etc/passwd')).toBeInTheDocument();
     expect(screen.getByText('alice@workstation> frobnicate')).toBeInTheDocument();
   });
+
+  it('numbers each line when -n is passed', async () => {
+    // /etc/passwd starts root:r00tpw on line 1, alice:hunter2 on line 2 —
+    // asserting BOTH catches "counter doesn't increment" mutants.
+    renderTerminal();
+    runCommand('cat -n /etc/passwd');
+
+    expect(await screen.findByText(/^1 root:r00tpw/)).toBeInTheDocument();
+    expect(await screen.findByText(/^2 alice:hunter2/)).toBeInTheDocument();
+  });
+
+  it('shows an "unrecognized option" error for an unknown flag', async () => {
+    renderTerminal();
+    runCommand('cat -xyz /etc/passwd');
+
+    expect(await screen.findByText('cat: unrecognized option: -xyz')).toBeInTheDocument();
+  });
 });

@@ -48,7 +48,27 @@ const readArg = (env: CommandEnv, arg: string): readonly TerminalLine[] => {
   return toContentLines(result.content);
 };
 
-const execute = async (env: CommandEnv, args: readonly string[]): Promise<CommandResult> => {
+/** Prepend each text line with a GNU-`cat -n`-style 6-wide right-aligned
+ *  counter and a tab. Errors pass through unchanged (real `cat -n` writes
+ *  errors to stderr, which is unnumbered) and never advance the counter. */
+const numberLines = (lines: readonly TerminalLine[]): readonly TerminalLine[] => {
+  let counter = 1;
+  return lines.map((line) => {
+    if (line.kind !== 'text') return line;
+    const numbered: TerminalLine = {
+      kind: 'text',
+      content: `${String(counter).padStart(6)}\t${line.content}`,
+    };
+    counter += 1;
+    return numbered;
+  });
+};
+
+const execute = async (
+  env: CommandEnv,
+  args: readonly string[],
+  flags: ReadonlyMap<string, string | true>,
+): Promise<CommandResult> => {
   if (args.length === 0) {
     if (env.stdin) {
       return { kind: 'sync', lines: await collectStdin(env.stdin), exitCode: 0 };
@@ -62,7 +82,8 @@ const execute = async (env: CommandEnv, args: readonly string[]): Promise<Comman
 
   const lines = args.flatMap((arg) => readArg(env, arg));
   const exitCode = lines.some((line) => line.kind === 'error') ? 1 : 0;
-  return { kind: 'sync', lines, exitCode };
+  const finalLines = flags.get('-n') === true ? numberLines(lines) : lines;
+  return { kind: 'sync', lines: finalLines, exitCode };
 };
 
 export const cat: Command = {
@@ -70,11 +91,12 @@ export const cat: Command = {
   description: 'Concatenate and print files',
   tier: 'guest',
   availability: { kind: 'any-machine' },
+  flags: { '-n': 'boolean' },
   manual: {
-    synopsis: 'cat [file...]',
+    synopsis: 'cat [-n] [file...]',
     description:
-      'Print the contents of each file to stdout in order. With no file argument, read from stdin.',
-    examples: ['cat /etc/passwd', 'cat file1 file2 | grep root', 'echo hello | cat'],
+      'Print the contents of each file to stdout in order. With no file argument, read from stdin. With -n, number each output line starting at 1.',
+    examples: ['cat /etc/passwd', 'cat -n notes.txt', 'cat file1 file2 | grep root', 'echo hello | cat'],
   },
   execute,
 };

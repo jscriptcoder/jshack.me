@@ -91,4 +91,31 @@ describe('runCommandLine', () => {
       content: 'cat: /nope: No such file or directory',
     });
   });
+
+  it('rejects an unknown flag with exit code 2 and reports the offending option', async () => {
+    // The error must come from the parser (exit 2) BEFORE cat is invoked —
+    // otherwise cat would treat `-xyz` as a missing file and emit its own
+    // exit-1 "No such file or directory" instead.
+    const result = await runCommandLine(aliceEnv(), 'cat -xyz notes.txt', commands);
+
+    expect(result).toEqual({
+      kind: 'sync',
+      lines: [{ kind: 'error', content: 'cat: unrecognized option: -xyz' }],
+      exitCode: 2,
+    });
+  });
+
+  it('passes recognised boolean flags through to the command', async () => {
+    const result = expectSync(await runCommandLine(aliceEnv(), 'cat -n notes.txt', commands));
+
+    expect(result.exitCode).toBe(0);
+    expect(result.lines).toContainEqual({
+      kind: 'text',
+      content: '     1\thello world',
+    });
+    expect(result.lines).toContainEqual({
+      kind: 'text',
+      content: '     2\tfrom alice',
+    });
+  });
 });

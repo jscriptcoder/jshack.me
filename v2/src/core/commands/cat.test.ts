@@ -211,4 +211,98 @@ describe('cat', () => {
     expect(result.exitCode).toBe(1);
     expect(errorLines(result)).toEqual(['cat: missing file operand']);
   });
+
+  it('numbers each output line when -n is set', async () => {
+    const tree = buildDirectory({
+      home: buildDirectory({
+        alice: buildDirectory(
+          { 'notes.txt': buildFile('first\nsecond\nthird\n', { owner: 'alice' }) },
+          { owner: 'alice' },
+        ),
+      }),
+    });
+
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/home/alice') }),
+    });
+
+    const result = await cat.execute(env, ['notes.txt'], new Map([['-n', true]]));
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(result.exitCode).toBe(0);
+    expect(textLines(result)).toEqual([
+      '     1\tfirst',
+      '     2\tsecond',
+      '     3\tthird',
+    ]);
+  });
+
+  it('numbers across multiple files cumulatively when -n is set', async () => {
+    // GNU cat -n keeps a single counter spanning all input files, not a
+    // per-file reset.
+    const tree = buildDirectory({
+      tmp: buildDirectory(
+        {
+          'a.txt': buildFile('alpha\nbeta\n', { owner: 'alice' }),
+          'b.txt': buildFile('gamma\n', { owner: 'alice' }),
+        },
+        { owner: 'alice' },
+      ),
+    });
+
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/tmp') }),
+    });
+
+    const result = await cat.execute(env, ['a.txt', 'b.txt'], new Map([['-n', true]]));
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(result.exitCode).toBe(0);
+    expect(textLines(result)).toEqual([
+      '     1\talpha',
+      '     2\tbeta',
+      '     3\tgamma',
+    ]);
+  });
+
+  it('does not number error lines, and the next text line still gets number 1', async () => {
+    // Real `cat -n` writes errors to stderr and only numbers stdout content,
+    // so the first numbered line is `1` even when an earlier file failed.
+    const tree = buildDirectory({
+      tmp: buildDirectory(
+        { 'good.txt': buildFile('survivor\n', { owner: 'alice' }) },
+        { owner: 'alice' },
+      ),
+    });
+
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/tmp') }),
+    });
+
+    const result = await cat.execute(
+      env,
+      ['missing.txt', 'good.txt'],
+      new Map([['-n', true]]),
+    );
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(result.exitCode).toBe(1);
+    expect(errorLines(result)).toEqual(['cat: missing.txt: No such file or directory']);
+    expect(textLines(result)).toEqual(['     1\tsurvivor']);
+  });
+
+  it('preserves "missing file operand" when -n is set but no positional is given', async () => {
+    // The parser may populate flags even when there are no positional args;
+    // cat should still fall through to its existing no-arg branch.
+    const env = mockCommandEnv();
+    const result = await cat.execute(env, [], new Map([['-n', true]]));
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(result.exitCode).toBe(1);
+    expect(errorLines(result)).toEqual(['cat: missing file operand']);
+  });
 });
