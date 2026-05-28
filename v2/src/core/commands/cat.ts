@@ -12,16 +12,9 @@
  *   1 — any file failed to read
  */
 
-import type { Command, CommandEnv, CommandResult, FsReadResult, TerminalLine } from './types';
+import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
 import { resolveAbsPath } from '../filesystem/path';
-
-type FsReadError = Extract<FsReadResult, { readonly ok: false }>['error'];
-
-const ERROR_MESSAGE: Record<FsReadError, (arg: string) => string> = {
-  not_found: (arg) => `cat: ${arg}: No such file or directory`,
-  is_directory: (arg) => `cat: ${arg}: Is a directory`,
-  permission_denied: (arg) => `cat: ${arg}: Permission denied`,
-};
+import { formatReadError, toContentLines } from './fsReadHelpers';
 
 const collectStdin = async (stdin: AsyncIterable<string>): Promise<readonly TerminalLine[]> => {
   const lines: TerminalLine[] = [];
@@ -31,19 +24,10 @@ const collectStdin = async (stdin: AsyncIterable<string>): Promise<readonly Term
   return lines;
 };
 
-/** Split file content into output lines, dropping the trailing empty element
- *  that `split('\n')` yields for newline-terminated files (so a normal file
- *  doesn't print a spurious blank line at the end). */
-const toContentLines = (content: string): readonly TerminalLine[] => {
-  const segments = content.split('\n');
-  const body = segments[segments.length - 1] === '' ? segments.slice(0, -1) : segments;
-  return body.map((line) => ({ kind: 'text', content: line }));
-};
-
 const readArg = (env: CommandEnv, arg: string): readonly TerminalLine[] => {
   const result = env.fs.read(resolveAbsPath(env.fs.cwd(), arg));
   if (!result.ok) {
-    return [{ kind: 'error', content: ERROR_MESSAGE[result.error](arg) }];
+    return [{ kind: 'error', content: formatReadError('cat', arg, result.error) }];
   }
   return toContentLines(result.content);
 };
