@@ -305,4 +305,71 @@ describe('cat', () => {
     expect(result.exitCode).toBe(1);
     expect(errorLines(result)).toEqual(['cat: missing file operand']);
   });
+
+  it('suffixes each output line with `$` when -E is set', async () => {
+    const tree = buildDirectory({
+      home: buildDirectory({
+        alice: buildDirectory(
+          { 'notes.txt': buildFile('first\nsecond\n', { owner: 'alice' }) },
+          { owner: 'alice' },
+        ),
+      }),
+    });
+
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/home/alice') }),
+    });
+
+    const result = await cat.execute(env, ['notes.txt'], new Map([['-E', true]]));
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(result.exitCode).toBe(0);
+    expect(textLines(result)).toEqual(['first$', 'second$']);
+  });
+
+  it('numbers AND suffixes lines when both -n and -E are set', async () => {
+    // The combined output proves both transforms compose cleanly — the
+    // counter prefix lands first, the `$` lands after the content.
+    const tree = buildDirectory({
+      home: buildDirectory({
+        alice: buildDirectory(
+          { 'notes.txt': buildFile('first\nsecond\n', { owner: 'alice' }) },
+          { owner: 'alice' },
+        ),
+      }),
+    });
+
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/home/alice') }),
+    });
+
+    const result = await cat.execute(
+      env,
+      ['notes.txt'],
+      new Map<string, string | true>([
+        ['-n', true],
+        ['-E', true],
+      ]),
+    );
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(result.exitCode).toBe(0);
+    expect(textLines(result)).toEqual(['     1\tfirst$', '     2\tsecond$']);
+  });
+
+  it('does not suffix error lines with `$` when -E is set', async () => {
+    // Real `cat -E` writes errors to stderr unsuffixed. Our model
+    // separates by line kind — error-kind lines must pass through clean.
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(buildDirectory({}), { userType: 'user' }),
+    });
+    const result = await cat.execute(env, ['/nope'], new Map([['-E', true]]));
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(result.exitCode).toBe(1);
+    expect(errorLines(result)).toEqual(['cat: /nope: No such file or directory']);
+  });
 });

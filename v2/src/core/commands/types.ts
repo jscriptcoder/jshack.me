@@ -199,6 +199,11 @@ export type Command = {
   /** Declared flag spec consumed by `bindFlags` before `execute` is called.
    *  Omit for commands that take only positional arguments. */
   readonly flags?: FlagSpec;
+  /** Opt-in to UNIX-style short-flag stacking (`ls -la` ≡ `ls -l -a`).
+   *  Disabled by default so commands with multi-letter short flags
+   *  (`nmap -sV`) keep them unambiguous. Stack members must all be
+   *  `'boolean'`-typed. Literal-match wins over expansion. */
+  readonly stacking?: boolean;
   readonly execute: (
     env: CommandEnv,
     args: readonly string[],

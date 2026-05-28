@@ -1,5 +1,5 @@
 /**
- * bindFlags — phases 1–2 of the v2 shell parser.
+ * bindFlags — phases 1–3 of the v2 shell parser.
  *
  * Given the tokens AFTER the command name plus the command's flag spec,
  * classify each token as a boolean flag, a string flag (consuming the
@@ -8,13 +8,17 @@
  * terminal output (exit 2) without throwing.
  *
  * Slice 1 added boolean flags + strict unknown errors. Slice 2 adds
- * `'string'`-typed flags with POSIX consume-next semantics. Stacking
- * arrives in Slice 4 and the `--` end-of-options sentinel in Slice 5.
+ * `'string'`-typed flags with POSIX consume-next semantics. Slice 4 adds
+ * per-command opt-in short-flag stacking (`ls -la` ≡ `ls -l -a`). The
+ * `--` end-of-options sentinel arrives in Slice 5.
  *
  * Strictness:
  * - Any dash-prefixed token not in the spec is `unrecognized option`.
  * - A `'string'` flag with no following token is `option requires an
  *   argument`.
+ * - When stacking is enabled, expansion is a FALLBACK after a literal
+ *   spec miss, ALL-OR-NOTHING (every char must be a boolean flag in the
+ *   spec, otherwise the whole original token is rejected verbatim).
  * - Bare `-` (single dash) is always positional — POSIX shorthand for
  *   stdin — regardless of the spec.
  */
@@ -32,7 +36,36 @@ export type BindResult =
 /** A bare `-` (single dash) is not a flag — it's POSIX shorthand for stdin. */
 const isFlagToken = (token: string): boolean => token.startsWith('-') && token !== '-';
 
-export const bindFlags = (args: readonly string[], spec: FlagSpec): BindResult => {
+/** Attempt to split `-abc` into `-a` + `-b` + `-c` and register all of them.
+ *  Two-pass: verify every member is a declared boolean flag FIRST, then
+ *  commit. Returns false on any miss; on false the caller emits the
+ *  unrecognized-option error naming the ORIGINAL stacked token.
+ *
+ *  A single-char `token` (e.g. `-x` where `-x` is unknown) is handled by
+ *  the verify loop: `spec[-x]` misses (since literal lookup already did),
+ *  the loop returns false, and the original token gets the error. We
+ *  rely on the upstream `isFlagToken` filter to keep bare `-` out. */
+const tryExpandStack = (
+  token: string,
+  spec: FlagSpec,
+  flags: Map<string, string | true>,
+): boolean => {
+  const chars = token.slice(1);
+  for (const char of chars) {
+    if (spec[`-${char}`] !== 'boolean') return false;
+  }
+  for (const char of chars) {
+    flags.set(`-${char}`, true);
+  }
+  return true;
+};
+
+export const bindFlags = (
+  args: readonly string[],
+  spec: FlagSpec,
+  options: { readonly stacking?: boolean } = {},
+): BindResult => {
+  const stacking = options.stacking ?? false;
   const positional: string[] = [];
   const flags = new Map<string, string | true>();
 
@@ -57,6 +90,9 @@ export const bindFlags = (args: readonly string[], spec: FlagSpec): BindResult =
       // dash-prefixed positional after a string flag will use `--` (Slice 5).
       flags.set(token, next);
       i += 1; // step past the value token; the for-loop's i++ then advances normally
+      continue;
+    }
+    if (stacking && tryExpandStack(token, spec, flags)) {
       continue;
     }
     return { ok: false, error: `unrecognized option: ${token}` };

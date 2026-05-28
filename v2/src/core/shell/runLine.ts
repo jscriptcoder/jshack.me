@@ -48,7 +48,7 @@ export const runCommandLine = async (
     };
   }
 
-  const bound = bindFlags(rest, command.flags ?? {});
+  const bound = bindFlags(rest, command.flags ?? {}, { stacking: command.stacking ?? false });
   if (!bound.ok) {
     return {
       kind: 'sync',
