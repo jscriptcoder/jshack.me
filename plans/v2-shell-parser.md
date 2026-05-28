@@ -36,8 +36,8 @@ Heavy lifting in unit tests on the pure modules. Browser smoke per slice for the
 
 - [x] `cat -n /etc/passwd` outputs each line prefixed with `   <N>\t` (Slice 1) ✅ PR #174
 - [x] `cat -xyz` renders one error line `cat: unrecognized option: -xyz`, exit 2; the file is NOT read (Slice 1) ✅ PR #174
-- [ ] `head -n 5 /etc/passwd` outputs the first 5 lines (Slice 2)
-- [ ] `head -n` (no value) errors `head: option requires an argument: -n`, exit 2 (Slice 2)
+- [x] `head -n 5 /etc/passwd` outputs the first 5 lines (Slice 2) ✅ PR #175
+- [x] `head -n` (no value) errors `head: option requires an argument: -n`, exit 2 (Slice 2) ✅ PR #175
 - [ ] `echo "hello world"` outputs `hello world` as one line, quotes stripped (Slice 3)
 - [ ] `echo "unterminated` errors `bash: syntax error: unexpected end of file`, exit 2; echo is NOT invoked (Slice 3)
 - [ ] `cat -nE /etc/passwd` numbers each line AND appends `$` (Slice 4)
@@ -92,7 +92,10 @@ Every slice follows RED → GREEN → MUTATE → KILL MUTANTS → REFACTOR. Befo
 
 ---
 
-### Slice 2: string-valued flags — `head -n N`
+### Slice 2: string-valued flags — `head -n N` ✅ SHIPPED (PR #175)
+
+**Inline REFACTOR**: extracted `toContentLines` + `formatReadError` from cat.ts + head.ts into `core/commands/fsReadHelpers.ts` (two consumers, future `tail`/`less`/`grep` reuse). **New equivalent-mutant category recorded**: type-narrowing defensive code on `string | true | undefined` Map values — see `feedback_type_narrowing_defensive_equivalent`.
+
 
 **Value**: Commands can take options that carry values (the path for every real CLI argument shape). Player gets `head -n 5 file` to preview large files without paging.
 

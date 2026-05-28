@@ -2,16 +2,16 @@
  * runCommandLine — turn a raw input line into a command invocation.
  *
  * Two-phase parse:
- *   1. tokenize() — whitespace-separated tokens today; quoted strings + the
- *      unterminated-quote error arrive in Slice 3 (which will reshape
- *      tokenize's return type to a Result).
+ *   1. tokenize() — whitespace-separated tokens with shell-style quoting.
+ *      An unterminated quote returns `{ ok: false, error: '...' }`, which
+ *      we surface as `bash: <error>` and exit 2 before any command runs.
  *   2. bindFlags(rest, command.flags ?? {}) — classifies each remaining
  *      token as a flag or a positional argument and surfaces unknown-flag
- *      errors as exit 2 without invoking the command.
+ *      and missing-value errors as exit 2 without invoking the command.
  *
  * Exit-code conventions:
  *   0   — empty input (no-op) or successful command
- *   2   — parse-time error (binder; Slice 3 adds the tokenizer branch)
+ *   2   — parse-time error (tokenizer OR binder)
  *   127 — unknown command name
  *   *   — anything else is the command's own exit code
  */
@@ -25,7 +25,16 @@ export const runCommandLine = async (
   input: string,
   commands: ReadonlyMap<string, Command>,
 ): Promise<CommandResult> => {
-  const [name, ...rest] = tokenize(input);
+  const tokenized = tokenize(input);
+  if (!tokenized.ok) {
+    return {
+      kind: 'sync',
+      lines: [{ kind: 'error', content: `bash: ${tokenized.error}` }],
+      exitCode: 2,
+    };
+  }
+
+  const [name, ...rest] = tokenized.tokens;
   if (name === undefined) {
     return { kind: 'sync', lines: [], exitCode: 0 };
   }
