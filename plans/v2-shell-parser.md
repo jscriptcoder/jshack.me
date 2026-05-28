@@ -34,8 +34,8 @@ Each command declares its own `FlagSpec`; `runCommandLine` consults it before ca
 
 Heavy lifting in unit tests on the pure modules. Browser smoke per slice for the one user-observable behaviour.
 
-- [ ] `cat -n /etc/passwd` outputs each line prefixed with `   <N>\t` (Slice 1)
-- [ ] `cat -xyz` renders one error line `cat: unrecognized option: -xyz`, exit 2; the file is NOT read (Slice 1)
+- [x] `cat -n /etc/passwd` outputs each line prefixed with `   <N>\t` (Slice 1) ✅ PR #174
+- [x] `cat -xyz` renders one error line `cat: unrecognized option: -xyz`, exit 2; the file is NOT read (Slice 1) ✅ PR #174
 - [ ] `head -n 5 /etc/passwd` outputs the first 5 lines (Slice 2)
 - [ ] `head -n` (no value) errors `head: option requires an argument: -n`, exit 2 (Slice 2)
 - [ ] `echo "hello world"` outputs `hello world` as one line, quotes stripped (Slice 3)
@@ -50,7 +50,10 @@ Every slice follows RED → GREEN → MUTATE → KILL MUTANTS → REFACTOR. Befo
 
 ---
 
-### Slice 1: walking skeleton — boolean flags + strict unknown errors
+### Slice 1: walking skeleton — boolean flags + strict unknown errors ✅ SHIPPED (PR #174)
+
+**Pivot recorded mid-slice**: the plan typed `tokenize` as `Result<{tokens}, error>` for Slice 3 forward-compat. Mutation testing surfaced 7 NoCoverage + 1 surviving mutant in the unreached error branch of `runLine.ts`. Pivoted to strict TDD — `tokenize` returns `readonly string[]` directly. Slice 3 absorbs the signature reshape (see its Files-touched note).
+
 
 **Value**: Player gets `cat -n /etc/passwd` numbered output; typos fail loudly with exit 2 instead of being silently absorbed.
 
@@ -129,10 +132,10 @@ Every slice follows RED → GREEN → MUTATE → KILL MUTANTS → REFACTOR. Befo
 **Path**: tokenize understands `"..."` and `'...'`, strips the outer quote pair, treats inner content as one token. Errors on unterminated quote.
 
 **Files touched**:
-- MOD: `v2/src/core/shell/tokenize.ts` + `.test.ts` — small state machine: outside / inside-double / inside-single
+- MOD: `v2/src/core/shell/tokenize.ts` + `.test.ts` — state machine (outside / inside-double / inside-single). **Reshape return type to `{ ok: true; tokens: readonly string[] } | { ok: false; error: string }`** — Slice 1's pivot left it as `readonly string[]`; this slice's unterminated-quote test demands the discriminator now.
 - NEW: `v2/src/core/commands/echo.ts` + `.test.ts` — joins positional with `' '`, outputs one `text` line; no flags
 - MOD: `v2/src/ui/state.ts` — register echo
-- MOD: `v2/src/core/shell/runLine.ts` — on tokenize error return `bash: <error>` line + exit 2
+- MOD: `v2/src/core/shell/runLine.ts` — add the `!tokenized.ok` branch to surface `bash: <error>` lines at exit 2 (this is the branch Slice 1 dropped pre-emptively).
 
 **Acceptance criteria** (confirm BEFORE coding):
 - AC1: `echo "hello world"` → one line `hello world`

@@ -12,12 +12,16 @@
 import { createSignal } from 'solid-js';
 import type { Command, TerminalLine } from '../core/commands/types';
 import { cat } from '../core/commands/cat';
+import { head } from '../core/commands/head';
 import { runCommandLine } from '../core/shell/runLine';
 import { commandEchoLine } from '../core/shell/prompt';
 import { buildCommandEnv } from './env';
 import { SEED_HOME, SEED_HOST, seedFs, seedIdentity, seedSession } from './seed';
 
-const COMMANDS: ReadonlyMap<string, Command> = new Map([['cat', cat]]);
+const COMMANDS: ReadonlyMap<string, Command> = new Map([
+  ['cat', cat],
+  ['head', head],
+]);
 
 const [scrollback, setScrollback] = createSignal<readonly TerminalLine[]>([]);
 const [input, setInput] = createSignal('');

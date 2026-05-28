@@ -59,4 +59,15 @@ describe('Terminal', () => {
 
     expect(await screen.findByText('cat: unrecognized option: -xyz')).toBeInTheDocument();
   });
+
+  it('limits head output to N lines when -n N is passed', async () => {
+    // /etc/passwd has root on line 1 and alice on line 2; -n 1 must show
+    // root and exclude alice — proves bindFlags is plumbing string-typed
+    // values through to head end-to-end.
+    renderTerminal();
+    runCommand('head -n 1 /etc/passwd');
+
+    expect(await screen.findByText(/root:r00tpw/)).toBeInTheDocument();
+    expect(screen.queryByText(/alice:hunter2/)).not.toBeInTheDocument();
+  });
 });

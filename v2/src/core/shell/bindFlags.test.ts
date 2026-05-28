@@ -94,4 +94,57 @@ describe('bindFlags', () => {
       error: 'unrecognized option: -xyz',
     });
   });
+
+  it('recognises a string flag and binds its value from the next token', () => {
+    const spec: FlagSpec = { '-n': 'string' };
+    expect(bindFlags(['-n', '5', 'file'], spec)).toEqual({
+      ok: true,
+      positional: ['file'],
+      flags: new Map([['-n', '5']]),
+    });
+  });
+
+  it("consumes a dash-prefixed token as a string flag's value (POSIX consume-next)", () => {
+    // Real users invoke `head -n -1` or `command -e -pattern`. The dash is
+    // a property of the value, not a separate flag.
+    const spec: FlagSpec = { '-n': 'string' };
+    expect(bindFlags(['-n', '-5'], spec)).toEqual({
+      ok: true,
+      positional: [],
+      flags: new Map([['-n', '-5']]),
+    });
+  });
+
+  it("consumes the next token as a string flag's value even when that token is itself a declared flag", () => {
+    // POSIX consume-next is unconditional. A user who wanted `-v` as a
+    // separate boolean flag would write `-v -n 5`, not `-n -v`.
+    const spec: FlagSpec = { '-n': 'string', '-v': 'boolean' };
+    expect(bindFlags(['-n', '-v'], spec)).toEqual({
+      ok: true,
+      positional: [],
+      flags: new Map([['-n', '-v']]),
+    });
+  });
+
+  it('rejects a string flag with no value at the end of input', () => {
+    const spec: FlagSpec = { '-n': 'string' };
+    expect(bindFlags(['-n'], spec)).toEqual({
+      ok: false,
+      error: 'option requires an argument: -n',
+    });
+  });
+
+  it('mixes string, boolean, and positional arguments preserving their order', () => {
+    const spec: FlagSpec = { '-n': 'string', '-v': 'boolean' };
+    expect(bindFlags(['file1', '-n', '5', '-v', 'file2'], spec)).toEqual({
+      ok: true,
+      positional: ['file1', 'file2'],
+      // Explicit typing — the literal `['-n','5'] | ['-v',true]` union
+      // doesn't inhabit the default `[string, string]` tuple inference.
+      flags: new Map<string, string | true>([
+        ['-n', '5'],
+        ['-v', true],
+      ]),
+    });
+  });
 });
