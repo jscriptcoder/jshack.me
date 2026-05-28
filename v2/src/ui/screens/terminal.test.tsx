@@ -96,4 +96,17 @@ describe('Terminal', () => {
 
     expect(await screen.findByText(/^1 root:r00tpw.*\$$/)).toBeInTheDocument();
   });
+
+  it('treats tokens after `--` as positional, even if they look like flags', () => {
+    // `cat -- -n` — the `--` says "stop option parsing"; `-n` becomes a
+    // literal filename. The seed FS has no file named `-n`, so cat reports
+    // not-found. Without the sentinel, the parser would either route `-n`
+    // as a flag (no numbered passwd here) or reject `-X`-like tokens.
+    renderTerminal();
+    runCommand('cat -- -n');
+
+    return expect(
+      screen.findByText('cat: -n: No such file or directory'),
+    ).resolves.toBeInTheDocument();
+  });
 });
