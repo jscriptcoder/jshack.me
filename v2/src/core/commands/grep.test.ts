@@ -291,25 +291,6 @@ describe('grep — argument validation', () => {
     ]);
   });
 
-  it('errors with "Is a directory" when the path is a dir (slice 2 will replace with recursion)', async () => {
-    // Slice 1 only handles single-file mode. Directory targets emit this
-    // sentinel error; slice 2 swaps in the recursive walk.
-    const tree = buildDirectory({
-      etc: buildDirectory({}, { owner: 'root' }),
-    });
-
-    const env = mockCommandEnv({
-      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/') }),
-    });
-
-    const result = await grep.execute(env, ['pattern', '/etc'], NO_FLAGS);
-
-    expect(result.kind).toBe('sync');
-    if (result.kind !== 'sync') return;
-    expect(result.exitCode).toBe(2);
-    expect(errorLines(result)).toEqual(["grep: '/etc': Is a directory"]);
-  });
-
   it('errors with "invalid regex" when the pattern fails to compile (v2-explicit)', async () => {
     // Legacy threw a SyntaxError from `new RegExp('[', 'i')` — v2 catches
     // and emits an error line + exit 2. Pattern `[` is an unterminated
@@ -349,5 +330,311 @@ describe('grep — argument validation', () => {
     if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(0);
     expect(textLines(result)).toEqual(['important: foo present']);
+  });
+});
+
+describe('grep — directory recursion', () => {
+  it('recursively walks a directory and prefixes matches with the filepath', async () => {
+    // /etc/passwd has `root:x...`; /home/user/notes.txt has `root password`.
+    // Both match `root` and should appear as `<filepath>:<line>` rows.
+    const tree = buildDirectory({
+      etc: buildDirectory(
+        {
+          passwd: buildFile('root:x:0:0:root:/root:/bin/bash\nalice:x:1000\n', {
+            owner: 'root',
+            perms: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] },
+          }),
+        },
+        { owner: 'root' },
+      ),
+      home: buildDirectory({
+        user: buildDirectory(
+          { 'notes.txt': buildFile('the root password is secret\nnothing\n', { owner: 'alice' }) },
+          { owner: 'alice' },
+        ),
+      }),
+    });
+
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/') }),
+    });
+
+    const result = await grep.execute(env, ['root', '/'], NO_FLAGS);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(result.exitCode).toBe(0);
+    expect(textLines(result)).toEqual([
+      '/etc/passwd:root:x:0:0:root:/root:/bin/bash',
+      '/home/user/notes.txt:the root password is secret',
+    ]);
+  });
+
+  it('sorts results by filepath alphabetically (insertion order intentionally reversed)', async () => {
+    // Insertion order [zoo, alpha] — without sorting, output would mirror
+    // insertion. With alpha sort: alpha/* comes before zoo/*. Catches a
+    // MethodExpression that drops `.sort()`.
+    const tree = buildDirectory({
+      zoo: buildDirectory(
+        { 'z.txt': buildFile('zoo match\n', { owner: 'alice' }) },
+        { owner: 'alice' },
+      ),
+      alpha: buildDirectory(
+        { 'a.txt': buildFile('alpha match\n', { owner: 'alice' }) },
+        { owner: 'alice' },
+      ),
+    });
+
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/') }),
+    });
+
+    const result = await grep.execute(env, ['match', '/'], NO_FLAGS);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(textLines(result)).toEqual([
+      '/alpha/a.txt:alpha match',
+      '/zoo/z.txt:zoo match',
+    ]);
+  });
+
+  it('reaches files multiple levels deep', async () => {
+    const tree = buildDirectory({
+      a: buildDirectory(
+        {
+          b: buildDirectory(
+            {
+              c: buildDirectory(
+                { 'deep.txt': buildFile('found me\n', { owner: 'alice' }) },
+                { owner: 'alice' },
+              ),
+            },
+            { owner: 'alice' },
+          ),
+        },
+        { owner: 'alice' },
+      ),
+    });
+
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/') }),
+    });
+
+    const result = await grep.execute(env, ['found', '/'], NO_FLAGS);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(result.exitCode).toBe(0);
+    expect(textLines(result)).toEqual(['/a/b/c/deep.txt:found me']);
+  });
+
+  it('omits files that do not contain matches', async () => {
+    const tree = buildDirectory({
+      'hit.txt': buildFile('target word here\n', { owner: 'alice' }),
+      'miss.txt': buildFile('nothing relevant\n', { owner: 'alice' }),
+    });
+
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/') }),
+    });
+
+    const result = await grep.execute(env, ['target', '/'], NO_FLAGS);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(textLines(result)).toEqual(['/hit.txt:target word here']);
+  });
+
+  it('silently skips binary files (ELF) during recursion', async () => {
+    // Same magic as in single-file mode. The binary file's content
+    // contains `password=secret` but must NOT appear in the output.
+    const tree = buildDirectory({
+      binary: buildFile(`${ELF_STUB}password=secret`, {
+        owner: 'root',
+        perms: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root', 'user', 'guest'] },
+      }),
+      'text.txt': buildFile('password=visible\n', { owner: 'alice' }),
+    });
+
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/') }),
+    });
+
+    const result = await grep.execute(env, ['password', '/'], NO_FLAGS);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(textLines(result)).toEqual(['/text.txt:password=visible']);
+  });
+
+  it('silently skips unreadable files (no error line, no exit-code change)', async () => {
+    // public.txt is world-readable; private.txt is root-only. The user
+    // sees one match, no errors, exit 0 (NOT exit 2 — perm-denied during
+    // recursion is silent, unlike single-file mode).
+    const tree = buildDirectory({
+      'public.txt': buildFile('secret in public\n', {
+        owner: 'root',
+        perms: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] },
+      }),
+      'private.txt': buildFile('secret in private\n', {
+        owner: 'root',
+        perms: { read: ['root'], write: ['root'], execute: ['root'] },
+      }),
+    });
+
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/') }),
+    });
+
+    const result = await grep.execute(env, ['secret', '/'], NO_FLAGS);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(result.exitCode).toBe(0);
+    expect(textLines(result)).toEqual(['/public.txt:secret in public']);
+    expect(errorLines(result)).toEqual([]);
+  });
+
+  it('silently skips untraversable directories; sibling subtrees still searched', async () => {
+    const tree = buildDirectory({
+      readable: buildDirectory(
+        { 'file.txt': buildFile('find me\n', { owner: 'alice' }) },
+        { owner: 'alice' },
+      ),
+      unreadable: buildDirectory(
+        { 'hidden.txt': buildFile('find me too\n', { owner: 'root' }) },
+        {
+          owner: 'root',
+          perms: { read: ['root'], write: ['root'], execute: ['root'] },
+        },
+      ),
+    });
+
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/') }),
+    });
+
+    const result = await grep.execute(env, ['find', '/'], NO_FLAGS);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    // Readable sibling produces a match; unreadable subtree contributes
+    // nothing (no error, no leaked content).
+    expect(textLines(result)).toEqual(['/readable/file.txt:find me']);
+    expect(errorLines(result)).toEqual([]);
+  });
+
+  it('lets root read files a user-tier session could not (perm bypass via FsView)', async () => {
+    // private.txt is root-only. A root-tier session sees the match;
+    // grep code has no root-special-case — FsView's canRead handles it.
+    const tree = buildDirectory({
+      'private.txt': buildFile('classified intel here\n', {
+        owner: 'root',
+        perms: { read: ['root'], write: ['root'], execute: ['root'] },
+      }),
+    });
+
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'root', cwd: asAbsPath('/') }),
+    });
+
+    const result = await grep.execute(env, ['classified', '/'], NO_FLAGS);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(textLines(result)).toEqual(['/private.txt:classified intel here']);
+  });
+
+  it('returns no output and exits 1 for an empty directory', async () => {
+    const tree = buildDirectory({
+      empty: buildDirectory({}, { owner: 'alice' }),
+    });
+
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/') }),
+    });
+
+    const result = await grep.execute(env, ['anything', '/empty'], NO_FLAGS);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(result.exitCode).toBe(1);
+    expect(result.lines).toEqual([]);
+  });
+
+  it('returns no output and exits 1 when no files in the tree match', async () => {
+    const tree = buildDirectory({
+      'a.txt': buildFile('alpha\n', { owner: 'alice' }),
+      'b.txt': buildFile('beta\n', { owner: 'alice' }),
+    });
+
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/') }),
+    });
+
+    const result = await grep.execute(env, ['zzzzz', '/'], NO_FLAGS);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(result.exitCode).toBe(1);
+    expect(result.lines).toEqual([]);
+  });
+
+  it('resolves `.` to the current cwd and recurses there', async () => {
+    // `grep root .` from /home/user descends /home/user only.
+    const tree = buildDirectory({
+      etc: buildDirectory(
+        {
+          passwd: buildFile('root:x:0:0\n', {
+            owner: 'root',
+            perms: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] },
+          }),
+        },
+        { owner: 'root' },
+      ),
+      home: buildDirectory({
+        user: buildDirectory(
+          { 'notes.txt': buildFile('root pw here\n', { owner: 'alice' }) },
+          { owner: 'alice' },
+        ),
+      }),
+    });
+
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/home/user') }),
+    });
+
+    const result = await grep.execute(env, ['root', '.'], NO_FLAGS);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    // Only `/home/user/notes.txt` is in scope; `/etc/passwd` is NOT searched.
+    expect(textLines(result)).toEqual(['/home/user/notes.txt:root pw here']);
+  });
+
+  it('preserves single-file behavior when target IS a file (slice 1 regression)', async () => {
+    const tree = buildDirectory({
+      etc: buildDirectory(
+        {
+          passwd: buildFile('root:x:0:0\nalice:x:1000\n', {
+            owner: 'root',
+            perms: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] },
+          }),
+        },
+        { owner: 'root' },
+      ),
+    });
+
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/') }),
+    });
+
+    const result = await grep.execute(env, ['root', '/etc/passwd'], NO_FLAGS);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    // Single-file mode: NO `<filepath>:` prefix.
+    expect(textLines(result)).toEqual(['root:x:0:0']);
   });
 });

@@ -148,6 +148,17 @@ describe('Terminal', () => {
     expect(await screen.findByText(/alice:hunter2/)).toBeInTheDocument();
   });
 
+  it('`grep PATTERN /etc` recursively walks the directory and prefixes filepaths', async () => {
+    // Seed /etc has motd ("Welcome to JSHACK.ME...") and passwd. `Welcome`
+    // only appears in motd. The recursive walk emits `/etc/motd:<line>`.
+    renderTerminal();
+    runCommand('grep Welcome /etc');
+
+    expect(
+      await screen.findByText(/^\/etc\/motd:Welcome to JSHACK\.ME/),
+    ).toBeInTheDocument();
+  });
+
   it('`ls -la` (stacked) shows hidden entries in long format', async () => {
     // End-to-end demo of the stacking infrastructure: `-la` is parsed as
     // `-l -a` and ls renders both behaviors. /etc has perms (drwxrwxrwx
