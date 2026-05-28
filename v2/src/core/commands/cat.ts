@@ -6,15 +6,33 @@
  *   line. Errors per file are reported but do not abort subsequent args.
  * - With no args and a piped stdin, echoes stdin to output.
  * - With no args and no stdin, exits 1 with a usage hint.
+ * - With -n, prefixes each output text line with a GNU-style 6-wide
+ *   right-aligned counter and a tab.
  *
  * Exit codes:
  *   0 — every file read successfully
  *   1 — any file failed to read
  */
 
-import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
+import type { Command, CommandEnv, CommandResult, FsReadResult, TerminalLine } from './types';
 import { resolveAbsPath } from '../filesystem/path';
-import { formatReadError, toContentLines } from './fsReadHelpers';
+
+type FsReadError = Extract<FsReadResult, { readonly ok: false }>['error'];
+
+/** Format a `cat: <target>: <reason>` error line for a failed FS read.
+ *  Inlined here (rather than in a shared helper) because cat is currently
+ *  the only command reading files — when `tail`/`grep` arrive, re-extract
+ *  into `core/commands/fsReadHelpers.ts` (cf. git history through PR #175). */
+const formatReadError = (target: string, error: FsReadError): string => {
+  switch (error) {
+    case 'not_found':
+      return `cat: ${target}: No such file or directory`;
+    case 'is_directory':
+      return `cat: ${target}: Is a directory`;
+    case 'permission_denied':
+      return `cat: ${target}: Permission denied`;
+  }
+};
 
 const collectStdin = async (stdin: AsyncIterable<string>): Promise<readonly TerminalLine[]> => {
   const lines: TerminalLine[] = [];
@@ -24,10 +42,19 @@ const collectStdin = async (stdin: AsyncIterable<string>): Promise<readonly Term
   return lines;
 };
 
+/** Split file content into output lines, dropping the trailing empty
+ *  element that `split('\n')` yields for newline-terminated files (so a
+ *  normal file doesn't print a spurious blank line at the end). */
+const toContentLines = (content: string): readonly TerminalLine[] => {
+  const segments = content.split('\n');
+  const body = segments[segments.length - 1] === '' ? segments.slice(0, -1) : segments;
+  return body.map((line) => ({ kind: 'text', content: line }));
+};
+
 const readArg = (env: CommandEnv, arg: string): readonly TerminalLine[] => {
   const result = env.fs.read(resolveAbsPath(env.fs.cwd(), arg));
   if (!result.ok) {
-    return [{ kind: 'error', content: formatReadError('cat', arg, result.error) }];
+    return [{ kind: 'error', content: formatReadError(arg, result.error) }];
   }
   return toContentLines(result.content);
 };
@@ -48,11 +75,6 @@ const numberLines = (lines: readonly TerminalLine[]): readonly TerminalLine[] =>
   });
 };
 
-/** Append `$` to each text line (GNU `cat -E`'s "show end of lines"). Error
- *  lines pass through clean — they're not part of stdout content. */
-const suffixLineEnds = (lines: readonly TerminalLine[]): readonly TerminalLine[] =>
-  lines.map((line) => (line.kind === 'text' ? { kind: 'text', content: `${line.content}$` } : line));
-
 const execute = async (
   env: CommandEnv,
   args: readonly string[],
@@ -71,11 +93,7 @@ const execute = async (
 
   const lines = args.flatMap((arg) => readArg(env, arg));
   const exitCode = lines.some((line) => line.kind === 'error') ? 1 : 0;
-  // Compose in order: -E suffixes raw content, -n then numbers what's left.
-  // Either order produces the same result (-n's tab boundary is unaffected
-  // by -E's trailing `$`) — fixed here so the implementation is deterministic.
-  const withSuffix = flags.get('-E') === true ? suffixLineEnds(lines) : lines;
-  const finalLines = flags.get('-n') === true ? numberLines(withSuffix) : withSuffix;
+  const finalLines = flags.get('-n') === true ? numberLines(lines) : lines;
   return { kind: 'sync', lines: finalLines, exitCode };
 };
 
@@ -84,18 +102,12 @@ export const cat: Command = {
   description: 'Concatenate and print files',
   tier: 'guest',
   availability: { kind: 'any-machine' },
-  flags: { '-n': 'boolean', '-E': 'boolean' },
-  stacking: true,
+  flags: { '-n': 'boolean' },
   manual: {
-    synopsis: 'cat [-nE] [file...]',
+    synopsis: 'cat [-n] [file...]',
     description:
-      'Print the contents of each file to stdout in order. With no file argument, read from stdin. -n numbers each output line starting at 1; -E suffixes each line with `$`. Flags may be combined (`cat -nE file` ≡ `cat -n -E file`).',
-    examples: [
-      'cat /etc/passwd',
-      'cat -n notes.txt',
-      'cat -nE config',
-      'cat file1 file2 | grep root',
-    ],
+      'Print the contents of each file to stdout in order. With no file argument, read from stdin. With -n, number each output line starting at 1.',
+    examples: ['cat /etc/passwd', 'cat -n notes.txt', 'cat file1 file2 | grep root', 'echo hello | cat'],
   },
   execute,
 };
