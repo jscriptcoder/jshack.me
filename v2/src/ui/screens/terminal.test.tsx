@@ -127,4 +127,15 @@ describe('Terminal', () => {
       screen.getByText('alice@workstation:/home/alice$ pwd'),
     ).toBeInTheDocument();
   });
+
+  it('lists directory contents with `ls`', async () => {
+    // Seed FS: /etc contains `motd` and `passwd`. Both are world-readable
+    // ENTRIES of /etc (whose perms allow read); /etc/passwd's content
+    // is still gated separately. `ls` only needs to read the directory.
+    renderTerminal();
+    runCommand('ls /etc');
+
+    expect(await screen.findByText('motd')).toBeInTheDocument();
+    expect(await screen.findByText('passwd')).toBeInTheDocument();
+  });
 });
