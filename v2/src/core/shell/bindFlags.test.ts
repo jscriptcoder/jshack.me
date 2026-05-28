@@ -235,4 +235,64 @@ describe('bindFlags', () => {
       error: 'unrecognized option: -N',
     });
   });
+
+  it('treats every token after `--` as positional, including dash-prefixed ones', () => {
+    // The POSIX end-of-options sentinel. Lets users pass file names like
+    // `-weird.txt` by writing `cat -- -weird.txt`.
+    const spec: FlagSpec = { '-n': 'boolean' };
+    expect(bindFlags(['--', '-n', 'file'], spec)).toEqual({
+      ok: true,
+      positional: ['-n', 'file'],
+      flags: new Map(),
+    });
+  });
+
+  it('keeps flags BEFORE `--` as flags and tokens AFTER as positional', () => {
+    const spec: FlagSpec = { '-n': 'boolean' };
+    expect(bindFlags(['-n', '--', '-n'], spec)).toEqual({
+      ok: true,
+      positional: ['-n'],
+      flags: new Map([['-n', true]]),
+    });
+  });
+
+  it('consumes only the FIRST `--`; subsequent `--` are positional', () => {
+    // A user who wants a literal `--` in their args writes `... -- -- ...`
+    // — the first ends option parsing, the second is just an arg.
+    expect(bindFlags(['--', '--', 'foo'], {})).toEqual({
+      ok: true,
+      positional: ['--', 'foo'],
+      flags: new Map(),
+    });
+  });
+
+  it('treats a lone `--` as a no-op (no positional, no flags)', () => {
+    expect(bindFlags(['--'], {})).toEqual({
+      ok: true,
+      positional: [],
+      flags: new Map(),
+    });
+  });
+
+  it("consumes `--` as a string flag's value when one is awaiting it", () => {
+    // POSIX-correct (`getopt` does this): when mid-consume-next for a
+    // `'string'`-typed flag, the next token is the VALUE, even if it
+    // looks like the sentinel.
+    const spec: FlagSpec = { '-o': 'string' };
+    expect(bindFlags(['-o', '--'], spec)).toEqual({
+      ok: true,
+      positional: [],
+      flags: new Map([['-o', '--']]),
+    });
+  });
+
+  it('returns to normal parsing after `--` is consumed as a string flag value', () => {
+    // Defensive: locks the rule that consume-next does NOT also arm the
+    // sentinel — after `-o --`, a following `-x` is still a flag candidate.
+    const spec: FlagSpec = { '-o': 'string' };
+    expect(bindFlags(['-o', '--', '-x'], spec)).toEqual({
+      ok: false,
+      error: 'unrecognized option: -x',
+    });
+  });
 });

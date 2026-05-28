@@ -1,5 +1,5 @@
 /**
- * bindFlags — phases 1–3 of the v2 shell parser.
+ * bindFlags — the v2 shell parser's flag-binding phase (feature-complete).
  *
  * Given the tokens AFTER the command name plus the command's flag spec,
  * classify each token as a boolean flag, a string flag (consuming the
@@ -9,8 +9,8 @@
  *
  * Slice 1 added boolean flags + strict unknown errors. Slice 2 adds
  * `'string'`-typed flags with POSIX consume-next semantics. Slice 4 adds
- * per-command opt-in short-flag stacking (`ls -la` ≡ `ls -l -a`). The
- * `--` end-of-options sentinel arrives in Slice 5.
+ * per-command opt-in short-flag stacking (`ls -la` ≡ `ls -l -a`). Slice
+ * 5 adds the `--` end-of-options sentinel.
  *
  * Strictness:
  * - Any dash-prefixed token not in the spec is `unrecognized option`.
@@ -19,6 +19,10 @@
  * - When stacking is enabled, expansion is a FALLBACK after a literal
  *   spec miss, ALL-OR-NOTHING (every char must be a boolean flag in the
  *   spec, otherwise the whole original token is rejected verbatim).
+ * - `--` ends option parsing — every subsequent token is positional,
+ *   even if it looks like a flag. EXCEPT when a string flag is awaiting
+ *   its value: consume-next runs FIRST, so `-o --` binds `--` as the
+ *   value of `-o` and does NOT arm the sentinel.
  * - Bare `-` (single dash) is always positional — POSIX shorthand for
  *   stdin — regardless of the spec.
  */
@@ -75,6 +79,14 @@ export const bindFlags = (
       positional.push(token);
       continue;
     }
+    if (token === '--') {
+      // End-of-options sentinel — every remaining token is positional,
+      // INCLUDING further `--` (only the first sentinel is consumed).
+      for (let j = i + 1; j < args.length; j += 1) {
+        positional.push(args[j]);
+      }
+      break;
+    }
     const declared = spec[token];
     if (declared === 'boolean') {
       flags.set(token, true);
@@ -86,8 +98,9 @@ export const bindFlags = (
         return { ok: false, error: `option requires an argument: ${token}` };
       }
       // POSIX consume-next is unconditional: the next token IS the value,
-      // even if it looks like a flag (`-n -5`, `-n -v`). Users who want a
-      // dash-prefixed positional after a string flag will use `--` (Slice 5).
+      // even if it looks like a flag (`-n -5`, `-n -v`) or the sentinel
+      // (`-o --`). Users who want a dash-prefixed positional after a
+      // string flag will need a second `--` later in the line.
       flags.set(token, next);
       i += 1; // step past the value token; the for-loop's i++ then advances normally
       continue;
