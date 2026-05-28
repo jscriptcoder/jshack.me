@@ -21,6 +21,7 @@ import type {
   UserType,
 } from '../types';
 import type { Directory, FileNode } from '../filesystem/types';
+import type { FlagSpec } from '../shell/bindFlags';
 
 // ---- Identity & session (read-only snapshots in CommandEnv) ----
 
@@ -195,6 +196,9 @@ export type Command = {
   readonly manual?: ManualPage;
   readonly tier: UserType;
   readonly availability: AvailabilityRule;
+  /** Declared flag spec consumed by `bindFlags` before `execute` is called.
+   *  Omit for commands that take only positional arguments. */
+  readonly flags?: FlagSpec;
   readonly execute: (
     env: CommandEnv,
     args: readonly string[],
