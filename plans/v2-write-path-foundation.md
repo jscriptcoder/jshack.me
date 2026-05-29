@@ -61,8 +61,8 @@ these — which is exactly why it's the thinnest real first slice.
       prints their pubkey + fingerprint, stable across reloads. (Slice 1 ✅ — UI smoke verified persist-across-reload.)
 - [x] A signed envelope round-trips (sign → verify) and is rejected on tamper,
       replay (duplicate nonce), and timestamp skew. (Slice 2 ✅ — signedRequest core, mutation 98.67%.)
-- [ ] The fresh v2 Supabase `patches` table denies anon/authenticated and permits
-      only service_role (RLS verifier passes).
+- [x] The fresh v2 Supabase `patches` table denies anon/authenticated and permits
+      only service_role (RLS verifier passes). (Slice 3 ✅ — 5/5 probes; v2 on 544xx ports.)
 - [ ] A signed `upsertPatch` for the caller's own workstation persists a `patches`
       row with no session required (own-workstation L1 bypass), verified by a
       wire-payload smoke test against `vercel:dev`.
