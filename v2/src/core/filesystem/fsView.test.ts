@@ -12,8 +12,14 @@ const tree = () =>
         { owner: 'alice' },
       ),
     }),
-    root: buildDirectory({ 'secret.txt': buildFile('classified', { owner: 'root' }) }, { owner: 'root' }),
-    vault: buildDirectory({ 'x.txt': buildFile('y', { owner: 'root' }) }, { owner: 'root', perms: { read: ['root'] } }),
+    root: buildDirectory(
+      { 'secret.txt': buildFile('classified', { owner: 'root' }) },
+      { owner: 'root' },
+    ),
+    vault: buildDirectory(
+      { 'x.txt': buildFile('y', { owner: 'root' }) },
+      { owner: 'root', perms: { read: ['root'] } },
+    ),
   });
 
 const userView = () => createFsView(tree(), { userType: 'user', cwd: asAbsPath('/') });
@@ -52,7 +58,12 @@ describe('createFsView', () => {
     // by `user`, so the walker must deny via the parent chain — not the leaf.
     const tree = buildDirectory({
       locked: buildDirectory(
-        { 'open.txt': buildFile('public', { owner: 'alice', perms: { read: ['root', 'user', 'guest'] } }) },
+        {
+          'open.txt': buildFile('public', {
+            owner: 'alice',
+            perms: { read: ['root', 'user', 'guest'] },
+          }),
+        },
         { owner: 'root', perms: { execute: ['root'] } },
       ),
     });
@@ -101,6 +112,38 @@ describe('createFsView', () => {
     expect(userView().stat(asAbsPath('/nope'))).toBeNull();
   });
 
+  it('permits writing into a directory the user tier owns', () => {
+    expect(userView().canWrite(asAbsPath('/home/alice'))).toEqual({ allowed: true });
+  });
+
+  it('denies writing into a directory the user tier cannot write', () => {
+    // /vault write defaults to root-only.
+    expect(userView().canWrite(asAbsPath('/vault'))).toEqual({
+      allowed: false,
+      reason: 'target_unwritable',
+    });
+  });
+
+  it('lets root write anywhere', () => {
+    const rootView = createFsView(tree(), { userType: 'root', cwd: asAbsPath('/') });
+    expect(rootView.canWrite(asAbsPath('/vault'))).toEqual({ allowed: true });
+  });
+
+  it('denies writing under a non-traversable ancestor directory', () => {
+    const lockedTree = buildDirectory({
+      locked: buildDirectory(
+        { sub: buildDirectory({}, { owner: 'alice', perms: { write: ['root', 'user'] } }) },
+        { owner: 'root', perms: { execute: ['root'] } },
+      ),
+    });
+    const fs = createFsView(lockedTree, { userType: 'user', cwd: asAbsPath('/') });
+
+    expect(fs.canWrite(asAbsPath('/locked/sub'))).toEqual({
+      allowed: false,
+      reason: 'parent_not_traversable',
+    });
+  });
+
   it('exposes the configured working directory', () => {
     const fs = createFsView(tree(), { userType: 'user', cwd: asAbsPath('/home/alice') });
     expect(fs.cwd()).toBe('/home/alice');
@@ -114,7 +157,13 @@ describe('createFsView', () => {
   it('defaults to the user tier and root cwd when options are omitted', () => {
     const fs = createFsView(tree());
     expect(fs.cwd()).toBe('/');
-    expect(fs.read(asAbsPath('/home/alice/notes.txt'))).toEqual({ ok: true, content: 'hello\nworld\n' });
-    expect(fs.read(asAbsPath('/root/secret.txt'))).toEqual({ ok: false, error: 'permission_denied' });
+    expect(fs.read(asAbsPath('/home/alice/notes.txt'))).toEqual({
+      ok: true,
+      content: 'hello\nworld\n',
+    });
+    expect(fs.read(asAbsPath('/root/secret.txt'))).toEqual({
+      ok: false,
+      error: 'permission_denied',
+    });
   });
 });

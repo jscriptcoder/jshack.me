@@ -21,6 +21,7 @@ import type {
   UserType,
 } from '../types';
 import type { Directory, FileNode } from '../filesystem/types';
+import type { WalkResult } from '../filesystem/walker';
 import type { FlagSpec } from '../shell/bindFlags';
 
 // ---- Identity & session (read-only snapshots in CommandEnv) ----
@@ -100,6 +101,11 @@ export type FsView = {
   readonly read: (path: AbsPath) => FsReadResult;
   readonly list: (path: AbsPath) => FsListResult;
   readonly stat: (path: AbsPath) => FileNode | null;
+  /** Can the session tier write the node at `path` (create entries in a
+   *  directory, or overwrite a file)? Mirrors the read side: resolves the
+   *  path and runs the shared walker. Used by the write commands (mkdir,
+   *  redirect, rm) to gate before routing through `PatchApi`. */
+  readonly canWrite: (path: AbsPath) => WalkResult;
   /** Full directory snapshot for the current machine. Used by walker-based ops. */
   readonly root: () => Directory;
 };

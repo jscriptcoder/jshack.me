@@ -3,14 +3,22 @@ import { buildCommandEnv } from './env';
 import { SEED_HOME, seedFs, seedSession } from './seed';
 import { generateIdentity } from '../core/identity/identity';
 import { asAbsPath } from '../core/types';
+import type { PatchApi } from '../core/commands/types';
+
+const noopPatches: PatchApi = {
+  write: async () => ({ ok: true }),
+  remove: async () => ({ ok: true }),
+  mkdir: async () => ({ ok: true }),
+};
 
 const seedEnv = (userType: 'guest' | 'user' | 'root' = 'user') =>
   buildCommandEnv({
     identity: generateIdentity(),
-    session: { ...seedSession(), userType },
+    session: { ...seedSession(generateIdentity()), userType },
     root: seedFs(),
     cwd: () => SEED_HOME,
     onCwdChange: () => undefined,
+    patches: noopPatches,
   });
 
 describe('buildCommandEnv', () => {
@@ -30,13 +38,14 @@ describe('buildCommandEnv', () => {
   });
 
   it('exposes the provided session and working directory', () => {
-    const session = seedSession();
+    const session = seedSession(generateIdentity());
     const env = buildCommandEnv({
       identity: generateIdentity(),
       session,
       root: seedFs(),
       cwd: () => SEED_HOME,
-    onCwdChange: () => undefined,
+      onCwdChange: () => undefined,
+      patches: noopPatches,
     });
 
     expect(env.session).toBe(session);

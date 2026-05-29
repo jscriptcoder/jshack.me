@@ -41,12 +41,8 @@ describe('Terminal', () => {
     runCommand('frobnicate');
     await screen.findByText(/command not found/i);
 
-    expect(
-      screen.getByText('alice@workstation:/home/alice$ cat /etc/passwd'),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText('alice@workstation:/home/alice$ frobnicate'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('alice@workstation:/home/alice$ cat /etc/passwd')).toBeInTheDocument();
+    expect(screen.getByText('alice@workstation:/home/alice$ frobnicate')).toBeInTheDocument();
   });
 
   it('numbers each line when -n is passed', async () => {
@@ -118,14 +114,10 @@ describe('Terminal', () => {
     runCommand('cd /nope');
     runCommand('pwd');
 
-    expect(
-      await screen.findByText('cd: /nope: No such file or directory'),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('cd: /nope: No such file or directory')).toBeInTheDocument();
     expect(await screen.findByText('/home/alice')).toBeInTheDocument();
     // The post-failure prompt still shows the original cwd.
-    expect(
-      screen.getByText('alice@workstation:/home/alice$ pwd'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('alice@workstation:/home/alice$ pwd')).toBeInTheDocument();
   });
 
   it('lists directory contents with `ls`', async () => {
@@ -154,9 +146,7 @@ describe('Terminal', () => {
     renderTerminal();
     runCommand('grep Welcome /etc');
 
-    expect(
-      await screen.findByText(/^\/etc\/motd:Welcome to JSHACK\.ME/),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/^\/etc\/motd:Welcome to JSHACK\.ME/)).toBeInTheDocument();
   });
 
   it('`grep -l root /etc` emits matching filepaths only, no `:line` content', async () => {

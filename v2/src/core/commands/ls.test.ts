@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ls } from './ls';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import {
-  mockCommandEnv,
-  mockFsViewFromTree,
-} from '../../test/factories/commandEnv';
+import { mockCommandEnv, mockFsViewFromTree } from '../../test/factories/commandEnv';
 import { asAbsPath } from '../types';
 import type { TerminalLine } from './types';
 
@@ -190,9 +187,7 @@ describe('ls', () => {
     expect(result.kind).toBe('sync');
     if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(2);
-    expect(errorLines(result)).toEqual([
-      "ls: cannot access '/nope': No such file or directory",
-    ]);
+    expect(errorLines(result)).toEqual(["ls: cannot access '/nope': No such file or directory"]);
   });
 
   it('reports "cannot open directory" when the directory is unreadable and exits 2', async () => {
@@ -217,9 +212,7 @@ describe('ls', () => {
     expect(result.kind).toBe('sync');
     if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(2);
-    expect(errorLines(result)).toEqual([
-      "ls: cannot open directory '/root': Permission denied",
-    ]);
+    expect(errorLines(result)).toEqual(["ls: cannot open directory '/root': Permission denied"]);
   });
 
   it('echoes the ORIGINAL arg in error messages (not the resolved abs path)', async () => {
@@ -237,9 +230,7 @@ describe('ls', () => {
     expect(result.kind).toBe('sync');
     if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(2);
-    expect(errorLines(result)).toEqual([
-      "ls: cannot access 'nope': No such file or directory",
-    ]);
+    expect(errorLines(result)).toEqual(["ls: cannot access 'nope': No such file or directory"]);
   });
 });
 
@@ -315,9 +306,7 @@ describe('ls -l (long format)', () => {
     expect(result.kind).toBe('sync');
     if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(0);
-    expect(textLines(result)).toEqual([
-      `-rwxrw---- alice ${content.length} notes.txt`,
-    ]);
+    expect(textLines(result)).toEqual([`-rwxrw---- alice ${content.length} notes.txt`]);
   });
 
   it('uses `d` as the type char for directories and reports size 4096', async () => {
@@ -328,10 +317,7 @@ describe('ls -l (long format)', () => {
     // Size for directory: 4096 (Unix convention).
     const tree = buildDirectory({
       home: buildDirectory({
-        alice: buildDirectory(
-          { sub: buildDirectory({}, { owner: 'alice' }) },
-          { owner: 'alice' },
-        ),
+        alice: buildDirectory({ sub: buildDirectory({}, { owner: 'alice' }) }, { owner: 'alice' }),
       }),
     });
 
@@ -415,9 +401,7 @@ describe('ls -l (long format)', () => {
     expect(result.kind).toBe('sync');
     if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(0);
-    expect(textLines(result)).toEqual([
-      `-rwxr----- root 28 /etc/passwd`,
-    ]);
+    expect(textLines(result)).toEqual([`-rwxr----- root 28 /etc/passwd`]);
   });
 });
 

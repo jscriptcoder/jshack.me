@@ -16,15 +16,13 @@ describe('formatPrompt', () => {
   });
 
   it('reflects a deep cwd verbatim', () => {
-    expect(
-      formatPrompt({ username: 'alice', host: 'workstation', cwd: '/tmp/sub/deeper' }),
-    ).toBe('alice@workstation:/tmp/sub/deeper$');
+    expect(formatPrompt({ username: 'alice', host: 'workstation', cwd: '/tmp/sub/deeper' })).toBe(
+      'alice@workstation:/tmp/sub/deeper$',
+    );
   });
 
   it('uses the username and host verbatim (catches swapped field mutants)', () => {
-    expect(formatPrompt({ username: 'root', host: 'gateway', cwd: '/' })).toBe(
-      'root@gateway:/$',
-    );
+    expect(formatPrompt({ username: 'root', host: 'gateway', cwd: '/' })).toBe('root@gateway:/$');
   });
 });
 
@@ -44,11 +42,11 @@ describe('commandEchoLine', () => {
   });
 
   it('reflects a different cwd in the echoed line', () => {
-    expect(
-      commandEchoLine({ username: 'alice', host: 'workstation', cwd: '/tmp' }, 'pwd'),
-    ).toEqual({
-      kind: 'prompt',
-      content: 'alice@workstation:/tmp$ pwd',
-    });
+    expect(commandEchoLine({ username: 'alice', host: 'workstation', cwd: '/tmp' }, 'pwd')).toEqual(
+      {
+        kind: 'prompt',
+        content: 'alice@workstation:/tmp$ pwd',
+      },
+    );
   });
 });

@@ -49,8 +49,7 @@ const formatPermsString = (node: FileNode): string => {
   return `${typeChar}${triplets.join('')}`;
 };
 
-const sizeOf = (node: FileNode): number =>
-  node.kind === 'directory' ? 4096 : node.content.length;
+const sizeOf = (node: FileNode): number => (node.kind === 'directory' ? 4096 : node.content.length);
 
 const formatLongLine = (name: string, node: FileNode): string =>
   `${formatPermsString(node)} ${node.owner} ${sizeOf(node)} ${name}`;
@@ -59,8 +58,7 @@ type Entry = { readonly name: string; readonly node: FileNode };
 
 /** Compare two strings as code-point sequences — matches the default
  *  `Array#sort()` behavior used in slice 2's no-flag path. */
-const byName = (a: Entry, b: Entry): number =>
-  a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+const byName = (a: Entry, b: Entry): number => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
 
 const buildDirEntries = (
   env: CommandEnv,

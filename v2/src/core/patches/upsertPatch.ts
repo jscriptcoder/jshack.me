@@ -11,7 +11,8 @@
  */
 
 import { z } from 'zod';
-import { verifySignedRequest, type VerifyFailureReason } from '../signedRequest/verify';
+import { verifySignedRequest } from '../signedRequest/verify';
+import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { isOwnWorkstation } from '../identity/workstation';
 import type { NonceStore } from '../signedRequest/nonceStore';
 import type { UserType } from '../types';
@@ -45,8 +46,13 @@ export type HandlerResponse = {
 
 // Loose so the always-present envelope fields (action/ts/nonce) pass through;
 // the refine rejects a client-supplied player_key (the server stamps it).
-// permissions / is_new / node_type are deliberately NOT validated here yet —
-// they're added with tests when mkdir/redirect (slice 5/6) first send them.
+const userTypeSchema = z.enum(['root', 'user', 'guest']);
+const permissionsSchema = z.object({
+  read: z.array(userTypeSchema),
+  write: z.array(userTypeSchema),
+  execute: z.array(userTypeSchema),
+});
+
 const upsertPatchSchema = z
   .looseObject({
     action: z.literal('upsertPatch'),
@@ -54,18 +60,11 @@ const upsertPatchSchema = z
     path: z.string().min(1),
     content: z.string().nullable(),
     owner: z.string().min(1),
+    permissions: permissionsSchema.optional(),
+    is_new: z.boolean().optional(),
+    node_type: z.enum(['file', 'directory']).optional(),
   })
   .refine((payload) => !('player_key' in payload));
-
-// Auth/structural failures → distinct HTTP statuses (401 vs 400).
-const STATUS_BY_REASON: Record<VerifyFailureReason, number> = {
-  envelope_invalid: 400,
-  payload_malformed: 400,
-  payload_invalid: 400,
-  signature_invalid: 401,
-  timestamp_skew: 401,
-  replay: 401,
-};
 
 export const handleUpsertPatch = async (
   body: unknown,
@@ -75,7 +74,7 @@ export const handleUpsertPatch = async (
     nonceStore: deps.nonceStore,
   });
   if (!verified.ok) {
-    return { status: STATUS_BY_REASON[verified.reason], body: { error: verified.reason } };
+    return { status: STATUS_BY_VERIFY_REASON[verified.reason], body: { error: verified.reason } };
   }
 
   const { publicKey, payload } = verified;
@@ -89,6 +88,9 @@ export const handleUpsertPatch = async (
     path: payload.path,
     content: payload.content,
     owner: payload.owner,
+    ...(payload.permissions ? { permissions: payload.permissions } : {}),
+    ...(payload.is_new !== undefined ? { is_new: payload.is_new } : {}),
+    ...(payload.node_type ? { node_type: payload.node_type } : {}),
   });
   if (error) {
     return { status: 500, body: { error: 'upsert_failed' } };

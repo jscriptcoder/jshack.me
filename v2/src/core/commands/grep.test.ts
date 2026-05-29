@@ -66,10 +66,9 @@ describe('grep — single-file mode', () => {
     // Three lines, three cases — single grep invocation surfaces all three.
     // Catches a "we forgot the 'i' flag" mutant.
     const tree = buildDirectory({
-      'config.txt': buildFile(
-        'Password=secret\npassword=other\nPASSWORD=third\n',
-        { owner: 'alice' },
-      ),
+      'config.txt': buildFile('Password=secret\npassword=other\nPASSWORD=third\n', {
+        owner: 'alice',
+      }),
     });
 
     const env = mockCommandEnv({
@@ -81,11 +80,7 @@ describe('grep — single-file mode', () => {
     expect(result.kind).toBe('sync');
     if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(0);
-    expect(textLines(result)).toEqual([
-      'Password=secret',
-      'password=other',
-      'PASSWORD=third',
-    ]);
+    expect(textLines(result)).toEqual(['Password=secret', 'password=other', 'PASSWORD=third']);
   });
 
   it('treats the pattern as a regex (`.` is any-char, NOT literal dot)', async () => {
@@ -193,7 +188,11 @@ describe('grep — single-file mode', () => {
         {
           ls: buildFile(`${ELF_STUB}password=secret`, {
             owner: 'root',
-            perms: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root', 'user', 'guest'] },
+            perms: {
+              read: ['root', 'user', 'guest'],
+              write: ['root'],
+              execute: ['root', 'user', 'guest'],
+            },
           }),
         },
         { owner: 'root' },
@@ -254,9 +253,7 @@ describe('grep — argument validation', () => {
     expect(result.kind).toBe('sync');
     if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(2);
-    expect(errorLines(result)).toEqual([
-      "grep: '/nonexistent': No such file or directory",
-    ]);
+    expect(errorLines(result)).toEqual(["grep: '/nonexistent': No such file or directory"]);
   });
 
   it('errors when the file is unreadable for this user (v2 is stricter than legacy here)', async () => {
@@ -286,9 +283,7 @@ describe('grep — argument validation', () => {
     expect(result.kind).toBe('sync');
     if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(2);
-    expect(errorLines(result)).toEqual([
-      "grep: '/root/secret': Permission denied",
-    ]);
+    expect(errorLines(result)).toEqual(["grep: '/root/secret': Permission denied"]);
   });
 
   it('errors with "invalid regex" when the pattern fails to compile (v2-explicit)', async () => {
@@ -393,10 +388,7 @@ describe('grep — directory recursion', () => {
 
     expect(result.kind).toBe('sync');
     if (result.kind !== 'sync') return;
-    expect(textLines(result)).toEqual([
-      '/alpha/a.txt:alpha match',
-      '/zoo/z.txt:zoo match',
-    ]);
+    expect(textLines(result)).toEqual(['/alpha/a.txt:alpha match', '/zoo/z.txt:zoo match']);
   });
 
   it('reaches files multiple levels deep', async () => {
@@ -452,7 +444,11 @@ describe('grep — directory recursion', () => {
     const tree = buildDirectory({
       binary: buildFile(`${ELF_STUB}password=secret`, {
         owner: 'root',
-        perms: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root', 'user', 'guest'] },
+        perms: {
+          read: ['root', 'user', 'guest'],
+          write: ['root'],
+          execute: ['root', 'user', 'guest'],
+        },
       }),
       'text.txt': buildFile('password=visible\n', { owner: 'alice' }),
     });
@@ -818,11 +814,7 @@ describe('grep — -l flag (files-with-matches)', () => {
     expect(result.kind).toBe('sync');
     if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(0);
-    expect(textLines(result)).toEqual([
-      '/etc/motd',
-      '/etc/passwd',
-      '/home/notes.txt',
-    ]);
+    expect(textLines(result)).toEqual(['/etc/motd', '/etc/passwd', '/home/notes.txt']);
   });
 
   it('deduplicates filepaths when a single file has multiple matches', async () => {

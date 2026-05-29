@@ -5,9 +5,10 @@
  * pure function: caller passes the current identity, session, FS tree, and
  * cwd (read out of signals at call time); the command sees only `env`.
  *
- * Slice scope: `fs` is wired for real (the only thing `cat` needs). Mutation,
- * streaming output, and cross-player APIs are loud stubs until a command
- * actually needs them — silent no-ops would hide missing wiring.
+ * Scope: `fs` and `patches` are wired for real (the patched FS view and the
+ * server-backed PatchApi the caller injects). Streaming output and cross-player
+ * APIs remain loud stubs until a command actually needs them — silent no-ops
+ * would hide missing wiring.
  */
 
 import { asEpochMs, asGameTime, type AbsPath } from '../core/types';
@@ -34,13 +35,14 @@ export type BuildCommandEnvArgs = {
   /** Writer — `cd` calls this to mutate the UI's cwd signal. The UI defines
    *  the storage; `core/` only knows there's a setter. */
   readonly onCwdChange: (path: AbsPath) => void;
+  /** The server-backed mutation API (write/remove/mkdir). Injected by the UI
+   *  so `env.ts` stays free of the adapter + network concerns. */
+  readonly patches: PatchApi;
 };
 
-const notWired =
-  (method: string) =>
-  (): never => {
-    throw new Error(`buildCommandEnv: ${method} is not wired in the terminal slice`);
-  };
+const notWired = (method: string) => (): never => {
+  throw new Error(`buildCommandEnv: ${method} is not wired in the terminal slice`);
+};
 
 const networkStub = (session: Session): NetworkView => ({
   currentMachine: () => session.machineId,
@@ -52,12 +54,6 @@ const outputStub = (): OutputSink => ({
   text: notWired('output.text'),
   error: notWired('output.error'),
   dim: notWired('output.dim'),
-});
-
-const patchStub = (): PatchApi => ({
-  write: notWired('patches.write'),
-  remove: notWired('patches.remove'),
-  mkdir: notWired('patches.mkdir'),
 });
 
 const remoteStub = (): RemoteApi => ({ listPatches: notWired('remote.listPatches') });
@@ -76,7 +72,7 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   fs: createFsView(args.root, { userType: args.session.userType, cwd: args.cwd }),
   network: networkStub(args.session),
   output: outputStub(),
-  patches: patchStub(),
+  patches: args.patches,
   remote: remoteStub(),
   log: logStub(),
   setCwd: args.onCwdChange,

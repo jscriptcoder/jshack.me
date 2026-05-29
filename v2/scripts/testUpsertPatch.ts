@@ -50,8 +50,19 @@ const machine = computeWorkstationId('smoke', id.publicKeyHex);
 const path = '/home/smoke/probe.txt';
 
 // 1. Own-workstation write succeeds.
-const r1 = await post(signRequest(id, 'upsertPatch', { machine_id: machine, path, content: 'smoke-content', owner: 'smoke' }));
-check('own-workstation upsert → 200', r1.status === 200, `status=${r1.status} body=${JSON.stringify(r1.body)}`);
+const r1 = await post(
+  signRequest(id, 'upsertPatch', {
+    machine_id: machine,
+    path,
+    content: 'smoke-content',
+    owner: 'smoke',
+  }),
+);
+check(
+  'own-workstation upsert → 200',
+  r1.status === 200,
+  `status=${r1.status} body=${JSON.stringify(r1.body)}`,
+);
 
 // 2. Row persisted with the SERVER-stamped player_key + content.
 const persisted = await sr
@@ -77,18 +88,98 @@ const r3 = await post(
     owner: 'smoke',
   }),
 );
-check('non-own machine → 403 no_session', r3.status === 403 && errorOf(r3.body) === 'no_session', `status=${r3.status} error=${errorOf(r3.body)}`);
+check(
+  'non-own machine → 403 no_session',
+  r3.status === 403 && errorOf(r3.body) === 'no_session',
+  `status=${r3.status} error=${errorOf(r3.body)}`,
+);
 
 // 4. Tampered signature rejected.
-const env4 = signRequest(id, 'upsertPatch', { machine_id: machine, path, content: 'z', owner: 'smoke' });
+const env4 = signRequest(id, 'upsertPatch', {
+  machine_id: machine,
+  path,
+  content: 'z',
+  owner: 'smoke',
+});
 const r4 = await post({ ...env4, payload: `${env4.payload} ` });
-check('tampered signature → 401', r4.status === 401, `status=${r4.status} error=${errorOf(r4.body)}`);
+check(
+  'tampered signature → 401',
+  r4.status === 401,
+  `status=${r4.status} error=${errorOf(r4.body)}`,
+);
 
 // 5. Client-supplied player_key rejected.
 const r5 = await post(
-  signRequest(id, 'upsertPatch', { machine_id: machine, path, content: 'z', owner: 'smoke', player_key: 'forged' }),
+  signRequest(id, 'upsertPatch', {
+    machine_id: machine,
+    path,
+    content: 'z',
+    owner: 'smoke',
+    player_key: 'forged',
+  }),
 );
-check('client player_key → 400 payload_invalid', r5.status === 400 && errorOf(r5.body) === 'payload_invalid', `status=${r5.status} error=${errorOf(r5.body)}`);
+check(
+  'client player_key → 400 payload_invalid',
+  r5.status === 400 && errorOf(r5.body) === 'payload_invalid',
+  `status=${r5.status} error=${errorOf(r5.body)}`,
+);
+
+// 6. A directory patch (mkdir-shaped) persists permissions + node_type.
+const dirPath = '/home/smoke/proj';
+const dirPerms = {
+  read: ['root', 'user', 'guest'],
+  write: ['root', 'user'],
+  execute: ['root', 'user', 'guest'],
+};
+const r6 = await post(
+  signRequest(id, 'upsertPatch', {
+    machine_id: machine,
+    path: dirPath,
+    content: null,
+    owner: 'smoke',
+    permissions: dirPerms,
+    is_new: true,
+    node_type: 'directory',
+  }),
+);
+const dirRow = await sr
+  .from('patches')
+  .select('content, node_type, permissions, is_new')
+  .eq('player_key', id.publicKeyHex)
+  .eq('machine_id', machine)
+  .eq('path', dirPath);
+check(
+  'directory patch persists node_type + permissions',
+  r6.status === 200 &&
+    dirRow.data?.length === 1 &&
+    dirRow.data[0]?.node_type === 'directory' &&
+    dirRow.data[0]?.content === null &&
+    dirRow.data[0]?.is_new === true &&
+    JSON.stringify(dirRow.data[0]?.permissions) === JSON.stringify(dirPerms),
+  `status=${r6.status} row=${JSON.stringify(dirRow.data?.[0])}`,
+);
+
+// 7. listPatches reads back the caller's own-workstation journal.
+const r7 = await post(signRequest(id, 'listPatches', { machine_id: machine }));
+const listed =
+  (r7.body as { patches?: { path: string; node_type?: string }[] } | null)?.patches ?? [];
+check(
+  'listPatches returns own rows (file + dir)',
+  r7.status === 200 &&
+    listed.some((row) => row.path === path) &&
+    listed.some((row) => row.path === dirPath && row.node_type === 'directory'),
+  `status=${r7.status} count=${listed.length}`,
+);
+
+// 8. listPatches for a machine the caller doesn't own is rejected.
+const r8 = await post(
+  signRequest(id, 'listPatches', { machine_id: computeWorkstationId('victim', 'c'.repeat(64)) }),
+);
+check(
+  'listPatches non-own machine → 403 no_session',
+  r8.status === 403 && errorOf(r8.body) === 'no_session',
+  `status=${r8.status} error=${errorOf(r8.body)}`,
+);
 
 // Cleanup.
 await sr.from('patches').delete().eq('player_key', id.publicKeyHex);

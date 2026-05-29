@@ -117,6 +117,77 @@ describe('handleUpsertPatch', () => {
     expect(upsertPatch).not.toHaveBeenCalled();
   });
 
+  it('passes permissions, is_new and node_type through for a directory patch', async () => {
+    const id = generateIdentity();
+    const perms = {
+      read: ['root', 'user', 'guest'],
+      write: ['root', 'user'],
+      execute: ['root', 'user', 'guest'],
+    };
+    const envelope = signRequest(id, 'upsertPatch', {
+      machine_id: computeWorkstationId('skylab', id.publicKeyHex),
+      path: '/home/alice/proj',
+      content: null,
+      owner: 'alice',
+      permissions: perms,
+      is_new: true,
+      node_type: 'directory',
+    });
+    const { deps, upsertPatch } = makeDeps();
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    expect(result.status).toBe(200);
+    const row = upsertPatch.mock.calls[0]![0];
+    expect(row.permissions).toEqual(perms);
+    expect(row.is_new).toBe(true);
+    expect(row.node_type).toBe('directory');
+    expect(row.content).toBeNull();
+  });
+
+  it('rejects a patch with malformed permissions (unknown tier) with 400 payload_invalid', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'upsertPatch', {
+      ...ownFields(id.publicKeyHex),
+      permissions: { read: ['superuser'], write: [], execute: [] },
+    });
+    const { deps, upsertPatch } = makeDeps();
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    expect(result).toEqual({ status: 400, body: { error: 'payload_invalid' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('omits permissions/is_new/node_type from the row when the patch does not send them', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'upsertPatch', ownFields(id.publicKeyHex));
+    const { deps, upsertPatch } = makeDeps();
+
+    await handleUpsertPatch(envelope, deps);
+
+    const row = upsertPatch.mock.calls[0]![0];
+    // Assert the keys are ABSENT, not merely undefined — a patch with no
+    // is_new/node_type must not stamp those columns at all.
+    expect(Object.keys(row)).not.toContain('permissions');
+    expect(Object.keys(row)).not.toContain('is_new');
+    expect(Object.keys(row)).not.toContain('node_type');
+  });
+
+  it("accepts and passes through an explicit node_type of 'file'", async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'upsertPatch', {
+      ...ownFields(id.publicKeyHex),
+      node_type: 'file',
+    });
+    const { deps, upsertPatch } = makeDeps();
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    expect(result.status).toBe(200);
+    expect(upsertPatch.mock.calls[0]![0].node_type).toBe('file');
+  });
+
   it('returns 500 when the upsert adapter reports an error', async () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'upsertPatch', ownFields(id.publicKeyHex));

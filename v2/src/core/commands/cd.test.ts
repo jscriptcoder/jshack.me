@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { cd } from './cd';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import {
-  mockCommandEnv,
-  mockFsViewFromTree,
-  mockSession,
-} from '../../test/factories/commandEnv';
+import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv';
 import { asAbsPath, type AbsPath } from '../types';
 import type { CommandEnv } from './types';
 import type { TerminalLine } from './types';
@@ -39,10 +35,7 @@ const errorLines = (result: { readonly lines: readonly TerminalLine[] }): string
  *  - `/root` (perm: read by root only — for permission-denied as user) */
 const buildNavFs = () =>
   buildDirectory({
-    tmp: buildDirectory(
-      { sub: buildDirectory({}, { owner: 'root' }) },
-      { owner: 'root' },
-    ),
+    tmp: buildDirectory({ sub: buildDirectory({}, { owner: 'root' }) }, { owner: 'root' }),
     etc: buildDirectory(
       { passwd: buildFile('root:x:0:0:root:/root:/bin/bash\n', { owner: 'root' }) },
       { owner: 'root' },
@@ -54,10 +47,7 @@ const buildNavFs = () =>
         perms: { read: ['root'], write: ['root'], execute: ['root'] },
       },
     ),
-    home: buildDirectory(
-      { alice: buildDirectory({}, { owner: 'alice' }) },
-      { owner: 'root' },
-    ),
+    home: buildDirectory({ alice: buildDirectory({}, { owner: 'alice' }) }, { owner: 'root' }),
   });
 
 const buildCdEnv = (
@@ -181,10 +171,7 @@ describe('cd', () => {
       ...env,
       fs: mockFsViewFromTree(
         buildDirectory({
-          home: buildDirectory(
-            { bob: buildDirectory({}, { owner: 'bob' }) },
-            { owner: 'root' },
-          ),
+          home: buildDirectory({ bob: buildDirectory({}, { owner: 'bob' }) }, { owner: 'root' }),
         }),
         { userType: 'user', cwd: asAbsPath('/tmp') },
       ),

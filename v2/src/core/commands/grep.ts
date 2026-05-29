@@ -30,12 +30,7 @@
  */
 
 import type { AbsPath } from '../types';
-import type {
-  Command,
-  CommandEnv,
-  CommandResult,
-  FsReadResult,
-} from './types';
+import type { Command, CommandEnv, CommandResult, FsReadResult } from './types';
 import { resolveAbsPath } from '../filesystem/path';
 import { splitContentLines } from './contentHelpers';
 
@@ -87,11 +82,7 @@ const matchesInFile = (content: string, pattern: RegExp): readonly string[] =>
  *  non-binary files. Permission-denied dirs and files are silently
  *  skipped — no error surfaces. Children at each level are visited
  *  in alphabetical order, which yields a filepath-sorted result. */
-const walkAndSearch = (
-  env: CommandEnv,
-  dir: AbsPath,
-  pattern: RegExp,
-): readonly Match[] => {
+const walkAndSearch = (env: CommandEnv, dir: AbsPath, pattern: RegExp): readonly Match[] => {
   const listing = env.fs.list(dir);
   if (!listing.ok) return [];
 
@@ -171,9 +162,7 @@ const execute = async (
         const uniquePaths = [...new Set(walkMatches.map(({ filepath }) => filepath))];
         return textResult(uniquePaths);
       }
-      return textResult(
-        walkMatches.map(({ filepath, line }) => `${filepath}:${line}`),
-      );
+      return textResult(walkMatches.map(({ filepath, line }) => `${filepath}:${line}`));
     }
     return errorResult(formatReadError(pathArg, readResult.error), 2);
   }

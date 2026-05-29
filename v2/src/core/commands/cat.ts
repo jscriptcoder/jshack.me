@@ -103,7 +103,12 @@ export const cat: Command = {
     synopsis: 'cat [-n] [file...]',
     description:
       'Print the contents of each file to stdout in order. With no file argument, read from stdin. With -n, number each output line starting at 1.',
-    examples: ['cat /etc/passwd', 'cat -n notes.txt', 'cat file1 file2 | grep root', 'echo hello | cat'],
+    examples: [
+      'cat /etc/passwd',
+      'cat -n notes.txt',
+      'cat file1 file2 | grep root',
+      'echo hello | cat',
+    ],
   },
   execute,
 };

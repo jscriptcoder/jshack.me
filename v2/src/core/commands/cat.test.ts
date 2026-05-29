@@ -231,11 +231,7 @@ describe('cat', () => {
     expect(result.kind).toBe('sync');
     if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(0);
-    expect(textLines(result)).toEqual([
-      '     1\tfirst',
-      '     2\tsecond',
-      '     3\tthird',
-    ]);
+    expect(textLines(result)).toEqual(['     1\tfirst', '     2\tsecond', '     3\tthird']);
   });
 
   it('numbers across multiple files cumulatively when -n is set', async () => {
@@ -260,11 +256,7 @@ describe('cat', () => {
     expect(result.kind).toBe('sync');
     if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(0);
-    expect(textLines(result)).toEqual([
-      '     1\talpha',
-      '     2\tbeta',
-      '     3\tgamma',
-    ]);
+    expect(textLines(result)).toEqual(['     1\talpha', '     2\tbeta', '     3\tgamma']);
   });
 
   it('does not number error lines, and the next text line still gets number 1', async () => {
@@ -281,11 +273,7 @@ describe('cat', () => {
       fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/tmp') }),
     });
 
-    const result = await cat.execute(
-      env,
-      ['missing.txt', 'good.txt'],
-      new Map([['-n', true]]),
-    );
+    const result = await cat.execute(env, ['missing.txt', 'good.txt'], new Map([['-n', true]]));
 
     expect(result.kind).toBe('sync');
     if (result.kind !== 'sync') return;
