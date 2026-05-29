@@ -33,10 +33,18 @@
  *   *   — anything else is the (last) command's own exit code
  */
 
-import type { Command, CommandEnv, CommandResult, TerminalLine } from '../commands/types';
+import type {
+  Command,
+  CommandEnv,
+  CommandResult,
+  PatchResult,
+  TerminalLine,
+} from '../commands/types';
+import type { AbsPath } from '../types';
 import { tokenize } from './tokenize';
 import { parsePipeline, type Stage } from './pipeline';
 import { bindFlags } from './bindFlags';
+import { dirname, resolveAbsPath } from '../filesystem/path';
 
 const syncError = (content: string, exitCode: number): CommandResult => ({
   kind: 'sync',
@@ -79,24 +87,27 @@ const isStdout = (line: TerminalLine): boolean => line.kind === 'text';
 type StageOutput = {
   readonly stdout: readonly string[];
   readonly passthrough: readonly TerminalLine[];
+  readonly exitCode: number;
 };
 
 /** Split a stage's lines into piped stdout (text-line content) and the
  *  terminal-bound passthrough lines (everything else). */
-const categorize = (lines: readonly TerminalLine[]): StageOutput => ({
+const categorize = (lines: readonly TerminalLine[], exitCode: number): StageOutput => ({
   stdout: lines.filter(isStdout).map((line) => line.content),
   passthrough: lines.filter((line) => !isStdout(line)),
+  exitCode,
 });
 
-/** Reduce a stage's result to its piped stdout + passthrough. Async results
- *  are drained to completion (the v2-native pipe-draining decision); a
- *  mode_change (nano/lynx/nc/…) can't feed a pipe, so it contributes nothing. */
+/** Reduce a stage's result to its piped stdout + passthrough + exit code.
+ *  Async results are drained to completion (the v2-native pipe-draining
+ *  decision); a mode_change (nano/lynx/nc/…) can't feed a pipe, so it
+ *  contributes nothing. */
 const collectStageOutput = async (result: CommandResult): Promise<StageOutput> => {
   if (result.kind === 'sync') {
-    return categorize(result.lines);
+    return categorize(result.lines, result.exitCode);
   }
   if (result.kind === 'mode_change') {
-    return categorize([]);
+    return categorize([], 0);
   }
   // async: stream into an array (the one unavoidable imperative step — an
   // AsyncIterable can't be array-method'd), then split it like the sync branch.
@@ -104,13 +115,73 @@ const collectStageOutput = async (result: CommandResult): Promise<StageOutput> =
   for await (const line of result.lines) {
     drained.push(line);
   }
-  await result.exitCode();
-  return categorize(drained);
+  const exitCode = await result.exitCode();
+  return categorize(drained, exitCode);
 };
 
 async function* iterate(lines: readonly string[]): AsyncIterable<string> {
   yield* lines;
 }
+
+// Map a PatchApi write failure to a bash-style redirect error reason.
+const REDIRECT_WRITE_MESSAGE: Record<Extract<PatchResult, { ok: false }>['error'], string> = {
+  no_session: 'Permission denied',
+  permission_denied: 'Permission denied',
+  network_error: 'I/O error',
+};
+
+type RedirectTarget =
+  | { readonly ok: true; readonly target: AbsPath }
+  | { readonly ok: false; readonly message: string };
+
+/** Resolve + validate a redirect target against the live FS view, BEFORE the
+ *  command runs (bash opens redirects before exec). Rejects an existing
+ *  directory, a missing parent directory, and a location the tier can't write. */
+const validateRedirectTarget = (env: CommandEnv, rawTarget: string): RedirectTarget => {
+  const target = resolveAbsPath(env.fs.cwd(), rawTarget);
+  const node = env.fs.stat(target);
+  if (node?.kind === 'directory') {
+    return { ok: false, message: `bash: ${rawTarget}: Is a directory` };
+  }
+  const parent = dirname(target);
+  const parentNode = env.fs.stat(parent);
+  if (parentNode === null || parentNode.kind !== 'directory') {
+    return { ok: false, message: `bash: ${rawTarget}: No such file or directory` };
+  }
+  // Overwrite checks the file itself; a new file checks the parent directory.
+  const writable = node !== null ? env.fs.canWrite(target) : env.fs.canWrite(parent);
+  if (!writable.allowed) {
+    return { ok: false, message: `bash: ${rawTarget}: Permission denied` };
+  }
+  return { ok: true, target };
+};
+
+/** Write the final stage's stdout to the redirect target instead of the
+ *  terminal. The command's stderr (passthrough) + intermediate carry still
+ *  surface; the command's exit code is preserved unless the write itself
+ *  fails. */
+const applyRedirect = async (
+  env: CommandEnv,
+  rawTarget: string,
+  target: AbsPath,
+  carried: readonly TerminalLine[],
+  finalResult: CommandResult,
+): Promise<CommandResult> => {
+  const { stdout, passthrough, exitCode } = await collectStageOutput(finalResult);
+  const written = await env.patches.write(target, stdout.join('\n'));
+  const lines = [...carried, ...passthrough];
+  if (!written.ok) {
+    return {
+      kind: 'sync',
+      lines: [
+        ...lines,
+        { kind: 'error', content: `bash: ${rawTarget}: ${REDIRECT_WRITE_MESSAGE[written.error]}` },
+      ],
+      exitCode: 1,
+    };
+  }
+  return { kind: 'sync', lines, exitCode };
+};
 
 /** Prepend terminal-bound passthrough lines (intermediate stderr) to the final
  *  stage's result so they aren't swallowed. */
@@ -155,6 +226,16 @@ export const runCommandLine = async (
     return { kind: 'sync', lines: [], exitCode: 0 };
   }
 
+  // Validate the redirect target BEFORE running anything (bash opens redirects
+  // before exec) — an invalid target must not run a side-effecting command.
+  const redirect = parsed.pipeline.redirect;
+  let redirectTarget: { readonly path: string; readonly resolved: AbsPath } | undefined;
+  if (redirect !== undefined) {
+    const validated = validateRedirectTarget(env, redirect.path);
+    if (!validated.ok) return syncError(validated.message, 1);
+    redirectTarget = { path: redirect.path, resolved: validated.target };
+  }
+
   // The loop also handles the single-stage case (one iteration, empty carry),
   // so there is no special-case branch: a lone command's result passes through
   // untouched (sync / async / mode_change alike).
@@ -166,6 +247,11 @@ export const runCommandLine = async (
     const stageEnv: CommandEnv = stdin === undefined ? env : { ...env, stdin };
     const result = await run(stageEnv, prepared[i]);
     if (i === prepared.length - 1) {
+      // A mode_change (nano/lynx/…) produces no stdout to redirect — pass it
+      // through untouched even if a redirect was parsed.
+      if (redirectTarget !== undefined && result.kind !== 'mode_change') {
+        return applyRedirect(env, redirectTarget.path, redirectTarget.resolved, carried, result);
+      }
       return withCarried(carried, result);
     }
     const { stdout, passthrough } = await collectStageOutput(result);

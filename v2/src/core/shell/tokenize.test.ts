@@ -8,6 +8,7 @@ import { tokenize, type Token } from './tokenize';
 
 const word = (value: string): Token => ({ kind: 'word', value });
 const pipe: Token = { kind: 'pipe' };
+const redirect: Token = { kind: 'redirect' };
 
 describe('tokenize', () => {
   it('returns no tokens for empty input', () => {
@@ -162,5 +163,31 @@ describe('tokenize', () => {
 
   it('keeps `|` literal inside a single-quoted string', () => {
     expect(tokenize("echo 'a|b'")).toEqual({ ok: true, tokens: [word('echo'), word('a|b')] });
+  });
+
+  it('emits a redirect token for `>` outside quotes', () => {
+    expect(tokenize('echo hi > f')).toEqual({
+      ok: true,
+      tokens: [word('echo'), word('hi'), redirect, word('f')],
+    });
+  });
+
+  it('flushes the word buffer when `>` is adjacent (no surrounding spaces)', () => {
+    expect(tokenize('echo a>b')).toEqual({
+      ok: true,
+      tokens: [word('echo'), word('a'), redirect, word('b')],
+    });
+  });
+
+  it('keeps `>` literal inside a double-quoted string', () => {
+    expect(tokenize('echo "a>b"')).toEqual({ ok: true, tokens: [word('echo'), word('a>b')] });
+  });
+
+  it('keeps `>` literal inside a single-quoted string', () => {
+    expect(tokenize("echo 'a>b'")).toEqual({ ok: true, tokens: [word('echo'), word('a>b')] });
+  });
+
+  it('emits a trailing redirect token verbatim (parse-time rejects, tokenizer does not)', () => {
+    expect(tokenize('echo >')).toEqual({ ok: true, tokens: [word('echo'), redirect] });
   });
 });

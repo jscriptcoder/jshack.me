@@ -9,24 +9,29 @@
  *     (`"a"b"c"` → `abc`, matching real bash)
  *   - an empty quoted string `""` yields an empty word token (NOT no token),
  *     so `echo ""` and `echo` differ in arg count
- *   - `|` outside quotes is a PIPE OPERATOR token, flushing any pending word
- *     buffer first — `a|b` → word(a), pipe, word(b), matching real bash
- *   - inside quotes `|` is a literal character (`echo "a|b"` → one word)
+ *   - `|` outside quotes is a PIPE OPERATOR token, and `>` outside quotes is a
+ *     REDIRECT OPERATOR token; both flush any pending word buffer first —
+ *     `a|b` → word(a), pipe, word(b); `a>b` → word(a), redirect, word(b)
+ *   - inside quotes `|` and `>` are literal characters (`echo "a|b"`,
+ *     `echo "a>b"` → one word each)
  *   - an unterminated quote returns `{ ok: false, error: 'syntax error: …' }`
  *
- * The tokenizer emits pipe tokens unconditionally — it does NOT reject empty
- * stages (`| a`, `a |`, `a || b`). That validation lives in `parsePipeline`.
+ * The tokenizer emits operator tokens unconditionally — it does NOT reject
+ * empty stages (`| a`, `a |`) or a target-less redirect (`a >`). That
+ * validation lives in `parsePipeline`.
  *
- * Redirects, escape sequences, variable interpolation, and command
- * substitution are out of scope here. The redirections chunk will add a
- * `redirect` token alongside `pipe`.
+ * Escape sequences, variable interpolation, and command substitution are out
+ * of scope here.
  *
  * Command-agnostic: it never inspects word shape and never reads command
  * flag specs. The binder (`bindFlags`) makes flag-vs-positional decisions
  * afterwards, per stage.
  */
 
-export type Token = { readonly kind: 'word'; readonly value: string } | { readonly kind: 'pipe' };
+export type Token =
+  | { readonly kind: 'word'; readonly value: string }
+  | { readonly kind: 'pipe' }
+  | { readonly kind: 'redirect' };
 
 export type TokenizeResult =
   | { readonly ok: true; readonly tokens: readonly Token[] }
@@ -70,6 +75,10 @@ const scanChar = (state: ScanState, ch: string): ScanState => {
   if (ch === '|') {
     const flushed = flushWord(state);
     return { ...flushed, tokens: [...flushed.tokens, { kind: 'pipe' }] };
+  }
+  if (ch === '>') {
+    const flushed = flushWord(state);
+    return { ...flushed, tokens: [...flushed.tokens, { kind: 'redirect' }] };
   }
   if (isWhitespace(ch)) {
     return flushWord(state);

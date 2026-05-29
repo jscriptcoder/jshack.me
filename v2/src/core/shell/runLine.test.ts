@@ -1,9 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { runCommandLine } from './runLine';
 import { cat } from '../commands/cat';
 import { echo } from '../commands/echo';
 import { grep } from '../commands/grep';
-import type { Command, CommandResult, TerminalLine } from '../commands/types';
+import type {
+  Command,
+  CommandEnv,
+  CommandResult,
+  PatchApi,
+  PatchResult,
+  TerminalLine,
+} from '../commands/types';
 import { mockCommandEnv, mockFsViewFromTree } from '../../test/factories/commandEnv';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { asAbsPath } from '../types';
@@ -389,6 +396,196 @@ describe('runCommandLine', () => {
 
       expect(result.exitCode).toBe(0);
       expect(result.lines).toEqual([{ kind: 'text', content: 'a|b' }]);
+    });
+  });
+
+  describe('output redirection (`>`)', () => {
+    /** user-tier in /home/alice (alice-owned, writable); /etc is root-only
+     *  write; /home/alice/docs is an existing directory. */
+    const redirectEnv = (
+      writeResult: PatchResult = { ok: true },
+    ): { readonly env: CommandEnv; readonly write: ReturnType<typeof vi.fn> } => {
+      const write = vi.fn<PatchApi['write']>(async () => writeResult);
+      const patches: PatchApi = {
+        write,
+        remove: async () => ({ ok: true }),
+        mkdir: async () => ({ ok: true }),
+      };
+      const env = mockCommandEnv({
+        fs: mockFsViewFromTree(
+          buildDirectory({
+            home: buildDirectory({
+              alice: buildDirectory(
+                {
+                  'notes.txt': buildFile('old content', { owner: 'alice' }),
+                  'multi.txt': buildFile('line1\nline2', { owner: 'alice' }),
+                  // owned by root, writable by root only — alice can't truncate it
+                  'readonly.txt': buildFile('locked', {
+                    owner: 'root',
+                    perms: { write: ['root'] },
+                  }),
+                  docs: buildDirectory({}, { owner: 'alice' }),
+                },
+                { owner: 'alice' },
+              ),
+            }),
+            etc: buildDirectory({}, { owner: 'root' }),
+          }),
+          { userType: 'user', cwd: asAbsPath('/home/alice') },
+        ),
+        patches,
+      });
+      return { env, write };
+    };
+
+    it('writes the final stdout to a new file and suppresses terminal output', async () => {
+      const { env, write } = redirectEnv();
+
+      const result = expectSync(await runCommandLine(env, 'echo hi > out.txt', pipeCommands));
+
+      expect(write).toHaveBeenCalledWith(asAbsPath('/home/alice/out.txt'), 'hi');
+      expect(result.exitCode).toBe(0);
+      expect(result.lines).toEqual([]); // stdout went to the file, not the terminal
+    });
+
+    it('overwrites (truncates) an existing file via the same write path', async () => {
+      const { env, write } = redirectEnv();
+
+      await runCommandLine(env, 'echo replaced > notes.txt', pipeCommands);
+
+      expect(write).toHaveBeenCalledWith(asAbsPath('/home/alice/notes.txt'), 'replaced');
+    });
+
+    it('redirects the LAST stage of a pipeline', async () => {
+      const { env, write } = redirectEnv();
+
+      await runCommandLine(env, 'echo hi | cat > piped.txt', pipeCommands);
+
+      expect(write).toHaveBeenCalledWith(asAbsPath('/home/alice/piped.txt'), 'hi');
+    });
+
+    it('errors when the target is an existing directory and does not write', async () => {
+      const { env, write } = redirectEnv();
+
+      const result = expectSync(await runCommandLine(env, 'echo hi > docs', pipeCommands));
+
+      expect(result.exitCode).toBe(1);
+      expect(result.lines).toEqual([errorLine('bash: docs: Is a directory')]);
+      expect(write).not.toHaveBeenCalled();
+    });
+
+    it('errors when the target parent directory does not exist', async () => {
+      const { env, write } = redirectEnv();
+
+      const result = expectSync(await runCommandLine(env, 'echo hi > nope/f', pipeCommands));
+
+      expect(result.exitCode).toBe(1);
+      expect(result.lines).toEqual([errorLine('bash: nope/f: No such file or directory')]);
+      expect(write).not.toHaveBeenCalled();
+    });
+
+    it('errors when the tier cannot write the target location', async () => {
+      const { env, write } = redirectEnv();
+
+      const result = expectSync(await runCommandLine(env, 'echo hi > /etc/x', pipeCommands));
+
+      expect(result.exitCode).toBe(1);
+      expect(result.lines).toEqual([errorLine('bash: /etc/x: Permission denied')]);
+      expect(write).not.toHaveBeenCalled();
+    });
+
+    it('does not run the command when the redirect target is invalid', async () => {
+      const { env } = redirectEnv();
+      // cat of a missing file would normally emit an error; redirect-to-dir
+      // fails first, so cat must never run.
+      const result = expectSync(await runCommandLine(env, 'cat notes.txt > docs', pipeCommands));
+
+      expect(result.lines).toEqual([errorLine('bash: docs: Is a directory')]);
+    });
+
+    it('joins multi-line stdout with newlines before writing', async () => {
+      const { env, write } = redirectEnv();
+
+      await runCommandLine(env, 'cat multi.txt > out.txt', pipeCommands);
+
+      expect(write).toHaveBeenCalledWith(asAbsPath('/home/alice/out.txt'), 'line1\nline2');
+    });
+
+    it('errors when a path segment in the target is a file, not a directory', async () => {
+      const { env, write } = redirectEnv();
+
+      const result = expectSync(await runCommandLine(env, 'echo hi > notes.txt/x', pipeCommands));
+
+      expect(result.exitCode).toBe(1);
+      expect(result.lines).toEqual([errorLine('bash: notes.txt/x: No such file or directory')]);
+      expect(write).not.toHaveBeenCalled();
+    });
+
+    it('checks write permission on an EXISTING target file, not just its parent dir', async () => {
+      // alice can write /home/alice (the parent) but NOT readonly.txt itself;
+      // `>` truncates the file, so the file's own write perm is what matters.
+      const { env, write } = redirectEnv();
+
+      const result = expectSync(await runCommandLine(env, 'echo hi > readonly.txt', pipeCommands));
+
+      expect(result.exitCode).toBe(1);
+      expect(result.lines).toEqual([errorLine('bash: readonly.txt: Permission denied')]);
+      expect(write).not.toHaveBeenCalled();
+    });
+
+    it('does not redirect a mode-change command (no write, mode passes through)', async () => {
+      const { env, write } = redirectEnv();
+      const withMode: ReadonlyMap<string, Command> = new Map([
+        ['echo', echo],
+        ['opener', modeChanger('opener')],
+      ]);
+
+      const result = await runCommandLine(env, 'opener > out.txt', withMode);
+
+      expect(result.kind).toBe('mode_change');
+      expect(write).not.toHaveBeenCalled();
+    });
+
+    it('surfaces a network write failure as an I/O error and exits non-zero', async () => {
+      const { env } = redirectEnv({ ok: false, error: 'network_error' });
+
+      const result = expectSync(await runCommandLine(env, 'echo hi > out.txt', pipeCommands));
+
+      expect(result.exitCode).toBe(1);
+      expect(result.lines).toEqual([errorLine('bash: out.txt: I/O error')]);
+    });
+
+    it('surfaces a server rejection (no_session / permission_denied) as "Permission denied"', async () => {
+      const denied = expectSync(
+        await runCommandLine(
+          redirectEnv({ ok: false, error: 'no_session' }).env,
+          'echo hi > out.txt',
+          pipeCommands,
+        ),
+      );
+      const forbidden = expectSync(
+        await runCommandLine(
+          redirectEnv({ ok: false, error: 'permission_denied' }).env,
+          'echo hi > out.txt',
+          pipeCommands,
+        ),
+      );
+
+      expect(denied.lines).toEqual([errorLine('bash: out.txt: Permission denied')]);
+      expect(forbidden.lines).toEqual([errorLine('bash: out.txt: Permission denied')]);
+    });
+
+    it("preserves the command's exit code and stderr while still writing", async () => {
+      const { env, write } = redirectEnv();
+      // `cat missing.txt` errors (exit 1) and produces no stdout; the empty
+      // stdout is still written, the error still surfaces, exit stays 1.
+      const result = expectSync(
+        await runCommandLine(env, 'cat missing.txt > out.txt', pipeCommands),
+      );
+
+      expect(write).toHaveBeenCalledWith(asAbsPath('/home/alice/out.txt'), '');
+      expect(result.exitCode).toBe(1);
+      expect(contentOf(result.lines)).toContain('missing.txt');
     });
   });
 });
