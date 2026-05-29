@@ -17,6 +17,14 @@ const runCommand = (value: string) => {
 };
 
 describe('Terminal', () => {
+  it('shows the JSHACK.ME banner with the current version and help hint on boot', () => {
+    renderTerminal();
+
+    const banner = screen.getByTestId('terminal-banner');
+    expect(banner).toHaveTextContent(`v${__APP_VERSION__}`);
+    expect(banner).toHaveTextContent('Type help for available commands');
+  });
+
   it('echoes the typed command above its output', async () => {
     renderTerminal();
     runCommand('cat /etc/passwd');

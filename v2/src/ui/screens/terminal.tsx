@@ -1,6 +1,7 @@
 import { createEffect, For } from 'solid-js';
 import type { TerminalLine } from '../../core/commands/types';
 import { formatPrompt } from '../../core/shell/prompt';
+import { BANNER } from '../banner';
 import { SEED_HOST, SEED_USERNAME } from '../seed';
 import { cwd, input, runInput, scrollback, setInput } from '../state';
 
@@ -34,8 +35,14 @@ export const Terminal = () => {
   };
 
   return (
-    <main class="flex h-full flex-col p-4 text-sm leading-relaxed">
+    <main class="flex h-full flex-col p-4 font-mono text-sm leading-relaxed">
       <div ref={output} class="flex-1 overflow-y-auto">
+        <pre
+          data-testid="terminal-banner"
+          class="whitespace-pre leading-none text-[var(--theme-text-bright)]"
+        >
+          {BANNER}
+        </pre>
         <For each={scrollback()}>
           {(line) => <div class={`${LINE_BASE} ${LINE_COLOR[line.kind]}`}>{line.content}</div>}
         </For>
