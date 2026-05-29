@@ -66,12 +66,13 @@ these — which is exactly why it's the thinnest real first slice.
 - [x] A signed `upsertPatch` for the caller's own workstation persists a `patches`
       row with no session required (own-workstation L1 bypass), verified by a
       wire-payload smoke test against `vercel:dev`. (Slice 4 ✅ — smoke 5/5; handler mutation 100%, workstation 95.83% w/ 1 equivalent.)
-- [ ] Creating a directory (`mkdir`) on the own workstation persists via the server
+- [x] Creating a directory (`mkdir`) on the own workstation persists via the server
       and the new directory appears in `ls` **and survives a page reload** (fsView
-      applies fetched patches over the base FS).
-- [ ] `echo hi > notes.txt` then `cat notes.txt` shows `hi`, server-backed and
-      reload-durable; `>` truncates an existing file.
-- [ ] `touch` and `rm` (with `-r` for directories) work through the same path.
+      applies fetched patches over the base FS). (Slice 5 ✅)
+- [x] `echo hi > notes.txt` then `cat notes.txt` shows `hi`, server-backed and
+      reload-durable; `>` truncates an existing file. (Slice 6 ✅)
+- [x] `touch` and `rm` (with `-r` for directories) work through the same path.
+      (Slice 7 ✅ — incl. server-authoritative `is_new`/`removePatch`; wire smoke 12/12.)
 - [ ] A write in one browser tab/instance appears in another via Realtime hints
       (+ BroadcastChannel for same-browser tabs) without a reload.
 
