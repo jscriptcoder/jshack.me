@@ -19,6 +19,7 @@ import { grep } from './grep';
 import { help } from './help';
 import { identity } from './identity';
 import { ls } from './ls';
+import { man } from './man';
 import { mkdir } from './mkdir';
 import { pwd } from './pwd';
 import { rm } from './rm';
@@ -33,6 +34,7 @@ const builtins: readonly Command[] = [
   help,
   identity,
   ls,
+  man,
   mkdir,
   pwd,
   rm,
