@@ -168,6 +168,17 @@ describe('Terminal', () => {
     expect(await screen.findByText('/etc/passwd')).toBeInTheDocument();
   });
 
+  it('pipes one command into another (`cat /etc/passwd | grep root`)', async () => {
+    // End-to-end through the real UI seam: the DOM input runs through
+    // `runInput` → `runCommandLine`, threading cat's stdout into grep's
+    // stdin. Only the root row should survive the filter.
+    renderTerminal();
+    runCommand('cat /etc/passwd | grep root');
+
+    expect(await screen.findByText(/root:r00tpw/)).toBeInTheDocument();
+    expect(screen.queryByText(/alice:hunter2/)).not.toBeInTheDocument();
+  });
+
   it('`ls -la` (stacked) shows hidden entries in long format', async () => {
     // End-to-end demo of the stacking infrastructure: `-la` is parsed as
     // `-l -a` and ls renders both behaviors. /etc has perms (drwxrwxrwx
