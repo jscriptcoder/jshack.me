@@ -1,7 +1,7 @@
 {
   "name": "jshack-me-v2",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.10.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,10 +10,15 @@
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:mutation": "stryker run"
+    "test:mutation": "stryker run",
+    "vercel:dev": "dotenv -e .env.development.local -- vercel dev --listen 3100"
   },
   "dependencies": {
-    "solid-js": "^1.9.3"
+    "@noble/ed25519": "^3.1.0",
+    "@noble/hashes": "^2.2.0",
+    "@supabase/supabase-js": "^2.106.2",
+    "solid-js": "^1.9.3",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@solidjs/testing-library": "^0.8.10",
@@ -22,13 +27,16 @@
     "@tailwindcss/vite": "^4.3.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@types/node": "^25.2.3",
+    "@vercel/node": "^5.8.8",
     "@vitest/coverage-v8": "^4.1.0",
+    "dotenv-cli": "^11.0.0",
     "eslint": "^9.17.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-solid": "^0.14.5",
     "globals": "^15.14.0",
     "jsdom": "^27.4.0",
     "tailwindcss": "^4.3.0",
+    "tsx": "^4.22.3",
     "typescript": "~5.6.2",
     "typescript-eslint": "^8.18.2",
     "vite": "^6.4.2",

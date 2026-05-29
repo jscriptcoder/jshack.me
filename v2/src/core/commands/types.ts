@@ -21,6 +21,7 @@ import type {
   UserType,
 } from '../types';
 import type { Directory, FileNode } from '../filesystem/types';
+import type { WalkResult } from '../filesystem/walker';
 import type { FlagSpec } from '../shell/bindFlags';
 
 // ---- Identity & session (read-only snapshots in CommandEnv) ----
@@ -100,6 +101,11 @@ export type FsView = {
   readonly read: (path: AbsPath) => FsReadResult;
   readonly list: (path: AbsPath) => FsListResult;
   readonly stat: (path: AbsPath) => FileNode | null;
+  /** Can the session tier write the node at `path` (create entries in a
+   *  directory, or overwrite a file)? Mirrors the read side: resolves the
+   *  path and runs the shared walker. Used by the write commands (mkdir,
+   *  redirect, rm) to gate before routing through `PatchApi`. */
+  readonly canWrite: (path: AbsPath) => WalkResult;
   /** Full directory snapshot for the current machine. Used by walker-based ops. */
   readonly root: () => Directory;
 };
@@ -112,9 +118,19 @@ export type FsListResult =
   | { readonly ok: true; readonly entries: readonly string[] }
   | { readonly ok: false; readonly error: 'not_found' | 'permission_denied' | 'not_a_directory' };
 
-/** Mutation API. Routes through the patch model (L1/L2 on real adapter). */
+/** Mutation API. Routes through the patch model (L1/L2 on real adapter).
+ *
+ *  `write`'s `isNew` flag marks a genuinely-new file (no base-FS counterpart),
+ *  so the server stamps `is_new: true` and a later `remove` deletes the row
+ *  rather than leaving a tombstone. Callers know this from the FS view: an
+ *  absent target (`stat === null`) is new; an existing target is an overwrite,
+ *  where omitting the flag preserves the row's stored `is_new`. */
 export type PatchApi = {
-  readonly write: (path: AbsPath, content: string) => Promise<PatchResult>;
+  readonly write: (
+    path: AbsPath,
+    content: string,
+    options?: { readonly isNew?: boolean },
+  ) => Promise<PatchResult>;
   readonly remove: (path: AbsPath) => Promise<PatchResult>;
   readonly mkdir: (path: AbsPath) => Promise<PatchResult>;
 };

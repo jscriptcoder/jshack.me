@@ -12,7 +12,7 @@
 
 import { asAbsPath, type AbsPath, type UserType } from '../types';
 import type { Directory, FileNode, FilePermissions } from './types';
-import { canRead } from './walker';
+import { canRead, canWrite, type WalkResult } from './walker';
 import type { FsListResult, FsReadResult, FsView } from '../commands/types';
 
 type Resolved = {
@@ -84,11 +84,17 @@ export const createFsView = (
     return { ok: true, entries: [...node.entries.keys()] };
   };
 
+  const checkWrite = (path: AbsPath): WalkResult => {
+    const { node, parents } = resolve(path);
+    return canWrite(userType, node === null ? null : node.perms, parents);
+  };
+
   return {
     cwd: () => cwdGetter(),
     read,
     list,
     stat: (path: AbsPath): FileNode | null => resolve(path).node,
+    canWrite: checkWrite,
     root: () => tree,
   };
 };

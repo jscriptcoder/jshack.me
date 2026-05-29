@@ -38,14 +38,9 @@ const formatListError = (target: string, error: FsListError): string => {
 };
 
 const homeFor = (session: Session): AbsPath =>
-  session.userType === 'root'
-    ? asAbsPath('/root')
-    : asAbsPath(`/home/${session.username}`);
+  session.userType === 'root' ? asAbsPath('/root') : asAbsPath(`/home/${session.username}`);
 
-const execute = async (
-  env: CommandEnv,
-  args: readonly string[],
-): Promise<CommandResult> => {
+const execute = async (env: CommandEnv, args: readonly string[]): Promise<CommandResult> => {
   if (args.length > 1) {
     return {
       kind: 'sync',
@@ -55,10 +50,7 @@ const execute = async (
   }
 
   const rawArg = args[0];
-  const target =
-    rawArg === undefined
-      ? homeFor(env.session)
-      : resolveAbsPath(env.fs.cwd(), rawArg);
+  const target = rawArg === undefined ? homeFor(env.session) : resolveAbsPath(env.fs.cwd(), rawArg);
   const messageTarget = rawArg ?? target;
 
   const listing = env.fs.list(target);
@@ -82,7 +74,7 @@ export const cd: Command = {
   manual: {
     synopsis: 'cd [dir]',
     description:
-      'Change the current shell working directory. With no argument, cd jumps to the session user\'s home directory (/root for root, /home/${user} otherwise).',
+      "Change the current shell working directory. With no argument, cd jumps to the session user's home directory (/root for root, /home/${user} otherwise).",
     examples: ['cd /tmp', 'cd', 'cd ..'],
   },
   execute,
