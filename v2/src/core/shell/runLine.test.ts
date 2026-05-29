@@ -443,7 +443,7 @@ describe('runCommandLine', () => {
 
       const result = expectSync(await runCommandLine(env, 'echo hi > out.txt', pipeCommands));
 
-      expect(write).toHaveBeenCalledWith(asAbsPath('/home/alice/out.txt'), 'hi');
+      expect(write).toHaveBeenCalledWith(asAbsPath('/home/alice/out.txt'), 'hi', { isNew: true });
       expect(result.exitCode).toBe(0);
       expect(result.lines).toEqual([]); // stdout went to the file, not the terminal
     });
@@ -453,7 +453,10 @@ describe('runCommandLine', () => {
 
       await runCommandLine(env, 'echo replaced > notes.txt', pipeCommands);
 
-      expect(write).toHaveBeenCalledWith(asAbsPath('/home/alice/notes.txt'), 'replaced');
+      // notes.txt already exists → overwrite must omit isNew (preserve the row's flag).
+      expect(write).toHaveBeenCalledWith(asAbsPath('/home/alice/notes.txt'), 'replaced', {
+        isNew: false,
+      });
     });
 
     it('redirects the LAST stage of a pipeline', async () => {
@@ -461,7 +464,7 @@ describe('runCommandLine', () => {
 
       await runCommandLine(env, 'echo hi | cat > piped.txt', pipeCommands);
 
-      expect(write).toHaveBeenCalledWith(asAbsPath('/home/alice/piped.txt'), 'hi');
+      expect(write).toHaveBeenCalledWith(asAbsPath('/home/alice/piped.txt'), 'hi', { isNew: true });
     });
 
     it('errors when the target is an existing directory and does not write', async () => {
@@ -508,7 +511,9 @@ describe('runCommandLine', () => {
 
       await runCommandLine(env, 'cat multi.txt > out.txt', pipeCommands);
 
-      expect(write).toHaveBeenCalledWith(asAbsPath('/home/alice/out.txt'), 'line1\nline2');
+      expect(write).toHaveBeenCalledWith(asAbsPath('/home/alice/out.txt'), 'line1\nline2', {
+        isNew: true,
+      });
     });
 
     it('errors when a path segment in the target is a file, not a directory', async () => {
@@ -583,7 +588,7 @@ describe('runCommandLine', () => {
         await runCommandLine(env, 'cat missing.txt > out.txt', pipeCommands),
       );
 
-      expect(write).toHaveBeenCalledWith(asAbsPath('/home/alice/out.txt'), '');
+      expect(write).toHaveBeenCalledWith(asAbsPath('/home/alice/out.txt'), '', { isNew: true });
       expect(result.exitCode).toBe(1);
       expect(contentOf(result.lines)).toContain('missing.txt');
     });

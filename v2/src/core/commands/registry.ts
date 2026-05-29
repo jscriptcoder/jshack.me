@@ -20,9 +20,11 @@ import { identity } from './identity';
 import { ls } from './ls';
 import { mkdir } from './mkdir';
 import { pwd } from './pwd';
+import { rm } from './rm';
+import { touch } from './touch';
 import type { Command } from './types';
 
-const builtins: readonly Command[] = [cat, cd, echo, grep, identity, ls, mkdir, pwd];
+const builtins: readonly Command[] = [cat, cd, echo, grep, identity, ls, mkdir, pwd, rm, touch];
 
 export const commandRegistry: ReadonlyMap<string, Command> = new Map(
   builtins.map((command) => [command.name, command]),

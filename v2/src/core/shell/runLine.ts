@@ -131,12 +131,14 @@ const REDIRECT_WRITE_MESSAGE: Record<Extract<PatchResult, { ok: false }>['error'
 };
 
 type RedirectTarget =
-  | { readonly ok: true; readonly target: AbsPath }
+  | { readonly ok: true; readonly target: AbsPath; readonly isNew: boolean }
   | { readonly ok: false; readonly message: string };
 
 /** Resolve + validate a redirect target against the live FS view, BEFORE the
  *  command runs (bash opens redirects before exec). Rejects an existing
- *  directory, a missing parent directory, and a location the tier can't write. */
+ *  directory, a missing parent directory, and a location the tier can't write.
+ *  Reports `isNew` (the target doesn't exist yet) so the write stamps `is_new`
+ *  for a freshly-created file but leaves an overwrite's stored flag intact. */
 const validateRedirectTarget = (env: CommandEnv, rawTarget: string): RedirectTarget => {
   const target = resolveAbsPath(env.fs.cwd(), rawTarget);
   const node = env.fs.stat(target);
@@ -153,7 +155,7 @@ const validateRedirectTarget = (env: CommandEnv, rawTarget: string): RedirectTar
   if (!writable.allowed) {
     return { ok: false, message: `bash: ${rawTarget}: Permission denied` };
   }
-  return { ok: true, target };
+  return { ok: true, target, isNew: node === null };
 };
 
 /** Write the final stage's stdout to the redirect target instead of the
@@ -164,11 +166,12 @@ const applyRedirect = async (
   env: CommandEnv,
   rawTarget: string,
   target: AbsPath,
+  isNew: boolean,
   carried: readonly TerminalLine[],
   finalResult: CommandResult,
 ): Promise<CommandResult> => {
   const { stdout, passthrough, exitCode } = await collectStageOutput(finalResult);
-  const written = await env.patches.write(target, stdout.join('\n'));
+  const written = await env.patches.write(target, stdout.join('\n'), { isNew });
   const lines = [...carried, ...passthrough];
   if (!written.ok) {
     return {
@@ -229,11 +232,13 @@ export const runCommandLine = async (
   // Validate the redirect target BEFORE running anything (bash opens redirects
   // before exec) — an invalid target must not run a side-effecting command.
   const redirect = parsed.pipeline.redirect;
-  let redirectTarget: { readonly path: string; readonly resolved: AbsPath } | undefined;
+  let redirectTarget:
+    | { readonly path: string; readonly resolved: AbsPath; readonly isNew: boolean }
+    | undefined;
   if (redirect !== undefined) {
     const validated = validateRedirectTarget(env, redirect.path);
     if (!validated.ok) return syncError(validated.message, 1);
-    redirectTarget = { path: redirect.path, resolved: validated.target };
+    redirectTarget = { path: redirect.path, resolved: validated.target, isNew: validated.isNew };
   }
 
   // The loop also handles the single-stage case (one iteration, empty carry),
@@ -250,7 +255,14 @@ export const runCommandLine = async (
       // A mode_change (nano/lynx/…) produces no stdout to redirect — pass it
       // through untouched even if a redirect was parsed.
       if (redirectTarget !== undefined && result.kind !== 'mode_change') {
-        return applyRedirect(env, redirectTarget.path, redirectTarget.resolved, carried, result);
+        return applyRedirect(
+          env,
+          redirectTarget.path,
+          redirectTarget.resolved,
+          redirectTarget.isNew,
+          carried,
+          result,
+        );
       }
       return withCarried(carried, result);
     }

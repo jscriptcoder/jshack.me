@@ -98,7 +98,7 @@ describe('createPatchApi.mkdir', () => {
 });
 
 describe('createPatchApi.write and remove', () => {
-  it('write sends file content with file-default permissions', async () => {
+  it('write (overwrite) sends file content with file-default permissions and NO is_new', async () => {
     const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
@@ -115,22 +115,54 @@ describe('createPatchApi.write and remove', () => {
       node_type: 'file',
       permissions: defaultFilePermissions('user'),
     });
+    // Overwrite must omit is_new so the server preserves the row's stored flag.
+    expect(Object.keys(verified.payload as object)).not.toContain('is_new');
   });
 
-  it('remove sends a null-content deletion marker', async () => {
+  it('write stamps is_new: true for a genuinely-new file', async () => {
     const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
-    await createPatchApi(deps).remove(asAbsPath('/home/alice/notes.txt'));
+    await createPatchApi(deps).write(asAbsPath('/home/alice/new.txt'), '', { isNew: true });
 
     const verified = await verifyPayload(sentEnvelope(fetchSpy));
     if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({ action: 'upsertPatch', content: '', is_new: true });
+  });
+
+  it('remove sends a removePatch request (server decides delete vs tombstone)', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const result = await createPatchApi(deps).remove(asAbsPath('/home/alice/notes.txt'));
+
+    expect(result).toEqual({ ok: true });
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
     expect(verified.payload).toMatchObject({
-      action: 'upsertPatch',
+      action: 'removePatch',
+      machine_id: deps.machineId,
       path: '/home/alice/notes.txt',
-      content: null,
       owner: 'alice',
     });
+  });
+
+  it('maps a remove 403 to no_session and a thrown fetch to network_error', async () => {
+    const forbidden = await createPatchApi(
+      makeDeps(
+        vi.fn(async () => jsonResponse(403, { error: 'no_session' })) as unknown as typeof fetch,
+      ),
+    ).remove(asAbsPath('/home/alice/notes.txt'));
+    const offline = await createPatchApi(
+      makeDeps(
+        vi.fn(async () => {
+          throw new Error('offline');
+        }) as unknown as typeof fetch,
+      ),
+    ).remove(asAbsPath('/home/alice/notes.txt'));
+
+    expect(forbidden).toEqual({ ok: false, error: 'no_session' });
+    expect(offline).toEqual({ ok: false, error: 'network_error' });
   });
 });
 

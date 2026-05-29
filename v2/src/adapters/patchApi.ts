@@ -81,7 +81,10 @@ const upsert = async (
 };
 
 export const createPatchApi = (deps: PatchClientDeps): PatchApi => ({
-  write: (path: AbsPath, content: string) =>
+  // `is_new` is stamped ONLY for a genuinely-new file; an overwrite omits it so
+  // the server's upsert preserves whatever `is_new` the row already carries
+  // (a base file stays `false`, a player-created file stays `true`).
+  write: (path: AbsPath, content: string, options?: { readonly isNew?: boolean }) =>
     upsert(deps, {
       machine_id: deps.machineId,
       path,
@@ -89,10 +92,24 @@ export const createPatchApi = (deps: PatchClientDeps): PatchApi => ({
       owner: deps.owner,
       permissions: defaultFilePermissions(deps.tier),
       node_type: 'file',
+      ...(options?.isNew ? { is_new: true } : {}),
     }),
 
-  remove: (path: AbsPath) =>
-    upsert(deps, { machine_id: deps.machineId, path, content: null, owner: deps.owner }),
+  // Deletion is server-authoritative (delete-row vs tombstone decided from the
+  // patches table); the client only names the path to remove.
+  remove: async (path: AbsPath): Promise<PatchResult> => {
+    try {
+      return toPatchResult(
+        await post(deps, 'removePatch', {
+          machine_id: deps.machineId,
+          path,
+          owner: deps.owner,
+        }),
+      );
+    } catch {
+      return { ok: false, error: 'network_error' };
+    }
+  },
 
   mkdir: (path: AbsPath) =>
     upsert(deps, {

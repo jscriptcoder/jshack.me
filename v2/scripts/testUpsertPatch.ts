@@ -181,6 +181,105 @@ check(
   `status=${r8.status} error=${errorOf(r8.body)}`,
 );
 
+// 9. removePatch of an is_new file DELETES the row (no tombstone left behind).
+const newFile = '/home/smoke/scratch.txt';
+await post(
+  signRequest(id, 'upsertPatch', {
+    machine_id: machine,
+    path: newFile,
+    content: '',
+    owner: 'smoke',
+    is_new: true,
+    node_type: 'file',
+  }),
+);
+const r9 = await post(
+  signRequest(id, 'removePatch', { machine_id: machine, path: newFile, owner: 'smoke' }),
+);
+const afterNewDelete = await sr
+  .from('patches')
+  .select('path')
+  .eq('player_key', id.publicKeyHex)
+  .eq('machine_id', machine)
+  .eq('path', newFile);
+check(
+  'removePatch of is_new file → row DELETED (no tombstone)',
+  r9.status === 200 && afterNewDelete.data?.length === 0,
+  `status=${r9.status} rows=${afterNewDelete.data?.length ?? 'undefined'}`,
+);
+
+// 10. removePatch of an is_new directory also drops its is_new descendants.
+const newDir = '/home/smoke/cache';
+const newChild = '/home/smoke/cache/item.txt';
+for (const [p, type] of [
+  [newDir, 'directory'],
+  [newChild, 'file'],
+] as const) {
+  await post(
+    signRequest(id, 'upsertPatch', {
+      machine_id: machine,
+      path: p,
+      content: type === 'directory' ? null : '',
+      owner: 'smoke',
+      is_new: true,
+      node_type: type,
+    }),
+  );
+}
+const r10 = await post(
+  signRequest(id, 'removePatch', { machine_id: machine, path: newDir, owner: 'smoke' }),
+);
+const afterDirDelete = await sr
+  .from('patches')
+  .select('path')
+  .eq('player_key', id.publicKeyHex)
+  .eq('machine_id', machine)
+  .like('path', `${newDir}%`);
+check(
+  'removePatch of is_new dir → row + descendants DELETED',
+  r10.status === 200 && afterDirDelete.data?.length === 0,
+  `status=${r10.status} rows=${afterDirDelete.data?.length ?? 'undefined'}`,
+);
+
+// 11. removePatch of a base/modified file (is_new=false) leaves a null tombstone.
+const baseFile = '/home/smoke/baseish.txt';
+await post(
+  signRequest(id, 'upsertPatch', {
+    machine_id: machine,
+    path: baseFile,
+    content: 'modified-base',
+    owner: 'smoke',
+  }),
+); // no is_new → DB default false (stands in for a modified base-FS file)
+const r11 = await post(
+  signRequest(id, 'removePatch', { machine_id: machine, path: baseFile, owner: 'smoke' }),
+);
+const tombstone = await sr
+  .from('patches')
+  .select('content')
+  .eq('player_key', id.publicKeyHex)
+  .eq('machine_id', machine)
+  .eq('path', baseFile);
+check(
+  'removePatch of base file → null deletion marker persists',
+  r11.status === 200 && tombstone.data?.length === 1 && tombstone.data[0]?.content === null,
+  `status=${r11.status} row=${JSON.stringify(tombstone.data?.[0])}`,
+);
+
+// 12. removePatch targeting a non-own machine is rejected.
+const r12 = await post(
+  signRequest(id, 'removePatch', {
+    machine_id: computeWorkstationId('victim', 'd'.repeat(64)),
+    path: '/x',
+    owner: 'smoke',
+  }),
+);
+check(
+  'removePatch non-own machine → 403 no_session',
+  r12.status === 403 && errorOf(r12.body) === 'no_session',
+  `status=${r12.status} error=${errorOf(r12.body)}`,
+);
+
 // Cleanup.
 await sr.from('patches').delete().eq('player_key', id.publicKeyHex);
 
