@@ -16,6 +16,8 @@ const runCommand = (value: string) => {
   fireEvent.keyDown(field, { key: 'Enter' });
 };
 
+const inputField = () => screen.getByRole('textbox', { name: /terminal input/i });
+
 describe('Terminal', () => {
   it('shows the JSHACK.ME banner with the current version and help hint on boot', () => {
     renderTerminal();
@@ -193,5 +195,55 @@ describe('Terminal', () => {
     // -a adds the synthetic `.` row. /etc's TRAVERSABLE_DIR perms map to
     // root rwx, user r-x, guest r-x → `drwxr-xr-x` under tier-truthful.
     expect(await screen.findByText(/^drwxr-xr-x root 4096 \.$/)).toBeInTheDocument();
+  });
+
+  it('recalls the previous command into the input on ArrowUp', async () => {
+    renderTerminal();
+    runCommand('pwd');
+    await screen.findByText('/home/alice');
+
+    fireEvent.keyDown(inputField(), { key: 'ArrowUp' });
+
+    expect(inputField()).toHaveValue('pwd');
+  });
+
+  it('walks back to an older command with successive ArrowUp presses', async () => {
+    renderTerminal();
+    runCommand('pwd');
+    await screen.findByText('/home/alice');
+    runCommand('ls /etc');
+    await screen.findByText('passwd');
+
+    fireEvent.keyDown(inputField(), { key: 'ArrowUp' });
+    expect(inputField()).toHaveValue('ls /etc');
+    fireEvent.keyDown(inputField(), { key: 'ArrowUp' });
+    expect(inputField()).toHaveValue('pwd');
+  });
+
+  it('restores the half-typed draft when arrowing back down past the newest command', async () => {
+    renderTerminal();
+    runCommand('pwd');
+    await screen.findByText('/home/alice');
+
+    // Start a fresh line, recall history, then come back down to it.
+    fireEvent.input(inputField(), { target: { value: 'echo draft' } });
+    fireEvent.keyDown(inputField(), { key: 'ArrowUp' });
+    expect(inputField()).toHaveValue('pwd');
+
+    fireEvent.keyDown(inputField(), { key: 'ArrowDown' });
+    expect(inputField()).toHaveValue('echo draft');
+  });
+
+  it('does not record blank submissions in the recallable history', async () => {
+    renderTerminal();
+    runCommand('pwd');
+    await screen.findByText('/home/alice');
+    runCommand('   ');
+
+    // The only recallable entry is the real command, not the whitespace line.
+    fireEvent.keyDown(inputField(), { key: 'ArrowUp' });
+    expect(inputField()).toHaveValue('pwd');
+    fireEvent.keyDown(inputField(), { key: 'ArrowUp' });
+    expect(inputField()).toHaveValue('pwd');
   });
 });
