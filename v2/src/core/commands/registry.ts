@@ -16,11 +16,12 @@ import { cat } from './cat';
 import { cd } from './cd';
 import { echo } from './echo';
 import { grep } from './grep';
+import { identity } from './identity';
 import { ls } from './ls';
 import { pwd } from './pwd';
 import type { Command } from './types';
 
-const builtins: readonly Command[] = [cat, cd, echo, grep, ls, pwd];
+const builtins: readonly Command[] = [cat, cd, echo, grep, identity, ls, pwd];
 
 export const commandRegistry: ReadonlyMap<string, Command> = new Map(
   builtins.map((command) => [command.name, command]),

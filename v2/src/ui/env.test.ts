@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { buildCommandEnv } from './env';
-import { SEED_HOME, seedFs, seedIdentity, seedSession } from './seed';
+import { SEED_HOME, seedFs, seedSession } from './seed';
+import { generateIdentity } from '../core/identity/identity';
 import { asAbsPath } from '../core/types';
 
 const seedEnv = (userType: 'guest' | 'user' | 'root' = 'user') =>
   buildCommandEnv({
-    identity: seedIdentity(),
+    identity: generateIdentity(),
     session: { ...seedSession(), userType },
     root: seedFs(),
     cwd: () => SEED_HOME,
@@ -31,7 +32,7 @@ describe('buildCommandEnv', () => {
   it('exposes the provided session and working directory', () => {
     const session = seedSession();
     const env = buildCommandEnv({
-      identity: seedIdentity(),
+      identity: generateIdentity(),
       session,
       root: seedFs(),
       cwd: () => SEED_HOME,

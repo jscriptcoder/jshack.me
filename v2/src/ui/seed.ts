@@ -12,7 +12,7 @@
 
 import { asAbsPath, asEpochMs, asMachineId, asPlayerKeyHex } from '../core/types';
 import type { Directory, FileEntry, FileNode, FilePermissions } from '../core/filesystem/types';
-import type { Identity, Session } from '../core/commands/types';
+import type { Session } from '../core/commands/types';
 
 const TRAVERSABLE_DIR: FilePermissions = {
   read: ['root', 'user', 'guest'],
@@ -71,11 +71,6 @@ export const seedFs = (): Directory =>
     },
     TRAVERSABLE_DIR,
   );
-
-export const seedIdentity = (): Identity => ({
-  publicKeyHex: asPlayerKeyHex('0'.repeat(64)),
-  privateKeyHex: '0'.repeat(64),
-});
 
 export const seedSession = (): Session => ({
   id: 'seed-session',

@@ -17,7 +17,8 @@ import { commandRegistry } from '../core/commands/registry';
 import { runCommandLine } from '../core/shell/runLine';
 import { commandEchoLine } from '../core/shell/prompt';
 import { buildCommandEnv } from './env';
-import { SEED_HOME, SEED_HOST, seedFs, seedIdentity, seedSession } from './seed';
+import { getPlayerIdentity } from './identity';
+import { SEED_HOME, SEED_HOST, seedFs, seedSession } from './seed';
 
 const [scrollback, setScrollback] = createSignal<readonly TerminalLine[]>([]);
 const [input, setInput] = createSignal('');
@@ -43,7 +44,7 @@ export const runInput = async (): Promise<void> => {
   ]);
 
   const env = buildCommandEnv({
-    identity: seedIdentity(),
+    identity: getPlayerIdentity(),
     session,
     root: seedFs(),
     cwd,
