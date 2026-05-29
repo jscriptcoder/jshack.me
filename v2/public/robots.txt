@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://jshack.me/sitemap.xml

@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="glow-strong">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <pattern id="scanlines" width="4" height="4" patternUnits="userSpaceOnUse">
+      <rect width="4" height="2" fill="transparent"/>
+      <rect y="2" width="4" height="2" fill="rgba(0,0,0,0.12)"/>
+    </pattern>
+    <radialGradient id="vignette" cx="50%" cy="50%" r="70%">
+      <stop offset="50%" stop-color="transparent"/>
+      <stop offset="100%" stop-color="rgba(0,0,0,0.6)"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="630" fill="#000"/>
+
+  <!-- Corner marks -->
+  <g stroke="#92400e" stroke-width="2" fill="none">
+    <polyline points="28,60 28,20 68,20"/>
+    <polyline points="1132,20 1172,20 1172,60"/>
+    <polyline points="28,570 28,610 68,610"/>
+    <polyline points="1132,610 1172,610 1172,570"/>
+  </g>
+
+  <!-- ASCII Banner -->
+  <text x="64" y="175" font-family="'Courier New', monospace" font-size="38" font-weight="bold" fill="#f59e0b" filter="url(#glow-strong)" letter-spacing="4">
+    JSHACK.ME
+  </text>
+
+  <!-- Divider -->
+  <line x1="64" y1="200" x2="680" y2="200" stroke="#92400e" stroke-width="2"/>
+
+  <!-- Subtitle -->
+  <text x="64" y="248" font-family="'Courier New', monospace" font-size="24" fill="#d97706" letter-spacing="10" filter="url(#glow)">
+    CAPTURE THE FLAG
+  </text>
+
+  <!-- Terminal lines -->
+  <g font-family="'Courier New', monospace" font-size="20">
+    <!-- Prompt 1 -->
+    <text x="64" y="320" filter="url(#glow)">
+      <tspan fill="#a3e635">jshacker@localhost&gt;</tspan>
+      <tspan fill="#f59e0b"> nmap </tspan>
+      <tspan fill="#fbbf24">192.168.1.0/24</tspan>
+    </text>
+
+    <!-- Scanning -->
+    <text x="64" y="352" fill="#92400e">
+      Scanning 254 hosts...
+    </text>
+
+    <!-- Result -->
+    <text x="64" y="384" filter="url(#glow)">
+      <tspan fill="#4ade80">[+]</tspan>
+      <tspan fill="#f59e0b"> Found </tspan>
+      <tspan fill="#f59e0b" font-weight="bold">5</tspan>
+      <tspan fill="#f59e0b"> live hosts · </tspan>
+      <tspan fill="#f59e0b" font-weight="bold">9</tspan>
+      <tspan fill="#f59e0b"> open ports · </tspan>
+      <tspan fill="#f87171">9 flags</tspan>
+      <tspan fill="#f59e0b"> hidden</tspan>
+    </text>
+
+    <!-- Prompt 2 with cursor -->
+    <text x="64" y="430" filter="url(#glow)">
+      <tspan fill="#a3e635">jshacker@localhost&gt;</tspan>
+    </text>
+    <rect x="315" y="414" width="12" height="20" fill="#f59e0b" opacity="0.9">
+      <animate attributeName="opacity" values="0.9;0;0.9" dur="1s" repeatCount="indefinite"/>
+    </rect>
+  </g>
+
+  <!-- Footer -->
+  <text x="64" y="570" font-family="'Courier New', monospace" font-size="20" fill="#92400e" letter-spacing="2" filter="url(#glow)">
+    jshack.me
+  </text>
+
+  <!-- Badge -->
+  <rect x="987" y="548" width="185" height="32" fill="#f59e0b" rx="0"/>
+  <text x="1002" y="570" font-family="'Courier New', monospace" font-size="13" fill="#000" letter-spacing="2" font-weight="bold">
+    PLAY IN BROWSER
+  </text>
+
+  <!-- Scanlines overlay -->
+  <rect width="1200" height="630" fill="url(#scanlines)"/>
+
+  <!-- Vignette overlay -->
+  <rect width="1200" height="630" fill="url(#vignette)"/>
+</svg>

@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1200" />
+    <title>JSHACK.ME OG Image</title>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=VT323&family=Share+Tech+Mono&display=swap');
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 1200px;
+        height: 630px;
+        overflow: hidden;
+        background: #000;
+      }
+
+      .frame {
+        position: relative;
+        width: 1200px;
+        height: 630px;
+        background: #000;
+        overflow: hidden;
+      }
+
+      /* ── CRT scanlines ── */
+      .scanlines {
+        position: absolute;
+        inset: 0;
+        background: repeating-linear-gradient(
+          to bottom,
+          transparent 0px,
+          transparent 2px,
+          rgba(0, 0, 0, 0.15) 2px,
+          rgba(0, 0, 0, 0.15) 4px
+        );
+        pointer-events: none;
+        z-index: 10;
+      }
+
+      /* ── Vignette ── */
+      .vignette {
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(
+          ellipse 70% 70% at 50% 50%,
+          transparent 50%,
+          rgba(0, 0, 0, 0.65) 100%
+        );
+        pointer-events: none;
+        z-index: 11;
+      }
+
+      /* ── Phosphor flicker layer ── */
+      .flicker {
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(
+          ellipse 80% 60% at 48% 45%,
+          rgba(245, 158, 11, 0.03) 0%,
+          transparent 70%
+        );
+        pointer-events: none;
+        z-index: 5;
+      }
+
+      /* ── Content ── */
+      .content {
+        position: relative;
+        z-index: 8;
+        width: 100%;
+        height: 100%;
+        padding: 48px 64px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        font-family: 'Share Tech Mono', 'Courier New', monospace;
+        color: #f59e0b;
+      }
+
+      /* ── ASCII banner ── */
+      .banner {
+        font-family: 'VT323', 'Courier New', monospace;
+        font-size: 22px;
+        line-height: 1.15;
+        letter-spacing: 1px;
+        color: #f59e0b;
+        text-shadow:
+          0 0 8px rgba(245, 158, 11, 0.6),
+          0 0 20px rgba(245, 158, 11, 0.25),
+          0 0 40px rgba(245, 158, 11, 0.1);
+        white-space: pre;
+        margin-bottom: 12px;
+      }
+
+      .divider {
+        font-family: 'VT323', 'Courier New', monospace;
+        font-size: 22px;
+        color: #92400e;
+        text-shadow: 0 0 6px rgba(245, 158, 11, 0.2);
+        white-space: pre;
+        letter-spacing: 1px;
+        margin-bottom: 28px;
+      }
+
+      /* ── Subtitle ── */
+      .subtitle {
+        font-family: 'Share Tech Mono', monospace;
+        font-size: 26px;
+        letter-spacing: 12px;
+        text-transform: uppercase;
+        color: #d97706;
+        text-shadow:
+          0 0 10px rgba(245, 158, 11, 0.4),
+          0 0 30px rgba(245, 158, 11, 0.15);
+        margin-bottom: 40px;
+      }
+
+      /* ── Terminal lines ── */
+      .terminal {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-bottom: 36px;
+      }
+
+      .line {
+        font-size: 19px;
+        line-height: 1.5;
+        color: #f59e0b;
+        text-shadow:
+          0 0 6px rgba(245, 158, 11, 0.5),
+          0 0 15px rgba(245, 158, 11, 0.15);
+      }
+
+      .prompt {
+        color: #a3e635;
+        text-shadow: 0 0 6px rgba(163, 230, 53, 0.4);
+      }
+      .cmd {
+        color: #f59e0b;
+      }
+      .arg {
+        color: #fbbf24;
+      }
+      .success {
+        color: #4ade80;
+        text-shadow: 0 0 6px rgba(74, 222, 128, 0.4);
+      }
+      .dim {
+        color: #92400e;
+      }
+      .flag {
+        color: #f87171;
+        text-shadow: 0 0 8px rgba(248, 113, 113, 0.5);
+      }
+      .cursor {
+        display: inline-block;
+        width: 10px;
+        height: 20px;
+        background: #f59e0b;
+        vertical-align: text-bottom;
+        box-shadow: 0 0 8px rgba(245, 158, 11, 0.6);
+      }
+
+      /* ── Footer ── */
+      .footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+      }
+
+      .url {
+        font-size: 20px;
+        letter-spacing: 2px;
+        color: #92400e;
+        text-shadow: 0 0 4px rgba(245, 158, 11, 0.15);
+      }
+
+      .badge {
+        font-family: 'Share Tech Mono', monospace;
+        font-size: 14px;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        color: #000;
+        background: #f59e0b;
+        padding: 6px 16px;
+        box-shadow: 0 0 12px rgba(245, 158, 11, 0.4);
+      }
+
+      /* ── Decorative border tick marks ── */
+      .corner-tl,
+      .corner-tr,
+      .corner-bl,
+      .corner-br {
+        position: absolute;
+        width: 40px;
+        height: 40px;
+        z-index: 9;
+      }
+      .corner-tl {
+        top: 20px;
+        left: 28px;
+        border-top: 2px solid #92400e;
+        border-left: 2px solid #92400e;
+      }
+      .corner-tr {
+        top: 20px;
+        right: 28px;
+        border-top: 2px solid #92400e;
+        border-right: 2px solid #92400e;
+      }
+      .corner-bl {
+        bottom: 20px;
+        left: 28px;
+        border-bottom: 2px solid #92400e;
+        border-left: 2px solid #92400e;
+      }
+      .corner-br {
+        bottom: 20px;
+        right: 28px;
+        border-bottom: 2px solid #92400e;
+        border-right: 2px solid #92400e;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="frame">
+      <div class="scanlines"></div>
+      <div class="vignette"></div>
+      <div class="flicker"></div>
+
+      <div class="corner-tl"></div>
+      <div class="corner-tr"></div>
+      <div class="corner-bl"></div>
+      <div class="corner-br"></div>
+
+      <div class="content">
+        <div class="banner">
+          ╦╔═╗╦ ╦╔═╗╔═╗╦╔═ ╔╦╗╔═╗ ║╚═╗╠═╣╠═╣║ ╠╩╗ ║║║║╣ ╚╝╚═╝╩ ╩╩ ╩╚═╝╩ ╩o╩╩ ╩╚═╝
+        </div>
+
+        <div class="divider">════════════════════════════════════════════════════════════</div>
+
+        <div class="subtitle">Capture The Flag</div>
+
+        <div class="terminal">
+          <div class="line">
+            <span class="prompt">jshacker@localhost&gt;</span> <span class="cmd">nmap</span>
+            <span class="arg">192.168.1.0/24</span>
+          </div>
+          <div class="line dim">Scanning 254 hosts...</div>
+          <div class="line">
+            <span class="success">[+]</span> Found <span class="cmd">5</span> live hosts &middot;
+            <span class="cmd">9</span> open ports &middot; <span class="flag">9 flags</span> hidden
+          </div>
+          <div class="line" style="margin-top: 8px">
+            <span class="prompt">jshacker@localhost&gt;</span> <span class="cursor"></span>
+          </div>
+        </div>
+
+        <div class="footer">
+          <span class="url">jshack.me</span>
+          <span class="badge">Play in your browser</span>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

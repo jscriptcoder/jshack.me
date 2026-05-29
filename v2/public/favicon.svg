@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Background -->
+  <rect width="32" height="32" rx="4" fill="#000000"/>
+
+  <!-- Terminal prompt > -->
+  <path d="M6 10 L12 16 L6 22" stroke="#f59e0b" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+
+  <!-- Cursor _ -->
+  <rect x="16" y="19" width="10" height="3" rx="1" fill="#f59e0b">
+    <animate attributeName="opacity" values="1;0;1" dur="1s" repeatCount="indefinite"/>
+  </rect>
+</svg>
