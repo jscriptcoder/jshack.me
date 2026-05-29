@@ -73,8 +73,12 @@ these — which is exactly why it's the thinnest real first slice.
       reload-durable; `>` truncates an existing file. (Slice 6 ✅)
 - [x] `touch` and `rm` (with `-r` for directories) work through the same path.
       (Slice 7 ✅ — incl. server-authoritative `is_new`/`removePatch`; wire smoke 12/12.)
-- [ ] A write in one browser tab/instance appears in another via Realtime hints
-      (+ BroadcastChannel for same-browser tabs) without a reload.
+- [x] A write in one browser **tab** appears in another tab of the same browser
+      (BroadcastChannel) without a reload. (Slice 8a ✅ — two-tab UI smoke confirmed.)
+- [ ] A write in one **browser/instance** appears in another via Realtime hints
+      without a reload. (Slice 8b — DEFERRED to the cross-player read-path plan,
+      where it has a live consumer + an end-to-end two-browser smoke. Own hints
+      are skipped today, so Realtime would be dormant in v2.)
 
 ## Slices
 
@@ -211,6 +215,23 @@ base-fs file writes a deletion marker that survives reload.
 **Done when**: criteria met; UI smoke; human approves.
 
 ### Slice 8: Realtime hint broadcasts + subscribe + BroadcastChannel
+
+> **SPLIT (2026-05-29, user-approved).** In v2 today only the own workstation is
+> readable and identity is per-browser, so two browsers = two players = the
+> cross-player read path (deferred). Realtime would therefore be dormant + not
+> end-to-end smoke-testable now (own hints are skipped), bumping
+> `feedback_e2e_test_new_primitives`. Decision:
+> - **8a (SHIPPED — `a03f1fe`, v0.10.0)**: BroadcastChannel same-browser cross-tab
+>   sync — the observable, smoke-testable win. `adapters/crossTabSync.ts` +
+>   `ui/state.ts` wiring (hint→`refetchPatches`). 100% mutation, two-tab smoke ✅.
+> - **8b (DEFERRED)**: server hint-broadcast + client subscribe (skip-own /
+>   debounce / replay) moves to the **cross-player read-path plan**, where it has
+>   a live consumer and a real two-browser smoke. The legacy pattern to port:
+>   server `service_role` REST broadcast on `patches:${machine_id}` after
+>   upsert/remove; client `subscribeToMachine` → debounced signed refetch. Needs
+>   `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` exposed to the browser.
+>
+> Original 8 spec (now 8b) below for reference:
 
 **Value**: Player — a write in one tab/browser appears in another within ~300-500ms
 without reload. The "Realtime is most important" payoff, on the spine built above.
