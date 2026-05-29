@@ -96,6 +96,7 @@ const execute = async (
 export const cat: Command = {
   name: 'cat',
   description: 'Concatenate and print files',
+  category: 'filesystem',
   tier: 'guest',
   availability: { kind: 'any-machine' },
   flags: { '-n': 'boolean' },

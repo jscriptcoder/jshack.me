@@ -146,6 +146,7 @@ const execute = async (
 export const ls: Command = {
   name: 'ls',
   description: 'List directory contents',
+  category: 'filesystem',
   tier: 'guest',
   availability: { kind: 'any-machine' },
   flags: { '-a': 'boolean', '-l': 'boolean' },

@@ -45,9 +45,10 @@ const pipeCommands: ReadonlyMap<string, Command> = new Map([
 
 const baseFixture = (
   name: string,
-): Pick<Command, 'name' | 'description' | 'tier' | 'availability'> => ({
+): Pick<Command, 'name' | 'description' | 'category' | 'tier' | 'availability'> => ({
   name,
   description: `fixture: ${name}`,
+  category: 'general',
   tier: 'guest',
   availability: { kind: 'any-machine' },
 });
@@ -196,6 +197,7 @@ describe('runCommandLine', () => {
     const stackless: Command = {
       name: 'stackless',
       description: 'fixture: no stacking opt-in',
+      category: 'general',
       tier: 'guest',
       availability: { kind: 'any-machine' },
       flags: { '-a': 'boolean', '-b': 'boolean' },

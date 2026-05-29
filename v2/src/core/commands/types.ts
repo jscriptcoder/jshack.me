@@ -211,9 +211,19 @@ export type AvailabilityRule =
   | { readonly kind: 'any-machine' }
   | { readonly kind: 'installed-package'; readonly packageName: string };
 
+/** The sections `help` groups commands into, in display order. Ported verbatim
+ *  from legacy (`src/commands/help.ts`). Declared as a runtime tuple so it is a
+ *  single source of truth for both the `CommandCategory` type and `help`'s
+ *  ordering, and so the registry invariant test can validate against it. */
+export const COMMAND_CATEGORIES = ['general', 'filesystem', 'mission', 'network', 'wifi'] as const;
+
+export type CommandCategory = (typeof COMMAND_CATEGORIES)[number];
+
 export type Command = {
   readonly name: string;
   readonly description: string;
+  /** Which `help` section this command appears under. */
+  readonly category: CommandCategory;
   readonly manual?: ManualPage;
   readonly tier: UserType;
   readonly availability: AvailabilityRule;

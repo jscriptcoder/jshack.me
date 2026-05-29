@@ -69,6 +69,7 @@ const execute = async (env: CommandEnv, args: readonly string[]): Promise<Comman
 export const cd: Command = {
   name: 'cd',
   description: 'Change the shell working directory',
+  category: 'filesystem',
   tier: 'guest',
   availability: { kind: 'any-machine' },
   manual: {

@@ -133,6 +133,7 @@ const execute = async (
 export const mkdir: Command = {
   name: 'mkdir',
   description: 'Create directories',
+  category: 'filesystem',
   tier: 'guest',
   availability: { kind: 'any-machine' },
   flags: { '-p': 'boolean' },

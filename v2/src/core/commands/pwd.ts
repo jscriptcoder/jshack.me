@@ -16,6 +16,7 @@ const execute: Command['execute'] = async (env) => ({
 export const pwd: Command = {
   name: 'pwd',
   description: 'Print the working directory',
+  category: 'filesystem',
   tier: 'guest',
   availability: { kind: 'any-machine' },
   manual: {

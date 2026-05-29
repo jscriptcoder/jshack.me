@@ -90,6 +90,7 @@ const execute = async (
 export const rm: Command = {
   name: 'rm',
   description: 'Remove files or directories',
+  category: 'filesystem',
   tier: 'guest',
   availability: { kind: 'any-machine' },
   flags: { '-r': 'boolean', '-R': 'boolean', '-f': 'boolean' },

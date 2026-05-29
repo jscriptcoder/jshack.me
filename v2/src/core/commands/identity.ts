@@ -29,6 +29,7 @@ const execute: Command['execute'] = async (env) => {
 export const identity: Command = {
   name: 'identity',
   description: 'Show your player identity (Ed25519 public key)',
+  category: 'general',
   tier: 'guest',
   availability: { kind: 'any-machine' },
   manual: {
