@@ -200,10 +200,30 @@ export type CommandEnv = {
 
 // ---- The command itself ----
 
+/** One positional or flag argument a command accepts, for the manual's
+ *  ARGUMENTS section. `required` defaults to optional when omitted.
+ *
+ *  Legacy carried a `values?: readonly string[]` (the discrete valid values
+ *  for an arg slot) used solely by tab-completion. It is intentionally NOT
+ *  here yet — `man` never rendered it, so it would be an unconsumed field. It
+ *  lands with the auto-completion feature, alongside the code that reads it. */
+export type CommandArgument = {
+  readonly name: string;
+  readonly description: string;
+  readonly required?: boolean;
+};
+
+/** A usage example: the command line plus what it does. */
+export type CommandExample = {
+  readonly command: string;
+  readonly description: string;
+};
+
 export type ManualPage = {
   readonly synopsis: string;
   readonly description: string;
-  readonly examples?: readonly string[];
+  readonly arguments?: readonly CommandArgument[];
+  readonly examples?: readonly CommandExample[];
 };
 
 export type AvailabilityRule =

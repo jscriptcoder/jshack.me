@@ -141,7 +141,18 @@ export const mkdir: Command = {
     synopsis: 'mkdir [-p] <path> [paths...]',
     description:
       'Create one or more directories. Without -p, the parent of each target must already exist and the target itself must not. With -p, missing intermediate directories are created automatically and an existing target is not treated as an error.',
-    examples: ['mkdir stash', 'mkdir -p /tmp/a/b/c', 'mkdir docs logs tmp'],
+    arguments: [
+      {
+        name: '-p',
+        description: 'Create missing parent directories; an existing target is not an error',
+      },
+      { name: 'path', description: 'One or more directories to create', required: true },
+    ],
+    examples: [
+      { command: 'mkdir stash', description: 'Create a directory named stash' },
+      { command: 'mkdir -p /tmp/a/b/c', description: 'Create a nested path, parents and all' },
+      { command: 'mkdir docs logs tmp', description: 'Create several directories at once' },
+    ],
   },
   execute,
 };

@@ -104,11 +104,21 @@ export const cat: Command = {
     synopsis: 'cat [-n] [file...]',
     description:
       'Print the contents of each file to stdout in order. With no file argument, read from stdin. With -n, number each output line starting at 1.',
+    arguments: [
+      { name: '-n', description: 'Number each output line, starting at 1' },
+      {
+        name: 'file',
+        description: 'One or more files to print in order; with none, read from stdin',
+      },
+    ],
     examples: [
-      'cat /etc/passwd',
-      'cat -n notes.txt',
-      'cat file1 file2 | grep root',
-      'echo hello | cat',
+      { command: 'cat /etc/passwd', description: 'Print the contents of the password file' },
+      { command: 'cat -n notes.txt', description: 'Print notes.txt with line numbers' },
+      {
+        command: 'cat file1 file2 | grep root',
+        description: 'Concatenate two files and filter for "root"',
+      },
+      { command: 'echo hello | cat', description: 'Read piped stdin and print it' },
     ],
   },
   execute,

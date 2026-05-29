@@ -188,8 +188,26 @@ export const grep: Command = {
   manual: {
     synopsis: 'grep <pattern> <path> [-l]',
     description:
-      'Search for lines matching a case-insensitive regex pattern. With a file target, prints matching lines verbatim. With a directory target, recursively walks the tree and prints `<filepath>:<line>` for each match, sorted by filepath. Binary files and permission-denied files/dirs are silently skipped during recursion. (Slice 3 will add stdin support and the -l flag.)',
-    examples: ['grep root /etc/passwd', 'grep root /etc', 'grep "pa.sword" notes.txt'],
+      'Search for lines matching a case-insensitive regex pattern. With a file target, prints matching lines verbatim. With a directory target, recursively walks the tree and prints `<filepath>:<line>` for each match, sorted by filepath. Binary files and permission-denied files/dirs are silently skipped during recursion. (Slice 3 will add stdin support.)',
+    arguments: [
+      { name: 'pattern', description: 'Case-insensitive regular expression to match', required: true },
+      { name: 'path', description: 'File or directory to search', required: true },
+      {
+        name: '-l',
+        description: 'Print only the names of files containing a match (deduped, sorted)',
+      },
+    ],
+    examples: [
+      {
+        command: 'grep root /etc/passwd',
+        description: 'Print lines containing "root" in the password file',
+      },
+      {
+        command: 'grep root /etc',
+        description: 'Recursively search /etc, printing <filepath>:<line> per match',
+      },
+      { command: 'grep "pa.sword" notes.txt', description: 'Search with a regex pattern' },
+    ],
   },
   execute,
 };

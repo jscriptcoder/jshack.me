@@ -17,28 +17,63 @@
  * registry (e.g. its own test).
  */
 
-import type { Command, ManualPage, TerminalLine } from './types';
+import type {
+  Command,
+  CommandArgument,
+  CommandExample,
+  ManualPage,
+  TerminalLine,
+} from './types';
 
 const text = (content: string): TerminalLine => ({ kind: 'text', content });
 const error = (content: string): TerminalLine => ({ kind: 'error', content });
 
+/** Section bodies indent 4 spaces; a sub-detail (an argument's or example's
+ *  description) indents 4 more, hanging under its label line. */
 const BODY_INDENT = '    ';
+const DETAIL_INDENT = '        ';
 
-/** SYNOPSIS / DESCRIPTION / EXAMPLES — only the sections the manual populates. */
-const manualSections = (manual: ManualPage): readonly TerminalLine[] => {
-  const examples = manual.examples ?? [];
-  return [
-    text('SYNOPSIS'),
-    text(`${BODY_INDENT}${manual.synopsis}`),
-    text(''),
-    text('DESCRIPTION'),
-    text(`${BODY_INDENT}${manual.description}`),
-    text(''),
-    ...(examples.length > 0
-      ? [text('EXAMPLES'), ...examples.map((example) => text(`${BODY_INDENT}${example}`)), text('')]
-      : []),
-  ];
-};
+/** ARGUMENTS — one `name (required|optional)` line per argument with its
+ *  description hanging beneath it. No blank between arguments; a single blank
+ *  closes the section. Omitted entirely when there are no arguments. */
+const argumentSection = (args: readonly CommandArgument[]): readonly TerminalLine[] =>
+  args.length === 0
+    ? []
+    : [
+        text('ARGUMENTS'),
+        ...args.flatMap((arg) => [
+          text(`${BODY_INDENT}${arg.name} (${arg.required ? 'required' : 'optional'})`),
+          text(`${DETAIL_INDENT}${arg.description}`),
+        ]),
+        text(''),
+      ];
+
+/** EXAMPLES — the command line, its description hanging beneath, then a blank
+ *  line, repeated per example (legacy parity). Omitted when there are none. */
+const exampleSection = (examples: readonly CommandExample[]): readonly TerminalLine[] =>
+  examples.length === 0
+    ? []
+    : [
+        text('EXAMPLES'),
+        ...examples.flatMap((example) => [
+          text(`${BODY_INDENT}${example.command}`),
+          text(`${DETAIL_INDENT}${example.description}`),
+          text(''),
+        ]),
+      ];
+
+/** SYNOPSIS / DESCRIPTION / ARGUMENTS / EXAMPLES — only the sections the
+ *  manual populates. */
+const manualSections = (manual: ManualPage): readonly TerminalLine[] => [
+  text('SYNOPSIS'),
+  text(`${BODY_INDENT}${manual.synopsis}`),
+  text(''),
+  text('DESCRIPTION'),
+  text(`${BODY_INDENT}${manual.description}`),
+  text(''),
+  ...argumentSection(manual.arguments ?? []),
+  ...exampleSection(manual.examples ?? []),
+];
 
 export const formatManPage = (command: Command): readonly TerminalLine[] => [
   text(`${command.name.toUpperCase()}(1)`),
@@ -83,8 +118,14 @@ export const man: Command = {
   manual: {
     synopsis: 'man <command>',
     description:
-      'Display detailed documentation for a command, including its synopsis, description, and usage examples. Use `help` to list every available command.',
-    examples: ['man ls', 'man grep'],
+      'Display detailed documentation for a command, including its synopsis, description, arguments, and usage examples. Use `help` to list every available command.',
+    arguments: [
+      { name: 'command', description: 'The command whose manual to display', required: true },
+    ],
+    examples: [
+      { command: 'man ls', description: 'Show the manual for the ls command' },
+      { command: 'man grep', description: 'Show the manual for the grep command' },
+    ],
   },
   execute,
 };

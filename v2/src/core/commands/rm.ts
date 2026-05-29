@@ -99,7 +99,23 @@ export const rm: Command = {
     synopsis: 'rm [-r] [-f] <path> [paths...]',
     description:
       'Remove files or directories. Directories require -r (or -R). Use -f to ignore nonexistent targets and suppress their errors. Removal needs write permission on the containing directory.',
-    examples: ['rm notes.txt', 'rm -r stash', 'rm -rf /tmp/cache', 'rm a.txt b.txt'],
+    arguments: [
+      {
+        name: '-r',
+        description: 'Remove directories and their contents recursively (also -R)',
+      },
+      { name: '-f', description: 'Ignore nonexistent targets and suppress their errors' },
+      { name: 'path', description: 'One or more files or directories to remove', required: true },
+    ],
+    examples: [
+      { command: 'rm notes.txt', description: 'Remove a single file' },
+      { command: 'rm -r stash', description: 'Remove a directory and everything inside it' },
+      {
+        command: 'rm -rf /tmp/cache',
+        description: 'Force-remove a directory, ignoring missing targets',
+      },
+      { command: 'rm a.txt b.txt', description: 'Remove several files at once' },
+    ],
   },
   execute,
 };

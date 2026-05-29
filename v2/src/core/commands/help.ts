@@ -93,7 +93,9 @@ export const help: Command = {
     synopsis: 'help',
     description:
       'Display a list of all available commands grouped by category, with their short descriptions. For detailed information about a specific command, use `man <command>`.',
-    examples: ['help'],
+    examples: [
+      { command: 'help', description: 'List all available commands grouped by category' },
+    ],
   },
   execute,
 };

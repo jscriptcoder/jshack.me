@@ -22,7 +22,9 @@ export const pwd: Command = {
   manual: {
     synopsis: 'pwd',
     description: 'Print the absolute path of the current shell working directory.',
-    examples: ['pwd'],
+    examples: [
+      { command: 'pwd', description: 'Print the current working directory' },
+    ],
   },
   execute,
 };

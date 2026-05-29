@@ -83,7 +83,17 @@ export const touch: Command = {
     synopsis: 'touch <path> [paths...]',
     description:
       'Create one or more empty files. An existing target is left untouched (its content is preserved). The parent directory of each target must already exist and be writable.',
-    examples: ['touch notes.txt', 'touch a.txt b.txt c.txt'],
+    arguments: [
+      {
+        name: 'path',
+        description: 'One or more files to create; existing files are left untouched',
+        required: true,
+      },
+    ],
+    examples: [
+      { command: 'touch notes.txt', description: 'Create an empty file' },
+      { command: 'touch a.txt b.txt c.txt', description: 'Create several empty files at once' },
+    ],
   },
   execute,
 };
