@@ -77,3 +77,14 @@ export const getOrCreateIdentity = (storage: IdentityStorage): Identity => {
   storage.setItem(IDENTITY_STORAGE_KEY, serializeIdentity(fresh));
   return fresh;
 };
+
+// Low-level Ed25519 sign/verify over raw bytes — the single wrapping point for
+// @noble. Higher layers (signedRequest) convert hex ↔ bytes at the boundary.
+export const sign = (privateKey: Uint8Array, message: Uint8Array): Uint8Array =>
+  ed.sign(message, privateKey);
+
+export const verify = (
+  publicKey: Uint8Array,
+  signature: Uint8Array,
+  message: Uint8Array,
+): boolean => ed.verify(signature, message, publicKey);

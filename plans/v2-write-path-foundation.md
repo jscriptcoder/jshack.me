@@ -57,10 +57,10 @@ these — which is exactly why it's the thinnest real first slice.
 
 ## Acceptance Criteria
 
-- [ ] A player has a real, persistent Ed25519 identity; the `identity` command
-      prints their pubkey + fingerprint, stable across reloads.
-- [ ] A signed envelope round-trips (sign → verify) and is rejected on tamper,
-      replay (duplicate nonce), and timestamp skew.
+- [x] A player has a real, persistent Ed25519 identity; the `identity` command
+      prints their pubkey + fingerprint, stable across reloads. (Slice 1 ✅ — UI smoke verified persist-across-reload.)
+- [x] A signed envelope round-trips (sign → verify) and is rejected on tamper,
+      replay (duplicate nonce), and timestamp skew. (Slice 2 ✅ — signedRequest core, mutation 98.67%.)
 - [ ] The fresh v2 Supabase `patches` table denies anon/authenticated and permits
       only service_role (RLS verifier passes).
 - [ ] A signed `upsertPatch` for the caller's own workstation persists a `patches`

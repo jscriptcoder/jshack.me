@@ -5,8 +5,11 @@ import {
   IDENTITY_STORAGE_KEY,
   loadIdentity,
   serializeIdentity,
+  sign,
+  verify,
   type IdentityStorage,
 } from './identity';
+import { hexToBytes } from './hex';
 
 const HEX_64 = /^[0-9a-f]{64}$/;
 
@@ -95,6 +98,32 @@ describe('loadIdentity', () => {
     expect(
       loadIdentity(JSON.stringify({ publicKeyHex: 'a'.repeat(64), privateKeyHex: 'b'.repeat(10) })),
     ).toBeNull();
+  });
+});
+
+describe('sign / verify', () => {
+  const keysOf = (id = generateIdentity()) => ({
+    priv: hexToBytes(id.privateKeyHex)!,
+    pub: hexToBytes(id.publicKeyHex)!,
+  });
+
+  it('verifies a signature produced over the same message and key', () => {
+    const { priv, pub } = keysOf();
+    const message = new TextEncoder().encode('hello world');
+    expect(verify(pub, sign(priv, message), message)).toBe(true);
+  });
+
+  it('rejects a signature when the message was altered', () => {
+    const { priv, pub } = keysOf();
+    const signature = sign(priv, new TextEncoder().encode('original'));
+    expect(verify(pub, signature, new TextEncoder().encode('tampered'))).toBe(false);
+  });
+
+  it('rejects a signature verified against a different public key', () => {
+    const signer = keysOf();
+    const other = keysOf();
+    const message = new TextEncoder().encode('hello');
+    expect(verify(other.pub, sign(signer.priv, message), message)).toBe(false);
   });
 });
 
