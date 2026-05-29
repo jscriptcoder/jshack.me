@@ -76,6 +76,7 @@ const execute = async (env: CommandEnv, args: readonly string[]): Promise<Comman
 export const touch: Command = {
   name: 'touch',
   description: 'Create empty files',
+  category: 'filesystem',
   tier: 'guest',
   availability: { kind: 'any-machine' },
   manual: {

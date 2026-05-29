@@ -181,6 +181,7 @@ const execute = async (
 export const grep: Command = {
   name: 'grep',
   description: 'Search file contents for a pattern',
+  category: 'filesystem',
   tier: 'guest',
   availability: { kind: 'any-machine' },
   flags: { '-l': 'boolean' },

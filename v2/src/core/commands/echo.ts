@@ -28,6 +28,7 @@ const execute = async (
 export const echo: Command = {
   name: 'echo',
   description: 'Output positional arguments joined by spaces',
+  category: 'general',
   tier: 'guest',
   availability: { kind: 'any-machine' },
   manual: {
