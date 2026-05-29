@@ -27,6 +27,7 @@ import { buildCommandEnv } from './env';
 import { getPlayerIdentity } from './identity';
 import { createPatchApi, fetchOwnPatches, type PatchClientDeps } from '../adapters/patchApi';
 import { createSyncChannel } from '../adapters/crossTabSync';
+import { type HistoryNav, idleNav, navigateDown, navigateUp } from '../core/shell/commandHistory';
 import { SEED_HOME, SEED_HOST, seedFs, seedSession } from './seed';
 
 const identity = getPlayerIdentity();
@@ -45,7 +46,26 @@ const [input, setInput] = createSignal('');
 const [cwd, setCwd] = createSignal<AbsPath>(SEED_HOME);
 const [patches, setPatches] = createSignal<readonly Patch[]>([]);
 
+// Shell history: in-memory only (resets on reload, per legacy parity). The
+// nav cursor tracks where ArrowUp/Down recall sits plus the draft to restore.
+const [commandHistory, setCommandHistory] = createSignal<readonly string[]>([]);
+const [historyNav, setHistoryNav] = createSignal<HistoryNav>(idleNav());
+
 export { cwd, input, scrollback, setInput };
+
+/** ArrowUp recall — recall an older command, capturing the live draft first. */
+export const historyUp = (): void => {
+  const step = navigateUp(commandHistory(), historyNav(), input());
+  setHistoryNav(step.nav);
+  setInput(step.value);
+};
+
+/** ArrowDown recall — move toward newer commands, restoring the draft at the end. */
+export const historyDown = (): void => {
+  const step = navigateDown(commandHistory(), historyNav(), input());
+  setHistoryNav(step.nav);
+  setInput(step.value);
+};
 
 /** Re-pull the own-workstation journal and replace the local view. */
 const refetchPatches = async (): Promise<void> => {
@@ -96,10 +116,16 @@ export const resetTerminal = (): void => {
   setScrollback([]);
   setInput('');
   setCwd(SEED_HOME);
+  setCommandHistory([]);
+  setHistoryNav(idleNav());
 };
 
 export const runInput = async (): Promise<void> => {
   const line = input();
+  // Record real commands for ArrowUp/Down recall and snap the cursor back to
+  // the live prompt; blank/whitespace lines never enter the recallable list.
+  if (line.trim()) setCommandHistory((previous) => [...previous, line]);
+  setHistoryNav(idleNav());
   setInput('');
 
   setScrollback((previous) => [

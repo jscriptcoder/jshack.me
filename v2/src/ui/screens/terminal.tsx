@@ -3,7 +3,7 @@ import type { TerminalLine } from '../../core/commands/types';
 import { formatPrompt } from '../../core/shell/prompt';
 import { BANNER } from '../banner';
 import { SEED_HOST, SEED_USERNAME } from '../seed';
-import { cwd, input, runInput, scrollback, setInput } from '../state';
+import { cwd, historyDown, historyUp, input, runInput, scrollback, setInput } from '../state';
 
 const LINE_BASE = 'whitespace-pre-wrap break-words';
 
@@ -31,6 +31,16 @@ export const Terminal = () => {
     if (event.key === 'Enter') {
       event.preventDefault();
       void runInput();
+      return;
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      historyUp();
+      return;
+    }
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      historyDown();
     }
   };
 
